@@ -5,27 +5,48 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Esto es lo que verás al entrar a la URL de Render
-app.get('/', (req, res) => {
-    res.send('Servidor de Abarrotes Las 3B operando correctamente.');
+// Lista inicial de tus sucursales
+let sucursales = [
+    { id: '3B2', nombre: 'Sucursal 3B2' },
+    { id: '3B3', nombre: 'Sucursal 3B3' },
+    { id: '3B5', nombre: 'Sucursal 3B5' },
+    { id: '3B6', nombre: 'Sucursal 3B6' },
+    { id: '3B7', nombre: 'Sucursal 3B7' },
+    { id: '3B9', nombre: 'Sucursal 3B9' },
+    { id: '3B10', nombre: 'Sucursal 3B10' },
+    { id: 'FUSION', nombre: 'Sucursal Fusion' }
+];
+
+let ventasRealizadas = [];
+
+// Ruta para obtener la lista de sucursales
+app.get('/api/sucursales', (req, res) => {
+    res.json(sucursales);
 });
 
-// Datos de prueba para tu panel
-let ventasRealizadas = [
-    { id: 1, sucursal: 'Sucursal Norte', total: 1500, fecha: new Date().toISOString() }
-];
+// Ruta para CREAR una nueva sucursal
+app.post('/api/sucursales', (req, res) => {
+    const nuevaSucursal = req.body; // Espera { id: '3B11', nombre: 'Sucursal 3B11' }
+    sucursales.push(nuevaSucursal);
+    res.status(201).json({ mensaje: "Sucursal creada con éxito", sucursales });
+});
+
+// Ruta para registrar ventas (actualizada para usar el ID de sucursal)
+app.post('/api/vender', (req, res) => {
+    const venta = { 
+        ...req.body, 
+        id_operacion: Date.now(), 
+        fecha: new Date().toISOString() 
+    };
+    ventasRealizadas.push(venta);
+    res.status(201).json({ mensaje: "Venta registrada", venta });
+});
 
 app.get('/api/dashboard', (req, res) => {
     res.json(ventasRealizadas);
 });
 
-app.post('/api/vender', (req, res) => {
-    const nuevaVenta = { id: ventasRealizadas.length + 1, ...req.body, fecha: new Date().toISOString() };
-    ventasRealizadas.push(nuevaVenta);
-    res.status(201).json({ mensaje: "Venta guardada", venta: nuevaVenta });
-});
-
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Servidor corriendo en puerto ${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Servidor Las 3B activo en puerto ${PORT}`);
 });
