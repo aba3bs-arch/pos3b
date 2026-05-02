@@ -5,7 +5,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Lista inicial de tus sucursales
+// --- ESTO QUITA EL ERROR "CANNOT GET /" ---
+app.get('/', (req, res) => {
+    res.send('<h1>Servidor Abarrotes Las 3B</h1><p>El sistema central está activo y esperando conexiones de las sucursales.</p>');
+});
+
+// Lista de tus sucursales actuales
 let sucursales = [
     { id: '3B2', nombre: 'Sucursal 3B2' },
     { id: '3B3', nombre: 'Sucursal 3B3' },
@@ -19,34 +24,17 @@ let sucursales = [
 
 let ventasRealizadas = [];
 
-// Ruta para obtener la lista de sucursales
-app.get('/api/sucursales', (req, res) => {
-    res.json(sucursales);
-});
-
-// Ruta para CREAR una nueva sucursal
-app.post('/api/sucursales', (req, res) => {
-    const nuevaSucursal = req.body; // Espera { id: '3B11', nombre: 'Sucursal 3B11' }
-    sucursales.push(nuevaSucursal);
-    res.status(201).json({ mensaje: "Sucursal creada con éxito", sucursales });
-});
-
-// Ruta para registrar ventas (actualizada para usar el ID de sucursal)
-app.post('/api/vender', (req, res) => {
-    const venta = { 
-        ...req.body, 
-        id_operacion: Date.now(), 
-        fecha: new Date().toISOString() 
-    };
-    ventasRealizadas.push(venta);
-    res.status(201).json({ mensaje: "Venta registrada", venta });
-});
-
+// Ruta para ver las ventas desde el navegador
 app.get('/api/dashboard', (req, res) => {
     res.json(ventasRealizadas);
 });
 
+// Ruta para ver las sucursales
+app.get('/api/sucursales', (req, res) => {
+    res.json(sucursales);
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Servidor Las 3B activo en puerto ${PORT}`);
+    console.log(`Servidor activo en puerto ${PORT}`);
 });
