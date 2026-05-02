@@ -1,37 +1,44 @@
 const express = require('express');
 const cors = require('cors');
+const { createClient } = require('@supabase/supabase-js'); // Nueva librería
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
-// --- ESTO QUITA EL ERROR "CANNOT GET /" ---
+// CONFIGURACIÓN DE SUPABASE
+// Reemplaza esto con tus datos de Supabase
+const supabaseUrl = 'TU_URL_DE_SUPABASE';
+const supabaseKey = 'TU_LLAVE_SERVICE_ROLE';
+const supabase = createClient(supabaseUrl, supabaseKey);
+
 app.get('/', (req, res) => {
-    res.send('<h1>Servidor Abarrotes Las 3B</h1><p>El sistema central está activo y esperando conexiones de las sucursales.</p>');
+    res.send('<h1>Servidor Abarrotes Las 3B</h1><p>Conectado a Base de Datos Nube.</p>');
 });
 
-// Lista de tus sucursales actuales
-let sucursales = [
-    { id: '3B2', nombre: 'Sucursal 3B2' },
-    { id: '3B3', nombre: 'Sucursal 3B3' },
-    { id: '3B5', nombre: 'Sucursal 3B5' },
-    { id: '3B6', nombre: 'Sucursal 3B6' },
-    { id: '3B7', nombre: 'Sucursal 3B7' },
-    { id: '3B9', nombre: 'Sucursal 3B9' },
-    { id: '3B10', nombre: 'Sucursal 3B10' },
-    { id: 'FUSION', nombre: 'Sucursal Fusion' }
-];
+// RUTA PARA REGISTRAR VENTA (Ahora guarda en Supabase)
+app.post('/api/vender', async (req, res) => {
+    const { sucursal_id, total, productos } = req.body;
 
-let ventasRealizadas = [];
+    const { data, error } = await supabase
+        .from('ventas')
+        .insert([
+            { sucursal_id, total, detalles: JSON.stringify(productos) }
+        ]);
 
-// Ruta para ver las ventas desde el navegador
-app.get('/api/dashboard', (req, res) => {
-    res.json(ventasRealizadas);
+    if (error) return res.status(500).json(error);
+    res.status(201).json({ mensaje: "Venta guardada permanentemente", data });
 });
 
-// Ruta para ver las sucursales
-app.get('/api/sucursales', (req, res) => {
-    res.json(sucursales);
+// RUTA PARA EL DASHBOARD (Lee de Supabase)
+app.get('/api/dashboard', async (req, res) => {
+    const { data, error } = await supabase
+        .from('ventas')
+        .select('*')
+        .order('fecha', { ascending: false });
+
+    if (error) return res.status(500).json(error);
+    res.json(data);
 });
 
 const PORT = process.env.PORT || 3000;
