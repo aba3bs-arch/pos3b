@@ -1,6 +1,7 @@
 {
   "name": "pos3b",
   "version": "1.0.0",
+  "description": "Sistema punto de venta para sucursales",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
