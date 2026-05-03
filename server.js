@@ -1,36 +1,33 @@
 const express = require('express');
 const cors = require('cors');
-const { createClient } = require('@supabase/supabase-js'); // Nueva librería
+const { createClient } = require('@supabase/supabase-js');
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
 // CONFIGURACIÓN DE SUPABASE
-// Reemplaza esto con tus datos de Supabase
-const supabaseUrl = 'TU_URL_DE_SUPABASE';
-const supabaseKey = 'TU_LLAVE_SERVICE_ROLE';
+const supabaseUrl = 'https://bablzxlaospziombkpdd.supabase.co';
+// Usa la llave que me pasaste aquí
+const supabaseKey = 'TU_LLAVE_ANON_RECIBIDA'; 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 app.get('/', (req, res) => {
-    res.send('<h1>Servidor Abarrotes Las 3B</h1><p>Conectado a Base de Datos Nube.</p>');
+    res.send('<h1>Servidor Abarrotes Las 3B</h1><p>Conexión con Base de Datos Establecida.</p>');
 });
 
-// RUTA PARA REGISTRAR VENTA (Ahora guarda en Supabase)
+// Registrar venta en la tabla 'ventas' de Supabase
 app.post('/api/vender', async (req, res) => {
-    const { sucursal_id, total, productos } = req.body;
-
+    const { sucursal_id, total, detalles } = req.body;
     const { data, error } = await supabase
         .from('ventas')
-        .insert([
-            { sucursal_id, total, detalles: JSON.stringify(productos) }
-        ]);
+        .insert([{ sucursal_id, total, detalles }]);
 
     if (error) return res.status(500).json(error);
-    res.status(201).json({ mensaje: "Venta guardada permanentemente", data });
+    res.status(201).json({ mensaje: "Venta guardada en la nube", data });
 });
 
-// RUTA PARA EL DASHBOARD (Lee de Supabase)
+// Obtener todas las ventas para tu Dashboard
 app.get('/api/dashboard', async (req, res) => {
     const { data, error } = await supabase
         .from('ventas')
