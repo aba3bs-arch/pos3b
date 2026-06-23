@@ -1,0 +1,461 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { supabase, supabaseConfigured } from './lib/supabase.js';
+import Inicio from './modules/Inicio.jsx';
+import Ventas from './modules/Ventas.jsx';
+import Productos from './modules/Productos.jsx';
+import Compras from './modules/Compras.jsx';
+import Checador from './modules/Checador.jsx';
+import Proveedores from './modules/Proveedores.jsx';
+import Clientes from './modules/Clientes.jsx';
+import Usuarios from './modules/Usuarios.jsx';
+import Consultas from './modules/Consultas.jsx';
+import Estadisticas from './modules/Estadisticas.jsx';
+import Reportes from './modules/Reportes.jsx';
+import CorteCaja from './modules/CorteCaja.jsx';
+import Configuracion from './modules/Configuracion.jsx';
+import Ayuda from './modules/Ayuda.jsx';
+import {
+  listarSucursalesParaUI,
+  etiquetaTienda,
+  agregarSucursalExtra,
+  quitarSucursalExtra,
+  codigoTiendaValido,
+  sucursalFijaPorEntorno,
+  sucursalInicial,
+  leerSucursalGuardada,
+  guardarSucursalLocal,
+  bloquearTiendaEnEsteEquipo,
+  desbloquearTiendaEnEsteEquipo,
+  tiendaBloqueadaEnEsteEquipo,
+  normalizarCodigoTienda,
+} from './constants/sucursales.js';
+import { modulosParaSidebar, puedeVerModulo, normalizarRol } from './lib/roles.js';
+import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
+import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from './lib/usuariosAuth.js';
+import { usuarioAutorizadoLogin, turnoActual } from './lib/turnos.js';
+import BrandLogo from './components/BrandLogo.jsx';
+import Icon, { BtnLabel } from './components/Icon.jsx';
+import { iconoDeModulo } from './lib/moduloIcons.js';
+
+const SUCURSAL_FIJA_ENV = sucursalFijaPorEntorno();
+
+function App() {
+  const [sesion, setSesion] = useState(false);
+  const [user, setUser] = useState(null);
+  const [pin, setPin] = useState('');
+  const [vista, setVista] = useState('Inicio');
+  const [sucursal, setSucursal] = useState(sucursalInicial);
+  const [tiendaFijadaParaAcceso, setTiendaFijadaParaAcceso] = useState(() => Boolean(SUCURSAL_FIJA_ENV || tiendaBloqueadaEnEsteEquipo()));
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [tipoCambio, setTipoCambio] = useState(17.5);
+  const [inventario, setInventario] = useState([]);
+  const [busqueda, setBusqueda] = useState('');
+  const [brandTitle, setBrandTitle] = useState(leerNombreNegocio);
+  const [listaSucursales, setListaSucursales] = useState(() => listarSucursalesParaUI());
+
+  const refrescarListaSucursales = useCallback(() => {
+    setListaSucursales(listarSucursalesParaUI());
+  }, []);
+
+  useEffect(() => {
+    if (SUCURSAL_FIJA_ENV) {
+      setSucursal(SUCURSAL_FIJA_ENV);
+      setTiendaFijadaParaAcceso(true);
+    } else {
+      setSucursal((s) => (codigoTiendaValido(s) ? s : 'MAIN'));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!codigoTiendaValido(sucursal)) {
+      setSucursal(SUCURSAL_FIJA_ENV || listaSucursales[0] || 'MAIN');
+    }
+  }, [listaSucursales, sucursal]);
+
+  const cargarDatos = useCallback(async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase.from('productos').select('*').order('nombre');
+    if (error) {
+      console.error(error);
+      setInventario([]);
+      return;
+    }
+    setInventario(data || []);
+  }, []);
+
+  useEffect(() => {
+    if (sesion) cargarDatos();
+  }, [sesion, cargarDatos]);
+
+  useEffect(() => {
+    const syncBrand = () => setBrandTitle(leerNombreNegocio());
+    syncBrand();
+    window.addEventListener(EVENTO_BRANDING, syncBrand);
+    return () => window.removeEventListener(EVENTO_BRANDING, syncBrand);
+  }, [sesion]);
+
+  useEffect(() => {
+    if (!sesion || !user) return undefined;
+    const vigilarTurno = () => {
+      const auth = usuarioAutorizadoLogin(user);
+      if (!auth.ok) {
+        alert(`${auth.error}\n\nSe cerrará la sesión por seguridad.`);
+        setSesion(false);
+        setUser(null);
+        setVista('Inicio');
+        setPin('');
+      }
+    };
+    vigilarTurno();
+    const id = setInterval(vigilarTurno, 60_000);
+    return () => clearInterval(id);
+  }, [sesion, user]);
+
+  useEffect(() => {
+    guardarSucursalLocal(sucursal);
+  }, [sucursal]);
+
+  useEffect(() => {
+    if (!sesion || !user) return;
+    if (!puedeVerModulo(user.rol, vista)) {
+      const nav = modulosParaSidebar(user.rol);
+      setVista(nav[0] || 'Inicio');
+    }
+  }, [sesion, user, vista]);
+
+  const irAModulo = useCallback(
+    (m) => {
+      if (puedeVerModulo(user?.rol, m)) setVista(m);
+    },
+    [user],
+  );
+
+  const manejarLogin = async () => {
+    if (!supabase) {
+      alert('Configura VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en el archivo .env y reinicia el servidor de desarrollo.');
+      return;
+    }
+    if (!codigoTiendaValido(sucursal)) {
+      alert('La tienda actual no es válida. Vuelve a fijar la sucursal o revisa Configuración.');
+      return;
+    }
+    const p = pin.trim();
+    if (!p) return;
+    const { user: data, error, avisoSucursal, sinColumnaSucursal, ajustarSucursal, sucursalReal } =
+      await buscarUsuarioPorPinYSucursal(supabase, p, sucursal);
+    if (error) {
+      alert(error);
+      setPin('');
+      return;
+    }
+    if (sinColumnaSucursal) {
+      console.warn('Ejecuta supabase/fix_usuarios_sucursal.sql para ligar usuarios a sucursal.');
+    }
+    if (data) {
+      const accesoTurno = usuarioAutorizadoLogin(data);
+      if (!accesoTurno.ok) {
+        alert(accesoTurno.error);
+        setPin('');
+        return;
+      }
+      if (ajustarSucursal && normalizarCodigoTienda(ajustarSucursal) !== normalizarCodigoTienda(sucursal)) {
+        setSucursal(ajustarSucursal);
+        guardarSucursalLocal(ajustarSucursal);
+        if (tiendaFijadaParaAcceso) bloquearTiendaEnEsteEquipo(ajustarSucursal);
+      }
+      setUser(data);
+      setSesion(true);
+      setPin('');
+      setVista('Inicio');
+      void supabase.from('logins').insert([
+        {
+          usuario_id: data.id,
+          nombre: data.nombre,
+          sucursal,
+          evento: 'ENTRADA',
+          turno_id: turnoActual()?.id || null,
+        },
+      ]);
+    } else {
+      alert(avisoSucursal ? mensajePinSucursalIncorrecta(etiquetaTienda(sucursal), sucursalReal) : 'PIN incorrecto');
+      setPin('');
+    }
+  };
+
+  const cerrarSesion = () => {
+    setSesion(false);
+    setUser(null);
+    setVista('Inicio');
+  };
+
+  const desbloquearTiendaYReiniciarSesion = () => {
+    if (SUCURSAL_FIJA_ENV) return;
+    if (!confirm('¿Solo si esta terminal debe operar otra tienda? Se cerrará la sesión y podrás elegir y fijar de nuevo.')) return;
+    desbloquearTiendaEnEsteEquipo();
+    setTiendaFijadaParaAcceso(false);
+    setSucursal(leerSucursalGuardada());
+    refrescarListaSucursales();
+    cerrarSesion();
+  };
+
+  const agregarNuevaTienda = (raw) => {
+    const r = agregarSucursalExtra(raw);
+    if (r.ok) {
+      refrescarListaSucursales();
+      setSucursal(r.codigo);
+    }
+    return r;
+  };
+
+  const quitarTiendaExtra = (codigo) => {
+    const c = normalizarCodigoTienda(codigo);
+    const r = quitarSucursalExtra(codigo);
+    if (r.ok) {
+      refrescarListaSucursales();
+      if (normalizarCodigoTienda(sucursal) === c) setSucursal('MAIN');
+    }
+    return r;
+  };
+
+  if (!sesion) {
+    return (
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          padding: '1.5rem',
+          background: 'linear-gradient(165deg, var(--brand-olive) 0%, var(--brand-gold) 35%, var(--surface) 85%)',
+        }}
+      >
+        <div className="card" style={{ width: '100%', maxWidth: '400px', textAlign: 'center', borderTop: '4px solid var(--brand-red)' }}>
+          <div className="brand-logo-wrap" style={{ marginBottom: '0.75rem' }}>
+            <BrandLogo alt={brandTitle} maxHeight={140} style={{ maxWidth: '100%' }} />
+          </div>
+          <h2 style={{ margin: '0 0 0.25rem', color: 'var(--brand-blue)' }}>{brandTitle}</h2>
+          <p className="muted" style={{ margin: '0 0 1rem' }}>
+            {tiendaFijadaParaAcceso ? 'Ingresa tu PIN' : 'Primero elige y fija la tienda de esta caja; luego podrás usar el PIN.'}
+          </p>
+          {!tiendaFijadaParaAcceso && !SUCURSAL_FIJA_ENV && (
+            <>
+              <label className="muted" style={{ display: 'block', textAlign: 'left', marginBottom: '0.75rem' }}>
+                Tienda de este punto de venta
+                <select className="select" style={{ marginTop: '0.35rem' }} value={sucursal} onChange={(e) => setSucursal(e.target.value)}>
+                  {listaSucursales.map((s) => (
+                    <option key={s} value={s}>
+                      {etiquetaTienda(s)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="btn btn-gold"
+                style={{ width: '100%', marginBottom: '1rem' }}
+                onClick={() => {
+                  bloquearTiendaEnEsteEquipo(sucursal);
+                  guardarSucursalLocal(sucursal);
+                  setTiendaFijadaParaAcceso(true);
+                }}
+              >
+                Fijar tienda en este equipo
+              </button>
+              <p className="muted" style={{ fontSize: '0.78rem', textAlign: 'left', marginBottom: '1rem' }}>
+                Así esta terminal solo registrará ventas y compras de una sucursal. En cada PC de tienda puedes además definir <code>VITE_SUCURSAL_FIJA</code> en <code>.env</code> para bloquearlo desde el despliegue.
+              </p>
+            </>
+          )}
+          {tiendaFijadaParaAcceso && (
+            <div style={{ marginBottom: '1rem', padding: '0.65rem', borderRadius: '10px', background: 'var(--surface)', textAlign: 'center' }}>
+              <span className="badge" style={{ fontSize: '0.85rem' }}>Tienda asignada: {etiquetaTienda(sucursal)}</span>
+              {SUCURSAL_FIJA_ENV && (
+                <p className="muted" style={{ fontSize: '0.72rem', margin: '0.35rem 0 0' }}>
+                  Fijada por instalación (<code>VITE_SUCURSAL_FIJA</code>)
+                </p>
+              )}
+              {!SUCURSAL_FIJA_ENV && (
+                <p className="muted" style={{ fontSize: '0.72rem', margin: '0.35rem 0 0' }}>
+                  Fijada en este navegador
+                </p>
+              )}
+            </div>
+          )}
+          {!supabaseConfigured && (
+            <p style={{ textAlign: 'left', fontSize: '0.85rem', color: 'var(--brand-red)', marginBottom: '1rem' }}>
+              Falta configuración de Supabase. Copia <code>.env.example</code> a <code>.env</code> y define las variables{' '}
+              <code>VITE_SUPABASE_URL</code> y <code>VITE_SUPABASE_ANON_KEY</code>.
+            </p>
+          )}
+          <input
+            type="password"
+            className="input"
+            value={pin}
+            onChange={(e) => setPin(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && tiendaFijadaParaAcceso && manejarLogin()}
+            placeholder="PIN"
+            style={{ fontSize: '1.5rem', textAlign: 'center', letterSpacing: '0.2em', marginBottom: '1rem' }}
+            autoFocus={tiendaFijadaParaAcceso}
+            disabled={!supabase || !tiendaFijadaParaAcceso}
+          />
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ width: '100%', padding: '0.85rem' }}
+            onClick={manejarLogin}
+            disabled={!supabase || !tiendaFijadaParaAcceso}
+          >
+            <BtnLabel icon="logIn">Entrar</BtnLabel>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const modulosNav = modulosParaSidebar(user.rol);
+
+  return (
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--surface)' }}>
+      {sidebarOpen && (
+        <aside
+          style={{
+            width: '250px',
+            flexShrink: 0,
+            height: '100vh',
+            position: 'sticky',
+            top: 0,
+            alignSelf: 'flex-start',
+            background: 'var(--card)',
+            borderRight: '1px solid var(--border)',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: 'var(--shadow)',
+            zIndex: 20,
+          }}
+        >
+          <div style={{ padding: '1rem 1.25rem', textAlign: 'center', borderBottom: '4px solid var(--brand-red)', background: 'linear-gradient(180deg, rgba(225,153,41,0.12) 0%, transparent 100%)' }}>
+            <BrandLogo alt="" maxHeight={56} style={{ marginBottom: '0.35rem' }} />
+            <div style={{ fontWeight: 800, color: 'var(--brand-blue)', fontSize: '0.95rem', lineHeight: 1.2 }}>{brandTitle}</div>
+          </div>
+          <nav style={{ flex: 1, padding: '0.65rem', overflowY: 'auto' }}>
+            {modulosNav.map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => irAModulo(m)}
+                className={`btn btn-ghost nav-btn${vista === m ? ' nav-btn-active' : ''}`}
+                style={{
+                  color: vista === m ? 'var(--brand-blue)' : 'var(--muted)',
+                }}
+              >
+                <Icon name={iconoDeModulo(m)} size={20} />
+                <span>{m}</span>
+              </button>
+            ))}
+          </nav>
+        </aside>
+      )}
+
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
+        <header
+          style={{
+            minHeight: '70px',
+            flexShrink: 0,
+            background: 'var(--card)',
+            display: 'flex',
+            alignItems: 'center',
+            padding: '0 1.25rem',
+            borderBottom: '1px solid var(--border)',
+            gap: '0.75rem',
+            flexWrap: 'wrap',
+          }}
+        >
+          <button type="button" className="btn btn-ghost" style={{ padding: '0.5rem 0.65rem' }} onClick={() => setSidebarOpen((o) => !o)} aria-label="Menú">
+            <Icon name="menu" size={20} />
+          </button>
+          <h2 className="header-title" style={{ margin: 0, flex: 1, fontSize: '1.25rem', color: 'var(--brand-blue)' }}>
+            <Icon name={iconoDeModulo(vista)} size={22} />
+            {vista}
+          </h2>
+          <div className="muted" style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <span className="badge" style={{ fontSize: '0.75rem' }}>Tienda: {etiquetaTienda(sucursal)}</span>
+            <span className="badge" style={{ fontSize: '0.75rem' }}>{normalizarRol(user?.rol)}</span>
+            <span>Dólar: ${Number(tipoCambio).toFixed(2)} · {user?.nombre}</span>
+          </div>
+          <button type="button" className="btn btn-danger" onClick={cerrarSesion}>
+            <BtnLabel icon="logOut">Salir</BtnLabel>
+          </button>
+        </header>
+
+        <div style={{ flex: 1, padding: '1.25rem', overflowY: 'auto', minHeight: 0 }}>
+          {vista === 'Inicio' && (
+            <Inicio
+              supabase={supabase}
+              sucursal={sucursal}
+              inventario={inventario}
+              onNavigate={irAModulo}
+              puedeModulo={(m) => puedeVerModulo(user?.rol, m)}
+            />
+          )}
+          {vista === 'Ventas' && (
+            <Ventas
+              supabase={supabase}
+              user={user}
+              sucursal={sucursal}
+              tipoCambio={tipoCambio}
+              inventario={inventario}
+              cargarDatos={cargarDatos}
+              busqueda={busqueda}
+              setBusqueda={setBusqueda}
+            />
+          )}
+          {vista === 'Corte de caja' && (
+            <CorteCaja supabase={supabase} sucursal={sucursal} user={user} inventario={inventario} cargarDatos={cargarDatos} />
+          )}
+          {vista === 'Productos' && (
+            <Productos supabase={supabase} inventario={inventario} cargarDatos={cargarDatos} user={user} sucursal={sucursal} />
+          )}
+          {vista === 'Compras' && (
+            <Compras supabase={supabase} sucursal={sucursal} inventario={inventario} cargarDatos={cargarDatos} onNavigate={irAModulo} />
+          )}
+          {vista === 'Checador' && <Checador inventario={inventario} supabase={supabase} sucursal={sucursal} />}
+          {vista === 'Proveedores' && <Proveedores supabase={supabase} inventario={inventario} user={user} />}
+          {vista === 'Clientes' && <Clientes supabase={supabase} />}
+          {vista === 'Usuarios' && (
+            <Usuarios
+              supabase={supabase}
+              actor={user}
+              sucursal={sucursal}
+              sucursalesLista={listaSucursales}
+              onUsuarioActualizado={(patch) => setUser((prev) => (prev && patch?.id != null && prev.id === patch.id ? { ...prev, ...patch } : prev))}
+            />
+          )}
+          {vista === 'Consultas' && (
+            <Consultas supabase={supabase} inventario={inventario} sucursal={sucursal} sucursalesLista={listaSucursales} cargarDatos={cargarDatos} />
+          )}
+          {vista === 'Estadisticas' && <Estadisticas supabase={supabase} />}
+          {vista === 'Reportes' && <Reportes supabase={supabase} inventario={inventario} sucursal={sucursal} />}
+          {vista === 'Configuracion' && (
+            <Configuracion
+              supabase={supabase}
+              tipoCambio={tipoCambio}
+              setTipoCambio={setTipoCambio}
+              sucursal={sucursal}
+              setSucursal={setSucursal}
+              sucursalesLista={listaSucursales}
+              onAgregarSucursal={agregarNuevaTienda}
+              onQuitarSucursalExtra={quitarTiendaExtra}
+              tiendaNoCambiable={Boolean(SUCURSAL_FIJA_ENV || tiendaFijadaParaAcceso)}
+              bloqueoPorEntorno={Boolean(SUCURSAL_FIJA_ENV)}
+              onDesbloquearTiendaBrowser={sesion ? desbloquearTiendaYReiniciarSesion : undefined}
+              user={user}
+            />
+          )}
+          {vista === 'Ayuda' && <Ayuda user={user} />}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default App;
