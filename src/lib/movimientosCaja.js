@@ -2,6 +2,7 @@ import { clasificarPago, inicioDia, finDia, resumirVentas } from './corteCaja.js
 import { consultarVentas } from './ventasQuery.js';
 import { filtrarVentasPorTurno } from './turnos.js';
 import { aplicarDeltaStock } from './inventarioMultitienda.js';
+import { guardarMovimientoLocal } from './inventarioMovimientos.js';
 
 const LS_CANCELACIONES = 'pos3b_cancelaciones';
 
@@ -302,7 +303,24 @@ export async function registrarCancelacion(supabase, opts) {
         continue;
       }
       const { error: eStock } = await supabase.from('productos').update(calc.patch).eq('id', prod.id);
-      if (eStock) erroresStock.push(`${prod.nombre}: ${eStock.message}`);
+      if (eStock) {
+        erroresStock.push(`${prod.nombre}: ${eStock.message}`);
+        continue;
+      }
+      guardarMovimientoLocal({
+        tipo: 'entrada',
+        modo: 'cancelacion',
+        producto_id: prod.id,
+        producto_nombre: prod.nombre,
+        cantidad: Number(l.qtyCancelar),
+        stock_antes: calc.antes,
+        stock_despues: calc.despues,
+        ubicacion: 'piso',
+        motivo: `Cancelación ticket #${venta.id}${motivo ? ` · ${motivo.trim()}` : ''}`,
+        usuario: user?.nombre || '—',
+        sucursal: tiendaVenta,
+        created_at: localRow.created_at,
+      });
     }
     if (erroresStock.length) {
       return {

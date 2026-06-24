@@ -6,6 +6,7 @@ export const FILTROS_EVENTO_PRODUCTO = [
   { id: 'entradas', label: 'Entradas' },
   { id: 'salidas', label: 'Salidas' },
   { id: 'ajustes', label: 'Ajustes' },
+  { id: 'negativo', label: 'Stock negativo' },
 ];
 
 export const FILTROS_TIPO_MOVIMIENTO = [
@@ -15,11 +16,22 @@ export const FILTROS_TIPO_MOVIMIENTO = [
   { id: 'traspaso', label: 'Traspaso' },
 ];
 
-export function etiquetaTipoMovimiento(tipo) {
-  if (tipo === 'entrada') return 'Entrada';
-  if (tipo === 'retiro') return 'Retiro';
+export function etiquetaTipoMovimiento(tipo, modo) {
+  if (tipo === 'entrada') return modo === 'cancelacion' ? 'Entrada (cancelación)' : 'Entrada';
+  if (tipo === 'retiro') {
+    if (modo === 'venta') return 'Salida (venta)';
+    if (modo === 'vaciado_inventario') return 'Vaciado inventario';
+    return 'Retiro';
+  }
   if (tipo === 'traspaso') return 'Traspaso';
+  if (tipo === 'venta') return 'Venta';
   return tipo || '—';
+}
+
+function esStockNegativo(e) {
+  const a = Number(e.stock_antes);
+  const d = Number(e.stock_despues);
+  return (Number.isFinite(a) && a < 0) || (Number.isFinite(d) && d < 0);
 }
 
 function enRango(iso, desde, hasta) {
@@ -103,13 +115,25 @@ function eventoDesdeMovimiento(m, productoId) {
   };
 }
 
+function dedupeVentasConMovimientos(eventosMov, eventosVenta) {
+  return eventosVenta.filter((v) => {
+    const t = new Date(v.created_at).getTime();
+    return !eventosMov.some(
+      (m) =>
+        m.modo === 'venta' &&
+        Math.abs(new Date(m.created_at).getTime() - t) < 120000 &&
+        Number(m.cantidad) === Number(v.cantidad),
+    );
+  });
+}
+
 export function timelineProducto(productoId, ventas, movimientos, filtroEvento = 'todos') {
   const pid = String(productoId);
   const movs = (movimientos || []).filter(
     (m) => String(m.producto_id) === pid || String(m.producto_destino_id) === pid,
   );
   const eventosMov = movs.map((m) => eventoDesdeMovimiento(m, pid));
-  const eventosVenta = ventasConProducto(ventas, pid);
+  const eventosVenta = dedupeVentasConMovimientos(eventosMov, ventasConProducto(ventas, pid));
 
   let eventos = [...eventosMov, ...eventosVenta].sort(
     (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0),
@@ -124,10 +148,34 @@ export function timelineProducto(productoId, ventas, movimientos, filtroEvento =
       (e) => e.tipo === 'retiro' || e.tipo === 'venta' || (e.tipo === 'traspaso' && e.stock_despues < e.stock_antes),
     );
   } else if (filtroEvento === 'ajustes') {
-    eventos = eventos.filter((e) => e.tipo === 'traspaso' || e.modo === 'masivo' || e.modo === 'departamento');
+    eventos = eventos.filter(
+      (e) =>
+        e.tipo === 'traspaso' ||
+        e.modo === 'masivo' ||
+        e.modo === 'departamento' ||
+        e.modo === 'vaciado_inventario',
+    );
+  } else if (filtroEvento === 'negativo') {
+    eventos = eventos.filter((e) => esStockNegativo(e));
   }
 
   return eventos;
+}
+
+export function filtrarMovimientosPorEvento(movimientos, filtroEvento) {
+  if (!filtroEvento || filtroEvento === 'todos') return movimientos || [];
+  const fake = (movimientos || []).map((m) => eventoDesdeMovimiento(m, m.producto_id));
+  return fake
+    .filter((e) => {
+      if (filtroEvento === 'existencia') return e.stock_antes != null || e.stock_despues != null;
+      if (filtroEvento === 'entradas') return e.tipo === 'entrada';
+      if (filtroEvento === 'salidas') return e.tipo === 'retiro';
+      if (filtroEvento === 'ajustes') return e.tipo === 'traspaso' || e.modo === 'masivo' || e.modo === 'vaciado_inventario';
+      if (filtroEvento === 'negativo') return esStockNegativo(e);
+      return true;
+    })
+    .map((e) => movimientos.find((m) => m.id === e.id))
+    .filter(Boolean);
 }
 
 export function buscarProductos(inventario, q) {

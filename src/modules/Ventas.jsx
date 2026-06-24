@@ -6,6 +6,7 @@ import { BtnLabel } from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import { turnoActual, usuarioAutorizadoLogin, nombreTurnoLegible } from '../lib/turnos.js';
 import { aplicarDeltaStock } from '../lib/inventarioMultitienda.js';
+import { guardarMovimientoLocal } from '../lib/inventarioMovimientos.js';
 import { sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 
 function addToCart(carrito, producto) {
@@ -114,7 +115,14 @@ export default function Ventas({
       const need = c.qty || 1;
       const calc = aplicarDeltaStock(p, sucursal, 'piso', -need, sucursal);
       if (!calc.ok) return alert(`No se puede completar la venta: ${calc.error}`);
-      deltas.push({ id: c.id, patch: calc.patch });
+      deltas.push({
+        id: c.id,
+        nombre: c.nombre,
+        need,
+        patch: calc.patch,
+        antes: calc.antes,
+        despues: calc.despues,
+      });
     }
     const { error } = await supabase.from('ventas').insert([
       {
@@ -132,15 +140,30 @@ export default function Ventas({
       alert(error.message);
       return;
     }
-    for (const { id, patch } of deltas) {
-      const { error: e2 } = await supabase.from('productos').update(patch).eq('id', id);
+    const vendidoEn = new Date().toISOString();
+    for (const d of deltas) {
+      const { error: e2 } = await supabase.from('productos').update(d.patch).eq('id', d.id);
       if (e2) {
-        alert(`Venta guardada pero no se pudo actualizar stock (${id}): ${e2.message}. Revisa inventario.`);
+        alert(`Venta guardada pero no se pudo actualizar stock (${d.id}): ${e2.message}. Revisa inventario.`);
         cargarDatos();
         setCarrito([]);
         resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago });
         return;
       }
+      guardarMovimientoLocal({
+        tipo: 'retiro',
+        modo: 'venta',
+        producto_id: d.id,
+        producto_nombre: d.nombre,
+        cantidad: d.need,
+        stock_antes: d.antes,
+        stock_despues: d.despues,
+        ubicacion: 'piso',
+        motivo: `Venta · ${textoMetodoPago}`,
+        usuario: user.nombre,
+        sucursal,
+        created_at: vendidoEn,
+      });
     }
     alert(
       esEfectivo

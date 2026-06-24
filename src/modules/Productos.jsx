@@ -1,13 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { etiquetaDepartamento, listarDepartamentos } from '../lib/departamentos.js';
 import {
+  COLUMNAS_CATALOGO,
   descargarPlantillaCsv,
+  descargarPlantillaExcel,
   exportarCatalogoCsv,
   importarCatalogoSupabase,
   leerArchivoCatalogo,
+  parsearTextoPegado,
 } from '../lib/importarCatalogo.js';
+import { vaciarInventario, OPCIONES_VACIADO } from '../lib/borrarInventario.js';
 import { mensajeErrorColumnasProducto, productoDesdeDb, productoParaGuardar, productoVacio } from '../lib/productoForm.js';
-import { puedeCrearProveedor } from '../lib/roles.js';
+import { puedeCrearProveedor, puedeGestionarInventarioMultitienda } from '../lib/roles.js';
 import FormularioProducto from '../components/FormularioProducto.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import MenuPuntos from '../components/MenuPuntos.jsx';
@@ -25,6 +29,7 @@ const TITULOS_VISTA = {
   traspaso: 'Traspasos',
   etiquetas: 'Etiquetas de estante',
   importexport: 'Importar / Exportar',
+  vaciarinventario: 'Vaciar inventario',
   precios: 'Administrador de precios',
   eliminar: 'Eliminar productos',
 };
@@ -43,6 +48,10 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const [importFilas, setImportFilas] = useState([]);
   const [importNombre, setImportNombre] = useState('');
   const [importando, setImportando] = useState(false);
+  const [textoPegado, setTextoPegado] = useState('');
+  const [alcanceVaciado, setAlcanceVaciado] = useState('tienda');
+  const [motivoVaciado, setMotivoVaciado] = useState('');
+  const [vaciando, setVaciando] = useState(false);
   const [esEdicionProducto, setEsEdicionProducto] = useState(false);
   const [tickDepartamentos, setTickDepartamentos] = useState(0);
   const [preciosDraft, setPreciosDraft] = useState({});
@@ -51,6 +60,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const [etiquetasSel, setEtiquetasSel] = useState(() => new Set());
   const fileImportRef = useRef(null);
   const puedeAltaProveedor = puedeCrearProveedor(user?.rol);
+  const puedeVaciarInventario = puedeGestionarInventarioMultitienda(user?.rol);
 
   const departamentos = useMemo(() => listarDepartamentos(inventario), [inventario, tickDepartamentos]);
 
@@ -211,15 +221,47 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
 
   const confirmarImport = async () => {
     if (!importFilas.length) return alert('No hay filas para importar.');
-    if (!confirm(`¿Importar ${importFilas.length} producto(s)?`)) return;
+    if (!confirm(`¿Importar ${importFilas.length} producto(s) a la tienda ${sucursal || 'MAIN'}?`)) return;
     setImportando(true);
-    const r = await importarCatalogoSupabase(supabase, importFilas, { sucursal, ubicacion: 'piso' });
+    const r = await importarCatalogoSupabase(supabase, importFilas, { sucursal });
     setImportando(false);
     if (!r.ok) return alert(r.error);
     alert(`Catálogo importado: ${r.count} producto(s).`);
     setImportFilas([]);
     setImportNombre('');
+    setTextoPegado('');
     cargarDatos();
+  };
+
+  const pegarDesdePortapapeles = () => {
+    const r = parsearTextoPegado(textoPegado);
+    if (!r.ok) return alert(r.error);
+    setImportFilas(r.filas);
+    setImportNombre('Pegado desde Excel');
+  };
+
+  const ejecutarVaciado = async () => {
+    if (!puedeVaciarInventario) return alert('Solo Gerente o Administrador pueden vaciar inventario.');
+    const opcion = OPCIONES_VACIADO.find((o) => o.id === alcanceVaciado);
+    const msg =
+      alcanceVaciado === 'global'
+        ? `¿VACIAR inventario de TODAS las sucursales en ${inventarioCompleto?.length || inventario.length} producto(s)? Esta acción no se puede deshacer.`
+        : `¿Vaciar inventario (${opcion?.label}) en ${inventarioCompleto?.length || inventario.length} producto(s)?`;
+    if (!confirm(msg)) return;
+    if (alcanceVaciado === 'global' && !confirm('Confirma de nuevo: se pondrá en CERO el stock en MAIN y todas las tiendas.')) return;
+    setVaciando(true);
+    const r = await vaciarInventario(supabase, {
+      inventarioCompleto: inventarioCompleto || inventario,
+      sucursal,
+      alcance: alcanceVaciado,
+      usuario: user?.nombre,
+      motivo: motivoVaciado,
+    });
+    setVaciando(false);
+    if (!r.ok) return alert(r.error);
+    alert(r.mensaje);
+    cargarDatos();
+    setMotivoVaciado('');
   };
 
   const menuItems = [
@@ -228,6 +270,9 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     { id: 'traspaso', label: 'Traspasos', icon: 'truck', onClick: () => setVista('traspaso') },
     { id: 'etiquetas', label: 'Imprimir etiquetas de estante', icon: 'print', onClick: () => { setEtiquetasSel(new Set()); setVista('etiquetas'); } },
     { id: 'importexport', label: 'Importar / Exportar archivos', icon: 'download', onClick: () => setVista('importexport') },
+    ...(puedeVaciarInventario
+      ? [{ id: 'vaciarinventario', label: 'Vaciar inventario', icon: 'trash', onClick: () => setVista('vaciarinventario') }]
+      : []),
     { id: 'precios', label: 'Administrador de precios', icon: 'dollar', onClick: () => { initPreciosDraft(); setVista('precios'); } },
     { id: 'eliminar', label: 'Eliminar productos', icon: 'trash', onClick: () => { setSeleccionEliminar(new Set()); setVista('eliminar'); } },
   ];
@@ -428,9 +473,16 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
 
       {vista === 'importexport' && (
         <div className="card">
+          <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+            Plantilla con {COLUMNAS_CATALOGO.length} columnas: código, nombre, descripción, categoría, clave SAT, impuesto, costos, margen, precio venta, stock piso/CEDIS, mínimo, en venta y favoritos.
+            El stock se aplica a la tienda activa: <strong>{sucursal || 'MAIN'}</strong>.
+          </p>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+            <button type="button" className="btn btn-primary" onClick={descargarPlantillaExcel}>
+              Plantilla Excel (.xlsx)
+            </button>
             <button type="button" className="btn btn-ghost" onClick={descargarPlantillaCsv}>
-              Descargar plantilla CSV
+              Plantilla CSV
             </button>
             <button type="button" className="btn btn-primary" onClick={() => fileImportRef.current?.click()}>
               Importar Excel / CSV
@@ -440,16 +492,116 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
             </button>
             <input ref={fileImportRef} type="file" accept=".xlsx,.xls,.csv,.txt" style={{ display: 'none' }} onChange={elegirArchivoImport} />
           </div>
+          <details style={{ marginBottom: '1rem' }}>
+            <summary className="muted" style={{ cursor: 'pointer' }}>Columnas de la plantilla</summary>
+            <div className="table-wrap" style={{ marginTop: '0.5rem', maxHeight: '220px' }}>
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Columna</th>
+                    <th>Obligatoria</th>
+                    <th>Descripción</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {COLUMNAS_CATALOGO.map((c) => (
+                    <tr key={c.key}>
+                      <td><code>{c.label}</code></td>
+                      <td>{c.required ? 'Sí' : 'No'}</td>
+                      <td className="muted" style={{ fontSize: '0.82rem' }}>{c.desc}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+          <label className="muted" style={{ display: 'block' }}>
+            Pegar desde Excel (copiar filas con encabezados)
+            <textarea
+              className="input"
+              rows={4}
+              style={{ marginTop: '0.35rem', width: '100%', fontFamily: 'monospace', fontSize: '0.8rem' }}
+              value={textoPegado}
+              onChange={(e) => setTextoPegado(e.target.value)}
+              placeholder="codigo,nombre,precio_venta,stock_piso…"
+            />
+          </label>
+          <button type="button" className="btn btn-ghost" style={{ marginTop: '0.5rem' }} onClick={pegarDesdePortapapeles} disabled={!textoPegado.trim()}>
+            Previsualizar pegado
+          </button>
           {importFilas.length > 0 && (
             <>
-              <p className="muted">
+              <p className="muted" style={{ marginTop: '1rem' }}>
                 Vista previa: <strong>{importNombre}</strong> · {importFilas.length} fila(s)
               </p>
-              <button type="button" className="btn btn-success" onClick={confirmarImport} disabled={importando}>
-                {importando ? 'Importando…' : `Confirmar importación (${importFilas.length})`}
-              </button>
+              <div className="table-wrap" style={{ maxHeight: '280px', marginBottom: '0.75rem' }}>
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>Código</th>
+                      <th>Nombre</th>
+                      <th>Categoría</th>
+                      <th>P. venta</th>
+                      <th>Piso</th>
+                      <th>CEDIS</th>
+                      <th>En venta</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importFilas.slice(0, 50).map((f) => (
+                      <tr key={f.id}>
+                        <td>{f.id}</td>
+                        <td>{f.nombre}</td>
+                        <td>{f.cat}</td>
+                        <td>${Number(f.precio).toFixed(2)}</td>
+                        <td>{f.stock_piso}</td>
+                        <td>{f.stock_cedis}</td>
+                        <td>{f.en_venta ? 'Sí' : 'No'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {importFilas.length > 50 && (
+                <p className="muted" style={{ fontSize: '0.82rem' }}>Mostrando 50 de {importFilas.length} filas.</p>
+              )}
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-success" onClick={confirmarImport} disabled={importando}>
+                  {importando ? 'Importando…' : `Confirmar importación (${importFilas.length})`}
+                </button>
+                <button type="button" className="btn btn-ghost" onClick={() => { setImportFilas([]); setImportNombre(''); setTextoPegado(''); }}>
+                  Cancelar
+                </button>
+              </div>
             </>
           )}
+        </div>
+      )}
+
+      {vista === 'vaciarinventario' && puedeVaciarInventario && (
+        <div className="card" style={{ borderTop: '4px solid var(--brand-red)' }}>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Pone en <strong>cero</strong> el inventario seleccionado. Se registra en el historial de movimientos (Consultas → Consulta producto).
+            Tienda activa: <strong>{sucursal || 'MAIN'}</strong> · {inventarioCompleto?.length || inventario.length} producto(s).
+          </p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
+            {OPCIONES_VACIADO.map((o) => (
+              <label key={o.id} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', cursor: 'pointer' }}>
+                <input type="radio" name="alcanceVaciado" value={o.id} checked={alcanceVaciado === o.id} onChange={() => setAlcanceVaciado(o.id)} style={{ marginTop: '0.25rem' }} />
+                <span>
+                  <strong>{o.label}</strong>
+                  <span className="muted" style={{ display: 'block', fontSize: '0.82rem' }}>{o.desc}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <label className="muted" style={{ display: 'block' }}>
+            Motivo (opcional)
+            <input className="input" style={{ marginTop: '0.35rem' }} value={motivoVaciado} onChange={(e) => setMotivoVaciado(e.target.value)} placeholder="Conteo anual, cambio de sistema…" />
+          </label>
+          <button type="button" className="btn btn-danger" style={{ marginTop: '1rem' }} onClick={ejecutarVaciado} disabled={vaciando}>
+            {vaciando ? 'Vaciando…' : 'Vaciar inventario ahora'}
+          </button>
         </div>
       )}
 

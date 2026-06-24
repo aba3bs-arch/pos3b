@@ -29,7 +29,7 @@ function fmtDif(n) {
   return <span style={{ color, fontWeight: 700 }}>${v.toFixed(2)}</span>;
 }
 
-function badgeTipo(tipo) {
+function badgeTipo(tipo, modo) {
   const colors = {
     entrada: { bg: 'rgba(34,197,94,0.15)', c: 'var(--brand-green)' },
     retiro: { bg: 'rgba(211,47,47,0.12)', c: 'var(--brand-red)' },
@@ -37,7 +37,7 @@ function badgeTipo(tipo) {
     venta: { bg: 'rgba(225,153,41,0.2)', c: '#b45309' },
   };
   const s = colors[tipo] || { bg: 'var(--surface)', c: 'var(--muted)' };
-  const label = tipo === 'venta' ? 'Venta' : etiquetaTipoMovimiento(tipo);
+  const label = etiquetaTipoMovimiento(tipo, modo);
   return (
     <span className="badge" style={{ background: s.bg, color: s.c, fontSize: '0.72rem' }}>
       {label}
@@ -71,6 +71,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const [presetFechaProducto, setPresetFechaProducto] = useState('7d');
   const [desdeProducto, setDesdeProducto] = useState(() => rangoDesdePreset('7d').desde);
   const [hastaProducto, setHastaProducto] = useState(() => rangoDesdePreset('7d').hasta);
+  const [presetFechaInv, setPresetFechaInv] = useState('7d');
+  const [filtroEventoInv, setFiltroEventoInv] = useState('todos');
 
   const tiendaConsulta = filtroSucursal || sucursal || 'MAIN';
   const inventarioVista = useMemo(() => inventarioParaSucursal(inventario, tiendaConsulta), [inventario, tiendaConsulta]);
@@ -156,16 +158,35 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   }, [supabase, desde, hasta, filtroSucursal, cajero, corteId, tipoDiferencia]);
 
   const refrescarMovimientosInv = useCallback(() => {
-    setMovimientosInv(
-      listarMovimientosInventario({
-        desde,
-        hasta,
-        productoId: skuMovInv.trim() || null,
-        tipo: tipoMovInv || null,
-        sucursal: filtroSucursal || null,
-      }),
-    );
-  }, [desde, hasta, skuMovInv, tipoMovInv, filtroSucursal]);
+    let list = listarMovimientosInventario({
+      desde,
+      hasta,
+      productoId: skuMovInv.trim() || null,
+      tipo: tipoMovInv || null,
+      sucursal: filtroSucursal || null,
+    });
+    if (filtroEventoInv !== 'todos') {
+      list = list.filter((m) => {
+        const e = {
+          tipo: m.tipo,
+          modo: m.modo,
+          stock_antes: m.stock_antes,
+          stock_despues: m.stock_despues,
+        };
+        if (filtroEventoInv === 'existencia') return e.stock_antes != null || e.stock_despues != null;
+        if (filtroEventoInv === 'entradas') return e.tipo === 'entrada';
+        if (filtroEventoInv === 'salidas') return e.tipo === 'retiro';
+        if (filtroEventoInv === 'ajustes') return e.tipo === 'traspaso' || e.modo === 'masivo' || e.modo === 'vaciado_inventario';
+        if (filtroEventoInv === 'negativo') {
+          const a = Number(e.stock_antes);
+          const d = Number(e.stock_despues);
+          return (Number.isFinite(a) && a < 0) || (Number.isFinite(d) && d < 0);
+        }
+        return true;
+      });
+    }
+    setMovimientosInv(list);
+  }, [desde, hasta, skuMovInv, tipoMovInv, filtroSucursal, filtroEventoInv]);
 
   useEffect(() => {
     if (pestana === 'ventas') buscarVentas();
@@ -195,6 +216,17 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
       if (r) {
         setDesdeProducto(r.desde);
         setHastaProducto(r.hasta);
+      }
+    }
+  };
+
+  const cambiarPresetFechaInv = (preset) => {
+    setPresetFechaInv(preset);
+    if (preset !== 'rango') {
+      const r = rangoDesdePreset(preset);
+      if (r) {
+        setDesde(r.desde);
+        setHasta(r.hasta);
       }
     }
   };
@@ -284,16 +316,39 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   );
 
   const filtrosFecha = (
-    <div className="grid-2">
-      <label className="muted">
-        Desde
-        <input type="date" className="input" style={{ marginTop: '0.35rem' }} value={desde} onChange={(e) => setDesde(e.target.value)} />
+    <>
+      <label className="muted" style={{ display: 'block' }}>
+        Periodo
+        <select
+          className="select"
+          style={{ marginTop: '0.35rem' }}
+          value={presetFechaInv}
+          onChange={(e) => cambiarPresetFechaInv(e.target.value)}
+        >
+          {PRESETS_FECHA_PRODUCTO.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
       </label>
-      <label className="muted">
-        Hasta
-        <input type="date" className="input" style={{ marginTop: '0.35rem' }} value={hasta} onChange={(e) => setHasta(e.target.value)} />
-      </label>
-    </div>
+      {presetFechaInv === 'rango' ? (
+        <div className="grid-2" style={{ marginTop: '0.75rem' }}>
+          <label className="muted">
+            Desde
+            <input type="date" className="input" style={{ marginTop: '0.35rem' }} value={desde} onChange={(e) => setDesde(e.target.value)} />
+          </label>
+          <label className="muted">
+            Hasta
+            <input type="date" className="input" style={{ marginTop: '0.35rem' }} value={hasta} onChange={(e) => setHasta(e.target.value)} />
+          </label>
+        </div>
+      ) : (
+        <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
+          {desde === hasta ? `Fecha: ${desde}` : `${desde} — ${hasta}`}
+        </p>
+      )}
+    </>
   );
 
   return (
@@ -406,6 +461,22 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                 </select>
               </label>
             </div>
+            <div style={{ marginTop: '0.75rem' }}>
+              <span className="muted" style={{ fontSize: '0.82rem', display: 'block', marginBottom: '0.35rem' }}>Filtrar por evento</span>
+              <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                {FILTROS_EVENTO_PRODUCTO.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    className={filtroEventoInv === f.id ? 'btn btn-primary' : 'btn btn-ghost'}
+                    style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }}
+                    onClick={() => setFiltroEventoInv(f.id)}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={refrescarMovimientosInv}>
               Buscar movimientos
             </button>
@@ -436,7 +507,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                     movimientosInv.map((m) => (
                       <tr key={m.id}>
                         <td style={{ fontSize: '0.82rem' }}>{fmtFecha(m.created_at)}</td>
-                        <td>{badgeTipo(m.tipo)}</td>
+                        <td>{badgeTipo(m.tipo, m.modo)}</td>
                         <td style={{ fontSize: '0.85rem' }}>
                           {m.producto_nombre || m.producto_id}
                           {m.producto_destino_nombre && (
@@ -792,7 +863,21 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                       ${Number(productoActivo.precio).toFixed(2)}
                     </div>
                     <div style={{ marginTop: '0.35rem' }}>
-                      Existencia actual: <strong>{productoActivo.stock}</strong> uds.
+                      Existencia actual:{' '}
+                      <strong style={Number(productoActivo.stock) < 0 ? { color: 'var(--brand-red)' } : undefined}>
+                        {productoActivo.stock}
+                      </strong>{' '}
+                      uds.
+                      {Number(productoActivo.stock) < 0 && (
+                        <span className="badge" style={{ marginLeft: '0.5rem', background: 'rgba(211,47,47,0.15)', color: 'var(--brand-red)' }}>
+                          Stock negativo
+                        </span>
+                      )}
+                      {Number(productoActivo.stock) >= 0 && Number(productoActivo.stock) <= Number(productoActivo.stock_minimo ?? 6) && (
+                        <span className="badge" style={{ marginLeft: '0.5rem', background: 'rgba(225,153,41,0.2)', color: '#b45309' }}>
+                          Bajo mínimo
+                        </span>
+                      )}
                     </div>
                   </div>
                   <button type="button" className="btn btn-gold" onClick={() => setEditando((e) => !e)}>
@@ -916,7 +1001,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                   </div>
                 </div>
                 <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.82rem' }}>
-                  <strong>Existencia</strong> = movimientos con stock antes/después · <strong>Entradas</strong> = ingresos · <strong>Salidas</strong> = ventas y retiros · <strong>Ajustes</strong> = traspasos y entradas masivas
+                  <strong>Todos</strong> · <strong>Existencia</strong> (stock antes/después) · <strong>Entradas</strong> · <strong>Salidas</strong> (ventas, retiros, vaciados) · <strong>Ajustes</strong> (traspasos, masivos) · <strong>Stock negativo</strong>
                 </p>
                 <div className="table-wrap" style={{ maxHeight: '360px' }}>
                   <table className="data">
@@ -939,9 +1024,16 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                         </tr>
                       ) : (
                         timeline.map((e) => (
-                          <tr key={e.id}>
+                          <tr
+                            key={e.id}
+                            style={
+                              (Number(e.stock_despues) < 0 || Number(e.stock_antes) < 0)
+                                ? { background: 'rgba(211,47,47,0.06)' }
+                                : undefined
+                            }
+                          >
                             <td style={{ fontSize: '0.82rem' }}>{fmtFecha(e.created_at)}</td>
-                            <td>{badgeTipo(e.tipo)}</td>
+                            <td>{badgeTipo(e.tipo, e.modo)}</td>
                             <td>{e.cantidad}</td>
                             <td style={{ fontSize: '0.8rem' }}>
                               {e.stock_antes != null ? `${e.stock_antes} → ${e.stock_despues}` : '—'}

@@ -95,6 +95,26 @@ export function buildPatchStock(producto, sucursal, ubicacion, nuevoValor, sucur
   return syncColumnasLegacy({ stock_sucursales: map }, map, sucursalActiva);
 }
 
+/** Piso + CEDIS de una tienda en un solo patch. */
+export function buildPatchStockTienda(producto, sucursal, piso, cedis, sucursalActiva) {
+  let base = producto || {};
+  let patch = buildPatchStock(base, sucursal, 'piso', piso, sucursalActiva);
+  base = { ...base, ...patch };
+  return buildPatchStock(base, sucursal, 'cedis', cedis, sucursalActiva);
+}
+
+/** Pone en cero el stock de todas las sucursales del producto. */
+export function buildPatchVaciarInventarioCompleto(producto) {
+  const map = { ...asegurarMapaStock(producto, 'MAIN') };
+  for (const s of listarSucursales()) {
+    map[s] = { cedis: 0, piso: 0 };
+  }
+  for (const s of Object.keys(map)) {
+    map[s] = { cedis: 0, piso: 0 };
+  }
+  return { stock_sucursales: map, stock: 0, stock_cedis: 0 };
+}
+
 export function aplicarDeltaStock(producto, sucursal, ubicacion, delta, sucursalActiva) {
   const antes = stockEnUbicacion(producto, sucursal, ubicacion, sucursalActiva);
   const qty = Math.floor(Number(delta));
