@@ -118,3 +118,25 @@ export function descargarPlantillaCsv() {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/** Exporta el catálogo actual a CSV. */
+export function exportarCatalogoCsv(inventario) {
+  const filas = (inventario || []).map((p) =>
+    [
+      p.id,
+      `"${String(p.nombre || '').replace(/"/g, '""')}"`,
+      Number(p.precio || 0).toFixed(2),
+      Number(p.stock || 0),
+      Number(p.stock_minimo ?? 6),
+      p.cat || 'GENERAL',
+    ].join(','),
+  );
+  const csv = `${PLANTILLA_COLUMNAS}\n${filas.join('\n')}`;
+  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `catalogo_3b_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}

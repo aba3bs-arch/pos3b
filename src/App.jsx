@@ -31,6 +31,8 @@ import {
 } from './constants/sucursales.js';
 import { modulosParaSidebar, puedeVerModulo, normalizarRol } from './lib/roles.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
+import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
+import { sonidoMenuNavegacion } from './lib/sonidosPos.js';
 import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from './lib/usuariosAuth.js';
 import { usuarioAutorizadoLogin, turnoActual } from './lib/turnos.js';
 import BrandLogo from './components/BrandLogo.jsx';
@@ -48,7 +50,8 @@ function App() {
   const [sucursal, setSucursal] = useState(sucursalInicial);
   const [tiendaFijadaParaAcceso, setTiendaFijadaParaAcceso] = useState(() => Boolean(SUCURSAL_FIJA_ENV || tiendaBloqueadaEnEsteEquipo()));
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [tipoCambio, setTipoCambio] = useState(17.5);
+  const [tipoCambio, setTipoCambioRaw] = useState(() => leerTipoCambio());
+  const [tickPrivilegios, setTickPrivilegios] = useState(0);
   const [inventario, setInventario] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [brandTitle, setBrandTitle] = useState(leerNombreNegocio);
@@ -56,6 +59,25 @@ function App() {
 
   const refrescarListaSucursales = useCallback(() => {
     setListaSucursales(listarSucursalesParaUI());
+  }, []);
+
+  const setTipoCambio = useCallback((val) => {
+    if (typeof val === 'function') {
+      setTipoCambioRaw((prev) => guardarTipoCambio(val(prev)));
+    } else {
+      setTipoCambioRaw(guardarTipoCambio(val));
+    }
+  }, []);
+
+  useEffect(() => {
+    const onTc = () => setTipoCambioRaw(leerTipoCambio());
+    const onPriv = () => setTickPrivilegios((n) => n + 1);
+    window.addEventListener(EVENTO_TIPO_CAMBIO, onTc);
+    window.addEventListener(EVENTO_PRIVILEGIOS, onPriv);
+    return () => {
+      window.removeEventListener(EVENTO_TIPO_CAMBIO, onTc);
+      window.removeEventListener(EVENTO_PRIVILEGIOS, onPriv);
+    };
   }, []);
 
   useEffect(() => {
@@ -118,15 +140,15 @@ function App() {
 
   useEffect(() => {
     if (!sesion || !user) return;
-    if (!puedeVerModulo(user.rol, vista)) {
-      const nav = modulosParaSidebar(user.rol);
+    if (!puedeVerModulo(user.rol, vista, user.id)) {
+      const nav = modulosParaSidebar(user.rol, user.id);
       setVista(nav[0] || 'Inicio');
     }
-  }, [sesion, user, vista]);
+  }, [sesion, user, vista, tickPrivilegios]);
 
   const irAModulo = useCallback(
     (m) => {
-      if (puedeVerModulo(user?.rol, m)) setVista(m);
+      if (puedeVerModulo(user?.rol, m, user?.id)) setVista(m);
     },
     [user],
   );
@@ -315,7 +337,7 @@ function App() {
     );
   }
 
-  const modulosNav = modulosParaSidebar(user.rol);
+  const modulosNav = modulosParaSidebar(user.rol, user.id);
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--surface)' }}>
@@ -346,6 +368,7 @@ function App() {
                 key={m}
                 type="button"
                 onClick={() => irAModulo(m)}
+                onMouseEnter={() => vista !== m && sonidoMenuNavegacion()}
                 className={`btn btn-ghost nav-btn${vista === m ? ' nav-btn-active' : ''}`}
                 style={{
                   color: vista === m ? colorDeModulo(m) : 'var(--muted)',
@@ -398,7 +421,7 @@ function App() {
               sucursal={sucursal}
               inventario={inventario}
               onNavigate={irAModulo}
-              puedeModulo={(m) => puedeVerModulo(user?.rol, m)}
+              puedeModulo={(m) => puedeVerModulo(user?.rol, m, user?.id)}
             />
           )}
           {vista === 'Ventas' && (

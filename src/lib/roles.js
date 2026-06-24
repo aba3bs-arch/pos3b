@@ -2,6 +2,8 @@
  * Roles del POS y permisos por módulo (id = nombre en sidebar / vista).
  * Valores en BD deben coincidir con estos textos (tras normalizar).
  */
+import { leerPrivilegios } from './posConfig.js';
+
 export const ROLES = ['Cajero', 'Auditor', 'Repartidor', 'Supervisor', 'Gerente', 'Administrador'];
 
 /** Orden fijo del menú lateral */
@@ -90,15 +92,39 @@ export function normalizarRol(rol) {
   return 'Cajero';
 }
 
-export function puedeVerModulo(rol, moduloId) {
+export function puedeVerModulo(rol, moduloId, userId = null) {
+  const priv = leerPrivilegios();
+  const uid = userId != null ? String(userId) : '';
+  if (uid && Array.isArray(priv.porUsuario[uid])) {
+    return priv.porUsuario[uid].includes(moduloId);
+  }
   const r = normalizarRol(rol);
+  if (Array.isArray(priv.porRol[r])) {
+    return priv.porRol[r].includes(moduloId);
+  }
   const lista = ACCESO_POR_ROL[r] || ACCESO_POR_ROL.Cajero;
   return lista.includes(moduloId);
 }
 
-export function modulosParaSidebar(rol) {
-  const permitidos = new Set(ACCESO_POR_ROL[normalizarRol(rol)] || ACCESO_POR_ROL.Cajero);
+export function modulosParaSidebar(rol, userId = null) {
+  const priv = leerPrivilegios();
+  const uid = userId != null ? String(userId) : '';
+  if (uid && Array.isArray(priv.porUsuario[uid])) {
+    const set = new Set(priv.porUsuario[uid]);
+    return MODULOS_ORDEN.filter((m) => set.has(m));
+  }
+  const r = normalizarRol(rol);
+  if (Array.isArray(priv.porRol[r])) {
+    const set = new Set(priv.porRol[r]);
+    return MODULOS_ORDEN.filter((m) => set.has(m));
+  }
+  const permitidos = new Set(ACCESO_POR_ROL[r] || ACCESO_POR_ROL.Cajero);
   return MODULOS_ORDEN.filter((m) => permitidos.has(m));
+}
+
+export function modulosDefaultRol(rol) {
+  const r = normalizarRol(rol);
+  return [...(ACCESO_POR_ROL[r] || ACCESO_POR_ROL.Cajero)];
 }
 
 /** Alta, baja y edición de cuentas PIN: solo administrador. */

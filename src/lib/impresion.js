@@ -364,3 +364,30 @@ export function imprimirPrueba() {
     { forzar: true, titulo: 'Ticket de prueba' },
   );
 }
+
+function htmlEtiquetasEstante(productos, meta = {}) {
+  const cfg = leerConfigImpresion();
+  const ancho = cfg.ancho === '58mm' ? '58mm' : '80mm';
+  const items = (productos || []).map(
+    (p) => `
+    <div class="etiqueta" style="border:1px dashed #999;padding:8px;margin:6px;display:inline-block;width:calc(50% - 12px);min-width:140px;vertical-align:top;page-break-inside:avoid">
+      <div style="font-size:0.75rem;color:#666">${esc(meta.sucursal ? etiquetaTienda(meta.sucursal) : '')}</div>
+      <div style="font-weight:800;font-size:0.95rem;line-height:1.2;margin:4px 0">${esc(p.nombre)}</div>
+      <div style="font-size:1.35rem;font-weight:800;color:#2d4f8c">${fmtMoney(p.precio)}</div>
+      <div style="font-family:monospace;font-size:0.85rem;margin-top:4px">${esc(p.id)}</div>
+      <div style="font-size:0.8rem;margin-top:2px">Stock piso: ${p.stock ?? 0}</div>
+    </div>`,
+  );
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Etiquetas</title>
+    <style>body{font-family:system-ui,sans-serif;margin:12px} @media print{.etiqueta{border-color:#ccc}}</style></head>
+    <body>
+    <h3 style="margin:0 0 8px">Etiquetas de estante</h3>
+    <div class="muted" style="font-size:0.85rem;margin-bottom:12px">${items.length} producto(s) · ${fmtFecha()}</div>
+    ${items.join('') || '<p>Sin productos.</p>'}
+    </body></html>`;
+}
+
+export function imprimirEtiquetasEstante(productos, meta = {}) {
+  const html = htmlEtiquetasEstante(productos, meta);
+  return abrirVentanaImpresion(html, 'Etiquetas de estante');
+}

@@ -1,9 +1,9 @@
 const LS_MOVIMIENTOS = 'pos3b_movimientos_inventario';
 
 export const TIPOS_MOVIMIENTO = [
-  { id: 'entrada', label: 'Entrada', signo: 1, desc: 'Suma unidades al inventario' },
-  { id: 'retiro', label: 'Retiro', signo: -1, desc: 'Resta unidades (merma, uso interno, etc.)' },
-  { id: 'traspaso', label: 'Traspaso', signo: 0, desc: 'Mueve unidades de un SKU a otro' },
+  { id: 'entrada', label: 'Entrada', signo: 1, desc: 'Suma unidades al CEDIS (almacén)' },
+  { id: 'retiro', label: 'Retiro', signo: -1, desc: 'Resta unidades del piso de venta (merma, uso interno, etc.)' },
+  { id: 'traspaso', label: 'Traspaso', signo: 0, desc: 'Mueve unidades entre CEDIS, piso de venta u otra tienda' },
 ];
 
 export function leerMovimientosLocal() {
@@ -76,13 +76,22 @@ export async function aplicarMovimientoInventario(supabase, opts) {
   }
 
   const signo = tipo === 'entrada' ? 1 : -1;
-  const nuevo = stockOrigen + signo * qty;
+  const esEntradaCedis = tipo === 'entrada';
+  const stockBase = esEntradaCedis ? Number(productoOrigen.stock_cedis) || 0 : stockOrigen;
+  const nuevo = stockBase + signo * qty;
   if (nuevo < 0) {
-    return { ok: false, error: `No hay suficiente stock (hay ${stockOrigen}, retiras ${qty}).` };
+    const donde = esEntradaCedis ? 'CEDIS' : 'piso de venta';
+    return { ok: false, error: `No hay suficiente stock en ${donde} (hay ${stockBase}, retiras ${qty}).` };
   }
 
-  const { error } = await supabase.from('productos').update({ stock: nuevo }).eq('id', productoOrigen.id);
-  if (error) return { ok: false, error: error.message };
+  const patch = esEntradaCedis ? { stock_cedis: nuevo } : { stock: nuevo };
+  const { error } = await supabase.from('productos').update(patch).eq('id', productoOrigen.id);
+  if (error) {
+    if (esEntradaCedis && String(error.message).includes('stock_cedis')) {
+      return { ok: false, error: 'Falta la columna stock_cedis. Ejecuta supabase/fix_stock_ubicaciones.sql en Supabase.' };
+    }
+    return { ok: false, error: error.message };
+  }
 
   const log = guardarMovimientoLocal({
     tipo,
@@ -91,18 +100,19 @@ export async function aplicarMovimientoInventario(supabase, opts) {
     producto_id: productoOrigen.id,
     producto_nombre: productoOrigen.nombre,
     cantidad: qty,
-    stock_antes: stockOrigen,
+    stock_antes: stockBase,
     stock_despues: nuevo,
+    ubicacion: esEntradaCedis ? 'cedis' : 'piso',
     motivo: motivo?.trim() || '',
     usuario: usuario || '—',
     sucursal: sucursal || '',
     created_at: new Date().toISOString(),
   });
 
-  const verbo = tipo === 'entrada' ? 'Entrada' : 'Retiro';
+  const verbo = tipo === 'entrada' ? 'Entrada a CEDIS' : 'Retiro de piso';
   return {
     ok: true,
-    mensaje: `${verbo} de ${qty} uds. en "${productoOrigen.nombre}". Stock: ${stockOrigen} → ${nuevo}.`,
+    mensaje: `${verbo} de ${qty} uds. en "${productoOrigen.nombre}". Stock: ${stockBase} → ${nuevo}.`,
     log,
   };
 }
@@ -140,7 +150,7 @@ export async function aplicarEntradasMasivas(supabase, opts) {
     }
     aplicados += 1;
     log = r.log || log;
-    productoOrigen.stock = Number(productoOrigen.stock) + Math.floor(Number(cantidad));
+    productoOrigen.stock_cedis = (Number(productoOrigen.stock_cedis) || 0) + Math.floor(Number(cantidad));
   }
 
   if (!aplicados) return { ok: false, error: errores.join('\n') || 'No se aplicó ninguna entrada.' };

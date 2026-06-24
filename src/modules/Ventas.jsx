@@ -5,6 +5,7 @@ import { productoEnVenta, productoEsFavorito } from '../lib/productoForm.js';
 import { BtnLabel } from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import { turnoActual, usuarioAutorizadoLogin, nombreTurnoLegible } from '../lib/turnos.js';
+import { sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 
 function addToCart(carrito, producto) {
   const i = carrito.findIndex((c) => c.id === producto.id);
@@ -182,12 +183,17 @@ export default function Ventas({
     if (!r.ok) alert(r.error);
   };
 
+  const agregarAlCarrito = (producto, conSonido = false) => {
+    if (conSonido) sonidoEscaneoProducto();
+    setCarrito((car) => addToCart(car, producto));
+  };
+
   const procesarCodigoCamara = (codigo) => {
     const c = String(codigo || '').trim();
     if (!c) return;
     const exacto = inventario.find((p) => productoEnVenta(p) && String(p.id) === c);
     if (exacto) {
-      setCarrito((car) => addToCart(car, exacto));
+      agregarAlCarrito(exacto, true);
       setBusqueda('');
       return;
     }
@@ -205,7 +211,7 @@ export default function Ventas({
           tituloCamara="Escanear producto"
           onKeyDown={(e) => {
             if (e.key === 'Enter' && filtrados.length === 1) {
-              setCarrito((c) => addToCart(c, filtrados[0]));
+              agregarAlCarrito(filtrados[0], true);
               setBusqueda('');
             }
           }}

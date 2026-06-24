@@ -1,16 +1,25 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { aplicarEntradasMasivas, aplicarMovimientoInventario, leerMovimientosLocal, TIPOS_MOVIMIENTO } from '../lib/inventarioMovimientos.js';
+import {
+  SUBTIPOS_TRASPASO,
+  aplicarTraspasosMasivos,
+  etiquetaSubtipoTraspaso,
+  resolverTraspaso,
+  stockEnUbicacion,
+} from '../lib/ubicacionInventario.js';
 import { imprimirMovimientoInventario } from '../lib/impresion.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
+import { listarSucursales, etiquetaTienda } from '../constants/sucursales.js';
 import Icon from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import ConteoPorDepartamento from './ConteoPorDepartamento.jsx';
 
-export default function AjusteInventario({ supabase, inventario, cargarDatos, user, sucursal }) {
-  const [modo, setModo] = useState('libre');
+const TIPOS_LIBRE = TIPOS_MOVIMIENTO.filter((t) => t.id !== 'traspaso');
+
+export default function AjusteInventario({ supabase, inventario, cargarDatos, user, sucursal, modoInicial = 'libre' }) {
+  const [modo, setModo] = useState(modoInicial);
   const [tipo, setTipo] = useState('entrada');
   const [productoId, setProductoId] = useState('');
-  const [destinoId, setDestinoId] = useState('');
   const [cantidad, setCantidad] = useState('1');
   const [motivo, setMotivo] = useState('');
   const [busqueda, setBusqueda] = useState('');
@@ -20,8 +29,18 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
   const [busquedaMasiva, setBusquedaMasiva] = useState('');
   const [productoMasivoId, setProductoMasivoId] = useState('');
   const [codigoEscaneo, setCodigoEscaneo] = useState('');
+  const [subtipoTraspaso, setSubtipoTraspaso] = useState('cedis_piso');
+  const [sucursalDestinoTraspaso, setSucursalDestinoTraspaso] = useState('');
+  const [lineasTraspaso, setLineasTraspaso] = useState([]);
+  const [busquedaTraspaso, setBusquedaTraspaso] = useState('');
+  const [productoTraspasoId, setProductoTraspasoId] = useState('');
+  const [codigoEscaneoTraspaso, setCodigoEscaneoTraspaso] = useState('');
   const scanInputRef = useRef(null);
   const cantidadInputRef = useRef(null);
+
+  useEffect(() => {
+    if (modoInicial) setModo(modoInicial);
+  }, [modoInicial]);
 
   useEffect(() => {
     if (modo === 'libre') scanInputRef.current?.focus();
@@ -42,7 +61,27 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
   }, [inventario, busqueda]);
 
   const productoOrigen = inventario.find((p) => p.id === productoId);
-  const productoDestino = inventario.find((p) => p.id === destinoId);
+  const sucursalesLista = useMemo(() => listarSucursales(), []);
+
+  const rutaTraspaso = useMemo(
+    () => resolverTraspaso(subtipoTraspaso, sucursal, sucursalDestinoTraspaso),
+    [subtipoTraspaso, sucursal, sucursalDestinoTraspaso],
+  );
+
+  const productosBusquedaTraspaso = useMemo(() => {
+    const t = busquedaTraspaso.trim().toLowerCase();
+    let list = inventario || [];
+    if (t) {
+      list = list.filter(
+        (p) =>
+          String(p.nombre || '')
+            .toLowerCase()
+            .includes(t) || String(p.id || '').toLowerCase().includes(t),
+      );
+    }
+    const idsEnLista = new Set(lineasTraspaso.map((l) => l.productoId));
+    return list.filter((p) => !idsEnLista.has(p.id)).slice(0, 40);
+  }, [inventario, busquedaTraspaso, lineasTraspaso]);
 
   const productosBusquedaMasiva = useMemo(() => {
     const t = busquedaMasiva.trim().toLowerCase();
@@ -59,10 +98,39 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
     return list.filter((p) => !idsEnLista.has(p.id)).slice(0, 40);
   }, [inventario, busquedaMasiva, lineasMasivas]);
 
-  const destinosTraspaso = useMemo(() => {
-    if (tipo !== 'traspaso') return [];
-    return inventario.filter((p) => p.id !== productoId);
-  }, [inventario, tipo, productoId]);
+  const agregarProductoTraspaso = (producto) => {
+    if (!producto?.id) return;
+    if (lineasTraspaso.some((l) => l.productoId === producto.id)) {
+      alert('Ese producto ya está en la lista de traspaso.');
+      return;
+    }
+    if (!rutaTraspaso) {
+      alert('Selecciona una tienda destino para el traspaso entre tiendas.');
+      return;
+    }
+    setLineasTraspaso([...lineasTraspaso, { productoId: producto.id, cantidad: '1' }]);
+    setProductoTraspasoId('');
+    setBusquedaTraspaso('');
+    setCodigoEscaneoTraspaso('');
+  };
+
+  const procesarEscaneoTraspaso = (raw) => {
+    const codigo = String(raw ?? codigoEscaneoTraspaso).trim();
+    if (!codigo) return;
+    const { producto, ambiguo } = buscarProductoInventario(inventario, codigo);
+    if (ambiguo) {
+      setBusquedaTraspaso(codigo);
+      setCodigoEscaneoTraspaso('');
+      alert('Varios productos coinciden. Elige uno de la lista.');
+      return;
+    }
+    if (!producto) {
+      setCodigoEscaneoTraspaso('');
+      alert(`Producto no encontrado: ${codigo}`);
+      return;
+    }
+    agregarProductoTraspaso(producto);
+  };
 
   const procesarEscaneo = (raw) => {
     const codigo = String(raw ?? codigoEscaneo).trim();
@@ -83,7 +151,6 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
     setProductoId(producto.id);
     setBusqueda('');
     setCodigoEscaneo('');
-    setDestinoId('');
     cantidadInputRef.current?.focus();
     cantidadInputRef.current?.select();
   };
@@ -101,7 +168,6 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
       tipo,
       productoOrigen,
       cantidad,
-      productoDestino,
       motivo,
       usuario: user?.nombre,
       sucursal,
@@ -117,8 +183,7 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
     setHistorial(r.log || leerMovimientosLocal());
     setCantidad('1');
     setMotivo('');
-    if (tipo !== 'traspaso') setProductoId('');
-    setDestinoId('');
+    setProductoId('');
     setCodigoEscaneo('');
     cargarDatos();
     if (modo === 'libre') scanInputRef.current?.focus();
@@ -175,12 +240,74 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
     cargarDatos();
   };
 
+  const quitarLineaTraspaso = (productoId) => {
+    setLineasTraspaso(lineasTraspaso.filter((l) => l.productoId !== productoId));
+  };
+
+  const actualizarCantidadTraspaso = (productoId, cantidad) => {
+    setLineasTraspaso(lineasTraspaso.map((l) => (l.productoId === productoId ? { ...l, cantidad } : l)));
+  };
+
+  const agregarLineaTraspaso = () => {
+    const p = inventario.find((x) => x.id === productoTraspasoId);
+    if (!p) return alert('Elige un producto para agregar.');
+    agregarProductoTraspaso(p);
+  };
+
+  const aplicarTraspaso = async () => {
+    const validas = lineasTraspaso.filter((l) => l.productoId && Number(l.cantidad) > 0);
+    if (!validas.length) return alert('Agrega al menos un producto con cantidad.');
+    if (!rutaTraspaso) return alert('Selecciona una tienda destino distinta a la origen.');
+    const etiqueta = etiquetaSubtipoTraspaso(subtipoTraspaso);
+    if (!confirm(`¿Aplicar traspaso (${etiqueta}) de ${validas.length} producto(s)?`)) return;
+    setAplicando(true);
+    const r = await aplicarTraspasosMasivos(supabase, {
+      lineas: validas,
+      inventario,
+      subtipo: subtipoTraspaso,
+      sucursalOrigen: sucursal,
+      sucursalDestino: sucursalDestinoTraspaso,
+      motivo,
+      usuario: user?.nombre,
+      sucursalActiva: sucursal,
+    });
+    setAplicando(false);
+    if (!r.ok) {
+      alert(r.error);
+      return;
+    }
+    alert(r.mensaje + (r.errores?.length ? `\n\nErrores:\n${r.errores.join('\n')}` : ''));
+    setHistorial(r.log || leerMovimientosLocal());
+    const lineasPrint = validas.map((l) => {
+      const p = inventario.find((x) => x.id === l.productoId);
+      return {
+        id: l.productoId,
+        nombre: p?.nombre || l.productoId,
+        cantidad: l.cantidad,
+        tipo: etiqueta,
+      };
+    });
+    await imprimirMovimientoInventario({
+      titulo: `TRASPASO — ${etiqueta.toUpperCase()}`,
+      sucursal,
+      usuario: user?.nombre,
+      motivo,
+      lineas: lineasPrint,
+    });
+    setLineasTraspaso([]);
+    setMotivo('');
+    cargarDatos();
+  };
+
   const imprimirHistorial = () => {
     const recientes = historial.slice(0, 25).map((m) => ({
       id: m.producto_id,
       nombre: m.producto_nombre || m.producto_id,
       cantidad: m.cantidad,
-      tipo: m.tipo + (m.producto_destino_nombre ? ` → ${m.producto_destino_nombre}` : ''),
+      tipo:
+        m.traspaso_origen && m.traspaso_destino
+          ? `${m.traspaso_origen} → ${m.traspaso_destino}`
+          : m.tipo + (m.producto_destino_nombre ? ` → ${m.producto_destino_nombre}` : ''),
     }));
     imprimirMovimientoInventario({
       titulo: 'HISTORIAL DE MOVIMIENTOS',
@@ -195,7 +322,7 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
       <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Ajuste de inventario</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-          Registra entradas, retiros o traspasos entre productos. Los movimientos actualizan el stock en Supabase y quedan en el historial de este equipo.
+          Registra entradas, retiros o traspasos entre CEDIS, piso de venta y otras tiendas. Los movimientos actualizan el stock en Supabase y quedan en el historial de este equipo.
           {modo === 'libre' && ' En inventario libre puedes escanear el código de barras con el lector USB (HID).'}
         </p>
 
@@ -216,10 +343,19 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
               setModo('masivo');
               setTipo('entrada');
               setProductoId('');
-              setDestinoId('');
             }}
           >
             Entrada múltiple
+          </button>
+          <button
+            type="button"
+            className={modo === 'traspaso' ? 'btn btn-primary' : 'btn btn-ghost'}
+            onClick={() => {
+              setModo('traspaso');
+              setLineasTraspaso([]);
+            }}
+          >
+            Traspaso
           </button>
         </div>
 
@@ -229,31 +365,33 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
           </p>
         )}
 
-        {modo !== 'masivo' && modo !== 'departamento' && (
+        {modo === 'libre' && (
           <>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '1rem' }}>
-              {TIPOS_MOVIMIENTO.map((t) => (
+              {TIPOS_LIBRE.map((t) => (
                 <button
                   key={t.id}
                   type="button"
                   className={tipo === t.id ? 'btn btn-primary' : 'btn btn-ghost'}
                   style={{ flex: '1 1 140px' }}
-                  onClick={() => {
-                    setTipo(t.id);
-                    setDestinoId('');
-                  }}
+                  onClick={() => setTipo(t.id)}
                   title={t.desc}
                 >
                   {t.label}
                 </button>
               ))}
             </div>
-            <p className="muted" style={{ fontSize: '0.8rem', margin: '0.35rem 0 0' }}>{TIPOS_MOVIMIENTO.find((t) => t.id === tipo)?.desc}</p>
+            <p className="muted" style={{ fontSize: '0.8rem', margin: '0.35rem 0 0' }}>{TIPOS_LIBRE.find((t) => t.id === tipo)?.desc}</p>
           </>
         )}
         {modo === 'masivo' && (
           <p className="muted" style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
             Agrega varios productos con sus cantidades y aplica todas las entradas en un solo paso (recepción de mercancía, conteo, etc.).
+          </p>
+        )}
+        {modo === 'traspaso' && (
+          <p className="muted" style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
+            Arma una lista de productos y traspásalos de CEDIS al piso de venta, del piso al CEDIS, o del CEDIS de esta tienda al CEDIS de otra sucursal.
           </p>
         )}
       </div>
@@ -291,7 +429,7 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
                 <option value="">— Elegir —</option>
                 {productosBusquedaMasiva.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.nombre} · Stock {p.stock} · {p.cat}
+                    {p.nombre} · CEDIS {p.stock_cedis ?? 0} · Piso {p.stock} · {p.cat}
                   </option>
                 ))}
               </select>
@@ -313,9 +451,9 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
                 <tr>
                   <th>Código</th>
                   <th>Producto</th>
-                  <th>Stock actual</th>
+                  <th>Stock CEDIS</th>
                   <th>Cantidad</th>
-                  <th>Quedaría</th>
+                  <th>Quedaría CEDIS</th>
                   <th />
                 </tr>
               </thead>
@@ -330,7 +468,7 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
                   lineasMasivas.map((l) => {
                     const p = inventario.find((x) => x.id === l.productoId);
                     const qty = parseInt(l.cantidad, 10) || 0;
-                    const stock = Number(p?.stock) || 0;
+                    const stock = Number(p?.stock_cedis) || 0;
                     return (
                       <tr key={l.productoId}>
                         <td>{l.productoId}</td>
@@ -371,7 +509,175 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
             )}
           </div>
         </div>
-      ) : (
+      ) : modo === 'traspaso' ? (
+        <div className="card">
+          <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Traspaso de mercancía</h4>
+          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+            Tienda actual: <span className="badge">{etiquetaTienda(sucursal)}</span>
+            {rutaTraspaso && (
+              <span style={{ marginLeft: '0.5rem' }}>
+                · Origen: <strong>{rutaTraspaso.ubicacionOrigen === 'cedis' ? 'CEDIS' : 'Piso'}</strong>
+                {' → '}
+                Destino: <strong>{rutaTraspaso.ubicacionDestino === 'cedis' ? 'CEDIS' : 'Piso'}</strong>
+                {subtipoTraspaso === 'tienda_tienda' && sucursalDestinoTraspaso && (
+                  <span> ({etiquetaTienda(sucursalDestinoTraspaso)})</span>
+                )}
+              </span>
+            )}
+          </p>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem' }}>
+            {SUBTIPOS_TRASPASO.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={subtipoTraspaso === s.id ? 'btn btn-primary' : 'btn btn-ghost'}
+                style={{ flex: '1 1 180px' }}
+                onClick={() => {
+                  setSubtipoTraspaso(s.id);
+                  if (s.id !== 'tienda_tienda') setSucursalDestinoTraspaso('');
+                }}
+                title={s.desc}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+          <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 1rem' }}>{SUBTIPOS_TRASPASO.find((s) => s.id === subtipoTraspaso)?.desc}</p>
+
+          {subtipoTraspaso === 'tienda_tienda' && (
+            <label className="muted" style={{ display: 'block', marginBottom: '1rem', maxWidth: '320px' }}>
+              Tienda destino
+              <select
+                className="select"
+                style={{ marginTop: '0.35rem' }}
+                value={sucursalDestinoTraspaso}
+                onChange={(e) => setSucursalDestinoTraspaso(e.target.value)}
+              >
+                <option value="">— Elegir tienda —</option>
+                {sucursalesLista
+                  .filter((c) => c !== sucursal)
+                  .map((c) => (
+                    <option key={c} value={c}>
+                      {etiquetaTienda(c)}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
+
+          <div className="grid-2">
+            <label className="muted" style={{ gridColumn: '1 / -1' }}>
+              Escanear o buscar producto
+              <div style={{ marginTop: '0.35rem' }}>
+                <CampoCodigo
+                  value={codigoEscaneoTraspaso || busquedaTraspaso}
+                  onChange={(e) => {
+                    setBusquedaTraspaso(e.target.value);
+                    setCodigoEscaneoTraspaso(e.target.value);
+                  }}
+                  onEscanear={procesarEscaneoTraspaso}
+                  onKeyDown={(e) => e.key === 'Enter' && procesarEscaneoTraspaso(e.target.value)}
+                  placeholder="Código de barras o nombre…"
+                  tituloCamara="Agregar a traspaso"
+                />
+              </div>
+            </label>
+            <label className="muted">
+              Producto
+              <select className="select" style={{ marginTop: '0.35rem' }} value={productoTraspasoId} onChange={(e) => setProductoTraspasoId(e.target.value)}>
+                <option value="">— Elegir —</option>
+                {productosBusquedaTraspaso.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre} · Piso {stockEnUbicacion(p, sucursal, 'piso')} · CEDIS {stockEnUbicacion(p, sucursal, 'cedis')}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <button type="button" className="btn btn-primary" onClick={agregarLineaTraspaso} disabled={!rutaTraspaso}>
+                Agregar a la lista
+              </button>
+            </div>
+            <label className="muted" style={{ gridColumn: '1 / -1' }}>
+              Motivo / referencia (opcional)
+              <input className="input" style={{ marginTop: '0.35rem' }} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej. Surtido a piso, envío a sucursal…" />
+            </label>
+          </div>
+
+          <div className="table-wrap" style={{ marginTop: '1rem' }}>
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Código</th>
+                  <th>Producto</th>
+                  <th>Stock origen</th>
+                  <th>Cantidad</th>
+                  <th>Quedaría origen</th>
+                  <th>Quedaría destino</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {lineasTraspaso.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="muted">
+                      Sin productos. Escanea o busca los artículos que vas a traspasar.
+                    </td>
+                  </tr>
+                ) : (
+                  lineasTraspaso.map((l) => {
+                    const p = inventario.find((x) => x.id === l.productoId);
+                    const qty = parseInt(l.cantidad, 10) || 0;
+                    const stockO = rutaTraspaso
+                      ? stockEnUbicacion(p, rutaTraspaso.sucursalOrigen, rutaTraspaso.ubicacionOrigen)
+                      : 0;
+                    const stockD = rutaTraspaso
+                      ? stockEnUbicacion(p, rutaTraspaso.sucursalDestino, rutaTraspaso.ubicacionDestino)
+                      : 0;
+                    const insuficiente = qty > stockO;
+                    return (
+                      <tr key={l.productoId} style={insuficiente ? { background: 'rgba(211,47,47,0.06)' } : undefined}>
+                        <td>{l.productoId}</td>
+                        <td>{p?.nombre || '—'}</td>
+                        <td>{stockO}</td>
+                        <td>
+                          <input
+                            className="input"
+                            type="number"
+                            min={1}
+                            style={{ width: '5rem', padding: '0.35rem 0.5rem' }}
+                            value={l.cantidad}
+                            onChange={(e) => actualizarCantidadTraspaso(l.productoId, e.target.value)}
+                          />
+                        </td>
+                        <td>{qty > 0 ? Math.max(0, stockO - qty) : '—'}</td>
+                        <td>{qty > 0 ? stockD + qty : '—'}</td>
+                        <td>
+                          <button type="button" className="btn btn-danger" style={{ padding: '0.25rem 0.45rem', fontSize: '0.75rem' }} onClick={() => quitarLineaTraspaso(l.productoId)}>
+                            Quitar
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-success" onClick={aplicarTraspaso} disabled={aplicando || lineasTraspaso.length === 0 || !rutaTraspaso}>
+              {aplicando ? 'Aplicando…' : `Aplicar traspaso (${lineasTraspaso.length})`}
+            </button>
+            {lineasTraspaso.length > 0 && (
+              <button type="button" className="btn btn-ghost" onClick={() => setLineasTraspaso([])}>
+                Vaciar lista
+              </button>
+            )}
+          </div>
+        </div>
+      ) : modo === 'libre' ? (
       <div className="card">
         <div className="grid-2">
           {modo === 'libre' && (
@@ -415,29 +721,16 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
             </>
           )}
           <label className="muted">
-            {tipo === 'traspaso' ? 'Producto origen' : 'Producto'}
+            Producto
             <select className="select" style={{ marginTop: '0.35rem' }} value={productoId} onChange={(e) => setProductoId(e.target.value)}>
               <option value="">— Elegir —</option>
               {productosFiltrados.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.nombre} · Stock {p.stock} · {p.cat}
+                  {p.nombre} · Piso {p.stock} · CEDIS {p.stock_cedis ?? 0} · {p.cat}
                 </option>
               ))}
             </select>
           </label>
-          {tipo === 'traspaso' && (
-            <label className="muted">
-              Producto destino
-              <select className="select" style={{ marginTop: '0.35rem' }} value={destinoId} onChange={(e) => setDestinoId(e.target.value)}>
-                <option value="">— Elegir —</option>
-                {destinosTraspaso.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nombre} · Stock {p.stock}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
           <label className="muted">
             Cantidad (unidades)
             <input ref={cantidadInputRef} className="input" type="number" min={1} style={{ marginTop: '0.35rem' }} value={cantidad} onChange={(e) => setCantidad(e.target.value)} />
@@ -451,10 +744,12 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
         {productoOrigen && (
           <div style={{ marginTop: '0.75rem', padding: '0.75rem', borderRadius: '10px', background: 'var(--surface)', fontSize: '0.9rem' }}>
             <strong>{productoOrigen.nombre}</strong>
-            <span className="muted"> · Código {productoOrigen.id} · Depto. {productoOrigen.cat} · Stock actual: </span>
+            <span className="muted"> · Código {productoOrigen.id} · Depto. {productoOrigen.cat} · Piso: </span>
             <strong>{productoOrigen.stock}</strong>
+            <span className="muted"> · CEDIS: </span>
+            <strong>{productoOrigen.stock_cedis ?? 0}</strong>
             {tipo === 'entrada' && cantidad && (
-              <span className="muted"> → quedaría en {Number(productoOrigen.stock) + (parseInt(cantidad, 10) || 0)}</span>
+              <span className="muted"> → CEDIS quedaría en {(Number(productoOrigen.stock_cedis) || 0) + (parseInt(cantidad, 10) || 0)}</span>
             )}
             {tipo === 'retiro' && cantidad && (
               <span className="muted"> → quedaría en {Math.max(0, Number(productoOrigen.stock) - (parseInt(cantidad, 10) || 0))}</span>
@@ -466,7 +761,7 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
           {aplicando ? 'Aplicando…' : 'Aplicar movimiento'}
         </button>
       </div>
-      )}
+      ) : null}
 
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
@@ -509,6 +804,11 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
                     </td>
                     <td style={{ fontSize: '0.85rem' }}>
                       {m.producto_nombre || m.producto_id}
+                      {m.traspaso_origen && m.traspaso_destino && (
+                        <span className="muted" style={{ display: 'block' }}>
+                          {m.traspaso_origen} → {m.traspaso_destino}
+                        </span>
+                      )}
                       {m.producto_destino_nombre && (
                         <span className="muted" style={{ display: 'block' }}>
                           → {m.producto_destino_nombre}

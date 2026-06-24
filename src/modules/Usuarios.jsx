@@ -18,6 +18,8 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
   const [pinsVisibles, setPinsVisibles] = useState(() => new Set());
   const [pinEnEdicion, setPinEnEdicion] = useState(null);
   const [nuevoPinDraft, setNuevoPinDraft] = useState('');
+  const [editandoId, setEditandoId] = useState(null);
+  const [editForm, setEditForm] = useState({ nombre: '', rol: 'Cajero', sucursal_id: 'MAIN' });
   const [filtroSucursal, setFiltroSucursal] = useState('');
   const [turnos, setTurnos] = useState(() => leerTurnos());
   const [configHorario, setConfigHorario] = useState(() => leerConfigHorario());
@@ -65,6 +67,32 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       else next.add(id);
       return next;
     });
+  };
+
+  const abrirEdicion = (r) => {
+    setEditandoId(r.id);
+    setEditForm({
+      nombre: r.nombre || '',
+      rol: normalizarRol(r.rol),
+      sucursal_id: normalizarCodigoTienda(r.sucursal_id) || 'MAIN',
+    });
+  };
+
+  const guardarEdicion = async () => {
+    if (!supabase || !esAdmin || !editandoId) return;
+    const nombre = editForm.nombre.trim();
+    if (!nombre) return alert('El nombre es obligatorio.');
+    const payload = {
+      nombre,
+      rol: normalizarRol(editForm.rol),
+      sucursal_id: normalizarCodigoTienda(editForm.sucursal_id) || 'MAIN',
+    };
+    const { error } = await supabase.from('usuarios').update(payload).eq('id', editandoId);
+    if (error) return alert(error.message);
+    if (actor?.id === editandoId) onUsuarioActualizado?.({ ...actor, ...payload });
+    setEditandoId(null);
+    load();
+    alert('Usuario actualizado.');
   };
 
   const crear = async () => {
@@ -360,6 +388,9 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', justifyContent: 'flex-end' }}>
                         {pinEnEdicion !== r.id && (
                           <>
+                            <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => abrirEdicion(r)}>
+                              Editar
+                            </button>
                             <button type="button" className="btn btn-gold" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => togglePinVisible(r.id)}>
                               {pinsVisibles.has(r.id) ? 'Ocultar' : 'Ver PIN'}
                             </button>
@@ -388,6 +419,46 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
           </table>
         </div>
       </div>
+
+      {editandoId && (
+        <div className="card" style={{ borderTop: '4px solid var(--brand-blue)', maxWidth: '520px' }}>
+          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Editar usuario</h3>
+          <div className="grid-2">
+            <label className="muted" style={{ gridColumn: '1 / -1' }}>
+              Nombre completo
+              <input className="input" style={{ marginTop: '0.35rem' }} value={editForm.nombre} onChange={(e) => setEditForm({ ...editForm, nombre: e.target.value })} />
+            </label>
+            <label className="muted">
+              Sucursal
+              <select className="select" style={{ marginTop: '0.35rem' }} value={editForm.sucursal_id} onChange={(e) => setEditForm({ ...editForm, sucursal_id: e.target.value })}>
+                {tiendas.map((s) => (
+                  <option key={s} value={s}>
+                    {etiquetaTienda(s)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="muted">
+              Rol
+              <select className="select" style={{ marginTop: '0.35rem' }} value={editForm.rol} onChange={(e) => setEditForm({ ...editForm, rol: e.target.value })}>
+                {ROLES.map((rol) => (
+                  <option key={rol} value={rol}>
+                    {rol}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+            <button type="button" className="btn btn-primary" onClick={guardarEdicion}>
+              Guardar cambios
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => setEditandoId(null)}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

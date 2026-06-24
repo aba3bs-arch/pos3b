@@ -180,3 +180,84 @@ export function perifericoImpresoraActiva() {
   if (cfg.impresoraId) return lista.find((p) => p.id === cfg.impresoraId) || lista[0] || null;
   return lista.find((p) => p.conectado) || lista[0] || null;
 }
+
+const LS_TIPO_CAMBIO = 'pos3b_tipo_cambio';
+const LS_AUDIO = 'pos3b_config_audio';
+const LS_PRIVILEGIOS = 'pos3b_privilegios';
+
+export const EVENTO_PRIVILEGIOS = 'pos3b-privilegios-updated';
+export const EVENTO_TIPO_CAMBIO = 'pos3b-tipo-cambio-updated';
+
+const AUDIO_DEFAULT = { sonidoMenu: true, sonidoEscaneo: true };
+
+export function leerTipoCambio() {
+  try {
+    const v = parseFloat(localStorage.getItem(LS_TIPO_CAMBIO));
+    return Number.isFinite(v) && v > 0 ? v : 17.5;
+  } catch {
+    return 17.5;
+  }
+}
+
+export function guardarTipoCambio(valor) {
+  const v = Math.max(0.01, parseFloat(valor) || 17.5);
+  localStorage.setItem(LS_TIPO_CAMBIO, String(v));
+  window.dispatchEvent(new CustomEvent(EVENTO_TIPO_CAMBIO, { detail: v }));
+  return v;
+}
+
+export function leerConfigAudio() {
+  try {
+    const raw = localStorage.getItem(LS_AUDIO);
+    if (!raw) return { ...AUDIO_DEFAULT };
+    return { ...AUDIO_DEFAULT, ...JSON.parse(raw) };
+  } catch {
+    return { ...AUDIO_DEFAULT };
+  }
+}
+
+export function guardarConfigAudio(cfg) {
+  const payload = {
+    sonidoMenu: cfg.sonidoMenu !== false,
+    sonidoEscaneo: cfg.sonidoEscaneo !== false,
+  };
+  localStorage.setItem(LS_AUDIO, JSON.stringify(payload));
+  return payload;
+}
+
+/** { porRol: { Cajero: [...] }, porUsuario: { "uuid": [...] } } */
+export function leerPrivilegios() {
+  try {
+    const raw = localStorage.getItem(LS_PRIVILEGIOS);
+    if (!raw) return { porRol: {}, porUsuario: {} };
+    const v = JSON.parse(raw);
+    return {
+      porRol: v.porRol && typeof v.porRol === 'object' ? v.porRol : {},
+      porUsuario: v.porUsuario && typeof v.porUsuario === 'object' ? v.porUsuario : {},
+    };
+  } catch {
+    return { porRol: {}, porUsuario: {} };
+  }
+}
+
+export function guardarPrivilegios(data) {
+  const payload = {
+    porRol: data.porRol && typeof data.porRol === 'object' ? data.porRol : {},
+    porUsuario: data.porUsuario && typeof data.porUsuario === 'object' ? data.porUsuario : {},
+  };
+  localStorage.setItem(LS_PRIVILEGIOS, JSON.stringify(payload));
+  window.dispatchEvent(new CustomEvent(EVENTO_PRIVILEGIOS));
+  return payload;
+}
+
+export function limpiarPrivilegiosRol(rol) {
+  const p = leerPrivilegios();
+  delete p.porRol[rol];
+  return guardarPrivilegios(p);
+}
+
+export function limpiarPrivilegiosUsuario(userId) {
+  const p = leerPrivilegios();
+  delete p.porUsuario[String(userId)];
+  return guardarPrivilegios(p);
+}

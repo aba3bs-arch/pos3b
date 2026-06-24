@@ -14,6 +14,13 @@ import {
   nuevoIdConfig,
   etiquetaConexionPeriferico,
   etiquetaTipoPeriferico,
+  leerConfigAudio,
+  guardarConfigAudio,
+  leerPrivilegios,
+  guardarPrivilegios,
+  limpiarPrivilegiosRol,
+  limpiarPrivilegiosUsuario,
+  guardarTipoCambio,
 } from '../lib/posConfig.js';
 import {
   EVENTO_PERIFERICOS,
@@ -72,7 +79,7 @@ import {
   resumenHorarioUsuario,
   etiquetaDuracionTurno,
 } from '../lib/turnos.js';
-import { puedeAsignarTurnos } from '../lib/roles.js';
+import { puedeAsignarTurnos, puedeGestionarUsuarios, MODULOS_ORDEN, ROLES, modulosDefaultRol } from '../lib/roles.js';
 import BrandLogo from '../components/BrandLogo.jsx';
 
 export default function Configuracion({
@@ -92,6 +99,12 @@ export default function Configuracion({
   const [negocio, setNegocio] = useState('');
   const [ticketFooter, setTicketFooter] = useState('');
   const [nuevaTienda, setNuevaTienda] = useState('');
+  const [audioCfg, setAudioCfg] = useState(() => leerConfigAudio());
+  const [privilegios, setPrivilegios] = useState(() => leerPrivilegios());
+  const [privModo, setPrivModo] = useState('rol');
+  const [privRol, setPrivRol] = useState('Cajero');
+  const [privUserId, setPrivUserId] = useState('');
+  const esAdmin = puedeGestionarUsuarios(user?.rol);
   const [metodosPago, setMetodosPago] = useState([]);
   const [perifericos, setPerifericos] = useState([]);
   const [nuevoMetodo, setNuevoMetodo] = useState('');
@@ -547,10 +560,29 @@ export default function Configuracion({
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Operación</h3>
         <label className="muted">
           Tipo de cambio (1 USD → MXN)
-          <input type="number" step="0.01" className="input" style={{ marginTop: '0.35rem' }} value={tipoCambio} onChange={(e) => setTipoCambio(parseFloat(e.target.value) || 0)} />
+          <input
+            type="number"
+            step="0.01"
+            className="input"
+            style={{ marginTop: '0.35rem' }}
+            value={tipoCambio}
+            onChange={(e) => setTipoCambio(parseFloat(e.target.value) || 0)}
+          />
         </label>
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{ marginTop: '0.5rem' }}
+          onClick={() => {
+            const v = guardarTipoCambio(tipoCambio);
+            setTipoCambio(v);
+            alert(`Tipo de cambio guardado: $${v.toFixed(2)} MXN por USD`);
+          }}
+        >
+          Guardar tipo de cambio
+        </button>
         <p className="muted" style={{ fontSize: '0.85rem' }}>
-          El cambio al cliente se calcula en pesos según este valor.
+          El cambio al cliente se calcula en pesos según este valor. Se guarda en este equipo y persiste al reiniciar.
         </p>
 
         <div style={{ marginTop: '0.75rem' }}>
@@ -588,6 +620,121 @@ export default function Configuracion({
           )}
         </div>
       </div>
+
+      <div className="card">
+        <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Sonidos del sistema</h3>
+        <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+          Activa o desactiva los sonidos al pasar el mouse por el menú de módulos y al escanear un producto en Ventas.
+        </p>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.65rem' }}>
+          <input type="checkbox" checked={audioCfg.sonidoMenu !== false} onChange={(e) => setAudioCfg({ ...audioCfg, sonidoMenu: e.target.checked })} />
+          Sonido al pasar el mouse en módulos del menú
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
+          <input type="checkbox" checked={audioCfg.sonidoEscaneo !== false} onChange={(e) => setAudioCfg({ ...audioCfg, sonidoEscaneo: e.target.checked })} />
+          Sonido al escanear producto en Ventas
+        </label>
+        <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={() => { guardarConfigAudio(audioCfg); alert('Preferencias de sonido guardadas.'); }}>
+          Guardar sonidos
+        </button>
+      </div>
+
+      {esAdmin && (
+        <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
+          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Privilegios por rol o usuario</h3>
+          <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+            Personaliza qué módulos puede ver cada rol o un empleado en particular. Si no configuras nada, se usan los permisos por defecto del rol.
+          </p>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', margin: '0.75rem 0' }}>
+            <button type="button" className={privModo === 'rol' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setPrivModo('rol')}>
+              Por rol
+            </button>
+            <button type="button" className={privModo === 'usuario' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setPrivModo('usuario')}>
+              Por usuario
+            </button>
+          </div>
+          {privModo === 'rol' ? (
+            <label className="muted" style={{ display: 'block', marginBottom: '0.75rem' }}>
+              Rol
+              <select className="select" style={{ marginTop: '0.35rem', maxWidth: '280px' }} value={privRol} onChange={(e) => setPrivRol(e.target.value)}>
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <label className="muted" style={{ display: 'block', marginBottom: '0.75rem' }}>
+              Usuario
+              <select className="select" style={{ marginTop: '0.35rem', maxWidth: '320px' }} value={privUserId} onChange={(e) => setPrivUserId(e.target.value)}>
+                <option value="">— Elegir empleado —</option>
+                {usuariosTurno.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.nombre} ({u.rol})
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.35rem' }}>
+            {MODULOS_ORDEN.map((mod) => {
+              const key = privModo === 'usuario' ? privUserId : privRol;
+              const custom = privModo === 'usuario' ? privilegios.porUsuario[key] : privilegios.porRol[key];
+              const base = privModo === 'usuario'
+                ? modulosDefaultRol(usuariosTurno.find((u) => String(u.id) === String(key))?.rol || 'Cajero')
+                : modulosDefaultRol(privRol);
+              const activos = custom || base;
+              const checked = activos.includes(mod);
+              return (
+                <label key={mod} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={!key}
+                    onChange={() => {
+                      if (!key) return;
+                      const store = privModo === 'usuario' ? 'porUsuario' : 'porRol';
+                      const actual = [...(privilegios[store][key] || base)];
+                      const next = actual.includes(mod) ? actual.filter((m) => m !== mod) : [...actual, mod];
+                      setPrivilegios({ ...privilegios, [store]: { ...privilegios[store], [key]: next } });
+                    }}
+                  />
+                  {mod}
+                </label>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                guardarPrivilegios(privilegios);
+                alert('Privilegios guardados.');
+              }}
+              disabled={privModo === 'usuario' && !privUserId}
+            >
+              Guardar privilegios
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                if (privModo === 'usuario' && privUserId) {
+                  setPrivilegios(limpiarPrivilegiosUsuario(privUserId));
+                } else if (privModo === 'rol') {
+                  setPrivilegios(limpiarPrivilegiosRol(privRol));
+                }
+                alert('Se restauraron los permisos por defecto para esta selección.');
+              }}
+              disabled={privModo === 'usuario' && !privUserId}
+            >
+              Usar permisos por defecto
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Catálogo de tiendas</h3>
