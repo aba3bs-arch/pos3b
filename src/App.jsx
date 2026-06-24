@@ -217,6 +217,8 @@ function App() {
     return r;
   };
 
+  const puedeIngresarPin = Boolean(supabase) && codigoTiendaValido(sucursal);
+
   if (!sesion) {
     return (
       <div
@@ -235,7 +237,9 @@ function App() {
           </div>
           <h2 style={{ margin: '0 0 0.25rem', color: 'var(--brand-blue)' }}>{brandTitle}</h2>
           <p className="muted" style={{ margin: '0 0 1rem' }}>
-            {tiendaFijadaParaAcceso ? 'Ingresa tu PIN' : 'Primero elige y fija la tienda de esta caja; luego podrás usar el PIN.'}
+            {tiendaFijadaParaAcceso
+              ? 'Ingresa tu PIN'
+              : 'Elige la tienda y escribe tu PIN. En la caja puedes fijarla con el botón de abajo.'}
           </p>
           {!tiendaFijadaParaAcceso && !SUCURSAL_FIJA_ENV && (
             <>
@@ -259,10 +263,10 @@ function App() {
                   setTiendaFijadaParaAcceso(true);
                 }}
               >
-                Fijar tienda en este equipo
+                Fijar tienda en este equipo (opcional)
               </button>
               <p className="muted" style={{ fontSize: '0.78rem', textAlign: 'left', marginBottom: '1rem' }}>
-                Así esta terminal solo registrará ventas y compras de una sucursal. En cada PC de tienda puedes además definir <code>VITE_SUCURSAL_FIJA</code> en <code>.env</code> para bloquearlo desde el despliegue.
+                Fijar la tienda sirve en la PC de caja para no cambiarla por error. Desde el celular basta con elegir la tienda y el PIN.
               </p>
             </>
           )}
@@ -288,22 +292,24 @@ function App() {
             </p>
           )}
           <input
-            type="password"
+            type="tel"
+            inputMode="numeric"
+            autoComplete="off"
             className="input"
             value={pin}
             onChange={(e) => setPin(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && tiendaFijadaParaAcceso && manejarLogin()}
+            onKeyDown={(e) => e.key === 'Enter' && puedeIngresarPin && manejarLogin()}
             placeholder="PIN"
             style={{ fontSize: '1.5rem', textAlign: 'center', letterSpacing: '0.2em', marginBottom: '1rem' }}
-            autoFocus={tiendaFijadaParaAcceso}
-            disabled={!supabase || !tiendaFijadaParaAcceso}
+            autoFocus={puedeIngresarPin}
+            disabled={!puedeIngresarPin}
           />
           <button
             type="button"
             className="btn btn-primary"
             style={{ width: '100%', padding: '0.85rem' }}
             onClick={manejarLogin}
-            disabled={!supabase || !tiendaFijadaParaAcceso}
+            disabled={!puedeIngresarPin}
           >
             <BtnLabel icon="logIn">Entrar</BtnLabel>
           </button>
