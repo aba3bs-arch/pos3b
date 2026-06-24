@@ -5,6 +5,7 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  ELECTRON_SKIP_BINARY_DOWNLOAD = "1"
 
 # Rutas del cliente React
 [[redirects]]
