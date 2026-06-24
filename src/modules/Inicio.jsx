@@ -7,6 +7,7 @@ import { fmtMxn, resumirValorInventario } from '../lib/valorInventario.js';
 
 export default function Inicio({ supabase, sucursal, inventario, onNavigate, puedeModulo }) {
   const puede = typeof puedeModulo === 'function' ? puedeModulo : () => true;
+  const puedeVerInventario = puede('Productos');
   const [ventasHoy, setVentasHoy] = useState([]);
   const [loading, setLoading] = useState(true);
   const valorInv = useMemo(() => resumirValorInventario(inventario), [inventario]);
@@ -62,6 +63,7 @@ export default function Inicio({ supabase, sucursal, inventario, onNavigate, pue
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      {puedeVerInventario && (
       <div
         className="card"
         style={{
@@ -110,6 +112,7 @@ export default function Inicio({ supabase, sucursal, inventario, onNavigate, pue
           </button>
         )}
       </div>
+      )}
 
       <div>
         <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>Panel de inicio</h2>
@@ -119,7 +122,7 @@ export default function Inicio({ supabase, sucursal, inventario, onNavigate, pue
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
-        {kpi('Total inventario', fmtMxn(valorInv.valorTotal), `${valorInv.unidades} uds. a precio venta`, puede('Productos') ? () => onNavigate('Productos') : undefined, 'package')}
+        {puedeVerInventario && kpi('Total inventario', fmtMxn(valorInv.valorTotal), `${valorInv.unidades} uds. a precio venta`, () => onNavigate('Productos'), 'package')}
         {kpi('Ventas hoy', ventasHoy.length.toString(), `$${totalHoy.toFixed(2)} MXN acumulado`, puede('Ventas') ? () => onNavigate('Ventas') : undefined, 'cart')}
         {kpi('Ticket promedio', `$${ticketProm.toFixed(2)}`, 'MXN por venta', puede('Estadisticas') ? () => onNavigate('Estadisticas') : undefined, 'dollar')}
         {kpi('Alertas stock', String(lowStock.length), 'SKU con menos de 5 uds.', puede('Productos') ? () => onNavigate('Productos') : undefined, 'alert')}

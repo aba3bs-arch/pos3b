@@ -7,6 +7,7 @@ import {
   productoVacio,
 } from '../lib/productoForm.js';
 import { BtnLabel } from '../components/Icon.jsx';
+import CampoCodigo from './CampoCodigo.jsx';
 
 export default function FormularioProducto({
   form,
@@ -93,14 +94,24 @@ export default function FormularioProducto({
         <div style={{ flex: '1 1 320px', minWidth: 0 }} className="grid-2">
           <label>
             <span className="muted">Código de barras / código</span>
-            <input
-              className="input"
-              style={{ marginTop: '0.35rem' }}
-              value={form.id}
-              onChange={(e) => setCampoSimple('id', e.target.value)}
-              readOnly={esEdicion}
-              placeholder="EAN, UPC o clave interna"
-            />
+            {esEdicion ? (
+              <input
+                className="input"
+                style={{ marginTop: '0.35rem' }}
+                value={form.id}
+                readOnly
+                placeholder="EAN, UPC o clave interna"
+              />
+            ) : (
+              <div style={{ marginTop: '0.35rem' }}>
+                <CampoCodigo
+                  value={form.id}
+                  onChange={(e) => setCampoSimple('id', e.target.value)}
+                  placeholder="EAN, UPC o clave interna"
+                  tituloCamara="Escanear código de producto"
+                />
+              </div>
+            )}
           </label>
           <label>
             <span className="muted">Nombre del producto</span>

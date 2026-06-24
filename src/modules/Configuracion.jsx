@@ -64,6 +64,7 @@ import {
   grillaSemanaPatron,
   etiquetaCeldaRotacion,
   turnoActual,
+  nombreTurnoLegible,
   nuevoIdTurno,
   normalizarHora,
   diasHorarioUsuario,
@@ -644,7 +645,7 @@ export default function Configuracion({
           {turnoEnCurso && (
             <>
               {' '}
-              Turno actual: <span className="badge">{turnoEnCurso.nombre}</span>{' '}
+              Turno actual: <span className="badge">{nombreTurnoLegible(turnoEnCurso)}</span>{' '}
               <span className="muted" style={{ fontSize: '0.85rem' }}>
                 entrada {turnoEnCurso.hora_inicio} · salida {turnoEnCurso.hora_fin}
               </span>

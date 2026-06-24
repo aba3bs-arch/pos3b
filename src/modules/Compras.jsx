@@ -9,6 +9,7 @@ import {
   ventasPorProductoDesdeVentas,
   ventasPorProductoPorDia,
 } from '../lib/comprasPedido.js';
+import CampoCodigo from '../components/CampoCodigo.jsx';
 
 function totalPedido(lines) {
   return lines.reduce((a, l) => a + (Number(l.costo_est) || 0) * (Number(l.qty_pedido) || 0), 0);
@@ -46,6 +47,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
   const [lineas, setLineas] = useState([]);
   const [vinculoProductoIds, setVinculoProductoIds] = useState([]);
   const [soloVinculados, setSoloVinculados] = useState(false);
+  const [codigoRecepcion, setCodigoRecepcion] = useState('');
   const [ventasPorProducto, setVentasPorProducto] = useState({});
   const [ventasPorDia, setVentasPorDia] = useState({});
   const diasDetalle = useMemo(() => ultimosDias(7), []);
@@ -206,6 +208,19 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
 
   const setLinea = (id, patch) => {
     setLineas((rows) => rows.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  };
+
+  const escanearRecepcion = (raw) => {
+    const c = String(raw ?? codigoRecepcion).trim();
+    if (!c) return;
+    const linea = lineas.find((l) => String(l.id) === c);
+    if (!linea) {
+      alert(`Producto no está en este pedido: ${c}`);
+      setCodigoRecepcion('');
+      return;
+    }
+    setLinea(linea.id, { qty_recibido: (Number(linea.qty_recibido) || 0) + 1 });
+    setCodigoRecepcion('');
   };
 
   const onPedidoKeyDown = (e, line, index) => {
@@ -473,6 +488,19 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                   <input type="number" min={1} className="input" style={{ width: '64px', padding: '0.35rem' }} value={umbralCatalogo} onChange={(e) => setUmbralCatalogo(parseInt(e.target.value, 10) || 8)} />
                 </label>
               </div>
+
+              {modoRecepcion && (
+                <div style={{ marginBottom: '0.75rem' }}>
+                  <CampoCodigo
+                    value={codigoRecepcion}
+                    onChange={(e) => setCodigoRecepcion(e.target.value)}
+                    onEscanear={escanearRecepcion}
+                    onKeyDown={(e) => e.key === 'Enter' && escanearRecepcion()}
+                    placeholder="Escanear código para sumar +1 en recepción…"
+                    tituloCamara="Recepción de mercancía"
+                  />
+                </div>
+              )}
 
               <div className="table-wrap" style={{ maxHeight: '520px' }}>
                 <table className="data" style={{ fontSize: '0.88rem' }}>

@@ -4,6 +4,7 @@ import { descargarPlantillaCsv, importarCatalogoSupabase, leerArchivoCatalogo } 
 import { mensajeErrorColumnasProducto, productoDesdeDb, productoParaGuardar, productoVacio } from '../lib/productoForm.js';
 import { puedeCrearProveedor } from '../lib/roles.js';
 import FormularioProducto from '../components/FormularioProducto.jsx';
+import CampoCodigo from '../components/CampoCodigo.jsx';
 import { BtnLabel } from '../components/Icon.jsx';
 import { fmtMxn, resumirValorInventario } from '../lib/valorInventario.js';
 import AjusteInventario from './AjusteInventario.jsx';
@@ -408,7 +409,13 @@ export default function Productos({ supabase, inventario, cargarDatos, user, suc
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
           <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Catálogo</h3>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            <input className="input" style={{ maxWidth: '280px' }} placeholder="Buscar…" value={q} onChange={(e) => setQ(e.target.value)} />
+            <CampoCodigo
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Buscar…"
+              tituloCamara="Buscar en catálogo"
+              inputStyle={{ maxWidth: '280px' }}
+            />
             <button type="button" className="btn btn-ghost" onClick={descargarPlantillaCsv}>
               Plantilla CSV
             </button>

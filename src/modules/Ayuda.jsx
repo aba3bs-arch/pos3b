@@ -4,6 +4,7 @@ import {
   leerConfigHorario,
   leerTurnos,
   turnoActual,
+  nombreTurnoLegible,
   TIPOS_HORARIO,
 } from '../lib/turnos.js';
 import ManualAdministrador from './ManualAdministrador.jsx';
@@ -121,7 +122,7 @@ function BloqueTurnos() {
         {activo && (
           <>
             {' '}
-            · Turno en curso: <span className="badge">{activo.nombre}</span> ({activo.hora_inicio} – {activo.hora_fin})
+            · Turno en curso: <span className="badge">{nombreTurnoLegible(activo)}</span> ({activo.hora_inicio} – {activo.hora_fin})
           </>
         )}
       </p>
@@ -138,7 +139,7 @@ function BloqueTurnos() {
           <tbody>
             {turnos.map((t) => (
               <tr key={t.id}>
-                <td>{t.nombre}</td>
+                <td>{nombreTurnoLegible(t)}</td>
                 <td>{t.hora_inicio}</td>
                 <td>{t.hora_fin}</td>
                 <td>{activo?.id === t.id ? <span style={{ color: 'var(--brand-green)', fontWeight: 700 }}>Activo ahora</span> : '—'}</td>

@@ -8,6 +8,7 @@ import {
 import {
   EVENTO_TURNOS,
   leerTurnos,
+  nombreTurnoLegible,
   turnoActual,
   usuarioAutorizadoCorte,
 } from '../lib/turnos.js';
@@ -155,7 +156,7 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, cargar
       sucursal,
       usuario: user?.nombre || '—',
       turno_id: turnoActivo?.id,
-      turno_nombre: turnoActivo?.nombre,
+      turno_nombre: nombreTurnoLegible(turnoActivo) || null,
       hora: new Date().toISOString(),
       tickets: resumen.ticketsBruto,
       cancelaciones: resumen.cancelaciones,
@@ -311,7 +312,7 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, cargar
           {turnoActivo && (
             <>
               {' '}
-              · Turno: <span className="badge">{turnoActivo.nombre}</span>{' '}
+              · Turno: <span className="badge">{nombreTurnoLegible(turnoActivo)}</span>{' '}
               <span className="muted" style={{ fontSize: '0.8rem' }}>
                 entrada {turnoActivo.hora_inicio} · salida {turnoActivo.hora_fin}
               </span>
@@ -343,7 +344,7 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, cargar
         <div className="card" style={{ borderColor: 'rgba(59,105,181,0.4)', background: 'rgba(59,105,181,0.06)' }}>
           <strong style={{ color: 'var(--brand-blue)' }}>Corte de turno ya registrado</strong>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.9rem' }}>
-            {turnoActivo?.nombre} · {fecha} · {corteExistente.corte?.usuario || '—'}
+            {nombreTurnoLegible(turnoActivo)} · {fecha} · {corteExistente.corte?.usuario || '—'}
             {corteExistente.corte?.created_at && ` · ${fmtHora(corteExistente.corte.created_at)}`}
             {' '}
             ({corteExistente.origen}). Por seguridad solo se permite <strong>un corte por turno</strong>.

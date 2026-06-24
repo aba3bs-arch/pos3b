@@ -35,7 +35,8 @@ import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from './li
 import { usuarioAutorizadoLogin, turnoActual } from './lib/turnos.js';
 import BrandLogo from './components/BrandLogo.jsx';
 import Icon, { BtnLabel } from './components/Icon.jsx';
-import { iconoDeModulo } from './lib/moduloIcons.js';
+import InputPin from './components/InputPin.jsx';
+import { iconoDeModulo, colorDeModulo } from './lib/moduloIcons.js';
 
 const SUCURSAL_FIJA_ENV = sucursalFijaPorEntorno();
 
@@ -291,18 +292,14 @@ function App() {
               <code>VITE_SUPABASE_URL</code> y <code>VITE_SUPABASE_ANON_KEY</code>.
             </p>
           )}
-          <input
-            type="tel"
-            inputMode="numeric"
-            autoComplete="off"
-            className="input"
+          <InputPin
             value={pin}
             onChange={(e) => setPin(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && puedeIngresarPin && manejarLogin()}
             placeholder="PIN"
-            style={{ fontSize: '1.5rem', textAlign: 'center', letterSpacing: '0.2em', marginBottom: '1rem' }}
             autoFocus={puedeIngresarPin}
             disabled={!puedeIngresarPin}
+            style={{ marginBottom: '1rem' }}
           />
           <button
             type="button"
@@ -351,10 +348,10 @@ function App() {
                 onClick={() => irAModulo(m)}
                 className={`btn btn-ghost nav-btn${vista === m ? ' nav-btn-active' : ''}`}
                 style={{
-                  color: vista === m ? 'var(--brand-blue)' : 'var(--muted)',
+                  color: vista === m ? colorDeModulo(m) : 'var(--muted)',
                 }}
               >
-                <Icon name={iconoDeModulo(m)} size={20} />
+                <Icon name={iconoDeModulo(m)} size={20} style={{ color: colorDeModulo(m) }} />
                 <span>{m}</span>
               </button>
             ))}
@@ -379,14 +376,15 @@ function App() {
           <button type="button" className="btn btn-ghost" style={{ padding: '0.5rem 0.65rem' }} onClick={() => setSidebarOpen((o) => !o)} aria-label="Menú">
             <Icon name="menu" size={20} />
           </button>
-          <h2 className="header-title" style={{ margin: 0, flex: 1, fontSize: '1.25rem', color: 'var(--brand-blue)' }}>
-            <Icon name={iconoDeModulo(vista)} size={22} />
+          <h2 className="header-title" style={{ margin: 0, flex: 1, fontSize: '1.25rem', color: colorDeModulo(vista) }}>
+            <Icon name={iconoDeModulo(vista)} size={22} style={{ color: colorDeModulo(vista) }} />
             {vista}
           </h2>
-          <div className="muted" style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <span className="badge" style={{ fontSize: '0.75rem' }}>Tienda: {etiquetaTienda(sucursal)}</span>
-            <span className="badge" style={{ fontSize: '0.75rem' }}>{normalizarRol(user?.rol)}</span>
-            <span>Dólar: ${Number(tipoCambio).toFixed(2)} · {user?.nombre}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap', fontWeight: 700 }}>
+            <span className="badge" style={{ fontSize: '0.8rem' }}>{etiquetaTienda(sucursal)}</span>
+            <span style={{ color: 'var(--brand-blue)', fontSize: '0.95rem' }}>{user?.nombre}</span>
+            <span className="muted" style={{ fontSize: '0.75rem', fontWeight: 600 }}>{normalizarRol(user?.rol)}</span>
+            <span className="muted" style={{ fontSize: '0.75rem', fontWeight: 500 }}>Dólar: ${Number(tipoCambio).toFixed(2)}</span>
           </div>
           <button type="button" className="btn btn-danger" onClick={cerrarSesion}>
             <BtnLabel icon="logOut">Salir</BtnLabel>

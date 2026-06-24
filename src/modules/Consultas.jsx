@@ -4,6 +4,7 @@ import { consultarCortes, etiquetaGrupoPago } from '../lib/corteCaja.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { etiquetaDepartamento, listarDepartamentos } from '../lib/departamentos.js';
 import { mensajeErrorColumnasProducto, productoDesdeDb, productoParaGuardar } from '../lib/productoForm.js';
+import CampoCodigo from '../components/CampoCodigo.jsx';
 import {
   FILTROS_EVENTO_PRODUCTO,
   FILTROS_TIPO_MOVIMIENTO,
@@ -377,7 +378,14 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
               </label>
               <label className="muted">
                 Producto (código o nombre)
-                <input className="input" style={{ marginTop: '0.35rem' }} value={skuMovInv} onChange={(e) => setSkuMovInv(e.target.value)} placeholder="Opcional" />
+                <div style={{ marginTop: '0.35rem' }}>
+                  <CampoCodigo
+                    value={skuMovInv}
+                    onChange={(e) => setSkuMovInv(e.target.value)}
+                    placeholder="Opcional"
+                    tituloCamara="Filtrar por código"
+                  />
+                </div>
               </label>
               <label className="muted">
                 Sucursal
@@ -722,16 +730,17 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
             )}
             <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
               Código o nombre
-              <input
-                className="input"
-                style={{ marginTop: '0.35rem' }}
-                placeholder="SKU, barras o nombre…"
-                value={sku}
-                onChange={(e) => {
-                  setSku(e.target.value);
-                  setProductoSelId('');
-                }}
-              />
+              <div style={{ marginTop: '0.35rem' }}>
+                <CampoCodigo
+                  value={sku}
+                  onChange={(e) => {
+                    setSku(e.target.value);
+                    setProductoSelId('');
+                  }}
+                  placeholder="SKU, barras o nombre…"
+                  tituloCamara="Buscar producto"
+                />
+              </div>
             </label>
             {sku.trim() && productoMatches.length > 0 && !productoActivo && (
               <div className="table-wrap" style={{ marginTop: '0.75rem', maxHeight: '200px' }}>

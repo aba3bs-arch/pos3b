@@ -77,8 +77,8 @@ export function plantillaTurnos12x12(inicioDiurno = '07:00') {
   const ini = normalizarHora(inicioDiurno) || '07:00';
   const finDiurno = sumarHoras(ini, 12);
   return [
-    { id: 'diurno', nombre: 'Diurno (12 h)', hora_inicio: ini, hora_fin: finDiurno },
-    { id: 'nocturno', nombre: 'Nocturno (12 h)', hora_inicio: finDiurno, hora_fin: ini },
+    { id: 'diurno', nombre: 'Turno diurno', hora_inicio: ini, hora_fin: finDiurno },
+    { id: 'nocturno', nombre: 'Turno nocturno', hora_inicio: finDiurno, hora_fin: ini },
   ];
 }
 
@@ -256,7 +256,7 @@ export function aplicarRotacion3Empleados(inicioDiurno = '07:00') {
   const ini = normalizarHora(inicioDiurno) || '07:00';
   const lista = plantillaTurnos12x12(ini).map((t) => ({
     ...t,
-    nombre: t.id === 'diurno' ? 'Diurno (12 h)' : 'Nocturno (12 h)',
+    nombre: t.id === 'diurno' ? 'Turno diurno' : 'Turno nocturno',
   }));
   guardarConfigHorario({ tipo: 'personalizado', subtipo: 'rotacion_3', inicio: ini });
   restaurarPatronesRotacion3Default();
@@ -395,9 +395,21 @@ export function turnoActual(turnos = null, date = new Date()) {
   return list.find((t) => horaEnTurno(t, date)) || list[0] || null;
 }
 
+/** Nombre corto para UI (sin “12 h”, etc.). */
+export function nombreTurnoLegible(turnoOrNombre, id) {
+  const nombre = typeof turnoOrNombre === 'string' ? turnoOrNombre : turnoOrNombre?.nombre;
+  const turnoId = id ?? (typeof turnoOrNombre === 'object' ? turnoOrNombre?.id : null);
+  let n = String(nombre || '').trim().replace(/\s*\(\d+\s*h\)/gi, '').trim();
+  if (!n || /^diurno$/i.test(n)) return 'Turno diurno';
+  if (/^nocturno$/i.test(n)) return 'Turno nocturno';
+  if (turnoId === 'diurno') return 'Turno diurno';
+  if (turnoId === 'nocturno') return 'Turno nocturno';
+  return n || '—';
+}
+
 export function etiquetaTurno(id, turnos = null) {
   const t = (turnos || leerTurnos()).find((x) => x.id === id);
-  return t ? `${t.nombre} (entrada ${t.hora_inicio}, salida ${t.hora_fin})` : id || '—';
+  return t ? `${nombreTurnoLegible(t)} (entrada ${t.hora_inicio}, salida ${t.hora_fin})` : id || '—';
 }
 
 export function parseTurnoHorario(raw) {
@@ -525,7 +537,7 @@ export function usuarioAutorizadoLogin(user, date = new Date(), turnos = null) {
   if (String(asignado) !== String(turno.id)) {
     return {
       ok: false,
-      error: `Turno actual: ${turno.nombre} (${turno.hora_inicio}–${turno.hora_fin}). Tú estás asignado a ${etiquetaTurno(asignado, list)}. No puedes entrar fuera de tu turno.`,
+      error: `Turno actual: ${nombreTurnoLegible(turno)} (${turno.hora_inicio}–${turno.hora_fin}). Tú estás asignado a ${etiquetaTurno(asignado, list)}. No puedes entrar fuera de tu turno.`,
     };
   }
 
@@ -559,7 +571,7 @@ export function usuarioAutorizadoCorte(user, turno, date = new Date()) {
   if (String(asignado) !== String(turno.id)) {
     return {
       ok: false,
-      error: `Turno actual: ${turno.nombre}. Hoy te corresponde ${etiquetaTurno(asignado)}.`,
+      error: `Turno actual: ${nombreTurnoLegible(turno)}. Hoy te corresponde ${etiquetaTurno(asignado)}.`,
     };
   }
   return { ok: true };

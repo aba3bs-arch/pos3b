@@ -10,7 +10,7 @@ import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { fmtMxn } from '../lib/valorInventario.js';
 import { imprimirAjusteInventario } from '../lib/impresion.js';
 import Icon from '../components/Icon.jsx';
-import { BotonEscanerCamara } from '../components/EscanerCamara.jsx';
+import CampoCodigo from '../components/CampoCodigo.jsx';
 
 export default function ConteoPorDepartamento({ supabase, inventario, cargarDatos, user, sucursal, onHistorialChange }) {
   const [departamento, setDepartamento] = useState('GENERAL');
@@ -295,18 +295,17 @@ export default function ConteoPorDepartamento({ supabase, inventario, cargarDato
                 <Icon name="scan" size={16} />
                 Escanear código
               </span>
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.35rem', flexWrap: 'wrap' }}>
-                <input
-                  ref={scanInputRef}
-                  className="input"
-                  style={{ flex: '1 1 200px', fontSize: '1.05rem', letterSpacing: '0.04em' }}
+              <div style={{ marginTop: '0.35rem' }}>
+                <CampoCodigo
+                  inputRef={scanInputRef}
                   value={codigoEscaneo}
                   onChange={(e) => setCodigoEscaneo(e.target.value)}
+                  onEscanear={procesarEscaneo}
                   onKeyDown={onScanKeyDown}
                   placeholder="Escanea para saltar al producto…"
-                  autoComplete="off"
+                  tituloCamara="Escanear en conteo"
+                  inputStyle={{ fontSize: '1.05rem', letterSpacing: '0.04em' }}
                 />
-                <BotonEscanerCamara titulo="Escanear en conteo" onCodigo={procesarEscaneo} />
               </div>
             </label>
 

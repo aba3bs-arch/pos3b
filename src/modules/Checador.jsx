@@ -2,7 +2,8 @@ import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from '../lib/usuariosAuth.js';
 import { usuarioAutorizadoLogin } from '../lib/turnos.js';
-import { BotonEscanerCamara } from '../components/EscanerCamara.jsx';
+import CampoCodigo from '../components/CampoCodigo.jsx';
+import InputPin from '../components/InputPin.jsx';
 
 function inicioDiaLocal() {
   const d = new Date();
@@ -155,17 +156,14 @@ export default function Checador({ inventario, supabase, sucursal }) {
           <p className="muted" style={{ marginTop: 0 }}>
             Escanea o escribe el código de barras y confirma precio y existencias frente al cliente.
           </p>
-          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <input
-              className="input"
-              autoFocus
-              placeholder="Código de barras…"
-              value={codigo}
-              onChange={(e) => setCodigo(e.target.value)}
-              style={{ flex: '1 1 200px', fontSize: '1.25rem', padding: '0.85rem 1rem', letterSpacing: '0.06em' }}
-            />
-            <BotonEscanerCamara titulo="Checador de precios" onCodigo={setCodigo} style={{ padding: '0.85rem 1rem' }} />
-          </div>
+          <CampoCodigo
+            value={codigo}
+            onChange={(e) => setCodigo(e.target.value)}
+            placeholder="Código de barras…"
+            tituloCamara="Checador de precios"
+            inputStyle={{ fontSize: '1.25rem', padding: '0.85rem 1rem', letterSpacing: '0.06em' }}
+            autoFocus
+          />
           {producto && (
             <div style={{ marginTop: '1.25rem', padding: '1.25rem', borderRadius: '12px', background: 'linear-gradient(135deg, rgba(59,105,181,0.08), rgba(200,180,68,0.12))' }}>
               <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>{producto.nombre}</div>
@@ -225,16 +223,15 @@ export default function Checador({ inventario, supabase, sucursal }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxWidth: '360px' }}>
               <label className="muted">
                 PIN del empleado
-                <input
-                  className="input"
-                  type="password"
-                  value={pinEmpleado}
-                  onChange={(e) => setPinEmpleado(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && identificarEmpleado()}
-                  placeholder="Mismo PIN que para entrar al POS"
-                  style={{ marginTop: '0.35rem', fontSize: '1.2rem', letterSpacing: '0.15em', textAlign: 'center' }}
-                  autoComplete="off"
-                />
+                <div style={{ marginTop: '0.35rem' }}>
+                  <InputPin
+                    value={pinEmpleado}
+                    onChange={(e) => setPinEmpleado(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && identificarEmpleado()}
+                    placeholder="Mismo PIN que para entrar al POS"
+                    style={{ fontSize: '1.2rem', letterSpacing: '0.15em', marginBottom: 0 }}
+                  />
+                </div>
               </label>
               <button type="button" className="btn btn-primary" onClick={identificarEmpleado} disabled={cargandoPin}>
                 {cargandoPin ? 'Verificando…' : 'Continuar'}

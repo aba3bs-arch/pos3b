@@ -3,7 +3,7 @@ import { aplicarEntradasMasivas, aplicarMovimientoInventario, leerMovimientosLoc
 import { imprimirMovimientoInventario } from '../lib/impresion.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import Icon from '../components/Icon.jsx';
-import { BotonEscanerCamara } from '../components/EscanerCamara.jsx';
+import CampoCodigo from '../components/CampoCodigo.jsx';
 import ConteoPorDepartamento from './ConteoPorDepartamento.jsx';
 
 export default function AjusteInventario({ supabase, inventario, cargarDatos, user, sucursal }) {
@@ -273,7 +273,17 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
           <div className="grid-2">
             <label className="muted" style={{ gridColumn: '1 / -1' }}>
               Buscar producto
-              <input className="input" style={{ marginTop: '0.35rem' }} value={busquedaMasiva} onChange={(e) => setBusquedaMasiva(e.target.value)} placeholder="Nombre o código…" />
+              <label className="muted" style={{ display: 'block' }}>
+                Buscar producto para agregar
+                <div style={{ marginTop: '0.35rem' }}>
+                  <CampoCodigo
+                    value={busquedaMasiva}
+                    onChange={(e) => setBusquedaMasiva(e.target.value)}
+                    placeholder="Nombre o código…"
+                    tituloCamara="Buscar en entrada masiva"
+                  />
+                </div>
+              </label>
             </label>
             <label className="muted">
               Producto
@@ -371,21 +381,21 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
                   <Icon name="scan" size={16} />
                   Escanear código de barras
                 </span>
-                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.35rem', flexWrap: 'wrap' }}>
-                  <input
-                    ref={scanInputRef}
-                    className="input"
-                    style={{ flex: '1 1 220px', fontSize: '1.1rem', padding: '0.75rem 1rem', letterSpacing: '0.05em' }}
+                <div style={{ marginTop: '0.35rem' }}>
+                  <CampoCodigo
+                    inputRef={scanInputRef}
                     value={codigoEscaneo}
                     onChange={(e) => setCodigoEscaneo(e.target.value)}
+                    onEscanear={procesarEscaneo}
                     onKeyDown={onScanKeyDown}
                     placeholder="Apunta el lector aquí y escanea…"
-                    autoComplete="off"
-                  />
-                  <button type="button" className="btn btn-primary" onClick={() => procesarEscaneo()} disabled={!codigoEscaneo.trim()}>
-                    Buscar código
-                  </button>
-                  <BotonEscanerCamara titulo="Escanear inventario" onCodigo={procesarEscaneo} />
+                    tituloCamara="Escanear inventario"
+                    inputStyle={{ fontSize: '1.1rem', padding: '0.75rem 1rem', letterSpacing: '0.05em' }}
+                  >
+                    <button type="button" className="btn btn-primary" onClick={() => procesarEscaneo()} disabled={!codigoEscaneo.trim()}>
+                      Buscar código
+                    </button>
+                  </CampoCodigo>
                 </div>
                 <span className="muted" style={{ display: 'block', fontSize: '0.75rem', marginTop: '0.35rem' }}>
                   Lector USB (Enter) o botón Cámara en celular/tablet. Luego indica cantidad y aplica el movimiento.
@@ -393,7 +403,14 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
               </label>
               <label className="muted" style={{ gridColumn: '1 / -1' }}>
                 O buscar por nombre / código
-                <input className="input" style={{ marginTop: '0.35rem' }} value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Nombre o código…" />
+                <div style={{ marginTop: '0.35rem' }}>
+                  <CampoCodigo
+                    value={busqueda}
+                    onChange={(e) => setBusqueda(e.target.value)}
+                    placeholder="Nombre o código…"
+                    tituloCamara="Buscar producto"
+                  />
+                </div>
               </label>
             </>
           )}

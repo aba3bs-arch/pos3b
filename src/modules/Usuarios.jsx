@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { ROLES, normalizarRol, puedeGestionarUsuarios } from '../lib/roles.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
-import { leerTurnos, leerConfigHorario, esHorarioPersonalizado, resumenHorarioUsuario, EVENTO_TURNOS } from '../lib/turnos.js';
+import { leerTurnos, leerConfigHorario, esHorarioPersonalizado, resumenHorarioUsuario, EVENTO_TURNOS, nombreTurnoLegible } from '../lib/turnos.js';
+import InputPin from '../components/InputPin.jsx';
 
 const emptyForm = (sucursalDefault) => ({
   nombre: '',
@@ -14,7 +15,6 @@ const emptyForm = (sucursalDefault) => ({
 export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, onUsuarioActualizado }) {
   const [rows, setRows] = useState([]);
   const [form, setForm] = useState(() => emptyForm(sucursal));
-  const [verPinAlta, setVerPinAlta] = useState(false);
   const [pinsVisibles, setPinsVisibles] = useState(() => new Set());
   const [pinEnEdicion, setPinEnEdicion] = useState(null);
   const [nuevoPinDraft, setNuevoPinDraft] = useState('');
@@ -188,13 +188,12 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
         </p>
         <div className="grid-2">
           <input className="input" placeholder="Nombre completo" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />
-          <input
-            className="input"
-            placeholder="PIN de acceso"
+          <InputPin
             value={form.pin}
             onChange={(e) => setForm({ ...form, pin: e.target.value })}
-            type={verPinAlta ? 'text' : 'password'}
+            placeholder="PIN de acceso"
             autoComplete="new-password"
+            style={{ fontSize: '1.05rem', letterSpacing: '0.12em', marginBottom: 0 }}
           />
           <label className="muted">
             Sucursal asignada
@@ -220,7 +219,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                 <option value="">Sin turno — solo supervisión</option>
                 {turnos.map((t) => (
                   <option key={t.id} value={t.id}>
-                    {t.nombre} (E {t.hora_inicio} · S {t.hora_fin})
+                    {nombreTurnoLegible(t)} (E {t.hora_inicio} · S {t.hora_fin})
                   </option>
                 ))}
               </select>
@@ -229,10 +228,6 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
               </span>
             </label>
           )}
-          <label className="muted" style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-            <input type="checkbox" checked={verPinAlta} onChange={(e) => setVerPinAlta(e.target.checked)} />
-            Ver PIN al capturar
-          </label>
         </div>
         <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={crear}>
           Añadir empleado
@@ -316,7 +311,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                           <option value="">—</option>
                           {turnos.map((t) => (
                             <option key={t.id} value={t.id}>
-                              {t.nombre}
+                              {nombreTurnoLegible(t)}
                             </option>
                           ))}
                         </select>
@@ -330,17 +325,15 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                     <td>
                       {pinEnEdicion === r.id ? (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
-                          <input
-                            className="input"
-                            style={{ width: '140px', padding: '0.35rem 0.5rem', fontSize: '0.9rem' }}
-                            placeholder="Nuevo PIN"
-                            type="text"
-                            autoComplete="new-password"
+                          <InputPin
                             value={nuevoPinDraft}
                             onChange={(e) => setNuevoPinDraft(e.target.value)}
+                            placeholder="Nuevo PIN"
+                            autoComplete="new-password"
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') guardarNuevoPin(r, nuevoPinDraft);
                             }}
+                            style={{ width: '160px', fontSize: '0.95rem', letterSpacing: '0.1em', marginBottom: 0 }}
                           />
                           <button type="button" className="btn btn-primary" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => guardarNuevoPin(r, nuevoPinDraft)}>
                             Guardar

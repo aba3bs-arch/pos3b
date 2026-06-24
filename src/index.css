@@ -71,6 +71,17 @@ textarea {
   box-shadow: 0 4px 14px rgba(225, 153, 41, 0.4);
 }
 
+.btn-camera {
+  background: linear-gradient(180deg, var(--brand-olive) 0%, #8f8a32 100%);
+  color: #1a1a1a;
+  box-shadow: 0 4px 14px rgba(181, 176, 62, 0.45);
+  white-space: nowrap;
+}
+
+.btn-camera .icon {
+  color: #2d4f8c;
+}
+
 .btn-danger {
   background: var(--brand-red);
   color: #fff;
@@ -121,7 +132,52 @@ textarea {
 
 .nav-btn-active .icon {
   opacity: 1;
+}
+
+.nav-btn .icon {
+  color: inherit;
+}
+
+.input-pin-wrap {
+  position: relative;
+  width: 100%;
+  margin-bottom: 1rem;
+}
+
+.input-pin-toggle {
+  position: absolute;
+  right: 0.45rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: rgba(59, 102, 181, 0.1);
   color: var(--brand-blue);
+  cursor: pointer;
+}
+
+.input-pin-toggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.campo-codigo-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: stretch;
+  width: 100%;
+}
+
+.campo-codigo-input {
+  flex: 1 1 180px;
+  min-width: 0;
 }
 
 .header-title {

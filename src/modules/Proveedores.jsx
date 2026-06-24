@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { puedeCrearProveedor } from '../lib/roles.js';
+import CampoCodigo from '../components/CampoCodigo.jsx';
 
 const empty = { nombre: '', contacto: '', telefono: '', email: '', notas: '' };
 
@@ -163,7 +164,14 @@ export default function Proveedores({ supabase, inventario = [], user }) {
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
             Busca en tu catálogo y enlaza SKU; en Productos puedes añadir la clave del proveedor por ítem.
           </p>
-          <input className="input" style={{ marginTop: '0.75rem' }} placeholder="Buscar por nombre o código…" value={busqProd} onChange={(e) => setBusqProd(e.target.value)} />
+          <div style={{ marginTop: '0.75rem' }}>
+            <CampoCodigo
+              value={busqProd}
+              onChange={(e) => setBusqProd(e.target.value)}
+              placeholder="Buscar por nombre o código…"
+              tituloCamara="Buscar producto proveedor"
+            />
+          </div>
           {productosFiltrados.length > 0 && (
             <div style={{ maxHeight: '160px', overflowY: 'auto', marginTop: '0.5rem', border: '1px solid var(--border)', borderRadius: '10px' }}>
               {productosFiltrados.slice(0, 25).map((p) => (

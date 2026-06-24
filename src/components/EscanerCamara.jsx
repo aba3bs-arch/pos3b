@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
+import Icon from './Icon.jsx';
 import { camaraEscaneoDisponible, FORMATOS_BARRAS } from '../lib/escanerCamara.js';
 
 /**
@@ -142,14 +143,15 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
   );
 }
 
-export function BotonEscanerCamara({ onCodigo, titulo, label = 'Cámara', className = 'btn btn-gold', style }) {
+export function BotonEscanerCamara({ onCodigo, titulo, label = 'Cámara', className = 'btn btn-camera', style }) {
   const [abierto, setAbierto] = useState(false);
   if (!camaraEscaneoDisponible()) return null;
 
   return (
     <>
-      <button type="button" className={className} style={style} onClick={() => setAbierto(true)}>
-        {label}
+      <button type="button" className={className} style={style} onClick={() => setAbierto(true)} title="Escanear con cámara">
+        <Icon name="camera" size={18} />
+        <span>{label}</span>
       </button>
       <EscanerCamara
         abierto={abierto}

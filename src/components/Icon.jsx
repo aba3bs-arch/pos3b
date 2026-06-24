@@ -40,6 +40,17 @@ const ICONS = {
     'M7 21H4v-3',
     'M7 12h10',
   ],
+  camera: [
+    'M4 8h3l2-3h6l2 3h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z',
+    'M12 17a3 3 0 1 0-3-3 3 3 0 0 0 3 3z',
+  ],
+  eye: ['M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z', 'M12 15a3 3 0 1 0-3-3 3 3 0 0 0 3 3z'],
+  eyeOff: [
+    'M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-10-8-10-8a18.45 18.45 0 0 1 5.06-5.94',
+    'M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 10 8 10 8a18.5 18.5 0 0 1-2.16 3.19',
+    'M1 1l22 22',
+    'M14.12 14.12a3 3 0 0 1-4.24-4.24',
+  ],
   building: [
     'M4 21V5l8-2v18',
     'M12 21h8V9l-8-2',
@@ -125,11 +136,11 @@ export default function Icon({ name, size = 18, strokeWidth = 2, className = '',
 }
 
 /** Texto + icono para botones */
-export function BtnLabel({ icon, children, iconSize = 18 }) {
+export function BtnLabel({ icon, children, iconSize = 18, iconColor }) {
   if (!icon) return children;
   return (
     <>
-      <Icon name={icon} size={iconSize} />
+      <Icon name={icon} size={iconSize} style={iconColor ? { color: iconColor } : undefined} />
       {children != null && children !== '' && <span>{children}</span>}
     </>
   );
