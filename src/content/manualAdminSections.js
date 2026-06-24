@@ -312,22 +312,6 @@ Ver sección 5 de este manual.`,
 **Verificación local:** \`node scripts/check-tablas.mjs\``,
   },
   {
-    id: 'vercel',
-    title: '15. Publicar en Vercel (acceso remoto)',
-    body: `Para ver la caja desde **otra red** (celular, casa), publica la app en Vercel. Guia completa: \`docs/VERCEL.md\`
-
-### Resumen
-1. Sube el proyecto a GitHub (sin el archivo \`.env\`)
-2. [vercel.com/new](https://vercel.com/new) → Import repositorio
-3. Variables de entorno (obligatorias):
-   - \`VITE_SUPABASE_URL\`
-   - \`VITE_SUPABASE_ANON_KEY\`
-4. Deploy → abre la URL (ej. \`https://pos-3b.vercel.app\`)
-5. Entra con PIN de Administrador o Auditor y la sucursal de la caja
-
-La PC de la caja puede seguir con \`iniciar-pos.bat\`; remoto y caja usan el mismo Supabase.`,
-  },
-  {
     id: 'escritorio',
     title: '14. Modo escritorio Windows',
     body: `Puedes usar el POS como app de caja de **dos formas** (detalle en \`docs/ESCRITORIO_WINDOWS.md\`):
@@ -342,6 +326,22 @@ La PC de la caja puede seguir con \`iniciar-pos.bat\`; remoto y caja usan el mis
 - Arranque con Windows: \`scripts/instalar-inicio-automatico.ps1 -Modo electron\`
 
 **Recomendación:** prueba primero Opción A; si te convence, genera el .exe para la caja.`,
+  },
+  {
+    id: 'netlify',
+    title: '15. Publicar en Netlify (acceso remoto)',
+    body: `Para ver la caja desde **otra red** (celular, casa), publica la app en Netlify. Guia completa: \`docs/NETLIFY.md\`
+
+### Resumen
+1. Sube el proyecto a GitHub (sin el archivo \`.env\`) o compila y arrastra la carpeta \`dist\`
+2. [app.netlify.com](https://app.netlify.com) → nuevo sitio
+3. Variables de entorno (obligatorias):
+   - \`VITE_SUPABASE_URL\`
+   - \`VITE_SUPABASE_ANON_KEY\`
+4. Deploy → abre la URL (ej. \`https://pos-3b.netlify.app\`)
+5. Entra con PIN de Administrador o Auditor y la sucursal de la caja
+
+La PC de la caja puede seguir con \`iniciar-pos.bat\`; remoto y caja usan el mismo Supabase.`,
   },
   {
     id: 'problemas',

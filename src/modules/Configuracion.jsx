@@ -1273,7 +1273,6 @@ export default function Configuracion({
           <li>
             Ejecuta <code>supabase/schema.sql</code> para tablas de clientes, proveedores y compras.
           </li>
-          <li>Deploy: build estático con Vite y variables en tu hosting (Vercel/Netlify/Firebase).</li>
         </ul>
       </div>
     </div>

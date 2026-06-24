@@ -17,6 +17,13 @@ Puedes usar el POS como “app de caja” de **dos maneras**. Prueba ambas y eli
    ```
 2. Se abre una ventana tipo app en `http://127.0.0.1:4173`
 
+### Celular o tablet en la misma Wi-Fi
+
+1. Doble clic en **`iniciar-pos-red.bat`**
+2. En la consola verás la URL para el celular (ej. `http://192.168.1.50:5173`)
+3. Abre esa URL en Chrome o Safari del movil (misma red Wi-Fi)
+4. Si Windows pregunta por el Firewall, permite **Node.js** en red privada
+
 ### Arranque automático al encender la PC
 
 ```powershell

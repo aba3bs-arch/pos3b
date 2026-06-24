@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-// Vercel y web: base '/'. Electron portable: VITE_BASE_PATH=./ al compilar.
+// Web: base '/'. Electron portable: VITE_BASE_PATH=./ al compilar.
 export default defineConfig({
   plugins: [react()],
   base: process.env.VITE_BASE_PATH || '/',

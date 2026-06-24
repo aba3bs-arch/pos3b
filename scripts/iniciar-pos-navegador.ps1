@@ -55,19 +55,27 @@ if (-not $browser) {
 }
 
 if (-not (Test-PortOpen $Port)) {
-  Write-Host "Iniciando servidor local en puerto $Port (puede tardar 1 minuto)..." -ForegroundColor Cyan
-  $npm = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
-  if (-not $npm) { $npm = 'npm.cmd' }
-  Start-Process -FilePath $npm -ArgumentList @('run', 'preview', '--', '--host', '127.0.0.1', '--port', "$Port") -WorkingDirectory $ProjectRoot -WindowStyle Hidden | Out-Null
+  Write-Host "Iniciando servidor local en puerto $Port (puede tardar 1-2 minutos)..." -ForegroundColor Cyan
+  $vite = Join-Path $ProjectRoot 'node_modules\vite\bin\vite.js'
+  if (-not (Test-Path $vite)) {
+    Write-Host 'ERROR: Falta node_modules. Ejecuta: npm install' -ForegroundColor Red
+    Read-Host 'Enter para salir'
+    exit 1
+  }
+  Start-Process -FilePath 'node' -ArgumentList @(
+    $vite, 'preview', '--host', '127.0.0.1', '--port', "$Port"
+  ) -WorkingDirectory $ProjectRoot -WindowStyle Hidden | Out-Null
 
-  $deadline = (Get-Date).AddSeconds(90)
+  $deadline = (Get-Date).AddSeconds(120)
   while ((Get-Date) -lt $deadline) {
     if (Test-PortOpen $Port) { break }
     Start-Sleep -Milliseconds 500
   }
   if (-not (Test-PortOpen $Port)) {
     Write-Host 'ERROR: El servidor no respondio a tiempo.' -ForegroundColor Red
-    Write-Host 'Prueba manual: npm run dev y abre http://localhost:5173' -ForegroundColor Yellow
+    Write-Host 'Prueba manual en esta carpeta:' -ForegroundColor Yellow
+    Write-Host '  npm run dev' -ForegroundColor Yellow
+    Write-Host '  y abre http://localhost:5173' -ForegroundColor Yellow
     Read-Host 'Enter para salir'
     exit 1
   }
