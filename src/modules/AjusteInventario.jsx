@@ -3,6 +3,7 @@ import { aplicarEntradasMasivas, aplicarMovimientoInventario, leerMovimientosLoc
 import { imprimirMovimientoInventario } from '../lib/impresion.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import Icon from '../components/Icon.jsx';
+import { BotonEscanerCamara } from '../components/EscanerCamara.jsx';
 import ConteoPorDepartamento from './ConteoPorDepartamento.jsx';
 
 export default function AjusteInventario({ supabase, inventario, cargarDatos, user, sucursal }) {
@@ -384,9 +385,10 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
                   <button type="button" className="btn btn-primary" onClick={() => procesarEscaneo()} disabled={!codigoEscaneo.trim()}>
                     Buscar código
                   </button>
+                  <BotonEscanerCamara titulo="Escanear inventario" onCodigo={procesarEscaneo} />
                 </div>
                 <span className="muted" style={{ display: 'block', fontSize: '0.75rem', marginTop: '0.35rem' }}>
-                  El lector USB escribe el código y pulsa Enter. Luego indica cantidad y aplica el movimiento.
+                  Lector USB (Enter) o botón Cámara en celular/tablet. Luego indica cantidad y aplica el movimiento.
                 </span>
               </label>
               <label className="muted" style={{ gridColumn: '1 / -1' }}>

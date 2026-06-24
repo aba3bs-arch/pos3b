@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from '../lib/usuariosAuth.js';
 import { usuarioAutorizadoLogin } from '../lib/turnos.js';
+import { BotonEscanerCamara } from '../components/EscanerCamara.jsx';
 
 function inicioDiaLocal() {
   const d = new Date();
@@ -154,14 +155,17 @@ export default function Checador({ inventario, supabase, sucursal }) {
           <p className="muted" style={{ marginTop: 0 }}>
             Escanea o escribe el código de barras y confirma precio y existencias frente al cliente.
           </p>
-          <input
-            className="input"
-            autoFocus
-            placeholder="Código de barras…"
-            value={codigo}
-            onChange={(e) => setCodigo(e.target.value)}
-            style={{ fontSize: '1.25rem', padding: '0.85rem 1rem', letterSpacing: '0.06em' }}
-          />
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <input
+              className="input"
+              autoFocus
+              placeholder="Código de barras…"
+              value={codigo}
+              onChange={(e) => setCodigo(e.target.value)}
+              style={{ flex: '1 1 200px', fontSize: '1.25rem', padding: '0.85rem 1rem', letterSpacing: '0.06em' }}
+            />
+            <BotonEscanerCamara titulo="Checador de precios" onCodigo={setCodigo} style={{ padding: '0.85rem 1rem' }} />
+          </div>
           {producto && (
             <div style={{ marginTop: '1.25rem', padding: '1.25rem', borderRadius: '12px', background: 'linear-gradient(135deg, rgba(59,105,181,0.08), rgba(200,180,68,0.12))' }}>
               <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>{producto.nombre}</div>

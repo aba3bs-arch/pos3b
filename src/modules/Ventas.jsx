@@ -3,6 +3,7 @@ import { etiquetaMetodoPago, leerMetodosPago, leerConfigImpresion } from '../lib
 import { imprimirVenta } from '../lib/impresion.js';
 import { productoEnVenta, productoEsFavorito } from '../lib/productoForm.js';
 import { BtnLabel } from '../components/Icon.jsx';
+import { BotonEscanerCamara } from '../components/EscanerCamara.jsx';
 import { turnoActual, usuarioAutorizadoLogin } from '../lib/turnos.js';
 
 function addToCart(carrito, producto) {
@@ -181,17 +182,32 @@ export default function Ventas({
     if (!r.ok) alert(r.error);
   };
 
+  const procesarCodigoCamara = (codigo) => {
+    const c = String(codigo || '').trim();
+    if (!c) return;
+    const exacto = inventario.find((p) => productoEnVenta(p) && String(p.id) === c);
+    if (exacto) {
+      setCarrito((car) => addToCart(car, exacto));
+      setBusqueda('');
+      return;
+    }
+    setBusqueda(c);
+  };
+
   return (
     <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap', alignItems: 'stretch' }}>
       <div style={{ flex: '1 1 360px', minWidth: 0 }}>
-        <input
-          type="text"
-          className="input"
-          placeholder="Escanee código o busque por nombre…"
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-          style={{ padding: '1rem 1.1rem', fontSize: '1.05rem', marginBottom: '0.75rem' }}
-        />
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            className="input"
+            placeholder="Escanee código o busque por nombre…"
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            style={{ flex: '1 1 200px', padding: '1rem 1.1rem', fontSize: '1.05rem' }}
+          />
+          <BotonEscanerCamara titulo="Escanear producto" onCodigo={procesarCodigoCamara} style={{ padding: '1rem 1.1rem' }} />
+        </div>
         {filtrados.length > 0 && (
           <div className="card" style={{ marginBottom: '1rem', maxHeight: '220px', overflowY: 'auto' }}>
             <div className="muted" style={{ marginBottom: '0.5rem', fontSize: '0.8rem' }}>
