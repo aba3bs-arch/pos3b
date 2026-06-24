@@ -1,0 +1,66 @@
+{
+  "name": "pos-control-3b",
+  "private": true,
+  "version": "1.0.0",
+  "description": "POS CONTROL 3B — punto de venta e inventario",
+  "author": "ABARROTES LAS 3B",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "desktop:navegador": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/iniciar-pos-navegador.ps1",
+    "desktop:electron:dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "electron:dev": "npm run desktop:electron:dev",
+    "electron:build": "cross-env VITE_BASE_PATH=./ vite build && electron-builder --win portable",
+    "electron:build:installer": "cross-env VITE_BASE_PATH=./ vite build && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^34.2.0",
+    "electron-builder": "^25.1.8",
+    "vite": "^5.4.11",
+    "wait-on": "^8.0.2"
+  },
+  "build": {
+    "appId": "mx.abarrotes3b.pos",
+    "productName": "POS CONTROL 3B",
+    "copyright": "Copyright © 2026 ABARROTES LAS 3B",
+    "directories": {
+      "output": "release",
+      "buildResources": "electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "POS-3B-${version}-portable.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "POS-3B-${version}-setup.exe"
+    }
+  }
+}
