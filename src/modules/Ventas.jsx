@@ -6,6 +6,7 @@ import { BtnLabel } from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import { turnoActual, usuarioAutorizadoLogin, nombreTurnoLegible } from '../lib/turnos.js';
 import { aplicarDeltaStock } from '../lib/inventarioMultitienda.js';
+import { sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 
 function addToCart(carrito, producto) {
   const i = carrito.findIndex((c) => c.id === producto.id);
@@ -107,6 +108,14 @@ export default function Ventas({
       if (!p) return alert(`Producto no disponible en catálogo: ${c.nombre || c.id}`);
       if (Number(p.stock) < need) return alert(`Stock insuficiente: ${p.nombre} (hay ${p.stock}, pides ${need})`);
     }
+    const deltas = [];
+    for (const c of carrito) {
+      const p = inventario.find((x) => x.id === c.id);
+      const need = c.qty || 1;
+      const calc = aplicarDeltaStock(p, sucursal, 'piso', -need, sucursal);
+      if (!calc.ok) return alert(`No se puede completar la venta: ${calc.error}`);
+      deltas.push({ id: c.id, patch: calc.patch });
+    }
     const { error } = await supabase.from('ventas').insert([
       {
         vendedor: user.nombre,
@@ -123,21 +132,10 @@ export default function Ventas({
       alert(error.message);
       return;
     }
-    for (const c of carrito) {
-      const p = inventario.find((x) => x.id === c.id);
-      if (!p) continue;
-      const need = c.qty || 1;
-      const calc = aplicarDeltaStock(p, sucursal, 'piso', -need, sucursal);
-      if (!calc.ok) {
-        alert(`Venta guardada pero no se pudo actualizar stock de ${c.nombre}: ${calc.error}. Revisa inventario.`);
-        cargarDatos();
-        setCarrito([]);
-        resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago });
-        return;
-      }
-      const { error: e2 } = await supabase.from('productos').update(calc.patch).eq('id', c.id);
+    for (const { id, patch } of deltas) {
+      const { error: e2 } = await supabase.from('productos').update(patch).eq('id', id);
       if (e2) {
-        alert(`Venta guardada pero no se pudo actualizar stock de ${c.nombre}: ${e2.message}. Revisa inventario.`);
+        alert(`Venta guardada pero no se pudo actualizar stock (${id}): ${e2.message}. Revisa inventario.`);
         cargarDatos();
         setCarrito([]);
         resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago });

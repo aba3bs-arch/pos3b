@@ -149,8 +149,8 @@ function BloqueTurnos() {
         </table>
       </div>
       <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
-        El administrador o gerente define horarios en <strong>Configuración → Turnos de caja</strong> (plantilla 12×12) y asigna a cada cajero
-        <strong> Diurno</strong> o <strong> Nocturno</strong> en <strong>Usuarios</strong>.
+        El administrador define horarios en <strong>Configuración → Turnos de caja</strong> y asigna a cada cajero
+        <strong> Diurno</strong> o <strong> Nocturno</strong> en <strong>Usuarios</strong> (solo administrador).
       </p>
     </div>
   );
@@ -158,7 +158,7 @@ function BloqueTurnos() {
 
 export default function Ayuda({ user }) {
   const [open, setOpen] = useState('turnos');
-  const [pestaña, setPestaña] = useState('rapida');
+  const [pestaña, setPestaña] = useState(() => (puedeGestionarUsuarios(user?.rol) ? 'manual' : 'rapida'));
   const esAdmin = puedeGestionarUsuarios(user?.rol);
 
   return (
@@ -167,7 +167,12 @@ export default function Ayuda({ user }) {
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Centro de ayuda</h3>
         <p className="muted" style={{ marginTop: 0 }}>
           Guías rápidas, turnos y solución de problemas del POS CONTROL 3B.
-          {esAdmin && ' Como administrador, consulta también el manual completo.'}
+          {esAdmin && (
+            <>
+              {' '}
+              Como administrador, abre el <strong>Manual administrador</strong> (instructivo completo con buscador).
+            </>
+          )}
         </p>
         {esAdmin && (
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
@@ -175,7 +180,7 @@ export default function Ayuda({ user }) {
               Guías rápidas
             </button>
             <button type="button" className={pestaña === 'manual' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setPestaña('manual')}>
-              Manual administrador
+              Manual administrador (instructivo)
             </button>
           </div>
         )}

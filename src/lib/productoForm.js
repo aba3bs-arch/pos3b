@@ -1,3 +1,5 @@
+import { buildPatchStock } from './inventarioMultitienda.js';
+
 export const OPCIONES_IMPUESTO = [
   { value: 0, label: '0% (exento)' },
   { value: 8, label: '8%' },
@@ -137,13 +139,15 @@ export function actualizarCampoProducto(form, campo, valor) {
   return next;
 }
 
-export function productoParaGuardar(form) {
+export function productoParaGuardar(form, opts = {}) {
+  const { productoDb, sucursal } = opts;
   const imp = Number(form.impuesto) || 0;
   const ventaCon = round2(form.precio_venta_con ?? form.precio ?? 0);
   const ventaSin = round2(form.precio_venta_sin ?? sinImpuesto(ventaCon, imp));
   const compraCon = round2(form.precio_compra_con ?? conImpuesto(form.precio_compra_sin, imp));
   const compraSin = round2(form.precio_compra_sin);
-  return {
+  const stockPiso = Math.max(0, parseInt(String(form.stock), 10) || 0);
+  const base = {
     id: String(form.id || '').trim(),
     nombre: String(form.nombre || '').trim(),
     descripcion: String(form.descripcion || '').trim() || null,
@@ -157,11 +161,15 @@ export function productoParaGuardar(form) {
     ganancia_pct: round2(form.ganancia_pct),
     precio_venta_sin: ventaSin,
     precio: ventaCon,
-    stock: Math.max(0, parseInt(String(form.stock), 10) || 0),
     stock_minimo: Math.max(0, parseInt(String(form.stock_minimo), 10) || 0),
     en_venta: form.en_venta !== false,
     en_favoritos: Boolean(form.en_favoritos),
   };
+  if (sucursal) {
+    const origen = productoDb || { ...form, stock_sucursales: form.stock_sucursales };
+    return { ...base, ...buildPatchStock(origen, sucursal, 'piso', stockPiso, sucursal) };
+  }
+  return { ...base, stock: stockPiso };
 }
 
 export function productoEnVenta(p) {

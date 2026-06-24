@@ -457,7 +457,7 @@ function App() {
             />
           )}
           {vista === 'Corte de caja' && (
-            <CorteCaja supabase={supabase} sucursal={sucursal} user={user} inventario={inventarioTienda} cargarDatos={cargarDatos} />
+            <CorteCaja supabase={supabase} sucursal={sucursal} user={user} inventario={inventarioTienda} inventarioCompleto={inventario} cargarDatos={cargarDatos} />
           )}
           {vista === 'Productos' && (
             <Productos supabase={supabase} inventario={inventarioTienda} inventarioCompleto={inventario} cargarDatos={cargarDatos} user={user} sucursal={sucursal} />

@@ -16,6 +16,7 @@ import {
   PRESETS_FECHA_PRODUCTO,
   rangoDesdePreset,
 } from '../lib/consultasInventario.js';
+import { inventarioParaSucursal } from '../lib/inventarioMultitienda.js';
 
 function fmtFecha(iso) {
   if (!iso) return '—';
@@ -71,16 +72,19 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const [desdeProducto, setDesdeProducto] = useState(() => rangoDesdePreset('7d').desde);
   const [hastaProducto, setHastaProducto] = useState(() => rangoDesdePreset('7d').hasta);
 
-  const tiendas = sucursalesLista?.length ? sucursalesLista : [sucursal || 'MAIN'].filter(Boolean);
-  const departamentos = useMemo(() => listarDepartamentos(inventario), [inventario]);
+  const tiendaConsulta = filtroSucursal || sucursal || 'MAIN';
+  const inventarioVista = useMemo(() => inventarioParaSucursal(inventario, tiendaConsulta), [inventario, tiendaConsulta]);
 
-  const productoMatches = useMemo(() => buscarProductos(inventario, sku).slice(0, 20), [inventario, sku]);
+  const tiendas = sucursalesLista?.length ? sucursalesLista : [sucursal || 'MAIN'].filter(Boolean);
+  const departamentos = useMemo(() => listarDepartamentos(inventarioVista), [inventarioVista]);
+
+  const productoMatches = useMemo(() => buscarProductos(inventarioVista, sku).slice(0, 20), [inventarioVista, sku]);
 
   const productoActivo = useMemo(() => {
-    if (productoSelId) return inventario.find((p) => p.id === productoSelId) || null;
+    if (productoSelId) return inventarioVista.find((p) => p.id === productoSelId) || null;
     if (sku.trim() && productoMatches.length === 1) return productoMatches[0];
     return null;
-  }, [inventario, productoSelId, sku, productoMatches]);
+  }, [inventarioVista, productoSelId, sku, productoMatches]);
 
   const buscarVentas = useCallback(async () => {
     if (!supabase) return;
@@ -175,11 +179,13 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
   useEffect(() => {
     if (pestana === 'producto' && productoActivo) {
-      cargarVentasProducto();
-      setFormProducto({
-        ...productoDesdeDb(productoActivo),
-      });
+      setFormProducto({ ...productoDesdeDb(productoActivo) });
+      setEditando(false);
     }
+  }, [pestana, productoActivo?.id]);
+
+  useEffect(() => {
+    if (pestana === 'producto' && productoActivo) cargarVentasProducto();
   }, [pestana, productoActivo?.id, desdeProducto, hastaProducto, filtroSucursal, cargarVentasProducto]);
 
   const cambiarPresetFechaProducto = (preset) => {
@@ -250,7 +256,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const guardarProducto = async () => {
     if (!supabase || !formProducto) return;
     if (!formProducto.id || !formProducto.nombre) return alert('Código y nombre son obligatorios.');
-    const payload = productoParaGuardar(formProducto);
+    const productoDb = inventario.find((p) => p.id === formProducto.id);
+    const payload = productoParaGuardar(formProducto, { productoDb, sucursal: tiendaConsulta });
     const { error } = await supabase.from('productos').upsert([payload]);
     if (error) {
       const aviso = mensajeErrorColumnasProducto(error);

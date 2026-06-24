@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { buildPatchStock } from './inventarioMultitienda.js';
 
 const ALIAS = {
   id: ['codigo', 'código', 'code', 'id', 'barras', 'barcode', 'sku', 'clave', 'ean', 'upc'],
@@ -97,13 +98,33 @@ export function parsearTextoPegado(texto) {
   return { ok: filas.length > 0, filas, error: filas.length ? null : 'No se detectaron filas válidas (código + nombre).' };
 }
 
-export async function importarCatalogoSupabase(supabase, filas) {
+export async function importarCatalogoSupabase(supabase, filas, opts = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
+  const { sucursal = 'MAIN', ubicacion = 'piso' } = opts;
   const productos = (filas || []).filter((p) => p?.id && p?.nombre);
   if (!productos.length) return { ok: false, error: 'No hay productos válidos para importar.' };
-  const { error } = await supabase.from('productos').upsert(productos);
+
+  const ids = productos.map((p) => p.id);
+  const { data: existentes, error: e0 } = await supabase.from('productos').select('*').in('id', ids);
+  if (e0) return { ok: false, error: e0.message };
+  const porId = new Map((existentes || []).map((p) => [p.id, p]));
+
+  const payloads = productos.map((p) => {
+    const db = porId.get(p.id) || {};
+    const stockPatch = buildPatchStock(db, sucursal, ubicacion, p.stock, sucursal);
+    return {
+      id: p.id,
+      nombre: p.nombre,
+      precio: p.precio,
+      stock_minimo: p.stock_minimo,
+      cat: p.cat,
+      ...stockPatch,
+    };
+  });
+
+  const { error } = await supabase.from('productos').upsert(payloads);
   if (error) return { ok: false, error: error.message };
-  return { ok: true, count: productos.length };
+  return { ok: true, count: payloads.length };
 }
 
 export const PLANTILLA_COLUMNAS = 'codigo,nombre,precio,stock,stock_minimo,categoria';

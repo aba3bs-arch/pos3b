@@ -108,7 +108,8 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
 
   const guardar = async () => {
     if (!supabase) return;
-    const payload = productoParaGuardar(form);
+    const productoDb = (inventarioCompleto || inventario).find((p) => p.id === form.id);
+    const payload = productoParaGuardar(form, { productoDb, sucursal });
     if (!payload.id || !payload.nombre) return alert('Código y nombre son obligatorios');
     const { error } = await supabase.from('productos').upsert([payload]);
     if (error) {
@@ -212,7 +213,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     if (!importFilas.length) return alert('No hay filas para importar.');
     if (!confirm(`¿Importar ${importFilas.length} producto(s)?`)) return;
     setImportando(true);
-    const r = await importarCatalogoSupabase(supabase, importFilas);
+    const r = await importarCatalogoSupabase(supabase, importFilas, { sucursal, ubicacion: 'piso' });
     setImportando(false);
     if (!r.ok) return alert(r.error);
     alert(`Catálogo importado: ${r.count} producto(s).`);

@@ -259,9 +259,10 @@ export async function registrarCancelacion(supabase, opts) {
   if (!arts.length) return { ok: false, error: 'Indica qué productos cancelar.' };
 
   const total = arts.reduce((a, l) => a + (Number(l.precio) || 0) * Number(l.qtyCancelar), 0);
+  const tiendaVenta = venta.sucursal_id || sucursal || '';
   const payload = {
     venta_id: venta.id,
-    sucursal_id: sucursal,
+    sucursal_id: tiendaVenta,
     usuario: user?.nombre || '—',
     metodo_pago: venta.metodo_pago,
     articulos: arts.map((l) => ({
@@ -287,14 +288,29 @@ export async function registrarCancelacion(supabase, opts) {
   guardarCancelacionLocal(localRow);
 
   if (supabase && inventario) {
-    const tienda = sucursal || venta.sucursal_id;
+    const tienda = tiendaVenta;
+    const erroresStock = [];
     for (const l of arts) {
       const prod = inventario.find((p) => String(p.id) === String(l.id));
-      if (!prod) continue;
-      const calc = aplicarDeltaStock(prod, tienda, 'piso', Number(l.qtyCancelar), tienda);
-      if (calc.ok) {
-        await supabase.from('productos').update(calc.patch).eq('id', prod.id);
+      if (!prod) {
+        erroresStock.push(`${l.nombre || l.id}: no encontrado en catálogo`);
+        continue;
       }
+      const calc = aplicarDeltaStock(prod, tienda, 'piso', Number(l.qtyCancelar), tienda);
+      if (!calc.ok) {
+        erroresStock.push(`${prod.nombre}: ${calc.error}`);
+        continue;
+      }
+      const { error: eStock } = await supabase.from('productos').update(calc.patch).eq('id', prod.id);
+      if (eStock) erroresStock.push(`${prod.nombre}: ${eStock.message}`);
+    }
+    if (erroresStock.length) {
+      return {
+        ok: false,
+        error: `Cancelación registrada pero hubo errores al devolver inventario:\n${erroresStock.join('\n')}`,
+        cancelacion: localRow,
+        avisoLocal: !cloudId ? AVISO_FALTA_CANCELACIONES : null,
+      };
     }
   }
 

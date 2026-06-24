@@ -28,7 +28,7 @@ function fmtHora(iso) {
   return new Date(iso).toLocaleString('es-MX', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' });
 }
 
-export default function CorteCaja({ supabase, sucursal, user, inventario, cargarDatos }) {
+export default function CorteCaja({ supabase, sucursal, user, inventario, inventarioCompleto, cargarDatos }) {
   const hoy = new Date().toISOString().slice(0, 10);
   const [pestana, setPestana] = useState('corte');
   const [fecha, setFecha] = useState(hoy);
@@ -196,7 +196,7 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, cargar
       lineas,
       user,
       sucursal,
-      inventario,
+      inventario: inventarioCompleto || inventario,
       motivo: motivoCancel,
     });
     setCancelando(false);
