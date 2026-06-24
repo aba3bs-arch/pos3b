@@ -243,6 +243,11 @@ function App() {
 
   const puedeIngresarPin = Boolean(supabase) && codigoTiendaValido(sucursal);
 
+  const inventarioTienda = useMemo(
+    () => (sesion ? inventarioParaSucursal(inventario, sucursal) : []),
+    [sesion, inventario, sucursal],
+  );
+
   if (!sesion) {
     return (
       <div
@@ -339,8 +344,6 @@ function App() {
   }
 
   const puedeCambiarTienda = puedeCambiarTiendaLibremente(user?.rol);
-  const inventarioTienda = useMemo(() => inventarioParaSucursal(inventario, sucursal), [inventario, sucursal]);
-
   const modulosNav = modulosParaSidebar(user.rol, user.id);
 
   return (
