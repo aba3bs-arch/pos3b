@@ -10,6 +10,7 @@ import {
   ventasPorProductoPorDia,
 } from '../lib/comprasPedido.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
+import { aplicarDeltaStock } from '../lib/inventarioMultitienda.js';
 
 function totalPedido(lines) {
   return lines.reduce((a, l) => a + (Number(l.costo_est) || 0) * (Number(l.qty_pedido) || 0), 0);
@@ -326,7 +327,11 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     for (const l of items) {
       const prod = byId.get(l.id);
       if (prod && l.qty > 0) {
-        await supabase.from('productos').update({ stock: Number(prod.stock || 0) + l.qty }).eq('id', prod.id);
+        const calc = aplicarDeltaStock(prod, sucursal, 'cedis', l.qty, sucursal);
+        if (calc.ok) {
+          await supabase.from('productos').update(calc.patch).eq('id', prod.id);
+          Object.assign(prod, calc.patch);
+        }
       }
     }
 

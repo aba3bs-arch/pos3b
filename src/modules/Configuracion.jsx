@@ -79,8 +79,9 @@ import {
   resumenHorarioUsuario,
   etiquetaDuracionTurno,
 } from '../lib/turnos.js';
-import { puedeAsignarTurnos, puedeGestionarUsuarios, MODULOS_ORDEN, ROLES, modulosDefaultRol } from '../lib/roles.js';
+import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarInventarioMultitienda, MODULOS_ORDEN, ROLES, modulosDefaultRol } from '../lib/roles.js';
 import BrandLogo from '../components/BrandLogo.jsx';
+import AdminInventarioCentral from './AdminInventarioCentral.jsx';
 
 export default function Configuracion({
   supabase,
@@ -95,6 +96,8 @@ export default function Configuracion({
   bloqueoPorEntorno,
   onDesbloquearTiendaBrowser,
   user,
+  inventario,
+  cargarDatos,
 }) {
   const [negocio, setNegocio] = useState('');
   const [ticketFooter, setTicketFooter] = useState('');
@@ -105,6 +108,7 @@ export default function Configuracion({
   const [privRol, setPrivRol] = useState('Cajero');
   const [privUserId, setPrivUserId] = useState('');
   const esAdmin = puedeGestionarUsuarios(user?.rol);
+  const puedeInventarioGlobal = puedeGestionarInventarioMultitienda(user?.rol);
   const [metodosPago, setMetodosPago] = useState([]);
   const [perifericos, setPerifericos] = useState([]);
   const [nuevoMetodo, setNuevoMetodo] = useState('');
@@ -555,7 +559,16 @@ export default function Configuracion({
   };
 
   return (
-    <div style={{ maxWidth: '720px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+    <div style={{ maxWidth: puedeInventarioGlobal ? '100%' : '720px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {puedeInventarioGlobal && (
+        <AdminInventarioCentral
+          supabase={supabase}
+          inventario={inventario || []}
+          cargarDatos={cargarDatos}
+          user={user}
+          sucursalesLista={sucursalesLista}
+        />
+      )}
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Operación</h3>
         <label className="muted">

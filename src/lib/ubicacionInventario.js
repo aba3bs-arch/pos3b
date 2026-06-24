@@ -1,5 +1,16 @@
 import { etiquetaTienda } from '../constants/sucursales.js';
+import {
+  ALMACEN_CENTRAL,
+  asegurarMapaStock,
+  esAlmacenCentral,
+  etiquetaAlmacenCentral,
+  stockEnUbicacion as stockEnUbicacionMt,
+} from './inventarioMultitienda.js';
 import { guardarMovimientoLocal, leerMovimientosLocal } from './inventarioMovimientos.js';
+
+export function stockEnUbicacion(producto, sucursal, ubicacion, sucursalContext) {
+  return stockEnUbicacionMt(producto, sucursal, ubicacion, sucursalContext || sucursal);
+}
 
 export const UBICACIONES = {
   cedis: { id: 'cedis', label: 'CEDIS' },
@@ -18,44 +29,29 @@ export const SUBTIPOS_TRASPASO = [
     desc: 'Regresa unidades del piso al almacén (sobrantes, corrección).',
   },
   {
+    id: 'central_tienda',
+    label: 'Almacén central → Tienda',
+    desc: 'Distribuye mercancía del almacén MAIN al CEDIS de una tienda.',
+  },
+  {
     id: 'tienda_tienda',
     label: 'Tienda → Tienda',
-    desc: 'Envía mercancía del CEDIS de esta tienda al CEDIS de otra sucursal.',
+    desc: 'Envía mercancía del CEDIS de una tienda al CEDIS de otra sucursal.',
   },
 ];
 
-function parseStockSucursales(producto) {
-  const raw = producto?.stock_sucursales;
-  if (!raw) return {};
-  if (typeof raw === 'object') return { ...raw };
-  try {
-    const p = JSON.parse(raw);
-    return p && typeof p === 'object' ? { ...p } : {};
-  } catch {
-    return {};
-  }
-}
-
 /** ¿El producto ya usa inventario por sucursal? */
 export function usaInventarioMultitienda(producto) {
-  const map = parseStockSucursales(producto);
+  const map = asegurarMapaStock(producto, 'MAIN');
   return Object.keys(map).length > 0;
-}
-
-/** Stock en una ubicación (cedis / piso) de una sucursal. */
-export function stockEnUbicacion(producto, sucursal, ubicacion) {
-  const map = parseStockSucursales(producto);
-  const suc = String(sucursal || '').trim();
-  if (map[suc]) {
-    return Math.max(0, Number(map[suc][ubicacion]) || 0);
-  }
-  if (ubicacion === 'piso') return Math.max(0, Number(producto?.stock) || 0);
-  if (ubicacion === 'cedis') return Math.max(0, Number(producto?.stock_cedis) || 0);
-  return 0;
 }
 
 function etiquetaUbicacion(ubicacion) {
   return UBICACIONES[ubicacion]?.label || ubicacion;
+}
+
+function etiquetaSucursal(sucursal) {
+  return esAlmacenCentral(sucursal) ? etiquetaAlmacenCentral() : etiquetaTienda(sucursal);
 }
 
 export function resolverTraspaso(subtipo, sucursalOrigen, sucursalDestino) {
@@ -67,6 +63,15 @@ export function resolverTraspaso(subtipo, sucursalOrigen, sucursalDestino) {
   if (subtipo === 'piso_cedis') {
     return { sucursalOrigen: origen, ubicacionOrigen: 'piso', sucursalDestino: origen, ubicacionDestino: 'cedis' };
   }
+  if (subtipo === 'central_tienda') {
+    if (!destino || destino === ALMACEN_CENTRAL) return null;
+    return {
+      sucursalOrigen: ALMACEN_CENTRAL,
+      ubicacionOrigen: 'cedis',
+      sucursalDestino: destino,
+      ubicacionDestino: 'cedis',
+    };
+  }
   if (subtipo === 'tienda_tienda') {
     if (!destino || destino === origen) return null;
     return { sucursalOrigen: origen, ubicacionOrigen: 'cedis', sucursalDestino: destino, ubicacionDestino: 'cedis' };
@@ -74,83 +79,42 @@ export function resolverTraspaso(subtipo, sucursalOrigen, sucursalDestino) {
   return null;
 }
 
-function construirMapaActualizado(producto, sucursal, ubicacion, nuevoValor, forzarMultitienda) {
-  const map = parseStockSucursales(producto);
-  const suc = String(sucursal || '').trim();
-  const multitienda = forzarMultitienda || Object.keys(map).length > 0;
-
-  if (multitienda) {
-    if (!map[suc]) {
-      map[suc] = {
-        cedis: stockEnUbicacion(producto, suc, 'cedis'),
-        piso: stockEnUbicacion(producto, suc, 'piso'),
-      };
-    }
-    map[suc][ubicacion] = Math.max(0, nuevoValor);
-    const patch = { stock_sucursales: map };
-    if (suc === String(producto?._sucursalActiva || '')) {
-      patch.stock = map[suc].piso;
-      patch.stock_cedis = map[suc].cedis;
-    }
-    return patch;
-  }
-
-  if (ubicacion === 'piso') return { stock: Math.max(0, nuevoValor), stock_cedis: stockEnUbicacion(producto, suc, 'cedis') };
-  return { stock: stockEnUbicacion(producto, suc, 'piso'), stock_cedis: Math.max(0, nuevoValor) };
-}
-
 /** Payload Supabase tras mover unidades entre ubicaciones/sucursales. */
 export function patchTraspasoUbicacion(producto, opts) {
   const { sucursalOrigen, ubicacionOrigen, sucursalDestino, ubicacionDestino, cantidad, sucursalActiva } = opts;
   const qty = Math.floor(Number(cantidad));
-  const forzarMultitienda = sucursalOrigen !== sucursalDestino;
-  const prod = { ...producto, _sucursalActiva: sucursalActiva };
+  const ctx = sucursalActiva || sucursalOrigen;
 
-  const stockO = stockEnUbicacion(prod, sucursalOrigen, ubicacionOrigen);
-  const stockD = stockEnUbicacion(prod, sucursalDestino, ubicacionDestino);
-  if (stockO < qty) return { ok: false, error: `Stock insuficiente en ${etiquetaUbicacion(ubicacionOrigen)} (hay ${stockO}, pides ${qty}).` };
-
-  let map = parseStockSucursales(prod);
-  const multitienda = forzarMultitienda || Object.keys(map).length > 0;
-
-  if (multitienda) {
-    for (const suc of [sucursalOrigen, sucursalDestino]) {
-      if (!map[suc]) {
-        map[suc] = {
-          cedis: stockEnUbicacion(prod, suc, 'cedis'),
-          piso: stockEnUbicacion(prod, suc, 'piso'),
-        };
-      }
-    }
-    map[sucursalOrigen][ubicacionOrigen] = stockO - qty;
-    map[sucursalDestino][ubicacionDestino] = stockD + qty;
-    const patch = { stock_sucursales: map };
-    const act = String(sucursalActiva || '');
-    if (act && map[act]) {
-      patch.stock = map[act].piso;
-      patch.stock_cedis = map[act].cedis;
-    }
+  const stockO = stockEnUbicacionMt(producto, sucursalOrigen, ubicacionOrigen, ctx);
+  const stockD = stockEnUbicacionMt(producto, sucursalDestino, ubicacionDestino, ctx);
+  if (stockO < qty) {
     return {
-      ok: true,
-      patch,
-      stockOrigenAntes: stockO,
-      stockOrigenDespues: stockO - qty,
-      stockDestAntes: stockD,
-      stockDestDespues: stockD + qty,
+      ok: false,
+      error: `Stock insuficiente en ${etiquetaUbicacion(ubicacionOrigen)} · ${etiquetaSucursal(sucursalOrigen)} (hay ${stockO}, pides ${qty}).`,
     };
   }
 
-  const nuevoOrigen = stockO - qty;
-  const nuevoDest = stockD + qty;
-  const patchO = construirMapaActualizado(prod, sucursalOrigen, ubicacionOrigen, nuevoOrigen, false);
-  const patchD = construirMapaActualizado({ ...prod, ...patchO }, sucursalDestino, ubicacionDestino, nuevoDest, false);
+  const map = { ...asegurarMapaStock(producto, ctx) };
+  for (const suc of [sucursalOrigen, sucursalDestino]) {
+    if (!map[suc]) map[suc] = { cedis: 0, piso: 0 };
+  }
+  map[sucursalOrigen][ubicacionOrigen] = stockO - qty;
+  map[sucursalDestino][ubicacionDestino] = stockD + qty;
+
+  const patch = { stock_sucursales: map };
+  const act = String(sucursalActiva || '');
+  if (act && map[act]) {
+    patch.stock = map[act].piso;
+    patch.stock_cedis = map[act].cedis;
+  }
+
   return {
     ok: true,
-    patch: { ...patchO, ...patchD },
+    patch,
     stockOrigenAntes: stockO,
-    stockOrigenDespues: nuevoOrigen,
+    stockOrigenDespues: stockO - qty,
     stockDestAntes: stockD,
-    stockDestDespues: nuevoDest,
+    stockDestDespues: stockD + qty,
   };
 }
 
@@ -172,7 +136,12 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
   if (!qty || qty < 1) return { ok: false, error: 'La cantidad debe ser al menos 1.' };
 
   const ruta = resolverTraspaso(subtipo, sucursalOrigen, sucursalDestino);
-  if (!ruta) return { ok: false, error: 'Selecciona una tienda destino distinta a la origen.' };
+  if (!ruta) {
+    if (subtipo === 'central_tienda') {
+      return { ok: false, error: 'Selecciona la tienda destino para distribuir desde el almacén central.' };
+    }
+    return { ok: false, error: 'Selecciona una tienda destino distinta a la origen.' };
+  }
 
   const calc = patchTraspasoUbicacion(producto, { ...ruta, cantidad: qty, sucursalActiva });
   if (!calc.ok) return calc;
@@ -188,8 +157,8 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
     return { ok: false, error: error.message };
   }
 
-  const origenTxt = `${etiquetaUbicacion(ruta.ubicacionOrigen)} · ${etiquetaTienda(ruta.sucursalOrigen)}`;
-  const destTxt = `${etiquetaUbicacion(ruta.ubicacionDestino)} · ${etiquetaTienda(ruta.sucursalDestino)}`;
+  const origenTxt = `${etiquetaUbicacion(ruta.ubicacionOrigen)} · ${etiquetaSucursal(ruta.sucursalOrigen)}`;
+  const destTxt = `${etiquetaUbicacion(ruta.ubicacionDestino)} · ${etiquetaSucursal(ruta.sucursalDestino)}`;
 
   const log = guardarMovimientoLocal({
     tipo: 'traspaso',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase, supabaseConfigured } from './lib/supabase.js';
 import Inicio from './modules/Inicio.jsx';
 import Ventas from './modules/Ventas.jsx';
@@ -29,7 +29,8 @@ import {
   tiendaBloqueadaEnEsteEquipo,
   normalizarCodigoTienda,
 } from './constants/sucursales.js';
-import { modulosParaSidebar, puedeVerModulo, normalizarRol } from './lib/roles.js';
+import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente } from './lib/roles.js';
+import { inventarioParaSucursal } from './lib/inventarioMultitienda.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
 import { sonidoMenuNavegacion } from './lib/sonidosPos.js';
@@ -337,6 +338,9 @@ function App() {
     );
   }
 
+  const puedeCambiarTienda = puedeCambiarTiendaLibremente(user?.rol);
+  const inventarioTienda = useMemo(() => inventarioParaSucursal(inventario, sucursal), [inventario, sucursal]);
+
   const modulosNav = modulosParaSidebar(user.rol, user.id);
 
   return (
@@ -404,7 +408,23 @@ function App() {
             {vista}
           </h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap', fontWeight: 700 }}>
-            <span className="badge" style={{ fontSize: '0.8rem' }}>{etiquetaTienda(sucursal)}</span>
+            {puedeCambiarTienda && !SUCURSAL_FIJA_ENV ? (
+              <select
+                className="select"
+                style={{ fontSize: '0.8rem', fontWeight: 700, maxWidth: '200px' }}
+                value={sucursal}
+                onChange={(e) => setSucursal(e.target.value)}
+                title="Cambiar tienda activa"
+              >
+                {listaSucursales.map((s) => (
+                  <option key={s} value={s}>
+                    {etiquetaTienda(s)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="badge" style={{ fontSize: '0.8rem' }}>{etiquetaTienda(sucursal)}</span>
+            )}
             <span style={{ color: 'var(--brand-blue)', fontSize: '0.95rem' }}>{user?.nombre}</span>
             <span className="muted" style={{ fontSize: '0.75rem', fontWeight: 600 }}>{normalizarRol(user?.rol)}</span>
             <span className="muted" style={{ fontSize: '0.75rem', fontWeight: 500 }}>Dólar: ${Number(tipoCambio).toFixed(2)}</span>
@@ -419,7 +439,7 @@ function App() {
             <Inicio
               supabase={supabase}
               sucursal={sucursal}
-              inventario={inventario}
+              inventario={inventarioTienda}
               onNavigate={irAModulo}
               puedeModulo={(m) => puedeVerModulo(user?.rol, m, user?.id)}
             />
@@ -430,22 +450,22 @@ function App() {
               user={user}
               sucursal={sucursal}
               tipoCambio={tipoCambio}
-              inventario={inventario}
+              inventario={inventarioTienda}
               cargarDatos={cargarDatos}
               busqueda={busqueda}
               setBusqueda={setBusqueda}
             />
           )}
           {vista === 'Corte de caja' && (
-            <CorteCaja supabase={supabase} sucursal={sucursal} user={user} inventario={inventario} cargarDatos={cargarDatos} />
+            <CorteCaja supabase={supabase} sucursal={sucursal} user={user} inventario={inventarioTienda} cargarDatos={cargarDatos} />
           )}
           {vista === 'Productos' && (
-            <Productos supabase={supabase} inventario={inventario} cargarDatos={cargarDatos} user={user} sucursal={sucursal} />
+            <Productos supabase={supabase} inventario={inventarioTienda} inventarioCompleto={inventario} cargarDatos={cargarDatos} user={user} sucursal={sucursal} />
           )}
           {vista === 'Compras' && (
-            <Compras supabase={supabase} sucursal={sucursal} inventario={inventario} cargarDatos={cargarDatos} onNavigate={irAModulo} />
+            <Compras supabase={supabase} sucursal={sucursal} inventario={inventarioTienda} cargarDatos={cargarDatos} onNavigate={irAModulo} />
           )}
-          {vista === 'Checador' && <Checador inventario={inventario} supabase={supabase} sucursal={sucursal} />}
+          {vista === 'Checador' && <Checador inventario={inventarioTienda} supabase={supabase} sucursal={sucursal} />}
           {vista === 'Proveedores' && <Proveedores supabase={supabase} inventario={inventario} user={user} />}
           {vista === 'Clientes' && <Clientes supabase={supabase} />}
           {vista === 'Usuarios' && (
@@ -461,7 +481,7 @@ function App() {
             <Consultas supabase={supabase} inventario={inventario} sucursal={sucursal} sucursalesLista={listaSucursales} cargarDatos={cargarDatos} />
           )}
           {vista === 'Estadisticas' && <Estadisticas supabase={supabase} />}
-          {vista === 'Reportes' && <Reportes supabase={supabase} inventario={inventario} sucursal={sucursal} />}
+          {vista === 'Reportes' && <Reportes supabase={supabase} inventario={inventarioTienda} sucursal={sucursal} />}
           {vista === 'Configuracion' && (
             <Configuracion
               supabase={supabase}
@@ -472,10 +492,12 @@ function App() {
               sucursalesLista={listaSucursales}
               onAgregarSucursal={agregarNuevaTienda}
               onQuitarSucursalExtra={quitarTiendaExtra}
-              tiendaNoCambiable={Boolean(SUCURSAL_FIJA_ENV || tiendaFijadaParaAcceso)}
+              tiendaNoCambiable={Boolean(SUCURSAL_FIJA_ENV || (tiendaFijadaParaAcceso && !puedeCambiarTienda))}
               bloqueoPorEntorno={Boolean(SUCURSAL_FIJA_ENV)}
               onDesbloquearTiendaBrowser={sesion ? desbloquearTiendaYReiniciarSesion : undefined}
               user={user}
+              inventario={inventario}
+              cargarDatos={cargarDatos}
             />
           )}
           {vista === 'Ayuda' && <Ayuda user={user} />}

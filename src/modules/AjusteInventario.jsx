@@ -10,13 +10,28 @@ import {
 import { imprimirMovimientoInventario } from '../lib/impresion.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { listarSucursales, etiquetaTienda } from '../constants/sucursales.js';
+import { esAlmacenCentral, etiquetaAlmacenCentral } from '../lib/inventarioMultitienda.js';
 import Icon from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import ConteoPorDepartamento from './ConteoPorDepartamento.jsx';
 
 const TIPOS_LIBRE = TIPOS_MOVIMIENTO.filter((t) => t.id !== 'traspaso');
 
-export default function AjusteInventario({ supabase, inventario, cargarDatos, user, sucursal, modoInicial = 'libre' }) {
+export default function AjusteInventario({
+  supabase,
+  inventario,
+  inventarioCompleto,
+  cargarDatos,
+  user,
+  sucursal,
+  sucursalOperacion,
+  puedeElegirTienda = false,
+  sucursalesLista: sucursalesListaProp,
+  modoInicial = 'libre',
+  embebido = false,
+}) {
+  const sucursalOp = sucursalOperacion || sucursal;
+  const catalogoCompleto = inventarioCompleto || inventario;
   const [modo, setModo] = useState(modoInicial);
   const [tipo, setTipo] = useState('entrada');
   const [productoId, setProductoId] = useState('');
@@ -61,11 +76,11 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
   }, [inventario, busqueda]);
 
   const productoOrigen = inventario.find((p) => p.id === productoId);
-  const sucursalesLista = useMemo(() => listarSucursales(), []);
+  const sucursalesLista = useMemo(() => sucursalesListaProp || listarSucursales(), [sucursalesListaProp]);
 
   const rutaTraspaso = useMemo(
-    () => resolverTraspaso(subtipoTraspaso, sucursal, sucursalDestinoTraspaso),
-    [subtipoTraspaso, sucursal, sucursalDestinoTraspaso],
+    () => resolverTraspaso(subtipoTraspaso, sucursalOp, sucursalDestinoTraspaso),
+    [subtipoTraspaso, sucursalOp, sucursalDestinoTraspaso],
   );
 
   const productosBusquedaTraspaso = useMemo(() => {
@@ -170,7 +185,9 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
       cantidad,
       motivo,
       usuario: user?.nombre,
-      sucursal,
+      sucursal: sucursalOp,
+      sucursalOperacion: sucursalOp,
+      inventarioCompleto: catalogoCompleto,
       modo: 'libre',
       departamento: null,
     });
@@ -213,9 +230,11 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
     const r = await aplicarEntradasMasivas(supabase, {
       lineas: validas,
       inventario,
+      inventarioCompleto: catalogoCompleto,
       motivo,
       usuario: user?.nombre,
-      sucursal,
+      sucursal: sucursalOp,
+      sucursalOperacion: sucursalOp,
     });
     setAplicando(false);
     if (!r.ok) {
@@ -230,7 +249,7 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
     });
     await imprimirMovimientoInventario({
       titulo: 'ENTRADA MÚLTIPLE DE INVENTARIO',
-      sucursal,
+      sucursal: sucursalOp,
       usuario: user?.nombre,
       motivo,
       lineas: lineasPrint,
@@ -263,13 +282,13 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
     setAplicando(true);
     const r = await aplicarTraspasosMasivos(supabase, {
       lineas: validas,
-      inventario,
+      inventario: catalogoCompleto,
       subtipo: subtipoTraspaso,
-      sucursalOrigen: sucursal,
+      sucursalOrigen: sucursalOp,
       sucursalDestino: sucursalDestinoTraspaso,
       motivo,
       usuario: user?.nombre,
-      sucursalActiva: sucursal,
+      sucursalActiva: sucursalOp,
     });
     setAplicando(false);
     if (!r.ok) {
@@ -289,7 +308,7 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
     });
     await imprimirMovimientoInventario({
       titulo: `TRASPASO — ${etiqueta.toUpperCase()}`,
-      sucursal,
+      sucursal: sucursalOp,
       usuario: user?.nombre,
       motivo,
       lineas: lineasPrint,
@@ -311,7 +330,7 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
     }));
     imprimirMovimientoInventario({
       titulo: 'HISTORIAL DE MOVIMIENTOS',
-      sucursal,
+      sucursal: sucursalOp,
       usuario: user?.nombre,
       lineas: recientes,
     });
@@ -319,12 +338,21 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
-        <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Ajuste de inventario</h3>
-        <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-          Registra entradas, retiros o traspasos entre CEDIS, piso de venta y otras tiendas. Los movimientos actualizan el stock en Supabase y quedan en el historial de este equipo.
-          {modo === 'libre' && ' En inventario libre puedes escanear el código de barras con el lector USB (HID).'}
-        </p>
+      <div className="card" style={{ borderTop: embebido ? undefined : '4px solid var(--brand-gold)' }}>
+        {!embebido && (
+          <>
+            <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Ajuste de inventario</h3>
+            <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+              Registra entradas, retiros o traspasos entre CEDIS, piso de venta y otras tiendas. Los movimientos actualizan el stock en Supabase y quedan en el historial de este equipo.
+              {modo === 'libre' && ' En inventario libre puedes escanear el código de barras con el lector USB (HID).'}
+            </p>
+          </>
+        )}
+        {!puedeElegirTienda && !embebido && (
+          <p className="muted" style={{ fontSize: '0.85rem', margin: '0.5rem 0 0' }}>
+            Tienda: <span className="badge">{esAlmacenCentral(sucursalOp) ? etiquetaAlmacenCentral() : etiquetaTienda(sucursalOp)}</span>
+          </p>
+        )}
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
           <span className="muted" style={{ width: '100%', fontSize: '0.8rem' }}>
@@ -391,7 +419,7 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
         )}
         {modo === 'traspaso' && (
           <p className="muted" style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
-            Arma una lista de productos y traspásalos de CEDIS al piso de venta, del piso al CEDIS, o del CEDIS de esta tienda al CEDIS de otra sucursal.
+            Arma una lista de productos y traspásalos de CEDIS al piso, del piso al CEDIS, del almacén central a una tienda, o entre CEDIS de sucursales.
           </p>
         )}
       </div>
@@ -402,7 +430,7 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
           inventario={inventario}
           cargarDatos={cargarDatos}
           user={user}
-          sucursal={sucursal}
+          sucursal={sucursalOp}
           onHistorialChange={setHistorial}
         />
       ) : modo === 'masivo' ? (
@@ -513,13 +541,14 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
         <div className="card">
           <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Traspaso de mercancía</h4>
           <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-            Tienda actual: <span className="badge">{etiquetaTienda(sucursal)}</span>
+            Tienda de operación:{' '}
+            <span className="badge">{esAlmacenCentral(sucursalOp) ? etiquetaAlmacenCentral() : etiquetaTienda(sucursalOp)}</span>
             {rutaTraspaso && (
               <span style={{ marginLeft: '0.5rem' }}>
                 · Origen: <strong>{rutaTraspaso.ubicacionOrigen === 'cedis' ? 'CEDIS' : 'Piso'}</strong>
                 {' → '}
                 Destino: <strong>{rutaTraspaso.ubicacionDestino === 'cedis' ? 'CEDIS' : 'Piso'}</strong>
-                {subtipoTraspaso === 'tienda_tienda' && sucursalDestinoTraspaso && (
+                {(subtipoTraspaso === 'tienda_tienda' || subtipoTraspaso === 'central_tienda') && sucursalDestinoTraspaso && (
                   <span> ({etiquetaTienda(sucursalDestinoTraspaso)})</span>
                 )}
               </span>
@@ -535,7 +564,7 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
                 style={{ flex: '1 1 180px' }}
                 onClick={() => {
                   setSubtipoTraspaso(s.id);
-                  if (s.id !== 'tienda_tienda') setSucursalDestinoTraspaso('');
+                  if (s.id !== 'tienda_tienda' && s.id !== 'central_tienda') setSucursalDestinoTraspaso('');
                 }}
                 title={s.desc}
               >
@@ -545,9 +574,9 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
           </div>
           <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 1rem' }}>{SUBTIPOS_TRASPASO.find((s) => s.id === subtipoTraspaso)?.desc}</p>
 
-          {subtipoTraspaso === 'tienda_tienda' && (
+          {(subtipoTraspaso === 'tienda_tienda' || subtipoTraspaso === 'central_tienda') && (
             <label className="muted" style={{ display: 'block', marginBottom: '1rem', maxWidth: '320px' }}>
-              Tienda destino
+              {subtipoTraspaso === 'central_tienda' ? 'Tienda destino (recibe del almacén central)' : 'Tienda destino'}
               <select
                 className="select"
                 style={{ marginTop: '0.35rem' }}
@@ -556,7 +585,7 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
               >
                 <option value="">— Elegir tienda —</option>
                 {sucursalesLista
-                  .filter((c) => c !== sucursal)
+                  .filter((c) => (subtipoTraspaso === 'central_tienda' ? c !== 'MAIN' : c !== sucursalOp))
                   .map((c) => (
                     <option key={c} value={c}>
                       {etiquetaTienda(c)}
@@ -589,7 +618,7 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
                 <option value="">— Elegir —</option>
                 {productosBusquedaTraspaso.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.nombre} · Piso {stockEnUbicacion(p, sucursal, 'piso')} · CEDIS {stockEnUbicacion(p, sucursal, 'cedis')}
+                    {p.nombre} · Piso {stockEnUbicacion(p, sucursalOp, 'piso', sucursalOp)} · CEDIS {stockEnUbicacion(p, sucursalOp, 'cedis', sucursalOp)}
                   </option>
                 ))}
               </select>
@@ -630,10 +659,10 @@ export default function AjusteInventario({ supabase, inventario, cargarDatos, us
                     const p = inventario.find((x) => x.id === l.productoId);
                     const qty = parseInt(l.cantidad, 10) || 0;
                     const stockO = rutaTraspaso
-                      ? stockEnUbicacion(p, rutaTraspaso.sucursalOrigen, rutaTraspaso.ubicacionOrigen)
+                      ? stockEnUbicacion(p, rutaTraspaso.sucursalOrigen, rutaTraspaso.ubicacionOrigen, sucursalOp)
                       : 0;
                     const stockD = rutaTraspaso
-                      ? stockEnUbicacion(p, rutaTraspaso.sucursalDestino, rutaTraspaso.ubicacionDestino)
+                      ? stockEnUbicacion(p, rutaTraspaso.sucursalDestino, rutaTraspaso.ubicacionDestino, sucursalOp)
                       : 0;
                     const insuficiente = qty > stockO;
                     return (

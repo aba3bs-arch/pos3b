@@ -1,5 +1,6 @@
 import { costoUnitarioInventario } from './valorInventario.js';
 import { guardarMovimientoLocal, leerMovimientosLocal } from './inventarioMovimientos.js';
+import { buildPatchStock, stockEnUbicacion } from './inventarioMultitienda.js';
 import { round2 } from './productoForm.js';
 
 const LS_FOLIO_SEQ = 'pos3b_folio_ajuste_seq';
@@ -144,7 +145,10 @@ export async function aplicarConteoDepartamento(supabase, opts) {
     }
     if (l.diferencia === 0) continue;
 
-    const { error } = await supabase.from('productos').update({ stock: l.contadaNum }).eq('id', l.productoId);
+    const { error } = await supabase
+      .from('productos')
+      .update(buildPatchStock(producto, sucursal, 'piso', l.contadaNum, sucursal))
+      .eq('id', l.productoId);
     if (error) {
       errores.push(`${l.nombre}: ${error.message}`);
       continue;

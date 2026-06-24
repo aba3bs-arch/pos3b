@@ -142,6 +142,16 @@ export function puedeCrearProveedor(rol) {
   return normalizarRol(rol) === 'Administrador';
 }
 
+/** Administrador y gerente pueden cambiar tienda y gestionar inventario de todas las sucursales. */
+export function puedeCambiarTiendaLibremente(rol) {
+  const r = normalizarRol(rol);
+  return r === 'Administrador' || r === 'Gerente';
+}
+
+export function puedeGestionarInventarioMultitienda(rol) {
+  return puedeCambiarTiendaLibremente(rol);
+}
+
 export function descripcionRol(rol) {
   const r = normalizarRol(rol);
   const textos = {

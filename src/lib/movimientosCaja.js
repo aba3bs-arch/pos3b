@@ -1,6 +1,7 @@
 import { clasificarPago, inicioDia, finDia, resumirVentas } from './corteCaja.js';
 import { consultarVentas } from './ventasQuery.js';
 import { filtrarVentasPorTurno } from './turnos.js';
+import { aplicarDeltaStock } from './inventarioMultitienda.js';
 
 const LS_CANCELACIONES = 'pos3b_cancelaciones';
 
@@ -286,11 +287,14 @@ export async function registrarCancelacion(supabase, opts) {
   guardarCancelacionLocal(localRow);
 
   if (supabase && inventario) {
+    const tienda = sucursal || venta.sucursal_id;
     for (const l of arts) {
       const prod = inventario.find((p) => String(p.id) === String(l.id));
       if (!prod) continue;
-      const nuevo = Number(prod.stock || 0) + Number(l.qtyCancelar);
-      await supabase.from('productos').update({ stock: nuevo }).eq('id', prod.id);
+      const calc = aplicarDeltaStock(prod, tienda, 'piso', Number(l.qtyCancelar), tienda);
+      if (calc.ok) {
+        await supabase.from('productos').update(calc.patch).eq('id', prod.id);
+      }
     }
   }
 

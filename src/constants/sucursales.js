@@ -59,7 +59,8 @@ export function codigoTiendaValido(codigo) {
 
 export function etiquetaTienda(codigo) {
   const s = String(codigo || '');
-  if (s === 'MAIN' || s === 'FUSION') return s;
+  if (s === 'MAIN') return 'Almacén central (MAIN)';
+  if (s === 'FUSION') return s;
   if (/^3B\d+$/i.test(s)) return `Sucursal ${s}`;
   return s;
 }

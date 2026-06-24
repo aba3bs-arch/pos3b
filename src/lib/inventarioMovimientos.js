@@ -1,3 +1,11 @@
+import {
+  aplicarDeltaStock,
+  esAlmacenCentral,
+  etiquetaAlmacenCentral,
+  stockEnUbicacion,
+} from './inventarioMultitienda.js';
+import { etiquetaTienda } from '../constants/sucursales.js';
+
 const LS_MOVIMIENTOS = 'pos3b_movimientos_inventario';
 
 export const TIPOS_MOVIMIENTO = [
@@ -23,30 +31,61 @@ export function guardarMovimientoLocal(row) {
   return next;
 }
 
+function ubicacionMovimiento(tipo, sucursalOperacion) {
+  if (tipo === 'entrada') return 'cedis';
+  if (esAlmacenCentral(sucursalOperacion)) return 'cedis';
+  return 'piso';
+}
+
+function etiquetaUbicacionMovimiento(tipo, sucursalOperacion) {
+  const u = ubicacionMovimiento(tipo, sucursalOperacion);
+  if (esAlmacenCentral(sucursalOperacion)) return etiquetaAlmacenCentral();
+  return u === 'cedis' ? 'CEDIS' : 'piso de venta';
+}
+
 export async function aplicarMovimientoInventario(supabase, opts) {
-  const { tipo, productoOrigen, cantidad, productoDestino, motivo, usuario, sucursal, modo, departamento } = opts;
+  const {
+    tipo,
+    productoOrigen,
+    cantidad,
+    productoDestino,
+    motivo,
+    usuario,
+    sucursal,
+    sucursalOperacion,
+    modo,
+    departamento,
+    inventarioCompleto,
+  } = opts;
+  const tienda = sucursalOperacion || sucursal;
   const qty = Math.floor(Number(cantidad));
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
   if (!productoOrigen?.id) return { ok: false, error: 'Selecciona un producto.' };
   if (!qty || qty < 1) return { ok: false, error: 'La cantidad debe ser al menos 1.' };
 
-  const stockOrigen = Number(productoOrigen.stock) || 0;
+  const catalogo = inventarioCompleto || [productoOrigen];
+  const productoDb = catalogo.find((p) => p.id === productoOrigen.id) || productoOrigen;
 
   if (tipo === 'traspaso') {
     if (!productoDestino?.id) return { ok: false, error: 'Selecciona el producto destino del traspaso.' };
     if (productoDestino.id === productoOrigen.id) return { ok: false, error: 'Origen y destino deben ser productos distintos.' };
+    const stockOrigen = stockEnUbicacion(productoDb, tienda, 'piso', tienda);
     if (stockOrigen < qty) {
       return { ok: false, error: `Stock insuficiente en origen (hay ${stockOrigen}, pides ${qty}).` };
     }
-    const stockDest = Number(productoDestino.stock) || 0;
-    const nuevoOrigen = stockOrigen - qty;
-    const nuevoDest = stockDest + qty;
+    const productoDestDb = catalogo.find((p) => p.id === productoDestino.id) || productoDestino;
+    const stockDest = stockEnUbicacion(productoDestDb, tienda, 'piso', tienda);
+    const calcO = aplicarDeltaStock(productoDb, tienda, 'piso', -qty, tienda);
+    if (!calcO.ok) return calcO;
+    const prodDestMerged = { ...productoDestDb, ...calcO.patch };
+    const calcD = aplicarDeltaStock(prodDestMerged, tienda, 'piso', qty, tienda);
+    if (!calcD.ok) return calcD;
 
-    const { error: e1 } = await supabase.from('productos').update({ stock: nuevoOrigen }).eq('id', productoOrigen.id);
+    const { error: e1 } = await supabase.from('productos').update(calcO.patch).eq('id', productoOrigen.id);
     if (e1) return { ok: false, error: e1.message };
-    const { error: e2 } = await supabase.from('productos').update({ stock: nuevoDest }).eq('id', productoDestino.id);
+    const { error: e2 } = await supabase.from('productos').update(calcD.patch).eq('id', productoDestino.id);
     if (e2) {
-      await supabase.from('productos').update({ stock: stockOrigen }).eq('id', productoOrigen.id);
+      await supabase.from('productos').update({ stock_sucursales: productoDb.stock_sucursales, stock: productoDb.stock, stock_cedis: productoDb.stock_cedis }).eq('id', productoOrigen.id);
       return { ok: false, error: `Error en destino: ${e2.message}. Se revirtió el origen.` };
     }
 
@@ -60,12 +99,12 @@ export async function aplicarMovimientoInventario(supabase, opts) {
       producto_destino_nombre: productoDestino.nombre,
       cantidad: qty,
       stock_antes: stockOrigen,
-      stock_despues: nuevoOrigen,
+      stock_despues: calcO.despues,
       stock_dest_antes: stockDest,
-      stock_dest_despues: nuevoDest,
+      stock_dest_despues: calcD.despues,
       motivo: motivo?.trim() || '',
       usuario: usuario || '—',
-      sucursal: sucursal || '',
+      sucursal: tienda || '',
       created_at: new Date().toISOString(),
     });
     return {
@@ -75,24 +114,20 @@ export async function aplicarMovimientoInventario(supabase, opts) {
     };
   }
 
+  const ubicacion = ubicacionMovimiento(tipo, tienda);
   const signo = tipo === 'entrada' ? 1 : -1;
-  const esEntradaCedis = tipo === 'entrada';
-  const stockBase = esEntradaCedis ? Number(productoOrigen.stock_cedis) || 0 : stockOrigen;
-  const nuevo = stockBase + signo * qty;
-  if (nuevo < 0) {
-    const donde = esEntradaCedis ? 'CEDIS' : 'piso de venta';
-    return { ok: false, error: `No hay suficiente stock en ${donde} (hay ${stockBase}, retiras ${qty}).` };
-  }
+  const calc = aplicarDeltaStock(productoDb, tienda, ubicacion, signo * qty, tienda);
+  if (!calc.ok) return calc;
 
-  const patch = esEntradaCedis ? { stock_cedis: nuevo } : { stock: nuevo };
-  const { error } = await supabase.from('productos').update(patch).eq('id', productoOrigen.id);
+  const { error } = await supabase.from('productos').update(calc.patch).eq('id', productoOrigen.id);
   if (error) {
-    if (esEntradaCedis && String(error.message).includes('stock_cedis')) {
-      return { ok: false, error: 'Falta la columna stock_cedis. Ejecuta supabase/fix_stock_ubicaciones.sql en Supabase.' };
+    if (String(error.message).includes('stock_sucursales') || String(error.message).includes('stock_cedis')) {
+      return { ok: false, error: 'Faltan columnas de inventario. Ejecuta supabase/fix_stock_ubicaciones.sql en Supabase.' };
     }
     return { ok: false, error: error.message };
   }
 
+  const donde = etiquetaUbicacionMovimiento(tipo, tienda);
   const log = guardarMovimientoLocal({
     tipo,
     modo,
@@ -100,36 +135,41 @@ export async function aplicarMovimientoInventario(supabase, opts) {
     producto_id: productoOrigen.id,
     producto_nombre: productoOrigen.nombre,
     cantidad: qty,
-    stock_antes: stockBase,
-    stock_despues: nuevo,
-    ubicacion: esEntradaCedis ? 'cedis' : 'piso',
+    stock_antes: calc.antes,
+    stock_despues: calc.despues,
+    ubicacion,
+    sucursal_operacion: tienda,
     motivo: motivo?.trim() || '',
     usuario: usuario || '—',
-    sucursal: sucursal || '',
+    sucursal: tienda || '',
     created_at: new Date().toISOString(),
   });
 
-  const verbo = tipo === 'entrada' ? 'Entrada a CEDIS' : 'Retiro de piso';
+  const verbo = tipo === 'entrada' ? `Entrada a ${donde}` : `Retiro de ${donde}`;
   return {
     ok: true,
-    mensaje: `${verbo} de ${qty} uds. en "${productoOrigen.nombre}". Stock: ${stockBase} → ${nuevo}.`,
+    mensaje: `${verbo} (${etiquetaTienda(tienda)}): ${qty} uds. en "${productoOrigen.nombre}". Stock: ${calc.antes} → ${calc.despues}.`,
     log,
+    patch: calc.patch,
   };
 }
 
 /** Varias entradas de inventario en un solo paso (recepción / conteo). */
 export async function aplicarEntradasMasivas(supabase, opts) {
-  const { lineas, inventario, motivo, usuario, sucursal } = opts;
+  const { lineas, inventario, inventarioCompleto, motivo, usuario, sucursal, sucursalOperacion } = opts;
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
   const lista = (lineas || []).filter((l) => l?.productoId && Number(l.cantidad) > 0);
   if (!lista.length) return { ok: false, error: 'Agrega al menos un producto con cantidad.' };
 
+  const catalogo = inventarioCompleto || inventario || [];
+  const tienda = sucursalOperacion || sucursal;
   let log = leerMovimientosLocal();
   let aplicados = 0;
   const errores = [];
+  const productosVivos = new Map(catalogo.map((p) => [p.id, { ...p }]));
 
   for (const { productoId, cantidad } of lista) {
-    const productoOrigen = (inventario || []).find((p) => p.id === productoId);
+    let productoOrigen = productosVivos.get(productoId) || (inventario || []).find((p) => p.id === productoId);
     if (!productoOrigen) {
       errores.push(`${productoId}: no encontrado`);
       continue;
@@ -141,8 +181,10 @@ export async function aplicarEntradasMasivas(supabase, opts) {
       motivo,
       usuario,
       sucursal,
+      sucursalOperacion: tienda,
       modo: 'masivo',
       departamento: productoOrigen.cat,
+      inventarioCompleto: catalogo,
     });
     if (!r.ok) {
       errores.push(`${productoOrigen.nombre}: ${r.error}`);
@@ -150,7 +192,8 @@ export async function aplicarEntradasMasivas(supabase, opts) {
     }
     aplicados += 1;
     log = r.log || log;
-    productoOrigen.stock_cedis = (Number(productoOrigen.stock_cedis) || 0) + Math.floor(Number(cantidad));
+    productoOrigen = { ...productoOrigen, ...r.patch };
+    productosVivos.set(productoId, productoOrigen);
   }
 
   if (!aplicados) return { ok: false, error: errores.join('\n') || 'No se aplicó ninguna entrada.' };
@@ -162,6 +205,6 @@ export async function aplicarEntradasMasivas(supabase, opts) {
     mensaje:
       errores.length > 0
         ? `Entrada masiva: ${aplicados} producto(s) OK. ${errores.length} con error.`
-        : `Entrada masiva aplicada: ${aplicados} producto(s).`,
+        : `Entrada masiva aplicada: ${aplicados} producto(s) en ${etiquetaTienda(tienda)}.`,
   };
 }

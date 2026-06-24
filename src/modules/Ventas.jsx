@@ -5,7 +5,7 @@ import { productoEnVenta, productoEsFavorito } from '../lib/productoForm.js';
 import { BtnLabel } from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import { turnoActual, usuarioAutorizadoLogin, nombreTurnoLegible } from '../lib/turnos.js';
-import { sonidoEscaneoProducto } from '../lib/sonidosPos.js';
+import { aplicarDeltaStock } from '../lib/inventarioMultitienda.js';
 
 function addToCart(carrito, producto) {
   const i = carrito.findIndex((c) => c.id === producto.id);
@@ -127,8 +127,15 @@ export default function Ventas({
       const p = inventario.find((x) => x.id === c.id);
       if (!p) continue;
       const need = c.qty || 1;
-      const nuevo = Math.max(0, Number(p.stock) - need);
-      const { error: e2 } = await supabase.from('productos').update({ stock: nuevo }).eq('id', c.id);
+      const calc = aplicarDeltaStock(p, sucursal, 'piso', -need, sucursal);
+      if (!calc.ok) {
+        alert(`Venta guardada pero no se pudo actualizar stock de ${c.nombre}: ${calc.error}. Revisa inventario.`);
+        cargarDatos();
+        setCarrito([]);
+        resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago });
+        return;
+      }
+      const { error: e2 } = await supabase.from('productos').update(calc.patch).eq('id', c.id);
       if (e2) {
         alert(`Venta guardada pero no se pudo actualizar stock de ${c.nombre}: ${e2.message}. Revisa inventario.`);
         cargarDatos();

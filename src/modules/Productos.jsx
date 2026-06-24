@@ -29,7 +29,7 @@ const TITULOS_VISTA = {
   eliminar: 'Eliminar productos',
 };
 
-export default function Productos({ supabase, inventario, cargarDatos, user, sucursal }) {
+export default function Productos({ supabase, inventario, inventarioCompleto, cargarDatos, user, sucursal }) {
   const [vista, setVista] = useState('lista');
   const [form, setForm] = useState(empty);
   const [q, setQ] = useState('');
@@ -392,11 +392,11 @@ export default function Productos({ supabase, inventario, cargarDatos, user, suc
       )}
 
       {vista === 'ajustes' && (
-        <AjusteInventario supabase={supabase} inventario={inventario} cargarDatos={cargarDatos} user={user} sucursal={sucursal} modoInicial="libre" />
+        <AjusteInventario supabase={supabase} inventario={inventario} inventarioCompleto={inventarioCompleto || inventario} cargarDatos={cargarDatos} user={user} sucursal={sucursal} modoInicial="libre" />
       )}
 
       {vista === 'traspaso' && (
-        <AjusteInventario supabase={supabase} inventario={inventario} cargarDatos={cargarDatos} user={user} sucursal={sucursal} modoInicial="traspaso" />
+        <AjusteInventario supabase={supabase} inventario={inventario} inventarioCompleto={inventarioCompleto || inventario} cargarDatos={cargarDatos} user={user} sucursal={sucursal} modoInicial="traspaso" />
       )}
 
       {vista === 'etiquetas' && (
