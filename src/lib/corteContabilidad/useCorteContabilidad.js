@@ -22,6 +22,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   const [aviso, setAviso] = useState('');
   const [cargando, setCargando] = useState(true);
   const [historial, setHistorial] = useState([]);
+  const [empleados, setEmpleados] = useState([]);
   const saveTimer = useRef(null);
   const perm = useMemo(() => permisosCorteContabilidad(user?.rol), [user?.rol]);
   const turno = useMemo(() => nombreTurnoLegible(turnoActual()), []);
@@ -50,15 +51,17 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
 
   const cargar = useCallback(async () => {
     setCargando(true);
-    const [estRes, gasRes, histRes] = await Promise.all([
+    const [estRes, gasRes, histRes, empRes] = await Promise.all([
       cargarEstadoCorte(supabase, sucursal, modulo),
       listarGastosTurno(supabase, sucursal, modulo),
       listarCierresCorte(supabase, sucursal, modulo, 15),
+      supabase ? supabase.from('usuarios').select('id, nombre, rol, nomina_pagador').order('nombre') : Promise.resolve({ data: [] }),
     ]);
     if (estRes.aviso || gasRes.aviso) setAviso(estRes.aviso || gasRes.aviso || '');
     setEstado(estRes.estado || {});
     setGastos(gasRes.data || []);
     setHistorial(histRes.data || []);
+    setEmpleados(empRes.data || []);
     if (!estRes.estado?.folio && modulo !== 'abarrotes') {
       const f = await peekFolio(supabase, sucursal, modulo);
       setFolio(f);
@@ -146,6 +149,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     aviso,
     cargando,
     historial,
+    empleados,
     cerrarCorte,
     recargar: cargar,
   };

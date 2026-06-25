@@ -26,7 +26,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     fondo_fijo: Number(estado.fondo_fijo) || 0,
   }), []);
 
-  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, calc, folio, turno, perm, aviso, cargando, historial, cerrarCorte } =
+  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte } =
     useCorteContabilidad({
       supabase,
       sucursal,
@@ -111,7 +111,17 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#f1c40f' }}>{fmtCorte(calc.subtotal)}</div>
             <div style={{ fontSize: '0.75rem', opacity: 0.85 }}>Venta − egresos − tarjeta − faltante</div>
           </div>
-          <CorteGastosPanel gastos={gastos} onAgregar={agregarGasto} onEliminar={quitarGasto} habilitado={perm.gastos} />
+          <CorteGastosPanel
+            modulo="abarrotes"
+            supabase={supabase}
+            sucursal={sucursal}
+            empleados={empleados}
+            gastos={gastos}
+            onAgregar={agregarGasto}
+            onEliminar={quitarGasto}
+            habilitado={perm.gastos}
+            puedeCatalogo={perm.guardar}
+          />
           <textarea
             className="input"
             placeholder="Observaciones"

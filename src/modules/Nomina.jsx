@@ -7,23 +7,16 @@ import {
   listarPeriodosNomina,
   totalLineaNomina,
 } from '../lib/nomina.js';
-
+import { gastosDeduccionPorEmpleado } from '../lib/nominaGastos.js';
+import { periodoSemanaNomina, etiquetaSemanaNomina } from '../lib/semanaNomina.js';
+import { AREAS_CONTABILIDAD, ETIQUETA_AREA } from '../lib/contabilidadConstants.js';
+import { imprimirNomina } from '../lib/impresionContabilidad.js';
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
 }
 
-function hoyISO() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function inicioQuincenaISO() {
-  const d = new Date();
-  const dia = d.getDate();
-  d.setDate(dia <= 15 ? 1 : 16);
-  return d.toISOString().slice(0, 10);
-}
-
 export default function Nomina({ supabase, sucursal, user }) {
+  const semana = useMemo(() => periodoSemanaNomina(), []);
   const [aviso, setAviso] = useState('');
   const [err, setErr] = useState('');
   const [cargando, setCargando] = useState(false);
@@ -31,27 +24,35 @@ export default function Nomina({ supabase, sucursal, user }) {
   const [periodoSel, setPeriodoSel] = useState(null);
   const [lineasHist, setLineasHist] = useState([]);
 
-  const [inicio, setInicio] = useState(inicioQuincenaISO);
-  const [fin, setFin] = useState(hoyISO);
+  const [inicio, setInicio] = useState(semana.inicio);
+  const [fin, setFin] = useState(semana.fin);
+  const [pagadorFiltro, setPagadorFiltro] = useState('');
   const [notasPeriodo, setNotasPeriodo] = useState('');
   const [lineas, setLineas] = useState([]);
 
   const totalGeneral = useMemo(() => lineas.reduce((a, l) => a + totalLineaNomina(l), 0), [lineas]);
 
-  const cargarEmpleados = useCallback(async () => {
+  const cargarEmpleadosYGastos = useCallback(async () => {
     if (!supabase) return;
     setCargando(true);
     setErr('');
-    const { data, error } = await supabase.from('usuarios').select('id, nombre, rol, sucursal_id').order('nombre');
+    const [{ data: empleados, error }, gastosRes] = await Promise.all([
+      supabase.from('usuarios').select('id, nombre, rol, sucursal_id, nomina_pagador').order('nombre'),
+      gastosDeduccionPorEmpleado(supabase, { sucursal, desde: inicio, hasta: fin }),
+    ]);
     if (error) {
       setErr(error.message);
       setCargando(false);
       return;
     }
-    const empleados = (data || []).filter((u) => !sucursal || u.sucursal_id === sucursal || u.sucursal_id == null);
-    setLineas(lineasDesdeEmpleados(empleados));
+    if (gastosRes.error) setErr(gastosRes.error);
+    const lineasNuevas = lineasDesdeEmpleados(empleados || [], {
+      gastosMap: gastosRes.map,
+      pagadorFiltro,
+    });
+    setLineas(lineasNuevas);
     setCargando(false);
-  }, [supabase, sucursal]);
+  }, [supabase, sucursal, inicio, fin, pagadorFiltro]);
 
   const cargarPeriodos = useCallback(async () => {
     if (!supabase) return;
@@ -62,9 +63,9 @@ export default function Nomina({ supabase, sucursal, user }) {
   }, [supabase, sucursal]);
 
   useEffect(() => {
-    cargarEmpleados();
+    cargarEmpleadosYGastos();
     cargarPeriodos();
-  }, [cargarEmpleados, cargarPeriodos]);
+  }, [cargarEmpleadosYGastos, cargarPeriodos]);
 
   const actualizarLinea = (idx, campo, valor) => {
     setLineas((prev) => {
@@ -76,10 +77,17 @@ export default function Nomina({ supabase, sucursal, user }) {
     });
   };
 
+  const usarSemanaActual = () => {
+    const s = periodoSemanaNomina();
+    setInicio(s.inicio);
+    setFin(s.fin);
+  };
+
   const guardar = async () => {
     if (!supabase) return alert('Sin conexión a Supabase.');
     if (!inicio || !fin) return alert('Indica inicio y fin del periodo.');
     if (lineas.length === 0) return alert('No hay empleados para la nómina.');
+    if (!confirm(`¿Cerrar nómina del ${inicio} al ${fin}?\nSe marcarán los gastos de cortes como descontados.`)) return;
     setCargando(true);
     setErr('');
     const res = await guardarPeriodoNomina(supabase, {
@@ -89,6 +97,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         periodo_fin: fin,
         estado: 'cerrado',
         notas: notasPeriodo.trim() || null,
+        pagador_filtro: pagadorFiltro || null,
         created_by: user?.nombre || user?.id || null,
       },
       lineas,
@@ -101,6 +110,18 @@ export default function Nomina({ supabase, sucursal, user }) {
     alert(`Nómina guardada. Total: ${fmt(res.total)}`);
     setNotasPeriodo('');
     cargarPeriodos();
+    cargarEmpleadosYGastos();
+  };
+
+  const imprimir = () => {
+    imprimirNomina({
+      periodo_inicio: inicio,
+      periodo_fin: fin,
+      pagador_filtro: pagadorFiltro,
+      notas: notasPeriodo,
+      lineas,
+      total: totalGeneral,
+    });
   };
 
   const verPeriodo = async (p) => {
@@ -110,6 +131,18 @@ export default function Nomina({ supabase, sucursal, user }) {
     const res = await cargarLineasPeriodo(supabase, p.id);
     if (res.error) return alert(res.error);
     setLineasHist(res.data || []);
+  };
+
+  const imprimirHistorial = () => {
+    if (!periodoSel) return;
+    imprimirNomina({
+      periodo_inicio: periodoSel.periodo_inicio,
+      periodo_fin: periodoSel.periodo_fin,
+      pagador_filtro: periodoSel.pagador_filtro,
+      notas: periodoSel.notas,
+      lineas: lineasHist,
+      total: lineasHist.reduce((a, l) => a + (Number(l.total) || 0), 0),
+    });
   };
 
   return (
@@ -122,19 +155,36 @@ export default function Nomina({ supabase, sucursal, user }) {
       )}
 
       <div className="card">
-        <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nueva nómina</h3>
+        <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nómina semanal</h3>
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-          Empleados desde <strong>Usuarios</strong> de la tienda activa. El sueldo base se recuerda para el próximo periodo.
+          Semana <strong>sábado a viernes</strong>. Todos los usuarios del POS. Los gastos de consumo en cortes se descuentan automáticamente.
+          Define en <strong>Usuarios</strong> quién paga la nómina (Virtual / Abarrotes / Garage).
         </p>
         <div className="grid-2" style={{ marginBottom: '0.75rem' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
-            Periodo inicio
+            Inicio (sábado)
             <input className="input" type="date" value={inicio} onChange={(e) => setInicio(e.target.value)} />
           </label>
           <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
-            Periodo fin
+            Fin (viernes)
             <input className="input" type="date" value={fin} onChange={(e) => setFin(e.target.value)} />
           </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
+            Pagador
+            <select className="select" value={pagadorFiltro} onChange={(e) => setPagadorFiltro(e.target.value)}>
+              <option value="">Todos</option>
+              {AREAS_CONTABILIDAD.map((a) => (
+                <option key={a} value={a}>
+                  {ETIQUETA_AREA[a]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+            <button type="button" className="btn btn-ghost" onClick={usarSemanaActual}>
+              Semana actual ({etiquetaSemanaNomina(semana.inicio, semana.fin)})
+            </button>
+          </div>
           <textarea
             className="input"
             placeholder="Notas del periodo (opcional)"
@@ -152,9 +202,11 @@ export default function Nomina({ supabase, sucursal, user }) {
               <tr>
                 <th>Empleado</th>
                 <th>Rol</th>
-                <th>Sueldo base</th>
-                <th>Bonificación</th>
-                <th>Deducciones</th>
+                <th>Pagador</th>
+                <th>Sueldo</th>
+                <th>Bono</th>
+                <th>Gastos cortes</th>
+                <th>Otras ded.</th>
                 <th>Total</th>
               </tr>
             </thead>
@@ -163,46 +215,26 @@ export default function Nomina({ supabase, sucursal, user }) {
                 <tr key={l.usuario_id || i}>
                   <td>{l.nombre}</td>
                   <td className="muted">{l.rol}</td>
+                  <td>{ETIQUETA_AREA[l.pagador_nomina] || l.pagador_nomina}</td>
                   <td>
-                    <input
-                      className="input"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      style={{ width: '100px' }}
-                      value={l.sueldo_base}
-                      onChange={(e) => actualizarLinea(i, 'sueldo_base', e.target.value)}
-                    />
+                    <input className="input" type="number" min="0" step="0.01" style={{ width: '90px' }} value={l.sueldo_base} onChange={(e) => actualizarLinea(i, 'sueldo_base', e.target.value)} />
                   </td>
                   <td>
-                    <input
-                      className="input"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      style={{ width: '100px' }}
-                      value={l.bonificacion}
-                      onChange={(e) => actualizarLinea(i, 'bonificacion', e.target.value)}
-                    />
+                    <input className="input" type="number" min="0" step="0.01" style={{ width: '90px' }} value={l.bonificacion} onChange={(e) => actualizarLinea(i, 'bonificacion', e.target.value)} />
+                  </td>
+                  <td style={{ fontWeight: 700, color: l.deduccion_gastos > 0 ? 'var(--danger)' : undefined }} title={l.notas}>
+                    {fmt(l.deduccion_gastos)}
                   </td>
                   <td>
-                    <input
-                      className="input"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      style={{ width: '100px' }}
-                      value={l.deducciones}
-                      onChange={(e) => actualizarLinea(i, 'deducciones', e.target.value)}
-                    />
+                    <input className="input" type="number" min="0" step="0.01" style={{ width: '90px' }} value={l.deducciones} onChange={(e) => actualizarLinea(i, 'deducciones', e.target.value)} />
                   </td>
                   <td style={{ fontWeight: 700 }}>{fmt(l.total)}</td>
                 </tr>
               ))}
               {lineas.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="muted">
-                    {cargando ? 'Cargando empleados…' : 'No hay empleados en esta tienda.'}
+                  <td colSpan={8} className="muted">
+                    {cargando ? 'Cargando…' : 'Sin empleados para este filtro.'}
                   </td>
                 </tr>
               )}
@@ -210,7 +242,7 @@ export default function Nomina({ supabase, sucursal, user }) {
             {lineas.length > 0 && (
               <tfoot>
                 <tr>
-                  <td colSpan={5} style={{ textAlign: 'right', fontWeight: 700 }}>
+                  <td colSpan={7} style={{ textAlign: 'right', fontWeight: 700 }}>
                     Total nómina
                   </td>
                   <td style={{ fontWeight: 800, color: 'var(--brand-blue)' }}>{fmt(totalGeneral)}</td>
@@ -222,22 +254,25 @@ export default function Nomina({ supabase, sucursal, user }) {
 
         <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
           <button type="button" className="btn btn-primary" disabled={cargando || lineas.length === 0} onClick={guardar}>
-            Guardar periodo
+            Cerrar nómina
           </button>
-          <button type="button" className="btn btn-ghost" disabled={cargando} onClick={cargarEmpleados}>
-            Recargar empleados
+          <button type="button" className="btn btn-ghost" disabled={lineas.length === 0} onClick={imprimir}>
+            Imprimir
+          </button>
+          <button type="button" className="btn btn-ghost" disabled={cargando} onClick={cargarEmpleadosYGastos}>
+            Recalcular gastos
           </button>
         </div>
       </div>
 
       <div className="card">
-        <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Historial de nóminas</h3>
+        <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Historial</h3>
         <div className="table-wrap">
           <table className="data">
             <thead>
               <tr>
                 <th>Periodo</th>
-                <th>Estado</th>
+                <th>Pagador</th>
                 <th>Total</th>
                 <th>Registrado</th>
                 <th />
@@ -249,7 +284,7 @@ export default function Nomina({ supabase, sucursal, user }) {
                   <td>
                     {p.periodo_inicio} — {p.periodo_fin}
                   </td>
-                  <td>{p.estado || '—'}</td>
+                  <td>{p.pagador_filtro ? ETIQUETA_AREA[p.pagador_filtro] || p.pagador_filtro : 'Todos'}</td>
                   <td>{fmt(p.total)}</td>
                   <td className="muted">{p.created_at ? new Date(p.created_at).toLocaleString() : '—'}</td>
                   <td>
@@ -259,32 +294,30 @@ export default function Nomina({ supabase, sucursal, user }) {
                   </td>
                 </tr>
               ))}
-              {periodos.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="muted">
-                    Sin periodos guardados{aviso ? ' (ejecuta el SQL de contabilidad)' : ''}.
-                  </td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
 
         {periodoSel && (
           <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
-            <h4 style={{ margin: '0 0 0.5rem' }}>
-              Detalle: {periodoSel.periodo_inicio} — {periodoSel.periodo_fin}
-            </h4>
-            {periodoSel.notas && <p className="muted" style={{ fontSize: '0.85rem' }}>{periodoSel.notas}</p>}
-            <div className="table-wrap">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <h4 style={{ margin: 0 }}>
+                Detalle: {periodoSel.periodo_inicio} — {periodoSel.periodo_fin}
+              </h4>
+              <button type="button" className="btn btn-ghost" onClick={imprimirHistorial}>
+                Imprimir
+              </button>
+            </div>
+            <div className="table-wrap" style={{ marginTop: '0.5rem' }}>
               <table className="data">
                 <thead>
                   <tr>
                     <th>Empleado</th>
-                    <th>Rol</th>
+                    <th>Pagador</th>
                     <th>Sueldo</th>
-                    <th>Bonificación</th>
-                    <th>Deducciones</th>
+                    <th>Bono</th>
+                    <th>Gastos</th>
+                    <th>Ded.</th>
                     <th>Total</th>
                   </tr>
                 </thead>
@@ -292,20 +325,14 @@ export default function Nomina({ supabase, sucursal, user }) {
                   {lineasHist.map((l) => (
                     <tr key={l.id}>
                       <td>{l.nombre}</td>
-                      <td className="muted">{l.rol}</td>
+                      <td>{ETIQUETA_AREA[l.pagador_nomina] || l.pagador_nomina}</td>
                       <td>{fmt(l.sueldo_base)}</td>
                       <td>{fmt(l.bonificacion)}</td>
+                      <td>{fmt(l.deduccion_gastos)}</td>
                       <td>{fmt(l.deducciones)}</td>
                       <td style={{ fontWeight: 700 }}>{fmt(l.total)}</td>
                     </tr>
                   ))}
-                  {lineasHist.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="muted">
-                        Cargando…
-                      </td>
-                    </tr>
-                  )}
                 </tbody>
               </table>
             </div>

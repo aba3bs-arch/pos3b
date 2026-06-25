@@ -1,10 +1,13 @@
+import { marcarGastosDescontadosNomina } from './nominaGastos.js';
+
 const LS_SUELDOS = 'pos3b_nomina_sueldos_default';
 
 export function totalLineaNomina(linea) {
   const base = Number(linea.sueldo_base) || 0;
   const bon = Number(linea.bonificacion) || 0;
+  const dedGastos = Number(linea.deduccion_gastos) || 0;
   const ded = Number(linea.deducciones) || 0;
-  return Math.max(0, base + bon - ded);
+  return Math.max(0, base + bon - dedGastos - ded);
 }
 
 export function leerSueldosDefault() {
@@ -23,17 +26,26 @@ export function guardarSueldoDefault(usuarioId, monto) {
   localStorage.setItem(LS_SUELDOS, JSON.stringify(map));
 }
 
-export function lineasDesdeEmpleados(empleados, sueldosMap = {}) {
-  return (empleados || []).map((u) => {
+export function lineasDesdeEmpleados(empleados, opts = {}) {
+  const { sueldosMap = {}, gastosMap = {}, pagadorFiltro = '' } = opts;
+  let lista = empleados || [];
+  if (pagadorFiltro) {
+    lista = lista.filter((u) => (u.nomina_pagador || 'abarrotes') === pagadorFiltro);
+  }
+  return lista.map((u) => {
     const sueldo = Number(sueldosMap[u.id] ?? leerSueldosDefault()[String(u.id)] ?? 0);
+    const gastosEmp = gastosMap[String(u.id)] || { total: 0, detalle: [] };
+    const dedGastos = Number(gastosEmp.total) || 0;
     const linea = {
       usuario_id: u.id,
       nombre: u.nombre || '—',
       rol: u.rol || '—',
+      pagador_nomina: u.nomina_pagador || 'abarrotes',
       sueldo_base: sueldo,
       bonificacion: 0,
+      deduccion_gastos: dedGastos,
       deducciones: 0,
-      notas: '',
+      notas: dedGastos > 0 ? `Gastos cortes: ${gastosEmp.detalle?.length || 0} mov.` : '',
     };
     return { ...linea, total: totalLineaNomina(linea) };
   });
@@ -78,6 +90,7 @@ export async function guardarPeriodoNomina(supabase, payload) {
         periodo_fin: periodo.periodo_fin,
         estado: periodo.estado || 'cerrado',
         notas: periodo.notas || null,
+        pagador_filtro: periodo.pagador_filtro || null,
         total,
         created_by: periodo.created_by || null,
       },
@@ -95,8 +108,10 @@ export async function guardarPeriodoNomina(supabase, payload) {
     usuario_id: l.usuario_id || null,
     nombre: l.nombre,
     rol: l.rol || null,
+    pagador_nomina: l.pagador_nomina || null,
     sueldo_base: Number(l.sueldo_base) || 0,
     bonificacion: Number(l.bonificacion) || 0,
+    deduccion_gastos: Number(l.deduccion_gastos) || 0,
     deducciones: Number(l.deducciones) || 0,
     total: totalLineaNomina(l),
     notas: l.notas || null,
@@ -108,7 +123,15 @@ export async function guardarPeriodoNomina(supabase, payload) {
 
   const { error: e2 } = await supabase.from('nomina_lineas').insert(filas);
   if (e2) return { ok: false, error: e2.message };
-  return { ok: true, id: per.id, total };
+
+  await marcarGastosDescontadosNomina(supabase, {
+    sucursal: periodo.sucursal_id,
+    desde: periodo.periodo_inicio,
+    hasta: periodo.periodo_fin,
+    periodoId: per.id,
+  });
+
+  return { ok: true, id: per.id, total, lineas };
 }
 
 export async function cargarLineasPeriodo(supabase, periodoId) {

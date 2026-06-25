@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { ROLES, normalizarRol, puedeGestionarUsuarios } from '../lib/roles.js';
+import { AREAS_CONTABILIDAD, ETIQUETA_AREA } from '../lib/contabilidadConstants.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { leerTurnos, leerConfigHorario, esHorarioPersonalizado, resumenHorarioUsuario, EVENTO_TURNOS, nombreTurnoLegible } from '../lib/turnos.js';
 import InputPin from '../components/InputPin.jsx';
@@ -9,6 +10,7 @@ const emptyForm = (sucursalDefault) => ({
   pin: '',
   rol: 'Cajero',
   sucursal_id: normalizarCodigoTienda(sucursalDefault) || 'MAIN',
+  nomina_pagador: 'abarrotes',
   turno_id: '',
 });
 
@@ -19,7 +21,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
   const [pinEnEdicion, setPinEnEdicion] = useState(null);
   const [nuevoPinDraft, setNuevoPinDraft] = useState('');
   const [editandoId, setEditandoId] = useState(null);
-  const [editForm, setEditForm] = useState({ nombre: '', rol: 'Cajero', sucursal_id: 'MAIN' });
+  const [editForm, setEditForm] = useState({ nombre: '', rol: 'Cajero', sucursal_id: 'MAIN', nomina_pagador: 'abarrotes' });
   const [filtroSucursal, setFiltroSucursal] = useState('');
   const [turnos, setTurnos] = useState(() => leerTurnos());
   const [configHorario, setConfigHorario] = useState(() => leerConfigHorario());
@@ -75,6 +77,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       nombre: r.nombre || '',
       rol: normalizarRol(r.rol),
       sucursal_id: normalizarCodigoTienda(r.sucursal_id) || 'MAIN',
+      nomina_pagador: r.nomina_pagador || 'abarrotes',
     });
   };
 
@@ -86,6 +89,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       nombre,
       rol: normalizarRol(editForm.rol),
       sucursal_id: normalizarCodigoTienda(editForm.sucursal_id) || 'MAIN',
+      nomina_pagador: editForm.nomina_pagador || 'abarrotes',
     };
     const { error } = await supabase.from('usuarios').update(payload).eq('id', editandoId);
     if (error) return alert(error.message);
@@ -103,6 +107,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       pin: String(form.pin).trim(),
       rol: normalizarRol(form.rol),
       sucursal_id: normalizarCodigoTienda(form.sucursal_id) || 'MAIN',
+      nomina_pagador: form.nomina_pagador || 'abarrotes',
       turno_id: esPersonalizado ? null : form.turno_id || null,
     };
     const { error } = await supabase.from('usuarios').insert([payload]);
@@ -136,6 +141,18 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     const { error } = await supabase.from('usuarios').update({ sucursal_id }).eq('id', id);
     if (error) return alert(error.message);
     if (actor?.id === id) onUsuarioActualizado?.({ ...actor, sucursal_id });
+    load();
+  };
+
+  const actualizarPagadorNomina = async (id, pagador) => {
+    if (!supabase || !esAdmin) return;
+    const { error } = await supabase.from('usuarios').update({ nomina_pagador: pagador }).eq('id', id);
+    if (error) {
+      if (String(error.message).includes('nomina_pagador')) {
+        return alert('Ejecuta supabase/fix_contabilidad_ampliacion.sql en Supabase.');
+      }
+      return alert(error.message);
+    }
     load();
   };
 
@@ -256,6 +273,16 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
               </span>
             </label>
           )}
+          <label className="muted">
+            Nómina pagada por
+            <select className="select" style={{ marginTop: '0.35rem' }} value={form.nomina_pagador} onChange={(e) => setForm({ ...form, nomina_pagador: e.target.value })}>
+              {AREAS_CONTABILIDAD.map((a) => (
+                <option key={a} value={a}>
+                  {ETIQUETA_AREA[a]}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={crear}>
           Añadir empleado
@@ -284,6 +311,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                 <th>Nombre</th>
                 <th>Sucursal</th>
                 <th>Rol</th>
+                <th>Nómina</th>
                 {!esPersonalizado ? <th>Turno</th> : <th>Horario</th>}
                 <th>PIN</th>
                 <th style={{ width: '1%' }} />
@@ -292,7 +320,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
             <tbody>
               {filas.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="muted">
+                  <td colSpan={7} className="muted">
                     Sin usuarios. Ejecuta el SQL de sucursal y el seed si es la primera vez.
                   </td>
                 </tr>
@@ -324,6 +352,20 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                         {ROLES.map((rol) => (
                           <option key={rol} value={rol}>
                             {rol}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <select
+                        className="select"
+                        style={{ padding: '0.35rem 0.5rem', fontSize: '0.85rem', minWidth: '110px' }}
+                        value={r.nomina_pagador || 'abarrotes'}
+                        onChange={(e) => actualizarPagadorNomina(r.id, e.target.value)}
+                      >
+                        {AREAS_CONTABILIDAD.map((a) => (
+                          <option key={a} value={a}>
+                            {ETIQUETA_AREA[a]}
                           </option>
                         ))}
                       </select>
@@ -444,6 +486,16 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                 {ROLES.map((rol) => (
                   <option key={rol} value={rol}>
                     {rol}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="muted">
+              Nómina pagada por
+              <select className="select" style={{ marginTop: '0.35rem' }} value={editForm.nomina_pagador} onChange={(e) => setEditForm({ ...editForm, nomina_pagador: e.target.value })}>
+                {AREAS_CONTABILIDAD.map((a) => (
+                  <option key={a} value={a}>
+                    {ETIQUETA_AREA[a]}
                   </option>
                 ))}
               </select>

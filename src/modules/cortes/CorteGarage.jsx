@@ -17,7 +17,7 @@ export default function CorteGarage({ supabase, sucursal, user }) {
     comentarios: '',
   }), []);
 
-  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, calc, folio, turno, perm, aviso, cargando, historial, cerrarCorte } =
+  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte } =
     useCorteContabilidad({
       supabase,
       sucursal,
@@ -101,7 +101,17 @@ export default function CorteGarage({ supabase, sucursal, user }) {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <CorteGastosPanel gastos={gastos} onAgregar={agregarGasto} onEliminar={quitarGasto} habilitado={perm.gastos} />
+          <CorteGastosPanel
+            modulo="garage"
+            supabase={supabase}
+            sucursal={sucursal}
+            empleados={empleados}
+            gastos={gastos}
+            onAgregar={agregarGasto}
+            onEliminar={quitarGasto}
+            habilitado={perm.gastos}
+            puedeCatalogo={perm.guardar}
+          />
           <textarea
             className="input"
             placeholder="Comentarios"
