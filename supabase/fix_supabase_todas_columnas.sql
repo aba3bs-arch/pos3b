@@ -38,6 +38,11 @@ alter table public.productos add column if not exists stock_minimo integer defau
 alter table public.productos add column if not exists en_venta boolean default true;
 alter table public.productos add column if not exists en_favoritos boolean default false;
 alter table public.productos add column if not exists created_at timestamptz default now();
+alter table public.productos add column if not exists stock_cedis integer default 0;
+alter table public.productos add column if not exists stock_sucursales jsonb default '{}'::jsonb;
+
+update public.productos set stock_cedis = 0 where stock_cedis is null;
+update public.productos set stock_sucursales = '{}'::jsonb where stock_sucursales is null;
 
 update public.productos set impuesto = 16 where impuesto is null;
 update public.productos set en_venta = true where en_venta is null;

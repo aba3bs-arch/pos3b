@@ -52,10 +52,9 @@ function normKey(s) {
 
 function valorCampo(row, campo) {
   const keys = Object.keys(row || {});
-  const aliases = [campo, ...(ALIAS[campo] || [])];
+  const buscados = new Set([normKey(campo), ...(ALIAS[campo] || []).map((a) => normKey(a))]);
   for (const k of keys) {
-    const nk = normKey(k);
-    if (aliases.includes(nk) || aliases.some((a) => nk.includes(a))) {
+    if (buscados.has(normKey(k))) {
       const v = row[k];
       if (v != null && String(v).trim() !== '') return v;
     }
@@ -97,8 +96,8 @@ export function filaAProducto(row) {
   const impuesto = impuestoEfectivo(imp);
   let compraSin = Number(valorCampo(row, 'precio_compra_sin')) || 0;
   let compraCon = Number(valorCampo(row, 'precio_compra_con')) || 0;
-  if (compraSin <= 0 && compraCon > 0) compraSin = sinImpuesto(compraCon, imp);
-  if (compraCon <= 0 && compraSin > 0) compraCon = conImpuesto(compraSin, imp);
+  if (compraSin <= 0 && compraCon > 0) compraSin = sinImpuesto(compraCon, impuesto);
+  if (compraCon <= 0 && compraSin > 0) compraCon = conImpuesto(compraSin, impuesto);
 
   let precioVenta = Number(valorCampo(row, 'precio_venta')) || 0;
   let ganancia = valorCampo(row, 'ganancia_pct') !== '' ? Number(valorCampo(row, 'ganancia_pct')) : null;
@@ -125,7 +124,7 @@ export function filaAProducto(row) {
     precio_compra_con: round2(compraCon),
     costo: round2(compraCon),
     ganancia_pct: round2(ganancia),
-    precio_venta_sin: round2(sinImpuesto(precioVenta, imp)),
+    precio_venta_sin: round2(sinImpuesto(precioVenta, impuesto)),
     precio: precioVenta,
     stock_piso: Math.max(0, parseInt(String(valorCampo(row, 'stock_piso') || '0'), 10) || 0),
     stock_cedis: Math.max(0, parseInt(String(valorCampo(row, 'stock_cedis') || '0'), 10) || 0),
@@ -137,6 +136,53 @@ export function filaAProducto(row) {
 
 export function parsearFilasCrudas(rows) {
   return (rows || []).map(filaAProducto).filter(Boolean);
+}
+
+/** Convierte hoja Excel a filas, detectando encabezados aunque no estén en fila 1. */
+function hojaExcelAFilas(sheet) {
+  if (!sheet) return [];
+  const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+  if (!matrix.length) return [];
+
+  const esFilaEncabezado = (row) =>
+    (row || []).some((c) => {
+      const nk = normKey(c);
+      return nk === 'codigo' || nk === 'sku' || nk === 'barras' || nk === 'code' || nk === 'ean';
+    });
+
+  let headerIdx = matrix.findIndex(esFilaEncabezado);
+  if (headerIdx < 0) {
+    // Sin encabezados: asumir orden de plantilla oficial
+    return matrix
+      .filter((row) => row?.some((c) => String(c ?? '').trim() !== ''))
+      .map((row) => {
+        const obj = {};
+        COLUMNAS_CATALOGO.forEach((col, i) => {
+          obj[col.label] = row[i] ?? '';
+        });
+        return obj;
+      });
+  }
+
+  const headers = (matrix[headerIdx] || []).map((h) => String(h ?? '').trim());
+  return matrix.slice(headerIdx + 1).map((row) => {
+    const obj = {};
+    headers.forEach((h, i) => {
+      if (h) obj[h] = row[i] ?? '';
+    });
+    return obj;
+  });
+}
+
+function resultadoLectura(filas, origen) {
+  if (!filas.length) {
+    return {
+      ok: false,
+      error:
+        'No se encontraron productos válidos. La primera columna debe ser codigo y la segunda nombre. Usa la plantilla del botón "Plantilla Excel" o revisa que no haya filas vacías.',
+    };
+  }
+  return { ok: true, filas, origen };
 }
 
 function parsearCsvTexto(texto) {
@@ -164,18 +210,19 @@ export async function leerArchivoCatalogo(file) {
     if (name.endsWith('.csv') || name.endsWith('.txt')) {
       const texto = await file.text();
       const filas = parsearFilasCrudas(parsearCsvTexto(texto));
-      return { ok: true, filas, origen: name };
+      return resultadoLectura(filas, name);
     }
-    if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+    if (name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.xlsm')) {
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { type: 'array', cellDates: false });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
-      const filas = parsearFilasCrudas(json);
-      if (!filas.length) {
-        return { ok: false, error: 'No se encontraron filas válidas. Revisa que la hoja tenga encabezados codigo y nombre en la primera fila.' };
+      let filas = [];
+      for (const sheetName of wb.SheetNames || []) {
+        const sheet = wb.Sheets[sheetName];
+        const crudas = hojaExcelAFilas(sheet);
+        filas = filas.concat(parsearFilasCrudas(crudas));
+        if (filas.length) break;
       }
-      return { ok: true, filas, origen: name };
+      return resultadoLectura(filas, name);
     }
     return { ok: false, error: 'Formato no soportado. Usa .xlsx, .xls o .csv' };
   } catch (e) {
@@ -206,6 +253,15 @@ export async function importarCatalogoSupabase(supabase, filas, opts = {}) {
       .select('id, stock_sucursales, stock, stock_cedis')
       .in('id', ids);
     if (e0) {
+      const msg = String(e0.message || '');
+      const faltaStockMapa = msg.includes('stock_sucursales');
+      if (faltaStockMapa) {
+        return {
+          ok: false,
+          error:
+            'Falta la columna stock_sucursales en Supabase. Ejecuta supabase/fix_stock_ubicaciones.sql en SQL Editor y vuelve a importar.',
+        };
+      }
       const aviso = mensajeErrorColumnasProducto(e0);
       return { ok: false, error: aviso || `Error leyendo productos (lote ${Math.floor(i / BATCH) + 1}): ${e0.message}` };
     }
@@ -234,10 +290,17 @@ export async function importarCatalogoSupabase(supabase, filas, opts = {}) {
       };
     });
 
-    const { error } = await supabase.from('productos').upsert(payloads);
+    const { error } = await supabase.from('productos').upsert(payloads, { onConflict: 'id' });
     if (error) {
       const aviso = mensajeErrorColumnasProducto(error);
-      errores.push(aviso || error.message);
+      const msg = aviso || error.message;
+      if (String(msg).includes('stock_sucursales')) {
+        return {
+          ok: false,
+          error: 'Falta stock_sucursales en la tabla productos. Ejecuta supabase/fix_stock_ubicaciones.sql en Supabase.',
+        };
+      }
+      errores.push(msg);
       continue;
     }
     total += payloads.length;
@@ -330,6 +393,14 @@ export function descargarPlantillaExcel() {
     'no',
   ];
   const ws = XLSX.utils.aoa_to_sheet([headers, ejemplo]);
+  // Columna codigo como texto (evita que Excel corrompa códigos de barras)
+  for (let r = 1; r <= 500; r++) {
+    const ref = XLSX.utils.encode_cell({ r, c: 0 });
+    if (!ws[ref]) ws[ref] = { t: 's', v: '' };
+    ws[ref].z = '@';
+    ws[ref].t = 's';
+  }
+  ws['!cols'] = [{ wch: 16 }, { wch: 28 }, { wch: 24 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Catalogo');
   XLSX.writeFile(wb, 'plantilla_catalogo_3b.xlsx');

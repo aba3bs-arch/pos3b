@@ -50,6 +50,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const [importFilas, setImportFilas] = useState([]);
   const [importNombre, setImportNombre] = useState('');
   const [importando, setImportando] = useState(false);
+  const [importAviso, setImportAviso] = useState('');
   const [textoPegado, setTextoPegado] = useState('');
   const [alcanceVaciado, setAlcanceVaciado] = useState('tienda');
   const [motivoVaciado, setMotivoVaciado] = useState('');
@@ -221,11 +222,18 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const elegirArchivoImport = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setImportAviso('Leyendo archivo…');
     const r = await leerArchivoCatalogo(file);
-    if (!r.ok) return alert(r.error);
-    setImportFilas(r.filas);
-    setImportNombre(r.origen);
     e.target.value = '';
+    if (!r.ok) {
+      setImportFilas([]);
+      setImportNombre('');
+      setImportAviso('');
+      return alert(r.error);
+    }
+    setImportFilas(r.filas);
+    setImportNombre(file.name);
+    setImportAviso(`Archivo listo: ${r.filas.length} producto(s). Revisa la vista previa y pulsa «Confirmar importación».`);
   };
 
   const confirmarImport = async () => {
@@ -239,6 +247,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     setImportFilas([]);
     setImportNombre('');
     setTextoPegado('');
+    setImportAviso('');
     cargarDatos();
   };
 
@@ -247,6 +256,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     if (!r.ok) return alert(r.error);
     setImportFilas(r.filas);
     setImportNombre('Pegado desde Excel');
+    setImportAviso(`Listo: ${r.filas.length} producto(s). Pulsa «Confirmar importación».`);
   };
 
   const ejecutarVaciado = async () => {
@@ -493,9 +503,14 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
       {vista === 'importexport' && (
         <div className="card">
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-            Plantilla con {COLUMNAS_CATALOGO.length} columnas: código, nombre, descripción, categoría, clave SAT, impuesto, costos, margen, precio venta, stock piso/CEDIS, mínimo, en venta y favoritos.
+            <strong>Paso 1:</strong> Descarga la plantilla · <strong>Paso 2:</strong> Llena codigo y nombre (obligatorios) · <strong>Paso 3:</strong> Importar archivo · <strong>Paso 4:</strong> Confirmar importación.
             El stock se aplica a la tienda activa: <strong>{sucursal || 'MAIN'}</strong>.
           </p>
+          {importAviso && (
+            <p style={{ margin: '0 0 0.75rem', padding: '0.6rem 0.75rem', borderRadius: 8, background: 'rgba(59,105,181,0.1)', color: 'var(--brand-blue)', fontSize: '0.88rem' }}>
+              {importAviso}
+            </p>
+          )}
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
             <button type="button" className="btn btn-primary" onClick={descargarPlantillaExcel}>
               Plantilla Excel (.xlsx)
@@ -509,7 +524,13 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
             <button type="button" className="btn btn-gold" onClick={() => exportarCatalogoCsv(inventario)}>
               Exportar catálogo CSV
             </button>
-            <input ref={fileImportRef} type="file" accept=".xlsx,.xls,.csv,.txt" style={{ display: 'none' }} onChange={elegirArchivoImport} />
+            <input
+              ref={fileImportRef}
+              type="file"
+              accept=".xlsx,.xls,.xlsm,.csv,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+              style={{ display: 'none' }}
+              onChange={elegirArchivoImport}
+            />
           </div>
           <details style={{ marginBottom: '1rem' }}>
             <summary className="muted" style={{ cursor: 'pointer' }}>Columnas de la plantilla</summary>
@@ -548,6 +569,11 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           <button type="button" className="btn btn-ghost" style={{ marginTop: '0.5rem' }} onClick={pegarDesdePortapapeles} disabled={!textoPegado.trim()}>
             Previsualizar pegado
           </button>
+          {importFilas.length === 0 && (
+            <p className="muted" style={{ marginTop: '1rem', fontSize: '0.85rem' }}>
+              Tras elegir el archivo verás la vista previa aquí. Si no aparece nada, revisa que la columna <code>codigo</code> y <code>nombre</code> tengan datos.
+            </p>
+          )}
           {importFilas.length > 0 && (
             <>
               <p className="muted" style={{ marginTop: '1rem' }}>
