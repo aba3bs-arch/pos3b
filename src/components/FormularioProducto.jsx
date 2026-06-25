@@ -232,15 +232,15 @@ export default function FormularioProducto({
             />
           </label>
           <label className="muted">
-            Con impuestos (MXN) — cobro en caja
+            Con impuestos (MXN) — cobro en caja (pesos enteros)
             <input
               className="input"
               type="number"
-              step="0.01"
+              step="1"
               min={0}
               style={{ marginTop: '0.35rem', fontWeight: 700 }}
               value={form.precio_venta_con}
-              onChange={(e) => setCampo('precio_venta_con', parseFloat(e.target.value) || 0)}
+              onChange={(e) => setCampo('precio_venta_con', parseInt(e.target.value, 10) || 0)}
             />
           </label>
           <label className="muted">

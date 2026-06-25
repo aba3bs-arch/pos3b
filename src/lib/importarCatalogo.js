@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { round2, sinImpuesto, conImpuesto, gananciaDesdePrecios } from './productoForm.js';
+import { round2, sinImpuesto, conImpuesto, gananciaDesdePrecios, IVA_DEFAULT, GANANCIA_DEFAULT, precioConsumidor, precioVentaConDesdeCompra } from './productoForm.js';
 import { buildPatchStockTienda } from './inventarioMultitienda.js';
 
 /** Columnas oficiales de la plantilla Excel/CSV para catálogo. */
@@ -9,10 +9,10 @@ export const COLUMNAS_CATALOGO = [
   { key: 'descripcion', label: 'descripcion', required: false, desc: 'Descripción larga' },
   { key: 'categoria', label: 'categoria', required: false, desc: 'Departamento (GENERAL, BEBIDAS…)' },
   { key: 'clave_sat', label: 'clave_sat', required: false, desc: 'Clave SAT facturación' },
-  { key: 'impuesto', label: 'impuesto', required: false, desc: 'IVA % (0, 8, 16)' },
+  { key: 'impuesto', label: 'impuesto', required: false, desc: 'IVA % (default 8)' },
   { key: 'precio_compra_sin', label: 'precio_compra_sin', required: false, desc: 'Costo compra sin IVA' },
   { key: 'precio_compra_con', label: 'precio_compra_con', required: false, desc: 'Costo compra con IVA' },
-  { key: 'ganancia_pct', label: 'ganancia_pct', required: false, desc: 'Margen % sobre costo' },
+  { key: 'ganancia_pct', label: 'ganancia_pct', required: false, desc: 'Margen % sobre costo (default 30)' },
   { key: 'precio_venta', label: 'precio_venta', required: false, desc: 'Precio venta al público (con IVA)' },
   { key: 'stock_piso', label: 'stock_piso', required: false, desc: 'Unidades en piso de venta (tienda activa)' },
   { key: 'stock_cedis', label: 'stock_cedis', required: false, desc: 'Unidades en CEDIS (tienda activa)' },
@@ -76,7 +76,7 @@ export function filaAProducto(row) {
   const nombre = String(valorCampo(row, 'nombre') || '').trim();
   if (!id || !nombre) return null;
 
-  const imp = Math.max(0, Number(valorCampo(row, 'impuesto')) || 16);
+  const imp = Math.max(0, Number(valorCampo(row, 'impuesto')) || IVA_DEFAULT);
   let compraSin = Number(valorCampo(row, 'precio_compra_sin')) || 0;
   let compraCon = Number(valorCampo(row, 'precio_compra_con')) || 0;
   if (compraSin <= 0 && compraCon > 0) compraSin = sinImpuesto(compraCon, imp);
@@ -84,10 +84,13 @@ export function filaAProducto(row) {
 
   let precioVenta = Number(valorCampo(row, 'precio_venta')) || 0;
   let ganancia = Number(valorCampo(row, 'ganancia_pct'));
-  if (!precioVenta && compraSin > 0 && ganancia) {
-    precioVenta = round2(compraSin * (1 + ganancia / 100) * (1 + imp / 100));
+  if (!ganancia) ganancia = GANANCIA_DEFAULT;
+  if (!precioVenta && compraSin > 0) {
+    precioVenta = precioVentaConDesdeCompra(compraSin, ganancia, imp);
+  } else if (precioVenta) {
+    precioVenta = precioConsumidor(precioVenta);
   }
-  if (!ganancia && compraSin > 0 && precioVenta > 0) {
+  if (compraSin > 0 && precioVenta > 0 && !valorCampo(row, 'ganancia_pct')) {
     ganancia = gananciaDesdePrecios(compraSin, sinImpuesto(precioVenta, imp));
   }
 
@@ -103,9 +106,9 @@ export function filaAProducto(row) {
     precio_compra_sin: round2(compraSin),
     precio_compra_con: round2(compraCon),
     costo: round2(compraCon),
-    ganancia_pct: round2(ganancia || 0),
+    ganancia_pct: round2(ganancia),
     precio_venta_sin: round2(sinImpuesto(precioVenta, imp)),
-    precio: round2(precioVenta),
+    precio: precioVenta,
     stock_piso: Math.max(0, parseInt(String(valorCampo(row, 'stock_piso') || '0'), 10) || 0),
     stock_cedis: Math.max(0, parseInt(String(valorCampo(row, 'stock_cedis') || '0'), 10) || 0),
     stock_minimo: Math.max(0, parseInt(String(valorCampo(row, 'stock_minimo') || '6'), 10) || 6),
@@ -210,11 +213,11 @@ export function descargarPlantillaCsv() {
     'Bebida cola 600ml',
     'BEBIDAS',
     '50202306',
-    '16',
+    '8',
     '8.50',
-    '9.86',
+    '9.18',
     '30',
-    '18.50',
+    '12',
     '24',
     '48',
     '6',
@@ -239,11 +242,11 @@ export function exportarCatalogoCsv(inventario) {
       `"${String(p.descripcion || '').replace(/"/g, '""')}"`,
       p.cat || 'GENERAL',
       p.clave_sat || '',
-      Number(p.impuesto ?? 16),
+      Number(p.impuesto ?? IVA_DEFAULT),
       Number(p.precio_compra_sin || 0).toFixed(2),
       Number(p.precio_compra_con || p.costo || 0).toFixed(2),
       Number(p.ganancia_pct || 0).toFixed(2),
-      Number(p.precio || 0).toFixed(2),
+      Number(p.precio || 0),
       Number(p.stock || 0),
       Number(p.stock_cedis || 0),
       Number(p.stock_minimo ?? 6),
@@ -269,11 +272,11 @@ export function descargarPlantillaExcel() {
     'Bebida cola 600ml',
     'BEBIDAS',
     '50202306',
-    16,
+    8,
     8.5,
-    9.86,
+    9.18,
     30,
-    18.5,
+    12,
     24,
     48,
     6,

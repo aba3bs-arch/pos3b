@@ -7,7 +7,7 @@ export function costoUnitarioInventario(p) {
   if (compraSin > 0) return compraSin;
   const compraCon = Number(p?.precio_compra_con);
   if (compraCon > 0) {
-    const imp = p?.impuesto != null ? Number(p.impuesto) : 16;
+    const imp = p?.impuesto != null ? Number(p.impuesto) : 8;
     return sinImpuesto(compraCon, imp);
   }
   return 0;
