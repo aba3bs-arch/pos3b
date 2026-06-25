@@ -11,6 +11,11 @@ import Usuarios from './modules/Usuarios.jsx';
 import Consultas from './modules/Consultas.jsx';
 import Estadisticas from './modules/Estadisticas.jsx';
 import Reportes from './modules/Reportes.jsx';
+import Nomina from './modules/Nomina.jsx';
+import ValesPrestamos from './modules/ValesPrestamos.jsx';
+import CorteVirtual from './modules/cortes/CorteVirtual.jsx';
+import CorteAbarrotes from './modules/cortes/CorteAbarrotes.jsx';
+import CorteGarage from './modules/cortes/CorteGarage.jsx';
 import CorteCaja from './modules/CorteCaja.jsx';
 import Configuracion from './modules/Configuracion.jsx';
 import Ayuda from './modules/Ayuda.jsx';
@@ -29,7 +34,7 @@ import {
   tiendaBloqueadaEnEsteEquipo,
   normalizarCodigoTienda,
 } from './constants/sucursales.js';
-import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente } from './lib/roles.js';
+import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, SUBMODULOS_CONTABILIDAD } from './lib/roles.js';
 import { inventarioParaSucursal } from './lib/inventarioMultitienda.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
@@ -51,6 +56,7 @@ function App() {
   const [sucursal, setSucursal] = useState(sucursalInicial);
   const [tiendaFijadaParaAcceso, setTiendaFijadaParaAcceso] = useState(() => Boolean(SUCURSAL_FIJA_ENV || tiendaBloqueadaEnEsteEquipo()));
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [contabilidadOpen, setContabilidadOpen] = useState(false);
   const [tipoCambio, setTipoCambioRaw] = useState(() => leerTipoCambio());
   const [tickPrivilegios, setTickPrivilegios] = useState(0);
   const [inventario, setInventario] = useState([]);
@@ -143,9 +149,14 @@ function App() {
     if (!sesion || !user) return;
     if (!puedeVerModulo(user.rol, vista, user.id)) {
       const nav = modulosParaSidebar(user.rol, user.id);
-      setVista(nav[0] || 'Inicio');
+      const sub = submodulosContabilidadVisibles(user.rol, user.id);
+      setVista(nav[0] || sub[0] || 'Inicio');
     }
   }, [sesion, user, vista, tickPrivilegios]);
+
+  useEffect(() => {
+    if (SUBMODULOS_CONTABILIDAD.includes(vista)) setContabilidadOpen(true);
+  }, [vista]);
 
   const irAModulo = useCallback(
     (m) => {
@@ -345,6 +356,9 @@ function App() {
 
   const puedeCambiarTienda = puedeCambiarTiendaLibremente(user?.rol);
   const modulosNav = modulosParaSidebar(user.rol, user.id);
+  const subContabilidad = submodulosContabilidadVisibles(user.rol, user.id);
+  const contabilidadActiva = SUBMODULOS_CONTABILIDAD.includes(vista);
+  const COLOR_CONTABILIDAD = '#7c3aed';
 
   return (
     <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--surface)' }}>
@@ -385,6 +399,37 @@ function App() {
                 <span>{m}</span>
               </button>
             ))}
+            {subContabilidad.length > 0 && (
+              <div style={{ marginTop: '0.35rem' }}>
+                <button
+                  type="button"
+                  className={`btn btn-ghost nav-btn${contabilidadActiva ? ' nav-btn-active' : ''}`}
+                  style={{ color: contabilidadActiva ? COLOR_CONTABILIDAD : 'var(--muted)' }}
+                  onClick={() => setContabilidadOpen((o) => !o)}
+                >
+                  <Icon name="dollar" size={20} style={{ color: COLOR_CONTABILIDAD }} />
+                  <span style={{ flex: 1, textAlign: 'left' }}>Contabilidad</span>
+                  <Icon name={contabilidadOpen ? 'chevronDown' : 'chevronRight'} size={16} />
+                </button>
+                {contabilidadOpen &&
+                  subContabilidad.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => irAModulo(m)}
+                      onMouseEnter={() => vista !== m && sonidoMenuNavegacion()}
+                      className={`btn btn-ghost nav-btn${vista === m ? ' nav-btn-active' : ''}`}
+                      style={{
+                        paddingLeft: '2.25rem',
+                        color: vista === m ? colorDeModulo(m) : 'var(--muted)',
+                      }}
+                    >
+                      <Icon name={iconoDeModulo(m)} size={18} style={{ color: colorDeModulo(m) }} />
+                      <span>{m}</span>
+                    </button>
+                  ))}
+              </div>
+            )}
           </nav>
         </aside>
       )}
@@ -485,6 +530,11 @@ function App() {
           )}
           {vista === 'Estadisticas' && <Estadisticas supabase={supabase} />}
           {vista === 'Reportes' && <Reportes supabase={supabase} inventario={inventarioTienda} sucursal={sucursal} />}
+          {vista === 'Nómina' && <Nomina supabase={supabase} sucursal={sucursal} user={user} />}
+          {vista === 'Vales y Préstamos' && <ValesPrestamos supabase={supabase} sucursal={sucursal} user={user} />}
+          {vista === 'Corte Virtual' && <CorteVirtual supabase={supabase} sucursal={sucursal} user={user} />}
+          {vista === 'Corte Abarrotes' && <CorteAbarrotes supabase={supabase} sucursal={sucursal} user={user} />}
+          {vista === 'Corte Garage' && <CorteGarage supabase={supabase} sucursal={sucursal} user={user} />}
           {vista === 'Configuracion' && (
             <Configuracion
               supabase={supabase}

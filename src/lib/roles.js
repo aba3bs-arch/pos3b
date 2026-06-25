@@ -4,7 +4,18 @@
  */
 import { leerPrivilegios } from './posConfig.js';
 
-export const ROLES = ['Cajero', 'Auditor', 'Repartidor', 'Supervisor', 'Gerente', 'Administrador'];
+export const ROLES = ['Cajero', 'Auditor', 'Repartidor', 'Supervisor', 'Gerente', 'Técnico', 'Administrador'];
+
+/** Submódulos bajo Contabilidad (no aparecen sueltos en el menú). */
+export const SUBMODULOS_CONTABILIDAD = [
+  'Nómina',
+  'Vales y Préstamos',
+  'Corte Virtual',
+  'Corte Abarrotes',
+  'Corte Garage',
+];
+
+export const MODULOS_AGRUPADOS_CONTABILIDAD = new Set(SUBMODULOS_CONTABILIDAD);
 
 /** Orden fijo del menú lateral */
 export const MODULOS_ORDEN = [
@@ -20,6 +31,11 @@ export const MODULOS_ORDEN = [
   'Consultas',
   'Estadisticas',
   'Reportes',
+  'Nómina',
+  'Vales y Préstamos',
+  'Corte Virtual',
+  'Corte Abarrotes',
+  'Corte Garage',
   'Configuracion',
   'Ayuda',
 ];
@@ -66,9 +82,15 @@ const ACCESO_POR_ROL = {
     'Consultas',
     'Estadisticas',
     'Reportes',
+    'Nómina',
+    'Vales y Préstamos',
+    'Corte Virtual',
+    'Corte Abarrotes',
+    'Corte Garage',
     'Configuracion',
     'Ayuda',
   ],
+  Técnico: ['Inicio', 'Checador', 'Ayuda'],
   Administrador: [...MODULOS_ORDEN],
 };
 
@@ -79,6 +101,8 @@ const ALIAS_ROL = {
   repartidor: 'Repartidor',
   supervisor: 'Supervisor',
   gerente: 'Gerente',
+  tecnico: 'Técnico',
+  técnico: 'Técnico',
   administrador: 'Administrador',
 };
 
@@ -107,19 +131,28 @@ export function puedeVerModulo(rol, moduloId, userId = null) {
 }
 
 export function modulosParaSidebar(rol, userId = null) {
+  const filtrar = (lista) => lista.filter((m) => !MODULOS_AGRUPADOS_CONTABILIDAD.has(m));
   const priv = leerPrivilegios();
   const uid = userId != null ? String(userId) : '';
   if (uid && Array.isArray(priv.porUsuario[uid])) {
     const set = new Set(priv.porUsuario[uid]);
-    return MODULOS_ORDEN.filter((m) => set.has(m));
+    return filtrar(MODULOS_ORDEN.filter((m) => set.has(m)));
   }
   const r = normalizarRol(rol);
   if (Array.isArray(priv.porRol[r])) {
     const set = new Set(priv.porRol[r]);
-    return MODULOS_ORDEN.filter((m) => set.has(m));
+    return filtrar(MODULOS_ORDEN.filter((m) => set.has(m)));
   }
   const permitidos = new Set(ACCESO_POR_ROL[r] || ACCESO_POR_ROL.Cajero);
-  return MODULOS_ORDEN.filter((m) => permitidos.has(m));
+  return filtrar(MODULOS_ORDEN.filter((m) => permitidos.has(m)));
+}
+
+export function submodulosContabilidadVisibles(rol, userId = null) {
+  return SUBMODULOS_CONTABILIDAD.filter((m) => puedeVerModulo(rol, m, userId));
+}
+
+export function puedeVerSeccionContabilidad(rol, userId = null) {
+  return submodulosContabilidadVisibles(rol, userId).length > 0;
 }
 
 export function modulosDefaultRol(rol) {
@@ -160,6 +193,7 @@ export function descripcionRol(rol) {
     Auditor: 'Consultas, reportes e inventario',
     Supervisor: 'Operación sin configuración ni usuarios',
     Gerente: 'Operación y configuración; sin usuarios',
+    Técnico: 'Checador y consultas en campo',
     Administrador: 'Acceso total',
   };
   return textos[r] || r;

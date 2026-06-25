@@ -12,6 +12,11 @@ export const ICONO_MODULO = {
   Consultas: 'search',
   Estadisticas: 'chart',
   Reportes: 'file',
+  'Nómina': 'dollar',
+  'Vales y Préstamos': 'file',
+  'Corte Virtual': 'register',
+  'Corte Abarrotes': 'package',
+  'Corte Garage': 'building',
   Configuracion: 'settings',
   Ayuda: 'help',
 };
@@ -30,6 +35,11 @@ export const COLOR_MODULO = {
   Consultas: '#0891b2',
   Estadisticas: '#16a34a',
   Reportes: '#64748b',
+  'Nómina': '#0d9488',
+  'Vales y Préstamos': '#b45309',
+  'Corte Virtual': '#8e44ad',
+  'Corte Abarrotes': '#b5a642',
+  'Corte Garage': '#7f8c8d',
   Configuracion: '#5c5c5c',
   Ayuda: '#b5b03e',
 };
