@@ -2,6 +2,8 @@ import { buildPatchStock } from './inventarioMultitienda.js';
 
 export const IVA_DEFAULT = 8;
 export const GANANCIA_DEFAULT = 30;
+/** IVA legacy en BD (16) se trata como 8% del negocio. */
+const IVA_LEGACY = 16;
 
 export const OPCIONES_IMPUESTO = [
   { value: 0, label: '0% (exento)' },
@@ -18,13 +20,31 @@ export function precioConsumidor(con) {
   return Math.round(Number(con) || 0);
 }
 
+/** Normaliza IVA: null, vacío o 16 (default viejo de Supabase) → 8%. */
+export function impuestoEfectivo(v) {
+  if (v == null || v === '') return IVA_DEFAULT;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return IVA_DEFAULT;
+  if (n === IVA_LEGACY) return IVA_DEFAULT;
+  return n;
+}
+
+/** Ganancia %: 0 o vacío → 30%. */
+export function gananciaEfectiva(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return GANANCIA_DEFAULT;
+  return n;
+}
+
 export function precioVentaConDesdeCompra(compraSin, gananciaPct = GANANCIA_DEFAULT, impuestoPct = IVA_DEFAULT) {
   const ventaSin = ventaSinDesdeGanancia(compraSin, gananciaPct);
   return precioConsumidor(conImpuesto(ventaSin, impuestoPct));
 }
 
 function aplicarPrecioVentaCalculado(next, imp) {
-  const ventaSin = ventaSinDesdeGanancia(next.precio_compra_sin, next.ganancia_pct);
+  const ganancia = gananciaEfectiva(next.ganancia_pct);
+  next.ganancia_pct = ganancia;
+  const ventaSin = ventaSinDesdeGanancia(next.precio_compra_sin, ganancia);
   next.precio_venta_sin = ventaSin;
   const ventaCon = precioConsumidor(conImpuesto(ventaSin, imp));
   next.precio_venta_con = ventaCon;
@@ -78,12 +98,24 @@ export function productoVacio() {
 
 export function productoDesdeDb(p) {
   if (!p) return productoVacio();
-  const impuesto = p.impuesto != null ? Number(p.impuesto) : IVA_DEFAULT;
-  const precioCon = precioConsumidor(Number(p.precio) || 0);
-  const ventaSin = p.precio_venta_sin != null ? Number(p.precio_venta_sin) : sinImpuesto(precioCon, impuesto);
-  const ventaCon = precioCon || precioConsumidor(conImpuesto(ventaSin, impuesto));
-  const compraSin = Number(p.precio_compra_sin) || 0;
+  const impuesto = impuestoEfectivo(p.impuesto);
+  const ganancia = gananciaEfectiva(p.ganancia_pct);
+  let compraSin = Number(p.precio_compra_sin) || 0;
+  if (compraSin <= 0 && Number(p.precio_compra_con || p.costo) > 0) {
+    compraSin = sinImpuesto(Number(p.precio_compra_con || p.costo), impuesto);
+  }
   const compraCon = p.precio_compra_con != null ? Number(p.precio_compra_con) : conImpuesto(compraSin, impuesto);
+
+  let ventaCon;
+  let ventaSin;
+  if (compraSin > 0) {
+    ventaSin = ventaSinDesdeGanancia(compraSin, ganancia);
+    ventaCon = precioVentaConDesdeCompra(compraSin, ganancia, impuesto);
+  } else {
+    ventaCon = precioConsumidor(Number(p.precio) || 0);
+    ventaSin = p.precio_venta_sin != null ? Number(p.precio_venta_sin) : sinImpuesto(ventaCon, impuesto);
+  }
+
   return {
     id: p.id || '',
     nombre: p.nombre || '',
@@ -94,8 +126,7 @@ export function productoDesdeDb(p) {
     impuesto,
     precio_compra_sin: compraSin,
     precio_compra_con: compraCon,
-    ganancia_pct:
-      p.ganancia_pct != null ? Number(p.ganancia_pct) : compraSin > 0 ? gananciaDesdePrecios(compraSin, ventaSin) : GANANCIA_DEFAULT,
+    ganancia_pct: ganancia,
     precio_venta_sin: ventaSin,
     precio_venta_con: ventaCon,
     precio: ventaCon,
@@ -111,7 +142,8 @@ export function productoDesdeDb(p) {
 /** Recalcula precios derivados según el campo que el usuario editó. */
 export function actualizarCampoProducto(form, campo, valor) {
   const next = { ...form, [campo]: valor };
-  const imp = Number(next.impuesto) || 0;
+  const imp = impuestoEfectivo(next.impuesto);
+  next.impuesto = imp;
 
   if (campo === 'impuesto') {
     next.precio_compra_con = conImpuesto(next.precio_compra_sin, imp);
@@ -131,7 +163,7 @@ export function actualizarCampoProducto(form, campo, valor) {
   }
 
   if (campo === 'ganancia_pct') {
-    next.ganancia_pct = valor;
+    next.ganancia_pct = gananciaEfectiva(valor);
     return aplicarPrecioVentaCalculado(next, imp);
   }
 
@@ -157,7 +189,7 @@ export function actualizarCampoProducto(form, campo, valor) {
 
 export function productoParaGuardar(form, opts = {}) {
   const { productoDb, sucursal } = opts;
-  const imp = Number(form.impuesto) || 0;
+  const imp = impuestoEfectivo(form.impuesto);
   const ventaCon = precioConsumidor(form.precio_venta_con ?? form.precio ?? 0);
   const ventaSin = round2(form.precio_venta_sin ?? sinImpuesto(ventaCon, imp));
   const compraCon = round2(form.precio_compra_con ?? conImpuesto(form.precio_compra_sin, imp));

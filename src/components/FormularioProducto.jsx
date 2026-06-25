@@ -3,6 +3,8 @@ import { agregarDepartamentoExtra, etiquetaDepartamento } from '../lib/departame
 import { leerArchivoComoDataUrl } from '../lib/branding.js';
 import {
   OPCIONES_IMPUESTO,
+  IVA_DEFAULT,
+  GANANCIA_DEFAULT,
   actualizarCampoProducto,
   productoVacio,
 } from '../lib/productoForm.js';
@@ -164,7 +166,12 @@ export default function FormularioProducto({
           </label>
           <label>
             <span className="muted">Impuesto (IVA)</span>
-            <select className="select" style={{ marginTop: '0.35rem' }} value={form.impuesto} onChange={(e) => setCampo('impuesto', parseFloat(e.target.value))}>
+            <select
+              className="select"
+              style={{ marginTop: '0.35rem' }}
+              value={Number(form.impuesto ?? IVA_DEFAULT)}
+              onChange={(e) => setCampo('impuesto', Number(e.target.value))}
+            >
               {OPCIONES_IMPUESTO.map((o) => (
                 <option key={o.value} value={o.value}>
                   {o.label}
@@ -206,7 +213,12 @@ export default function FormularioProducto({
       </div>
 
       <div style={{ marginTop: '0.75rem', padding: '1rem', borderRadius: '12px', background: 'rgba(59,105,181,0.06)', border: '1px solid rgba(59,105,181,0.2)' }}>
-        <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)', fontSize: '0.95rem' }}>Precio de venta</h4>
+        <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)', fontSize: '0.95rem' }}>
+          Precio de venta
+          <span className="muted" style={{ display: 'block', fontSize: '0.78rem', fontWeight: 400, marginTop: '0.2rem' }}>
+            Margen {GANANCIA_DEFAULT}% + IVA {IVA_DEFAULT}% · precio al consumidor en pesos enteros
+          </span>
+        </h4>
         <div className="grid-2">
           <label className="muted">
             Ganancia (%)

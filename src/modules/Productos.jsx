@@ -18,6 +18,7 @@ import MenuPuntos from '../components/MenuPuntos.jsx';
 import Icon from '../components/Icon.jsx';
 import { imprimirEtiquetasEstante } from '../lib/impresion.js';
 import AjusteInventario from './AjusteInventario.jsx';
+import HistorialProducto from '../components/HistorialProducto.jsx';
 
 const empty = productoVacio();
 
@@ -30,6 +31,7 @@ const TITULOS_VISTA = {
   etiquetas: 'Etiquetas de estante',
   importexport: 'Importar / Exportar',
   vaciarinventario: 'Vaciar inventario',
+  historial: 'Historial del producto',
   precios: 'Administrador de precios',
   eliminar: 'Eliminar productos',
 };
@@ -52,6 +54,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const [alcanceVaciado, setAlcanceVaciado] = useState('tienda');
   const [motivoVaciado, setMotivoVaciado] = useState('');
   const [vaciando, setVaciando] = useState(false);
+  const [productoHistorial, setProductoHistorial] = useState(null);
   const [esEdicionProducto, setEsEdicionProducto] = useState(false);
   const [tickDepartamentos, setTickDepartamentos] = useState(0);
   const [preciosDraft, setPreciosDraft] = useState({});
@@ -107,6 +110,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     setVista('lista');
     setForm(empty);
     setEsEdicionProducto(false);
+    setProductoHistorial(null);
     setVinculos([]);
   };
 
@@ -114,6 +118,11 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     setForm(productoDesdeDb(p));
     setEsEdicionProducto(true);
     setVista('editar');
+  };
+
+  const verHistorial = (p) => {
+    setProductoHistorial(p);
+    setVista('historial');
   };
 
   const guardar = async () => {
@@ -226,7 +235,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     const r = await importarCatalogoSupabase(supabase, importFilas, { sucursal });
     setImportando(false);
     if (!r.ok) return alert(r.error);
-    alert(`Catálogo importado: ${r.count} producto(s).`);
+    alert(r.mensaje || `Catálogo importado: ${r.count} producto(s).`);
     setImportFilas([]);
     setImportNombre('');
     setTextoPegado('');
@@ -311,12 +320,15 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                   )}
                   <td>{p.id}</td>
                   <td>{p.nombre}</td>
-                  <td>${Number(p.precio).toFixed(2)}</td>
+                  <td>${Math.round(Number(p.precio) || 0)}</td>
                   <td>{p.stock}</td>
                   <td>{p.stock_cedis ?? 0}</td>
                   <td>{etiquetaDepartamento(p.cat)}</td>
                   {showActions && (
                     <td style={{ whiteSpace: 'nowrap' }}>
+                      <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => verHistorial(p)}>
+                        Historial
+                      </button>
                       <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => editar(p)}>
                         Editar
                       </button>
@@ -380,6 +392,13 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
             onEliminar={() => eliminar(form.id)}
             onLimpiar={irLista}
           />
+          {form.id.trim() && vista === 'editar' && (
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+              <button type="button" className="btn btn-ghost" onClick={() => verHistorial(inventario.find((x) => x.id === form.id) || form)}>
+                Ver historial (ventas y movimientos)
+              </button>
+            </div>
+          )}
           {form.id.trim() && vista === 'editar' && (
             <div className="card">
               <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Proveedores de este producto</h4>
@@ -603,6 +622,18 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
             {vaciando ? 'Vaciando…' : 'Vaciar inventario ahora'}
           </button>
         </div>
+      )}
+
+      {vista === 'historial' && productoHistorial && (
+        <HistorialProducto
+          supabase={supabase}
+          producto={productoHistorial}
+          sucursal={sucursal}
+          onVolver={() => {
+            setProductoHistorial(null);
+            setVista('lista');
+          }}
+        />
       )}
 
       {vista === 'precios' && (

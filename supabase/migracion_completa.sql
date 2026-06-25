@@ -41,10 +41,10 @@ alter table public.productos add column if not exists stock_minimo integer defau
 alter table public.productos add column if not exists descripcion text;
 alter table public.productos add column if not exists foto_url text;
 alter table public.productos add column if not exists clave_sat text;
-alter table public.productos add column if not exists impuesto numeric(5,2) default 16;
+alter table public.productos add column if not exists impuesto numeric(5,2) default 8;
 alter table public.productos add column if not exists precio_compra_sin numeric(12,2) default 0;
 alter table public.productos add column if not exists precio_compra_con numeric(12,2) default 0;
-alter table public.productos add column if not exists ganancia_pct numeric(8,2) default 0;
+alter table public.productos add column if not exists ganancia_pct numeric(8,2) default 30;
 alter table public.productos add column if not exists precio_venta_sin numeric(12,2) default 0;
 alter table public.productos add column if not exists en_venta boolean default true;
 alter table public.productos add column if not exists en_favoritos boolean default false;

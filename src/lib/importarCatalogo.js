@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { round2, sinImpuesto, conImpuesto, gananciaDesdePrecios, IVA_DEFAULT, GANANCIA_DEFAULT, precioConsumidor, precioVentaConDesdeCompra } from './productoForm.js';
+import { round2, sinImpuesto, conImpuesto, gananciaDesdePrecios, IVA_DEFAULT, GANANCIA_DEFAULT, impuestoEfectivo, gananciaEfectiva, precioConsumidor, precioVentaConDesdeCompra, mensajeErrorColumnasProducto } from './productoForm.js';
 import { buildPatchStockTienda } from './inventarioMultitienda.js';
 
 /** Columnas oficiales de la plantilla Excel/CSV para catálogo. */
@@ -71,27 +71,45 @@ function parseBool(v, defaultVal = true) {
   return defaultVal;
 }
 
+function normalizarCodigoImport(v) {
+  if (v == null || v === '') return '';
+  if (typeof v === 'number') {
+    if (Number.isSafeInteger(v)) return String(v);
+    const red = Math.round(v);
+    if (Math.abs(v - red) < 1e-6) return String(red);
+  }
+  let s = String(v).trim();
+  if (/e[+-]/i.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n)) return String(Math.round(n));
+  }
+  if (/^\d+\.0+$/.test(s)) return s.replace(/\.0+$/, '');
+  return s;
+}
+
 export function filaAProducto(row) {
-  const id = String(valorCampo(row, 'codigo') || '').trim();
+  const id = normalizarCodigoImport(valorCampo(row, 'codigo'));
   const nombre = String(valorCampo(row, 'nombre') || '').trim();
   if (!id || !nombre) return null;
 
-  const imp = Math.max(0, Number(valorCampo(row, 'impuesto')) || IVA_DEFAULT);
+  const impRaw = valorCampo(row, 'impuesto');
+  const imp = impRaw !== '' && impRaw != null ? Math.max(0, Number(impRaw)) : IVA_DEFAULT;
+  const impuesto = impuestoEfectivo(imp);
   let compraSin = Number(valorCampo(row, 'precio_compra_sin')) || 0;
   let compraCon = Number(valorCampo(row, 'precio_compra_con')) || 0;
   if (compraSin <= 0 && compraCon > 0) compraSin = sinImpuesto(compraCon, imp);
   if (compraCon <= 0 && compraSin > 0) compraCon = conImpuesto(compraSin, imp);
 
   let precioVenta = Number(valorCampo(row, 'precio_venta')) || 0;
-  let ganancia = Number(valorCampo(row, 'ganancia_pct'));
-  if (!ganancia) ganancia = GANANCIA_DEFAULT;
+  let ganancia = valorCampo(row, 'ganancia_pct') !== '' ? Number(valorCampo(row, 'ganancia_pct')) : null;
+  ganancia = gananciaEfectiva(ganancia);
   if (!precioVenta && compraSin > 0) {
-    precioVenta = precioVentaConDesdeCompra(compraSin, ganancia, imp);
+    precioVenta = precioVentaConDesdeCompra(compraSin, ganancia, impuesto);
   } else if (precioVenta) {
     precioVenta = precioConsumidor(precioVenta);
   }
-  if (compraSin > 0 && precioVenta > 0 && !valorCampo(row, 'ganancia_pct')) {
-    ganancia = gananciaDesdePrecios(compraSin, sinImpuesto(precioVenta, imp));
+  if (compraSin > 0 && precioVenta > 0 && valorCampo(row, 'ganancia_pct') === '') {
+    ganancia = gananciaDesdePrecios(compraSin, sinImpuesto(precioVenta, impuesto));
   }
 
   return {
@@ -102,7 +120,7 @@ export function filaAProducto(row) {
       .trim()
       .toUpperCase() || 'GENERAL',
     clave_sat: String(valorCampo(row, 'clave_sat') || '').trim() || null,
-    impuesto: imp,
+    impuesto,
     precio_compra_sin: round2(compraSin),
     precio_compra_con: round2(compraCon),
     costo: round2(compraCon),
@@ -150,10 +168,13 @@ export async function leerArchivoCatalogo(file) {
     }
     if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
       const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: 'array' });
+      const wb = XLSX.read(buf, { type: 'array', cellDates: false });
       const sheet = wb.Sheets[wb.SheetNames[0]];
-      const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+      const json = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
       const filas = parsearFilasCrudas(json);
+      if (!filas.length) {
+        return { ok: false, error: 'No se encontraron filas válidas. Revisa que la hoja tenga encabezados codigo y nombre en la primera fila.' };
+      }
       return { ok: true, filas, origen: name };
     }
     return { ok: false, error: 'Formato no soportado. Usa .xlsx, .xls o .csv' };
@@ -171,39 +192,64 @@ export async function importarCatalogoSupabase(supabase, filas, opts = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
   const { sucursal = 'MAIN' } = opts;
   const productos = (filas || []).filter((p) => p?.id && p?.nombre);
-  if (!productos.length) return { ok: false, error: 'No hay productos válidos para importar.' };
+  if (!productos.length) return { ok: false, error: 'No hay productos válidos para importar (código + nombre obligatorios).' };
 
-  const ids = productos.map((p) => p.id);
-  const { data: existentes, error: e0 } = await supabase.from('productos').select('*').in('id', ids);
-  if (e0) return { ok: false, error: e0.message };
-  const porId = new Map((existentes || []).map((p) => [p.id, p]));
+  const BATCH = 40;
+  let total = 0;
+  const errores = [];
 
-  const payloads = productos.map((p) => {
-    const db = porId.get(p.id) || {};
-    const stockPatch = buildPatchStockTienda(db, sucursal, p.stock_piso, p.stock_cedis, sucursal);
-    return {
-      id: p.id,
-      nombre: p.nombre,
-      descripcion: p.descripcion,
-      cat: p.cat,
-      clave_sat: p.clave_sat,
-      impuesto: p.impuesto,
-      precio_compra_sin: p.precio_compra_sin,
-      precio_compra_con: p.precio_compra_con,
-      costo: p.costo,
-      ganancia_pct: p.ganancia_pct,
-      precio_venta_sin: p.precio_venta_sin,
-      precio: p.precio,
-      stock_minimo: p.stock_minimo,
-      en_venta: p.en_venta,
-      en_favoritos: p.en_favoritos,
-      ...stockPatch,
-    };
-  });
+  for (let i = 0; i < productos.length; i += BATCH) {
+    const chunk = productos.slice(i, i + BATCH);
+    const ids = chunk.map((p) => p.id);
+    const { data: existentes, error: e0 } = await supabase
+      .from('productos')
+      .select('id, stock_sucursales, stock, stock_cedis')
+      .in('id', ids);
+    if (e0) {
+      const aviso = mensajeErrorColumnasProducto(e0);
+      return { ok: false, error: aviso || `Error leyendo productos (lote ${Math.floor(i / BATCH) + 1}): ${e0.message}` };
+    }
+    const porId = new Map((existentes || []).map((p) => [p.id, p]));
 
-  const { error } = await supabase.from('productos').upsert(payloads);
-  if (error) return { ok: false, error: error.message };
-  return { ok: true, count: payloads.length };
+    const payloads = chunk.map((p) => {
+      const db = porId.get(p.id) || {};
+      const stockPatch = buildPatchStockTienda(db, sucursal, p.stock_piso, p.stock_cedis, sucursal);
+      return {
+        id: p.id,
+        nombre: p.nombre,
+        descripcion: p.descripcion,
+        cat: p.cat,
+        clave_sat: p.clave_sat,
+        impuesto: impuestoEfectivo(p.impuesto),
+        precio_compra_sin: p.precio_compra_sin,
+        precio_compra_con: p.precio_compra_con,
+        costo: p.costo,
+        ganancia_pct: gananciaEfectiva(p.ganancia_pct),
+        precio_venta_sin: p.precio_venta_sin,
+        precio: precioConsumidor(p.precio),
+        stock_minimo: p.stock_minimo,
+        en_venta: p.en_venta,
+        en_favoritos: p.en_favoritos,
+        ...stockPatch,
+      };
+    });
+
+    const { error } = await supabase.from('productos').upsert(payloads);
+    if (error) {
+      const aviso = mensajeErrorColumnasProducto(error);
+      errores.push(aviso || error.message);
+      continue;
+    }
+    total += payloads.length;
+  }
+
+  if (!total) return { ok: false, error: errores.join('\n') || 'No se importó ningún producto.' };
+  return {
+    ok: true,
+    count: total,
+    errores,
+    mensaje: errores.length ? `Importados ${total} producto(s). Algunos lotes fallaron.` : undefined,
+  };
 }
 
 export function descargarPlantillaCsv() {
