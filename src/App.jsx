@@ -34,7 +34,7 @@ import {
   tiendaBloqueadaEnEsteEquipo,
   normalizarCodigoTienda,
 } from './constants/sucursales.js';
-import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, SUBMODULOS_CONTABILIDAD } from './lib/roles.js';
+import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD } from './lib/roles.js';
 import { inventarioParaSucursal } from './lib/inventarioMultitienda.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
@@ -65,7 +65,7 @@ function App() {
   const [sucursal, setSucursal] = useState(sucursalInicial);
   const [tiendaFijadaParaAcceso, setTiendaFijadaParaAcceso] = useState(() => Boolean(SUCURSAL_FIJA_ENV || tiendaBloqueadaEnEsteEquipo()));
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [contabilidadOpen, setContabilidadOpen] = useState(false);
+  const [contabilidadOpen, setContabilidadOpen] = useState(true);
   const [tipoCambio, setTipoCambioRaw] = useState(() => leerTipoCambio());
   const [tickPrivilegios, setTickPrivilegios] = useState(0);
   const [inventario, setInventario] = useState([]);
@@ -166,6 +166,12 @@ function App() {
   useEffect(() => {
     if (SUBMODULOS_CONTABILIDAD.includes(vista)) setContabilidadOpen(true);
   }, [vista]);
+
+  useEffect(() => {
+    if (sesion && user && puedeVerSeccionContabilidad(user.rol, user.id)) {
+      setContabilidadOpen(true);
+    }
+  }, [sesion, user, tickPrivilegios]);
 
   const irAModulo = useCallback(
     (m) => {

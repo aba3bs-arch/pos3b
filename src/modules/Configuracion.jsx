@@ -86,7 +86,7 @@ import {
   TURNO_AMBOS_ID,
   etiquetaTurno,
 } from '../lib/turnos.js';
-import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarInventarioMultitienda, MODULOS_ORDEN, ROLES, modulosDefaultRol } from '../lib/roles.js';
+import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, SUBMODULOS_CONTABILIDAD, ROLES, modulosDefaultRol } from '../lib/roles.js';
 import BrandLogo from '../components/BrandLogo.jsx';
 import AdminInventarioCentral from './AdminInventarioCentral.jsx';
 
@@ -698,34 +698,116 @@ export default function Configuracion({
               </select>
             </label>
           )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.35rem' }}>
-            {MODULOS_ORDEN.map((mod) => {
-              const key = privModo === 'usuario' ? privUserId : privRol;
-              const custom = privModo === 'usuario' ? privilegios.porUsuario[key] : privilegios.porRol[key];
-              const base = privModo === 'usuario'
-                ? modulosDefaultRol(usuariosTurno.find((u) => String(u.id) === String(key))?.rol || 'Cajero')
-                : modulosDefaultRol(privRol);
-              const activos = custom || base;
-              const checked = activos.includes(mod);
-              return (
-                <label key={mod} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem' }}>
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    disabled={!key}
-                    onChange={() => {
-                      if (!key) return;
-                      const store = privModo === 'usuario' ? 'porUsuario' : 'porRol';
-                      const actual = [...(privilegios[store][key] || base)];
-                      const next = actual.includes(mod) ? actual.filter((m) => m !== mod) : [...actual, mod];
-                      setPrivilegios({ ...privilegios, [store]: { ...privilegios[store], [key]: next } });
-                    }}
-                  />
-                  {mod}
-                </label>
-              );
-            })}
-          </div>
+          {(() => {
+            const privKey = privModo === 'usuario' ? privUserId : privRol;
+            const store = privModo === 'usuario' ? 'porUsuario' : 'porRol';
+            const baseModulos = privModo === 'usuario'
+              ? modulosDefaultRol(usuariosTurno.find((u) => String(u.id) === String(privKey))?.rol || 'Cajero')
+              : modulosDefaultRol(privRol);
+            const activos = privKey ? [...(privilegios[store][privKey] || baseModulos)] : baseModulos;
+            const subActivos = SUBMODULOS_CONTABILIDAD.filter((m) => activos.includes(m));
+            const todosSub = SUBMODULOS_CONTABILIDAD.every((m) => activos.includes(m));
+            const algunoSub = subActivos.length > 0;
+
+            const aplicarModulos = (next) => {
+              if (!privKey) return;
+              setPrivilegios({ ...privilegios, [store]: { ...privilegios[store], [privKey]: next } });
+            };
+
+            const toggleModulo = (mod) => {
+              if (!privKey) return;
+              const actual = [...(privilegios[store][privKey] || baseModulos)];
+              const next = actual.includes(mod) ? actual.filter((m) => m !== mod) : [...actual, mod];
+              aplicarModulos(next);
+            };
+
+            const toggleTodosContabilidad = (marcar) => {
+              if (!privKey) return;
+              const actual = [...(privilegios[store][privKey] || baseModulos)];
+              const sinSub = actual.filter((m) => !SUBMODULOS_CONTABILIDAD.includes(m));
+              const next = marcar ? [...sinSub, ...SUBMODULOS_CONTABILIDAD] : sinSub;
+              aplicarModulos(next);
+            };
+
+            const marcarSoloCortes = () => {
+              if (!privKey) return;
+              const actual = [...(privilegios[store][privKey] || baseModulos)];
+              const sinSub = actual.filter((m) => !SUBMODULOS_CONTABILIDAD.includes(m));
+              aplicarModulos([...sinSub, 'Corte Virtual', 'Corte Abarrotes', 'Corte Garage']);
+            };
+
+            return (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.35rem' }}>
+                  {MODULOS_PRIVILEGIOS_GENERAL.map((mod) => (
+                    <label key={mod} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem' }}>
+                      <input type="checkbox" checked={activos.includes(mod)} disabled={!privKey} onChange={() => toggleModulo(mod)} />
+                      {mod}
+                    </label>
+                  ))}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: '1rem',
+                    padding: '0.85rem',
+                    borderRadius: '10px',
+                    background: 'rgba(124,58,237,0.06)',
+                    border: '1px solid rgba(124,58,237,0.25)',
+                    borderLeft: '4px solid #7c3aed',
+                  }}
+                >
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <h4 style={{ margin: 0, fontSize: '0.95rem', color: '#7c3aed', flex: '1 1 160px' }}>Contabilidad</h4>
+                    {privKey && (
+                      <span className="badge" style={{ fontSize: '0.72rem' }}>
+                        {subActivos.length} / {SUBMODULOS_CONTABILIDAD.length} submódulos
+                      </span>
+                    )}
+                  </div>
+                  <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
+                    El botón <strong>Contabilidad</strong> en el menú lateral aparece cuando al menos un submódulo está activo.
+                    Marca solo los que necesite cada rol (nómina, vales, cortes Virtual / Abarrotes / Garage).
+                  </p>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={todosSub}
+                      disabled={!privKey}
+                      onChange={() => toggleTodosContabilidad(!todosSub)}
+                    />
+                    Todos los submódulos de Contabilidad
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.35rem', paddingLeft: '1.25rem' }}>
+                    {SUBMODULOS_CONTABILIDAD.map((mod) => (
+                      <label key={mod} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem' }}>
+                        <input type="checkbox" checked={activos.includes(mod)} disabled={!privKey} onChange={() => toggleModulo(mod)} />
+                        {mod}
+                      </label>
+                    ))}
+                  </div>
+                  {privKey && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.65rem' }}>
+                      <button type="button" className="btn btn-ghost" style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }} onClick={() => toggleTodosContabilidad(true)}>
+                        Marcar todos
+                      </button>
+                      <button type="button" className="btn btn-ghost" style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }} onClick={() => toggleTodosContabilidad(false)}>
+                        Quitar todos
+                      </button>
+                      <button type="button" className="btn btn-ghost" style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }} onClick={marcarSoloCortes}>
+                        Solo cortes (Virtual, Abarrotes, Garage)
+                      </button>
+                    </div>
+                  )}
+                  {privKey && !algunoSub && (
+                    <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem', color: 'var(--brand-red)' }}>
+                      Sin submódulos activos: el menú Contabilidad no se mostrará para este {privModo === 'usuario' ? 'usuario' : 'rol'}.
+                    </p>
+                  )}
+                </div>
+              </>
+            );
+          })()}
           <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
             <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--brand-blue)' }}>Acciones especiales</h4>
             <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.82rem' }}>

@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
+import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import { calcularGarage, maquinasGarageDefault } from '../../lib/corteContabilidad/calc.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 
@@ -64,6 +65,7 @@ export default function CorteGarage({ supabase, sucursal, user }) {
           )}
         </div>
         {aviso && <p style={{ margin: '0.75rem 0 0', fontSize: '0.85rem', color: 'var(--brand-gold)' }}>{aviso}</p>}
+        <CorteSucursalAviso sucursal={sucursal} user={user} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>

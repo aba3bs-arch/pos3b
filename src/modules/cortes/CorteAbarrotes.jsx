@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
+import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import { calcularAbarrotes } from '../../lib/corteContabilidad/calc.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 
@@ -79,6 +80,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           </div>
         </div>
         {aviso && <p style={{ margin: '0.75rem 0 0', fontSize: '0.85rem', color: 'var(--brand-gold)' }}>{aviso}</p>}
+        <CorteSucursalAviso sucursal={sucursal} user={user} />
         {cajaNegativa && (
           <div style={{ marginTop: '0.75rem', padding: '0.5rem', background: 'var(--danger)', color: '#fff', borderRadius: 6, fontWeight: 700, textAlign: 'center' }}>
             ALERTA: CAJA EN NEGATIVO

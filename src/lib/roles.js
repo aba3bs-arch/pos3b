@@ -40,6 +40,9 @@ export const MODULOS_ORDEN = [
   'Ayuda',
 ];
 
+/** Módulos del menú lateral excluyendo los que van bajo Contabilidad. */
+export const MODULOS_PRIVILEGIOS_GENERAL = MODULOS_ORDEN.filter((m) => !MODULOS_AGRUPADOS_CONTABILIDAD.has(m));
+
 const ACCESO_POR_ROL = {
   Cajero: ['Inicio', 'Ventas', 'Corte de caja', 'Checador', 'Ayuda'],
   Repartidor: ['Inicio', 'Checador', 'Ayuda'],
@@ -68,6 +71,9 @@ const ACCESO_POR_ROL = {
     'Consultas',
     'Estadisticas',
     'Reportes',
+    'Corte Virtual',
+    'Corte Abarrotes',
+    'Corte Garage',
     'Ayuda',
   ],
   Gerente: [
@@ -117,12 +123,14 @@ export function normalizarRol(rol) {
 }
 
 export function puedeVerModulo(rol, moduloId, userId = null) {
+  const r = normalizarRol(rol);
+  if (r === 'Administrador') return true;
+
   const priv = leerPrivilegios();
   const uid = userId != null ? String(userId) : '';
   if (uid && Array.isArray(priv.porUsuario[uid])) {
     return priv.porUsuario[uid].includes(moduloId);
   }
-  const r = normalizarRol(rol);
   if (Array.isArray(priv.porRol[r])) {
     return priv.porRol[r].includes(moduloId);
   }
@@ -132,13 +140,15 @@ export function puedeVerModulo(rol, moduloId, userId = null) {
 
 export function modulosParaSidebar(rol, userId = null) {
   const filtrar = (lista) => lista.filter((m) => !MODULOS_AGRUPADOS_CONTABILIDAD.has(m));
+  const r = normalizarRol(rol);
+  if (r === 'Administrador') return filtrar(MODULOS_ORDEN);
+
   const priv = leerPrivilegios();
   const uid = userId != null ? String(userId) : '';
   if (uid && Array.isArray(priv.porUsuario[uid])) {
     const set = new Set(priv.porUsuario[uid]);
     return filtrar(MODULOS_ORDEN.filter((m) => set.has(m)));
   }
-  const r = normalizarRol(rol);
   if (Array.isArray(priv.porRol[r])) {
     const set = new Set(priv.porRol[r]);
     return filtrar(MODULOS_ORDEN.filter((m) => set.has(m)));
