@@ -44,6 +44,7 @@ import { usuarioAutorizadoLogin, turnoActual } from './lib/turnos.js';
 import BrandLogo from './components/BrandLogo.jsx';
 import Icon, { BtnLabel } from './components/Icon.jsx';
 import BotonLimpiarCache from './components/BotonLimpiarCache.jsx';
+import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesContabilidad.jsx';
 import InputPin from './components/InputPin.jsx';
 import { iconoDeModulo, colorDeModulo } from './lib/moduloIcons.js';
 
@@ -54,6 +55,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [pin, setPin] = useState('');
   const [vista, setVista] = useState('Inicio');
+  const [valesIrPendientes, setValesIrPendientes] = useState(false);
   const [sucursal, setSucursal] = useState(sucursalInicial);
   const [tiendaFijadaParaAcceso, setTiendaFijadaParaAcceso] = useState(() => Boolean(SUCURSAL_FIJA_ENV || tiendaBloqueadaEnEsteEquipo()));
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -479,6 +481,15 @@ function App() {
             <span className="muted" style={{ fontSize: '0.75rem', fontWeight: 500 }}>Dólar: ${Number(tipoCambio).toFixed(2)}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+            <BadgeNotificacionesContabilidad
+              supabase={supabase}
+              sucursal={sucursal}
+              user={user}
+              onClick={() => {
+                setValesIrPendientes(true);
+                if (puedeVerModulo(user?.rol, 'Vales y Préstamos', user?.id)) irAModulo('Vales y Préstamos');
+              }}
+            />
             <BotonLimpiarCache />
             <button type="button" className="btn btn-danger" onClick={cerrarSesion}>
               <BtnLabel icon="logOut">Salir</BtnLabel>
@@ -535,7 +546,15 @@ function App() {
           {vista === 'Estadisticas' && <Estadisticas supabase={supabase} />}
           {vista === 'Reportes' && <Reportes supabase={supabase} inventario={inventarioTienda} sucursal={sucursal} />}
           {vista === 'Nómina' && <Nomina supabase={supabase} sucursal={sucursal} user={user} />}
-          {vista === 'Vales y Préstamos' && <ValesPrestamos supabase={supabase} sucursal={sucursal} user={user} />}
+          {vista === 'Vales y Préstamos' && (
+            <ValesPrestamos
+              supabase={supabase}
+              sucursal={sucursal}
+              user={user}
+              irAPendientes={valesIrPendientes}
+              onPendientesVisto={() => setValesIrPendientes(false)}
+            />
+          )}
           {vista === 'Corte Virtual' && <CorteVirtual supabase={supabase} sucursal={sucursal} user={user} />}
           {vista === 'Corte Abarrotes' && <CorteAbarrotes supabase={supabase} sucursal={sucursal} user={user} />}
           {vista === 'Corte Garage' && <CorteGarage supabase={supabase} sucursal={sucursal} user={user} />}

@@ -1,8 +1,17 @@
 import { round2 } from './nominaGastos.js';
 import { indiceEmpleados, resolverClaveEmpleado } from './nominaMatch.js';
 import { abonarPrestamo } from './valesPrestamos.js';
+import { cuotaSemanalPrestamo } from './contabilidadConstants.js';
 
-/** Préstamos activos por empleado (match por id o nombre). */
+function cuotaDeducible(p) {
+  const saldo = Number(p.saldo) || 0;
+  if (saldo <= 0) return 0;
+  const cuota = Number(p.cuota_semanal) || 0;
+  if (cuota > 0) return Math.min(saldo, cuota);
+  return cuotaSemanalPrestamo(saldo);
+}
+
+/** Préstamos activos por empleado — cuota semanal (mín. $500). */
 export async function prestamosDeduccionPorEmpleado(supabase, { sucursal, empleados = [] }) {
   if (!supabase) return { map: {}, error: null };
   const indice = indiceEmpleados(empleados);
@@ -20,18 +29,18 @@ export async function prestamosDeduccionPorEmpleado(supabase, { sucursal, emplea
 
   const map = {};
   for (const p of data || []) {
-    const saldo = Number(p.saldo) || 0;
-    if (saldo <= 0) continue;
+    const ded = cuotaDeducible(p);
+    if (ded <= 0) continue;
     const clave = resolverClaveEmpleado(p, indice);
     if (!clave) continue;
     if (!map[clave]) map[clave] = { total: 0, detalle: [] };
-    map[clave].total = round2(map[clave].total + saldo);
-    map[clave].detalle.push(p);
+    map[clave].total = round2(map[clave].total + ded);
+    map[clave].detalle.push({ ...p, cuota_esta_semana: ded });
   }
   return { map, error: null };
 }
 
-/** Aplica abonos de nómina a préstamos activos del empleado. */
+/** Aplica abonos semanales de nómina a préstamos activos del empleado. */
 export async function aplicarPrestamosNomina(supabase, { lineas, sucursal, empleados = [] }) {
   if (!supabase) return { ok: true };
   const indice = indiceEmpleados(empleados);

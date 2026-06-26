@@ -1,6 +1,6 @@
 import { abrirVentanaImpresion } from './impresion.js';
 import { leerNombreNegocio } from './branding.js';
-import { ETIQUETA_AREA } from './contabilidadConstants.js';
+import { ETIQUETA_AREA, etiquetaCategoriaVale } from './contabilidadConstants.js';
 
 function esc(s) {
   return String(s ?? '')
@@ -50,17 +50,39 @@ export function htmlNomina(data) {
   </body></html>`;
 }
 
-export function htmlVale(vale) {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Vale</title><style>${estilos()}</style></head><body>
+export function htmlVale(vale, opts = {}) {
+  const firma = opts.mostrarFirma !== false;
+  const descNomina = vale.descuenta_nomina;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Vale</title><style>${estilos()}
+  .firma{margin-top:48px;border-top:1px solid #333;width:70%;padding-top:6px;font-size:11px}
+  </style></head><body>
     <h1>VALE — ${esc(ETIQUETA_AREA[vale.area] || vale.area || 'General')}</h1>
     <div>Folio: <strong>${esc(vale.folio || '—')}</strong></div>
     <div>Fecha: ${esc(vale.fecha)}</div>
+    <div>Categoría: <strong>${esc(etiquetaCategoriaVale(vale.categoria))}</strong></div>
     <div>Beneficiario: <strong>${esc(vale.nombre_empleado)}</strong></div>
     <div style="font-size:20px;margin:12px 0"><strong>Monto: ${fmt(vale.monto)}</strong></div>
     <div>Motivo: ${esc(vale.motivo || '—')}</div>
-    ${vale.requiere_autorizacion ? `<div>Autorizado por: ${esc(vale.autorizado_por || '—')}</div>` : ''}
-    <div class="muted" style="margin-top:16px">Este vale no se descuenta de nómina.</div>
+    ${vale.autorizado_por ? `<div>Autorizado por: ${esc(vale.autorizado_por)}</div>` : ''}
+    ${descNomina ? `<div class="muted">Consumo descontable en nómina (vía corte).</div>` : `<div class="muted">Gasolina, herramienta y accesorios no se descuentan de nómina.</div>`}
     <div class="muted">Emitido por: ${esc(vale.created_by || '—')}</div>
+    ${firma ? `<div class="firma">Firma del beneficiario: _________________________________</div>` : ''}
+  </body></html>`;
+}
+
+export function htmlPrestamo(p) {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Préstamo</title><style>${estilos()}</style></head><body>
+    <h1>PRÉSTAMO A EMPLEADO</h1>
+    <div>Fecha: ${esc(p.fecha)}</div>
+    <div>Empleado: <strong>${esc(p.nombre_empleado)}</strong></div>
+    <div style="font-size:20px;margin:12px 0"><strong>Monto: ${fmt(p.monto_original)}</strong></div>
+    <div>Saldo: ${fmt(p.saldo)}</div>
+    <div>Cuota semanal: <strong>${fmt(p.cuota_semanal)}</strong> (mín. $500)</div>
+    ${p.aprobado_admin_por ? `<div>Aprobó admin: ${esc(p.aprobado_admin_por)}</div>` : ''}
+    ${p.aprobado_socio_por ? `<div>Aprobó socio: ${esc(p.aprobado_socio_por)}</div>` : ''}
+    <div class="muted">Descuento automático en nómina semanal (sáb–vie).</div>
+    ${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ''}
+    <div style="margin-top:40px;border-top:1px solid #333;width:70%;padding-top:6px">Firma empleado: _________________________</div>
   </body></html>`;
 }
 
@@ -68,6 +90,10 @@ export function imprimirNomina(datos) {
   return abrirVentanaImpresion(htmlNomina(datos), 'Nómina');
 }
 
-export function imprimirVale(vale) {
-  return abrirVentanaImpresion(htmlVale(vale), 'Vale');
+export function imprimirVale(vale, opts) {
+  return abrirVentanaImpresion(htmlVale(vale, opts), 'Vale');
+}
+
+export function imprimirPrestamo(prestamo) {
+  return abrirVentanaImpresion(htmlPrestamo(prestamo), 'Préstamo');
 }

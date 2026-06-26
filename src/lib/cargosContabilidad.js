@@ -1,0 +1,48 @@
+import { ETIQUETA_AREA, etiquetaCategoriaVale } from './contabilidadConstants.js';
+
+/** Registra un vale aprobado como gasto del turno en el corte del área. */
+export async function cargarValeACorte(supabase, vale) {
+  if (!supabase || !vale?.id) return { ok: false, error: 'Vale inválido.' };
+  if (vale.cargado_corte) return { ok: true, yaCargado: true };
+  const modulo = vale.area && ETIQUETA_AREA[vale.area] ? vale.area : 'virtual';
+  const payload = {
+    sucursal_id: vale.sucursal_id || 'MAIN',
+    modulo,
+    categoria: 'VALES',
+    subcategoria: String(etiquetaCategoriaVale(vale.categoria) || 'CONSUMO').toUpperCase(),
+    comentario: `VALE ${vale.folio || ''} · ${vale.nombre_empleado}`.trim().toUpperCase(),
+    monto: Number(vale.monto) || 0,
+    usuario_id: vale.usuario_id || null,
+    usuario_nombre: vale.nombre_empleado || null,
+    cerrado: false,
+    descontado_nomina: Boolean(vale.descuenta_nomina),
+  };
+  const { error: e1 } = await supabase.from('cortes_contabilidad_gastos').insert([payload]);
+  if (e1) return { ok: false, error: e1.message };
+  const { error: e2 } = await supabase.from('vales').update({ cargado_corte: true }).eq('id', vale.id);
+  if (e2) return { ok: false, error: e2.message };
+  return { ok: true };
+}
+
+export async function cargarPrestamoEmpleadoACorte(supabase, prestamo, areaCorte = 'virtual') {
+  if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  if (prestamo.cargado_corte) return { ok: true, yaCargado: true };
+  const modulo = areaCorte && ETIQUETA_AREA[areaCorte] ? areaCorte : 'virtual';
+  const payload = {
+    sucursal_id: prestamo.sucursal_id || 'MAIN',
+    modulo,
+    categoria: 'PRESTAMOS',
+    subcategoria: 'DESEMBOLSO',
+    comentario: `PRÉSTAMO ${prestamo.nombre_empleado}`.trim().toUpperCase(),
+    monto: Number(prestamo.monto_original) || 0,
+    usuario_id: prestamo.usuario_id || null,
+    usuario_nombre: prestamo.nombre_empleado || null,
+    cerrado: false,
+    descontado_nomina: false,
+  };
+  const { error: e1 } = await supabase.from('cortes_contabilidad_gastos').insert([payload]);
+  if (e1) return { ok: false, error: e1.message };
+  const { error: e2 } = await supabase.from('prestamos').update({ cargado_corte: true }).eq('id', prestamo.id);
+  if (e2) return { ok: false, error: e2.message };
+  return { ok: true };
+}
