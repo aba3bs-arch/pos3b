@@ -86,7 +86,7 @@ import {
   TURNO_AMBOS_ID,
   etiquetaTurno,
 } from '../lib/turnos.js';
-import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, SUBMODULOS_CONTABILIDAD, ROLES, modulosDefaultRol } from '../lib/roles.js';
+import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, ROLES, modulosDefaultRol } from '../lib/roles.js';
 import BrandLogo from '../components/BrandLogo.jsx';
 import AdminInventarioCentral from './AdminInventarioCentral.jsx';
 
@@ -732,8 +732,8 @@ export default function Configuracion({
             const marcarSoloCortes = () => {
               if (!privKey) return;
               const actual = [...(privilegios[store][privKey] || baseModulos)];
-              const sinSub = actual.filter((m) => !SUBMODULOS_CONTABILIDAD.includes(m));
-              aplicarModulos([...sinSub, 'Corte Virtual', 'Corte Abarrotes', 'Corte Garage']);
+              const sinCortes = actual.filter((m) => !MODULOS_CORTES.includes(m));
+              aplicarModulos([...sinCortes, ...MODULOS_CORTES]);
             };
 
             return (
@@ -746,6 +746,13 @@ export default function Configuracion({
                     </label>
                   ))}
                 </div>
+                {privKey && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.5rem' }}>
+                    <button type="button" className="btn btn-ghost" style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }} onClick={marcarSoloCortes}>
+                      Marcar cortes (Virtual, Abarrotes, Garage)
+                    </button>
+                  </div>
+                )}
 
                 <div
                   style={{
@@ -766,8 +773,8 @@ export default function Configuracion({
                     )}
                   </div>
                   <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
-                    El botón <strong>Contabilidad</strong> en el menú lateral aparece cuando al menos un submódulo está activo.
-                    Marca solo los que necesite cada rol (nómina, vales, cortes Virtual / Abarrotes / Garage).
+                    Nómina y Vales y Préstamos se agrupan bajo <strong>Contabilidad</strong> en el menú.
+                    Los cortes Virtual, Abarrotes y Garage están en la lista general de arriba como módulos independientes.
                   </p>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>
                     <input
@@ -793,9 +800,6 @@ export default function Configuracion({
                       </button>
                       <button type="button" className="btn btn-ghost" style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }} onClick={() => toggleTodosContabilidad(false)}>
                         Quitar todos
-                      </button>
-                      <button type="button" className="btn btn-ghost" style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }} onClick={marcarSoloCortes}>
-                        Solo cortes (Virtual, Abarrotes, Garage)
                       </button>
                     </div>
                   )}

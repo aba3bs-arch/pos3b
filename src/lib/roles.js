@@ -6,14 +6,10 @@ import { leerPrivilegios } from './posConfig.js';
 
 export const ROLES = ['Cajero', 'Auditor', 'Repartidor', 'Supervisor', 'Gerente', 'Técnico', 'Administrador'];
 
-/** Submódulos bajo Contabilidad (no aparecen sueltos en el menú). */
-export const SUBMODULOS_CONTABILIDAD = [
-  'Nómina',
-  'Vales y Préstamos',
-  'Corte Virtual',
-  'Corte Abarrotes',
-  'Corte Garage',
-];
+/** Submódulos bajo Contabilidad (Nómina y Vales). Los cortes van sueltos en el menú. */
+export const SUBMODULOS_CONTABILIDAD = ['Nómina', 'Vales y Préstamos'];
+
+export const MODULOS_CORTES = ['Corte Virtual', 'Corte Abarrotes', 'Corte Garage'];
 
 export const MODULOS_AGRUPADOS_CONTABILIDAD = new Set(SUBMODULOS_CONTABILIDAD);
 
@@ -22,6 +18,9 @@ export const MODULOS_ORDEN = [
   'Inicio',
   'Ventas',
   'Corte de caja',
+  'Corte Virtual',
+  'Corte Abarrotes',
+  'Corte Garage',
   'Productos',
   'Compras',
   'Checador',
@@ -33,9 +32,6 @@ export const MODULOS_ORDEN = [
   'Reportes',
   'Nómina',
   'Vales y Préstamos',
-  'Corte Virtual',
-  'Corte Abarrotes',
-  'Corte Garage',
   'Configuracion',
   'Ayuda',
 ];
@@ -44,7 +40,16 @@ export const MODULOS_ORDEN = [
 export const MODULOS_PRIVILEGIOS_GENERAL = MODULOS_ORDEN.filter((m) => !MODULOS_AGRUPADOS_CONTABILIDAD.has(m));
 
 const ACCESO_POR_ROL = {
-  Cajero: ['Inicio', 'Ventas', 'Corte de caja', 'Checador', 'Ayuda'],
+  Cajero: [
+    'Inicio',
+    'Ventas',
+    'Corte de caja',
+    'Corte Virtual',
+    'Corte Abarrotes',
+    'Corte Garage',
+    'Checador',
+    'Ayuda',
+  ],
   Repartidor: ['Inicio', 'Checador', 'Ayuda'],
   Auditor: [
     'Inicio',
@@ -63,6 +68,9 @@ const ACCESO_POR_ROL = {
     'Inicio',
     'Ventas',
     'Corte de caja',
+    'Corte Virtual',
+    'Corte Abarrotes',
+    'Corte Garage',
     'Productos',
     'Compras',
     'Checador',
@@ -71,15 +79,15 @@ const ACCESO_POR_ROL = {
     'Consultas',
     'Estadisticas',
     'Reportes',
-    'Corte Virtual',
-    'Corte Abarrotes',
-    'Corte Garage',
     'Ayuda',
   ],
   Gerente: [
     'Inicio',
     'Ventas',
     'Corte de caja',
+    'Corte Virtual',
+    'Corte Abarrotes',
+    'Corte Garage',
     'Productos',
     'Compras',
     'Checador',
@@ -90,9 +98,6 @@ const ACCESO_POR_ROL = {
     'Reportes',
     'Nómina',
     'Vales y Préstamos',
-    'Corte Virtual',
-    'Corte Abarrotes',
-    'Corte Garage',
     'Configuracion',
     'Ayuda',
   ],
@@ -198,7 +203,7 @@ export function puedeGestionarInventarioMultitienda(rol) {
 export function descripcionRol(rol) {
   const r = normalizarRol(rol);
   const textos = {
-    Cajero: 'Mostrador y cobro',
+    Cajero: 'Mostrador, cobro y cortes de tienda',
     Repartidor: 'Consulta en ruta',
     Auditor: 'Consultas, reportes e inventario',
     Supervisor: 'Operación sin configuración ni usuarios',
