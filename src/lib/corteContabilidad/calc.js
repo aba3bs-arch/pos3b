@@ -2,6 +2,12 @@ export function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+function valorManual(estado, key, calculado) {
+  const raw = estado?.[key];
+  if (raw != null && raw !== '') return round2(raw);
+  return calculado;
+}
+
 export function totalGastos(gastos = []) {
   return round2((gastos || []).reduce((a, g) => a + (Number(g.monto) || 0), 0));
 }
@@ -17,15 +23,18 @@ export function ventasVirtualCorte(monedaInicial, monedaFinal, opts = {}) {
 
 export function calcularVirtual(estado, gastos = []) {
   const gastosTotal = totalGastos(gastos);
-  const venta = ventasVirtualCorte(estado.moneda_inicial, estado.moneda_final, {
+  const ventaCalc = ventasVirtualCorte(estado.moneda_inicial, estado.moneda_final, {
     capturada: Boolean(estado.moneda_final_editada),
     monedaInicialTurno: estado.moneda_inicial_turno ?? estado.moneda_inicial,
   });
+  const venta = valorManual(estado, 'venta_manual', ventaCalc);
   const faltante = round2(estado.faltante);
   const recoleccion = round2(estado.recoleccion ?? estado.recoleccion_turno);
-  const subtotal = round2(venta - gastosTotal - faltante);
+  const subtotalCalc = round2(venta - gastosTotal - faltante);
+  const subtotal = valorManual(estado, 'subtotal_manual', subtotalCalc);
   const cajaAnterior = round2(estado.caja_anterior);
-  const cajaActual = round2(subtotal + cajaAnterior - recoleccion);
+  const cajaActualCalc = round2(subtotal + cajaAnterior - recoleccion);
+  const cajaActual = valorManual(estado, 'caja_actual_manual', cajaActualCalc);
   return { venta, gastosTotal, subtotal, cajaActual };
 }
 
@@ -36,8 +45,10 @@ export function calcularAbarrotes(estado, gastos = []) {
   const faltante = round2(estado.faltante);
   const recoleccion = round2(estado.recoleccion);
   const cajaAnterior = round2(estado.caja_anterior);
-  const subtotal = round2(venta - gastosTotal - faltante - tarjeta);
-  const cajaActual = round2(venta + cajaAnterior - gastosTotal - recoleccion - faltante - tarjeta);
+  const subtotalCalc = round2(venta - gastosTotal - faltante - tarjeta);
+  const subtotal = valorManual(estado, 'subtotal_manual', subtotalCalc);
+  const cajaActualCalc = round2(venta + cajaAnterior - gastosTotal - recoleccion - faltante - tarjeta);
+  const cajaActual = valorManual(estado, 'caja_actual_manual', cajaActualCalc);
   return { venta, gastosTotal, subtotal, cajaActual };
 }
 
@@ -48,10 +59,12 @@ export function sumaMaquinasGarage(maquinas = {}) {
 export function calcularGarage(estado, gastos = []) {
   const gastosTotal = totalGastos(gastos);
   const ventaMaquinas = sumaMaquinasGarage(estado.maquinas);
-  const venta = round2(ventaMaquinas + (Number(estado.pin1) || 0) + (Number(estado.pin2) || 0) + (Number(estado.dsch) || 0));
+  const ventaCalc = round2(ventaMaquinas + (Number(estado.pin1) || 0) + (Number(estado.pin2) || 0) + (Number(estado.dsch) || 0));
+  const venta = valorManual(estado, 'venta_manual', ventaCalc);
   const cajaAnterior = round2(estado.caja_anterior);
   const recoleccion = round2(estado.recoleccion);
-  const cajaActual = round2(cajaAnterior + venta - gastosTotal - recoleccion);
+  const cajaActualCalc = round2(cajaAnterior + venta - gastosTotal - recoleccion);
+  const cajaActual = valorManual(estado, 'caja_actual_manual', cajaActualCalc);
   return { venta, gastosTotal, cajaActual };
 }
 

@@ -35,9 +35,13 @@ export function permisosCorteContabilidad(rol, userId = null) {
             soloLectura: true,
           };
 
+  const esAdmin = r === 'Administrador';
+
   return {
     ...base,
-    recoleccion: puedeRecoleccionCortes(rol, userId),
+    recoleccion: esAdmin || puedeRecoleccionCortes(rol, userId),
+    /** Administrador: edita cualquier campo, catálogo global y gastos del turno. */
+    editarTodo: esAdmin,
   };
 }
 

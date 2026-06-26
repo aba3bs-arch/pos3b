@@ -24,9 +24,11 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     recoleccion: 0,
     comentarios: '',
     fondo_fijo: Number(estado.fondo_fijo) || 0,
+    subtotal_manual: '',
+    caja_actual_manual: '',
   }), []);
 
-  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte } =
+  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte } =
     useCorteContabilidad({
       supabase,
       sucursal,
@@ -102,6 +104,19 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
                 />
               </label>
             ))}
+            {perm.editarTodo && (
+              <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed var(--border)' }}>
+                <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.35rem', fontWeight: 700 }}>Ajuste manual (admin)</div>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
+                  <span className="muted">Subtotal turno</span>
+                  <input className="input" type="number" step="0.01" value={estado.subtotal_manual ?? ''} placeholder="Automático" onChange={(e) => patchEstado({ subtotal_manual: e.target.value })} style={{ fontWeight: 700, textAlign: 'center' }} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.8rem' }}>
+                  <span className="muted">Caja final</span>
+                  <input className="input" type="number" step="0.01" value={estado.caja_actual_manual ?? ''} placeholder="Automático" onChange={(e) => patchEstado({ caja_actual_manual: e.target.value })} style={{ fontWeight: 700, textAlign: 'center' }} />
+                </label>
+              </div>
+            )}
           </div>
         </div>
 
@@ -119,8 +134,10 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             gastos={gastos}
             onAgregar={agregarGasto}
             onEliminar={quitarGasto}
+            onEditar={editarGasto}
             habilitado={perm.gastos}
-            puedeCatalogo={perm.guardar}
+            puedeCatalogo={perm.editarTodo}
+            puedeEditarGastos={perm.editarTodo}
           />
           <textarea
             className="input"

@@ -21,8 +21,10 @@ export default function CorteGastosPanel({
   empleados,
   onAgregar,
   onEliminar,
+  onEditar,
   habilitado,
   puedeCatalogo,
+  puedeEditarGastos,
 }) {
   const [catalogo, setCatalogo] = useState([]);
   const [cat, setCat] = useState('');
@@ -123,6 +125,9 @@ export default function CorteGastosPanel({
 
       {mostrarCat && puedeCatalogo && (
         <div style={{ marginBottom: '0.75rem', padding: '0.5rem', background: 'var(--surface)', borderRadius: 8 }}>
+          <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.5rem' }}>
+            Catálogo compartido en <strong>todas las sucursales</strong>.
+          </p>
           <button type="button" className="btn btn-ghost" style={{ ...btnSm, marginBottom: '0.5rem' }} onClick={nuevaCategoria}>
             + Categoría
           </button>
@@ -228,7 +233,21 @@ export default function CorteGastosPanel({
                 <td>{g.usuario_nombre || '—'}</td>
                 <td>{g.categoria}</td>
                 <td className="muted">{g.subcategoria || '—'}</td>
-                <td style={{ fontWeight: 700 }}>{fmt(g.monto)}</td>
+                <td style={{ fontWeight: 700 }}>
+                  {puedeEditarGastos ? (
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      style={{ width: '90px', fontWeight: 700 }}
+                      value={g.monto}
+                      onChange={(e) => onEditar?.(g.id, { monto: e.target.value })}
+                    />
+                  ) : (
+                    fmt(g.monto)
+                  )}
+                </td>
                 <td className="muted">{g.comentario || '—'}</td>
                 {habilitado && (
                   <td>

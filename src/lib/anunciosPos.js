@@ -55,6 +55,15 @@ function guardarVistos(set) {
   sessionStorage.setItem(LS_VISTOS, JSON.stringify([...set]));
 }
 
+/** Al iniciar sesión se vuelve a mostrar el anuncio activo en cualquier sucursal. */
+export function limpiarAnunciosVistos() {
+  try {
+    sessionStorage.removeItem(LS_VISTOS);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function marcarAnuncioVisto(id) {
   if (!id) return;
   const v = leerVistos();
@@ -66,12 +75,11 @@ export function anuncioFueVisto(id) {
   return leerVistos().has(id);
 }
 
-function vigente(a, sucursal) {
+function vigente(a) {
   if (!a?.activo) return false;
   const exp = a.expira_at ? new Date(a.expira_at).getTime() : 0;
   if (exp && Date.now() > exp) return false;
-  if (!a.sucursal_id) return true;
-  return String(a.sucursal_id) === String(sucursal);
+  return true;
 }
 
 /** Tamaño del modal según longitud de la descripción. */
@@ -96,14 +104,14 @@ export async function listarAnuncios(supabase) {
   return { data: leerLocal().sort((a, b) => String(b.created_at).localeCompare(String(a.created_at))), fuente: 'local' };
 }
 
-export async function hayAnuncioActivo(supabase, sucursal) {
+export async function hayAnuncioActivo(supabase) {
   const { data } = await listarAnuncios(supabase);
-  return (data || []).some((a) => vigente(a, sucursal));
+  return (data || []).some((a) => vigente(a));
 }
 
-export async function obtenerAnuncioParaMostrar(supabase, sucursal) {
+export async function obtenerAnuncioParaMostrar(supabase) {
   const { data } = await listarAnuncios(supabase);
-  const activos = (data || []).filter((a) => vigente(a, sucursal));
+  const activos = (data || []).filter((a) => vigente(a));
   activos.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
   for (const a of activos) {
     if (!anuncioFueVisto(a.id)) return a;
@@ -111,7 +119,7 @@ export async function obtenerAnuncioParaMostrar(supabase, sucursal) {
   return null;
 }
 
-export async function crearAnuncio(supabase, { asunto, descripcion, duracionHoras, sucursalId, creadoPor }) {
+export async function crearAnuncio(supabase, { asunto, descripcion, duracionHoras, creadoPor }) {
   const asuntoT = String(asunto || '').trim();
   const descT = String(descripcion || '').trim();
   if (!asuntoT) return { ok: false, error: 'Escribe el asunto del anuncio.' };
@@ -124,7 +132,7 @@ export async function crearAnuncio(supabase, { asunto, descripcion, duracionHora
     duracion_horas: horas,
     activo: true,
     creado_por: creadoPor || '—',
-    sucursal_id: sucursalId || null,
+    sucursal_id: null,
     expira_at,
     created_at: new Date().toISOString(),
   };

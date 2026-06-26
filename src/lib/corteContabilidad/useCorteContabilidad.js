@@ -7,6 +7,7 @@ import {
   agregarGastoTurno,
   cargarEstadoCorte,
   eliminarGastoTurno,
+  actualizarGastoTurno,
   guardarEstadoCorte,
   limpiarGastosTurno,
   listarGastosTurno,
@@ -95,6 +96,14 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     setGastos((prev) => prev.filter((g) => String(g.id) !== String(id)));
   };
 
+  const editarGasto = async (id, patch) => {
+    if (!perm.editarTodo) return;
+    const res = await actualizarGastoTurno(supabase, id, patch, sucursal, modulo);
+    if (!res.ok) return alert(res.error);
+    const gas = await listarGastosTurno(supabase, sucursal, modulo);
+    setGastos(gas.data || []);
+  };
+
   const cerrarCorte = async (detalleExtra = {}) => {
     if (!perm.guardar) return alert('No tiene permiso para cerrar este corte.');
     const payload = {
@@ -139,6 +148,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     gastos,
     agregarGasto,
     quitarGasto,
+    editarGasto,
     calc,
     folio,
     setFolio,

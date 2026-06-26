@@ -1,6 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { BtnLabel } from './Icon.jsx';
-import { listarSucursalesOperativas, etiquetaTienda } from '../constants/sucursales.js';
 import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
 import {
   AVISO_SQL_ANUNCIOS,
@@ -16,21 +14,19 @@ function PuntoVerdeActivo() {
   return <span className="punto-verde-parpadeo" title="Anuncio activo" aria-hidden />;
 }
 
-export default function PanelAnunciosAdmin({ supabase, user, sucursal, onCerrar }) {
+export default function PanelAnunciosAdmin({ supabase, user, onCerrar }) {
   const esAdmin = esAdministradorPrincipal(user);
   const [activo, setActivo] = useState(false);
   const [lista, setLista] = useState([]);
   const [asunto, setAsunto] = useState('');
   const [descripcion, setDescripcion] = useState('');
   const [duracion, setDuracion] = useState(24);
-  const [tiendaAnuncio, setTiendaAnuncio] = useState('');
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [guardando, setGuardando] = useState(false);
-  const tiendas = listarSucursalesOperativas();
 
   const cargar = async () => {
-    const [hay, { data, error }] = await Promise.all([hayAnuncioActivo(supabase, sucursal), listarAnuncios(supabase)]);
+    const [hay, { data, error }] = await Promise.all([hayAnuncioActivo(supabase), listarAnuncios(supabase)]);
     setActivo(hay);
     setLista(data || []);
     if (error) setErr(error);
@@ -42,7 +38,7 @@ export default function PanelAnunciosAdmin({ supabase, user, sucursal, onCerrar 
     const onEvt = () => cargar();
     window.addEventListener(EVENTO_ANUNCIOS, onEvt);
     return () => window.removeEventListener(EVENTO_ANUNCIOS, onEvt);
-  }, [esAdmin, supabase, sucursal]);
+  }, [esAdmin, supabase]);
 
   if (!esAdmin) return null;
 
@@ -54,7 +50,6 @@ export default function PanelAnunciosAdmin({ supabase, user, sucursal, onCerrar 
       asunto,
       descripcion,
       duracionHoras: duracion,
-      sucursalId: tiendaAnuncio || null,
       creadoPor: user?.nombre,
     });
     setGuardando(false);
@@ -87,7 +82,7 @@ export default function PanelAnunciosAdmin({ supabase, user, sucursal, onCerrar 
         </button>
       </div>
       <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
-        El anuncio aparece en la pantalla principal del POS con encabezado parpadeante. El tamaño de la ventana se ajusta según la longitud de la descripción.
+        Se muestra en <strong>todas las sucursales</strong> cada vez que un usuario entra al POS (hasta pulsar Entendido en esa sesión).
       </p>
 
       <div style={{ display: 'grid', gap: '0.5rem', marginTop: '1rem', maxWidth: 520 }}>
@@ -106,17 +101,6 @@ export default function PanelAnunciosAdmin({ supabase, user, sucursal, onCerrar 
               {DURACION_ANUNCIO_OPTS.map((d) => (
                 <option key={d.horas} value={d.horas}>
                   {d.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="muted" style={{ fontSize: '0.8rem' }}>
-            Tienda (vacío = todas)
-            <select className="select" style={{ display: 'block', marginTop: '0.2rem', minWidth: 160 }} value={tiendaAnuncio} onChange={(e) => setTiendaAnuncio(e.target.value)}>
-              <option value="">Todas las tiendas</option>
-              {tiendas.map((t) => (
-                <option key={t} value={t}>
-                  {etiquetaTienda(t)}
                 </option>
               ))}
             </select>

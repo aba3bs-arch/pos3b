@@ -123,6 +123,27 @@ export async function eliminarGastoTurno(supabase, id, sucursal, modulo) {
   return { ok: true };
 }
 
+export async function actualizarGastoTurno(supabase, id, patch, sucursal, modulo) {
+  if (!id) return { ok: false, error: 'Sin ID de gasto.' };
+  const row = {};
+  if (patch.monto != null) row.monto = Number(patch.monto) || 0;
+  if (patch.categoria != null) row.categoria = String(patch.categoria).trim().toUpperCase();
+  if (patch.subcategoria != null) row.subcategoria = String(patch.subcategoria).trim().toUpperCase();
+  if (patch.comentario != null) row.comentario = String(patch.comentario).trim().toUpperCase();
+  if (patch.usuario_id != null) row.usuario_id = patch.usuario_id;
+  if (patch.usuario_nombre != null) row.usuario_nombre = patch.usuario_nombre;
+
+  if (!supabase) {
+    const { data: prev } = await listarGastosTurno(null, sucursal, modulo);
+    const next = (prev || []).map((g) => (String(g.id) === String(id) ? { ...g, ...row } : g));
+    localStorage.setItem(lsKey(sucursal, modulo, 'gastos'), JSON.stringify(next));
+    return { ok: true };
+  }
+  const { error } = await supabase.from('cortes_contabilidad_gastos').update(row).eq('id', id);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
 export async function limpiarGastosTurno(supabase, sucursal, modulo) {
   if (!supabase) {
     localStorage.setItem(lsKey(sucursal, modulo, 'gastos'), '[]');

@@ -25,7 +25,7 @@ export default function Inicio({ supabase, sucursal, inventario, inventarioCompl
     if (!esAdminPrincipal || !supabase) return;
     let ok = true;
     const check = async () => {
-      const h = await hayAnuncioActivo(supabase, sucursal);
+      const h = await hayAnuncioActivo(supabase);
       if (ok) setHayAnuncio(h);
     };
     check();
@@ -186,7 +186,6 @@ export default function Inicio({ supabase, sucursal, inventario, inventarioCompl
             <PanelAnunciosAdmin
               supabase={supabase}
               user={user}
-              sucursal={sucursal}
               onCerrar={() => setPanelAnuncios(false)}
             />
           )}

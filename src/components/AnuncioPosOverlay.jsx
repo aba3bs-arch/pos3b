@@ -6,11 +6,11 @@ import {
   tamanoVentanaAnuncio,
 } from '../lib/anunciosPos.js';
 
-export default function AnuncioPosOverlay({ supabase, sucursal, onIrVentas }) {
+export default function AnuncioPosOverlay({ supabase, onIrVentas }) {
   const [anuncio, setAnuncio] = useState(null);
 
   const refrescar = async () => {
-    const a = await obtenerAnuncioParaMostrar(supabase, sucursal);
+    const a = await obtenerAnuncioParaMostrar(supabase);
     setAnuncio(a);
   };
 
@@ -23,7 +23,7 @@ export default function AnuncioPosOverlay({ supabase, sucursal, onIrVentas }) {
       clearInterval(t);
       window.removeEventListener(EVENTO_ANUNCIOS, onEvt);
     };
-  }, [supabase, sucursal]);
+  }, [supabase]);
 
   if (!anuncio) return null;
 

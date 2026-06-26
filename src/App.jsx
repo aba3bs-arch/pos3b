@@ -46,6 +46,7 @@ import Icon, { BtnLabel } from './components/Icon.jsx';
 import BotonLimpiarCache from './components/BotonLimpiarCache.jsx';
 import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesContabilidad.jsx';
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
+import { limpiarAnunciosVistos } from './lib/anunciosPos.js';
 import InputPin from './components/InputPin.jsx';
 import { iconoDeModulo, colorDeModulo } from './lib/moduloIcons.js';
 
@@ -205,6 +206,7 @@ function App() {
       setUser(data);
       setSesion(true);
       setPin('');
+      limpiarAnunciosVistos();
       setVista('Inicio');
       void supabase.from('logins').insert([
         {
@@ -222,6 +224,7 @@ function App() {
   };
 
   const cerrarSesion = () => {
+    limpiarAnunciosVistos();
     setSesion(false);
     setUser(null);
     setVista('Inicio');
@@ -584,7 +587,7 @@ function App() {
           )}
           {vista === 'Ayuda' && <Ayuda user={user} />}
         </div>
-        <AnuncioPosOverlay supabase={supabase} sucursal={sucursal} onIrVentas={() => irAModulo('Ventas')} />
+        <AnuncioPosOverlay supabase={supabase} onIrVentas={() => irAModulo('Ventas')} />
       </main>
     </div>
   );

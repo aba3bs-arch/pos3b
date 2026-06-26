@@ -15,9 +15,11 @@ export default function CorteGarage({ supabase, sucursal, user }) {
     recoleccion: 0,
     caja_anterior: calc.cajaActual,
     comentarios: '',
+    venta_manual: '',
+    caja_actual_manual: '',
   }), []);
 
-  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte } =
+  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte } =
     useCorteContabilidad({
       supabase,
       sucursal,
@@ -109,8 +111,10 @@ export default function CorteGarage({ supabase, sucursal, user }) {
             gastos={gastos}
             onAgregar={agregarGasto}
             onEliminar={quitarGasto}
+            onEditar={editarGasto}
             habilitado={perm.gastos}
-            puedeCatalogo={perm.guardar}
+            puedeCatalogo={perm.editarTodo}
+            puedeEditarGastos={perm.editarTodo}
           />
           <textarea
             className="input"
@@ -124,7 +128,18 @@ export default function CorteGarage({ supabase, sucursal, user }) {
 
         <div className="card">
           <h4 style={{ margin: '0 0 0.75rem' }}>Resumen</h4>
-          <p className="muted" style={{ fontSize: '0.85rem' }}>Caja chica anterior: {fmtCorte(estado.caja_anterior)}</p>
+          <label style={{ display: 'block', marginBottom: '0.75rem', fontSize: '0.85rem' }}>
+            <span style={{ fontWeight: 700 }}>Caja chica anterior</span>
+            <input
+              className="input"
+              type="number"
+              step="0.01"
+              style={{ marginTop: '0.25rem', textAlign: 'center', fontWeight: 700 }}
+              value={estado.caja_anterior ?? 0}
+              readOnly={perm.soloLectura}
+              onChange={(e) => patchEstado({ caja_anterior: e.target.value })}
+            />
+          </label>
           <label style={{ display: 'block', marginBottom: '0.75rem', fontSize: '0.85rem' }}>
             <span style={{ fontWeight: 700 }}>Recolección</span>
             <input
@@ -149,6 +164,19 @@ export default function CorteGarage({ supabase, sucursal, user }) {
             <div style={{ fontSize: '2rem', fontWeight: 800, color: cajaNegativa ? 'var(--danger)' : '#16a085' }}>{fmtCorte(calc.cajaActual)}</div>
             {cajaNegativa && <div style={{ color: 'var(--danger)', fontWeight: 700, fontSize: '0.85rem' }}>CAJA GARAGE EN NEGATIVO</div>}
           </div>
+          {perm.editarTodo && (
+            <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed var(--border)' }}>
+              <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.35rem', fontWeight: 700 }}>Ajuste manual (admin)</div>
+              <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '0.35rem' }}>
+                <span className="muted">Ventas turno</span>
+                <input className="input" type="number" step="0.01" value={estado.venta_manual ?? ''} placeholder="Automático" onChange={(e) => patchEstado({ venta_manual: e.target.value })} style={{ marginTop: '0.2rem', textAlign: 'center', fontWeight: 700 }} />
+              </label>
+              <label style={{ display: 'block', fontSize: '0.85rem' }}>
+                <span className="muted">Total caja</span>
+                <input className="input" type="number" step="0.01" value={estado.caja_actual_manual ?? ''} placeholder="Automático" onChange={(e) => patchEstado({ caja_actual_manual: e.target.value })} style={{ marginTop: '0.2rem', textAlign: 'center', fontWeight: 700 }} />
+              </label>
+            </div>
+          )}
         </div>
       </div>
 

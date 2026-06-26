@@ -167,7 +167,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nómina semanal</h3>
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
           Semana <strong>sábado a viernes</strong>. Consumos de cortes y préstamos activos se descuentan por <strong>nombre de empleado</strong>.
-          Define en <strong>Usuarios</strong> quién paga la nómina (Virtual / Abarrotes / Garage).
+          Puedes <strong>ajustar manualmente</strong> la columna Gastos cortes antes de cerrar. «Recalcular gastos» vuelve a cargar desde cortes.
         </p>
         <div className="grid-2" style={{ marginBottom: '0.75rem' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
@@ -233,7 +233,15 @@ export default function Nomina({ supabase, sucursal, user }) {
                     <input className="input" type="number" min="0" step="0.01" style={{ width: '90px' }} value={l.bonificacion} onChange={(e) => actualizarLinea(i, 'bonificacion', e.target.value)} />
                   </td>
                   <td style={{ fontWeight: 700, color: l.deduccion_gastos > 0 ? 'var(--danger)' : undefined }} title={l.notas}>
-                    {fmt(l.deduccion_gastos)}
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      style={{ width: '90px' }}
+                      value={l.deduccion_gastos}
+                      onChange={(e) => actualizarLinea(i, 'deduccion_gastos', e.target.value)}
+                    />
                   </td>
                   <td style={{ fontWeight: 700, color: l.deduccion_prestamos > 0 ? 'var(--danger)' : undefined }} title={l.notas}>
                     {fmt(l.deduccion_prestamos)}

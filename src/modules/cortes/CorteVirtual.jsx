@@ -23,6 +23,20 @@ function Campo({ label, value, onChange, readOnly, hint, color }) {
   );
 }
 
+function AjustesAdmin({ perm, estado, patchEstado }) {
+  if (!perm.editarTodo) return null;
+  return (
+    <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed var(--border)' }}>
+      <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.5rem', fontWeight: 700 }}>Ajuste manual (administrador)</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <Campo label="Venta efectivo" value={estado.venta_manual ?? ''} hint="Vacío = automático" onChange={(v) => patchEstado({ venta_manual: v })} />
+        <Campo label="Subtotal turno" value={estado.subtotal_manual ?? ''} hint="Vacío = automático" onChange={(v) => patchEstado({ subtotal_manual: v })} />
+        <Campo label="Caja actual" value={estado.caja_actual_manual ?? ''} hint="Vacío = automático" onChange={(v) => patchEstado({ caja_actual_manual: v })} />
+      </div>
+    </div>
+  );
+}
+
 export default function CorteVirtual({ supabase, sucursal, user }) {
   const prepararTrasCierre = useCallback((estado, calc) => {
     const mf = Number(estado.moneda_final) || 0;
@@ -38,10 +52,13 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
       recoleccion: 0,
       faltante: 0,
       comentarios: '',
+      venta_manual: '',
+      subtotal_manual: '',
+      caja_actual_manual: '',
     };
   }, []);
 
-  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte } =
+  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte } =
     useCorteContabilidad({
       supabase,
       sucursal,
@@ -82,6 +99,7 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
   };
 
   const cajaNegativa = calc.cajaActual < -0.001;
+  const ro = perm.soloLectura;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -111,7 +129,8 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
         <div className="card">
           <h4 style={{ margin: '0 0 0.75rem' }}>Moneda y venta</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-            <Campo label="Fondo (referencia)" value={estado.fondo ?? 0} readOnly hint="No afecta la venta" onChange={(v) => patchEstado({ fondo: v })} />
+            <Campo label="Fondo fijo (ref)" value={estado.fondo ?? 0} readOnly={ro} hint="Referencia; no afecta la venta" onChange={(v) => patchEstado({ fondo: v })} />
+            <Campo label="Caja anterior (+)" value={estado.caja_anterior ?? 0} readOnly={ro} onChange={(v) => patchEstado({ caja_anterior: v })} />
             <Campo
               label="Moneda inicial"
               value={estado.moneda_inicial ?? 0}
@@ -129,14 +148,15 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
               <div style={{ fontSize: '1.4rem', fontWeight: 800, color: calc.venta < 0 ? 'var(--danger)' : '#16a085' }}>{fmtCorte(calc.venta)}</div>
               <div className="muted" style={{ fontSize: '0.7rem' }}>Moneda inicial − moneda final</div>
             </div>
-            <Campo label="Faltante (−)" value={estado.faltante ?? 0} readOnly={perm.soloLectura} color="var(--danger)" onChange={(v) => patchEstado({ faltante: v })} />
+            <Campo label="Faltante (−)" value={estado.faltante ?? 0} readOnly={ro} color="var(--danger)" onChange={(v) => patchEstado({ faltante: v })} />
             <Campo
               label="Recolección (−)"
               value={estado.recoleccion ?? estado.recoleccion_turno ?? 0}
               readOnly={!perm.recoleccion}
-              hint={perm.recoleccion ? 'Solo administrador o autorizados' : 'Sin permiso de recolección'}
+              hint={perm.recoleccion ? 'Administrador o autorizados' : 'Sin permiso de recolección'}
               onChange={(v) => patchEstado({ recoleccion: v, recoleccion_turno: v })}
             />
+            <AjustesAdmin perm={perm} estado={estado} patchEstado={patchEstado} />
           </div>
         </div>
 
@@ -149,8 +169,10 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
             gastos={gastos}
             onAgregar={agregarGasto}
             onEliminar={quitarGasto}
+            onEditar={editarGasto}
             habilitado={perm.gastos}
-            puedeCatalogo={perm.guardar}
+            puedeCatalogo={perm.editarTodo}
+            puedeEditarGastos={perm.editarTodo}
           />
           <textarea
             className="input"
@@ -164,7 +186,6 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
 
         <div className="card">
           <h4 style={{ margin: '0 0 0.75rem' }}>Caja chica</h4>
-          <p className="muted" style={{ fontSize: '0.8rem' }}>Anterior: {fmtCorte(estado.caja_anterior)}</p>
           <div style={{ background: '#2c3e50', color: '#fff', padding: '0.75rem', borderRadius: 8, textAlign: 'center', marginBottom: '0.75rem' }}>
             <div style={{ fontSize: '0.8rem' }}>Subtotal turno</div>
             <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f1c40f' }}>{fmtCorte(calc.subtotal)}</div>

@@ -1,7 +1,10 @@
 const LS_CAT = 'pos3b_corte_catalogo';
 
-function lsKey(sucursal, modulo) {
-  return `${LS_CAT}_${modulo}_${sucursal || 'MAIN'}`;
+/** Catálogo compartido entre todas las sucursales. */
+export const CATALOGO_GASTOS_GLOBAL = 'GLOBAL';
+
+function lsKey(modulo) {
+  return `${LS_CAT}_${modulo}_global`;
 }
 
 const DEFAULTS = {
@@ -10,9 +13,9 @@ const DEFAULTS = {
   garage: [{ categoria: 'CONSUMO', subcategorias: ['EMPLEADO', 'MANTENIMIENTO'] }],
 };
 
-function leerLocal(sucursal, modulo) {
+function leerLocal(modulo) {
   try {
-    const raw = localStorage.getItem(lsKey(sucursal, modulo));
+    const raw = localStorage.getItem(lsKey(modulo));
     if (raw) return JSON.parse(raw);
   } catch {
     /* ignore */
@@ -20,30 +23,43 @@ function leerLocal(sucursal, modulo) {
   return DEFAULTS[modulo] || [];
 }
 
-function guardarLocal(sucursal, modulo, lista) {
-  localStorage.setItem(lsKey(sucursal, modulo), JSON.stringify(lista));
+function guardarLocal(modulo, lista) {
+  localStorage.setItem(lsKey(modulo), JSON.stringify(lista));
 }
 
-export async function listarCatalogoGastos(supabase, sucursal, modulo) {
-  if (!supabase) return { data: leerLocal(sucursal, modulo) };
-  const { data, error } = await supabase
+function mapRows(data) {
+  return (data || []).map((r) => ({
+    id: r.id,
+    categoria: r.categoria,
+    subcategorias: Array.isArray(r.subcategorias) ? r.subcategorias : [],
+  }));
+}
+
+async function listarDesdeNube(supabase, sucursalId, modulo) {
+  return supabase
     .from('cortes_gasto_catalogo')
     .select('*')
-    .eq('sucursal_id', sucursal || 'MAIN')
+    .eq('sucursal_id', sucursalId)
     .eq('modulo', modulo)
     .order('categoria');
-  if (error) {
-    if (error.code === '42P01') return { data: leerLocal(sucursal, modulo), aviso: 'Ejecuta fix_contabilidad_ampliacion.sql' };
-    return { data: leerLocal(sucursal, modulo), error: error.message };
+}
+
+/** Lista catálogo global; si no hay filas globales, usa legado de la sucursal activa. */
+export async function listarCatalogoGastos(supabase, sucursal, modulo) {
+  if (!supabase) return { data: leerLocal(modulo) };
+
+  const globalRes = await listarDesdeNube(supabase, CATALOGO_GASTOS_GLOBAL, modulo);
+  if (globalRes.error) {
+    if (globalRes.error.code === '42P01') return { data: leerLocal(modulo), aviso: 'Ejecuta fix_contabilidad_ampliacion.sql' };
+    return { data: leerLocal(modulo), error: globalRes.error.message };
   }
-  if (!data?.length) return { data: DEFAULTS[modulo] || [] };
-  return {
-    data: data.map((r) => ({
-      id: r.id,
-      categoria: r.categoria,
-      subcategorias: Array.isArray(r.subcategorias) ? r.subcategorias : [],
-    })),
-  };
+  if (globalRes.data?.length) return { data: mapRows(globalRes.data), fuente: 'global' };
+
+  const legacyRes = await listarDesdeNube(supabase, sucursal || 'MAIN', modulo);
+  if (legacyRes.error) return { data: leerLocal(modulo), error: legacyRes.error.message };
+  if (legacyRes.data?.length) return { data: mapRows(legacyRes.data), fuente: 'legacy' };
+
+  return { data: DEFAULTS[modulo] || [] };
 }
 
 export async function guardarCategoriaGasto(supabase, sucursal, modulo, categoria, subcategorias = []) {
@@ -52,15 +68,15 @@ export async function guardarCategoriaGasto(supabase, sucursal, modulo, categori
   const subs = (subcategorias || []).map((s) => String(s).trim().toUpperCase()).filter(Boolean);
 
   if (!supabase) {
-    const lista = leerLocal(sucursal, modulo).filter((x) => x.categoria !== cat);
+    const lista = leerLocal(modulo).filter((x) => x.categoria !== cat);
     lista.push({ categoria: cat, subcategorias: subs });
-    guardarLocal(sucursal, modulo, lista);
+    guardarLocal(modulo, lista);
     return { ok: true };
   }
 
   const { error } = await supabase.from('cortes_gasto_catalogo').upsert(
     {
-      sucursal_id: sucursal || 'MAIN',
+      sucursal_id: CATALOGO_GASTOS_GLOBAL,
       modulo,
       categoria: cat,
       subcategorias: subs,
@@ -85,16 +101,15 @@ export async function eliminarCategoriaGasto(supabase, sucursal, modulo, categor
   const cat = String(categoria || '').trim().toUpperCase();
   if (!supabase) {
     guardarLocal(
-      sucursal,
       modulo,
-      leerLocal(sucursal, modulo).filter((x) => x.categoria !== cat),
+      leerLocal(modulo).filter((x) => x.categoria !== cat),
     );
     return { ok: true };
   }
   const { error } = await supabase
     .from('cortes_gasto_catalogo')
     .delete()
-    .eq('sucursal_id', sucursal || 'MAIN')
+    .eq('sucursal_id', CATALOGO_GASTOS_GLOBAL)
     .eq('modulo', modulo)
     .eq('categoria', cat);
   if (error) return { ok: false, error: error.message };
