@@ -14,6 +14,12 @@ import { esAlmacenCentral, etiquetaAlmacenCentral } from '../lib/inventarioMulti
 import Icon from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import ConteoPorDepartamento from './ConteoPorDepartamento.jsx';
+import {
+  FILTROS_HISTORIAL_TIPO,
+  PRESETS_FECHA_PRODUCTO,
+  filtrarHistorialReciente,
+  rangoDesdePreset,
+} from '../lib/consultasInventario.js';
 
 const TIPOS_LIBRE = TIPOS_MOVIMIENTO.filter((t) => t.id !== 'traspaso');
 
@@ -39,6 +45,10 @@ export default function AjusteInventario({
   const [motivo, setMotivo] = useState('');
   const [busqueda, setBusqueda] = useState('');
   const [historial, setHistorial] = useState(() => leerMovimientosLocal());
+  const [filtroHistTipo, setFiltroHistTipo] = useState('');
+  const [filtroHistFecha, setFiltroHistFecha] = useState('7d');
+  const [histDesde, setHistDesde] = useState('');
+  const [histHasta, setHistHasta] = useState('');
   const [aplicando, setAplicando] = useState(false);
   const [lineasMasivas, setLineasMasivas] = useState([]);
   const [busquedaMasiva, setBusquedaMasiva] = useState('');
@@ -74,6 +84,16 @@ export default function AjusteInventario({
     }
     return list.slice(0, 80);
   }, [inventario, busqueda]);
+
+  const rangoHistorial = useMemo(() => {
+    if (filtroHistFecha === 'rango') return { desde: histDesde || null, hasta: histHasta || null };
+    return rangoDesdePreset(filtroHistFecha) || { desde: null, hasta: null };
+  }, [filtroHistFecha, histDesde, histHasta]);
+
+  const historialFiltrado = useMemo(
+    () => filtrarHistorialReciente(historial, { tipo: filtroHistTipo, ...rangoHistorial }),
+    [historial, filtroHistTipo, rangoHistorial],
+  );
 
   const productoOrigen = inventario.find((p) => p.id === productoId);
   const sucursalesLista = useMemo(() => sucursalesListaProp || listarSucursales(), [sucursalesListaProp]);
@@ -319,7 +339,7 @@ export default function AjusteInventario({
   };
 
   const imprimirHistorial = () => {
-    const recientes = historial.slice(0, 25).map((m) => ({
+    const recientes = historialFiltrado.slice(0, 100).map((m) => ({
       id: m.producto_id,
       nombre: m.producto_nombre || m.producto_id,
       cantidad: m.cantidad,
@@ -795,9 +815,46 @@ export default function AjusteInventario({
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           <h3 style={{ margin: '0', color: 'var(--brand-blue)' }}>Historial reciente (este equipo)</h3>
-          <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={imprimirHistorial} disabled={!historial.length}>
+          <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={imprimirHistorial} disabled={!historialFiltrado.length}>
             Imprimir historial
           </button>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', margin: '0.5rem 0 0.75rem', alignItems: 'flex-end' }}>
+          <label className="muted" style={{ fontSize: '0.8rem' }}>
+            Tipo
+            <select className="select" style={{ display: 'block', marginTop: '0.2rem', minWidth: 130 }} value={filtroHistTipo} onChange={(e) => setFiltroHistTipo(e.target.value)}>
+              {FILTROS_HISTORIAL_TIPO.map((f) => (
+                <option key={f.id || 'todos'} value={f.id}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="muted" style={{ fontSize: '0.8rem' }}>
+            Fechas
+            <select className="select" style={{ display: 'block', marginTop: '0.2rem', minWidth: 150 }} value={filtroHistFecha} onChange={(e) => setFiltroHistFecha(e.target.value)}>
+              {PRESETS_FECHA_PRODUCTO.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {filtroHistFecha === 'rango' && (
+            <>
+              <label className="muted" style={{ fontSize: '0.8rem' }}>
+                Desde
+                <input className="input" type="date" style={{ display: 'block', marginTop: '0.2rem' }} value={histDesde} onChange={(e) => setHistDesde(e.target.value)} />
+              </label>
+              <label className="muted" style={{ fontSize: '0.8rem' }}>
+                Hasta
+                <input className="input" type="date" style={{ display: 'block', marginTop: '0.2rem' }} value={histHasta} onChange={(e) => setHistHasta(e.target.value)} />
+              </label>
+            </>
+          )}
+          <span className="muted" style={{ fontSize: '0.75rem', marginLeft: 'auto' }}>
+            {historialFiltrado.length} movimiento{historialFiltrado.length === 1 ? '' : 's'}
+          </span>
         </div>
         <div className="table-wrap">
           <table className="data">
@@ -812,14 +869,14 @@ export default function AjusteInventario({
               </tr>
             </thead>
             <tbody>
-              {historial.length === 0 ? (
+              {historialFiltrado.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="muted">
-                    Sin movimientos registrados aún.
+                    Sin movimientos con estos filtros.
                   </td>
                 </tr>
               ) : (
-                historial.slice(0, 25).map((m) => (
+                historialFiltrado.slice(0, 50).map((m) => (
                   <tr key={m.id}>
                     <td style={{ fontSize: '0.8rem' }}>
                       {m.created_at ? new Date(m.created_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '—'}

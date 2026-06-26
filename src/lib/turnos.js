@@ -48,6 +48,13 @@ export const TURNOS_POR_DEFECTO = [
   { id: 'noche', nombre: 'Noche', hora_inicio: '22:00', hora_fin: '06:00' },
 ];
 
+/** Empleado autorizado en diurno y nocturno (gerente de piso, etc.). */
+export const TURNO_AMBOS_ID = 'ambos';
+
+export function esTurnoAmbos(turnoId) {
+  return String(turnoId || '') === TURNO_AMBOS_ID;
+}
+
 function emitTurnos() {
   try {
     window.dispatchEvent(new CustomEvent(EVENTO_TURNOS));
@@ -408,6 +415,7 @@ export function nombreTurnoLegible(turnoOrNombre, id) {
 }
 
 export function etiquetaTurno(id, turnos = null) {
+  if (esTurnoAmbos(id)) return 'Ambos turnos (diurno y nocturno)';
   const t = (turnos || leerTurnos()).find((x) => x.id === id);
   return t ? `${nombreTurnoLegible(t)} (entrada ${t.hora_inicio}, salida ${t.hora_fin})` : id || '—';
 }
@@ -451,6 +459,7 @@ export function turnoIdParaUsuario(user, date = new Date()) {
     return id ? String(id) : null;
   }
   const fijo = user?.turno_id;
+  if (fijo && esTurnoAmbos(fijo)) return TURNO_AMBOS_ID;
   return fijo ? String(fijo) : null;
 }
 
@@ -472,6 +481,7 @@ export function resumenHorarioUsuario(user, turnos = null) {
   const dias = diasHorarioUsuario(user);
   const keys = Object.keys(dias).filter((k) => dias[k]);
   if (!keys.length) {
+    if (esTurnoAmbos(user?.turno_id)) return etiquetaTurno(TURNO_AMBOS_ID);
     return user?.turno_id ? etiquetaTurno(user.turno_id, list) : 'Sin turno';
   }
   const porTurno = {};
@@ -535,6 +545,7 @@ export function usuarioAutorizadoLogin(user, date = new Date(), turnos = null) {
   }
 
   if (String(asignado) !== String(turno.id)) {
+    if (esTurnoAmbos(asignado)) return { ok: true };
     return {
       ok: false,
       error: `Turno actual: ${nombreTurnoLegible(turno)} (${turno.hora_inicio}–${turno.hora_fin}). Tú estás asignado a ${etiquetaTurno(asignado, list)}. No puedes entrar fuera de tu turno.`,
@@ -569,6 +580,7 @@ export function usuarioAutorizadoCorte(user, turno, date = new Date()) {
     };
   }
   if (String(asignado) !== String(turno.id)) {
+    if (esTurnoAmbos(asignado)) return { ok: true };
     return {
       ok: false,
       error: `Turno actual: ${nombreTurnoLegible(turno)}. Hoy te corresponde ${etiquetaTurno(asignado)}.`,

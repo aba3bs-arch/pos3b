@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { ROLES, normalizarRol, puedeGestionarUsuarios } from '../lib/roles.js';
 import { AREAS_CONTABILIDAD, ETIQUETA_AREA } from '../lib/contabilidadConstants.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
-import { leerTurnos, leerConfigHorario, esHorarioPersonalizado, resumenHorarioUsuario, EVENTO_TURNOS, nombreTurnoLegible } from '../lib/turnos.js';
+import { leerTurnos, leerConfigHorario, esHorarioPersonalizado, resumenHorarioUsuario, EVENTO_TURNOS, nombreTurnoLegible, TURNO_AMBOS_ID, etiquetaTurno } from '../lib/turnos.js';
 import InputPin from '../components/InputPin.jsx';
 
 const emptyForm = (sucursalDefault) => ({
@@ -262,6 +262,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
               Turno (acceso y corte)
               <select className="select" style={{ marginTop: '0.35rem' }} value={form.turno_id} onChange={(e) => setForm({ ...form, turno_id: e.target.value })}>
                 <option value="">Sin turno — solo supervisión</option>
+                <option value={TURNO_AMBOS_ID}>{etiquetaTurno(TURNO_AMBOS_ID)}</option>
                 {turnos.map((t) => (
                   <option key={t.id} value={t.id}>
                     {nombreTurnoLegible(t)} (E {t.hora_inicio} · S {t.hora_fin})
@@ -379,6 +380,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                           onChange={(e) => actualizarTurno(r.id, e.target.value || null)}
                         >
                           <option value="">—</option>
+                          <option value={TURNO_AMBOS_ID}>Ambos turnos</option>
                           {turnos.map((t) => (
                             <option key={t.id} value={t.id}>
                               {nombreTurnoLegible(t)}

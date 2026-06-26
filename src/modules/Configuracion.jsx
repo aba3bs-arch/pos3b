@@ -81,6 +81,8 @@ import {
   construirTurnoHorarioDesdeDias,
   resumenHorarioUsuario,
   etiquetaDuracionTurno,
+  TURNO_AMBOS_ID,
+  etiquetaTurno,
 } from '../lib/turnos.js';
 import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarInventarioMultitienda, MODULOS_ORDEN, ROLES, modulosDefaultRol } from '../lib/roles.js';
 import BrandLogo from '../components/BrandLogo.jsx';
@@ -1175,6 +1177,7 @@ export default function Configuracion({
                                 onChange={(e) => asignarTurnoUsuario(u.id, e.target.value || null)}
                               >
                                 <option value="">Sin turno</option>
+                                <option value={TURNO_AMBOS_ID}>Ambos turnos</option>
                                 {turnos.map((t) => (
                                   <option key={t.id} value={t.id}>
                                     {t.nombre} (E {t.hora_inicio} · S {t.hora_fin})

@@ -192,9 +192,40 @@ export const PRESETS_FECHA_PRODUCTO = [
   { id: 'hoy', label: 'Hoy' },
   { id: '7d', label: 'Últimos 7 días' },
   { id: 'mes', label: 'Mes actual' },
+  { id: 'mes_ant', label: 'Mes anterior' },
   { id: '6m', label: 'Últimos 6 meses' },
   { id: 'rango', label: 'Rango de fechas' },
 ];
+
+export const FILTROS_HISTORIAL_TIPO = [
+  { id: '', label: 'Todos los tipos' },
+  { id: 'ingreso', label: 'Ingreso' },
+  { id: 'retiro', label: 'Retiro' },
+  { id: 'ajuste', label: 'Ajuste' },
+];
+
+const MODOS_AJUSTE = new Set(['masivo', 'departamento', 'conteo_departamento', 'ubicacion', 'vaciado_inventario', 'libre']);
+
+export function esMovimientoAjuste(m) {
+  if (!m) return false;
+  if (m.tipo === 'traspaso') return true;
+  return MODOS_AJUSTE.has(m.modo);
+}
+
+export function matchHistorialTipo(m, filtro) {
+  if (!filtro) return true;
+  if (filtro === 'ingreso') return m.tipo === 'entrada';
+  if (filtro === 'retiro') return m.tipo === 'retiro';
+  if (filtro === 'ajuste') return esMovimientoAjuste(m);
+  return true;
+}
+
+export function filtrarHistorialReciente(movimientos, opts = {}) {
+  const { tipo, desde, hasta } = opts;
+  return (movimientos || [])
+    .filter((m) => matchHistorialTipo(m, tipo))
+    .filter((m) => enRango(m.created_at, desde, hasta));
+}
 
 function toYmd(d) {
   const y = d.getFullYear();
@@ -209,6 +240,11 @@ export function rangoDesdePreset(preset) {
   if (preset === 'hoy') return { desde: hasta, hasta };
   if (preset === '7d') return { desde: toYmd(new Date(hoy.getTime() - 7 * 864e5)), hasta };
   if (preset === 'mes') return { desde: toYmd(new Date(hoy.getFullYear(), hoy.getMonth(), 1)), hasta };
+  if (preset === 'mes_ant') {
+    const ini = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+    const fin = new Date(hoy.getFullYear(), hoy.getMonth(), 0);
+    return { desde: toYmd(ini), hasta: toYmd(fin) };
+  }
   if (preset === '6m') {
     const d = new Date(hoy);
     d.setMonth(d.getMonth() - 6);
