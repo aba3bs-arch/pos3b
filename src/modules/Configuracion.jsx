@@ -773,8 +773,7 @@ export default function Configuracion({
                     )}
                   </div>
                   <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
-                    Nómina y Vales y Préstamos se agrupan bajo <strong>Contabilidad</strong> en el menú.
-                    Los cortes Virtual, Abarrotes y Garage están en la lista general de arriba como módulos independientes.
+                    Solo <strong>Nómina</strong> queda bajo Contabilidad en el menú. Vales, cortes y demás módulos están en la lista general de arriba.
                   </p>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>
                     <input

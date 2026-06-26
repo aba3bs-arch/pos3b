@@ -6,8 +6,8 @@ import { leerPrivilegios } from './posConfig.js';
 
 export const ROLES = ['Cajero', 'Auditor', 'Repartidor', 'Supervisor', 'Gerente', 'Técnico', 'Administrador'];
 
-/** Submódulos bajo Contabilidad (Nómina y Vales). Los cortes van sueltos en el menú. */
-export const SUBMODULOS_CONTABILIDAD = ['Nómina', 'Vales y Préstamos'];
+/** Único submódulo bajo Contabilidad por ahora. El resto va suelto en el menú. */
+export const SUBMODULOS_CONTABILIDAD = ['Nómina'];
 
 export const MODULOS_CORTES = ['Corte Virtual', 'Corte Abarrotes', 'Corte Garage'];
 
@@ -30,8 +30,8 @@ export const MODULOS_ORDEN = [
   'Consultas',
   'Estadisticas',
   'Reportes',
-  'Nómina',
   'Vales y Préstamos',
+  'Nómina',
   'Configuracion',
   'Ayuda',
 ];
