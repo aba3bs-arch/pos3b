@@ -24,7 +24,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   const [historial, setHistorial] = useState([]);
   const [empleados, setEmpleados] = useState([]);
   const saveTimer = useRef(null);
-  const perm = useMemo(() => permisosCorteContabilidad(user?.rol), [user?.rol]);
+  const perm = useMemo(() => permisosCorteContabilidad(user?.rol, user?.id), [user?.rol, user?.id]);
   const turno = useMemo(() => nombreTurnoLegible(turnoActual()), []);
 
   const calc = useMemo(() => calcFn(estado, gastos), [estado, gastos, calcFn]);

@@ -43,6 +43,7 @@ import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from './li
 import { usuarioAutorizadoLogin, turnoActual } from './lib/turnos.js';
 import BrandLogo from './components/BrandLogo.jsx';
 import Icon, { BtnLabel } from './components/Icon.jsx';
+import BotonLimpiarCache from './components/BotonLimpiarCache.jsx';
 import InputPin from './components/InputPin.jsx';
 import { iconoDeModulo, colorDeModulo } from './lib/moduloIcons.js';
 
@@ -477,9 +478,12 @@ function App() {
             <span className="muted" style={{ fontSize: '0.75rem', fontWeight: 600 }}>{normalizarRol(user?.rol)}</span>
             <span className="muted" style={{ fontSize: '0.75rem', fontWeight: 500 }}>Dólar: ${Number(tipoCambio).toFixed(2)}</span>
           </div>
-          <button type="button" className="btn btn-danger" onClick={cerrarSesion}>
-            <BtnLabel icon="logOut">Salir</BtnLabel>
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+            <BotonLimpiarCache />
+            <button type="button" className="btn btn-danger" onClick={cerrarSesion}>
+              <BtnLabel icon="logOut">Salir</BtnLabel>
+            </button>
+          </div>
         </header>
 
         <div style={{ flex: 1, padding: '1.25rem', overflowY: 'auto', minHeight: 0 }}>

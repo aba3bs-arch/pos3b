@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   AVISO_FALTA_CONTABILIDAD,
-  abonarPrestamo,
   listarPrestamos,
   listarPrestamosInterarea,
   listarVales,
@@ -10,10 +9,11 @@ import {
   registrarVale,
 } from '../lib/valesPrestamos.js';
 import {
-  INDIRECTOS_VALES,
-  RUTAS_PRESTAMO_INTERAREA,
+  AREAS_CONTABILIDAD,
+  BENEFICIARIOS_VALES,
   ETIQUETA_AREA,
   HORA_LIMITE_VALE,
+  beneficiarioValePorId,
   valeRequiereAutorizacionAdmin,
 } from '../lib/contabilidadConstants.js';
 import { imprimirVale } from '../lib/impresionContabilidad.js';
@@ -30,36 +30,40 @@ function hoyISO() {
 export default function ValesPrestamos({ supabase, sucursal, user }) {
   const [pestana, setPestana] = useState('vales');
   const [aviso, setAviso] = useState('');
-  const [empleados, setEmpleados] = useState([]);
   const [vales, setVales] = useState([]);
-  const [prestamos, setPrestamos] = useState([]);
   const [prestamosArea, setPrestamosArea] = useState([]);
+  const [prestamosEmp, setPrestamosEmp] = useState([]);
+  const [empleados, setEmpleados] = useState([]);
 
-  const [valeForm, setValeForm] = useState({ area: 'virtual', nombre: '', monto: '', motivo: '', fecha: hoyISO(), pinAdmin: '' });
-  const [prestForm, setPrestForm] = useState({ usuario_id: '', monto: '', notas: '', fecha: hoyISO() });
-  const [interForm, setInterForm] = useState({ rutaIdx: '0', monto: '', notas: '', fecha: hoyISO() });
+  const [valeForm, setValeForm] = useState({
+    beneficiarioId: '',
+    monto: '',
+    motivo: '',
+    fecha: hoyISO(),
+    pinAdmin: '',
+  });
+  const [prestForm, setPrestForm] = useState({
+    origen: 'virtual',
+    gastos_area: 'abarrotes',
+    monto: '',
+    notas: '',
+    fecha: hoyISO(),
+  });
+  const [prestEmpForm, setPrestEmpForm] = useState({
+    usuarioId: '',
+    monto: '',
+    notas: '',
+    fecha: hoyISO(),
+  });
 
   const esAdmin = normalizarRol(user?.rol) === 'Administrador';
   const requiereAuthAhora = valeRequiereAutorizacionAdmin();
-
-  const cargarEmpleados = useCallback(async () => {
-    if (!supabase) return;
-    const { data } = await supabase.from('usuarios').select('id, nombre, rol, sucursal_id').order('nombre');
-    setEmpleados(data || []);
-  }, [supabase]);
 
   const cargarVales = useCallback(async () => {
     if (!supabase) return;
     const res = await listarVales(supabase, { sucursal, tipo: 'indirecto' });
     if (res.aviso) setAviso(res.aviso);
     setVales(res.data || []);
-  }, [supabase, sucursal]);
-
-  const cargarPrestamos = useCallback(async () => {
-    if (!supabase) return;
-    const res = await listarPrestamos(supabase, { sucursal });
-    if (res.aviso) setAviso(res.aviso);
-    setPrestamos(res.data || []);
   }, [supabase, sucursal]);
 
   const cargarPrestamosArea = useCallback(async () => {
@@ -69,20 +73,32 @@ export default function ValesPrestamos({ supabase, sucursal, user }) {
     setPrestamosArea(res.data || []);
   }, [supabase, sucursal]);
 
-  useEffect(() => {
-    cargarEmpleados();
-    cargarVales();
-    cargarPrestamos();
-    cargarPrestamosArea();
-  }, [cargarEmpleados, cargarVales, cargarPrestamos, cargarPrestamosArea]);
+  const cargarPrestamosEmp = useCallback(async () => {
+    if (!supabase) return;
+    const res = await listarPrestamos(supabase, { sucursal, soloActivos: true });
+    if (res.aviso) setAviso(res.aviso);
+    setPrestamosEmp(res.data || []);
+  }, [supabase, sucursal]);
 
-  const empleadoPorId = (id) => empleados.find((e) => String(e.id) === String(id));
+  const cargarEmpleados = useCallback(async () => {
+    if (!supabase) return;
+    const { data } = await supabase.from('usuarios').select('id, nombre, rol').order('nombre');
+    setEmpleados(data || []);
+  }, [supabase]);
+
+  useEffect(() => {
+    cargarVales();
+    cargarPrestamosArea();
+    cargarPrestamosEmp();
+    cargarEmpleados();
+  }, [cargarVales, cargarPrestamosArea, cargarPrestamosEmp, cargarEmpleados]);
 
   const guardarVale = async () => {
     if (!supabase) return alert('Sin conexión.');
+    const ben = beneficiarioValePorId(valeForm.beneficiarioId);
+    if (!ben) return alert('Selecciona beneficiario (solo Luis Enrique, Misael o Gonzalo).');
     const monto = Number(valeForm.monto);
     if (!(monto > 0)) return alert('Monto inválido.');
-    if (!valeForm.nombre) return alert('Selecciona beneficiario.');
     const pinAdmin = requiereAuthAhora && !esAdmin ? valeForm.pinAdmin.trim() : '';
     if (requiereAuthAhora && !esAdmin && !pinAdmin) {
       return alert(`Después de las ${HORA_LIMITE_VALE}:00 se requiere PIN de administrador.`);
@@ -92,9 +108,9 @@ export default function ValesPrestamos({ supabase, sucursal, user }) {
       {
         sucursal_id: sucursal || 'MAIN',
         usuario_id: null,
-        nombre_empleado: valeForm.nombre,
+        nombre_empleado: ben.nombre,
         tipo: 'indirecto',
-        area: valeForm.area,
+        area: ben.area,
         monto,
         motivo: valeForm.motivo.trim() || null,
         fecha: valeForm.fecha || hoyISO(),
@@ -107,62 +123,57 @@ export default function ValesPrestamos({ supabase, sucursal, user }) {
       return alert(res.error);
     }
     if (confirm('¿Imprimir vale?')) imprimirVale(res.vale);
-    setValeForm({ area: valeForm.area, nombre: '', monto: '', motivo: '', fecha: hoyISO(), pinAdmin: '' });
+    setValeForm({ beneficiarioId: '', monto: '', motivo: '', fecha: hoyISO(), pinAdmin: '' });
     cargarVales();
   };
 
-  const guardarPrestamo = async () => {
+  const guardarPrestamoGastos = async () => {
     if (!supabase) return alert('Sin conexión.');
-    const emp = empleadoPorId(prestForm.usuario_id);
-    if (!emp) return alert('Selecciona un empleado.');
+    if (prestForm.origen === prestForm.gastos_area) {
+      return alert('El área que presta y el área de gastos deben ser distintas.');
+    }
     const monto = Number(prestForm.monto);
+    if (!(monto > 0)) return alert('Monto inválido.');
+    const notaBase = prestForm.notas.trim();
+    const notas = notaBase
+      ? `${notaBase} — Gastos ${ETIQUETA_AREA[prestForm.gastos_area]}`
+      : `Pago gastos ${ETIQUETA_AREA[prestForm.gastos_area]}`;
+    const res = await registrarPrestamoInterarea(supabase, {
+      sucursal_id: sucursal || 'MAIN',
+      origen: prestForm.origen,
+      destino: prestForm.gastos_area,
+      monto,
+      fecha: prestForm.fecha || hoyISO(),
+      notas,
+      created_by: user?.nombre || null,
+    });
+    if (!res.ok) return alert(res.error);
+    setPrestForm({ origen: prestForm.origen, gastos_area: prestForm.gastos_area, monto: '', notas: '', fecha: hoyISO() });
+    cargarPrestamosArea();
+  };
+
+  const guardarPrestamoEmpleado = async () => {
+    if (!supabase) return alert('Sin conexión.');
+    const emp = empleados.find((e) => String(e.id) === String(prestEmpForm.usuarioId));
+    if (!emp) return alert('Selecciona empleado.');
+    const monto = Number(prestEmpForm.monto);
     if (!(monto > 0)) return alert('Monto inválido.');
     const res = await registrarPrestamo(supabase, {
       sucursal_id: sucursal || 'MAIN',
       usuario_id: emp.id,
       nombre_empleado: emp.nombre,
       monto_original: monto,
-      fecha: prestForm.fecha || hoyISO(),
-      notas: prestForm.notas.trim() || null,
+      fecha: prestEmpForm.fecha || hoyISO(),
+      notas: prestEmpForm.notas.trim() || null,
       created_by: user?.nombre || null,
     });
-    if (!res.ok) return alert(res.error);
-    setPrestForm({ usuario_id: '', monto: '', notas: '', fecha: hoyISO() });
-    cargarPrestamos();
+    if (!res.ok) {
+      if (String(res.error).includes('fix_contabilidad')) setAviso(res.error);
+      return alert(res.error);
+    }
+    setPrestEmpForm({ usuarioId: '', monto: '', notas: '', fecha: hoyISO() });
+    cargarPrestamosEmp();
   };
-
-  const guardarPrestamoInterarea = async () => {
-    if (!supabase) return alert('Sin conexión.');
-    const ruta = RUTAS_PRESTAMO_INTERAREA[Number(interForm.rutaIdx)] || RUTAS_PRESTAMO_INTERAREA[0];
-    const monto = Number(interForm.monto);
-    if (!(monto > 0)) return alert('Monto inválido.');
-    const res = await registrarPrestamoInterarea(supabase, {
-      sucursal_id: sucursal || 'MAIN',
-      origen: ruta.origen,
-      destino: ruta.destino,
-      monto,
-      fecha: interForm.fecha || hoyISO(),
-      notas: interForm.notas.trim() || null,
-      created_by: user?.nombre || null,
-    });
-    if (!res.ok) return alert(res.error);
-    setInterForm({ rutaIdx: interForm.rutaIdx, monto: '', notas: '', fecha: hoyISO() });
-    cargarPrestamosArea();
-  };
-
-  const hacerAbono = async (p) => {
-    const raw = prompt(`Abono a ${p.nombre_empleado}\nSaldo: ${fmt(p.saldo)}\n\nMonto:`);
-    if (raw == null) return;
-    const monto = Number(raw);
-    if (!(monto > 0)) return alert('Monto inválido.');
-    const res = await abonarPrestamo(supabase, p, monto);
-    if (!res.ok) return alert(res.error);
-    cargarPrestamos();
-  };
-
-  const imprimirValeRow = (v) => imprimirVale(v);
-
-  const indirectosArea = INDIRECTOS_VALES[valeForm.area] || [];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -174,24 +185,25 @@ export default function ValesPrestamos({ supabase, sucursal, user }) {
       )}
 
       <div className="card" style={{ fontSize: '0.85rem' }}>
-        <strong>Vales indirectos</strong> — No se descuentan de nómina. Libres hasta las <strong>{HORA_LIMITE_VALE}:00</strong>;
+        <strong>Vales</strong> — Solo Luis Enrique (Abarrotes), Misael y Gonzalo (Virtual). No se descuentan de nómina.
+        Libres hasta las <strong>{HORA_LIMITE_VALE}:00</strong>
         {requiereAuthAhora ? (
-          <span style={{ color: 'var(--danger)' }}> ahora requieren autorización de administrador.</span>
+          <span style={{ color: 'var(--danger)' }}>; ahora requieren administrador.</span>
         ) : (
-          <span> después de esa hora requieren administrador.</span>
+          <span>.</span>
         )}
       </div>
 
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        {[
-          ['vales', 'Vales indirectos'],
-          ['prestamos', 'Préstamos empleados'],
-          ['interarea', 'Préstamos entre áreas'],
-        ].map(([id, label]) => (
-          <button key={id} type="button" className={`btn ${pestana === id ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPestana(id)}>
-            {label}
-          </button>
-        ))}
+        <button type="button" className={`btn ${pestana === 'vales' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPestana('vales')}>
+          Vales
+        </button>
+        <button type="button" className={`btn ${pestana === 'prestamos' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPestana('prestamos')}>
+          Préstamos (gastos por área)
+        </button>
+        <button type="button" className={`btn ${pestana === 'prestamos_emp' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPestana('prestamos_emp')}>
+          Préstamos a empleados
+        </button>
       </div>
 
       {pestana === 'vales' && (
@@ -199,27 +211,34 @@ export default function ValesPrestamos({ supabase, sucursal, user }) {
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nuevo vale</h3>
             <div className="grid-2">
-              <select className="select" value={valeForm.area} onChange={(e) => setValeForm({ ...valeForm, area: e.target.value, nombre: '' })}>
-                <option value="virtual">Virtual (Misael, Gonzalo)</option>
-                <option value="abarrotes">Abarrotes (Luis Enrique)</option>
-              </select>
-              <select className="select" value={valeForm.nombre} onChange={(e) => setValeForm({ ...valeForm, nombre: e.target.value })}>
+              <select
+                className="select"
+                value={valeForm.beneficiarioId}
+                onChange={(e) => setValeForm({ ...valeForm, beneficiarioId: e.target.value })}
+              >
                 <option value="">— Beneficiario —</option>
-                {indirectosArea.map((n) => (
-                  <option key={n} value={n}>
-                    {n}
+                {BENEFICIARIOS_VALES.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.nombre} — {ETIQUETA_AREA[b.area]}
                   </option>
                 ))}
               </select>
               <input className="input" type="number" min="0" step="0.01" placeholder="Monto" value={valeForm.monto} onChange={(e) => setValeForm({ ...valeForm, monto: e.target.value })} />
               <input className="input" type="date" value={valeForm.fecha} onChange={(e) => setValeForm({ ...valeForm, fecha: e.target.value })} />
-              <input className="input" placeholder="Motivo" style={{ gridColumn: '1 / -1' }} value={valeForm.motivo} onChange={(e) => setValeForm({ ...valeForm, motivo: e.target.value })} />
+              <input className="input" placeholder="Motivo" value={valeForm.motivo} onChange={(e) => setValeForm({ ...valeForm, motivo: e.target.value })} />
               {requiereAuthAhora && !esAdmin && (
-                <input className="input" type="password" placeholder="PIN administrador" style={{ gridColumn: '1 / -1' }} value={valeForm.pinAdmin} onChange={(e) => setValeForm({ ...valeForm, pinAdmin: e.target.value })} />
+                <input
+                  className="input"
+                  type="password"
+                  placeholder="PIN administrador"
+                  style={{ gridColumn: '1 / -1' }}
+                  value={valeForm.pinAdmin}
+                  onChange={(e) => setValeForm({ ...valeForm, pinAdmin: e.target.value })}
+                />
               )}
             </div>
             <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={guardarVale}>
-              Generar e imprimir vale
+              Generar vale
             </button>
           </div>
 
@@ -231,11 +250,10 @@ export default function ValesPrestamos({ supabase, sucursal, user }) {
                   <tr>
                     <th>Folio</th>
                     <th>Fecha</th>
-                    <th>Área</th>
                     <th>Beneficiario</th>
+                    <th>Área</th>
                     <th>Monto</th>
                     <th>Motivo</th>
-                    <th>Auth.</th>
                     <th />
                   </tr>
                 </thead>
@@ -244,13 +262,12 @@ export default function ValesPrestamos({ supabase, sucursal, user }) {
                     <tr key={v.id}>
                       <td>{v.folio || '—'}</td>
                       <td>{v.fecha}</td>
-                      <td>{ETIQUETA_AREA[v.area] || v.area}</td>
                       <td>{v.nombre_empleado}</td>
+                      <td>{ETIQUETA_AREA[v.area] || v.area}</td>
                       <td style={{ fontWeight: 700 }}>{fmt(v.monto)}</td>
                       <td className="muted">{v.motivo || '—'}</td>
-                      <td className="muted">{v.requiere_autorizacion ? v.autorizado_por || '—' : '—'}</td>
                       <td>
-                        <button type="button" className="btn btn-ghost" style={{ padding: '0.25rem 0.5rem' }} onClick={() => imprimirValeRow(v)}>
+                        <button type="button" className="btn btn-ghost" style={{ padding: '0.25rem 0.5rem' }} onClick={() => imprimirVale(v)}>
                           Imprimir
                         </button>
                       </td>
@@ -258,7 +275,7 @@ export default function ValesPrestamos({ supabase, sucursal, user }) {
                   ))}
                   {vales.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="muted">
+                      <td colSpan={7} className="muted">
                         Sin vales.
                       </td>
                     </tr>
@@ -273,92 +290,49 @@ export default function ValesPrestamos({ supabase, sucursal, user }) {
       {pestana === 'prestamos' && (
         <>
           <div className="card">
-            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Préstamo a empleado POS</h3>
+            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Préstamo para pagar gastos</h3>
+            <p className="muted" style={{ fontSize: '0.85rem', margin: '0 0 0.75rem' }}>
+              Transfiere fondos entre áreas para cubrir gastos de Abarrotes, Virtual o Garage.
+            </p>
             <div className="grid-2">
-              <select className="select" value={prestForm.usuario_id} onChange={(e) => setPrestForm({ ...prestForm, usuario_id: e.target.value })}>
-                <option value="">— Empleado —</option>
-                {empleados.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.nombre} ({e.rol})
-                  </option>
-                ))}
-              </select>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
+                Área que presta
+                <select className="select" value={prestForm.origen} onChange={(e) => setPrestForm({ ...prestForm, origen: e.target.value })}>
+                  {AREAS_CONTABILIDAD.map((a) => (
+                    <option key={a} value={a}>
+                      {ETIQUETA_AREA[a]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
+                Gastos a pagar de
+                <select className="select" value={prestForm.gastos_area} onChange={(e) => setPrestForm({ ...prestForm, gastos_area: e.target.value })}>
+                  {AREAS_CONTABILIDAD.map((a) => (
+                    <option key={a} value={a}>
+                      {ETIQUETA_AREA[a]}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <input className="input" type="number" min="0" step="0.01" placeholder="Monto" value={prestForm.monto} onChange={(e) => setPrestForm({ ...prestForm, monto: e.target.value })} />
               <input className="input" type="date" value={prestForm.fecha} onChange={(e) => setPrestForm({ ...prestForm, fecha: e.target.value })} />
-              <input className="input" placeholder="Notas" value={prestForm.notas} onChange={(e) => setPrestForm({ ...prestForm, notas: e.target.value })} />
+              <input className="input" placeholder="Notas (opcional)" style={{ gridColumn: '1 / -1' }} value={prestForm.notas} onChange={(e) => setPrestForm({ ...prestForm, notas: e.target.value })} />
             </div>
-            <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={guardarPrestamo}>
+            <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={guardarPrestamoGastos}>
               Registrar préstamo
             </button>
           </div>
-          <div className="card">
-            <h3 style={{ margin: '0 0 0.75rem' }}>Préstamos activos</h3>
-            <div className="table-wrap">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>Fecha</th>
-                    <th>Empleado</th>
-                    <th>Original</th>
-                    <th>Saldo</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {prestamos.map((p) => (
-                    <tr key={p.id}>
-                      <td>{p.fecha}</td>
-                      <td>{p.nombre_empleado}</td>
-                      <td>{fmt(p.monto_original)}</td>
-                      <td style={{ fontWeight: 700 }}>{fmt(p.saldo)}</td>
-                      <td>
-                        {p.estado === 'activo' && Number(p.saldo) > 0 && (
-                          <button type="button" className="btn btn-ghost" style={{ padding: '0.25rem 0.5rem' }} onClick={() => hacerAbono(p)}>
-                            Abonar
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </>
-      )}
 
-      {pestana === 'interarea' && (
-        <>
           <div className="card">
-            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Préstamo entre áreas</h3>
-            <p className="muted" style={{ fontSize: '0.85rem', margin: '0 0 0.75rem' }}>
-              Transferencias contables entre Virtual, Abarrotes y Garage.
-            </p>
-            <div className="grid-2">
-              <select className="select" value={interForm.rutaIdx} onChange={(e) => setInterForm({ ...interForm, rutaIdx: e.target.value })}>
-                {RUTAS_PRESTAMO_INTERAREA.map((r, i) => (
-                  <option key={r.label} value={String(i)}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
-              <input className="input" type="number" min="0" step="0.01" placeholder="Monto" value={interForm.monto} onChange={(e) => setInterForm({ ...interForm, monto: e.target.value })} />
-              <input className="input" type="date" value={interForm.fecha} onChange={(e) => setInterForm({ ...interForm, fecha: e.target.value })} />
-              <input className="input" placeholder="Notas" value={interForm.notas} onChange={(e) => setInterForm({ ...interForm, notas: e.target.value })} />
-            </div>
-            <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={guardarPrestamoInterarea}>
-              Registrar préstamo entre áreas
-            </button>
-          </div>
-          <div className="card">
-            <h3 style={{ margin: '0 0 0.75rem' }}>Historial entre áreas</h3>
+            <h3 style={{ margin: '0 0 0.75rem' }}>Historial de préstamos</h3>
             <div className="table-wrap">
               <table className="data">
                 <thead>
                   <tr>
                     <th>Fecha</th>
-                    <th>Origen</th>
-                    <th>Destino</th>
+                    <th>Prestó</th>
+                    <th>Gastos de</th>
                     <th>Monto</th>
                     <th>Notas</th>
                   </tr>
@@ -376,7 +350,69 @@ export default function ValesPrestamos({ supabase, sucursal, user }) {
                   {prestamosArea.length === 0 && (
                     <tr>
                       <td colSpan={5} className="muted">
-                        Sin movimientos.
+                        Sin préstamos registrados.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {pestana === 'prestamos_emp' && (
+        <>
+          <div className="card">
+            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Préstamo a empleado</h3>
+            <p className="muted" style={{ fontSize: '0.85rem', margin: '0 0 0.75rem' }}>
+              Se descuenta automáticamente en nómina (match por nombre del empleado).
+            </p>
+            <div className="grid-2">
+              <select className="select" value={prestEmpForm.usuarioId} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, usuarioId: e.target.value })}>
+                <option value="">— Empleado —</option>
+                {empleados.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.nombre} ({e.rol})
+                  </option>
+                ))}
+              </select>
+              <input className="input" type="number" min="0" step="0.01" placeholder="Monto" value={prestEmpForm.monto} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, monto: e.target.value })} />
+              <input className="input" type="date" value={prestEmpForm.fecha} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, fecha: e.target.value })} />
+              <input className="input" placeholder="Notas (opcional)" value={prestEmpForm.notas} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, notas: e.target.value })} />
+            </div>
+            <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={guardarPrestamoEmpleado}>
+              Registrar préstamo
+            </button>
+          </div>
+
+          <div className="card">
+            <h3 style={{ margin: '0 0 0.75rem' }}>Préstamos activos</h3>
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Empleado</th>
+                    <th>Original</th>
+                    <th>Saldo</th>
+                    <th>Notas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {prestamosEmp.map((p) => (
+                    <tr key={p.id}>
+                      <td>{p.fecha}</td>
+                      <td>{p.nombre_empleado}</td>
+                      <td>{fmt(p.monto_original)}</td>
+                      <td style={{ fontWeight: 700, color: 'var(--danger)' }}>{fmt(p.saldo)}</td>
+                      <td className="muted">{p.notas || '—'}</td>
+                    </tr>
+                  ))}
+                  {prestamosEmp.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="muted">
+                        Sin préstamos activos.
                       </td>
                     </tr>
                   )}

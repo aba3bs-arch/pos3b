@@ -8,6 +8,7 @@ import {
   totalLineaNomina,
 } from '../lib/nomina.js';
 import { gastosDeduccionPorEmpleado } from '../lib/nominaGastos.js';
+import { prestamosDeduccionPorEmpleado } from '../lib/nominaPrestamos.js';
 import { periodoSemanaNomina, etiquetaSemanaNomina } from '../lib/semanaNomina.js';
 import { AREAS_CONTABILIDAD, ETIQUETA_AREA } from '../lib/contabilidadConstants.js';
 import { imprimirNomina } from '../lib/impresionContabilidad.js';
@@ -29,6 +30,7 @@ export default function Nomina({ supabase, sucursal, user }) {
   const [pagadorFiltro, setPagadorFiltro] = useState('');
   const [notasPeriodo, setNotasPeriodo] = useState('');
   const [lineas, setLineas] = useState([]);
+  const [empleadosCache, setEmpleadosCache] = useState([]);
 
   const totalGeneral = useMemo(() => lineas.reduce((a, l) => a + totalLineaNomina(l), 0), [lineas]);
 
@@ -36,21 +38,26 @@ export default function Nomina({ supabase, sucursal, user }) {
     if (!supabase) return;
     setCargando(true);
     setErr('');
-    const [{ data: empleados, error }, gastosRes] = await Promise.all([
-      supabase.from('usuarios').select('id, nombre, rol, sucursal_id, nomina_pagador').order('nombre'),
-      gastosDeduccionPorEmpleado(supabase, { sucursal, desde: inicio, hasta: fin }),
-    ]);
+    const { data: empleados, error } = await supabase.from('usuarios').select('id, nombre, rol, sucursal_id, nomina_pagador').order('nombre');
     if (error) {
       setErr(error.message);
       setCargando(false);
       return;
     }
+    const lista = empleados || [];
+    const [gastosRes, prestRes] = await Promise.all([
+      gastosDeduccionPorEmpleado(supabase, { sucursal, desde: inicio, hasta: fin, empleados: lista }),
+      prestamosDeduccionPorEmpleado(supabase, { sucursal, empleados: lista }),
+    ]);
     if (gastosRes.error) setErr(gastosRes.error);
-    const lineasNuevas = lineasDesdeEmpleados(empleados || [], {
+    if (prestRes.error) setErr(prestRes.error);
+    const lineasNuevas = lineasDesdeEmpleados(lista, {
       gastosMap: gastosRes.map,
+      prestamosMap: prestRes.map,
       pagadorFiltro,
     });
     setLineas(lineasNuevas);
+    setEmpleadosCache(lista);
     setCargando(false);
   }, [supabase, sucursal, inicio, fin, pagadorFiltro]);
 
@@ -87,7 +94,7 @@ export default function Nomina({ supabase, sucursal, user }) {
     if (!supabase) return alert('Sin conexión a Supabase.');
     if (!inicio || !fin) return alert('Indica inicio y fin del periodo.');
     if (lineas.length === 0) return alert('No hay empleados para la nómina.');
-    if (!confirm(`¿Cerrar nómina del ${inicio} al ${fin}?\nSe marcarán los gastos de cortes como descontados.`)) return;
+    if (!confirm(`¿Cerrar nómina del ${inicio} al ${fin}?\nSe marcarán consumos de cortes y se aplicarán abonos a préstamos.`)) return;
     setCargando(true);
     setErr('');
     const res = await guardarPeriodoNomina(supabase, {
@@ -101,6 +108,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         created_by: user?.nombre || user?.id || null,
       },
       lineas,
+      empleados: empleadosCache,
     });
     setCargando(false);
     if (!res.ok) {
@@ -157,7 +165,7 @@ export default function Nomina({ supabase, sucursal, user }) {
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nómina semanal</h3>
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-          Semana <strong>sábado a viernes</strong>. Todos los usuarios del POS. Los gastos de consumo en cortes se descuentan automáticamente.
+          Semana <strong>sábado a viernes</strong>. Consumos de cortes y préstamos activos se descuentan por <strong>nombre de empleado</strong>.
           Define en <strong>Usuarios</strong> quién paga la nómina (Virtual / Abarrotes / Garage).
         </p>
         <div className="grid-2" style={{ marginBottom: '0.75rem' }}>
@@ -206,6 +214,7 @@ export default function Nomina({ supabase, sucursal, user }) {
                 <th>Sueldo</th>
                 <th>Bono</th>
                 <th>Gastos cortes</th>
+                <th>Préstamos</th>
                 <th>Otras ded.</th>
                 <th>Total</th>
               </tr>
@@ -225,6 +234,9 @@ export default function Nomina({ supabase, sucursal, user }) {
                   <td style={{ fontWeight: 700, color: l.deduccion_gastos > 0 ? 'var(--danger)' : undefined }} title={l.notas}>
                     {fmt(l.deduccion_gastos)}
                   </td>
+                  <td style={{ fontWeight: 700, color: l.deduccion_prestamos > 0 ? 'var(--danger)' : undefined }} title={l.notas}>
+                    {fmt(l.deduccion_prestamos)}
+                  </td>
                   <td>
                     <input className="input" type="number" min="0" step="0.01" style={{ width: '90px' }} value={l.deducciones} onChange={(e) => actualizarLinea(i, 'deducciones', e.target.value)} />
                   </td>
@@ -233,7 +245,7 @@ export default function Nomina({ supabase, sucursal, user }) {
               ))}
               {lineas.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="muted">
+                  <td colSpan={9} className="muted">
                     {cargando ? 'Cargando…' : 'Sin empleados para este filtro.'}
                   </td>
                 </tr>
@@ -242,7 +254,7 @@ export default function Nomina({ supabase, sucursal, user }) {
             {lineas.length > 0 && (
               <tfoot>
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'right', fontWeight: 700 }}>
+                  <td colSpan={8} style={{ textAlign: 'right', fontWeight: 700 }}>
                     Total nómina
                   </td>
                   <td style={{ fontWeight: 800, color: 'var(--brand-blue)' }}>{fmt(totalGeneral)}</td>
@@ -317,6 +329,7 @@ export default function Nomina({ supabase, sucursal, user }) {
                     <th>Sueldo</th>
                     <th>Bono</th>
                     <th>Gastos</th>
+                    <th>Préstamos</th>
                     <th>Ded.</th>
                     <th>Total</th>
                   </tr>
@@ -329,6 +342,7 @@ export default function Nomina({ supabase, sucursal, user }) {
                       <td>{fmt(l.sueldo_base)}</td>
                       <td>{fmt(l.bonificacion)}</td>
                       <td>{fmt(l.deduccion_gastos)}</td>
+                      <td>{fmt(l.deduccion_prestamos)}</td>
                       <td>{fmt(l.deducciones)}</td>
                       <td style={{ fontWeight: 700 }}>{fmt(l.total)}</td>
                     </tr>

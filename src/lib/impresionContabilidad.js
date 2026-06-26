@@ -30,6 +30,7 @@ export function htmlNomina(data) {
       <td class="r">${fmt(l.sueldo_base)}</td>
       <td class="r">${fmt(l.bonificacion)}</td>
       <td class="r">${fmt(l.deduccion_gastos)}</td>
+      <td class="r">${fmt(l.deduccion_prestamos)}</td>
       <td class="r">${fmt(l.deducciones)}</td>
       <td class="r"><strong>${fmt(l.total)}</strong></td>
     </tr>`,
@@ -41,9 +42,9 @@ export function htmlNomina(data) {
     ${data.pagador_filtro ? `<div>Pagador: <strong>${esc(ETIQUETA_AREA[data.pagador_filtro] || data.pagador_filtro)}</strong></div>` : ''}
     <div class="muted">Generado: ${esc(new Date().toLocaleString())}</div>
     <table>
-      <thead><tr><th>Empleado</th><th>Rol</th><th>Pagador</th><th class="r">Sueldo</th><th class="r">Bono</th><th class="r">Gastos</th><th class="r">Otras ded.</th><th class="r">Total</th></tr></thead>
+      <thead><tr><th>Empleado</th><th>Rol</th><th>Pagador</th><th class="r">Sueldo</th><th class="r">Bono</th><th class="r">Consumos</th><th class="r">Préstamos</th><th class="r">Otras ded.</th><th class="r">Total</th></tr></thead>
       <tbody>${lineas}</tbody>
-      <tfoot><tr><td colspan="7" class="r"><strong>Total</strong></td><td class="r"><strong>${fmt(data.total)}</strong></td></tr></tfoot>
+      <tfoot><tr><td colspan="8" class="r"><strong>Total</strong></td><td class="r"><strong>${fmt(data.total)}</strong></td></tr></tfoot>
     </table>
     ${data.notas ? `<p class="muted">Notas: ${esc(data.notas)}</p>` : ''}
   </body></html>`;

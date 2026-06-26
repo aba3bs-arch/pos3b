@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   agregarSubcategoriaGasto,
   eliminarCategoriaGasto,
+  eliminarSubcategoriaGasto,
   guardarCategoriaGasto,
   listarCatalogoGastos,
+  renombrarCategoriaGasto,
 } from '../../lib/corteContabilidad/catalogoGastos.js';
 
 function fmt(n) {
@@ -29,13 +31,19 @@ export default function CorteGastosPanel({
   const [usuarioId, setUsuarioId] = useState('');
   const [nuevaCat, setNuevaCat] = useState('');
   const [nuevaSub, setNuevaSub] = useState('');
-  const [catAdmin, setCatAdmin] = useState('');
   const [mostrarCat, setMostrarCat] = useState(false);
+  const [editRows, setEditRows] = useState({});
 
   const cargarCat = useCallback(async () => {
     const res = await listarCatalogoGastos(supabase, sucursal, modulo);
-    setCatalogo(res.data || []);
-    if (!cat && res.data?.length) setCat(res.data[0].categoria);
+    const lista = res.data || [];
+    setCatalogo(lista);
+    const edits = {};
+    for (const c of lista) {
+      edits[c.categoria] = { nombre: c.categoria, subs: [...(c.subcategorias || [])], nuevaSub: '' };
+    }
+    setEditRows(edits);
+    if (!cat && lista.length) setCat(lista[0].categoria);
   }, [supabase, sucursal, modulo, cat]);
 
   useEffect(() => {
@@ -70,11 +78,27 @@ export default function CorteGastosPanel({
     cargarCat();
   };
 
-  const crearSub = async () => {
-    if (!catAdmin || !nuevaSub) return alert('Selecciona categoría y escribe subcategoría.');
-    const res = await agregarSubcategoriaGasto(supabase, sucursal, modulo, catAdmin, nuevaSub);
+  const guardarEdicionCategoria = async (categoriaOriginal) => {
+    const row = editRows[categoriaOriginal];
+    if (!row) return;
+    const subs = (row.subs || []).map((s) => String(s).trim().toUpperCase()).filter(Boolean);
+    const res = await renombrarCategoriaGasto(supabase, sucursal, modulo, categoriaOriginal, row.nombre, subs);
     if (!res.ok) return alert(res.error);
-    setNuevaSub('');
+    if (cat === categoriaOriginal) setCat(row.nombre.trim().toUpperCase());
+    cargarCat();
+  };
+
+  const agregarSubEnEdicion = async (categoriaOriginal) => {
+    const row = editRows[categoriaOriginal];
+    if (!row?.nuevaSub?.trim()) return;
+    const res = await agregarSubcategoriaGasto(supabase, sucursal, modulo, categoriaOriginal, row.nuevaSub);
+    if (!res.ok) return alert(res.error);
+    cargarCat();
+  };
+
+  const quitarSub = async (categoriaOriginal, sub) => {
+    const res = await eliminarSubcategoriaGasto(supabase, sucursal, modulo, categoriaOriginal, sub);
+    if (!res.ok) return alert(res.error);
     cargarCat();
   };
 
@@ -85,13 +109,30 @@ export default function CorteGastosPanel({
     cargarCat();
   };
 
+  const patchEditRow = (categoriaOriginal, patch) => {
+    setEditRows((prev) => ({
+      ...prev,
+      [categoriaOriginal]: { ...prev[categoriaOriginal], ...patch },
+    }));
+  };
+
+  const patchSubEnRow = (categoriaOriginal, idx, valor) => {
+    setEditRows((prev) => {
+      const row = prev[categoriaOriginal];
+      if (!row) return prev;
+      const subs = [...row.subs];
+      subs[idx] = valor;
+      return { ...prev, [categoriaOriginal]: { ...row, subs } };
+    });
+  };
+
   return (
     <div className="card" style={{ margin: 0 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
         <h4 style={{ margin: 0, color: 'var(--brand-blue)' }}>Gastos del turno</h4>
         {puedeCatalogo && (
           <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={() => setMostrarCat((o) => !o)}>
-            {mostrarCat ? 'Ocultar catálogo' : 'Categorías / subcategorías'}
+            {mostrarCat ? 'Ocultar catálogo' : 'Editar categorías'}
           </button>
         )}
       </div>
@@ -105,33 +146,53 @@ export default function CorteGastosPanel({
             <input className="input" placeholder="Nueva categoría" value={nuevaCat} onChange={(e) => setNuevaCat(e.target.value)} />
             <input className="input" placeholder="Subcategoría inicial (opc.)" value={nuevaSub} onChange={(e) => setNuevaSub(e.target.value)} />
           </div>
-          <button type="button" className="btn btn-ghost" style={{ marginBottom: '0.5rem' }} onClick={crearCategoria}>
-            + Categoría
+          <button type="button" className="btn btn-ghost" style={{ marginBottom: '0.75rem' }} onClick={crearCategoria}>
+            + Nueva categoría
           </button>
-          <div className="grid-2">
-            <select className="select" value={catAdmin} onChange={(e) => setCatAdmin(e.target.value)}>
-              <option value="">— Categoría —</option>
-              {catalogo.map((c) => (
-                <option key={c.categoria} value={c.categoria}>
-                  {c.categoria}
-                </option>
-              ))}
-            </select>
-            <input className="input" placeholder="Nueva subcategoría" value={nuevaSub} onChange={(e) => setNuevaSub(e.target.value)} />
-          </div>
-          <button type="button" className="btn btn-ghost" style={{ marginTop: '0.35rem' }} onClick={crearSub}>
-            + Subcategoría
-          </button>
-          <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.1rem', fontSize: '0.8rem' }}>
-            {catalogo.map((c) => (
-              <li key={c.categoria}>
-                <strong>{c.categoria}</strong> — {(c.subcategorias || []).join(', ') || 'sin sub'}
-                <button type="button" className="btn btn-ghost" style={{ padding: '0 0.25rem', marginLeft: 4, color: 'var(--danger)' }} onClick={() => borrarCat(c.categoria)}>
-                  ×
-                </button>
-              </li>
-            ))}
-          </ul>
+
+          {catalogo.map((c) => {
+            const ed = editRows[c.categoria] || { nombre: c.categoria, subs: c.subcategorias || [], nuevaSub: '' };
+            return (
+              <div key={c.categoria} style={{ marginBottom: '0.75rem', padding: '0.5rem', border: '1px solid var(--border)', borderRadius: 6 }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 700 }}>Categoría</label>
+                <input
+                  className="input"
+                  style={{ marginBottom: '0.35rem' }}
+                  value={ed.nombre}
+                  onChange={(e) => patchEditRow(c.categoria, { nombre: e.target.value })}
+                />
+                <label style={{ fontSize: '0.75rem', fontWeight: 700 }}>Subcategorías</label>
+                {(ed.subs || []).map((s, i) => (
+                  <div key={`${c.categoria}-${i}`} style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.25rem' }}>
+                    <input className="input" value={s} onChange={(e) => patchSubEnRow(c.categoria, i, e.target.value)} style={{ flex: 1 }} />
+                    <button type="button" className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => quitarSub(c.categoria, s)}>
+                      ×
+                    </button>
+                  </div>
+                ))}
+                <div style={{ display: 'flex', gap: '0.35rem', marginTop: '0.35rem' }}>
+                  <input
+                    className="input"
+                    placeholder="Nueva subcategoría"
+                    value={ed.nuevaSub || ''}
+                    onChange={(e) => patchEditRow(c.categoria, { nuevaSub: e.target.value })}
+                    style={{ flex: 1 }}
+                  />
+                  <button type="button" className="btn btn-ghost" onClick={() => agregarSubEnEdicion(c.categoria)}>
+                    + Sub
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: '0.35rem', marginTop: '0.5rem' }}>
+                  <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => guardarEdicionCategoria(c.categoria)}>
+                    Guardar cambios
+                  </button>
+                  <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem', color: 'var(--danger)' }} onClick={() => borrarCat(c.categoria)}>
+                    Eliminar categoría
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 

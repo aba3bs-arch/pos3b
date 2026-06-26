@@ -20,6 +20,9 @@ import {
   guardarPrivilegios,
   limpiarPrivilegiosRol,
   limpiarPrivilegiosUsuario,
+  ACCIONES_PRIVILEGIO,
+  leerAccionPrivilegio,
+  guardarAccionPrivilegio,
   guardarTipoCambio,
 } from '../lib/posConfig.js';
 import {
@@ -714,6 +717,31 @@ export default function Configuracion({
                     }}
                   />
                   {mod}
+                </label>
+              );
+            })}
+          </div>
+          <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
+            <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--brand-blue)' }}>Acciones especiales</h4>
+            <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.82rem' }}>
+              El administrador siempre puede hacer recolección en cortes. Marca aquí quién más puede hacerlo.
+            </p>
+            {ACCIONES_PRIVILEGIO.map((acc) => {
+              const key = privModo === 'usuario' ? privUserId : privRol;
+              const checked = key ? leerAccionPrivilegio(acc.id, privModo, key) : false;
+              return (
+                <label key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem', marginBottom: '0.35rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={!key}
+                    onChange={(e) => {
+                      if (!key) return;
+                      const next = guardarAccionPrivilegio(acc.id, privModo, key, e.target.checked);
+                      setPrivilegios(next);
+                    }}
+                  />
+                  {acc.label}
                 </label>
               );
             })}

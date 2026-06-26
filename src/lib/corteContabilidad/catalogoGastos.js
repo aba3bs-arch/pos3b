@@ -100,3 +100,29 @@ export async function eliminarCategoriaGasto(supabase, sucursal, modulo, categor
   if (error) return { ok: false, error: error.message };
   return { ok: true };
 }
+
+export async function renombrarCategoriaGasto(supabase, sucursal, modulo, categoriaVieja, categoriaNueva, subcategorias) {
+  const vieja = String(categoriaVieja || '').trim().toUpperCase();
+  const nueva = String(categoriaNueva || '').trim().toUpperCase();
+  if (!vieja || !nueva) return { ok: false, error: 'Nombre de categoría inválido.' };
+  if (vieja === nueva) {
+    return guardarCategoriaGasto(supabase, sucursal, modulo, nueva, subcategorias);
+  }
+  const del = await eliminarCategoriaGasto(supabase, sucursal, modulo, vieja);
+  if (!del.ok) return del;
+  return guardarCategoriaGasto(supabase, sucursal, modulo, nueva, subcategorias);
+}
+
+export async function actualizarSubcategoriasGasto(supabase, sucursal, modulo, categoria, subcategorias) {
+  return guardarCategoriaGasto(supabase, sucursal, modulo, categoria, subcategorias);
+}
+
+export async function eliminarSubcategoriaGasto(supabase, sucursal, modulo, categoria, subcategoria) {
+  const res = await listarCatalogoGastos(supabase, sucursal, modulo);
+  const cat = String(categoria || '').trim().toUpperCase();
+  const sub = String(subcategoria || '').trim().toUpperCase();
+  const row = (res.data || []).find((x) => x.categoria === cat);
+  if (!row) return { ok: false, error: 'Categoría no encontrada.' };
+  const subs = (row.subcategorias || []).filter((s) => s !== sub);
+  return guardarCategoriaGasto(supabase, sucursal, modulo, cat, subs);
+}

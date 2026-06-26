@@ -1,4 +1,5 @@
 import { marcarGastosDescontadosNomina } from './nominaGastos.js';
+import { aplicarPrestamosNomina } from './nominaPrestamos.js';
 
 const LS_SUELDOS = 'pos3b_nomina_sueldos_default';
 
@@ -6,8 +7,9 @@ export function totalLineaNomina(linea) {
   const base = Number(linea.sueldo_base) || 0;
   const bon = Number(linea.bonificacion) || 0;
   const dedGastos = Number(linea.deduccion_gastos) || 0;
+  const dedPrestamos = Number(linea.deduccion_prestamos) || 0;
   const ded = Number(linea.deducciones) || 0;
-  return Math.max(0, base + bon - dedGastos - ded);
+  return Math.max(0, base + bon - dedGastos - dedPrestamos - ded);
 }
 
 export function leerSueldosDefault() {
@@ -27,7 +29,7 @@ export function guardarSueldoDefault(usuarioId, monto) {
 }
 
 export function lineasDesdeEmpleados(empleados, opts = {}) {
-  const { sueldosMap = {}, gastosMap = {}, pagadorFiltro = '' } = opts;
+  const { sueldosMap = {}, gastosMap = {}, prestamosMap = {}, pagadorFiltro = '' } = opts;
   let lista = empleados || [];
   if (pagadorFiltro) {
     lista = lista.filter((u) => (u.nomina_pagador || 'abarrotes') === pagadorFiltro);
@@ -35,7 +37,12 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
   return lista.map((u) => {
     const sueldo = Number(sueldosMap[u.id] ?? leerSueldosDefault()[String(u.id)] ?? 0);
     const gastosEmp = gastosMap[String(u.id)] || { total: 0, detalle: [] };
+    const prestEmp = prestamosMap[String(u.id)] || { total: 0, detalle: [] };
     const dedGastos = Number(gastosEmp.total) || 0;
+    const dedPrestamos = Number(prestEmp.total) || 0;
+    const notas = [];
+    if (dedGastos > 0) notas.push(`Consumos cortes: ${gastosEmp.detalle?.length || 0} mov.`);
+    if (dedPrestamos > 0) notas.push(`Préstamos: ${prestEmp.detalle?.length || 0} activo(s)`);
     const linea = {
       usuario_id: u.id,
       nombre: u.nombre || '—',
@@ -44,8 +51,9 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       sueldo_base: sueldo,
       bonificacion: 0,
       deduccion_gastos: dedGastos,
+      deduccion_prestamos: dedPrestamos,
       deducciones: 0,
-      notas: dedGastos > 0 ? `Gastos cortes: ${gastosEmp.detalle?.length || 0} mov.` : '',
+      notas: notas.join(' · '),
     };
     return { ...linea, total: totalLineaNomina(linea) };
   });
@@ -78,7 +86,7 @@ export async function listarPeriodosNomina(supabase, opts = {}) {
 
 export async function guardarPeriodoNomina(supabase, payload) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
-  const { periodo, lineas } = payload;
+  const { periodo, lineas, empleados = [] } = payload;
   const total = (lineas || []).reduce((a, l) => a + totalLineaNomina(l), 0);
 
   const { data: per, error: e1 } = await supabase
@@ -112,6 +120,7 @@ export async function guardarPeriodoNomina(supabase, payload) {
     sueldo_base: Number(l.sueldo_base) || 0,
     bonificacion: Number(l.bonificacion) || 0,
     deduccion_gastos: Number(l.deduccion_gastos) || 0,
+    deduccion_prestamos: Number(l.deduccion_prestamos) || 0,
     deducciones: Number(l.deducciones) || 0,
     total: totalLineaNomina(l),
     notas: l.notas || null,
@@ -124,12 +133,21 @@ export async function guardarPeriodoNomina(supabase, payload) {
   const { error: e2 } = await supabase.from('nomina_lineas').insert(filas);
   if (e2) return { ok: false, error: e2.message };
 
+  const listaEmp =
+    empleados.length > 0
+      ? empleados
+      : (lineas || []).map((l) => ({ id: l.usuario_id, nombre: l.nombre })).filter((e) => e.id);
+
   await marcarGastosDescontadosNomina(supabase, {
     sucursal: periodo.sucursal_id,
     desde: periodo.periodo_inicio,
     hasta: periodo.periodo_fin,
     periodoId: per.id,
+    empleados: listaEmp,
   });
+
+  const prestRes = await aplicarPrestamosNomina(supabase, { lineas, sucursal: periodo.sucursal_id, empleados: listaEmp });
+  if (!prestRes.ok) return { ok: false, error: prestRes.error };
 
   return { ok: true, id: per.id, total, lineas };
 }

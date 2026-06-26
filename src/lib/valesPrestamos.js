@@ -1,6 +1,6 @@
 import { normalizarRol } from './roles.js';
 import { buscarUsuarioPorPinYSucursal } from './usuariosAuth.js';
-import { valeRequiereAutorizacionAdmin } from './contabilidadConstants.js';
+import { beneficiarioValePermitido, valeRequiereAutorizacionAdmin } from './contabilidadConstants.js';
 
 export function faltaTablaVales(error) {
   const msg = String(error?.message || error || '').toLowerCase();
@@ -50,6 +50,12 @@ export async function listarVales(supabase, opts = {}) {
 
 export async function registrarVale(supabase, row, opts = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  if (!beneficiarioValePermitido(row.nombre_empleado, row.area)) {
+    return {
+      ok: false,
+      error: 'Solo vales para Luis Enrique (Abarrotes), Misael y Gonzalo (Virtual).',
+    };
+  }
   const requiereAuth = valeRequiereAutorizacionAdmin();
   const esAdmin = normalizarRol(opts.rolActor) === 'Administrador';
   let autorizadoPor = null;

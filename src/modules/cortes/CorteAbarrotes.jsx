@@ -96,7 +96,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
                   type="number"
                   step="0.01"
                   value={estado[key] ?? 0}
-                  readOnly={perm.soloLectura}
+                  readOnly={perm.soloLectura || (key === 'recoleccion' && !perm.recoleccion)}
                   onChange={(e) => patchEstado({ [key]: e.target.value })}
                   style={{ fontWeight: 700, textAlign: 'center' }}
                 />

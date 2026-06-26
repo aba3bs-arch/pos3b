@@ -22,9 +22,10 @@ export function calcularVirtual(estado, gastos = []) {
     monedaInicialTurno: estado.moneda_inicial_turno ?? estado.moneda_inicial,
   });
   const faltante = round2(estado.faltante);
+  const recoleccion = round2(estado.recoleccion ?? estado.recoleccion_turno);
   const subtotal = round2(venta - gastosTotal - faltante);
   const cajaAnterior = round2(estado.caja_anterior);
-  const cajaActual = round2(subtotal + cajaAnterior);
+  const cajaActual = round2(subtotal + cajaAnterior - recoleccion);
   return { venta, gastosTotal, subtotal, cajaActual };
 }
 
@@ -62,6 +63,7 @@ export const ESTADO_VIRTUAL_DEFAULT = {
   moneda_final_editada: false,
   caja_anterior: 0,
   recoleccion_turno: 0,
+  recoleccion: 0,
   faltante: 0,
   comentarios: '',
 };

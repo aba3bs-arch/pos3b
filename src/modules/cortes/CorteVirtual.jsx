@@ -35,6 +35,7 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
       moneda_final_editada: false,
       caja_anterior: calc.cajaActual,
       recoleccion_turno: 0,
+      recoleccion: 0,
       faltante: 0,
       comentarios: '',
     };
@@ -60,8 +61,24 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
       `Moneda final: ${fmtCorte(estado.moneda_final)}\n` +
       `Venta efectivo: ${fmtCorte(calc.venta)}\n` +
       `Gastos: ${fmtCorte(calc.gastosTotal)}\n` +
+      `Recolección: ${fmtCorte(estado.recoleccion ?? estado.recoleccion_turno)}\n` +
       `Caja actual: ${fmtCorte(calc.cajaActual)}`;
     if (confirm(msg)) cerrarCorte();
+  };
+
+  const recoleccionYCierre = () => {
+    if (!perm.recoleccion) return alert('Solo el administrador o usuarios con privilegio de recolección pueden hacer esto.');
+    if (!estado.moneda_final_editada) {
+      return alert('Capture la moneda final (conteo actual) antes de la recolección y cierre.');
+    }
+    const rec = Number(estado.recoleccion ?? estado.recoleccion_turno) || 0;
+    const msg =
+      `¿Recolección y cierre de turno?\n\n` +
+      `Moneda final en corte: ${fmtCorte(estado.moneda_final)}\n` +
+      `Recolección (retiro): ${fmtCorte(rec)}\n` +
+      `Caja chica resultante: ${fmtCorte(calc.cajaActual)}\n\n` +
+      `Se guardará el corte y la tienda iniciará operación con moneda inicial actualizada.`;
+    if (confirm(msg)) cerrarCorte({ tipo_cierre: 'recoleccion' });
   };
 
   const cajaNegativa = calc.cajaActual < -0.001;
@@ -79,6 +96,11 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
           {perm.guardar && (
             <button type="button" className="btn btn-primary" onClick={confirmarCierre} disabled={cargando}>
               Cerrar corte
+            </button>
+          )}
+          {perm.recoleccion && (
+            <button type="button" className="btn btn-gold" onClick={recoleccionYCierre} disabled={cargando}>
+              Recolección y cierre
             </button>
           )}
         </div>
@@ -108,6 +130,13 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
               <div className="muted" style={{ fontSize: '0.7rem' }}>Moneda inicial − moneda final</div>
             </div>
             <Campo label="Faltante (−)" value={estado.faltante ?? 0} readOnly={perm.soloLectura} color="var(--danger)" onChange={(v) => patchEstado({ faltante: v })} />
+            <Campo
+              label="Recolección (−)"
+              value={estado.recoleccion ?? estado.recoleccion_turno ?? 0}
+              readOnly={!perm.recoleccion}
+              hint={perm.recoleccion ? 'Solo administrador o autorizados' : 'Sin permiso de recolección'}
+              onChange={(v) => patchEstado({ recoleccion: v, recoleccion_turno: v })}
+            />
           </div>
         </div>
 

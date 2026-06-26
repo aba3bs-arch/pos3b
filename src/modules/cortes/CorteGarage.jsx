@@ -133,9 +133,12 @@ export default function CorteGarage({ supabase, sucursal, user }) {
               step="0.01"
               style={{ marginTop: '0.25rem', textAlign: 'center', fontWeight: 700 }}
               value={estado.recoleccion ?? 0}
-              readOnly={perm.soloLectura}
+              readOnly={!perm.recoleccion}
               onChange={(e) => patchEstado({ recoleccion: e.target.value })}
             />
+            {!perm.recoleccion && (
+              <p className="muted" style={{ fontSize: '0.75rem', margin: '0.25rem 0 0' }}>Recolección: solo administrador o usuarios autorizados.</p>
+            )}
           </label>
           <div style={{ textAlign: 'center', marginBottom: '0.75rem' }}>
             <div className="muted" style={{ fontSize: '0.8rem' }}>Ventas turno</div>

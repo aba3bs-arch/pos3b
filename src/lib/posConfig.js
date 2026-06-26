@@ -225,18 +225,19 @@ export function guardarConfigAudio(cfg) {
   return payload;
 }
 
-/** { porRol: { Cajero: [...] }, porUsuario: { "uuid": [...] } } */
+/** { porRol, porUsuario, acciones: { recoleccion_cortes: { porRol, porUsuario } } } */
 export function leerPrivilegios() {
   try {
     const raw = localStorage.getItem(LS_PRIVILEGIOS);
-    if (!raw) return { porRol: {}, porUsuario: {} };
+    if (!raw) return { porRol: {}, porUsuario: {}, acciones: {} };
     const v = JSON.parse(raw);
     return {
       porRol: v.porRol && typeof v.porRol === 'object' ? v.porRol : {},
       porUsuario: v.porUsuario && typeof v.porUsuario === 'object' ? v.porUsuario : {},
+      acciones: v.acciones && typeof v.acciones === 'object' ? v.acciones : {},
     };
   } catch {
-    return { porRol: {}, porUsuario: {} };
+    return { porRol: {}, porUsuario: {}, acciones: {} };
   }
 }
 
@@ -244,6 +245,7 @@ export function guardarPrivilegios(data) {
   const payload = {
     porRol: data.porRol && typeof data.porRol === 'object' ? data.porRol : {},
     porUsuario: data.porUsuario && typeof data.porUsuario === 'object' ? data.porUsuario : {},
+    acciones: data.acciones && typeof data.acciones === 'object' ? data.acciones : {},
   };
   localStorage.setItem(LS_PRIVILEGIOS, JSON.stringify(payload));
   window.dispatchEvent(new CustomEvent(EVENTO_PRIVILEGIOS));
@@ -260,4 +262,28 @@ export function limpiarPrivilegiosUsuario(userId) {
   const p = leerPrivilegios();
   delete p.porUsuario[String(userId)];
   return guardarPrivilegios(p);
+}
+
+export const ACCIONES_PRIVILEGIO = [{ id: 'recoleccion_cortes', label: 'Recolección en cortes (Virtual / Abarrotes / Garage)' }];
+
+export function leerAccionPrivilegio(accionId, modo, key) {
+  const p = leerPrivilegios();
+  const acc = p.acciones?.[accionId] || {};
+  const store = modo === 'usuario' ? 'porUsuario' : 'porRol';
+  return Boolean(acc[store]?.[key]);
+}
+
+export function guardarAccionPrivilegio(accionId, modo, key, activo) {
+  const p = leerPrivilegios();
+  const acciones = { ...p.acciones };
+  const acc = { porRol: {}, porUsuario: {}, ...(acciones[accionId] || {}) };
+  const store = modo === 'usuario' ? 'porUsuario' : 'porRol';
+  if (activo) acc[store] = { ...acc[store], [key]: true };
+  else {
+    const next = { ...acc[store] };
+    delete next[key];
+    acc[store] = next;
+  }
+  acciones[accionId] = acc;
+  return guardarPrivilegios({ ...p, acciones });
 }
