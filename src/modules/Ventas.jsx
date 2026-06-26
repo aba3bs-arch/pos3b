@@ -105,15 +105,13 @@ export default function Ventas({
     }));
     for (const c of carrito) {
       const p = inventario.find((x) => x.id === c.id);
-      const need = c.qty || 1;
       if (!p) return alert(`Producto no disponible en catálogo: ${c.nombre || c.id}`);
-      if (Number(p.stock) < need) return alert(`Stock insuficiente: ${p.nombre} (hay ${p.stock}, pides ${need})`);
     }
     const deltas = [];
     for (const c of carrito) {
       const p = inventario.find((x) => x.id === c.id);
       const need = c.qty || 1;
-      const calc = aplicarDeltaStock(p, sucursal, 'piso', -need, sucursal);
+      const calc = aplicarDeltaStock(p, sucursal, 'piso', -need, sucursal, { permitirNegativo: true });
       if (!calc.ok) return alert(`No se puede completar la venta: ${calc.error}`);
       deltas.push({
         id: c.id,

@@ -49,10 +49,15 @@ export function asegurarMapaStock(producto, sucursalContext = 'MAIN') {
 }
 
 export function stockEnUbicacion(producto, sucursal, ubicacion, sucursalContext) {
+  return stockEnUbicacionReal(producto, sucursal, ubicacion, sucursalContext);
+}
+
+/** Stock real (puede ser negativo tras ventas sin existencia en sistema). */
+export function stockEnUbicacionReal(producto, sucursal, ubicacion, sucursalContext) {
   const map = asegurarMapaStock(producto, sucursalContext || sucursal);
   const suc = normalizarCodigoTienda(sucursal);
   if (!suc) return 0;
-  return Math.max(0, Number(map[suc]?.[ubicacion]) || 0);
+  return Math.floor(Number(map[suc]?.[ubicacion]) || 0);
 }
 
 /** Stock de almacén central (MAIN · cedis). */
@@ -87,11 +92,13 @@ function syncColumnasLegacy(patch, map, sucursalActiva) {
   return patch;
 }
 
-export function buildPatchStock(producto, sucursal, ubicacion, nuevoValor, sucursalActiva) {
+export function buildPatchStock(producto, sucursal, ubicacion, nuevoValor, sucursalActiva, opts = {}) {
+  const { permitirNegativo = false } = opts;
   const map = { ...asegurarMapaStock(producto, sucursalActiva) };
   const suc = normalizarCodigoTienda(sucursal);
   if (!map[suc]) map[suc] = { cedis: 0, piso: 0 };
-  map[suc][ubicacion] = Math.max(0, Math.floor(Number(nuevoValor) || 0));
+  const val = Math.floor(Number(nuevoValor) || 0);
+  map[suc][ubicacion] = permitirNegativo ? val : Math.max(0, val);
   return syncColumnasLegacy({ stock_sucursales: map }, map, sucursalActiva);
 }
 
@@ -115,11 +122,12 @@ export function buildPatchVaciarInventarioCompleto(producto) {
   return { stock_sucursales: map, stock: 0, stock_cedis: 0 };
 }
 
-export function aplicarDeltaStock(producto, sucursal, ubicacion, delta, sucursalActiva) {
-  const antes = stockEnUbicacion(producto, sucursal, ubicacion, sucursalActiva);
+export function aplicarDeltaStock(producto, sucursal, ubicacion, delta, sucursalActiva, opts = {}) {
+  const { permitirNegativo = false } = opts;
+  const antes = stockEnUbicacionReal(producto, sucursal, ubicacion, sucursalActiva);
   const qty = Math.floor(Number(delta));
   const despues = antes + qty;
-  if (despues < 0) {
+  if (!permitirNegativo && despues < 0) {
     const donde = esAlmacenCentral(sucursal) && ubicacion === 'cedis'
       ? etiquetaAlmacenCentral()
       : `${ubicacion === 'cedis' ? 'CEDIS' : 'Piso'} · ${etiquetaTienda(sucursal)}`;
@@ -127,7 +135,7 @@ export function aplicarDeltaStock(producto, sucursal, ubicacion, delta, sucursal
   }
   return {
     ok: true,
-    patch: buildPatchStock(producto, sucursal, ubicacion, despues, sucursalActiva),
+    patch: buildPatchStock(producto, sucursal, ubicacion, despues, sucursalActiva, { permitirNegativo }),
     antes,
     despues,
   };
