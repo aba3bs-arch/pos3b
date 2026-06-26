@@ -4,6 +4,11 @@ import { AREAS_CONTABILIDAD, ETIQUETA_AREA } from '../lib/contabilidadConstants.
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { leerTurnos, leerConfigHorario, esHorarioPersonalizado, resumenHorarioUsuario, EVENTO_TURNOS, nombreTurnoLegible, TURNO_AMBOS_ID, etiquetaTurno } from '../lib/turnos.js';
 import { empleadosVisiblesParaTienda, filtrarEmpleadosAdmin } from '../lib/empleadosVisibles.js';
+import {
+  etiquetaDispositivoUsuario,
+  liberarDispositivoUsuario,
+  rolExigeDispositivoUnico,
+} from '../lib/dispositivoUsuario.js';
 import InputPin from '../components/InputPin.jsx';
 
 const emptyForm = (sucursalDefault) => ({
@@ -98,6 +103,16 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     setEditandoId(null);
     load();
     alert('Usuario actualizado.');
+  };
+
+  const liberarEquipo = async (r) => {
+    if (!supabase || !esAdmin || !r?.id) return;
+    if (!r.dispositivo_id) return alert('Este usuario no tiene equipo vinculado.');
+    if (!confirm(`¿Liberar el equipo vinculado de ${r.nombre}? Podrá entrar desde otra computadora al fijar tienda de nuevo.`)) return;
+    const res = await liberarDispositivoUsuario(supabase, r.id);
+    if (!res.ok) return alert(res.error);
+    load();
+    alert('Equipo liberado.');
   };
 
   const crear = async () => {
@@ -315,6 +330,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                 <th>Rol</th>
                 <th>Nómina</th>
                 {!esPersonalizado ? <th>Turno</th> : <th>Horario</th>}
+                <th>Equipo</th>
                 <th>PIN</th>
                 <th style={{ width: '1%' }} />
               </tr>
@@ -322,7 +338,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
             <tbody>
               {filas.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="muted">
+                  <td colSpan={8} className="muted">
                     Sin usuarios. Ejecuta el SQL de sucursal y el seed si es la primera vez.
                   </td>
                 </tr>
@@ -395,6 +411,9 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                         {resumenHorarioUsuario(r, turnos)}
                       </td>
                     )}
+                    <td className="muted" style={{ fontSize: '0.8rem' }}>
+                      {rolExigeDispositivoUnico(r.rol) ? etiquetaDispositivoUsuario(r) : '—'}
+                    </td>
                     <td>
                       {pinEnEdicion === r.id ? (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
@@ -450,6 +469,11 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                             >
                               Cambiar PIN
                             </button>
+                            {esAdmin && r.dispositivo_id && rolExigeDispositivoUnico(r.rol) && (
+                              <button type="button" className="btn btn-gold" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => liberarEquipo(r)}>
+                                Liberar equipo
+                              </button>
+                            )}
                             <button type="button" className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => borrar(r.id)}>
                               Eliminar
                             </button>

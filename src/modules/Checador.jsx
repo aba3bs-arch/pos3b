@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { etiquetaTienda, listarSucursalesParaUI } from '../constants/sucursales.js';
 import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from '../lib/usuariosAuth.js';
+import { evaluarVinculoDispositivo } from '../lib/dispositivoUsuario.js';
 import { usuarioAutorizadoLogin } from '../lib/turnos.js';
 import { puedeGestionarUsuarios } from '../lib/roles.js';
 import { rangoDesdePreset } from '../lib/consultasInventario.js';
@@ -171,6 +172,12 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     const accesoTurno = usuarioAutorizadoLogin(data);
     if (!accesoTurno.ok) {
       setMsg(accesoTurno.error);
+      setEmpleado(null);
+      return;
+    }
+    const vinculo = evaluarVinculoDispositivo(data);
+    if (!vinculo.ok) {
+      setMsg(vinculo.error);
       setEmpleado(null);
       return;
     }

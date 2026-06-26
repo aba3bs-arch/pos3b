@@ -40,6 +40,10 @@ import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
 import { sonidoMenuNavegacion } from './lib/sonidosPos.js';
 import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from './lib/usuariosAuth.js';
+import {
+  evaluarVinculoDispositivo,
+  vincularDispositivoUsuario,
+} from './lib/dispositivoUsuario.js';
 import { usuarioAutorizadoLogin, turnoActual } from './lib/turnos.js';
 import BrandLogo from './components/BrandLogo.jsx';
 import Icon, { BtnLabel } from './components/Icon.jsx';
@@ -198,10 +202,26 @@ function App() {
         setPin('');
         return;
       }
+      const terminalFijada = Boolean(SUCURSAL_FIJA_ENV || tiendaFijadaParaAcceso);
+      const vinculo = evaluarVinculoDispositivo(data, { terminalFijada });
+      if (!vinculo.ok) {
+        alert(vinculo.error);
+        setPin('');
+        return;
+      }
       if (ajustarSucursal && normalizarCodigoTienda(ajustarSucursal) !== normalizarCodigoTienda(sucursal)) {
         setSucursal(ajustarSucursal);
         guardarSucursalLocal(ajustarSucursal);
         if (tiendaFijadaParaAcceso) bloquearTiendaEnEsteEquipo(ajustarSucursal);
+      }
+      if (vinculo.vincular) {
+        const resVinculo = await vincularDispositivoUsuario(supabase, data.id, vinculo.deviceId);
+        if (!resVinculo.ok) {
+          alert(resVinculo.error);
+          setPin('');
+          return;
+        }
+        data.dispositivo_id = vinculo.deviceId;
       }
       setUser(data);
       setSesion(true);
@@ -310,10 +330,12 @@ function App() {
                   setTiendaFijadaParaAcceso(true);
                 }}
               >
-                Fijar tienda en este equipo (opcional)
+                Fijar tienda en este equipo
               </button>
               <p className="muted" style={{ fontSize: '0.78rem', textAlign: 'left', marginBottom: '1rem' }}>
-                Fijar la tienda sirve en la PC de caja para no cambiarla por error. Desde el celular basta con elegir la tienda y el PIN.
+                En la PC de caja, al fijar la tienda y entrar con PIN de <strong>cajero</strong> o <strong>repartidor</strong>, ese PIN
+                quedará ligado a esta computadora y no podrá usarse en otro dispositivo. Gerentes y administradores no quedan
+                vinculados.
               </p>
             </>
           )}
