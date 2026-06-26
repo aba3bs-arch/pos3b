@@ -356,7 +356,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <input className="input" type="date" value={valeForm.fecha} onChange={(e) => setValeForm({ ...valeForm, fecha: e.target.value })} />
               <input className="input" placeholder="Motivo" style={{ gridColumn: '1 / -1' }} value={valeForm.motivo} onChange={(e) => setValeForm({ ...valeForm, motivo: e.target.value })} />
             </div>
-            <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={guardarVale}>Solicitar vale</button>
+            <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} disabled={!puedeGenerarVales} onClick={guardarVale}>
+              {requiereAuthAhora && !esAdmin ? 'Solicitar vale (requiere autorización)' : 'Registrar vale'}
+            </button>
+            {requiereAuthAhora && !esAdmin && (
+              <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', color: 'var(--brand-red)' }}>
+                Son las {new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} — vales después de las {HORA_LIMITE_VALE}:00 van a bandeja del administrador.
+              </p>
+            )}
           </div>
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem' }}>Vales registrados</h3>
@@ -441,7 +448,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               </select>
               <input className="input" placeholder="Notas" value={prestEmpForm.notas} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, notas: e.target.value })} />
             </div>
-            <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={guardarPrestamoEmpleado}>Solicitar préstamo</button>
+            <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={guardarPrestamoEmpleado}>
+              Solicitar préstamo (requiere autorización)
+            </button>
+            <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
+              Todo préstamo a empleado queda pendiente hasta que el administrador apruebe{!esAdmin ? ' (y socio si supera $1,000)' : ''}.
+            </p>
           </div>
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem' }}>Préstamos</h3>

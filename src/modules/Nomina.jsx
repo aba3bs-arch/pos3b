@@ -11,7 +11,7 @@ import { gastosDeduccionPorEmpleado } from '../lib/nominaGastos.js';
 import { prestamosDeduccionPorEmpleado } from '../lib/nominaPrestamos.js';
 import { periodoSemanaNomina, etiquetaSemanaNomina } from '../lib/semanaNomina.js';
 import { AREAS_CONTABILIDAD, ETIQUETA_AREA } from '../lib/contabilidadConstants.js';
-import { imprimirNomina } from '../lib/impresionContabilidad.js';
+import { imprimirNomina, imprimirReciboNominaIndividual } from '../lib/impresionContabilidad.js';
 import { empleadosVisiblesParaTienda } from '../lib/empleadosVisibles.js';
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -122,6 +122,15 @@ export default function Nomina({ supabase, sucursal, user }) {
     cargarEmpleadosYGastos();
   };
 
+  const imprimirReciboEmpleado = (linea, periodo = {}) => {
+    imprimirReciboNominaIndividual(linea, {
+      periodo_inicio: periodo.periodo_inicio ?? inicio,
+      periodo_fin: periodo.periodo_fin ?? fin,
+      notas: periodo.notas ?? notasPeriodo,
+      fechaPago: periodo.created_at || undefined,
+    });
+  };
+
   const imprimir = () => {
     imprimirNomina({
       periodo_inicio: inicio,
@@ -218,6 +227,7 @@ export default function Nomina({ supabase, sucursal, user }) {
                 <th>Préstamos</th>
                 <th>Otras ded.</th>
                 <th>Total</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -250,11 +260,22 @@ export default function Nomina({ supabase, sucursal, user }) {
                     <input className="input" type="number" min="0" step="0.01" style={{ width: '90px' }} value={l.deducciones} onChange={(e) => actualizarLinea(i, 'deducciones', e.target.value)} />
                   </td>
                   <td style={{ fontWeight: 700 }}>{fmt(l.total)}</td>
+                  <td>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ padding: '0.2rem 0.45rem', fontSize: '0.75rem' }}
+                      onClick={() => imprimirReciboEmpleado(l)}
+                      title="Imprimir recibo individual con firma"
+                    >
+                      Recibo
+                    </button>
+                  </td>
                 </tr>
               ))}
               {lineas.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="muted">
+                  <td colSpan={10} className="muted">
                     {cargando ? 'Cargando…' : 'Sin empleados para este filtro.'}
                   </td>
                 </tr>
@@ -341,6 +362,7 @@ export default function Nomina({ supabase, sucursal, user }) {
                     <th>Préstamos</th>
                     <th>Ded.</th>
                     <th>Total</th>
+                    <th />
                   </tr>
                 </thead>
                 <tbody>
@@ -354,6 +376,16 @@ export default function Nomina({ supabase, sucursal, user }) {
                       <td>{fmt(l.deduccion_prestamos)}</td>
                       <td>{fmt(l.deducciones)}</td>
                       <td style={{ fontWeight: 700 }}>{fmt(l.total)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ padding: '0.2rem 0.45rem', fontSize: '0.75rem' }}
+                          onClick={() => imprimirReciboEmpleado(l, periodoSel)}
+                        >
+                          Recibo
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

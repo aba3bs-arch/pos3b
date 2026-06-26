@@ -28,6 +28,21 @@ export function guardarSueldoDefault(usuarioId, monto) {
   localStorage.setItem(LS_SUELDOS, JSON.stringify(map));
 }
 
+function splitGastosNomina(detalle = []) {
+  let inventario = 0;
+  let consumos = 0;
+  for (const g of detalle) {
+    const m = Number(g.monto) || 0;
+    const cat = String(g.categoria || '').toUpperCase();
+    if (cat.includes('INVENT')) inventario += m;
+    else consumos += m;
+  }
+  return {
+    deduccion_inventario: Math.round(inventario * 100) / 100,
+    deduccion_consumos: Math.round(consumos * 100) / 100,
+  };
+}
+
 export function lineasDesdeEmpleados(empleados, opts = {}) {
   const { sueldosMap = {}, gastosMap = {}, prestamosMap = {}, pagadorFiltro = '' } = opts;
   let lista = empleados || [];
@@ -40,6 +55,7 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
     const prestEmp = prestamosMap[String(u.id)] || { total: 0, detalle: [] };
     const dedGastos = Number(gastosEmp.total) || 0;
     const dedPrestamos = Number(prestEmp.total) || 0;
+    const { deduccion_inventario, deduccion_consumos } = splitGastosNomina(gastosEmp.detalle);
     const notas = [];
     if (dedGastos > 0) notas.push(`Consumos cortes: ${gastosEmp.detalle?.length || 0} mov.`);
     if (dedPrestamos > 0) notas.push(`Préstamos: ${prestEmp.detalle?.length || 0} activo(s)`);
@@ -51,6 +67,8 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       sueldo_base: sueldo,
       bonificacion: 0,
       deduccion_gastos: dedGastos,
+      deduccion_inventario,
+      deduccion_consumos: dedGastos > 0 ? deduccion_consumos || dedGastos : 0,
       deduccion_prestamos: dedPrestamos,
       deducciones: 0,
       notas: notas.join(' · '),

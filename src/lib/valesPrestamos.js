@@ -90,10 +90,6 @@ export async function registrarVale(supabase, row, opts = {}) {
     requiereAuth = true;
     autorizadoPor = null;
     aprobadoAt = null;
-  } else if (despuesDeLas9 && esAdmin) {
-    estadoAprobacion = 'pendiente_admin';
-    requiereAuth = true;
-    aprobadoAt = null;
   }
 
   const folio = row.folio || (await siguienteFolioVale(supabase, row.sucursal_id));

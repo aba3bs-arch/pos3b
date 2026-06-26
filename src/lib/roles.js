@@ -47,6 +47,7 @@ const ACCESO_POR_ROL = {
     'Corte Virtual',
     'Corte Abarrotes',
     'Corte Garage',
+    'Vales y Préstamos',
     'Checador',
     'Ayuda',
   ],
@@ -79,6 +80,7 @@ const ACCESO_POR_ROL = {
     'Consultas',
     'Estadisticas',
     'Reportes',
+    'Vales y Préstamos',
     'Ayuda',
   ],
   Gerente: [
@@ -203,7 +205,7 @@ export function puedeGestionarInventarioMultitienda(rol) {
 export function descripcionRol(rol) {
   const r = normalizarRol(rol);
   const textos = {
-    Cajero: 'Mostrador, cobro y cortes de tienda',
+    Cajero: 'Mostrador, cobro, cortes y vales',
     Repartidor: 'Consulta en ruta',
     Auditor: 'Consultas, reportes e inventario',
     Supervisor: 'Operación sin configuración ni usuarios',

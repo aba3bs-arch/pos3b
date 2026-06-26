@@ -1,5 +1,5 @@
 import { abrirVentanaImpresion } from './impresion.js';
-import { leerNombreNegocio } from './branding.js';
+import { leerNombreNegocio, leerLogoUrl } from './branding.js';
 import { ETIQUETA_AREA, etiquetaCategoriaVale } from './contabilidadConstants.js';
 
 function esc(s) {
@@ -84,6 +84,71 @@ export function htmlPrestamo(p) {
     ${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ''}
     <div style="margin-top:40px;border-top:1px solid #333;width:70%;padding-top:6px">Firma empleado: _________________________</div>
   </body></html>`;
+}
+
+export function htmlReciboNominaIndividual(linea, opts = {}) {
+  const logo = leerLogoUrl();
+  const negocio = leerNombreNegocio();
+  const ahora = opts.fechaPago ? new Date(opts.fechaPago) : new Date();
+  const fechaPago = ahora.toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const horaPago = ahora.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+  const bruto = (Number(linea.sueldo_base) || 0) + (Number(linea.bonificacion) || 0);
+  const dedInv = Number(linea.deduccion_inventario) || 0;
+  const dedCons =
+    Number(linea.deduccion_consumos) ||
+    Math.max(0, (Number(linea.deduccion_gastos) || 0) - dedInv);
+  const dedPrest = Number(linea.deduccion_prestamos) || 0;
+  const dedOtras = Number(linea.deducciones) || 0;
+  const neto = Number(linea.total) ?? Math.max(0, bruto - dedInv - dedCons - dedPrest - dedOtras);
+  const filaDed = (label, monto) =>
+    monto > 0
+      ? `<tr><td>${esc(label)}</td><td class="r" style="color:#c0392b">− ${fmt(monto)}</td></tr>`
+      : '';
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recibo nómina — ${esc(linea.nombre)}</title><style>${estilos()}
+  .logo{display:block;margin:0 auto 10px;max-height:72px;max-width:85%}
+  .titulo{text-align:center;font-size:18px;font-weight:700;margin:8px 0 4px;letter-spacing:0.04em}
+  .subtitulo{text-align:center;color:#555;font-size:12px;margin-bottom:14px}
+  .campo{margin:6px 0;font-size:13px}
+  .campo strong{display:inline-block;min-width:130px}
+  .totales{margin-top:12px;border-top:2px solid #333;padding-top:8px}
+  .neto{font-size:18px;font-weight:800;color:#1a5276;margin-top:8px}
+  .firma{margin-top:56px;border-top:1px solid #333;width:75%;padding-top:8px;font-size:12px}
+  </style></head><body>
+    <img class="logo" src="${esc(logo)}" alt="Logo"/>
+    <div class="titulo">RECIBO DE NÓMINA</div>
+    <div class="subtitulo">${esc(negocio)}</div>
+    <div class="campo"><strong>Empleado:</strong> ${esc(linea.nombre)}</div>
+    ${linea.rol ? `<div class="campo"><strong>Puesto:</strong> ${esc(linea.rol)}</div>` : ''}
+    ${linea.pagador_nomina ? `<div class="campo"><strong>Pagador:</strong> ${esc(ETIQUETA_AREA[linea.pagador_nomina] || linea.pagador_nomina)}</div>` : ''}
+    <div class="campo"><strong>Periodo de pago:</strong> ${esc(opts.periodo_inicio)} — ${esc(opts.periodo_fin)}</div>
+    <div class="campo"><strong>Fecha de pago:</strong> ${esc(fechaPago)}</div>
+    <div class="campo"><strong>Hora:</strong> ${esc(horaPago)}</div>
+    <table style="margin-top:14px">
+      <tr><td><strong>Pago bruto (sueldo + bono)</strong></td><td class="r"><strong>${fmt(bruto)}</strong></td></tr>
+      ${Number(linea.sueldo_base) > 0 ? `<tr><td class="muted">Sueldo base</td><td class="r">${fmt(linea.sueldo_base)}</td></tr>` : ''}
+      ${Number(linea.bonificacion) > 0 ? `<tr><td class="muted">Bonificación</td><td class="r">${fmt(linea.bonificacion)}</td></tr>` : ''}
+    </table>
+    <div class="totales"><strong>Desglose de descuentos</strong></div>
+    <table>
+      ${filaDed('Inventario', dedInv)}
+      ${filaDed('Consumos', dedCons)}
+      ${filaDed('Préstamos', dedPrest)}
+      ${filaDed('Otras deducciones', dedOtras)}
+      ${dedInv + dedCons + dedPrest + dedOtras === 0 ? '<tr><td colspan="2" class="muted">Sin descuentos</td></tr>' : ''}
+    </table>
+    <div class="neto">Pago neto a recibir: ${fmt(neto)}</div>
+    <div class="firma">Recibí de conformidad el importe neto indicado.<br/><br/>
+      <strong>${esc(linea.nombre)}</strong><br/>
+      _________________________________________________<br/>
+      <span class="muted">Firma del empleado</span>
+    </div>
+    ${opts.notas ? `<p class="muted" style="margin-top:12px">Notas: ${esc(opts.notas)}</p>` : ''}
+  </body></html>`;
+}
+
+export function imprimirReciboNominaIndividual(linea, opts = {}) {
+  return abrirVentanaImpresion(htmlReciboNominaIndividual(linea, opts), `Recibo — ${linea.nombre || 'empleado'}`);
 }
 
 export function imprimirNomina(datos) {
