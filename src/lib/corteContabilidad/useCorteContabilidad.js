@@ -80,11 +80,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
 
   const agregarGasto = async (gasto) => {
     if (!perm.gastos) return;
-    const res = await agregarGastoTurno(supabase, sucursal, modulo, {
-      ...gasto,
-      usuario_id: user?.id,
-      usuario_nombre: user?.nombre,
-    });
+    if (!gasto?.usuario_id) return alert('Selecciona el empleado a quien se descontará en nómina.');
+    const res = await agregarGastoTurno(supabase, sucursal, modulo, gasto);
     if (!res.ok) return alert(res.error);
     const gas = await listarGastosTurno(supabase, sucursal, modulo);
     setGastos(gas.data || []);
