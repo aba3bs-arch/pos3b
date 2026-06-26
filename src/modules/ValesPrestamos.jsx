@@ -35,6 +35,8 @@ import {
 import { listarNotificacionesPendientes } from '../lib/contabilidadNotificaciones.js';
 import { imprimirPrestamo, imprimirVale } from '../lib/impresionContabilidad.js';
 import { normalizarRol } from '../lib/roles.js';
+import { empleadosVisiblesParaTienda } from '../lib/empleadosVisibles.js';
+import { tiendaPuedeGenerarVales, EVENTO_VALES_TIENDAS } from '../lib/posConfig.js';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -77,6 +79,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   });
 
   const esAdmin = normalizarRol(user?.rol) === 'Administrador';
+  const puedeGenerarVales = tiendaPuedeGenerarVales(sucursal);
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
   const requiereAuthAhora = valeRequiereAutorizacionAdmin();
 
@@ -102,8 +105,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   useEffect(() => {
     recargarTodo();
     if (!supabase) return;
-    supabase.from('usuarios').select('id, nombre, rol').order('nombre').then(({ data }) => setEmpleados(data || []));
-  }, [recargarTodo, supabase]);
+    supabase
+      .from('usuarios')
+      .select('id, nombre, rol, sucursal_id')
+      .order('nombre')
+      .then(({ data }) => setEmpleados(empleadosVisiblesParaTienda(data || [], sucursal, user?.rol)));
+  }, [recargarTodo, supabase, sucursal, user?.rol]);
 
   useEffect(() => {
     if (irAPendientes && (esAdmin || esSocio)) {
@@ -114,6 +121,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const guardarVale = async () => {
     if (!supabase) return alert('Sin conexión.');
+    if (!puedeGenerarVales) return alert('Esta tienda no puede generar vales. El administrador debe autorizarla en Configuración → Vales y préstamos.');
     const ben = beneficiarioValePorId(valeForm.beneficiarioId);
     if (!ben) return alert('Selecciona beneficiario.');
     const monto = Number(valeForm.monto);
@@ -241,6 +249,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)', background: 'rgba(225,153,41,0.08)' }}>
           <strong>Configuración pendiente</strong>
           <p style={{ margin: '0.35rem 0 0', fontSize: '0.9rem' }}>{aviso || AVISO_FALTA_CONTABILIDAD}</p>
+        </div>
+      )}
+
+      {!puedeGenerarVales && (
+        <div className="card" style={{ borderLeft: '4px solid var(--danger)', background: 'rgba(211,47,47,0.06)' }}>
+          <strong>Esta tienda no está autorizada para generar vales.</strong>
+          <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
+            El administrador puede habilitarla en <strong>Configuración → Vales y préstamos</strong>.
+          </p>
         </div>
       )}
 

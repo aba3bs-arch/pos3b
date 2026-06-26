@@ -69,7 +69,7 @@ export default function AdminInventarioCentral({
 
       {esAlmacenCentral(tiendaOp) && (
         <p className="muted" style={{ fontSize: '0.8rem', margin: '0.5rem 0 0' }}>
-          En el almacén central las entradas y retiros afectan el stock del CEDIS central. Usa el traspaso «Almacén central → Tienda» para distribuir a sucursales.
+          En la central de administración (MAIN) las entradas y retiros afectan el stock del CEDIS central. Usa el traspaso «Central de administración → Tienda» para distribuir a sucursales.
         </p>
       )}
 

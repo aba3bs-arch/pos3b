@@ -47,7 +47,6 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
   const [notasPedido, setNotasPedido] = useState('');
   const [lineas, setLineas] = useState([]);
   const [vinculoProductoIds, setVinculoProductoIds] = useState([]);
-  const [soloVinculados, setSoloVinculados] = useState(false);
   const [codigoRecepcion, setCodigoRecepcion] = useState('');
   const [ventasPorProducto, setVentasPorProducto] = useState({});
   const [ventasPorDia, setVentasPorDia] = useState({});
@@ -111,7 +110,6 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
       if (!cancelled) {
         const ids = (data || []).map((r) => String(r.producto_id));
         setVinculoProductoIds(ids);
-        if (ids.length) setSoloVinculados(true);
       }
     })();
     return () => {
@@ -122,10 +120,10 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
   const construirLineas = useCallback(
     (pedidoExistente = null) => {
       const idsSet = new Set(vinculoProductoIds);
-      const base =
-        soloVinculados && proveedorId && idsSet.size > 0
-          ? (inventario || []).filter((p) => idsSet.has(String(p.id)))
-          : (inventario || []);
+      let base = inventario || [];
+      if (proveedorId && !verTodoInventario) {
+        base = idsSet.size > 0 ? base.filter((p) => idsSet.has(String(p.id))) : [];
+      }
 
       const pedidoMap = new Map();
       if (pedidoExistente?.items_pedido) {
@@ -170,7 +168,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
 
       return rows;
     },
-    [inventario, vinculoProductoIds, soloVinculados, proveedorId, umbralCatalogo, ventasPorProducto],
+    [inventario, vinculoProductoIds, verTodoInventario, proveedorId, umbralCatalogo, ventasPorProducto],
   );
 
   useEffect(() => {
@@ -193,6 +191,9 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
 
   const abrirHerramientaNueva = () => {
     if (!proveedorId) return alert('Selecciona primero un proveedor.');
+    if (!vinculoProductoIds.length) {
+      return alert('Este proveedor no tiene productos vinculados. Ve a Proveedores → vincula productos (ej. Coca Cola) y vuelve a intentar.');
+    }
     setCompraActiva(null);
     setModoRecepcion(false);
     setHerramientaAbierta(true);
@@ -484,9 +485,12 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                 </label>
                 {vinculoProductoIds.length > 0 && (
                   <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }} className="muted">
-                    <input type="checkbox" checked={soloVinculados} onChange={(e) => setSoloVinculados(e.target.checked)} />
-                    Solo productos del proveedor
+                    <input type="checkbox" checked={verTodoInventario} onChange={(e) => setVerTodoInventario(e.target.checked)} />
+                    Ver catálogo completo
                   </label>
+                )}
+                {proveedorId && vinculoProductoIds.length === 0 && !verTodoInventario && (
+                  <span className="muted" style={{ fontSize: '0.8rem' }}>Sin vínculos — ve a Proveedores</span>
                 )}
                 <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
                   Umbral

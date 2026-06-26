@@ -266,6 +266,35 @@ export function limpiarPrivilegiosUsuario(userId) {
 
 export const ACCIONES_PRIVILEGIO = [{ id: 'recoleccion_cortes', label: 'Recolección en cortes (Virtual / Abarrotes / Garage)' }];
 
+const LS_VALES_TIENDAS = 'pos3b_vales_tiendas_permitidas';
+export const EVENTO_VALES_TIENDAS = 'pos3b-vales-tiendas-updated';
+
+/** null o [] vacío = todas las tiendas pueden generar vales. */
+export function leerTiendasValesPermitidas() {
+  try {
+    const raw = localStorage.getItem(LS_VALES_TIENDAS);
+    if (!raw) return null;
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr.map((c) => String(c).trim().toUpperCase()).filter(Boolean) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function guardarTiendasValesPermitidas(codigos) {
+  const list = (codigos || []).map((c) => String(c).trim().toUpperCase()).filter(Boolean);
+  localStorage.setItem(LS_VALES_TIENDAS, JSON.stringify(list));
+  window.dispatchEvent(new CustomEvent(EVENTO_VALES_TIENDAS));
+  return list;
+}
+
+export function tiendaPuedeGenerarVales(sucursal) {
+  const list = leerTiendasValesPermitidas();
+  if (!list || !list.length) return true;
+  const s = String(sucursal || 'MAIN').trim().toUpperCase();
+  return list.includes(s);
+}
+
 export function leerAccionPrivilegio(accionId, modo, key) {
   const p = leerPrivilegios();
   const acc = p.acciones?.[accionId] || {};

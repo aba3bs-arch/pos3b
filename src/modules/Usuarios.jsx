@@ -3,7 +3,7 @@ import { ROLES, normalizarRol, puedeGestionarUsuarios } from '../lib/roles.js';
 import { AREAS_CONTABILIDAD, ETIQUETA_AREA } from '../lib/contabilidadConstants.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { leerTurnos, leerConfigHorario, esHorarioPersonalizado, resumenHorarioUsuario, EVENTO_TURNOS, nombreTurnoLegible, TURNO_AMBOS_ID, etiquetaTurno } from '../lib/turnos.js';
-import InputPin from '../components/InputPin.jsx';
+import { empleadosVisiblesParaTienda, filtrarEmpleadosAdmin } from '../lib/empleadosVisibles.js';
 
 const emptyForm = (sucursalDefault) => ({
   nombre: '',
@@ -58,9 +58,9 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     return () => window.removeEventListener(EVENTO_TURNOS, sync);
   }, []);
 
-  const filas = filtroSucursal
-    ? rows.filter((r) => normalizarCodigoTienda(r.sucursal_id) === normalizarCodigoTienda(filtroSucursal))
-    : rows;
+  const filas = esAdmin
+    ? filtrarEmpleadosAdmin(rows, filtroSucursal)
+    : empleadosVisiblesParaTienda(rows, sucursal, actor?.rol);
 
   const togglePinVisible = (id) => {
     setPinsVisibles((prev) => {
@@ -296,7 +296,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
           <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             Filtrar tienda
             <select className="select" style={{ minWidth: '140px' }} value={filtroSucursal} onChange={(e) => setFiltroSucursal(e.target.value)}>
-              <option value="">Todas</option>
+              <option value="">{esAdmin ? 'Todas las tiendas' : etiquetaTienda(sucursal)}</option>
               {tiendas.map((s) => (
                 <option key={s} value={s}>
                   {etiquetaTienda(s)}

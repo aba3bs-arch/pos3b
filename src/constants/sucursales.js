@@ -1,5 +1,5 @@
 /**
- * Tiendas base + MAIN (pruebas). Las agregadas en la app se guardan en localStorage.
+ * Tiendas base + MAIN (central de administración). Las agregadas en la app se guardan en localStorage.
  */
 export const SUCURSALES_BASE = ['MAIN', 'FUSION', '3B2', '3B5', '3B6', '3B7', '3B9', '3B10'];
 
@@ -59,7 +59,7 @@ export function codigoTiendaValido(codigo) {
 
 export function etiquetaTienda(codigo) {
   const s = String(codigo || '');
-  if (s === 'MAIN') return 'Almacén central (MAIN)';
+  if (s === 'MAIN') return 'Central de administración (MAIN)';
   if (s === 'FUSION') return s;
   if (/^3B\d+$/i.test(s)) return `Sucursal ${s}`;
   return s;

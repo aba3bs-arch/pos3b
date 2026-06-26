@@ -1,7 +1,9 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, listarSucursalesParaUI } from '../constants/sucursales.js';
 import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from '../lib/usuariosAuth.js';
 import { usuarioAutorizadoLogin } from '../lib/turnos.js';
+import { puedeGestionarUsuarios } from '../lib/roles.js';
+import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import InputPin from '../components/InputPin.jsx';
 
@@ -11,17 +13,48 @@ function inicioDiaLocal() {
   return d;
 }
 
-export default function Checador({ inventario, supabase, sucursal }) {
+function rangoSemana(offset = 0) {
+  const hoy = new Date();
+  const day = hoy.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const ini = new Date(hoy);
+  ini.setDate(hoy.getDate() + diff + offset * 7);
+  ini.setHours(0, 0, 0, 0);
+  const fin = new Date(ini);
+  fin.setDate(ini.getDate() + 6);
+  fin.setHours(23, 59, 59, 999);
+  return { desde: ini, hasta: fin };
+}
+
+const PRESETS_HISTORIAL = [
+  { id: 'hoy', label: 'Hoy' },
+  { id: '7d', label: 'Últimos 7 días' },
+  { id: 'semana', label: 'Semana actual' },
+  { id: 'semana_ant', label: 'Semana anterior' },
+  { id: 'rango', label: 'Rango personalizado' },
+];
+
+export default function Checador({ inventario, supabase, sucursal, user, sucursalesLista }) {
   const [pestana, setPestana] = useState('precios');
   const [reloj, setReloj] = useState(() => new Date());
   const [pinEmpleado, setPinEmpleado] = useState('');
   const [empleado, setEmpleado] = useState(null);
   const [cargandoPin, setCargandoPin] = useState(false);
   const [marcando, setMarcando] = useState(false);
-  const [historial, setHistorial] = useState([]);
+  const [historialHoy, setHistorialHoy] = useState([]);
+  const [historialFull, setHistorialFull] = useState([]);
+  const [cargandoHist, setCargandoHist] = useState(false);
   const [msg, setMsg] = useState('');
 
+  const [filtroTiendaHist, setFiltroTiendaHist] = useState(sucursal || '');
+  const [presetHist, setPresetHist] = useState('semana');
+  const [histDesde, setHistDesde] = useState('');
+  const [histHasta, setHistHasta] = useState('');
+
   const [codigo, setCodigo] = useState('');
+
+  const esAdmin = puedeGestionarUsuarios(user?.rol);
+  const tiendas = sucursalesLista?.length ? sucursalesLista : listarSucursalesParaUI();
 
   useEffect(() => {
     if (pestana !== 'reloj') return undefined;
@@ -29,7 +62,26 @@ export default function Checador({ inventario, supabase, sucursal }) {
     return () => clearInterval(id);
   }, [pestana]);
 
-  const cargarHistorial = useCallback(async () => {
+  const rangoHistorial = useMemo(() => {
+    if (presetHist === 'semana') return rangoSemana(0);
+    if (presetHist === 'semana_ant') return rangoSemana(-1);
+    if (presetHist === 'rango' && histDesde && histHasta) {
+      return {
+        desde: new Date(`${histDesde}T00:00:00`),
+        hasta: new Date(`${histHasta}T23:59:59.999`),
+      };
+    }
+    const ymd = rangoDesdePreset(presetHist);
+    if (ymd) {
+      return {
+        desde: new Date(`${ymd.desde}T00:00:00`),
+        hasta: new Date(`${ymd.hasta}T23:59:59.999`),
+      };
+    }
+    return rangoSemana(0);
+  }, [presetHist, histDesde, histHasta]);
+
+  const cargarHistorialHoy = useCallback(async () => {
     if (!supabase || !sucursal) return;
     const ini = inicioDiaLocal().toISOString();
     const { data, error } = await supabase
@@ -39,16 +91,43 @@ export default function Checador({ inventario, supabase, sucursal }) {
       .gte('created_at', ini)
       .order('created_at', { ascending: false })
       .limit(50);
-    if (error) {
-      setHistorial([]);
-      return;
-    }
-    setHistorial(data || []);
+    if (!error) setHistorialHoy(data || []);
   }, [supabase, sucursal]);
 
+  const cargarHistorialCompleto = useCallback(async () => {
+    if (!supabase) return;
+    setCargandoHist(true);
+    const tienda = esAdmin ? filtroTiendaHist || sucursal : sucursal;
+    if (!tienda) {
+      setHistorialFull([]);
+      setCargandoHist(false);
+      return;
+    }
+    const { desde, hasta } = rangoHistorial;
+    let q = supabase
+      .from('asistencias')
+      .select('id,nombre,tipo,created_at,sucursal_id')
+      .eq('sucursal_id', tienda)
+      .gte('created_at', desde.toISOString())
+      .lte('created_at', hasta.toISOString())
+      .order('created_at', { ascending: false })
+      .limit(500);
+    const { data, error } = await q;
+    setHistorialFull(error ? [] : data || []);
+    setCargandoHist(false);
+  }, [supabase, sucursal, esAdmin, filtroTiendaHist, rangoHistorial]);
+
   useEffect(() => {
-    if (pestana === 'reloj') void cargarHistorial();
-  }, [pestana, cargarHistorial]);
+    if (pestana === 'reloj') void cargarHistorialHoy();
+  }, [pestana, cargarHistorialHoy]);
+
+  useEffect(() => {
+    if (pestana === 'historial') void cargarHistorialCompleto();
+  }, [pestana, cargarHistorialCompleto]);
+
+  useEffect(() => {
+    if (!esAdmin) setFiltroTiendaHist(sucursal || '');
+  }, [sucursal, esAdmin]);
 
   const producto = useMemo(() => {
     const t = codigo.trim();
@@ -122,11 +201,11 @@ export default function Checador({ inventario, supabase, sucursal }) {
     }
     setMsg(tipo === 'ENTRADA' ? 'Entrada registrada.' : 'Salida registrada.');
     setEmpleado(null);
-    void cargarHistorial();
+    void cargarHistorialHoy();
   };
 
   return (
-    <div style={{ maxWidth: '720px' }}>
+    <div style={{ maxWidth: '900px' }}>
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <button
           type="button"
@@ -147,6 +226,16 @@ export default function Checador({ inventario, supabase, sucursal }) {
           }}
         >
           Reloj empleados
+        </button>
+        <button
+          type="button"
+          className={pestana === 'historial' ? 'btn btn-primary' : 'btn btn-ghost'}
+          onClick={() => {
+            setPestana('historial');
+            setMsg('');
+          }}
+        >
+          Historial entradas/salidas
         </button>
       </div>
 
@@ -201,7 +290,8 @@ export default function Checador({ inventario, supabase, sucursal }) {
         <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
           <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Reloj checador</h3>
           <p className="muted" style={{ marginTop: 0 }}>
-            Empleados dados de alta en <strong>Usuarios</strong> marcan entrada o salida con su PIN. Tienda actual: <span className="badge">{sucursal}</span>
+            Empleados dados de alta en <strong>Usuarios</strong> marcan entrada o salida con su PIN. Tienda actual:{' '}
+            <span className="badge">{etiquetaTienda(sucursal)}</span>
           </p>
           <div
             style={{
@@ -261,7 +351,7 @@ export default function Checador({ inventario, supabase, sucursal }) {
             <p style={{ marginTop: '0.75rem', color: msg.includes('registrad') || msg.includes('Entrada') || msg.includes('Salida') ? 'var(--brand-green)' : 'var(--brand-red)' }}>{msg}</p>
           )}
 
-          <h4 style={{ margin: '1.25rem 0 0.5rem', color: 'var(--brand-blue-dark)' }}>Marcajes de hoy en esta tienda</h4>
+          <h4 style={{ margin: '1.25rem 0 0.5rem', color: 'var(--brand-blue-dark)' }}>Marcajes de hoy</h4>
           <div className="table-wrap">
             <table className="data">
               <thead>
@@ -272,16 +362,96 @@ export default function Checador({ inventario, supabase, sucursal }) {
                 </tr>
               </thead>
               <tbody>
-                {historial.length === 0 ? (
+                {historialHoy.length === 0 ? (
                   <tr>
                     <td colSpan={3} className="muted">
                       Sin registros hoy.
                     </td>
                   </tr>
                 ) : (
-                  historial.map((h) => (
+                  historialHoy.map((h) => (
                     <tr key={h.id}>
                       <td>{h.created_at ? new Date(h.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}</td>
+                      <td>{h.nombre}</td>
+                      <td>
+                        <span className="badge">{h.tipo === 'ENTRADA' ? 'Entrada' : 'Salida'}</span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {pestana === 'historial' && (
+        <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
+          <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Historial de entradas y salidas</h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'flex-end' }}>
+            {esAdmin && (
+              <label className="muted" style={{ fontSize: '0.8rem' }}>
+                Tienda
+                <select className="select" style={{ display: 'block', marginTop: '0.2rem', minWidth: 160 }} value={filtroTiendaHist} onChange={(e) => setFiltroTiendaHist(e.target.value)}>
+                  {tiendas.map((t) => (
+                    <option key={t} value={t}>
+                      {etiquetaTienda(t)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="muted" style={{ fontSize: '0.8rem' }}>
+              Periodo
+              <select className="select" style={{ display: 'block', marginTop: '0.2rem', minWidth: 160 }} value={presetHist} onChange={(e) => setPresetHist(e.target.value)}>
+                {PRESETS_HISTORIAL.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {presetHist === 'rango' && (
+              <>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Desde
+                  <input className="input" type="date" style={{ display: 'block', marginTop: '0.2rem' }} value={histDesde} onChange={(e) => setHistDesde(e.target.value)} />
+                </label>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Hasta
+                  <input className="input" type="date" style={{ display: 'block', marginTop: '0.2rem' }} value={histHasta} onChange={(e) => setHistHasta(e.target.value)} />
+                </label>
+              </>
+            )}
+            <button type="button" className="btn btn-primary" onClick={cargarHistorialCompleto} disabled={cargandoHist}>
+              {cargandoHist ? 'Cargando…' : 'Actualizar'}
+            </button>
+          </div>
+          <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>
+            {historialFull.length} registro(s) · {etiquetaTienda(esAdmin ? filtroTiendaHist : sucursal)}
+          </p>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Hora</th>
+                  <th>Empleado</th>
+                  <th>Tipo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historialFull.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="muted">
+                      Sin registros en el periodo.
+                    </td>
+                  </tr>
+                ) : (
+                  historialFull.map((h) => (
+                    <tr key={h.id}>
+                      <td style={{ fontSize: '0.85rem' }}>{h.created_at ? new Date(h.created_at).toLocaleDateString('es-MX') : '—'}</td>
+                      <td>{h.created_at ? new Date(h.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                       <td>{h.nombre}</td>
                       <td>
                         <span className="badge">{h.tipo === 'ENTRADA' ? 'Entrada' : 'Salida'}</span>

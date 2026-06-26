@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { turnoActual, nombreTurnoLegible } from '../turnos.js';
+import { empleadosVisiblesParaTienda } from '../empleadosVisibles.js';
 import { permisosCorteContabilidad } from './permisos.js';
 import {
   AVISO_FALTA_CORTES,
@@ -61,7 +62,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     setEstado(estRes.estado || {});
     setGastos(gasRes.data || []);
     setHistorial(histRes.data || []);
-    setEmpleados(empRes.data || []);
+    setEmpleados(empleadosVisiblesParaTienda(empRes.data || [], sucursal, user?.rol));
     if (!estRes.estado?.folio && modulo !== 'abarrotes') {
       const f = await peekFolio(supabase, sucursal, modulo);
       setFolio(f);
@@ -71,7 +72,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       setFolio(estRes.estado?.folio || '');
     }
     setCargando(false);
-  }, [supabase, sucursal, modulo]);
+  }, [supabase, sucursal, modulo, user?.rol]);
 
   useEffect(() => {
     cargar();

@@ -30,7 +30,7 @@ export const SUBTIPOS_TRASPASO = [
   },
   {
     id: 'central_tienda',
-    label: 'Almacén central → Tienda',
+    label: 'Central de administración → Tienda',
     desc: 'Distribuye mercancía del almacén MAIN al CEDIS de una tienda.',
   },
   {

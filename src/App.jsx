@@ -528,7 +528,9 @@ function App() {
           {vista === 'Compras' && (
             <Compras supabase={supabase} sucursal={sucursal} inventario={inventarioTienda} cargarDatos={cargarDatos} onNavigate={irAModulo} />
           )}
-          {vista === 'Checador' && <Checador inventario={inventarioTienda} supabase={supabase} sucursal={sucursal} />}
+          {vista === 'Checador' && (
+            <Checador inventario={inventarioTienda} supabase={supabase} sucursal={sucursal} user={user} sucursalesLista={listaSucursales} />
+          )}
           {vista === 'Proveedores' && <Proveedores supabase={supabase} inventario={inventario} user={user} />}
           {vista === 'Clientes' && <Clientes supabase={supabase} />}
           {vista === 'Usuarios' && (

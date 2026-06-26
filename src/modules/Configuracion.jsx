@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { SUCURSALES_BASE, etiquetaTienda } from '../constants/sucursales.js';
+import { SUCURSALES_BASE, etiquetaTienda, listarSucursalesParaUI } from '../constants/sucursales.js';
 import {
   CONEXIONES_PERIFERICO,
   TIPOS_PERIFERICO,
@@ -24,6 +24,8 @@ import {
   leerAccionPrivilegio,
   guardarAccionPrivilegio,
   guardarTipoCambio,
+  leerTiendasValesPermitidas,
+  guardarTiendasValesPermitidas,
 } from '../lib/posConfig.js';
 import {
   EVENTO_PERIFERICOS,
@@ -134,6 +136,7 @@ export default function Configuracion({
   const [usuariosTurno, setUsuariosTurno] = useState([]);
   const [nuevoTurnoForm, setNuevoTurnoForm] = useState({ nombre: '', hora_inicio: '08:00', hora_fin: '16:00' });
   const [filtroUsuariosTurno, setFiltroUsuariosTurno] = useState('');
+  const [valesTiendas, setValesTiendas] = useState(() => leerTiendasValesPermitidas() || listarSucursalesParaUI());
   const puedeAsignarTurnoEmpleados = puedeAsignarTurnos(user?.rol);
 
   const syncBrandingForm = () => {
@@ -779,10 +782,47 @@ export default function Configuracion({
         </div>
       )}
 
+      {esAdmin && (
+        <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
+          <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Vales y préstamos — tiendas autorizadas</h3>
+          <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+            Solo las tiendas marcadas pueden <strong>generar vales</strong> desde el módulo Vales y Préstamos. Si ninguna está marcada al guardar, se permiten todas.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.35rem', marginTop: '0.75rem' }}>
+            {listarSucursalesParaUI().map((t) => {
+              const activa = valesTiendas.includes(t);
+              return (
+                <label key={t} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={activa}
+                    onChange={() => {
+                      setValesTiendas((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
+                    }}
+                  />
+                  {etiquetaTienda(t)}
+                </label>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ marginTop: '0.75rem' }}
+            onClick={() => {
+              guardarTiendasValesPermitidas(valesTiendas);
+              alert('Tiendas autorizadas para vales guardadas.');
+            }}
+          >
+            Guardar permisos de vales
+          </button>
+        </div>
+      )}
+
       <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Catálogo de tiendas</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-          Tiendas base: <strong>MAIN</strong> (pruebas), <strong>FUSION</strong>, <strong>3B2, 3B5, 3B6, 3B7, 3B9, 3B10</strong>. Puedes añadir más códigos; se guardan solo en este navegador.
+          Tiendas base: <strong>MAIN</strong> (central de administración), <strong>FUSION</strong>, <strong>3B2, 3B5, 3B6, 3B7, 3B9, 3B10</strong>. Puedes añadir más códigos; se guardan solo en este navegador.
         </p>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem', alignItems: 'flex-end' }}>
           <label className="muted" style={{ flex: '1 1 200px' }}>

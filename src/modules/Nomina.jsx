@@ -12,6 +12,7 @@ import { prestamosDeduccionPorEmpleado } from '../lib/nominaPrestamos.js';
 import { periodoSemanaNomina, etiquetaSemanaNomina } from '../lib/semanaNomina.js';
 import { AREAS_CONTABILIDAD, ETIQUETA_AREA } from '../lib/contabilidadConstants.js';
 import { imprimirNomina } from '../lib/impresionContabilidad.js';
+import { empleadosVisiblesParaTienda } from '../lib/empleadosVisibles.js';
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
 }
@@ -44,7 +45,7 @@ export default function Nomina({ supabase, sucursal, user }) {
       setCargando(false);
       return;
     }
-    const lista = empleados || [];
+    const lista = empleadosVisiblesParaTienda(empleados || [], sucursal, user?.rol);
     const [gastosRes, prestRes] = await Promise.all([
       gastosDeduccionPorEmpleado(supabase, { sucursal, desde: inicio, hasta: fin, empleados: lista }),
       prestamosDeduccionPorEmpleado(supabase, { sucursal, empleados: lista }),
@@ -59,7 +60,7 @@ export default function Nomina({ supabase, sucursal, user }) {
     setLineas(lineasNuevas);
     setEmpleadosCache(lista);
     setCargando(false);
-  }, [supabase, sucursal, inicio, fin, pagadorFiltro]);
+  }, [supabase, sucursal, inicio, fin, pagadorFiltro, user?.rol]);
 
   const cargarPeriodos = useCallback(async () => {
     if (!supabase) return;

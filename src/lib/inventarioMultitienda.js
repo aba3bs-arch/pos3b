@@ -1,6 +1,6 @@
 import { normalizarCodigoTienda, etiquetaTienda, listarSucursales } from '../constants/sucursales.js';
 
-/** MAIN = almacén central / CEDIS de toda la cadena. */
+/** MAIN = central de administración / CEDIS de toda la cadena. */
 export const ALMACEN_CENTRAL = 'MAIN';
 
 export function esAlmacenCentral(sucursal) {
@@ -8,7 +8,7 @@ export function esAlmacenCentral(sucursal) {
 }
 
 export function etiquetaAlmacenCentral() {
-  return 'Almacén central (MAIN)';
+  return 'Central de administración (MAIN)';
 }
 
 export function parseStockSucursales(producto) {
