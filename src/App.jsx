@@ -45,6 +45,7 @@ import BrandLogo from './components/BrandLogo.jsx';
 import Icon, { BtnLabel } from './components/Icon.jsx';
 import BotonLimpiarCache from './components/BotonLimpiarCache.jsx';
 import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesContabilidad.jsx';
+import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
 import InputPin from './components/InputPin.jsx';
 import { iconoDeModulo, colorDeModulo } from './lib/moduloIcons.js';
 
@@ -503,6 +504,9 @@ function App() {
               supabase={supabase}
               sucursal={sucursal}
               inventario={inventarioTienda}
+              inventarioCompleto={inventario}
+              user={user}
+              cargarDatos={cargarDatos}
               onNavigate={irAModulo}
               puedeModulo={(m) => puedeVerModulo(user?.rol, m, user?.id)}
             />
@@ -580,6 +584,7 @@ function App() {
           )}
           {vista === 'Ayuda' && <Ayuda user={user} />}
         </div>
+        <AnuncioPosOverlay supabase={supabase} sucursal={sucursal} onIrVentas={() => irAModulo('Ventas')} />
       </main>
     </div>
   );

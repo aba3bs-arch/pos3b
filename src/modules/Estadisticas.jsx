@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { listarSucursales, etiquetaTienda } from '../constants/sucursales.js';
+import { listarSucursalesOperativas, etiquetaTienda } from '../constants/sucursales.js';
 import {
   GRANULARIDAD_OPTS,
   PRESETS_FECHA_PRODUCTO,
@@ -21,7 +21,7 @@ function fmt(n) {
 }
 
 export default function Estadisticas({ supabase }) {
-  const tiendas = useMemo(() => listarSucursales(), []);
+  const tiendas = useMemo(() => listarSucursalesOperativas(), []);
   const [filtroTienda, setFiltroTienda] = useState('');
   const [presetFecha, setPresetFecha] = useState('7d');
   const [desde, setDesde] = useState('');

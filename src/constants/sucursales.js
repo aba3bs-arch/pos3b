@@ -2,6 +2,17 @@
  * Tiendas base + MAIN (central de administración). Las agregadas en la app se guardan en localStorage.
  */
 export const SUCURSALES_BASE = ['MAIN', 'FUSION', '3B2', '3B5', '3B6', '3B7', '3B9', '3B10'];
+export const ALMACEN_CENTRAL = 'MAIN';
+
+/** Central de administración — no participa en estadísticas operativas de tiendas. */
+export function esAlmacenCentral(codigo) {
+  return normalizarCodigoTienda(codigo) === ALMACEN_CENTRAL;
+}
+
+/** Tiendas de venta (sin almacén central MAIN). */
+export function listarSucursalesOperativas() {
+  return listarSucursales().filter((s) => !esAlmacenCentral(s));
+}
 
 export const LS_SUCURSAL = 'pos3b_sucursal';
 const LS_EXTRA = 'pos3b_sucursales_extra';

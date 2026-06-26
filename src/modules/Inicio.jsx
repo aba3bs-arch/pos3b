@@ -4,10 +4,38 @@ import Icon, { BtnLabel } from '../components/Icon.jsx';
 import { iconoDeModulo } from '../lib/moduloIcons.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { fmtMxn, resumirValorInventario } from '../lib/valorInventario.js';
+import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
+import { hayAnuncioActivo, EVENTO_ANUNCIOS } from '../lib/anunciosPos.js';
+import PanelAnunciosAdmin from '../components/PanelAnunciosAdmin.jsx';
+import PanelPurgeDatosAdmin from '../components/PanelPurgeDatosAdmin.jsx';
 
-export default function Inicio({ supabase, sucursal, inventario, onNavigate, puedeModulo }) {
+function PuntoVerdeActivo() {
+  return <span className="punto-verde-parpadeo" title="Anuncio activo" aria-hidden />;
+}
+
+export default function Inicio({ supabase, sucursal, inventario, inventarioCompleto, user, cargarDatos, onNavigate, puedeModulo }) {
   const puede = typeof puedeModulo === 'function' ? puedeModulo : () => true;
   const puedeVerInventario = puede('Productos');
+  const esAdminPrincipal = esAdministradorPrincipal(user);
+  const [panelAnuncios, setPanelAnuncios] = useState(false);
+  const [panelPurge, setPanelPurge] = useState(false);
+  const [hayAnuncio, setHayAnuncio] = useState(false);
+
+  useEffect(() => {
+    if (!esAdminPrincipal || !supabase) return;
+    let ok = true;
+    const check = async () => {
+      const h = await hayAnuncioActivo(supabase, sucursal);
+      if (ok) setHayAnuncio(h);
+    };
+    check();
+    const onEvt = () => check();
+    window.addEventListener(EVENTO_ANUNCIOS, onEvt);
+    return () => {
+      ok = false;
+      window.removeEventListener(EVENTO_ANUNCIOS, onEvt);
+    };
+  }, [esAdminPrincipal, supabase, sucursal]);
   const [ventasHoy, setVentasHoy] = useState([]);
   const [loading, setLoading] = useState(true);
   const valorInv = useMemo(() => resumirValorInventario(inventario), [inventario]);
@@ -120,6 +148,60 @@ export default function Inicio({ supabase, sucursal, inventario, onNavigate, pue
           Sucursal <span className="badge">{nombreTienda}</span> · Resumen operativo del día
         </p>
       </div>
+
+      {esAdminPrincipal && (
+        <div className="card" style={{ borderLeft: '4px solid var(--brand-blue)' }}>
+          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)', fontSize: '1rem' }}>Herramientas del administrador principal</h3>
+          {!panelAnuncios && !panelPurge && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ position: 'relative' }}
+                onClick={() => {
+                  setPanelPurge(false);
+                  setPanelAnuncios(true);
+                }}
+              >
+                <BtnLabel icon="alert">Anuncios POS</BtnLabel>
+                {hayAnuncio && (
+                  <span style={{ position: 'absolute', top: 6, right: 8 }}>
+                    <PuntoVerdeActivo />
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger"
+                onClick={() => {
+                  setPanelAnuncios(false);
+                  setPanelPurge(true);
+                }}
+              >
+                <BtnLabel icon="trash">Borrar datos del sistema</BtnLabel>
+              </button>
+            </div>
+          )}
+          {panelAnuncios && (
+            <PanelAnunciosAdmin
+              supabase={supabase}
+              user={user}
+              sucursal={sucursal}
+              onCerrar={() => setPanelAnuncios(false)}
+            />
+          )}
+          {panelPurge && (
+            <PanelPurgeDatosAdmin
+              supabase={supabase}
+              user={user}
+              sucursal={sucursal}
+              inventarioCompleto={inventarioCompleto || inventario}
+              cargarDatos={cargarDatos}
+              onCerrar={() => setPanelPurge(false)}
+            />
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
         {puedeVerInventario && kpi('Total inventario', fmtMxn(valorInv.valorTotal), `${valorInv.unidades} uds. a precio venta`, () => onNavigate('Productos'), 'package')}

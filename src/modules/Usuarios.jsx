@@ -4,6 +4,7 @@ import { AREAS_CONTABILIDAD, ETIQUETA_AREA } from '../lib/contabilidadConstants.
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { leerTurnos, leerConfigHorario, esHorarioPersonalizado, resumenHorarioUsuario, EVENTO_TURNOS, nombreTurnoLegible, TURNO_AMBOS_ID, etiquetaTurno } from '../lib/turnos.js';
 import { empleadosVisiblesParaTienda, filtrarEmpleadosAdmin } from '../lib/empleadosVisibles.js';
+import InputPin from '../components/InputPin.jsx';
 
 const emptyForm = (sucursalDefault) => ({
   nombre: '',

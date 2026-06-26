@@ -10,8 +10,13 @@ function leerCredencialesSupabase() {
   return { url, key };
 }
 
-const { url, key } = leerCredencialesSupabase();
+/** Cliente Supabase; se inicializa en main.jsx tras cargar pos3b-config.js */
+export let supabase = null;
+export let supabaseConfigured = false;
 
-export const supabaseConfigured = Boolean(url && key);
-
-export const supabase = supabaseConfigured ? createClient(url, key) : null;
+export function initSupabaseClient() {
+  const { url, key } = leerCredencialesSupabase();
+  supabaseConfigured = Boolean(url && key);
+  supabase = supabaseConfigured ? createClient(url, key) : null;
+  return supabase;
+}

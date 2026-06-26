@@ -1,6 +1,10 @@
 import { consultarVentas } from './ventasQuery.js';
 import { rangoDesdePreset, PRESETS_FECHA_PRODUCTO } from './consultasInventario.js';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
+
+function excluirAlmacenCentral(rows, campo = 'sucursal_id') {
+  return (rows || []).filter((r) => !esAlmacenCentral(r[campo]));
+}
 
 export { PRESETS_FECHA_PRODUCTO, rangoDesdePreset };
 
@@ -196,8 +200,8 @@ export async function cargarDatosEstadisticas(supabase, { desde, hasta, sucursal
   }
 
   return {
-    ventas: ventasRes.data || [],
-    gastos,
+    ventas: excluirAlmacenCentral(ventasRes.data || []),
+    gastos: excluirAlmacenCentral(gastos),
     error: ventasRes.error || gastosError || null,
     aviso: ventasRes.aviso,
   };

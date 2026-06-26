@@ -350,3 +350,64 @@ table.data th {
     grid-template-columns: 1fr;
   }
 }
+
+@keyframes punto-verde-parpadeo {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(46, 125, 50, 0.6);
+  }
+  50% {
+    opacity: 0.35;
+    box-shadow: 0 0 8px 3px rgba(46, 125, 50, 0.45);
+  }
+}
+
+@keyframes anuncio-titulo-parpadeo {
+  0%,
+  100% {
+    color: var(--brand-gold-dark);
+    text-shadow: 0 0 0 transparent;
+  }
+  50% {
+    color: var(--brand-blue);
+    text-shadow: 0 0 12px rgba(225, 153, 41, 0.55);
+  }
+}
+
+.punto-verde-parpadeo {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--brand-green);
+  animation: punto-verde-parpadeo 1.2s ease-in-out infinite;
+}
+
+.anuncio-pos-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(26, 35, 50, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.anuncio-pos-modal {
+  width: 100%;
+  padding: 1.5rem 1.75rem;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.2);
+  border: 2px solid var(--brand-gold);
+  max-height: min(90vh, 720px);
+  overflow-y: auto;
+}
+
+.anuncio-pos-titulo-parpadeo {
+  margin: 0;
+  font-size: clamp(1.15rem, 3vw, 1.5rem);
+  font-weight: 800;
+  animation: anuncio-titulo-parpadeo 1.4s ease-in-out infinite;
+}
