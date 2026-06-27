@@ -38,6 +38,7 @@ import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLi
 import { inventarioParaSucursal } from './lib/inventarioMultitienda.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
+import { sincronizarPrivilegiosDesdeNube } from './lib/privilegiosSync.js';
 import { sonidoMenuNavegacion } from './lib/sonidosPos.js';
 import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from './lib/usuariosAuth.js';
 import {
@@ -153,6 +154,13 @@ function App() {
   useEffect(() => {
     guardarSucursalLocal(sucursal);
   }, [sucursal]);
+
+  useEffect(() => {
+    if (!sesion || !supabase) return;
+    sincronizarPrivilegiosDesdeNube(supabase).then((r) => {
+      if (r.cambio) setTickPrivilegios((n) => n + 1);
+    });
+  }, [sesion, supabase]);
 
   useEffect(() => {
     if (!sesion || !user) return;

@@ -3,6 +3,22 @@
  * Valores en BD deben coincidir con estos textos (tras normalizar).
  */
 import { leerPrivilegios } from './posConfig.js';
+import {
+  modulosPermitidosDesde,
+  origenPrivilegios,
+  describeOrigenPrivilegios,
+  modulosEnEdicionPrivilegios,
+  tieneListaPersonalizada,
+  normalizarListaModulos,
+} from './privilegios.js';
+
+export {
+  modulosEnEdicionPrivilegios,
+  tieneListaPersonalizada,
+  normalizarListaModulos,
+  origenPrivilegios,
+  describeOrigenPrivilegios,
+} from './privilegios.js';
 
 export const ROLES = ['Cajero', 'Auditor', 'Repartidor', 'Supervisor', 'Gerente', 'Técnico', 'Administrador'];
 
@@ -132,17 +148,8 @@ export function normalizarRol(rol) {
 export function puedeVerModulo(rol, moduloId, userId = null) {
   const r = normalizarRol(rol);
   if (r === 'Administrador') return true;
-
-  const priv = leerPrivilegios();
-  const uid = userId != null ? String(userId) : '';
-  if (uid && Array.isArray(priv.porUsuario[uid])) {
-    return priv.porUsuario[uid].includes(moduloId);
-  }
-  if (Array.isArray(priv.porRol[r])) {
-    return priv.porRol[r].includes(moduloId);
-  }
-  const lista = ACCESO_POR_ROL[r] || ACCESO_POR_ROL.Cajero;
-  return lista.includes(moduloId);
+  const permitidos = modulosPermitidosDesde(leerPrivilegios(), r, userId, ACCESO_POR_ROL[r] || ACCESO_POR_ROL.Cajero);
+  return permitidos.includes(moduloId);
 }
 
 export function modulosParaSidebar(rol, userId = null) {
@@ -150,18 +157,8 @@ export function modulosParaSidebar(rol, userId = null) {
   const r = normalizarRol(rol);
   if (r === 'Administrador') return filtrar(MODULOS_ORDEN);
 
-  const priv = leerPrivilegios();
-  const uid = userId != null ? String(userId) : '';
-  if (uid && Array.isArray(priv.porUsuario[uid])) {
-    const set = new Set(priv.porUsuario[uid]);
-    return filtrar(MODULOS_ORDEN.filter((m) => set.has(m)));
-  }
-  if (Array.isArray(priv.porRol[r])) {
-    const set = new Set(priv.porRol[r]);
-    return filtrar(MODULOS_ORDEN.filter((m) => set.has(m)));
-  }
-  const permitidos = new Set(ACCESO_POR_ROL[r] || ACCESO_POR_ROL.Cajero);
-  return filtrar(MODULOS_ORDEN.filter((m) => permitidos.has(m)));
+  const permitidos = modulosPermitidosDesde(leerPrivilegios(), r, userId, ACCESO_POR_ROL[r] || ACCESO_POR_ROL.Cajero);
+  return filtrar(MODULOS_ORDEN.filter((m) => permitidos.includes(m)));
 }
 
 export function submodulosContabilidadVisibles(rol, userId = null) {

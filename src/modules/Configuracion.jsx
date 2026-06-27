@@ -18,6 +18,7 @@ import {
   guardarConfigAudio,
   leerPrivilegios,
   guardarPrivilegios,
+  persistirPrivilegios,
   limpiarPrivilegiosRol,
   limpiarPrivilegiosUsuario,
   ACCIONES_PRIVILEGIO,
@@ -86,7 +87,8 @@ import {
   TURNO_AMBOS_ID,
   etiquetaTurno,
 } from '../lib/turnos.js';
-import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, ROLES, modulosDefaultRol } from '../lib/roles.js';
+import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, ROLES, modulosDefaultRol, modulosEnEdicionPrivilegios, tieneListaPersonalizada, normalizarListaModulos, describeOrigenPrivilegios, normalizarRol } from '../lib/roles.js';
+import { sincronizarPrivilegiosDesdeNube } from '../lib/privilegiosSync.js';
 import BrandLogo from '../components/BrandLogo.jsx';
 import AdminInventarioCentral from './AdminInventarioCentral.jsx';
 
@@ -114,7 +116,29 @@ export default function Configuracion({
   const [privModo, setPrivModo] = useState('rol');
   const [privRol, setPrivRol] = useState('Cajero');
   const [privUserId, setPrivUserId] = useState('');
+  const [privGuardando, setPrivGuardando] = useState(false);
+  const [privAvisoNube, setPrivAvisoNube] = useState('');
   const esAdmin = puedeGestionarUsuarios(user?.rol);
+
+  useEffect(() => {
+    if (!esAdmin || !supabase) return;
+    sincronizarPrivilegiosDesdeNube(supabase).then((r) => {
+      if (r.cambio) setPrivilegios(leerPrivilegios());
+      if (r.aviso) setPrivAvisoNube(r.aviso);
+    });
+  }, [esAdmin, supabase]);
+
+  const guardarPrivilegiosYSubir = async (data) => {
+    setPrivGuardando(true);
+    const res = await persistirPrivilegios(data, supabase);
+    setPrivilegios(leerPrivilegios());
+    setPrivGuardando(false);
+    if (res.remoto?.sinTabla) setPrivAvisoNube(res.remoto.aviso);
+    else if (res.remoto?.error) alert(`Guardado local OK. Nube: ${res.remoto.error}`);
+    else return true;
+    return true;
+  };
+
   const puedeInventarioGlobal = puedeGestionarInventarioMultitienda(user?.rol);
   const [metodosPago, setMetodosPago] = useState([]);
   const [perifericos, setPerifericos] = useState([]);
@@ -664,8 +688,12 @@ export default function Configuracion({
         <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Privilegios por rol o usuario</h3>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-            Personaliza qué módulos puede ver cada rol o un empleado en particular. Si no configuras nada, se usan los permisos por defecto del rol.
+            Personaliza qué módulos ve cada rol o empleado. Al guardar se sincroniza en Supabase para que <strong>todas las cajas</strong> usen la misma configuración.
+            Si un empleado tiene lista <strong>por usuario</strong>, esa lista tiene prioridad sobre su rol.
           </p>
+          {privAvisoNube && (
+            <p className="muted" style={{ margin: '0.5rem 0', fontSize: '0.82rem', color: 'var(--brand-gold)' }}>{privAvisoNube}</p>
+          )}
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', margin: '0.75rem 0' }}>
             <button type="button" className={privModo === 'rol' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setPrivModo('rol')}>
               Por rol
@@ -701,43 +729,71 @@ export default function Configuracion({
           {(() => {
             const privKey = privModo === 'usuario' ? privUserId : privRol;
             const store = privModo === 'usuario' ? 'porUsuario' : 'porRol';
-            const baseModulos = privModo === 'usuario'
-              ? modulosDefaultRol(usuariosTurno.find((u) => String(u.id) === String(privKey))?.rol || 'Cajero')
-              : modulosDefaultRol(privRol);
-            const activos = privKey ? [...(privilegios[store][privKey] || baseModulos)] : baseModulos;
+            const rolBase = privModo === 'usuario'
+              ? usuariosTurno.find((u) => String(u.id) === String(privKey))?.rol || 'Cajero'
+              : privRol;
+            const baseModulos = modulosDefaultRol(rolBase);
+            const esPersonalizado = privKey ? tieneListaPersonalizada(store, privKey, privilegios) : false;
+            const activos = privKey
+              ? modulosEnEdicionPrivilegios({ privilegios, store, key: privKey, defaults: baseModulos })
+              : baseModulos;
             const subActivos = SUBMODULOS_CONTABILIDAD.filter((m) => activos.includes(m));
             const todosSub = SUBMODULOS_CONTABILIDAD.every((m) => activos.includes(m));
             const algunoSub = subActivos.length > 0;
+            const usuariosConOverride =
+              privModo === 'rol'
+                ? usuariosTurno.filter((u) => normalizarRol(u.rol) === normalizarRol(privRol) && tieneListaPersonalizada('porUsuario', u.id, privilegios))
+                : [];
 
-            const aplicarModulos = (next) => {
+            const aplicarModulos = async (next) => {
               if (!privKey) return;
-              setPrivilegios({ ...privilegios, [store]: { ...privilegios[store], [privKey]: next } });
+              const normalizado = normalizarListaModulos(next);
+              const data = { ...privilegios, [store]: { ...privilegios[store], [privKey]: normalizado } };
+              setPrivilegios(data);
+              await guardarPrivilegiosYSubir(data);
             };
 
             const toggleModulo = (mod) => {
               if (!privKey) return;
-              const actual = [...(privilegios[store][privKey] || baseModulos)];
+              const actual = modulosEnEdicionPrivilegios({ privilegios, store, key: privKey, defaults: baseModulos });
               const next = actual.includes(mod) ? actual.filter((m) => m !== mod) : [...actual, mod];
-              aplicarModulos(next);
+              void aplicarModulos(next);
             };
 
             const toggleTodosContabilidad = (marcar) => {
               if (!privKey) return;
-              const actual = [...(privilegios[store][privKey] || baseModulos)];
+              const actual = modulosEnEdicionPrivilegios({ privilegios, store, key: privKey, defaults: baseModulos });
               const sinSub = actual.filter((m) => !SUBMODULOS_CONTABILIDAD.includes(m));
               const next = marcar ? [...sinSub, ...SUBMODULOS_CONTABILIDAD] : sinSub;
-              aplicarModulos(next);
+              void aplicarModulos(next);
             };
 
             const marcarSoloCortes = () => {
               if (!privKey) return;
-              const actual = [...(privilegios[store][privKey] || baseModulos)];
+              const actual = modulosEnEdicionPrivilegios({ privilegios, store, key: privKey, defaults: baseModulos });
               const sinCortes = actual.filter((m) => !MODULOS_CORTES.includes(m));
-              aplicarModulos([...sinCortes, ...MODULOS_CORTES]);
+              void aplicarModulos([...sinCortes, ...MODULOS_CORTES]);
             };
 
             return (
               <>
+                {privKey && (
+                  <div style={{ marginBottom: '0.65rem', padding: '0.5rem 0.65rem', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border)', fontSize: '0.82rem' }}>
+                    <strong>{esPersonalizado ? 'Lista personalizada' : 'Permisos por defecto del rol'}</strong>
+                    <span className="muted"> — {activos.length} módulo(s) activo(s)</span>
+                    {privModo === 'usuario' && privKey && (
+                      <div className="muted" style={{ marginTop: '0.25rem' }}>
+                        {describeOrigenPrivilegios(rolBase, privKey, privilegios)}
+                      </div>
+                    )}
+                    {usuariosConOverride.length > 0 && (
+                      <div style={{ marginTop: '0.35rem', color: 'var(--brand-gold)' }}>
+                        {usuariosConOverride.length} empleado(s) de este rol tienen lista <strong>por usuario</strong> (no siguen estos cambios):{' '}
+                        {usuariosConOverride.map((u) => u.nombre).join(', ')}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.35rem' }}>
                   {MODULOS_PRIVILEGIOS_GENERAL.map((mod) => (
                     <label key={mod} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem' }}>
@@ -840,26 +896,31 @@ export default function Configuracion({
             <button
               type="button"
               className="btn btn-primary"
-              onClick={() => {
-                guardarPrivilegios(privilegios);
-                alert('Privilegios guardados.');
+              disabled={privGuardando || (privModo === 'usuario' && !privUserId)}
+              onClick={async () => {
+                const ok = await guardarPrivilegiosYSubir(privilegios);
+                if (ok) alert('Privilegios guardados y sincronizados.');
               }}
-              disabled={privModo === 'usuario' && !privUserId}
             >
-              Guardar privilegios
+              {privGuardando ? 'Guardando…' : 'Guardar y sincronizar'}
             </button>
             <button
               type="button"
               className="btn btn-ghost"
-              onClick={() => {
+              disabled={privGuardando || (privModo === 'usuario' && !privUserId)}
+              onClick={async () => {
+                let data;
                 if (privModo === 'usuario' && privUserId) {
-                  setPrivilegios(limpiarPrivilegiosUsuario(privUserId));
+                  data = limpiarPrivilegiosUsuario(privUserId);
                 } else if (privModo === 'rol') {
-                  setPrivilegios(limpiarPrivilegiosRol(privRol));
+                  data = limpiarPrivilegiosRol(privRol);
+                }
+                if (data) {
+                  setPrivilegios(data);
+                  await guardarPrivilegiosYSubir(data);
                 }
                 alert('Se restauraron los permisos por defecto para esta selección.');
               }}
-              disabled={privModo === 'usuario' && !privUserId}
             >
               Usar permisos por defecto
             </button>

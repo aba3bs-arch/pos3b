@@ -1,3 +1,5 @@
+import { sanitizarPrivilegios } from './privilegios.js';
+
 const LS_METODOS_PAGO = 'pos3b_metodos_pago';
 const LS_PERIFERICOS = 'pos3b_perifericos';
 const LS_IMPRESION = 'pos3b_config_impresion';
@@ -225,31 +227,46 @@ export function guardarConfigAudio(cfg) {
   return payload;
 }
 
-/** { porRol, porUsuario, acciones: { recoleccion_cortes: { porRol, porUsuario } } } */
-export function leerPrivilegios() {
+/** { porRol, porUsuario, acciones, _updatedAt } */
+export function leerPrivilegiosLocal() {
   try {
     const raw = localStorage.getItem(LS_PRIVILEGIOS);
-    if (!raw) return { porRol: {}, porUsuario: {}, acciones: {} };
-    const v = JSON.parse(raw);
-    return {
-      porRol: v.porRol && typeof v.porRol === 'object' ? v.porRol : {},
-      porUsuario: v.porUsuario && typeof v.porUsuario === 'object' ? v.porUsuario : {},
-      acciones: v.acciones && typeof v.acciones === 'object' ? v.acciones : {},
-    };
+    if (!raw) return sanitizarPrivilegios({ porRol: {}, porUsuario: {}, acciones: {} });
+    return sanitizarPrivilegios(JSON.parse(raw));
   } catch {
-    return { porRol: {}, porUsuario: {}, acciones: {} };
+    return sanitizarPrivilegios({ porRol: {}, porUsuario: {}, acciones: {} });
   }
 }
 
-export function guardarPrivilegios(data) {
-  const payload = {
-    porRol: data.porRol && typeof data.porRol === 'object' ? data.porRol : {},
-    porUsuario: data.porUsuario && typeof data.porUsuario === 'object' ? data.porUsuario : {},
-    acciones: data.acciones && typeof data.acciones === 'object' ? data.acciones : {},
-  };
+/** Alias usado en toda la app. */
+export function leerPrivilegios() {
+  return leerPrivilegiosLocal();
+}
+
+export function guardarPrivilegiosLocal(data, { silencioso = false } = {}) {
+  const payload = sanitizarPrivilegios({
+    ...data,
+    _updatedAt: data?._updatedAt || new Date().toISOString(),
+  });
   localStorage.setItem(LS_PRIVILEGIOS, JSON.stringify(payload));
-  window.dispatchEvent(new CustomEvent(EVENTO_PRIVILEGIOS));
+  if (!silencioso) window.dispatchEvent(new CustomEvent(EVENTO_PRIVILEGIOS));
   return payload;
+}
+
+export function guardarPrivilegios(data) {
+  return guardarPrivilegiosLocal(data);
+}
+
+/** Guarda local y opcionalmente sincroniza a Supabase (todas las cajas). */
+export async function persistirPrivilegios(data, supabase) {
+  const local = guardarPrivilegiosLocal(data);
+  if (!supabase) return { ok: true, local };
+  const { subirPrivilegiosANube } = await import('./privilegiosSync.js');
+  const remoto = await subirPrivilegiosANube(supabase, local);
+  if (remoto.ok && remoto.updated_at) {
+    guardarPrivilegiosLocal({ ...local, _updatedAt: remoto.updated_at }, { silencioso: true });
+  }
+  return { ok: true, local, remoto };
 }
 
 export function limpiarPrivilegiosRol(rol) {
