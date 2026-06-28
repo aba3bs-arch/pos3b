@@ -189,6 +189,11 @@ export function puedeCrearProveedor(rol) {
   return normalizarRol(rol) === 'Administrador';
 }
 
+/** Eliminar productos del catálogo global: solo administrador. */
+export function puedeEliminarProductosCatalogo(rol) {
+  return normalizarRol(rol) === 'Administrador';
+}
+
 /** Administrador y gerente pueden cambiar tienda y gestionar inventario de todas las sucursales. */
 export function puedeCambiarTiendaLibremente(rol) {
   const r = normalizarRol(rol);

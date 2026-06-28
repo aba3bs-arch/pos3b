@@ -6,11 +6,12 @@ import {
   etiquetaSubtipoTraspaso,
   resolverTraspaso,
   stockEnUbicacion,
+  subtiposTraspasoParaSucursal,
 } from '../lib/ubicacionInventario.js';
 import { imprimirMovimientoInventario } from '../lib/impresion.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { listarSucursales, etiquetaTienda } from '../constants/sucursales.js';
-import { esAlmacenCentral, etiquetaAlmacenCentral } from '../lib/inventarioMultitienda.js';
+import { esAlmacenCentral, etiquetaAlmacenCentral, etiquetaCedisEmpresa } from '../lib/inventarioMultitienda.js';
 import Icon from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import ConteoPorDepartamento from './ConteoPorDepartamento.jsx';
@@ -37,6 +38,7 @@ export default function AjusteInventario({
   embebido = false,
 }) {
   const sucursalOp = sucursalOperacion || sucursal;
+  const enCentral = esAlmacenCentral(sucursalOp);
   const catalogoCompleto = inventarioCompleto || inventario;
   const [modo, setModo] = useState(modoInicial);
   const [tipo, setTipo] = useState('entrada');
@@ -54,7 +56,7 @@ export default function AjusteInventario({
   const [busquedaMasiva, setBusquedaMasiva] = useState('');
   const [productoMasivoId, setProductoMasivoId] = useState('');
   const [codigoEscaneo, setCodigoEscaneo] = useState('');
-  const [subtipoTraspaso, setSubtipoTraspaso] = useState('cedis_piso');
+  const [subtipoTraspaso, setSubtipoTraspaso] = useState(() => (esAlmacenCentral(sucursalOperacion || sucursal) ? 'central_tienda' : 'tienda_tienda'));
   const [sucursalDestinoTraspaso, setSucursalDestinoTraspaso] = useState('');
   const [lineasTraspaso, setLineasTraspaso] = useState([]);
   const [busquedaTraspaso, setBusquedaTraspaso] = useState('');
@@ -97,6 +99,14 @@ export default function AjusteInventario({
 
   const productoOrigen = inventario.find((p) => p.id === productoId);
   const sucursalesLista = useMemo(() => sucursalesListaProp || listarSucursales(), [sucursalesListaProp]);
+
+  const subtiposDisponibles = useMemo(() => subtiposTraspasoParaSucursal(sucursalOp), [sucursalOp]);
+
+  useEffect(() => {
+    if (!subtiposDisponibles.some((s) => s.id === subtipoTraspaso)) {
+      setSubtipoTraspaso(subtiposDisponibles[0]?.id || 'piso_cedis');
+    }
+  }, [subtiposDisponibles, subtipoTraspaso]);
 
   const rutaTraspaso = useMemo(
     () => resolverTraspaso(subtipoTraspaso, sucursalOp, sucursalDestinoTraspaso),
@@ -363,7 +373,7 @@ export default function AjusteInventario({
           <>
             <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Ajuste de inventario</h3>
             <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-              Registra entradas, retiros o traspasos entre CEDIS, piso de venta y otras tiendas. Los movimientos actualizan el stock en Supabase y quedan en el historial de este equipo.
+              Registra entradas, retiros o traspasos. En MAIN las entradas van al CEDIS central; en tiendas al piso de venta. Los movimientos quedan en el historial de este equipo.
               {modo === 'libre' && ' En inventario libre puedes escanear el código de barras con el lector USB (HID).'}
             </p>
           </>
@@ -439,7 +449,7 @@ export default function AjusteInventario({
         )}
         {modo === 'traspaso' && (
           <p className="muted" style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
-            Arma una lista de productos y traspásalos de CEDIS al piso, del piso al CEDIS, del almacén central a una tienda, o entre CEDIS de sucursales.
+            Arma una lista y traspasa mercancía: del CEDIS central a una tienda, entre pisos de sucursales, o regresa del piso al almacén central.
           </p>
         )}
       </div>
@@ -477,7 +487,7 @@ export default function AjusteInventario({
                 <option value="">— Elegir —</option>
                 {productosBusquedaMasiva.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.nombre} · CEDIS {p.stock_cedis ?? 0} · Piso {p.stock} · {p.cat}
+                    {p.nombre} · Piso {p.stock}{enCentral ? ` · ${etiquetaCedisEmpresa()} ${p.stock_cedis ?? 0}` : ''} · {p.cat}
                   </option>
                 ))}
               </select>
@@ -499,9 +509,9 @@ export default function AjusteInventario({
                 <tr>
                   <th>Código</th>
                   <th>Producto</th>
-                  <th>Stock CEDIS</th>
+                  <th>{enCentral ? etiquetaCedisEmpresa() : 'Stock piso'}</th>
                   <th>Cantidad</th>
-                  <th>Quedaría CEDIS</th>
+                  <th>{enCentral ? 'Quedaría CEDIS' : 'Quedaría piso'}</th>
                   <th />
                 </tr>
               </thead>
@@ -516,7 +526,7 @@ export default function AjusteInventario({
                   lineasMasivas.map((l) => {
                     const p = inventario.find((x) => x.id === l.productoId);
                     const qty = parseInt(l.cantidad, 10) || 0;
-                    const stock = Number(p?.stock_cedis) || 0;
+                    const stock = enCentral ? Number(p?.stock_cedis) || 0 : Number(p?.stock) || 0;
                     return (
                       <tr key={l.productoId}>
                         <td>{l.productoId}</td>
@@ -565,9 +575,9 @@ export default function AjusteInventario({
             <span className="badge">{esAlmacenCentral(sucursalOp) ? etiquetaAlmacenCentral() : etiquetaTienda(sucursalOp)}</span>
             {rutaTraspaso && (
               <span style={{ marginLeft: '0.5rem' }}>
-                · Origen: <strong>{rutaTraspaso.ubicacionOrigen === 'cedis' ? 'CEDIS' : 'Piso'}</strong>
+                · Origen: <strong>{rutaTraspaso.ubicacionOrigen === 'cedis' ? etiquetaCedisEmpresa() : 'Piso'}</strong>
                 {' → '}
-                Destino: <strong>{rutaTraspaso.ubicacionDestino === 'cedis' ? 'CEDIS' : 'Piso'}</strong>
+                Destino: <strong>{rutaTraspaso.ubicacionDestino === 'cedis' ? etiquetaCedisEmpresa() : 'Piso'}</strong>
                 {(subtipoTraspaso === 'tienda_tienda' || subtipoTraspaso === 'central_tienda') && sucursalDestinoTraspaso && (
                   <span> ({etiquetaTienda(sucursalDestinoTraspaso)})</span>
                 )}
@@ -576,7 +586,7 @@ export default function AjusteInventario({
           </p>
 
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem' }}>
-            {SUBTIPOS_TRASPASO.map((s) => (
+            {subtiposDisponibles.map((s) => (
               <button
                 key={s.id}
                 type="button"
@@ -592,7 +602,7 @@ export default function AjusteInventario({
               </button>
             ))}
           </div>
-          <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 1rem' }}>{SUBTIPOS_TRASPASO.find((s) => s.id === subtipoTraspaso)?.desc}</p>
+          <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 1rem' }}>{subtiposDisponibles.find((s) => s.id === subtipoTraspaso)?.desc}</p>
 
           {(subtipoTraspaso === 'tienda_tienda' || subtipoTraspaso === 'central_tienda') && (
             <label className="muted" style={{ display: 'block', marginBottom: '1rem', maxWidth: '320px' }}>
@@ -638,7 +648,8 @@ export default function AjusteInventario({
                 <option value="">— Elegir —</option>
                 {productosBusquedaTraspaso.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.nombre} · Piso {stockEnUbicacion(p, sucursalOp, 'piso', sucursalOp)} · CEDIS {stockEnUbicacion(p, sucursalOp, 'cedis', sucursalOp)}
+                    {p.nombre} · Piso {stockEnUbicacion(p, sucursalOp, 'piso', sucursalOp)}
+                    {enCentral ? ` · ${etiquetaCedisEmpresa()} ${stockEnUbicacion(p, sucursalOp, 'cedis', sucursalOp)}` : ''}
                   </option>
                 ))}
               </select>
@@ -775,7 +786,7 @@ export default function AjusteInventario({
               <option value="">— Elegir —</option>
               {productosFiltrados.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.nombre} · Piso {p.stock} · CEDIS {p.stock_cedis ?? 0} · {p.cat}
+                  {p.nombre} · Piso {p.stock}{enCentral ? ` · ${etiquetaCedisEmpresa()} ${p.stock_cedis ?? 0}` : ''} · {p.cat}
                 </option>
               ))}
             </select>
@@ -795,13 +806,27 @@ export default function AjusteInventario({
             <strong>{productoOrigen.nombre}</strong>
             <span className="muted"> · Código {productoOrigen.id} · Depto. {productoOrigen.cat} · Piso: </span>
             <strong>{productoOrigen.stock}</strong>
-            <span className="muted"> · CEDIS: </span>
-            <strong>{productoOrigen.stock_cedis ?? 0}</strong>
+            {enCentral && (
+              <>
+                <span className="muted"> · {etiquetaCedisEmpresa()}: </span>
+                <strong>{productoOrigen.stock_cedis ?? 0}</strong>
+              </>
+            )}
             {tipo === 'entrada' && cantidad && (
-              <span className="muted"> → CEDIS quedaría en {(Number(productoOrigen.stock_cedis) || 0) + (parseInt(cantidad, 10) || 0)}</span>
+              <span className="muted">
+                {' → '}
+                {enCentral
+                  ? `${etiquetaCedisEmpresa()} quedaría en ${(Number(productoOrigen.stock_cedis) || 0) + (parseInt(cantidad, 10) || 0)}`
+                  : `piso quedaría en ${(Number(productoOrigen.stock) || 0) + (parseInt(cantidad, 10) || 0)}`}
+              </span>
             )}
             {tipo === 'retiro' && cantidad && (
-              <span className="muted"> → quedaría en {Math.max(0, Number(productoOrigen.stock) - (parseInt(cantidad, 10) || 0))}</span>
+              <span className="muted">
+                {' → '}
+                {enCentral
+                  ? `${etiquetaCedisEmpresa()} quedaría en ${Math.max(0, (Number(productoOrigen.stock_cedis) || 0) - (parseInt(cantidad, 10) || 0))}`
+                  : `piso quedaría en ${Math.max(0, Number(productoOrigen.stock) - (parseInt(cantidad, 10) || 0))}`}
+              </span>
             )}
           </div>
         )}

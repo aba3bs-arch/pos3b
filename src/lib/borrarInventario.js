@@ -1,13 +1,17 @@
 import {
+  ALMACEN_CENTRAL,
+  buildPatchStock,
   buildPatchStockTienda,
   buildPatchVaciarInventarioCompleto,
+  esAlmacenCentral,
   stockEnUbicacion,
 } from './inventarioMultitienda.js';
 import { guardarMovimientoLocal, leerMovimientosLocal } from './inventarioMovimientos.js';
 
 /**
  * Vacía inventario de productos.
- * alcance: 'piso' | 'cedis' | 'tienda' (piso+cedis sucursal activa) | 'global' (todas las tiendas)
+ * alcance: 'piso' | 'cedis' | 'tienda' | 'global'
+ * — CEDIS = almacén central MAIN (único de la empresa).
  */
 export async function vaciarInventario(supabase, opts) {
   const {
@@ -36,21 +40,33 @@ export async function vaciarInventario(supabase, opts) {
 
     if (alcance === 'global') {
       const pisoAntes = stockEnUbicacion(producto, sucursal, 'piso', sucursal);
-      const cedisAntes = stockEnUbicacion(producto, sucursal, 'cedis', sucursal);
+      const cedisAntes = stockEnUbicacion(producto, ALMACEN_CENTRAL, 'cedis', sucursal);
       patch = buildPatchVaciarInventarioCompleto(producto);
       if (pisoAntes > 0) movimientos.push({ ubicacion: 'piso', qty: pisoAntes, antes: pisoAntes, despues: 0 });
       if (cedisAntes > 0) movimientos.push({ ubicacion: 'cedis', qty: cedisAntes, antes: cedisAntes, despues: 0 });
-    } else {
+    } else if (alcance === 'cedis') {
+      const cedisAntes = stockEnUbicacion(producto, ALMACEN_CENTRAL, 'cedis', sucursal);
+      patch = buildPatchStock(producto, ALMACEN_CENTRAL, 'cedis', 0, sucursal);
+      if (cedisAntes > 0) {
+        movimientos.push({ ubicacion: 'cedis', qty: cedisAntes, antes: cedisAntes, despues: 0 });
+      }
+    } else if (alcance === 'piso') {
       const pisoAntes = stockEnUbicacion(producto, sucursal, 'piso', sucursal);
-      const cedisAntes = stockEnUbicacion(producto, sucursal, 'cedis', sucursal);
-      const nuevoPiso = alcance === 'cedis' ? pisoAntes : 0;
-      const nuevoCedis = alcance === 'piso' ? cedisAntes : 0;
-      patch = buildPatchStockTienda(producto, sucursal, nuevoPiso, nuevoCedis, sucursal);
-      if (alcance !== 'cedis' && pisoAntes > 0) {
+      patch = buildPatchStock(producto, sucursal, 'piso', 0, sucursal);
+      if (pisoAntes > 0) {
         movimientos.push({ ubicacion: 'piso', qty: pisoAntes, antes: pisoAntes, despues: 0 });
       }
-      if (alcance !== 'piso' && cedisAntes > 0) {
-        movimientos.push({ ubicacion: 'cedis', qty: cedisAntes, antes: cedisAntes, despues: 0 });
+    } else if (alcance === 'tienda') {
+      if (esAlmacenCentral(sucursal)) {
+        const pisoAntes = stockEnUbicacion(producto, sucursal, 'piso', sucursal);
+        const cedisAntes = stockEnUbicacion(producto, ALMACEN_CENTRAL, 'cedis', sucursal);
+        patch = buildPatchStockTienda(producto, sucursal, 0, 0, sucursal);
+        if (pisoAntes > 0) movimientos.push({ ubicacion: 'piso', qty: pisoAntes, antes: pisoAntes, despues: 0 });
+        if (cedisAntes > 0) movimientos.push({ ubicacion: 'cedis', qty: cedisAntes, antes: cedisAntes, despues: 0 });
+      } else {
+        const pisoAntes = stockEnUbicacion(producto, sucursal, 'piso', sucursal);
+        patch = buildPatchStock(producto, sucursal, 'piso', 0, sucursal);
+        if (pisoAntes > 0) movimientos.push({ ubicacion: 'piso', qty: pisoAntes, antes: pisoAntes, despues: 0 });
       }
     }
 
@@ -93,8 +109,12 @@ export async function vaciarInventario(supabase, opts) {
 }
 
 export const OPCIONES_VACIADO = [
-  { id: 'piso', label: 'Piso de venta (tienda activa)', desc: 'Deja en cero el mostrador; conserva CEDIS.' },
-  { id: 'cedis', label: 'CEDIS (tienda activa)', desc: 'Deja en cero el almacén de la tienda; conserva piso.' },
-  { id: 'tienda', label: 'Toda la tienda activa', desc: 'Piso y CEDIS de la sucursal seleccionada.' },
-  { id: 'global', label: 'Todas las sucursales', desc: 'Pone en cero el stock en MAIN y todas las tiendas.' },
+  { id: 'piso', label: 'Piso de venta (tienda activa)', desc: 'Deja en cero el mostrador; conserva el CEDIS central.' },
+  { id: 'cedis', label: 'CEDIS central (almacén empresa)', desc: 'Vacía el almacén MAIN; conserva el piso de las tiendas.' },
+  {
+    id: 'tienda',
+    label: 'Toda la tienda activa',
+    desc: 'En MAIN vacía CEDIS y piso; en sucursales solo el piso de venta.',
+  },
+  { id: 'global', label: 'Todas las sucursales', desc: 'Pone en cero el CEDIS central y el piso de MAIN y todas las tiendas.' },
 ];

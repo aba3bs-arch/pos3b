@@ -15,7 +15,7 @@ export const COLUMNAS_CATALOGO = [
   { key: 'ganancia_pct', label: 'ganancia_pct', required: false, desc: 'Margen % sobre costo (default 30)' },
   { key: 'precio_venta', label: 'precio_venta', required: false, desc: 'Precio venta al público (con IVA)' },
   { key: 'stock_piso', label: 'stock_piso', required: false, desc: 'Unidades en piso de venta (tienda activa)' },
-  { key: 'stock_cedis', label: 'stock_cedis', required: false, desc: 'Unidades en CEDIS (tienda activa)' },
+  { key: 'stock_cedis', label: 'stock_cedis', required: false, desc: 'Unidades en CEDIS central (almacén MAIN, único de la empresa)' },
   { key: 'stock_minimo', label: 'stock_minimo', required: false, desc: 'Mínimo para alertas (default 6)' },
   { key: 'en_venta', label: 'en_venta', required: false, desc: 'si/no — visible en Ventas' },
   { key: 'en_favoritos', label: 'en_favoritos', required: false, desc: 'si/no — botón rápido en Ventas' },

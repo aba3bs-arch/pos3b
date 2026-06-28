@@ -11,7 +11,7 @@ import {
 } from '../lib/importarCatalogo.js';
 import { vaciarInventario, OPCIONES_VACIADO } from '../lib/borrarInventario.js';
 import { mensajeErrorColumnasProducto, productoDesdeDb, productoParaGuardar, productoVacio } from '../lib/productoForm.js';
-import { puedeCrearProveedor, puedeGestionarInventarioMultitienda } from '../lib/roles.js';
+import { puedeCrearProveedor, puedeEliminarProductosCatalogo, puedeGestionarInventarioMultitienda } from '../lib/roles.js';
 import FormularioProducto from '../components/FormularioProducto.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import MenuPuntos from '../components/MenuPuntos.jsx';
@@ -19,6 +19,8 @@ import Icon from '../components/Icon.jsx';
 import { imprimirEtiquetasEstante } from '../lib/impresion.js';
 import AjusteInventario from './AjusteInventario.jsx';
 import HistorialProducto from '../components/HistorialProducto.jsx';
+import { etiquetaTienda } from '../constants/sucursales.js';
+import { esAlmacenCentral, etiquetaCedisEmpresa } from '../lib/inventarioMultitienda.js';
 
 const empty = productoVacio();
 
@@ -65,8 +67,15 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const fileImportRef = useRef(null);
   const puedeAltaProveedor = puedeCrearProveedor(user?.rol);
   const puedeVaciarInventario = puedeGestionarInventarioMultitienda(user?.rol);
+  const puedeEliminarCatalogo = puedeEliminarProductosCatalogo(user?.rol);
+  const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : 'MAIN';
+  const enCentral = esAlmacenCentral(sucursal);
 
   const departamentos = useMemo(() => listarDepartamentos(inventario), [inventario, tickDepartamentos]);
+
+  useEffect(() => {
+    if (vista === 'eliminar' && !puedeEliminarCatalogo) setVista('lista');
+  }, [vista, puedeEliminarCatalogo]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -136,14 +145,15 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
       const aviso = mensajeErrorColumnasProducto(error);
       return alert(aviso || error.message);
     }
-    alert('Guardado');
+    alert('Guardado. Catálogo actualizado para todas las tiendas; inventario aplicado a ' + tiendaLabel + '.');
     cargarDatos();
     irLista();
   };
 
   const eliminar = async (id) => {
     if (!supabase) return;
-    if (!confirm('¿Eliminar producto del catálogo?')) return;
+    if (!puedeEliminarCatalogo) return alert('Solo un administrador puede eliminar productos del catálogo global.');
+    if (!confirm('¿Eliminar producto del catálogo global? Desaparecerá en todas las tiendas.')) return;
     const { error } = await supabase.from('productos').delete().eq('id', id);
     if (error) return alert(error.message);
     cargarDatos();
@@ -155,9 +165,10 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   };
 
   const eliminarSeleccionados = async () => {
+    if (!puedeEliminarCatalogo) return alert('Solo un administrador puede eliminar productos del catálogo global.');
     const ids = [...seleccionEliminar];
     if (!ids.length) return alert('Marca al menos un producto.');
-    if (!confirm(`¿Eliminar ${ids.length} producto(s) del catálogo?`)) return;
+    if (!confirm(`¿Eliminar ${ids.length} producto(s) del catálogo global? Desaparecerán en todas las tiendas.`)) return;
     for (const id of ids) {
       const { error } = await supabase.from('productos').delete().eq('id', id);
       if (error) return alert(`${id}: ${error.message}`);
@@ -293,11 +304,14 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
       ? [{ id: 'vaciarinventario', label: 'Vaciar inventario', icon: 'trash', onClick: () => setVista('vaciarinventario') }]
       : []),
     { id: 'precios', label: 'Administrador de precios', icon: 'dollar', onClick: () => { initPreciosDraft(); setVista('precios'); } },
-    { id: 'eliminar', label: 'Eliminar productos', icon: 'trash', onClick: () => { setSeleccionEliminar(new Set()); setVista('eliminar'); } },
+    ...(puedeEliminarCatalogo
+      ? [{ id: 'eliminar', label: 'Eliminar productos', icon: 'trash', onClick: () => { setSeleccionEliminar(new Set()); setVista('eliminar'); } }]
+      : []),
   ];
 
   const tablaProductos = (opts = {}) => {
     const { selectable, onSelect, selected, onRowClick, showActions = true } = opts;
+    const colCount = 5 + (enCentral ? 1 : 0) + (selectable ? 1 : 0) + (showActions ? 1 : 0);
     return (
       <div className="table-wrap">
         <table className="data">
@@ -307,8 +321,8 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
               <th>Código</th>
               <th>Nombre</th>
               <th>Precio</th>
-              <th>Piso</th>
-              <th>CEDIS</th>
+              <th>Piso ({tiendaLabel})</th>
+              {enCentral && <th>{etiquetaCedisEmpresa()}</th>}
               <th>Cat.</th>
               {showActions && <th />}
             </tr>
@@ -316,7 +330,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={selectable ? 8 : 7} className="muted">
+                <td colSpan={colCount} className="muted">
                   Sin productos. Usa el menú ⋮ para dar de alta o importar.
                 </td>
               </tr>
@@ -332,7 +346,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                   <td>{p.nombre}</td>
                   <td>${Math.round(Number(p.precio) || 0)}</td>
                   <td>{p.stock}</td>
-                  <td>{p.stock_cedis ?? 0}</td>
+                  {enCentral && <td>{p.stock_cedis ?? 0}</td>}
                   <td>{etiquetaDepartamento(p.cat)}</td>
                   {showActions && (
                     <td style={{ whiteSpace: 'nowrap' }}>
@@ -360,7 +374,8 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           <h2>{TITULOS_VISTA[vista] || 'Productos'}</h2>
           {vista === 'lista' && (
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-              {inventario.length} producto(s) en catálogo
+              {inventario.length} producto(s) en catálogo compartido · piso de venta en <strong>{tiendaLabel}</strong>
+            {enCentral && ' · CEDIS central en MAIN'}
             </p>
           )}
         </div>
@@ -385,6 +400,16 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
       </div>
 
       {vista === 'lista' && (
+        <div className="card" style={{ padding: '0.75rem 1rem', background: 'rgba(59,105,181,0.06)', border: '1px solid rgba(59,105,181,0.2)' }}>
+          <p style={{ margin: 0, fontSize: '0.88rem' }}>
+            <strong>Catálogo compartido:</strong> todas las tiendas ven los mismos productos, precios y departamentos.
+            Cada sucursal maneja su <strong>piso de venta</strong> (mostrador).
+            El <strong>CEDIS central (MAIN)</strong> es el único almacén de la empresa; desde ahí se reparte mercancía a las tiendas con traspaso «CEDIS central → Tienda».
+          </p>
+        </div>
+      )}
+
+      {vista === 'lista' && (
         <div className="card">
           {tablaProductos({ showActions: true })}
         </div>
@@ -399,8 +424,9 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
             esEdicion={esEdicionProducto}
             onDepartamentoAgregado={() => setTickDepartamentos((n) => n + 1)}
             onGuardar={guardar}
-            onEliminar={() => eliminar(form.id)}
+            onEliminar={puedeEliminarCatalogo ? () => eliminar(form.id) : undefined}
             onLimpiar={irLista}
+            sucursal={sucursal}
           />
           {form.id.trim() && vista === 'editar' && (
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
@@ -504,7 +530,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
         <div className="card">
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
             <strong>Paso 1:</strong> Descarga la plantilla · <strong>Paso 2:</strong> Llena codigo y nombre (obligatorios) · <strong>Paso 3:</strong> Importar archivo · <strong>Paso 4:</strong> Confirmar importación.
-            El stock se aplica a la tienda activa: <strong>{sucursal || 'MAIN'}</strong>.
+            El catálogo (nombre, precios, categoría) se comparte entre tiendas. <strong>stock_piso</strong> aplica a la tienda activa; <strong>stock_cedis</strong> siempre va al almacén central MAIN.
           </p>
           {importAviso && (
             <p style={{ margin: '0 0 0.75rem', padding: '0.6rem 0.75rem', borderRadius: 8, background: 'rgba(59,105,181,0.1)', color: 'var(--brand-blue)', fontSize: '0.88rem' }}>
@@ -664,7 +690,9 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
 
       {vista === 'precios' && (
         <div className="card">
-          <p className="muted" style={{ marginTop: 0 }}>Edita precios de venta y guarda todos los cambios.</p>
+          <p className="muted" style={{ marginTop: 0 }}>
+            Edita precios de venta para todo el catálogo (aplican en todas las tiendas) y guarda los cambios.
+          </p>
           <div className="table-wrap" style={{ maxHeight: '480px' }}>
             <table className="data">
               <thead>
@@ -703,7 +731,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
         </div>
       )}
 
-      {vista === 'eliminar' && (
+      {vista === 'eliminar' && puedeEliminarCatalogo && (
         <div className="card">
           <p className="muted" style={{ marginTop: 0, color: 'var(--brand-red)' }}>
             Marca productos para eliminarlos del catálogo. Esta acción no se puede deshacer.

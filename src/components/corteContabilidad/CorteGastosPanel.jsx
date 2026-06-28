@@ -25,6 +25,7 @@ export default function CorteGastosPanel({
   habilitado,
   puedeCatalogo,
   puedeEditarGastos,
+  notaNomina,
 }) {
   const [catalogo, setCatalogo] = useState([]);
   const [cat, setCat] = useState('');
@@ -120,7 +121,7 @@ export default function CorteGastosPanel({
         )}
       </div>
       <p className="muted" style={{ fontSize: '0.75rem', margin: '0.35rem 0 0.5rem' }}>
-        El consumo se descuenta en nómina al empleado que elijas (no al usuario que captura).
+        {notaNomina || 'El consumo se descuenta en nómina al empleado que elijas (no al usuario que captura).'}
       </p>
 
       {mostrarCat && puedeCatalogo && (

@@ -4,6 +4,7 @@ import {
   ALMACEN_CENTRAL,
   esAlmacenCentral,
   etiquetaAlmacenCentral,
+  etiquetaCedisEmpresa,
   inventarioParaSucursal,
   resumenStockProducto,
   stockAlmacenCentral,
@@ -38,13 +39,14 @@ export default function AdminInventarioCentral({
   }, [inventario, busqueda]);
 
   const tiendas = sucursalesLista || [];
+  const tiendasVenta = tiendas.filter((s) => !esAlmacenCentral(s));
 
   return (
     <div className="card" style={{ borderTop: '4px solid var(--brand-blue)', marginBottom: '1rem' }}>
       <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Inventario multitienda</h3>
       <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-        <strong>{etiquetaAlmacenCentral()}</strong> es el almacén de toda la cadena. Cada tienda maneja su propio CEDIS y piso de venta.
-        Desde aquí puedes operar en cualquier sucursal sin cambiar de módulo ni entrar tienda por tienda.
+        <strong>{etiquetaCedisEmpresa()}</strong> (MAIN) es el único almacén de la empresa para mercancía por repartir.
+        Cada tienda solo tiene <strong>piso de venta</strong>. Desde MAIN usa el traspaso «CEDIS central → Tienda» para surtir sucursales.
       </p>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', margin: '0.75rem 0' }}>
@@ -69,7 +71,7 @@ export default function AdminInventarioCentral({
 
       {esAlmacenCentral(tiendaOp) && (
         <p className="muted" style={{ fontSize: '0.8rem', margin: '0.5rem 0 0' }}>
-          En la central de administración (MAIN) las entradas y retiros afectan el stock del CEDIS central. Usa el traspaso «Central de administración → Tienda» para distribuir a sucursales.
+          En MAIN las entradas y compras suman al CEDIS central. Usa «CEDIS central → Tienda» para distribuir a sucursales.
         </p>
       )}
 
@@ -107,32 +109,16 @@ export default function AdminInventarioCentral({
                 <tr>
                   <th>Código</th>
                   <th>Producto</th>
-                  <th>{etiquetaAlmacenCentral()}</th>
-                  {tiendas
-                    .filter((s) => !esAlmacenCentral(s))
-                    .map((s) => (
-                      <th key={s} colSpan={2}>
-                        {etiquetaTienda(s)}
-                      </th>
-                    ))}
-                </tr>
-                <tr>
-                  <th colSpan={2} />
-                  <th>CEDIS</th>
-                  {tiendas
-                    .filter((s) => !esAlmacenCentral(s))
-                    .map((s) => (
-                      <React.Fragment key={`${s}-hdr`}>
-                        <th>CEDIS</th>
-                        <th>Piso</th>
-                      </React.Fragment>
-                    ))}
+                  <th>{etiquetaCedisEmpresa()}</th>
+                  {tiendasVenta.map((s) => (
+                    <th key={s}>Piso · {etiquetaTienda(s)}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {productosResumen.length === 0 ? (
                   <tr>
-                    <td colSpan={3 + (tiendas.filter((s) => !esAlmacenCentral(s)).length || 0) * 2} className="muted">
+                    <td colSpan={3 + tiendasVenta.length} className="muted">
                       Sin productos que coincidan.
                     </td>
                   </tr>
@@ -146,17 +132,10 @@ export default function AdminInventarioCentral({
                         <td>{p.id}</td>
                         <td>{p.nombre}</td>
                         <td style={{ fontWeight: 700 }}>{central}</td>
-                        {tiendas
-                          .filter((s) => !esAlmacenCentral(s))
-                          .map((s) => {
-                            const row = porTienda.get(s) || { cedis: 0, piso: 0 };
-                            return (
-                              <React.Fragment key={`${p.id}-${s}`}>
-                                <td>{row.cedis}</td>
-                                <td>{row.piso}</td>
-                              </React.Fragment>
-                            );
-                          })}
+                        {tiendasVenta.map((s) => {
+                          const row = porTienda.get(s) || { piso: 0 };
+                          return <td key={`${p.id}-${s}`}>{row.piso}</td>;
+                        })}
                       </tr>
                     );
                   })

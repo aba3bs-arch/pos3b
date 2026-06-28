@@ -1,17 +1,18 @@
 import {
   aplicarDeltaStock,
   esAlmacenCentral,
-  etiquetaAlmacenCentral,
+  etiquetaCedisEmpresa,
   stockEnUbicacion,
+  ubicacionEntradaDefault,
 } from './inventarioMultitienda.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 
 const LS_MOVIMIENTOS = 'pos3b_movimientos_inventario';
 
 export const TIPOS_MOVIMIENTO = [
-  { id: 'entrada', label: 'Entrada', signo: 1, desc: 'Suma unidades al CEDIS (almacén)' },
-  { id: 'retiro', label: 'Retiro', signo: -1, desc: 'Resta unidades del piso de venta (merma, uso interno, etc.)' },
-  { id: 'traspaso', label: 'Traspaso', signo: 0, desc: 'Mueve unidades entre CEDIS, piso de venta u otra tienda' },
+  { id: 'entrada', label: 'Entrada', signo: 1, desc: 'En MAIN suma al CEDIS central; en tienda suma al piso de venta.' },
+  { id: 'retiro', label: 'Retiro', signo: -1, desc: 'Resta del piso de venta (merma, uso interno, etc.). En MAIN puede restar del CEDIS central.' },
+  { id: 'traspaso', label: 'Traspaso', signo: 0, desc: 'Distribuye desde el almacén central o mueve entre pisos de tiendas.' },
 ];
 
 export function leerMovimientosLocal() {
@@ -32,15 +33,15 @@ export function guardarMovimientoLocal(row) {
 }
 
 function ubicacionMovimiento(tipo, sucursalOperacion) {
-  if (tipo === 'entrada') return 'cedis';
-  if (esAlmacenCentral(sucursalOperacion)) return 'cedis';
+  if (tipo === 'entrada') return ubicacionEntradaDefault(sucursalOperacion);
+  if (esAlmacenCentral(sucursalOperacion) && tipo === 'retiro') return 'cedis';
   return 'piso';
 }
 
 function etiquetaUbicacionMovimiento(tipo, sucursalOperacion) {
   const u = ubicacionMovimiento(tipo, sucursalOperacion);
-  if (esAlmacenCentral(sucursalOperacion)) return etiquetaAlmacenCentral();
-  return u === 'cedis' ? 'CEDIS' : 'piso de venta';
+  if (u === 'cedis') return etiquetaCedisEmpresa();
+  return esAlmacenCentral(sucursalOperacion) ? 'piso de venta · MAIN' : 'piso de venta';
 }
 
 export async function aplicarMovimientoInventario(supabase, opts) {

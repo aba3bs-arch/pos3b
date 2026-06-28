@@ -1,4 +1,4 @@
-import { buildPatchStock } from './inventarioMultitienda.js';
+import { buildPatchStock, buildPatchStockTienda, esAlmacenCentral } from './inventarioMultitienda.js';
 
 export const IVA_DEFAULT = 8;
 export const GANANCIA_DEFAULT = 30;
@@ -195,6 +195,7 @@ export function productoParaGuardar(form, opts = {}) {
   const compraCon = round2(form.precio_compra_con ?? conImpuesto(form.precio_compra_sin, imp));
   const compraSin = round2(form.precio_compra_sin);
   const stockPiso = Math.max(0, parseInt(String(form.stock), 10) || 0);
+  const stockCedis = Math.max(0, parseInt(String(form.stock_cedis), 10) || 0);
   const base = {
     id: String(form.id || '').trim(),
     nombre: String(form.nombre || '').trim(),
@@ -215,9 +216,12 @@ export function productoParaGuardar(form, opts = {}) {
   };
   if (sucursal) {
     const origen = productoDb || { ...form, stock_sucursales: form.stock_sucursales };
+    if (esAlmacenCentral(sucursal)) {
+      return { ...base, ...buildPatchStockTienda(origen, sucursal, stockPiso, stockCedis, sucursal) };
+    }
     return { ...base, ...buildPatchStock(origen, sucursal, 'piso', stockPiso, sucursal) };
   }
-  return { ...base, stock: stockPiso };
+  return { ...base, stock: stockPiso, stock_cedis: stockCedis };
 }
 
 export function productoEnVenta(p) {

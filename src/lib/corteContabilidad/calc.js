@@ -12,6 +12,13 @@ export function totalGastos(gastos = []) {
   return round2((gastos || []).reduce((a, g) => a + (Number(g.monto) || 0), 0));
 }
 
+/** Moneda con la que arrancó este turno de cajero (cambia entre cierres de cajero). */
+export function monedaInicialTurnoEfectiva(estado) {
+  const mit = estado?.moneda_inicial_turno;
+  if (mit != null && mit !== '') return round2(mit);
+  return round2(estado?.moneda_inicial);
+}
+
 /** Corte virtual: venta = moneda inicial turno − moneda final (si se capturó). */
 export function ventasVirtualCorte(monedaInicial, monedaFinal, opts = {}) {
   const { capturada = false, monedaInicialTurno } = opts;
@@ -23,9 +30,10 @@ export function ventasVirtualCorte(monedaInicial, monedaFinal, opts = {}) {
 
 export function calcularVirtual(estado, gastos = []) {
   const gastosTotal = totalGastos(gastos);
+  const monedaTurno = monedaInicialTurnoEfectiva(estado);
   const ventaCalc = ventasVirtualCorte(estado.moneda_inicial, estado.moneda_final, {
     capturada: Boolean(estado.moneda_final_editada),
-    monedaInicialTurno: estado.moneda_inicial_turno ?? estado.moneda_inicial,
+    monedaInicialTurno: monedaTurno,
   });
   const venta = valorManual(estado, 'venta_manual', ventaCalc);
   const faltante = round2(estado.faltante);

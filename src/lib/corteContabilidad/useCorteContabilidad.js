@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { turnoActual, nombreTurnoLegible } from '../turnos.js';
-import { empleadosVisiblesParaTienda } from '../empleadosVisibles.js';
+import { empleadosParaCorte } from '../empleadosVisibles.js';
 import { permisosCorteContabilidad } from './permisos.js';
 import {
   AVISO_FALTA_CORTES,
@@ -63,7 +63,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     setEstado(estRes.estado || {});
     setGastos(gasRes.data || []);
     setHistorial(histRes.data || []);
-    setEmpleados(empleadosVisiblesParaTienda(empRes.data || [], sucursal, user?.rol));
+    setEmpleados(empleadosParaCorte(empRes.data || [], sucursal, modulo, user?.rol));
     if (!estRes.estado?.folio && modulo !== 'abarrotes') {
       const f = await peekFolio(supabase, sucursal, modulo);
       setFolio(f);
@@ -105,7 +105,14 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   };
 
   const cerrarCorte = async (detalleExtra = {}) => {
-    if (!perm.guardar) return alert('No tiene permiso para cerrar este corte.');
+    const esActualizacion =
+      detalleExtra.tipo_cierre === 'actualizacion' || detalleExtra.tipo_cierre === 'recoleccion';
+    if (esActualizacion) {
+      if (!perm.recoleccion) return alert('Solo el recolector (administrador o privilegio de recolección) puede actualizar la moneda inicial.');
+    } else if (!perm.guardar) {
+      return alert('No tiene permiso para cerrar este corte.');
+    }
+
     const payload = {
       sucursal_id: sucursal || 'MAIN',
       modulo,
@@ -122,13 +129,14 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         subtotal: calc.subtotal,
         comentarios: estado.comentarios || '',
         ...detalleExtra,
+        tipo_cierre: esActualizacion ? 'actualizacion' : detalleExtra.tipo_cierre || 'cierre',
       },
     };
     const res = await registrarCierreCorte(supabase, payload);
     if (!res.ok) return alert(res.error || AVISO_FALTA_CORTES);
 
     await limpiarGastosTurno(supabase, sucursal, modulo);
-    const nuevoEstado = prepararTrasCierre(estado, calc);
+    const nuevoEstado = prepararTrasCierre(estado, calc, { esActualizacion });
     if (modulo !== 'abarrotes') {
       const nuevoFolio = await siguienteFolio(supabase, sucursal, modulo);
       setFolio(nuevoFolio);
@@ -139,7 +147,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     setGastos([]);
     const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
     setHistorial(hist.data || []);
-    alert('Corte cerrado y guardado en historial contabilidad.');
+    alert(esActualizacion ? 'Moneda inicial actualizada. Corte registrado como actualización.' : 'Corte cerrado y guardado en historial contabilidad.');
   };
 
   return {

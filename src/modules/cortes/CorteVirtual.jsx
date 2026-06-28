@@ -1,7 +1,8 @@
 import React, { useCallback } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
-import { calcularVirtual } from '../../lib/corteContabilidad/calc.js';
+import { calcularVirtual, monedaInicialTurnoEfectiva } from '../../lib/corteContabilidad/calc.js';
+import { etiquetaTipoCierre } from '../../lib/corteContabilidad/permisos.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 
 const COLOR = '#8e44ad';
@@ -39,13 +40,9 @@ function AjustesAdmin({ perm, estado, patchEstado }) {
 }
 
 export default function CorteVirtual({ supabase, sucursal, user }) {
-  const prepararTrasCierre = useCallback((estado, calc) => {
-    const mf = Number(estado.moneda_final) || 0;
-    const siguienteMi = mf > 0 ? mf : Number(estado.moneda_inicial) || 0;
-    return {
-      ...estado,
-      moneda_inicial: siguienteMi,
-      moneda_inicial_turno: siguienteMi,
+  const prepararTrasCierre = useCallback((estado, calc, opts = {}) => {
+    const { esActualizacion = false } = opts;
+    const baseReset = {
       moneda_final: 0,
       moneda_final_editada: false,
       caja_anterior: calc.cajaActual,
@@ -56,6 +53,26 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
       venta_manual: '',
       subtotal_manual: '',
       caja_actual_manual: '',
+    };
+
+    if (esActualizacion) {
+      const mf = Number(estado.moneda_final) || 0;
+      const refRecolector = mf > 0 ? mf : Number(estado.moneda_inicial) || 0;
+      return {
+        ...estado,
+        ...baseReset,
+        moneda_inicial: refRecolector,
+        moneda_inicial_turno: refRecolector,
+      };
+    }
+
+    const mf = Number(estado.moneda_final) || 0;
+    const turnoSiguiente = mf > 0 ? mf : monedaInicialTurnoEfectiva(estado);
+    return {
+      ...estado,
+      ...baseReset,
+      moneda_inicial: estado.moneda_inicial,
+      moneda_inicial_turno: turnoSiguiente,
     };
   }, []);
 
@@ -73,34 +90,40 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
     if (!estado.moneda_final_editada && perm.moneda_final) {
       if (!confirm('No capturó moneda final. Las ventas del turno se registrarán en $0.00.\n\n¿Continuar?')) return;
     }
+    const turnoActualMi = monedaInicialTurnoEfectiva(estado);
     const msg =
       `¿Cerrar corte virtual?\n\n` +
-      `Moneda inicial: ${fmtCorte(estado.moneda_inicial)}\n` +
+      `Inicio turno (cajero): ${fmtCorte(turnoActualMi)}\n` +
       `Moneda final: ${fmtCorte(estado.moneda_final)}\n` +
       `Venta efectivo: ${fmtCorte(calc.venta)}\n` +
       `Gastos: ${fmtCorte(calc.gastosTotal)}\n` +
-      `Recolección: ${fmtCorte(estado.recoleccion ?? estado.recoleccion_turno)}\n` +
-      `Caja actual: ${fmtCorte(calc.cajaActual)}`;
-    if (confirm(msg)) cerrarCorte();
+      `Faltante: ${fmtCorte(estado.faltante)}\n` +
+      `Caja chica resultante: ${fmtCorte(calc.cajaActual)}\n\n` +
+      `La moneda final será el inicio del siguiente turno de cajero.\n` +
+      `La moneda inicial del recolector (${fmtCorte(estado.moneda_inicial)}) no cambia.`;
+    if (confirm(msg)) cerrarCorte({ tipo_cierre: 'cierre' });
   };
 
-  const recoleccionYCierre = () => {
-    if (!perm.recoleccion) return alert('Solo el administrador o usuarios con privilegio de recolección pueden hacer esto.');
+  const actualizarMonedaInicial = () => {
+    if (!perm.recoleccion) return alert('Solo el recolector (administrador o privilegio de recolección) puede actualizar la moneda inicial.');
     if (!estado.moneda_final_editada) {
-      return alert('Capture la moneda final (conteo actual) antes de la recolección y cierre.');
+      return alert('Capture la moneda final (conteo actual en caja) antes de actualizar la moneda inicial.');
     }
     const rec = Number(estado.recoleccion ?? estado.recoleccion_turno) || 0;
     const msg =
-      `¿Recolección y cierre de turno?\n\n` +
-      `Moneda final en corte: ${fmtCorte(estado.moneda_final)}\n` +
+      `¿Actualizar moneda inicial y cerrar turno?\n\n` +
+      `Moneda final contada: ${fmtCorte(estado.moneda_final)}\n` +
       `Recolección (retiro): ${fmtCorte(rec)}\n` +
-      `Caja chica resultante: ${fmtCorte(calc.cajaActual)}\n\n` +
-      `Se guardará el corte y la tienda iniciará operación con moneda inicial actualizada.`;
-    if (confirm(msg)) cerrarCorte({ tipo_cierre: 'recoleccion' });
+      `Caja chica arrastrada: ${fmtCorte(calc.cajaActual)}\n\n` +
+      `Nueva moneda inicial (recolector): ${fmtCorte(estado.moneda_final)}.\n` +
+      `Se registrará como actualización en el historial.`;
+    if (confirm(msg)) cerrarCorte({ tipo_cierre: 'actualizacion' });
   };
 
   const cajaNegativa = calc.cajaActual < -0.001;
-  const ro = perm.soloLectura;
+  const monedaInicialRef = Number(estado.moneda_inicial) || 0;
+  const monedaTurnoActual = monedaInicialTurnoEfectiva(estado);
+  const turnoDistintoRecolector = Math.abs(monedaTurnoActual - monedaInicialRef) > 0.001;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -118,8 +141,8 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
             </button>
           )}
           {perm.recoleccion && (
-            <button type="button" className="btn btn-gold" onClick={recoleccionYCierre} disabled={cargando}>
-              Recolección y cierre
+            <button type="button" className="btn btn-gold" onClick={actualizarMonedaInicial} disabled={cargando}>
+              Actualizar moneda inicial
             </button>
           )}
         </div>
@@ -127,37 +150,84 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
         <CorteSucursalAviso sucursal={sucursal} user={user} />
       </div>
 
+      <div
+        className="card"
+        style={{
+          textAlign: 'center',
+          background: 'linear-gradient(135deg, rgba(142,68,173,0.12), rgba(142,68,173,0.04))',
+          border: '2px solid rgba(142,68,173,0.35)',
+        }}
+      >
+        <div className="muted" style={{ fontSize: '0.8rem', fontWeight: 700, letterSpacing: '0.04em' }}>
+          MONEDA INICIAL · RECOLECTOR
+        </div>
+        <div style={{ fontSize: '2.4rem', fontWeight: 800, color: COLOR, margin: '0.25rem 0' }}>{fmtCorte(monedaInicialRef)}</div>
+        {turnoDistintoRecolector && (
+          <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--brand-blue)', marginBottom: '0.35rem' }}>
+            Inicio de este turno (cajero): {fmtCorte(monedaTurnoActual)}
+          </div>
+        )}
+        <p className="muted" style={{ margin: 0, fontSize: '0.82rem', maxWidth: '560px', marginInline: 'auto' }}>
+          Referencia fijada por el recolector tras la recolección.
+          Entre cierres de cajero, la moneda final pasa a ser el inicio del turno siguiente (solo para calcular ventas).
+          {perm.recoleccion
+            ? ' Para cambiar la referencia del recolector, use «Actualizar moneda inicial».'
+            : ' Solo el recolector puede cambiar la referencia de arriba.'}
+        </p>
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
         <div className="card">
           <h4 style={{ margin: '0 0 0.75rem' }}>Moneda y venta</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-            <Campo label="Fondo fijo (ref)" value={estado.fondo ?? 0} readOnly={ro} hint="Referencia; no afecta la venta" onChange={(v) => patchEstado({ fondo: v })} />
-            <Campo label="Caja anterior (+)" value={estado.caja_anterior ?? 0} readOnly={ro} onChange={(v) => patchEstado({ caja_anterior: v })} />
             <Campo
-              label="Moneda inicial"
-              value={estado.moneda_inicial ?? 0}
-              readOnly={!perm.moneda_inicial}
-              onChange={(v) => patchEstado({ moneda_inicial: v, moneda_inicial_turno: v })}
+              label="Fondo fijo (ref)"
+              value={estado.fondo ?? 0}
+              readOnly={!perm.fondo}
+              hint="Fijado por recolector · no afecta la venta"
+              onChange={(v) => patchEstado({ fondo: v })}
+            />
+            <Campo
+              label="Caja chica anterior (+)"
+              value={estado.caja_anterior ?? 0}
+              readOnly={!perm.caja_anterior}
+              hint="Se arrastra entre cortes · solo recolector"
+              onChange={(v) => patchEstado({ caja_anterior: v })}
+            />
+            <Campo
+              label="Inicio turno (cajero)"
+              value={monedaTurnoActual}
+              readOnly
+              hint="Moneda final del corte anterior · cambia entre cierres de cajero"
             />
             <Campo
               label="Moneda final"
               value={estado.moneda_final ?? 0}
               readOnly={!perm.moneda_final}
+              hint="Al cerrar, será el inicio del siguiente turno de cajero"
               onChange={(v) => patchEstado({ moneda_final: v, moneda_final_editada: true })}
             />
             <div style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(22,160,133,0.1)', borderRadius: 8 }}>
               <div className="muted" style={{ fontSize: '0.75rem' }}>Venta efectivo</div>
               <div style={{ fontSize: '1.4rem', fontWeight: 800, color: calc.venta < 0 ? 'var(--danger)' : '#16a085' }}>{fmtCorte(calc.venta)}</div>
-              <div className="muted" style={{ fontSize: '0.7rem' }}>Moneda inicial − moneda final</div>
+              <div className="muted" style={{ fontSize: '0.7rem' }}>Inicio turno − moneda final</div>
             </div>
-            <Campo label="Faltante (−)" value={estado.faltante ?? 0} readOnly={ro} color="var(--danger)" onChange={(v) => patchEstado({ faltante: v })} />
             <Campo
-              label="Recolección (−)"
-              value={estado.recoleccion ?? estado.recoleccion_turno ?? 0}
-              readOnly={!perm.recoleccion}
-              hint={perm.recoleccion ? 'Administrador o autorizados' : 'Sin permiso de recolección'}
-              onChange={(v) => patchEstado({ recoleccion: v, recoleccion_turno: v })}
+              label="Faltante (−)"
+              value={estado.faltante ?? 0}
+              readOnly={!perm.faltante}
+              color="var(--danger)"
+              onChange={(v) => patchEstado({ faltante: v })}
             />
+            {perm.recoleccion && (
+              <Campo
+                label="Recolección (−)"
+                value={estado.recoleccion ?? estado.recoleccion_turno ?? 0}
+                readOnly={false}
+                hint="Retiro de efectivo al actualizar moneda inicial"
+                onChange={(v) => patchEstado({ recoleccion: v, recoleccion_turno: v })}
+              />
+            )}
             <AjustesAdmin perm={perm} estado={estado} patchEstado={patchEstado} />
           </div>
         </div>
@@ -175,6 +245,7 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
             habilitado={perm.gastos}
             puedeCatalogo={perm.editarTodo}
             puedeEditarGastos={perm.editarTodo}
+            notaNomina="Los consumos de empleados se descontarán en nómina."
           />
           <textarea
             className="input"
@@ -196,6 +267,9 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: '0.85rem', fontWeight: 700 }}>Caja chica actual</div>
             <div style={{ fontSize: '2rem', fontWeight: 800, color: cajaNegativa ? 'var(--danger)' : '#2980b9' }}>{fmtCorte(calc.cajaActual)}</div>
+            <p className="muted" style={{ fontSize: '0.75rem', margin: '0.35rem 0 0' }}>
+              Subtotal + caja anterior − recolección. No incluye la moneda inicial.
+            </p>
             {cajaNegativa && <div style={{ color: 'var(--danger)', fontWeight: 700, fontSize: '0.85rem' }}>CAJA EN NEGATIVO</div>}
           </div>
         </div>
@@ -209,6 +283,7 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
               <thead>
                 <tr>
                   <th>Fecha</th>
+                  <th>Tipo</th>
                   <th>Folio</th>
                   <th>Ventas</th>
                   <th>Caja</th>
@@ -219,6 +294,7 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
                 {historial.map((h) => (
                   <tr key={h.id}>
                     <td>{h.created_at ? new Date(h.created_at).toLocaleString() : '—'}</td>
+                    <td>{etiquetaTipoCierre(h.detalle)}</td>
                     <td>{h.folio}</td>
                     <td>{fmtCorte(h.ventas)}</td>
                     <td>{fmtCorte(h.caja_actual)}</td>

@@ -10,6 +10,8 @@ import {
 } from '../lib/productoForm.js';
 import { BtnLabel } from '../components/Icon.jsx';
 import CampoCodigo from './CampoCodigo.jsx';
+import { etiquetaTienda } from '../constants/sucursales.js';
+import { esAlmacenCentral, etiquetaCedisEmpresa } from '../lib/inventarioMultitienda.js';
 
 export default function FormularioProducto({
   form,
@@ -20,7 +22,10 @@ export default function FormularioProducto({
   onLimpiar,
   esEdicion,
   onDepartamentoAgregado,
+  sucursal,
 }) {
+  const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : null;
+  const enCentral = esAlmacenCentral(sucursal);
   const fotoRef = useRef(null);
   const [nuevoDepto, setNuevoDepto] = useState('');
 
@@ -57,6 +62,16 @@ export default function FormularioProducto({
   return (
     <div className="card">
       <h3 style={{ margin: '0 0 1rem', color: 'var(--brand-blue)' }}>Alta y edición de productos</h3>
+      {tiendaLabel && (
+        <p className="muted" style={{ margin: '0 0 1rem', fontSize: '0.85rem', padding: '0.65rem 0.75rem', borderRadius: 8, background: 'rgba(59,105,181,0.08)', border: '1px solid rgba(59,105,181,0.18)' }}>
+          Catálogo compartido entre todas las tiendas. Precios y datos del producto aplican a toda la cadena.
+          {enCentral ? (
+            <> En MAIN puedes editar el <strong>{etiquetaCedisEmpresa()}</strong> y el piso de venta.</>
+          ) : (
+            <> El <strong>piso de venta</strong> que edites es solo de <strong>{tiendaLabel}</strong>. El CEDIS central se administra desde MAIN.</>
+          )}
+        </p>
+      )}
 
       <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <div style={{ flex: '0 0 140px', textAlign: 'center' }}>
@@ -256,9 +271,15 @@ export default function FormularioProducto({
             />
           </label>
           <label className="muted">
-            Stock actual
+            {tiendaLabel ? `Piso · ${tiendaLabel}` : 'Stock piso (mostrador)'}
             <input className="input" type="number" min={0} style={{ marginTop: '0.35rem' }} value={form.stock} onChange={(e) => setCampoSimple('stock', parseInt(e.target.value, 10) || 0)} />
           </label>
+          {enCentral && (
+            <label className="muted">
+              {etiquetaCedisEmpresa()}
+              <input className="input" type="number" min={0} style={{ marginTop: '0.35rem' }} value={form.stock_cedis ?? 0} onChange={(e) => setCampoSimple('stock_cedis', parseInt(e.target.value, 10) || 0)} />
+            </label>
+          )}
           <label className="muted">
             Stock mínimo
             <input className="input" type="number" min={0} style={{ marginTop: '0.35rem' }} value={form.stock_minimo} onChange={(e) => setCampoSimple('stock_minimo', parseInt(e.target.value, 10) || 0)} />

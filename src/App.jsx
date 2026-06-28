@@ -128,6 +128,19 @@ function App() {
   }, [sesion, cargarDatos]);
 
   useEffect(() => {
+    if (!supabase || !sesion) return undefined;
+    const channel = supabase
+      .channel('pos-productos-catalogo')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'productos' }, () => {
+        cargarDatos();
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [sesion, cargarDatos]);
+
+  useEffect(() => {
     const syncBrand = () => setBrandTitle(leerNombreNegocio());
     syncBrand();
     window.addEventListener(EVENTO_BRANDING, syncBrand);
