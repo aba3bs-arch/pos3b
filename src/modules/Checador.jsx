@@ -3,6 +3,10 @@ import { etiquetaTienda, listarSucursalesParaUI } from '../constants/sucursales.
 import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from '../lib/usuariosAuth.js';
 import { evaluarVinculoDispositivo } from '../lib/dispositivoUsuario.js';
 import { usuarioAutorizadoLogin } from '../lib/turnos.js';
+import {
+  otorgarAutorizacionFueraHorario,
+  verificarPinAdministradorGlobal,
+} from '../lib/autorizacionTurnoFueraHorario.js';
 import { puedeGestionarUsuarios } from '../lib/roles.js';
 import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
@@ -46,6 +50,9 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
   const [historialFull, setHistorialFull] = useState([]);
   const [cargandoHist, setCargandoHist] = useState(false);
   const [msg, setMsg] = useState('');
+  const [pendienteChecador, setPendienteChecador] = useState(null);
+  const [pinAdminChecador, setPinAdminChecador] = useState('');
+  const [autorizandoChecador, setAutorizandoChecador] = useState(false);
 
   const [filtroTiendaHist, setFiltroTiendaHist] = useState(sucursal || '');
   const [presetHist, setPresetHist] = useState('semana');
@@ -169,12 +176,15 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       setEmpleado(null);
       return;
     }
-    const accesoTurno = usuarioAutorizadoLogin(data);
+    const accesoTurno = usuarioAutorizadoLogin(data, new Date(), null, sucursal);
     if (!accesoTurno.ok) {
-      setMsg(accesoTurno.error);
+      setPendienteChecador({ user: data, error: accesoTurno.error });
+      setMsg('');
       setEmpleado(null);
       return;
     }
+    setPendienteChecador(null);
+    setPinAdminChecador('');
     const vinculo = evaluarVinculoDispositivo(data);
     if (!vinculo.ok) {
       setMsg(vinculo.error);
@@ -182,6 +192,30 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       return;
     }
     setEmpleado({ id: data.id, nombre: data.nombre, rol: data.rol });
+    setPinEmpleado('');
+  };
+
+  const autorizarChecadorConAdmin = async () => {
+    if (!pendienteChecador?.user || !supabase) return;
+    const p = pinAdminChecador.trim();
+    if (!p) return setMsg('Indica el PIN del administrador.');
+    setAutorizandoChecador(true);
+    setMsg('');
+    const auth = await verificarPinAdministradorGlobal(supabase, p);
+    if (!auth.ok) {
+      setAutorizandoChecador(false);
+      setMsg(auth.error);
+      return;
+    }
+    otorgarAutorizacionFueraHorario({
+      usuarioId: pendienteChecador.user.id,
+      sucursal,
+      admin: auth.user,
+    });
+    setAutorizandoChecador(false);
+    setEmpleado({ id: pendienteChecador.user.id, nombre: pendienteChecador.user.nombre, rol: pendienteChecador.user.rol });
+    setPendienteChecador(null);
+    setPinAdminChecador('');
     setPinEmpleado('');
   };
 
@@ -316,7 +350,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
             {reloj.toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </p>
 
-          {!empleado ? (
+          {!empleado && !pendienteChecador ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxWidth: '360px' }}>
               <label className="muted">
                 PIN del empleado
@@ -333,6 +367,50 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
               <button type="button" className="btn btn-primary" onClick={identificarEmpleado} disabled={cargandoPin}>
                 {cargandoPin ? 'Verificando…' : 'Continuar'}
               </button>
+            </div>
+          ) : pendienteChecador ? (
+            <div
+              style={{
+                maxWidth: '360px',
+                padding: '0.85rem',
+                borderRadius: '10px',
+                background: 'rgba(225,153,41,0.12)',
+                border: '1px solid rgba(225,153,41,0.45)',
+              }}
+            >
+              <strong style={{ color: 'var(--brand-gold)' }}>Fuera de horario</strong>
+              <p className="muted" style={{ margin: '0.35rem 0', fontSize: '0.82rem' }}>{pendienteChecador.error}</p>
+              <p style={{ fontSize: '0.85rem', margin: '0 0 0.5rem' }}>
+                Empleado: <strong>{pendienteChecador.user.nombre}</strong>
+              </p>
+              <label className="muted" style={{ display: 'block', fontSize: '0.82rem' }}>
+                PIN del administrador
+                <div style={{ marginTop: '0.35rem' }}>
+                  <InputPin
+                    value={pinAdminChecador}
+                    onChange={(e) => setPinAdminChecador(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && !autorizandoChecador && autorizarChecadorConAdmin()}
+                    placeholder="PIN admin"
+                    style={{ marginBottom: 0 }}
+                  />
+                </div>
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.65rem', flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-gold" onClick={autorizarChecadorConAdmin} disabled={autorizandoChecador}>
+                  {autorizandoChecador ? 'Verificando…' : 'Autorizar'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setPendienteChecador(null);
+                    setPinAdminChecador('');
+                  }}
+                  disabled={autorizandoChecador}
+                >
+                  Cancelar
+                </button>
+              </div>
             </div>
           ) : (
             <div style={{ padding: '1rem', borderRadius: '12px', background: 'rgba(59,105,181,0.08)', marginBottom: '1rem' }}>

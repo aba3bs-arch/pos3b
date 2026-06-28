@@ -1038,6 +1038,7 @@ export default function Configuracion({
           <strong style={{ color: 'var(--brand-blue)' }}>Tolerancia de entrada</strong>
           <p className="muted" style={{ margin: '0.35rem 0 0.75rem', fontSize: '0.82rem' }}>
             Permite que el cajero entre unos minutos <strong>antes</strong> de su hora oficial o vuelva a entrar si cerró la app <strong>después</strong> de la salida (sin abrir el turno a otra persona).
+            Si aun así no puede entrar, un <strong>administrador</strong> puede autorizar con su PIN en la pantalla de login (válido 8 h en esa tienda).
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-end' }}>
             <label className="muted">

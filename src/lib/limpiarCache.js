@@ -17,6 +17,7 @@ const CLAVES_PRESERVAR = new Set([
   'pos3b_tipo_horario',
   'pos3b_patrones_rotacion_3',
   'pos3b_tolerancia_turnos',
+  'pos3b_autorizacion_turno_fh',
   'pos3b_negocio',
   'pos3b_ticket_footer',
   'pos3b_logo_url',

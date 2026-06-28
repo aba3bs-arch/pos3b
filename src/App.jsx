@@ -46,6 +46,10 @@ import {
   vincularDispositivoUsuario,
 } from './lib/dispositivoUsuario.js';
 import { usuarioAutorizadoLogin, turnoActual } from './lib/turnos.js';
+import {
+  otorgarAutorizacionFueraHorario,
+  verificarPinAdministradorGlobal,
+} from './lib/autorizacionTurnoFueraHorario.js';
 import BrandLogo from './components/BrandLogo.jsx';
 import Icon, { BtnLabel } from './components/Icon.jsx';
 import BotonLimpiarCache from './components/BotonLimpiarCache.jsx';
@@ -61,6 +65,9 @@ function App() {
   const [sesion, setSesion] = useState(false);
   const [user, setUser] = useState(null);
   const [pin, setPin] = useState('');
+  const [pendienteAutorizacionTurno, setPendienteAutorizacionTurno] = useState(null);
+  const [pinAdminAutorizacion, setPinAdminAutorizacion] = useState('');
+  const [autorizandoTurno, setAutorizandoTurno] = useState(false);
   const [vista, setVista] = useState('Inicio');
   const [valesIrPendientes, setValesIrPendientes] = useState(false);
   const [sucursal, setSucursal] = useState(sucursalInicial);
@@ -150,7 +157,7 @@ function App() {
   useEffect(() => {
     if (!sesion || !user) return undefined;
     const vigilarTurno = () => {
-      const auth = usuarioAutorizadoLogin(user);
+      const auth = usuarioAutorizadoLogin(user, new Date(), null, sucursal);
       if (!auth.ok) {
         alert(`${auth.error}\n\nSe cerrará la sesión por seguridad.`);
         setSesion(false);
@@ -162,7 +169,7 @@ function App() {
     vigilarTurno();
     const id = setInterval(vigilarTurno, 60_000);
     return () => clearInterval(id);
-  }, [sesion, user]);
+  }, [sesion, user, sucursal]);
 
   useEffect(() => {
     guardarSucursalLocal(sucursal);
@@ -201,6 +208,52 @@ function App() {
     [user],
   );
 
+  const completarLogin = useCallback(
+    async (data, { ajustarSucursal, autorizacionAdmin = false } = {}) => {
+      const terminalFijada = Boolean(SUCURSAL_FIJA_ENV || tiendaFijadaParaAcceso);
+      const vinculo = evaluarVinculoDispositivo(data, { terminalFijada });
+      if (!vinculo.ok) {
+        alert(vinculo.error);
+        setPin('');
+        return false;
+      }
+      let sucursalLogin = sucursal;
+      if (ajustarSucursal && normalizarCodigoTienda(ajustarSucursal) !== normalizarCodigoTienda(sucursal)) {
+        sucursalLogin = ajustarSucursal;
+        setSucursal(ajustarSucursal);
+        guardarSucursalLocal(ajustarSucursal);
+        if (tiendaFijadaParaAcceso) bloquearTiendaEnEsteEquipo(ajustarSucursal);
+      }
+      if (vinculo.vincular) {
+        const resVinculo = await vincularDispositivoUsuario(supabase, data.id, vinculo.deviceId);
+        if (!resVinculo.ok) {
+          alert(resVinculo.error);
+          setPin('');
+          return false;
+        }
+        data.dispositivo_id = vinculo.deviceId;
+      }
+      setUser(data);
+      setSesion(true);
+      setPin('');
+      setPendienteAutorizacionTurno(null);
+      setPinAdminAutorizacion('');
+      limpiarAnunciosVistos();
+      setVista('Inicio');
+      void supabase.from('logins').insert([
+        {
+          usuario_id: data.id,
+          nombre: data.nombre,
+          sucursal: sucursalLogin,
+          evento: autorizacionAdmin ? 'ENTRADA_AUTORIZADA' : 'ENTRADA',
+          turno_id: turnoActual()?.id || null,
+        },
+      ]);
+      return true;
+    },
+    [sucursal, tiendaFijadaParaAcceso, supabase],
+  );
+
   const manejarLogin = async () => {
     if (!supabase) {
       alert('Configura VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en el archivo .env y reinicia el servidor de desarrollo.');
@@ -223,51 +276,36 @@ function App() {
       console.warn('Ejecuta supabase/fix_usuarios_sucursal.sql para ligar usuarios a sucursal.');
     }
     if (data) {
-      const accesoTurno = usuarioAutorizadoLogin(data);
+      const accesoTurno = usuarioAutorizadoLogin(data, new Date(), null, sucursal);
       if (!accesoTurno.ok) {
-        alert(accesoTurno.error);
+        setPendienteAutorizacionTurno({ user: data, error: accesoTurno.error, ajustarSucursal });
         setPin('');
         return;
       }
-      const terminalFijada = Boolean(SUCURSAL_FIJA_ENV || tiendaFijadaParaAcceso);
-      const vinculo = evaluarVinculoDispositivo(data, { terminalFijada });
-      if (!vinculo.ok) {
-        alert(vinculo.error);
-        setPin('');
-        return;
-      }
-      if (ajustarSucursal && normalizarCodigoTienda(ajustarSucursal) !== normalizarCodigoTienda(sucursal)) {
-        setSucursal(ajustarSucursal);
-        guardarSucursalLocal(ajustarSucursal);
-        if (tiendaFijadaParaAcceso) bloquearTiendaEnEsteEquipo(ajustarSucursal);
-      }
-      if (vinculo.vincular) {
-        const resVinculo = await vincularDispositivoUsuario(supabase, data.id, vinculo.deviceId);
-        if (!resVinculo.ok) {
-          alert(resVinculo.error);
-          setPin('');
-          return;
-        }
-        data.dispositivo_id = vinculo.deviceId;
-      }
-      setUser(data);
-      setSesion(true);
-      setPin('');
-      limpiarAnunciosVistos();
-      setVista('Inicio');
-      void supabase.from('logins').insert([
-        {
-          usuario_id: data.id,
-          nombre: data.nombre,
-          sucursal,
-          evento: 'ENTRADA',
-          turno_id: turnoActual()?.id || null,
-        },
-      ]);
+      await completarLogin(data, { ajustarSucursal, autorizacionAdmin: Boolean(accesoTurno.autorizacionAdmin) });
     } else {
       alert(avisoSucursal ? mensajePinSucursalIncorrecta(etiquetaTienda(sucursal), sucursalReal) : 'PIN incorrecto');
       setPin('');
     }
+  };
+
+  const manejarAutorizacionAdminTurno = async () => {
+    if (!pendienteAutorizacionTurno?.user || !supabase) return;
+    const p = pinAdminAutorizacion.trim();
+    if (!p) return alert('Indica el PIN del administrador.');
+    setAutorizandoTurno(true);
+    const auth = await verificarPinAdministradorGlobal(supabase, p);
+    setAutorizandoTurno(false);
+    if (!auth.ok) return alert(auth.error);
+    otorgarAutorizacionFueraHorario({
+      usuarioId: pendienteAutorizacionTurno.user.id,
+      sucursal,
+      admin: auth.user,
+    });
+    await completarLogin(pendienteAutorizacionTurno.user, {
+      ajustarSucursal: pendienteAutorizacionTurno.ajustarSucursal,
+      autorizacionAdmin: true,
+    });
   };
 
   const cerrarSesion = () => {
@@ -401,10 +439,69 @@ function App() {
             className="btn btn-primary"
             style={{ width: '100%', padding: '0.85rem' }}
             onClick={manejarLogin}
-            disabled={!puedeIngresarPin}
+            disabled={!puedeIngresarPin || Boolean(pendienteAutorizacionTurno)}
           >
             <BtnLabel icon="logIn">Entrar</BtnLabel>
           </button>
+
+          {pendienteAutorizacionTurno && (
+            <div
+              style={{
+                marginTop: '1rem',
+                padding: '0.85rem',
+                borderRadius: '10px',
+                background: 'rgba(225,153,41,0.12)',
+                border: '1px solid rgba(225,153,41,0.45)',
+                textAlign: 'left',
+              }}
+            >
+              <strong style={{ color: 'var(--brand-gold)' }}>Fuera de horario de turno</strong>
+              <p className="muted" style={{ margin: '0.35rem 0 0.75rem', fontSize: '0.82rem' }}>
+                {pendienteAutorizacionTurno.error}
+              </p>
+              <p style={{ margin: '0 0 0.5rem', fontSize: '0.85rem' }}>
+                Empleado: <strong>{pendienteAutorizacionTurno.user.nombre}</strong>
+              </p>
+              <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
+                Un <strong>administrador</strong> puede autorizar la entrada en {etiquetaTienda(sucursal)} (válido 8 h).
+              </p>
+              <label className="muted" style={{ display: 'block', fontSize: '0.82rem' }}>
+                PIN del administrador
+                <div style={{ marginTop: '0.35rem' }}>
+                  <InputPin
+                    value={pinAdminAutorizacion}
+                    onChange={(e) => setPinAdminAutorizacion(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && !autorizandoTurno && manejarAutorizacionAdminTurno()}
+                    placeholder="PIN admin"
+                    autoFocus
+                    style={{ marginBottom: 0 }}
+                  />
+                </div>
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.65rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-gold"
+                  style={{ flex: '1 1 140px' }}
+                  onClick={manejarAutorizacionAdminTurno}
+                  disabled={autorizandoTurno}
+                >
+                  {autorizandoTurno ? 'Verificando…' : 'Autorizar entrada'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setPendienteAutorizacionTurno(null);
+                    setPinAdminAutorizacion('');
+                  }}
+                  disabled={autorizandoTurno}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );

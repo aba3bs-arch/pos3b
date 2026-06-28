@@ -92,7 +92,7 @@ export default function Ventas({
 
   const finalizarVenta = async () => {
     if (!supabase || !user) return;
-    const acceso = usuarioAutorizadoLogin(user);
+    const acceso = usuarioAutorizadoLogin(user, new Date(), null, sucursal);
     if (!acceso.ok) return alert(acceso.error);
     const turno = turnoActual();
     if (!metodoActual) return alert('No hay métodos de pago activos. Configúralos en Configuración.');
