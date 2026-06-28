@@ -94,3 +94,13 @@ export function etiquetaTipoCierre(detalle) {
   if (t === 'actualizacion' || t === 'recoleccion') return 'Actualización';
   return 'Cierre';
 }
+
+/** ¿Puede editar un campo operativo del corte? (cajero: moneda final, faltante, gastos) */
+export function puedeEditarCorteCampo(perm, campo) {
+  if (!perm || perm.soloLectura) return false;
+  if (perm.editarTodo) return true;
+  if (perm[campo] === true) return true;
+  if (perm.guardar && ['moneda_final', 'faltante', 'comentarios'].includes(campo)) return true;
+  if (perm.gastos && campo === 'gastos') return true;
+  return false;
+}

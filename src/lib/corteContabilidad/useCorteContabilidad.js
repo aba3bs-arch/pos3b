@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { turnoActual, nombreTurnoLegible } from '../turnos.js';
 import { empleadosParaCorte } from '../empleadosVisibles.js';
-import { permisosCorteContabilidad } from './permisos.js';
+import { permisosCorteContabilidad, puedeEditarCorteCampo } from './permisos.js';
 import {
   AVISO_FALTA_CORTES,
   agregarGastoTurno,
@@ -26,7 +26,10 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   const [historial, setHistorial] = useState([]);
   const [empleados, setEmpleados] = useState([]);
   const saveTimer = useRef(null);
-  const perm = useMemo(() => permisosCorteContabilidad(user?.rol, user?.id), [user?.rol, user?.id]);
+  const perm = useMemo(
+    () => permisosCorteContabilidad(user?.rol ?? user?.role, user?.id),
+    [user?.rol, user?.role, user?.id],
+  );
   const turno = useMemo(() => nombreTurnoLegible(turnoActual()), []);
 
   const calc = useMemo(() => calcFn(estado, gastos), [estado, gastos, calcFn]);
@@ -49,6 +52,34 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       });
     },
     [persistir],
+  );
+
+  const patchEstadoPermitido = useCallback(
+    (patch) => {
+      if (perm.editarTodo) {
+        patchEstado(patch);
+        return;
+      }
+      const filtrado = { ...patch };
+      if ('moneda_final' in filtrado || 'moneda_final_editada' in filtrado) {
+        if (!puedeEditarCorteCampo(perm, 'moneda_final')) return;
+      }
+      if ('faltante' in filtrado && !puedeEditarCorteCampo(perm, 'faltante')) return;
+      if ('comentarios' in filtrado && !puedeEditarCorteCampo(perm, 'comentarios')) return;
+      if (
+        ('moneda_inicial' in filtrado ||
+          'moneda_inicial_turno' in filtrado ||
+          'fondo' in filtrado ||
+          'caja_anterior' in filtrado ||
+          'recoleccion' in filtrado ||
+          'recoleccion_turno' in filtrado) &&
+        !perm.recoleccion
+      ) {
+        return;
+      }
+      patchEstado(filtrado);
+    },
+    [patchEstado, perm],
   );
 
   const cargar = useCallback(async () => {
@@ -81,7 +112,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   }, [cargar]);
 
   const agregarGasto = async (gasto) => {
-    if (!perm.gastos) return;
+    if (!puedeEditarCorteCampo(perm, 'gastos')) return;
     if (!gasto?.usuario_id) return alert('Selecciona el empleado a quien se descontará en nómina.');
     const res = await agregarGastoTurno(supabase, sucursal, modulo, gasto);
     if (!res.ok) return alert(res.error);
@@ -90,14 +121,14 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   };
 
   const quitarGasto = async (id) => {
-    if (!perm.gastos) return;
+    if (!puedeEditarCorteCampo(perm, 'gastos')) return;
     const res = await eliminarGastoTurno(supabase, id, sucursal, modulo);
     if (!res.ok) return alert(res.error);
     setGastos((prev) => prev.filter((g) => String(g.id) !== String(id)));
   };
 
   const editarGasto = async (id, patch) => {
-    if (!perm.editarTodo) return;
+    if (!puedeEditarCorteCampo(perm, 'gastos')) return;
     const res = await actualizarGastoTurno(supabase, id, patch, sucursal, modulo);
     if (!res.ok) return alert(res.error);
     const gas = await listarGastosTurno(supabase, sucursal, modulo);
@@ -152,7 +183,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
 
   return {
     estado,
-    patchEstado,
+    patchEstado: patchEstadoPermitido,
     gastos,
     agregarGasto,
     quitarGasto,

@@ -2,12 +2,12 @@ import React, { useCallback } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import { calcularVirtual, monedaInicialTurnoEfectiva } from '../../lib/corteContabilidad/calc.js';
-import { etiquetaTipoCierre } from '../../lib/corteContabilidad/permisos.js';
+import { etiquetaTipoCierre, puedeEditarCorteCampo } from '../../lib/corteContabilidad/permisos.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 
 const COLOR = '#8e44ad';
 
-function Campo({ label, value, onChange, readOnly, hint, color }) {
+function Campo({ label, value, onChange, editable = true, hint, color }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.8rem' }}>
       <span style={{ fontWeight: 700, color: color || 'var(--muted)' }}>{label}</span>
@@ -15,10 +15,15 @@ function Campo({ label, value, onChange, readOnly, hint, color }) {
         className="input"
         type="number"
         step="0.01"
-        value={value}
-        readOnly={readOnly}
-        onChange={(e) => onChange?.(e.target.value)}
-        style={{ fontWeight: 700, textAlign: 'center' }}
+        inputMode="decimal"
+        value={value ?? ''}
+        {...(editable ? {} : { readOnly: true })}
+        onChange={editable ? (e) => onChange?.(e.target.value) : undefined}
+        style={{
+          fontWeight: 700,
+          textAlign: 'center',
+          ...(editable ? {} : { opacity: 0.85, cursor: 'not-allowed', background: 'var(--surface)' }),
+        }}
       />
       {hint && <span className="muted" style={{ fontSize: '0.7rem' }}>{hint}</span>}
     </label>
@@ -124,6 +129,9 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
   const monedaInicialRef = Number(estado.moneda_inicial) || 0;
   const monedaTurnoActual = monedaInicialTurnoEfectiva(estado);
   const turnoDistintoRecolector = Math.abs(monedaTurnoActual - monedaInicialRef) > 0.001;
+  const puedeMonedaFinal = puedeEditarCorteCampo(perm, 'moneda_final');
+  const puedeFaltante = puedeEditarCorteCampo(perm, 'faltante');
+  const puedeComentarios = puedeEditarCorteCampo(perm, 'comentarios');
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -183,28 +191,23 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
             <Campo
               label="Fondo fijo (ref)"
               value={estado.fondo ?? 0}
-              readOnly={!perm.fondo}
+              editable={Boolean(perm.fondo || perm.editarTodo)}
               hint="Fijado por recolector · no afecta la venta"
               onChange={(v) => patchEstado({ fondo: v })}
             />
             <Campo
               label="Caja chica anterior (+)"
               value={estado.caja_anterior ?? 0}
-              readOnly={!perm.caja_anterior}
+              editable={Boolean(perm.caja_anterior || perm.editarTodo)}
               hint="Se arrastra entre cortes · solo recolector"
               onChange={(v) => patchEstado({ caja_anterior: v })}
             />
-            <Campo
-              label="Inicio turno (cajero)"
-              value={monedaTurnoActual}
-              readOnly
-              hint="Moneda final del corte anterior · cambia entre cierres de cajero"
-            />
+            <Campo label="Inicio turno (cajero)" value={monedaTurnoActual} editable={false} hint="Moneda final del corte anterior · cambia entre cierres de cajero" />
             <Campo
               label="Moneda final"
               value={estado.moneda_final ?? 0}
-              readOnly={!perm.moneda_final}
-              hint="Al cerrar, será el inicio del siguiente turno de cajero"
+              editable={puedeMonedaFinal}
+              hint="Conteo al cierre · será el inicio del siguiente turno de cajero"
               onChange={(v) => patchEstado({ moneda_final: v, moneda_final_editada: true })}
             />
             <div style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(22,160,133,0.1)', borderRadius: 8 }}>
@@ -215,7 +218,7 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
             <Campo
               label="Faltante (−)"
               value={estado.faltante ?? 0}
-              readOnly={!perm.faltante}
+              editable={puedeFaltante}
               color="var(--danger)"
               onChange={(v) => patchEstado({ faltante: v })}
             />
@@ -223,7 +226,7 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
               <Campo
                 label="Recolección (−)"
                 value={estado.recoleccion ?? estado.recoleccion_turno ?? 0}
-                readOnly={false}
+                editable
                 hint="Retiro de efectivo al actualizar moneda inicial"
                 onChange={(v) => patchEstado({ recoleccion: v, recoleccion_turno: v })}
               />
@@ -242,9 +245,9 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
             onAgregar={agregarGasto}
             onEliminar={quitarGasto}
             onEditar={editarGasto}
-            habilitado={perm.gastos}
+            habilitado={puedeEditarCorteCampo(perm, 'gastos')}
             puedeCatalogo={perm.editarTodo}
-            puedeEditarGastos={perm.editarTodo}
+            puedeEditarGastos={perm.gastos || perm.editarTodo}
             notaNomina="Los consumos de empleados se descontarán en nómina."
           />
           <textarea
@@ -252,7 +255,7 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
             placeholder="Comentarios"
             style={{ minHeight: 72 }}
             value={estado.comentarios || ''}
-            readOnly={!perm.comentarios}
+            readOnly={!puedeComentarios}
             onChange={(e) => patchEstado({ comentarios: e.target.value })}
           />
         </div>

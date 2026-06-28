@@ -86,6 +86,9 @@ import {
   etiquetaDuracionTurno,
   TURNO_AMBOS_ID,
   etiquetaTurno,
+  leerToleranciaTurnos,
+  guardarToleranciaTurnos,
+  turnoConTolerancia,
 } from '../lib/turnos.js';
 import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, ROLES, modulosDefaultRol, modulosEnEdicionPrivilegios, tieneListaPersonalizada, normalizarListaModulos, describeOrigenPrivilegios, normalizarRol } from '../lib/roles.js';
 import { sincronizarPrivilegiosDesdeNube } from '../lib/privilegiosSync.js';
@@ -155,6 +158,7 @@ export default function Configuracion({
   const [logoUrlCustom, setLogoUrlCustom] = useState('');
   const [logoPreviewKey, setLogoPreviewKey] = useState(0);
   const [turnos, setTurnos] = useState(() => leerTurnos());
+  const [toleranciaTurnos, setToleranciaTurnos] = useState(() => leerToleranciaTurnos());
   const [configHorario, setConfigHorario] = useState(() => leerConfigHorario());
   const [patronesRotacion, setPatronesRotacion] = useState(() => leerPatronesRotacion3());
   const [usuariosTurno, setUsuariosTurno] = useState([]);
@@ -191,6 +195,7 @@ export default function Configuracion({
   useEffect(() => {
     const sync = () => {
       setTurnos(leerTurnos());
+      setToleranciaTurnos(leerToleranciaTurnos());
       setConfigHorario(leerConfigHorario());
       setPatronesRotacion(leerPatronesRotacion3());
     };
@@ -1017,7 +1022,7 @@ export default function Configuracion({
       <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Turnos de caja</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-          Por seguridad solo se permite <strong>un corte por turno</strong> (tienda + fecha + turno). Los cajeros <strong>solo pueden entrar al POS en su turno</strong> (diurno o nocturno) y cada venta queda ligada a ese turno. <strong>Solo el administrador</strong> puede cambiar el turno asignado a un empleado.
+          Por seguridad solo se permite <strong>un corte por turno</strong> (tienda + fecha + turno). Los cajeros <strong>solo pueden entrar al POS en la ventana de su turno</strong> (con tolerancia configurable). Cada venta queda ligada al turno activo. <strong>Solo el administrador</strong> puede cambiar el turno asignado a un empleado.
           {turnoEnCurso && (
             <>
               {' '}
@@ -1028,6 +1033,59 @@ export default function Configuracion({
             </>
           )}
         </p>
+
+        <div style={{ marginTop: '1rem', padding: '0.85rem', borderRadius: '10px', background: 'rgba(59,105,181,0.06)', border: '1px solid rgba(59,105,181,0.25)' }}>
+          <strong style={{ color: 'var(--brand-blue)' }}>Tolerancia de entrada</strong>
+          <p className="muted" style={{ margin: '0.35rem 0 0.75rem', fontSize: '0.82rem' }}>
+            Permite que el cajero entre unos minutos <strong>antes</strong> de su hora oficial o vuelva a entrar si cerró la app <strong>después</strong> de la salida (sin abrir el turno a otra persona).
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-end' }}>
+            <label className="muted">
+              Minutos antes de la entrada
+              <input
+                type="number"
+                min={0}
+                max={180}
+                className="input"
+                style={{ marginTop: '0.35rem', width: '5rem', display: 'block' }}
+                value={toleranciaTurnos.minutos_antes}
+                disabled={!puedeAsignarTurnoEmpleados}
+                onChange={(e) => setToleranciaTurnos({ ...toleranciaTurnos, minutos_antes: e.target.value })}
+              />
+            </label>
+            <label className="muted">
+              Minutos después de la salida
+              <input
+                type="number"
+                min={0}
+                max={180}
+                className="input"
+                style={{ marginTop: '0.35rem', width: '5rem', display: 'block' }}
+                value={toleranciaTurnos.minutos_despues_fin}
+                disabled={!puedeAsignarTurnoEmpleados}
+                onChange={(e) => setToleranciaTurnos({ ...toleranciaTurnos, minutos_despues_fin: e.target.value })}
+              />
+            </label>
+            {puedeAsignarTurnoEmpleados && (
+              <button
+                type="button"
+                className="btn btn-gold"
+                onClick={() => {
+                  guardarToleranciaTurnos(toleranciaTurnos);
+                  setToleranciaTurnos(leerToleranciaTurnos());
+                }}
+              >
+                Guardar tolerancia
+              </button>
+            )}
+          </div>
+          {turnoEnCurso && (
+            <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.78rem' }}>
+              Ejemplo {nombreTurnoLegible(turnoEnCurso)}: ventana de login{' '}
+              <strong>{turnoConTolerancia(turnoEnCurso, toleranciaTurnos)?.hora_inicio}–{turnoConTolerancia(turnoEnCurso, toleranciaTurnos)?.hora_fin}</strong>
+            </p>
+          )}
+        </div>
 
         <div style={{ marginTop: '1rem', padding: '0.85rem', borderRadius: '10px', background: 'var(--surface)', border: '1px solid var(--border)' }}>
           <label className="muted" style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>

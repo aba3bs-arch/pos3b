@@ -3,7 +3,13 @@ import { normalizarRol } from './roles.js';
 export const LS_TURNOS = 'pos3b_turnos_caja';
 export const LS_TIPO_HORARIO = 'pos3b_tipo_horario';
 export const LS_PATRONES_ROTACION_3 = 'pos3b_patrones_rotacion_3';
+export const LS_TOLERANCIA_TURNOS = 'pos3b_tolerancia_turnos';
 export const EVENTO_TURNOS = 'pos3b-turnos-actualizados';
+
+export const TOLERANCIA_TURNOS_DEFAULT = {
+  minutos_antes: 30,
+  minutos_despues_fin: 30,
+};
 
 export const TIPOS_HORARIO = {
   '12x12': {
@@ -387,6 +393,64 @@ export function etiquetaEntradaSalida(turno) {
   return `Entrada ${turno.hora_inicio} · Salida ${turno.hora_fin}`;
 }
 
+function clampMinutosTolerancia(val, fallback) {
+  const n = parseInt(val, 10);
+  if (Number.isNaN(n)) return fallback;
+  return Math.min(180, Math.max(0, n));
+}
+
+export function leerToleranciaTurnos() {
+  try {
+    const raw = localStorage.getItem(LS_TOLERANCIA_TURNOS);
+    if (!raw) return { ...TOLERANCIA_TURNOS_DEFAULT };
+    const t = JSON.parse(raw);
+    return {
+      minutos_antes: clampMinutosTolerancia(t.minutos_antes, TOLERANCIA_TURNOS_DEFAULT.minutos_antes),
+      minutos_despues_fin: clampMinutosTolerancia(t.minutos_despues_fin, TOLERANCIA_TURNOS_DEFAULT.minutos_despues_fin),
+    };
+  } catch {
+    return { ...TOLERANCIA_TURNOS_DEFAULT };
+  }
+}
+
+export function guardarToleranciaTurnos(cfg) {
+  const next = {
+    minutos_antes: clampMinutosTolerancia(cfg?.minutos_antes, TOLERANCIA_TURNOS_DEFAULT.minutos_antes),
+    minutos_despues_fin: clampMinutosTolerancia(cfg?.minutos_despues_fin, TOLERANCIA_TURNOS_DEFAULT.minutos_despues_fin),
+  };
+  localStorage.setItem(LS_TOLERANCIA_TURNOS, JSON.stringify(next));
+  emitTurnos();
+  return next;
+}
+
+/** Turno con ventana ampliada para login (entrada anticipada y gracia al cierre). */
+export function turnoConTolerancia(turno, tolerancia = null) {
+  if (!turno) return null;
+  const tol = tolerancia || leerToleranciaTurnos();
+  const ini = minutosDesdeMedianoche(turno.hora_inicio);
+  const fin = minutosDesdeMedianoche(turno.hora_fin);
+  const DAY = 24 * 60;
+  const newIni = ((ini - tol.minutos_antes) % DAY + DAY) % DAY;
+  const newFin = ((fin + tol.minutos_despues_fin) % DAY + DAY) % DAY;
+  return {
+    ...turno,
+    hora_inicio: `${String(Math.floor(newIni / 60)).padStart(2, '0')}:${String(newIni % 60).padStart(2, '0')}`,
+    hora_fin: `${String(Math.floor(newFin / 60)).padStart(2, '0')}:${String(newFin % 60).padStart(2, '0')}`,
+  };
+}
+
+/** ¿Puede el empleado entrar ahora según su turno asignado (con tolerancia)? */
+export function horaEnVentanaLogin(turno, date = new Date(), tolerancia = null) {
+  const t = turnoConTolerancia(turno, tolerancia);
+  return t ? horaEnTurno(t, date) : false;
+}
+
+export function etiquetaVentanaLogin(turno, tolerancia = null) {
+  const t = turnoConTolerancia(turno, tolerancia);
+  if (!t) return '—';
+  return `${t.hora_inicio}–${t.hora_fin}`;
+}
+
 /** ¿La hora actual cae en este turno? (soporta turno nocturno que cruza medianoche) */
 export function horaEnTurno(turno, date = new Date()) {
   const now = date.getHours() * 60 + date.getMinutes();
@@ -517,14 +581,13 @@ export function rolSujetoTurno(rol) {
   return r === 'Cajero' || r === 'Repartidor';
 }
 
-/** ¿Puede el empleado iniciar sesión ahora? (cajero/repartidor solo en su turno). */
+/** ¿Puede el empleado iniciar sesión ahora? (cajero/repartidor solo en ventana de su turno + tolerancia). */
 export function usuarioAutorizadoLogin(user, date = new Date(), turnos = null) {
   const rol = normalizarRol(user?.rol);
   if (!rolSujetoTurno(rol)) return { ok: true };
 
   const list = turnos || leerTurnos();
-  const turno = turnoActual(list, date);
-  if (!turno) {
+  if (!list.length) {
     return { ok: false, error: 'No hay turno configurado. Pide al gerente que configure turnos en Configuración → Turnos de caja.' };
   }
 
@@ -544,15 +607,26 @@ export function usuarioAutorizadoLogin(user, date = new Date(), turnos = null) {
     };
   }
 
-  if (String(asignado) !== String(turno.id)) {
-    if (esTurnoAmbos(asignado)) return { ok: true };
+  if (esTurnoAmbos(asignado)) return { ok: true };
+
+  const turnoAsignado = list.find((t) => String(t.id) === String(asignado));
+  if (!turnoAsignado) {
     return {
       ok: false,
-      error: `Turno actual: ${nombreTurnoLegible(turno)} (${turno.hora_inicio}–${turno.hora_fin}). Tú estás asignado a ${etiquetaTurno(asignado, list)}. No puedes entrar fuera de tu turno.`,
+      error: `Turno "${asignado}" no está en la configuración. Pide al administrador revisar Usuarios y Configuración → Turnos.`,
     };
   }
 
-  return { ok: true };
+  if (horaEnVentanaLogin(turnoAsignado, date)) {
+    return { ok: true };
+  }
+
+  const tol = leerToleranciaTurnos();
+  const ventana = etiquetaVentanaLogin(turnoAsignado, tol);
+  return {
+    ok: false,
+    error: `Fuera de horario. Tu turno es ${nombreTurnoLegible(turnoAsignado)} (${turnoAsignado.hora_inicio}–${turnoAsignado.hora_fin}). Puedes entrar entre ${ventana} (${tol.minutos_antes} min antes, ${tol.minutos_despues_fin} min después del cierre).`,
+  };
 }
 
 /** Cajero debe coincidir con turno y día; Gerente/Admin/Supervisor pueden cortar cualquier turno. */
@@ -583,7 +657,7 @@ export function usuarioAutorizadoCorte(user, turno, date = new Date()) {
     if (esTurnoAmbos(asignado)) return { ok: true };
     return {
       ok: false,
-      error: `Turno actual: ${nombreTurnoLegible(turno)}. Hoy te corresponde ${etiquetaTurno(asignado)}.`,
+      error: `Turno actual: ${nombreTurnoLegible(turno)}. Hoy te corresponde ${etiquetaTurno(asignado, leerTurnos())}.`,
     };
   }
   return { ok: true };

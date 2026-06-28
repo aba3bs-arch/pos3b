@@ -37,14 +37,30 @@ export default function CorteGastosPanel({
 
   const cargarCat = useCallback(async () => {
     const res = await listarCatalogoGastos(supabase, sucursal, modulo);
-    const lista = res.data || [];
+    const lista = res.data?.length ? res.data : [];
     setCatalogo(lista);
-    if (!cat && lista.length) setCat(lista[0].categoria);
-  }, [supabase, sucursal, modulo, cat]);
+  }, [supabase, sucursal, modulo]);
 
   useEffect(() => {
     cargarCat();
   }, [cargarCat]);
+
+  useEffect(() => {
+    if (!habilitado || !catalogo.length) return;
+    setCat((prev) => {
+      if (prev && catalogo.some((c) => c.categoria === prev)) return prev;
+      return catalogo[0].categoria;
+    });
+  }, [habilitado, catalogo]);
+
+  useEffect(() => {
+    if (!habilitado || !cat) return;
+    const subs = catalogo.find((c) => c.categoria === cat)?.subcategorias || [];
+    setSub((prev) => {
+      if (prev && subs.includes(prev)) return prev;
+      return subs[0] || '';
+    });
+  }, [habilitado, cat, catalogo]);
 
   const subsDeCat = catalogo.find((c) => c.categoria === cat)?.subcategorias || [];
 
@@ -164,8 +180,13 @@ export default function CorteGastosPanel({
         </div>
       )}
 
-      {habilitado && (
+      {habilitado ? (
         <>
+          {!catalogo.length && (
+            <p className="muted" style={{ fontSize: '0.8rem', marginBottom: '0.5rem', color: 'var(--brand-gold)' }}>
+              Sin categorías de gasto. Pide al administrador que configure el catálogo o usa el botón Catálogo si tienes permiso.
+            </p>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.4rem', marginBottom: '0.4rem' }}>
             <select className="select" value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)}>
               <option value="">Empleado</option>
@@ -190,7 +211,7 @@ export default function CorteGastosPanel({
                 </option>
               ))}
             </select>
-            <select className="select" value={sub} onChange={(e) => setSub(e.target.value)}>
+            <select className="select" value={sub} onChange={(e) => setSub(e.target.value)} disabled={!cat}>
               <option value="">Subcategoría</option>
               {subsDeCat.map((s) => (
                 <option key={s} value={s}>
@@ -214,6 +235,10 @@ export default function CorteGastosPanel({
             </button>
           </div>
         </>
+      ) : (
+        <p className="muted" style={{ fontSize: '0.8rem', marginBottom: '0.5rem' }}>
+          Sin permiso para capturar gastos en este corte.
+        </p>
       )}
 
       <div className="table-wrap">
