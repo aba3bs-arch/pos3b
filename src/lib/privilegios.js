@@ -1,6 +1,7 @@
 /** IDs de módulo válidos (debe coincidir con roles.js MODULOS_ORDEN). */
 export const MODULOS_IDS = [
   'Inicio',
+  'Buzón',
   'Ventas',
   'Corte de caja',
   'Corte Virtual',

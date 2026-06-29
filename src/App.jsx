@@ -18,6 +18,7 @@ import CorteAbarrotes from './modules/cortes/CorteAbarrotes.jsx';
 import CorteGarage from './modules/cortes/CorteGarage.jsx';
 import CorteCaja from './modules/CorteCaja.jsx';
 import Configuracion from './modules/Configuracion.jsx';
+import Buzon from './modules/Buzon.jsx';
 import Ayuda from './modules/Ayuda.jsx';
 import {
   listarSucursalesParaUI,
@@ -70,6 +71,7 @@ function App() {
   const [autorizandoTurno, setAutorizandoTurno] = useState(false);
   const [vista, setVista] = useState('Inicio');
   const [valesIrPendientes, setValesIrPendientes] = useState(false);
+  const [buzonPestana, setBuzonPestana] = useState('pendientes');
   const [sucursal, setSucursal] = useState(sucursalInicial);
   const [tiendaFijadaParaAcceso, setTiendaFijadaParaAcceso] = useState(() => Boolean(SUCURSAL_FIJA_ENV || tiendaBloqueadaEnEsteEquipo()));
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -636,6 +638,11 @@ function App() {
               sucursal={sucursal}
               user={user}
               onClick={() => {
+                setBuzonPestana('pendientes');
+                if (puedeVerModulo(user?.rol, 'Buzón', user?.id)) {
+                  irAModulo('Buzón');
+                  return;
+                }
                 setValesIrPendientes(true);
                 if (puedeVerModulo(user?.rol, 'Vales y Préstamos', user?.id)) irAModulo('Vales y Préstamos');
               }}
@@ -658,6 +665,19 @@ function App() {
               cargarDatos={cargarDatos}
               onNavigate={irAModulo}
               puedeModulo={(m) => puedeVerModulo(user?.rol, m, user?.id)}
+            />
+          )}
+          {vista === 'Buzón' && (
+            <Buzon
+              supabase={supabase}
+              sucursal={sucursal}
+              user={user}
+              pestanaInicial={buzonPestana}
+              onNavigate={irAModulo}
+              onIrValesPendientes={() => {
+                setValesIrPendientes(true);
+                if (puedeVerModulo(user?.rol, 'Vales y Préstamos', user?.id)) irAModulo('Vales y Préstamos');
+              }}
             />
           )}
           {vista === 'Ventas' && (

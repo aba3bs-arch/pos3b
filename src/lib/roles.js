@@ -32,6 +32,7 @@ export const MODULOS_AGRUPADOS_CONTABILIDAD = new Set(SUBMODULOS_CONTABILIDAD);
 /** Orden fijo del menú lateral */
 export const MODULOS_ORDEN = [
   'Inicio',
+  'Buzón',
   'Ventas',
   'Corte de caja',
   'Corte Virtual',
@@ -58,6 +59,7 @@ export const MODULOS_PRIVILEGIOS_GENERAL = MODULOS_ORDEN.filter((m) => !MODULOS_
 const ACCESO_POR_ROL = {
   Cajero: [
     'Inicio',
+    'Buzón',
     'Ventas',
     'Corte de caja',
     'Corte Virtual',
@@ -67,9 +69,10 @@ const ACCESO_POR_ROL = {
     'Checador',
     'Ayuda',
   ],
-  Repartidor: ['Inicio', 'Checador', 'Ayuda'],
+  Repartidor: ['Inicio', 'Buzón', 'Checador', 'Ayuda'],
   Auditor: [
     'Inicio',
+    'Buzón',
     'Corte de caja',
     'Productos',
     'Compras',
@@ -83,6 +86,7 @@ const ACCESO_POR_ROL = {
   ],
   Supervisor: [
     'Inicio',
+    'Buzón',
     'Ventas',
     'Corte de caja',
     'Corte Virtual',
@@ -101,6 +105,7 @@ const ACCESO_POR_ROL = {
   ],
   Gerente: [
     'Inicio',
+    'Buzón',
     'Ventas',
     'Corte de caja',
     'Corte Virtual',
@@ -119,7 +124,7 @@ const ACCESO_POR_ROL = {
     'Configuracion',
     'Ayuda',
   ],
-  Técnico: ['Inicio', 'Checador', 'Ayuda'],
+  Técnico: ['Inicio', 'Buzón', 'Checador', 'Ayuda'],
   Administrador: [...MODULOS_ORDEN],
 };
 

@@ -391,10 +391,25 @@ export async function listarPrestamosInterarea(supabase, opts = {}) {
 export async function registrarPrestamoInterarea(supabase, row) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   if (row.origen === row.destino) return { ok: false, error: 'Origen y destino deben ser distintos.' };
-  const { error } = await supabase.from('prestamos_interarea').insert([{ ...row, estado: 'activo' }]);
+  const { data, error } = await supabase
+    .from('prestamos_interarea')
+    .insert([{ ...row, estado: 'activo' }])
+    .select('*')
+    .single();
   if (error?.code === '42P01') return { ok: false, error: 'Ejecuta fix_contabilidad_ampliacion.sql' };
   if (error) return { ok: false, error: error.message };
-  return { ok: true };
+
+  const origenLbl = row.origen || '—';
+  const destinoLbl = row.destino || '—';
+  await crearNotificacion(supabase, {
+    sucursal_id: row.sucursal_id || 'MAIN',
+    tipo: TIPOS_NOTIF.PRESTAMO_INTERAREA,
+    ref_tabla: 'prestamos_interarea',
+    ref_id: data.id,
+    titulo: `Préstamo entre áreas · ${origenLbl} → ${destinoLbl}`,
+    mensaje: `$${Number(row.monto || 0).toFixed(2)}${row.notas ? ` · ${row.notas}` : ''}`,
+  });
+  return { ok: true, prestamo: data };
 }
 
 export { cargarValeACorte, cargarPrestamoEmpleadoACorte } from './cargosContabilidad.js';

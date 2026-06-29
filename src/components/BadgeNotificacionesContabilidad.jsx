@@ -1,40 +1,55 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { contarNotificacionesPendientes } from '../lib/contabilidadNotificaciones.js';
+import {
+  contarNotificacionesPendientes,
+  EVENTO_NOTIFICACIONES,
+  TIPOS_NOTIF,
+} from '../lib/contabilidadNotificaciones.js';
 import { normalizarRol } from '../lib/roles.js';
 import { esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
 
 export default function BadgeNotificacionesContabilidad({ supabase, sucursal, user, onClick }) {
   const [count, setCount] = useState(0);
-  const esAdmin = normalizarRol(user?.rol) === 'Administrador';
+  const rol = normalizarRol(user?.rol);
+  const esAdmin = rol === 'Administrador';
+  const esGerente = rol === 'Gerente';
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
+  const veTodasTiendas = esAdmin || esGerente;
 
   const refrescar = useCallback(async () => {
-    if (!supabase || (!esAdmin && !esSocio)) {
+    if (!supabase || (!esAdmin && !esGerente && !esSocio)) {
       setCount(0);
       return;
     }
-    const res = await contarNotificacionesPendientes(supabase, { sucursal });
-    let n = res.count || 0;
-    if (esSocio && !esAdmin) {
-      n = (res.data || []).filter((x) => x.tipo === 'prestamo_pendiente_socio').length;
+    const nRes = await contarNotificacionesPendientes(supabase, {
+      sucursal: veTodasTiendas ? undefined : sucursal,
+      todasTiendas: veTodasTiendas,
+    });
+    let lista = nRes.data || [];
+    if (esSocio && !esAdmin && !esGerente) {
+      lista = lista.filter((x) => x.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO);
     }
-    setCount(n);
-  }, [supabase, sucursal, esAdmin, esSocio]);
+    setCount(lista.length);
+  }, [supabase, sucursal, esAdmin, esGerente, esSocio, veTodasTiendas]);
 
   useEffect(() => {
     refrescar();
     const id = setInterval(refrescar, 45_000);
-    return () => clearInterval(id);
+    const onEvt = () => refrescar();
+    window.addEventListener(EVENTO_NOTIFICACIONES, onEvt);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener(EVENTO_NOTIFICACIONES, onEvt);
+    };
   }, [refrescar]);
 
-  if (!count || (!esAdmin && !esSocio)) return null;
+  if (!count || (!esAdmin && !esGerente && !esSocio)) return null;
 
   return (
     <button
       type="button"
       className="btn btn-ghost"
       onClick={onClick}
-      title="Pendientes de aprobar (vales / préstamos)"
+      title="Notificaciones pendientes (vales, préstamos, incidencias)"
       style={{ position: 'relative', padding: '0.4rem 0.65rem' }}
     >
       🔔

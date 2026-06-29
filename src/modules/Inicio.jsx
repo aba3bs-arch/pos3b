@@ -8,6 +8,7 @@ import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
 import { hayAnuncioActivo, EVENTO_ANUNCIOS } from '../lib/anunciosPos.js';
 import PanelAnunciosAdmin from '../components/PanelAnunciosAdmin.jsx';
 import PanelPurgeDatosAdmin from '../components/PanelPurgeDatosAdmin.jsx';
+import PanelNotificacionesInicio from '../components/PanelNotificacionesInicio.jsx';
 
 function PuntoVerdeActivo() {
   return <span className="punto-verde-parpadeo" title="Anuncio activo" aria-hidden />;
@@ -149,6 +150,14 @@ export default function Inicio({ supabase, sucursal, inventario, inventarioCompl
         </p>
       </div>
 
+      <PanelNotificacionesInicio
+        supabase={supabase}
+        sucursal={sucursal}
+        user={user}
+        onNavigate={onNavigate}
+        puedeModulo={puede}
+      />
+
       {esAdminPrincipal && (
         <div className="card" style={{ borderLeft: '4px solid var(--brand-blue)' }}>
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)', fontSize: '1rem' }}>Herramientas del administrador principal</h3>
@@ -213,7 +222,7 @@ export default function Inicio({ supabase, sucursal, inventario, inventarioCompl
         <div className="card">
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)' }}>Accesos rápidos</h3>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-            {['Ventas', 'Corte de caja', 'Checador', 'Compras', 'Clientes', 'Reportes'].filter((m) => puede(m)).map((m) => (
+            {['Ventas', 'Corte de caja', 'Checador', 'Compras', 'Clientes', 'Reportes', 'Buzón'].filter((m) => puede(m)).map((m) => (
               <button key={m} type="button" className="btn btn-gold" onClick={() => onNavigate(m)} style={{ fontSize: '0.85rem' }}>
                 <Icon name={iconoDeModulo(m)} size={16} />
                 <span>{m}</span>
