@@ -34,6 +34,7 @@ function splitGastosNomina(detalle = []) {
   for (const g of detalle) {
     const m = Number(g.monto) || 0;
     const cat = String(g.categoria || '').toUpperCase();
+    if (g.modulo === 'abarrotes' && cat !== 'CONSUMO') continue;
     if (cat.includes('INVENT')) inventario += m;
     else consumos += m;
   }

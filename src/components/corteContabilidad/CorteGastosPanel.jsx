@@ -5,6 +5,8 @@ import {
   guardarCategoriaGasto,
   listarCatalogoGastos,
   renombrarCategoriaGasto,
+  gastoRequiereEmpleado,
+  gastoDescuentaNomina,
 } from '../../lib/corteContabilidad/catalogoGastos.js';
 
 function fmt(n) {
@@ -60,26 +62,31 @@ export default function CorteGastosPanel({
       if (prev && subs.includes(prev)) return prev;
       return subs[0] || '';
     });
-  }, [habilitado, cat, catalogo]);
+    if (!gastoRequiereEmpleado(modulo, cat)) setUsuarioId('');
+  }, [habilitado, cat, catalogo, modulo]);
 
   const subsDeCat = catalogo.find((c) => c.categoria === cat)?.subcategorias || [];
+  const requiereEmpleado = gastoRequiereEmpleado(modulo, cat);
 
   const agregar = () => {
     const m = Number(monto);
     if (!(m > 0)) return alert('Monto inválido.');
     if (!cat.trim()) return alert('Selecciona categoría.');
-    if (!usuarioId) return alert('Selecciona el empleado a quien se descontará en nómina.');
-    const emp = (empleados || []).find((e) => String(e.id) === String(usuarioId));
+    if (requiereEmpleado && !usuarioId) {
+      return alert('Selecciona el empleado a quien se descontará el consumo en nómina.');
+    }
+    const emp = requiereEmpleado ? (empleados || []).find((e) => String(e.id) === String(usuarioId)) : null;
     onAgregar?.({
       categoria: cat.trim().toUpperCase(),
       subcategoria: sub.trim().toUpperCase(),
       monto: m,
       comentario: comentario.trim().toUpperCase(),
-      usuario_id: usuarioId,
+      usuario_id: requiereEmpleado ? usuarioId : null,
       usuario_nombre: emp?.nombre || '',
     });
     setMonto('');
     setComentario('');
+    if (!requiereEmpleado) setUsuarioId('');
   };
 
   const nuevaCategoria = async () => {
@@ -137,7 +144,10 @@ export default function CorteGastosPanel({
         )}
       </div>
       <p className="muted" style={{ fontSize: '0.75rem', margin: '0.35rem 0 0.5rem' }}>
-        {notaNomina || 'El consumo se descuenta en nómina al empleado que elijas (no al usuario que captura).'}
+        {notaNomina ||
+          (modulo === 'abarrotes'
+            ? 'Solo CONSUMO se descuenta en nómina al empleado elegido. Los demás gastos afectan el corte pero no nómina ni préstamos.'
+            : 'El consumo se descuenta en nómina al empleado que elijas (no al usuario que captura).')}
       </p>
 
       {mostrarCat && puedeCatalogo && (
@@ -188,14 +198,16 @@ export default function CorteGastosPanel({
             </p>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.4rem', marginBottom: '0.4rem' }}>
-            <select className="select" value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)}>
-              <option value="">Empleado</option>
-              {(empleados || []).map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.nombre}
-                </option>
-              ))}
-            </select>
+            {requiereEmpleado && (
+              <select className="select" value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)}>
+                <option value="">Empleado (consumo)</option>
+                {(empleados || []).map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.nombre}
+                  </option>
+                ))}
+              </select>
+            )}
             <select
               className="select"
               value={cat}
@@ -256,7 +268,9 @@ export default function CorteGastosPanel({
           <tbody>
             {(gastos || []).map((g) => (
               <tr key={g.id}>
-                <td>{g.usuario_nombre || '—'}</td>
+                <td>
+                  {gastoDescuentaNomina(modulo, g.categoria) ? g.usuario_nombre || '—' : <span className="muted">—</span>}
+                </td>
                 <td>{g.categoria}</td>
                 <td className="muted">{g.subcategoria || '—'}</td>
                 <td style={{ fontWeight: 700 }}>

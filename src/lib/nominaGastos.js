@@ -1,4 +1,5 @@
 import { indiceEmpleados, resolverClaveEmpleado } from './nominaMatch.js';
+import { gastoDescuentaNomina } from './corteContabilidad/catalogoGastos.js';
 
 export function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -37,6 +38,7 @@ export async function gastosDeduccionPorEmpleado(supabase, { sucursal, desde, ha
 function agruparGastosPorEmpleado(rows, indice) {
   const map = {};
   for (const g of rows || []) {
+    if (!gastoDescuentaNomina(g.modulo, g.categoria)) continue;
     const clave = resolverClaveEmpleado(g, indice);
     if (!clave) continue;
     if (!map[clave]) map[clave] = { total: 0, detalle: [] };
@@ -68,6 +70,7 @@ export async function marcarGastosDescontadosNomina(supabase, { sucursal, desde,
 
   const ids = (data || [])
     .filter((g) => {
+      if (!gastoDescuentaNomina(g.modulo, g.categoria)) return false;
       const clave = resolverClaveEmpleado(g, indice);
       return clave && claves.has(clave);
     })

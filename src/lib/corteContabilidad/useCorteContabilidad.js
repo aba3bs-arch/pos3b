@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { turnoActual, nombreTurnoLegible } from '../turnos.js';
 import { empleadosParaCorte } from '../empleadosVisibles.js';
 import { permisosCorteContabilidad, puedeEditarCorteCampo } from './permisos.js';
+import { gastoRequiereEmpleado } from './catalogoGastos.js';
 import {
   AVISO_FALTA_CORTES,
   agregarGastoTurno,
@@ -114,7 +115,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
 
   const agregarGasto = async (gasto) => {
     if (!puedeEditarCorteCampo(perm, 'gastos')) return;
-    if (!gasto?.usuario_id) return alert('Selecciona el empleado a quien se descontará en nómina.');
+    if (gastoRequiereEmpleado(modulo, gasto?.categoria) && !gasto?.usuario_id) {
+      return alert('Selecciona el empleado a quien se descontará el consumo en nómina.');
+    }
     const res = await agregarGastoTurno(supabase, sucursal, modulo, gasto);
     if (!res.ok) return alert(res.error);
     const gas = await listarGastosTurno(supabase, sucursal, modulo);
