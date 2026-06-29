@@ -10,7 +10,7 @@ import {
   MONTO_PRESTAMO_REQUIERE_SOCIO,
 } from './contabilidadConstants.js';
 import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
-import { cargarValeACorte, cargarPrestamoEmpleadoACorte } from './cargosContabilidad.js';
+import { cargarValeACorte, cargarPrestamoEmpleadoACorte, quitarValeDeCorteAbierto } from './cargosContabilidad.js';
 
 export function faltaTablaVales(error) {
   const msg = String(error?.message || error || '').toLowerCase();
@@ -169,6 +169,42 @@ export async function rechazarVale(supabase, valeId, { nombre, motivo } = {}) {
     .from('vales')
     .update({
       estado_aprobacion: 'rechazado',
+      rechazado_por: nombre || null,
+      motivo_rechazo: motivo || null,
+    })
+    .eq('id', valeId)
+    .select('*')
+    .single();
+  if (error) return { ok: false, error: error.message };
+  await marcarNotificacionAtendida(supabase, 'vales', valeId, nombre);
+  return { ok: true, vale: data };
+}
+
+/** Anula un vale (pendiente o aprobado). Solo administrador. Quita el gasto del corte abierto si aplica. */
+export async function cancelarVale(supabase, valeId, { nombre, motivo } = {}) {
+  if (!supabase || !valeId) return { ok: false, error: 'Vale inválido.' };
+  const { data: vale, error: e0 } = await supabase.from('vales').select('*').eq('id', valeId).single();
+  if (e0 || !vale) return { ok: false, error: 'Vale no encontrado.' };
+  const est = vale.estado_aprobacion || 'aprobado';
+  if (est === 'cancelado') return { ok: true, vale };
+  if (est === 'rechazado') return { ok: false, error: 'El vale ya fue rechazado.' };
+
+  if (vale.cargado_corte) {
+    const quitar = await quitarValeDeCorteAbierto(supabase, vale);
+    if (!quitar.ok) return quitar;
+    if (quitar.removidos === 0 && est === 'aprobado') {
+      return {
+        ok: false,
+        error: 'El vale ya está en un corte cerrado. No se puede cancelar automáticamente; ajusta el corte manualmente.',
+      };
+    }
+  }
+
+  const { data, error } = await supabase
+    .from('vales')
+    .update({
+      estado_aprobacion: 'cancelado',
+      cargado_corte: false,
       rechazado_por: nombre || null,
       motivo_rechazo: motivo || null,
     })

@@ -90,7 +90,14 @@ export function esSocioAprobadorPrestamo(nombre) {
 export function valePuedeImprimir(vale) {
   if (!vale) return false;
   const est = vale.estado_aprobacion || 'aprobado';
+  if (est === 'cancelado' || est === 'rechazado') return false;
   return ESTADOS_VALE_APROBADO.has(est);
+}
+
+export function valePuedeCancelar(vale) {
+  if (!vale) return false;
+  const est = vale.estado_aprobacion || 'aprobado';
+  return est === 'pendiente_admin' || est === 'aprobado';
 }
 
 export function prestamoPuedeImprimir(p) {
@@ -102,6 +109,7 @@ export function etiquetaEstadoVale(v) {
   const e = v?.estado_aprobacion || 'aprobado';
   if (e === 'pendiente_admin') return 'Pendiente admin';
   if (e === 'rechazado') return 'Rechazado';
+  if (e === 'cancelado') return 'Cancelado';
   return 'Aprobado';
 }
 

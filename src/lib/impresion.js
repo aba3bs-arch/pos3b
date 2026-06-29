@@ -22,24 +22,51 @@ function linea(cols) {
   return `<tr>${cols.map((c) => `<td>${c}</td>`).join('')}</tr>`;
 }
 
-function estilosImpresion(ancho) {
-  const w = ancho === '58mm' ? '58mm' : ancho === 'carta' ? '210mm' : '80mm';
-  const fs = ancho === '58mm' ? '11px' : ancho === 'carta' ? '13px' : '12px';
+/** Medidas en mm para que el navegador no escale el ticket al doble. */
+export function medidasPapel(ancho = '80mm') {
+  const map = {
+    '58mm': { page: '58mm', body: '52mm', font: '8px', ventana: 230, margen: '1.5mm' },
+    '80mm': { page: '80mm', body: '72mm', font: '9px', ventana: 310, margen: '2mm' },
+    carta: { page: 'A4', body: '100%', font: '11px', ventana: 720, margen: '8mm' },
+  };
+  return map[ancho] || map['80mm'];
+}
+
+export function estilosImpresion(ancho) {
+  const m = medidasPapel(ancho);
+  const esTicket = ancho === '58mm' || ancho === '80mm';
   return `
-    @page { size: ${w} auto; margin: 4mm; }
+    @page { size: ${m.page} auto; margin: ${esTicket ? '1mm' : '6mm'}; }
+    html { width: ${m.body}; margin: 0 auto; }
     * { box-sizing: border-box; }
-    body { font-family: 'Consolas', 'Courier New', monospace; font-size: ${fs}; color: #111; margin: 0; padding: 8px; width: ${w}; }
+    body {
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: ${m.font};
+      line-height: 1.22;
+      color: #111;
+      margin: 0 auto;
+      padding: ${m.margen};
+      width: ${m.body};
+      max-width: ${m.body};
+    }
     .center { text-align: center; }
     .bold { font-weight: 700; }
     .muted { color: #444; font-size: 0.92em; }
-    .sep { border-top: 1px dashed #333; margin: 8px 0; }
-    table { width: 100%; border-collapse: collapse; }
-    td { padding: 2px 0; vertical-align: top; }
+    .sep { border-top: 1px dashed #333; margin: 5px 0; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    td { padding: 1px 0; vertical-align: top; word-wrap: break-word; }
     td.r { text-align: right; white-space: nowrap; }
-    h1 { font-size: 1.15em; margin: 0 0 4px; }
-    h2 { font-size: 1em; margin: 0 0 6px; }
-    img.logo { max-width: 72%; max-height: 64px; display: block; margin: 0 auto 6px; }
-    @media print { body { padding: 0; } }
+    h1 { font-size: 1.05em; margin: 0 0 2px; font-weight: 700; }
+    h2 { font-size: 0.95em; margin: 0 0 4px; font-weight: 600; }
+    img.logo { max-width: 62%; max-height: 44px; display: block; margin: 0 auto 4px; }
+    .total-line { font-weight: 700; text-align: right; margin-top: 4px; }
+    #pdf-bar { position: sticky; top: 0; z-index: 9; background: #1a5276; color: #fff; padding: 8px; text-align: center; font-family: system-ui, sans-serif; font-size: 13px; }
+    #pdf-bar button { background: #fff; color: #1a5276; border: none; padding: 6px 14px; border-radius: 6px; font-weight: 700; cursor: pointer; margin: 0 4px; }
+    @media print {
+      html, body { width: ${m.body}; max-width: ${m.body}; margin: 0 auto; padding: ${m.margen}; }
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      #pdf-bar { display: none !important; }
+    }
   `;
 }
 
@@ -101,11 +128,11 @@ export function htmlTicketVenta(data) {
     data.cambio != null && data.esEfectivo
       ? `<div>Recibido: ${fmtMoney(data.recibido)} ${esc(data.moneda || 'MXN')}</div><div class="bold">Cambio: ${fmtMoney(data.cambio)} MXN</div>`
       : '';
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Ticket</title><style>${estilosImpresion(cfg.ancho)}</style></head><body>
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Ticket</title><style>${estilosImpresion(cfg.ancho)}</style></head><body>
     ${cabeceraDoc('TICKET DE VENTA', { sucursal: data.sucursal, usuario: data.vendedor, fecha: data.fecha })}
     <table>${filas}</table>
     <div class="sep"></div>
-    <div class="bold" style="font-size:1.2em;text-align:right">TOTAL ${fmtMoney(data.total)} MXN</div>
+    <div class="total-line">TOTAL ${fmtMoney(data.total)} MXN</div>
     <div class="muted" style="margin-top:4px">Pago: ${esc(data.metodo_pago)}</div>
     ${cambio}
     ${pieDoc()}
@@ -271,16 +298,40 @@ function htmlATextoPlano(html) {
   return tmp.textContent || tmp.innerText || '';
 }
 
-export function abrirVentanaImpresion(html, titulo = 'Imprimir') {
-  const w = window.open('', '_blank', 'width=420,height=720');
+export function abrirVentanaImpresion(html, titulo = 'Imprimir', opts = {}) {
+  const cfg = leerConfigImpresion();
+  const ancho = opts.ancho || cfg.ancho;
+  const m = medidasPapel(ancho);
+  const w = window.open('', '_blank', `width=${m.ventana},height=640,scrollbars=yes`);
   if (!w) return { ok: false, error: 'Permite ventanas emergentes para imprimir.' };
   w.document.write(html);
   w.document.close();
   w.document.title = titulo;
   w.focus();
-  setTimeout(() => {
-    w.print();
-  }, 350);
+  if (opts.autoPrint !== false) {
+    setTimeout(() => {
+      w.print();
+    }, 400);
+  }
+  return { ok: true };
+}
+
+/** Vista previa con botón para guardar como PDF (diálogo de impresión del sistema). */
+export function abrirVentanaPDF(html, titulo = 'Guardar PDF') {
+  const cfg = leerConfigImpresion();
+  const m = medidasPapel(cfg.ancho);
+  const barra = `<div id="pdf-bar">
+    <span style="margin-right:8px">Vista previa</span>
+    <button type="button" onclick="window.print()">Guardar PDF / Imprimir</button>
+    <button type="button" onclick="window.close()">Cerrar</button>
+  </div>`;
+  const conBarra = html.replace(/<body([^>]*)>/i, `<body$1>${barra}`);
+  const w = window.open('', '_blank', `width=${Math.max(m.ventana, 360)},height=720,scrollbars=yes`);
+  if (!w) return { ok: false, error: 'Permite ventanas emergentes para exportar PDF.' };
+  w.document.write(conBarra);
+  w.document.close();
+  w.document.title = titulo;
+  w.focus();
   return { ok: true };
 }
 
@@ -312,8 +363,23 @@ export async function imprimirDocumento(tipo, datos, opts = {}) {
   return { ok: true };
 }
 
-export function imprimirVenta(datos) {
-  return imprimirDocumento('venta', { fecha: fmtFecha(), ...datos });
+export function imprimirVenta(datos, opts = {}) {
+  return entregarTicketVenta(datos, opts.modo || 'imprimir', opts);
+}
+
+/** Imprime, abre PDF o no hace nada según el modo elegido. */
+export async function entregarTicketVenta(datos, modo = 'imprimir', opts = {}) {
+  if (modo === 'ninguno') return { ok: true, omitido: true };
+  const payload = { fecha: fmtFecha(), ...datos };
+  if (modo === 'pdf') {
+    const html = htmlTicketVenta(payload);
+    return abrirVentanaPDF(html, opts.titulo || 'Ticket de venta');
+  }
+  return imprimirDocumento('venta', payload, { ...opts, titulo: opts.titulo || 'Ticket de venta' });
+}
+
+export function exportarVentaPDF(datos) {
+  return entregarTicketVenta(datos, 'pdf');
 }
 
 export function imprimirPedidoCompra(datos) {

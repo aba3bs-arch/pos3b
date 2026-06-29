@@ -24,6 +24,32 @@ export async function cargarValeACorte(supabase, vale) {
   return { ok: true };
 }
 
+/** Quita el gasto del vale del turno abierto (si aún no se cerró el corte). */
+export async function quitarValeDeCorteAbierto(supabase, vale) {
+  if (!supabase || !vale?.cargado_corte) return { ok: true };
+  const folio = String(vale.folio || '').trim();
+  const modulo = vale.area && ETIQUETA_AREA[vale.area] ? vale.area : 'virtual';
+  let q = supabase
+    .from('cortes_contabilidad_gastos')
+    .select('id')
+    .eq('sucursal_id', vale.sucursal_id || 'MAIN')
+    .eq('modulo', modulo)
+    .eq('cerrado', false);
+  if (folio) q = q.ilike('comentario', `%VALE ${folio}%`);
+  else q = q.eq('categoria', 'VALES').eq('usuario_nombre', vale.nombre_empleado || '');
+  const { data, error } = await q;
+  if (error) {
+    if (error.code === '42P01') return { ok: true, aviso: 'Sin tabla de gastos de corte.' };
+    return { ok: false, error: error.message };
+  }
+  const ids = (data || []).map((g) => g.id);
+  if (ids.length) {
+    const { error: eDel } = await supabase.from('cortes_contabilidad_gastos').delete().in('id', ids);
+    if (eDel) return { ok: false, error: eDel.message };
+  }
+  return { ok: true, removidos: ids.length };
+}
+
 export async function cargarPrestamoEmpleadoACorte(supabase, prestamo, areaCorte = 'virtual') {
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
   if (prestamo.cargado_corte) return { ok: true, yaCargado: true };

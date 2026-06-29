@@ -10,7 +10,7 @@ import {
   listarPrestamosInterarea,
   listarVales,
   rechazarPrestamo,
-  rechazarVale,
+  cancelarVale,
   registrarPrestamo,
   registrarPrestamoInterarea,
   registrarVale,
@@ -30,6 +30,7 @@ import {
   etiquetaEstadoVale,
   prestamoPuedeImprimir,
   valePuedeImprimir,
+  valePuedeCancelar,
   valeRequiereAutorizacionAdmin,
 } from '../lib/contabilidadConstants.js';
 import { listarNotificacionesPendientes } from '../lib/contabilidadNotificaciones.js';
@@ -243,6 +244,17 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     recargarTodo();
   };
 
+  const cancelarV = async (v) => {
+    if (!esAdmin) return alert('Solo el administrador puede cancelar vales.');
+    if (!valePuedeCancelar(v)) return alert('Este vale ya no se puede cancelar.');
+    const motivo = prompt(`¿Cancelar vale ${v.folio}?\nMotivo (opcional):`);
+    if (motivo === null) return;
+    const res = await cancelarVale(supabase, v.id, { nombre: user?.nombre, motivo: motivo.trim() || null });
+    if (!res.ok) return alert(res.error);
+    alert('Vale cancelado.');
+    recargarTodo();
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       {aviso && (
@@ -301,7 +313,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 <div key={v.id} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.5rem', padding: '0.5rem', background: 'var(--surface)', borderRadius: 8 }}>
                   <span>{v.folio} · {v.nombre_empleado} · {fmt(v.monto)} · {etiquetaCategoriaVale(v.categoria)}</span>
                   <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => aprobarV(v.id)}>Aprobar</button>
-                  <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem', color: 'var(--danger)' }} onClick={() => rechazarVale(supabase, v.id, { nombre: user?.nombre }).then(recargarTodo)}>Rechazar</button>
+                  <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem', color: 'var(--danger)' }} onClick={() => cancelarV(v)}>Cancelar</button>
                 </div>
               ))}
             </>
@@ -395,6 +407,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                         )}
                         {esAdmin && valePuedeImprimir(v) && !v.cargado_corte && (
                           <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => cargarValeManual(v)}>→ Corte</button>
+                        )}
+                        {esAdmin && valePuedeCancelar(v) && (
+                          <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => cancelarV(v)}>Cancelar</button>
                         )}
                       </td>
                     </tr>

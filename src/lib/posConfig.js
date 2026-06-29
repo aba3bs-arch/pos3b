@@ -134,9 +134,18 @@ export const ANCHOS_PAPEL = [
   { id: 'carta', label: 'Carta / A4' },
 ];
 
+/** Qué hacer con el ticket al terminar una venta. */
+export const MODOS_ENTREGA_VENTA = [
+  { id: 'preguntar', label: 'Preguntar en cada venta' },
+  { id: 'imprimir', label: 'Imprimir ticket automáticamente' },
+  { id: 'pdf', label: 'Abrir para guardar PDF' },
+  { id: 'ninguno', label: 'No imprimir' },
+];
+
 const IMPRESION_DEFAULT = {
   ancho: '80mm',
   autoVenta: true,
+  entregaVenta: 'preguntar',
   autoCorte: false,
   copias: 1,
   impresoraId: null,
@@ -156,11 +165,15 @@ export function leerConfigImpresion() {
     const raw = localStorage.getItem(LS_IMPRESION);
     if (!raw) return { ...IMPRESION_DEFAULT, modos: { ...IMPRESION_DEFAULT.modos } };
     const v = JSON.parse(raw);
-    return {
+    const merged = {
       ...IMPRESION_DEFAULT,
       ...v,
       modos: { ...IMPRESION_DEFAULT.modos, ...(v.modos || {}) },
     };
+    if (!v.entregaVenta) {
+      merged.entregaVenta = v.autoVenta === false ? 'preguntar' : 'imprimir';
+    }
+    return merged;
   } catch {
     return { ...IMPRESION_DEFAULT, modos: { ...IMPRESION_DEFAULT.modos } };
   }
