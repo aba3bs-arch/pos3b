@@ -4,6 +4,7 @@ import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursal
 import { calcularVirtual, monedaInicialTurnoEfectiva, recoleccionTotalVirtual } from '../../lib/corteContabilidad/calc.js';
 import { etiquetaTipoCierre, puedeEditarCorteCampo } from '../../lib/corteContabilidad/permisos.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
+import { etiquetaTienda } from '../../constants/sucursales.js';
 
 const COLOR = '#8e44ad';
 
@@ -96,18 +97,15 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
     if (!estado.moneda_final_editada && perm.moneda_final) {
       if (!confirm('No capturó moneda final. Las ventas del turno se registrarán en $0.00.\n\n¿Continuar?')) return;
     }
-    const turnoActualMi = monedaInicialTurnoEfectiva(estado);
     const msg =
       `¿Cerrar corte virtual?\n\n` +
-      `Moneda inicial actual: ${fmtCorte(turnoActualMi)}\n` +
+      `Tienda: ${etiquetaTienda(sucursal)}\n` +
+      `Moneda inicial actual: ${fmtCorte(monedaInicialTurnoEfectiva(estado))}\n` +
       `Moneda final: ${fmtCorte(estado.moneda_final)}\n` +
       `Venta efectivo: ${fmtCorte(calc.venta)}\n` +
-      `Gastos y consumos: ${fmtCorte(calc.gastosTotal)}\n` +
-      `Faltante: ${fmtCorte(estado.faltante)}\n` +
       `Subtotal del turno: ${fmtCorte(calc.subtotal)}\n` +
       `Caja chica actual: ${fmtCorte(calc.cajaActual)}\n\n` +
-      `La moneda final será la moneda inicial actual del siguiente corte.\n` +
-      `Referencia recolector (${fmtCorte(estado.moneda_inicial)}) no cambia con este cierre.`;
+      `La moneda final será la moneda inicial actual del siguiente turno de cajero.`;
     if (confirm(msg)) cerrarCorte({ tipo_cierre: 'cierre' });
   };
 
@@ -120,6 +118,7 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
     const mf = Number(estado.moneda_final) || 0;
     const msg =
       `¿Recolectar todo el efectivo y actualizar moneda inicial?\n\n` +
+      `Tienda: ${etiquetaTienda(sucursal)}\n` +
       `Moneda final (nueva moneda inicial): ${fmtCorte(mf)}\n` +
       `Venta efectivo del turno: ${fmtCorte(calc.venta)}\n` +
       `Caja chica actual: ${fmtCorte(calc.cajaActual)}\n` +
@@ -138,13 +137,12 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
 
   const cajaNegativa = calc.cajaActual < -0.001;
   const recoleccionCalculada = recoleccionTotalVirtual(estado, calc);
-  const monedaInicialRef = Number(estado.moneda_inicial) || 0;
   const monedaTurnoActual = monedaInicialTurnoEfectiva(estado);
-  const turnoDistintoRecolector = Math.abs(monedaTurnoActual - monedaInicialRef) > 0.001;
   const puedeMonedaFinal = puedeEditarCorteCampo(perm, 'moneda_final');
   const puedeMonedaInicialActual = Boolean(perm.moneda_inicial || perm.recoleccion || perm.editarTodo);
   const puedeFaltante = puedeEditarCorteCampo(perm, 'faltante');
   const puedeComentarios = puedeEditarCorteCampo(perm, 'comentarios');
+  const puedeCerrarCorteTienda = perm.guardar && !perm.recoleccion;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -156,14 +154,14 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
               Módulo contable independiente del POS · Folio {folio} · {turno}
             </p>
           </div>
-          {perm.guardar && (
+          {puedeCerrarCorteTienda && (
             <button type="button" className="btn btn-primary" onClick={confirmarCierre} disabled={cargando}>
-              Cerrar corte
+              Cerrar corte · {etiquetaTienda(sucursal)}
             </button>
           )}
           {perm.recoleccion && (
             <button type="button" className="btn btn-gold" onClick={actualizarMonedaInicial} disabled={cargando}>
-              Actualizar moneda inicial
+              Actualizar moneda · {etiquetaTienda(sucursal)}
             </button>
           )}
         </div>
@@ -179,22 +177,7 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
           border: '2px solid rgba(142,68,173,0.35)',
         }}
       >
-        <div className="muted" style={{ fontSize: '0.8rem', fontWeight: 700, letterSpacing: '0.04em' }}>
-          MONEDA INICIAL · RECOLECTOR
-        </div>
-        <div style={{ fontSize: '2.4rem', fontWeight: 800, color: COLOR, margin: '0.25rem 0' }}>{fmtCorte(monedaInicialRef)}</div>
-        {turnoDistintoRecolector && (
-          <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--brand-blue)', marginBottom: '0.35rem' }}>
-            Moneda inicial actual (turno): {fmtCorte(monedaTurnoActual)}
-          </div>
-        )}
-        <p className="muted" style={{ margin: 0, fontSize: '0.82rem', maxWidth: '560px', marginInline: 'auto' }}>
-          Referencia del recolector tras recolección. La <strong>moneda inicial actual</strong> del turno (abajo) es la que usa el cajero para calcular ventas;
-          al cerrar, la <strong>moneda final</strong> pasa a ser la moneda inicial actual del siguiente corte.
-          {perm.recoleccion
-            ? ' Para actualizar la referencia del recolector, use «Actualizar moneda inicial».'
-            : ' Solo administrador o quien tenga privilegio de recolección puede cambiar la referencia de arriba.'}
-        </p>
+        <div style={{ fontSize: '2.4rem', fontWeight: 800, color: COLOR, margin: '0.25rem 0' }}>{fmtCorte(monedaTurnoActual)}</div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
