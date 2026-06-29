@@ -12,14 +12,14 @@ export function totalGastos(gastos = []) {
   return round2((gastos || []).reduce((a, g) => a + (Number(g.monto) || 0), 0));
 }
 
-/** Moneda con la que arrancó este turno de cajero (cambia entre cierres de cajero). */
+/** Moneda inicial actual del turno (la define admin/recolector; al cerrar, la moneda final pasa al siguiente corte). */
 export function monedaInicialTurnoEfectiva(estado) {
   const mit = estado?.moneda_inicial_turno;
   if (mit != null && mit !== '') return round2(mit);
   return round2(estado?.moneda_inicial);
 }
 
-/** Corte virtual: venta = moneda inicial turno − moneda final (si se capturó). */
+/** Corte virtual: venta efectivo = moneda inicial actual − moneda final (si se capturó). */
 export function ventasVirtualCorte(monedaInicial, monedaFinal, opts = {}) {
   const { capturada = false, monedaInicialTurno } = opts;
   if (!capturada) return 0;
@@ -41,9 +41,15 @@ export function calcularVirtual(estado, gastos = []) {
   const subtotalCalc = round2(venta - gastosTotal - faltante);
   const subtotal = valorManual(estado, 'subtotal_manual', subtotalCalc);
   const cajaAnterior = round2(estado.caja_anterior);
-  const cajaActualCalc = round2(subtotal + cajaAnterior - recoleccion);
+  const cajaActualCalc = round2(cajaAnterior + subtotal);
   const cajaActual = valorManual(estado, 'caja_actual_manual', cajaActualCalc);
   return { venta, gastosTotal, subtotal, cajaActual };
+}
+
+/** Total a recolectar al actualizar moneda: venta en efectivo + toda la caja chica. */
+export function recoleccionTotalVirtual(estado, calc) {
+  if (!estado?.moneda_final_editada) return 0;
+  return round2((calc?.venta || 0) + (calc?.cajaActual || 0));
 }
 
 export function calcularAbarrotes(estado, gastos = []) {

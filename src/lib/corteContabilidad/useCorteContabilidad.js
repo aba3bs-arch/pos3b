@@ -73,7 +73,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
           'caja_anterior' in filtrado ||
           'recoleccion' in filtrado ||
           'recoleccion_turno' in filtrado) &&
-        !perm.recoleccion
+        !perm.recoleccion &&
+        !perm.moneda_inicial
       ) {
         return;
       }
@@ -151,10 +152,13 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       turno: turnoActual(),
       usuario_id: user?.id || null,
       usuario_nombre: user?.nombre || null,
-      caja_actual: calc.cajaActual ?? calc.caja_actual ?? 0,
+      caja_actual: detalleExtra.caja_actual_cierre ?? calc.cajaActual ?? calc.caja_actual ?? 0,
       ventas: calc.venta ?? 0,
       detalle: {
         ...estado,
+        ...(detalleExtra.recoleccion != null
+          ? { recoleccion: detalleExtra.recoleccion, recoleccion_turno: detalleExtra.recoleccion_turno ?? detalleExtra.recoleccion }
+          : {}),
         gastos,
         gastos_total: calc.gastosTotal,
         subtotal: calc.subtotal,
@@ -163,6 +167,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         tipo_cierre: esActualizacion ? 'actualizacion' : detalleExtra.tipo_cierre || 'cierre',
       },
     };
+    delete payload.detalle.caja_actual_cierre;
     const res = await registrarCierreCorte(supabase, payload);
     if (!res.ok) return alert(res.error || AVISO_FALTA_CORTES);
 
