@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
-import { calcularVirtual, monedaInicialTurnoEfectiva, recoleccionTotalVirtual } from '../../lib/corteContabilidad/calc.js';
+import { calcularVirtual, monedaInicialTurnoEfectiva, monedaRecolectorRef, recoleccionTotalVirtual } from '../../lib/corteContabilidad/calc.js';
 import { etiquetaTipoCierre, puedeEditarCorteCampo } from '../../lib/corteContabilidad/permisos.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 import { etiquetaTienda } from '../../constants/sucursales.js';
@@ -37,7 +37,7 @@ function AjustesAdmin({ perm, estado, patchEstado }) {
     <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed var(--border)' }}>
       <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.5rem', fontWeight: 700 }}>Ajuste manual (administrador)</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        <Campo label="Venta efectivo" value={estado.venta_manual ?? ''} hint="Vacío = moneda inicial actual − moneda final" onChange={(v) => patchEstado({ venta_manual: v })} />
+        <Campo label="Venta efectivo" value={estado.venta_manual ?? ''} hint="Vacío = moneda del corte − moneda final" onChange={(v) => patchEstado({ venta_manual: v })} />
         <Campo label="Subtotal del turno" value={estado.subtotal_manual ?? ''} hint="Vacío = venta − gastos − faltante" onChange={(v) => patchEstado({ subtotal_manual: v })} />
         <Campo label="Caja chica actual" value={estado.caja_actual_manual ?? ''} hint="Vacío = caja anterior + subtotal" onChange={(v) => patchEstado({ caja_actual_manual: v })} />
       </div>
@@ -100,12 +100,14 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
     const msg =
       `¿Cerrar corte virtual?\n\n` +
       `Tienda: ${etiquetaTienda(sucursal)}\n` +
-      `Moneda inicial actual: ${fmtCorte(monedaInicialTurnoEfectiva(estado))}\n` +
+      `Moneda inicial del corte: ${fmtCorte(monedaInicialTurnoEfectiva(estado))}\n` +
+      `Referencia recolector: ${fmtCorte(monedaRecolectorRef(estado))}\n` +
       `Moneda final: ${fmtCorte(estado.moneda_final)}\n` +
       `Venta efectivo: ${fmtCorte(calc.venta)}\n` +
       `Subtotal del turno: ${fmtCorte(calc.subtotal)}\n` +
       `Caja chica actual: ${fmtCorte(calc.cajaActual)}\n\n` +
-      `La moneda final será la moneda inicial actual del siguiente turno de cajero.`;
+      `La moneda final será la moneda inicial del siguiente corte de cajero.\n` +
+      `La referencia en morado (${fmtCorte(monedaRecolectorRef(estado))}) no cambia hasta la recolección.`;
     if (confirm(msg)) cerrarCorte({ tipo_cierre: 'cierre' });
   };
 
@@ -119,12 +121,12 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
     const msg =
       `¿Recolectar todo el efectivo y actualizar moneda inicial?\n\n` +
       `Tienda: ${etiquetaTienda(sucursal)}\n` +
-      `Moneda final (nueva moneda inicial): ${fmtCorte(mf)}\n` +
+      `Moneda final (nueva referencia en morado): ${fmtCorte(mf)}\n` +
       `Venta efectivo del turno: ${fmtCorte(calc.venta)}\n` +
       `Caja chica actual: ${fmtCorte(calc.cajaActual)}\n` +
       `Recolección total: ${fmtCorte(totalRec)}\n\n` +
       `Se retira todo el dinero recolectado.\n` +
-      `La caja chica quedará en $0.00 y la moneda inicial se actualizará a ${fmtCorte(mf)}.`;
+      `La caja chica quedará en $0.00. La referencia en morado y el nuevo corte quedarán en ${fmtCorte(mf)}.`;
     if (confirm(msg)) {
       cerrarCorte({
         tipo_cierre: 'actualizacion',
@@ -137,9 +139,9 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
 
   const cajaNegativa = calc.cajaActual < -0.001;
   const recoleccionCalculada = recoleccionTotalVirtual(estado, calc);
-  const monedaTurnoActual = monedaInicialTurnoEfectiva(estado);
+  const monedaReferencia = monedaRecolectorRef(estado);
+  const monedaInicioCorte = monedaInicialTurnoEfectiva(estado);
   const puedeMonedaFinal = puedeEditarCorteCampo(perm, 'moneda_final');
-  const puedeMonedaInicialActual = Boolean(perm.moneda_inicial || perm.recoleccion || perm.editarTodo);
   const puedeFaltante = puedeEditarCorteCampo(perm, 'faltante');
   const puedeComentarios = puedeEditarCorteCampo(perm, 'comentarios');
   const puedeCerrarCorteTienda = perm.guardar && !perm.recoleccion;
@@ -177,7 +179,7 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
           border: '2px solid rgba(142,68,173,0.35)',
         }}
       >
-        <div style={{ fontSize: '2.4rem', fontWeight: 800, color: COLOR, margin: '0.25rem 0' }}>{fmtCorte(monedaTurnoActual)}</div>
+        <div style={{ fontSize: '2.4rem', fontWeight: 800, color: COLOR, margin: '0.25rem 0' }}>{fmtCorte(monedaReferencia)}</div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
@@ -199,27 +201,22 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
               onChange={(v) => patchEstado({ caja_anterior: v })}
             />
             <Campo
-              label="Moneda inicial actual"
-              value={monedaTurnoActual}
-              editable={puedeMonedaInicialActual}
-              hint={
-                puedeMonedaInicialActual
-                  ? 'La define el administrador o quien tenga privilegio de recolección'
-                  : 'Fijada por administrador/recolector · al cerrar el corte anterior, era la moneda final'
-              }
-              onChange={(v) => patchEstado({ moneda_inicial_turno: v })}
+              label="Moneda inicial del corte"
+              value={monedaInicioCorte}
+              editable={false}
+              hint="Inicio de este corte · al cerrar, la moneda final pasa aquí en el siguiente corte"
             />
             <Campo
               label="Moneda final"
               value={estado.moneda_final ?? 0}
               editable={puedeMonedaFinal}
-              hint="Efectivo al cierre del turno · será la moneda inicial actual del siguiente corte"
+              hint="Efectivo al cierre · será la moneda inicial del siguiente corte de cajero"
               onChange={(v) => patchEstado({ moneda_final: v, moneda_final_editada: true })}
             />
             <div style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(22,160,133,0.1)', borderRadius: 8 }}>
               <div className="muted" style={{ fontSize: '0.75rem' }}>VENTA EFECTIVO</div>
               <div style={{ fontSize: '1.4rem', fontWeight: 800, color: calc.venta < 0 ? 'var(--danger)' : '#16a085' }}>{fmtCorte(calc.venta)}</div>
-              <div className="muted" style={{ fontSize: '0.7rem' }}>Moneda inicial actual − moneda final</div>
+              <div className="muted" style={{ fontSize: '0.7rem' }}>Moneda del corte − moneda final</div>
             </div>
             <Campo
               label="Faltante (−)"

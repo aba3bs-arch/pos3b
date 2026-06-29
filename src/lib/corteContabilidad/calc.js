@@ -12,14 +12,19 @@ export function totalGastos(gastos = []) {
   return round2((gastos || []).reduce((a, g) => a + (Number(g.monto) || 0), 0));
 }
 
-/** Moneda inicial actual del turno (la define admin/recolector; al cerrar, la moneda final pasa al siguiente corte). */
+/** Referencia del recolector (morado): fija hasta la próxima recolección; no cambia con los cierres de cajero. */
+export function monedaRecolectorRef(estado) {
+  return round2(estado?.moneda_inicial);
+}
+
+/** Moneda con la que arranca este corte de cajero (cambia al cerrar: moneda final → siguiente inicio). */
 export function monedaInicialTurnoEfectiva(estado) {
   const mit = estado?.moneda_inicial_turno;
   if (mit != null && mit !== '') return round2(mit);
   return round2(estado?.moneda_inicial);
 }
 
-/** Corte virtual: venta efectivo = moneda inicial actual − moneda final (si se capturó). */
+/** Corte virtual: venta efectivo = moneda inicial del corte − moneda final (si se capturó). */
 export function ventasVirtualCorte(monedaInicial, monedaFinal, opts = {}) {
   const { capturada = false, monedaInicialTurno } = opts;
   if (!capturada) return 0;
