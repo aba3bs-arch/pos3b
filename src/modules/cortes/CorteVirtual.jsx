@@ -2,6 +2,8 @@ import React, { useCallback } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import { calcularVirtual, monedaInicialTurnoEfectiva, monedaRecolectorRef, recoleccionTotalVirtual } from '../../lib/corteContabilidad/calc.js';
+import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
+import { datosImpresionCorteActual, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
 import { etiquetaTipoCierre, puedeEditarCorteCampo } from '../../lib/corteContabilidad/permisos.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 import { etiquetaTienda } from '../../constants/sucursales.js';
@@ -146,6 +148,12 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
   const puedeComentarios = puedeEditarCorteCampo(perm, 'comentarios');
   const puedeCerrarCorteTienda = perm.guardar && !perm.recoleccion;
 
+  const imprimirBorrador = () => {
+    imprimirCorteContabilidad(
+      datosImpresionCorteActual({ modulo: 'virtual', sucursal, folio, turno, user, estado, gastos, calc }),
+    );
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
@@ -166,6 +174,9 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
               Actualizar moneda · {etiquetaTienda(sucursal)}
             </button>
           )}
+          <button type="button" className="btn btn-ghost" onClick={imprimirBorrador} disabled={cargando}>
+            Imprimir corte
+          </button>
         </div>
         {aviso && <p style={{ margin: '0.75rem 0 0', fontSize: '0.85rem', color: 'var(--brand-gold)' }}>{aviso}</p>}
         <CorteSucursalAviso sucursal={sucursal} user={user} />
@@ -281,37 +292,14 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
         </div>
       </div>
 
-      {historial.length > 0 && (
-        <div className="card">
-          <h4 style={{ margin: '0 0 0.5rem' }}>Últimos cierres</h4>
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Fecha</th>
-                  <th>Tipo</th>
-                  <th>Folio</th>
-                  <th>Ventas</th>
-                  <th>Caja</th>
-                  <th>Usuario</th>
-                </tr>
-              </thead>
-              <tbody>
-                {historial.map((h) => (
-                  <tr key={h.id}>
-                    <td>{h.created_at ? new Date(h.created_at).toLocaleString() : '—'}</td>
-                    <td>{etiquetaTipoCierre(h.detalle)}</td>
-                    <td>{h.folio}</td>
-                    <td>{fmtCorte(h.ventas)}</td>
-                    <td>{fmtCorte(h.caja_actual)}</td>
-                    <td className="muted">{h.usuario_nombre || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <CorteHistorialImpresion
+        historial={historial}
+        modulo="virtual"
+        columnasExtra={[
+          { key: 'tipo', label: 'Tipo', render: (h) => etiquetaTipoCierre(h.detalle) },
+          { key: 'usuario', label: 'Usuario', render: (h) => h.usuario_nombre || '—' },
+        ]}
+      />
     </div>
   );
 }

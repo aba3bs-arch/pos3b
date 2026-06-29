@@ -8,19 +8,24 @@ function lsKey(modulo) {
 }
 
 const DEFAULTS = {
-  virtual: [{ categoria: 'CONSUMO', subcategorias: ['EMPLEADO', 'OFICINA'] }],
+  virtual: [
+    { categoria: 'CONSUMO', subcategorias: ['EMPLEADO', 'OFICINA'] },
+    { categoria: 'GASTOS OPERATIVOS', subcategorias: ['SUMINISTROS', 'SERVICIOS', 'MANTENIMIENTO', 'OTROS'] },
+  ],
   abarrotes: [
     { categoria: 'CONSUMO', subcategorias: ['EMPLEADO', 'LIMPIEZA'] },
     { categoria: 'GASTOS OPERATIVOS', subcategorias: ['SUMINISTROS', 'SERVICIOS', 'MANTENIMIENTO', 'OTROS'] },
   ],
-  garage: [{ categoria: 'CONSUMO', subcategorias: ['EMPLEADO', 'MANTENIMIENTO'] }],
+  garage: [
+    { categoria: 'CONSUMO', subcategorias: ['EMPLEADO', 'MANTENIMIENTO'] },
+    { categoria: 'GASTOS OPERATIVOS', subcategorias: ['SUMINISTROS', 'SERVICIOS', 'MANTENIMIENTO', 'OTROS'] },
+  ],
 };
 
-/** Solo consumo en abarrotes descuenta nómina; demás gastos afectan el corte pero no nómina. */
-export function gastoDescuentaNomina(modulo, categoria) {
+/** Solo CONSUMO descuenta nómina al empleado asignado; demás gastos afectan el corte pero no nómina. */
+export function gastoDescuentaNomina(_modulo, categoria) {
   const cat = String(categoria || '').trim().toUpperCase();
-  if (modulo === 'abarrotes') return cat === 'CONSUMO';
-  return true;
+  return cat === 'CONSUMO';
 }
 
 export function gastoRequiereEmpleado(modulo, categoria) {

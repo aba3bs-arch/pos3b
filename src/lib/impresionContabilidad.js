@@ -27,9 +27,11 @@ export function htmlNomina(data) {
       <td>${esc(l.nombre)}</td>
       <td>${esc(l.rol)}</td>
       <td>${esc(ETIQUETA_AREA[l.pagador_nomina] || l.pagador_nomina || '—')}</td>
+      <td class="r">${fmt(l.dias_trabajados)}</td>
       <td class="r">${fmt(l.sueldo_base)}</td>
       <td class="r">${fmt(l.bonificacion)}</td>
       <td class="r">${fmt(l.deduccion_gastos)}</td>
+      <td class="r">${fmt(l.deduccion_inventario)}</td>
       <td class="r">${fmt(l.deduccion_prestamos)}</td>
       <td class="r">${fmt(l.deducciones)}</td>
       <td class="r"><strong>${fmt(l.total)}</strong></td>
@@ -42,9 +44,9 @@ export function htmlNomina(data) {
     ${data.pagador_filtro ? `<div>Pagador: <strong>${esc(ETIQUETA_AREA[data.pagador_filtro] || data.pagador_filtro)}</strong></div>` : ''}
     <div class="muted">Generado: ${esc(new Date().toLocaleString())}</div>
     <table>
-      <thead><tr><th>Empleado</th><th>Rol</th><th>Pagador</th><th class="r">Sueldo</th><th class="r">Bono</th><th class="r">Consumos</th><th class="r">Préstamos</th><th class="r">Otras ded.</th><th class="r">Total</th></tr></thead>
+      <thead><tr><th>Empleado</th><th>Rol</th><th>Pagador</th><th class="r">Días</th><th class="r">Sueldo</th><th class="r">Bono</th><th class="r">Consumos</th><th class="r">Inventario</th><th class="r">Préstamos</th><th class="r">Otras ded.</th><th class="r">Total</th></tr></thead>
       <tbody>${lineas}</tbody>
-      <tfoot><tr><td colspan="8" class="r"><strong>Total</strong></td><td class="r"><strong>${fmt(data.total)}</strong></td></tr></tfoot>
+      <tfoot><tr><td colspan="10" class="r"><strong>Total</strong></td><td class="r"><strong>${fmt(data.total)}</strong></td></tr></tfoot>
     </table>
     ${data.notas ? `<p class="muted">Notas: ${esc(data.notas)}</p>` : ''}
   </body></html>`;
@@ -122,6 +124,7 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
     ${linea.rol ? `<div class="campo"><strong>Puesto:</strong> ${esc(linea.rol)}</div>` : ''}
     ${linea.pagador_nomina ? `<div class="campo"><strong>Pagador:</strong> ${esc(ETIQUETA_AREA[linea.pagador_nomina] || linea.pagador_nomina)}</div>` : ''}
     <div class="campo"><strong>Periodo de pago:</strong> ${esc(opts.periodo_inicio)} — ${esc(opts.periodo_fin)}</div>
+    ${linea.dias_trabajados != null && Number(linea.dias_trabajados) > 0 ? `<div class="campo"><strong>${linea.vales_gasolina > 0 && linea.es_indirecto ? 'Vales gasolina' : 'Días trabajados'}:</strong> ${esc(linea.dias_trabajados)}</div>` : ''}
     <div class="campo"><strong>Fecha de pago:</strong> ${esc(fechaPago)}</div>
     <div class="campo"><strong>Hora:</strong> ${esc(horaPago)}</div>
     <table style="margin-top:14px">
@@ -149,6 +152,28 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
 
 export function imprimirReciboNominaIndividual(linea, opts = {}) {
   return abrirVentanaImpresion(htmlReciboNominaIndividual(linea, opts), `Recibo — ${linea.nombre || 'empleado'}`);
+}
+
+/** Un documento con recibo por empleado (salto de página entre cada uno). */
+export function htmlRecibosNominaTodos(lineas, opts = {}) {
+  const lista = lineas || [];
+  if (!lista.length) return '';
+  const muestra = htmlReciboNominaIndividual(lista[0], opts);
+  const styleMatch = muestra.match(/<style>([\s\S]*?)<\/style>/i);
+  const estilos = styleMatch ? styleMatch[1] : '';
+  const cuerpos = lista
+    .map((l) => {
+      const html = htmlReciboNominaIndividual(l, opts);
+      const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+      return m ? `<div class="recibo-page">${m[1]}</div>` : '';
+    })
+    .join('');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recibos nómina</title><style>${estilos}.recibo-page{page-break-after:always;padding-bottom:12px}.recibo-page:last-child{page-break-after:auto}</style></head><body>${cuerpos}</body></html>`;
+}
+
+export function imprimirTodosRecibosNomina(lineas, opts = {}) {
+  if (!lineas?.length) return false;
+  return abrirVentanaImpresion(htmlRecibosNominaTodos(lineas, opts), 'Recibos nómina');
 }
 
 export function imprimirNomina(datos) {

@@ -145,9 +145,7 @@ export default function CorteGastosPanel({
       </div>
       <p className="muted" style={{ fontSize: '0.75rem', margin: '0.35rem 0 0.5rem' }}>
         {notaNomina ||
-          (modulo === 'abarrotes'
-            ? 'Solo CONSUMO se descuenta en nómina al empleado elegido. Los demás gastos afectan el corte pero no nómina ni préstamos.'
-            : 'El consumo se descuenta en nómina al empleado que elijas (no al usuario que captura).')}
+          'Solo CONSUMO se descuenta en nómina al empleado elegido. Los demás gastos afectan el corte pero no se descuentan a nadie.'}
       </p>
 
       {mostrarCat && puedeCatalogo && (

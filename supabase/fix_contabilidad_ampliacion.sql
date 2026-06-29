@@ -3,7 +3,7 @@
 -- =============================================================================
 
 alter table public.usuarios add column if not exists nomina_pagador text
-  check (nomina_pagador is null or nomina_pagador in ('virtual', 'abarrotes', 'garage'));
+  check (nomina_pagador is null or nomina_pagador in ('virtual', 'abarrotes', 'garage', 'ambos'));
 
 alter table public.nomina_periodos add column if not exists pagador_filtro text;
 alter table public.nomina_lineas add column if not exists pagador_nomina text;

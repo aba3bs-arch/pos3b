@@ -1,9 +1,12 @@
 export const AREAS_CONTABILIDAD = ['virtual', 'abarrotes', 'garage'];
 
+export const PAGADORES_NOMINA = ['virtual', 'abarrotes', 'garage', 'ambos'];
+
 export const ETIQUETA_AREA = {
   virtual: 'Virtual',
   abarrotes: 'Abarrotes',
   garage: 'Garage',
+  ambos: 'Abarrotes y Virtual',
 };
 
 /** Únicos beneficiarios permitidos para vales. */

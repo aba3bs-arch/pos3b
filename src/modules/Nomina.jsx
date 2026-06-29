@@ -5,17 +5,30 @@ import {
   guardarPeriodoNomina,
   lineasDesdeEmpleados,
   listarPeriodosNomina,
+  recalcularSueldoLinea,
   totalLineaNomina,
 } from '../lib/nomina.js';
 import { gastosDeduccionPorEmpleado } from '../lib/nominaGastos.js';
 import { prestamosDeduccionPorEmpleado } from '../lib/nominaPrestamos.js';
+import { cortesPorEmpleado, fusionarLineasNomina, valesGasolinaPorEmpleado } from '../lib/nominaCalculos.js';
 import { periodoSemanaNomina, etiquetaSemanaNomina } from '../lib/semanaNomina.js';
-import { AREAS_CONTABILIDAD, ETIQUETA_AREA } from '../lib/contabilidadConstants.js';
-import { imprimirNomina, imprimirReciboNominaIndividual } from '../lib/impresionContabilidad.js';
+import { ETIQUETA_AREA, PAGADORES_NOMINA } from '../lib/contabilidadConstants.js';
+import { imprimirNomina, imprimirReciboNominaIndividual, imprimirTodosRecibosNomina } from '../lib/impresionContabilidad.js';
 import { empleadosVisiblesParaTienda } from '../lib/empleadosVisibles.js';
+
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
 }
+
+const CAMPOS_MANUAL = {
+  pagador_nomina: 'pagador_manual',
+  dias_trabajados: 'dias_manual',
+  sueldo_base: 'sueldo_manual',
+  sueldo_tarifa: 'sueldo_manual',
+  deduccion_gastos: 'gastos_manual',
+  deduccion_inventario: 'inventario_manual',
+  deduccion_prestamos: 'prestamos_manual',
+};
 
 export default function Nomina({ supabase, sucursal, user }) {
   const semana = useMemo(() => periodoSemanaNomina(), []);
@@ -35,32 +48,47 @@ export default function Nomina({ supabase, sucursal, user }) {
 
   const totalGeneral = useMemo(() => lineas.reduce((a, l) => a + totalLineaNomina(l), 0), [lineas]);
 
-  const cargarEmpleadosYGastos = useCallback(async () => {
-    if (!supabase) return;
-    setCargando(true);
-    setErr('');
-    const { data: empleados, error } = await supabase.from('usuarios').select('id, nombre, rol, sucursal_id, nomina_pagador').order('nombre');
-    if (error) {
-      setErr(error.message);
+  const cargarEmpleadosYGastos = useCallback(
+    async (opts = {}) => {
+      if (!supabase) return;
+      const { fusionar = false } = opts;
+      setCargando(true);
+      setErr('');
+      const { data: empleados, error } = await supabase
+        .from('usuarios')
+        .select('id, nombre, rol, sucursal_id, nomina_pagador')
+        .order('nombre');
+      if (error) {
+        setErr(error.message);
+        setCargando(false);
+        return;
+      }
+      const lista = empleadosVisiblesParaTienda(empleados || [], sucursal, user?.rol);
+      const [gastosRes, prestRes, cortesRes, valesRes] = await Promise.all([
+        gastosDeduccionPorEmpleado(supabase, { sucursal, desde: inicio, hasta: fin, empleados: lista }),
+        prestamosDeduccionPorEmpleado(supabase, { sucursal, empleados: lista }),
+        cortesPorEmpleado(supabase, { sucursal, desde: inicio, hasta: fin }),
+        valesGasolinaPorEmpleado(supabase, { sucursal, desde: inicio, hasta: fin, empleados: lista }),
+      ]);
+      if (gastosRes.error) setErr(gastosRes.error);
+      if (prestRes.error) setErr(prestRes.error);
+      if (cortesRes.error) setErr(cortesRes.error);
+      if (valesRes.error) setErr(valesRes.error);
+
+      const lineasNuevas = lineasDesdeEmpleados(lista, {
+        gastosMap: gastosRes.map,
+        prestamosMap: prestRes.map,
+        cortesMap: cortesRes.map,
+        valesGasolinaMap: valesRes.map,
+        pagadorFiltro,
+      });
+
+      setLineas((prev) => (fusionar ? fusionarLineasNomina(prev, lineasNuevas) : lineasNuevas));
+      setEmpleadosCache(lista);
       setCargando(false);
-      return;
-    }
-    const lista = empleadosVisiblesParaTienda(empleados || [], sucursal, user?.rol);
-    const [gastosRes, prestRes] = await Promise.all([
-      gastosDeduccionPorEmpleado(supabase, { sucursal, desde: inicio, hasta: fin, empleados: lista }),
-      prestamosDeduccionPorEmpleado(supabase, { sucursal, empleados: lista }),
-    ]);
-    if (gastosRes.error) setErr(gastosRes.error);
-    if (prestRes.error) setErr(prestRes.error);
-    const lineasNuevas = lineasDesdeEmpleados(lista, {
-      gastosMap: gastosRes.map,
-      prestamosMap: prestRes.map,
-      pagadorFiltro,
-    });
-    setLineas(lineasNuevas);
-    setEmpleadosCache(lista);
-    setCargando(false);
-  }, [supabase, sucursal, inicio, fin, pagadorFiltro, user?.rol]);
+    },
+    [supabase, sucursal, inicio, fin, pagadorFiltro, user?.rol],
+  );
 
   const cargarPeriodos = useCallback(async () => {
     if (!supabase) return;
@@ -79,8 +107,21 @@ export default function Nomina({ supabase, sucursal, user }) {
     setLineas((prev) => {
       const next = [...prev];
       const l = { ...next[idx], [campo]: valor };
-      l.total = totalLineaNomina(l);
-      next[idx] = l;
+      const flagManual = CAMPOS_MANUAL[campo];
+      if (flagManual) l[flagManual] = true;
+
+      if (campo === 'dias_trabajados' && !l.es_indirecto) {
+        l.cortes_periodo = Number(valor) || 0;
+      }
+      if (campo === 'dias_trabajados' && l.es_indirecto) {
+        l.vales_gasolina = Number(valor) || 0;
+      }
+
+      const recalc =
+        !l.sueldo_manual &&
+        (campo === 'dias_trabajados' || campo === 'sueldo_tarifa' || (campo === 'dias_trabajados' && l.es_indirecto));
+      const actualizada = recalc ? recalcularSueldoLinea(l) : { ...l, total: totalLineaNomina(l) };
+      next[idx] = actualizada;
       return next;
     });
   };
@@ -163,6 +204,15 @@ export default function Nomina({ supabase, sucursal, user }) {
     });
   };
 
+  const imprimirTodosRecibos = () => {
+    if (!lineas.length) return;
+    imprimirTodosRecibosNomina(lineas, {
+      periodo_inicio: inicio,
+      periodo_fin: fin,
+      notas: notasPeriodo,
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       {aviso && (
@@ -175,8 +225,9 @@ export default function Nomina({ supabase, sucursal, user }) {
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nómina semanal</h3>
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-          Semana <strong>sábado a viernes</strong>. Consumos de cortes y préstamos activos se descuentan por <strong>nombre de empleado</strong>.
-          Puedes <strong>ajustar manualmente</strong> la columna Gastos cortes antes de cerrar. «Recalcular gastos» vuelve a cargar desde cortes.
+          Semana <strong>sábado a viernes</strong>. Cajeros: días = cortes cerrados en el periodo (editable). Indirectos (Luis Enrique, Misael, Gonzalo): pago por{' '}
+          <strong>vales de gasolina</strong>. Tarifa semanal o por vale en columna Tarifa; el sueldo se calcula automático. «Recalcular gastos» actualiza consumos, préstamos e inventario{' '}
+          <strong>sin borrar</strong> sueldos, días ni pagador si los editaste manualmente.
         </p>
         <div className="grid-2" style={{ marginBottom: '0.75rem' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
@@ -191,7 +242,7 @@ export default function Nomina({ supabase, sucursal, user }) {
             Pagador
             <select className="select" value={pagadorFiltro} onChange={(e) => setPagadorFiltro(e.target.value)}>
               <option value="">Todos</option>
-              {AREAS_CONTABILIDAD.map((a) => (
+              {PAGADORES_NOMINA.map((a) => (
                 <option key={a} value={a}>
                   {ETIQUETA_AREA[a]}
                 </option>
@@ -221,9 +272,12 @@ export default function Nomina({ supabase, sucursal, user }) {
                 <th>Empleado</th>
                 <th>Rol</th>
                 <th>Pagador</th>
+                <th title="Semanal para cajeros; por vale para indirectos">Tarifa</th>
+                <th>{lineas.some((l) => l.es_indirecto) ? 'Días / vales' : 'Días'}</th>
                 <th>Sueldo</th>
                 <th>Bono</th>
-                <th>Gastos cortes</th>
+                <th>Consumos</th>
+                <th>Inventario</th>
                 <th>Préstamos</th>
                 <th>Otras ded.</th>
                 <th>Total</th>
@@ -233,14 +287,68 @@ export default function Nomina({ supabase, sucursal, user }) {
             <tbody>
               {lineas.map((l, i) => (
                 <tr key={l.usuario_id || i}>
-                  <td>{l.nombre}</td>
-                  <td className="muted">{l.rol}</td>
-                  <td>{ETIQUETA_AREA[l.pagador_nomina] || l.pagador_nomina}</td>
                   <td>
-                    <input className="input" type="number" min="0" step="0.01" style={{ width: '90px' }} value={l.sueldo_base} onChange={(e) => actualizarLinea(i, 'sueldo_base', e.target.value)} />
+                    {l.nombre}
+                    {l.es_indirecto && (
+                      <span className="muted" style={{ display: 'block', fontSize: '0.7rem' }}>
+                        indirecto
+                      </span>
+                    )}
+                  </td>
+                  <td className="muted">{l.rol}</td>
+                  <td>
+                    <select
+                      className="select"
+                      style={{ minWidth: '100px', fontSize: '0.8rem', padding: '0.2rem' }}
+                      value={l.pagador_nomina || 'abarrotes'}
+                      onChange={(e) => actualizarLinea(i, 'pagador_nomina', e.target.value)}
+                    >
+                      {PAGADORES_NOMINA.map((a) => (
+                        <option key={a} value={a}>
+                          {ETIQUETA_AREA[a]}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td>
-                    <input className="input" type="number" min="0" step="0.01" style={{ width: '90px' }} value={l.bonificacion} onChange={(e) => actualizarLinea(i, 'bonificacion', e.target.value)} />
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      style={{ width: '80px' }}
+                      title={l.es_indirecto ? 'Monto por vale de gasolina' : 'Sueldo semanal completo (7 días)'}
+                      value={l.sueldo_tarifa ?? 0}
+                      onChange={(e) => actualizarLinea(i, 'sueldo_tarifa', e.target.value)}
+                    />
+                  </td>
+                  <td title={l.es_indirecto ? `Vales gasolina: ${l.vales_gasolina}` : `Cortes: ${l.cortes_periodo}`}>
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="1"
+                      style={{ width: '56px' }}
+                      value={l.dias_trabajados}
+                      onChange={(e) => actualizarLinea(i, 'dias_trabajados', e.target.value)}
+                    />
+                    <span className="muted" style={{ fontSize: '0.65rem', display: 'block' }}>
+                      {l.es_indirecto ? `auto: ${l.vales_gasolina}` : `auto: ${l.cortes_periodo}`}
+                    </span>
+                  </td>
+                  <td>
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      style={{ width: '80px' }}
+                      value={l.sueldo_base}
+                      onChange={(e) => actualizarLinea(i, 'sueldo_base', e.target.value)}
+                    />
+                  </td>
+                  <td>
+                    <input className="input" type="number" min="0" step="0.01" style={{ width: '80px' }} value={l.bonificacion} onChange={(e) => actualizarLinea(i, 'bonificacion', e.target.value)} />
                   </td>
                   <td style={{ fontWeight: 700, color: l.deduccion_gastos > 0 ? 'var(--danger)' : undefined }} title={l.notas}>
                     <input
@@ -248,16 +356,27 @@ export default function Nomina({ supabase, sucursal, user }) {
                       type="number"
                       min="0"
                       step="0.01"
-                      style={{ width: '90px' }}
+                      style={{ width: '80px' }}
                       value={l.deduccion_gastos}
                       onChange={(e) => actualizarLinea(i, 'deduccion_gastos', e.target.value)}
+                    />
+                  </td>
+                  <td style={{ fontWeight: 700, color: l.deduccion_inventario > 0 ? 'var(--danger)' : undefined }}>
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      style={{ width: '80px' }}
+                      value={l.deduccion_inventario ?? 0}
+                      onChange={(e) => actualizarLinea(i, 'deduccion_inventario', e.target.value)}
                     />
                   </td>
                   <td style={{ fontWeight: 700, color: l.deduccion_prestamos > 0 ? 'var(--danger)' : undefined }} title={l.notas}>
                     {fmt(l.deduccion_prestamos)}
                   </td>
                   <td>
-                    <input className="input" type="number" min="0" step="0.01" style={{ width: '90px' }} value={l.deducciones} onChange={(e) => actualizarLinea(i, 'deducciones', e.target.value)} />
+                    <input className="input" type="number" min="0" step="0.01" style={{ width: '80px' }} value={l.deducciones} onChange={(e) => actualizarLinea(i, 'deducciones', e.target.value)} />
                   </td>
                   <td style={{ fontWeight: 700 }}>{fmt(l.total)}</td>
                   <td>
@@ -266,7 +385,7 @@ export default function Nomina({ supabase, sucursal, user }) {
                       className="btn btn-ghost"
                       style={{ padding: '0.2rem 0.45rem', fontSize: '0.75rem' }}
                       onClick={() => imprimirReciboEmpleado(l)}
-                      title="Imprimir recibo individual con firma"
+                      title="Imprimir recibo de este empleado"
                     >
                       Recibo
                     </button>
@@ -275,7 +394,7 @@ export default function Nomina({ supabase, sucursal, user }) {
               ))}
               {lineas.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="muted">
+                  <td colSpan={13} className="muted">
                     {cargando ? 'Cargando…' : 'Sin empleados para este filtro.'}
                   </td>
                 </tr>
@@ -284,10 +403,11 @@ export default function Nomina({ supabase, sucursal, user }) {
             {lineas.length > 0 && (
               <tfoot>
                 <tr>
-                  <td colSpan={8} style={{ textAlign: 'right', fontWeight: 700 }}>
+                  <td colSpan={11} style={{ textAlign: 'right', fontWeight: 700 }}>
                     Total nómina
                   </td>
                   <td style={{ fontWeight: 800, color: 'var(--brand-blue)' }}>{fmt(totalGeneral)}</td>
+                  <td />
                 </tr>
               </tfoot>
             )}
@@ -299,10 +419,16 @@ export default function Nomina({ supabase, sucursal, user }) {
             Cerrar nómina
           </button>
           <button type="button" className="btn btn-ghost" disabled={lineas.length === 0} onClick={imprimir}>
-            Imprimir
+            Imprimir nómina
           </button>
-          <button type="button" className="btn btn-ghost" disabled={cargando} onClick={cargarEmpleadosYGastos}>
+          <button type="button" className="btn btn-ghost" disabled={lineas.length === 0} onClick={imprimirTodosRecibos}>
+            Recibos por empleado
+          </button>
+          <button type="button" className="btn btn-ghost" disabled={cargando} onClick={() => cargarEmpleadosYGastos({ fusionar: true })}>
             Recalcular gastos
+          </button>
+          <button type="button" className="btn btn-ghost" disabled={cargando} onClick={() => cargarEmpleadosYGastos({ fusionar: false })}>
+            Recargar todo
           </button>
         </div>
       </div>
@@ -356,9 +482,11 @@ export default function Nomina({ supabase, sucursal, user }) {
                   <tr>
                     <th>Empleado</th>
                     <th>Pagador</th>
+                    <th>Días</th>
                     <th>Sueldo</th>
                     <th>Bono</th>
-                    <th>Gastos</th>
+                    <th>Consumos</th>
+                    <th>Inventario</th>
                     <th>Préstamos</th>
                     <th>Ded.</th>
                     <th>Total</th>
@@ -370,9 +498,11 @@ export default function Nomina({ supabase, sucursal, user }) {
                     <tr key={l.id}>
                       <td>{l.nombre}</td>
                       <td>{ETIQUETA_AREA[l.pagador_nomina] || l.pagador_nomina}</td>
+                      <td>{l.dias_trabajados ?? '—'}</td>
                       <td>{fmt(l.sueldo_base)}</td>
                       <td>{fmt(l.bonificacion)}</td>
                       <td>{fmt(l.deduccion_gastos)}</td>
+                      <td>{fmt(l.deduccion_inventario)}</td>
                       <td>{fmt(l.deduccion_prestamos)}</td>
                       <td>{fmt(l.deducciones)}</td>
                       <td style={{ fontWeight: 700 }}>{fmt(l.total)}</td>

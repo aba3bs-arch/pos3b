@@ -1,5 +1,7 @@
 import { marcarGastosDescontadosNomina } from './nominaGastos.js';
 import { aplicarPrestamosNomina } from './nominaPrestamos.js';
+import { gastoDescuentaNomina } from './corteContabilidad/catalogoGastos.js';
+import { empleadoIncluidoEnPagadorFiltro, esIndirectoNomina, sueldoProporcionalDias, sueldoIndirectoPorVales, resolverCortesEmpleado } from './nominaCalculos.js';
 
 const LS_SUELDOS = 'pos3b_nomina_sueldos_default';
 
@@ -7,9 +9,10 @@ export function totalLineaNomina(linea) {
   const base = Number(linea.sueldo_base) || 0;
   const bon = Number(linea.bonificacion) || 0;
   const dedGastos = Number(linea.deduccion_gastos) || 0;
+  const dedInventario = Number(linea.deduccion_inventario) || 0;
   const dedPrestamos = Number(linea.deduccion_prestamos) || 0;
   const ded = Number(linea.deducciones) || 0;
-  return Math.max(0, base + bon - dedGastos - dedPrestamos - ded);
+  return Math.max(0, base + bon - dedGastos - dedInventario - dedPrestamos - ded);
 }
 
 export function leerSueldosDefault() {
@@ -32,10 +35,11 @@ function splitGastosNomina(detalle = []) {
   let inventario = 0;
   let consumos = 0;
   for (const g of detalle) {
+    if (!gastoDescuentaNomina(g.modulo, g.categoria)) continue;
     const m = Number(g.monto) || 0;
     const cat = String(g.categoria || '').toUpperCase();
-    if (g.modulo === 'abarrotes' && cat !== 'CONSUMO') continue;
-    if (cat.includes('INVENT')) inventario += m;
+    const sub = String(g.subcategoria || '').toUpperCase();
+    if (cat.includes('INVENT') || sub.includes('INVENT')) inventario += m;
     else consumos += m;
   }
   return {
@@ -44,38 +48,104 @@ function splitGastosNomina(detalle = []) {
   };
 }
 
+function tarifaEmpleado(u, sueldosMap) {
+  return Number(sueldosMap[u.id] ?? leerSueldosDefault()[String(u.id)] ?? 0);
+}
+
 export function lineasDesdeEmpleados(empleados, opts = {}) {
-  const { sueldosMap = {}, gastosMap = {}, prestamosMap = {}, pagadorFiltro = '' } = opts;
+  const {
+    sueldosMap = {},
+    gastosMap = {},
+    prestamosMap = {},
+    cortesMap = {},
+    valesGasolinaMap = {},
+    pagadorFiltro = '',
+  } = opts;
+
   let lista = empleados || [];
   if (pagadorFiltro) {
-    lista = lista.filter((u) => (u.nomina_pagador || 'abarrotes') === pagadorFiltro);
+    lista = lista.filter((u) => empleadoIncluidoEnPagadorFiltro(u, pagadorFiltro));
   }
+
   return lista.map((u) => {
-    const sueldo = Number(sueldosMap[u.id] ?? leerSueldosDefault()[String(u.id)] ?? 0);
+    const indirecto = esIndirectoNomina(u);
+    const tarifa = tarifaEmpleado(u, sueldosMap);
     const gastosEmp = gastosMap[String(u.id)] || { total: 0, detalle: [] };
     const prestEmp = prestamosMap[String(u.id)] || { total: 0, detalle: [] };
-    const dedGastos = Number(gastosEmp.total) || 0;
-    const dedPrestamos = Number(prestEmp.total) || 0;
     const { deduccion_inventario, deduccion_consumos } = splitGastosNomina(gastosEmp.detalle);
+    const dedGastos = Number(deduccion_consumos) || 0;
+    const dedPrestamos = Number(prestEmp.total) || 0;
+
+    const cortes = resolverCortesEmpleado(u, cortesMap);
+    const valesGas = Number(valesGasolinaMap[String(u.id)] || 0);
+
+    let diasTrabajados = cortes;
+    let sueldoBase = 0;
+
+    if (indirecto) {
+      diasTrabajados = valesGas;
+      sueldoBase = sueldoIndirectoPorVales(tarifa, valesGas);
+    } else {
+      sueldoBase = sueldoProporcionalDias(tarifa, cortes);
+    }
+
     const notas = [];
+    if (indirecto) {
+      if (valesGas > 0) notas.push(`Vales gasolina: ${valesGas}`);
+    } else if (cortes > 0) {
+      notas.push(`Cortes en periodo: ${cortes}`);
+    }
     if (dedGastos > 0) notas.push(`Consumos cortes: ${gastosEmp.detalle?.length || 0} mov.`);
+    if (deduccion_inventario > 0) notas.push(`Inventario faltante: ${fmtMonto(deduccion_inventario)}`);
     if (dedPrestamos > 0) notas.push(`Préstamos: ${prestEmp.detalle?.length || 0} activo(s)`);
+
     const linea = {
       usuario_id: u.id,
       nombre: u.nombre || '—',
       rol: u.rol || '—',
       pagador_nomina: u.nomina_pagador || 'abarrotes',
-      sueldo_base: sueldo,
+      es_indirecto: indirecto,
+      sueldo_tarifa: tarifa,
+      dias_trabajados: diasTrabajados,
+      cortes_periodo: cortes,
+      vales_gasolina: valesGas,
+      sueldo_base: sueldoBase,
       bonificacion: 0,
       deduccion_gastos: dedGastos,
       deduccion_inventario,
-      deduccion_consumos: dedGastos > 0 ? deduccion_consumos || dedGastos : 0,
+      deduccion_consumos: dedGastos,
       deduccion_prestamos: dedPrestamos,
       deducciones: 0,
       notas: notas.join(' · '),
+      pagador_manual: false,
+      dias_manual: false,
+      sueldo_manual: false,
+      gastos_manual: false,
+      inventario_manual: false,
+      prestamos_manual: false,
     };
     return { ...linea, total: totalLineaNomina(linea) };
   });
+}
+
+function fmtMonto(n) {
+  return `$${(Number(n) || 0).toFixed(2)}`;
+}
+
+export function recalcularSueldoLinea(linea) {
+  const l = { ...linea };
+  if (l.sueldo_manual) {
+    l.total = totalLineaNomina(l);
+    return l;
+  }
+  const tarifa = Number(l.sueldo_tarifa) || 0;
+  if (l.es_indirecto) {
+    l.sueldo_base = sueldoIndirectoPorVales(tarifa, l.vales_gasolina);
+  } else {
+    l.sueldo_base = sueldoProporcionalDias(tarifa, l.dias_trabajados);
+  }
+  l.total = totalLineaNomina(l);
+  return l;
 }
 
 export function faltaTablaNomina(error) {
@@ -136,9 +206,14 @@ export async function guardarPeriodoNomina(supabase, payload) {
     nombre: l.nombre,
     rol: l.rol || null,
     pagador_nomina: l.pagador_nomina || null,
+    sueldo_tarifa: Number(l.sueldo_tarifa) || 0,
+    dias_trabajados: Number(l.dias_trabajados) || 0,
+    cortes_periodo: Number(l.cortes_periodo) || 0,
+    vales_gasolina: Number(l.vales_gasolina) || 0,
     sueldo_base: Number(l.sueldo_base) || 0,
     bonificacion: Number(l.bonificacion) || 0,
     deduccion_gastos: Number(l.deduccion_gastos) || 0,
+    deduccion_inventario: Number(l.deduccion_inventario) || 0,
     deduccion_prestamos: Number(l.deduccion_prestamos) || 0,
     deducciones: Number(l.deducciones) || 0,
     total: totalLineaNomina(l),
@@ -146,7 +221,7 @@ export async function guardarPeriodoNomina(supabase, payload) {
   }));
 
   for (const l of lineas || []) {
-    if (l.usuario_id) guardarSueldoDefault(l.usuario_id, l.sueldo_base);
+    if (l.usuario_id) guardarSueldoDefault(l.usuario_id, l.sueldo_tarifa || l.sueldo_base);
   }
 
   const { error: e2 } = await supabase.from('nomina_lineas').insert(filas);

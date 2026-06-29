@@ -1,7 +1,9 @@
 import React, { useCallback } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
+import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
 import { calcularAbarrotes } from '../../lib/corteContabilidad/calc.js';
+import { datosImpresionCorteActual, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 
 const COLOR = '#b5a642';
@@ -53,6 +55,21 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
 
   const cajaNegativa = calc.cajaActual < -0.001;
 
+  const imprimirBorrador = () => {
+    imprimirCorteContabilidad(
+      datosImpresionCorteActual({
+        modulo: 'abarrotes',
+        sucursal,
+        folio: estado.folio || folio,
+        turno,
+        user,
+        estado,
+        gastos,
+        calc,
+      }),
+    );
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
@@ -77,6 +94,9 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
                 Cerrar corte
               </button>
             )}
+            <button type="button" className="btn btn-ghost" onClick={imprimirBorrador} disabled={cargando}>
+              Imprimir corte
+            </button>
           </div>
         </div>
         {aviso && <p style={{ margin: '0.75rem 0 0', fontSize: '0.85rem', color: 'var(--brand-gold)' }}>{aviso}</p>}
@@ -159,33 +179,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         </div>
       </div>
 
-      {historial.length > 0 && (
-        <div className="card">
-          <h4 style={{ margin: '0 0 0.5rem' }}>Últimos cierres</h4>
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Fecha</th>
-                  <th>Folio</th>
-                  <th>Venta</th>
-                  <th>Caja</th>
-                </tr>
-              </thead>
-              <tbody>
-                {historial.map((h) => (
-                  <tr key={h.id}>
-                    <td>{h.created_at ? new Date(h.created_at).toLocaleString() : '—'}</td>
-                    <td>{h.folio}</td>
-                    <td>{fmtCorte(h.ventas)}</td>
-                    <td>{fmtCorte(h.caja_actual)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <CorteHistorialImpresion historial={historial} modulo="abarrotes" />
     </div>
   );
 }

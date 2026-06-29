@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { ROLES, normalizarRol, puedeGestionarUsuarios } from '../lib/roles.js';
-import { AREAS_CONTABILIDAD, ETIQUETA_AREA } from '../lib/contabilidadConstants.js';
+import { ETIQUETA_AREA, PAGADORES_NOMINA } from '../lib/contabilidadConstants.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { leerTurnos, leerConfigHorario, esHorarioPersonalizado, resumenHorarioUsuario, EVENTO_TURNOS, nombreTurnoLegible, TURNO_AMBOS_ID, etiquetaTurno } from '../lib/turnos.js';
 import { empleadosVisiblesParaTienda, filtrarEmpleadosAdmin } from '../lib/empleadosVisibles.js';
@@ -165,7 +165,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     const { error } = await supabase.from('usuarios').update({ nomina_pagador: pagador }).eq('id', id);
     if (error) {
       if (String(error.message).includes('nomina_pagador')) {
-        return alert('Ejecuta supabase/fix_contabilidad_ampliacion.sql en Supabase.');
+        return alert('Ejecuta supabase/fix_nomina_dias_pagador.sql en Supabase.');
       }
       return alert(error.message);
     }
@@ -293,7 +293,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
           <label className="muted">
             Nómina pagada por
             <select className="select" style={{ marginTop: '0.35rem' }} value={form.nomina_pagador} onChange={(e) => setForm({ ...form, nomina_pagador: e.target.value })}>
-              {AREAS_CONTABILIDAD.map((a) => (
+              {PAGADORES_NOMINA.map((a) => (
                 <option key={a} value={a}>
                   {ETIQUETA_AREA[a]}
                 </option>
@@ -381,7 +381,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                         value={r.nomina_pagador || 'abarrotes'}
                         onChange={(e) => actualizarPagadorNomina(r.id, e.target.value)}
                       >
-                        {AREAS_CONTABILIDAD.map((a) => (
+                        {PAGADORES_NOMINA.map((a) => (
                           <option key={a} value={a}>
                             {ETIQUETA_AREA[a]}
                           </option>
@@ -520,7 +520,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
             <label className="muted">
               Nómina pagada por
               <select className="select" style={{ marginTop: '0.35rem' }} value={editForm.nomina_pagador} onChange={(e) => setEditForm({ ...editForm, nomina_pagador: e.target.value })}>
-                {AREAS_CONTABILIDAD.map((a) => (
+                {PAGADORES_NOMINA.map((a) => (
                   <option key={a} value={a}>
                     {ETIQUETA_AREA[a]}
                   </option>
