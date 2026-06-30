@@ -73,15 +73,23 @@ export function calcularVirtual(estado, gastos = []) {
     monedaInicialTurno: monedaTurno,
   });
   const venta = valorManual(estado, 'venta_manual', ventaCalc);
-  const faltante = round2(estado.faltante);
-  const recoleccion = round2(estado.recoleccion ?? estado.recoleccion_turno);
-  const subtotalCalc = round2(venta - gastosTotal - faltante);
+  const subtotalCalc = round2(venta - gastosTotal);
   const subtotal = valorManual(estado, 'subtotal_manual', subtotalCalc);
   const cajaAnterior = round2(estado.caja_anterior);
   const cajaActualCalc = round2(cajaAnterior + subtotal);
   const cajaActual = valorManual(estado, 'caja_actual_manual', cajaActualCalc);
   const ventaNeta = round2(venta - gastosTotal);
-  return { venta, gastosTotal, subtotal, ventaNeta, cajaActual };
+  return { venta, gastosTotal, subtotal, ventaNeta, cajaActual, monedaTurno };
+}
+
+/** Caja en negativo: subtotal negativo o moneda final por encima de la moneda inicial (premios sin préstamo). */
+export function cajaVirtualEnNegativo(estado, calc) {
+  if ((calc?.cajaActual ?? 0) < -0.001) return true;
+  if ((calc?.venta ?? 0) < -0.001) return true;
+  if (!estado?.moneda_final_editada) return false;
+  const mi = monedaInicialTurnoEfectiva(estado);
+  const mf = round2(estado.moneda_final);
+  return mf > mi + 0.001;
 }
 
 /** Total a recolectar al actualizar moneda: venta en efectivo + toda la caja chica. */

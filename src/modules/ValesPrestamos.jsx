@@ -48,7 +48,7 @@ function hoyISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes, onPendientesVisto }) {
+export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes, onPendientesVisto, navOpts, onNavOptsVisto, retornoModulo, onRegresarCorte }) {
   const [pestana, setPestana] = useState('vales');
   const [aviso, setAviso] = useState('');
   const [vales, setVales] = useState([]);
@@ -121,6 +121,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       onPendientesVisto?.();
     }
   }, [irAPendientes, esAdmin, esSocio, onPendientesVisto]);
+
+  useEffect(() => {
+    if (!navOpts) return;
+    if (navOpts.pestana) setPestana(navOpts.pestana);
+    if (navOpts.retorno === 'Corte Virtual') {
+      setPrestForm((prev) => ({ ...prev, origen: 'virtual', gastos_area: prev.gastos_area === 'virtual' ? 'abarrotes' : prev.gastos_area }));
+    }
+    onNavOptsVisto?.();
+  }, [navOpts, onNavOptsVisto]);
 
   const guardarVale = async () => {
     if (!supabase) return alert('Sin conexión.');
@@ -259,6 +268,30 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {retornoModulo && onRegresarCorte && (
+        <div
+          className="card"
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '0.75rem',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderLeft: '4px solid #8e44ad',
+            background: 'rgba(142,68,173,0.08)',
+          }}
+        >
+          <div>
+            <strong>Solicitud de préstamo de área</strong>
+            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
+              Registre el préstamo entre áreas y regrese al corte virtual para continuar.
+            </p>
+          </div>
+          <button type="button" className="btn btn-primary" onClick={onRegresarCorte}>
+            Regresar al corte
+          </button>
+        </div>
+      )}
       {aviso && (
         <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)', background: 'rgba(225,153,41,0.08)' }}>
           <strong>Configuración pendiente</strong>

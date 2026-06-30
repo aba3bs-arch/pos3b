@@ -66,7 +66,6 @@ export function permisosCorteContabilidad(rol, userId = null) {
 
   if (rec && !esAdmin) {
     base.moneda_inicial = true;
-    base.fondo = true;
     base.caja_anterior = true;
   }
 

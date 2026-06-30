@@ -11,6 +11,9 @@ const DEFAULTS = {
   virtual: [
     { categoria: 'CONSUMO', subcategorias: ['EMPLEADO', 'OFICINA'] },
     { categoria: 'GASTOS OPERATIVOS', subcategorias: ['SUMINISTROS', 'SERVICIOS', 'MANTENIMIENTO', 'OTROS'] },
+    { categoria: 'TARJETA', subcategorias: ['PAGOS TARJETA'] },
+    { categoria: 'FALTANTE', subcategorias: ['FALTANTE'] },
+    { categoria: 'PREMIOS', subcategorias: ['PAGO DE PREMIO'] },
   ],
   abarrotes: [
     { categoria: 'CONSUMO', subcategorias: ['EMPLEADO', 'LIMPIEZA'] },

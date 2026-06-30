@@ -79,6 +79,8 @@ function App() {
   const [autorizandoTurno, setAutorizandoTurno] = useState(false);
   const [vista, setVista] = useState('Inicio');
   const [valesIrPendientes, setValesIrPendientes] = useState(false);
+  const [valesNavOpts, setValesNavOpts] = useState(null);
+  const [valesRetornoModulo, setValesRetornoModulo] = useState(null);
   const [buzonPestana, setBuzonPestana] = useState('pendientes');
   const [sucursal, setSucursal] = useState(sucursalInicial);
   const [tiendaFijadaParaAcceso, setTiendaFijadaParaAcceso] = useState(() => Boolean(SUCURSAL_FIJA_ENV || tiendaBloqueadaEnEsteEquipo()));
@@ -285,6 +287,10 @@ function App() {
       if (m === 'Incidencias') {
         const soloInc = !esAdminModuloIncidencias(user?.rol);
         setBuzonPestana(opts.pestana || (soloInc ? 'incidencias' : 'pendientes'));
+      }
+      if (m === 'Vales y Préstamos' && (opts.pestana || opts.retorno)) {
+        setValesNavOpts({ pestana: opts.pestana || null, retorno: opts.retorno || null });
+        if (opts.retorno) setValesRetornoModulo(opts.retorno);
       }
       setVista(m);
     },
@@ -818,9 +824,20 @@ function App() {
               user={user}
               irAPendientes={valesIrPendientes}
               onPendientesVisto={() => setValesIrPendientes(false)}
+              navOpts={valesNavOpts}
+              onNavOptsVisto={() => setValesNavOpts(null)}
+              retornoModulo={valesRetornoModulo}
+              onRegresarCorte={
+                valesRetornoModulo
+                  ? () => {
+                      irAModulo(valesRetornoModulo);
+                      setValesRetornoModulo(null);
+                    }
+                  : undefined
+              }
             />
           )}
-          {vista === 'Corte Virtual' && <CorteVirtual supabase={supabase} sucursal={sucursal} user={user} />}
+          {vista === 'Corte Virtual' && <CorteVirtual supabase={supabase} sucursal={sucursal} user={user} onNavigate={irAModulo} />}
           {vista === 'Corte Abarrotes' && <CorteAbarrotes supabase={supabase} sucursal={sucursal} user={user} />}
           {vista === 'Corte Garage' && <CorteGarage supabase={supabase} sucursal={sucursal} user={user} />}
           {vista === 'Configuracion' && (
