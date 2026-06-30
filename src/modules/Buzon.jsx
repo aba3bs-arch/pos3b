@@ -14,6 +14,9 @@ import {
   etiquetaCategoriaIncidencia,
   etiquetaEstadoIncidencia,
   etiquetaPrioridadIncidencia,
+  fechaHoraIncidencia,
+  fmtFechaIncidencia,
+  fmtHoraIncidencia,
   listarIncidencias,
   PRIORIDADES_INCIDENCIA,
 } from '../lib/incidenciasPos.js';
@@ -62,6 +65,16 @@ export default function Buzon({
   });
   const [resolviendo, setResolviendo] = useState(null);
   const [resolucionTxt, setResolucionTxt] = useState('');
+  const [ahoraReporte, setAhoraReporte] = useState(() => new Date());
+
+  const nombreTienda = etiquetaTienda(sucursal);
+  const { fechaTxt: fechaReporte, horaTxt: horaReporte } = fechaHoraIncidencia(ahoraReporte);
+
+  useEffect(() => {
+    if (pestana !== 'incidencias') return undefined;
+    const id = setInterval(() => setAhoraReporte(new Date()), 30_000);
+    return () => clearInterval(id);
+  }, [pestana]);
 
   const filtrarPendientes = useCallback(
     (lista) => {
@@ -136,10 +149,15 @@ export default function Buzon({
   const enviarIncidencia = async (e) => {
     e.preventDefault();
     setMsg('');
+    const momento = new Date();
+    const { fechaTxt, horaTxt } = fechaHoraIncidencia(momento);
     const res = await crearIncidencia(supabase, {
       ...formInc,
       sucursal_id: sucursal,
       reportado_por: user?.nombre,
+      etiqueta_tienda: nombreTienda,
+      fecha_reporte: fechaTxt,
+      hora_reporte: horaTxt,
     });
     if (!res.ok) {
       setMsg(res.error || 'Error al reportar.');
@@ -270,10 +288,34 @@ export default function Buzon({
       {pestana === 'incidencias' && (
         <>
           <div className="card">
-            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)' }}>Reportar incidencia</h3>
+            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)' }}>Reporte de incidencia</h3>
             <form onSubmit={enviarIncidencia} style={{ display: 'grid', gap: '0.65rem', maxWidth: 560 }}>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                  gap: '0.5rem',
+                  padding: '0.65rem 0.75rem',
+                  borderRadius: 8,
+                  background: 'rgba(59,105,181,0.06)',
+                  border: '1px solid var(--border)',
+                }}
+              >
+                <div>
+                  <div className="muted" style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase' }}>Tienda</div>
+                  <div style={{ fontWeight: 700, marginTop: '0.2rem' }}>{nombreTienda}</div>
+                </div>
+                <div>
+                  <div className="muted" style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase' }}>Fecha</div>
+                  <div style={{ fontWeight: 700, marginTop: '0.2rem' }}>{fechaReporte}</div>
+                </div>
+                <div>
+                  <div className="muted" style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase' }}>Hora</div>
+                  <div style={{ fontWeight: 700, marginTop: '0.2rem' }}>{horaReporte}</div>
+                </div>
+              </div>
               <label>
-                <span className="muted" style={{ fontSize: '0.82rem' }}>Título</span>
+                <span className="muted" style={{ fontSize: '0.82rem' }}>Título del reporte</span>
                 <input
                   className="input"
                   value={formInc.titulo}
@@ -342,7 +384,8 @@ export default function Buzon({
                   <thead>
                     <tr>
                       <th>Fecha</th>
-                      {veTodasTiendas && <th>Tienda</th>}
+                      <th>Hora</th>
+                      <th>Tienda</th>
                       <th>Título</th>
                       <th>Categoría</th>
                       <th>Prioridad</th>
@@ -354,8 +397,9 @@ export default function Buzon({
                   <tbody>
                     {incidencias.map((inc) => (
                       <tr key={inc.id}>
-                        <td>{fmtFecha(inc.created_at)}</td>
-                        {veTodasTiendas && <td>{etiquetaTienda(inc.sucursal_id)}</td>}
+                        <td>{fmtFechaIncidencia(inc.created_at)}</td>
+                        <td>{fmtHoraIncidencia(inc.created_at)}</td>
+                        <td>{etiquetaTienda(inc.sucursal_id)}</td>
                         <td>
                           <strong>{inc.titulo}</strong>
                           {inc.descripcion && (

@@ -39,6 +39,32 @@ export function etiquetaEstadoIncidencia(e) {
   return map[e] || e || 'Abierta';
 }
 
+export function fechaHoraIncidencia(fecha = new Date()) {
+  const d = fecha instanceof Date ? fecha : new Date(fecha);
+  const fechaTxt = d.toLocaleDateString('es-MX', {
+    weekday: 'short',
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  });
+  const horaTxt = d.toLocaleTimeString('es-MX', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  return { fechaTxt, horaTxt, iso: d.toISOString() };
+}
+
+export function fmtFechaIncidencia(iso) {
+  if (!iso) return '—';
+  return fechaHoraIncidencia(iso).fechaTxt;
+}
+
+export function fmtHoraIncidencia(iso) {
+  if (!iso) return '—';
+  return fechaHoraIncidencia(iso).horaTxt;
+}
+
 export async function crearIncidencia(supabase, row) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   if (!String(row.titulo || '').trim()) return { ok: false, error: 'Indica un título.' };
@@ -62,8 +88,17 @@ export async function crearIncidencia(supabase, row) {
     tipo: TIPOS_NOTIF.INCIDENCIA,
     ref_tabla: 'pos_incidencias',
     ref_id: data.id,
-    titulo: `Incidencia · ${payload.titulo}`,
-    mensaje: `${etiquetaCategoriaIncidencia(payload.categoria)} · ${etiquetaPrioridadIncidencia(payload.prioridad)}${payload.reportado_por ? ` · ${payload.reportado_por}` : ''}`,
+    titulo: payload.titulo,
+    mensaje: [
+      row.etiqueta_tienda || payload.sucursal_id,
+      row.fecha_reporte,
+      row.hora_reporte,
+      etiquetaCategoriaIncidencia(payload.categoria),
+      etiquetaPrioridadIncidencia(payload.prioridad),
+      payload.reportado_por,
+    ]
+      .filter(Boolean)
+      .join(' · '),
   });
   emitirRefreshNotificaciones();
 
