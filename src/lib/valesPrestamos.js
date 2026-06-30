@@ -58,15 +58,44 @@ export async function siguienteFolioVale(supabase, sucursal) {
 
 export async function listarVales(supabase, opts = {}) {
   if (!supabase) return { data: [], error: null };
-  const { sucursal, area, tipo, estadoAprobacion, limit = 200 } = opts;
-  let q = supabase.from('vales').select('*').order('created_at', { ascending: false }).limit(limit);
+  const { sucursal, area, tipo, categoria, estadoAprobacion, desde, hasta, limit = 200 } = opts;
+  let q = supabase.from('vales').select('*').order('fecha', { ascending: false }).order('created_at', { ascending: false }).limit(limit);
   if (sucursal) q = q.eq('sucursal_id', sucursal);
   if (area) q = q.eq('area', area);
   if (tipo) q = q.eq('tipo', tipo);
+  if (categoria) q = q.eq('categoria', categoria);
   if (estadoAprobacion) q = q.eq('estado_aprobacion', estadoAprobacion);
+  if (desde) q = q.gte('fecha', desde);
+  if (hasta) q = q.lte('fecha', hasta);
   const { data, error } = await q;
   if (error && faltaTablaVales(error)) return { data: [], error: null, aviso: AVISO_FALTA_CONTABILIDAD };
   return { data: data || [], error: error?.message || null };
+}
+
+export async function listarValesGasolina(supabase, opts = {}) {
+  return listarVales(supabase, { ...opts, categoria: 'gasolina', estadoAprobacion: opts.soloAprobados === false ? undefined : 'aprobado' });
+}
+
+export async function marcarValeCobrado(supabase, valeId, cobrado, { nombre } = {}) {
+  if (!supabase || !valeId) return { ok: false, error: 'Vale inválido.' };
+  const { data: vale, error: e0 } = await supabase.from('vales').select('*').eq('id', valeId).single();
+  if (e0 || !vale) return { ok: false, error: 'Vale no encontrado.' };
+  if (vale.categoria !== 'gasolina') return { ok: false, error: 'Solo aplica a vales de gasolina.' };
+  if (vale.estado_aprobacion !== 'aprobado') return { ok: false, error: 'El vale debe estar aprobado.' };
+
+  const esCobrado = Boolean(cobrado);
+  const { data, error } = await supabase
+    .from('vales')
+    .update({
+      cobrado: esCobrado,
+      cobrado_at: esCobrado ? new Date().toISOString() : null,
+      cobrado_por: esCobrado ? nombre || null : null,
+    })
+    .eq('id', valeId)
+    .select('*')
+    .single();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, vale: data };
 }
 
 export async function registrarVale(supabase, row, opts = {}) {
@@ -104,6 +133,7 @@ export async function registrarVale(supabase, row, opts = {}) {
     aprobado_at: aprobadoAt,
     cargado_corte: false,
     tipo: row.tipo || 'indirecto',
+    ...(categoria === 'gasolina' ? { cobrado: false } : {}),
   };
 
   const { data, error } = await supabase.from('vales').insert([payload]).select('*').single();
@@ -152,6 +182,7 @@ export async function aprobarVale(supabase, valeId, { nombreAprobador, cargarCor
       estado_aprobacion: 'aprobado',
       autorizado_por: nombreAprobador || 'Administrador',
       aprobado_at: new Date().toISOString(),
+      ...(vale.categoria === 'gasolina' ? { cobrado: false } : {}),
     })
     .eq('id', valeId)
     .select('*')

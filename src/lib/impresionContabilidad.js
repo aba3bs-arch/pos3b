@@ -100,8 +100,9 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
     Number(linea.deduccion_consumos) ||
     Math.max(0, (Number(linea.deduccion_gastos) || 0) - dedInv);
   const dedPrest = Number(linea.deduccion_prestamos) || 0;
+  const dedFaltas = Number(linea.deduccion_faltas) || 0;
   const dedOtras = Number(linea.deducciones) || 0;
-  const neto = Number(linea.total) ?? Math.max(0, bruto - dedInv - dedCons - dedPrest - dedOtras);
+  const neto = Number(linea.total) ?? Math.max(0, bruto - dedInv - dedCons - dedPrest - dedFaltas - dedOtras);
   const filaDed = (label, monto) =>
     monto > 0
       ? `<tr><td>${esc(label)}</td><td class="r" style="color:#c0392b">− ${fmt(monto)}</td></tr>`
@@ -124,7 +125,8 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
     ${linea.rol ? `<div class="campo"><strong>Puesto:</strong> ${esc(linea.rol)}</div>` : ''}
     ${linea.pagador_nomina ? `<div class="campo"><strong>Pagador:</strong> ${esc(ETIQUETA_AREA[linea.pagador_nomina] || linea.pagador_nomina)}</div>` : ''}
     <div class="campo"><strong>Periodo de pago:</strong> ${esc(opts.periodo_inicio)} — ${esc(opts.periodo_fin)}</div>
-    ${linea.dias_trabajados != null && Number(linea.dias_trabajados) > 0 ? `<div class="campo"><strong>${linea.vales_gasolina > 0 && linea.es_indirecto ? 'Vales gasolina' : 'Días trabajados'}:</strong> ${esc(linea.dias_trabajados)}</div>` : ''}
+    ${linea.dias_trabajados != null && Number(linea.dias_trabajados) > 0 ? `<div class="campo"><strong>${linea.vales_gasolina > 0 && linea.es_indirecto ? 'Vales cobrados' : 'Días trabajados'}:</strong> ${esc(linea.dias_trabajados)}</div>` : ''}
+    ${linea.faltas_gasolina > 0 ? `<div class="campo"><strong>Faltas (vale no cobrado):</strong> ${esc(linea.faltas_gasolina)}</div>` : ''}
     <div class="campo"><strong>Fecha de pago:</strong> ${esc(fechaPago)}</div>
     <div class="campo"><strong>Hora:</strong> ${esc(horaPago)}</div>
     <table style="margin-top:14px">
@@ -137,8 +139,9 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
       ${filaDed('Inventario', dedInv)}
       ${filaDed('Consumos', dedCons)}
       ${filaDed('Préstamos', dedPrest)}
+      ${filaDed('Faltas (gasolina)', dedFaltas)}
       ${filaDed('Otras deducciones', dedOtras)}
-      ${dedInv + dedCons + dedPrest + dedOtras === 0 ? '<tr><td colspan="2" class="muted">Sin descuentos</td></tr>' : ''}
+      ${dedInv + dedCons + dedPrest + dedFaltas + dedOtras === 0 ? '<tr><td colspan="2" class="muted">Sin descuentos</td></tr>' : ''}
     </table>
     <div class="neto">Pago neto a recibir: ${fmt(neto)}</div>
     <div class="firma">Recibí de conformidad el importe neto indicado.<br/><br/>

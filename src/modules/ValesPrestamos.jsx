@@ -38,6 +38,7 @@ import { imprimirPrestamo, imprimirVale } from '../lib/impresionContabilidad.js'
 import { normalizarRol } from '../lib/roles.js';
 import { empleadosVisiblesParaTienda } from '../lib/empleadosVisibles.js';
 import { tiendaPuedeGenerarVales, EVENTO_VALES_TIENDAS } from '../lib/posConfig.js';
+import PanelAsistenciaGasolina from '../components/PanelAsistenciaGasolina.jsx';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -293,11 +294,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       </div>
 
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        {['vales', 'prestamos', 'prestamos_emp', (esAdmin || esSocio) && 'pendientes'].filter(Boolean).map((p) => (
+        {['vales', 'prestamos', 'prestamos_emp', esAdmin && 'gasolina', (esAdmin || esSocio) && 'pendientes'].filter(Boolean).map((p) => (
           <button key={p} type="button" className={`btn ${pestana === p ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPestana(p)}>
             {p === 'vales' && 'Vales'}
             {p === 'prestamos' && 'Préstamos área'}
             {p === 'prestamos_emp' && 'Préstamos empleados'}
+            {p === 'gasolina' && 'Gasolina / asistencia'}
             {p === 'pendientes' && `Pendientes (${valesPendientes.length + prestamosPendientesAdmin.length + (esSocio ? prestamosPendientesSocio.length : 0)})`}
           </button>
         ))}
@@ -419,6 +421,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             </div>
           </div>
         </>
+      )}
+
+      {pestana === 'gasolina' && esAdmin && (
+        <PanelAsistenciaGasolina supabase={supabase} sucursal={sucursal} user={user} />
       )}
 
       {pestana === 'prestamos' && (

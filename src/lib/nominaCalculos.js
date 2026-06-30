@@ -64,35 +64,36 @@ export function resolverCortesEmpleado(empleado, mapCortes) {
   return 0;
 }
 
-/** Cuenta vales de gasolina aprobados por empleado indirecto en el periodo. */
+/** Cuenta vales de gasolina aprobados por empleado: cobrados = día laboral; no cobrados = falta. */
 export async function valesGasolinaPorEmpleado(supabase, { sucursal, desde, hasta, empleados = [] }) {
-  if (!supabase) return { map: {}, error: null };
-  const finTs = `${hasta}T23:59:59`;
+  if (!supabase) return { map: {}, mapNoCobrados: {}, error: null };
   const indice = indiceEmpleados(empleados);
 
   let q = supabase
     .from('vales')
-    .select('usuario_id, nombre_empleado, categoria, estado_aprobacion, fecha, created_at')
+    .select('id, usuario_id, nombre_empleado, categoria, estado_aprobacion, cobrado, fecha, created_at')
     .eq('categoria', 'gasolina')
-    .gte('created_at', desde)
-    .lte('created_at', finTs);
+    .gte('fecha', desde)
+    .lte('fecha', hasta);
 
   if (sucursal) q = q.eq('sucursal_id', sucursal);
 
   const { data, error } = await q;
   if (error) {
-    if (error.code === '42P01') return { map: {}, error: null };
-    return { map: {}, error: error.message };
+    if (error.code === '42P01') return { map: {}, mapNoCobrados: {}, error: null };
+    return { map: {}, mapNoCobrados: {}, error: error.message };
   }
 
   const map = {};
+  const mapNoCobrados = {};
   for (const v of data || []) {
     if (v.estado_aprobacion && v.estado_aprobacion !== 'aprobado') continue;
     const clave = resolverClaveEmpleado(v, indice);
     if (!clave) continue;
-    map[clave] = (map[clave] || 0) + 1;
+    if (v.cobrado) map[clave] = (map[clave] || 0) + 1;
+    else mapNoCobrados[clave] = (mapNoCobrados[clave] || 0) + 1;
   }
-  return { map, error: null };
+  return { map, mapNoCobrados, error: null };
 }
 
 /** Conserva ajustes manuales al recalcular gastos / datos automáticos. */
@@ -113,6 +114,8 @@ export function fusionarLineasNomina(anteriores, nuevas) {
       merged.dias_trabajados = ant.dias_trabajados;
       merged.cortes_periodo = ant.cortes_periodo ?? nueva.cortes_periodo;
       merged.vales_gasolina = ant.vales_gasolina ?? nueva.vales_gasolina;
+      merged.faltas_gasolina = ant.faltas_gasolina ?? nueva.faltas_gasolina;
+      merged.deduccion_faltas = ant.deduccion_faltas ?? nueva.deduccion_faltas;
     }
     if (ant.sueldo_manual) {
       merged.sueldo_base = ant.sueldo_base;

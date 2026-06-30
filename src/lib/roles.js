@@ -157,6 +157,18 @@ export function puedeVerModulo(rol, moduloId, userId = null) {
   return permitidos.includes(moduloId);
 }
 
+const ROLES_BUZON_SOLO_INCIDENCIAS = new Set(['Cajero', 'Repartidor', 'Técnico']);
+
+/** Cajero y roles operativos: el menú Buzón se muestra como Incidencias (solo reportar). */
+export function rolVeBuzonComoIncidencias(rol) {
+  return ROLES_BUZON_SOLO_INCIDENCIAS.has(normalizarRol(rol));
+}
+
+export function etiquetaModuloSidebar(rol, moduloId) {
+  if (moduloId === 'Buzón' && rolVeBuzonComoIncidencias(rol)) return 'Incidencias';
+  return moduloId;
+}
+
 export function modulosParaSidebar(rol, userId = null) {
   const filtrar = (lista) => lista.filter((m) => !MODULOS_AGRUPADOS_CONTABILIDAD.has(m));
   const r = normalizarRol(rol);

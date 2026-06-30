@@ -35,7 +35,7 @@ import {
   tiendaBloqueadaEnEsteEquipo,
   normalizarCodigoTienda,
 } from './constants/sucursales.js';
-import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD } from './lib/roles.js';
+import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, rolVeBuzonComoIncidencias, etiquetaModuloSidebar } from './lib/roles.js';
 import { inventarioParaSucursal } from './lib/inventarioMultitienda.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
@@ -204,11 +204,21 @@ function App() {
   }, [sesion, user, tickPrivilegios]);
 
   const irAModulo = useCallback(
-    (m) => {
-      if (puedeVerModulo(user?.rol, m, user?.id)) setVista(m);
+    (m, opts = {}) => {
+      if (!puedeVerModulo(user?.rol, m, user?.id)) return;
+      if (m === 'Buzón') {
+        const soloInc = rolVeBuzonComoIncidencias(user?.rol);
+        setBuzonPestana(opts.pestana || (soloInc ? 'incidencias' : 'pendientes'));
+      }
+      setVista(m);
     },
     [user],
   );
+
+  const irAIncidencias = useCallback(() => {
+    setBuzonPestana('incidencias');
+    irAModulo('Buzón', { pestana: 'incidencias' });
+  }, [irAModulo]);
 
   const completarLogin = useCallback(
     async (data, { ajustarSucursal, autorizacionAdmin = false } = {}) => {
@@ -551,7 +561,7 @@ function App() {
                 }}
               >
                 <Icon name={iconoDeModulo(m)} size={20} style={{ color: colorDeModulo(m) }} />
-                <span>{m}</span>
+                <span>{etiquetaModuloSidebar(user?.rol, m)}</span>
               </button>
             ))}
             {subContabilidad.length > 0 && (
@@ -664,6 +674,7 @@ function App() {
               user={user}
               cargarDatos={cargarDatos}
               onNavigate={irAModulo}
+              onIrIncidencias={irAIncidencias}
               puedeModulo={(m) => puedeVerModulo(user?.rol, m, user?.id)}
             />
           )}

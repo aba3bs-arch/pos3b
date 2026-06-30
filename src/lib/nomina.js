@@ -11,8 +11,9 @@ export function totalLineaNomina(linea) {
   const dedGastos = Number(linea.deduccion_gastos) || 0;
   const dedInventario = Number(linea.deduccion_inventario) || 0;
   const dedPrestamos = Number(linea.deduccion_prestamos) || 0;
+  const dedFaltas = Number(linea.deduccion_faltas) || 0;
   const ded = Number(linea.deducciones) || 0;
-  return Math.max(0, base + bon - dedGastos - dedInventario - dedPrestamos - ded);
+  return Math.max(0, base + bon - dedGastos - dedInventario - dedPrestamos - dedFaltas - ded);
 }
 
 export function leerSueldosDefault() {
@@ -59,6 +60,7 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
     prestamosMap = {},
     cortesMap = {},
     valesGasolinaMap = {},
+    valesGasolinaNoCobradosMap = {},
     pagadorFiltro = '',
   } = opts;
 
@@ -78,20 +80,24 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
 
     const cortes = resolverCortesEmpleado(u, cortesMap);
     const valesGas = Number(valesGasolinaMap[String(u.id)] || 0);
+    const faltasGas = Number(valesGasolinaNoCobradosMap[String(u.id)] || 0);
 
     let diasTrabajados = cortes;
     let sueldoBase = 0;
+    let dedFaltas = 0;
 
     if (indirecto) {
       diasTrabajados = valesGas;
       sueldoBase = sueldoIndirectoPorVales(tarifa, valesGas);
+      dedFaltas = sueldoIndirectoPorVales(tarifa, faltasGas);
     } else {
       sueldoBase = sueldoProporcionalDias(tarifa, cortes);
     }
 
     const notas = [];
     if (indirecto) {
-      if (valesGas > 0) notas.push(`Vales gasolina: ${valesGas}`);
+      if (valesGas > 0) notas.push(`Vales cobrados: ${valesGas}`);
+      if (faltasGas > 0) notas.push(`Faltas (vale no cobrado): ${faltasGas}`);
     } else if (cortes > 0) {
       notas.push(`Cortes en periodo: ${cortes}`);
     }
@@ -109,12 +115,14 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       dias_trabajados: diasTrabajados,
       cortes_periodo: cortes,
       vales_gasolina: valesGas,
+      faltas_gasolina: faltasGas,
       sueldo_base: sueldoBase,
       bonificacion: 0,
       deduccion_gastos: dedGastos,
       deduccion_inventario,
       deduccion_consumos: dedGastos,
       deduccion_prestamos: dedPrestamos,
+      deduccion_faltas: dedFaltas,
       deducciones: 0,
       notas: notas.join(' · '),
       pagador_manual: false,
@@ -141,6 +149,7 @@ export function recalcularSueldoLinea(linea) {
   const tarifa = Number(l.sueldo_tarifa) || 0;
   if (l.es_indirecto) {
     l.sueldo_base = sueldoIndirectoPorVales(tarifa, l.vales_gasolina);
+    l.deduccion_faltas = sueldoIndirectoPorVales(tarifa, l.faltas_gasolina);
   } else {
     l.sueldo_base = sueldoProporcionalDias(tarifa, l.dias_trabajados);
   }

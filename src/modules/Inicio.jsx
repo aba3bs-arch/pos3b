@@ -14,7 +14,7 @@ function PuntoVerdeActivo() {
   return <span className="punto-verde-parpadeo" title="Anuncio activo" aria-hidden />;
 }
 
-export default function Inicio({ supabase, sucursal, inventario, inventarioCompleto, user, cargarDatos, onNavigate, puedeModulo }) {
+export default function Inicio({ supabase, sucursal, inventario, inventarioCompleto, user, cargarDatos, onNavigate, onIrIncidencias, puedeModulo }) {
   const puede = typeof puedeModulo === 'function' ? puedeModulo : () => true;
   const puedeVerInventario = puede('Productos');
   const esAdminPrincipal = esAdministradorPrincipal(user);
@@ -158,6 +158,31 @@ export default function Inicio({ supabase, sucursal, inventario, inventarioCompl
         puedeModulo={puede}
       />
 
+      {puede('Buzón') && typeof onIrIncidencias === 'function' && (
+        <div
+          className="card"
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            borderLeft: '5px solid #dc2626',
+            background: 'linear-gradient(135deg, rgba(220,38,38,0.06) 0%, #fff 60%)',
+          }}
+        >
+          <div>
+            <h3 style={{ margin: 0, color: 'var(--brand-blue-dark)', fontSize: '1.05rem' }}>Incidencias de tienda</h3>
+            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
+              Reporta fallas de equipo, operación o inventario para que administración las atienda.
+            </p>
+          </div>
+          <button type="button" className="btn btn-primary" onClick={onIrIncidencias} style={{ flexShrink: 0 }}>
+            <BtnLabel icon="alert">Incidencias</BtnLabel>
+          </button>
+        </div>
+      )}
+
       {esAdminPrincipal && (
         <div className="card" style={{ borderLeft: '4px solid var(--brand-blue)' }}>
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)', fontSize: '1rem' }}>Herramientas del administrador principal</h3>
@@ -222,7 +247,7 @@ export default function Inicio({ supabase, sucursal, inventario, inventarioCompl
         <div className="card">
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)' }}>Accesos rápidos</h3>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-            {['Ventas', 'Corte de caja', 'Checador', 'Compras', 'Clientes', 'Reportes', 'Buzón'].filter((m) => puede(m)).map((m) => (
+            {['Ventas', 'Corte de caja', 'Checador', 'Compras', 'Clientes', 'Reportes'].filter((m) => puede(m)).map((m) => (
               <button key={m} type="button" className="btn btn-gold" onClick={() => onNavigate(m)} style={{ fontSize: '0.85rem' }}>
                 <Icon name={iconoDeModulo(m)} size={16} />
                 <span>{m}</span>

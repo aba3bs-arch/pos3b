@@ -15,6 +15,8 @@ import { periodoSemanaNomina, etiquetaSemanaNomina } from '../lib/semanaNomina.j
 import { ETIQUETA_AREA, PAGADORES_NOMINA } from '../lib/contabilidadConstants.js';
 import { imprimirNomina, imprimirReciboNominaIndividual, imprimirTodosRecibosNomina } from '../lib/impresionContabilidad.js';
 import { empleadosVisiblesParaTienda } from '../lib/empleadosVisibles.js';
+import PanelAsistenciaGasolina from '../components/PanelAsistenciaGasolina.jsx';
+import { normalizarRol } from '../lib/roles.js';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -32,6 +34,7 @@ const CAMPOS_MANUAL = {
 
 export default function Nomina({ supabase, sucursal, user }) {
   const semana = useMemo(() => periodoSemanaNomina(), []);
+  const esAdmin = normalizarRol(user?.rol) === 'Administrador';
   const [aviso, setAviso] = useState('');
   const [err, setErr] = useState('');
   const [cargando, setCargando] = useState(false);
@@ -80,6 +83,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         prestamosMap: prestRes.map,
         cortesMap: cortesRes.map,
         valesGasolinaMap: valesRes.map,
+        valesGasolinaNoCobradosMap: valesRes.mapNoCobrados,
         pagadorFiltro,
       });
 
@@ -226,7 +230,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nómina semanal</h3>
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
           Semana <strong>sábado a viernes</strong>. Cajeros: días = cortes cerrados en el periodo (editable). Indirectos (Luis Enrique, Misael, Gonzalo): pago por{' '}
-          <strong>vales de gasolina</strong>. Tarifa semanal o por vale en columna Tarifa; el sueldo se calcula automático. «Recalcular gastos» actualiza consumos, préstamos e inventario{' '}
+          <strong>vales de gasolina cobrados</strong>; cada vale no cobrado descuenta 1 día. Tarifa semanal o por vale en columna Tarifa; el sueldo se calcula automático. «Recalcular gastos» actualiza consumos, préstamos e inventario{' '}
           <strong>sin borrar</strong> sueldos, días ni pagador si los editaste manualmente.
         </p>
         <div className="grid-2" style={{ marginBottom: '0.75rem' }}>
@@ -279,6 +283,7 @@ export default function Nomina({ supabase, sucursal, user }) {
                 <th>Consumos</th>
                 <th>Inventario</th>
                 <th>Préstamos</th>
+                <th title="Vale gasolina no cobrado = 1 día de falta">Faltas</th>
                 <th>Otras ded.</th>
                 <th>Total</th>
                 <th />
@@ -375,6 +380,9 @@ export default function Nomina({ supabase, sucursal, user }) {
                   <td style={{ fontWeight: 700, color: l.deduccion_prestamos > 0 ? 'var(--danger)' : undefined }} title={l.notas}>
                     {fmt(l.deduccion_prestamos)}
                   </td>
+                  <td style={{ fontWeight: 700, color: l.deduccion_faltas > 0 ? 'var(--danger)' : undefined }} title={l.faltas_gasolina > 0 ? `${l.faltas_gasolina} vale(s) no cobrado(s)` : undefined}>
+                    {l.deduccion_faltas > 0 ? fmt(l.deduccion_faltas) : '—'}
+                  </td>
                   <td>
                     <input className="input" type="number" min="0" step="0.01" style={{ width: '80px' }} value={l.deducciones} onChange={(e) => actualizarLinea(i, 'deducciones', e.target.value)} />
                   </td>
@@ -394,7 +402,7 @@ export default function Nomina({ supabase, sucursal, user }) {
               ))}
               {lineas.length === 0 && (
                 <tr>
-                  <td colSpan={13} className="muted">
+                  <td colSpan={14} className="muted">
                     {cargando ? 'Cargando…' : 'Sin empleados para este filtro.'}
                   </td>
                 </tr>
@@ -403,7 +411,7 @@ export default function Nomina({ supabase, sucursal, user }) {
             {lineas.length > 0 && (
               <tfoot>
                 <tr>
-                  <td colSpan={11} style={{ textAlign: 'right', fontWeight: 700 }}>
+                  <td colSpan={12} style={{ textAlign: 'right', fontWeight: 700 }}>
                     Total nómina
                   </td>
                   <td style={{ fontWeight: 800, color: 'var(--brand-blue)' }}>{fmt(totalGeneral)}</td>
@@ -432,6 +440,10 @@ export default function Nomina({ supabase, sucursal, user }) {
           </button>
         </div>
       </div>
+
+      {esAdmin && (
+        <PanelAsistenciaGasolina supabase={supabase} sucursal={sucursal} user={user} desde={inicio} hasta={fin} />
+      )}
 
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Historial</h3>

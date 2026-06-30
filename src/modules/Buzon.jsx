@@ -20,7 +20,7 @@ import {
   listarIncidencias,
   PRIORIDADES_INCIDENCIA,
 } from '../lib/incidenciasPos.js';
-import { normalizarRol } from '../lib/roles.js';
+import { normalizarRol, rolVeBuzonComoIncidencias } from '../lib/roles.js';
 import { esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { BtnLabel } from '../components/Icon.jsx';
@@ -49,8 +49,9 @@ export default function Buzon({
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
   const veTodasTiendas = esAdmin || esGerente;
   const puedeGestionar = esAdmin || esGerente || rol === 'Supervisor';
+  const soloIncidencias = rolVeBuzonComoIncidencias(rol);
 
-  const [pestana, setPestana] = useState(pestanaInicial);
+  const [pestana, setPestana] = useState(soloIncidencias ? 'incidencias' : pestanaInicial);
   const [aviso, setAviso] = useState('');
   const [pendientes, setPendientes] = useState([]);
   const [historial, setHistorial] = useState([]);
@@ -89,8 +90,12 @@ export default function Buzon({
     if (!supabase) return;
     const opts = { todasTiendas: veTodasTiendas, sucursal: veTodasTiendas ? undefined : sucursal };
     const [pRes, hRes, iRes] = await Promise.all([
-      listarNotificacionesPendientes(supabase, { ...opts, limit: 100 }),
-      veTodasTiendas ? listarHistorialNotificaciones(supabase, { ...opts, limit: 60 }) : Promise.resolve({ data: [] }),
+      soloIncidencias
+        ? Promise.resolve({ data: [] })
+        : listarNotificacionesPendientes(supabase, { ...opts, limit: 100 }),
+      soloIncidencias || !veTodasTiendas
+        ? Promise.resolve({ data: [] })
+        : listarHistorialNotificaciones(supabase, { ...opts, limit: 60 }),
       listarIncidencias(supabase, {
         sucursal: veTodasTiendas ? undefined : sucursal,
         limit: 100,
@@ -101,7 +106,7 @@ export default function Buzon({
     setPendientes(filtrarPendientes(pRes.data || []));
     setHistorial(hRes.data || []);
     setIncidencias(iRes.data || []);
-  }, [supabase, veTodasTiendas, sucursal, filtrarPendientes]);
+  }, [supabase, veTodasTiendas, sucursal, filtrarPendientes, soloIncidencias]);
 
   useEffect(() => {
     recargar();
@@ -115,12 +120,19 @@ export default function Buzon({
   }, [recargar]);
 
   useEffect(() => {
-    setPestana(pestanaInicial);
-  }, [pestanaInicial]);
+    setPestana(soloIncidencias ? 'incidencias' : pestanaInicial);
+  }, [pestanaInicial, soloIncidencias]);
+
+  const incidenciasVisibles = useMemo(() => {
+    if (!soloIncidencias) return incidencias;
+    const nombre = user?.nombre;
+    if (!nombre) return incidencias;
+    return incidencias.filter((i) => i.reportado_por === nombre);
+  }, [incidencias, soloIncidencias, user?.nombre]);
 
   const incidenciasAbiertas = useMemo(
-    () => incidencias.filter((i) => i.estado === 'abierta' || i.estado === 'en_revision'),
-    [incidencias],
+    () => incidenciasVisibles.filter((i) => i.estado === 'abierta' || i.estado === 'en_revision'),
+    [incidenciasVisibles],
   );
 
   const irAccionNotif = (n) => {
@@ -186,20 +198,24 @@ export default function Buzon({
     }
   };
 
-  const pestanas = [
-    { id: 'pendientes', label: `Pendientes (${pendientes.length})` },
-    { id: 'incidencias', label: `Incidencias (${incidencias.length})` },
-  ];
-  if (veTodasTiendas) pestanas.push({ id: 'historial', label: 'Historial' });
+  const pestanas = soloIncidencias
+    ? [{ id: 'incidencias', label: `Mis reportes (${incidenciasVisibles.length})` }]
+    : [
+        { id: 'pendientes', label: `Pendientes (${pendientes.length})` },
+        { id: 'incidencias', label: `Incidencias (${incidencias.length})` },
+      ];
+  if (!soloIncidencias && veTodasTiendas) pestanas.push({ id: 'historial', label: 'Historial' });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
-        <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>Buzón de notificaciones</h2>
+        <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>{soloIncidencias ? 'Incidencias' : 'Buzón de notificaciones'}</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
-          {veTodasTiendas
-            ? 'Pendientes de todas las tiendas · vales, préstamos e incidencias'
-            : `Tienda ${etiquetaTienda(sucursal)} · reportes e incidencias`}
+          {soloIncidencias
+            ? `Tienda ${etiquetaTienda(sucursal)} · levanta un reporte para que administración lo atienda`
+            : veTodasTiendas
+              ? 'Pendientes de todas las tiendas · vales, préstamos e incidencias'
+              : `Tienda ${etiquetaTienda(sucursal)} · reportes e incidencias`}
         </p>
       </div>
 
@@ -215,6 +231,7 @@ export default function Buzon({
         </div>
       )}
 
+      {!soloIncidencias && (
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
         {pestanas.map((p) => (
           <button
@@ -227,8 +244,9 @@ export default function Buzon({
           </button>
         ))}
       </div>
+      )}
 
-      {pestana === 'pendientes' && (
+      {!soloIncidencias && pestana === 'pendientes' && (
         <div className="card">
           {pendientes.length === 0 ? (
             <p className="muted">Sin notificaciones pendientes.</p>
@@ -285,7 +303,7 @@ export default function Buzon({
         </div>
       )}
 
-      {pestana === 'incidencias' && (
+      {(soloIncidencias || pestana === 'incidencias') && (
         <>
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)' }}>Reporte de incidencia</h3>
@@ -376,8 +394,8 @@ export default function Buzon({
                 </span>
               )}
             </h3>
-            {incidencias.length === 0 ? (
-              <p className="muted">No hay incidencias registradas.</p>
+            {incidenciasVisibles.length === 0 ? (
+              <p className="muted">{soloIncidencias ? 'Aún no has reportado incidencias.' : 'No hay incidencias registradas.'}</p>
             ) : (
               <div className="table-wrap">
                 <table className="data">
@@ -395,7 +413,7 @@ export default function Buzon({
                     </tr>
                   </thead>
                   <tbody>
-                    {incidencias.map((inc) => (
+                    {incidenciasVisibles.map((inc) => (
                       <tr key={inc.id}>
                         <td>{fmtFechaIncidencia(inc.created_at)}</td>
                         <td>{fmtHoraIncidencia(inc.created_at)}</td>
