@@ -14,7 +14,7 @@ import { cortesPorEmpleado, fusionarLineasNomina, valesGasolinaPorEmpleado } fro
 import { periodoSemanaNomina, etiquetaSemanaNomina } from '../lib/semanaNomina.js';
 import { ETIQUETA_AREA, PAGADORES_NOMINA } from '../lib/contabilidadConstants.js';
 import { imprimirNomina, imprimirReciboNominaIndividual, imprimirTodosRecibosNomina } from '../lib/impresionContabilidad.js';
-import { empleadosVisiblesParaTienda } from '../lib/empleadosVisibles.js';
+import { empleadosVisiblesParaTienda, enriquecerEmpleadosNominaIndirectos } from '../lib/empleadosVisibles.js';
 import PanelAsistenciaGasolina from '../components/PanelAsistenciaGasolina.jsx';
 import { normalizarRol } from '../lib/roles.js';
 
@@ -66,7 +66,9 @@ export default function Nomina({ supabase, sucursal, user }) {
         setCargando(false);
         return;
       }
-      const lista = empleadosVisiblesParaTienda(empleados || [], sucursal, user?.rol);
+      const lista = enriquecerEmpleadosNominaIndirectos(
+        empleadosVisiblesParaTienda(empleados || [], sucursal, user?.rol),
+      );
       const [gastosRes, prestRes, cortesRes, valesRes] = await Promise.all([
         gastosDeduccionPorEmpleado(supabase, { sucursal, desde: inicio, hasta: fin, empleados: lista }),
         prestamosDeduccionPorEmpleado(supabase, { sucursal, empleados: lista }),
@@ -230,7 +232,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nómina semanal</h3>
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
           Semana <strong>sábado a viernes</strong>. Cajeros: días = cortes cerrados en el periodo (editable). Indirectos (Luis Enrique, Misael, Gonzalo): pago por{' '}
-          <strong>vales de gasolina cobrados</strong>; cada vale no cobrado descuenta 1 día. Tarifa semanal o por vale en columna Tarifa; el sueldo se calcula automático. «Recalcular gastos» actualiza consumos, préstamos e inventario{' '}
+          <strong>vales de gasolina cobrados</strong>; cada vale no cobrado descuenta 1 día. Los <strong>consumos</strong> se suman desde los tres cortes (Virtual, Abarrotes y Garage) al empleado correspondiente. «Recalcular gastos» actualiza consumos, préstamos e inventario{' '}
           <strong>sin borrar</strong> sueldos, días ni pagador si los editaste manualmente.
         </p>
         <div className="grid-2" style={{ marginBottom: '0.75rem' }}>
@@ -269,7 +271,7 @@ export default function Nomina({ supabase, sucursal, user }) {
 
         {err && <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{err}</p>}
 
-        <div className="table-wrap">
+        <div className="table-wrap table-wrap-sticky-head">
           <table className="data">
             <thead>
               <tr>

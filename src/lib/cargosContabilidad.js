@@ -15,7 +15,7 @@ export async function cargarValeACorte(supabase, vale) {
     usuario_id: vale.usuario_id || null,
     usuario_nombre: vale.nombre_empleado || null,
     cerrado: false,
-    descontado_nomina: Boolean(vale.descuenta_nomina),
+    descontado_nomina: false,
   };
   const { error: e1 } = await supabase.from('cortes_contabilidad_gastos').insert([payload]);
   if (e1) return { ok: false, error: e1.message };

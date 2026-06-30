@@ -24,11 +24,36 @@ export function monedaRecolectorRef(estado) {
   return round2(estado?.moneda_inicial);
 }
 
-/** Moneda con la que arranca este corte de cajero (cambia al cerrar: moneda final → siguiente inicio). */
+/**
+ * Moneda con la que arranca este corte de cajero.
+ * Tras recolección = moneda contada; tras cada cierre = moneda final del corte anterior.
+ */
 export function monedaInicialTurnoEfectiva(estado) {
-  const mit = estado?.moneda_inicial_turno;
-  if (mit != null && mit !== '') return round2(mit);
+  const raw = estado?.moneda_inicial_turno;
+  if (raw != null && raw !== '') return round2(raw);
   return round2(estado?.moneda_inicial);
+}
+
+/** Tras cerrar turno: la moneda final pasa a ser la moneda inicial del siguiente corte. */
+export function siguienteMonedaInicialTurnoVirtual(estado) {
+  if (estado?.moneda_final_editada) return round2(estado.moneda_final);
+  const mf = round2(estado?.moneda_final);
+  if (mf > 0) return mf;
+  return monedaInicialTurnoEfectiva(estado);
+}
+
+/** Asegura moneda_inicial_turno en datos guardados antes de la separación morado/corte. */
+export function normalizarEstadoVirtual(estado = {}) {
+  const e = { ...estadoDefault('virtual'), ...estado };
+  const raw = e.moneda_inicial_turno;
+  const sinTurnoExplicito =
+    raw == null ||
+    raw === '' ||
+    (!e._mi_turno_inicializado && round2(raw) === 0 && round2(e.moneda_inicial) > 0);
+  if (sinTurnoExplicito && round2(e.moneda_inicial) > 0) {
+    e.moneda_inicial_turno = round2(e.moneda_inicial);
+  }
+  return e;
 }
 
 /** Corte virtual: venta efectivo = moneda inicial del corte − moneda final (si se capturó). */
@@ -117,7 +142,7 @@ export function calcularGarage(estado, gastos = []) {
 export const ESTADO_VIRTUAL_DEFAULT = {
   fondo: 0,
   moneda_inicial: 0,
-  moneda_inicial_turno: 0,
+  moneda_inicial_turno: null,
   moneda_final: 0,
   moneda_final_editada: false,
   caja_anterior: 0,
@@ -125,6 +150,7 @@ export const ESTADO_VIRTUAL_DEFAULT = {
   recoleccion: 0,
   faltante: 0,
   comentarios: '',
+  _mi_turno_inicializado: false,
 };
 
 export const ESTADO_ABARROTES_DEFAULT = {

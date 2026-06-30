@@ -309,6 +309,17 @@ textarea {
   border: 1px solid var(--border);
 }
 
+.table-wrap-sticky-head {
+  max-height: min(70vh, 720px);
+}
+
+.table-wrap-sticky-head table.data thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  box-shadow: 0 1px 0 var(--border);
+}
+
 table.data {
   width: 100%;
   border-collapse: collapse;

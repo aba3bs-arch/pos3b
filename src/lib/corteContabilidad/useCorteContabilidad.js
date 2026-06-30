@@ -116,13 +116,20 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       cargarEstadoCorte(supabase, sucursal, modulo),
       listarGastosTurno(supabase, sucursal, modulo),
       listarCierresCorte(supabase, sucursal, modulo, 15),
-      supabase ? supabase.from('usuarios').select('id, nombre, rol, nomina_pagador').order('nombre') : Promise.resolve({ data: [] }),
+      supabase
+        ? supabase
+            .from('usuarios')
+            .select('id, nombre, rol, sucursal_id, nomina_pagador, turno_id, turno_horario')
+            .order('nombre')
+        : Promise.resolve({ data: [] }),
     ]);
     if (estRes.aviso || gasRes.aviso) setAviso(estRes.aviso || gasRes.aviso || '');
     setEstado(estRes.estado || {});
     setGastos(gasRes.data || []);
     setHistorial(histRes.data || []);
-    setEmpleados(empleadosParaCorte(empRes.data || [], sucursal, modulo, user?.rol));
+    setEmpleados(
+      empleadosParaCorte(empRes.data || [], sucursal, modulo, user?.rol, { turno: turnoActual() }),
+    );
     if (!estRes.estado?.folio && modulo !== 'abarrotes') {
       const f = await peekFolio(supabase, sucursal, modulo);
       setFolio(f);

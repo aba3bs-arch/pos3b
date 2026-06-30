@@ -1,6 +1,5 @@
-import { marcarGastosDescontadosNomina } from './nominaGastos.js';
+import { marcarGastosDescontadosNomina, gastoCuentaEnNomina } from './nominaGastos.js';
 import { aplicarPrestamosNomina } from './nominaPrestamos.js';
-import { gastoDescuentaNomina } from './corteContabilidad/catalogoGastos.js';
 import { empleadoIncluidoEnPagadorFiltro, esIndirectoNomina, sueldoProporcionalDias, sueldoIndirectoPorVales, resolverCortesEmpleado } from './nominaCalculos.js';
 
 const LS_SUELDOS = 'pos3b_nomina_sueldos_default';
@@ -36,7 +35,7 @@ function splitGastosNomina(detalle = []) {
   let inventario = 0;
   let consumos = 0;
   for (const g of detalle) {
-    if (!gastoDescuentaNomina(g.modulo, g.categoria)) continue;
+    if (!gastoCuentaEnNomina(g)) continue;
     const m = Number(g.monto) || 0;
     const cat = String(g.categoria || '').toUpperCase();
     const sub = String(g.subcategoria || '').toUpperCase();
@@ -47,6 +46,15 @@ function splitGastosNomina(detalle = []) {
     deduccion_inventario: Math.round(inventario * 100) / 100,
     deduccion_consumos: Math.round(consumos * 100) / 100,
   };
+}
+
+function notasGastosPorModulo(gastosEmp) {
+  const porModulo = gastosEmp?.porModulo;
+  if (!porModulo || !Object.keys(porModulo).length) return '';
+  const partes = Object.entries(porModulo)
+    .filter(([, m]) => Number(m) > 0)
+    .map(([mod, m]) => `${mod}: $${Number(m).toFixed(2)}`);
+  return partes.length ? partes.join(' · ') : '';
 }
 
 function tarifaEmpleado(u, sueldosMap) {
@@ -101,7 +109,14 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
     } else if (cortes > 0) {
       notas.push(`Cortes en periodo: ${cortes}`);
     }
-    if (dedGastos > 0) notas.push(`Consumos cortes: ${gastosEmp.detalle?.length || 0} mov.`);
+    if (dedGastos > 0) {
+      const mods = notasGastosPorModulo(gastosEmp);
+      notas.push(
+        mods
+          ? `Consumos cortes (${gastosEmp.detalle?.length || 0}): ${mods}`
+          : `Consumos cortes: ${gastosEmp.detalle?.length || 0} mov.`,
+      );
+    }
     if (deduccion_inventario > 0) notas.push(`Inventario faltante: ${fmtMonto(deduccion_inventario)}`);
     if (dedPrestamos > 0) notas.push(`Préstamos: ${prestEmp.detalle?.length || 0} activo(s)`);
 

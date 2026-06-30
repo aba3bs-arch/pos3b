@@ -1,11 +1,27 @@
 import { indiceEmpleados, resolverClaveEmpleado } from './nominaMatch.js';
 import { gastoDescuentaNomina } from './corteContabilidad/catalogoGastos.js';
 
+export const MODULOS_CORTE_NOMINA = ['virtual', 'abarrotes', 'garage'];
+
 export function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-/** Suma gastos de cortes por empleado en un periodo (sáb–vie), match por id o nombre. */
+/** Gastos de cortes que deben descontarse en nómina (CONSUMO + vales consumo). */
+export function gastoCuentaEnNomina(g) {
+  if (gastoDescuentaNomina(g.modulo, g.categoria)) return true;
+  const cat = String(g.categoria || '').trim().toUpperCase();
+  if (cat !== 'VALES') return false;
+  const sub = String(g.subcategoria || '').trim().toUpperCase();
+  return sub.includes('CONSUMO') || sub.includes('PERSONAL');
+}
+
+function gastoAprobadoParaNomina(g) {
+  const est = g.estado_aprobacion || 'aprobado';
+  return est === 'aprobado';
+}
+
+/** Suma gastos de cortes (virtual, abarrotes, garage) por empleado en un periodo. */
 export async function gastosDeduccionPorEmpleado(supabase, { sucursal, desde, hasta, empleados = [] }) {
   if (!supabase) return { map: {}, error: null };
   const finTs = `${hasta}T23:59:59`;
@@ -13,7 +29,9 @@ export async function gastosDeduccionPorEmpleado(supabase, { sucursal, desde, ha
 
   const { data, error } = await supabase
     .from('cortes_contabilidad_gastos')
-    .select('usuario_id, usuario_nombre, monto, categoria, subcategoria, comentario, modulo, created_at')
+    .select(
+      'usuario_id, usuario_nombre, monto, categoria, subcategoria, comentario, modulo, created_at, estado_aprobacion, descontado_nomina',
+    )
     .eq('sucursal_id', sucursal || 'MAIN')
     .eq('descontado_nomina', false)
     .gte('created_at', desde)
@@ -23,7 +41,7 @@ export async function gastosDeduccionPorEmpleado(supabase, { sucursal, desde, ha
     if (error.code === '42P01' || String(error.message).includes('descontado_nomina')) {
       const { data: d2, error: e2 } = await supabase
         .from('cortes_contabilidad_gastos')
-        .select('usuario_id, usuario_nombre, monto, categoria, subcategoria, comentario, modulo, created_at')
+        .select('usuario_id, usuario_nombre, monto, categoria, subcategoria, comentario, modulo, created_at, estado_aprobacion')
         .eq('sucursal_id', sucursal || 'MAIN')
         .gte('created_at', desde)
         .lte('created_at', finTs);
@@ -38,13 +56,16 @@ export async function gastosDeduccionPorEmpleado(supabase, { sucursal, desde, ha
 function agruparGastosPorEmpleado(rows, indice) {
   const map = {};
   for (const g of rows || []) {
-    if (!gastoDescuentaNomina(g.modulo, g.categoria)) continue;
+    if (!gastoCuentaEnNomina(g)) continue;
+    if (!gastoAprobadoParaNomina(g)) continue;
     const clave = resolverClaveEmpleado(g, indice);
     if (!clave) continue;
-    if (!map[clave]) map[clave] = { total: 0, detalle: [] };
+    if (!map[clave]) map[clave] = { total: 0, detalle: [], porModulo: {} };
     const m = Number(g.monto) || 0;
     map[clave].total = round2(map[clave].total + m);
     map[clave].detalle.push(g);
+    const mod = g.modulo || 'virtual';
+    map[clave].porModulo[mod] = round2((map[clave].porModulo[mod] || 0) + m);
   }
   return map;
 }
@@ -57,7 +78,7 @@ export async function marcarGastosDescontadosNomina(supabase, { sucursal, desde,
 
   const { data, error: eRead } = await supabase
     .from('cortes_contabilidad_gastos')
-    .select('id, usuario_id, usuario_nombre')
+    .select('id, usuario_id, usuario_nombre, categoria, subcategoria, modulo, estado_aprobacion')
     .eq('sucursal_id', sucursal || 'MAIN')
     .eq('descontado_nomina', false)
     .gte('created_at', desde)
@@ -70,7 +91,8 @@ export async function marcarGastosDescontadosNomina(supabase, { sucursal, desde,
 
   const ids = (data || [])
     .filter((g) => {
-      if (!gastoDescuentaNomina(g.modulo, g.categoria)) return false;
+      if (!gastoCuentaEnNomina(g)) return false;
+      if (!gastoAprobadoParaNomina(g)) return false;
       const clave = resolverClaveEmpleado(g, indice);
       return clave && claves.has(clave);
     })

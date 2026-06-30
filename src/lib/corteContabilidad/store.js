@@ -1,4 +1,4 @@
-import { estadoDefault } from './calc.js';
+import { estadoDefault, normalizarEstadoVirtual } from './calc.js';
 import { gastoDescuentaNomina } from './catalogoGastos.js';
 import { normalizarRol } from '../roles.js';
 import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from '../contabilidadNotificaciones.js';
@@ -23,7 +23,9 @@ export async function cargarEstadoCorte(supabase, sucursal, modulo) {
   if (!supabase) {
     try {
       const raw = localStorage.getItem(lsKey(sucursal, modulo, 'estado'));
-      return { estado: raw ? { ...def, ...JSON.parse(raw) } : def, soloLocal: true };
+      let estado = raw ? { ...def, ...JSON.parse(raw) } : def;
+      if (modulo === 'virtual') estado = normalizarEstadoVirtual(estado);
+      return { estado, soloLocal: true };
     } catch {
       return { estado: def, soloLocal: true };
     }
@@ -39,6 +41,9 @@ export async function cargarEstadoCorte(supabase, sucursal, modulo) {
   }
   if (error) return { estado: def, error: error.message };
   const estado = { ...def, ...(data?.estado || {}) };
+  if (modulo === 'virtual') {
+    return { estado: normalizarEstadoVirtual(estado), soloLocal: false };
+  }
   if (modulo === 'garage' && estado.maquinas) {
     estado.maquinas = { ...estadoDefault('garage').maquinas, ...estado.maquinas };
   }

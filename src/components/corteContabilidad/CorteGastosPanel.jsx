@@ -8,6 +8,7 @@ import {
   gastoRequiereEmpleado,
   gastoDescuentaNomina,
 } from '../../lib/corteContabilidad/catalogoGastos.js';
+import { turnoActual, nombreTurnoLegible } from '../../lib/turnos.js';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -76,12 +77,13 @@ export default function CorteGastosPanel({
       return alert('Selecciona el empleado a quien se descontará el consumo en nómina.');
     }
     const emp = requiereEmpleado ? (empleados || []).find((e) => String(e.id) === String(usuarioId)) : null;
+    const uid = emp?.id != null ? String(emp.id) : '';
     onAgregar?.({
       categoria: cat.trim().toUpperCase(),
       subcategoria: sub.trim().toUpperCase(),
       monto: m,
       comentario: comentario.trim().toUpperCase(),
-      usuario_id: requiereEmpleado ? usuarioId : null,
+      usuario_id: requiereEmpleado && uid && !uid.startsWith('indirect:') ? uid : null,
       usuario_nombre: emp?.nombre || '',
     });
     setMonto('');
@@ -145,7 +147,7 @@ export default function CorteGastosPanel({
       </div>
       <p className="muted" style={{ fontSize: '0.75rem', margin: '0.35rem 0 0.5rem' }}>
         {notaNomina ||
-          'Solo CONSUMO se descuenta en nómina. Los consumos requieren autorización del administrador antes de aplicarse al corte.'}
+          `CONSUMO se descuenta en nómina (Virtual, Abarrotes y Garage). Empleados del turno ${nombreTurnoLegible(turnoActual())}. Los consumos requieren autorización del administrador.`}
       </p>
 
       {mostrarCat && puedeCatalogo && (
@@ -198,10 +200,11 @@ export default function CorteGastosPanel({
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.4rem', marginBottom: '0.4rem' }}>
             {requiereEmpleado && (
               <select className="select" value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)}>
-                <option value="">Empleado (consumo)</option>
+                <option value="">Empleado (consumo · turno actual)</option>
                 {(empleados || []).map((e) => (
                   <option key={e.id} value={e.id}>
                     {e.nombre}
+                    {e.es_indirecto_corte ? ' · indirecto' : ''}
                   </option>
                 ))}
               </select>

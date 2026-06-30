@@ -3,7 +3,7 @@ import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPane
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import CampoCorte from '../../components/corteContabilidad/CampoCorte.jsx';
 import ResumenOperacionCorte from '../../components/corteContabilidad/ResumenOperacionCorte.jsx';
-import { calcularVirtual, monedaInicialTurnoEfectiva, monedaRecolectorRef, recoleccionTotalVirtual, round2 } from '../../lib/corteContabilidad/calc.js';
+import { calcularVirtual, monedaInicialTurnoEfectiva, monedaRecolectorRef, recoleccionTotalVirtual, round2, siguienteMonedaInicialTurnoVirtual } from '../../lib/corteContabilidad/calc.js';
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
 import { datosImpresionCorteActual, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
 import { etiquetaTipoCierre, puedeEditarCorteCampo } from '../../lib/corteContabilidad/permisos.js';
@@ -43,26 +43,26 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
     };
 
     if (esActualizacion) {
-      const refRecolector = estado.moneda_final_editada
+      const nuevaMoneda = estado.moneda_final_editada
         ? round2(estado.moneda_final)
         : round2(estado.moneda_inicial);
       return {
         ...estado,
         ...baseReset,
         caja_anterior: 0,
-        moneda_inicial: refRecolector,
-        moneda_inicial_turno: refRecolector,
+        moneda_inicial: nuevaMoneda,
+        moneda_inicial_turno: nuevaMoneda,
+        _mi_turno_inicializado: true,
       };
     }
 
-    const turnoSiguiente = estado.moneda_final_editada
-      ? round2(estado.moneda_final)
-      : monedaInicialTurnoEfectiva(estado);
+    const turnoSiguiente = siguienteMonedaInicialTurnoVirtual(estado);
     return {
       ...estado,
       ...baseReset,
       moneda_inicial: estado.moneda_inicial,
       moneda_inicial_turno: turnoSiguiente,
+      _mi_turno_inicializado: true,
     };
   }, []);
 
@@ -89,8 +89,8 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
       `Venta efectivo: ${fmtCorte(calc.venta)}\n` +
       `Subtotal del turno: ${fmtCorte(calc.subtotal)}\n` +
       `Caja chica actual: ${fmtCorte(calc.cajaActual)}\n\n` +
-      `La moneda final será la moneda inicial del siguiente corte de cajero.\n` +
-      `La referencia en morado (${fmtCorte(monedaRecolectorRef(estado))}) no cambia hasta la recolección.`;
+      `La moneda final (${fmtCorte(estado.moneda_final)}) será la moneda inicial del siguiente corte.\n` +
+      `La referencia en morado (${fmtCorte(monedaRecolectorRef(estado))}) solo cambia con recolección.`;
     if (confirm(msg)) cerrarCorte({ tipo_cierre: 'cierre' });
   };
 
@@ -109,7 +109,8 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
       `Caja chica actual: ${fmtCorte(calc.cajaActual)}\n` +
       `Recolección total: ${fmtCorte(totalRec)}\n\n` +
       `Se retira todo el dinero recolectado.\n` +
-      `La caja chica quedará en $0.00. La referencia en morado y el nuevo corte quedarán en ${fmtCorte(mf)}.`;
+      `La caja chica quedará en $0.00.\n` +
+      `Moneda inicial del corte y referencia (morado) quedarán en ${fmtCorte(mf)} hasta el próximo cierre.`;
     if (confirm(msg)) {
       cerrarCorte({
         tipo_cierre: 'actualizacion',
@@ -127,6 +128,7 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
     patchEstado({
       moneda_inicial: ref,
       moneda_inicial_turno: ref,
+      _mi_turno_inicializado: true,
     });
     alert('Moneda de referencia actualizada.');
   };
@@ -225,19 +227,19 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
               label="Moneda inicial del corte"
               value={monedaInicioCorte}
               editable={false}
-              hint="Inicio de este corte · al cerrar, la moneda final pasa aquí en el siguiente corte"
+              hint="Recolección fija el inicio · cada cierre pasa la moneda final al siguiente corte"
             />
             <CampoCorte
               label="Moneda final"
               value={estado.moneda_final ?? ''}
               editable={puedeMonedaFinal}
-              hint="Efectivo al cierre · será la moneda inicial del siguiente corte de cajero"
+              hint="Efectivo al cierre · al cerrar turno pasa a ser la moneda inicial del siguiente corte"
               onChange={(v) => patchEstado({ moneda_final: v, moneda_final_editada: true })}
             />
             <div style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(22,160,133,0.1)', borderRadius: 8 }}>
               <div className="muted" style={{ fontSize: '0.75rem' }}>VENTA EFECTIVO</div>
               <div style={{ fontSize: '1.4rem', fontWeight: 800, color: calc.venta < 0 ? 'var(--danger)' : '#16a085' }}>{fmtCorte(calc.venta)}</div>
-              <div className="muted" style={{ fontSize: '0.7rem' }}>Moneda del corte − moneda final</div>
+              <div className="muted" style={{ fontSize: '0.7rem' }}>Moneda inicial del corte − moneda final</div>
             </div>
             <CampoCorte
               label="Faltante (−)"
