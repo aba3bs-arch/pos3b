@@ -498,8 +498,9 @@ function App() {
           )}
           {!supabaseConfigured && (
             <p style={{ textAlign: 'left', fontSize: '0.85rem', color: 'var(--brand-red)', marginBottom: '1rem' }}>
-              Falta configuración de Supabase. Copia <code>.env.example</code> a <code>.env</code> y define las variables{' '}
-              <code>VITE_SUPABASE_URL</code> y <code>VITE_SUPABASE_ANON_KEY</code>.
+              Falta configuración de Supabase. Copia <code>.env.example</code> a <code>.env</code> con{' '}
+              <code>VITE_SUPABASE_URL</code> y <code>VITE_SUPABASE_ANON_KEY</code>, o configura{' '}
+              <code>public/pos3b-config.js</code> (Netlify: variables de entorno en el panel).
             </p>
           )}
           <InputPin
