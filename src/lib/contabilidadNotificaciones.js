@@ -1,4 +1,4 @@
-import { mostrarNotificacionDispositivo } from './notificacionesDispositivo.js';
+import { mostrarNotificacionDispositivo, puedeRecibirNotificacionesDispositivo } from './notificacionesDispositivo.js';
 
 export const AVISO_FALTA_NOTIF =
   'Faltan notificaciones de contabilidad. Ejecuta supabase/fix_vales_prestamos_aprobaciones.sql';
@@ -154,4 +154,56 @@ export function etiquetaTipoNotificacion(tipo) {
     default:
       return tipo || 'Notificación';
   }
+}
+
+/**
+ * Revisa pendientes cada intervalo y muestra alerta nativa en el dispositivo (admin/gerente).
+ * Funciona aunque Realtime de Supabase no esté activo.
+ */
+export function iniciarMonitorNotificacionesDispositivo(supabase, opts = {}) {
+  const { rol, sucursal, veTodasTiendas = true, intervaloMs = 12_000, onClickNotificacion } = opts;
+  if (!supabase || !puedeRecibirNotificacionesDispositivo(rol)) return () => {};
+
+  const idsBaselined = new Set();
+  let baselineListo = false;
+
+  const procesar = async () => {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    const res = await listarNotificacionesPendientes(supabase, {
+      sucursal: veTodasTiendas ? undefined : sucursal,
+      todasTiendas: veTodasTiendas,
+      limit: 50,
+    });
+    const lista = res.data || [];
+
+    if (!baselineListo) {
+      for (const n of lista) idsBaselined.add(String(n.id));
+      baselineListo = true;
+      return;
+    }
+
+    for (const n of lista) {
+      const id = String(n.id);
+      if (idsBaselined.has(id)) continue;
+      const mostrada = mostrarNotificacionDispositivo({
+        id: n.id,
+        titulo: n.titulo,
+        mensaje: n.mensaje,
+        onClick: () => onClickNotificacion?.(n),
+      });
+      if (mostrada) idsBaselined.add(id);
+    }
+  };
+
+  procesar();
+  const iv = setInterval(procesar, intervaloMs);
+  const onEvt = () => {
+    procesar();
+  };
+  window.addEventListener(EVENTO_NOTIFICACIONES, onEvt);
+
+  return () => {
+    clearInterval(iv);
+    window.removeEventListener(EVENTO_NOTIFICACIONES, onEvt);
+  };
 }

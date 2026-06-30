@@ -60,11 +60,11 @@ import { limpiarAnunciosVistos } from './lib/anunciosPos.js';
 import InputPin from './components/InputPin.jsx';
 import {
   puedeRecibirNotificacionesDispositivo,
-  solicitarPermisoNotificacionesSiCorresponde,
   mostrarNotificacionDispositivo,
   limpiarNotificacionesDispositivoMostradas,
 } from './lib/notificacionesDispositivo.js';
-import { EVENTO_NOTIFICACION_DISPOSITIVO } from './lib/contabilidadNotificaciones.js';
+import { EVENTO_NOTIFICACION_DISPOSITIVO, iniciarMonitorNotificacionesDispositivo, EVENTO_NOTIFICACIONES } from './lib/contabilidadNotificaciones.js';
+import BotonActivarNotificaciones from './components/BotonActivarNotificaciones.jsx';
 import { iconoDeModulo, colorDeModulo } from './lib/moduloIcons.js';
 
 const SUCURSAL_FIJA_ENV = sucursalFijaPorEntorno();
@@ -147,7 +147,20 @@ function App() {
     if (!sesion || !user || !supabase) return undefined;
     if (!puedeRecibirNotificacionesDispositivo(user?.rol)) return undefined;
 
-    solicitarPermisoNotificacionesSiCorresponde(user?.rol);
+    const abrirPendientes = () => {
+      setBuzonPestana('pendientes');
+      if (puedeVerModulo(user?.rol, 'Buzón', user?.id)) setVista('Buzón');
+      else if (puedeVerModulo(user?.rol, 'Vales y Préstamos', user?.id)) {
+        setValesIrPendientes(true);
+        setVista('Vales y Préstamos');
+      }
+    };
+
+    const detenerMonitor = iniciarMonitorNotificacionesDispositivo(supabase, {
+      rol: user?.rol,
+      veTodasTiendas: true,
+      onClickNotificacion: abrirPendientes,
+    });
 
     const channel = supabase
       .channel(`pos-notificaciones-${user.id || user.nombre || 'staff'}`)
@@ -161,15 +174,9 @@ function App() {
             id: row.id,
             titulo: row.titulo,
             mensaje: row.mensaje,
-            onClick: () => {
-              setBuzonPestana('pendientes');
-              if (puedeVerModulo(user?.rol, 'Buzón', user?.id)) setVista('Buzón');
-              else if (puedeVerModulo(user?.rol, 'Vales y Préstamos', user?.id)) {
-                setValesIrPendientes(true);
-                setVista('Vales y Préstamos');
-              }
-            },
+            onClick: abrirPendientes,
           });
+          window.dispatchEvent(new CustomEvent(EVENTO_NOTIFICACIONES));
         },
       )
       .subscribe();
@@ -181,11 +188,13 @@ function App() {
         id: row.id,
         titulo: row.titulo,
         mensaje: row.mensaje,
+        onClick: abrirPendientes,
       });
     };
     window.addEventListener(EVENTO_NOTIFICACION_DISPOSITIVO, onLocal);
 
     return () => {
+      detenerMonitor();
       supabase.removeChannel(channel);
       window.removeEventListener(EVENTO_NOTIFICACION_DISPOSITIVO, onLocal);
     };
@@ -699,6 +708,7 @@ function App() {
             <span className="muted" style={{ fontSize: '0.75rem', fontWeight: 500 }}>Dólar: ${Number(tipoCambio).toFixed(2)}</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+            {puedeRecibirNotificacionesDispositivo(user?.rol) && <BotonActivarNotificaciones />}
             <BadgeNotificacionesContabilidad
               supabase={supabase}
               sucursal={sucursal}
