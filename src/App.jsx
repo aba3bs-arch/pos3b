@@ -65,6 +65,7 @@ import {
   limpiarNotificacionesDispositivoMostradas,
 } from './lib/notificacionesDispositivo.js';
 import { EVENTO_NOTIFICACION_DISPOSITIVO } from './lib/contabilidadNotificaciones.js';
+import { iconoDeModulo, colorDeModulo } from './lib/moduloIcons.js';
 
 const SUCURSAL_FIJA_ENV = sucursalFijaPorEntorno();
 
