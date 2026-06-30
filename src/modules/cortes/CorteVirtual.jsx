@@ -1,6 +1,8 @@
 import React, { useCallback } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
+import CampoCorte from '../../components/corteContabilidad/CampoCorte.jsx';
+import ResumenOperacionCorte from '../../components/corteContabilidad/ResumenOperacionCorte.jsx';
 import { calcularVirtual, monedaInicialTurnoEfectiva, monedaRecolectorRef, recoleccionTotalVirtual } from '../../lib/corteContabilidad/calc.js';
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
 import { datosImpresionCorteActual, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
@@ -10,38 +12,15 @@ import { etiquetaTienda } from '../../constants/sucursales.js';
 
 const COLOR = '#8e44ad';
 
-function Campo({ label, value, onChange, editable = true, hint, color }) {
-  return (
-    <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.8rem' }}>
-      <span style={{ fontWeight: 700, color: color || 'var(--muted)' }}>{label}</span>
-      <input
-        className="input"
-        type="number"
-        step="0.01"
-        inputMode="decimal"
-        value={value ?? ''}
-        {...(editable ? {} : { readOnly: true })}
-        onChange={editable ? (e) => onChange?.(e.target.value) : undefined}
-        style={{
-          fontWeight: 700,
-          textAlign: 'center',
-          ...(editable ? {} : { opacity: 0.85, cursor: 'not-allowed', background: 'var(--surface)' }),
-        }}
-      />
-      {hint && <span className="muted" style={{ fontSize: '0.7rem' }}>{hint}</span>}
-    </label>
-  );
-}
-
 function AjustesAdmin({ perm, estado, patchEstado }) {
   if (!perm.editarTodo) return null;
   return (
-    <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed var(--border)' }}>
+    <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed var(--border)' }} data-corte-form="virtual-admin">
       <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.5rem', fontWeight: 700 }}>Ajuste manual (administrador)</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        <Campo label="Venta efectivo" value={estado.venta_manual ?? ''} hint="Vacío = moneda del corte − moneda final" onChange={(v) => patchEstado({ venta_manual: v })} />
-        <Campo label="Subtotal del turno" value={estado.subtotal_manual ?? ''} hint="Vacío = venta − gastos − faltante" onChange={(v) => patchEstado({ subtotal_manual: v })} />
-        <Campo label="Caja chica actual" value={estado.caja_actual_manual ?? ''} hint="Vacío = caja anterior + subtotal" onChange={(v) => patchEstado({ caja_actual_manual: v })} />
+        <CampoCorte label="Venta efectivo" value={estado.venta_manual ?? ''} hint="Vacío = moneda del corte − moneda final" onChange={(v) => patchEstado({ venta_manual: v })} />
+        <CampoCorte label="Subtotal del turno" value={estado.subtotal_manual ?? ''} hint="Vacío = venta − gastos − faltante" onChange={(v) => patchEstado({ subtotal_manual: v })} />
+        <CampoCorte label="Caja chica actual" value={estado.caja_actual_manual ?? ''} hint="Vacío = caja anterior + subtotal" onChange={(v) => patchEstado({ caja_actual_manual: v })} />
       </div>
     </div>
   );
@@ -190,36 +169,40 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
           border: '2px solid rgba(142,68,173,0.35)',
         }}
       >
+        <div className="muted" style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          Moneda inicial de referencia
+        </div>
         <div style={{ fontSize: '2.4rem', fontWeight: 800, color: COLOR, margin: '0.25rem 0' }}>{fmtCorte(monedaReferencia)}</div>
+        <ResumenOperacionCorte venta={calc.venta} gastos={calc.gastosTotal} ventaNeta={calc.ventaNeta} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
         <div className="card">
           <h4 style={{ margin: '0 0 0.75rem' }}>Moneda y venta</h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-            <Campo
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }} data-corte-form="virtual-moneda">
+            <CampoCorte
               label="Fondo fijo (ref)"
               value={estado.fondo ?? 0}
               editable={Boolean(perm.fondo || perm.editarTodo)}
               hint="Fijado por recolector · no afecta la venta"
               onChange={(v) => patchEstado({ fondo: v })}
             />
-            <Campo
+            <CampoCorte
               label="Caja chica anterior (+)"
               value={estado.caja_anterior ?? 0}
               editable={Boolean(perm.caja_anterior || perm.editarTodo)}
               hint="Se arrastra entre cortes · solo recolector"
               onChange={(v) => patchEstado({ caja_anterior: v })}
             />
-            <Campo
+            <CampoCorte
               label="Moneda inicial del corte"
               value={monedaInicioCorte}
               editable={false}
               hint="Inicio de este corte · al cerrar, la moneda final pasa aquí en el siguiente corte"
             />
-            <Campo
+            <CampoCorte
               label="Moneda final"
-              value={estado.moneda_final ?? 0}
+              value={estado.moneda_final ?? ''}
               editable={puedeMonedaFinal}
               hint="Efectivo al cierre · será la moneda inicial del siguiente corte de cajero"
               onChange={(v) => patchEstado({ moneda_final: v, moneda_final_editada: true })}
@@ -229,9 +212,9 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
               <div style={{ fontSize: '1.4rem', fontWeight: 800, color: calc.venta < 0 ? 'var(--danger)' : '#16a085' }}>{fmtCorte(calc.venta)}</div>
               <div className="muted" style={{ fontSize: '0.7rem' }}>Moneda del corte − moneda final</div>
             </div>
-            <Campo
+            <CampoCorte
               label="Faltante (−)"
-              value={estado.faltante ?? 0}
+              value={estado.faltante ?? ''}
               editable={puedeFaltante}
               color="var(--danger)"
               onChange={(v) => patchEstado({ faltante: v })}

@@ -50,6 +50,8 @@ export function datosImpresionCorteActual({ modulo, sucursal, folio, turno, user
     fecha: new Date().toISOString(),
     venta: calc?.venta ?? 0,
     subtotal: calc?.subtotal ?? 0,
+    venta_neta: calc?.ventaNeta ?? calc?.subtotal ?? 0,
+    total_lectura: calc?.totalLectura ?? 0,
     caja_actual: calc?.cajaActual ?? 0,
     gastos_total: calc?.gastosTotal ?? 0,
     gastos: gastos || [],
@@ -96,7 +98,9 @@ function filasResumenModulo(data) {
     filas.push(['Faltante', fmt(e.faltante)]);
     filas.push(['Recolección', fmt(e.recoleccion)]);
   } else if (mod === 'garage') {
-    filas.push(['Ventas máquinas', fmt(e.venta_maquinas ?? data.venta)]);
+    filas.push(['Lectura total', fmt(data.total_lectura)]);
+    filas.push(['Lectura anterior', fmt(e.caja_anterior)]);
+    filas.push(['Venta turno', fmt(data.venta)]);
     filas.push(['Recolección', fmt(e.recoleccion)]);
   }
 

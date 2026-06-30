@@ -62,16 +62,42 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         return;
       }
       const filtrado = { ...patch };
+      const keys = Object.keys(filtrado);
+
+      const camposCajero = new Set([
+        'moneda_final',
+        'moneda_final_editada',
+        'faltante',
+        'comentarios',
+        'maquinas',
+        'pin1',
+        'pin2',
+        'dsch',
+        'venta',
+        'tarjeta',
+        'venta_manual',
+        'subtotal_manual',
+        'caja_actual_manual',
+      ]);
+      const soloOperacion = keys.length > 0 && keys.every((k) => camposCajero.has(k));
+      if (soloOperacion && perm.guardar) {
+        if (('moneda_final' in filtrado || 'moneda_final_editada' in filtrado) && !puedeEditarCorteCampo(perm, 'moneda_final')) return;
+        if ('faltante' in filtrado && !puedeEditarCorteCampo(perm, 'faltante')) return;
+        if ('comentarios' in filtrado && !puedeEditarCorteCampo(perm, 'comentarios')) return;
+        patchEstado(filtrado);
+        return;
+      }
+
       if ('moneda_final' in filtrado || 'moneda_final_editada' in filtrado) {
         if (!puedeEditarCorteCampo(perm, 'moneda_final')) return;
       }
       if ('faltante' in filtrado && !puedeEditarCorteCampo(perm, 'faltante')) return;
       if ('comentarios' in filtrado && !puedeEditarCorteCampo(perm, 'comentarios')) return;
+      if ('fondo' in filtrado && !(perm.fondo || perm.recoleccion)) return;
+      if ('caja_anterior' in filtrado && !(perm.caja_anterior || perm.recoleccion)) return;
       if (
         ('moneda_inicial' in filtrado ||
           'moneda_inicial_turno' in filtrado ||
-          'fondo' in filtrado ||
-          'caja_anterior' in filtrado ||
           'recoleccion' in filtrado ||
           'recoleccion_turno' in filtrado) &&
         !perm.recoleccion &&
@@ -165,6 +191,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         gastos,
         gastos_total: calc.gastosTotal,
         subtotal: calc.subtotal,
+        venta_neta: calc.ventaNeta,
+        total_lectura: calc.totalLectura,
         comentarios: estado.comentarios || '',
         ...detalleExtra,
         tipo_cierre: esActualizacion ? 'actualizacion' : detalleExtra.tipo_cierre || 'cierre',

@@ -48,7 +48,8 @@ export function calcularVirtual(estado, gastos = []) {
   const cajaAnterior = round2(estado.caja_anterior);
   const cajaActualCalc = round2(cajaAnterior + subtotal);
   const cajaActual = valorManual(estado, 'caja_actual_manual', cajaActualCalc);
-  return { venta, gastosTotal, subtotal, cajaActual };
+  const ventaNeta = round2(venta - gastosTotal);
+  return { venta, gastosTotal, subtotal, ventaNeta, cajaActual };
 }
 
 /** Total a recolectar al actualizar moneda: venta en efectivo + toda la caja chica. */
@@ -75,16 +76,35 @@ export function sumaMaquinasGarage(maquinas = {}) {
   return round2(Object.values(maquinas || {}).reduce((a, v) => a + (Number(v) || 0), 0));
 }
 
+/** Lectura del día: M1 + M2 + M3 + PIN1 + DSCH (contadores de máquinas). */
+export const CLAVES_LECTURA_GARAGE = ['M1', 'M2', 'M3'];
+
+export function sumaLecturaGarage(estado) {
+  const m = estado?.maquinas || {};
+  const maq = CLAVES_LECTURA_GARAGE.reduce((a, k) => a + (Number(m[k]) || 0), 0);
+  return round2(maq + (Number(estado?.pin1) || 0) + (Number(estado?.dsch) || 0));
+}
+
 export function calcularGarage(estado, gastos = []) {
   const gastosTotal = totalGastos(gastos);
-  const ventaMaquinas = sumaMaquinasGarage(estado.maquinas);
-  const ventaCalc = round2(ventaMaquinas + (Number(estado.pin1) || 0) + (Number(estado.pin2) || 0) + (Number(estado.dsch) || 0));
+  const totalLectura = sumaLecturaGarage(estado);
+  const lecturaAnterior = round2(estado.caja_anterior);
+  const ventaCalc = round2(totalLectura - lecturaAnterior);
   const venta = valorManual(estado, 'venta_manual', ventaCalc);
-  const cajaAnterior = round2(estado.caja_anterior);
+  const subtotalCalc = round2(venta - gastosTotal);
+  const subtotal = valorManual(estado, 'subtotal_manual', subtotalCalc);
   const recoleccion = round2(estado.recoleccion);
-  const cajaActualCalc = round2(cajaAnterior + venta - gastosTotal - recoleccion);
+  const cajaActualCalc = round2(subtotal - recoleccion);
   const cajaActual = valorManual(estado, 'caja_actual_manual', cajaActualCalc);
-  return { venta, gastosTotal, cajaActual };
+  return {
+    venta,
+    gastosTotal,
+    subtotal,
+    ventaNeta: subtotal,
+    totalLectura,
+    lecturaAnterior,
+    cajaActual,
+  };
 }
 
 export const ESTADO_VIRTUAL_DEFAULT = {
