@@ -84,6 +84,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const puedeGenerarVales = tiendaPuedeGenerarVales(sucursal);
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
   const requiereAuthAhora = valeRequiereAutorizacionAdmin();
+  const valeFormRequiereAdmin = valeForm.categoria === 'consumo' || requiereAuthAhora;
 
   const valesPendientes = useMemo(() => vales.filter((v) => v.estado_aprobacion === 'pendiente_admin'), [vales]);
   const prestamosPendientesAdmin = useMemo(() => prestamosEmp.filter((p) => p.estado === 'pendiente_admin'), [prestamosEmp]);
@@ -284,13 +285,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       )}
 
       <div className="card" style={{ fontSize: '0.85rem' }}>
-        <strong>Vales</strong> — Antes de las {HORA_LIMITE_VALE}:00 se imprimen con firma. Después de las 9:00 el admin debe aprobar.
+        <strong>Vales consumo</strong> — Siempre requieren autorización del administrador (notificación en el dispositivo).
         <br />
-        <strong>Gasolina, herramienta y accesorios</strong> no se descuentan de nómina. Los consumos sí (vía corte).
+        <strong>Gasolina, herramienta y accesorios</strong> — Antes de las {HORA_LIMITE_VALE}:00 se imprimen con firma; después de las 9:00 el admin debe aprobar.
         <br />
         <strong>Préstamos</strong> — Admin aprueba siempre; mayores a ${MONTO_PRESTAMO_REQUIERE_SOCIO} requieren Antonio, Francisco o José Luis.
         Cuota semanal mín. ${CUOTA_SEMANAL_MINIMA} en nómina.
-        {requiereAuthAhora && <span style={{ color: 'var(--danger)' }}> · Ahora ({new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}) vales post-9:00 van a bandeja admin.</span>}
+        {requiereAuthAhora && !esAdmin && valeForm.categoria !== 'consumo' && (
+          <span style={{ color: 'var(--danger)' }}> · Ahora ({new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}) vales post-9:00 van a bandeja admin.</span>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -310,7 +313,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Bandeja de aprobaciones</h3>
           {esAdmin && valesPendientes.length > 0 && (
             <>
-              <h4 style={{ margin: '0.5rem 0' }}>Vales (después de 9:00)</h4>
+              <h4 style={{ margin: '0.5rem 0' }}>Vales pendientes</h4>
               {valesPendientes.map((v) => (
                 <div key={v.id} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.5rem', padding: '0.5rem', background: 'var(--surface)', borderRadius: 8 }}>
                   <span>{v.folio} · {v.nombre_empleado} · {fmt(v.monto)} · {etiquetaCategoriaVale(v.categoria)}</span>
@@ -371,11 +374,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <input className="input" placeholder="Motivo" style={{ gridColumn: '1 / -1' }} value={valeForm.motivo} onChange={(e) => setValeForm({ ...valeForm, motivo: e.target.value })} />
             </div>
             <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} disabled={!puedeGenerarVales} onClick={guardarVale}>
-              {requiereAuthAhora && !esAdmin ? 'Solicitar vale (requiere autorización)' : 'Registrar vale'}
+              {valeFormRequiereAdmin && !esAdmin ? 'Solicitar vale (requiere autorización)' : 'Registrar vale'}
             </button>
-            {requiereAuthAhora && !esAdmin && (
+            {valeFormRequiereAdmin && !esAdmin && (
               <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', color: 'var(--brand-red)' }}>
-                Son las {new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} — vales después de las {HORA_LIMITE_VALE}:00 van a bandeja del administrador.
+                {valeForm.categoria === 'consumo'
+                  ? 'Los vales de consumo siempre requieren aprobación del administrador.'
+                  : `Son las ${new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} — vales después de las ${HORA_LIMITE_VALE}:00 van a bandeja del administrador.`}
               </p>
             )}
           </div>

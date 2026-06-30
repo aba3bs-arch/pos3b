@@ -144,8 +144,12 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     if (gastoRequiereEmpleado(modulo, gasto?.categoria) && !gasto?.usuario_id) {
       return alert('Selecciona el empleado a quien se descontará el consumo en nómina.');
     }
-    const res = await agregarGastoTurno(supabase, sucursal, modulo, gasto);
+    const res = await agregarGastoTurno(supabase, sucursal, modulo, gasto, {
+      rolActor: user?.rol,
+      nombreActor: user?.nombre,
+    });
     if (!res.ok) return alert(res.error);
+    if (res.pendiente) alert(res.mensaje || 'Consumo pendiente de autorización del administrador.');
     const gas = await listarGastosTurno(supabase, sucursal, modulo);
     setGastos(gas.data || []);
   };

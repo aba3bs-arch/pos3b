@@ -3,7 +3,7 @@ import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPane
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import CampoCorte from '../../components/corteContabilidad/CampoCorte.jsx';
 import ResumenOperacionCorte from '../../components/corteContabilidad/ResumenOperacionCorte.jsx';
-import { calcularVirtual, monedaInicialTurnoEfectiva, monedaRecolectorRef, recoleccionTotalVirtual } from '../../lib/corteContabilidad/calc.js';
+import { calcularVirtual, monedaInicialTurnoEfectiva, monedaRecolectorRef, recoleccionTotalVirtual, round2 } from '../../lib/corteContabilidad/calc.js';
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
 import { datosImpresionCorteActual, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
 import { etiquetaTipoCierre, puedeEditarCorteCampo } from '../../lib/corteContabilidad/permisos.js';
@@ -43,8 +43,9 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
     };
 
     if (esActualizacion) {
-      const mf = Number(estado.moneda_final) || 0;
-      const refRecolector = mf > 0 ? mf : Number(estado.moneda_inicial) || 0;
+      const refRecolector = estado.moneda_final_editada
+        ? round2(estado.moneda_final)
+        : round2(estado.moneda_inicial);
       return {
         ...estado,
         ...baseReset,
@@ -54,8 +55,9 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
       };
     }
 
-    const mf = Number(estado.moneda_final) || 0;
-    const turnoSiguiente = mf > 0 ? mf : monedaInicialTurnoEfectiva(estado);
+    const turnoSiguiente = estado.moneda_final_editada
+      ? round2(estado.moneda_final)
+      : monedaInicialTurnoEfectiva(estado);
     return {
       ...estado,
       ...baseReset,
@@ -98,7 +100,7 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
       return alert('Capture la moneda final (conteo actual en caja) antes de actualizar la moneda inicial.');
     }
     const totalRec = recoleccionTotalVirtual(estado, calc);
-    const mf = Number(estado.moneda_final) || 0;
+    const mf = round2(estado.moneda_final);
     const msg =
       `¿Recolectar todo el efectivo y actualizar moneda inicial?\n\n` +
       `Tienda: ${etiquetaTienda(sucursal)}\n` +
@@ -116,6 +118,17 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
         caja_actual_cierre: 0,
       });
     }
+  };
+
+  const aplicarReferenciaMoneda = () => {
+    if (!perm.recoleccion && !perm.editarTodo) return alert('Solo el administrador o recolector puede ajustar la moneda de referencia.');
+    const ref = round2(estado.moneda_inicial);
+    if (!confirm(`¿Usar ${fmtCorte(ref)} como moneda de referencia (morado) e inicio de turno?\n\nNo retira efectivo; solo corrige la referencia después de una recolección.`)) return;
+    patchEstado({
+      moneda_inicial: ref,
+      moneda_inicial_turno: ref,
+    });
+    alert('Moneda de referencia actualizada.');
   };
 
   const cajaNegativa = calc.cajaActual < -0.001;
@@ -173,6 +186,20 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
           Moneda inicial de referencia
         </div>
         <div style={{ fontSize: '2.4rem', fontWeight: 800, color: COLOR, margin: '0.25rem 0' }}>{fmtCorte(monedaReferencia)}</div>
+        {perm.recoleccion && (
+          <div style={{ maxWidth: 320, margin: '0.75rem auto 0', textAlign: 'left' }}>
+            <CampoCorte
+              label="Moneda de referencia (morado)"
+              value={estado.moneda_inicial ?? ''}
+              editable
+              hint="Tras una recolección puedes corregir la referencia sin retirar efectivo"
+              onChange={(v) => patchEstado({ moneda_inicial: v })}
+            />
+            <button type="button" className="btn btn-ghost" style={{ marginTop: '0.35rem', width: '100%' }} onClick={aplicarReferenciaMoneda} disabled={cargando}>
+              Aplicar referencia al turno
+            </button>
+          </div>
+        )}
         <ResumenOperacionCorte venta={calc.venta} gastos={calc.gastosTotal} ventaNeta={calc.ventaNeta} />
       </div>
 

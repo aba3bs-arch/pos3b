@@ -1,4 +1,8 @@
 import { estadoDefault } from './calc.js';
+import { gastoDescuentaNomina } from './catalogoGastos.js';
+import { normalizarRol } from '../roles.js';
+import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from '../contabilidadNotificaciones.js';
+import { ETIQUETA_AREA } from '../contabilidadConstants.js';
 
 export const AVISO_FALTA_CORTES =
   'Faltan tablas de cortes contabilidad. En Supabase → SQL Editor ejecuta: supabase/fix_cortes_contabilidad.sql';
@@ -88,7 +92,10 @@ export async function listarGastosTurno(supabase, sucursal, modulo) {
   return { data: data || [], error: error?.message || null };
 }
 
-export async function agregarGastoTurno(supabase, sucursal, modulo, gasto) {
+export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts = {}) {
+  const esConsumo = gastoDescuentaNomina(modulo, gasto.categoria);
+  const esAdmin = normalizarRol(opts.rolActor) === 'Administrador';
+  const estadoAprobacion = esConsumo && !esAdmin ? 'pendiente_admin' : 'aprobado';
   const row = {
     sucursal_id: sucursal || 'MAIN',
     modulo,
@@ -99,6 +106,8 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto) {
     usuario_id: gasto.usuario_id || null,
     usuario_nombre: gasto.usuario_nombre || null,
     cerrado: false,
+    estado_aprobacion: estadoAprobacion,
+    solicitado_por: opts.nombreActor || null,
   };
   if (!supabase) {
     const { data: prev } = await listarGastosTurno(null, sucursal, modulo);
@@ -108,7 +117,52 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto) {
   }
   const { data, error } = await supabase.from('cortes_contabilidad_gastos').insert([row]).select('*').single();
   if (error) return { ok: false, error: error.message };
+  if (estadoAprobacion === 'pendiente_admin') {
+    const areaLbl = ETIQUETA_AREA[modulo] || modulo;
+    await crearNotificacion(supabase, {
+      sucursal_id: sucursal || 'MAIN',
+      tipo: TIPOS_NOTIF.CONSUMO_CORTE,
+      ref_tabla: 'cortes_contabilidad_gastos',
+      ref_id: data.id,
+      titulo: `Consumo pendiente · ${gasto.usuario_nombre || 'empleado'}`,
+      mensaje: `${areaLbl} · $${Number(gasto.monto).toFixed(2)} · ${gasto.categoria || 'CONSUMO'}`,
+    });
+    return { ok: true, data, pendiente: true, mensaje: 'Consumo enviado. El administrador debe aprobar antes de descontarlo en el corte.' };
+  }
   return { ok: true, data };
+}
+
+export async function aprobarGastoTurno(supabase, gastoId, { nombre } = {}) {
+  if (!supabase || !gastoId) return { ok: false, error: 'Gasto inválido.' };
+  const { data, error } = await supabase
+    .from('cortes_contabilidad_gastos')
+    .update({
+      estado_aprobacion: 'aprobado',
+      aprobado_por: nombre || null,
+      aprobado_at: new Date().toISOString(),
+    })
+    .eq('id', gastoId)
+    .select('*')
+    .single();
+  if (error) return { ok: false, error: error.message };
+  await marcarNotificacionAtendida(supabase, 'cortes_contabilidad_gastos', gastoId, nombre);
+  return { ok: true, gasto: data };
+}
+
+export async function rechazarGastoTurno(supabase, gastoId, { nombre } = {}) {
+  if (!supabase || !gastoId) return { ok: false, error: 'Gasto inválido.' };
+  const { error } = await supabase
+    .from('cortes_contabilidad_gastos')
+    .update({ estado_aprobacion: 'rechazado', aprobado_por: nombre || null, aprobado_at: new Date().toISOString() })
+    .eq('id', gastoId);
+  if (error) return { ok: false, error: error.message };
+  await marcarNotificacionAtendida(supabase, 'cortes_contabilidad_gastos', gastoId, nombre);
+  return { ok: true };
+}
+
+export function gastoCuentaEnCorte(gasto) {
+  const est = gasto?.estado_aprobacion || 'aprobado';
+  return est === 'aprobado';
 }
 
 export async function eliminarGastoTurno(supabase, id, sucursal, modulo) {

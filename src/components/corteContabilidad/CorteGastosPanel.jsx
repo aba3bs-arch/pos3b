@@ -145,7 +145,7 @@ export default function CorteGastosPanel({
       </div>
       <p className="muted" style={{ fontSize: '0.75rem', margin: '0.35rem 0 0.5rem' }}>
         {notaNomina ||
-          'Solo CONSUMO se descuenta en nómina al empleado elegido. Los demás gastos afectan el corte pero no se descuentan a nadie.'}
+          'Solo CONSUMO se descuenta en nómina. Los consumos requieren autorización del administrador antes de aplicarse al corte.'}
       </p>
 
       {mostrarCat && puedeCatalogo && (
@@ -259,13 +259,18 @@ export default function CorteGastosPanel({
               <th>Cat.</th>
               <th>Sub</th>
               <th>Monto</th>
+              <th>Estado</th>
               <th>Nota</th>
               {habilitado && <th />}
             </tr>
           </thead>
           <tbody>
-            {(gastos || []).map((g) => (
-              <tr key={g.id}>
+            {(gastos || []).map((g) => {
+              const est = g.estado_aprobacion || 'aprobado';
+              const pendiente = est === 'pendiente_admin';
+              const rechazado = est === 'rechazado';
+              return (
+              <tr key={g.id} style={pendiente ? { background: 'rgba(225,153,41,0.08)' } : rechazado ? { opacity: 0.55 } : undefined}>
                 <td>
                   {gastoDescuentaNomina(modulo, g.categoria) ? g.usuario_nombre || '—' : <span className="muted">—</span>}
                 </td>
@@ -286,6 +291,9 @@ export default function CorteGastosPanel({
                     fmt(g.monto)
                   )}
                 </td>
+                <td style={{ fontSize: '0.75rem', fontWeight: 700, color: pendiente ? 'var(--brand-gold)' : rechazado ? 'var(--danger)' : '#2e7d32' }}>
+                  {pendiente ? 'Pendiente admin' : rechazado ? 'Rechazado' : 'Aprobado'}
+                </td>
                 <td className="muted">{g.comentario || '—'}</td>
                 {habilitado && (
                   <td>
@@ -300,10 +308,11 @@ export default function CorteGastosPanel({
                   </td>
                 )}
               </tr>
-            ))}
+            );
+            })}
             {(!gastos || gastos.length === 0) && (
               <tr>
-                <td colSpan={habilitado ? 6 : 5} className="muted">
+                <td colSpan={habilitado ? 7 : 6} className="muted">
                   Sin gastos en este turno.
                 </td>
               </tr>

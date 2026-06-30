@@ -1,7 +1,10 @@
+import { mostrarNotificacionDispositivo } from './notificacionesDispositivo.js';
+
 export const AVISO_FALTA_NOTIF =
   'Faltan notificaciones de contabilidad. Ejecuta supabase/fix_vales_prestamos_aprobaciones.sql';
 
 export const EVENTO_NOTIFICACIONES = 'pos-notificaciones-refresh';
+export const EVENTO_NOTIFICACION_DISPOSITIVO = 'pos-notificacion-dispositivo';
 
 export function emitirRefreshNotificaciones() {
   if (typeof window !== 'undefined') {
@@ -30,6 +33,16 @@ export async function crearNotificacion(supabase, row) {
   if (error && faltaTabla(error)) return { ok: true, id: null, aviso: AVISO_FALTA_NOTIF };
   if (error) return { ok: false, error: error.message };
   emitirRefreshNotificaciones();
+  if (data?.id) {
+    mostrarNotificacionDispositivo({
+      id: data.id,
+      titulo: payload.titulo,
+      mensaje: payload.mensaje,
+    });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(EVENTO_NOTIFICACION_DISPOSITIVO, { detail: { ...payload, id: data.id } }));
+    }
+  }
   return { ok: true, id: data?.id };
 }
 
@@ -121,6 +134,7 @@ export const TIPOS_NOTIF = {
   PRESTAMO_SOCIO: 'prestamo_pendiente_socio',
   PRESTAMO_INTERAREA: 'prestamo_interarea',
   INCIDENCIA: 'incidencia_tienda',
+  CONSUMO_CORTE: 'consumo_corte_pendiente',
 };
 
 export function etiquetaTipoNotificacion(tipo) {
@@ -135,6 +149,8 @@ export function etiquetaTipoNotificacion(tipo) {
       return 'Préstamo entre áreas';
     case TIPOS_NOTIF.INCIDENCIA:
       return 'Incidencia';
+    case TIPOS_NOTIF.CONSUMO_CORTE:
+      return 'Consumo en corte';
     default:
       return tipo || 'Notificación';
   }

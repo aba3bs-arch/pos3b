@@ -58,8 +58,9 @@ export function etiquetaCategoriaVale(categoria) {
   return categoriaValePorId(categoria).label;
 }
 
-/** Vales indirectos: antes de las 9:00 se liberan con firma; después requieren admin. */
-export function valeRequiereAutorizacionAdmin(fecha = new Date()) {
+/** Consumos siempre requieren admin; otras categorías después de las 9:00. */
+export function valeRequiereAutorizacionAdmin(fecha = new Date(), categoria = 'consumo') {
+  if (valeDescuentaNomina(categoria)) return true;
   return fecha.getHours() >= 9;
 }
 

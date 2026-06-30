@@ -104,9 +104,9 @@ export async function registrarVale(supabase, row, opts = {}) {
     return { ok: false, error: 'Solo vales para Luis Enrique (Abarrotes), Misael y Gonzalo (Virtual).' };
   }
 
-  const despuesDeLas9 = valeRequiereAutorizacionAdmin();
-  const esAdmin = normalizarRol(opts.rolActor) === 'Administrador';
   const categoria = row.categoria || 'consumo';
+  const esAdmin = normalizarRol(opts.rolActor) === 'Administrador';
+  const requiereAdmin = valeRequiereAutorizacionAdmin(new Date(), categoria);
   const descuentaNomina = valeDescuentaNomina(categoria);
 
   let estadoAprobacion = 'aprobado';
@@ -114,7 +114,7 @@ export async function registrarVale(supabase, row, opts = {}) {
   let autorizadoPor = null;
   let aprobadoAt = new Date().toISOString();
 
-  if (despuesDeLas9 && !esAdmin) {
+  if (requiereAdmin && !esAdmin) {
     estadoAprobacion = 'pendiente_admin';
     requiereAuth = true;
     autorizadoPor = null;
@@ -149,7 +149,7 @@ export async function registrarVale(supabase, row, opts = {}) {
       ref_tabla: 'vales',
       ref_id: data.id,
       titulo: `Vale pendiente · ${row.nombre_empleado}`,
-      mensaje: `${folio} · $${Number(row.monto).toFixed(2)} · ${categoria} (después de las 9:00)`,
+      mensaje: `${folio} · $${Number(row.monto).toFixed(2)} · ${categoria}${descuentaNomina ? ' · requiere admin' : ' · después de las 9:00'}`,
     });
     return {
       ok: true,

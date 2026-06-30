@@ -9,7 +9,14 @@ function valorManual(estado, key, calculado) {
 }
 
 export function totalGastos(gastos = []) {
-  return round2((gastos || []).reduce((a, g) => a + (Number(g.monto) || 0), 0));
+  return round2(
+    (gastos || [])
+      .filter((g) => {
+        const est = g?.estado_aprobacion || 'aprobado';
+        return est === 'aprobado';
+      })
+      .reduce((a, g) => a + (Number(g.monto) || 0), 0),
+  );
 }
 
 /** Referencia del recolector (morado): fija hasta la próxima recolección; no cambia con los cierres de cajero. */

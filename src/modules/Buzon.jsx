@@ -22,6 +22,7 @@ import {
 } from '../lib/incidenciasPos.js';
 import { normalizarRol, rolVeBuzonComoIncidencias } from '../lib/roles.js';
 import { esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
+import { aprobarGastoTurno, rechazarGastoTurno } from '../lib/corteContabilidad/store.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { BtnLabel } from '../components/Icon.jsx';
 
@@ -140,8 +141,32 @@ export default function Buzon({
       setPestana('incidencias');
       return;
     }
+    if (n.tipo === TIPOS_NOTIF.CONSUMO_CORTE) return;
     if (typeof onIrValesPendientes === 'function') onIrValesPendientes();
     else if (typeof onNavigate === 'function') onNavigate('Vales y Préstamos');
+  };
+
+  const aprobarConsumoCorte = async (n) => {
+    if (!esAdmin && !esGerente) return;
+    if (!n.ref_id) return;
+    const res = await aprobarGastoTurno(supabase, n.ref_id, { nombre: user?.nombre });
+    if (!res.ok) setMsg(res.error || 'No se pudo aprobar.');
+    else {
+      setMsg('Consumo aprobado y aplicado al corte.');
+      recargar();
+    }
+  };
+
+  const rechazarConsumoCorte = async (n) => {
+    if (!esAdmin && !esGerente) return;
+    if (!n.ref_id) return;
+    if (!confirm('¿Rechazar este consumo? No se descontará del corte ni de nómina.')) return;
+    const res = await rechazarGastoTurno(supabase, n.ref_id, { nombre: user?.nombre });
+    if (!res.ok) setMsg(res.error || 'No se pudo rechazar.');
+    else {
+      setMsg('Consumo rechazado.');
+      recargar();
+    }
   };
 
   const marcarVisto = async (n) => {
@@ -150,6 +175,7 @@ export default function Buzon({
       irAccionNotif(n);
       return;
     }
+    if (n.tipo === TIPOS_NOTIF.CONSUMO_CORTE) return;
     const res = await marcarNotificacionAtendidaPorId(supabase, n.id, user?.nombre);
     if (!res.ok) setMsg(res.error || 'No se pudo marcar.');
     else {
@@ -274,6 +300,16 @@ export default function Buzon({
                       </td>
                       <td>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                          {n.tipo === TIPOS_NOTIF.CONSUMO_CORTE && (esAdmin || esGerente) && (
+                            <>
+                              <button type="button" className="btn btn-primary btn-sm" onClick={() => aprobarConsumoCorte(n)}>
+                                Aprobar
+                              </button>
+                              <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => rechazarConsumoCorte(n)}>
+                                Rechazar
+                              </button>
+                            </>
+                          )}
                           {(n.tipo === TIPOS_NOTIF.VALE_PENDIENTE ||
                             n.tipo === TIPOS_NOTIF.PRESTAMO_ADMIN ||
                             n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO) && (

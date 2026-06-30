@@ -58,7 +58,13 @@ import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesCon
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
 import { limpiarAnunciosVistos } from './lib/anunciosPos.js';
 import InputPin from './components/InputPin.jsx';
-import { iconoDeModulo, colorDeModulo } from './lib/moduloIcons.js';
+import {
+  puedeRecibirNotificacionesDispositivo,
+  solicitarPermisoNotificacionesSiCorresponde,
+  mostrarNotificacionDispositivo,
+  limpiarNotificacionesDispositivoMostradas,
+} from './lib/notificacionesDispositivo.js';
+import { EVENTO_NOTIFICACION_DISPOSITIVO } from './lib/contabilidadNotificaciones.js';
 
 const SUCURSAL_FIJA_ENV = sucursalFijaPorEntorno();
 
@@ -135,6 +141,54 @@ function App() {
   useEffect(() => {
     if (sesion) cargarDatos();
   }, [sesion, cargarDatos]);
+
+  useEffect(() => {
+    if (!sesion || !user || !supabase) return undefined;
+    if (!puedeRecibirNotificacionesDispositivo(user?.rol)) return undefined;
+
+    solicitarPermisoNotificacionesSiCorresponde(user?.rol);
+
+    const channel = supabase
+      .channel(`pos-notificaciones-${user.id || user.nombre || 'staff'}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'contabilidad_notificaciones' },
+        (payload) => {
+          const row = payload.new;
+          if (!row || row.estado !== 'pendiente') return;
+          mostrarNotificacionDispositivo({
+            id: row.id,
+            titulo: row.titulo,
+            mensaje: row.mensaje,
+            onClick: () => {
+              setBuzonPestana('pendientes');
+              if (puedeVerModulo(user?.rol, 'Buzón', user?.id)) setVista('Buzón');
+              else if (puedeVerModulo(user?.rol, 'Vales y Préstamos', user?.id)) {
+                setValesIrPendientes(true);
+                setVista('Vales y Préstamos');
+              }
+            },
+          });
+        },
+      )
+      .subscribe();
+
+    const onLocal = (e) => {
+      const row = e.detail;
+      if (!row?.titulo) return;
+      mostrarNotificacionDispositivo({
+        id: row.id,
+        titulo: row.titulo,
+        mensaje: row.mensaje,
+      });
+    };
+    window.addEventListener(EVENTO_NOTIFICACION_DISPOSITIVO, onLocal);
+
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener(EVENTO_NOTIFICACION_DISPOSITIVO, onLocal);
+    };
+  }, [sesion, user, supabase]);
 
   useEffect(() => {
     if (!supabase || !sesion) return undefined;
@@ -322,6 +376,7 @@ function App() {
 
   const cerrarSesion = () => {
     limpiarAnunciosVistos();
+    limpiarNotificacionesDispositivoMostradas();
     setSesion(false);
     setUser(null);
     setVista('Inicio');
