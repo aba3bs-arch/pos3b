@@ -158,7 +158,7 @@ export default function Inicio({ supabase, sucursal, inventario, inventarioCompl
         puedeModulo={puede}
       />
 
-      {puede('Buzón') && typeof onIrIncidencias === 'function' && (
+      {puede('Incidencias') && typeof onIrIncidencias === 'function' && (
         <div
           className="card"
           style={{

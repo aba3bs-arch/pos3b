@@ -67,7 +67,7 @@ export default function PanelNotificacionesInicio({ supabase, sucursal, user, on
 
   if (!puedeVer || total === 0) return null;
 
-  const puedeBuzon = typeof puedeModulo === 'function' ? puedeModulo('Buzón') : true;
+  const puedeIncidencias = typeof puedeModulo === 'function' ? puedeModulo('Incidencias') : true;
   const puedeVales = typeof puedeModulo === 'function' ? puedeModulo('Vales y Préstamos') : false;
 
   return (
@@ -89,12 +89,12 @@ export default function PanelNotificacionesInicio({ supabase, sucursal, user, on
           </p>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-          {puedeBuzon && (
-            <button type="button" className="btn btn-primary" onClick={() => onNavigate('Buzón')}>
-              <BtnLabel icon="alert">Abrir buzón</BtnLabel>
+          {esAdmin && puedeIncidencias && (
+            <button type="button" className="btn btn-primary" onClick={() => onNavigate('Incidencias')}>
+              <BtnLabel icon="alert">Abrir incidencias</BtnLabel>
             </button>
           )}
-          {puedeVales && (notifs.some((n) => n.tipo !== TIPOS_NOTIF.INCIDENCIA) || !puedeBuzon) && (
+          {puedeVales && (notifs.some((n) => n.tipo !== TIPOS_NOTIF.INCIDENCIA) || !(esAdmin && puedeIncidencias)) && (
             <button type="button" className="btn btn-gold" onClick={() => onNavigate('Vales y Préstamos')}>
               Vales y préstamos
             </button>

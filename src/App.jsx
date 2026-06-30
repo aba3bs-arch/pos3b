@@ -35,7 +35,7 @@ import {
   tiendaBloqueadaEnEsteEquipo,
   normalizarCodigoTienda,
 } from './constants/sucursales.js';
-import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, rolVeBuzonComoIncidencias, etiquetaModuloSidebar } from './lib/roles.js';
+import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, esAdminModuloIncidencias } from './lib/roles.js';
 import { inventarioParaSucursal } from './lib/inventarioMultitienda.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
@@ -148,9 +148,10 @@ function App() {
     if (!puedeRecibirNotificacionesDispositivo(user?.rol)) return undefined;
 
     const abrirPendientes = () => {
-      setBuzonPestana('pendientes');
-      if (puedeVerModulo(user?.rol, 'Buzón', user?.id)) setVista('Buzón');
-      else if (puedeVerModulo(user?.rol, 'Vales y Préstamos', user?.id)) {
+      if (esAdminModuloIncidencias(user?.rol) && puedeVerModulo(user?.rol, 'Incidencias', user?.id)) {
+        setBuzonPestana('pendientes');
+        setVista('Incidencias');
+      } else if (puedeVerModulo(user?.rol, 'Vales y Préstamos', user?.id)) {
         setValesIrPendientes(true);
         setVista('Vales y Préstamos');
       }
@@ -270,8 +271,8 @@ function App() {
   const irAModulo = useCallback(
     (m, opts = {}) => {
       if (!puedeVerModulo(user?.rol, m, user?.id)) return;
-      if (m === 'Buzón') {
-        const soloInc = rolVeBuzonComoIncidencias(user?.rol);
+      if (m === 'Incidencias') {
+        const soloInc = !esAdminModuloIncidencias(user?.rol);
         setBuzonPestana(opts.pestana || (soloInc ? 'incidencias' : 'pendientes'));
       }
       setVista(m);
@@ -281,7 +282,7 @@ function App() {
 
   const irAIncidencias = useCallback(() => {
     setBuzonPestana('incidencias');
-    irAModulo('Buzón', { pestana: 'incidencias' });
+    irAModulo('Incidencias', { pestana: 'incidencias' });
   }, [irAModulo]);
 
   const completarLogin = useCallback(
@@ -627,7 +628,7 @@ function App() {
                 }}
               >
                 <Icon name={iconoDeModulo(m)} size={20} style={{ color: colorDeModulo(m) }} />
-                <span>{etiquetaModuloSidebar(user?.rol, m)}</span>
+                <span>{m}</span>
               </button>
             ))}
             {subContabilidad.length > 0 && (
@@ -715,9 +716,9 @@ function App() {
               sucursal={sucursal}
               user={user}
               onClick={() => {
-                setBuzonPestana('pendientes');
-                if (puedeVerModulo(user?.rol, 'Buzón', user?.id)) {
-                  irAModulo('Buzón');
+                if (esAdminModuloIncidencias(user?.rol) && puedeVerModulo(user?.rol, 'Incidencias', user?.id)) {
+                  setBuzonPestana('pendientes');
+                  irAModulo('Incidencias');
                   return;
                 }
                 setValesIrPendientes(true);
@@ -745,7 +746,7 @@ function App() {
               puedeModulo={(m) => puedeVerModulo(user?.rol, m, user?.id)}
             />
           )}
-          {vista === 'Buzón' && (
+          {vista === 'Incidencias' && (
             <Buzon
               supabase={supabase}
               sucursal={sucursal}

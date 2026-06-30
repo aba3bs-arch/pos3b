@@ -32,7 +32,7 @@ export const MODULOS_AGRUPADOS_CONTABILIDAD = new Set(SUBMODULOS_CONTABILIDAD);
 /** Orden fijo del menú lateral */
 export const MODULOS_ORDEN = [
   'Inicio',
-  'Buzón',
+  'Incidencias',
   'Ventas',
   'Corte de caja',
   'Corte Virtual',
@@ -59,7 +59,7 @@ export const MODULOS_PRIVILEGIOS_GENERAL = MODULOS_ORDEN.filter((m) => !MODULOS_
 const ACCESO_POR_ROL = {
   Cajero: [
     'Inicio',
-    'Buzón',
+    'Incidencias',
     'Ventas',
     'Corte de caja',
     'Corte Virtual',
@@ -69,10 +69,10 @@ const ACCESO_POR_ROL = {
     'Checador',
     'Ayuda',
   ],
-  Repartidor: ['Inicio', 'Buzón', 'Checador', 'Ayuda'],
+  Repartidor: ['Inicio', 'Incidencias', 'Checador', 'Ayuda'],
   Auditor: [
     'Inicio',
-    'Buzón',
+    'Incidencias',
     'Corte de caja',
     'Productos',
     'Compras',
@@ -86,7 +86,7 @@ const ACCESO_POR_ROL = {
   ],
   Supervisor: [
     'Inicio',
-    'Buzón',
+    'Incidencias',
     'Ventas',
     'Corte de caja',
     'Corte Virtual',
@@ -105,7 +105,7 @@ const ACCESO_POR_ROL = {
   ],
   Gerente: [
     'Inicio',
-    'Buzón',
+    'Incidencias',
     'Ventas',
     'Corte de caja',
     'Corte Virtual',
@@ -124,7 +124,7 @@ const ACCESO_POR_ROL = {
     'Configuracion',
     'Ayuda',
   ],
-  Técnico: ['Inicio', 'Buzón', 'Checador', 'Ayuda'],
+  Técnico: ['Inicio', 'Incidencias', 'Checador', 'Ayuda'],
   Administrador: [...MODULOS_ORDEN],
 };
 
@@ -150,22 +150,35 @@ export function normalizarRol(rol) {
   return 'Cajero';
 }
 
+export function normalizarIdModulo(moduloId) {
+  if (moduloId === 'Buzón') return 'Incidencias';
+  return moduloId;
+}
+
 export function puedeVerModulo(rol, moduloId, userId = null) {
+  const m = normalizarIdModulo(moduloId);
   const r = normalizarRol(rol);
   if (r === 'Administrador') return true;
   const permitidos = modulosPermitidosDesde(leerPrivilegios(), r, userId, ACCESO_POR_ROL[r] || ACCESO_POR_ROL.Cajero);
-  return permitidos.includes(moduloId);
+  return permitidos.includes(m);
 }
 
-const ROLES_BUZON_SOLO_INCIDENCIAS = new Set(['Cajero', 'Repartidor', 'Técnico']);
+/** Solo administrador ve pendientes e historial en el módulo Incidencias. */
+export function esAdminModuloIncidencias(rol) {
+  return normalizarRol(rol) === 'Administrador';
+}
 
-/** Cajero y roles operativos: el menú Buzón se muestra como Incidencias (solo reportar). */
+/** Roles distintos de administrador: solo pestaña de reporte de incidencias. */
+export function rolSoloPestanaIncidencias(rol) {
+  return !esAdminModuloIncidencias(rol);
+}
+
+/** @deprecated usar rolSoloPestanaIncidencias */
 export function rolVeBuzonComoIncidencias(rol) {
-  return ROLES_BUZON_SOLO_INCIDENCIAS.has(normalizarRol(rol));
+  return rolSoloPestanaIncidencias(rol);
 }
 
-export function etiquetaModuloSidebar(rol, moduloId) {
-  if (moduloId === 'Buzón' && rolVeBuzonComoIncidencias(rol)) return 'Incidencias';
+export function etiquetaModuloSidebar(_rol, moduloId) {
   return moduloId;
 }
 

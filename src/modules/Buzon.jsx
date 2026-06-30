@@ -20,7 +20,7 @@ import {
   listarIncidencias,
   PRIORIDADES_INCIDENCIA,
 } from '../lib/incidenciasPos.js';
-import { normalizarRol, rolVeBuzonComoIncidencias } from '../lib/roles.js';
+import { normalizarRol, rolSoloPestanaIncidencias } from '../lib/roles.js';
 import { esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
 import { aprobarGastoTurno, rechazarGastoTurno } from '../lib/corteContabilidad/store.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
@@ -48,9 +48,9 @@ export default function Buzon({
   const esAdmin = rol === 'Administrador';
   const esGerente = rol === 'Gerente';
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
-  const veTodasTiendas = esAdmin || esGerente;
-  const puedeGestionar = esAdmin || esGerente || rol === 'Supervisor';
-  const soloIncidencias = rolVeBuzonComoIncidencias(rol);
+  const veTodasTiendas = esAdmin;
+  const puedeGestionar = esAdmin;
+  const soloIncidencias = rolSoloPestanaIncidencias(rol);
 
   const [pestana, setPestana] = useState(soloIncidencias ? 'incidencias' : pestanaInicial);
   const [aviso, setAviso] = useState('');
@@ -94,7 +94,7 @@ export default function Buzon({
       soloIncidencias
         ? Promise.resolve({ data: [] })
         : listarNotificacionesPendientes(supabase, { ...opts, limit: 100 }),
-      soloIncidencias || !veTodasTiendas
+      soloIncidencias || !esAdmin
         ? Promise.resolve({ data: [] })
         : listarHistorialNotificaciones(supabase, { ...opts, limit: 60 }),
       listarIncidencias(supabase, {
@@ -230,18 +230,16 @@ export default function Buzon({
         { id: 'pendientes', label: `Pendientes (${pendientes.length})` },
         { id: 'incidencias', label: `Incidencias (${incidencias.length})` },
       ];
-  if (!soloIncidencias && veTodasTiendas) pestanas.push({ id: 'historial', label: 'Historial' });
+  if (!soloIncidencias && esAdmin) pestanas.push({ id: 'historial', label: 'Historial' });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
-        <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>{soloIncidencias ? 'Incidencias' : 'Buzón de notificaciones'}</h2>
+        <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>Incidencias</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
           {soloIncidencias
             ? `Tienda ${etiquetaTienda(sucursal)} · levanta un reporte para que administración lo atienda`
-            : veTodasTiendas
-              ? 'Pendientes de todas las tiendas · vales, préstamos e incidencias'
-              : `Tienda ${etiquetaTienda(sucursal)} · reportes e incidencias`}
+            : 'Pendientes de todas las tiendas · vales, préstamos e incidencias'}
         </p>
       </div>
 
@@ -517,7 +515,7 @@ export default function Buzon({
         </>
       )}
 
-      {pestana === 'historial' && veTodasTiendas && (
+      {pestana === 'historial' && esAdmin && (
         <div className="card">
           {historial.length === 0 ? (
             <p className="muted">Sin historial reciente.</p>

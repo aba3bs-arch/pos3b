@@ -1,7 +1,7 @@
 /** IDs de módulo válidos (debe coincidir con roles.js MODULOS_ORDEN). */
 export const MODULOS_IDS = [
   'Inicio',
-  'Buzón',
+  'Incidencias',
   'Ventas',
   'Corte de caja',
   'Corte Virtual',
@@ -25,6 +25,7 @@ export const MODULOS_IDS = [
 const VALIDOS = new Set(MODULOS_IDS);
 
 const ALIAS_MODULO = {
+  Buzón: 'Incidencias',
   Estadísticas: 'Estadisticas',
   Configuración: 'Configuracion',
   'Corte de Caja': 'Corte de caja',
