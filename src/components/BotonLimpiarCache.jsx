@@ -13,10 +13,9 @@ export default function BotonLimpiarCache({ className = 'btn btn-ghost', style }
       const msg =
         `Listo.\n\n` +
         `• ${res.claves} dato(s) temporal(es) eliminados (~${formatoBytesAprox(res.bytes)})\n` +
-        (res.caches > 0 ? `• ${res.caches} caché(s) del navegador\n` : '') +
-        `\nSe recargará la página para aplicar los cambios.`;
+        (res.session > 0 ? `• ${res.session} dato(s) de sesión del navegador\n` : '') +
+        `\nPuedes seguir trabajando con normalidad.`;
       alert(msg);
-      window.location.reload();
     } catch (e) {
       alert(`No se pudo completar la limpieza: ${e?.message || e}`);
       setLimpiando(false);

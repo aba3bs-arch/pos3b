@@ -1,8 +1,10 @@
 /**
- * Limpia caché y datos temporales del navegador sin borrar configuración del POS.
+ * Limpia datos temporales del POS en localStorage sin cerrar sesión ni borrar la app del navegador.
  */
 
-/** Claves que NO se eliminan (tienda, config, turnos, branding, privilegios). */
+export const EVENTO_CACHE_LIMPIADO = 'pos3b-cache-limpiado';
+
+/** Claves que NO se eliminan (tienda, config, turnos, branding, privilegios, equipo). */
 const CLAVES_PRESERVAR = new Set([
   'pos3b_sucursal',
   'pos3b_tienda_bloqueada',
@@ -23,7 +25,13 @@ const CLAVES_PRESERVAR = new Set([
   'pos3b_logo_url',
   'pos3b_departamentos_extra',
   'pos3b_nomina_sueldos_default',
+  'pos3b_dispositivo_id',
+  'pos3b_vales_tiendas_permitidas',
+  'pos3b_anuncios_pos',
 ]);
+
+/** sessionStorage temporal (no afecta la sesión de PIN en memoria). */
+const SESSION_TEMPORAL = new Set(['pos3b_anuncios_vistos']);
 
 function debePreservar(clave) {
   if (CLAVES_PRESERVAR.has(clave)) return true;
@@ -36,7 +44,8 @@ function esTemporalPos3b(clave) {
 
 /**
  * Elimina datos locales temporales (cortes en caché, movimientos, contabilidad offline, etc.).
- * @returns {Promise<{ claves: number, bytes: number, session: number, caches: number, detalle: string[] }>}
+ * No borra la caché del navegador ni recarga: la app sigue abierta con la sesión actual.
+ * @returns {Promise<{ claves: number, bytes: number, session: number, detalle: string[] }>}
  */
 export async function limpiarCacheTemporal() {
   const detalle = [];
@@ -52,21 +61,19 @@ export async function limpiarCacheTemporal() {
     detalle.push(key);
   }
 
-  const session = sessionStorage.length;
-  sessionStorage.clear();
-
-  let cachesLimpiadas = 0;
-  if (typeof window !== 'undefined' && window.caches?.keys) {
-    try {
-      const nombres = await window.caches.keys();
-      const resultados = await Promise.all(nombres.map((n) => window.caches.delete(n)));
-      cachesLimpiadas = resultados.filter(Boolean).length;
-    } catch {
-      /* ignorar si el navegador bloquea caches */
-    }
+  let session = 0;
+  for (const key of [...SESSION_TEMPORAL]) {
+    if (!sessionStorage.getItem(key)) continue;
+    sessionStorage.removeItem(key);
+    session += 1;
+    detalle.push(`session:${key}`);
   }
 
-  return { claves, bytes, session, caches: cachesLimpiadas, detalle };
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(EVENTO_CACHE_LIMPIADO, { detail: { claves, bytes, session } }));
+  }
+
+  return { claves, bytes, session, detalle };
 }
 
 export function formatoBytesAprox(bytes) {
@@ -77,5 +84,5 @@ export function formatoBytesAprox(bytes) {
 
 export const TEXTO_AYUDA_LIMPIEZA =
   'Se borran copias locales temporales (cortes en caché, movimientos, ajustes, datos offline de contabilidad). ' +
-  'No se borran: tienda activa, tipo de cambio, turnos, impresión, branding ni privilegios. ' +
-  'La sesión actual se mantiene; se recomienda recargar la página después.';
+  'No se borran: tienda activa, tipo de cambio, turnos, impresión, branding, privilegios ni el vínculo del equipo. ' +
+  'La app permanece abierta con tu sesión actual; no hace falta recargar.';

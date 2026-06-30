@@ -54,6 +54,7 @@ import {
 import BrandLogo from './components/BrandLogo.jsx';
 import Icon, { BtnLabel } from './components/Icon.jsx';
 import BotonLimpiarCache from './components/BotonLimpiarCache.jsx';
+import { EVENTO_CACHE_LIMPIADO } from './lib/limpiarCache.js';
 import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesContabilidad.jsx';
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
 import { limpiarAnunciosVistos } from './lib/anunciosPos.js';
@@ -141,6 +142,16 @@ function App() {
 
   useEffect(() => {
     if (sesion) cargarDatos();
+  }, [sesion, cargarDatos]);
+
+  useEffect(() => {
+    if (!sesion) return undefined;
+    const onCacheLimpiado = () => {
+      cargarDatos();
+      window.dispatchEvent(new CustomEvent(EVENTO_NOTIFICACIONES));
+    };
+    window.addEventListener(EVENTO_CACHE_LIMPIADO, onCacheLimpiado);
+    return () => window.removeEventListener(EVENTO_CACHE_LIMPIADO, onCacheLimpiado);
   }, [sesion, cargarDatos]);
 
   useEffect(() => {
