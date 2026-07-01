@@ -60,6 +60,7 @@ export default function PanelAsistenciaGasolina({ supabase, sucursal, user, edit
   const [cargando, setCargando] = useState(false);
   const [err, setErr] = useState('');
   const [empleadoFiltro, setEmpleadoFiltro] = useState('');
+  const [areaFiltro, setAreaFiltro] = useState('');
 
   useEffect(() => {
     if (desdeProp) setDesde(desdeProp);
@@ -85,12 +86,15 @@ export default function PanelAsistenciaGasolina({ supabase, sucursal, user, edit
     if (empleadoFiltro) {
       lista = lista.filter((v) => String(v.nombre_empleado || '').toLowerCase() === empleadoFiltro.toLowerCase());
     }
+    if (areaFiltro) {
+      lista = lista.filter((v) => String(v.area || '').toLowerCase() === areaFiltro.toLowerCase());
+    }
     return lista.sort((a, b) => {
       const fa = String(a.fecha || a.created_at || '');
       const fb = String(b.fecha || b.created_at || '');
       return fb.localeCompare(fa);
     });
-  }, [vales, empleadoFiltro]);
+  }, [vales, empleadoFiltro, areaFiltro]);
 
   const resumen = useMemo(() => {
     let cobrados = 0;
@@ -137,6 +141,15 @@ export default function PanelAsistenciaGasolina({ supabase, sucursal, user, edit
         <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
           Hasta
           <input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+        </label>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
+          Área
+          <select className="select" value={areaFiltro} onChange={(e) => setAreaFiltro(e.target.value)}>
+            <option value="">Todas</option>
+            <option value="virtual">Virtual</option>
+            <option value="abarrotes">Abarrotes</option>
+            <option value="garage">Garage</option>
+          </select>
         </label>
         <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
           Empleado

@@ -4,6 +4,8 @@ import {
   guardarCorte,
   leerCortesLocales,
   corteYaRegistrado,
+  armarCorroboracion,
+  RUBROS_CORROBORACION,
 } from '../lib/corteCaja.js';
 import {
   EVENTO_TURNOS,
@@ -38,6 +40,11 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
   const [error, setError] = useState('');
   const [aviso, setAviso] = useState('');
   const [efectivoContado, setEfectivoContado] = useState('');
+  const [corroboracionContada, setCorroboracionContada] = useState({
+    tarjeta: '',
+    transferencia: '',
+    qr: '',
+  });
   const [notas, setNotas] = useState('');
   const [historial, setHistorial] = useState(() => leerCortesLocales());
   const [msg, setMsg] = useState('');
@@ -60,6 +67,11 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
     if (Number.isNaN(contado)) return null;
     return contado - resumen.efectivoEsperado;
   }, [efectivoContado, resumen.efectivoEsperado]);
+
+  const corroboracion = useMemo(
+    () => armarCorroboracion(resumen.grupos, corroboracionContada),
+    [resumen.grupos, corroboracionContada],
+  );
 
   const ventaParaCancel = useMemo(() => ventas.find((v) => String(v.id) === String(ventaSel)), [ventas, ventaSel]);
 
@@ -169,6 +181,7 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
       electronico: resumen.electronico,
       grupos: resumen.grupos,
       detalleMetodos: resumen.detalleMetodos,
+      corroboracion,
       notas: notas.trim(),
     };
     const r = await guardarCorte(supabase, corte, user?.id);
@@ -228,6 +241,7 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
       efectivoEsperado: resumen.efectivoEsperado,
       efectivoContado: contado,
       diferencia: contado != null ? contado - resumen.efectivoEsperado : diferencia,
+      corroboracion,
       notas: notas.trim(),
     });
     if (!r.ok) alert(r.error);
@@ -355,7 +369,8 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
       {kpisResumen}
 
       {pestana === 'corte' && (
-        <div className="grid-2">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div className="grid-2">
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)' }}>Desglose neto por método</h3>
             {resumen.detalleMetodos.length === 0 ? (
@@ -427,6 +442,60 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
               <button type="button" className="btn btn-ghost" onClick={imprimirResumen}>
                 Imprimir
               </button>
+            </div>
+          </div>
+          </div>
+
+          <div className="card" style={{ borderTop: '4px solid var(--brand-olive)' }}>
+            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)' }}>Corroboración otros rubros</h3>
+            <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+              Compare lo registrado en el sistema con lo que reporta terminal, banco o app (tarjeta, transferencia, QR).
+            </p>
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Rubro</th>
+                    <th style={{ textAlign: 'right' }}>Sistema</th>
+                    <th style={{ textAlign: 'right' }}>Contado</th>
+                    <th style={{ textAlign: 'right' }}>Diferencia</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {RUBROS_CORROBORACION.map(({ id, label }) => {
+                    const row = corroboracion[id] || {};
+                    const dif = row.diferencia;
+                    return (
+                      <tr key={id}>
+                        <td style={{ fontWeight: 600 }}>{label}</td>
+                        <td style={{ textAlign: 'right' }}>${Number(row.esperado || 0).toFixed(2)}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            className="input"
+                            style={{ width: '110px', textAlign: 'right', fontWeight: 700 }}
+                            value={corroboracionContada[id]}
+                            onChange={(e) => setCorroboracionContada((prev) => ({ ...prev, [id]: e.target.value }))}
+                            placeholder="0.00"
+                          />
+                        </td>
+                        <td
+                          style={{
+                            textAlign: 'right',
+                            fontWeight: 700,
+                            color:
+                              dif == null ? 'var(--muted)' : Math.abs(dif) < 0.01 ? 'var(--brand-green)' : 'var(--brand-red)',
+                          }}
+                        >
+                          {dif == null ? '—' : `$${dif.toFixed(2)}`}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>

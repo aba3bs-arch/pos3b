@@ -337,3 +337,26 @@ export async function actualizarDetalleCierre(supabase, id, patchDetalle, sucurs
   if (error) return { ok: false, error: error.message };
   return { ok: true, detalle };
 }
+
+/** Elimina un cierre del historial (pruebas / corrección admin). */
+export async function eliminarCierreCorte(supabase, id, sucursal, modulo) {
+  if (!id) return { ok: false, error: 'Cierre inválido.' };
+  if (!supabase) {
+    const key = lsKey(sucursal, modulo, 'historial');
+    let hist = [];
+    try {
+      hist = JSON.parse(localStorage.getItem(key) || '[]');
+    } catch {
+      hist = [];
+    }
+    const next = hist.filter((h) => String(h.id) !== String(id));
+    localStorage.setItem(key, JSON.stringify(next));
+    return { ok: true, soloLocal: true };
+  }
+  const { error } = await supabase.from('cortes_contabilidad_cierres').delete().eq('id', id);
+  if (error && faltaTabla(error, 'cortes_contabilidad_cierres')) {
+    return { ok: false, error: AVISO_FALTA_CORTES };
+  }
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}

@@ -68,6 +68,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     empleados,
     cerrarCorte,
     registrarRecoleccion,
+    eliminarCierreHistorial,
   } = useCorteContabilidad({
     supabase,
     sucursal,
@@ -419,6 +420,8 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
       <CorteHistorialImpresion
         historial={historial}
         modulo="virtual"
+        puedeEliminar={perm.editarTodo}
+        onEliminar={eliminarCierreHistorial}
         columnasExtra={[
           { key: 'tipo', label: 'Tipo', render: (h) => etiquetaTipoCierre(h.detalle) },
           { key: 'usuario', label: 'Usuario', render: (h) => h.usuario_nombre || '—' },

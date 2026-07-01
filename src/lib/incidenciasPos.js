@@ -1,6 +1,42 @@
 import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF, emitirRefreshNotificaciones } from './contabilidadNotificaciones.js';
 
-export const AVISO_FALTA_INCIDENCIAS = 'Ejecuta supabase/fix_buzon_incidencias.sql en Supabase.';
+export const AVISO_FALTA_INCIDENCIAS = 'Ejecuta supabase/fix_buzon_incidencias.sql y fix_incidencias_responsable.sql en Supabase.';
+
+/** Personal al que puede dirigirse un reporte de incidencia. */
+export const RESPONSABLES_INCIDENCIA = [
+  'Antonio',
+  'Francisco',
+  'Jose Luis',
+  'Andres',
+  'Gonzalo',
+  'Misael',
+  'Luis Enrique',
+  'Luz',
+];
+
+export function normalizarNombreResponsable(nombre) {
+  return String(nombre || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+export function esResponsableIncidencia(usuarioNombre, responsableAsignado) {
+  const u = normalizarNombreResponsable(usuarioNombre);
+  const r = normalizarNombreResponsable(responsableAsignado);
+  if (!u || !r) return false;
+  if (u === r) return true;
+  const partes = r.split(/\s+/).filter(Boolean);
+  if (partes.length && partes.every((p) => u.includes(p))) return true;
+  return u.includes(r) || r.includes(u);
+}
+
+export function puedeRedirigirIncidencia(usuario, incidencia, { esAdmin = false } = {}) {
+  if (esAdmin) return true;
+  if (!incidencia?.responsable) return false;
+  return esResponsableIncidencia(usuario?.nombre, incidencia.responsable);
+}
 
 export const CATEGORIAS_INCIDENCIA = [
   { id: 'operacion', label: 'Operación / caja' },
@@ -68,6 +104,7 @@ export function fmtHoraIncidencia(iso) {
 export async function crearIncidencia(supabase, row) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   if (!String(row.titulo || '').trim()) return { ok: false, error: 'Indica un título.' };
+  if (!String(row.responsable || '').trim()) return { ok: false, error: 'Selecciona a quién dirigir el reporte (Responsable).' };
 
   const payload = {
     sucursal_id: row.sucursal_id || 'MAIN',
@@ -77,6 +114,7 @@ export async function crearIncidencia(supabase, row) {
     prioridad: row.prioridad || 'normal',
     estado: 'abierta',
     reportado_por: row.reportado_por || null,
+    responsable: String(row.responsable).trim(),
   };
 
   const { data, error } = await supabase.from('pos_incidencias').insert([payload]).select('*').single();
@@ -93,12 +131,54 @@ export async function crearIncidencia(supabase, row) {
       row.etiqueta_tienda || payload.sucursal_id,
       row.fecha_reporte,
       row.hora_reporte,
+      `Responsable: ${payload.responsable}`,
       etiquetaCategoriaIncidencia(payload.categoria),
       etiquetaPrioridadIncidencia(payload.prioridad),
       payload.reportado_por,
     ]
       .filter(Boolean)
       .join(' · '),
+  });
+  emitirRefreshNotificaciones();
+
+  return { ok: true, incidencia: data };
+}
+
+export async function redirigirIncidencia(supabase, id, nuevoResponsable, { por, nota } = {}) {
+  if (!supabase || !id) return { ok: false, error: 'Incidencia inválida.' };
+  const dest = String(nuevoResponsable || '').trim();
+  if (!dest) return { ok: false, error: 'Selecciona el nuevo responsable.' };
+
+  const { data: actual, error: eRead } = await supabase.from('pos_incidencias').select('*').eq('id', id).maybeSingle();
+  if (eRead && faltaTabla(eRead)) return { ok: false, error: AVISO_FALTA_INCIDENCIAS };
+  if (eRead) return { ok: false, error: eRead.message };
+  if (!actual) return { ok: false, error: 'Incidencia no encontrada.' };
+
+  const anterior = actual.responsable || '—';
+  const notaRedir = nota?.trim()
+    ? ` · ${nota.trim()}`
+    : '';
+  const descripcionExtra = `\n[${new Date().toLocaleString('es-MX')}] Redirigido de ${anterior} a ${dest} por ${por || '—'}${notaRedir}`;
+
+  const body = {
+    responsable: dest,
+    redirigido_por: por || null,
+    redirigido_at: new Date().toISOString(),
+    estado: 'abierta',
+    descripcion: `${actual.descripcion || ''}${descripcionExtra}`.trim(),
+  };
+
+  const { data, error } = await supabase.from('pos_incidencias').update(body).eq('id', id).select('*').single();
+  if (error && faltaTabla(error)) return { ok: false, error: AVISO_FALTA_INCIDENCIAS };
+  if (error) return { ok: false, error: error.message };
+
+  await crearNotificacion(supabase, {
+    sucursal_id: actual.sucursal_id,
+    tipo: TIPOS_NOTIF.INCIDENCIA,
+    ref_tabla: 'pos_incidencias',
+    ref_id: id,
+    titulo: `Incidencia reasignada: ${actual.titulo}`,
+    mensaje: [`Responsable: ${dest}`, `Antes: ${anterior}`, por ? `Por ${por}` : null].filter(Boolean).join(' · '),
   });
   emitirRefreshNotificaciones();
 

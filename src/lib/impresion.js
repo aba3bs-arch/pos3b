@@ -275,7 +275,18 @@ export function htmlCorteCaja(data) {
     <div class="sep"></div>
     <div>Efectivo esperado: ${fmtMoney(data.efectivoEsperado)}</div>
     ${data.efectivoContado != null ? `<div>Efectivo contado: ${fmtMoney(data.efectivoContado)}</div>` : ''}
-    ${data.diferencia != null ? `<div class="bold">Diferencia: ${fmtMoney(data.diferencia)}</div>` : ''}
+    ${data.diferencia != null ? `<div class="bold">Diferencia efectivo: ${fmtMoney(data.diferencia)}</div>` : ''}
+    ${
+      data.corroboracion && Object.keys(data.corroboracion).length
+        ? `<div class="sep"></div><div class="bold">Corroboración rubros</div>${Object.entries(data.corroboracion)
+            .map(([k, v]) => {
+              if (!v || v.contado == null) return '';
+              const lbl = { tarjeta: 'Tarjeta', transferencia: 'Transferencia', qr: 'QR' }[k] || k;
+              return `<div>${lbl}: esp. ${fmtMoney(v.esperado)} · cont. ${fmtMoney(v.contado)} · dif. ${fmtMoney(v.diferencia)}</div>`;
+            })
+            .join('')}`
+        : ''
+    }
     ${data.notas ? `<div class="muted">Notas: ${esc(data.notas)}</div>` : ''}
     ${pieDoc()}
   </body></html>`;

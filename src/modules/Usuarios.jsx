@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { ROLES, normalizarRol, puedeGestionarUsuarios } from '../lib/roles.js';
+import { listarTodosLosRoles, normalizarRol, puedeGestionarUsuarios, EVENTO_ROLES } from '../lib/roles.js';
 import { ETIQUETA_AREA, PAGADORES_NOMINA } from '../lib/contabilidadConstants.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { leerTurnos, leerConfigHorario, esHorarioPersonalizado, resumenHorarioUsuario, EVENTO_TURNOS, nombreTurnoLegible, TURNO_AMBOS_ID, etiquetaTurno } from '../lib/turnos.js';
@@ -31,6 +31,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
   const [filtroSucursal, setFiltroSucursal] = useState('');
   const [turnos, setTurnos] = useState(() => leerTurnos());
   const [configHorario, setConfigHorario] = useState(() => leerConfigHorario());
+  const [rolesLista, setRolesLista] = useState(() => listarTodosLosRoles());
   const esPersonalizado = esHorarioPersonalizado(configHorario);
 
   const esAdmin = puedeGestionarUsuarios(actor?.rol);
@@ -59,9 +60,14 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     const sync = () => {
       setTurnos(leerTurnos());
       setConfigHorario(leerConfigHorario());
+      setRolesLista(listarTodosLosRoles());
     };
     window.addEventListener(EVENTO_TURNOS, sync);
-    return () => window.removeEventListener(EVENTO_TURNOS, sync);
+    window.addEventListener(EVENTO_ROLES, sync);
+    return () => {
+      window.removeEventListener(EVENTO_TURNOS, sync);
+      window.removeEventListener(EVENTO_ROLES, sync);
+    };
   }, []);
 
   const filas = esAdmin
@@ -267,7 +273,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
             </select>
           </label>
           <select className="select" value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })}>
-            {ROLES.map((r) => (
+            {rolesLista.map((r) => (
               <option key={r} value={r}>
                 {r}
               </option>
@@ -367,7 +373,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                         value={normalizarRol(r.rol)}
                         onChange={(e) => actualizarRol(r.id, e.target.value)}
                       >
-                        {ROLES.map((rol) => (
+                        {rolesLista.map((rol) => (
                           <option key={rol} value={rol}>
                             {rol}
                           </option>
@@ -510,7 +516,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
             <label className="muted">
               Rol
               <select className="select" style={{ marginTop: '0.35rem' }} value={editForm.rol} onChange={(e) => setEditForm({ ...editForm, rol: e.target.value })}>
-                {ROLES.map((rol) => (
+                {rolesLista.map((rol) => (
                   <option key={rol} value={rol}>
                     {rol}
                   </option>

@@ -28,7 +28,7 @@ export default function CorteGarage({ supabase, sucursal, user }) {
     };
   }, []);
 
-  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte } =
+  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte, eliminarCierreHistorial } =
     useCorteContabilidad({
       supabase,
       sucursal,
@@ -217,7 +217,12 @@ export default function CorteGarage({ supabase, sucursal, user }) {
         </div>
       </div>
 
-      <CorteHistorialImpresion historial={historial} modulo="garage" />
+      <CorteHistorialImpresion
+        historial={historial}
+        modulo="garage"
+        puedeEliminar={perm.editarTodo}
+        onEliminar={eliminarCierreHistorial}
+      />
     </div>
   );
 }

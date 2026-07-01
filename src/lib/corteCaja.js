@@ -24,6 +24,32 @@ export function clasificarPago(metodoPago) {
   return 'otros';
 }
 
+export const RUBROS_CORROBORACION = [
+  { id: 'tarjeta', label: 'Tarjeta' },
+  { id: 'transferencia', label: 'Transferencia' },
+  { id: 'qr', label: 'QR / digital' },
+];
+
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/** Arma objeto de corroboración: esperado (sistema), contado y diferencia por rubro. */
+export function armarCorroboracion(grupos = {}, contados = {}) {
+  const out = {};
+  for (const { id } of RUBROS_CORROBORACION) {
+    const esperado = round2(grupos[id] || 0);
+    const raw = contados[id];
+    const contado = raw === '' || raw == null || Number.isNaN(Number(raw)) ? null : round2(raw);
+    out[id] = {
+      esperado,
+      contado,
+      diferencia: contado != null ? round2(contado - esperado) : null,
+    };
+  }
+  return out;
+}
+
 export function etiquetaGrupoPago(grupo) {
   const map = {
     efectivo: 'Efectivo',
@@ -164,6 +190,7 @@ export async function guardarCorte(supabase, corte, usuarioId = null) {
     electronico: corte.electronico,
     grupos: corte.grupos || {},
     detalle_metodos: corte.detalleMetodos || [],
+    corroboracion: corte.corroboracion || {},
     notas: corte.notas || '',
   };
   let cloudId = null;
@@ -223,6 +250,7 @@ export async function consultarCortes(supabase, opts = {}) {
     electronico: Number(c.electronico) || 0,
     grupos: c.grupos || {},
     detalleMetodos: Array.isArray(c.detalle_metodos) ? c.detalle_metodos : [],
+    corroboracion: c.corroboracion && typeof c.corroboracion === 'object' ? c.corroboracion : {},
     turno_id: c.turno_id,
     turno_nombre: c.turno_nombre,
     notas: c.notas || '',

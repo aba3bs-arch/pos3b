@@ -11,6 +11,7 @@ import {
   actualizarIncidencia,
   CATEGORIAS_INCIDENCIA,
   crearIncidencia,
+  esResponsableIncidencia,
   etiquetaCategoriaIncidencia,
   etiquetaEstadoIncidencia,
   etiquetaPrioridadIncidencia,
@@ -18,7 +19,10 @@ import {
   fmtFechaIncidencia,
   fmtHoraIncidencia,
   listarIncidencias,
+  puedeRedirigirIncidencia,
   PRIORIDADES_INCIDENCIA,
+  redirigirIncidencia,
+  RESPONSABLES_INCIDENCIA,
 } from '../lib/incidenciasPos.js';
 import { normalizarRol, rolSoloPestanaIncidencias } from '../lib/roles.js';
 import { esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
@@ -64,9 +68,13 @@ export default function Buzon({
     descripcion: '',
     categoria: 'operacion',
     prioridad: 'normal',
+    responsable: '',
   });
   const [resolviendo, setResolviendo] = useState(null);
   const [resolucionTxt, setResolucionTxt] = useState('');
+  const [redirigiendo, setRedirigiendo] = useState(null);
+  const [nuevoResponsable, setNuevoResponsable] = useState('');
+  const [notaRedir, setNotaRedir] = useState('');
   const [ahoraReporte, setAhoraReporte] = useState(() => new Date());
 
   const nombreTienda = etiquetaTienda(sucursal);
@@ -125,15 +133,22 @@ export default function Buzon({
   }, [pestanaInicial, soloIncidencias]);
 
   const incidenciasVisibles = useMemo(() => {
-    if (!soloIncidencias) return incidencias;
     const nombre = user?.nombre;
+    if (!soloIncidencias) return incidencias;
     if (!nombre) return incidencias;
-    return incidencias.filter((i) => i.reportado_por === nombre);
+    return incidencias.filter(
+      (i) => i.reportado_por === nombre || esResponsableIncidencia(nombre, i.responsable),
+    );
   }, [incidencias, soloIncidencias, user?.nombre]);
 
   const incidenciasAbiertas = useMemo(
     () => incidenciasVisibles.filter((i) => i.estado === 'abierta' || i.estado === 'en_revision'),
     [incidenciasVisibles],
+  );
+
+  const usuarioEsResponsable = useMemo(
+    () => RESPONSABLES_INCIDENCIA.some((n) => esResponsableIncidencia(user?.nombre, n)),
+    [user?.nombre],
   );
 
   const irAccionNotif = (n) => {
@@ -201,8 +216,8 @@ export default function Buzon({
       setMsg(res.error || 'Error al reportar.');
       return;
     }
-    setMsg('Incidencia reportada. El administrador fue notificado.');
-    setFormInc({ titulo: '', descripcion: '', categoria: 'operacion', prioridad: 'normal' });
+    setMsg('Incidencia reportada. El responsable y el administrador fueron notificados.');
+    setFormInc({ titulo: '', descripcion: '', categoria: 'operacion', prioridad: 'normal', responsable: '' });
     recargar();
     setPestana('incidencias');
   };
@@ -220,6 +235,23 @@ export default function Buzon({
       setMsg('Incidencia actualizada.');
       setResolviendo(null);
       setResolucionTxt('');
+      recargar();
+    }
+  };
+
+  const confirmarRedireccion = async (inc) => {
+    if (!puedeRedirigirIncidencia(user, inc, { esAdmin })) return;
+    if (!nuevoResponsable) return setMsg('Selecciona el nuevo responsable.');
+    const res = await redirigirIncidencia(supabase, inc.id, nuevoResponsable, {
+      por: user?.nombre,
+      nota: notaRedir,
+    });
+    if (!res.ok) setMsg(res.error || 'No se pudo redirigir.');
+    else {
+      setMsg(`Incidencia redirigida a ${nuevoResponsable}.`);
+      setRedirigiendo(null);
+      setNuevoResponsable('');
+      setNotaRedir('');
       recargar();
     }
   };
@@ -389,6 +421,22 @@ export default function Buzon({
               </label>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
                 <label>
+                  <span className="muted" style={{ fontSize: '0.82rem' }}>Responsable</span>
+                  <select
+                    className="select"
+                    value={formInc.responsable}
+                    onChange={(e) => setFormInc((f) => ({ ...f, responsable: e.target.value }))}
+                    required
+                  >
+                    <option value="">— Seleccionar —</option>
+                    {RESPONSABLES_INCIDENCIA.map((nombre) => (
+                      <option key={nombre} value={nombre}>
+                        {nombre}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
                   <span className="muted" style={{ fontSize: '0.82rem' }}>Categoría</span>
                   <select
                     className="input"
@@ -442,8 +490,9 @@ export default function Buzon({
                       <th>Categoría</th>
                       <th>Prioridad</th>
                       <th>Estado</th>
+                      <th>Responsable</th>
                       <th>Reportó</th>
-                      {puedeGestionar && <th>Gestión</th>}
+                      {(puedeGestionar || usuarioEsResponsable) && <th>Gestión</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -466,38 +515,86 @@ export default function Buzon({
                         <td>{etiquetaCategoriaIncidencia(inc.categoria)}</td>
                         <td>{etiquetaPrioridadIncidencia(inc.prioridad)}</td>
                         <td>{etiquetaEstadoIncidencia(inc.estado)}</td>
+                        <td>
+                          <strong>{inc.responsable || '—'}</strong>
+                          {inc.redirigido_por && (
+                            <div className="muted" style={{ fontSize: '0.72rem' }}>
+                              Redir. por {inc.redirigido_por}
+                            </div>
+                          )}
+                        </td>
                         <td>{inc.reportado_por || '—'}</td>
-                        {puedeGestionar && (
+                        {(puedeGestionar || puedeRedirigirIncidencia(user, inc, { esAdmin })) && (
                           <td>
                             {inc.estado === 'abierta' || inc.estado === 'en_revision' ? (
-                              resolviendo === inc.id ? (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 180 }}>
-                                  <textarea
-                                    className="input"
-                                    rows={2}
-                                    placeholder="Notas de resolución…"
-                                    value={resolucionTxt}
-                                    onChange={(e) => setResolucionTxt(e.target.value)}
-                                  />
-                                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                    {inc.estado === 'abierta' && (
-                                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => cambiarEstadoInc(inc, 'en_revision')}>
-                                        En revisión
-                                      </button>
-                                    )}
-                                    <button type="button" className="btn btn-primary btn-sm" onClick={() => cambiarEstadoInc(inc, 'resuelta')}>
-                                      Resolver
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 200 }}>
+                                {puedeGestionar && (
+                                  resolviendo === inc.id ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                      <textarea
+                                        className="input"
+                                        rows={2}
+                                        placeholder="Notas de resolución…"
+                                        value={resolucionTxt}
+                                        onChange={(e) => setResolucionTxt(e.target.value)}
+                                      />
+                                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                        {inc.estado === 'abierta' && (
+                                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => cambiarEstadoInc(inc, 'en_revision')}>
+                                            En revisión
+                                          </button>
+                                        )}
+                                        <button type="button" className="btn btn-primary btn-sm" onClick={() => cambiarEstadoInc(inc, 'resuelta')}>
+                                          Resolver
+                                        </button>
+                                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setResolviendo(null); setResolucionTxt(''); }}>
+                                          Cancelar
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <button type="button" className="btn btn-gold btn-sm" onClick={() => setResolviendo(inc.id)}>
+                                      Atender
                                     </button>
-                                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setResolviendo(null); setResolucionTxt(''); }}>
-                                      Cancelar
+                                  )
+                                )}
+                                {puedeRedirigirIncidencia(user, inc, { esAdmin }) && (
+                                  redirigiendo === inc.id ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                      <select
+                                        className="select"
+                                        value={nuevoResponsable}
+                                        onChange={(e) => setNuevoResponsable(e.target.value)}
+                                      >
+                                        <option value="">Nuevo responsable…</option>
+                                        {RESPONSABLES_INCIDENCIA.filter((n) => n !== inc.responsable).map((nombre) => (
+                                          <option key={nombre} value={nombre}>
+                                            {nombre}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <input
+                                        className="input"
+                                        placeholder="Nota opcional…"
+                                        value={notaRedir}
+                                        onChange={(e) => setNotaRedir(e.target.value)}
+                                      />
+                                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                        <button type="button" className="btn btn-primary btn-sm" onClick={() => confirmarRedireccion(inc)}>
+                                          Redirigir
+                                        </button>
+                                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setRedirigiendo(null); setNuevoResponsable(''); setNotaRedir(''); }}>
+                                          Cancelar
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setRedirigiendo(inc.id)}>
+                                      Redirigir
                                     </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <button type="button" className="btn btn-gold btn-sm" onClick={() => setResolviendo(inc.id)}>
-                                  Atender
-                                </button>
-                              )
+                                  )
+                                )}
+                              </div>
                             ) : (
                               <span className="muted" style={{ fontSize: '0.82rem' }}>
                                 {inc.atendida_por ? `Por ${inc.atendida_por}` : '—'}

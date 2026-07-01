@@ -18,6 +18,7 @@ import {
   registrarCierreCorte,
   siguienteFolio,
   actualizarDetalleCierre,
+  eliminarCierreCorte,
 } from './store.js';
 
 export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn, prepararTrasCierre, prepararTrasRecoleccion }) {
@@ -295,6 +296,16 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     return { ok: true };
   };
 
+  const eliminarCierreHistorial = async (cierreId, meta = {}) => {
+    if (!perm.editarTodo) return alert('Solo el administrador puede eliminar cierres del historial.');
+    const folio = meta.folio || cierreId;
+    if (!confirm(`¿Eliminar el cierre ${folio} del historial?\n\nEsta acción no se puede deshacer.`)) return;
+    const res = await eliminarCierreCorte(supabase, cierreId, sucursal, modulo);
+    if (!res.ok) return alert(res.error || 'No se pudo eliminar.');
+    const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
+    setHistorial(hist.data || []);
+  };
+
   return {
     estado,
     patchEstado: patchEstadoPermitido,
@@ -313,6 +324,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     empleados,
     cerrarCorte,
     registrarRecoleccion,
+    eliminarCierreHistorial,
     recargar: cargar,
   };
 }

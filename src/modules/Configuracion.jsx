@@ -90,7 +90,7 @@ import {
   guardarToleranciaTurnos,
   turnoConTolerancia,
 } from '../lib/turnos.js';
-import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, ROLES, modulosDefaultRol, modulosEnEdicionPrivilegios, tieneListaPersonalizada, normalizarListaModulos, describeOrigenPrivilegios, normalizarRol } from '../lib/roles.js';
+import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, ROLES, listarTodosLosRoles, leerRolesPersonalizados, agregarRolPersonalizado, quitarRolPersonalizado, esRolSistema, EVENTO_ROLES, modulosDefaultRol, modulosEnEdicionPrivilegios, tieneListaPersonalizada, normalizarListaModulos, describeOrigenPrivilegios, normalizarRol } from '../lib/roles.js';
 import { sincronizarPrivilegiosDesdeNube } from '../lib/privilegiosSync.js';
 import BrandLogo from '../components/BrandLogo.jsx';
 import AdminInventarioCentral from './AdminInventarioCentral.jsx';
@@ -121,7 +121,16 @@ export default function Configuracion({
   const [privUserId, setPrivUserId] = useState('');
   const [privGuardando, setPrivGuardando] = useState(false);
   const [privAvisoNube, setPrivAvisoNube] = useState('');
+  const [rolesLista, setRolesLista] = useState(() => listarTodosLosRoles());
+  const [nuevoRolNombre, setNuevoRolNombre] = useState('');
+  const [nuevoRolPlantilla, setNuevoRolPlantilla] = useState('Cajero');
   const esAdmin = puedeGestionarUsuarios(user?.rol);
+
+  useEffect(() => {
+    const syncRoles = () => setRolesLista(listarTodosLosRoles());
+    window.addEventListener(EVENTO_ROLES, syncRoles);
+    return () => window.removeEventListener(EVENTO_ROLES, syncRoles);
+  }, []);
 
   useEffect(() => {
     if (!esAdmin || !supabase) return;
@@ -690,6 +699,102 @@ export default function Configuracion({
       </div>
 
       {esAdmin && (
+        <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
+          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Roles personalizados</h3>
+          <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+            Cree roles adicionales (ej. Auxiliar, Encargado) copiando los permisos de un rol existente. Luego asígnelos en <strong>Usuarios</strong> o ajuste módulos abajo.
+          </p>
+          <p className="muted" style={{ margin: '0.5rem 0', fontSize: '0.8rem', color: 'var(--brand-gold)' }}>
+            Si aún no lo hizo: ejecute en Supabase el script <code>supabase/fix_usuarios_rol_libre.sql</code> para permitir nombres de rol personalizados.
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-end', marginBottom: '1rem' }}>
+            <label className="muted" style={{ flex: '1 1 180px' }}>
+              Nombre del nuevo rol
+              <input
+                className="input"
+                style={{ marginTop: '0.35rem' }}
+                value={nuevoRolNombre}
+                onChange={(e) => setNuevoRolNombre(e.target.value)}
+                placeholder="Ej. Auxiliar mostrador"
+                maxLength={48}
+              />
+            </label>
+            <label className="muted" style={{ flex: '1 1 160px' }}>
+              Copiar permisos de
+              <select className="select" style={{ marginTop: '0.35rem' }} value={nuevoRolPlantilla} onChange={(e) => setNuevoRolPlantilla(e.target.value)}>
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={async () => {
+                const res = agregarRolPersonalizado(nuevoRolNombre, {
+                  plantilla: nuevoRolPlantilla,
+                  privilegios,
+                  guardarPrivilegios: guardarPrivilegiosYSubir,
+                });
+                if (!res.ok) {
+                  alert(res.error);
+                  return;
+                }
+                setNuevoRolNombre('');
+                setRolesLista(listarTodosLosRoles());
+                setPrivRol(res.nombre);
+                alert(`Rol «${res.nombre}» creado. Puede asignarlo en Usuarios o ajustar módulos en Privilegios.`);
+              }}
+            >
+              Crear rol
+            </button>
+          </div>
+          {leerRolesPersonalizados().length > 0 ? (
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Rol</th>
+                    <th>Plantilla</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {leerRolesPersonalizados().map((r) => (
+                    <tr key={r.nombre}>
+                      <td style={{ fontWeight: 600 }}>{r.nombre}</td>
+                      <td className="muted">{r.plantilla}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ fontSize: '0.8rem', color: 'var(--brand-red)' }}
+                          onClick={() => {
+                            if (!confirm(`¿Quitar el rol «${r.nombre}»? Los usuarios que lo tengan seguirán con ese texto en BD.`)) return;
+                            const res = quitarRolPersonalizado(r.nombre);
+                            if (!res.ok) alert(res.error);
+                            else setRolesLista(listarTodosLosRoles());
+                          }}
+                        >
+                          Quitar
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
+              Solo roles del sistema: {ROLES.join(', ')}.
+            </p>
+          )}
+        </div>
+      )}
+
+      {esAdmin && (
         <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Privilegios por rol o usuario</h3>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
@@ -711,9 +816,10 @@ export default function Configuracion({
             <label className="muted" style={{ display: 'block', marginBottom: '0.75rem' }}>
               Rol
               <select className="select" style={{ marginTop: '0.35rem', maxWidth: '280px' }} value={privRol} onChange={(e) => setPrivRol(e.target.value)}>
-                {ROLES.map((r) => (
+                {rolesLista.map((r) => (
                   <option key={r} value={r}>
                     {r}
+                    {!esRolSistema(r) ? ' (personalizado)' : ''}
                   </option>
                 ))}
               </select>
