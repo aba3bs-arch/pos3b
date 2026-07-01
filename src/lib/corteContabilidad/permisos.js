@@ -90,7 +90,8 @@ export function puedeRecoleccionCortes(rol, userId = null) {
 
 export function etiquetaTipoCierre(detalle) {
   const t = detalle?.tipo_cierre;
-  if (t === 'actualizacion' || t === 'recoleccion') return 'Actualización';
+  if (t === 'recoleccion') return 'Recolección';
+  if (t === 'actualizacion') return 'Actualización';
   return 'Cierre';
 }
 

@@ -100,7 +100,8 @@ export async function listarGastosTurno(supabase, sucursal, modulo) {
 export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts = {}) {
   const esConsumo = gastoDescuentaNomina(modulo, gasto.categoria);
   const esAdmin = normalizarRol(opts.rolActor) === 'Administrador';
-  const estadoAprobacion = esConsumo && !esAdmin ? 'pendiente_admin' : 'aprobado';
+  const requiereAprobacion = !esAdmin && (modulo === 'virtual' || esConsumo);
+  const estadoAprobacion = requiereAprobacion ? 'pendiente_admin' : 'aprobado';
   const row = {
     sucursal_id: sucursal || 'MAIN',
     modulo,
@@ -129,10 +130,15 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
       tipo: TIPOS_NOTIF.CONSUMO_CORTE,
       ref_tabla: 'cortes_contabilidad_gastos',
       ref_id: data.id,
-      titulo: `Consumo pendiente · ${gasto.usuario_nombre || 'empleado'}`,
-      mensaje: `${areaLbl} · $${Number(gasto.monto).toFixed(2)} · ${gasto.categoria || 'CONSUMO'}`,
+      titulo: `Gasto pendiente · ${gasto.categoria || 'corte'}`,
+      mensaje: `${areaLbl} · $${Number(gasto.monto).toFixed(2)} · ${gasto.categoria || 'GASTO'}${gasto.usuario_nombre ? ` · ${gasto.usuario_nombre}` : ''}`,
     });
-    return { ok: true, data, pendiente: true, mensaje: 'Consumo enviado. El administrador debe aprobar antes de descontarlo en el corte.' };
+    return {
+      ok: true,
+      data,
+      pendiente: true,
+      mensaje: 'Gasto enviado. El administrador debe aprobar antes de descontarlo en el corte.',
+    };
   }
   return { ok: true, data };
 }
@@ -301,4 +307,33 @@ export async function listarCierresCorte(supabase, sucursal, modulo, limit = 30)
     .order('created_at', { ascending: false })
     .limit(limit);
   return { data: data || [], error: error?.message || null };
+}
+
+export async function actualizarDetalleCierre(supabase, id, patchDetalle, sucursal, modulo) {
+  if (!id) return { ok: false, error: 'Cierre inválido.' };
+  if (!supabase) {
+    const key = lsKey(sucursal, modulo, 'historial');
+    let hist = [];
+    try {
+      hist = JSON.parse(localStorage.getItem(key) || '[]');
+    } catch {
+      hist = [];
+    }
+    const next = hist.map((h) =>
+      String(h.id) === String(id) ? { ...h, detalle: { ...(h.detalle || {}), ...patchDetalle } } : h,
+    );
+    localStorage.setItem(key, JSON.stringify(next));
+    return { ok: true, soloLocal: true };
+  }
+  const { data: row, error: errGet } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .select('detalle')
+    .eq('id', id)
+    .maybeSingle();
+  if (errGet) return { ok: false, error: errGet.message };
+  if (!row) return { ok: false, error: 'Cierre no encontrado.' };
+  const detalle = { ...(row.detalle || {}), ...patchDetalle };
+  const { error } = await supabase.from('cortes_contabilidad_cierres').update({ detalle }).eq('id', id);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, detalle };
 }

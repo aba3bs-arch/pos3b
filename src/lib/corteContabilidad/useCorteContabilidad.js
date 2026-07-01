@@ -3,6 +3,7 @@ import { turnoActual, nombreTurnoLegible } from '../turnos.js';
 import { empleadosParaCorte } from '../empleadosVisibles.js';
 import { permisosCorteContabilidad, puedeEditarCorteCampo } from './permisos.js';
 import { gastoRequiereEmpleado } from './catalogoGastos.js';
+import { round2 } from './calc.js';
 import {
   AVISO_FALTA_CORTES,
   agregarGastoTurno,
@@ -16,9 +17,10 @@ import {
   peekFolio,
   registrarCierreCorte,
   siguienteFolio,
+  actualizarDetalleCierre,
 } from './store.js';
 
-export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn, prepararTrasCierre }) {
+export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn, prepararTrasCierre, prepararTrasRecoleccion }) {
   const [estado, setEstado] = useState(() => ({}));
   const [gastos, setGastos] = useState([]);
   const [folio, setFolio] = useState('');
@@ -99,7 +101,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         ('moneda_inicial' in filtrado ||
           'moneda_inicial_turno' in filtrado ||
           'recoleccion' in filtrado ||
-          'recoleccion_turno' in filtrado) &&
+          'recoleccion_turno' in filtrado ||
+          'precoleccion' in filtrado ||
+          '_precoleccion_editada' in filtrado) &&
         !perm.recoleccion &&
         !perm.moneda_inicial
       ) {
@@ -177,11 +181,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   };
 
   const cerrarCorte = async (detalleExtra = {}) => {
-    const esActualizacion =
-      detalleExtra.tipo_cierre === 'actualizacion' || detalleExtra.tipo_cierre === 'recoleccion';
-    if (esActualizacion) {
-      if (!perm.recoleccion) return alert('Solo el recolector (administrador o privilegio de recolección) puede actualizar la moneda inicial.');
-    } else if (!perm.guardar) {
+    if (!perm.guardar) {
       return alert('No tiene permiso para cerrar este corte.');
     }
 
@@ -192,13 +192,10 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       turno: turnoActual(),
       usuario_id: user?.id || null,
       usuario_nombre: user?.nombre || null,
-      caja_actual: detalleExtra.caja_actual_cierre ?? calc.cajaActual ?? calc.caja_actual ?? 0,
+      caja_actual: calc.cajaActual ?? 0,
       ventas: calc.venta ?? 0,
       detalle: {
         ...estado,
-        ...(detalleExtra.recoleccion != null
-          ? { recoleccion: detalleExtra.recoleccion, recoleccion_turno: detalleExtra.recoleccion_turno ?? detalleExtra.recoleccion }
-          : {}),
         gastos,
         gastos_total: calc.gastosTotal,
         subtotal: calc.subtotal,
@@ -206,15 +203,14 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         total_lectura: calc.totalLectura,
         comentarios: estado.comentarios || '',
         ...detalleExtra,
-        tipo_cierre: esActualizacion ? 'actualizacion' : detalleExtra.tipo_cierre || 'cierre',
+        tipo_cierre: 'cierre',
       },
     };
-    delete payload.detalle.caja_actual_cierre;
     const res = await registrarCierreCorte(supabase, payload);
     if (!res.ok) return alert(res.error || AVISO_FALTA_CORTES);
 
     await limpiarGastosTurno(supabase, sucursal, modulo);
-    const nuevoEstado = prepararTrasCierre(estado, calc, { esActualizacion });
+    const nuevoEstado = prepararTrasCierre(estado, calc, detalleExtra);
     if (modulo !== 'abarrotes') {
       const nuevoFolio = await siguienteFolio(supabase, sucursal, modulo);
       setFolio(nuevoFolio);
@@ -225,7 +221,70 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     setGastos([]);
     const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
     setHistorial(hist.data || []);
-    alert(esActualizacion ? 'Moneda inicial actualizada. Corte registrado como actualización.' : 'Corte cerrado y guardado en historial contabilidad.');
+    alert('Corte cerrado y guardado en historial contabilidad.');
+  };
+
+  const registrarRecoleccion = async ({ corteAnteriorId, monedaFinalAnterior } = {}) => {
+    if (!perm.recoleccion) {
+      return alert('Solo el administrador o recolector con privilegio puede registrar recolección.');
+    }
+    if (!estado._precoleccion_editada && !round2(estado.precoleccion)) {
+      return alert('Capture la precolección (moneda contada en caja) antes de registrar la recolección.');
+    }
+    const montoRec = round2(estado.recoleccion ?? estado.recoleccion_turno);
+    if (!(montoRec > 0)) return alert('Indique el monto de recolección en efectivo retirado.');
+    if ((calc.cajaActual ?? 0) < -0.001) {
+      return alert(`No se puede recolectar: la caja chica está en negativo (${fmtCorte(calc.cajaActual)}).`);
+    }
+
+    const mf = round2(estado.precoleccion);
+    if (corteAnteriorId && monedaFinalAnterior != null && monedaFinalAnterior !== '') {
+      const upd = await actualizarDetalleCierre(
+        supabase,
+        corteAnteriorId,
+        { moneda_final: round2(monedaFinalAnterior), moneda_final_editada: true },
+        sucursal,
+        modulo,
+      );
+      if (!upd.ok) return alert(upd.error || 'No se pudo actualizar el corte anterior.');
+    }
+
+    const payload = {
+      sucursal_id: sucursal || 'MAIN',
+      modulo,
+      folio: `REC-${folio || 'V'}`,
+      turno: 'RECOLECCION',
+      usuario_id: user?.id || null,
+      usuario_nombre: user?.nombre || null,
+      caja_actual: round2(Math.max(0, calc.cajaActual)),
+      ventas: calc.venta ?? 0,
+      detalle: {
+        ...estado,
+        moneda_final: mf,
+        moneda_final_editada: true,
+        precoleccion: mf,
+        recoleccion: montoRec,
+        recoleccion_turno: montoRec,
+        gastos,
+        gastos_total: calc.gastosTotal,
+        subtotal: calc.subtotal,
+        caja_antes_recoleccion: round2(calc.cajaActual + montoRec),
+        corte_anterior_id: corteAnteriorId || null,
+        tipo_cierre: 'recoleccion',
+        comentarios: estado.comentarios || '',
+      },
+    };
+
+    const res = await registrarCierreCorte(supabase, payload);
+    if (!res.ok) return alert(res.error || AVISO_FALTA_CORTES);
+
+    const prep = prepararTrasRecoleccion || ((e) => e);
+    const nuevoEstado = prep(estado, calc, { nuevaMoneda: mf, montoRecoleccion: montoRec });
+    await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
+    setEstado(nuevoEstado);
+    const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
+    setHistorial(hist.data || []);
+    alert(`Recolección de ${fmtCorte(montoRec)} registrada. Caja chica: ${fmtCorte(nuevoEstado.caja_anterior)}. Moneda inicial: ${fmtCorte(mf)}.`);
   };
 
   return {
@@ -245,6 +304,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     historial,
     empleados,
     cerrarCorte,
+    registrarRecoleccion,
     recargar: cargar,
   };
 }

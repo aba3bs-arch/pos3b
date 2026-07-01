@@ -93,17 +93,28 @@ export function cajaVirtualEnNegativo(estado, calc) {
   return mf > mi + 0.001;
 }
 
-/** Total a recolectar: toda la caja chica actual (venta ya está incluida en el subtotal). */
-export function recoleccionTotalVirtual(estado, calc) {
-  if (!estado?.moneda_final_editada) return 0;
-  return round2(Math.max(0, calc?.cajaActual ?? 0));
+/** Caja chica acumulada antes de aplicar la recolección capturada. */
+export function cajaChicaAcumulada(estado, calc) {
+  const rec = round2(estado.recoleccion ?? estado.recoleccion_turno);
+  return round2((calc?.cajaActual ?? 0) + rec);
 }
 
-/** Caja chica que quedará tras registrar la recolección (debe ser $0.00). */
-export function cajaVirtualTrasRecoleccion(estado, calc) {
-  if (!estado?.moneda_final_editada) return calc?.cajaActual ?? 0;
-  const rec = recoleccionTotalVirtual(estado, calc);
-  return round2(Math.max(0, (calc?.cajaActual ?? 0) - rec));
+/** Estado tras registrar recolección: actualiza moneda ref. y resta recolección de caja. */
+export function prepararTrasRecoleccionVirtual(estado, calc, { nuevaMoneda, montoRecoleccion }) {
+  const cajaRestante = round2(Math.max(0, (calc?.cajaActual ?? 0)));
+  return {
+    ...estado,
+    moneda_inicial: round2(nuevaMoneda),
+    moneda_inicial_turno: round2(nuevaMoneda),
+    moneda_final: 0,
+    moneda_final_editada: false,
+    precoleccion: 0,
+    _precoleccion_editada: false,
+    caja_anterior: cajaRestante,
+    recoleccion: 0,
+    recoleccion_turno: 0,
+    _mi_turno_inicializado: true,
+  };
 }
 
 export function calcularAbarrotes(estado, gastos = []) {
@@ -166,6 +177,8 @@ export const ESTADO_VIRTUAL_DEFAULT = {
   recoleccion: 0,
   faltante: 0,
   comentarios: '',
+  precoleccion: 0,
+  _precoleccion_editada: false,
   _mi_turno_inicializado: false,
 };
 
