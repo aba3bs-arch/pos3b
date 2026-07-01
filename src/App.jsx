@@ -40,7 +40,6 @@ import { inventarioParaSucursal } from './lib/inventarioMultitienda.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
 import { sincronizarPrivilegiosDesdeNube } from './lib/privilegiosSync.js';
-import { sonidoMenuNavegacion } from './lib/sonidosPos.js';
 import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from './lib/usuariosAuth.js';
 import {
   evaluarVinculoDispositivo,
@@ -67,12 +66,16 @@ import {
 import { EVENTO_NOTIFICACION_DISPOSITIVO, iniciarMonitorNotificacionesDispositivo, EVENTO_NOTIFICACIONES } from './lib/contabilidadNotificaciones.js';
 import BotonActivarNotificaciones from './components/BotonActivarNotificaciones.jsx';
 import PantallaLogin from './components/PantallaLogin.jsx';
+import MobileBottomNav from './components/MobileBottomNav.jsx';
+import AppSidebarNav from './components/AppSidebarNav.jsx';
+import { useMobileLayout } from './hooks/useMobileLayout.js';
 import { EVENTO_TEMA_INTERFAZ, aplicarTemaInterfaz, leerTemaInterfaz } from './lib/temasInterfaz.js';
 import { iconoDeModulo, colorDeModulo } from './lib/moduloIcons.js';
 
 const SUCURSAL_FIJA_ENV = sucursalFijaPorEntorno();
 
 function App() {
+  const mobile = useMobileLayout();
   const [sesion, setSesion] = useState(false);
   const [user, setUser] = useState(null);
   const [pin, setPin] = useState('');
@@ -86,7 +89,9 @@ function App() {
   const [buzonPestana, setBuzonPestana] = useState('pendientes');
   const [sucursal, setSucursal] = useState(sucursalInicial);
   const [tiendaFijadaParaAcceso, setTiendaFijadaParaAcceso] = useState(() => Boolean(SUCURSAL_FIJA_ENV || tiendaBloqueadaEnEsteEquipo()));
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() =>
+    typeof window !== 'undefined' ? !window.matchMedia('(max-width: 768px)').matches : true,
+  );
   const [contabilidadOpen, setContabilidadOpen] = useState(true);
   const [tipoCambio, setTipoCambioRaw] = useState(() => leerTipoCambio());
   const [tickPrivilegios, setTickPrivilegios] = useState(0);
@@ -288,6 +293,10 @@ function App() {
     }
   }, [sesion, user, tickPrivilegios]);
 
+  useEffect(() => {
+    if (mobile) setSidebarOpen(false);
+  }, [mobile]);
+
   const irAModulo = useCallback(
     (m, opts = {}) => {
       if (!puedeVerModulo(user?.rol, m, user?.id)) return;
@@ -300,6 +309,9 @@ function App() {
         if (opts.retorno) setValesRetornoModulo(opts.retorno);
       }
       setVista(m);
+      if (typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches) {
+        setSidebarOpen(false);
+      }
     },
     [user],
   );
@@ -489,81 +501,73 @@ function App() {
   const modulosNav = modulosParaSidebar(user.rol, user.id);
   const subContabilidad = submodulosContabilidadVisibles(user.rol, user.id);
   const contabilidadActiva = SUBMODULOS_CONTABILIDAD.includes(vista);
-  const COLOR_CONTABILIDAD = '#7c3aed';
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${mobile ? ' app-shell--mobile' : ''}`}>
+      {mobile && sidebarOpen && (
+        <button
+          type="button"
+          className="app-sidebar-backdrop"
+          aria-label="Cerrar menú"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
       {sidebarOpen && (
-        <aside className="app-sidebar">
+        <aside className={`app-sidebar${mobile ? ' app-sidebar--drawer app-sidebar--open' : ''}`}>
           <div className="app-sidebar-brand">
             <BrandLogo alt="" maxHeight={56} style={{ marginBottom: '0.35rem' }} />
             <div className="app-sidebar-title">{brandTitle}</div>
-          </div>
-          <nav style={{ flex: 1, padding: '0.65rem', overflowY: 'auto' }}>
-            {modulosNav.map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => irAModulo(m)}
-                onMouseEnter={() => vista !== m && sonidoMenuNavegacion()}
-                className={`btn btn-ghost nav-btn${vista === m ? ' nav-btn-active' : ''}`}
-                style={{
-                  color: vista === m ? colorDeModulo(m) : 'var(--muted)',
-                }}
-              >
-                <Icon name={iconoDeModulo(m)} size={20} style={{ color: colorDeModulo(m) }} />
-                <span>{m}</span>
+            {mobile && (
+              <button type="button" className="app-sidebar-close btn btn-ghost" onClick={() => setSidebarOpen(false)} aria-label="Cerrar">
+                <Icon name="x" size={20} />
               </button>
-            ))}
-            {subContabilidad.length > 0 && (
-              <div style={{ marginTop: '0.35rem' }}>
-                <button
-                  type="button"
-                  className={`btn btn-ghost nav-btn${contabilidadActiva ? ' nav-btn-active' : ''}`}
-                  style={{ color: contabilidadActiva ? COLOR_CONTABILIDAD : 'var(--muted)' }}
-                  onClick={() => setContabilidadOpen((o) => !o)}
-                >
-                  <Icon name="dollar" size={20} style={{ color: COLOR_CONTABILIDAD }} />
-                  <span style={{ flex: 1, textAlign: 'left' }}>Contabilidad</span>
-                  <Icon name={contabilidadOpen ? 'chevronDown' : 'chevronRight'} size={16} />
-                </button>
-                {contabilidadOpen &&
-                  subContabilidad.map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => irAModulo(m)}
-                      onMouseEnter={() => vista !== m && sonidoMenuNavegacion()}
-                      className={`btn btn-ghost nav-btn${vista === m ? ' nav-btn-active' : ''}`}
-                      style={{
-                        paddingLeft: '2.25rem',
-                        color: vista === m ? colorDeModulo(m) : 'var(--muted)',
-                      }}
-                    >
-                      <Icon name={iconoDeModulo(m)} size={18} style={{ color: colorDeModulo(m) }} />
-                      <span>{m}</span>
-                    </button>
-                  ))}
-              </div>
             )}
-          </nav>
+          </div>
+          <AppSidebarNav
+            modulosNav={modulosNav}
+            vista={vista}
+            subContabilidad={subContabilidad}
+            contabilidadActiva={contabilidadActiva}
+            contabilidadOpen={contabilidadOpen}
+            setContabilidadOpen={setContabilidadOpen}
+            onNavigate={irAModulo}
+            onItemClick={mobile ? () => setSidebarOpen(false) : undefined}
+          />
         </aside>
       )}
 
       <main className="app-main">
         <header className="app-header">
-          <button type="button" className="btn btn-ghost" style={{ padding: '0.5rem 0.65rem' }} onClick={() => setSidebarOpen((o) => !o)} aria-label="Menú">
-            <Icon name="menu" size={20} />
-          </button>
-          <h2 className="header-title" style={{ margin: 0, flex: 1, fontSize: '1.25rem', color: colorDeModulo(vista) }}>
-            <Icon name={iconoDeModulo(vista)} size={22} style={{ color: colorDeModulo(vista) }} />
-            {vista}
-          </h2>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap', fontWeight: 700 }}>
+          <div className="app-header-top">
+            <button type="button" className="btn btn-ghost app-header-menu" onClick={() => setSidebarOpen((o) => !o)} aria-label="Menú">
+              <Icon name="menu" size={20} />
+            </button>
+            <h2 className="header-title app-header-title" style={{ color: colorDeModulo(vista) }}>
+              <Icon name={iconoDeModulo(vista)} size={22} style={{ color: colorDeModulo(vista) }} />
+              {vista}
+            </h2>
+            <div className="app-header-quick">
+              {puedeRecibirNotificacionesDispositivo(user?.rol) && <BotonActivarNotificaciones />}
+              <BadgeNotificacionesContabilidad
+                supabase={supabase}
+                sucursal={sucursal}
+                user={user}
+                onClick={() => {
+                  if (esAdminModuloIncidencias(user?.rol) && puedeVerModulo(user?.rol, 'Incidencias', user?.id)) {
+                    setBuzonPestana('pendientes');
+                    irAModulo('Incidencias');
+                    return;
+                  }
+                  setValesIrPendientes(true);
+                  if (puedeVerModulo(user?.rol, 'Vales y Préstamos', user?.id)) irAModulo('Vales y Préstamos');
+                }}
+              />
+            </div>
+          </div>
+          <div className="app-header-meta">
             {puedeCambiarTienda && !SUCURSAL_FIJA_ENV ? (
               <select
-                className="select"
-                style={{ fontSize: '0.8rem', fontWeight: 700, maxWidth: '200px' }}
+                className="select app-header-select"
                 value={sucursal}
                 onChange={(e) => setSucursal(e.target.value)}
                 title="Cambiar tienda activa"
@@ -575,36 +579,21 @@ function App() {
                 ))}
               </select>
             ) : (
-              <span className="badge" style={{ fontSize: '0.8rem' }}>{etiquetaTienda(sucursal)}</span>
+              <span className="badge app-header-badge">{etiquetaTienda(sucursal)}</span>
             )}
-            <span style={{ color: 'var(--brand-blue)', fontSize: '0.95rem' }}>{user?.nombre}</span>
-            <span className="muted" style={{ fontSize: '0.75rem', fontWeight: 600 }}>{normalizarRol(user?.rol)}</span>
-            <span className="muted" style={{ fontSize: '0.75rem', fontWeight: 500 }}>Dólar: ${Number(tipoCambio).toFixed(2)}</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
-            {puedeRecibirNotificacionesDispositivo(user?.rol) && <BotonActivarNotificaciones />}
-            <BadgeNotificacionesContabilidad
-              supabase={supabase}
-              sucursal={sucursal}
-              user={user}
-              onClick={() => {
-                if (esAdminModuloIncidencias(user?.rol) && puedeVerModulo(user?.rol, 'Incidencias', user?.id)) {
-                  setBuzonPestana('pendientes');
-                  irAModulo('Incidencias');
-                  return;
-                }
-                setValesIrPendientes(true);
-                if (puedeVerModulo(user?.rol, 'Vales y Préstamos', user?.id)) irAModulo('Vales y Préstamos');
-              }}
-            />
-            <BotonLimpiarCache />
-            <button type="button" className="btn btn-danger" onClick={cerrarSesion}>
-              <BtnLabel icon="logOut">Salir</BtnLabel>
-            </button>
+            <span className="app-header-user">{user?.nombre}</span>
+            <span className="muted app-header-rol">{normalizarRol(user?.rol)}</span>
+            <span className="muted app-header-dolar">Dólar: ${Number(tipoCambio).toFixed(2)}</span>
+            <div className="app-header-tools">
+              <BotonLimpiarCache />
+              <button type="button" className="btn btn-danger btn-sm-mobile" onClick={cerrarSesion}>
+                <BtnLabel icon="logOut">Salir</BtnLabel>
+              </button>
+            </div>
           </div>
         </header>
 
-        <div style={{ flex: 1, padding: '1.25rem', overflowY: 'auto', minHeight: 0 }}>
+        <div key={vista} className="app-content app-page-enter">
           {vista === 'Inicio' && (
             <Inicio
               supabase={supabase}
@@ -716,6 +705,14 @@ function App() {
           {vista === 'Ayuda' && <Ayuda user={user} />}
         </div>
         <AnuncioPosOverlay supabase={supabase} onIrVentas={() => irAModulo('Ventas')} />
+        {mobile && (
+          <MobileBottomNav
+            modulos={modulosNav}
+            vista={vista}
+            onNavigate={irAModulo}
+            onOpenMenu={() => setSidebarOpen(true)}
+          />
+        )}
       </main>
     </div>
   );
