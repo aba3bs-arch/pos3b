@@ -1,4 +1,4 @@
-import { mostrarNotificacionDispositivo, puedeRecibirNotificacionesDispositivo } from './notificacionesDispositivo.js';
+import { mostrarNotificacionDispositivo, puedeRecibirNotificacionesDispositivo, intervaloMonitorNotificacionesMs } from './notificacionesDispositivo.js';
 
 export const AVISO_FALTA_NOTIF =
   'Faltan notificaciones de contabilidad. Ejecuta supabase/fix_vales_prestamos_aprobaciones.sql';
@@ -34,7 +34,7 @@ export async function crearNotificacion(supabase, row) {
   if (error) return { ok: false, error: error.message };
   emitirRefreshNotificaciones();
   if (data?.id) {
-    mostrarNotificacionDispositivo({
+    void mostrarNotificacionDispositivo({
       id: data.id,
       titulo: payload.titulo,
       mensaje: payload.mensaje,
@@ -161,7 +161,7 @@ export function etiquetaTipoNotificacion(tipo) {
  * Funciona aunque Realtime de Supabase no esté activo.
  */
 export function iniciarMonitorNotificacionesDispositivo(supabase, opts = {}) {
-  const { rol, sucursal, veTodasTiendas = true, intervaloMs = 12_000, onClickNotificacion } = opts;
+  const { rol, sucursal, veTodasTiendas = true, intervaloMs = intervaloMonitorNotificacionesMs(), onClickNotificacion } = opts;
   if (!supabase || !puedeRecibirNotificacionesDispositivo(rol)) return () => {};
 
   const idsBaselined = new Set();
@@ -185,7 +185,7 @@ export function iniciarMonitorNotificacionesDispositivo(supabase, opts = {}) {
     for (const n of lista) {
       const id = String(n.id);
       if (idsBaselined.has(id)) continue;
-      const mostrada = mostrarNotificacionDispositivo({
+      const mostrada = await mostrarNotificacionDispositivo({
         id: n.id,
         titulo: n.titulo,
         mensaje: n.mensaje,

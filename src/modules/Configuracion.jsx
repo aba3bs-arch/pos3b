@@ -91,9 +91,12 @@ import {
   turnoConTolerancia,
 } from '../lib/turnos.js';
 import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, ROLES, listarTodosLosRoles, leerRolesPersonalizados, agregarRolPersonalizado, quitarRolPersonalizado, esRolSistema, EVENTO_ROLES, modulosDefaultRol, modulosEnEdicionPrivilegios, tieneListaPersonalizada, normalizarListaModulos, describeOrigenPrivilegios, normalizarRol } from '../lib/roles.js';
+import { puedeRecibirNotificacionesDispositivo } from '../lib/notificacionesDispositivo.js';
 import { sincronizarPrivilegiosDesdeNube } from '../lib/privilegiosSync.js';
 import BrandLogo from '../components/BrandLogo.jsx';
+import SelectorTemaInterfaz from '../components/SelectorTemaInterfaz.jsx';
 import PanelCatalogoIncidencias from '../components/PanelCatalogoIncidencias.jsx';
+import PanelNotificacionesAlertas from '../components/PanelNotificacionesAlertas.jsx';
 import AdminInventarioCentral from './AdminInventarioCentral.jsx';
 
 export default function Configuracion({
@@ -126,6 +129,7 @@ export default function Configuracion({
   const [nuevoRolNombre, setNuevoRolNombre] = useState('');
   const [nuevoRolPlantilla, setNuevoRolPlantilla] = useState('Cajero');
   const esAdmin = puedeGestionarUsuarios(user?.rol);
+  const recibeAlertas = puedeRecibirNotificacionesDispositivo(user?.rol);
 
   useEffect(() => {
     const syncRoles = () => setRolesLista(listarTodosLosRoles());
@@ -698,6 +702,8 @@ export default function Configuracion({
           Guardar sonidos
         </button>
       </div>
+
+      {recibeAlertas && <PanelNotificacionesAlertas />}
 
       {esAdmin && (
         <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
@@ -1755,6 +1761,14 @@ export default function Configuracion({
           <button type="button" className="btn btn-gold" onClick={guardarImpresion}>Guardar impresión</button>
           <button type="button" className="btn btn-primary" onClick={probarImpresion}>Imprimir ticket de prueba</button>
         </div>
+      </div>
+
+      <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
+        <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Carátula e interfaz</h3>
+        <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+          Elige la apariencia del login y del menú principal. Se guarda en este navegador (cada equipo puede usar una distinta).
+        </p>
+        <SelectorTemaInterfaz />
       </div>
 
       <div className="card" style={{ borderTop: '4px solid var(--brand-red)' }}>

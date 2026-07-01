@@ -58,14 +58,16 @@ import { EVENTO_CACHE_LIMPIADO } from './lib/limpiarCache.js';
 import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesContabilidad.jsx';
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
 import { limpiarAnunciosVistos } from './lib/anunciosPos.js';
-import InputPin from './components/InputPin.jsx';
 import {
   puedeRecibirNotificacionesDispositivo,
   mostrarNotificacionDispositivo,
   limpiarNotificacionesDispositivoMostradas,
+  registrarServiceWorkerNotificaciones,
 } from './lib/notificacionesDispositivo.js';
 import { EVENTO_NOTIFICACION_DISPOSITIVO, iniciarMonitorNotificacionesDispositivo, EVENTO_NOTIFICACIONES } from './lib/contabilidadNotificaciones.js';
 import BotonActivarNotificaciones from './components/BotonActivarNotificaciones.jsx';
+import PantallaLogin from './components/PantallaLogin.jsx';
+import { EVENTO_TEMA_INTERFAZ, aplicarTemaInterfaz, leerTemaInterfaz } from './lib/temasInterfaz.js';
 import { iconoDeModulo, colorDeModulo } from './lib/moduloIcons.js';
 
 const SUCURSAL_FIJA_ENV = sucursalFijaPorEntorno();
@@ -108,11 +110,14 @@ function App() {
   useEffect(() => {
     const onTc = () => setTipoCambioRaw(leerTipoCambio());
     const onPriv = () => setTickPrivilegios((n) => n + 1);
+    const onTema = () => aplicarTemaInterfaz(leerTemaInterfaz());
     window.addEventListener(EVENTO_TIPO_CAMBIO, onTc);
     window.addEventListener(EVENTO_PRIVILEGIOS, onPriv);
+    window.addEventListener(EVENTO_TEMA_INTERFAZ, onTema);
     return () => {
       window.removeEventListener(EVENTO_TIPO_CAMBIO, onTc);
       window.removeEventListener(EVENTO_PRIVILEGIOS, onPriv);
+      window.removeEventListener(EVENTO_TEMA_INTERFAZ, onTema);
     };
   }, []);
 
@@ -170,6 +175,8 @@ function App() {
       }
     };
 
+    void registrarServiceWorkerNotificaciones();
+
     const detenerMonitor = iniciarMonitorNotificacionesDispositivo(supabase, {
       rol: user?.rol,
       veTodasTiendas: true,
@@ -184,7 +191,7 @@ function App() {
         (payload) => {
           const row = payload.new;
           if (!row || row.estado !== 'pendiente') return;
-          mostrarNotificacionDispositivo({
+          void mostrarNotificacionDispositivo({
             id: row.id,
             titulo: row.titulo,
             mensaje: row.mensaje,
@@ -198,7 +205,7 @@ function App() {
     const onLocal = (e) => {
       const row = e.detail;
       if (!row?.titulo) return;
-      mostrarNotificacionDispositivo({
+      void mostrarNotificacionDispositivo({
         id: row.id,
         titulo: row.titulo,
         mensaje: row.mensaje,
@@ -448,158 +455,33 @@ function App() {
 
   if (!sesion) {
     return (
-      <div
-        style={{
-          minHeight: '100vh',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          padding: '1.5rem',
-          background: 'linear-gradient(165deg, var(--brand-olive) 0%, var(--brand-gold) 35%, var(--surface) 85%)',
+      <PantallaLogin
+        brandTitle={brandTitle}
+        tiendaFijadaParaAcceso={tiendaFijadaParaAcceso}
+        sucursal={sucursal}
+        listaSucursales={listaSucursales}
+        onCambiarSucursal={setSucursal}
+        onFijarTienda={() => {
+          bloquearTiendaEnEsteEquipo(sucursal);
+          guardarSucursalLocal(sucursal);
+          setTiendaFijadaParaAcceso(true);
         }}
-      >
-        <div className="card" style={{ width: '100%', maxWidth: '400px', textAlign: 'center', borderTop: '4px solid var(--brand-red)' }}>
-          <div className="brand-logo-wrap" style={{ marginBottom: '0.75rem' }}>
-            <BrandLogo alt={brandTitle} maxHeight={140} style={{ maxWidth: '100%' }} />
-          </div>
-          <h2 style={{ margin: '0 0 0.25rem', color: 'var(--brand-blue)' }}>{brandTitle}</h2>
-          <p className="muted" style={{ margin: '0 0 1rem' }}>
-            {tiendaFijadaParaAcceso
-              ? 'Ingresa tu PIN'
-              : 'Elige la tienda y escribe tu PIN. En la caja puedes fijarla con el botón de abajo.'}
-          </p>
-          {!tiendaFijadaParaAcceso && !SUCURSAL_FIJA_ENV && (
-            <>
-              <label className="muted" style={{ display: 'block', textAlign: 'left', marginBottom: '0.75rem' }}>
-                Tienda de este punto de venta
-                <select className="select" style={{ marginTop: '0.35rem' }} value={sucursal} onChange={(e) => setSucursal(e.target.value)}>
-                  {listaSucursales.map((s) => (
-                    <option key={s} value={s}>
-                      {etiquetaTienda(s)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                className="btn btn-gold"
-                style={{ width: '100%', marginBottom: '1rem' }}
-                onClick={() => {
-                  bloquearTiendaEnEsteEquipo(sucursal);
-                  guardarSucursalLocal(sucursal);
-                  setTiendaFijadaParaAcceso(true);
-                }}
-              >
-                Fijar tienda en este equipo
-              </button>
-              <p className="muted" style={{ fontSize: '0.78rem', textAlign: 'left', marginBottom: '1rem' }}>
-                En la PC de caja, al fijar la tienda y entrar con PIN de <strong>cajero</strong> o <strong>repartidor</strong>, ese PIN
-                quedará ligado a esta computadora y no podrá usarse en otro dispositivo. Gerentes y administradores no quedan
-                vinculados.
-              </p>
-            </>
-          )}
-          {tiendaFijadaParaAcceso && (
-            <div style={{ marginBottom: '1rem', padding: '0.65rem', borderRadius: '10px', background: 'var(--surface)', textAlign: 'center' }}>
-              <span className="badge" style={{ fontSize: '0.85rem' }}>Tienda asignada: {etiquetaTienda(sucursal)}</span>
-              {SUCURSAL_FIJA_ENV && (
-                <p className="muted" style={{ fontSize: '0.72rem', margin: '0.35rem 0 0' }}>
-                  Fijada por instalación (<code>VITE_SUCURSAL_FIJA</code>)
-                </p>
-              )}
-              {!SUCURSAL_FIJA_ENV && (
-                <p className="muted" style={{ fontSize: '0.72rem', margin: '0.35rem 0 0' }}>
-                  Fijada en este navegador
-                </p>
-              )}
-            </div>
-          )}
-          {!supabaseConfigured && (
-            <p style={{ textAlign: 'left', fontSize: '0.85rem', color: 'var(--brand-red)', marginBottom: '1rem' }}>
-              Falta configuración de Supabase. Copia <code>.env.example</code> a <code>.env</code> con{' '}
-              <code>VITE_SUPABASE_URL</code> y <code>VITE_SUPABASE_ANON_KEY</code>, o configura{' '}
-              <code>public/pos3b-config.js</code> (Netlify: variables de entorno en el panel).
-            </p>
-          )}
-          <InputPin
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && puedeIngresarPin && manejarLogin()}
-            placeholder="PIN"
-            autoFocus={puedeIngresarPin}
-            disabled={!puedeIngresarPin}
-            style={{ marginBottom: '1rem' }}
-          />
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ width: '100%', padding: '0.85rem' }}
-            onClick={manejarLogin}
-            disabled={!puedeIngresarPin || Boolean(pendienteAutorizacionTurno)}
-          >
-            <BtnLabel icon="logIn">Entrar</BtnLabel>
-          </button>
-
-          {pendienteAutorizacionTurno && (
-            <div
-              style={{
-                marginTop: '1rem',
-                padding: '0.85rem',
-                borderRadius: '10px',
-                background: 'rgba(225,153,41,0.12)',
-                border: '1px solid rgba(225,153,41,0.45)',
-                textAlign: 'left',
-              }}
-            >
-              <strong style={{ color: 'var(--brand-gold)' }}>Fuera de horario de turno</strong>
-              <p className="muted" style={{ margin: '0.35rem 0 0.75rem', fontSize: '0.82rem' }}>
-                {pendienteAutorizacionTurno.error}
-              </p>
-              <p style={{ margin: '0 0 0.5rem', fontSize: '0.85rem' }}>
-                Empleado: <strong>{pendienteAutorizacionTurno.user.nombre}</strong>
-              </p>
-              <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
-                Un <strong>administrador</strong> puede autorizar la entrada en {etiquetaTienda(sucursal)} (válido 8 h).
-              </p>
-              <label className="muted" style={{ display: 'block', fontSize: '0.82rem' }}>
-                PIN del administrador
-                <div style={{ marginTop: '0.35rem' }}>
-                  <InputPin
-                    value={pinAdminAutorizacion}
-                    onChange={(e) => setPinAdminAutorizacion(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && !autorizandoTurno && manejarAutorizacionAdminTurno()}
-                    placeholder="PIN admin"
-                    autoFocus
-                    style={{ marginBottom: 0 }}
-                  />
-                </div>
-              </label>
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.65rem', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="btn btn-gold"
-                  style={{ flex: '1 1 140px' }}
-                  onClick={manejarAutorizacionAdminTurno}
-                  disabled={autorizandoTurno}
-                >
-                  {autorizandoTurno ? 'Verificando…' : 'Autorizar entrada'}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => {
-                    setPendienteAutorizacionTurno(null);
-                    setPinAdminAutorizacion('');
-                  }}
-                  disabled={autorizandoTurno}
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+        sucursalFijaEnv={SUCURSAL_FIJA_ENV}
+        supabaseConfigured={supabaseConfigured}
+        pin={pin}
+        onPinChange={(e) => setPin(e.target.value)}
+        onLogin={manejarLogin}
+        puedeIngresarPin={puedeIngresarPin}
+        pendienteAutorizacionTurno={pendienteAutorizacionTurno}
+        pinAdminAutorizacion={pinAdminAutorizacion}
+        onPinAdminChange={(e) => setPinAdminAutorizacion(e.target.value)}
+        onAutorizarTurno={manejarAutorizacionAdminTurno}
+        onCancelarAutorizacion={() => {
+          setPendienteAutorizacionTurno(null);
+          setPinAdminAutorizacion('');
+        }}
+        autorizandoTurno={autorizandoTurno}
+      />
     );
   }
 
@@ -610,27 +492,12 @@ function App() {
   const COLOR_CONTABILIDAD = '#7c3aed';
 
   return (
-    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--surface)' }}>
+    <div className="app-shell">
       {sidebarOpen && (
-        <aside
-          style={{
-            width: '250px',
-            flexShrink: 0,
-            height: '100vh',
-            position: 'sticky',
-            top: 0,
-            alignSelf: 'flex-start',
-            background: 'var(--card)',
-            borderRight: '1px solid var(--border)',
-            display: 'flex',
-            flexDirection: 'column',
-            boxShadow: 'var(--shadow)',
-            zIndex: 20,
-          }}
-        >
-          <div style={{ padding: '1rem 1.25rem', textAlign: 'center', borderBottom: '4px solid var(--brand-red)', background: 'linear-gradient(180deg, rgba(225,153,41,0.12) 0%, transparent 100%)' }}>
+        <aside className="app-sidebar">
+          <div className="app-sidebar-brand">
             <BrandLogo alt="" maxHeight={56} style={{ marginBottom: '0.35rem' }} />
-            <div style={{ fontWeight: 800, color: 'var(--brand-blue)', fontSize: '0.95rem', lineHeight: 1.2 }}>{brandTitle}</div>
+            <div className="app-sidebar-title">{brandTitle}</div>
           </div>
           <nav style={{ flex: 1, padding: '0.65rem', overflowY: 'auto' }}>
             {modulosNav.map((m) => (
@@ -683,20 +550,8 @@ function App() {
         </aside>
       )}
 
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
-        <header
-          style={{
-            minHeight: '70px',
-            flexShrink: 0,
-            background: 'var(--card)',
-            display: 'flex',
-            alignItems: 'center',
-            padding: '0 1.25rem',
-            borderBottom: '1px solid var(--border)',
-            gap: '0.75rem',
-            flexWrap: 'wrap',
-          }}
-        >
+      <main className="app-main">
+        <header className="app-header">
           <button type="button" className="btn btn-ghost" style={{ padding: '0.5rem 0.65rem' }} onClick={() => setSidebarOpen((o) => !o)} aria-label="Menú">
             <Icon name="menu" size={20} />
           </button>
