@@ -7,6 +7,7 @@ import {
   calcularVirtual,
   cajaVirtualEnNegativo,
   monedaInicialTurnoEfectiva,
+  monedaRecolectorRef,
   recoleccionTotalVirtual,
   round2,
   siguienteMonedaInicialTurnoVirtual,
@@ -18,20 +19,6 @@ import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useC
 import { etiquetaTienda } from '../../constants/sucursales.js';
 
 const COLOR = '#8e44ad';
-
-function AjustesAdmin({ perm, estado, patchEstado }) {
-  if (!perm.editarTodo) return null;
-  return (
-    <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed var(--border)' }} data-corte-form="virtual-admin">
-      <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.5rem', fontWeight: 700 }}>Ajuste manual (administrador)</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-        <CampoCorte label="Venta efectivo" value={estado.venta_manual ?? ''} hint="Vacío = moneda inicial − moneda final" onChange={(v) => patchEstado({ venta_manual: v })} />
-        <CampoCorte label="Subtotal del turno" value={estado.subtotal_manual ?? ''} hint="Vacío = venta − gastos (incl. tarjeta, faltante, premios)" onChange={(v) => patchEstado({ subtotal_manual: v })} />
-        <CampoCorte label="Caja chica actual" value={estado.caja_actual_manual ?? ''} hint="Vacío = caja anterior + subtotal" onChange={(v) => patchEstado({ caja_actual_manual: v })} />
-      </div>
-    </div>
-  );
-}
 
 export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
   const prepararTrasCierre = useCallback((estado, calc, opts = {}) => {
@@ -67,7 +54,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     return {
       ...estado,
       ...baseReset,
-      moneda_inicial: turnoSiguiente,
+      moneda_inicial: estado.moneda_inicial,
       moneda_inicial_turno: turnoSiguiente,
       _mi_turno_inicializado: true,
     };
@@ -83,6 +70,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
       prepararTrasCierre,
     });
 
+  const monedaReferencia = monedaRecolectorRef(estado);
   const monedaInicioCorte = monedaInicialTurnoEfectiva(estado);
   const cajaNegativa = cajaVirtualEnNegativo(estado, calc);
   const monedaSobreInicial =
@@ -95,17 +83,19 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     const msg =
       `¿Cerrar corte virtual?\n\n` +
       `Tienda: ${etiquetaTienda(sucursal)}\n` +
-      `Moneda inicial: ${fmtCorte(monedaInicioCorte)}\n` +
+      `Moneda inicial del corte: ${fmtCorte(monedaInicioCorte)}\n` +
+      `Referencia recolector (morado): ${fmtCorte(monedaReferencia)}\n` +
       `Moneda final: ${fmtCorte(estado.moneda_final)}\n` +
       `Venta efectivo: ${fmtCorte(calc.venta)}\n` +
       `Gastos del turno: ${fmtCorte(calc.gastosTotal)}\n` +
       `Subtotal del turno: ${fmtCorte(calc.subtotal)}\n` +
       `Caja chica actual: ${fmtCorte(calc.cajaActual)}\n\n` +
-      `La moneda final (${fmtCorte(estado.moneda_final)}) pasará a ser la moneda inicial del siguiente turno.`;
+      `La moneda final (${fmtCorte(estado.moneda_final)}) será la moneda inicial del siguiente corte.\n` +
+      `La referencia en morado (${fmtCorte(monedaReferencia)}) solo cambia con recolección.`;
     if (confirm(msg)) cerrarCorte({ tipo_cierre: 'cierre' });
   };
 
-  const actualizarMonedaInicial = () => {
+  const realizarRecoleccion = () => {
     if (!perm.recoleccion) return alert('Solo el administrador o recolector con privilegio puede actualizar la moneda inicial.');
     if (!estado.moneda_final_editada) {
       return alert('Capture la moneda final (conteo actual en caja) antes de actualizar la moneda inicial.');
@@ -122,13 +112,13 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     const msg =
       `¿Recolectar todo el efectivo y actualizar moneda inicial?\n\n` +
       `Tienda: ${etiquetaTienda(sucursal)}\n` +
-      `Nueva moneda inicial: ${fmtCorte(mf)}\n` +
+      `Moneda final (nueva referencia en morado): ${fmtCorte(mf)}\n` +
       `Venta efectivo del turno: ${fmtCorte(calc.venta)}\n` +
       `Caja chica actual: ${fmtCorte(calc.cajaActual)}\n` +
       `Recolección total: ${fmtCorte(totalRec)}\n\n` +
       `Se retira todo el dinero recolectado.\n` +
       `La caja chica quedará en $0.00.\n` +
-      `La moneda inicial quedará en ${fmtCorte(mf)} hasta el próximo cierre de turno.`;
+      `Moneda inicial del corte y referencia (morado) quedarán en ${fmtCorte(mf)} hasta el próximo cierre de turno.`;
     if (confirm(msg)) {
       cerrarCorte({
         tipo_cierre: 'actualizacion',
@@ -144,9 +134,20 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     onNavigate('Vales y Préstamos', { pestana: 'prestamos', retorno: 'Corte Virtual' });
   };
 
+  const aplicarReferenciaMoneda = () => {
+    if (!perm.recoleccion && !perm.editarTodo) return alert('Solo el administrador o recolector puede ajustar la moneda de referencia.');
+    const ref = round2(estado.moneda_inicial);
+    if (!confirm(`¿Usar ${fmtCorte(ref)} como moneda de referencia (morado) e inicio de turno?\n\nNo retira efectivo; solo corrige la referencia después de una recolección.`)) return;
+    patchEstado({
+      moneda_inicial: ref,
+      moneda_inicial_turno: ref,
+      _mi_turno_inicializado: true,
+    });
+    alert('Moneda de referencia actualizada.');
+  };
+
   const recoleccionCalculada = recoleccionTotalVirtual(estado, calc);
   const puedeMonedaFinal = puedeEditarCorteCampo(perm, 'moneda_final');
-  const puedeMonedaInicial = perm.moneda_inicial || perm.editarTodo;
   const puedeComentarios = puedeEditarCorteCampo(perm, 'comentarios');
   const puedeCerrarCorteTienda = perm.guardar && !perm.recoleccion;
 
@@ -169,11 +170,6 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
           {puedeCerrarCorteTienda && (
             <button type="button" className="btn btn-primary" onClick={confirmarCierre} disabled={cargando}>
               Cerrar corte · {etiquetaTienda(sucursal)}
-            </button>
-          )}
-          {perm.recoleccion && (
-            <button type="button" className="btn btn-gold" onClick={actualizarMonedaInicial} disabled={cargando || cajaNegativa}>
-              Actualizar moneda · {etiquetaTienda(sucursal)}
             </button>
           )}
           <button type="button" className="btn btn-ghost" onClick={imprimirBorrador} disabled={cargando}>
@@ -220,12 +216,26 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         }}
       >
         <div className="muted" style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          Moneda inicial del turno
+          Moneda inicial de referencia
         </div>
-        <div style={{ fontSize: '2.4rem', fontWeight: 800, color: COLOR, margin: '0.25rem 0' }}>{fmtCorte(monedaInicioCorte)}</div>
+        <div style={{ fontSize: '2.4rem', fontWeight: 800, color: COLOR, margin: '0.25rem 0' }}>{fmtCorte(monedaReferencia)}</div>
         <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0' }}>
-          Se actualiza en recolección (admin/recolector). Al cerrar turno, la moneda final pasa al siguiente turno.
+          Fijada por el recolector en recolección · no cambia al cerrar turno
         </p>
+        {perm.recoleccion && (
+          <div style={{ maxWidth: 320, margin: '0.75rem auto 0', textAlign: 'left' }}>
+            <CampoCorte
+              label="Moneda de referencia (morado)"
+              value={estado.moneda_inicial ?? ''}
+              editable
+              hint="Tras recolección puedes corregir la referencia sin retirar efectivo"
+              onChange={(v) => patchEstado({ moneda_inicial: v })}
+            />
+            <button type="button" className="btn btn-ghost" style={{ marginTop: '0.35rem', width: '100%' }} onClick={aplicarReferenciaMoneda} disabled={cargando}>
+              Aplicar referencia al turno
+            </button>
+          </div>
+        )}
         <ResumenOperacionCorte venta={calc.venta} gastos={calc.gastosTotal} ventaNeta={calc.ventaNeta} />
       </div>
 
@@ -247,43 +257,67 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
               hint="Se arrastra entre turnos · admin o recolector"
               onChange={(v) => patchEstado({ caja_anterior: v })}
             />
-            {puedeMonedaInicial && (
-              <CampoCorte
-                label="Moneda inicial (ajuste recolector)"
-                value={estado.moneda_inicial ?? ''}
-                editable
-                hint="Corrección manual tras recolección; al cerrar turno usa la moneda final"
-                onChange={(v) =>
-                  patchEstado({
-                    moneda_inicial: v,
-                    moneda_inicial_turno: v,
-                    _mi_turno_inicializado: true,
-                  })
-                }
-              />
-            )}
+            <CampoCorte
+              label="Moneda inicial del corte"
+              value={monedaInicioCorte}
+              editable={false}
+              hint="Inicia con la referencia del recolector · cada cierre pasa la moneda final al siguiente turno"
+            />
             <CampoCorte
               label="Moneda final"
               value={estado.moneda_final ?? ''}
-              editable={puedeMonedaFinal}
-              hint="Efectivo al cierre · al cerrar turno pasa a ser la moneda inicial del siguiente turno"
+              editable={puedeMonedaFinal && !perm.recoleccion}
+              hint={
+                perm.recoleccion
+                  ? 'Capture la precolección en la sección de recolección'
+                  : 'Efectivo al cierre · al cerrar turno pasa a ser la moneda inicial del siguiente turno'
+              }
               onChange={(v) => patchEstado({ moneda_final: v, moneda_final_editada: true })}
             />
             <div style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(22,160,133,0.1)', borderRadius: 8 }}>
               <div className="muted" style={{ fontSize: '0.75rem' }}>VENTA EFECTIVO</div>
               <div style={{ fontSize: '1.4rem', fontWeight: 800, color: calc.venta < 0 ? 'var(--danger)' : '#16a085' }}>{fmtCorte(calc.venta)}</div>
-              <div className="muted" style={{ fontSize: '0.7rem' }}>Moneda inicial − moneda final</div>
+              <div className="muted" style={{ fontSize: '0.7rem' }}>Moneda inicial del corte − moneda final</div>
             </div>
             {perm.recoleccion && (
-              <div style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(225,153,41,0.12)', borderRadius: 8 }}>
-                <div className="muted" style={{ fontSize: '0.75rem' }}>Recolección total (al actualizar moneda)</div>
-                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--brand-gold)' }}>{fmtCorte(recoleccionCalculada)}</div>
-                <div className="muted" style={{ fontSize: '0.7rem' }}>
-                  Venta efectivo + caja chica · la caja chica queda en $0.00
+              <div
+                style={{
+                  marginTop: '0.5rem',
+                  padding: '0.75rem',
+                  borderRadius: 8,
+                  border: '2px solid rgba(142,68,173,0.35)',
+                  background: 'rgba(142,68,173,0.06)',
+                }}
+                data-corte-form="virtual-recoleccion"
+              >
+                <div className="muted" style={{ fontSize: '0.75rem', fontWeight: 700, marginBottom: '0.5rem', color: COLOR }}>
+                  RECOLECCIÓN VIRTUAL
                 </div>
+                <CampoCorte
+                  label="Precolección (moneda contada)"
+                  value={estado.moneda_final ?? ''}
+                  editable
+                  hint="Conteo en caja antes de retirar efectivo"
+                  onChange={(v) => patchEstado({ moneda_final: v, moneda_final_editada: true })}
+                />
+                <div style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(225,153,41,0.12)', borderRadius: 8, marginTop: '0.5rem' }}>
+                  <div className="muted" style={{ fontSize: '0.75rem' }}>A recolectar</div>
+                  <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--brand-gold)' }}>{fmtCorte(recoleccionCalculada)}</div>
+                  <div className="muted" style={{ fontSize: '0.7rem' }}>
+                    Venta efectivo + caja chica · la caja chica queda en $0.00
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-gold"
+                  style={{ width: '100%', marginTop: '0.65rem' }}
+                  onClick={realizarRecoleccion}
+                  disabled={cargando || cajaNegativa}
+                >
+                  Recolectar
+                </button>
               </div>
             )}
-            <AjustesAdmin perm={perm} estado={estado} patchEstado={patchEstado} />
           </div>
         </div>
 
