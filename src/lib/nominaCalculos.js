@@ -115,7 +115,7 @@ export function resolverCortesEmpleado(empleado, mapCortes) {
   return 0;
 }
 
-/** Cuenta vales de gasolina aprobados por empleado: cobrados = día laboral; no cobrados = falta. */
+import { cuentaComoDiaLaboralGasolina, cuentaComoFaltaGasolina } from './asistenciaGasolina.js';
 export async function valesGasolinaPorEmpleado(supabase, { sucursal, desde, hasta, empleados = [], todasSucursales = true }) {
   if (!supabase) return { map: {}, mapNoCobrados: {}, error: null };
   const indice = indiceEmpleados(empleados);
@@ -137,12 +137,13 @@ export async function valesGasolinaPorEmpleado(supabase, { sucursal, desde, hast
 
   const map = {};
   const mapNoCobrados = {};
+  const ahora = new Date();
   for (const v of data || []) {
     if (v.estado_aprobacion && v.estado_aprobacion !== 'aprobado') continue;
     const clave = resolverClaveEmpleado(v, indice);
     if (!clave) continue;
-    if (v.cobrado) map[clave] = (map[clave] || 0) + 1;
-    else mapNoCobrados[clave] = (mapNoCobrados[clave] || 0) + 1;
+    if (cuentaComoDiaLaboralGasolina(v, ahora)) map[clave] = (map[clave] || 0) + 1;
+    else if (cuentaComoFaltaGasolina(v, ahora)) mapNoCobrados[clave] = (mapNoCobrados[clave] || 0) + 1;
   }
   return { map, mapNoCobrados, error: null };
 }
