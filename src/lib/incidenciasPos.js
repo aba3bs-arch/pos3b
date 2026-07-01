@@ -1,6 +1,8 @@
 import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF, emitirRefreshNotificaciones } from './contabilidadNotificaciones.js';
+import { etiquetaCategoriaCatalogo, etiquetaSubcategoriaIncidencia } from './incidenciasCatalogo.js';
 
-export const AVISO_FALTA_INCIDENCIAS = 'Ejecuta supabase/fix_buzon_incidencias.sql y fix_incidencias_responsable.sql en Supabase.';
+export const AVISO_FALTA_INCIDENCIAS =
+  'Ejecuta supabase/fix_buzon_incidencias.sql, fix_incidencias_responsable.sql y fix_incidencias_categorias.sql en Supabase.';
 
 /** Personal al que puede dirigirse un reporte de incidencia. */
 export const RESPONSABLES_INCIDENCIA = [
@@ -38,12 +40,17 @@ export function puedeRedirigirIncidencia(usuario, incidencia, { esAdmin = false 
   return esResponsableIncidencia(usuario?.nombre, incidencia.responsable);
 }
 
+/** @deprecated usar catalogoIncidenciasActivo / etiquetaCategoriaCatalogo */
 export const CATEGORIAS_INCIDENCIA = [
   { id: 'operacion', label: 'Operación / caja' },
   { id: 'inventario', label: 'Inventario' },
   { id: 'equipo', label: 'Equipo / sistema' },
   { id: 'personal', label: 'Personal' },
   { id: 'cliente', label: 'Cliente' },
+  { id: 'mantenimiento', label: 'Mantenimiento' },
+  { id: 'virtual', label: 'Virtual' },
+  { id: 'abarrotes', label: 'Abarrotes' },
+  { id: 'garage', label: 'Garage' },
   { id: 'otro', label: 'Otro' },
 ];
 
@@ -57,8 +64,10 @@ function faltaTabla(error) {
 }
 
 export function etiquetaCategoriaIncidencia(id) {
-  return CATEGORIAS_INCIDENCIA.find((c) => c.id === id)?.label || id || 'Otro';
+  return etiquetaCategoriaCatalogo(id);
 }
+
+export { etiquetaSubcategoriaIncidencia } from './incidenciasCatalogo.js';
 
 export function etiquetaPrioridadIncidencia(p) {
   const map = { baja: 'Baja', normal: 'Normal', alta: 'Alta', urgente: 'Urgente' };
@@ -111,6 +120,7 @@ export async function crearIncidencia(supabase, row) {
     titulo: String(row.titulo).trim(),
     descripcion: row.descripcion?.trim() || null,
     categoria: row.categoria || 'otro',
+    subcategoria: row.subcategoria?.trim() || null,
     prioridad: row.prioridad || 'normal',
     estado: 'abierta',
     reportado_por: row.reportado_por || null,
@@ -133,6 +143,7 @@ export async function crearIncidencia(supabase, row) {
       row.hora_reporte,
       `Responsable: ${payload.responsable}`,
       etiquetaCategoriaIncidencia(payload.categoria),
+      payload.subcategoria || null,
       etiquetaPrioridadIncidencia(payload.prioridad),
       payload.reportado_por,
     ]

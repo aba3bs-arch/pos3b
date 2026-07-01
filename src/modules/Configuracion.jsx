@@ -93,6 +93,7 @@ import {
 import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, ROLES, listarTodosLosRoles, leerRolesPersonalizados, agregarRolPersonalizado, quitarRolPersonalizado, esRolSistema, EVENTO_ROLES, modulosDefaultRol, modulosEnEdicionPrivilegios, tieneListaPersonalizada, normalizarListaModulos, describeOrigenPrivilegios, normalizarRol } from '../lib/roles.js';
 import { sincronizarPrivilegiosDesdeNube } from '../lib/privilegiosSync.js';
 import BrandLogo from '../components/BrandLogo.jsx';
+import PanelCatalogoIncidencias from '../components/PanelCatalogoIncidencias.jsx';
 import AdminInventarioCentral from './AdminInventarioCentral.jsx';
 
 export default function Configuracion({
@@ -793,6 +794,8 @@ export default function Configuracion({
           )}
         </div>
       )}
+
+      {esAdmin && <PanelCatalogoIncidencias supabase={supabase} />}
 
       {esAdmin && (
         <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>

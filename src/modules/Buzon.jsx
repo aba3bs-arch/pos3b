@@ -9,21 +9,26 @@ import {
 } from '../lib/contabilidadNotificaciones.js';
 import {
   actualizarIncidencia,
-  CATEGORIAS_INCIDENCIA,
+  PRIORIDADES_INCIDENCIA,
   crearIncidencia,
   esResponsableIncidencia,
   etiquetaCategoriaIncidencia,
   etiquetaEstadoIncidencia,
   etiquetaPrioridadIncidencia,
+  etiquetaSubcategoriaIncidencia,
   fechaHoraIncidencia,
   fmtFechaIncidencia,
   fmtHoraIncidencia,
   listarIncidencias,
   puedeRedirigirIncidencia,
-  PRIORIDADES_INCIDENCIA,
   redirigirIncidencia,
   RESPONSABLES_INCIDENCIA,
 } from '../lib/incidenciasPos.js';
+import {
+  catalogoIncidenciasActivo,
+  EVENTO_CATALOGO_INCIDENCIAS,
+  listarCatalogoIncidencias,
+} from '../lib/incidenciasCatalogo.js';
 import { normalizarRol, rolSoloPestanaIncidencias } from '../lib/roles.js';
 import { esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
 import { aprobarGastoTurno, rechazarGastoTurno } from '../lib/corteContabilidad/store.js';
@@ -72,9 +77,11 @@ export default function Buzon({
     titulo: '',
     descripcion: '',
     categoria: 'operacion',
+    subcategoria: '',
     prioridad: 'normal',
     responsable: '',
   });
+  const [catalogoInc, setCatalogoInc] = useState(() => catalogoIncidenciasActivo());
   const [resolviendo, setResolviendo] = useState(null);
   const [resolucionTxt, setResolucionTxt] = useState('');
   const [redirigiendo, setRedirigiendo] = useState(null);
@@ -93,6 +100,20 @@ export default function Buzon({
     const id = setInterval(() => setAhoraReporte(new Date()), 30_000);
     return () => clearInterval(id);
   }, [pestana]);
+
+  useEffect(() => {
+    void listarCatalogoIncidencias(supabase).then((r) => {
+      if (r.data?.length) setCatalogoInc(r.data);
+    });
+    const sync = () => setCatalogoInc(catalogoIncidenciasActivo());
+    window.addEventListener(EVENTO_CATALOGO_INCIDENCIAS, sync);
+    return () => window.removeEventListener(EVENTO_CATALOGO_INCIDENCIAS, sync);
+  }, [supabase]);
+
+  const subcategoriasForm = useMemo(() => {
+    const cat = catalogoInc.find((c) => c.id === formInc.categoria);
+    return cat?.subcategorias || [];
+  }, [catalogoInc, formInc.categoria]);
 
   const filtrarPendientes = useCallback(
     (lista) => {
@@ -246,7 +267,7 @@ export default function Buzon({
       return;
     }
     setMsg('Incidencia reportada. El responsable y el administrador fueron notificados.');
-    setFormInc({ titulo: '', descripcion: '', categoria: 'operacion', prioridad: 'normal', responsable: '' });
+    setFormInc({ titulo: '', descripcion: '', categoria: 'operacion', subcategoria: '', prioridad: 'normal', responsable: '' });
     recargar();
     setPestana('incidencias');
   };
@@ -470,10 +491,34 @@ export default function Buzon({
                   <select
                     className="input"
                     value={formInc.categoria}
-                    onChange={(e) => setFormInc((f) => ({ ...f, categoria: e.target.value }))}
+                    onChange={(e) =>
+                      setFormInc((f) => ({
+                        ...f,
+                        categoria: e.target.value,
+                        subcategoria: '',
+                      }))
+                    }
                   >
-                    {CATEGORIAS_INCIDENCIA.map((c) => (
-                      <option key={c.id} value={c.id}>{c.label}</option>
+                    {catalogoInc.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span className="muted" style={{ fontSize: '0.82rem' }}>Subcategoría</span>
+                  <select
+                    className="input"
+                    value={formInc.subcategoria}
+                    onChange={(e) => setFormInc((f) => ({ ...f, subcategoria: e.target.value }))}
+                    disabled={subcategoriasForm.length === 0}
+                  >
+                    <option value="">{subcategoriasForm.length ? '— Opcional —' : 'Sin subcategorías'}</option>
+                    {subcategoriasForm.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -529,6 +574,7 @@ export default function Buzon({
                       <th>Tienda</th>
                       <th>Título</th>
                       <th>Categoría</th>
+                      <th>Subcategoría</th>
                       <th>Prioridad</th>
                       <th>Estado</th>
                       <th>Responsable</th>
@@ -554,6 +600,7 @@ export default function Buzon({
                           )}
                         </td>
                         <td>{etiquetaCategoriaIncidencia(inc.categoria)}</td>
+                        <td className="muted">{etiquetaSubcategoriaIncidencia(inc.subcategoria, inc.categoria)}</td>
                         <td>{etiquetaPrioridadIncidencia(inc.prioridad)}</td>
                         <td>{etiquetaEstadoIncidencia(inc.estado)}</td>
                         <td>
