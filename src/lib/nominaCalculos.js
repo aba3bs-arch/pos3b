@@ -4,6 +4,23 @@ import { round2 } from './nominaGastos.js';
 
 export const DIAS_SEMANA_NOMINA = 7;
 
+function totalLineaNominaImport(l) {
+  const base = Number(l.sueldo_base) || 0;
+  const bon = Number(l.bonificacion) || 0;
+  const ded = (Number(l.deducciones) || 0) + (Number(l.deduccion_faltas) || 0);
+  return Math.max(
+    0,
+    round2(
+      base +
+        bon -
+        (Number(l.deduccion_gastos) || 0) -
+        (Number(l.deduccion_inventario) || 0) -
+        (Number(l.deduccion_prestamos) || 0) -
+        ded,
+    ),
+  );
+}
+
 export function esIndirectoNomina(empleado) {
   const n = normalizarNombreEmpleado(empleado?.nombre);
   if (!n) return false;
@@ -25,20 +42,33 @@ export function sueldoProporcionalDias(tarifaSemanal, dias) {
   return round2((t * d) / DIAS_SEMANA_NOMINA);
 }
 
-export function sueldoIndirectoPorVales(tarifaPorVale, cantidad) {
-  return round2((Number(tarifaPorVale) || 0) * Math.max(0, Number(cantidad) || 0));
+/** Sueldo = salario por día × días trabajados. */
+export function sueldoPorSalarioDia(salarioDia, dias) {
+  const sd = Number(salarioDia) || 0;
+  const d = Math.max(0, Number(dias) || 0);
+  return round2(sd * d);
+}
+
+export function sueldoIndirectoPorVales(salarioDia, cantidad) {
+  return sueldoPorSalarioDia(salarioDia, cantidad);
+}
+
+/** Otras deudas visibles = manuales + faltas gasolina. */
+export function otrasDeudasLinea(linea) {
+  return round2((Number(linea.deducciones) || 0) + (Number(linea.deduccion_faltas) || 0));
 }
 
 /** Cuenta cierres de cortes contabilidad por cajero en el periodo. */
-export async function cortesPorEmpleado(supabase, { sucursal, desde, hasta }) {
+export async function cortesPorEmpleado(supabase, { sucursal, desde, hasta, todasSucursales = true }) {
   if (!supabase) return { map: {}, error: null };
   const finTs = `${hasta}T23:59:59`;
-  const { data, error } = await supabase
+  let q = supabase
     .from('cortes_contabilidad_cierres')
-    .select('usuario_id, usuario_nombre, created_at')
-    .eq('sucursal_id', sucursal || 'MAIN')
+    .select('usuario_id, usuario_nombre, sucursal_id, created_at')
     .gte('created_at', desde)
     .lte('created_at', finTs);
+  if (!todasSucursales && sucursal) q = q.eq('sucursal_id', sucursal || 'MAIN');
+  const { data, error } = await q;
 
   if (error) {
     if (error.code === '42P01') return { map: {}, error: null };
@@ -65,18 +95,18 @@ export function resolverCortesEmpleado(empleado, mapCortes) {
 }
 
 /** Cuenta vales de gasolina aprobados por empleado: cobrados = día laboral; no cobrados = falta. */
-export async function valesGasolinaPorEmpleado(supabase, { sucursal, desde, hasta, empleados = [] }) {
+export async function valesGasolinaPorEmpleado(supabase, { sucursal, desde, hasta, empleados = [], todasSucursales = true }) {
   if (!supabase) return { map: {}, mapNoCobrados: {}, error: null };
   const indice = indiceEmpleados(empleados);
 
   let q = supabase
     .from('vales')
-    .select('id, usuario_id, nombre_empleado, categoria, estado_aprobacion, cobrado, fecha, created_at')
+    .select('id, usuario_id, nombre_empleado, categoria, estado_aprobacion, cobrado, fecha, sucursal_id, created_at')
     .eq('categoria', 'gasolina')
     .gte('fecha', desde)
     .lte('fecha', hasta);
 
-  if (sucursal) q = q.eq('sucursal_id', sucursal);
+  if (!todasSucursales && sucursal) q = q.eq('sucursal_id', sucursal);
 
   const { data, error } = await q;
   if (error) {
@@ -119,17 +149,22 @@ export function fusionarLineasNomina(anteriores, nuevas) {
     }
     if (ant.sueldo_manual) {
       merged.sueldo_base = ant.sueldo_base;
-      merged.sueldo_tarifa = ant.sueldo_tarifa ?? nueva.sueldo_tarifa;
+      merged.salario_dia = ant.salario_dia ?? ant.sueldo_tarifa ?? nueva.salario_dia;
+      merged.sueldo_tarifa = merged.salario_dia;
     } else if (!ant.dias_manual && ant.sueldo_base > 0 && nueva.sueldo_base === 0) {
       merged.sueldo_base = ant.sueldo_base;
     }
+    if (ant.salario_dia != null && ant.sueldo_manual) merged.salario_dia = ant.salario_dia;
     if (ant.gastos_manual) merged.deduccion_gastos = ant.deduccion_gastos;
     if (ant.inventario_manual) merged.deduccion_inventario = ant.deduccion_inventario;
     if (ant.prestamos_manual) merged.deduccion_prestamos = ant.deduccion_prestamos;
 
     merged.bonificacion = ant.bonificacion ?? nueva.bonificacion;
     merged.deducciones = ant.deducciones ?? nueva.deducciones;
+    merged.deduccion_faltas = ant.deduccion_faltas ?? nueva.deduccion_faltas;
     merged.notas = [ant.notas, nueva.notas].filter(Boolean).join(' · ') || nueva.notas;
+
+    merged.total = totalLineaNominaImport(merged);
 
     merged.pagador_manual = ant.pagador_manual;
     merged.dias_manual = ant.dias_manual;

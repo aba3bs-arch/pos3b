@@ -27,13 +27,14 @@ export function htmlNomina(data) {
       <td>${esc(l.nombre)}</td>
       <td>${esc(l.rol)}</td>
       <td>${esc(ETIQUETA_AREA[l.pagador_nomina] || l.pagador_nomina || '—')}</td>
-      <td class="r">${fmt(l.dias_trabajados)}</td>
+      <td class="r">${fmt(l.salario_dia ?? l.sueldo_tarifa)}</td>
+      <td class="r">${esc(l.dias_trabajados)}</td>
       <td class="r">${fmt(l.sueldo_base)}</td>
       <td class="r">${fmt(l.bonificacion)}</td>
       <td class="r">${fmt(l.deduccion_gastos)}</td>
       <td class="r">${fmt(l.deduccion_inventario)}</td>
       <td class="r">${fmt(l.deduccion_prestamos)}</td>
-      <td class="r">${fmt(l.deducciones)}</td>
+      <td class="r">${fmt((Number(l.deducciones) || 0) + (Number(l.deduccion_faltas) || 0))}</td>
       <td class="r"><strong>${fmt(l.total)}</strong></td>
     </tr>`,
     )
@@ -41,12 +42,13 @@ export function htmlNomina(data) {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Nómina</title><style>${estilos()}</style></head><body>
     <h1>${esc(leerNombreNegocio())} — NÓMINA</h1>
     <div>Periodo: <strong>${esc(data.periodo_inicio)} — ${esc(data.periodo_fin)}</strong> (sáb–vie)</div>
+    <div class="muted">Consolidada de todas las sucursales</div>
     ${data.pagador_filtro ? `<div>Pagador: <strong>${esc(ETIQUETA_AREA[data.pagador_filtro] || data.pagador_filtro)}</strong></div>` : ''}
     <div class="muted">Generado: ${esc(new Date().toLocaleString())}</div>
     <table>
-      <thead><tr><th>Empleado</th><th>Rol</th><th>Pagador</th><th class="r">Días</th><th class="r">Sueldo</th><th class="r">Bono</th><th class="r">Consumos</th><th class="r">Inventario</th><th class="r">Préstamos</th><th class="r">Otras ded.</th><th class="r">Total</th></tr></thead>
+      <thead><tr><th>Empleado</th><th>Rol</th><th>Pagador</th><th class="r">$/día</th><th class="r">Días</th><th class="r">Sueldo</th><th class="r">Bono</th><th class="r">Consumos</th><th class="r">Inventario</th><th class="r">Préstamos</th><th class="r">Otras deudas</th><th class="r">Total</th></tr></thead>
       <tbody>${lineas}</tbody>
-      <tfoot><tr><td colspan="10" class="r"><strong>Total</strong></td><td class="r"><strong>${fmt(data.total)}</strong></td></tr></tfoot>
+      <tfoot><tr><td colspan="11" class="r"><strong>Total</strong></td><td class="r"><strong>${fmt(data.total)}</strong></td></tr></tfoot>
     </table>
     ${data.notas ? `<p class="muted">Notas: ${esc(data.notas)}</p>` : ''}
   </body></html>`;
@@ -101,8 +103,9 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
     Math.max(0, (Number(linea.deduccion_gastos) || 0) - dedInv);
   const dedPrest = Number(linea.deduccion_prestamos) || 0;
   const dedFaltas = Number(linea.deduccion_faltas) || 0;
-  const dedOtras = Number(linea.deducciones) || 0;
-  const neto = Number(linea.total) ?? Math.max(0, bruto - dedInv - dedCons - dedPrest - dedFaltas - dedOtras);
+  const dedOtras = (Number(linea.deducciones) || 0) + dedFaltas;
+  const salarioDia = Number(linea.salario_dia ?? linea.sueldo_tarifa) || 0;
+  const neto = Number(linea.total) ?? Math.max(0, bruto - dedInv - dedCons - dedPrest - dedOtras);
   const filaDed = (label, monto) =>
     monto > 0
       ? `<tr><td>${esc(label)}</td><td class="r" style="color:#c0392b">− ${fmt(monto)}</td></tr>`
@@ -125,6 +128,7 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
     ${linea.rol ? `<div class="campo"><strong>Puesto:</strong> ${esc(linea.rol)}</div>` : ''}
     ${linea.pagador_nomina ? `<div class="campo"><strong>Pagador:</strong> ${esc(ETIQUETA_AREA[linea.pagador_nomina] || linea.pagador_nomina)}</div>` : ''}
     <div class="campo"><strong>Periodo de pago:</strong> ${esc(opts.periodo_inicio)} — ${esc(opts.periodo_fin)}</div>
+    ${salarioDia > 0 ? `<div class="campo"><strong>Salario por día:</strong> ${fmt(salarioDia)}</div>` : ''}
     ${linea.dias_trabajados != null && Number(linea.dias_trabajados) > 0 ? `<div class="campo"><strong>${linea.vales_gasolina > 0 && linea.es_indirecto ? 'Vales cobrados' : 'Días trabajados'}:</strong> ${esc(linea.dias_trabajados)}</div>` : ''}
     ${linea.faltas_gasolina > 0 ? `<div class="campo"><strong>Faltas (vale no cobrado):</strong> ${esc(linea.faltas_gasolina)}</div>` : ''}
     <div class="campo"><strong>Fecha de pago:</strong> ${esc(fechaPago)}</div>
@@ -139,9 +143,9 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
       ${filaDed('Inventario', dedInv)}
       ${filaDed('Consumos', dedCons)}
       ${filaDed('Préstamos', dedPrest)}
-      ${filaDed('Faltas (gasolina)', dedFaltas)}
-      ${filaDed('Otras deducciones', dedOtras)}
-      ${dedInv + dedCons + dedPrest + dedFaltas + dedOtras === 0 ? '<tr><td colspan="2" class="muted">Sin descuentos</td></tr>' : ''}
+      ${dedFaltas > 0 ? filaDed('Faltas (gasolina)', dedFaltas) : ''}
+      ${Number(linea.deducciones) > 0 ? filaDed('Otras deudas', Number(linea.deducciones)) : ''}
+      ${dedInv + dedCons + dedPrest + dedOtras === 0 ? '<tr><td colspan="2" class="muted">Sin descuentos</td></tr>' : ''}
     </table>
     <div class="neto">Pago neto a recibir: ${fmt(neto)}</div>
     <div class="firma">Recibí de conformidad el importe neto indicado.<br/><br/>
@@ -150,6 +154,7 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
       <span class="muted">Firma del empleado</span>
     </div>
     ${opts.notas ? `<p class="muted" style="margin-top:12px">Notas: ${esc(opts.notas)}</p>` : ''}
+    ${linea.notas ? `<p class="muted" style="margin-top:8px;font-size:11px">Detalle: ${esc(linea.notas)}</p>` : ''}
   </body></html>`;
 }
 

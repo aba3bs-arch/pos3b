@@ -12,15 +12,14 @@ function cuotaDeducible(p) {
 }
 
 /** Préstamos activos por empleado — cuota semanal (mín. $500). */
-export async function prestamosDeduccionPorEmpleado(supabase, { sucursal, empleados = [] }) {
+export async function prestamosDeduccionPorEmpleado(supabase, { sucursal, empleados = [], todasSucursales = true }) {
   if (!supabase) return { map: {}, error: null };
   const indice = indiceEmpleados(empleados);
-  const { data, error } = await supabase
-    .from('prestamos')
-    .select('*')
-    .eq('sucursal_id', sucursal || 'MAIN')
-    .eq('estado', 'activo')
-    .order('created_at', { ascending: true });
+
+  let q = supabase.from('prestamos').select('*').eq('estado', 'activo').order('created_at', { ascending: true });
+  if (!todasSucursales && sucursal) q = q.eq('sucursal_id', sucursal || 'MAIN');
+
+  const { data, error } = await q;
 
   if (error) {
     if (error.code === '42P01') return { map: {}, error: null };
@@ -33,23 +32,24 @@ export async function prestamosDeduccionPorEmpleado(supabase, { sucursal, emplea
     if (ded <= 0) continue;
     const clave = resolverClaveEmpleado(p, indice);
     if (!clave) continue;
-    if (!map[clave]) map[clave] = { total: 0, detalle: [] };
+    if (!map[clave]) map[clave] = { total: 0, detalle: [], porSucursal: {} };
     map[clave].total = round2(map[clave].total + ded);
     map[clave].detalle.push({ ...p, cuota_esta_semana: ded });
+    const suc = p.sucursal_id || 'MAIN';
+    map[clave].porSucursal[suc] = round2((map[clave].porSucursal[suc] || 0) + ded);
   }
   return { map, error: null };
 }
 
 /** Aplica abonos semanales de nómina a préstamos activos del empleado. */
-export async function aplicarPrestamosNomina(supabase, { lineas, sucursal, empleados = [] }) {
+export async function aplicarPrestamosNomina(supabase, { lineas, sucursal, empleados = [], todasSucursales = true }) {
   if (!supabase) return { ok: true };
   const indice = indiceEmpleados(empleados);
-  const { data: todos, error: eList } = await supabase
-    .from('prestamos')
-    .select('*')
-    .eq('sucursal_id', sucursal || 'MAIN')
-    .eq('estado', 'activo')
-    .order('created_at', { ascending: true });
+
+  let q = supabase.from('prestamos').select('*').eq('estado', 'activo').order('created_at', { ascending: true });
+  if (!todasSucursales && sucursal) q = q.eq('sucursal_id', sucursal || 'MAIN');
+
+  const { data: todos, error: eList } = await q;
   if (eList) return { ok: false, error: eList.message };
 
   for (const l of lineas || []) {

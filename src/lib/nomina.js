@@ -1,8 +1,22 @@
 import { marcarGastosDescontadosNomina, gastoCuentaEnNomina } from './nominaGastos.js';
 import { aplicarPrestamosNomina } from './nominaPrestamos.js';
-import { empleadoIncluidoEnPagadorFiltro, esIndirectoNomina, sueldoProporcionalDias, sueldoIndirectoPorVales, resolverCortesEmpleado } from './nominaCalculos.js';
+import { gastosDeduccionPorEmpleado } from './nominaGastos.js';
+import { prestamosDeduccionPorEmpleado } from './nominaPrestamos.js';
+import {
+  empleadoIncluidoEnPagadorFiltro,
+  esIndirectoNomina,
+  sueldoPorSalarioDia,
+  sueldoIndirectoPorVales,
+  resolverCortesEmpleado,
+  cortesPorEmpleado,
+  valesGasolinaPorEmpleado,
+  otrasDeudasLinea,
+  DIAS_SEMANA_NOMINA,
+} from './nominaCalculos.js';
+import { etiquetaTienda } from '../constants/sucursales.js';
 
-const LS_SUELDOS = 'pos3b_nomina_sueldos_default';
+const LS_SUELDOS = 'pos3b_nomina_salario_dia';
+const LS_SUELDOS_LEGACY = 'pos3b_nomina_sueldos_default';
 
 export function totalLineaNomina(linea) {
   const base = Number(linea.sueldo_base) || 0;
@@ -10,24 +24,38 @@ export function totalLineaNomina(linea) {
   const dedGastos = Number(linea.deduccion_gastos) || 0;
   const dedInventario = Number(linea.deduccion_inventario) || 0;
   const dedPrestamos = Number(linea.deduccion_prestamos) || 0;
-  const dedFaltas = Number(linea.deduccion_faltas) || 0;
-  const ded = Number(linea.deducciones) || 0;
-  return Math.max(0, base + bon - dedGastos - dedInventario - dedPrestamos - dedFaltas - ded);
+  const dedOtras = otrasDeudasLinea(linea);
+  return Math.max(0, round2(base + bon - dedGastos - dedInventario - dedPrestamos - dedOtras));
+}
+
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
 }
 
 export function leerSueldosDefault() {
   try {
     const raw = localStorage.getItem(LS_SUELDOS);
-    const o = raw ? JSON.parse(raw) : {};
-    return o && typeof o === 'object' ? o : {};
+    if (raw) {
+      const o = JSON.parse(raw);
+      if (o && typeof o === 'object') return o;
+    }
+    const leg = localStorage.getItem(LS_SUELDOS_LEGACY);
+    if (!leg) return {};
+    const old = JSON.parse(leg);
+    if (!old || typeof old !== 'object') return {};
+    const migrado = {};
+    for (const [id, v] of Object.entries(old)) {
+      migrado[id] = round2((Number(v) || 0) / DIAS_SEMANA_NOMINA);
+    }
+    return migrado;
   } catch {
     return {};
   }
 }
 
-export function guardarSueldoDefault(usuarioId, monto) {
+export function guardarSueldoDefault(usuarioId, salarioDia) {
   const map = leerSueldosDefault();
-  map[String(usuarioId)] = Number(monto) || 0;
+  map[String(usuarioId)] = round2(salarioDia);
   localStorage.setItem(LS_SUELDOS, JSON.stringify(map));
 }
 
@@ -43,22 +71,62 @@ function splitGastosNomina(detalle = []) {
     else consumos += m;
   }
   return {
-    deduccion_inventario: Math.round(inventario * 100) / 100,
-    deduccion_consumos: Math.round(consumos * 100) / 100,
+    deduccion_inventario: round2(inventario),
+    deduccion_consumos: round2(consumos),
   };
 }
 
-function notasGastosPorModulo(gastosEmp) {
-  const porModulo = gastosEmp?.porModulo;
-  if (!porModulo || !Object.keys(porModulo).length) return '';
-  const partes = Object.entries(porModulo)
-    .filter(([, m]) => Number(m) > 0)
-    .map(([mod, m]) => `${mod}: $${Number(m).toFixed(2)}`);
-  return partes.length ? partes.join(' · ') : '';
+function notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas) {
+  const notas = [];
+  if (indirecto) {
+    if (valesGas > 0) notas.push(`Vales cobrados: ${valesGas}`);
+    if (faltasGas > 0) notas.push(`Faltas (vale no cobrado): ${faltasGas}`);
+  } else if (cortes > 0) {
+    notas.push(`Cortes en periodo: ${cortes}`);
+  }
+
+  const porSuc = gastosEmp?.porSucursal;
+  if (porSuc && Object.keys(porSuc).length) {
+    const partes = Object.entries(porSuc)
+      .filter(([, m]) => Number(m) > 0)
+      .map(([suc, m]) => `${etiquetaTienda(suc)}: $${Number(m).toFixed(2)}`);
+    if (partes.length) notas.push(`Consumos (${partes.join(' · ')})`);
+  } else if (gastosEmp?.detalle?.length) {
+    notas.push(`Consumos: ${gastosEmp.detalle.length} mov.`);
+  }
+
+  const inv = splitGastosNomina(gastosEmp?.detalle || []).deduccion_inventario;
+  if (inv > 0) {
+    const porSucInv = {};
+    for (const g of gastosEmp?.detalle || []) {
+      if (!gastoCuentaEnNomina(g)) continue;
+      const cat = String(g.categoria || '').toUpperCase();
+      const sub = String(g.subcategoria || '').toUpperCase();
+      if (!cat.includes('INVENT') && !sub.includes('INVENT')) continue;
+      const suc = g.sucursal_id || 'MAIN';
+      porSucInv[suc] = round2((porSucInv[suc] || 0) + (Number(g.monto) || 0));
+    }
+    const partes = Object.entries(porSucInv).map(([s, m]) => `${etiquetaTienda(s)}: $${m.toFixed(2)}`);
+    notas.push(`Inventario (${partes.join(' · ')})`);
+  }
+
+  if (prestEmp?.detalle?.length) {
+    const porSuc = prestEmp.porSucursal;
+    if (porSuc && Object.keys(porSuc).length) {
+      const partes = Object.entries(porSuc)
+        .filter(([, m]) => Number(m) > 0)
+        .map(([s, m]) => `${etiquetaTienda(s)}: $${Number(m).toFixed(2)}`);
+      notas.push(`Préstamos (${partes.join(' · ')})`);
+    } else {
+      notas.push(`Préstamos: ${prestEmp.detalle.length} activo(s)`);
+    }
+  }
+  return notas.join(' · ');
 }
 
-function tarifaEmpleado(u, sueldosMap) {
-  return Number(sueldosMap[u.id] ?? leerSueldosDefault()[String(u.id)] ?? 0);
+function salarioDiaEmpleado(u, sueldosMap) {
+  const map = { ...leerSueldosDefault(), ...sueldosMap };
+  return round2(map[u.id] ?? map[String(u.id)] ?? 0);
 }
 
 export function lineasDesdeEmpleados(empleados, opts = {}) {
@@ -79,9 +147,9 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
 
   return lista.map((u) => {
     const indirecto = esIndirectoNomina(u);
-    const tarifa = tarifaEmpleado(u, sueldosMap);
-    const gastosEmp = gastosMap[String(u.id)] || { total: 0, detalle: [] };
-    const prestEmp = prestamosMap[String(u.id)] || { total: 0, detalle: [] };
+    const salarioDia = salarioDiaEmpleado(u, sueldosMap);
+    const gastosEmp = gastosMap[String(u.id)] || { total: 0, detalle: [], porSucursal: {} };
+    const prestEmp = prestamosMap[String(u.id)] || { total: 0, detalle: [], porSucursal: {} };
     const { deduccion_inventario, deduccion_consumos } = splitGastosNomina(gastosEmp.detalle);
     const dedGastos = Number(deduccion_consumos) || 0;
     const dedPrestamos = Number(prestEmp.total) || 0;
@@ -96,37 +164,21 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
 
     if (indirecto) {
       diasTrabajados = valesGas;
-      sueldoBase = sueldoIndirectoPorVales(tarifa, valesGas);
-      dedFaltas = sueldoIndirectoPorVales(tarifa, faltasGas);
+      sueldoBase = sueldoIndirectoPorVales(salarioDia, valesGas);
+      dedFaltas = sueldoIndirectoPorVales(salarioDia, faltasGas);
     } else {
-      sueldoBase = sueldoProporcionalDias(tarifa, cortes);
+      sueldoBase = sueldoPorSalarioDia(salarioDia, cortes);
     }
-
-    const notas = [];
-    if (indirecto) {
-      if (valesGas > 0) notas.push(`Vales cobrados: ${valesGas}`);
-      if (faltasGas > 0) notas.push(`Faltas (vale no cobrado): ${faltasGas}`);
-    } else if (cortes > 0) {
-      notas.push(`Cortes en periodo: ${cortes}`);
-    }
-    if (dedGastos > 0) {
-      const mods = notasGastosPorModulo(gastosEmp);
-      notas.push(
-        mods
-          ? `Consumos cortes (${gastosEmp.detalle?.length || 0}): ${mods}`
-          : `Consumos cortes: ${gastosEmp.detalle?.length || 0} mov.`,
-      );
-    }
-    if (deduccion_inventario > 0) notas.push(`Inventario faltante: ${fmtMonto(deduccion_inventario)}`);
-    if (dedPrestamos > 0) notas.push(`Préstamos: ${prestEmp.detalle?.length || 0} activo(s)`);
 
     const linea = {
       usuario_id: u.id,
       nombre: u.nombre || '—',
       rol: u.rol || '—',
+      sucursal_id: u.sucursal_id || null,
       pagador_nomina: u.nomina_pagador || 'abarrotes',
       es_indirecto: indirecto,
-      sueldo_tarifa: tarifa,
+      salario_dia: salarioDia,
+      sueldo_tarifa: salarioDia,
       dias_trabajados: diasTrabajados,
       cortes_periodo: cortes,
       vales_gasolina: valesGas,
@@ -139,7 +191,7 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       deduccion_prestamos: dedPrestamos,
       deduccion_faltas: dedFaltas,
       deducciones: 0,
-      notas: notas.join(' · '),
+      notas: notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas),
       pagador_manual: false,
       dias_manual: false,
       sueldo_manual: false,
@@ -151,25 +203,33 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
   });
 }
 
-function fmtMonto(n) {
-  return `$${(Number(n) || 0).toFixed(2)}`;
-}
-
 export function recalcularSueldoLinea(linea) {
   const l = { ...linea };
   if (l.sueldo_manual) {
     l.total = totalLineaNomina(l);
     return l;
   }
-  const tarifa = Number(l.sueldo_tarifa) || 0;
+  const salarioDia = Number(l.salario_dia ?? l.sueldo_tarifa) || 0;
   if (l.es_indirecto) {
-    l.sueldo_base = sueldoIndirectoPorVales(tarifa, l.vales_gasolina);
-    l.deduccion_faltas = sueldoIndirectoPorVales(tarifa, l.faltas_gasolina);
+    l.sueldo_base = sueldoIndirectoPorVales(salarioDia, l.vales_gasolina);
+    l.deduccion_faltas = sueldoIndirectoPorVales(salarioDia, l.faltas_gasolina);
   } else {
-    l.sueldo_base = sueldoProporcionalDias(tarifa, l.dias_trabajados);
+    l.sueldo_base = sueldoPorSalarioDia(salarioDia, l.dias_trabajados);
   }
   l.total = totalLineaNomina(l);
   return l;
+}
+
+/** Carga gastos, préstamos, cortes y vales de todas las sucursales. */
+export async function cargarDatosNomina(supabase, { desde, hasta, empleados, todasSucursales = true, sucursal }) {
+  const opts = { desde, hasta, empleados, todasSucursales, sucursal };
+  const [gastosRes, prestRes, cortesRes, valesRes] = await Promise.all([
+    gastosDeduccionPorEmpleado(supabase, opts),
+    prestamosDeduccionPorEmpleado(supabase, opts),
+    cortesPorEmpleado(supabase, opts),
+    valesGasolinaPorEmpleado(supabase, opts),
+  ]);
+  return { gastosRes, prestRes, cortesRes, valesRes };
 }
 
 export function faltaTablaNomina(error) {
@@ -187,9 +247,9 @@ export const AVISO_FALTA_NOMINA =
 
 export async function listarPeriodosNomina(supabase, opts = {}) {
   if (!supabase) return { data: [], error: null, soloLocal: true };
-  const { sucursal, limit = 30 } = opts;
+  const { sucursal, limit = 30, todasSucursales = true } = opts;
   let q = supabase.from('nomina_periodos').select('*').order('periodo_fin', { ascending: false }).limit(limit);
-  if (sucursal) q = q.eq('sucursal_id', sucursal);
+  if (!todasSucursales && sucursal) q = q.eq('sucursal_id', sucursal);
   const { data, error } = await q;
   if (error && faltaTablaNomina(error)) {
     return { data: [], error: null, aviso: AVISO_FALTA_NOMINA, soloLocal: true };
@@ -199,7 +259,7 @@ export async function listarPeriodosNomina(supabase, opts = {}) {
 
 export async function guardarPeriodoNomina(supabase, payload) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
-  const { periodo, lineas, empleados = [] } = payload;
+  const { periodo, lineas, empleados = [], todasSucursales = true } = payload;
   const total = (lineas || []).reduce((a, l) => a + totalLineaNomina(l), 0);
 
   const { data: per, error: e1 } = await supabase
@@ -230,7 +290,7 @@ export async function guardarPeriodoNomina(supabase, payload) {
     nombre: l.nombre,
     rol: l.rol || null,
     pagador_nomina: l.pagador_nomina || null,
-    sueldo_tarifa: Number(l.sueldo_tarifa) || 0,
+    sueldo_tarifa: Number(l.salario_dia ?? l.sueldo_tarifa) || 0,
     dias_trabajados: Number(l.dias_trabajados) || 0,
     cortes_periodo: Number(l.cortes_periodo) || 0,
     vales_gasolina: Number(l.vales_gasolina) || 0,
@@ -239,13 +299,13 @@ export async function guardarPeriodoNomina(supabase, payload) {
     deduccion_gastos: Number(l.deduccion_gastos) || 0,
     deduccion_inventario: Number(l.deduccion_inventario) || 0,
     deduccion_prestamos: Number(l.deduccion_prestamos) || 0,
-    deducciones: Number(l.deducciones) || 0,
+    deducciones: round2(otrasDeudasLinea(l)),
     total: totalLineaNomina(l),
     notas: l.notas || null,
   }));
 
   for (const l of lineas || []) {
-    if (l.usuario_id) guardarSueldoDefault(l.usuario_id, l.sueldo_tarifa || l.sueldo_base);
+    if (l.usuario_id) guardarSueldoDefault(l.usuario_id, l.salario_dia ?? l.sueldo_tarifa);
   }
 
   const { error: e2 } = await supabase.from('nomina_lineas').insert(filas);
@@ -262,9 +322,15 @@ export async function guardarPeriodoNomina(supabase, payload) {
     hasta: periodo.periodo_fin,
     periodoId: per.id,
     empleados: listaEmp,
+    todasSucursales,
   });
 
-  const prestRes = await aplicarPrestamosNomina(supabase, { lineas, sucursal: periodo.sucursal_id, empleados: listaEmp });
+  const prestRes = await aplicarPrestamosNomina(supabase, {
+    lineas,
+    sucursal: periodo.sucursal_id,
+    empleados: listaEmp,
+    todasSucursales,
+  });
   if (!prestRes.ok) return { ok: false, error: prestRes.error };
 
   return { ok: true, id: per.id, total, lineas };
@@ -273,5 +339,10 @@ export async function guardarPeriodoNomina(supabase, payload) {
 export async function cargarLineasPeriodo(supabase, periodoId) {
   if (!supabase || !periodoId) return { data: [], error: null };
   const { data, error } = await supabase.from('nomina_lineas').select('*').eq('periodo_id', periodoId).order('nombre');
-  return { data: data || [], error: error?.message || null };
+  const lineas = (data || []).map((l) => ({
+    ...l,
+    salario_dia: l.sueldo_tarifa,
+    deduccion_faltas: 0,
+  }));
+  return { data: lineas, error: error?.message || null };
 }

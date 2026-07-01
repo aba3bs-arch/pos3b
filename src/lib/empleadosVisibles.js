@@ -124,6 +124,12 @@ export function enriquecerEmpleadosNominaIndirectos(empleados) {
   return out;
 }
 
+/** Lista global para nómina: todos los empleados operativos de todas las sucursales. */
+export function empleadosParaNominaGlobal(empleados) {
+  const lista = (empleados || []).filter((e) => normalizarRol(e.rol) !== 'Administrador');
+  return enriquecerEmpleadosNominaIndirectos(lista);
+}
+
 /** Pantalla Usuarios (solo admin): filtro opcional por tienda. */
 export function filtrarEmpleadosAdmin(empleados, filtroSucursal) {
   if (!filtroSucursal) return empleados || [];
