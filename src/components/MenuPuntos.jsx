@@ -30,24 +30,32 @@ export default function MenuPuntos({ items, ariaLabel = 'Más opciones' }) {
         <Icon name="moreVertical" size={22} />
       </button>
       {abierto && (
-        <div className="menu-puntos-dropdown" role="menu">
-          {items.map((it) => (
-            <button
-              key={it.id}
-              type="button"
-              role="menuitem"
-              className="menu-puntos-item"
-              disabled={it.disabled}
-              onClick={() => {
-                setAbierto(false);
-                it.onClick?.();
-              }}
-            >
-              {it.icon && <Icon name={it.icon} size={18} />}
-              <span>{it.label}</span>
-            </button>
-          ))}
-        </div>
+        <>
+          <button
+            type="button"
+            className="menu-puntos-backdrop"
+            aria-label="Cerrar menú"
+            onClick={() => setAbierto(false)}
+          />
+          <div className="menu-puntos-dropdown" role="menu">
+            {items.map((it) => (
+              <button
+                key={it.id}
+                type="button"
+                role="menuitem"
+                className="menu-puntos-item"
+                disabled={it.disabled}
+                onClick={() => {
+                  setAbierto(false);
+                  it.onClick?.();
+                }}
+              >
+                {it.icon && <Icon name={it.icon} size={18} />}
+                <span>{it.label}</span>
+              </button>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
