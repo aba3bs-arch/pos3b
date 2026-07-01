@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { listarSucursalesOperativas, etiquetaTienda } from '../constants/sucursales.js';
 import {
   GRANULARIDAD_OPTS,
-  PRESETS_FECHA_PRODUCTO,
   agruparGastosPorTienda,
   agruparVentasPorPeriodo,
   agruparVentasPorTienda,
@@ -15,6 +14,7 @@ import {
   sumaGastos,
   sumaVentas,
 } from '../lib/estadisticasData.js';
+import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -93,28 +93,16 @@ export default function Estadisticas({ supabase }) {
               ))}
             </select>
           </label>
-          <label className="muted" style={{ fontSize: '0.8rem' }}>
-            Rango
-            <select className="select" style={{ display: 'block', marginTop: '0.2rem', minWidth: 160 }} value={presetFecha} onChange={(e) => setPresetFecha(e.target.value)}>
-              {PRESETS_FECHA_PRODUCTO.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          {presetFecha === 'rango' && (
-            <>
-              <label className="muted" style={{ fontSize: '0.8rem' }}>
-                Desde
-                <input className="input" type="date" style={{ display: 'block', marginTop: '0.2rem' }} value={desde} onChange={(e) => setDesde(e.target.value)} />
-              </label>
-              <label className="muted" style={{ fontSize: '0.8rem' }}>
-                Hasta
-                <input className="input" type="date" style={{ display: 'block', marginTop: '0.2rem' }} value={hasta} onChange={(e) => setHasta(e.target.value)} />
-              </label>
-            </>
-          )}
+          <FiltroPeriodo
+            labelPeriodo="Rango"
+            preset={presetFecha}
+            onPresetChange={setPresetFecha}
+            desde={desde}
+            hasta={hasta}
+            onDesdeChange={setDesde}
+            onHastaChange={setHasta}
+            className="cal-picker-wrap--inline"
+          />
           <label className="muted" style={{ fontSize: '0.8rem' }}>
             Agrupar ventas
             <select className="select" style={{ display: 'block', marginTop: '0.2rem', minWidth: 130 }} value={granularidad} onChange={(e) => setGranularidad(e.target.value)}>

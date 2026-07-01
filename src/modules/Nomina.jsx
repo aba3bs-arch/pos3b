@@ -14,6 +14,7 @@ import { ETIQUETA_AREA, PAGADORES_NOMINA } from '../lib/contabilidadConstants.js
 import { imprimirNomina, imprimirReciboNominaIndividual, imprimirTodosRecibosNomina } from '../lib/impresionContabilidad.js';
 import { empleadosParaNominaGlobal } from '../lib/empleadosVisibles.js';
 import PanelAsistenciaGasolina from '../components/PanelAsistenciaGasolina.jsx';
+import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
 import { normalizarRol } from '../lib/roles.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 
@@ -439,14 +440,14 @@ export default function Nomina({ supabase, sucursal, user }) {
         </div>
 
         <div className="grid-2" style={{ marginBottom: '0.75rem' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
-            Inicio (sábado)
-            <input className="input" type="date" value={inicio} onChange={(e) => setInicio(e.target.value)} />
-          </label>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
-            Fin (viernes)
-            <input className="input" type="date" value={fin} onChange={(e) => setFin(e.target.value)} />
-          </label>
+          <FiltroRangoCalendario
+            desde={inicio}
+            hasta={fin}
+            onDesdeChange={setInicio}
+            onHastaChange={setFin}
+            labelDesde="Inicio (sábado)"
+            labelHasta="Fin (viernes)"
+          />
           <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
             Pagador
             <select className="select" value={pagadorFiltro} onChange={(e) => setPagadorFiltro(e.target.value)}>

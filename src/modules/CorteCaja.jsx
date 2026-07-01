@@ -24,6 +24,7 @@ import {
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { imprimirCorte } from '../lib/impresion.js';
 import { leerConfigImpresion } from '../lib/posConfig.js';
+import SelectorCalendario from '../components/SelectorCalendario.jsx';
 
 function fmtHora(iso) {
   if (!iso) return '—';
@@ -266,10 +267,7 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
   const barraFecha = (
     <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-end' }}>
-        <label className="muted">
-          Fecha
-          <input type="date" className="input" style={{ marginTop: '0.35rem' }} value={fecha} onChange={(e) => setFecha(e.target.value)} />
-        </label>
+        <SelectorCalendario label="Fecha" value={fecha} onChange={setFecha} />
         <button type="button" className="btn btn-primary" onClick={cargar} disabled={loading}>
           {loading ? 'Actualizando…' : 'Actualizar día'}
         </button>

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { consultarVentas } from '../lib/ventasQuery.js';
 import { imprimirInventario, imprimirReporte } from '../lib/impresion.js';
 import { BtnLabel } from '../components/Icon.jsx';
+import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
 
 function toCsv(rows, columns) {
   const esc = (v) => {
@@ -134,10 +135,7 @@ export default function Reportes({ supabase, inventario, sucursal }) {
             <div className="muted" style={{ marginBottom: '0.5rem' }}>
               Rango para ventas
             </div>
-            <div className="grid-2">
-              <input type="date" className="input" value={desde} onChange={(e) => setDesde(e.target.value)} />
-              <input type="date" className="input" value={hasta} onChange={(e) => setHasta(e.target.value)} />
-            </div>
+            <FiltroRangoCalendario desde={desde} hasta={hasta} onDesdeChange={setDesde} onHastaChange={setHasta} />
             <button type="button" className="btn btn-gold" style={{ width: '100%', marginTop: '0.75rem' }} onClick={() => exportVentas()}>
               <BtnLabel icon="download">Descargar ventas del rango</BtnLabel>
             </button>

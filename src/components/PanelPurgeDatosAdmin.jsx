@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import InputPin from './InputPin.jsx';
+import FiltroRangoCalendario from './FiltroRangoCalendario.jsx';
 import { listarSucursales, listarSucursalesOperativas, etiquetaTienda } from '../constants/sucursales.js';
 import { esAdministradorPrincipal, verificarAdminPrincipal } from '../lib/adminPrincipal.js';
 import { TIPOS_PURGA, ejecutarPurgaDatos } from '../lib/purgeDatosAdmin.js';
@@ -122,16 +123,7 @@ export default function PanelPurgeDatosAdmin({
             </div>
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '1rem' }}>
-            <label className="muted" style={{ fontSize: '0.8rem' }}>
-              Desde
-              <input className="input" type="date" style={{ display: 'block', marginTop: '0.2rem' }} value={desde} onChange={(e) => setDesde(e.target.value)} />
-            </label>
-            <label className="muted" style={{ fontSize: '0.8rem' }}>
-              Hasta
-              <input className="input" type="date" style={{ display: 'block', marginTop: '0.2rem' }} value={hasta} onChange={(e) => setHasta(e.target.value)} />
-            </label>
-          </div>
+          <FiltroRangoCalendario style={{ marginTop: '1rem' }} desde={desde} hasta={hasta} onDesdeChange={setDesde} onHastaChange={setHasta} />
 
           <div style={{ marginTop: '1rem' }}>
             <div className="muted" style={{ fontSize: '0.8rem', marginBottom: '0.35rem' }}>

@@ -21,6 +21,7 @@ import {
   filtrarHistorialReciente,
   rangoDesdePreset,
 } from '../lib/consultasInventario.js';
+import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
 
 const TIPOS_LIBRE = TIPOS_MOVIMIENTO.filter((t) => t.id !== 'traspaso');
 
@@ -855,28 +856,16 @@ export default function AjusteInventario({
               ))}
             </select>
           </label>
-          <label className="muted" style={{ fontSize: '0.8rem' }}>
-            Fechas
-            <select className="select" style={{ display: 'block', marginTop: '0.2rem', minWidth: 150 }} value={filtroHistFecha} onChange={(e) => setFiltroHistFecha(e.target.value)}>
-              {PRESETS_FECHA_PRODUCTO.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          {filtroHistFecha === 'rango' && (
-            <>
-              <label className="muted" style={{ fontSize: '0.8rem' }}>
-                Desde
-                <input className="input" type="date" style={{ display: 'block', marginTop: '0.2rem' }} value={histDesde} onChange={(e) => setHistDesde(e.target.value)} />
-              </label>
-              <label className="muted" style={{ fontSize: '0.8rem' }}>
-                Hasta
-                <input className="input" type="date" style={{ display: 'block', marginTop: '0.2rem' }} value={histHasta} onChange={(e) => setHistHasta(e.target.value)} />
-              </label>
-            </>
-          )}
+          <FiltroPeriodo
+            labelPeriodo="Fechas"
+            preset={filtroHistFecha}
+            onPresetChange={setFiltroHistFecha}
+            desde={histDesde}
+            hasta={histHasta}
+            onDesdeChange={setHistDesde}
+            onHastaChange={setHistHasta}
+            className="cal-picker-wrap--inline"
+          />
           <span className="muted" style={{ fontSize: '0.75rem', marginLeft: 'auto' }}>
             {historialFiltrado.length} movimiento{historialFiltrado.length === 1 ? '' : 's'}
           </span>

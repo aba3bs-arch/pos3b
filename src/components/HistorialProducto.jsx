@@ -10,6 +10,7 @@ import {
   timelineProducto,
   ventasConProducto,
 } from '../lib/consultasInventario.js';
+import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
 
 function fmtFecha(iso) {
   if (!iso) return '—';
@@ -145,32 +146,14 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
 
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Rango de fechas</h3>
-        <label className="muted" style={{ display: 'block' }}>
-          Periodo
-          <select className="select" style={{ marginTop: '0.35rem' }} value={presetFecha} onChange={(e) => cambiarPreset(e.target.value)}>
-            {PRESETS_FECHA_PRODUCTO.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        {presetFecha === 'rango' ? (
-          <div className="grid-2" style={{ marginTop: '0.75rem' }}>
-            <label className="muted">
-              Desde
-              <input type="date" className="input" style={{ marginTop: '0.35rem' }} value={desde} onChange={(e) => setDesde(e.target.value)} />
-            </label>
-            <label className="muted">
-              Hasta
-              <input type="date" className="input" style={{ marginTop: '0.35rem' }} value={hasta} onChange={(e) => setHasta(e.target.value)} />
-            </label>
-          </div>
-        ) : (
-          <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
-            {desde === hasta ? `Fecha: ${desde}` : `${desde} — ${hasta}`}
-          </p>
-        )}
+        <FiltroPeriodo
+          preset={presetFecha}
+          onPresetChange={cambiarPreset}
+          desde={desde}
+          hasta={hasta}
+          onDesdeChange={setDesde}
+          onHastaChange={setHasta}
+        />
         <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={cargarVentas} disabled={cargando}>
           {cargando ? 'Actualizando…' : 'Actualizar historial'}
         </button>

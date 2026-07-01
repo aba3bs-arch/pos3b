@@ -11,6 +11,7 @@ import { puedeGestionarUsuarios } from '../lib/roles.js';
 import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import InputPin from '../components/InputPin.jsx';
+import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
 
 function inicioDiaLocal() {
   const d = new Date();
@@ -486,28 +487,18 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                 </select>
               </label>
             )}
-            <label className="muted" style={{ fontSize: '0.8rem' }}>
-              Periodo
-              <select className="select" style={{ display: 'block', marginTop: '0.2rem', minWidth: 160 }} value={presetHist} onChange={(e) => setPresetHist(e.target.value)}>
-                {PRESETS_HISTORIAL.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {presetHist === 'rango' && (
-              <>
-                <label className="muted" style={{ fontSize: '0.8rem' }}>
-                  Desde
-                  <input className="input" type="date" style={{ display: 'block', marginTop: '0.2rem' }} value={histDesde} onChange={(e) => setHistDesde(e.target.value)} />
-                </label>
-                <label className="muted" style={{ fontSize: '0.8rem' }}>
-                  Hasta
-                  <input className="input" type="date" style={{ display: 'block', marginTop: '0.2rem' }} value={histHasta} onChange={(e) => setHistHasta(e.target.value)} />
-                </label>
-              </>
-            )}
+            <FiltroPeriodo
+              labelPeriodo="Periodo"
+              presets={PRESETS_HISTORIAL}
+              preset={presetHist}
+              onPresetChange={setPresetHist}
+              desde={histDesde}
+              hasta={histHasta}
+              onDesdeChange={setHistDesde}
+              onHastaChange={setHistHasta}
+              mostrarResumen={false}
+              className="cal-picker-wrap--inline"
+            />
             <button type="button" className="btn btn-primary" onClick={cargarHistorialCompleto} disabled={cargandoHist}>
               {cargandoHist ? 'Cargando…' : 'Actualizar'}
             </button>

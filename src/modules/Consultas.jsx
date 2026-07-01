@@ -5,6 +5,7 @@ import { etiquetaTienda } from '../constants/sucursales.js';
 import { etiquetaDepartamento, listarDepartamentos } from '../lib/departamentos.js';
 import { mensajeErrorColumnasProducto, productoDesdeDb, productoParaGuardar } from '../lib/productoForm.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
+import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
 import {
   FILTROS_EVENTO_PRODUCTO,
   FILTROS_TIPO_MOVIMIENTO,
@@ -316,39 +317,14 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   );
 
   const filtrosFecha = (
-    <>
-      <label className="muted" style={{ display: 'block' }}>
-        Periodo
-        <select
-          className="select"
-          style={{ marginTop: '0.35rem' }}
-          value={presetFechaInv}
-          onChange={(e) => cambiarPresetFechaInv(e.target.value)}
-        >
-          {PRESETS_FECHA_PRODUCTO.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      {presetFechaInv === 'rango' ? (
-        <div className="grid-2" style={{ marginTop: '0.75rem' }}>
-          <label className="muted">
-            Desde
-            <input type="date" className="input" style={{ marginTop: '0.35rem' }} value={desde} onChange={(e) => setDesde(e.target.value)} />
-          </label>
-          <label className="muted">
-            Hasta
-            <input type="date" className="input" style={{ marginTop: '0.35rem' }} value={hasta} onChange={(e) => setHasta(e.target.value)} />
-          </label>
-        </div>
-      ) : (
-        <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
-          {desde === hasta ? `Fecha: ${desde}` : `${desde} — ${hasta}`}
-        </p>
-      )}
-    </>
+    <FiltroPeriodo
+      preset={presetFechaInv}
+      onPresetChange={cambiarPresetFechaInv}
+      desde={desde}
+      hasta={hasta}
+      onDesdeChange={setDesde}
+      onHastaChange={setHasta}
+    />
   );
 
   return (
@@ -763,49 +739,14 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
         <>
           <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Buscar producto</h3>
-            <label className="muted" style={{ display: 'block' }}>
-              Periodo
-              <select
-                className="select"
-                style={{ marginTop: '0.35rem' }}
-                value={presetFechaProducto}
-                onChange={(e) => cambiarPresetFechaProducto(e.target.value)}
-              >
-                {PRESETS_FECHA_PRODUCTO.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {presetFechaProducto === 'rango' ? (
-              <div className="grid-2" style={{ marginTop: '0.75rem' }}>
-                <label className="muted">
-                  Desde
-                  <input
-                    type="date"
-                    className="input"
-                    style={{ marginTop: '0.35rem' }}
-                    value={desdeProducto}
-                    onChange={(e) => setDesdeProducto(e.target.value)}
-                  />
-                </label>
-                <label className="muted">
-                  Hasta
-                  <input
-                    type="date"
-                    className="input"
-                    style={{ marginTop: '0.35rem' }}
-                    value={hastaProducto}
-                    onChange={(e) => setHastaProducto(e.target.value)}
-                  />
-                </label>
-              </div>
-            ) : (
-              <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
-                {desdeProducto === hastaProducto ? `Fecha: ${desdeProducto}` : `${desdeProducto} — ${hastaProducto}`}
-              </p>
-            )}
+            <FiltroPeriodo
+              preset={presetFechaProducto}
+              onPresetChange={cambiarPresetFechaProducto}
+              desde={desdeProducto}
+              hasta={hastaProducto}
+              onDesdeChange={setDesdeProducto}
+              onHastaChange={setHastaProducto}
+            />
             <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
               Código o nombre
               <div style={{ marginTop: '0.35rem' }}>

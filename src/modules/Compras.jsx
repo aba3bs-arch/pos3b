@@ -10,6 +10,9 @@ import {
   ventasPorProductoPorDia,
 } from '../lib/comprasPedido.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
+import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
+import { rangoDesdePreset } from '../lib/consultasInventario.js';
+import { enRangoYmd, parseYmd, toYmd } from '../lib/fechas.js';
 import { ALMACEN_CENTRAL, aplicarDeltaStock } from '../lib/inventarioMultitienda.js';
 
 function totalPedido(lines) {
@@ -50,8 +53,80 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
   const [codigoRecepcion, setCodigoRecepcion] = useState('');
   const [ventasPorProducto, setVentasPorProducto] = useState({});
   const [ventasPorDia, setVentasPorDia] = useState({});
+  const [presetVentasCompras, setPresetVentasCompras] = useState('14d');
+  const [ventasDesde, setVentasDesde] = useState('');
+  const [ventasHasta, setVentasHasta] = useState('');
+  const [presetHistCompras, setPresetHistCompras] = useState('6m');
+  const [histDesde, setHistDesde] = useState('');
+  const [histHasta, setHistHasta] = useState('');
   const diasDetalle = useMemo(() => ultimosDias(7), []);
   const pedidoInputRefs = useRef({});
+
+  const PRESETS_VENTAS_COMPRAS = [
+    { id: '7d', label: 'Últimos 7 días' },
+    { id: '14d', label: 'Últimos 14 días' },
+    { id: 'mes', label: 'Mes actual' },
+    { id: 'rango', label: 'Rango de fechas' },
+  ];
+
+  const rangoVentasCompras = useMemo(() => {
+    if (presetVentasCompras === 'rango' && ventasDesde) {
+      return {
+        desde: parseYmd(ventasDesde) || new Date(),
+        hasta: parseYmd(ventasHasta) || new Date(),
+      };
+    }
+    if (presetVentasCompras === '14d') {
+      const hasta = new Date();
+      const desde = new Date();
+      desde.setDate(desde.getDate() - 14);
+      desde.setHours(0, 0, 0, 0);
+      return { desde, hasta };
+    }
+    const ymd = rangoDesdePreset(presetVentasCompras);
+    if (ymd) {
+      return {
+        desde: parseYmd(ymd.desde) || new Date(),
+        hasta: parseYmd(ymd.hasta) || new Date(),
+      };
+    }
+    const hasta = new Date();
+    const desde = new Date();
+    desde.setDate(desde.getDate() - 14);
+    desde.setHours(0, 0, 0, 0);
+    return { desde, hasta };
+  }, [presetVentasCompras, ventasDesde, ventasHasta]);
+
+  const historialFiltrado = useMemo(() => {
+    if (presetHistCompras === 'rango' && histDesde && histHasta) {
+      return historial.filter((c) => enRangoYmd(toYmd(c.created_at), histDesde, histHasta));
+    }
+    const r = rangoDesdePreset(presetHistCompras);
+    if (!r) return historial;
+    return historial.filter((c) => enRangoYmd(toYmd(c.created_at), r.desde, r.hasta));
+  }, [historial, presetHistCompras, histDesde, histHasta]);
+
+  const cambiarPresetVentasCompras = (preset) => {
+    setPresetVentasCompras(preset);
+    if (preset !== 'rango' && preset !== '14d') {
+      const r = rangoDesdePreset(preset);
+      if (r) {
+        setVentasDesde(r.desde);
+        setVentasHasta(r.hasta);
+      }
+    }
+  };
+
+  const cambiarPresetHistCompras = (preset) => {
+    setPresetHistCompras(preset);
+    if (preset !== 'rango') {
+      const r = rangoDesdePreset(preset);
+      if (r) {
+        setHistDesde(r.desde);
+        setHistHasta(r.hasta);
+      }
+    }
+  };
 
   const loadProveedoresYHistorial = async () => {
     if (!supabase) return;
@@ -86,10 +161,8 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     let cancelled = false;
     (async () => {
       if (!supabase || !herramientaAbierta) return;
-      const desde = new Date();
-      desde.setDate(desde.getDate() - 14);
-      desde.setHours(0, 0, 0, 0);
-      const { data } = await consultarVentas(supabase, { desde, sucursal, limit: 800 });
+      const { desde, hasta } = rangoVentasCompras;
+      const { data } = await consultarVentas(supabase, { desde, hasta, sucursal, limit: 800 });
       if (cancelled) return;
       setVentasPorProducto(ventasPorProductoDesdeVentas(data));
       setVentasPorDia(ventasPorProductoPorDia(data));
@@ -97,7 +170,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     return () => {
       cancelled = true;
     };
-  }, [supabase, sucursal, herramientaAbierta]);
+  }, [supabase, sucursal, herramientaAbierta, rangoVentasCompras]);
 
   useEffect(() => {
     let cancelled = false;
@@ -474,6 +547,18 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                 </div>
               </div>
 
+              <FiltroPeriodo
+                labelPeriodo="Ventas para sugerencia de pedido"
+                presets={PRESETS_VENTAS_COMPRAS}
+                preset={presetVentasCompras}
+                onPresetChange={cambiarPresetVentasCompras}
+                desde={ventasDesde}
+                hasta={ventasHasta}
+                onDesdeChange={setVentasDesde}
+                onHastaChange={setVentasHasta}
+                style={{ marginBottom: '0.75rem' }}
+              />
+
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', marginBottom: '0.75rem', padding: '0.65rem', borderRadius: '10px', background: 'var(--surface)' }}>
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }} className="muted">
                   <input type="checkbox" checked={verDetalleVentas} onChange={(e) => setVerDetalleVentas(e.target.checked)} />
@@ -664,6 +749,15 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
       {pestana === 'historial' && (
         <div className="card">
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Historial de compras</h3>
+          <FiltroPeriodo
+            preset={presetHistCompras}
+            onPresetChange={cambiarPresetHistCompras}
+            desde={histDesde}
+            hasta={histHasta}
+            onDesdeChange={setHistDesde}
+            onHastaChange={setHistHasta}
+            style={{ marginBottom: '0.75rem' }}
+          />
           <div className="table-wrap">
             <table className="data">
               <thead>
@@ -677,14 +771,14 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                 </tr>
               </thead>
               <tbody>
-                {historial.length === 0 ? (
+                {historialFiltrado.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="muted">
                       Sin movimientos.
                     </td>
                   </tr>
                 ) : (
-                  historial.map((c) => (
+                  historialFiltrado.map((c) => (
                     <tr key={c.id}>
                       <td>{c.created_at ? new Date(c.created_at).toLocaleString('es-MX') : '—'}</td>
                       <td>

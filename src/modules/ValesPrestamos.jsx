@@ -39,6 +39,7 @@ import { normalizarRol } from '../lib/roles.js';
 import { empleadosVisiblesParaTienda } from '../lib/empleadosVisibles.js';
 import { tiendaPuedeGenerarVales, EVENTO_VALES_TIENDAS } from '../lib/posConfig.js';
 import PanelAsistenciaGasolina from '../components/PanelAsistenciaGasolina.jsx';
+import SelectorCalendario from '../components/SelectorCalendario.jsx';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -403,7 +404,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 ))}
               </select>
               <input className="input" type="number" min="0" step="0.01" placeholder="Monto" value={valeForm.monto} onChange={(e) => setValeForm({ ...valeForm, monto: e.target.value })} />
-              <input className="input" type="date" value={valeForm.fecha} onChange={(e) => setValeForm({ ...valeForm, fecha: e.target.value })} />
+              <SelectorCalendario label="Fecha del vale" value={valeForm.fecha} onChange={(f) => setValeForm({ ...valeForm, fecha: f })} />
               <input className="input" placeholder="Motivo" style={{ gridColumn: '1 / -1' }} value={valeForm.motivo} onChange={(e) => setValeForm({ ...valeForm, motivo: e.target.value })} />
             </div>
             <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} disabled={!puedeGenerarVales} onClick={guardarVale}>

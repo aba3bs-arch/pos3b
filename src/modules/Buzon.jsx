@@ -29,6 +29,11 @@ import { esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
 import { aprobarGastoTurno, rechazarGastoTurno } from '../lib/corteContabilidad/store.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { BtnLabel } from '../components/Icon.jsx';
+import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
+import { PRESETS_FECHA_PRODUCTO, rangoDesdePreset } from '../lib/consultasInventario.js';
+import { enRangoYmd, toYmd } from '../lib/fechas.js';
+
+const PRESETS_INCIDENCIAS = [{ id: 'todos', label: 'Todas las fechas' }, ...PRESETS_FECHA_PRODUCTO];
 
 function fmtFecha(iso) {
   if (!iso) return '—';
@@ -76,6 +81,9 @@ export default function Buzon({
   const [nuevoResponsable, setNuevoResponsable] = useState('');
   const [notaRedir, setNotaRedir] = useState('');
   const [ahoraReporte, setAhoraReporte] = useState(() => new Date());
+  const [presetFechaInc, setPresetFechaInc] = useState('mes');
+  const [filtroDesde, setFiltroDesde] = useState(() => rangoDesdePreset('mes')?.desde || '');
+  const [filtroHasta, setFiltroHasta] = useState(() => rangoDesdePreset('mes')?.hasta || '');
 
   const nombreTienda = etiquetaTienda(sucursal);
   const { fechaTxt: fechaReporte, horaTxt: horaReporte } = fechaHoraIncidencia(ahoraReporte);
@@ -141,9 +149,30 @@ export default function Buzon({
     );
   }, [incidencias, soloIncidencias, user?.nombre]);
 
+  const cambiarPresetFechaInc = (preset) => {
+    setPresetFechaInc(preset);
+    if (preset === 'todos') {
+      setFiltroDesde('');
+      setFiltroHasta('');
+      return;
+    }
+    if (preset !== 'rango') {
+      const r = rangoDesdePreset(preset);
+      if (r) {
+        setFiltroDesde(r.desde);
+        setFiltroHasta(r.hasta);
+      }
+    }
+  };
+
+  const incidenciasFiltradas = useMemo(() => {
+    if (!filtroDesde && !filtroHasta) return incidenciasVisibles;
+    return incidenciasVisibles.filter((i) => enRangoYmd(toYmd(i.created_at), filtroDesde, filtroHasta));
+  }, [incidenciasVisibles, filtroDesde, filtroHasta]);
+
   const incidenciasAbiertas = useMemo(
-    () => incidenciasVisibles.filter((i) => i.estado === 'abierta' || i.estado === 'en_revision'),
-    [incidenciasVisibles],
+    () => incidenciasFiltradas.filter((i) => i.estado === 'abierta' || i.estado === 'en_revision'),
+    [incidenciasFiltradas],
   );
 
   const usuarioEsResponsable = useMemo(
@@ -468,6 +497,18 @@ export default function Buzon({
           </div>
 
           <div className="card">
+            <FiltroPeriodo
+              presets={PRESETS_INCIDENCIAS}
+              preset={presetFechaInc}
+              onPresetChange={cambiarPresetFechaInc}
+              desde={filtroDesde}
+              hasta={filtroHasta}
+              onDesdeChange={setFiltroDesde}
+              onHastaChange={setFiltroHasta}
+              mostrarResumen={presetFechaInc !== 'todos'}
+              className=""
+              style={{ marginBottom: '0.75rem' }}
+            />
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)' }}>
               Incidencias {veTodasTiendas ? '· todas las tiendas' : ''}
               {incidenciasAbiertas.length > 0 && (
@@ -476,8 +517,8 @@ export default function Buzon({
                 </span>
               )}
             </h3>
-            {incidenciasVisibles.length === 0 ? (
-              <p className="muted">{soloIncidencias ? 'Aún no has reportado incidencias.' : 'No hay incidencias registradas.'}</p>
+            {incidenciasFiltradas.length === 0 ? (
+              <p className="muted">{soloIncidencias ? 'Aún no has reportado incidencias en este periodo.' : 'No hay incidencias en este periodo.'}</p>
             ) : (
               <div className="table-wrap">
                 <table className="data">
@@ -496,7 +537,7 @@ export default function Buzon({
                     </tr>
                   </thead>
                   <tbody>
-                    {incidenciasVisibles.map((inc) => (
+                    {incidenciasFiltradas.map((inc) => (
                       <tr key={inc.id}>
                         <td>{fmtFechaIncidencia(inc.created_at)}</td>
                         <td>{fmtHoraIncidencia(inc.created_at)}</td>

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BENEFICIARIOS_VALES, ETIQUETA_AREA } from '../lib/contabilidadConstants.js';
 import { listarValesGasolina, marcarValeCobrado } from '../lib/valesPrestamos.js';
 import { periodoSemanaNomina, etiquetaSemanaNomina } from '../lib/semanaNomina.js';
+import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
 import {
   valeRequirioAprobacionAdmin,
   estadoCobroGasolina,
@@ -212,14 +213,7 @@ export default function PanelAsistenciaGasolina({ supabase, sucursal, user, edit
       </p>
 
       <div className="grid-2" style={{ marginBottom: '0.75rem' }}>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
-          Desde
-          <input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
-        </label>
-        <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
-          Hasta
-          <input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
-        </label>
+        <FiltroRangoCalendario desde={desde} hasta={hasta} onDesdeChange={setDesde} onHastaChange={setHasta} />
         <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
           Área
           <select className="select" value={areaFiltro} onChange={(e) => setAreaFiltro(e.target.value)}>
