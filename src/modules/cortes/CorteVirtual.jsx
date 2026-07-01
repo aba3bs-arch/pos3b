@@ -6,6 +6,7 @@ import ResumenOperacionCorte from '../../components/corteContabilidad/ResumenOpe
 import {
   calcularVirtual,
   cajaVirtualEnNegativo,
+  cajaVirtualTrasRecoleccion,
   monedaInicialTurnoEfectiva,
   monedaRecolectorRef,
   recoleccionTotalVirtual,
@@ -147,6 +148,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
   };
 
   const recoleccionCalculada = recoleccionTotalVirtual(estado, calc);
+  const cajaTrasRecoleccion = cajaVirtualTrasRecoleccion(estado, calc);
   const puedeMonedaFinal = puedeEditarCorteCampo(perm, 'moneda_final');
   const puedeComentarios = puedeEditarCorteCampo(perm, 'comentarios');
   const puedeCerrarCorteTienda = perm.guardar && !perm.recoleccion;
@@ -301,10 +303,10 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
                   onChange={(v) => patchEstado({ moneda_final: v, moneda_final_editada: true })}
                 />
                 <div style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(225,153,41,0.12)', borderRadius: 8, marginTop: '0.5rem' }}>
-                  <div className="muted" style={{ fontSize: '0.75rem' }}>A recolectar</div>
+                  <div className="muted" style={{ fontSize: '0.75rem' }}>A recolectar (caja chica)</div>
                   <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--brand-gold)' }}>{fmtCorte(recoleccionCalculada)}</div>
                   <div className="muted" style={{ fontSize: '0.7rem' }}>
-                    Venta efectivo + caja chica · la caja chica queda en $0.00
+                    Tras recolectar, caja chica queda en {fmtCorte(cajaTrasRecoleccion)}
                   </div>
                 </div>
                 <button
