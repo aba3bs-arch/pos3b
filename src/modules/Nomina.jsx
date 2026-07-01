@@ -6,10 +6,9 @@ import {
   guardarPeriodoNomina,
   lineasDesdeEmpleados,
   listarPeriodosNomina,
-  recalcularSueldoLinea,
   totalLineaNomina,
 } from '../lib/nomina.js';
-import { fusionarLineasNomina, otrasDeudasLinea } from '../lib/nominaCalculos.js';
+import { fusionarLineasNomina, otrosDeudasLinea, recalcularLineaNomina, sueldoBrutoLinea, pagoNominaLinea } from '../lib/nominaCalculos.js';
 import { periodoSemanaNomina, etiquetaSemanaNomina } from '../lib/semanaNomina.js';
 import { ETIQUETA_AREA, PAGADORES_NOMINA } from '../lib/contabilidadConstants.js';
 import { imprimirNomina, imprimirReciboNominaIndividual, imprimirTodosRecibosNomina } from '../lib/impresionContabilidad.js';
@@ -26,7 +25,6 @@ const CAMPOS_MANUAL = {
   pagador_nomina: 'pagador_manual',
   dias_trabajados: 'dias_manual',
   salario_dia: 'sueldo_manual',
-  sueldo_base: 'sueldo_manual',
   deduccion_gastos: 'gastos_manual',
   deduccion_inventario: 'inventario_manual',
   deduccion_prestamos: 'prestamos_manual',
@@ -43,8 +41,8 @@ const COLS = [
   'Consumos',
   'Inventario',
   'Préstamos',
-  'Otras deudas',
-  'Total',
+  'Otros',
+  'Pago',
   '',
 ];
 
@@ -142,10 +140,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         l.vales_gasolina = Number(valor) || 0;
       }
 
-      const recalcCampos = ['dias_trabajados', 'salario_dia', 'sueldo_tarifa'];
-      const recalc = !l.sueldo_manual && recalcCampos.includes(campo);
-      const actualizada = recalc ? recalcularSueldoLinea(l) : { ...l, total: totalLineaNomina(l) };
-      next[idx] = actualizada;
+      next[idx] = recalcularLineaNomina(l);
       return next;
     });
   };
@@ -246,7 +241,7 @@ export default function Nomina({ supabase, sucursal, user }) {
   };
 
   const renderFila = (l, i, { historial = false } = {}) => {
-    const otras = historial ? Number(l.deducciones) || 0 : otrasDeudasLinea(l);
+    const otras = historial ? Number(l.deducciones) || 0 : otrosDeudasLinea(l);
     const key = historial ? l.id : l.usuario_id || i;
   return (
       <tr key={key}>
@@ -320,20 +315,8 @@ export default function Nomina({ supabase, sucursal, user }) {
             </>
           )}
         </td>
-        <td>
-          {historial ? (
-            fmt(l.sueldo_base)
-          ) : (
-            <input
-              className="input"
-              type="number"
-              min="0"
-              step="0.01"
-              style={{ width: '76px' }}
-              value={l.sueldo_base}
-              onChange={(e) => actualizarLinea(i, 'sueldo_base', e.target.value)}
-            />
-          )}
+        <td style={{ fontWeight: 600 }} title="Días × salario por día">
+          {fmt(historial ? l.sueldo_base : sueldoBrutoLinea(l))}
         </td>
         <td>
           {historial ? (
@@ -404,7 +387,9 @@ export default function Nomina({ supabase, sucursal, user }) {
             </span>
           )}
         </td>
-        <td style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>{fmt(historial ? l.total : totalLineaNomina(l))}</td>
+        <td style={{ fontWeight: 800, whiteSpace: 'nowrap', color: 'var(--brand-blue)' }}>
+          {fmt(historial ? l.pago ?? l.total : pagoNominaLinea(l))}
+        </td>
         <td>
           <button
             type="button"
@@ -434,9 +419,9 @@ export default function Nomina({ supabase, sucursal, user }) {
           <div>
             <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Nómina semanal</h3>
             <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', maxWidth: '52rem' }}>
-              Consolidada de <strong>todas las sucursales</strong>. Semana sábado–viernes. Consumos, inventario y préstamos se
-              recopilan de cortes Virtual, Abarrotes y Garage en cada tienda. Cajeros: días = cortes cerrados (editable).
-              Indirectos: pago por vales de gasolina cobrados.
+              Consolidada de <strong>todas las sucursales</strong>. Semana sábado–viernes.
+              <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros.</strong>
+              Consumos, inventario y préstamos se recopilan de cortes en cada tienda.
             </p>
           </div>
           <div
@@ -512,7 +497,7 @@ export default function Nomina({ supabase, sucursal, user }) {
               <tfoot>
                 <tr>
                   <td colSpan={COLS.length - 2} style={{ textAlign: 'right', fontWeight: 700 }}>
-                    Total nómina
+                    Total pago
                   </td>
                   <td style={{ fontWeight: 800, color: 'var(--brand-blue)' }}>{fmt(totalGeneral)}</td>
                   <td />

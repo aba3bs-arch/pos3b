@@ -35,7 +35,7 @@ export function htmlNomina(data) {
       <td class="r">${fmt(l.deduccion_inventario)}</td>
       <td class="r">${fmt(l.deduccion_prestamos)}</td>
       <td class="r">${fmt((Number(l.deducciones) || 0) + (Number(l.deduccion_faltas) || 0))}</td>
-      <td class="r"><strong>${fmt(l.total)}</strong></td>
+      <td class="r"><strong>${fmt(l.pago ?? l.total)}</strong></td>
     </tr>`,
     )
     .join('');
@@ -46,7 +46,7 @@ export function htmlNomina(data) {
     ${data.pagador_filtro ? `<div>Pagador: <strong>${esc(ETIQUETA_AREA[data.pagador_filtro] || data.pagador_filtro)}</strong></div>` : ''}
     <div class="muted">Generado: ${esc(new Date().toLocaleString())}</div>
     <table>
-      <thead><tr><th>Empleado</th><th>Rol</th><th>Pagador</th><th class="r">$/día</th><th class="r">Días</th><th class="r">Sueldo</th><th class="r">Bono</th><th class="r">Consumos</th><th class="r">Inventario</th><th class="r">Préstamos</th><th class="r">Otras deudas</th><th class="r">Total</th></tr></thead>
+      <thead><tr><th>Empleado</th><th>Rol</th><th>Pagador</th><th class="r">$/día</th><th class="r">Días</th><th class="r">Sueldo</th><th class="r">Bono</th><th class="r">Consumos</th><th class="r">Inventario</th><th class="r">Préstamos</th><th class="r">Otros</th><th class="r">Pago</th></tr></thead>
       <tbody>${lineas}</tbody>
       <tfoot><tr><td colspan="11" class="r"><strong>Total</strong></td><td class="r"><strong>${fmt(data.total)}</strong></td></tr></tfoot>
     </table>
@@ -90,22 +90,32 @@ export function htmlPrestamo(p) {
   </body></html>`;
 }
 
+function fmtNom(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
 export function htmlReciboNominaIndividual(linea, opts = {}) {
   const logo = leerLogoUrl();
   const negocio = leerNombreNegocio();
   const ahora = opts.fechaPago ? new Date(opts.fechaPago) : new Date();
   const fechaPago = ahora.toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   const horaPago = ahora.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
-  const bruto = (Number(linea.sueldo_base) || 0) + (Number(linea.bonificacion) || 0);
+  const salarioDia = Number(linea.salario_dia ?? linea.sueldo_tarifa) || 0;
+  const dias = Number(linea.dias_trabajados) || 0;
+  const sueldo = fmtNom(salarioDia * dias);
+  const bono = Number(linea.bonificacion) || 0;
+  const bruto = fmtNom(sueldo + bono);
   const dedInv = Number(linea.deduccion_inventario) || 0;
-  const dedCons =
-    Number(linea.deduccion_consumos) ||
-    Math.max(0, (Number(linea.deduccion_gastos) || 0) - dedInv);
+  const dedCons = Number(linea.deduccion_consumos) || Number(linea.deduccion_gastos) || 0;
   const dedPrest = Number(linea.deduccion_prestamos) || 0;
   const dedFaltas = Number(linea.deduccion_faltas) || 0;
   const dedOtras = (Number(linea.deducciones) || 0) + dedFaltas;
-  const salarioDia = Number(linea.salario_dia ?? linea.sueldo_tarifa) || 0;
-  const neto = Number(linea.total) ?? Math.max(0, bruto - dedInv - dedCons - dedPrest - dedOtras);
+  const neto =
+    linea.pago != null && linea.pago !== ''
+      ? Number(linea.pago)
+      : linea.total != null && linea.total !== ''
+        ? Number(linea.total)
+        : Math.max(0, bruto - dedInv - dedCons - dedPrest - (Number(linea.deducciones) || 0) - dedFaltas);
   const filaDed = (label, monto) =>
     monto > 0
       ? `<tr><td>${esc(label)}</td><td class="r" style="color:#c0392b">− ${fmt(monto)}</td></tr>`
@@ -134,9 +144,9 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
     <div class="campo"><strong>Fecha de pago:</strong> ${esc(fechaPago)}</div>
     <div class="campo"><strong>Hora:</strong> ${esc(horaPago)}</div>
     <table style="margin-top:14px">
-      <tr><td><strong>Pago bruto (sueldo + bono)</strong></td><td class="r"><strong>${fmt(bruto)}</strong></td></tr>
-      ${Number(linea.sueldo_base) > 0 ? `<tr><td class="muted">Sueldo base</td><td class="r">${fmt(linea.sueldo_base)}</td></tr>` : ''}
-      ${Number(linea.bonificacion) > 0 ? `<tr><td class="muted">Bonificación</td><td class="r">${fmt(linea.bonificacion)}</td></tr>` : ''}
+      <tr><td><strong>Sueldo (${dias} × ${fmt(salarioDia)})</strong></td><td class="r"><strong>${fmt(sueldo)}</strong></td></tr>
+      ${bono > 0 ? `<tr><td>Bonificación</td><td class="r">${fmt(bono)}</td></tr>` : ''}
+      <tr><td><strong>Subtotal (sueldo + bono)</strong></td><td class="r"><strong>${fmt(bruto)}</strong></td></tr>
     </table>
     <div class="totales"><strong>Desglose de descuentos</strong></div>
     <table>

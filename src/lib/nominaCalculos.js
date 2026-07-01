@@ -5,20 +5,7 @@ import { round2 } from './nominaGastos.js';
 export const DIAS_SEMANA_NOMINA = 7;
 
 function totalLineaNominaImport(l) {
-  const base = Number(l.sueldo_base) || 0;
-  const bon = Number(l.bonificacion) || 0;
-  const ded = (Number(l.deducciones) || 0) + (Number(l.deduccion_faltas) || 0);
-  return Math.max(
-    0,
-    round2(
-      base +
-        bon -
-        (Number(l.deduccion_gastos) || 0) -
-        (Number(l.deduccion_inventario) || 0) -
-        (Number(l.deduccion_prestamos) || 0) -
-        ded,
-    ),
-  );
+  return pagoNominaLinea(l);
 }
 
 export function esIndirectoNomina(empleado) {
@@ -49,13 +36,47 @@ export function sueldoPorSalarioDia(salarioDia, dias) {
   return round2(sd * d);
 }
 
+export function salarioDiaLinea(linea) {
+  return round2(Number(linea?.salario_dia ?? linea?.sueldo_tarifa) || 0);
+}
+
+/** Sueldo bruto = días trabajados × salario por día. */
+export function sueldoBrutoLinea(linea) {
+  return sueldoPorSalarioDia(salarioDiaLinea(linea), linea?.dias_trabajados);
+}
+
 export function sueldoIndirectoPorVales(salarioDia, cantidad) {
   return sueldoPorSalarioDia(salarioDia, cantidad);
 }
 
-/** Otras deudas visibles = manuales + faltas gasolina. */
-export function otrasDeudasLinea(linea) {
-  return round2((Number(linea.deducciones) || 0) + (Number(linea.deduccion_faltas) || 0));
+/** Otras deudas = captura manual + faltas (gasolina no cobrada). */
+export function otrosDeudasLinea(linea) {
+  return round2((Number(linea?.deducciones) || 0) + (Number(linea?.deduccion_faltas) || 0));
+}
+
+/**
+ * Pago = (días × salario) + bono − consumos − inventario − préstamos − otros.
+ */
+export function pagoNominaLinea(linea) {
+  const sueldo = sueldoBrutoLinea(linea);
+  const bono = Number(linea?.bonificacion) || 0;
+  const consumo = Number(linea?.deduccion_gastos) || 0;
+  const inventario = Number(linea?.deduccion_inventario) || 0;
+  const prestamos = Number(linea?.deduccion_prestamos) || 0;
+  const otros = otrosDeudasLinea(linea);
+  return Math.max(0, round2(sueldo + bono - consumo - inventario - prestamos - otros));
+}
+
+/** Recalcula sueldo bruto, faltas y pago según la fórmula. */
+export function recalcularLineaNomina(linea) {
+  const l = { ...linea };
+  if (l.es_indirecto) {
+    l.deduccion_faltas = sueldoPorSalarioDia(salarioDiaLinea(l), l.faltas_gasolina);
+  }
+  l.sueldo_base = sueldoBrutoLinea(l);
+  l.pago = pagoNominaLinea(l);
+  l.total = l.pago;
+  return l;
 }
 
 /** Cuenta cierres de cortes contabilidad por cajero en el periodo. */
@@ -148,13 +169,9 @@ export function fusionarLineasNomina(anteriores, nuevas) {
       merged.deduccion_faltas = ant.deduccion_faltas ?? nueva.deduccion_faltas;
     }
     if (ant.sueldo_manual) {
-      merged.sueldo_base = ant.sueldo_base;
       merged.salario_dia = ant.salario_dia ?? ant.sueldo_tarifa ?? nueva.salario_dia;
       merged.sueldo_tarifa = merged.salario_dia;
-    } else if (!ant.dias_manual && ant.sueldo_base > 0 && nueva.sueldo_base === 0) {
-      merged.sueldo_base = ant.sueldo_base;
     }
-    if (ant.salario_dia != null && ant.sueldo_manual) merged.salario_dia = ant.salario_dia;
     if (ant.gastos_manual) merged.deduccion_gastos = ant.deduccion_gastos;
     if (ant.inventario_manual) merged.deduccion_inventario = ant.deduccion_inventario;
     if (ant.prestamos_manual) merged.deduccion_prestamos = ant.deduccion_prestamos;
@@ -164,7 +181,8 @@ export function fusionarLineasNomina(anteriores, nuevas) {
     merged.deduccion_faltas = ant.deduccion_faltas ?? nueva.deduccion_faltas;
     merged.notas = [ant.notas, nueva.notas].filter(Boolean).join(' · ') || nueva.notas;
 
-    merged.total = totalLineaNominaImport(merged);
+    merged.total = totalLineaNominaImport(recalcularLineaNomina(merged));
+    merged.pago = merged.total;
 
     merged.pagador_manual = ant.pagador_manual;
     merged.dias_manual = ant.dias_manual;
