@@ -278,13 +278,21 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const res = await registrarCierreCorte(supabase, payload);
     if (!res.ok) return alert(res.error || AVISO_FALTA_CORTES);
 
+    await limpiarGastosTurno(supabase, sucursal, modulo);
     const prep = prepararTrasRecoleccion || ((e) => e);
     const nuevoEstado = prep(estado, calc, { nuevaMoneda: mf, montoRecoleccion: montoRec });
     await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
     setEstado(nuevoEstado);
+    setGastos([]);
     const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
     setHistorial(hist.data || []);
-    alert(`Recolección de ${fmtCorte(montoRec)} registrada. Caja chica: ${fmtCorte(nuevoEstado.caja_anterior)}. Moneda inicial: ${fmtCorte(mf)}.`);
+    alert(
+      `Recolección de ${fmtCorte(montoRec)} registrada.\n\n` +
+        `Periodo reiniciado: caja y ventas en ${fmtCorte(0)}.\n` +
+        `Moneda de referencia e inicio de operación: ${fmtCorte(mf)}.\n` +
+        `Los gastos del periodo quedan en historial y nómina.`,
+    );
+    return { ok: true };
   };
 
   return {

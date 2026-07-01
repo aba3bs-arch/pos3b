@@ -99,20 +99,25 @@ export function cajaChicaAcumulada(estado, calc) {
   return round2((calc?.cajaActual ?? 0) + rec);
 }
 
-/** Estado tras registrar recolección: actualiza moneda ref. y resta recolección de caja. */
-export function prepararTrasRecoleccionVirtual(estado, calc, { nuevaMoneda, montoRecoleccion }) {
-  const cajaRestante = round2(Math.max(0, (calc?.cajaActual ?? 0)));
+/** Tras recolección: reinicio de periodo (caja/venta en $0), moneda ref. = precolección. Historial y gastos en BD intactos. */
+export function prepararTrasRecoleccionVirtual(estado, _calc, { nuevaMoneda }) {
+  const mi = round2(nuevaMoneda);
   return {
     ...estado,
-    moneda_inicial: round2(nuevaMoneda),
-    moneda_inicial_turno: round2(nuevaMoneda),
+    moneda_inicial: mi,
+    moneda_inicial_turno: mi,
     moneda_final: 0,
     moneda_final_editada: false,
     precoleccion: 0,
     _precoleccion_editada: false,
-    caja_anterior: cajaRestante,
+    caja_anterior: 0,
     recoleccion: 0,
     recoleccion_turno: 0,
+    faltante: 0,
+    comentarios: '',
+    venta_manual: '',
+    subtotal_manual: '',
+    caja_actual_manual: '',
     _mi_turno_inicializado: true,
   };
 }

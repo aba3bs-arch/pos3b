@@ -48,7 +48,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
   }, []);
 
   const prepararTrasRecoleccion = useCallback((estado, calc, { nuevaMoneda }) => {
-    return prepararTrasRecoleccionVirtual(estado, calc, { nuevaMoneda, montoRecoleccion: round2(estado.recoleccion ?? estado.recoleccion_turno) });
+    return prepararTrasRecoleccionVirtual(estado, calc, { nuevaMoneda });
   }, []);
 
   const {
@@ -111,22 +111,25 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     if (confirm(msg)) cerrarCorte();
   };
 
-  const confirmarRecoleccion = () => {
+  const confirmarRecoleccion = async () => {
     const montoRec = round2(estado.recoleccion ?? estado.recoleccion_turno);
     const msg =
       `¿Registrar recolección?\n\n` +
       `Recolector: ${user?.nombre || '—'}\n` +
       `Precolección (moneda contada): ${fmtCorte(estado.precoleccion)}\n` +
       `Recolección en efectivo: ${fmtCorte(montoRec)}\n` +
-      `Caja chica antes: ${fmtCorte(cajaAcumulada)}\n` +
-      `Caja chica después: ${fmtCorte(calc.cajaActual)}\n\n` +
-      `Se actualizará la moneda inicial de referencia.\n` +
-      `El turno abierto continúa; el cajero cierra con la moneda que tenga al terminar.`;
-    if (confirm(msg)) {
-      registrarRecoleccion({
-        corteAnteriorId: corteAnteriorId || null,
-        monedaFinalAnterior: corteAnteriorId ? monedaFinalAnterior : null,
-      });
+      `Caja chica del periodo: ${fmtCorte(cajaAcumulada)}\n\n` +
+      `Se recoge el efectivo y el periodo reinicia en ${fmtCorte(0)}.\n` +
+      `Moneda de referencia e inicio de operación: ${fmtCorte(estado.precoleccion)}.\n` +
+      `Los gastos del periodo quedan registrados en historial y nómina.`;
+    if (!confirm(msg)) return;
+    const res = await registrarRecoleccion({
+      corteAnteriorId: corteAnteriorId || null,
+      monedaFinalAnterior: corteAnteriorId ? monedaFinalAnterior : null,
+    });
+    if (res?.ok) {
+      setCorteAnteriorId('');
+      setMonedaFinalAnterior('');
     }
   };
 
@@ -348,7 +351,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
                   <div className="muted" style={{ fontSize: '0.75rem' }}>Caja chica acumulada</div>
                   <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--brand-gold)' }}>{fmtCorte(cajaAcumulada)}</div>
                   <div className="muted" style={{ fontSize: '0.7rem' }}>
-                    Tras recolección queda: {fmtCorte(calc.cajaActual)}
+                    Al registrar: periodo en {fmtCorte(0)} · operación con moneda {fmtCorte(estado.precoleccion || 0)}
                   </div>
                 </div>
                 <button
