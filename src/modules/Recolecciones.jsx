@@ -5,11 +5,18 @@ import InputPin from '../components/InputPin.jsx';
 import { BtnLabel } from '../components/Icon.jsx';
 import {
   cobrarCreditosSeleccionados,
+  fmtFechaHora,
   fmtMonto,
   listarCreditosPendientes,
   listarRepartidores,
+  listarServiciosCobro,
+  listarTiendasEfectivo,
   pinRepartidorValido,
+  registrarCobroServicio,
+  registrarServicioNoCobrado,
   registrarTraspasos,
+  servicioResueltoEnTienda,
+  serviciosObligatoriosPendientesTienda,
   sucursalParaControlEfectivo,
 } from '../lib/controlEfectivo.js';
 
@@ -22,9 +29,10 @@ function TabBtn({ active, onClick, children }) {
 }
 
 export default function Recolecciones({ supabase, sucursal, user }) {
-  const tiendaEfectivo = sucursalParaControlEfectivo(sucursal);
+  const tiendaSesion = sucursalParaControlEfectivo(sucursal);
   const tiendaLabel = etiquetaTienda(sucursal);
   const esRepartidor = normalizarRol(user?.rol) === 'Repartidor';
+  const tiendasEfectivo = useMemo(() => listarTiendasEfectivo(), []);
 
   const [tab, setTab] = useState(esRepartidor ? 'cobro' : 'traspaso');
   const [repartidores, setRepartidores] = useState([]);
@@ -37,6 +45,14 @@ export default function Recolecciones({ supabase, sucursal, user }) {
   const [filas, setFilas] = useState([{ folio: '', monto: '' }]);
   const [guardando, setGuardando] = useState(false);
 
+  const [servicios, setServicios] = useState([]);
+  const [pendientesSrv, setPendientesSrv] = useState([]);
+  const [estadoSrv, setEstadoSrv] = useState({});
+  const [montosSrv, setMontosSrv] = useState({});
+  const [motivosNoCobro, setMotivosNoCobro] = useState({});
+  const [mostrarNoCobro, setMostrarNoCobro] = useState({});
+
+  const [tiendaCobro, setTiendaCobro] = useState(tiendaSesion || '');
   const [repCobro, setRepCobro] = useState('');
   const [pinCobro, setPinCobro] = useState('');
   const [pendientes, setPendientes] = useState([]);
@@ -48,8 +64,9 @@ export default function Recolecciones({ supabase, sucursal, user }) {
     setLoading(true);
     setErrorTabla(null);
     try {
-      const reps = await listarRepartidores(supabase);
+      const [reps, srv] = await Promise.all([listarRepartidores(supabase), listarServiciosCobro(supabase)]);
       setRepartidores(reps);
+      setServicios(srv);
       if (reps.length) {
         setRepTraspaso((prev) => prev || reps[0].id);
         setRepCobro((prev) => prev || reps[0].id);
@@ -65,10 +82,29 @@ export default function Recolecciones({ supabase, sucursal, user }) {
     }
   }, [supabase]);
 
-  const cargarPendientes = useCallback(async () => {
-    if (!supabase || !tiendaEfectivo) return;
+  const cargarEstadoServicios = useCallback(async () => {
+    if (!supabase || !tiendaSesion) return;
     try {
-      const data = await listarCreditosPendientes(supabase, tiendaEfectivo);
+      const pend = await serviciosObligatoriosPendientesTienda(supabase, tiendaSesion);
+      setPendientesSrv(pend);
+      const est = {};
+      const montos = {};
+      for (const srv of servicios.length ? servicios : await listarServiciosCobro(supabase)) {
+        const res = await servicioResueltoEnTienda(supabase, tiendaSesion, srv);
+        est[srv.clave] = res;
+        montos[srv.clave] = srv.monto_default;
+      }
+      setEstadoSrv(est);
+      setMontosSrv((prev) => ({ ...montos, ...prev }));
+    } catch (e) {
+      setErrorTabla(e.message);
+    }
+  }, [supabase, tiendaSesion, servicios]);
+
+  const cargarPendientes = useCallback(async () => {
+    if (!supabase || !tiendaCobro) return;
+    try {
+      const data = await listarCreditosPendientes(supabase, tiendaCobro);
       setPendientes(data);
       const init = {};
       data.forEach((p) => {
@@ -78,27 +114,80 @@ export default function Recolecciones({ supabase, sucursal, user }) {
     } catch (e) {
       setErrorTabla(e.message);
     }
-  }, [supabase, tiendaEfectivo]);
+  }, [supabase, tiendaCobro]);
 
   useEffect(() => {
     cargarCatalogos();
   }, [cargarCatalogos]);
 
   useEffect(() => {
-    if (tab === 'cobro') cargarPendientes();
-  }, [tab, cargarPendientes]);
+    if (tiendaSesion && !tiendaCobro) setTiendaCobro(tiendaSesion);
+  }, [tiendaSesion, tiendaCobro]);
+
+  useEffect(() => {
+    if (tab === 'traspaso' && tiendaSesion) cargarEstadoServicios();
+  }, [tab, tiendaSesion, cargarEstadoServicios, servicios.length]);
+
+  useEffect(() => {
+    if (tab === 'cobro' && tiendaCobro) cargarPendientes();
+  }, [tab, tiendaCobro, cargarPendientes]);
 
   const totalCobroSel = useMemo(
     () => pendientes.filter((p) => selCobro[p.id]).reduce((a, p) => a + Number(p.monto || 0), 0),
     [pendientes, selCobro],
   );
 
+  const serviciosBloqueanTraspaso = pendientesSrv.length > 0;
+
+  const confirmarCobroServicio = async (srv) => {
+    if (!pinRepartidorValido(pinTraspaso, repTraspaso, repartidores)) return alert('PIN de recolector incorrecto.');
+    setGuardando(true);
+    const res = await registrarCobroServicio(supabase, {
+      tienda: tiendaSesion,
+      repartidorId: repTraspaso,
+      cajero: user?.nombre || 'Cajero',
+      srv,
+      monto: montosSrv[srv.clave] ?? srv.monto_default,
+      pin: pinTraspaso,
+      repartidores,
+    });
+    setGuardando(false);
+    if (!res.ok) return alert(res.error);
+    alert(`✅ Cobro de ${srv.nombre} registrado.`);
+    setMostrarNoCobro((m) => ({ ...m, [srv.clave]: false }));
+    cargarEstadoServicios();
+  };
+
+  const confirmarNoCobroServicio = async (srv) => {
+    const motivo = motivosNoCobro[srv.clave]?.trim();
+    if (!motivo) return alert('Indica el motivo (ej. falta de liquidez).');
+    if (!pinRepartidorValido(pinTraspaso, repTraspaso, repartidores)) return alert('PIN de recolector incorrecto.');
+    setGuardando(true);
+    const res = await registrarServicioNoCobrado(supabase, {
+      tienda: tiendaSesion,
+      repartidorId: repTraspaso,
+      cajero: user?.nombre || 'Cajero',
+      srv,
+      motivo,
+      pin: pinTraspaso,
+      repartidores,
+    });
+    setGuardando(false);
+    if (!res.ok) return alert(res.error);
+    alert(`Registrado: ${srv.nombre} no cobrado (${motivo}). Puedes continuar con el traspaso.`);
+    setMostrarNoCobro((m) => ({ ...m, [srv.clave]: false }));
+    cargarEstadoServicios();
+  };
+
   const confirmarTraspaso = async () => {
-    if (!tiendaEfectivo) return alert('Este módulo no aplica en la central MAIN.');
+    if (!tiendaSesion) return alert('Este módulo no aplica en la central MAIN.');
+    if (serviciosBloqueanTraspaso) {
+      return alert(`Registra primero los servicios obligatorios: ${pendientesSrv.map((s) => s.nombre).join(', ')}`);
+    }
     if (!pinRepartidorValido(pinTraspaso, repTraspaso, repartidores)) return alert('PIN de recolector incorrecto.');
     setGuardando(true);
     const res = await registrarTraspasos(supabase, filas, {
-      tienda: tiendaEfectivo,
+      tienda: tiendaSesion,
       repartidorId: repTraspaso,
       cajero: user?.nombre || 'Cajero',
       esEfectivo,
@@ -112,6 +201,7 @@ export default function Recolecciones({ supabase, sucursal, user }) {
   };
 
   const confirmarCobro = async () => {
+    if (!tiendaCobro) return alert('Selecciona la tienda a cobrar.');
     if (!pinRepartidorValido(pinCobro, repCobro, repartidores)) return alert('PIN de recolector incorrecto.');
     const ids = pendientes.filter((p) => selCobro[p.id]).map((p) => p.id);
     setGuardando(true);
@@ -128,20 +218,39 @@ export default function Recolecciones({ supabase, sucursal, user }) {
     cargarPendientes();
   };
 
-  if (!tiendaEfectivo) {
+  const toggleTodosCreditos = (valor) => {
+    const next = {};
+    pendientes.forEach((p) => {
+      next[p.id] = valor;
+    });
+    setSelCobro(next);
+  };
+
+  if (!esRepartidor && !tiendaSesion) {
     return (
       <div className="card">
-        <p>Las recolecciones operan en tiendas de venta, no en <strong>{tiendaLabel}</strong>. Cambia la sucursal activa.</p>
+        <p>
+          Las recolecciones operan en tiendas de venta, no en <strong>{tiendaLabel}</strong>. Cambia la sucursal activa.
+        </p>
       </div>
     );
   }
+
+  const tiendaCobroLabel = tiendasEfectivo.find((t) => t.nombre === tiendaCobro)?.etiqueta || tiendaCobro;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
         <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>Recolecciones</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
-          Control de traspasos en efectivo y crédito · Tienda <span className="badge">{tiendaLabel}</span> ({tiendaEfectivo})
+          Control de traspasos, servicios y crédito
+          {tiendaSesion && (
+            <>
+              {' '}
+              · Tienda <span className="badge">{tiendaLabel}</span> ({tiendaSesion})
+            </>
+          )}
+          {esRepartidor && !tiendaSesion && <> · Recolector en central — elige tienda al cobrar crédito</>}
         </p>
       </div>
 
@@ -152,7 +261,7 @@ export default function Recolecciones({ supabase, sucursal, user }) {
       )}
 
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        {!esRepartidor && (
+        {!esRepartidor && tiendaSesion && (
           <TabBtn active={tab === 'traspaso'} onClick={() => setTab('traspaso')}>
             <BtnLabel icon="truck">Registrar traspaso</BtnLabel>
           </TabBtn>
@@ -164,100 +273,240 @@ export default function Recolecciones({ supabase, sucursal, user }) {
 
       {loading && <p className="muted">Cargando recolectores…</p>}
 
-      {tab === 'traspaso' && !esRepartidor && (
-        <div className="card">
-          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nuevo traspaso</h3>
-          <p className="muted" style={{ fontSize: '0.85rem' }}>
-            Cajero: <strong>{user?.nombre}</strong>. Si es a crédito, el recolector lo cobra después en «Cobrar crédito».
-          </p>
+      {tab === 'traspaso' && !esRepartidor && tiendaSesion && (
+        <>
+          <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)' }}>
+            <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Servicios obligatorios</h3>
+            <div className="grid-2" style={{ marginBottom: '0.75rem', gap: '0.75rem' }}>
+              <label className="muted" style={{ display: 'block' }}>
+                Recolector
+                <select className="select" style={{ marginTop: '0.35rem' }} value={repTraspaso} onChange={(e) => setRepTraspaso(e.target.value)}>
+                  {repartidores.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="muted" style={{ display: 'block' }}>
+                PIN del recolector
+                <InputPin value={pinTraspaso} onChange={(e) => setPinTraspaso(e.target.value)} placeholder="PIN" style={{ marginBottom: 0, marginTop: '0.35rem' }} />
+              </label>
+            </div>
+            <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
+              Debes registrar el cobro de servicios (CFE, etc.) antes de entregar mercancía o registrar traspaso en{' '}
+              <strong>{tiendaSesion}</strong>.
+            </p>
 
-          <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
-            Recolector
-            <select className="select" style={{ marginTop: '0.35rem' }} value={repTraspaso} onChange={(e) => setRepTraspaso(e.target.value)}>
-              {repartidores.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.nombre}
+            {servicios.map((srv) => {
+              const res = estadoSrv[srv.clave];
+              const yaCobrado = res?.cobrado?.length > 0;
+              const reportado = res?.reportadoNoCobro?.length > 0;
+              const pendiente = pendientesSrv.some((p) => p.clave === srv.clave);
+
+              return (
+                <div
+                  key={srv.clave}
+                  style={{
+                    marginTop: '0.75rem',
+                    padding: '0.75rem',
+                    borderRadius: '8px',
+                    background: yaCobrado ? 'rgba(34,197,94,0.08)' : reportado ? 'rgba(225,153,41,0.1)' : 'var(--surface-2)',
+                    border: `1px solid ${yaCobrado ? 'rgba(34,197,94,0.35)' : reportado ? 'rgba(225,153,41,0.35)' : 'var(--border)'}`,
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <div>
+                      <strong>{srv.nombre}</strong>
+                      <span className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
+                        Cuota sugerida: {fmtMonto(srv.monto_default)} · {srv.frecuencia || 'Diario'}
+                      </span>
+                    </div>
+                    {yaCobrado && <span className="badge" style={{ background: 'rgba(34,197,94,0.2)' }}>✅ Cobrado</span>}
+                    {reportado && !yaCobrado && (
+                      <span className="badge" style={{ background: 'rgba(225,153,41,0.2)' }}>⚠ No cobrado (reportado)</span>
+                    )}
+                    {pendiente && !yaCobrado && !reportado && (
+                      <span className="badge" style={{ background: 'rgba(239,68,68,0.15)', color: 'var(--brand-red)' }}>Pendiente</span>
+                    )}
+                  </div>
+
+                  {yaCobrado && (
+                    <p className="muted" style={{ fontSize: '0.8rem', margin: '0.5rem 0 0' }}>
+                      {fmtMonto(res.cobrado[0].monto)} · {fmtFechaHora(res.cobrado[0].fecha_hora)}
+                    </p>
+                  )}
+                  {reportado && !yaCobrado && (
+                    <p className="muted" style={{ fontSize: '0.8rem', margin: '0.5rem 0 0' }}>
+                      {res.reportadoNoCobro[0].foto_url}
+                    </p>
+                  )}
+
+                  {pendiente && !yaCobrado && !reportado && (
+                    <div style={{ marginTop: '0.65rem' }}>
+                      <label className="muted" style={{ display: 'block' }}>
+                        Monto cobrado ($)
+                        <input
+                          className="input"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          style={{ marginTop: '0.35rem', maxWidth: '160px' }}
+                          value={montosSrv[srv.clave] ?? srv.monto_default}
+                          onChange={(e) => setMontosSrv({ ...montosSrv, [srv.clave]: e.target.value })}
+                        />
+                      </label>
+                      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                        <button type="button" className="btn btn-success" disabled={guardando} onClick={() => confirmarCobroServicio(srv)}>
+                          Cobrar {srv.clave}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          onClick={() => setMostrarNoCobro({ ...mostrarNoCobro, [srv.clave]: !mostrarNoCobro[srv.clave] })}
+                        >
+                          No cobrar (motivo)
+                        </button>
+                      </div>
+                      {mostrarNoCobro[srv.clave] && (
+                        <div style={{ marginTop: '0.5rem' }}>
+                          <label className="muted" style={{ display: 'block' }}>
+                            Motivo (ej. falta de liquidez)
+                            <input
+                              className="input"
+                              style={{ marginTop: '0.35rem' }}
+                              value={motivosNoCobro[srv.clave] || ''}
+                              onChange={(e) => setMotivosNoCobro({ ...motivosNoCobro, [srv.clave]: e.target.value })}
+                              placeholder="Describe por qué no se cobró"
+                            />
+                          </label>
+                          <button type="button" className="btn btn-ghost" style={{ marginTop: '0.5rem' }} disabled={guardando} onClick={() => confirmarNoCobroServicio(srv)}>
+                            Registrar no cobro y continuar
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {serviciosBloqueanTraspaso && (
+              <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem', marginTop: '0.75rem', marginBottom: 0 }}>
+                Completa los servicios pendientes para habilitar el traspaso.
+              </p>
+            )}
+          </div>
+
+          <div className="card" style={{ opacity: serviciosBloqueanTraspaso ? 0.55 : 1, pointerEvents: serviciosBloqueanTraspaso ? 'none' : 'auto' }}>
+            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nuevo traspaso</h3>
+            <p className="muted" style={{ fontSize: '0.85rem' }}>
+              Cajero: <strong>{user?.nombre}</strong>. Si es a crédito, el recolector lo cobra después en «Cobrar crédito».
+            </p>
+
+            <fieldset style={{ border: 'none', padding: 0, margin: '0.75rem 0' }}>
+              <legend className="muted" style={{ fontSize: '0.85rem' }}>
+                Forma de pago
+              </legend>
+              <label style={{ display: 'block', marginTop: '0.35rem' }}>
+                <input type="radio" checked={esEfectivo} onChange={() => setEsEfectivo(true)} /> Efectivo (cobrado ahora)
+              </label>
+              <label style={{ display: 'block', marginTop: '0.25rem' }}>
+                <input type="radio" checked={!esEfectivo} onChange={() => setEsEfectivo(false)} /> Crédito (pendiente de cobro)
+              </label>
+            </fieldset>
+
+            {filas.map((f, idx) => (
+              <div key={idx} className="grid-2" style={{ marginTop: '0.5rem', alignItems: 'end' }}>
+                <label className="muted">
+                  Folio #{idx + 1}
+                  <input
+                    className="input"
+                    style={{ marginTop: '0.35rem' }}
+                    value={f.folio}
+                    onChange={(e) => {
+                      const next = [...filas];
+                      next[idx] = { ...next[idx], folio: e.target.value };
+                      setFilas(next);
+                    }}
+                    placeholder="Ej. T-9945"
+                  />
+                </label>
+                <label className="muted">
+                  Monto ($)
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    style={{ marginTop: '0.35rem' }}
+                    value={f.monto}
+                    onChange={(e) => {
+                      const next = [...filas];
+                      next[idx] = { ...next[idx], monto: e.target.value };
+                      setFilas(next);
+                    }}
+                  />
+                </label>
+              </div>
+            ))}
+
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-ghost" onClick={() => setFilas([...filas, { folio: '', monto: '' }])}>
+                + Otro folio
+              </button>
+              {filas.length > 1 && (
+                <button type="button" className="btn btn-ghost" onClick={() => setFilas(filas.slice(0, -1))}>
+                  Quitar último
+                </button>
+              )}
+            </div>
+
+            <button type="button" className="btn btn-gold" style={{ marginTop: '1rem' }} disabled={guardando || serviciosBloqueanTraspaso} onClick={confirmarTraspaso}>
+              {guardando ? 'Guardando…' : 'Confirmar traspaso(s)'}
+            </button>
+          </div>
+        </>
+      )}
+
+      {tab === 'cobro' && (
+        <div className="card">
+          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Cobrar crédito por tienda</h3>
+
+          <label className="muted" style={{ display: 'block' }}>
+            Tienda a cobrar
+            <select className="select" style={{ marginTop: '0.35rem' }} value={tiendaCobro} onChange={(e) => setTiendaCobro(e.target.value)}>
+              <option value="">— Selecciona tienda —</option>
+              {tiendasEfectivo.map((t) => (
+                <option key={t.codigo} value={t.nombre}>
+                  {t.etiqueta} ({t.nombre})
                 </option>
               ))}
             </select>
           </label>
 
-          <fieldset style={{ border: 'none', padding: 0, margin: '0.75rem 0' }}>
-            <legend className="muted" style={{ fontSize: '0.85rem' }}>
-              Forma de pago
-            </legend>
-            <label style={{ display: 'block', marginTop: '0.35rem' }}>
-              <input type="radio" checked={esEfectivo} onChange={() => setEsEfectivo(true)} /> Efectivo (cobrado ahora)
-            </label>
-            <label style={{ display: 'block', marginTop: '0.25rem' }}>
-              <input type="radio" checked={!esEfectivo} onChange={() => setEsEfectivo(false)} /> Crédito (pendiente de cobro)
-            </label>
-          </fieldset>
-
-          {filas.map((f, idx) => (
-            <div key={idx} className="grid-2" style={{ marginTop: '0.5rem', alignItems: 'end' }}>
-              <label className="muted">
-                Folio #{idx + 1}
-                <input
-                  className="input"
-                  style={{ marginTop: '0.35rem' }}
-                  value={f.folio}
-                  onChange={(e) => {
-                    const next = [...filas];
-                    next[idx] = { ...next[idx], folio: e.target.value };
-                    setFilas(next);
-                  }}
-                  placeholder="Ej. T-9945"
-                />
-              </label>
-              <label className="muted">
-                Monto ($)
-                <input
-                  className="input"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  style={{ marginTop: '0.35rem' }}
-                  value={f.monto}
-                  onChange={(e) => {
-                    const next = [...filas];
-                    next[idx] = { ...next[idx], monto: e.target.value };
-                    setFilas(next);
-                  }}
-                />
-              </label>
-            </div>
-          ))}
-
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-            <button type="button" className="btn btn-ghost" onClick={() => setFilas([...filas, { folio: '', monto: '' }])}>
-              + Otro folio
-            </button>
-            {filas.length > 1 && (
-              <button type="button" className="btn btn-ghost" onClick={() => setFilas(filas.slice(0, -1))}>
-                Quitar último
-              </button>
-            )}
-          </div>
-
-          <label className="muted" style={{ display: 'block', marginTop: '1rem' }}>
-            PIN del recolector
-            <InputPin value={pinTraspaso} onChange={(e) => setPinTraspaso(e.target.value)} placeholder="PIN" style={{ marginBottom: 0 }} />
-          </label>
-
-          <button type="button" className="btn btn-gold" style={{ marginTop: '1rem' }} disabled={guardando} onClick={confirmarTraspaso}>
-            {guardando ? 'Guardando…' : 'Confirmar traspaso(s)'}
-          </button>
-        </div>
-      )}
-
-      {tab === 'cobro' && (
-        <div className="card">
-          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Créditos pendientes en {tiendaEfectivo}</h3>
-          {!pendientes.length ? (
-            <p className="muted">✅ No hay folios a crédito pendientes en esta tienda.</p>
+          {!tiendaCobro ? (
+            <p className="muted" style={{ marginTop: '1rem' }}>Elige la tienda donde vas a cobrar los créditos pendientes.</p>
+          ) : !pendientes.length ? (
+            <p className="muted" style={{ marginTop: '1rem' }}>
+              ✅ No hay folios a crédito pendientes en <strong>{tiendaCobroLabel}</strong>.
+            </p>
           ) : (
             <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
+                  {pendientes.length} ficha(s) pendiente(s) en <strong>{tiendaCobroLabel}</strong>
+                </p>
+                <div style={{ display: 'flex', gap: '0.35rem' }}>
+                  <button type="button" className="btn btn-ghost" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => toggleTodosCreditos(true)}>
+                    Todas
+                  </button>
+                  <button type="button" className="btn btn-ghost" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => toggleTodosCreditos(false)}>
+                    Ninguna
+                  </button>
+                </div>
+              </div>
+
               {pendientes.map((p) => (
                 <label
                   key={p.id}
@@ -274,15 +523,29 @@ export default function Recolecciones({ supabase, sucursal, user }) {
                   <span style={{ flex: 1 }}>
                     <strong>{p.num_traspaso}</strong>
                     <span className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
-                      Cajero: {p.cajero_nombre}
+                      Cajero: {p.cajero_nombre} · {fmtFechaHora(p.fecha_hora)}
                     </span>
                   </span>
                   <strong>{fmtMonto(p.monto)}</strong>
                 </label>
               ))}
-              <p style={{ margin: '1rem 0 0.5rem', fontWeight: 700 }}>Total seleccionado: {fmtMonto(totalCobroSel)}</p>
 
-              <label className="muted" style={{ display: 'block' }}>
+              <div
+                style={{
+                  marginTop: '1rem',
+                  padding: '0.75rem',
+                  borderRadius: '8px',
+                  background: 'rgba(13,148,136,0.08)',
+                  border: '1px solid rgba(13,148,136,0.25)',
+                }}
+              >
+                <p style={{ margin: 0, fontWeight: 700, fontSize: '1.1rem' }}>Total a cobrar: {fmtMonto(totalCobroSel)}</p>
+                <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
+                  {pendientes.filter((p) => selCobro[p.id]).length} de {pendientes.length} ficha(s) seleccionada(s)
+                </p>
+              </div>
+
+              <label className="muted" style={{ display: 'block', marginTop: '1rem' }}>
                 Recolector
                 <select className="select" style={{ marginTop: '0.35rem' }} value={repCobro} onChange={(e) => setRepCobro(e.target.value)}>
                   {repartidores.map((r) => (
@@ -293,15 +556,21 @@ export default function Recolecciones({ supabase, sucursal, user }) {
                 </select>
               </label>
               <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
-                Cajero que liquida
-                <input className="input" style={{ marginTop: '0.35rem' }} value={cajeroCobro} onChange={(e) => setCajeroCobro(e.target.value)} placeholder={user?.nombre || 'Nombre del cajero'} />
+                Cajero que entrega el cobro
+                <input
+                  className="input"
+                  style={{ marginTop: '0.35rem' }}
+                  value={cajeroCobro}
+                  onChange={(e) => setCajeroCobro(e.target.value)}
+                  placeholder={user?.nombre || 'Nombre del cajero'}
+                />
               </label>
               <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
                 PIN recolector
                 <InputPin value={pinCobro} onChange={(e) => setPinCobro(e.target.value)} placeholder="PIN" style={{ marginBottom: 0 }} />
               </label>
               <button type="button" className="btn btn-success" style={{ marginTop: '1rem' }} disabled={guardando || totalCobroSel <= 0} onClick={confirmarCobro}>
-                {guardando ? 'Procesando…' : 'Confirmar cobro físico'}
+                {guardando ? 'Procesando…' : `Confirmar cobro · ${fmtMonto(totalCobroSel)}`}
               </button>
             </>
           )}
