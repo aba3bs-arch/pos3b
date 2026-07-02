@@ -1,7 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
 import InputPin from '../components/InputPin.jsx';
-import { BtnLabel } from '../components/Icon.jsx';
+import SubcomandosHub from '../components/SubcomandosHub.jsx';
+import VolverContabilidad from '../components/VolverContabilidad.jsx';
+import {
+  SUBCOMANDOS_RECOLECCIONES_CONTAB,
+  subcomandosRecoleccionesVisibles,
+} from '../lib/recoleccionesContabilidadAcciones.js';
 import {
   actualizarRepartidor,
   actualizarServicioCobro,
@@ -29,14 +34,6 @@ import {
   slugRepartidorId,
 } from '../lib/controlEfectivo.js';
 
-function TabBtn({ active, onClick, children }) {
-  return (
-    <button type="button" className={active ? 'btn btn-primary' : 'btn btn-ghost'} onClick={onClick} style={{ flex: '0 1 auto', fontSize: '0.82rem', padding: '0.4rem 0.65rem' }}>
-      {children}
-    </button>
-  );
-}
-
 function etiquetaTipo(m) {
   if (m.tipo_movimiento === 'Cobro Servicio') return 'Servicio';
   if (m.tipo_movimiento === 'Entrega Crédito') return 'Crédito';
@@ -44,9 +41,10 @@ function etiquetaTipo(m) {
   return 'Recolección';
 }
 
-export default function RecoleccionesTraspasosContabilidad({ supabase, user }) {
+export default function RecoleccionesTraspasosContabilidad({ supabase, user, onVolverContabilidad }) {
   const adminNombre = user?.nombre || 'Contabilidad';
-  const [tab, setTab] = useState('tienda');
+  const subcomandos = useMemo(() => subcomandosRecoleccionesVisibles(user?.rol, user?.id), [user?.rol, user?.id]);
+  const [tab, setTab] = useState(null);
   const [desde, setDesde] = useState(inicioMesClaveNogales);
   const [hasta, setHasta] = useState(hoyClaveNogales);
   const [estatus, setEstatus] = useState('');
@@ -330,40 +328,52 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user }) {
     </div>
   );
 
+  const abrirSubcomando = (accionId) => {
+    const s = SUBCOMANDOS_RECOLECCIONES_CONTAB.find((x) => x.id === accionId);
+    if (s) setTab(s.tab);
+  };
+
+  const labelActivo = SUBCOMANDOS_RECOLECCIONES_CONTAB.find((s) => s.tab === tab)?.label;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <div>
-        <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>Recolecciones y traspasos</h2>
-        <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-          Panel contable: reportes, servicios, recolectores, gastos y liberación de efectivo.
-        </p>
-      </div>
+      {onVolverContabilidad && <VolverContabilidad onClick={onVolverContabilidad} />}
 
-      {error && (
-        <div className="card" style={{ borderColor: 'var(--brand-red)', color: 'var(--brand-red)' }}>
-          {error}
-        </div>
-      )}
+      {tab == null ? (
+        <>
+          <div>
+            <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>Recolecciones y traspasos</h2>
+            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
+              Elige un subcomando. Solo se muestra el panel seleccionado.
+            </p>
+          </div>
+          {error && (
+            <div className="card" style={{ borderColor: 'var(--brand-red)', color: 'var(--brand-red)' }}>
+              {error}
+            </div>
+          )}
+          <SubcomandosHub
+            items={subcomandos}
+            onSelect={abrirSubcomando}
+            color="#047857"
+          />
+        </>
+      ) : (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem 0.65rem', fontSize: '0.85rem' }} onClick={() => setTab(null)}>
+              ← Subcomandos
+            </button>
+            <h2 style={{ margin: 0, color: 'var(--brand-blue)', fontSize: '1.15rem' }}>{labelActivo}</h2>
+          </div>
 
-      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-        <TabBtn active={tab === 'tienda'} onClick={() => setTab('tienda')}>
-          Reporte por tienda
-        </TabBtn>
-        <TabBtn active={tab === 'servicios'} onClick={() => setTab('servicios')}>
-          Servicios
-        </TabBtn>
-        <TabBtn active={tab === 'recolectores'} onClick={() => setTab('recolectores')}>
-          Recolectores
-        </TabBtn>
-        <TabBtn active={tab === 'eliminar'} onClick={() => setTab('eliminar')}>
-          Eliminar registros
-        </TabBtn>
-        <TabBtn active={tab === 'gastos'} onClick={() => setTab('gastos')}>
-          Gastos / Liberar
-        </TabBtn>
-      </div>
+          {error && (
+            <div className="card" style={{ borderColor: 'var(--brand-red)', color: 'var(--brand-red)' }}>
+              {error}
+            </div>
+          )}
 
-      {(tab === 'tienda' || tab === 'eliminar') && filtrosComunes}
+          {(tab === 'tienda' || tab === 'eliminar') && filtrosComunes}
 
       {tab === 'tienda' && (
         <>
@@ -706,6 +716,8 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user }) {
             </button>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

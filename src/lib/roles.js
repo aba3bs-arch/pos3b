@@ -108,7 +108,9 @@ export function quitarRolPersonalizado(nombre) {
 }
 
 /** Submódulos bajo Contabilidad en el menú lateral. */
-export const SUBMODULOS_CONTABILIDAD = ['Nómina', 'Recolecciones y traspasos'];
+export const SUBMODULOS_CONTABILIDAD = ['Nómina', 'Recolecciones y traspasos', 'Liquidación recolecciones'];
+
+export const VISTA_HUB_CONTABILIDAD = 'Contabilidad';
 
 export const MODULOS_CORTES = ['Corte Virtual', 'Corte Abarrotes', 'Corte Garage'];
 
@@ -121,7 +123,6 @@ export const MODULOS_ORDEN = [
   'Ventas',
   'Corte de caja',
   'Recolecciones',
-  'Liquidación recolecciones',
   'Corte Virtual',
   'Corte Abarrotes',
   'Corte Garage',
@@ -135,14 +136,12 @@ export const MODULOS_ORDEN = [
   'Estadisticas',
   'Reportes',
   'Vales y Préstamos',
-  'Nómina',
-  'Recolecciones y traspasos',
   'Configuracion',
   'Ayuda',
 ];
 
-/** Módulos del menú lateral excluyendo Contabilidad y liquidación (solo menú admin/gerente). */
-export const MODULOS_SOLO_OFICINA = new Set(['Liquidación recolecciones']);
+/** Módulos que no van sueltos en el menú lateral (solo dentro de Contabilidad u otros grupos). */
+export const MODULOS_SOLO_OFICINA = new Set([]);
 
 export const MODULOS_PRIVILEGIOS_GENERAL = MODULOS_ORDEN.filter(
   (m) => !MODULOS_AGRUPADOS_CONTABILIDAD.has(m) && !MODULOS_SOLO_OFICINA.has(m),
@@ -205,7 +204,6 @@ const ACCESO_POR_ROL = {
     'Ventas',
     'Corte de caja',
     'Recolecciones',
-    'Liquidación recolecciones',
     'Corte Virtual',
     'Corte Abarrotes',
     'Corte Garage',
@@ -219,6 +217,7 @@ const ACCESO_POR_ROL = {
     'Reportes',
     'Nómina',
     'Recolecciones y traspasos',
+    'Liquidación recolecciones',
     'Vales y Préstamos',
     'Configuracion',
     'Ayuda',

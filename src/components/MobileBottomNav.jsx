@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import Icon from './Icon.jsx';
 import { iconoDeModulo, colorDeModulo } from '../lib/moduloIcons.js';
-import { SUBMODULOS_CONTABILIDAD } from '../lib/roles.js';
+import { SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD } from '../lib/roles.js';
 import { sonidoMenuNavegacion } from '../lib/sonidosPos.js';
 
 const PRIORIDAD_TABS = ['Inicio', 'Ventas', 'Recolecciones', 'Incidencias', 'Checador', 'Corte de caja', 'Productos'];
@@ -35,7 +35,7 @@ export default function MobileBottomNav({ modulos, vista, onNavigate, onOpenMenu
   }, [modulos]);
 
   const vistaEnTabs = tabs.includes(vista);
-  const enContabilidad = SUBMODULOS_CONTABILIDAD.includes(vista);
+  const enContabilidad = vista === VISTA_HUB_CONTABILIDAD || SUBMODULOS_CONTABILIDAD.includes(vista);
   const masActivo = !vistaEnTabs && !enContabilidad;
 
   const ir = (m) => {

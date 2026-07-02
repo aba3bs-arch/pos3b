@@ -13,6 +13,8 @@ import Estadisticas from './modules/Estadisticas.jsx';
 import Reportes from './modules/Reportes.jsx';
 import Nomina from './modules/Nomina.jsx';
 import RecoleccionesTraspasosContabilidad from './modules/RecoleccionesTraspasosContabilidad.jsx';
+import Contabilidad from './modules/Contabilidad.jsx';
+import VolverContabilidad from './components/VolverContabilidad.jsx';
 import ValesPrestamos from './modules/ValesPrestamos.jsx';
 import CorteVirtual from './modules/cortes/CorteVirtual.jsx';
 import CorteAbarrotes from './modules/cortes/CorteAbarrotes.jsx';
@@ -38,7 +40,7 @@ import {
   tiendaBloqueadaEnEsteEquipo,
   normalizarCodigoTienda,
 } from './constants/sucursales.js';
-import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, esAdminModuloIncidencias } from './lib/roles.js';
+import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, esAdminModuloIncidencias } from './lib/roles.js';
 import { inventarioParaSucursal } from './lib/inventarioMultitienda.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
@@ -95,7 +97,6 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== 'undefined' ? !window.matchMedia('(max-width: 768px)').matches : true,
   );
-  const [contabilidadOpen, setContabilidadOpen] = useState(true);
   const [tipoCambio, setTipoCambioRaw] = useState(() => leerTipoCambio());
   const [tickPrivilegios, setTickPrivilegios] = useState(0);
   const [inventario, setInventario] = useState([]);
@@ -279,22 +280,16 @@ function App() {
 
   useEffect(() => {
     if (!sesion || !user) return;
-    if (!puedeVerModulo(user.rol, vista, user.id)) {
+    const hubContab = vista === VISTA_HUB_CONTABILIDAD;
+    const permitido = hubContab
+      ? puedeVerSeccionContabilidad(user.rol, user.id)
+      : puedeVerModulo(user.rol, vista, user.id);
+    if (!permitido) {
       const nav = modulosParaSidebar(user.rol, user.id);
       const sub = submodulosContabilidadVisibles(user.rol, user.id);
-      setVista(nav[0] || sub[0] || 'Inicio');
+      setVista(nav[0] || sub[0] || VISTA_HUB_CONTABILIDAD || 'Inicio');
     }
   }, [sesion, user, vista, tickPrivilegios]);
-
-  useEffect(() => {
-    if (SUBMODULOS_CONTABILIDAD.includes(vista)) setContabilidadOpen(true);
-  }, [vista]);
-
-  useEffect(() => {
-    if (sesion && user && puedeVerSeccionContabilidad(user.rol, user.id)) {
-      setContabilidadOpen(true);
-    }
-  }, [sesion, user, tickPrivilegios]);
 
   useEffect(() => {
     if (mobile) setSidebarOpen(false);
@@ -503,7 +498,7 @@ function App() {
   const puedeCambiarTienda = puedeCambiarTiendaLibremente(user?.rol);
   const modulosNav = modulosParaSidebar(user.rol, user.id);
   const subContabilidad = submodulosContabilidadVisibles(user.rol, user.id);
-  const contabilidadActiva = SUBMODULOS_CONTABILIDAD.includes(vista);
+  const contabilidadActiva = vista === VISTA_HUB_CONTABILIDAD || SUBMODULOS_CONTABILIDAD.includes(vista);
 
   return (
     <div className={`app-shell${mobile ? ' app-shell--mobile' : ''}`}>
@@ -531,8 +526,6 @@ function App() {
             vista={vista}
             subContabilidad={subContabilidad}
             contabilidadActiva={contabilidadActiva}
-            contabilidadOpen={contabilidadOpen}
-            setContabilidadOpen={setContabilidadOpen}
             onNavigate={irAModulo}
             onItemClick={mobile ? () => setSidebarOpen(false) : undefined}
           />
@@ -641,8 +634,14 @@ function App() {
           {vista === 'Recolecciones' && (
             <Recolecciones supabase={supabase} sucursal={sucursal} user={user} />
           )}
+          {vista === VISTA_HUB_CONTABILIDAD && (
+            <Contabilidad submodulosVisibles={subContabilidad} onNavigate={irAModulo} />
+          )}
           {vista === 'Liquidación recolecciones' && (
-            <LiquidacionRecolecciones supabase={supabase} user={user} />
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <LiquidacionRecolecciones supabase={supabase} user={user} />
+            </>
           )}
           {vista === 'Productos' && (
             <Productos supabase={supabase} inventario={inventarioTienda} inventarioCompleto={inventario} cargarDatos={cargarDatos} user={user} sucursal={sucursal} />
@@ -669,8 +668,15 @@ function App() {
           )}
           {vista === 'Estadisticas' && <Estadisticas supabase={supabase} />}
           {vista === 'Reportes' && <Reportes supabase={supabase} inventario={inventarioTienda} sucursal={sucursal} />}
-          {vista === 'Nómina' && <Nomina supabase={supabase} sucursal={sucursal} user={user} />}
-          {vista === 'Recolecciones y traspasos' && <RecoleccionesTraspasosContabilidad supabase={supabase} user={user} />}
+          {vista === 'Nómina' && (
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <Nomina supabase={supabase} sucursal={sucursal} user={user} />
+            </>
+          )}
+          {vista === 'Recolecciones y traspasos' && (
+            <RecoleccionesTraspasosContabilidad supabase={supabase} user={user} onVolverContabilidad={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+          )}
           {vista === 'Vales y Préstamos' && (
             <ValesPrestamos
               supabase={supabase}

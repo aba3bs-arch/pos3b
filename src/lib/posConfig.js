@@ -294,7 +294,14 @@ export function limpiarPrivilegiosUsuario(userId) {
   return guardarPrivilegios(p);
 }
 
-export const ACCIONES_PRIVILEGIO = [{ id: 'recoleccion_cortes', label: 'Recolección en cortes (Virtual / Abarrotes / Garage)' }];
+export const ACCIONES_PRIVILEGIO = [
+  { id: 'recoleccion_cortes', label: 'Recolección en cortes (Virtual / Abarrotes / Garage)' },
+  { id: 'recol_ctb_reporte', label: 'Recolecciones contab. — Reporte por tienda' },
+  { id: 'recol_ctb_servicios', label: 'Recolecciones contab. — Servicios' },
+  { id: 'recol_ctb_recolectores', label: 'Recolecciones contab. — Recolectores' },
+  { id: 'recol_ctb_eliminar', label: 'Recolecciones contab. — Eliminar registros' },
+  { id: 'recol_ctb_gastos', label: 'Recolecciones contab. — Gastos / liberar efectivo' },
+];
 
 const LS_VALES_TIENDAS = 'pos3b_vales_tiendas_permitidas';
 export const EVENTO_VALES_TIENDAS = 'pos3b-vales-tiendas-updated';

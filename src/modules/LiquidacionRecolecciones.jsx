@@ -1,13 +1,13 @@
 import React from 'react';
-import { puedeLiquidarRecolecciones } from '../lib/controlEfectivo.js';
+import { puedeVerModulo } from '../lib/roles.js';
 import PanelLiquidacionRecolecciones from '../components/PanelLiquidacionRecolecciones.jsx';
 
-/** Liquidación en oficina — menú propio (Administrador / Gerente). */
+/** Liquidación en oficina — submódulo de Contabilidad. */
 export default function LiquidacionRecolecciones({ supabase, user }) {
-  if (!puedeLiquidarRecolecciones(user?.rol)) {
+  if (!puedeVerModulo(user?.rol, 'Liquidación recolecciones', user?.id)) {
     return (
       <div className="card">
-        <p>Solo <strong>Administrador</strong> o <strong>Gerente</strong> pueden liquidar recolecciones.</p>
+        <p>No tienes acceso a liquidación de recolecciones. Pide al administrador que active el submódulo en Configuración → Privilegios → Contabilidad.</p>
       </div>
     );
   }
@@ -16,7 +16,7 @@ export default function LiquidacionRecolecciones({ supabase, user }) {
       <div>
         <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>Liquidación recolecciones</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
-          Oficina central: sellar efectivo en tránsito. Las tiendas usan el módulo <strong>Recolecciones</strong>.
+          Sellar efectivo en tránsito por tienda y día. Las tiendas registran traspasos en <strong>Recolecciones</strong>.
         </p>
       </div>
       <PanelLiquidacionRecolecciones supabase={supabase} user={user} embedded />

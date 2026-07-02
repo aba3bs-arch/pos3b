@@ -960,7 +960,7 @@ export default function Configuracion({
                     )}
                   </div>
                   <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
-                    Los submódulos <strong>Nómina</strong> y <strong>Recolecciones y traspasos</strong> aparecen bajo Contabilidad en el menú. Vales, cortes y demás módulos están en la lista general de arriba.
+                    Los submódulos <strong>Nómina</strong>, <strong>Recolecciones y traspasos</strong> y <strong>Liquidación recolecciones</strong> aparecen al abrir Contabilidad. Los subcomandos del panel de recolecciones se asignan en Acciones especiales abajo.
                   </p>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>
                     <input
@@ -1001,7 +1001,7 @@ export default function Configuracion({
           <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
             <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--brand-blue)' }}>Acciones especiales</h4>
             <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.82rem' }}>
-              El administrador siempre puede hacer recolección en cortes. Marca aquí quién más puede hacerlo.
+              Recolección en cortes y cada subcomando del panel Recolecciones y traspasos (reporte, servicios, etc.). El administrador siempre tiene acceso.
             </p>
             {ACCIONES_PRIVILEGIO.map((acc) => {
               const key = privModo === 'usuario' ? privUserId : privRol;
