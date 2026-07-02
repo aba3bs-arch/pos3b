@@ -96,6 +96,7 @@ import { sincronizarPrivilegiosDesdeNube } from '../lib/privilegiosSync.js';
 import BrandLogo from '../components/BrandLogo.jsx';
 import SelectorTemaInterfaz from '../components/SelectorTemaInterfaz.jsx';
 import PanelCatalogoIncidencias from '../components/PanelCatalogoIncidencias.jsx';
+import PanelLiquidacionRecolecciones from '../components/PanelLiquidacionRecolecciones.jsx';
 import PanelNotificacionesAlertas from '../components/PanelNotificacionesAlertas.jsx';
 import AdminInventarioCentral from './AdminInventarioCentral.jsx';
 
@@ -704,6 +705,8 @@ export default function Configuracion({
       </div>
 
       {recibeAlertas && <PanelNotificacionesAlertas />}
+
+      {esAdmin && <PanelLiquidacionRecolecciones supabase={supabase} user={user} />}
 
       {esAdmin && (
         <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>

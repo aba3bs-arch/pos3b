@@ -4,6 +4,7 @@ export const MODULOS_IDS = [
   'Incidencias',
   'Ventas',
   'Corte de caja',
+  'Recolecciones',
   'Corte Virtual',
   'Corte Abarrotes',
   'Corte Garage',

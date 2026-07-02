@@ -6,14 +6,9 @@ import { BtnLabel } from '../components/Icon.jsx';
 import {
   cobrarCreditosSeleccionados,
   fmtMonto,
-  liquidarMovimientos,
-  listarAlertasRecoleccion,
   listarCreditosPendientes,
-  listarEnTransitoPorRepartidor,
   listarRepartidores,
-  marcarAlertaVista,
   pinRepartidorValido,
-  puedeLiquidarRecolecciones,
   registrarTraspasos,
   sucursalParaControlEfectivo,
 } from '../lib/controlEfectivo.js';
@@ -29,9 +24,7 @@ function TabBtn({ active, onClick, children }) {
 export default function Recolecciones({ supabase, sucursal, user }) {
   const tiendaEfectivo = sucursalParaControlEfectivo(sucursal);
   const tiendaLabel = etiquetaTienda(sucursal);
-  const rol = normalizarRol(user?.rol);
-  const puedeLiquidar = puedeLiquidarRecolecciones(rol);
-  const esRepartidor = rol === 'Repartidor';
+  const esRepartidor = normalizarRol(user?.rol) === 'Repartidor';
 
   const [tab, setTab] = useState(esRepartidor ? 'cobro' : 'traspaso');
   const [repartidores, setRepartidores] = useState([]);
@@ -50,10 +43,6 @@ export default function Recolecciones({ supabase, sucursal, user }) {
   const [selCobro, setSelCobro] = useState({});
   const [cajeroCobro, setCajeroCobro] = useState('');
 
-  const [repLiq, setRepLiq] = useState('');
-  const [enTransito, setEnTransito] = useState([]);
-  const [alertas, setAlertas] = useState([]);
-
   const cargarCatalogos = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
@@ -64,7 +53,6 @@ export default function Recolecciones({ supabase, sucursal, user }) {
       if (reps.length) {
         setRepTraspaso((prev) => prev || reps[0].id);
         setRepCobro((prev) => prev || reps[0].id);
-        setRepLiq((prev) => prev || reps[0].id);
       }
     } catch (e) {
       setErrorTabla(
@@ -92,20 +80,6 @@ export default function Recolecciones({ supabase, sucursal, user }) {
     }
   }, [supabase, tiendaEfectivo]);
 
-  const cargarLiquidacion = useCallback(async () => {
-    if (!supabase || !repLiq) return;
-    try {
-      const [movs, alr] = await Promise.all([
-        listarEnTransitoPorRepartidor(supabase, repLiq),
-        puedeLiquidar ? listarAlertasRecoleccion(supabase) : Promise.resolve([]),
-      ]);
-      setEnTransito(movs);
-      setAlertas(alr);
-    } catch (e) {
-      setErrorTabla(e.message);
-    }
-  }, [supabase, repLiq, puedeLiquidar]);
-
   useEffect(() => {
     cargarCatalogos();
   }, [cargarCatalogos]);
@@ -114,16 +88,10 @@ export default function Recolecciones({ supabase, sucursal, user }) {
     if (tab === 'cobro') cargarPendientes();
   }, [tab, cargarPendientes]);
 
-  useEffect(() => {
-    if (tab === 'liquidacion') cargarLiquidacion();
-  }, [tab, cargarLiquidacion]);
-
   const totalCobroSel = useMemo(
     () => pendientes.filter((p) => selCobro[p.id]).reduce((a, p) => a + Number(p.monto || 0), 0),
     [pendientes, selCobro],
   );
-
-  const totalEnTransito = useMemo(() => enTransito.reduce((a, m) => a + Number(m.monto || 0), 0), [enTransito]);
 
   const confirmarTraspaso = async () => {
     if (!tiendaEfectivo) return alert('Este módulo no aplica en la central MAIN.');
@@ -160,21 +128,6 @@ export default function Recolecciones({ supabase, sucursal, user }) {
     cargarPendientes();
   };
 
-  const confirmarLiquidacion = async () => {
-    if (!window.confirm(`¿Sellar liquidación de ${fmtMonto(totalEnTransito)} (${enTransito.length} movimiento(s))?`)) return;
-    setGuardando(true);
-    const repNombre = repartidores.find((r) => r.id === repLiq)?.nombre || '';
-    const res = await liquidarMovimientos(supabase, {
-      ids: enTransito.map((m) => m.id),
-      adminNombre: user?.nombre || rol,
-      repartidorNombre: repNombre,
-    });
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    alert(`✅ Liquidación sellada (${res.count} registros).`);
-    cargarLiquidacion();
-  };
-
   if (!tiendaEfectivo) {
     return (
       <div className="card">
@@ -207,11 +160,6 @@ export default function Recolecciones({ supabase, sucursal, user }) {
         <TabBtn active={tab === 'cobro'} onClick={() => setTab('cobro')}>
           <BtnLabel icon="dollar">Cobrar crédito</BtnLabel>
         </TabBtn>
-        {puedeLiquidar && (
-          <TabBtn active={tab === 'liquidacion'} onClick={() => setTab('liquidacion')}>
-            <BtnLabel icon="register">Liquidación</BtnLabel>
-          </TabBtn>
-        )}
       </div>
 
       {loading && <p className="muted">Cargando recolectores…</p>}
@@ -354,72 +302,6 @@ export default function Recolecciones({ supabase, sucursal, user }) {
               </label>
               <button type="button" className="btn btn-success" style={{ marginTop: '1rem' }} disabled={guardando || totalCobroSel <= 0} onClick={confirmarCobro}>
                 {guardando ? 'Procesando…' : 'Confirmar cobro físico'}
-              </button>
-            </>
-          )}
-        </div>
-      )}
-
-      {tab === 'liquidacion' && puedeLiquidar && (
-        <div className="card">
-          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Liquidación en oficina</h3>
-
-          {alertas.length > 0 && (
-            <div style={{ marginBottom: '1rem', padding: '0.75rem', borderRadius: '10px', background: 'rgba(225,153,41,0.12)', border: '1px solid rgba(225,153,41,0.35)' }}>
-              <strong>Alertas de recolección ({alertas.length})</strong>
-              {alertas.map((a) => (
-                <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '0.85rem' }}>
-                    {a.sucursal_origen} · {a.num_traspaso} · {fmtMonto(a.monto)} · {a.repartidores?.nombre || 'Recolector'}
-                  </span>
-                  <button type="button" className="btn btn-ghost" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => marcarAlertaVista(supabase, a.id).then(cargarLiquidacion)}>
-                    Visto bueno
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <label className="muted" style={{ display: 'block' }}>
-            Recolector a liquidar
-            <select className="select" style={{ marginTop: '0.35rem' }} value={repLiq} onChange={(e) => setRepLiq(e.target.value)}>
-              {repartidores.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.nombre}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {!enTransito.length ? (
-            <p className="muted" style={{ marginTop: '1rem' }}>Sin movimientos en tránsito para este recolector.</p>
-          ) : (
-            <>
-              <div className="table-wrap" style={{ marginTop: '1rem' }}>
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>Folio</th>
-                      <th>Tienda</th>
-                      <th>Tipo</th>
-                      <th>Monto</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {enTransito.map((m) => (
-                      <tr key={m.id}>
-                        <td>{m.num_traspaso}</td>
-                        <td>{m.sucursal_origen}</td>
-                        <td>{m.tipo_movimiento}</td>
-                        <td>{fmtMonto(m.monto)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p style={{ fontWeight: 700, marginTop: '0.75rem' }}>Total en tránsito: {fmtMonto(totalEnTransito)}</p>
-              <button type="button" className="btn btn-danger" disabled={guardando} onClick={confirmarLiquidacion}>
-                {guardando ? 'Sellando…' : 'Sellar liquidación'}
               </button>
             </>
           )}
