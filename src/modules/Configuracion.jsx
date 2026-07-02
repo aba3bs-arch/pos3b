@@ -90,13 +90,12 @@ import {
   guardarToleranciaTurnos,
   turnoConTolerancia,
 } from '../lib/turnos.js';
-import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, ROLES, listarTodosLosRoles, leerRolesPersonalizados, agregarRolPersonalizado, quitarRolPersonalizado, esRolSistema, EVENTO_ROLES, modulosDefaultRol, modulosEnEdicionPrivilegios, tieneListaPersonalizada, normalizarListaModulos, describeOrigenPrivilegios, normalizarRol } from '../lib/roles.js';
+import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarPrivilegios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, ROLES, listarTodosLosRoles, leerRolesPersonalizados, agregarRolPersonalizado, quitarRolPersonalizado, esRolSistema, EVENTO_ROLES, modulosDefaultRol, modulosEnEdicionPrivilegios, tieneListaPersonalizada, normalizarListaModulos, describeOrigenPrivilegios, normalizarRol } from '../lib/roles.js';
 import { puedeRecibirNotificacionesDispositivo } from '../lib/notificacionesDispositivo.js';
 import { sincronizarPrivilegiosDesdeNube } from '../lib/privilegiosSync.js';
 import BrandLogo from '../components/BrandLogo.jsx';
 import SelectorTemaInterfaz from '../components/SelectorTemaInterfaz.jsx';
 import PanelCatalogoIncidencias from '../components/PanelCatalogoIncidencias.jsx';
-import PanelLiquidacionRecolecciones from '../components/PanelLiquidacionRecolecciones.jsx';
 import PanelNotificacionesAlertas from '../components/PanelNotificacionesAlertas.jsx';
 import AdminInventarioCentral from './AdminInventarioCentral.jsx';
 
@@ -130,6 +129,7 @@ export default function Configuracion({
   const [nuevoRolNombre, setNuevoRolNombre] = useState('');
   const [nuevoRolPlantilla, setNuevoRolPlantilla] = useState('Cajero');
   const esAdmin = puedeGestionarUsuarios(user?.rol);
+  const puedePrivilegios = puedeGestionarPrivilegios(user?.rol);
   const recibeAlertas = puedeRecibirNotificacionesDispositivo(user?.rol);
 
   useEffect(() => {
@@ -139,12 +139,12 @@ export default function Configuracion({
   }, []);
 
   useEffect(() => {
-    if (!esAdmin || !supabase) return;
+    if (!puedePrivilegios || !supabase) return;
     sincronizarPrivilegiosDesdeNube(supabase).then((r) => {
       if (r.cambio) setPrivilegios(leerPrivilegios());
       if (r.aviso) setPrivAvisoNube(r.aviso);
     });
-  }, [esAdmin, supabase]);
+  }, [puedePrivilegios, supabase]);
 
   const guardarPrivilegiosYSubir = async (data) => {
     setPrivGuardando(true);
@@ -706,8 +706,6 @@ export default function Configuracion({
 
       {recibeAlertas && <PanelNotificacionesAlertas />}
 
-      {esAdmin && <PanelLiquidacionRecolecciones supabase={supabase} user={user} />}
-
       {esAdmin && (
         <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Roles personalizados</h3>
@@ -806,7 +804,7 @@ export default function Configuracion({
 
       {esAdmin && <PanelCatalogoIncidencias supabase={supabase} />}
 
-      {esAdmin && (
+      {puedePrivilegios && (
         <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Privilegios por rol o usuario</h3>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
@@ -898,6 +896,13 @@ export default function Configuracion({
               void aplicarModulos([...sinCortes, ...MODULOS_CORTES]);
             };
 
+            const marcarRecolecciones = () => {
+              if (!privKey) return;
+              const actual = modulosEnEdicionPrivilegios({ privilegios, store, key: privKey, defaults: baseModulos });
+              if (actual.includes('Recolecciones')) return;
+              void aplicarModulos([...actual, 'Recolecciones']);
+            };
+
             return (
               <>
                 {privKey && (
@@ -927,6 +932,9 @@ export default function Configuracion({
                 </div>
                 {privKey && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.5rem' }}>
+                    <button type="button" className="btn btn-ghost" style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }} onClick={marcarRecolecciones}>
+                      + Recolecciones
+                    </button>
                     <button type="button" className="btn btn-ghost" style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }} onClick={marcarSoloCortes}>
                       Marcar cortes (Virtual, Abarrotes, Garage)
                     </button>

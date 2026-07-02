@@ -33,9 +33,11 @@ ALTER TABLE transito_efectivo ADD COLUMN IF NOT EXISTS foto_url            TEXT;
 ALTER TABLE transito_efectivo ADD COLUMN IF NOT EXISTS estatus             VARCHAR(30) DEFAULT 'En Tránsito';
 
 INSERT INTO repartidores (id, nombre, pin, activo)
-SELECT 'rep_misael', 'Misael Rodríguez', '1423', TRUE
+SELECT 'rep_luis', 'Luis Enrique Mada Osuna', '1423', TRUE
 WHERE NOT EXISTS (SELECT 1 FROM repartidores LIMIT 1);
 
+-- Si ya existe el registro de prueba, actualizar nombre
+UPDATE repartidores SET nombre = 'Luis Enrique Mada Osuna', activo = TRUE WHERE id IN ('rep_misael', 'rep_luis');
 ALTER TABLE repartidores      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transito_efectivo ENABLE ROW LEVEL SECURITY;
 

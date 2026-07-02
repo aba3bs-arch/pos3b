@@ -121,6 +121,7 @@ export const MODULOS_ORDEN = [
   'Ventas',
   'Corte de caja',
   'Recolecciones',
+  'Liquidación recolecciones',
   'Corte Virtual',
   'Corte Abarrotes',
   'Corte Garage',
@@ -139,8 +140,12 @@ export const MODULOS_ORDEN = [
   'Ayuda',
 ];
 
-/** Módulos del menú lateral excluyendo los que van bajo Contabilidad. */
-export const MODULOS_PRIVILEGIOS_GENERAL = MODULOS_ORDEN.filter((m) => !MODULOS_AGRUPADOS_CONTABILIDAD.has(m));
+/** Módulos del menú lateral excluyendo Contabilidad y liquidación (solo menú admin/gerente). */
+export const MODULOS_SOLO_OFICINA = new Set(['Liquidación recolecciones']);
+
+export const MODULOS_PRIVILEGIOS_GENERAL = MODULOS_ORDEN.filter(
+  (m) => !MODULOS_AGRUPADOS_CONTABILIDAD.has(m) && !MODULOS_SOLO_OFICINA.has(m),
+);
 
 const ACCESO_POR_ROL = {
   Cajero: [
@@ -198,6 +203,7 @@ const ACCESO_POR_ROL = {
     'Ventas',
     'Corte de caja',
     'Recolecciones',
+    'Liquidación recolecciones',
     'Corte Virtual',
     'Corte Abarrotes',
     'Corte Garage',
@@ -297,6 +303,12 @@ export function modulosDefaultRol(rol) {
   const custom = leerRolesPersonalizados().find((x) => x.nombre.toLowerCase() === r.toLowerCase());
   if (custom?.plantilla) return [...(ACCESO_POR_ROL[custom.plantilla] || ACCESO_POR_ROL.Cajero)];
   return [...ACCESO_POR_ROL.Cajero];
+}
+
+/** Privilegios por rol/usuario: administrador y gerente. */
+export function puedeGestionarPrivilegios(rol) {
+  const r = normalizarRol(rol);
+  return r === 'Administrador' || r === 'Gerente';
 }
 
 /** Alta, baja y edición de cuentas PIN: solo administrador. */

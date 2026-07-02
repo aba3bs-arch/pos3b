@@ -26,7 +26,8 @@ export function normalizarFolio(folio) {
 }
 
 export function puedeLiquidarRecolecciones(rol) {
-  return normalizarRol(rol) === 'Administrador';
+  const r = normalizarRol(rol);
+  return r === 'Administrador' || r === 'Gerente';
 }
 
 export async function listarRepartidores(supabase) {

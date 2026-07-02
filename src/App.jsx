@@ -21,6 +21,7 @@ import Configuracion from './modules/Configuracion.jsx';
 import Buzon from './modules/Buzon.jsx';
 import Ayuda from './modules/Ayuda.jsx';
 import Recolecciones from './modules/Recolecciones.jsx';
+import LiquidacionRecolecciones from './modules/LiquidacionRecolecciones.jsx';
 import {
   listarSucursalesParaUI,
   etiquetaTienda,
@@ -638,6 +639,9 @@ function App() {
           )}
           {vista === 'Recolecciones' && (
             <Recolecciones supabase={supabase} sucursal={sucursal} user={user} />
+          )}
+          {vista === 'Liquidación recolecciones' && (
+            <LiquidacionRecolecciones supabase={supabase} user={user} />
           )}
           {vista === 'Productos' && (
             <Productos supabase={supabase} inventario={inventarioTienda} inventarioCompleto={inventario} cargarDatos={cargarDatos} user={user} sucursal={sucursal} />

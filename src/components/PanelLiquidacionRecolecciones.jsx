@@ -10,7 +10,7 @@ import {
 } from '../lib/controlEfectivo.js';
 
 /** Liquidación en oficina — solo administrador (Configuración). */
-export default function PanelLiquidacionRecolecciones({ supabase, user }) {
+export default function PanelLiquidacionRecolecciones({ supabase, user, embedded = false }) {
   const rol = normalizarRol(user?.rol);
   const [repartidores, setRepartidores] = useState([]);
   const [repLiq, setRepLiq] = useState('');
@@ -60,12 +60,16 @@ export default function PanelLiquidacionRecolecciones({ supabase, user }) {
     cargar();
   };
 
-  return (
-    <div className="card" id="liquidacion-recolecciones" style={{ borderTop: '4px solid #0d9488' }}>
-      <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Liquidación de recolecciones</h3>
-      <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-        Oficina central: sellar efectivo en tránsito de los recolectores. Las tiendas registran traspasos y cobros en el módulo <strong>Recolecciones</strong>.
-      </p>
+  const inner = (
+    <>
+      {!embedded && (
+        <>
+          <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Liquidación de recolecciones</h3>
+          <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+            Oficina central: sellar efectivo en tránsito de los recolectores.
+          </p>
+        </>
+      )}
 
       {error && <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem' }}>{error}</p>}
 
@@ -128,6 +132,16 @@ export default function PanelLiquidacionRecolecciones({ supabase, user }) {
           </button>
         </>
       )}
+    </>
+  );
+
+  if (embedded) {
+    return <div className="card">{inner}</div>;
+  }
+
+  return (
+    <div className="card" id="liquidacion-recolecciones" style={{ borderTop: '4px solid #0d9488' }}>
+      {inner}
     </div>
   );
 }
