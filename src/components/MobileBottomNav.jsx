@@ -4,11 +4,12 @@ import { iconoDeModulo, colorDeModulo } from '../lib/moduloIcons.js';
 import { SUBMODULOS_CONTABILIDAD } from '../lib/roles.js';
 import { sonidoMenuNavegacion } from '../lib/sonidosPos.js';
 
-const PRIORIDAD_TABS = ['Inicio', 'Ventas', 'Incidencias', 'Checador', 'Corte de caja', 'Productos'];
+const PRIORIDAD_TABS = ['Inicio', 'Ventas', 'Recolecciones', 'Incidencias', 'Checador', 'Corte de caja', 'Productos'];
 
 function etiquetaCorta(modulo) {
   const map = {
     'Corte de caja': 'Corte',
+    Recolecciones: 'Recol.',
     'Corte Virtual': 'Virtual',
     'Corte Abarrotes': 'Abarrotes',
     'Corte Garage': 'Garage',

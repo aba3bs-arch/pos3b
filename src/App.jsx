@@ -20,6 +20,7 @@ import CorteCaja from './modules/CorteCaja.jsx';
 import Configuracion from './modules/Configuracion.jsx';
 import Buzon from './modules/Buzon.jsx';
 import Ayuda from './modules/Ayuda.jsx';
+import Recolecciones from './modules/Recolecciones.jsx';
 import {
   listarSucursalesParaUI,
   etiquetaTienda,
@@ -634,6 +635,9 @@ function App() {
           )}
           {vista === 'Corte de caja' && (
             <CorteCaja supabase={supabase} sucursal={sucursal} user={user} inventario={inventarioTienda} inventarioCompleto={inventario} cargarDatos={cargarDatos} />
+          )}
+          {vista === 'Recolecciones' && (
+            <Recolecciones supabase={supabase} sucursal={sucursal} user={user} />
           )}
           {vista === 'Productos' && (
             <Productos supabase={supabase} inventario={inventarioTienda} inventarioCompleto={inventario} cargarDatos={cargarDatos} user={user} sucursal={sucursal} />
