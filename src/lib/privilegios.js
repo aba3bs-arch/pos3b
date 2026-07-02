@@ -20,6 +20,7 @@ export const MODULOS_IDS = [
   'Reportes',
   'Vales y Préstamos',
   'Nómina',
+  'Recolecciones y traspasos',
   'Configuracion',
   'Ayuda',
 ];

@@ -12,6 +12,7 @@ import Consultas from './modules/Consultas.jsx';
 import Estadisticas from './modules/Estadisticas.jsx';
 import Reportes from './modules/Reportes.jsx';
 import Nomina from './modules/Nomina.jsx';
+import RecoleccionesTraspasosContabilidad from './modules/RecoleccionesTraspasosContabilidad.jsx';
 import ValesPrestamos from './modules/ValesPrestamos.jsx';
 import CorteVirtual from './modules/cortes/CorteVirtual.jsx';
 import CorteAbarrotes from './modules/cortes/CorteAbarrotes.jsx';
@@ -669,6 +670,7 @@ function App() {
           {vista === 'Estadisticas' && <Estadisticas supabase={supabase} />}
           {vista === 'Reportes' && <Reportes supabase={supabase} inventario={inventarioTienda} sucursal={sucursal} />}
           {vista === 'Nómina' && <Nomina supabase={supabase} sucursal={sucursal} user={user} />}
+          {vista === 'Recolecciones y traspasos' && <RecoleccionesTraspasosContabilidad supabase={supabase} user={user} />}
           {vista === 'Vales y Préstamos' && (
             <ValesPrestamos
               supabase={supabase}

@@ -960,7 +960,7 @@ export default function Configuracion({
                     )}
                   </div>
                   <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
-                    Solo <strong>Nómina</strong> queda bajo Contabilidad en el menú. Vales, cortes y demás módulos están en la lista general de arriba.
+                    Los submódulos <strong>Nómina</strong> y <strong>Recolecciones y traspasos</strong> aparecen bajo Contabilidad en el menú. Vales, cortes y demás módulos están en la lista general de arriba.
                   </p>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>
                     <input

@@ -10,6 +10,7 @@ function etiquetaCorta(modulo) {
   const map = {
     'Corte de caja': 'Corte',
     Recolecciones: 'Recol.',
+    'Recolecciones y traspasos': 'Recol.',
     'Corte Virtual': 'Virtual',
     'Corte Abarrotes': 'Abarrotes',
     'Corte Garage': 'Garage',

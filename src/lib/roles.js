@@ -107,8 +107,8 @@ export function quitarRolPersonalizado(nombre) {
   return { ok: true };
 }
 
-/** Único submódulo bajo Contabilidad por ahora. El resto va suelto en el menú. */
-export const SUBMODULOS_CONTABILIDAD = ['Nómina'];
+/** Submódulos bajo Contabilidad en el menú lateral. */
+export const SUBMODULOS_CONTABILIDAD = ['Nómina', 'Recolecciones y traspasos'];
 
 export const MODULOS_CORTES = ['Corte Virtual', 'Corte Abarrotes', 'Corte Garage'];
 
@@ -136,6 +136,7 @@ export const MODULOS_ORDEN = [
   'Reportes',
   'Vales y Préstamos',
   'Nómina',
+  'Recolecciones y traspasos',
   'Configuracion',
   'Ayuda',
 ];
@@ -175,6 +176,7 @@ const ACCESO_POR_ROL = {
     'Consultas',
     'Estadisticas',
     'Reportes',
+    'Recolecciones y traspasos',
     'Ayuda',
   ],
   Supervisor: [
@@ -216,6 +218,7 @@ const ACCESO_POR_ROL = {
     'Estadisticas',
     'Reportes',
     'Nómina',
+    'Recolecciones y traspasos',
     'Vales y Préstamos',
     'Configuracion',
     'Ayuda',
