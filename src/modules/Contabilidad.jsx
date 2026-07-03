@@ -5,7 +5,7 @@ import { SUBMODULOS_CONTABILIDAD } from '../lib/roles.js';
 
 const DESCRIPCIONES = {
   Nómina: 'Periodos, sueldos, asistencia y recibos',
-  'Recolecciones y traspasos': 'Reportes, servicios, recolectores y gastos',
+  'Panel RT': 'Reportes, servicios, recolectores y gastos',
   'Liquidación recolecciones': 'Sellar efectivo en tránsito por tienda y día',
 };
 

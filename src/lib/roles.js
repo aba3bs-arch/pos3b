@@ -108,7 +108,7 @@ export function quitarRolPersonalizado(nombre) {
 }
 
 /** Submódulos bajo Contabilidad en el menú lateral. */
-export const SUBMODULOS_CONTABILIDAD = ['Nómina', 'Recolecciones y traspasos', 'Liquidación recolecciones'];
+export const SUBMODULOS_CONTABILIDAD = ['Nómina', 'Panel RT', 'Liquidación recolecciones'];
 
 export const VISTA_HUB_CONTABILIDAD = 'Contabilidad';
 
@@ -175,7 +175,7 @@ const ACCESO_POR_ROL = {
     'Consultas',
     'Estadisticas',
     'Reportes',
-    'Recolecciones y traspasos',
+    'Panel RT',
     'Ayuda',
   ],
   Supervisor: [
@@ -216,7 +216,7 @@ const ACCESO_POR_ROL = {
     'Estadisticas',
     'Reportes',
     'Nómina',
-    'Recolecciones y traspasos',
+    'Panel RT',
     'Liquidación recolecciones',
     'Vales y Préstamos',
     'Configuracion',
@@ -252,6 +252,7 @@ export function normalizarRol(rol) {
 
 export function normalizarIdModulo(moduloId) {
   if (moduloId === 'Buzón') return 'Incidencias';
+  if (moduloId === 'Recolecciones y traspasos') return 'Panel RT';
   return moduloId;
 }
 

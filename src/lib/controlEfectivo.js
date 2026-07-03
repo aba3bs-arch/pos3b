@@ -191,6 +191,25 @@ export async function eliminarRepartidor(supabase, id) {
   return actualizarRepartidor(supabase, id, { activo: false });
 }
 
+/** Elimina el recolector de la base si no tiene movimientos en tránsito. */
+export async function eliminarRepartidorPermanente(supabase, id) {
+  if (!id) return { ok: false, error: 'Recolector inválido.' };
+  const { count, error: cErr } = await supabase
+    .from('transito_efectivo')
+    .select('id', { count: 'exact', head: true })
+    .eq('repartidor_id', id);
+  if (cErr) return { ok: false, error: cErr.message };
+  if (count > 0) {
+    return {
+      ok: false,
+      error: `No se puede eliminar: tiene ${count} movimiento(s) vinculado(s). Desactívalo en su lugar.`,
+    };
+  }
+  const { error } = await supabase.from('repartidores').delete().eq('id', id);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
 export function pinRepartidorValido(pin, repartidorId, repartidores) {
   const rep = repartidores.find((r) => r.id === repartidorId);
   return Boolean(rep?.pin) && String(pin) === String(rep.pin);

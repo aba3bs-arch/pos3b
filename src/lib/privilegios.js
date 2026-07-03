@@ -20,7 +20,7 @@ export const MODULOS_IDS = [
   'Reportes',
   'Vales y Préstamos',
   'Nómina',
-  'Recolecciones y traspasos',
+  'Panel RT',
   'Configuracion',
   'Ayuda',
 ];
@@ -28,6 +28,7 @@ export const MODULOS_IDS = [
 const VALIDOS = new Set(MODULOS_IDS);
 
 const ALIAS_MODULO = {
+  'Recolecciones y traspasos': 'Panel RT',
   Buzón: 'Incidencias',
   Estadísticas: 'Estadisticas',
   Configuración: 'Configuracion',

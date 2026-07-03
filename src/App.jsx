@@ -674,7 +674,7 @@ function App() {
               <Nomina supabase={supabase} sucursal={sucursal} user={user} />
             </>
           )}
-          {vista === 'Recolecciones y traspasos' && (
+          {vista === 'Panel RT' && (
             <RecoleccionesTraspasosContabilidad supabase={supabase} user={user} onVolverContabilidad={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
           )}
           {vista === 'Vales y Préstamos' && (

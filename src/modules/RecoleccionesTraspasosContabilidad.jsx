@@ -15,6 +15,7 @@ import {
   desactivarServicioCobro,
   eliminarMovimientoTransito,
   eliminarRepartidor,
+  eliminarRepartidorPermanente,
   fmtFechaClave,
   fmtFechaHora,
   fmtMonto,
@@ -236,10 +237,31 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
     cargarRepartidoresAdmin();
   };
 
-  const borrarRepartidor = async (r) => {
-    if (!window.confirm(`¿Desactivar recolector ${r.nombre}?`)) return;
+  const desactivarRepartidor = async (r) => {
+    if (!window.confirm(`¿Desactivar recolector ${r.nombre}? No podrá usarse en nuevos traspasos.`)) return;
     const res = await eliminarRepartidor(supabase, r.id);
     if (!res.ok) return alert(res.error);
+    cargarRepartidoresAdmin();
+    cargarReporte();
+  };
+
+  const reactivarRepartidor = async (r) => {
+    const res = await actualizarRepartidor(supabase, r.id, { activo: true });
+    if (!res.ok) return alert(res.error);
+    cargarRepartidoresAdmin();
+  };
+
+  const eliminarRepartidorDefinitivo = async (r) => {
+    if (
+      !window.confirm(
+        `¿Eliminar permanentemente a ${r.nombre} (${r.id})?\n\nSolo es posible si no tiene movimientos. Esta acción no se puede deshacer.`,
+      )
+    ) {
+      return;
+    }
+    const res = await eliminarRepartidorPermanente(supabase, r.id);
+    if (!res.ok) return alert(res.error);
+    if (repEdit?.id === r.id) setRepEdit(null);
     cargarRepartidoresAdmin();
   };
 
@@ -342,9 +364,9 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
       {tab == null ? (
         <>
           <div>
-            <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>Recolecciones y traspasos</h2>
+            <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>Panel RT</h2>
             <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-              Elige un subcomando. Solo se muestra el panel seleccionado.
+              Recolección y traspaso — elige un subcomando.
             </p>
           </div>
           {error && (
@@ -522,6 +544,9 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
       {tab === 'recolectores' && (
         <div className="card" style={{ padding: '0.85rem' }}>
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Recolectores</h3>
+          <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.75rem' }}>
+            Desactivar oculta al recolector en operación. Eliminar borra el registro solo si no tiene movimientos.
+          </p>
           {!repEdit ? (
             <>
               <div className="grid-2" style={{ gap: '0.75rem' }}>
@@ -580,15 +605,22 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
                     {r.id} · PIN **** · {r.activo ? 'Activo' : 'Inactivo'}
                   </span>
                 </span>
-                <span style={{ display: 'flex', gap: '0.35rem' }}>
+                <span style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
                   <button type="button" className="btn btn-ghost" style={{ fontSize: '0.75rem' }} onClick={() => setRepEdit({ ...r })}>
                     Editar
                   </button>
-                  {r.activo && (
-                    <button type="button" className="btn btn-ghost" style={{ fontSize: '0.75rem', color: 'var(--brand-red)' }} onClick={() => borrarRepartidor(r)}>
+                  {r.activo ? (
+                    <button type="button" className="btn btn-ghost" style={{ fontSize: '0.75rem', color: 'var(--brand-gold-dark)' }} onClick={() => desactivarRepartidor(r)}>
                       Desactivar
                     </button>
+                  ) : (
+                    <button type="button" className="btn btn-ghost" style={{ fontSize: '0.75rem', color: 'var(--brand-green)' }} onClick={() => reactivarRepartidor(r)}>
+                      Reactivar
+                    </button>
                   )}
+                  <button type="button" className="btn btn-ghost" style={{ fontSize: '0.75rem', color: 'var(--brand-red)' }} onClick={() => eliminarRepartidorDefinitivo(r)}>
+                    Eliminar
+                  </button>
                 </span>
               </div>
             ))}
