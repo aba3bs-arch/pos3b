@@ -178,7 +178,13 @@ export function fusionarLineasNomina(anteriores, nuevas) {
     if (ant.prestamos_manual) merged.deduccion_prestamos = ant.deduccion_prestamos;
 
     merged.bonificacion = ant.bonificacion ?? nueva.bonificacion;
-    merged.deducciones = ant.deducciones ?? nueva.deducciones;
+    if (ant.otros_manual) {
+      merged.deducciones = ant.deducciones;
+      merged.notas_otros = ant.notas_otros ?? '';
+    } else {
+      merged.deducciones = ant.deducciones ?? nueva.deducciones;
+      merged.notas_otros = ant.notas_otros ?? nueva.notas_otros ?? '';
+    }
     merged.deduccion_faltas = ant.deduccion_faltas ?? nueva.deduccion_faltas;
     merged.notas = [ant.notas, nueva.notas].filter(Boolean).join(' · ') || nueva.notas;
 
@@ -191,6 +197,7 @@ export function fusionarLineasNomina(anteriores, nuevas) {
     merged.gastos_manual = ant.gastos_manual;
     merged.inventario_manual = ant.inventario_manual;
     merged.prestamos_manual = ant.prestamos_manual;
+    merged.otros_manual = ant.otros_manual;
 
     return merged;
   });

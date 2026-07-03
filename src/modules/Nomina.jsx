@@ -13,6 +13,7 @@ import { periodoSemanaNomina, etiquetaSemanaNomina } from '../lib/semanaNomina.j
 import { ETIQUETA_AREA, PAGADORES_NOMINA } from '../lib/contabilidadConstants.js';
 import { imprimirNomina, imprimirReciboNominaIndividual, imprimirTodosRecibosNomina } from '../lib/impresionContabilidad.js';
 import { empleadosParaNominaGlobal } from '../lib/empleadosVisibles.js';
+import { leerBorradorNomina, guardarBorradorNomina, limpiarBorradorNomina } from '../lib/nominaBorrador.js';
 import PanelAsistenciaGasolina from '../components/PanelAsistenciaGasolina.jsx';
 import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
 import { normalizarRol } from '../lib/roles.js';
@@ -29,6 +30,8 @@ const CAMPOS_MANUAL = {
   deduccion_gastos: 'gastos_manual',
   deduccion_inventario: 'inventario_manual',
   deduccion_prestamos: 'prestamos_manual',
+  deducciones: 'otros_manual',
+  notas_otros: 'otros_manual',
 };
 
 const COLS = [
@@ -63,13 +66,15 @@ export default function Nomina({ supabase, sucursal, user }) {
   const [notasPeriodo, setNotasPeriodo] = useState('');
   const [lineas, setLineas] = useState([]);
   const [empleadosCache, setEmpleadosCache] = useState([]);
+  const [excluidos, setExcluidos] = useState(() => new Set(leerBorradorNomina()?.excluidos || []));
+  const [borradorListo, setBorradorListo] = useState(false);
 
   const totalGeneral = useMemo(() => lineas.reduce((a, l) => a + totalLineaNomina(l), 0), [lineas]);
 
   const cargarEmpleadosYGastos = useCallback(
     async (opts = {}) => {
       if (!supabase) return;
-      const { fusionar = false } = opts;
+      const { fusionar = true, lineasBase = null, excluidosIds = excluidos } = opts;
       setCargando(true);
       setErr('');
       const { data: empleados, error } = await supabase
@@ -101,13 +106,16 @@ export default function Nomina({ supabase, sucursal, user }) {
         valesGasolinaMap: valesRes.map,
         valesGasolinaNoCobradosMap: valesRes.mapNoCobrados,
         pagadorFiltro,
-      });
+      }).filter((l) => !excluidosIds.has(String(l.usuario_id)));
 
-      setLineas((prev) => (fusionar ? fusionarLineasNomina(prev, lineasNuevas) : lineasNuevas));
+      setLineas((prev) => {
+        const base = lineasBase ?? (fusionar ? prev : null);
+        return fusionar && base?.length ? fusionarLineasNomina(base, lineasNuevas) : lineasNuevas;
+      });
       setEmpleadosCache(lista);
       setCargando(false);
     },
-    [supabase, sucursal, inicio, fin, pagadorFiltro],
+    [supabase, sucursal, inicio, fin, pagadorFiltro, excluidos],
   );
 
   const cargarPeriodos = useCallback(async () => {
@@ -119,9 +127,39 @@ export default function Nomina({ supabase, sucursal, user }) {
   }, [supabase]);
 
   useEffect(() => {
-    cargarEmpleadosYGastos();
+    const b = leerBorradorNomina();
+    if (b && !borradorListo) {
+      if (b.inicio) setInicio(b.inicio);
+      if (b.fin) setFin(b.fin);
+      if (b.pagadorFiltro != null) setPagadorFiltro(b.pagadorFiltro);
+      if (b.notasPeriodo) setNotasPeriodo(b.notasPeriodo);
+      if (Array.isArray(b.excluidos)) setExcluidos(new Set(b.excluidos));
+      setBorradorListo(true);
+    } else if (!borradorListo) {
+      setBorradorListo(true);
+    }
+  }, [borradorListo]);
+
+  useEffect(() => {
+    if (!supabase || !borradorListo) return;
+    const b = leerBorradorNomina();
+    const mismoPeriodo = b?.inicio === inicio && b?.fin === fin;
+    const lineasBase = mismoPeriodo && b?.lineas?.length ? b.lineas : null;
+    cargarEmpleadosYGastos({ fusionar: true, lineasBase });
     cargarPeriodos();
-  }, [cargarEmpleadosYGastos, cargarPeriodos]);
+  }, [supabase, borradorListo, inicio, fin, pagadorFiltro, excluidos, cargarEmpleadosYGastos, cargarPeriodos]);
+
+  useEffect(() => {
+    if (!borradorListo) return;
+    guardarBorradorNomina({
+      inicio,
+      fin,
+      pagadorFiltro,
+      notasPeriodo,
+      lineas,
+      excluidos: [...excluidos],
+    });
+  }, [lineas, inicio, fin, pagadorFiltro, notasPeriodo, excluidos, borradorListo]);
 
   const actualizarLinea = (idx, campo, valor) => {
     setLineas((prev) => {
@@ -187,8 +225,9 @@ export default function Nomina({ supabase, sucursal, user }) {
     }
     alert(`Nómina guardada. Total: ${fmt(res.total)}`);
     setNotasPeriodo('');
+    limpiarBorradorNomina();
     cargarPeriodos();
-    cargarEmpleadosYGastos();
+    cargarEmpleadosYGastos({ fusionar: false });
   };
 
   const imprimirReciboEmpleado = (linea, periodo = {}) => {
@@ -232,6 +271,19 @@ export default function Nomina({ supabase, sucursal, user }) {
     });
   };
 
+  const quitarEmpleado = (linea) => {
+    if (!window.confirm(`¿Quitar a ${linea.nombre} de esta nómina?`)) return;
+    const id = String(linea.usuario_id);
+    setExcluidos((prev) => new Set([...prev, id]));
+    setLineas((prev) => prev.filter((l) => String(l.usuario_id) !== id));
+  };
+
+  const restaurarExcluidos = () => {
+    if (!excluidos.size) return;
+    if (!window.confirm('¿Volver a incluir todos los empleados quitados?')) return;
+    setExcluidos(new Set());
+  };
+
   const imprimirTodosRecibos = () => {
     if (!lineas.length) return;
     imprimirTodosRecibosNomina(lineas, {
@@ -242,9 +294,8 @@ export default function Nomina({ supabase, sucursal, user }) {
   };
 
   const renderFila = (l, i, { historial = false } = {}) => {
-    const otras = historial ? Number(l.deducciones) || 0 : otrosDeudasLinea(l);
     const key = historial ? l.id : l.usuario_id || i;
-  return (
+    return (
       <tr key={key}>
         <td>
           <div style={{ fontWeight: 600 }}>{l.nombre}</div>
@@ -365,11 +416,8 @@ export default function Nomina({ supabase, sucursal, user }) {
           )}
         </td>
         <td style={{ color: l.deduccion_prestamos > 0 ? 'var(--danger)' : undefined }} title={l.notas}>
-          {fmt(l.deduccion_prestamos)}
-        </td>
-        <td>
           {historial ? (
-            fmt(l.deducciones)
+            fmt(l.deduccion_prestamos)
           ) : (
             <input
               className="input"
@@ -377,10 +425,42 @@ export default function Nomina({ supabase, sucursal, user }) {
               min="0"
               step="0.01"
               style={{ width: '72px' }}
-              title={l.deduccion_faltas > 0 ? `Incluye faltas gasolina: ${fmt(l.deduccion_faltas)}` : 'Otras deudas manuales'}
-              value={l.deducciones}
-              onChange={(e) => actualizarLinea(i, 'deducciones', e.target.value)}
+              value={l.deduccion_prestamos ?? 0}
+              onChange={(e) => actualizarLinea(i, 'deduccion_prestamos', e.target.value)}
             />
+          )}
+        </td>
+        <td>
+          {historial ? (
+            <>
+              {fmt(l.deducciones)}
+              {l.notas_otros && (
+                <span className="muted" style={{ fontSize: '0.62rem', display: 'block' }}>
+                  Otros: {l.notas_otros}
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              <input
+                className="input"
+                type="number"
+                min="0"
+                step="0.01"
+                style={{ width: '72px' }}
+                title={l.deduccion_faltas > 0 ? `Incluye faltas gasolina: ${fmt(l.deduccion_faltas)}` : 'Otros — deducciones manuales'}
+                value={l.deducciones}
+                onChange={(e) => actualizarLinea(i, 'deducciones', e.target.value)}
+              />
+              <input
+                className="input"
+                type="text"
+                placeholder="Concepto (otros)"
+                style={{ width: '88px', marginTop: '0.2rem', fontSize: '0.72rem' }}
+                value={l.notas_otros || ''}
+                onChange={(e) => actualizarLinea(i, 'notas_otros', e.target.value)}
+              />
+            </>
           )}
           {!historial && l.deduccion_faltas > 0 && (
             <span className="muted" style={{ fontSize: '0.62rem', display: 'block' }}>
@@ -392,15 +472,28 @@ export default function Nomina({ supabase, sucursal, user }) {
           {fmt(historial ? l.pago ?? l.total : pagoNominaLinea(l))}
         </td>
         <td>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            style={{ padding: '0.2rem 0.45rem', fontSize: '0.72rem' }}
-            onClick={() => imprimirReciboEmpleado(l, historial ? periodoSel : {})}
-            title="Imprimir recibo individual"
-          >
-            Recibo
-          </button>
+          <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ padding: '0.2rem 0.45rem', fontSize: '0.72rem' }}
+              onClick={() => imprimirReciboEmpleado(l, historial ? periodoSel : {})}
+              title="Imprimir recibo individual"
+            >
+              Recibo
+            </button>
+            {!historial && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ padding: '0.2rem 0.45rem', fontSize: '0.72rem', color: 'var(--brand-red)' }}
+                onClick={() => quitarEmpleado(l)}
+                title="Quitar de esta nómina"
+              >
+                Quitar
+              </button>
+            )}
+          </div>
         </td>
       </tr>
     );
@@ -422,7 +515,7 @@ export default function Nomina({ supabase, sucursal, user }) {
             <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', maxWidth: '52rem' }}>
               Consolidada de <strong>todas las sucursales</strong>. Semana sábado–viernes.
               <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros.</strong>
-              Consumos, inventario y préstamos se recopilan de cortes en cada tienda.
+              Los cambios se guardan automáticamente en borrador al salir. Usa <strong>Otros</strong> para deducciones manuales con concepto.
             </p>
           </div>
           <div
@@ -524,6 +617,11 @@ export default function Nomina({ supabase, sucursal, user }) {
           <button type="button" className="btn btn-ghost" disabled={cargando} onClick={() => cargarEmpleadosYGastos({ fusionar: false })}>
             Recargar todo
           </button>
+          {excluidos.size > 0 && (
+            <button type="button" className="btn btn-ghost" onClick={restaurarExcluidos}>
+              Restaurar quitados ({excluidos.size})
+            </button>
+          )}
         </div>
       </div>
 

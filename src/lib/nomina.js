@@ -188,6 +188,7 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       deduccion_prestamos: dedPrestamos,
       deduccion_faltas: dedFaltas,
       deducciones: 0,
+      notas_otros: '',
       notas: notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas),
       pagador_manual: false,
       dias_manual: false,
@@ -195,6 +196,7 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       gastos_manual: false,
       inventario_manual: false,
       prestamos_manual: false,
+      otros_manual: false,
     };
     return recalcularLineaNomina(linea);
   });
@@ -287,7 +289,7 @@ export async function guardarPeriodoNomina(supabase, payload) {
     deduccion_prestamos: Number(calc.deduccion_prestamos) || 0,
     deducciones: round2(otrosDeudasLinea(calc)),
     total: pagoNominaLinea(calc),
-    notas: calc.notas || null,
+    notas: [calc.notas, calc.notas_otros ? `Otros: ${calc.notas_otros}` : null].filter(Boolean).join(' · ') || calc.notas || null,
   };
   });
 

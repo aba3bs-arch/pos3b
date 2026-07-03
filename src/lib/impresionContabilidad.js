@@ -34,7 +34,7 @@ export function htmlNomina(data) {
       <td class="r">${fmt(l.deduccion_gastos)}</td>
       <td class="r">${fmt(l.deduccion_inventario)}</td>
       <td class="r">${fmt(l.deduccion_prestamos)}</td>
-      <td class="r">${fmt((Number(l.deducciones) || 0) + (Number(l.deduccion_faltas) || 0))}</td>
+      <td class="r">${fmt((Number(l.deducciones) || 0) + (Number(l.deduccion_faltas) || 0))}${l.notas_otros ? ` <span class="muted">(${esc(l.notas_otros)})</span>` : ''}</td>
       <td class="r"><strong>${fmt(l.pago ?? l.total)}</strong></td>
     </tr>`,
     )
@@ -154,7 +154,7 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
       ${filaDed('Consumos', dedCons)}
       ${filaDed('Préstamos', dedPrest)}
       ${dedFaltas > 0 ? filaDed('Faltas (gasolina)', dedFaltas) : ''}
-      ${Number(linea.deducciones) > 0 ? filaDed('Otras deudas', Number(linea.deducciones)) : ''}
+      ${Number(linea.deducciones) > 0 ? filaDed(linea.notas_otros ? `Otros (${linea.notas_otros})` : 'Otros', Number(linea.deducciones)) : ''}
       ${dedInv + dedCons + dedPrest + dedOtras === 0 ? '<tr><td colspan="2" class="muted">Sin descuentos</td></tr>' : ''}
     </table>
     <div class="neto">Pago neto a recibir: ${fmt(neto)}</div>
