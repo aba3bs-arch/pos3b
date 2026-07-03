@@ -54,17 +54,31 @@ export function otrosDeudasLinea(linea) {
   return round2((Number(linea?.deducciones) || 0) + (Number(linea?.deduccion_faltas) || 0));
 }
 
-/**
- * Pago = (días × salario) + bono − consumos − inventario − préstamos − otros.
- */
-export function pagoNominaLinea(linea) {
+/** Pago antes de descontar deuda arrastrada de periodos anteriores. */
+export function pagoAntesArrastreLinea(linea) {
   const sueldo = sueldoBrutoLinea(linea);
   const bono = Number(linea?.bonificacion) || 0;
   const consumo = Number(linea?.deduccion_gastos) || 0;
   const inventario = Number(linea?.deduccion_inventario) || 0;
   const prestamos = Number(linea?.deduccion_prestamos) || 0;
   const otros = otrosDeudasLinea(linea);
-  return Math.max(0, round2(sueldo + bono - consumo - inventario - prestamos - otros));
+  return round2(sueldo + bono - consumo - inventario - prestamos - otros);
+}
+
+/** Deuda que se carga a la próxima nómina cuando el pago queda negativo. */
+export function saldoPendienteDesdePago(pago) {
+  const p = Number(pago) || 0;
+  return p < 0 ? round2(Math.abs(p)) : 0;
+}
+
+/**
+ * Pago = sueldo + bono − deducciones − arrastre anterior.
+ * Puede ser negativo; el saldo pendiente se arrastra al siguiente periodo.
+ */
+export function pagoNominaLinea(linea) {
+  const antes = pagoAntesArrastreLinea(linea);
+  const arrastre = Number(linea?.deduccion_arrastre) || 0;
+  return round2(antes - arrastre);
 }
 
 /** Recalcula sueldo bruto, faltas y pago según la fórmula. */
@@ -76,6 +90,7 @@ export function recalcularLineaNomina(linea) {
   l.sueldo_base = sueldoBrutoLinea(l);
   l.pago = pagoNominaLinea(l);
   l.total = l.pago;
+  l.saldo_pendiente = saldoPendienteDesdePago(l.pago);
   return l;
 }
 
@@ -177,6 +192,8 @@ export function fusionarLineasNomina(anteriores, nuevas) {
     if (ant.inventario_manual) merged.deduccion_inventario = ant.deduccion_inventario;
     if (ant.prestamos_manual) merged.deduccion_prestamos = ant.deduccion_prestamos;
 
+    merged.deduccion_arrastre = ant.deduccion_arrastre ?? nueva.deduccion_arrastre ?? 0;
+
     merged.bonificacion = ant.bonificacion ?? nueva.bonificacion;
     if (ant.otros_manual) {
       merged.deducciones = ant.deducciones;
@@ -190,6 +207,7 @@ export function fusionarLineasNomina(anteriores, nuevas) {
 
     merged.total = totalLineaNominaImport(recalcularLineaNomina(merged));
     merged.pago = merged.total;
+    merged.saldo_pendiente = merged.saldo_pendiente ?? saldoPendienteDesdePago(merged.pago);
 
     merged.pagador_manual = ant.pagador_manual;
     merged.dias_manual = ant.dias_manual;

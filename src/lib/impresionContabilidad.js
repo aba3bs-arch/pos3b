@@ -13,6 +13,12 @@ function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
 }
 
+function fmtPagoImp(n) {
+  const v = Number(n) || 0;
+  if (v < 0) return `−${fmt(Math.abs(v))}`;
+  return fmt(v);
+}
+
 function estilos() {
   return `body{font-family:Arial,sans-serif;font-size:12px;margin:16px;max-width:720px}
   h1{font-size:16px;margin:0 0 8px} table{width:100%;border-collapse:collapse;margin-top:8px}
@@ -35,7 +41,8 @@ export function htmlNomina(data) {
       <td class="r">${fmt(l.deduccion_inventario)}</td>
       <td class="r">${fmt(l.deduccion_prestamos)}</td>
       <td class="r">${fmt((Number(l.deducciones) || 0) + (Number(l.deduccion_faltas) || 0))}${l.notas_otros ? ` <span class="muted">(${esc(l.notas_otros)})</span>` : ''}</td>
-      <td class="r"><strong>${fmt(l.pago ?? l.total)}</strong></td>
+      <td class="r">${(Number(l.deduccion_arrastre) || 0) > 0 ? fmt(l.deduccion_arrastre) : '—'}</td>
+      <td class="r"><strong style="color:${(Number(l.pago ?? l.total) || 0) < 0 ? '#c0392b' : 'inherit'}">${fmtPagoImp(l.pago ?? l.total)}</strong></td>
     </tr>`,
     )
     .join('');
@@ -46,9 +53,9 @@ export function htmlNomina(data) {
     ${data.pagador_filtro ? `<div>Pagador: <strong>${esc(ETIQUETA_AREA[data.pagador_filtro] || data.pagador_filtro)}</strong></div>` : ''}
     <div class="muted">Generado: ${esc(new Date().toLocaleString())}</div>
     <table>
-      <thead><tr><th>Empleado</th><th>Rol</th><th>Pagador</th><th class="r">$/día</th><th class="r">Días</th><th class="r">Sueldo</th><th class="r">Bono</th><th class="r">Consumos</th><th class="r">Inventario</th><th class="r">Préstamos</th><th class="r">Otros</th><th class="r">Pago</th></tr></thead>
+      <thead><tr><th>Empleado</th><th>Rol</th><th>Pagador</th><th class="r">$/día</th><th class="r">Días</th><th class="r">Sueldo</th><th class="r">Bono</th><th class="r">Consumos</th><th class="r">Inventario</th><th class="r">Préstamos</th><th class="r">Otros</th><th class="r">Arrastre</th><th class="r">Pago</th></tr></thead>
       <tbody>${lineas}</tbody>
-      <tfoot><tr><td colspan="11" class="r"><strong>Total</strong></td><td class="r"><strong>${fmt(data.total)}</strong></td></tr></tfoot>
+      <tfoot><tr><td colspan="12" class="r"><strong>Total</strong></td><td class="r"><strong>${fmtPagoImp(data.total)}</strong></td></tr></tfoot>
     </table>
     ${data.notas ? `<p class="muted">Notas: ${esc(data.notas)}</p>` : ''}
   </body></html>`;
@@ -108,6 +115,7 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
   const dedInv = Number(linea.deduccion_inventario) || 0;
   const dedCons = Number(linea.deduccion_consumos) || Number(linea.deduccion_gastos) || 0;
   const dedPrest = Number(linea.deduccion_prestamos) || 0;
+  const dedArrastre = Number(linea.deduccion_arrastre) || 0;
   const dedFaltas = Number(linea.deduccion_faltas) || 0;
   const dedOtras = (Number(linea.deducciones) || 0) + dedFaltas;
   const neto =
@@ -115,7 +123,7 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
       ? Number(linea.pago)
       : linea.total != null && linea.total !== ''
         ? Number(linea.total)
-        : Math.max(0, bruto - dedInv - dedCons - dedPrest - (Number(linea.deducciones) || 0) - dedFaltas);
+        : fmtNom(bruto - dedInv - dedCons - dedPrest - dedArrastre - (Number(linea.deducciones) || 0) - dedFaltas);
   const filaDed = (label, monto) =>
     monto > 0
       ? `<tr><td>${esc(label)}</td><td class="r" style="color:#c0392b">− ${fmt(monto)}</td></tr>`
@@ -153,11 +161,13 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
       ${filaDed('Inventario', dedInv)}
       ${filaDed('Consumos', dedCons)}
       ${filaDed('Préstamos', dedPrest)}
+      ${dedArrastre > 0 ? filaDed('Arrastre (nómina anterior)', dedArrastre) : ''}
       ${dedFaltas > 0 ? filaDed('Faltas (gasolina)', dedFaltas) : ''}
       ${Number(linea.deducciones) > 0 ? filaDed(linea.notas_otros ? `Otros (${linea.notas_otros})` : 'Otros', Number(linea.deducciones)) : ''}
-      ${dedInv + dedCons + dedPrest + dedOtras === 0 ? '<tr><td colspan="2" class="muted">Sin descuentos</td></tr>' : ''}
+      ${dedInv + dedCons + dedPrest + dedArrastre + dedOtras === 0 ? '<tr><td colspan="2" class="muted">Sin descuentos</td></tr>' : ''}
     </table>
-    <div class="neto">Pago neto a recibir: ${fmt(neto)}</div>
+    <div class="neto" style="color:${neto < 0 ? '#c0392b' : '#1a5276'}">Pago neto a recibir: ${fmtPagoImp(neto)}</div>
+    ${(linea.saldo_pendiente || 0) > 0 ? `<p class="muted" style="color:#c0392b">Deuda a próxima nómina: ${fmt(linea.saldo_pendiente)}</p>` : ''}
     <div class="firma">Recibí de conformidad el importe neto indicado.<br/><br/>
       <strong>${esc(linea.nombre)}</strong><br/>
       _________________________________________________<br/>

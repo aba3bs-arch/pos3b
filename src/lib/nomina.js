@@ -1,5 +1,6 @@
 import { marcarGastosDescontadosNomina, gastoCuentaEnNomina } from './nominaGastos.js';
 import { aplicarPrestamosNomina } from './nominaPrestamos.js';
+import { actualizarSaldosArrastreAlCerrar } from './nominaSaldoArrastre.js';
 import { gastosDeduccionPorEmpleado } from './nominaGastos.js';
 import { prestamosDeduccionPorEmpleado } from './nominaPrestamos.js';
 import {
@@ -13,6 +14,7 @@ import {
   otrosDeudasLinea,
   DIAS_SEMANA_NOMINA,
   pagoNominaLinea,
+  saldoPendienteDesdePago,
   sueldoBrutoLinea,
   recalcularLineaNomina,
 } from './nominaCalculos.js';
@@ -135,6 +137,7 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
     valesGasolinaMap = {},
     valesGasolinaNoCobradosMap = {},
     pagadorFiltro = '',
+    arrastreMap = {},
   } = opts;
 
   let lista = empleados || [];
@@ -187,6 +190,7 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       deduccion_consumos: dedGastos,
       deduccion_prestamos: dedPrestamos,
       deduccion_faltas: dedFaltas,
+      deduccion_arrastre: round2(arrastreMap[String(u.id)] || 0),
       deducciones: 0,
       notas_otros: '',
       notas: notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas),
@@ -287,8 +291,10 @@ export async function guardarPeriodoNomina(supabase, payload) {
     deduccion_gastos: Number(calc.deduccion_gastos) || 0,
     deduccion_inventario: Number(calc.deduccion_inventario) || 0,
     deduccion_prestamos: Number(calc.deduccion_prestamos) || 0,
+    deduccion_arrastre: Number(calc.deduccion_arrastre) || 0,
     deducciones: round2(otrosDeudasLinea(calc)),
     total: pagoNominaLinea(calc),
+    saldo_pendiente: saldoPendienteDesdePago(calc),
     notas: [calc.notas, calc.notas_otros ? `Otros: ${calc.notas_otros}` : null].filter(Boolean).join(' · ') || calc.notas || null,
   };
   });
@@ -298,7 +304,16 @@ export async function guardarPeriodoNomina(supabase, payload) {
   }
 
   const { error: e2 } = await supabase.from('nomina_lineas').insert(filas);
-  if (e2) return { ok: false, error: e2.message };
+  if (e2) {
+    const msg = String(e2.message || '');
+    if (msg.includes('saldo_pendiente') || msg.includes('deduccion_arrastre')) {
+      const legacy = filas.map(({ deduccion_arrastre, saldo_pendiente, ...rest }) => rest);
+      const { error: e2b } = await supabase.from('nomina_lineas').insert(legacy);
+      if (e2b) return { ok: false, error: e2b.message };
+    } else {
+      return { ok: false, error: e2.message };
+    }
+  }
 
   const listaEmp =
     empleados.length > 0
@@ -322,6 +337,8 @@ export async function guardarPeriodoNomina(supabase, payload) {
   });
   if (!prestRes.ok) return { ok: false, error: prestRes.error };
 
+  actualizarSaldosArrastreAlCerrar(lineas);
+
   return { ok: true, id: per.id, total, lineas };
 }
 
@@ -333,6 +350,8 @@ export async function cargarLineasPeriodo(supabase, periodoId) {
       ...l,
       salario_dia: l.sueldo_tarifa,
       deducciones: Number(l.deducciones) || 0,
+      deduccion_arrastre: Number(l.deduccion_arrastre) || 0,
+      saldo_pendiente: Number(l.saldo_pendiente) || 0,
       deduccion_faltas: 0,
     }),
   );

@@ -14,6 +14,7 @@ import { ETIQUETA_AREA, PAGADORES_NOMINA } from '../lib/contabilidadConstants.js
 import { imprimirNomina, imprimirReciboNominaIndividual, imprimirTodosRecibosNomina } from '../lib/impresionContabilidad.js';
 import { empleadosParaNominaGlobal } from '../lib/empleadosVisibles.js';
 import { leerBorradorNomina, guardarBorradorNomina, limpiarBorradorNomina } from '../lib/nominaBorrador.js';
+import { cargarMapaSaldosArrastre } from '../lib/nominaSaldoArrastre.js';
 import PanelAsistenciaGasolina from '../components/PanelAsistenciaGasolina.jsx';
 import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
 import { normalizarRol } from '../lib/roles.js';
@@ -21,6 +22,12 @@ import { etiquetaTienda } from '../constants/sucursales.js';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
+}
+
+function fmtPago(n) {
+  const v = Number(n) || 0;
+  if (v < 0) return `−${fmt(Math.abs(v))}`;
+  return fmt(v);
 }
 
 const CAMPOS_MANUAL = {
@@ -46,6 +53,7 @@ const COLS = [
   'Inventario',
   'Préstamos',
   'Otros',
+  'Arrastre',
   'Pago',
   '',
 ];
@@ -68,6 +76,7 @@ export default function Nomina({ supabase, sucursal, user }) {
   const [empleadosCache, setEmpleadosCache] = useState([]);
   const [excluidos, setExcluidos] = useState(() => new Set(leerBorradorNomina()?.excluidos || []));
   const [borradorListo, setBorradorListo] = useState(false);
+  const [saldosArrastre, setSaldosArrastre] = useState({});
 
   const totalGeneral = useMemo(() => lineas.reduce((a, l) => a + totalLineaNomina(l), 0), [lineas]);
 
@@ -106,6 +115,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         valesGasolinaMap: valesRes.map,
         valesGasolinaNoCobradosMap: valesRes.mapNoCobrados,
         pagadorFiltro,
+        arrastreMap: saldosArrastre,
       }).filter((l) => !excluidosIds.has(String(l.usuario_id)));
 
       setLineas((prev) => {
@@ -115,7 +125,7 @@ export default function Nomina({ supabase, sucursal, user }) {
       setEmpleadosCache(lista);
       setCargando(false);
     },
-    [supabase, sucursal, inicio, fin, pagadorFiltro, excluidos],
+    [supabase, sucursal, inicio, fin, pagadorFiltro, excluidos, saldosArrastre],
   );
 
   const cargarPeriodos = useCallback(async () => {
@@ -124,6 +134,11 @@ export default function Nomina({ supabase, sucursal, user }) {
     if (res.aviso) setAviso(res.aviso);
     if (res.error) setErr(res.error);
     else setPeriodos(res.data || []);
+  }, [supabase]);
+
+  useEffect(() => {
+    if (!supabase) return;
+    cargarMapaSaldosArrastre(supabase).then(setSaldosArrastre);
   }, [supabase]);
 
   useEffect(() => {
@@ -226,6 +241,7 @@ export default function Nomina({ supabase, sucursal, user }) {
     alert(`Nómina guardada. Total: ${fmt(res.total)}`);
     setNotasPeriodo('');
     limpiarBorradorNomina();
+    cargarMapaSaldosArrastre(supabase).then(setSaldosArrastre);
     cargarPeriodos();
     cargarEmpleadosYGastos({ fusionar: false });
   };
@@ -468,8 +484,25 @@ export default function Nomina({ supabase, sucursal, user }) {
             </span>
           )}
         </td>
-        <td style={{ fontWeight: 800, whiteSpace: 'nowrap', color: 'var(--brand-blue)' }}>
-          {fmt(historial ? l.pago ?? l.total : pagoNominaLinea(l))}
+        <td
+          style={{ color: (l.deduccion_arrastre || 0) > 0 ? 'var(--brand-red)' : undefined }}
+          title="Deuda de nóminas anteriores (gastos mayores al sueldo)"
+        >
+          {(l.deduccion_arrastre || 0) > 0 ? fmt(l.deduccion_arrastre) : historial ? '—' : '—'}
+        </td>
+        <td
+          style={{
+            fontWeight: 800,
+            whiteSpace: 'nowrap',
+            color: (historial ? l.pago ?? l.total : pagoNominaLinea(l)) < 0 ? 'var(--brand-red)' : 'var(--brand-blue)',
+          }}
+        >
+          {fmtPago(historial ? l.pago ?? l.total : pagoNominaLinea(l))}
+          {!historial && (l.saldo_pendiente || 0) > 0 && (
+            <span className="muted" style={{ fontSize: '0.62rem', display: 'block' }}>
+              → próx. {fmt(l.saldo_pendiente)}
+            </span>
+          )}
         </td>
         <td>
           <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
@@ -514,8 +547,8 @@ export default function Nomina({ supabase, sucursal, user }) {
             <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Nómina semanal</h3>
             <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', maxWidth: '52rem' }}>
               Consolidada de <strong>todas las sucursales</strong>. Semana sábado–viernes.
-              <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros.</strong>
-              Los cambios se guardan automáticamente en borrador al salir. Usa <strong>Otros</strong> para deducciones manuales con concepto.
+              <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros − arrastre.</strong>
+              Si los gastos superan el sueldo, el pago puede quedar <strong>negativo</strong> y esa deuda se carga a la siguiente nómina (columna Arrastre).
             </p>
           </div>
           <div
@@ -593,7 +626,7 @@ export default function Nomina({ supabase, sucursal, user }) {
                   <td colSpan={COLS.length - 2} style={{ textAlign: 'right', fontWeight: 700 }}>
                     Total pago
                   </td>
-                  <td style={{ fontWeight: 800, color: 'var(--brand-blue)' }}>{fmt(totalGeneral)}</td>
+                  <td style={{ fontWeight: 800, color: totalGeneral < 0 ? 'var(--brand-red)' : 'var(--brand-blue)' }}>{fmtPago(totalGeneral)}</td>
                   <td />
                 </tr>
               </tfoot>

@@ -3,6 +3,7 @@ import { consultarVentas } from '../lib/ventasQuery.js';
 import { imprimirInventario, imprimirReporte } from '../lib/impresion.js';
 import { BtnLabel } from '../components/Icon.jsx';
 import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
+import ReporteGastosDetalle from '../components/ReporteGastosDetalle.jsx';
 
 function toCsv(rows, columns) {
   const esc = (v) => {
@@ -118,7 +119,7 @@ export default function Reportes({ supabase, inventario, sucursal }) {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '720px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '1100px' }}>
       <div className="card">
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Reportes y exportación</h3>
         <p className="muted">Genera archivos CSV para contabilidad o análisis en Excel / Google Sheets.</p>
@@ -145,6 +146,8 @@ export default function Reportes({ supabase, inventario, sucursal }) {
           </div>
         </div>
       </div>
+
+      <ReporteGastosDetalle supabase={supabase} sucursal={sucursal} />
     </div>
   );
 }
