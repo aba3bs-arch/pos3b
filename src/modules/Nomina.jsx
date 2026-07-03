@@ -15,6 +15,7 @@ import { imprimirNomina, imprimirReciboNominaIndividual, imprimirTodosRecibosNom
 import { empleadosParaNominaGlobal } from '../lib/empleadosVisibles.js';
 import { leerBorradorNomina, guardarBorradorNomina, limpiarBorradorNomina } from '../lib/nominaBorrador.js';
 import { cargarMapaSaldosArrastre } from '../lib/nominaSaldoArrastre.js';
+import { reabrirPeriodoNomina } from '../lib/nominaReabrir.js';
 import PanelAsistenciaGasolina from '../components/PanelAsistenciaGasolina.jsx';
 import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
 import { normalizarRol } from '../lib/roles.js';
@@ -273,6 +274,49 @@ export default function Nomina({ supabase, sucursal, user }) {
     const res = await cargarLineasPeriodo(supabase, p.id);
     if (res.error) return alert(res.error);
     setLineasHist(res.data || []);
+  };
+
+  const reabrirPeriodo = async () => {
+    if (!esAdmin) return alert('Solo el administrador puede reabrir nóminas cerradas.');
+    if (!periodoSel?.id || !supabase) return;
+    if (
+      !window.confirm(
+        `¿Reabrir la nómina del ${periodoSel.periodo_inicio} al ${periodoSel.periodo_fin}?\n\n` +
+          'Se revertirán gastos y abonos de préstamos de ese cierre, se quitará el arrastre generado y podrás editar de nuevo.\n' +
+          'Solo funciona con la nómina más reciente cerrada.',
+      )
+    ) {
+      return;
+    }
+    setCargando(true);
+    setErr('');
+    const res = await reabrirPeriodoNomina(supabase, periodoSel.id);
+    setCargando(false);
+    if (!res.ok) return alert(res.error || 'No se pudo reabrir.');
+
+    setInicio(res.periodo.periodo_inicio);
+    setFin(res.periodo.periodo_fin);
+    setPagadorFiltro(res.periodo.pagador_filtro || '');
+    setNotasPeriodo(res.periodo.notas || '');
+    setLineas(res.lineas || []);
+    setSaldosArrastre(res.arrastreMap || {});
+    setExcluidos(new Set());
+    setPeriodoSel(null);
+    setLineasHist([]);
+    guardarBorradorNomina({
+      inicio: res.periodo.periodo_inicio,
+      fin: res.periodo.periodo_fin,
+      pagadorFiltro: res.periodo.pagador_filtro || '',
+      notasPeriodo: res.periodo.notas || '',
+      lineas: res.lineas || [],
+      excluidos: [],
+    });
+    cargarPeriodos();
+    alert(
+      `Nómina reabierta para corrección.\n` +
+        `Gastos desmarcados: ${res.gastosRevertidos || 0}.\n` +
+        'Edita los datos y vuelve a usar «Cerrar nómina» cuando esté lista.',
+    );
   };
 
   const imprimirHistorial = () => {
@@ -664,6 +708,11 @@ export default function Nomina({ supabase, sucursal, user }) {
 
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Historial</h3>
+        {esAdmin && (
+          <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.65rem' }}>
+            Administrador: abre un periodo con <strong>Ver</strong> y usa <strong>Reabrir para corregir</strong> (solo el más reciente).
+          </p>
+        )}
         <div className="table-wrap">
           <table className="data">
             <thead>
@@ -701,7 +750,7 @@ export default function Nomina({ supabase, sucursal, user }) {
               <h4 style={{ margin: 0 }}>
                 Detalle: {periodoSel.periodo_inicio} — {periodoSel.periodo_fin}
               </h4>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <button type="button" className="btn btn-ghost" onClick={imprimirHistorial}>
                   Imprimir nómina
                 </button>
@@ -718,6 +767,18 @@ export default function Nomina({ supabase, sucursal, user }) {
                 >
                   Recibos por empleado
                 </button>
+                {esAdmin && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ color: 'var(--brand-gold-dark)' }}
+                    disabled={cargando}
+                    onClick={reabrirPeriodo}
+                    title="Solo la nómina más reciente. Revierte gastos y préstamos aplicados."
+                  >
+                    Reabrir para corregir
+                  </button>
+                )}
               </div>
             </div>
             <div className="table-wrap table-wrap-sticky-head" style={{ marginTop: '0.5rem' }}>
