@@ -1063,8 +1063,7 @@ export default function Configuracion({
                   <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
                     Definen si el rol solo <strong>reporta</strong> fallas o también <strong>atiende y resuelve</strong> incidencias.
                     Personal de <strong>central MAIN</strong> suele necesitar ver todas las sucursales y resolver cualquier reporte.
-                    <strong> Técnico</strong> y <strong>Repartidor</strong> por defecto resuelven las asignadas a su nombre.
-                    <strong> Auditor</strong> por defecto tiene gestión completa desde central.
+                    <strong> Auditor</strong>, <strong>Técnico</strong> y <strong>Repartidor</strong> tienen por defecto gestión completa de incidencias y pueden cambiar de tienda en MAIN.
                   </p>
                   {privKey && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>

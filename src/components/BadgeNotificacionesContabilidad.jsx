@@ -4,7 +4,7 @@ import {
   EVENTO_NOTIFICACIONES,
   TIPOS_NOTIF,
 } from '../lib/contabilidadNotificaciones.js';
-import { normalizarRol } from '../lib/roles.js';
+import { normalizarRol, puedeVerBandejaPendientesIncidencias, puedeVerTodasIncidencias } from '../lib/roles.js';
 import { esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
 
 export default function BadgeNotificacionesContabilidad({ supabase, sucursal, user, onClick }) {
@@ -13,10 +13,11 @@ export default function BadgeNotificacionesContabilidad({ supabase, sucursal, us
   const esAdmin = rol === 'Administrador';
   const esGerente = rol === 'Gerente';
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
-  const veTodasTiendas = esAdmin || esGerente;
+  const veTodasTiendas = puedeVerTodasIncidencias(rol, user?.id, sucursal) || esAdmin || esGerente;
+  const puedeVer = esAdmin || esGerente || esSocio || puedeVerBandejaPendientesIncidencias(rol, user?.id);
 
   const refrescar = useCallback(async () => {
-    if (!supabase || (!esAdmin && !esGerente && !esSocio)) {
+    if (!supabase || !puedeVer) {
       setCount(0);
       return;
     }
@@ -29,7 +30,7 @@ export default function BadgeNotificacionesContabilidad({ supabase, sucursal, us
       lista = lista.filter((x) => x.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO);
     }
     setCount(lista.length);
-  }, [supabase, sucursal, esAdmin, esGerente, esSocio, veTodasTiendas]);
+  }, [supabase, sucursal, puedeVer, veTodasTiendas, esAdmin, esGerente, esSocio]);
 
   useEffect(() => {
     refrescar();
@@ -42,7 +43,7 @@ export default function BadgeNotificacionesContabilidad({ supabase, sucursal, us
     };
   }, [refrescar]);
 
-  if (!count || (!esAdmin && !esGerente && !esSocio)) return null;
+  if (!count || !puedeVer) return null;
 
   return (
     <button

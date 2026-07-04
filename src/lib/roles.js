@@ -336,25 +336,29 @@ export function puedeEliminarProductosCatalogo(rol) {
   return normalizarRol(rol) === 'Administrador';
 }
 
-/** Administrador y gerente pueden cambiar tienda y gestionar inventario de todas las sucursales. */
+/** Roles de central MAIN que pueden elegir cualquier tienda en la sesión. */
+export const ROLES_CAMBIO_TIENDA_CENTRAL = ['Auditor', 'Técnico', 'Repartidor'];
+
+/** Administrador, gerente y personal de central (auditor, técnico, repartidor) pueden cambiar tienda. */
 export function puedeCambiarTiendaLibremente(rol) {
   const r = normalizarRol(rol);
-  return r === 'Administrador' || r === 'Gerente';
+  return r === 'Administrador' || r === 'Gerente' || ROLES_CAMBIO_TIENDA_CENTRAL.includes(r);
 }
 
 export function puedeGestionarInventarioMultitienda(rol) {
-  return puedeCambiarTiendaLibremente(rol);
+  const r = normalizarRol(rol);
+  return r === 'Administrador' || r === 'Gerente';
 }
 
 export function descripcionRol(rol) {
   const r = normalizarRol(rol);
   const textos = {
     Cajero: 'Mostrador: ventas, cortes, vales y reporte de incidencias',
-    Repartidor: 'Ruta y recolecciones; puede resolver incidencias asignadas a su nombre',
-    Auditor: 'Consultas, reportes, inventario y resolución de incidencias en central MAIN',
+    Repartidor: 'Ruta, recolecciones e incidencias en todas las tiendas desde central MAIN',
+    Auditor: 'Consultas, reportes, inventario e incidencias en todas las tiendas desde central MAIN',
     Supervisor: 'Operación de tienda sin configuración ni usuarios',
     Gerente: 'Operación, configuración y gestión de incidencias en todas las tiendas',
-    Técnico: 'Soporte en campo; atiende incidencias de equipo asignadas a su nombre',
+    Técnico: 'Soporte e incidencias en todas las tiendas desde central MAIN',
     Administrador: 'Acceso total al POS y central de administración',
   };
   return textos[r] || r;

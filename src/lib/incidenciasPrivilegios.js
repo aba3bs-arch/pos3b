@@ -1,6 +1,5 @@
 import { leerPrivilegios } from './posConfig.js';
 import { esResponsableIncidencia } from './incidenciasPos.js';
-import { esAlmacenCentral } from '../constants/sucursales.js';
 
 const ROLES_SISTEMA = ['Cajero', 'Auditor', 'Repartidor', 'Supervisor', 'Gerente', 'Técnico', 'Administrador'];
 
@@ -48,23 +47,19 @@ export const ACCIONES_INCIDENCIAS_PRIVILEGIO = [
 export const IDS_ACCIONES_INCIDENCIAS = new Set(ACCIONES_INCIDENCIAS_PRIVILEGIO.map((a) => a.id));
 
 /** Valores por defecto si no hay personalización en Configuración. */
+const ACCIONES_CENTRAL_INCIDENCIAS = [
+  'inc_bandeja_pendientes',
+  'inc_ver_todas_tiendas',
+  'inc_resolver_todas',
+  'inc_redirigir',
+  'inc_historial_notif',
+];
+
 export const ACCIONES_DEFAULT_INCIDENCIAS_POR_ROL = {
-  Técnico: ['inc_resolver_asignadas', 'inc_redirigir'],
-  Repartidor: ['inc_resolver_asignadas', 'inc_redirigir'],
-  Auditor: [
-    'inc_bandeja_pendientes',
-    'inc_ver_todas_tiendas',
-    'inc_resolver_todas',
-    'inc_redirigir',
-    'inc_historial_notif',
-  ],
-  Gerente: [
-    'inc_bandeja_pendientes',
-    'inc_ver_todas_tiendas',
-    'inc_resolver_todas',
-    'inc_redirigir',
-    'inc_historial_notif',
-  ],
+  Técnico: [...ACCIONES_CENTRAL_INCIDENCIAS],
+  Repartidor: [...ACCIONES_CENTRAL_INCIDENCIAS],
+  Auditor: [...ACCIONES_CENTRAL_INCIDENCIAS],
+  Gerente: [...ACCIONES_CENTRAL_INCIDENCIAS],
 };
 
 /** Atajos para personal de central MAIN. */
@@ -135,14 +130,10 @@ export function puedeVerHistorialIncidencias(rol, userId = null) {
   return tieneAccionIncidencia('inc_historial_notif', r, userId);
 }
 
-export function puedeVerTodasIncidencias(rol, userId = null, sucursal = null) {
+export function puedeVerTodasIncidencias(rol, userId = null, _sucursal = null) {
   const r = normRol(rol);
-  if (r === 'Administrador') return true;
-  if (r === 'Gerente') return true;
-  if (tieneAccionIncidencia('inc_ver_todas_tiendas', r, userId)) {
-    return esAlmacenCentral(sucursal) || tieneAccionIncidencia('inc_resolver_todas', r, userId);
-  }
-  return false;
+  if (r === 'Administrador' || r === 'Gerente') return true;
+  return tieneAccionIncidencia('inc_ver_todas_tiendas', r, userId);
 }
 
 export function puedeResolverAlgunaIncidencia(rol, userId = null) {
