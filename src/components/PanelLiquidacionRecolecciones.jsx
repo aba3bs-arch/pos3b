@@ -6,16 +6,21 @@ import {
   fmtFechaClave,
   fmtFechaHora,
   fmtMonto,
+  filtrarMovimientosPorFecha,
   hoyClaveNogales,
   inicializarSeleccionLiquidacion,
   liquidarMovimientos,
   listarAlertasRecoleccion,
   listarEnTransitoPorRepartidor,
+  listarLiquidacionesRepartidor,
   listarRepartidores,
   marcarAlertaVista,
   reporteRecoleccionTiendaFecha,
   resumenTotalesPorTipo,
 } from '../lib/controlEfectivo.js';
+import { PRESETS_FECHA_PRODUCTO, rangoDesdePreset } from '../lib/consultasInventario.js';
+import FiltroPeriodo from './FiltroPeriodo.jsx';
+import SelectorCalendario from './SelectorCalendario.jsx';
 
 function etiquetaTipo(m) {
   if (m.tipo_movimiento === 'Cobro Servicio') return 'Servicio';
@@ -31,12 +36,68 @@ function CheckIndeterminado({ checked, indeterminate, onChange, ...rest }) {
   return <input ref={ref} type="checkbox" checked={checked} onChange={onChange} {...rest} />;
 }
 
+function LineaMovimiento({ m, esHistorial, selIds, setSelIds }) {
+  const detalle = (
+    <span style={{ flex: 1 }}>
+      {m.num_traspaso} · {etiquetaTipo(m)} · {fmtFechaHora(m.fecha_hora)}
+      {m.cajero_nombre && !esHistorial && <span className="muted"> · {m.cajero_nombre}</span>}
+      {esHistorial && (
+        <span className="muted" style={{ display: 'block', fontSize: '0.75rem' }}>
+          Sellado {m.fecha_liquidacion ? fmtFechaHora(m.fecha_liquidacion) : '—'}
+          {m.usuario_liquida ? ` · ${m.usuario_liquida}` : ''}
+        </span>
+      )}
+    </span>
+  );
+  if (esHistorial) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          padding: '0.35rem 0',
+          borderTop: '1px solid var(--border)',
+          fontSize: '0.85rem',
+        }}
+      >
+        {detalle}
+        <strong>{fmtMonto(m.monto)}</strong>
+      </div>
+    );
+  }
+  return (
+    <label
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.5rem',
+        padding: '0.35rem 0',
+        borderTop: '1px solid var(--border)',
+        cursor: 'pointer',
+        fontSize: '0.85rem',
+      }}
+    >
+      <input type="checkbox" checked={Boolean(selIds[m.id])} onChange={(e) => setSelIds((p) => ({ ...p, [m.id]: e.target.checked }))} />
+      {detalle}
+      <strong>{fmtMonto(m.monto)}</strong>
+    </label>
+  );
+}
+
 function estadoSeleccion(items, selIds) {
   const sel = items.filter((m) => selIds[m.id]).length;
   if (sel === 0) return 'none';
   if (sel === items.length) return 'all';
   return 'partial';
 }
+
+const PRESETS_PENDIENTE = [
+  { id: 'todos', label: 'Todos los pendientes' },
+  ...PRESETS_FECHA_PRODUCTO,
+];
+
+const PRESETS_HISTORIAL = PRESETS_FECHA_PRODUCTO;
 
 /** Liquidación en oficina — administrador / gerente. */
 export default function PanelLiquidacionRecolecciones({ supabase, user, embedded = false }) {
@@ -49,9 +110,41 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState(null);
   const [vistaDetalle, setVistaDetalle] = useState('dia');
+  const [modoConsulta, setModoConsulta] = useState('pendiente');
+  const [presetFecha, setPresetFecha] = useState('todos');
+  const [filtroDesde, setFiltroDesde] = useState('');
+  const [filtroHasta, setFiltroHasta] = useState('');
+  const [fechaSellado, setFechaSellado] = useState(() => hoyClaveNogales());
 
-  const fechaLiquidacion = useMemo(() => fmtFechaClave(hoyClaveNogales()), []);
+  const esHistorial = modoConsulta === 'historial';
+  const diaDe = esHistorial ? 'liquidacion' : 'recoleccion';
+  const fechaLiquidacion = useMemo(() => fmtFechaClave(fechaSellado), [fechaSellado]);
   const repNombre = useMemo(() => repartidores.find((r) => r.id === repLiq)?.nombre || '', [repartidores, repLiq]);
+
+  const cambiarPresetFecha = (preset) => {
+    setPresetFecha(preset);
+    if (preset === 'todos') {
+      setFiltroDesde('');
+      setFiltroHasta('');
+      return;
+    }
+    if (preset !== 'rango') {
+      const r = rangoDesdePreset(preset);
+      if (r) {
+        setFiltroDesde(r.desde);
+        setFiltroHasta(r.hasta);
+      }
+    }
+  };
+
+  const cambiarModoConsulta = (modo) => {
+    setModoConsulta(modo);
+    if (modo === 'historial') {
+      cambiarPresetFecha('mes');
+    } else {
+      cambiarPresetFecha('todos');
+    }
+  };
 
   const cargar = useCallback(async () => {
     if (!supabase) return;
@@ -62,25 +155,33 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       const repId = repLiq || reps[0]?.id || '';
       if (!repLiq && repId) setRepLiq(repId);
       if (!repId) return;
+
+      const desde = presetFecha === 'todos' ? '' : filtroDesde;
+      const hasta = presetFecha === 'todos' ? '' : filtroHasta;
+
       const [movs, alr] = await Promise.all([
-        listarEnTransitoPorRepartidor(supabase, repId),
-        listarAlertasRecoleccion(supabase),
+        esHistorial
+          ? listarLiquidacionesRepartidor(supabase, repId, { desde, hasta })
+          : listarEnTransitoPorRepartidor(supabase, repId).then((rows) =>
+              filtrarMovimientosPorFecha(rows, { desde, hasta, diaDe: 'recoleccion' }),
+            ),
+        esHistorial ? Promise.resolve([]) : listarAlertasRecoleccion(supabase),
       ]);
       setEnTransito(movs);
       setAlertas(alr);
-      setSelIds(inicializarSeleccionLiquidacion(movs));
+      setSelIds(esHistorial ? {} : inicializarSeleccionLiquidacion(movs));
     } catch (e) {
       setError(e.message?.includes('repartidores') ? 'Ejecuta supabase/control_efectivo.sql en Supabase.' : e.message);
     }
-  }, [supabase, repLiq]);
+  }, [supabase, repLiq, esHistorial, presetFecha, filtroDesde, filtroHasta]);
 
   useEffect(() => {
     cargar();
   }, [cargar]);
 
-  const reporte = useMemo(() => reporteRecoleccionTiendaFecha(enTransito), [enTransito]);
-  const agrupadoTienda = useMemo(() => agruparEnTransitoPorTiendaYDia(enTransito), [enTransito]);
-  const agrupadoDia = useMemo(() => agruparEnTransitoPorDia(enTransito), [enTransito]);
+  const reporte = useMemo(() => reporteRecoleccionTiendaFecha(enTransito, { diaDe }), [enTransito, diaDe]);
+  const agrupadoTienda = useMemo(() => agruparEnTransitoPorTiendaYDia(enTransito, { diaDe }), [enTransito, diaDe]);
+  const agrupadoDia = useMemo(() => agruparEnTransitoPorDia(enTransito, { diaDe }), [enTransito, diaDe]);
 
   const seleccionados = useMemo(() => enTransito.filter((m) => selIds[m.id]), [enTransito, selIds]);
   const totalSeleccionado = useMemo(() => seleccionados.reduce((a, m) => a + Number(m.monto || 0), 0), [seleccionados]);
@@ -132,7 +233,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       table{border-collapse:collapse;width:100%;margin-top:1rem} th,td{border:1px solid #ccc;padding:6px 8px}
       th{background:#f0f0f0} h1{font-size:1.1rem;margin:0} .muted{color:#666;font-size:12px}</style></head><body>
       <h1>Reporte de recolección en tránsito</h1>
-      <p class="muted">Recolector: ${rep} · Fecha reporte: ${fechaLiquidacion} · Total: ${fmtMonto(reporte.granTotal)}</p>
+      <p class="muted">Recolector: ${rep} · ${esHistorial ? 'Liquidaciones' : 'Fecha sellado'}: ${fechaLiquidacion} · Total: ${fmtMonto(reporte.granTotal)}</p>
       <table><thead><tr><th>Tienda</th>${headDias}<th>Total tienda</th></tr></thead>
       <tbody>${filasHtml}<tr style="background:#f9f9f9"><td><strong>Total por día</strong></td>${totDia}<td><strong>${fmtMonto(reporte.granTotal)}</strong></td></tr></tbody></table>
       <p class="muted" style="margin-top:1rem">Días seleccionados para liquidar: ${diasSeleccionados.map((d) => d.etiqueta).join(', ') || 'Ninguno'} · Monto a liquidar: ${fmtMonto(totalSeleccionado)}</p>
@@ -170,14 +271,33 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
         <>
           <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Liquidación de recolecciones</h3>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-            Reporte por tienda y fecha. Si hay varios días pendientes, marca los días que entregas hoy para liquidarlos juntos.
+            Reporte por tienda y fecha. Consulta pendientes por liquidar o revisa liquidaciones pasadas con el calendario.
           </p>
         </>
       )}
 
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+        <button
+          type="button"
+          className={`btn ${!esHistorial ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ fontSize: '0.85rem' }}
+          onClick={() => cambiarModoConsulta('pendiente')}
+        >
+          Pendientes por liquidar
+        </button>
+        <button
+          type="button"
+          className={`btn ${esHistorial ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ fontSize: '0.85rem' }}
+          onClick={() => cambiarModoConsulta('historial')}
+        >
+          Liquidaciones pasadas
+        </button>
+      </div>
+
       {error && <p style={{ color: 'var(--brand-red)', fontSize: '0.85rem' }}>{error}</p>}
 
-      {alertas.length > 0 && (
+      {alertas.length > 0 && !esHistorial && (
         <div style={{ marginBottom: '1rem', padding: '0.75rem', borderRadius: '10px', background: 'rgba(225,153,41,0.12)', border: '1px solid rgba(225,153,41,0.35)' }}>
           <strong>Alertas de recolección ({alertas.length})</strong>
           {alertas.map((a) => (
@@ -204,14 +324,46 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
             ))}
           </select>
         </label>
-        <label className="muted" style={{ display: 'block' }}>
-          Fecha de liquidación
-          <input className="input" style={{ marginTop: '0.35rem' }} value={fechaLiquidacion} readOnly />
-        </label>
+        {!esHistorial ? (
+          <div>
+            <SelectorCalendario
+              label="Fecha de sellado"
+              value={fechaSellado}
+              onChange={setFechaSellado}
+              max={hoyClaveNogales()}
+            />
+            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.78rem' }}>
+              Día en que recibes el efectivo del recolector.
+            </p>
+          </div>
+        ) : (
+          <div className="muted" style={{ fontSize: '0.85rem', alignSelf: 'center' }}>
+            <span className="badge" style={{ background: 'rgba(13,148,136,0.12)', color: '#0d9488' }}>
+              Solo consulta · liquidaciones selladas
+            </span>
+          </div>
+        )}
       </div>
 
+      <FiltroPeriodo
+        presets={esHistorial ? PRESETS_HISTORIAL : PRESETS_PENDIENTE}
+        preset={presetFecha}
+        onPresetChange={cambiarPresetFecha}
+        desde={filtroDesde}
+        hasta={filtroHasta}
+        onDesdeChange={setFiltroDesde}
+        onHastaChange={setFiltroHasta}
+        labelPeriodo={esHistorial ? 'Periodo de liquidación' : 'Filtrar por fecha de recolección'}
+        style={{ marginTop: '0.75rem' }}
+        mostrarResumen={presetFecha !== 'todos'}
+      />
+
       {!enTransito.length ? (
-        <p className="muted" style={{ marginTop: '1rem' }}>Sin movimientos en tránsito para este recolector.</p>
+        <p className="muted" style={{ marginTop: '1rem' }}>
+          {esHistorial
+            ? 'Sin liquidaciones selladas en el periodo seleccionado.'
+            : 'Sin movimientos en tránsito para este recolector en el filtro actual.'}
+        </p>
       ) : (
         <>
           {/* Reporte matriz tienda × fecha */}
@@ -223,7 +375,15 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
               </button>
             </div>
             <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.8rem' }}>
-              Total en tránsito: <strong>{fmtMonto(reporte.granTotal)}</strong> · {enTransito.length} movimiento(s) · {reporte.resumenDias.length} día(s)
+              {esHistorial ? (
+                <>
+                  Total liquidado: <strong>{fmtMonto(reporte.granTotal)}</strong> · {enTransito.length} movimiento(s) · {reporte.resumenDias.length} día(s)
+                </>
+              ) : (
+                <>
+                  Total en tránsito: <strong>{fmtMonto(reporte.granTotal)}</strong> · {enTransito.length} movimiento(s) · {reporte.resumenDias.length} día(s)
+                </>
+              )}
             </p>
             <div className="table-wrap">
               <table className="table" style={{ fontSize: '0.85rem' }}>
@@ -233,8 +393,11 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
                     {reporte.dias.map((dia) => (
                       <th key={dia} style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {fmtFechaClave(dia)}
-                        {dia !== reporte.hoy && (
+                        {!esHistorial && dia !== reporte.hoy && (
                           <span style={{ display: 'block', fontWeight: 400, fontSize: '0.7rem', color: 'var(--brand-gold)' }}>pendiente</span>
+                        )}
+                        {esHistorial && (
+                          <span style={{ display: 'block', fontWeight: 400, fontSize: '0.7rem', color: 'var(--muted)' }}>liquidado</span>
                         )}
                       </th>
                     ))}
@@ -252,6 +415,14 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
                           return (
                             <td key={dia} style={{ textAlign: 'right', color: 'var(--muted)' }}>
                               —
+                            </td>
+                          );
+                        }
+                        if (esHistorial) {
+                          return (
+                            <td key={dia} style={{ textAlign: 'right', padding: '6px 8px' }}>
+                              {fmtMonto(c.total)}
+                              <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--muted)' }}>{c.count} mov.</span>
                             </td>
                           );
                         }
@@ -295,6 +466,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
           </div>
 
           {/* Selector de días — liquidar varios juntos */}
+          {!esHistorial && (
           <div className="card" style={{ marginTop: '1rem', padding: '0.85rem', borderLeft: multiplesDias ? '4px solid var(--brand-gold)' : '4px solid #0d9488' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
               <h4 style={{ margin: 0, color: 'var(--brand-blue)' }}>
@@ -363,8 +535,10 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
               })}
             </div>
           </div>
+          )}
 
           {/* Total seleccionado */}
+          {!esHistorial && (
           <div
             style={{
               marginTop: '1rem',
@@ -380,8 +554,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
               {fmtMonto(resumenSel.servicios)}
             </p>
           </div>
-
-          {/* Detalle expandible */}
+          )}
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', flexWrap: 'wrap' }}>
             <button type="button" className={vistaDetalle === 'dia' ? 'btn btn-primary' : 'btn btn-ghost'} style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }} onClick={() => setVistaDetalle('dia')}>
               Detalle por día
@@ -396,6 +569,12 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
               const estado = estadoSeleccion(bloque.items, selIds);
               return (
                 <div key={bloque.dia} className="card" style={{ marginTop: '0.75rem', padding: '0.85rem' }}>
+                  {esHistorial ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                      <strong style={{ color: 'var(--brand-blue)' }}>{bloque.etiqueta}</strong>
+                      <span className="muted" style={{ marginLeft: 'auto', fontSize: '0.85rem' }}>{fmtMonto(bloque.total)}</span>
+                    </div>
+                  ) : (
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', marginBottom: '0.5rem' }}>
                     <CheckIndeterminado checked={estado === 'all'} indeterminate={estado === 'partial'} onChange={(e) => toggleDiaGlobal(bloque.items, e.target.checked)} />
                     <strong style={{ color: 'var(--brand-blue)' }}>
@@ -406,6 +585,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
                       {fmtMonto(bloque.total)}
                     </span>
                   </label>
+                  )}
                   {bloque.tiendas.map(({ tienda, items, total }) => (
                     <div key={tienda} style={{ marginLeft: '1.5rem', marginTop: '0.5rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, fontSize: '0.9rem' }}>
@@ -413,24 +593,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
                         <span>{fmtMonto(total)}</span>
                       </div>
                       {items.map((m) => (
-                        <label
-                          key={m.id}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '0.5rem',
-                            padding: '0.35rem 0',
-                            borderTop: '1px solid var(--border)',
-                            cursor: 'pointer',
-                            fontSize: '0.85rem',
-                          }}
-                        >
-                          <input type="checkbox" checked={Boolean(selIds[m.id])} onChange={(e) => setSelIds((p) => ({ ...p, [m.id]: e.target.checked }))} />
-                          <span style={{ flex: 1 }}>
-                            {m.num_traspaso} · {etiquetaTipo(m)} · {fmtFechaHora(m.fecha_hora)}
-                          </span>
-                          <strong>{fmtMonto(m.monto)}</strong>
-                        </label>
+                        <LineaMovimiento key={m.id} m={m} esHistorial={esHistorial} selIds={selIds} setSelIds={setSelIds} />
                       ))}
                     </div>
                   ))}
@@ -444,16 +607,28 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
               const estadoTienda = estadoSeleccion(itemsTienda, selIds);
               return (
                 <div key={tienda} className="card" style={{ marginTop: '0.75rem', padding: '0.85rem' }}>
+                  {esHistorial ? (
+                    <h4 style={{ margin: 0, color: 'var(--brand-blue)' }}>
+                      {tienda} · {fmtMonto(totalTienda)}
+                    </h4>
+                  ) : (
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
                     <CheckIndeterminado checked={estadoTienda === 'all'} indeterminate={estadoTienda === 'partial'} onChange={(e) => toggleIds(itemsTienda, e.target.checked)} />
                     <h4 style={{ margin: 0, color: 'var(--brand-blue)', flex: 1 }}>
                       {tienda} · {fmtMonto(totalTienda)}
                     </h4>
                   </label>
+                  )}
                   {dias.map(({ dia, items, total, etiqueta }) => {
                     const estado = estadoSeleccion(items, selIds);
                     return (
                       <div key={dia} style={{ marginTop: '0.65rem', marginLeft: '1.25rem' }}>
+                        {esHistorial ? (
+                          <div style={{ display: 'flex', fontWeight: 600, marginBottom: '0.25rem' }}>
+                            <span>{etiqueta}</span>
+                            <span className="muted" style={{ marginLeft: 'auto', fontWeight: 400 }}>{fmtMonto(total)}</span>
+                          </div>
+                        ) : (
                         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 600 }}>
                           <CheckIndeterminado checked={estado === 'all'} indeterminate={estado === 'partial'} onChange={(e) => toggleIds(items, e.target.checked)} />
                           <span>
@@ -462,26 +637,9 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
                           </span>
                           <span className="muted" style={{ marginLeft: 'auto', fontWeight: 400 }}>{fmtMonto(total)}</span>
                         </label>
+                        )}
                         {items.map((m) => (
-                          <label
-                            key={m.id}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '0.5rem',
-                              padding: '0.35rem 0 0.35rem 1.25rem',
-                              borderTop: '1px solid var(--border)',
-                              cursor: 'pointer',
-                              fontSize: '0.85rem',
-                            }}
-                          >
-                            <input type="checkbox" checked={Boolean(selIds[m.id])} onChange={(e) => setSelIds((p) => ({ ...p, [m.id]: e.target.checked }))} />
-                            <span style={{ flex: 1 }}>
-                              {m.num_traspaso} · {etiquetaTipo(m)}
-                              {m.cajero_nombre && <span className="muted"> · {m.cajero_nombre}</span>}
-                            </span>
-                            <strong>{fmtMonto(m.monto)}</strong>
-                          </label>
+                          <LineaMovimiento key={m.id} m={m} esHistorial={esHistorial} selIds={selIds} setSelIds={setSelIds} />
                         ))}
                       </div>
                     );
@@ -490,9 +648,11 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
               );
             })}
 
+          {!esHistorial && (
           <button type="button" className="btn btn-danger" style={{ marginTop: '1rem' }} disabled={guardando || totalSeleccionado <= 0} onClick={confirmarLiquidacion}>
             {guardando ? 'Sellando…' : `Sellar liquidación · ${fmtMonto(totalSeleccionado)}`}
           </button>
+          )}
         </>
       )}
     </>

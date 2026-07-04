@@ -16,7 +16,7 @@ export default function LiquidacionRecolecciones({ supabase, user }) {
       <div>
         <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>Liquidación recolecciones</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
-          Sellar efectivo en tránsito por tienda y día. Las tiendas registran traspasos en <strong>Recolecciones</strong>.
+          Sellar efectivo en tránsito por tienda y día, o consultar liquidaciones pasadas con calendario. Las tiendas registran traspasos en <strong>Recolecciones</strong>.
         </p>
       </div>
       <PanelLiquidacionRecolecciones supabase={supabase} user={user} embedded />

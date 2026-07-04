@@ -1,5 +1,6 @@
 import { normalizarCodigoTienda, etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
 import { normalizarRol } from './roles.js';
+import { enRangoYmd } from './fechas.js';
 
 const TIPOS_TRASPASO = ['Recolección', 'Entrega Crédito'];
 const TZ = 'America/Hermosillo';
@@ -74,6 +75,32 @@ export function fmtFechaHora(iso) {
 
 export function hoyClaveNogales() {
   return new Date().toLocaleDateString('en-CA', { timeZone: TZ });
+}
+
+/** Día de agrupación: recolección (fecha_hora) o liquidación (fecha_liquidacion). */
+export function claveDiaReporte(m, diaDe = 'recoleccion') {
+  if (diaDe === 'liquidacion') return fechaClaveDesdeIso(m.fecha_liquidacion || m.fecha_hora);
+  return fechaClaveDesdeIso(m.fecha_hora);
+}
+
+export function filtrarMovimientosPorFecha(movs, { desde, hasta, diaDe = 'recoleccion' } = {}) {
+  if (!desde && !hasta) return movs || [];
+  return (movs || []).filter((m) => enRangoYmd(claveDiaReporte(m, diaDe), desde, hasta));
+}
+
+/** Liquidaciones selladas de un recolector (filtro por fecha de liquidación). */
+export async function listarLiquidacionesRepartidor(supabase, repartidorId, { desde, hasta } = {}) {
+  const { data, error } = await supabase
+    .from('transito_efectivo')
+    .select(
+      'id, sucursal_origen, cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, descripcion_gasto, estatus, fecha_liquidacion, usuario_liquida',
+    )
+    .eq('repartidor_id', repartidorId)
+    .eq('estatus', 'Liquidado')
+    .order('fecha_liquidacion', { ascending: false });
+  if (error) throw error;
+  const rows = (data || []).filter((m) => m.tipo_movimiento !== 'Gasto');
+  return filtrarMovimientosPorFecha(rows, { desde, hasta, diaDe: 'liquidacion' });
 }
 
 /** Selección inicial: todo si hay un solo día; si hay varios, ninguno (el usuario elige días). */
@@ -552,11 +579,11 @@ export async function listarEnTransitoPorRepartidor(supabase, repartidorId) {
 }
 
 /** Agrupa movimientos en tránsito: tienda → día → filas */
-export function agruparEnTransitoPorTiendaYDia(movimientos) {
+export function agruparEnTransitoPorTiendaYDia(movimientos, { diaDe = 'recoleccion' } = {}) {
   const porTienda = {};
   for (const m of movimientos || []) {
     const tienda = m.sucursal_origen || 'Sin tienda';
-    const dia = fechaClaveDesdeIso(m.fecha_hora);
+    const dia = claveDiaReporte(m, diaDe);
     if (!porTienda[tienda]) porTienda[tienda] = {};
     if (!porTienda[tienda][dia]) porTienda[tienda][dia] = [];
     porTienda[tienda][dia].push(m);
@@ -579,14 +606,14 @@ export function agruparEnTransitoPorTiendaYDia(movimientos) {
  * Reporte matriz: filas = tienda, columnas = fecha.
  * Incluye resumen por día para seleccionar varios días a liquidar juntos.
  */
-export function reporteRecoleccionTiendaFecha(movimientos) {
+export function reporteRecoleccionTiendaFecha(movimientos, { diaDe = 'recoleccion' } = {}) {
   const celda = {};
   const tiendasSet = new Set();
   const diasSet = new Set();
 
   for (const m of movimientos || []) {
     const tienda = m.sucursal_origen || 'Sin tienda';
-    const dia = fechaClaveDesdeIso(m.fecha_hora);
+    const dia = claveDiaReporte(m, diaDe);
     tiendasSet.add(tienda);
     diasSet.add(dia);
     const k = `${tienda}\0${dia}`;
@@ -617,7 +644,7 @@ export function reporteRecoleccionTiendaFecha(movimientos) {
   }
 
   const resumenDias = dias.map((dia) => {
-    const items = (movimientos || []).filter((m) => fechaClaveDesdeIso(m.fecha_hora) === dia);
+    const items = (movimientos || []).filter((m) => claveDiaReporte(m, diaDe) === dia);
     const tiendasEnDia = new Set(items.map((m) => m.sucursal_origen || 'Sin tienda'));
     const resumen = resumenTotalesPorTipo(items);
     return {
@@ -638,10 +665,10 @@ export function reporteRecoleccionTiendaFecha(movimientos) {
 }
 
 /** Agrupa por día (todas las tiendas) para vista cronológica. */
-export function agruparEnTransitoPorDia(movimientos) {
+export function agruparEnTransitoPorDia(movimientos, { diaDe = 'recoleccion' } = {}) {
   const porDia = {};
   for (const m of movimientos || []) {
-    const dia = fechaClaveDesdeIso(m.fecha_hora);
+    const dia = claveDiaReporte(m, diaDe);
     if (!porDia[dia]) porDia[dia] = [];
     porDia[dia].push(m);
   }
