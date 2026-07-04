@@ -215,6 +215,18 @@ export default function Buzon({
     [incidenciasFiltradas],
   );
 
+  const mostrarColumnaGestion = useMemo(
+    () =>
+      puedeResolver ||
+      esAdmin ||
+      incidenciasFiltradas.some(
+        (inc) =>
+          puedeResolverIncidencia(user, inc, rol, user?.id) ||
+          puedeRedirigirIncidenciaPrivilegio(user, inc, rol, user?.id, { esAdmin }),
+      ),
+    [puedeResolver, esAdmin, incidenciasFiltradas, user, rol],
+  );
+
   const irAccionNotif = (n) => {
     if (n.tipo === TIPOS_NOTIF.INCIDENCIA) {
       setPestana('incidencias');
@@ -600,8 +612,7 @@ export default function Buzon({
                       <th>Estado</th>
                       <th>Responsable</th>
                       <th>Reportó</th>
-                      {(puedeResolverIncidencia(user, inc, rol, user?.id) ||
-                        puedeRedirigirIncidenciaPrivilegio(user, inc, rol, user?.id, { esAdmin })) && <th>Gestión</th>}
+                      {mostrarColumnaGestion && <th>Gestión</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -634,10 +645,11 @@ export default function Buzon({
                           )}
                         </td>
                         <td>{inc.reportado_por || '—'}</td>
-                        {(puedeResolverIncidencia(user, inc, rol, user?.id) ||
-                          puedeRedirigirIncidenciaPrivilegio(user, inc, rol, user?.id, { esAdmin })) && (
+                        {mostrarColumnaGestion && (
                           <td>
-                            {inc.estado === 'abierta' || inc.estado === 'en_revision' ? (
+                            {(puedeResolverIncidencia(user, inc, rol, user?.id) ||
+                              puedeRedirigirIncidenciaPrivilegio(user, inc, rol, user?.id, { esAdmin })) ? (
+                              inc.estado === 'abierta' || inc.estado === 'en_revision' ? (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 200 }}>
                                 {puedeResolverIncidencia(user, inc, rol, user?.id) && (
                                   resolviendo === inc.id ? (
@@ -710,6 +722,9 @@ export default function Buzon({
                               <span className="muted" style={{ fontSize: '0.82rem' }}>
                                 {inc.atendida_por ? `Por ${inc.atendida_por}` : '—'}
                               </span>
+                            )
+                            ) : (
+                              <span className="muted">—</span>
                             )}
                           </td>
                         )}
