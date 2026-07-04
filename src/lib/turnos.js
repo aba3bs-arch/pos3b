@@ -1,5 +1,6 @@
 import { normalizarRol } from './roles.js';
 import { tieneAutorizacionFueraHorario } from './autorizacionTurnoFueraHorario.js';
+import { esUsuarioCubreTurno } from './cubreTurno.js';
 
 export const LS_TURNOS = 'pos3b_turnos_caja';
 export const LS_TIPO_HORARIO = 'pos3b_tipo_horario';
@@ -590,6 +591,7 @@ export function rolSujetoTurno(rol) {
 
 /** ¿Puede el empleado iniciar sesión ahora? (cajero/repartidor solo en ventana de su turno + tolerancia). */
 export function usuarioAutorizadoLogin(user, date = new Date(), turnos = null, sucursal = null) {
+  if (esUsuarioCubreTurno(user)) return { ok: true, cubreTurno: true };
   const rol = normalizarRol(user?.rol);
   if (!rolSujetoTurno(rol)) return { ok: true };
 

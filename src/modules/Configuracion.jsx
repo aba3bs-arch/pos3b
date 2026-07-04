@@ -91,6 +91,12 @@ import {
   guardarToleranciaTurnos,
   turnoConTolerancia,
 } from '../lib/turnos.js';
+import {
+  EVENTO_PIN_CUBRE_TURNO,
+  guardarPinCubreTurno,
+  leerPinCubreTurno,
+  leerPinsCubreTurno,
+} from '../lib/cubreTurno.js';
 import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarPrivilegios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, ROLES, listarTodosLosRoles, leerRolesPersonalizados, agregarRolPersonalizado, quitarRolPersonalizado, esRolSistema, EVENTO_ROLES, modulosDefaultRol, modulosEnEdicionPrivilegios, tieneListaPersonalizada, normalizarListaModulos, describeOrigenPrivilegios, normalizarRol } from '../lib/roles.js';
 import { puedeRecibirNotificacionesDispositivo } from '../lib/notificacionesDispositivo.js';
 import { sincronizarPrivilegiosDesdeNube } from '../lib/privilegiosSync.js';
@@ -189,6 +195,7 @@ export default function Configuracion({
   const [nuevoTurnoForm, setNuevoTurnoForm] = useState({ nombre: '', hora_inicio: '08:00', hora_fin: '16:00' });
   const [filtroUsuariosTurno, setFiltroUsuariosTurno] = useState('');
   const [valesTiendas, setValesTiendas] = useState(() => leerTiendasValesPermitidas() || listarSucursalesParaUI());
+  const [pinsCubreTurno, setPinsCubreTurno] = useState(() => leerPinsCubreTurno());
   const puedeAsignarTurnoEmpleados = puedeAsignarTurnos(user?.rol);
 
   const syncBrandingForm = () => {
@@ -225,6 +232,12 @@ export default function Configuracion({
     };
     window.addEventListener(EVENTO_TURNOS, sync);
     return () => window.removeEventListener(EVENTO_TURNOS, sync);
+  }, []);
+
+  useEffect(() => {
+    const syncCubre = () => setPinsCubreTurno(leerPinsCubreTurno());
+    window.addEventListener(EVENTO_PIN_CUBRE_TURNO, syncCubre);
+    return () => window.removeEventListener(EVENTO_PIN_CUBRE_TURNO, syncCubre);
   }, []);
 
   const cargarUsuariosTurno = useCallback(async () => {
@@ -1262,6 +1275,64 @@ export default function Configuracion({
           </div>
         )}
       </div>
+
+      {esAdmin && (
+        <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
+          <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>PIN de cubre turno</h3>
+          <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+            Un <strong>PIN universal por sucursal</strong> para quien cubre turno sin usuario propio. Al usarlo, el POS pide
+            <strong> nombre y teléfono</strong>, entra con permisos de <strong>cajero</strong> (sin vincular equipo ni validar turno fijo).
+            Debe ser distinto de los PIN personales. Déjalo vacío para desactivar.
+          </p>
+          <div className="table-wrap" style={{ marginTop: '0.75rem' }}>
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Tienda</th>
+                  <th>PIN cubre turno</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {listarSucursalesParaUI().map((t) => (
+                  <tr key={t}>
+                    <td>{etiquetaTienda(t)}</td>
+                    <td>
+                      <input
+                        className="input"
+                        type="password"
+                        inputMode="numeric"
+                        style={{ maxWidth: 140 }}
+                        value={pinsCubreTurno[t] || ''}
+                        onChange={(e) => setPinsCubreTurno((prev) => ({ ...prev, [t]: e.target.value }))}
+                        placeholder="Sin PIN"
+                      />
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn btn-primary btn-sm"
+                        onClick={() => {
+                          const r = guardarPinCubreTurno(t, pinsCubreTurno[t] || '');
+                          if (!r.ok) alert(r.error);
+                          else setPinsCubreTurno(leerPinsCubreTurno());
+                        }}
+                      >
+                        Guardar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {leerPinCubreTurno(sucursal) && (
+            <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.82rem' }}>
+              Esta tienda ({etiquetaTienda(sucursal)}) tiene PIN de cubre turno activo.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Turnos de caja</h3>

@@ -18,6 +18,15 @@ export default function PantallaLogin({
   onPinChange,
   onLogin,
   puedeIngresarPin,
+  pendienteCubreTurno,
+  nombreCubre,
+  telefonoCubre,
+  onNombreCubreChange,
+  onTelefonoCubreChange,
+  onConfirmarCubreTurno,
+  onCancelarCubreTurno,
+  enviandoCubre,
+  cubreTurnoHabilitado,
   pendienteAutorizacionTurno,
   pinAdminAutorizacion,
   onPinAdminChange,
@@ -35,9 +44,11 @@ export default function PantallaLogin({
         </div>
         <h2 className="login-title">{brandTitle}</h2>
         <p className="login-sub muted">
-          {tiendaFijadaParaAcceso
-            ? 'Ingresa tu PIN'
-            : 'Elige la tienda y escribe tu PIN. En la caja puedes fijarla con el botón de abajo.'}
+          {pendienteCubreTurno
+            ? 'Identifícate para cubrir turno en esta tienda.'
+            : tiendaFijadaParaAcceso
+              ? 'Ingresa tu PIN'
+              : 'Elige la tienda y escribe tu PIN. En la caja puedes fijarla con el botón de abajo.'}
         </p>
 
         {!tiendaFijadaParaAcceso && !sucursalFijaEnv && (
@@ -79,6 +90,8 @@ export default function PantallaLogin({
           </p>
         )}
 
+        {!pendienteCubreTurno && (
+        <>
         <InputPin
           value={pin}
           onChange={onPinChange}
@@ -96,8 +109,56 @@ export default function PantallaLogin({
         >
           <BtnLabel icon="logIn">Entrar</BtnLabel>
         </button>
+        {cubreTurnoHabilitado && (
+          <p className="muted login-hint-sm" style={{ marginTop: '0.5rem' }}>
+            Si cubres turno, usa el <strong>PIN de cubre turno</strong> configurado por el administrador en {etiquetaTienda(sucursal)}.
+          </p>
+        )}
+        </>
+        )}
 
-        {pendienteAutorizacionTurno && (
+        {pendienteCubreTurno && (
+          <div className="login-auth-turno" style={{ borderColor: 'rgba(225,153,41,0.45)', background: 'rgba(225,153,41,0.08)' }}>
+            <strong style={{ color: 'var(--brand-gold)' }}>Cubre turno · {etiquetaTienda(sucursal)}</strong>
+            <p className="muted login-hint-sm" style={{ margin: '0.35rem 0 0.65rem' }}>
+              Mismos permisos de cajero. Indica quién está en mostrador (queda registrado en bitácora).
+            </p>
+            <label className="muted login-field">
+              Nombre completo
+              <input
+                className="input"
+                value={nombreCubre}
+                onChange={onNombreCubreChange}
+                placeholder="Ej. María López"
+                autoFocus
+                maxLength={80}
+              />
+            </label>
+            <label className="muted login-field">
+              Teléfono de contacto
+              <input
+                className="input"
+                type="tel"
+                inputMode="tel"
+                value={telefonoCubre}
+                onChange={onTelefonoCubreChange}
+                onKeyDown={(e) => e.key === 'Enter' && !enviandoCubre && onConfirmarCubreTurno()}
+                placeholder="10 dígitos"
+                maxLength={15}
+              />
+            </label>
+            <div className="login-auth-actions">
+              <button type="button" className="btn btn-gold" onClick={onConfirmarCubreTurno} disabled={enviandoCubre}>
+                {enviandoCubre ? 'Entrando…' : 'Entrar a cubrir turno'}
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={onCancelarCubreTurno} disabled={enviandoCubre}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!pendienteCubreTurno && pendienteAutorizacionTurno && (
           <div className="login-auth-turno">
             <strong>Fuera de horario de turno</strong>
             <p className="muted">{pendienteAutorizacionTurno.error}</p>

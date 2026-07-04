@@ -1,4 +1,5 @@
 import { normalizarRol } from './roles.js';
+import { esUsuarioCubreTurno } from './cubreTurno.js';
 import { sucursalFijaPorEntorno, tiendaBloqueadaEnEsteEquipo } from '../constants/sucursales.js';
 
 const LS_DISPOSITIVO = 'pos3b_dispositivo_id';
@@ -41,7 +42,7 @@ function faltaColumnaDispositivo(error) {
  * @returns {{ ok: boolean, error?: string, vincular?: boolean, deviceId?: string, aviso?: string }}
  */
 export function evaluarVinculoDispositivo(user, opts = {}) {
-  if (!user || !rolExigeDispositivoUnico(user.rol)) return { ok: true };
+  if (!user || esUsuarioCubreTurno(user) || !rolExigeDispositivoUnico(user.rol)) return { ok: true };
 
   const deviceId = obtenerIdDispositivoLocal();
   const terminalFijada = opts.terminalFijada ?? esTerminalTiendaFijada();

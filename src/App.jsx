@@ -53,6 +53,13 @@ import {
 } from './lib/dispositivoUsuario.js';
 import { usuarioAutorizadoLogin, turnoActual } from './lib/turnos.js';
 import {
+  construirUsuarioCubreTurno,
+  esPinCubreTurno,
+  esUsuarioCubreTurno,
+  pinCubreTurnoActivo,
+  validarDatosCubreTurno,
+} from './lib/cubreTurno.js';
+import {
   otorgarAutorizacionFueraHorario,
   verificarPinAdministradorGlobal,
 } from './lib/autorizacionTurnoFueraHorario.js';
@@ -89,6 +96,10 @@ function App() {
   const [pendienteAutorizacionTurno, setPendienteAutorizacionTurno] = useState(null);
   const [pinAdminAutorizacion, setPinAdminAutorizacion] = useState('');
   const [autorizandoTurno, setAutorizandoTurno] = useState(false);
+  const [pendienteCubreTurno, setPendienteCubreTurno] = useState(false);
+  const [nombreCubre, setNombreCubre] = useState('');
+  const [telefonoCubre, setTelefonoCubre] = useState('');
+  const [enviandoCubre, setEnviandoCubre] = useState(false);
   const [vista, setVista] = useState('Inicio');
   const [valesIrPendientes, setValesIrPendientes] = useState(false);
   const [valesNavOpts, setValesNavOpts] = useState(null);
@@ -259,6 +270,7 @@ function App() {
   useEffect(() => {
     if (!sesion || !user) return undefined;
     const vigilarTurno = () => {
+      if (esUsuarioCubreTurno(user)) return;
       const auth = usuarioAutorizadoLogin(user, new Date(), null, sucursal);
       if (!auth.ok) {
         alert(`${auth.error}\n\nSe cerrará la sesión por seguridad.`);
@@ -339,7 +351,7 @@ function App() {
   }, [irAModulo]);
 
   const completarLogin = useCallback(
-    async (data, { ajustarSucursal, autorizacionAdmin = false } = {}) => {
+    async (data, { ajustarSucursal, autorizacionAdmin = false, cubreTurno = false } = {}) => {
       const terminalFijada = Boolean(SUCURSAL_FIJA_ENV || tiendaFijadaParaAcceso);
       const vinculo = evaluarVinculoDispositivo(data, { terminalFijada });
       if (!vinculo.ok) {
@@ -354,7 +366,7 @@ function App() {
         guardarSucursalLocal(ajustarSucursal);
         if (tiendaFijadaParaAcceso) bloquearTiendaEnEsteEquipo(ajustarSucursal);
       }
-      if (vinculo.vincular) {
+      if (vinculo.vincular && data.id) {
         const resVinculo = await vincularDispositivoUsuario(supabase, data.id, vinculo.deviceId);
         if (!resVinculo.ok) {
           alert(resVinculo.error);
@@ -368,17 +380,25 @@ function App() {
       setPin('');
       setPendienteAutorizacionTurno(null);
       setPinAdminAutorizacion('');
+      setPendienteCubreTurno(false);
+      setNombreCubre('');
+      setTelefonoCubre('');
       limpiarAnunciosVistos();
       setVista('Inicio');
-      void supabase.from('logins').insert([
-        {
-          usuario_id: data.id,
-          nombre: data.nombre,
-          sucursal: sucursalLogin,
-          evento: autorizacionAdmin ? 'ENTRADA_AUTORIZADA' : 'ENTRADA',
-          turno_id: turnoActual()?.id || null,
-        },
-      ]);
+      const loginRow = {
+        usuario_id: data.id || null,
+        nombre: data.nombre,
+        sucursal: sucursalLogin,
+        evento: cubreTurno ? 'CUBRE_TURNO' : autorizacionAdmin ? 'ENTRADA_AUTORIZADA' : 'ENTRADA',
+        turno_id: turnoActual()?.id || null,
+      };
+      if (cubreTurno && data.telefono) loginRow.telefono = data.telefono;
+      void supabase.from('logins').insert([loginRow]).then(({ error }) => {
+        if (error?.message?.includes('telefono')) {
+          const { telefono: _t, ...sinTel } = loginRow;
+          void supabase.from('logins').insert([sinTel]);
+        }
+      });
       return true;
     },
     [sucursal, tiendaFijadaParaAcceso, supabase],
@@ -395,6 +415,12 @@ function App() {
     }
     const p = pin.trim();
     if (!p) return;
+    if (pinCubreTurnoActivo(sucursal) && esPinCubreTurno(p, sucursal)) {
+      setPendienteCubreTurno(true);
+      setPendienteAutorizacionTurno(null);
+      setPin('');
+      return;
+    }
     const { user: data, error, avisoSucursal, sinColumnaSucursal, ajustarSucursal, sucursalReal } =
       await buscarUsuarioPorPinYSucursal(supabase, p, sucursal);
     if (error) {
@@ -417,6 +443,19 @@ function App() {
       alert(avisoSucursal ? mensajePinSucursalIncorrecta(etiquetaTienda(sucursal), sucursalReal) : 'PIN incorrecto');
       setPin('');
     }
+  };
+
+  const manejarEntradaCubreTurno = async () => {
+    const val = validarDatosCubreTurno({ nombre: nombreCubre, telefono: telefonoCubre });
+    if (!val.ok) return alert(val.error);
+    setEnviandoCubre(true);
+    const data = construirUsuarioCubreTurno({
+      nombre: val.nombre,
+      telefono: val.telefono,
+      sucursal,
+    });
+    await completarLogin(data, { cubreTurno: true });
+    setEnviandoCubre(false);
   };
 
   const manejarAutorizacionAdminTurno = async () => {
@@ -475,7 +514,7 @@ function App() {
     return r;
   };
 
-  const puedeIngresarPin = Boolean(supabase) && codigoTiendaValido(sucursal);
+  const puedeIngresarPin = Boolean(supabase) && codigoTiendaValido(sucursal) && !pendienteCubreTurno;
 
   const inventarioTienda = useMemo(
     () => (sesion ? inventarioParaSucursal(inventario, sucursal) : []),
@@ -501,6 +540,19 @@ function App() {
         onPinChange={(e) => setPin(e.target.value)}
         onLogin={manejarLogin}
         puedeIngresarPin={puedeIngresarPin}
+        pendienteCubreTurno={pendienteCubreTurno}
+        nombreCubre={nombreCubre}
+        telefonoCubre={telefonoCubre}
+        onNombreCubreChange={(e) => setNombreCubre(e.target.value)}
+        onTelefonoCubreChange={(e) => setTelefonoCubre(e.target.value)}
+        onConfirmarCubreTurno={manejarEntradaCubreTurno}
+        onCancelarCubreTurno={() => {
+          setPendienteCubreTurno(false);
+          setNombreCubre('');
+          setTelefonoCubre('');
+        }}
+        enviandoCubre={enviandoCubre}
+        cubreTurnoHabilitado={pinCubreTurnoActivo(sucursal)}
         pendienteAutorizacionTurno={pendienteAutorizacionTurno}
         pinAdminAutorizacion={pinAdminAutorizacion}
         onPinAdminChange={(e) => setPinAdminAutorizacion(e.target.value)}
@@ -597,6 +649,11 @@ function App() {
               <span className="badge app-header-badge">{etiquetaTienda(sucursal)}</span>
             )}
             <span className="app-header-user">{user?.nombre}</span>
+            {esUsuarioCubreTurno(user) && (
+              <span className="badge" style={{ background: 'rgba(225,153,41,0.15)', color: 'var(--brand-gold)' }}>
+                Cubre turno
+              </span>
+            )}
             <span className="muted app-header-rol">{normalizarRol(user?.rol)}</span>
             <span className="muted app-header-dolar">Dólar: ${Number(tipoCambio).toFixed(2)}</span>
             <div className="app-header-tools">
