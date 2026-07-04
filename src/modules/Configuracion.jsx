@@ -18,13 +18,14 @@ import {
   guardarConfigAudio,
   leerPrivilegios,
   guardarPrivilegios,
+  guardarPrivilegiosLocal,
   persistirPrivilegios,
   limpiarPrivilegiosRol,
   limpiarPrivilegiosUsuario,
   ACCIONES_PRIVILEGIO,
   leerAccionPrivilegio,
   guardarAccionPrivilegio,
-  guardarTipoCambio,
+  persistirTipoCambio,
   leerTiendasValesPermitidas,
   guardarTiendasValesPermitidas,
 } from '../lib/posConfig.js';
@@ -98,6 +99,14 @@ import SelectorTemaInterfaz from '../components/SelectorTemaInterfaz.jsx';
 import PanelCatalogoIncidencias from '../components/PanelCatalogoIncidencias.jsx';
 import PanelNotificacionesAlertas from '../components/PanelNotificacionesAlertas.jsx';
 import AdminInventarioCentral from './AdminInventarioCentral.jsx';
+import {
+  ACCIONES_INCIDENCIAS_PRIVILEGIO,
+  ACCIONES_DEFAULT_INCIDENCIAS_POR_ROL,
+  PRESET_INCIDENCIAS_CAMPO,
+  PRESET_INCIDENCIAS_CENTRAL_MAIN,
+  DESCRIPCION_MODULO_INCIDENCIAS,
+  tieneAccionIncidencia,
+} from '../lib/incidenciasPrivilegios.js';
 
 export default function Configuracion({
   supabase,
@@ -638,16 +647,28 @@ export default function Configuracion({
           type="button"
           className="btn btn-primary"
           style={{ marginTop: '0.5rem' }}
-          onClick={() => {
-            const v = guardarTipoCambio(tipoCambio);
+          onClick={async () => {
+            const r = await persistirTipoCambio(tipoCambio, supabase);
+            const v = r.local;
             setTipoCambio(v);
-            alert(`Tipo de cambio guardado: $${v.toFixed(2)} MXN por USD`);
+            if (r.remoto?.sinTabla) {
+              alert(
+                `Tipo de cambio guardado en este equipo: $${v.toFixed(2)} MXN por USD.\n\n` +
+                  'Para aplicarlo en todas las sucursales, ejecute supabase/fix_tipo_cambio_global.sql en Supabase.',
+              );
+              return;
+            }
+            if (r.remoto && !r.remoto.ok) {
+              alert(`Guardado local ($${v.toFixed(2)}), pero no se pudo sincronizar: ${r.remoto.error || 'error desconocido'}`);
+              return;
+            }
+            alert(`Tipo de cambio guardado y sincronizado: $${v.toFixed(2)} MXN por USD (todas las sucursales).`);
           }}
         >
           Guardar tipo de cambio
         </button>
         <p className="muted" style={{ fontSize: '0.85rem' }}>
-          El cambio al cliente se calcula en pesos según este valor. Se guarda en este equipo y persiste al reiniciar.
+          El cambio al cliente se calcula en pesos según este valor. Se sincroniza en la nube para todas las sucursales; cada caja lo descarga al iniciar sesión.
         </p>
 
         <div style={{ marginTop: '0.75rem' }}>
@@ -922,12 +943,19 @@ export default function Configuracion({
                     )}
                   </div>
                 )}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.35rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.5rem' }}>
                   {MODULOS_PRIVILEGIOS_GENERAL.map((mod) => (
-                    <label key={mod} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem' }}>
-                      <input type="checkbox" checked={activos.includes(mod)} disabled={!privKey} onChange={() => toggleModulo(mod)} />
-                      {mod}
-                    </label>
+                    <div key={mod} style={{ padding: '0.35rem 0', fontSize: '0.88rem' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        <input type="checkbox" checked={activos.includes(mod)} disabled={!privKey} onChange={() => toggleModulo(mod)} />
+                        <strong>{mod}</strong>
+                      </label>
+                      {mod === 'Incidencias' && (
+                        <p className="muted" style={{ margin: '0.2rem 0 0 1.45rem', fontSize: '0.78rem', lineHeight: 1.35 }}>
+                          {DESCRIPCION_MODULO_INCIDENCIAS} Configure el detalle en <strong>Incidencias — acciones</strong> más abajo.
+                        </p>
+                      )}
+                    </div>
                   ))}
                 </div>
                 {privKey && (
@@ -995,34 +1023,125 @@ export default function Configuracion({
                     </p>
                   )}
                 </div>
+
+                <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
+                  <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--brand-blue)' }}>Panel RT — acciones especiales</h4>
+                  <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.82rem' }}>
+                    Recolección en cortes y cada subcomando del Panel RT (reporte, servicios, recolectores, etc.). El administrador siempre tiene acceso.
+                  </p>
+                  {ACCIONES_PRIVILEGIO.map((acc) => {
+                    const checked = privKey ? leerAccionPrivilegio(acc.id, privModo, privKey) : false;
+                    return (
+                      <label key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem', marginBottom: '0.35rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={!privKey}
+                          onChange={(e) => {
+                            if (!privKey) return;
+                            const next = guardarAccionPrivilegio(acc.id, privModo, privKey, e.target.checked);
+                            setPrivilegios(next);
+                          }}
+                        />
+                        {acc.label}
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: '1rem',
+                    padding: '0.85rem',
+                    borderRadius: '10px',
+                    background: 'rgba(220,38,38,0.05)',
+                    border: '1px solid rgba(220,38,38,0.2)',
+                    borderLeft: '4px solid var(--danger)',
+                  }}
+                >
+                  <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--danger)' }}>Incidencias — acciones (central MAIN y campo)</h4>
+                  <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
+                    Definen si el rol solo <strong>reporta</strong> fallas o también <strong>atiende y resuelve</strong> incidencias.
+                    Personal de <strong>central MAIN</strong> suele necesitar ver todas las sucursales y resolver cualquier reporte.
+                    <strong> Técnico</strong> y <strong>Repartidor</strong> por defecto resuelven las asignadas a su nombre.
+                    <strong> Auditor</strong> por defecto tiene gestión completa desde central.
+                  </p>
+                  {privKey && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }}
+                        onClick={() => {
+                          let data = privilegios;
+                          for (const id of PRESET_INCIDENCIAS_CENTRAL_MAIN) {
+                            data = guardarAccionPrivilegio(id, privModo, privKey, true);
+                          }
+                          if (!activos.includes('Incidencias')) {
+                            const actual = modulosEnEdicionPrivilegios({ privilegios: data, store, key: privKey, defaults: baseModulos });
+                            data = { ...data, [store]: { ...data[store], [privKey]: normalizarListaModulos([...actual, 'Incidencias']) } };
+                            guardarPrivilegiosLocal(data);
+                          }
+                          setPrivilegios(data);
+                          void guardarPrivilegiosYSubir(data);
+                        }}
+                      >
+                        Preset: Central MAIN (gestión completa)
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }}
+                        onClick={() => {
+                          let data = privilegios;
+                          for (const id of PRESET_INCIDENCIAS_CAMPO) {
+                            data = guardarAccionPrivilegio(id, privModo, privKey, true);
+                          }
+                          if (!activos.includes('Incidencias')) {
+                            const actual = modulosEnEdicionPrivilegios({ privilegios: data, store, key: privKey, defaults: baseModulos });
+                            data = { ...data, [store]: { ...data[store], [privKey]: normalizarListaModulos([...actual, 'Incidencias']) } };
+                            guardarPrivilegiosLocal(data);
+                          }
+                          setPrivilegios(data);
+                          void guardarPrivilegiosYSubir(data);
+                        }}
+                      >
+                        Preset: Campo (resolver asignadas)
+                      </button>
+                    </div>
+                  )}
+                  {ACCIONES_INCIDENCIAS_PRIVILEGIO.map((acc) => {
+                    const checked = privKey ? tieneAccionIncidencia(acc.id, rolBase, privModo === 'usuario' ? privKey : null) : false;
+                    const esDefecto = privKey && (ACCIONES_DEFAULT_INCIDENCIAS_POR_ROL[normalizarRol(rolBase)] || []).includes(acc.id);
+                    return (
+                      <div key={acc.id} style={{ marginBottom: '0.55rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem', fontSize: '0.88rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={!privKey}
+                            style={{ marginTop: '0.2rem' }}
+                            onChange={(e) => {
+                              if (!privKey) return;
+                              const next = guardarAccionPrivilegio(acc.id, privModo, privKey, e.target.checked);
+                              setPrivilegios(next);
+                            }}
+                          />
+                          <span>
+                            <strong>{acc.label}</strong>
+                            {esDefecto && !leerAccionPrivilegio(acc.id, privModo, privKey) && (
+                              <span className="muted" style={{ marginLeft: '0.35rem', fontSize: '0.72rem' }}>(por defecto del rol)</span>
+                            )}
+                            <div className="muted" style={{ fontSize: '0.78rem', marginTop: '0.15rem', lineHeight: 1.35 }}>{acc.desc}</div>
+                          </span>
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
               </>
             );
           })()}
-          <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)' }}>
-            <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--brand-blue)' }}>Acciones especiales</h4>
-            <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.82rem' }}>
-              Recolección en cortes y cada subcomando del Panel RT (reporte, servicios, etc.). El administrador siempre tiene acceso.
-            </p>
-            {ACCIONES_PRIVILEGIO.map((acc) => {
-              const key = privModo === 'usuario' ? privUserId : privRol;
-              const checked = key ? leerAccionPrivilegio(acc.id, privModo, key) : false;
-              return (
-                <label key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem', marginBottom: '0.35rem' }}>
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    disabled={!key}
-                    onChange={(e) => {
-                      if (!key) return;
-                      const next = guardarAccionPrivilegio(acc.id, privModo, key, e.target.checked);
-                      setPrivilegios(next);
-                    }}
-                  />
-                  {acc.label}
-                </label>
-              );
-            })}
-          </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
             <button
               type="button"

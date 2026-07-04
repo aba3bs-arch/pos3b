@@ -264,15 +264,17 @@ export function puedeVerModulo(rol, moduloId, userId = null) {
   return permitidos.includes(m);
 }
 
-/** Solo administrador ve pendientes e historial en el módulo Incidencias. */
-export function esAdminModuloIncidencias(rol) {
-  return normalizarRol(rol) === 'Administrador';
-}
-
-/** Roles distintos de administrador: solo pestaña de reporte de incidencias. */
-export function rolSoloPestanaIncidencias(rol) {
-  return !esAdminModuloIncidencias(rol);
-}
+export {
+  modoVistaIncidencias,
+  esAdminModuloIncidencias,
+  rolSoloPestanaIncidencias,
+  puedeAbrirBandejaIncidencias,
+  puedeVerBandejaPendientesIncidencias,
+  puedeVerHistorialIncidencias,
+  puedeVerTodasIncidencias,
+  puedeResolverAlgunaIncidencia,
+  tieneAccionIncidencia,
+} from './incidenciasPrivilegios.js';
 
 /** @deprecated usar rolSoloPestanaIncidencias */
 export function rolVeBuzonComoIncidencias(rol) {
@@ -347,13 +349,13 @@ export function puedeGestionarInventarioMultitienda(rol) {
 export function descripcionRol(rol) {
   const r = normalizarRol(rol);
   const textos = {
-    Cajero: 'Mostrador, cobro, cortes y vales',
-    Repartidor: 'Consulta en ruta',
-    Auditor: 'Consultas, reportes e inventario',
-    Supervisor: 'Operación sin configuración ni usuarios',
-    Gerente: 'Operación y configuración; sin usuarios',
-    Técnico: 'Checador y consultas en campo',
-    Administrador: 'Acceso total',
+    Cajero: 'Mostrador: ventas, cortes, vales y reporte de incidencias',
+    Repartidor: 'Ruta y recolecciones; puede resolver incidencias asignadas a su nombre',
+    Auditor: 'Consultas, reportes, inventario y resolución de incidencias en central MAIN',
+    Supervisor: 'Operación de tienda sin configuración ni usuarios',
+    Gerente: 'Operación, configuración y gestión de incidencias en todas las tiendas',
+    Técnico: 'Soporte en campo; atiende incidencias de equipo asignadas a su nombre',
+    Administrador: 'Acceso total al POS y central de administración',
   };
   return textos[r] || r;
 }

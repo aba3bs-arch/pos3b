@@ -6,7 +6,7 @@ import {
   etiquetaTipoNotificacion,
   TIPOS_NOTIF,
 } from '../lib/contabilidadNotificaciones.js';
-import { normalizarRol } from '../lib/roles.js';
+import { normalizarRol, puedeAbrirBandejaIncidencias, puedeVerTodasIncidencias } from '../lib/roles.js';
 import { esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { BtnLabel } from './Icon.jsx';
@@ -22,8 +22,8 @@ export default function PanelNotificacionesInicio({ supabase, sucursal, user, on
   const esAdmin = rol === 'Administrador';
   const esGerente = rol === 'Gerente';
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
-  const veTodasTiendas = esAdmin || esGerente;
-  const puedeVer = esAdmin || esGerente || esSocio || rol === 'Supervisor';
+  const veTodasTiendas = puedeVerTodasIncidencias(rol, user?.id, sucursal) || esAdmin || esGerente;
+  const puedeVer = esAdmin || esGerente || esSocio || rol === 'Supervisor' || puedeAbrirBandejaIncidencias(rol, user?.id);
 
   const [notifs, setNotifs] = useState([]);
   const [aviso, setAviso] = useState('');
@@ -89,12 +89,12 @@ export default function PanelNotificacionesInicio({ supabase, sucursal, user, on
           </p>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-          {esAdmin && puedeIncidencias && (
+          {puedeAbrirBandejaIncidencias(rol, user?.id) && puedeIncidencias && (
             <button type="button" className="btn btn-primary" onClick={() => onNavigate('Incidencias')}>
               <BtnLabel icon="alert">Abrir incidencias</BtnLabel>
             </button>
           )}
-          {puedeVales && (notifs.some((n) => n.tipo !== TIPOS_NOTIF.INCIDENCIA) || !(esAdmin && puedeIncidencias)) && (
+          {puedeVales && (notifs.some((n) => n.tipo !== TIPOS_NOTIF.INCIDENCIA) || !(puedeAbrirBandejaIncidencias(rol, user?.id) && puedeIncidencias)) && (
             <button type="button" className="btn btn-gold" onClick={() => onNavigate('Vales y Préstamos')}>
               Vales y préstamos
             </button>

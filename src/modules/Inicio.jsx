@@ -2,13 +2,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { consultarVentas } from '../lib/ventasQuery.js';
 import Icon, { BtnLabel } from '../components/Icon.jsx';
 import { iconoDeModulo } from '../lib/moduloIcons.js';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
 import { fmtMxn, resumirValorInventario } from '../lib/valorInventario.js';
 import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
 import { hayAnuncioActivo, EVENTO_ANUNCIOS } from '../lib/anunciosPos.js';
 import PanelAnunciosAdmin from '../components/PanelAnunciosAdmin.jsx';
 import PanelPurgeDatosAdmin from '../components/PanelPurgeDatosAdmin.jsx';
 import PanelNotificacionesInicio from '../components/PanelNotificacionesInicio.jsx';
+import PanelAppMovilInicio from '../components/PanelAppMovilInicio.jsx';
 
 function PuntoVerdeActivo() {
   return <span className="punto-verde-parpadeo" title="Anuncio activo" aria-hidden />;
@@ -157,6 +158,8 @@ export default function Inicio({ supabase, sucursal, inventario, inventarioCompl
         onNavigate={onNavigate}
         puedeModulo={puede}
       />
+
+      {esAlmacenCentral(sucursal) && <PanelAppMovilInicio />}
 
       {puede('Incidencias') && typeof onIrIncidencias === 'function' && (
         <div

@@ -197,6 +197,7 @@ export function perifericoImpresoraActiva() {
 }
 
 const LS_TIPO_CAMBIO = 'pos3b_tipo_cambio';
+const LS_TIPO_CAMBIO_AT = 'pos3b_tipo_cambio_updated_at';
 const LS_AUDIO = 'pos3b_config_audio';
 const LS_PRIVILEGIOS = 'pos3b_privilegios';
 
@@ -214,11 +215,32 @@ export function leerTipoCambio() {
   }
 }
 
-export function guardarTipoCambio(valor) {
+export function leerTipoCambioMeta() {
+  try {
+    return localStorage.getItem(LS_TIPO_CAMBIO_AT) || null;
+  } catch {
+    return null;
+  }
+}
+
+export function guardarTipoCambio(valor, { updatedAt, silencioso = false } = {}) {
   const v = Math.max(0.01, parseFloat(valor) || 17.5);
   localStorage.setItem(LS_TIPO_CAMBIO, String(v));
-  window.dispatchEvent(new CustomEvent(EVENTO_TIPO_CAMBIO, { detail: v }));
+  localStorage.setItem(LS_TIPO_CAMBIO_AT, updatedAt || new Date().toISOString());
+  if (!silencioso) window.dispatchEvent(new CustomEvent(EVENTO_TIPO_CAMBIO, { detail: v }));
   return v;
+}
+
+/** Guarda local y sincroniza a Supabase (todas las sucursales). */
+export async function persistirTipoCambio(valor, supabase) {
+  const v = guardarTipoCambio(valor);
+  if (!supabase) return { ok: true, local: v };
+  const { subirTipoCambioANube } = await import('./tipoCambioSync.js');
+  const remoto = await subirTipoCambioANube(supabase, v);
+  if (remoto.ok && remoto.updated_at) {
+    guardarTipoCambio(remoto.tipo_cambio ?? v, { updatedAt: remoto.updated_at, silencioso: true });
+  }
+  return { ok: remoto.ok !== false, local: v, remoto };
 }
 
 export function leerConfigAudio() {

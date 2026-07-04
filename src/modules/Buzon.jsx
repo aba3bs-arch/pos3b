@@ -20,7 +20,6 @@ import {
   fmtFechaIncidencia,
   fmtHoraIncidencia,
   listarIncidencias,
-  puedeRedirigirIncidencia,
   redirigirIncidencia,
   RESPONSABLES_INCIDENCIA,
 } from '../lib/incidenciasPos.js';
@@ -30,6 +29,16 @@ import {
   listarCatalogoIncidencias,
 } from '../lib/incidenciasCatalogo.js';
 import { normalizarRol, rolSoloPestanaIncidencias } from '../lib/roles.js';
+import {
+  modoVistaIncidencias,
+  puedeVerBandejaPendientesIncidencias,
+  puedeVerHistorialIncidencias,
+  puedeVerTodasIncidencias,
+  puedeResolverIncidencia,
+  puedeResolverAlgunaIncidencia,
+  puedeRedirigirIncidenciaPrivilegio,
+  tieneAccionIncidencia,
+} from '../lib/incidenciasPrivilegios.js';
 import { esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
 import { aprobarGastoTurno, rechazarGastoTurno } from '../lib/corteContabilidad/store.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
@@ -62,9 +71,13 @@ export default function Buzon({
   const esAdmin = rol === 'Administrador';
   const esGerente = rol === 'Gerente';
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
-  const veTodasTiendas = esAdmin;
-  const puedeGestionar = esAdmin;
-  const soloIncidencias = rolSoloPestanaIncidencias(rol);
+  const modoVista = modoVistaIncidencias(rol, user?.id);
+  const veTodasTiendas = puedeVerTodasIncidencias(rol, user?.id, sucursal);
+  const puedeGestionarNotif = esAdmin;
+  const puedeBandejaPendientes = puedeVerBandejaPendientesIncidencias(rol, user?.id);
+  const puedeHistorial = puedeVerHistorialIncidencias(rol, user?.id);
+  const puedeResolver = puedeResolverAlgunaIncidencia(rol, user?.id);
+  const soloIncidencias = rolSoloPestanaIncidencias(rol, user?.id);
 
   const [pestana, setPestana] = useState(soloIncidencias ? 'incidencias' : pestanaInicial);
   const [aviso, setAviso] = useState('');
@@ -117,21 +130,21 @@ export default function Buzon({
 
   const filtrarPendientes = useCallback(
     (lista) => {
-      if (esAdmin || esGerente) return lista;
+      if (esAdmin || esGerente || veTodasTiendas) return lista;
       if (esSocio) return lista.filter((n) => n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO);
       return lista.filter((n) => n.tipo === TIPOS_NOTIF.INCIDENCIA || n.sucursal_id === sucursal);
     },
-    [esAdmin, esGerente, esSocio, sucursal],
+    [esAdmin, esGerente, esSocio, sucursal, veTodasTiendas],
   );
 
   const recargar = useCallback(async () => {
     if (!supabase) return;
     const opts = { todasTiendas: veTodasTiendas, sucursal: veTodasTiendas ? undefined : sucursal };
     const [pRes, hRes, iRes] = await Promise.all([
-      soloIncidencias
+      soloIncidencias || !puedeBandejaPendientes
         ? Promise.resolve({ data: [] })
         : listarNotificacionesPendientes(supabase, { ...opts, limit: 100 }),
-      soloIncidencias || !esAdmin
+      soloIncidencias || !puedeHistorial
         ? Promise.resolve({ data: [] })
         : listarHistorialNotificaciones(supabase, { ...opts, limit: 60 }),
       listarIncidencias(supabase, {
@@ -144,7 +157,7 @@ export default function Buzon({
     setPendientes(filtrarPendientes(pRes.data || []));
     setHistorial(hRes.data || []);
     setIncidencias(iRes.data || []);
-  }, [supabase, veTodasTiendas, sucursal, filtrarPendientes, soloIncidencias]);
+  }, [supabase, veTodasTiendas, sucursal, filtrarPendientes, soloIncidencias, puedeHistorial, puedeBandejaPendientes]);
 
   useEffect(() => {
     recargar();
@@ -162,13 +175,19 @@ export default function Buzon({
   }, [pestanaInicial, soloIncidencias]);
 
   const incidenciasVisibles = useMemo(() => {
+    if (modoVista === 'administracion' || tieneAccionIncidencia('inc_resolver_todas', rol, user?.id)) {
+      return incidencias;
+    }
+    if (veTodasTiendas) return incidencias;
     const nombre = user?.nombre;
-    if (!soloIncidencias) return incidencias;
     if (!nombre) return incidencias;
-    return incidencias.filter(
-      (i) => i.reportado_por === nombre || esResponsableIncidencia(nombre, i.responsable),
-    );
-  }, [incidencias, soloIncidencias, user?.nombre]);
+    if (puedeResolver) {
+      return incidencias.filter(
+        (i) => esResponsableIncidencia(nombre, i.responsable) || i.reportado_por === nombre,
+      );
+    }
+    return incidencias.filter((i) => i.reportado_por === nombre);
+  }, [incidencias, modoVista, rol, user?.id, user?.nombre, veTodasTiendas, puedeResolver]);
 
   const cambiarPresetFechaInc = (preset) => {
     setPresetFechaInc(preset);
@@ -194,11 +213,6 @@ export default function Buzon({
   const incidenciasAbiertas = useMemo(
     () => incidenciasFiltradas.filter((i) => i.estado === 'abierta' || i.estado === 'en_revision'),
     [incidenciasFiltradas],
-  );
-
-  const usuarioEsResponsable = useMemo(
-    () => RESPONSABLES_INCIDENCIA.some((n) => esResponsableIncidencia(user?.nombre, n)),
-    [user?.nombre],
   );
 
   const irAccionNotif = (n) => {
@@ -235,7 +249,7 @@ export default function Buzon({
   };
 
   const marcarVisto = async (n) => {
-    if (!puedeGestionar) return;
+    if (!puedeGestionarNotif) return;
     if (n.tipo === TIPOS_NOTIF.VALE_PENDIENTE || n.tipo === TIPOS_NOTIF.PRESTAMO_ADMIN || n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO) {
       irAccionNotif(n);
       return;
@@ -273,7 +287,7 @@ export default function Buzon({
   };
 
   const cambiarEstadoInc = async (inc, estado) => {
-    if (!puedeGestionar) return;
+    if (!puedeResolverIncidencia(user, inc, rol, user?.id)) return;
     const res = await actualizarIncidencia(
       supabase,
       inc.id,
@@ -290,7 +304,7 @@ export default function Buzon({
   };
 
   const confirmarRedireccion = async (inc) => {
-    if (!puedeRedirigirIncidencia(user, inc, { esAdmin })) return;
+    if (!puedeRedirigirIncidenciaPrivilegio(user, inc, rol, user?.id, { esAdmin })) return;
     if (!nuevoResponsable) return setMsg('Selecciona el nuevo responsable.');
     const res = await redirigirIncidencia(supabase, inc.id, nuevoResponsable, {
       por: user?.nombre,
@@ -309,10 +323,15 @@ export default function Buzon({
   const pestanas = soloIncidencias
     ? [{ id: 'incidencias', label: `Mis reportes (${incidenciasVisibles.length})` }]
     : [
-        { id: 'pendientes', label: `Pendientes (${pendientes.length})` },
-        { id: 'incidencias', label: `Incidencias (${incidencias.length})` },
+        ...(puedeBandejaPendientes ? [{ id: 'pendientes', label: `Pendientes (${pendientes.length})` }] : []),
+        {
+          id: 'incidencias',
+          label: puedeResolver
+            ? `Por atender (${incidenciasAbiertas.length})`
+            : `Incidencias (${incidencias.length})`,
+        },
       ];
-  if (!soloIncidencias && esAdmin) pestanas.push({ id: 'historial', label: 'Historial' });
+  if (!soloIncidencias && puedeHistorial) pestanas.push({ id: 'historial', label: 'Historial' });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -321,7 +340,9 @@ export default function Buzon({
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
           {soloIncidencias
             ? `Tienda ${etiquetaTienda(sucursal)} · levanta un reporte para que administración lo atienda`
-            : 'Pendientes de todas las tiendas · vales, préstamos e incidencias'}
+            : puedeResolver
+              ? `Tienda ${etiquetaTienda(sucursal)} · atiende incidencias asignadas${veTodasTiendas ? ' de todas las sucursales' : ''}`
+              : 'Pendientes de todas las tiendas · vales, préstamos e incidencias'}
         </p>
       </div>
 
@@ -402,7 +423,7 @@ export default function Buzon({
                               Ver incidencia
                             </button>
                           )}
-                          {puedeGestionar &&
+                          {puedeGestionarNotif &&
                             (n.tipo === TIPOS_NOTIF.PRESTAMO_INTERAREA || n.tipo === TIPOS_NOTIF.INCIDENCIA) && (
                               <button type="button" className="btn btn-ghost btn-sm" onClick={() => marcarVisto(n)}>
                                 Marcar visto
@@ -579,7 +600,8 @@ export default function Buzon({
                       <th>Estado</th>
                       <th>Responsable</th>
                       <th>Reportó</th>
-                      {(puedeGestionar || usuarioEsResponsable) && <th>Gestión</th>}
+                      {(puedeResolverIncidencia(user, inc, rol, user?.id) ||
+                        puedeRedirigirIncidenciaPrivilegio(user, inc, rol, user?.id, { esAdmin })) && <th>Gestión</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -612,11 +634,12 @@ export default function Buzon({
                           )}
                         </td>
                         <td>{inc.reportado_por || '—'}</td>
-                        {(puedeGestionar || puedeRedirigirIncidencia(user, inc, { esAdmin })) && (
+                        {(puedeResolverIncidencia(user, inc, rol, user?.id) ||
+                          puedeRedirigirIncidenciaPrivilegio(user, inc, rol, user?.id, { esAdmin })) && (
                           <td>
                             {inc.estado === 'abierta' || inc.estado === 'en_revision' ? (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 200 }}>
-                                {puedeGestionar && (
+                                {puedeResolverIncidencia(user, inc, rol, user?.id) && (
                                   resolviendo === inc.id ? (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                       <textarea
@@ -646,7 +669,7 @@ export default function Buzon({
                                     </button>
                                   )
                                 )}
-                                {puedeRedirigirIncidencia(user, inc, { esAdmin }) && (
+                                {puedeRedirigirIncidenciaPrivilegio(user, inc, rol, user?.id, { esAdmin }) && (
                                   redirigiendo === inc.id ? (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                                       <select
@@ -700,7 +723,7 @@ export default function Buzon({
         </>
       )}
 
-      {pestana === 'historial' && esAdmin && (
+      {pestana === 'historial' && puedeHistorial && (
         <div className="card">
           {historial.length === 0 ? (
             <p className="muted">Sin historial reciente.</p>

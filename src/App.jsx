@@ -40,11 +40,12 @@ import {
   tiendaBloqueadaEnEsteEquipo,
   normalizarCodigoTienda,
 } from './constants/sucursales.js';
-import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, esAdminModuloIncidencias } from './lib/roles.js';
+import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias } from './lib/roles.js';
 import { inventarioParaSucursal } from './lib/inventarioMultitienda.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
 import { sincronizarPrivilegiosDesdeNube } from './lib/privilegiosSync.js';
+import { sincronizarTipoCambioDesdeNube } from './lib/tipoCambioSync.js';
 import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from './lib/usuariosAuth.js';
 import {
   evaluarVinculoDispositivo,
@@ -175,7 +176,7 @@ function App() {
     if (!puedeRecibirNotificacionesDispositivo(user?.rol)) return undefined;
 
     const abrirPendientes = () => {
-      if (esAdminModuloIncidencias(user?.rol) && puedeVerModulo(user?.rol, 'Incidencias', user?.id)) {
+      if (puedeAbrirBandejaIncidencias(user?.rol, user?.id) && puedeVerModulo(user?.rol, 'Incidencias', user?.id)) {
         setBuzonPestana('pendientes');
         setVista('Incidencias');
       } else if (puedeVerModulo(user?.rol, 'Vales y Préstamos', user?.id)) {
@@ -276,6 +277,19 @@ function App() {
     sincronizarPrivilegiosDesdeNube(supabase).then((r) => {
       if (r.cambio) setTickPrivilegios((n) => n + 1);
     });
+    sincronizarTipoCambioDesdeNube(supabase);
+  }, [sesion, supabase]);
+
+  useEffect(() => {
+    if (!sesion || !supabase) return undefined;
+    const sync = () => {
+      sincronizarPrivilegiosDesdeNube(supabase).then((r) => {
+        if (r.cambio) setTickPrivilegios((n) => n + 1);
+      });
+      sincronizarTipoCambioDesdeNube(supabase);
+    };
+    const id = setInterval(sync, 60_000);
+    return () => clearInterval(id);
   }, [sesion, supabase]);
 
   useEffect(() => {
@@ -299,8 +313,8 @@ function App() {
     (m, opts = {}) => {
       if (!puedeVerModulo(user?.rol, m, user?.id)) return;
       if (m === 'Incidencias') {
-        const soloInc = !esAdminModuloIncidencias(user?.rol);
-        setBuzonPestana(opts.pestana || (soloInc ? 'incidencias' : 'pendientes'));
+        const abrePendientes = puedeVerBandejaPendientesIncidencias(user?.rol, user?.id);
+        setBuzonPestana(opts.pestana || (abrePendientes ? 'pendientes' : 'incidencias'));
       }
       if (m === 'Vales y Préstamos' && (opts.pestana || opts.retorno)) {
         setValesNavOpts({ pestana: opts.pestana || null, retorno: opts.retorno || null });
@@ -549,7 +563,7 @@ function App() {
                 sucursal={sucursal}
                 user={user}
                 onClick={() => {
-                  if (esAdminModuloIncidencias(user?.rol) && puedeVerModulo(user?.rol, 'Incidencias', user?.id)) {
+                  if (puedeAbrirBandejaIncidencias(user?.rol, user?.id) && puedeVerModulo(user?.rol, 'Incidencias', user?.id)) {
                     setBuzonPestana('pendientes');
                     irAModulo('Incidencias');
                     return;
