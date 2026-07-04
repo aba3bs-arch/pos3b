@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BENEFICIARIOS_VALES, ETIQUETA_AREA } from '../lib/contabilidadConstants.js';
-import { listarValesGasolina, marcarValeCobrado } from '../lib/valesPrestamos.js';
+import { listarValesGasolina, marcarValeCobrado, valeEstaAprobado } from '../lib/valesPrestamos.js';
 import { periodoSemanaNomina, etiquetaSemanaNomina } from '../lib/semanaNomina.js';
 import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
 import {
@@ -133,8 +133,9 @@ export default function PanelAsistenciaGasolina({ supabase, sucursal, user, edit
     if (!supabase) return;
     setCargando(true);
     setErr('');
-    const res = await listarValesGasolina(supabase, { sucursal, desde, hasta, limit: 500 });
-    if (res.error) setErr(res.error);
+    const res = await listarValesGasolina(supabase, { sucursal, desde, hasta, soloAprobados: false, limit: 500 });
+    if (res.aviso) setErr(res.aviso);
+    else if (res.error) setErr(res.error);
     setVales(res.data || []);
     setCargando(false);
   }, [supabase, sucursal, desde, hasta]);
@@ -150,7 +151,7 @@ export default function PanelAsistenciaGasolina({ supabase, sucursal, user, edit
   }, []);
 
   const valesFiltrados = useMemo(() => {
-    let lista = [...(vales || [])];
+    let lista = [...(vales || [])].filter(valeEstaAprobado);
     if (empleadoFiltro) {
       lista = lista.filter((v) => String(v.nombre_empleado || '').toLowerCase() === empleadoFiltro.toLowerCase());
     }
@@ -163,6 +164,14 @@ export default function PanelAsistenciaGasolina({ supabase, sucursal, user, edit
       return fb.localeCompare(fa);
     });
   }, [vales, empleadoFiltro, areaFiltro]);
+
+  const valesPendientesAprobacion = useMemo(
+    () =>
+      (vales || []).filter(
+        (v) => v.estado_aprobacion === 'pendiente_admin' && (!empleadoFiltro || String(v.nombre_empleado || '').toLowerCase() === empleadoFiltro.toLowerCase()) && (!areaFiltro || String(v.area || '').toLowerCase() === areaFiltro.toLowerCase()),
+      ),
+    [vales, empleadoFiltro, areaFiltro],
+  );
 
   const resumen = useMemo(() => {
     let cobrados = 0;
@@ -206,6 +215,8 @@ export default function PanelAsistenciaGasolina({ supabase, sucursal, user, edit
     <div className="card">
       <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Asistencia — vales de gasolina</h3>
       <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+        Solo muestra vales de categoría <strong>Gasolina</strong> ya aprobados. Los de consumo, herramienta o accesorios están en la pestaña <strong>Vales</strong>.
+        {' '}
         <span style={{ color: '#2e7d32', fontWeight: 700 }}>✓✓ Verde</span> = cobrado antes de las {HORA_LIMITE_VALE}:00.{' '}
         <span style={{ color: '#2e7d32', fontWeight: 700 }}>✓ Verde</span> = cobrado (día laboral).{' '}
         <span style={{ color: '#c62828', fontWeight: 700 }}>✓ Roja</span> = vale aprobado por admin (después de las 9:00).{' '}
@@ -261,6 +272,22 @@ export default function PanelAsistenciaGasolina({ supabase, sucursal, user, edit
 
       {err && <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{err}</p>}
 
+      {valesPendientesAprobacion.length > 0 && (
+        <div
+          style={{
+            marginBottom: '0.75rem',
+            padding: '0.65rem 0.85rem',
+            borderRadius: 8,
+            background: 'rgba(225,153,41,0.12)',
+            border: '1px solid rgba(225,153,41,0.4)',
+            fontSize: '0.85rem',
+          }}
+        >
+          <strong>{valesPendientesAprobacion.length} vale(s) de gasolina pendiente(s) de aprobación</strong> en este periodo.
+          Apruébalos en la pestaña <strong>Pendientes</strong> para que aparezcan aquí.
+        </div>
+      )}
+
       <div className="table-wrap">
         <table className="data">
           <thead>
@@ -291,7 +318,11 @@ export default function PanelAsistenciaGasolina({ supabase, sucursal, user, edit
             {valesFiltrados.length === 0 && (
               <tr>
                 <td colSpan={6} className="muted">
-                  {cargando ? 'Cargando…' : 'Sin vales de gasolina aprobados en este periodo.'}
+                  {cargando
+                    ? 'Cargando…'
+                    : valesPendientesAprobacion.length > 0
+                      ? 'Sin vales de gasolina aprobados en este periodo (hay pendientes de aprobación arriba).'
+                      : 'Sin vales de gasolina aprobados en este periodo. Regístralos en la pestaña Vales con categoría Gasolina.'}
                 </td>
               </tr>
             )}

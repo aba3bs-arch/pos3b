@@ -25,6 +25,26 @@ export function faltaTablaPrestamos(error) {
 export const AVISO_FALTA_CONTABILIDAD =
   'Faltan tablas de contabilidad. Ejecuta supabase/fix_contabilidad.sql y fix_vales_prestamos_aprobaciones.sql';
 
+/** Fecha del vale para filtros (columna fecha o día de created_at). */
+export function fechaEfectivaVale(vale) {
+  return String(vale?.fecha || vale?.created_at || '').slice(0, 10);
+}
+
+export function valeEstaAprobado(vale) {
+  const e = vale?.estado_aprobacion;
+  return !e || e === 'aprobado';
+}
+
+export function filtrarValesPorPeriodo(vales, desde, hasta) {
+  return (vales || []).filter((v) => {
+    const f = fechaEfectivaVale(v);
+    if (!f) return false;
+    if (desde && f < desde) return false;
+    if (hasta && f > hasta) return false;
+    return true;
+  });
+}
+
 export async function verificarPinAdministrador(supabase, pin, sucursal) {
   const { user, error } = await buscarUsuarioPorPinYSucursal(supabase, pin, sucursal);
   if (error || !user) return { ok: false, error: 'PIN incorrecto.' };
@@ -62,18 +82,38 @@ export async function listarVales(supabase, opts = {}) {
   let q = supabase.from('vales').select('*').order('fecha', { ascending: false }).order('created_at', { ascending: false }).limit(limit);
   if (sucursal) q = q.eq('sucursal_id', sucursal);
   if (area) q = q.eq('area', area);
-  if (tipo) q = q.eq('tipo', tipo);
+  if (tipo === 'indirecto') {
+    q = q.or('tipo.eq.indirecto,tipo.is.null');
+  } else if (tipo) {
+    q = q.eq('tipo', tipo);
+  }
   if (categoria) q = q.eq('categoria', categoria);
-  if (estadoAprobacion) q = q.eq('estado_aprobacion', estadoAprobacion);
-  if (desde) q = q.gte('fecha', desde);
-  if (hasta) q = q.lte('fecha', hasta);
+  if (estadoAprobacion === 'aprobado') {
+    q = q.or('estado_aprobacion.eq.aprobado,estado_aprobacion.is.null');
+  } else if (estadoAprobacion) {
+    q = q.eq('estado_aprobacion', estadoAprobacion);
+  }
   const { data, error } = await q;
   if (error && faltaTablaVales(error)) return { data: [], error: null, aviso: AVISO_FALTA_CONTABILIDAD };
-  return { data: data || [], error: error?.message || null };
+  let lista = data || [];
+  if (desde || hasta) lista = filtrarValesPorPeriodo(lista, desde, hasta);
+  return { data: lista, error: error?.message || null };
 }
 
 export async function listarValesGasolina(supabase, opts = {}) {
-  return listarVales(supabase, { ...opts, categoria: 'gasolina', estadoAprobacion: opts.soloAprobados === false ? undefined : 'aprobado' });
+  const { desde, hasta, soloAprobados = true, ...rest } = opts;
+  const res = await listarVales(supabase, {
+    ...rest,
+    categoria: 'gasolina',
+    desde: undefined,
+    hasta: undefined,
+    estadoAprobacion: undefined,
+  });
+  if (res.error || !res.data) return res;
+  let lista = res.data;
+  if (desde || hasta) lista = filtrarValesPorPeriodo(lista, desde, hasta);
+  if (soloAprobados !== false) lista = lista.filter(valeEstaAprobado);
+  return { ...res, data: lista };
 }
 
 export async function marcarValeCobrado(supabase, valeId, cobrado, { nombre } = {}) {

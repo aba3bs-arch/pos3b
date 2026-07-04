@@ -12,6 +12,12 @@ export const TOLERANCIA_TURNOS_DEFAULT = {
   minutos_despues_fin: 30,
 };
 
+/** Tolerancia para marcar entrada/salida cubriendo otro turno (checador). */
+export const TOLERANCIA_CHECADOR_OTRO_TURNO = {
+  minutos_antes: 20,
+  minutos_despues_fin: 20,
+};
+
 export const TIPOS_HORARIO = {
   '12x12': {
     id: '12x12',
@@ -631,6 +637,80 @@ export function usuarioAutorizadoLogin(user, date = new Date(), turnos = null, s
   return {
     ok: false,
     error: `Fuera de horario. Tu turno es ${nombreTurnoLegible(turnoAsignado)} (${turnoAsignado.hora_inicio}–${turnoAsignado.hora_fin}). Puedes entrar entre ${ventana} (${tol.minutos_antes} min antes, ${tol.minutos_despues_fin} min después del cierre).`,
+  };
+}
+
+/**
+ * Checador: cajero/repartidor puede marcar en su turno (con tolerancia habitual) o cubrir
+ * otro turno con ±20 min antes del inicio / después del cierre.
+ */
+export function usuarioAutorizadoChecador(user, date = new Date(), turnos = null, sucursal = null) {
+  const rol = normalizarRol(user?.rol);
+  if (!rolSujetoTurno(rol)) return { ok: true };
+
+  if (sucursal && tieneAutorizacionFueraHorario(user, sucursal, date)) {
+    return { ok: true, autorizacionAdmin: true };
+  }
+
+  const list = turnos || leerTurnos();
+  if (!list.length) {
+    return {
+      ok: false,
+      error: 'No hay turno configurado. Pide al gerente que configure turnos en Configuración → Turnos de caja.',
+    };
+  }
+
+  const asignado = turnoIdParaUsuario(user, date);
+  if (asignado && esTurnoAmbos(asignado)) return { ok: true };
+
+  if (asignado) {
+    const turnoAsignado = list.find((t) => String(t.id) === String(asignado));
+    if (turnoAsignado && horaEnVentanaLogin(turnoAsignado, date)) {
+      return { ok: true };
+    }
+  }
+
+  const tolCruz = TOLERANCIA_CHECADOR_OTRO_TURNO;
+  for (const turno of list) {
+    if (asignado && String(turno.id) === String(asignado)) continue;
+    if (horaEnVentanaLogin(turno, date, tolCruz)) {
+      return {
+        ok: true,
+        coberturaTurno: true,
+        turnoCubierto: turno.id,
+        mensaje: `Marcaje en turno ${nombreTurnoLegible(turno)} (cobertura, ±${tolCruz.minutos_antes} min).`,
+      };
+    }
+  }
+
+  if (!asignado) {
+    const personalizado = parseTurnoHorario(user?.turno_horario);
+    if (personalizado?.patron || personalizado?.dias) {
+      const dia = DIAS_SEMANA.find((d) => d.id === date.getDay());
+      return {
+        ok: false,
+        error: `Hoy (${dia?.largo || 'este día'}) es tu día de descanso. Solo puedes marcar si estás cubriendo otro turno (±${tolCruz.minutos_antes} min antes o después).`,
+      };
+    }
+    return {
+      ok: false,
+      error: 'No tienes turno asignado (Diurno o Nocturno). Pide al administrador que te asigne uno en Usuarios.',
+    };
+  }
+
+  const turnoAsignado = list.find((t) => String(t.id) === String(asignado));
+  if (!turnoAsignado) {
+    return {
+      ok: false,
+      error: `Turno "${asignado}" no está en la configuración. Pide al administrador revisar Usuarios y Configuración → Turnos.`,
+    };
+  }
+
+  const tol = leerToleranciaTurnos();
+  const ventana = etiquetaVentanaLogin(turnoAsignado, tol);
+  return {
+    ok: false,
+    error: `Fuera de horario. Tu turno es ${nombreTurnoLegible(turnoAsignado)} (${turnoAsignado.hora_inicio}–${turnoAsignado.hora_fin}, ventana ${ventana}). En el checador puedes marcar cubriendo otro turno con ±${tolCruz.minutos_antes} min, o pide autorización al administrador.`,
   };
 }
 

@@ -70,6 +70,7 @@ import {
   registrarServiceWorkerNotificaciones,
 } from './lib/notificacionesDispositivo.js';
 import { EVENTO_NOTIFICACION_DISPOSITIVO, iniciarMonitorNotificacionesDispositivo, EVENTO_NOTIFICACIONES } from './lib/contabilidadNotificaciones.js';
+import { registrarCapturaInstalacionPwa } from './lib/appMovil.js';
 import BotonActivarNotificaciones from './components/BotonActivarNotificaciones.jsx';
 import PantallaLogin from './components/PantallaLogin.jsx';
 import MobileBottomNav from './components/MobileBottomNav.jsx';
@@ -129,6 +130,10 @@ function App() {
       window.removeEventListener(EVENTO_PRIVILEGIOS, onPriv);
       window.removeEventListener(EVENTO_TEMA_INTERFAZ, onTema);
     };
+  }, []);
+
+  useEffect(() => {
+    return registrarCapturaInstalacionPwa();
   }, []);
 
   useEffect(() => {

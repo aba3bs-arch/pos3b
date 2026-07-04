@@ -1,9 +1,12 @@
 {
+  "id": "/",
   "name": "ABARROTES LAS 3B — POS",
   "short_name": "POS 3B",
-  "description": "Punto de venta e inventario Las 3B",
+  "description": "Punto de venta e inventario Las 3B — conectado a la nube",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "browser"],
   "background_color": "#f6f3e8",
   "theme_color": "#3b66b5",
   "lang": "es-MX",
@@ -13,6 +16,12 @@
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
+    },
+    {
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
   ]
 }

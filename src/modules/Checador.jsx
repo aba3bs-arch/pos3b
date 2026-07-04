@@ -2,7 +2,14 @@ import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { etiquetaTienda, listarSucursalesParaUI } from '../constants/sucursales.js';
 import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from '../lib/usuariosAuth.js';
 import { evaluarVinculoDispositivo } from '../lib/dispositivoUsuario.js';
-import { usuarioAutorizadoLogin } from '../lib/turnos.js';
+import { usuarioAutorizadoChecador } from '../lib/turnos.js';
+import {
+  actualizarMarcajeAsistencia,
+  crearMarcajeAsistencia,
+  eliminarMarcajeAsistencia,
+  fechaHoraLocalDesdeIso,
+  isoDesdeFechaHoraLocal,
+} from '../lib/asistencias.js';
 import {
   otorgarAutorizacionFueraHorario,
   verificarPinAdministradorGlobal,
@@ -54,11 +61,19 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
   const [pendienteChecador, setPendienteChecador] = useState(null);
   const [pinAdminChecador, setPinAdminChecador] = useState('');
   const [autorizandoChecador, setAutorizandoChecador] = useState(false);
+  const [avisoCobertura, setAvisoCobertura] = useState('');
 
   const [filtroTiendaHist, setFiltroTiendaHist] = useState(sucursal || '');
   const [presetHist, setPresetHist] = useState('semana');
   const [histDesde, setHistDesde] = useState('');
   const [histHasta, setHistHasta] = useState('');
+
+  const [empleadosTienda, setEmpleadosTienda] = useState([]);
+  const [ajustando, setAjustando] = useState(null);
+  const [formAjuste, setFormAjuste] = useState({ tipo: 'ENTRADA', fecha: '', hora: '' });
+  const [formNuevo, setFormNuevo] = useState({ usuario_id: '', nombre: '', tipo: 'ENTRADA', fecha: '', hora: '' });
+  const [mostrarNuevoMarcaje, setMostrarNuevoMarcaje] = useState(false);
+  const [guardandoAjuste, setGuardandoAjuste] = useState(false);
 
   const [codigo, setCodigo] = useState('');
 
@@ -138,6 +153,24 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     if (!esAdmin) setFiltroTiendaHist(sucursal || '');
   }, [sucursal, esAdmin]);
 
+  useEffect(() => {
+    if (!esAdmin || !supabase || pestana !== 'historial') return undefined;
+    let ok = true;
+    (async () => {
+      const tienda = filtroTiendaHist || sucursal;
+      if (!tienda) return;
+      const { data } = await supabase
+        .from('usuarios')
+        .select('id,nombre,rol,sucursal_id')
+        .eq('sucursal_id', tienda)
+        .order('nombre');
+      if (ok) setEmpleadosTienda(data || []);
+    })();
+    return () => {
+      ok = false;
+    };
+  }, [esAdmin, supabase, pestana, filtroTiendaHist, sucursal]);
+
   const producto = useMemo(() => {
     const t = codigo.trim();
     if (!t) return null;
@@ -177,15 +210,17 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       setEmpleado(null);
       return;
     }
-    const accesoTurno = usuarioAutorizadoLogin(data, new Date(), null, sucursal);
+    const accesoTurno = usuarioAutorizadoChecador(data, new Date(), null, sucursal);
     if (!accesoTurno.ok) {
       setPendienteChecador({ user: data, error: accesoTurno.error });
       setMsg('');
       setEmpleado(null);
+      setAvisoCobertura('');
       return;
     }
     setPendienteChecador(null);
     setPinAdminChecador('');
+    setAvisoCobertura(accesoTurno.coberturaTurno ? accesoTurno.mensaje || 'Cobertura de otro turno.' : '');
     const vinculo = evaluarVinculoDispositivo(data);
     if (!vinculo.ok) {
       setMsg(vinculo.error);
@@ -218,6 +253,81 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     setPendienteChecador(null);
     setPinAdminChecador('');
     setPinEmpleado('');
+    setAvisoCobertura('');
+  };
+
+  const abrirAjuste = (registro) => {
+    const { fecha, hora } = fechaHoraLocalDesdeIso(registro.created_at);
+    setAjustando(registro);
+    setFormAjuste({ tipo: registro.tipo, fecha, hora });
+    setMostrarNuevoMarcaje(false);
+  };
+
+  const guardarAjuste = async () => {
+    if (!ajustando || !supabase) return;
+    const created_at = isoDesdeFechaHoraLocal(formAjuste.fecha, formAjuste.hora);
+    if (!created_at) return setMsg('Fecha u hora no válida.');
+    setGuardandoAjuste(true);
+    setMsg('');
+    const res = await actualizarMarcajeAsistencia(supabase, ajustando.id, {
+      tipo: formAjuste.tipo,
+      created_at,
+      ajustado_por: user?.nombre,
+    });
+    setGuardandoAjuste(false);
+    if (!res.ok) {
+      setMsg(res.error || 'No se pudo guardar el ajuste.');
+      return;
+    }
+    setMsg('Marcaje actualizado.');
+    setAjustando(null);
+    void cargarHistorialCompleto();
+    void cargarHistorialHoy();
+  };
+
+  const eliminarMarcaje = async (registro) => {
+    if (!supabase || !registro?.id) return;
+    if (!confirm(`¿Eliminar ${registro.tipo === 'ENTRADA' ? 'entrada' : 'salida'} de ${registro.nombre}?`)) return;
+    setGuardandoAjuste(true);
+    setMsg('');
+    const res = await eliminarMarcajeAsistencia(supabase, registro.id);
+    setGuardandoAjuste(false);
+    if (!res.ok) {
+      setMsg(res.error || 'No se pudo eliminar.');
+      return;
+    }
+    setMsg('Marcaje eliminado.');
+    if (ajustando?.id === registro.id) setAjustando(null);
+    void cargarHistorialCompleto();
+    void cargarHistorialHoy();
+  };
+
+  const guardarNuevoMarcaje = async () => {
+    if (!supabase) return;
+    const emp = empleadosTienda.find((e) => String(e.id) === String(formNuevo.usuario_id));
+    const nombre = emp?.nombre || formNuevo.nombre.trim();
+    if (!nombre) return setMsg('Selecciona un empleado.');
+    const created_at = isoDesdeFechaHoraLocal(formNuevo.fecha, formNuevo.hora) || new Date().toISOString();
+    setGuardandoAjuste(true);
+    setMsg('');
+    const res = await crearMarcajeAsistencia(supabase, {
+      usuario_id: emp?.id || null,
+      nombre,
+      sucursal_id: filtroTiendaHist || sucursal,
+      tipo: formNuevo.tipo,
+      created_at,
+      ajustado_por: user?.nombre,
+    });
+    setGuardandoAjuste(false);
+    if (!res.ok) {
+      setMsg(res.error || 'No se pudo registrar el marcaje.');
+      return;
+    }
+    setMsg('Marcaje registrado por administrador.');
+    setMostrarNuevoMarcaje(false);
+    setFormNuevo({ usuario_id: '', nombre: '', tipo: 'ENTRADA', fecha: '', hora: '' });
+    void cargarHistorialCompleto();
+    void cargarHistorialHoy();
   };
 
   const registrarMarcaje = async (tipo) => {
@@ -243,6 +353,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     }
     setMsg(tipo === 'ENTRADA' ? 'Entrada registrada.' : 'Salida registrada.');
     setEmpleado(null);
+    setAvisoCobertura('');
     void cargarHistorialHoy();
   };
 
@@ -332,7 +443,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
         <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
           <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Reloj checador</h3>
           <p className="muted" style={{ marginTop: 0 }}>
-            Empleados dados de alta en <strong>Usuarios</strong> marcan entrada o salida con su PIN. Tienda actual:{' '}
+            Empleados dados de alta en <strong>Usuarios</strong> marcan entrada o salida con su PIN. Si no coincide con su turno fijo, puede marcar cubriendo otro turno (±20 min). Tienda actual:{' '}
             <span className="badge">{etiquetaTienda(sucursal)}</span>
           </p>
           <div
@@ -419,6 +530,9 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
               <div className="muted" style={{ fontSize: '0.9rem', marginTop: '0.25rem' }}>
                 Confirma el marcaje
               </div>
+              {avisoCobertura && (
+                <p style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', color: 'var(--brand-gold)' }}>{avisoCobertura}</p>
+              )}
               <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem', flexWrap: 'wrap' }}>
                 <button type="button" className="btn btn-success" disabled={marcando} onClick={() => registrarMarcaje('ENTRADA')} style={{ flex: '1 1 140px' }}>
                   Entrada
@@ -474,6 +588,11 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       {pestana === 'historial' && (
         <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
           <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Historial de entradas y salidas</h3>
+          {esAdmin && (
+            <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
+              Como administrador puedes corregir hora/tipo de un marcaje o registrar entrada/salida manual si el empleado no checó.
+            </p>
+          )}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'flex-end' }}>
             {esAdmin && (
               <label className="muted" style={{ fontSize: '0.8rem' }}>
@@ -502,7 +621,110 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
             <button type="button" className="btn btn-primary" onClick={cargarHistorialCompleto} disabled={cargandoHist}>
               {cargandoHist ? 'Cargando…' : 'Actualizar'}
             </button>
+            {esAdmin && (
+              <button
+                type="button"
+                className="btn btn-gold"
+                onClick={() => {
+                  const hoy = new Date();
+                  const pad = (n) => String(n).padStart(2, '0');
+                  const fecha = `${hoy.getFullYear()}-${pad(hoy.getMonth() + 1)}-${pad(hoy.getDate())}`;
+                  const hora = `${pad(hoy.getHours())}:${pad(hoy.getMinutes())}`;
+                  setMostrarNuevoMarcaje(true);
+                  setAjustando(null);
+                  setFormNuevo({ usuario_id: '', nombre: '', tipo: 'ENTRADA', fecha, hora });
+                }}
+              >
+                Registrar marcaje manual
+              </button>
+            )}
           </div>
+          {msg && pestana === 'historial' && (
+            <p style={{ margin: '0 0 0.75rem', color: msg.includes('actualizado') || msg.includes('registrado') || msg.includes('eliminado') ? 'var(--brand-green)' : 'var(--brand-red)' }}>
+              {msg}
+            </p>
+          )}
+          {esAdmin && mostrarNuevoMarcaje && (
+            <div className="card" style={{ marginBottom: '0.75rem', background: 'rgba(200,180,68,0.1)', border: '1px solid rgba(200,180,68,0.35)' }}>
+              <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue-dark)' }}>Nuevo marcaje (administrador)</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Empleado
+                  <select
+                    className="select"
+                    style={{ display: 'block', marginTop: '0.2rem', width: '100%' }}
+                    value={formNuevo.usuario_id}
+                    onChange={(e) => setFormNuevo((f) => ({ ...f, usuario_id: e.target.value }))}
+                  >
+                    <option value="">— Seleccionar —</option>
+                    {empleadosTienda.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.nombre} ({e.rol})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Tipo
+                  <select className="select" style={{ display: 'block', marginTop: '0.2rem', width: '100%' }} value={formNuevo.tipo} onChange={(e) => setFormNuevo((f) => ({ ...f, tipo: e.target.value }))}>
+                    <option value="ENTRADA">Entrada</option>
+                    <option value="SALIDA">Salida</option>
+                  </select>
+                </label>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Fecha
+                  <input className="input" type="date" style={{ display: 'block', marginTop: '0.2rem', width: '100%' }} value={formNuevo.fecha} onChange={(e) => setFormNuevo((f) => ({ ...f, fecha: e.target.value }))} />
+                </label>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Hora
+                  <input className="input" type="time" style={{ display: 'block', marginTop: '0.2rem', width: '100%' }} value={formNuevo.hora} onChange={(e) => setFormNuevo((f) => ({ ...f, hora: e.target.value }))} />
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.65rem', flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-primary btn-sm" onClick={guardarNuevoMarcaje} disabled={guardandoAjuste}>
+                  {guardandoAjuste ? 'Guardando…' : 'Guardar marcaje'}
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setMostrarNuevoMarcaje(false)} disabled={guardandoAjuste}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+          {esAdmin && ajustando && (
+            <div className="card" style={{ marginBottom: '0.75rem', background: 'rgba(59,105,181,0.08)', border: '1px solid var(--border)' }}>
+              <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue-dark)' }}>
+                Ajustar marcaje · {ajustando.nombre}
+              </h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Tipo
+                  <select className="select" style={{ display: 'block', marginTop: '0.2rem', width: '100%' }} value={formAjuste.tipo} onChange={(e) => setFormAjuste((f) => ({ ...f, tipo: e.target.value }))}>
+                    <option value="ENTRADA">Entrada</option>
+                    <option value="SALIDA">Salida</option>
+                  </select>
+                </label>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Fecha
+                  <input className="input" type="date" style={{ display: 'block', marginTop: '0.2rem', width: '100%' }} value={formAjuste.fecha} onChange={(e) => setFormAjuste((f) => ({ ...f, fecha: e.target.value }))} />
+                </label>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Hora
+                  <input className="input" type="time" style={{ display: 'block', marginTop: '0.2rem', width: '100%' }} value={formAjuste.hora} onChange={(e) => setFormAjuste((f) => ({ ...f, hora: e.target.value }))} />
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.65rem', flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-primary btn-sm" onClick={guardarAjuste} disabled={guardandoAjuste}>
+                  {guardandoAjuste ? 'Guardando…' : 'Guardar ajuste'}
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => eliminarMarcaje(ajustando)} disabled={guardandoAjuste}>
+                  Eliminar
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAjustando(null)} disabled={guardandoAjuste}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
           <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>
             {historialFull.length} registro(s) · {etiquetaTienda(esAdmin ? filtroTiendaHist : sucursal)}
           </p>
@@ -514,12 +736,13 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                   <th>Hora</th>
                   <th>Empleado</th>
                   <th>Tipo</th>
+                  {esAdmin && <th>Admin</th>}
                 </tr>
               </thead>
               <tbody>
                 {historialFull.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="muted">
+                    <td colSpan={esAdmin ? 5 : 4} className="muted">
                       Sin registros en el periodo.
                     </td>
                   </tr>
@@ -532,6 +755,13 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                       <td>
                         <span className="badge">{h.tipo === 'ENTRADA' ? 'Entrada' : 'Salida'}</span>
                       </td>
+                      {esAdmin && (
+                        <td>
+                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => abrirAjuste(h)}>
+                            Ajustar
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}

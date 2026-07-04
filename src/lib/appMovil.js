@@ -2,6 +2,11 @@ import { detectarIos, detectarMobile, esPwaInstalada } from './notificacionesDis
 
 export const EVENTO_PWA_INSTALABLE = 'pos3b-pwa-installable';
 
+export function detectarEscritorio() {
+  if (typeof navigator === 'undefined') return false;
+  return !detectarMobile();
+}
+
 let deferredPrompt = null;
 
 export function urlAppMovil() {
@@ -76,9 +81,17 @@ export function mensajeInstalacionPwa() {
     );
   }
   return (
-    'Para usar el POS en celular o tablet:\n\n' +
-    '1. Abra el enlace en Chrome (Android) o Safari (iPhone).\n' +
-    '2. Instale la app en pantalla de inicio.\n\n' +
+    'En computadora de sucursal (Chrome o Edge):\n\n' +
+    '1. Abra esta misma URL en Chrome o Edge.\n' +
+    '2. Pulse el icono de instalar (⊕ o «Instalar POS 3B») en la barra de direcciones,\n' +
+    '   o menú ⋮ → «Instalar ABARROTES LAS 3B — POS» / «Aplicaciones» → «Instalar este sitio».\n' +
+    '3. La app queda en el escritorio y se conecta a la nube (Supabase).\n' +
+    '4. En Configuración fije la tienda de esta PC.\n\n' +
     `Enlace: ${urlAppMovil()}`
   );
+}
+
+/** true si el navegador ofrece instalación PWA o es entorno compatible. */
+export function puedeInstalarEnEsteEquipo() {
+  return instalacionPwaDisponible() || detectarIos() || detectarMobile() || detectarEscritorio();
 }

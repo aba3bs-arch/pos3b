@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import Icon, { BtnLabel } from './Icon.jsx';
+import { etiquetaTienda } from '../constants/sucursales.js';
 import { esPwaInstalada } from '../lib/notificacionesDispositivo.js';
 import {
   EVENTO_PWA_INSTALABLE,
   copiarUrlAppMovil,
+  detectarEscritorio,
   intentarInstalarPwa,
   mensajeInstalacionPwa,
   registrarCapturaInstalacionPwa,
@@ -11,7 +13,8 @@ import {
   instalacionPwaDisponible,
 } from '../lib/appMovil.js';
 
-export default function PanelAppMovilInicio() {
+export default function PanelAppMovilInicio({ sucursal }) {
+  const esPc = detectarEscritorio();
   const [instalable, setInstalable] = useState(() => instalacionPwaDisponible());
   const [instalada, setInstalada] = useState(() => esPwaInstalada());
 
@@ -42,9 +45,16 @@ export default function PanelAppMovilInicio() {
 
   const copiar = async () => {
     const r = await copiarUrlAppMovil();
-    if (r.ok) alert('Enlace copiado. Ábralo en el celular para instalar la app.');
-    else alert(mensajeInstalacionPwa());
+    if (r.ok) {
+      alert(
+        esPc
+          ? 'Enlace copiado. Ábralo en Chrome o Edge de la PC de la sucursal e instale la app.'
+          : 'Enlace copiado. Ábralo en el celular para instalar la app.',
+      );
+    } else alert(mensajeInstalacionPwa());
   };
+
+  const nombreTienda = sucursal ? etiquetaTienda(sucursal) : 'esta tienda';
 
   return (
     <div
@@ -61,18 +71,25 @@ export default function PanelAppMovilInicio() {
     >
       <div style={{ flex: '1 1 240px' }}>
         <h3 style={{ margin: 0, color: 'var(--brand-blue-dark)', fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-          <Icon name="smartphone" size={18} />
-          App móvil POS
+          <Icon name={esPc ? 'register' : 'smartphone'} size={18} />
+          {esPc ? 'Instalar POS en esta computadora' : 'App móvil POS'}
         </h3>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
-          Instale el punto de venta en celular o tablet para cobrar, consultar inventario y recibir alertas.
+          {esPc
+            ? `Descargue el POS como aplicación de escritorio en ${nombreTienda}. Se enlaza a la misma nube (Supabase) que la versión web.`
+            : 'Instale el punto de venta en celular o tablet para cobrar, consultar inventario y recibir alertas.'}
         </p>
         <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem', wordBreak: 'break-all' }}>
           {urlAppMovil()}
         </p>
+        {esPc && !instalada && (
+          <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.78rem' }}>
+            Tras instalar, fije la sucursal en <strong>Configuración → Tienda</strong> para que esta PC quede ligada a {nombreTienda}.
+          </p>
+        )}
         {instalada && (
           <span className="badge" style={{ marginTop: '0.5rem', display: 'inline-block', background: 'rgba(46,125,50,0.12)', color: 'var(--brand-green)' }}>
-            App instalada en este dispositivo
+            App instalada en este equipo
           </span>
         )}
       </div>

@@ -100,6 +100,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       listarNotificacionesPendientes(supabase, { sucursal }),
     ]);
     if (vRes.aviso) setAviso(vRes.aviso);
+    else if (vRes.error) setAviso(vRes.error);
+    else setAviso('');
     setVales(vRes.data || []);
     setPrestamosArea(paRes.data || []);
     setPrestamosEmp(peRes.data || []);
@@ -419,7 +421,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             )}
           </div>
           <div className="card">
-            <h3 style={{ margin: '0 0 0.75rem' }}>Vales registrados</h3>
+            <h3 style={{ margin: '0 0 0.75rem' }}>Vales registrados ({vales.length})</h3>
             <div className="table-wrap">
               <table className="data">
                 <thead>
@@ -434,7 +436,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   </tr>
                 </thead>
                 <tbody>
-                  {vales.map((v) => (
+                  {vales.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="muted">
+                        No hay vales en esta tienda. Crea uno arriba o revisa que la tienda esté autorizada en Configuración.
+                        Los vales de <strong>gasolina</strong> aprobados también se consultan en la pestaña Gasolina / asistencia.
+                      </td>
+                    </tr>
+                  ) : (
+                  vales.map((v) => (
                     <tr key={v.id}>
                       <td>{v.folio}</td>
                       <td>{etiquetaEstadoVale(v)}</td>
@@ -454,7 +464,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                         )}
                       </td>
                     </tr>
-                  ))}
+                  ))
+                  )}
                 </tbody>
               </table>
             </div>
