@@ -4,10 +4,12 @@ import { normalizarRol } from '../lib/roles.js';
 import InputPin from '../components/InputPin.jsx';
 import { BtnLabel } from '../components/Icon.jsx';
 import {
+  aceptarGastosRecolector,
   cobrarCreditosSeleccionados,
   fmtFechaHora,
   fmtMonto,
   listarCreditosPendientes,
+  listarGastosPendientesRecolector,
   listarRepartidores,
   listarServiciosCobro,
   listarTiendasEfectivo,
@@ -15,6 +17,8 @@ import {
   registrarCobroServicio,
   registrarServicioNoCobrado,
   registrarTraspasos,
+  resolverRepartidorPorNombre,
+  saldoEnTransitoRepartidor,
   servicioResueltoEnTienda,
   serviciosObligatoriosPendientesTienda,
   sucursalParaControlEfectivo,
@@ -59,6 +63,12 @@ export default function Recolecciones({ supabase, sucursal, user }) {
   const [selCobro, setSelCobro] = useState({});
   const [cajeroCobro, setCajeroCobro] = useState('');
 
+  const [repGasto, setRepGasto] = useState('');
+  const [pinGasto, setPinGasto] = useState('');
+  const [gastosPendientes, setGastosPendientes] = useState([]);
+  const [selGasto, setSelGasto] = useState({});
+  const [saldoGasto, setSaldoGasto] = useState(null);
+
   const cargarCatalogos = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
@@ -70,6 +80,13 @@ export default function Recolecciones({ supabase, sucursal, user }) {
       if (reps.length) {
         setRepTraspaso((prev) => prev || reps[0].id);
         setRepCobro((prev) => prev || reps[0].id);
+        const detectado = resolverRepartidorPorNombre(user?.nombre, reps);
+        if (detectado) {
+          setRepGasto((prev) => prev || detectado);
+          setRepCobro((prev) => prev || detectado);
+        } else {
+          setRepGasto((prev) => prev || reps[0].id);
+        }
       }
     } catch (e) {
       setErrorTabla(
@@ -80,7 +97,26 @@ export default function Recolecciones({ supabase, sucursal, user }) {
     } finally {
       setLoading(false);
     }
-  }, [supabase]);
+  }, [supabase, user?.nombre]);
+
+  const cargarGastosPendientes = useCallback(async () => {
+    if (!supabase || !repGasto) return;
+    try {
+      const [pend, saldo] = await Promise.all([
+        listarGastosPendientesRecolector(supabase, repGasto),
+        saldoEnTransitoRepartidor(supabase, repGasto),
+      ]);
+      setGastosPendientes(pend);
+      setSaldoGasto(saldo);
+      const init = {};
+      pend.forEach((g) => {
+        init[g.id] = true;
+      });
+      setSelGasto(init);
+    } catch (e) {
+      setErrorTabla(e.message);
+    }
+  }, [supabase, repGasto]);
 
   const cargarEstadoServicios = useCallback(async () => {
     if (!supabase || !tiendaSesion) return;
@@ -132,10 +168,21 @@ export default function Recolecciones({ supabase, sucursal, user }) {
     if (tab === 'cobro' && tiendaCobro) cargarPendientes();
   }, [tab, tiendaCobro, cargarPendientes]);
 
+  useEffect(() => {
+    if (repGasto) cargarGastosPendientes();
+  }, [repGasto, cargarGastosPendientes]);
+
   const totalCobroSel = useMemo(
     () => pendientes.filter((p) => selCobro[p.id]).reduce((a, p) => a + Number(p.monto || 0), 0),
     [pendientes, selCobro],
   );
+
+  const totalGastoSel = useMemo(
+    () => gastosPendientes.filter((g) => selGasto[g.id]).reduce((a, g) => a + Number(g.monto || 0), 0),
+    [gastosPendientes, selGasto],
+  );
+
+  const repGastoNombre = useMemo(() => repartidores.find((r) => r.id === repGasto)?.nombre || '', [repartidores, repGasto]);
 
   const serviciosBloqueanTraspaso = pendientesSrv.length > 0;
 
@@ -198,6 +245,32 @@ export default function Recolecciones({ supabase, sucursal, user }) {
     setFilas([{ folio: '', monto: '' }]);
     setPinTraspaso('');
     if (!esEfectivo) setTab('cobro');
+  };
+
+  const toggleTodosGastos = (valor) => {
+    const next = {};
+    gastosPendientes.forEach((g) => {
+      next[g.id] = valor;
+    });
+    setSelGasto(next);
+  };
+
+  const confirmarAceptarGastos = async () => {
+    if (!repGasto) return alert('Selecciona recolector.');
+    if (!pinRepartidorValido(pinGasto, repGasto, repartidores)) return alert('PIN de recolector incorrecto.');
+    const ids = gastosPendientes.filter((g) => selGasto[g.id]).map((g) => g.id);
+    if (!ids.length) return alert('Selecciona al menos un gasto autorizado.');
+    setGuardando(true);
+    const res = await aceptarGastosRecolector(supabase, {
+      ids,
+      repartidorId: repGasto,
+      recolectorNombre: repGastoNombre || user?.nombre || 'Recolector',
+    });
+    setGuardando(false);
+    if (!res.ok) return alert(res.error);
+    alert(`✅ ${res.count} gasto(s) registrado(s) por ${fmtMonto(res.total)}.`);
+    setPinGasto('');
+    cargarGastosPendientes();
   };
 
   const confirmarCobro = async () => {
@@ -268,6 +341,11 @@ export default function Recolecciones({ supabase, sucursal, user }) {
         )}
         <TabBtn active={tab === 'cobro'} onClick={() => setTab('cobro')}>
           <BtnLabel icon="dollar">Cobrar crédito</BtnLabel>
+        </TabBtn>
+        <TabBtn active={tab === 'gastos'} onClick={() => setTab('gastos')}>
+          <BtnLabel icon="register">
+            Gastos{gastosPendientes.length > 0 ? ` (${gastosPendientes.length})` : ''}
+          </BtnLabel>
         </TabBtn>
       </div>
 
@@ -571,6 +649,112 @@ export default function Recolecciones({ supabase, sucursal, user }) {
               </label>
               <button type="button" className="btn btn-success" style={{ marginTop: '1rem' }} disabled={guardando || totalCobroSel <= 0} onClick={confirmarCobro}>
                 {guardando ? 'Procesando…' : `Confirmar cobro · ${fmtMonto(totalCobroSel)}`}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {tab === 'gastos' && (
+        <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)' }}>
+          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Gastos autorizados</h3>
+          <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
+            Contabilidad autoriza gastos desde Panel RT. Al aceptar con tu PIN, el gasto se registra automáticamente y descuenta de tu efectivo en tránsito.
+          </p>
+
+          <label className="muted" style={{ display: 'block' }}>
+            Recolector
+            <select className="select" style={{ marginTop: '0.35rem' }} value={repGasto} onChange={(e) => setRepGasto(e.target.value)}>
+              <option value="">— Selecciona —</option>
+              {repartidores.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.nombre}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {saldoGasto && repGasto && (
+            <p style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
+              Saldo en tránsito: <strong>{fmtMonto(saldoGasto.total)}</strong>
+              <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
+                Disponible {fmtMonto(saldoGasto.disponible)}
+                {saldoGasto.reservado > 0 ? ` · pendiente aceptar ${fmtMonto(saldoGasto.reservado)}` : ''}
+              </span>
+            </p>
+          )}
+
+          {!repGasto ? (
+            <p className="muted" style={{ marginTop: '1rem' }}>Selecciona tu nombre de recolector.</p>
+          ) : !gastosPendientes.length ? (
+            <p className="muted" style={{ marginTop: '1rem' }}>✅ No hay gastos pendientes de aceptar.</p>
+          ) : (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
+                  {gastosPendientes.length} gasto(s) autorizado(s)
+                </p>
+                <div style={{ display: 'flex', gap: '0.35rem' }}>
+                  <button type="button" className="btn btn-ghost" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => toggleTodosGastos(true)}>
+                    Todos
+                  </button>
+                  <button type="button" className="btn btn-ghost" style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }} onClick={() => toggleTodosGastos(false)}>
+                    Ninguno
+                  </button>
+                </div>
+              </div>
+
+              {gastosPendientes.map((g) => (
+                <label
+                  key={g.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    padding: '0.65rem 0',
+                    borderBottom: '1px solid var(--border)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input type="checkbox" checked={Boolean(selGasto[g.id])} onChange={(e) => setSelGasto({ ...selGasto, [g.id]: e.target.checked })} />
+                  <span style={{ flex: 1 }}>
+                    <strong>{g.descripcion_gasto}</strong>
+                    <span className="muted" style={{ display: 'block', fontSize: '0.8rem' }}>
+                      Autorizado por {g.cajero_nombre} · {fmtFechaHora(g.fecha_hora)}
+                      {g.sucursal_origen ? ` · ${g.sucursal_origen}` : ''}
+                    </span>
+                  </span>
+                  <strong>{fmtMonto(g.monto)}</strong>
+                </label>
+              ))}
+
+              <div
+                style={{
+                  marginTop: '1rem',
+                  padding: '0.75rem',
+                  borderRadius: '8px',
+                  background: 'rgba(225,153,41,0.08)',
+                  border: '1px solid rgba(225,153,41,0.25)',
+                }}
+              >
+                <p style={{ margin: 0, fontWeight: 700, fontSize: '1.1rem' }}>Total a aceptar: {fmtMonto(totalGastoSel)}</p>
+                <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
+                  Al confirmar, el gasto queda registrado y ya puedes usar ese dinero.
+                </p>
+              </div>
+
+              <label className="muted" style={{ display: 'block', marginTop: '1rem' }}>
+                PIN recolector
+                <InputPin value={pinGasto} onChange={(e) => setPinGasto(e.target.value)} placeholder="PIN" style={{ marginBottom: 0 }} />
+              </label>
+              <button
+                type="button"
+                className="btn btn-gold"
+                style={{ marginTop: '1rem' }}
+                disabled={guardando || totalGastoSel <= 0}
+                onClick={confirmarAceptarGastos}
+              >
+                {guardando ? 'Procesando…' : `Aceptar y registrar · ${fmtMonto(totalGastoSel)}`}
               </button>
             </>
           )}

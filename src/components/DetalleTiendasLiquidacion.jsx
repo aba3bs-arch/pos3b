@@ -17,6 +17,7 @@ const PERIODOS = [
 function etiquetaTipo(m) {
   if (m.tipo_movimiento === 'Cobro Servicio') return 'Servicio';
   if (m.tipo_movimiento === 'Entrega Crédito') return 'Crédito';
+  if (m.tipo_movimiento === 'Gasto') return 'Gasto';
   return 'Recolección';
 }
 

@@ -24,6 +24,8 @@ import {
   hoyClaveNogales,
   inicioMesClaveNogales,
   liberarEfectivoRepartidor,
+  listarGastosLiquidadosRecolector,
+  listarGastosPendientesRecolector,
   listarMovimientosRecoleccionContabilidad,
   listarMovimientosTransitoAdmin,
   listarRepartidores,
@@ -32,6 +34,7 @@ import {
   listarTiendasEfectivo,
   listarTodoEnTransito,
   registrarGastoRecolector,
+  cancelarGastoPendiente,
   resumenPorTiendaConCatalogo,
   reporteGeneralPorTienda,
   reporteRecoleccionTiendaFecha,
@@ -86,9 +89,11 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
 
   const [gastoRep, setGastoRep] = useState('');
   const [gastoMonto, setGastoMonto] = useState('');
+  const [gastoModoMonto, setGastoModoMonto] = useState('fijo');
   const [gastoDesc, setGastoDesc] = useState('');
   const [gastoTienda, setGastoTienda] = useState('');
   const [saldoRep, setSaldoRep] = useState(null);
+  const [gastosPendientes, setGastosPendientes] = useState([]);
   const [cuentaRtLiberar, setCuentaRtLiberar] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || CUENTAS_RT[0]?.id || '');
 
   const [saldosRt, setSaldosRt] = useState({});
@@ -102,6 +107,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   const [resumenHistRt, setResumenHistRt] = useState(null);
   const [cuentaFallbackHist, setCuentaFallbackHist] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || CUENTAS_RT[0]?.id || '');
   const [transitoRt, setTransitoRt] = useState([]);
+  const [gastosRt, setGastosRt] = useState([]);
 
   const tiendas = useMemo(() => listarTiendasEfectivo(), []);
 
@@ -175,7 +181,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
     setError(null);
     try {
       const rango = rangoDesdePresetRt(presetRt) || {};
-      const [saldoRes, movRes, transito] = await Promise.all([
+      const [saldoRes, movRes, transito, gastos] = await Promise.all([
         calcularSaldosRt(supabase),
         listarTodosMovimientosRt(supabase, {
           desde: rango.desde,
@@ -183,12 +189,14 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
           cuentaId: filtroCuentaRt || undefined,
         }),
         listarTodoEnTransito(supabase),
+        listarGastosLiquidadosRecolector(supabase),
       ]);
       if (saldoRes.error) setError(saldoRes.error);
       else setSaldosRt(saldoRes.saldos || {});
       if (movRes.error) setError(movRes.error);
       else setMovsRt(movRes.data || []);
       setTransitoRt(transito || []);
+      setGastosRt(gastos || []);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -234,9 +242,11 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   useEffect(() => {
     if (!gastoRep || !supabase) {
       setSaldoRep(null);
+      setGastosPendientes([]);
       return;
     }
     saldoEnTransitoRepartidor(supabase, gastoRep).then(setSaldoRep).catch(() => setSaldoRep(null));
+    listarGastosPendientesRecolector(supabase, gastoRep).then(setGastosPendientes).catch(() => setGastosPendientes([]));
   }, [gastoRep, supabase, tab]);
 
   const reporteTienda = useMemo(
@@ -359,20 +369,46 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   };
 
   const confirmarGasto = async () => {
+    if (!gastoRep) return alert('Selecciona recolector.');
+    if (!gastoDesc?.trim()) return alert('Describe el gasto.');
+    const monto =
+      gastoModoMonto === 'todo' ? Number(saldoRep?.disponible || 0) : Number(gastoMonto);
+    if (!(monto > 0)) {
+      return alert(
+        gastoModoMonto === 'todo'
+          ? 'No hay saldo disponible para autorizar.'
+          : 'Indica un monto válido.',
+      );
+    }
     setGuardando(true);
     const res = await registrarGastoRecolector(supabase, {
       repartidorId: gastoRep,
-      monto: gastoMonto,
+      monto,
       descripcion: gastoDesc,
       adminNombre,
       tienda: gastoTienda || undefined,
     });
     setGuardando(false);
     if (!res.ok) return alert(res.error);
-    alert(`✅ Gasto registrado para ${res.recolector || 'recolector'}.`);
+    alert(`✅ Gasto autorizado para ${res.recolector || 'recolector'}. El recolector debe aceptarlo con su PIN en Recolecciones → Gastos.`);
     setGastoMonto('');
     setGastoDesc('');
-    if (gastoRep) saldoEnTransitoRepartidor(supabase, gastoRep).then(setSaldoRep);
+    if (gastoRep) {
+      saldoEnTransitoRepartidor(supabase, gastoRep).then(setSaldoRep);
+      listarGastosPendientesRecolector(supabase, gastoRep).then(setGastosPendientes);
+    }
+  };
+
+  const cancelarGasto = async (g) => {
+    if (!window.confirm(`¿Cancelar gasto ${g.num_traspaso} (${fmtMonto(g.monto)})?`)) return;
+    setGuardando(true);
+    const res = await cancelarGastoPendiente(supabase, g.id);
+    setGuardando(false);
+    if (!res.ok) return alert(res.error);
+    if (gastoRep) {
+      saldoEnTransitoRepartidor(supabase, gastoRep).then(setSaldoRep);
+      listarGastosPendientesRecolector(supabase, gastoRep).then(setGastosPendientes);
+    }
   };
 
   const confirmarLiberar = async () => {
@@ -435,9 +471,12 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
 
   const resumenRt = useMemo(() => resumenPeriodoRt(movsRt), [movsRt]);
   const totalTransitoRt = useMemo(() => transitoRt.reduce((a, m) => a + Number(m.monto || 0), 0), [transitoRt]);
+  const totalGastosRt = useMemo(() => gastosRt.reduce((a, m) => a + Number(m.monto || 0), 0), [gastosRt]);
+  const netoTransitoRt = useMemo(() => totalTransitoRt - totalGastosRt, [totalTransitoRt, totalGastosRt]);
+  const movimientosTransitoRt = useMemo(() => [...transitoRt, ...gastosRt], [transitoRt, gastosRt]);
   const resumenTransitoTiendas = useMemo(
-    () => resumenPorTiendaConCatalogo(transitoRt, listarTiendasEfectivo()),
-    [transitoRt],
+    () => resumenPorTiendaConCatalogo(movimientosTransitoRt, listarTiendasEfectivo()),
+    [movimientosTransitoRt],
   );
   const noopSel = useCallback(() => {}, []);
 
@@ -813,9 +852,9 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
       {tab === 'gastos' && (
         <div className="grid-2" style={{ gap: '1rem', alignItems: 'start' }}>
           <div className="card" style={{ padding: '0.85rem' }}>
-            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Registrar gasto</h3>
+            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Autorizar gasto</h3>
             <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
-              Descuenta del efectivo en tránsito del recolector (combustible, viáticos, etc.).
+              Autoriza un gasto del efectivo en tránsito. El recolector debe aceptarlo con su PIN en Recolecciones → Gastos.
             </p>
             <label className="muted" style={{ display: 'block' }}>
               Recolector
@@ -830,16 +869,66 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
             </label>
             {saldoRep && (
               <p style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
-                Saldo disponible: <strong>{fmtMonto(saldoRep.total)}</strong>
+                Saldo neto: <strong>{fmtMonto(saldoRep.total)}</strong>
                 <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
                   Recolectado {fmtMonto(saldoRep.ingresos)} − gastos {fmtMonto(saldoRep.egresos)}
+                  {saldoRep.reservado > 0 ? ` · pendiente aceptar ${fmtMonto(saldoRep.reservado)}` : ''}
+                  {' · '}disponible {fmtMonto(saldoRep.disponible)}
                 </span>
               </p>
             )}
-            <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
-              Monto ($)
-              <input className="input" type="number" min="0" step="0.01" style={{ marginTop: '0.35rem' }} value={gastoMonto} onChange={(e) => setGastoMonto(e.target.value)} />
-            </label>
+            {gastosPendientes.length > 0 && (
+              <div style={{ marginTop: '0.75rem', padding: '0.65rem', borderRadius: '8px', background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.25)' }}>
+                <p style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', fontWeight: 600 }}>Pendientes de aceptar ({gastosPendientes.length})</p>
+                {gastosPendientes.map((g) => (
+                  <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.35rem 0', borderTop: '1px solid var(--border)', fontSize: '0.82rem' }}>
+                    <span style={{ flex: 1 }}>
+                      {g.descripcion_gasto}
+                      <span className="muted" style={{ display: 'block', fontSize: '0.75rem' }}>
+                        {g.num_traspaso} · {fmtFechaHora(g.fecha_hora)}
+                      </span>
+                    </span>
+                    <strong>{fmtMonto(g.monto)}</strong>
+                    <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.45rem', fontSize: '0.72rem' }} disabled={guardando} onClick={() => cancelarGasto(g)}>
+                      Cancelar
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <fieldset style={{ border: 'none', padding: 0, margin: '0.75rem 0 0' }}>
+              <legend className="muted" style={{ fontSize: '0.85rem' }}>
+                Monto a autorizar
+              </legend>
+              <label style={{ display: 'block', marginTop: '0.35rem' }}>
+                <input
+                  type="radio"
+                  checked={gastoModoMonto === 'fijo'}
+                  onChange={() => setGastoModoMonto('fijo')}
+                />{' '}
+                Monto fijo
+              </label>
+              <label style={{ display: 'block', marginTop: '0.25rem' }}>
+                <input
+                  type="radio"
+                  checked={gastoModoMonto === 'todo'}
+                  onChange={() => setGastoModoMonto('todo')}
+                  disabled={!saldoRep?.disponible}
+                />{' '}
+                Todo el saldo disponible
+                {saldoRep ? ` (${fmtMonto(saldoRep.disponible)})` : ''}
+              </label>
+            </fieldset>
+            {gastoModoMonto === 'fijo' ? (
+              <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
+                Monto ($)
+                <input className="input" type="number" min="0" step="0.01" style={{ marginTop: '0.35rem' }} value={gastoMonto} onChange={(e) => setGastoMonto(e.target.value)} />
+              </label>
+            ) : (
+              <p style={{ margin: '0.75rem 0 0', fontSize: '0.9rem' }}>
+                Se autorizará: <strong>{fmtMonto(saldoRep?.disponible || 0)}</strong>
+              </p>
+            )}
             <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
               Descripción
               <input className="input" style={{ marginTop: '0.35rem' }} value={gastoDesc} onChange={(e) => setGastoDesc(e.target.value)} placeholder="Ej. Gasolina ruta norte" />
@@ -856,7 +945,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
               </select>
             </label>
             <button type="button" className="btn btn-gold" style={{ marginTop: '1rem' }} disabled={guardando || !gastoRep} onClick={confirmarGasto}>
-              Registrar gasto
+              Autorizar gasto
             </button>
           </div>
           <div className="card" style={{ padding: '0.85rem', borderLeft: '4px solid #0d9488' }}>
@@ -906,12 +995,16 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
               <strong>Liquidación recolecciones</strong> o <strong>Gastos / liberar</strong>.
             </p>
             <p style={{ margin: '0.75rem 0 0', fontSize: '1.35rem', fontWeight: 700, color: 'var(--brand-gold-dark)' }}>
-              {fmtMonto(totalTransitoRt)}
+              {fmtMonto(netoTransitoRt)}
               <span className="muted" style={{ fontSize: '0.85rem', fontWeight: 400, marginLeft: '0.5rem' }}>
-                {transitoRt.length} movimiento(s)
+                neto · {transitoRt.length} recolección(es) · {gastosRt.length} gasto(s)
               </span>
             </p>
-            {transitoRt.length > 0 ? (
+            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.82rem' }}>
+              Recolectado {fmtMonto(totalTransitoRt)}
+              {totalGastosRt > 0 ? ` − gastos ${fmtMonto(totalGastosRt)}` : ''}
+            </p>
+            {movimientosTransitoRt.length > 0 ? (
               <>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem', marginTop: '0.75rem' }}>
                   {resumenTransitoTiendas
@@ -923,7 +1016,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
                     ))}
                 </div>
                 <DetalleTiendasLiquidacion
-                  movimientos={transitoRt}
+                  movimientos={movimientosTransitoRt}
                   esHistorial
                   diaDe="recoleccion"
                   selIds={{}}

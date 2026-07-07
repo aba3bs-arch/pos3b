@@ -99,7 +99,7 @@ export async function listarLiquidacionesRepartidor(supabase, repartidorId, { de
     .eq('estatus', 'Liquidado')
     .order('fecha_liquidacion', { ascending: false });
   if (error) throw error;
-  const rows = (data || []).filter((m) => m.tipo_movimiento !== 'Gasto');
+  const rows = data || [];
   return filtrarMovimientosPorFecha(rows, { desde, hasta, diaDe: 'liquidacion' });
 }
 
@@ -240,6 +240,27 @@ export async function eliminarRepartidorPermanente(supabase, id) {
 export function pinRepartidorValido(pin, repartidorId, repartidores) {
   const rep = repartidores.find((r) => r.id === repartidorId);
   return Boolean(rep?.pin) && String(pin) === String(rep.pin);
+}
+
+function normNombreRepartidor(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+/** Intenta vincular usuario POS con registro en repartidores por nombre. */
+export function resolverRepartidorPorNombre(nombre, repartidores = []) {
+  const n = normNombreRepartidor(nombre);
+  if (!n || !repartidores.length) return null;
+  const exact = repartidores.find((r) => normNombreRepartidor(r.nombre) === n);
+  if (exact) return exact.id;
+  for (const r of repartidores) {
+    const rn = normNombreRepartidor(r.nombre);
+    if (rn && (n.includes(rn) || rn.includes(n))) return r.id;
+  }
+  return null;
 }
 
 export async function listarServiciosCobro(supabase) {
@@ -996,15 +1017,62 @@ export async function saldoEnTransitoRepartidor(supabase, repartidorId) {
     .from('transito_efectivo')
     .select('id, monto, tipo_movimiento, estatus, num_traspaso, sucursal_origen, fecha_hora')
     .eq('repartidor_id', repartidorId)
-    .in('estatus', ['En Tránsito', 'Liquidado']);
+    .in('estatus', ['En Tránsito', 'Liquidado', 'Por Aceptar']);
   if (error) throw error;
   const rows = data || [];
   const enTransito = rows.filter((m) => m.estatus === 'En Tránsito' && m.tipo_movimiento !== 'Gasto');
-  const gastos = rows.filter((m) => m.tipo_movimiento === 'Gasto');
+  const gastos = rows.filter((m) => m.tipo_movimiento === 'Gasto' && m.estatus === 'Liquidado');
+  const pendientes = rows.filter((m) => m.tipo_movimiento === 'Gasto' && m.estatus === 'Por Aceptar');
   const ingresos = enTransito.reduce((a, m) => a + Number(m.monto || 0), 0);
   const egresos = gastos.reduce((a, m) => a + Number(m.monto || 0), 0);
+  const reservado = pendientes.reduce((a, m) => a + Number(m.monto || 0), 0);
   const total = ingresos - egresos;
-  return { movimientos: enTransito, gastos, ingresos, egresos, total, count: enTransito.length };
+  const disponible = total - reservado;
+  return {
+    movimientos: enTransito,
+    gastos,
+    pendientes,
+    ingresos,
+    egresos,
+    reservado,
+    total,
+    disponible,
+    count: enTransito.length,
+  };
+}
+
+/** Gastos autorizados por contabilidad, pendientes de aceptación del recolector. */
+export async function listarGastosPendientesRecolector(supabase, repartidorId) {
+  if (!supabase || !repartidorId) return [];
+  const { data, error } = await supabase
+    .from('transito_efectivo')
+    .select(
+      'id, sucursal_origen, cajero_nombre, monto, fecha_hora, num_traspaso, descripcion_gasto, repartidor_id, repartidores(nombre)',
+    )
+    .eq('repartidor_id', repartidorId)
+    .eq('tipo_movimiento', 'Gasto')
+    .eq('estatus', 'Por Aceptar')
+    .order('fecha_hora', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+/** Gastos aceptados por el recolector (descuentan del efectivo en tránsito). */
+export async function listarGastosLiquidadosRecolector(supabase, { repartidorId } = {}) {
+  if (!supabase) return [];
+  let q = supabase
+    .from('transito_efectivo')
+    .select(
+      'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, descripcion_gasto, estatus, fecha_liquidacion, usuario_liquida',
+    )
+    .eq('tipo_movimiento', 'Gasto')
+    .eq('estatus', 'Liquidado')
+    .order('fecha_liquidacion', { ascending: false })
+    .limit(500);
+  if (repartidorId) q = q.eq('repartidor_id', repartidorId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
 }
 
 export async function registrarGastoRecolector(supabase, { repartidorId, monto, descripcion, adminNombre, tienda }) {
@@ -1012,8 +1080,11 @@ export async function registrarGastoRecolector(supabase, { repartidorId, monto, 
   if (!(m > 0)) return { ok: false, error: 'Monto inválido.' };
   if (!descripcion?.trim()) return { ok: false, error: 'Describe el gasto.' };
   const saldo = await saldoEnTransitoRepartidor(supabase, repartidorId);
-  if (m > saldo.total + 0.001) {
-    return { ok: false, error: `El gasto (${fmtMonto(m)}) supera el saldo en tránsito (${fmtMonto(saldo.total)}).` };
+  if (m + saldo.reservado > saldo.total + 0.001) {
+    return {
+      ok: false,
+      error: `El gasto (${fmtMonto(m)}) supera el saldo disponible (${fmtMonto(saldo.disponible)}).`,
+    };
   }
   const rep = (await listarRepartidoresTodos(supabase)).find((r) => r.id === repartidorId);
   const datos = {
@@ -1023,16 +1094,66 @@ export async function registrarGastoRecolector(supabase, { repartidorId, monto, 
     monto: m,
     num_traspaso: `GASTO-${Date.now().toString(36).toUpperCase()}`,
     foto_url: descripcion.trim(),
-    estatus: 'Liquidado',
+    estatus: 'Por Aceptar',
     tipo_movimiento: 'Gasto',
     descripcion_gasto: descripcion.trim(),
     fecha_hora: ahoraIsoNogales(),
-    usuario_liquida: adminNombre || 'Contabilidad',
-    fecha_liquidacion: ahoraIsoNogales(),
+    usuario_liquida: 'Pendiente',
   };
   const { error } = await supabase.from('transito_efectivo').insert(datos);
   if (error) return { ok: false, error: error.message };
-  return { ok: true, recolector: rep?.nombre };
+  return { ok: true, recolector: rep?.nombre, pendiente: true };
+}
+
+export async function aceptarGastosRecolector(supabase, { ids, repartidorId, recolectorNombre }) {
+  if (!ids?.length) return { ok: false, error: 'Selecciona al menos un gasto.' };
+  const { data, error } = await supabase
+    .from('transito_efectivo')
+    .select('id, monto, estatus, tipo_movimiento, repartidor_id, descripcion_gasto, foto_url')
+    .in('id', ids)
+    .eq('repartidor_id', repartidorId)
+    .eq('tipo_movimiento', 'Gasto')
+    .eq('estatus', 'Por Aceptar');
+  if (error) return { ok: false, error: error.message };
+  const rows = data || [];
+  if (!rows.length) return { ok: false, error: 'No hay gastos pendientes para aceptar.' };
+  const montoTotal = rows.reduce((a, m) => a + Number(m.monto || 0), 0);
+  const saldo = await saldoEnTransitoRepartidor(supabase, repartidorId);
+  const reservadoOtros = (saldo.reservado || 0) - montoTotal;
+  if (montoTotal + reservadoOtros > saldo.total + 0.001) {
+    return { ok: false, error: `El saldo en tránsito (${fmtMonto(saldo.total)}) ya no alcanza para estos gastos.` };
+  }
+  const ahora = ahoraIsoNogales();
+  for (const row of rows) {
+    const { error: upErr } = await supabase
+      .from('transito_efectivo')
+      .update({
+        estatus: 'Liquidado',
+        usuario_liquida: recolectorNombre || 'Recolector',
+        fecha_liquidacion: ahora,
+        foto_url: `${row.foto_url || row.descripcion_gasto || ''} · Aceptado por ${recolectorNombre || 'recolector'}`.trim(),
+      })
+      .eq('id', row.id)
+      .eq('estatus', 'Por Aceptar');
+    if (upErr) return { ok: false, error: upErr.message };
+  }
+  return { ok: true, count: rows.length, total: montoTotal };
+}
+
+export async function cancelarGastoPendiente(supabase, id) {
+  if (!id) return { ok: false, error: 'Gasto inválido.' };
+  const { data, error } = await supabase
+    .from('transito_efectivo')
+    .select('id, estatus, tipo_movimiento')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!data || data.tipo_movimiento !== 'Gasto' || data.estatus !== 'Por Aceptar') {
+    return { ok: false, error: 'Solo se pueden cancelar gastos pendientes de aceptación.' };
+  }
+  const { error: delErr } = await supabase.from('transito_efectivo').delete().eq('id', id);
+  if (delErr) return { ok: false, error: delErr.message };
+  return { ok: true };
 }
 
 export async function liberarEfectivoRepartidor(supabase, { repartidorId, adminNombre, ids, cuentaRtId }) {
