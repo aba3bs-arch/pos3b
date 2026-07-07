@@ -569,13 +569,112 @@ export async function listarEnTransitoPorRepartidor(supabase, repartidorId) {
   const { data, error } = await supabase
     .from('transito_efectivo')
     .select(
-      'id, sucursal_origen, cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, descripcion_gasto',
+      'id, sucursal_origen, cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, descripcion_gasto, repartidor_id, repartidores(nombre)',
     )
     .eq('repartidor_id', repartidorId)
     .eq('estatus', 'En Tránsito')
     .order('fecha_hora', { ascending: true });
   if (error) throw error;
   return (data || []).filter((m) => m.tipo_movimiento !== 'Gasto');
+}
+
+/** Todo el efectivo en tránsito (todas las tiendas / recolectores). */
+export async function listarTodoEnTransito(supabase, { repartidorId } = {}) {
+  if (!supabase) return [];
+  let q = supabase
+    .from('transito_efectivo')
+    .select(
+      'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, descripcion_gasto',
+    )
+    .eq('estatus', 'En Tránsito')
+    .order('fecha_hora', { ascending: false })
+    .limit(500);
+  if (repartidorId) q = q.eq('repartidor_id', repartidorId);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data || []).filter((m) => m.tipo_movimiento !== 'Gasto');
+}
+
+export function inicioSemanaYmd(ymd) {
+  const d = parseYmdLocal(ymd);
+  if (!d) return ymd || '';
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return toYmdLocal(d);
+}
+
+function parseYmdLocal(ymd) {
+  const [y, m, day] = String(ymd || '').slice(0, 10).split('-').map(Number);
+  if (!y || !m || !day) return null;
+  return new Date(y, m - 1, day);
+}
+
+function toYmdLocal(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+export function etiquetaMesYmd(ym) {
+  const [y, m] = String(ym || '').split('-').map(Number);
+  if (!y || !m) return ym || '—';
+  const d = new Date(y, m - 1, 1);
+  return d.toLocaleDateString('es-MX', { month: 'short', year: 'numeric' });
+}
+
+/** Resumen por tienda; incluye catálogo operativo con $0 si no hay movimientos. */
+export function resumenPorTiendaConCatalogo(movimientos, tiendasCatalogo = []) {
+  const map = new Map();
+  for (const t of tiendasCatalogo) {
+    const nombre = typeof t === 'string' ? t : t.nombre;
+    if (nombre) map.set(nombre, { tienda: nombre, codigo: t.codigo || nombre, total: 0, count: 0, items: [] });
+  }
+  for (const m of movimientos || []) {
+    const tienda = m.sucursal_origen || 'Sin tienda';
+    if (!map.has(tienda)) map.set(tienda, { tienda, codigo: tienda, total: 0, count: 0, items: [] });
+    const row = map.get(tienda);
+    row.total += Number(m.monto || 0);
+    row.count += 1;
+    row.items.push(m);
+  }
+  return [...map.values()]
+    .map((r) => ({ ...r, total: Math.round(r.total * 100) / 100 }))
+    .sort((a, b) => b.total - a.total || a.tienda.localeCompare(b.tienda, 'es'));
+}
+
+export function agruparMovimientosPorPeriodo(movimientos, periodo, { diaDe = 'recoleccion' } = {}) {
+  const map = {};
+  for (const m of movimientos || []) {
+    const ymd = claveDiaReporte(m, diaDe);
+    if (!ymd) continue;
+    let key;
+    let etiqueta;
+    if (periodo === 'dia') {
+      key = ymd;
+      etiqueta = fmtFechaClave(ymd);
+    } else if (periodo === 'semana') {
+      key = inicioSemanaYmd(ymd);
+      etiqueta = `Semana ${fmtFechaClave(key)}`;
+    } else if (periodo === 'mes') {
+      key = ymd.slice(0, 7);
+      etiqueta = etiquetaMesYmd(key);
+    } else if (periodo === 'anual') {
+      key = ymd.slice(0, 4);
+      etiqueta = key;
+    } else {
+      key = ymd;
+      etiqueta = fmtFechaClave(ymd);
+    }
+    if (!map[key]) map[key] = { key, etiqueta, total: 0, count: 0, items: [] };
+    map[key].total += Number(m.monto || 0);
+    map[key].count += 1;
+    map[key].items.push(m);
+  }
+  return Object.values(map)
+    .map((r) => ({ ...r, total: Math.round(r.total * 100) / 100 }))
+    .sort((a, b) => String(b.key).localeCompare(String(a.key)));
 }
 
 /** Agrupa movimientos en tránsito: tienda → día → filas */

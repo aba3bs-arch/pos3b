@@ -1,10 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { normalizarRol } from '../lib/roles.js';
 import {
-  agruparEnTransitoPorDia,
-  agruparEnTransitoPorTiendaYDia,
   fmtFechaClave,
-  fmtFechaHora,
   fmtMonto,
   filtrarMovimientosPorFecha,
   hoyClaveNogales,
@@ -26,12 +23,7 @@ import {
 import { PRESETS_FECHA_PRODUCTO, rangoDesdePreset } from '../lib/consultasInventario.js';
 import FiltroPeriodo from './FiltroPeriodo.jsx';
 import SelectorCalendario from './SelectorCalendario.jsx';
-
-function etiquetaTipo(m) {
-  if (m.tipo_movimiento === 'Cobro Servicio') return 'Servicio';
-  if (m.tipo_movimiento === 'Entrega Crédito') return 'Crédito';
-  return 'Recolección';
-}
+import DetalleTiendasLiquidacion from './DetalleTiendasLiquidacion.jsx';
 
 function CheckIndeterminado({ checked, indeterminate, onChange, ...rest }) {
   const ref = useRef(null);
@@ -39,55 +31,6 @@ function CheckIndeterminado({ checked, indeterminate, onChange, ...rest }) {
     if (ref.current) ref.current.indeterminate = indeterminate;
   }, [indeterminate]);
   return <input ref={ref} type="checkbox" checked={checked} onChange={onChange} {...rest} />;
-}
-
-function LineaMovimiento({ m, esHistorial, selIds, setSelIds }) {
-  const detalle = (
-    <span style={{ flex: 1 }}>
-      {m.num_traspaso} · {etiquetaTipo(m)} · {fmtFechaHora(m.fecha_hora)}
-      {m.cajero_nombre && !esHistorial && <span className="muted"> · {m.cajero_nombre}</span>}
-      {esHistorial && (
-        <span className="muted" style={{ display: 'block', fontSize: '0.75rem' }}>
-          Sellado {m.fecha_liquidacion ? fmtFechaHora(m.fecha_liquidacion) : '—'}
-          {m.usuario_liquida ? ` · ${m.usuario_liquida}` : ''}
-        </span>
-      )}
-    </span>
-  );
-  if (esHistorial) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          padding: '0.35rem 0',
-          borderTop: '1px solid var(--border)',
-          fontSize: '0.85rem',
-        }}
-      >
-        {detalle}
-        <strong>{fmtMonto(m.monto)}</strong>
-      </div>
-    );
-  }
-  return (
-    <label
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.5rem',
-        padding: '0.35rem 0',
-        borderTop: '1px solid var(--border)',
-        cursor: 'pointer',
-        fontSize: '0.85rem',
-      }}
-    >
-      <input type="checkbox" checked={Boolean(selIds[m.id])} onChange={(e) => setSelIds((p) => ({ ...p, [m.id]: e.target.checked }))} />
-      {detalle}
-      <strong>{fmtMonto(m.monto)}</strong>
-    </label>
-  );
 }
 
 function estadoSeleccion(items, selIds) {
@@ -114,7 +57,6 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const [alertas, setAlertas] = useState([]);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState(null);
-  const [vistaDetalle, setVistaDetalle] = useState('dia');
   const [modoConsulta, setModoConsulta] = useState('pendiente');
   const [presetFecha, setPresetFecha] = useState('todos');
   const [filtroDesde, setFiltroDesde] = useState('');
@@ -191,8 +133,6 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   }, [cargar]);
 
   const reporte = useMemo(() => reporteRecoleccionTiendaFecha(enTransito, { diaDe }), [enTransito, diaDe]);
-  const agrupadoTienda = useMemo(() => agruparEnTransitoPorTiendaYDia(enTransito, { diaDe }), [enTransito, diaDe]);
-  const agrupadoDia = useMemo(() => agruparEnTransitoPorDia(enTransito, { diaDe }), [enTransito, diaDe]);
 
   const seleccionados = useMemo(() => enTransito.filter((m) => selIds[m.id]), [enTransito, selIds]);
   const totalSeleccionado = useMemo(() => seleccionados.reduce((a, m) => a + Number(m.monto || 0), 0), [seleccionados]);
@@ -584,98 +524,13 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
             </p>
           </div>
           )}
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', flexWrap: 'wrap' }}>
-            <button type="button" className={vistaDetalle === 'dia' ? 'btn btn-primary' : 'btn btn-ghost'} style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }} onClick={() => setVistaDetalle('dia')}>
-              Detalle por día
-            </button>
-            <button type="button" className={vistaDetalle === 'tienda' ? 'btn btn-primary' : 'btn btn-ghost'} style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }} onClick={() => setVistaDetalle('tienda')}>
-              Detalle por tienda
-            </button>
-          </div>
-
-          {vistaDetalle === 'dia' &&
-            agrupadoDia.map((bloque) => {
-              const estado = estadoSeleccion(bloque.items, selIds);
-              return (
-                <div key={bloque.dia} className="card" style={{ marginTop: '0.75rem', padding: '0.85rem' }}>
-                  {esHistorial ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                      <strong style={{ color: 'var(--brand-blue)' }}>{bloque.etiqueta}</strong>
-                      <span className="muted" style={{ marginLeft: 'auto', fontSize: '0.85rem' }}>{fmtMonto(bloque.total)}</span>
-                    </div>
-                  ) : (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', marginBottom: '0.5rem' }}>
-                    <CheckIndeterminado checked={estado === 'all'} indeterminate={estado === 'partial'} onChange={(e) => toggleDiaGlobal(bloque.items, e.target.checked)} />
-                    <strong style={{ color: 'var(--brand-blue)' }}>
-                      {bloque.etiqueta}
-                      {!bloque.esHoy && <span style={{ color: 'var(--brand-gold)', marginLeft: '0.35rem', fontSize: '0.85rem' }}>(pendiente)</span>}
-                    </strong>
-                    <span className="muted" style={{ marginLeft: 'auto', fontSize: '0.85rem' }}>
-                      {fmtMonto(bloque.total)}
-                    </span>
-                  </label>
-                  )}
-                  {bloque.tiendas.map(({ tienda, items, total }) => (
-                    <div key={tienda} style={{ marginLeft: '1.5rem', marginTop: '0.5rem' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, fontSize: '0.9rem' }}>
-                        <span>{tienda}</span>
-                        <span>{fmtMonto(total)}</span>
-                      </div>
-                      {items.map((m) => (
-                        <LineaMovimiento key={m.id} m={m} esHistorial={esHistorial} selIds={selIds} setSelIds={setSelIds} />
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              );
-            })}
-
-          {vistaDetalle === 'tienda' &&
-            agrupadoTienda.map(({ tienda, dias, totalTienda }) => {
-              const itemsTienda = dias.flatMap((d) => d.items);
-              const estadoTienda = estadoSeleccion(itemsTienda, selIds);
-              return (
-                <div key={tienda} className="card" style={{ marginTop: '0.75rem', padding: '0.85rem' }}>
-                  {esHistorial ? (
-                    <h4 style={{ margin: 0, color: 'var(--brand-blue)' }}>
-                      {tienda} · {fmtMonto(totalTienda)}
-                    </h4>
-                  ) : (
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                    <CheckIndeterminado checked={estadoTienda === 'all'} indeterminate={estadoTienda === 'partial'} onChange={(e) => toggleIds(itemsTienda, e.target.checked)} />
-                    <h4 style={{ margin: 0, color: 'var(--brand-blue)', flex: 1 }}>
-                      {tienda} · {fmtMonto(totalTienda)}
-                    </h4>
-                  </label>
-                  )}
-                  {dias.map(({ dia, items, total, etiqueta }) => {
-                    const estado = estadoSeleccion(items, selIds);
-                    return (
-                      <div key={dia} style={{ marginTop: '0.65rem', marginLeft: '1.25rem' }}>
-                        {esHistorial ? (
-                          <div style={{ display: 'flex', fontWeight: 600, marginBottom: '0.25rem' }}>
-                            <span>{etiqueta}</span>
-                            <span className="muted" style={{ marginLeft: 'auto', fontWeight: 400 }}>{fmtMonto(total)}</span>
-                          </div>
-                        ) : (
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 600 }}>
-                          <CheckIndeterminado checked={estado === 'all'} indeterminate={estado === 'partial'} onChange={(e) => toggleIds(items, e.target.checked)} />
-                          <span>
-                            {etiqueta}
-                            {dia !== reporte.hoy && <span style={{ color: 'var(--brand-gold)', marginLeft: '0.35rem', fontSize: '0.8rem' }}>(pendiente)</span>}
-                          </span>
-                          <span className="muted" style={{ marginLeft: 'auto', fontWeight: 400 }}>{fmtMonto(total)}</span>
-                        </label>
-                        )}
-                        {items.map((m) => (
-                          <LineaMovimiento key={m.id} m={m} esHistorial={esHistorial} selIds={selIds} setSelIds={setSelIds} />
-                        ))}
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
+          <DetalleTiendasLiquidacion
+            movimientos={enTransito}
+            esHistorial={esHistorial}
+            diaDe={diaDe}
+            selIds={selIds}
+            setSelIds={setSelIds}
+          />
 
           {!esHistorial && (
           <button type="button" className="btn btn-danger" style={{ marginTop: '1rem' }} disabled={guardando || totalSeleccionado <= 0} onClick={confirmarLiquidacion}>

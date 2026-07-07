@@ -3,6 +3,7 @@ import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
 import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
 import InputPin from '../components/InputPin.jsx';
 import SubcomandosHub from '../components/SubcomandosHub.jsx';
+import DetalleTiendasLiquidacion from '../components/DetalleTiendasLiquidacion.jsx';
 import VolverContabilidad from '../components/VolverContabilidad.jsx';
 import {
   SUBCOMANDOS_RECOLECCIONES_CONTAB,
@@ -29,7 +30,9 @@ import {
   listarRepartidoresTodos,
   listarServiciosCobroAdmin,
   listarTiendasEfectivo,
+  listarTodoEnTransito,
   registrarGastoRecolector,
+  resumenPorTiendaConCatalogo,
   reporteGeneralPorTienda,
   reporteRecoleccionTiendaFecha,
   saldoEnTransitoRepartidor,
@@ -40,9 +43,11 @@ import {
   calcularSaldosRt,
   etiquetaCuentaRt,
   etiquetaTipoMovimientoRt,
+  importarLiquidacionesHistoricasRt,
   listarTodosMovimientosRt,
   PRESETS_RT_CUENTAS,
   resolverCuentaRtPorNombre,
+  resumenLiquidacionesHistoricasRt,
   resumenPeriodoRt,
   rangoDesdePresetRt,
   signoMovimientoRt,
@@ -94,6 +99,9 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   const [transHacia, setTransHacia] = useState('andres');
   const [transMonto, setTransMonto] = useState('');
   const [transNotas, setTransNotas] = useState('');
+  const [resumenHistRt, setResumenHistRt] = useState(null);
+  const [cuentaFallbackHist, setCuentaFallbackHist] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || CUENTAS_RT[0]?.id || '');
+  const [transitoRt, setTransitoRt] = useState([]);
 
   const tiendas = useMemo(() => listarTiendasEfectivo(), []);
 
@@ -167,18 +175,20 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
     setError(null);
     try {
       const rango = rangoDesdePresetRt(presetRt) || {};
-      const [saldoRes, movRes] = await Promise.all([
+      const [saldoRes, movRes, transito] = await Promise.all([
         calcularSaldosRt(supabase),
         listarTodosMovimientosRt(supabase, {
           desde: rango.desde,
           hasta: rango.hasta,
           cuentaId: filtroCuentaRt || undefined,
         }),
+        listarTodoEnTransito(supabase),
       ]);
       if (saldoRes.error) setError(saldoRes.error);
       else setSaldosRt(saldoRes.saldos || {});
       if (movRes.error) setError(movRes.error);
       else setMovsRt(movRes.data || []);
+      setTransitoRt(transito || []);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -202,6 +212,14 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   useEffect(() => {
     if (tab === 'cuentas') cargarCuentasRt();
   }, [tab, cargarCuentasRt]);
+
+  useEffect(() => {
+    if (tab !== 'cuentas' || !supabase) {
+      setResumenHistRt(null);
+      return;
+    }
+    resumenLiquidacionesHistoricasRt(supabase, { cuentaFallback: cuentaFallbackHist }).then(setResumenHistRt);
+  }, [tab, supabase, cuentaFallbackHist, saldosRt]);
 
   useEffect(() => {
     if (tab === 'tienda') cargarReporte();
@@ -386,7 +404,42 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
     cargarCuentasRt();
   };
 
+  const confirmarImportarHistorico = async () => {
+    if (!resumenHistRt?.ok || !resumenHistRt.gruposAsignables) {
+      return alert('No hay liquidaciones históricas pendientes de importar.');
+    }
+    const msg = [
+      `¿Importar ${resumenHistRt.gruposAsignables} liquidación(es) histórica(s)?`,
+      `Monto: ${fmtMonto(resumenHistRt.montoAsignable)}`,
+      `Movimientos: ${resumenHistRt.movimientosPendientes}`,
+      resumenHistRt.gruposSinCuenta
+        ? `Sin cuenta identificada (${resumenHistRt.gruposSinCuenta}): se usará ${etiquetaCuentaRt(cuentaFallbackHist)} como respaldo.`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+    if (!window.confirm(msg)) return;
+    setGuardando(true);
+    const res = await importarLiquidacionesHistoricasRt(supabase, {
+      cuentaFallback: cuentaFallbackHist,
+      usuarioNombre: adminNombre,
+    });
+    setGuardando(false);
+    if (!res.ok) return alert(res.error);
+    alert(
+      `✅ Importadas ${res.importados} liquidación(es) · ${fmtMonto(res.monto)} · ${res.movimientos} movimiento(s) de tránsito.`,
+    );
+    cargarCuentasRt();
+    resumenLiquidacionesHistoricasRt(supabase, { cuentaFallback: cuentaFallbackHist }).then(setResumenHistRt);
+  };
+
   const resumenRt = useMemo(() => resumenPeriodoRt(movsRt), [movsRt]);
+  const totalTransitoRt = useMemo(() => transitoRt.reduce((a, m) => a + Number(m.monto || 0), 0), [transitoRt]);
+  const resumenTransitoTiendas = useMemo(
+    () => resumenPorTiendaConCatalogo(transitoRt, listarTiendasEfectivo()),
+    [transitoRt],
+  );
+  const noopSel = useCallback(() => {}, []);
 
   const filtrosComunes = (
     <div className="card" style={{ padding: '0.85rem' }}>
@@ -846,6 +899,43 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
 
       {tab === 'cuentas' && (
         <>
+          <div className="card" style={{ padding: '0.85rem', borderLeft: '4px solid var(--brand-gold)' }}>
+            <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Efectivo en tránsito (aún no en cuenta RT)</h3>
+            <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+              Este dinero sigue con el recolector o pendiente de sellar. <strong>No suma</strong> al saldo de Francisco/Andrés hasta liquidarlo en{' '}
+              <strong>Liquidación recolecciones</strong> o <strong>Gastos / liberar</strong>.
+            </p>
+            <p style={{ margin: '0.75rem 0 0', fontSize: '1.35rem', fontWeight: 700, color: 'var(--brand-gold-dark)' }}>
+              {fmtMonto(totalTransitoRt)}
+              <span className="muted" style={{ fontSize: '0.85rem', fontWeight: 400, marginLeft: '0.5rem' }}>
+                {transitoRt.length} movimiento(s)
+              </span>
+            </p>
+            {transitoRt.length > 0 ? (
+              <>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem', marginTop: '0.75rem' }}>
+                  {resumenTransitoTiendas
+                    .filter((r) => r.count > 0)
+                    .map((r) => (
+                      <span key={r.tienda} className="badge" style={{ fontSize: '0.82rem', padding: '0.35rem 0.55rem' }}>
+                        {r.tienda}: {fmtMonto(r.total)}
+                      </span>
+                    ))}
+                </div>
+                <DetalleTiendasLiquidacion
+                  movimientos={transitoRt}
+                  esHistorial
+                  diaDe="recoleccion"
+                  selIds={{}}
+                  setSelIds={noopSel}
+                  sinTitulo
+                />
+              </>
+            ) : (
+              <p className="muted" style={{ marginTop: '0.75rem' }}>No hay efectivo en tránsito en este momento.</p>
+            )}
+          </div>
+
           <div className="grid-2" style={{ gap: '1rem' }}>
             {CUENTAS_RT.map((c) => (
               <div key={c.id} className="card" style={{ padding: '0.85rem', borderTop: `4px solid ${c.id === 'francisco' ? 'var(--brand-blue)' : 'var(--brand-gold)'}` }}>
@@ -861,6 +951,38 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
               </div>
             ))}
           </div>
+
+          {resumenHistRt?.ok && resumenHistRt.gruposAsignables > 0 && (
+            <div className="card" style={{ padding: '0.85rem', borderLeft: '4px solid var(--brand-gold)' }}>
+              <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Liquidaciones anteriores sin cuenta RT</h3>
+              <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+                Las liquidaciones selladas antes de activar las cuentas RT viven solo en tránsito de efectivo. Puedes importarlas una vez; quedan con su fecha original de liquidación.
+              </p>
+              <p style={{ margin: '0.75rem 0 0', fontSize: '0.9rem' }}>
+                Pendientes: <strong>{resumenHistRt.gruposAsignables}</strong> lote(s) ·{' '}
+                <strong>{fmtMonto(resumenHistRt.montoAsignable)}</strong> · {resumenHistRt.movimientosPendientes} movimiento(s)
+              </p>
+              {resumenHistRt.gruposSinCuenta > 0 && (
+                <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.8rem' }}>
+                  {resumenHistRt.gruposSinCuenta} lote(s) no tienen Francisco/Andrés en «usuario liquida»
+                  {resumenHistRt.usuariosSinCuenta?.length ? `: ${resumenHistRt.usuariosSinCuenta.join(', ')}` : ''}. Usa cuenta respaldo:
+                </p>
+              )}
+              <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
+                Cuenta respaldo (si el nombre no identifica a Francisco o Andrés)
+                <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaFallbackHist} onChange={(e) => setCuentaFallbackHist(e.target.value)}>
+                  {CUENTAS_RT.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" className="btn btn-gold" style={{ marginTop: '0.75rem' }} disabled={guardando} onClick={confirmarImportarHistorico}>
+                Importar liquidaciones históricas
+              </button>
+            </div>
+          )}
 
           <div className="card" style={{ padding: '0.85rem', borderLeft: '4px solid #0d9488' }}>
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Transferir entre cuentas</h3>

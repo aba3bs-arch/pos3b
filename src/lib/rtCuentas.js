@@ -118,7 +118,7 @@ export async function calcularSaldosRt(supabase) {
 }
 
 export async function acreditarLiquidacionCuentaRt(supabase, opts = {}) {
-  const { cuentaId, movimientoIds = [], montoTotal, usuarioNombre, repartidorNombre, notas } = opts;
+  const { cuentaId, movimientoIds = [], montoTotal, usuarioNombre, repartidorNombre, notas, fecha } = opts;
   if (!supabase || !cuentaId) return { ok: false, error: 'Selecciona la cuenta RT que recibe el efectivo.' };
   const monto = Number(montoTotal) || 0;
   if (monto <= 0) return { ok: false, error: 'Monto de liquidación inválido.' };
@@ -128,7 +128,7 @@ export async function acreditarLiquidacionCuentaRt(supabase, opts = {}) {
     cuenta_id: cuentaId,
     tipo: 'liquidacion',
     monto: Math.round(monto * 100) / 100,
-    fecha: new Date().toISOString(),
+    fecha: fecha || new Date().toISOString(),
     usuario: usuarioNombre || null,
     notas: notas || `Liquidación recolecciones · ${repartidorNombre || 'recolector'}`,
     grupo_id: grupoId,
@@ -142,6 +142,156 @@ export async function acreditarLiquidacionCuentaRt(supabase, opts = {}) {
     return { ok: false, error: error.message };
   }
   return { ok: true, monto, cuentaId };
+}
+
+const TIPOS_LIQUIDACION_RT = ['Recolección', 'Entrega Crédito', 'Cobro Servicio'];
+
+async function idsTransitoYaAcreditadosRt(supabase) {
+  const { data, error } = await supabase
+    .from('rt_movimientos_cuenta')
+    .select('liquidacion_movimientos')
+    .eq('tipo', 'liquidacion');
+  if (error) throw error;
+  const ids = new Set();
+  for (const row of data || []) {
+    const arr = row.liquidacion_movimientos;
+    if (Array.isArray(arr)) arr.forEach((id) => ids.add(String(id)));
+  }
+  return ids;
+}
+
+function claveGrupoLiquidacionHistorica(m) {
+  const f = m.fecha_liquidacion ? String(m.fecha_liquidacion).slice(0, 19) : 'sin-fecha';
+  return `${f}|${m.usuario_liquida || ''}|${m.repartidor_id || ''}`;
+}
+
+function agruparLiquidacionesHistoricasPendientes(rows, yaAcreditados) {
+  const pendientes = (rows || []).filter((m) => m.fecha_liquidacion && !yaAcreditados.has(String(m.id)));
+  const map = new Map();
+  for (const m of pendientes) {
+    const key = claveGrupoLiquidacionHistorica(m);
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        fecha: m.fecha_liquidacion,
+        usuario: m.usuario_liquida || '',
+        repartidorId: m.repartidor_id || '',
+        repartidorNombre: m.repartidores?.nombre || '',
+        ids: [],
+        monto: 0,
+      });
+    }
+    const g = map.get(key);
+    g.ids.push(m.id);
+    g.monto += Number(m.monto || 0);
+  }
+  return [...map.values()].map((g) => ({ ...g, monto: Math.round(g.monto * 100) / 100 }));
+}
+
+/** Liquidaciones selladas antes de existir rt_movimientos_cuenta. */
+export async function resumenLiquidacionesHistoricasRt(supabase, { cuentaFallback } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  try {
+    const [yaIds, liqRes] = await Promise.all([
+      idsTransitoYaAcreditadosRt(supabase),
+      supabase
+        .from('transito_efectivo')
+        .select('id, monto, fecha_liquidacion, usuario_liquida, repartidor_id, repartidores(nombre)')
+        .eq('estatus', 'Liquidado')
+        .in('tipo_movimiento', TIPOS_LIQUIDACION_RT)
+        .not('fecha_liquidacion', 'is', null),
+    ]);
+    if (liqRes.error) {
+      if (esErrorTablaRtCuentas(liqRes.error)) return { ok: false, error: AVISO_FALTA_TABLA_RT_CUENTAS };
+      return { ok: false, error: liqRes.error.message };
+    }
+
+    const grupos = agruparLiquidacionesHistoricasPendientes(liqRes.data, yaIds);
+    let montoAsignable = 0;
+    let montoSinCuenta = 0;
+    let gruposAsignables = 0;
+    let gruposSinCuenta = 0;
+    const usuariosSinCuenta = new Set();
+
+    for (const g of grupos) {
+      const cuentaId = resolverCuentaRtPorNombre(g.usuario) || cuentaFallback || null;
+      if (cuentaId) {
+        montoAsignable += g.monto;
+        gruposAsignables += 1;
+      } else {
+        montoSinCuenta += g.monto;
+        gruposSinCuenta += 1;
+        if (g.usuario) usuariosSinCuenta.add(g.usuario);
+      }
+    }
+
+    return {
+      ok: true,
+      totalGrupos: grupos.length,
+      gruposAsignables,
+      gruposSinCuenta,
+      montoAsignable,
+      montoSinCuenta,
+      movimientosPendientes: grupos.reduce((a, g) => a + g.ids.length, 0),
+      usuariosSinCuenta: [...usuariosSinCuenta],
+    };
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) };
+  }
+}
+
+export async function importarLiquidacionesHistoricasRt(supabase, { cuentaFallback, usuarioNombre } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  if (!cuentaFallback) {
+    return { ok: false, error: 'Indica una cuenta por defecto para liquidaciones sin nombre Francisco/Andrés.' };
+  }
+
+  try {
+    const [yaIds, liqRes] = await Promise.all([
+      idsTransitoYaAcreditadosRt(supabase),
+      supabase
+        .from('transito_efectivo')
+        .select('id, monto, fecha_liquidacion, usuario_liquida, repartidor_id, repartidores(nombre)')
+        .eq('estatus', 'Liquidado')
+        .in('tipo_movimiento', TIPOS_LIQUIDACION_RT)
+        .not('fecha_liquidacion', 'is', null),
+    ]);
+    if (liqRes.error) {
+      if (esErrorTablaRtCuentas(liqRes.error)) return { ok: false, error: AVISO_FALTA_TABLA_RT_CUENTAS };
+      return { ok: false, error: liqRes.error.message };
+    }
+
+    const grupos = agruparLiquidacionesHistoricasPendientes(liqRes.data, yaIds);
+    if (!grupos.length) return { ok: true, importados: 0, omitidos: 0, monto: 0 };
+
+    let importados = 0;
+    let omitidos = 0;
+    let monto = 0;
+
+    for (const g of grupos) {
+      const cuentaId = resolverCuentaRtPorNombre(g.usuario) || cuentaFallback;
+      if (!cuentaId) {
+        omitidos += 1;
+        continue;
+      }
+      const res = await acreditarLiquidacionCuentaRt(supabase, {
+        cuentaId,
+        movimientoIds: g.ids,
+        montoTotal: g.monto,
+        usuarioNombre: g.usuario || usuarioNombre,
+        repartidorNombre: g.repartidorNombre,
+        fecha: g.fecha,
+        notas: `Liquidación histórica importada · ${g.repartidorNombre || 'recolector'}`,
+      });
+      if (!res.ok) return { ok: false, error: res.error, importados, omitidos };
+      importados += 1;
+      monto += g.monto;
+    }
+
+    return { ok: true, importados, omitidos, monto, movimientos: grupos.reduce((a, g) => a + g.ids.length, 0) };
+  } catch (e) {
+    return { ok: false, error: e.message || String(e) };
+  }
 }
 
 export async function transferirEntreCuentasRt(supabase, opts = {}) {
