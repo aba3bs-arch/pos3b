@@ -18,6 +18,11 @@ import {
   reporteRecoleccionTiendaFecha,
   resumenTotalesPorTipo,
 } from '../lib/controlEfectivo.js';
+import {
+  CUENTAS_RT,
+  etiquetaCuentaRt,
+  resolverCuentaRtPorNombre,
+} from '../lib/rtCuentas.js';
 import { PRESETS_FECHA_PRODUCTO, rangoDesdePreset } from '../lib/consultasInventario.js';
 import FiltroPeriodo from './FiltroPeriodo.jsx';
 import SelectorCalendario from './SelectorCalendario.jsx';
@@ -115,6 +120,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const [filtroDesde, setFiltroDesde] = useState('');
   const [filtroHasta, setFiltroHasta] = useState('');
   const [fechaSellado, setFechaSellado] = useState(() => hoyClaveNogales());
+  const [cuentaRt, setCuentaRt] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || CUENTAS_RT[0]?.id || '');
 
   const esHistorial = modoConsulta === 'historial';
   const diaDe = esHistorial ? 'liquidacion' : 'recoleccion';
@@ -145,6 +151,11 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       cambiarPresetFecha('todos');
     }
   };
+
+  useEffect(() => {
+    const detectada = resolverCuentaRtPorNombre(user?.nombre);
+    if (detectada) setCuentaRt(detectada);
+  }, [user?.nombre]);
 
   const cargar = useCallback(async () => {
     if (!supabase) return;
@@ -244,10 +255,11 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const confirmarLiquidacion = async () => {
     const ids = seleccionados.map((m) => m.id);
     if (!ids.length) return alert('Selecciona al menos un día o movimiento para liquidar.');
+    if (!cuentaRt) return alert('Selecciona la cuenta RT (Francisco o Andrés) que recibe el efectivo.');
     const diasTxt = diasSeleccionados.map((d) => d.etiqueta).join(', ');
     if (
       !window.confirm(
-        `¿Sellar liquidación del ${fechaLiquidacion}?\n\nDías: ${diasTxt || '—'}\nMonto: ${fmtMonto(totalSeleccionado)} (${ids.length} movimiento(s))`,
+        `¿Sellar liquidación del ${fechaLiquidacion}?\n\nCuenta: ${etiquetaCuentaRt(cuentaRt)}\nDías: ${diasTxt || '—'}\nMonto: ${fmtMonto(totalSeleccionado)} (${ids.length} movimiento(s))`,
       )
     )
       return;
@@ -256,10 +268,12 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       ids,
       adminNombre: user?.nombre || rol,
       repartidorNombre: repNombre,
+      cuentaRtId: cuentaRt,
+      montoLiquidacion: totalSeleccionado,
     });
     setGuardando(false);
     if (!res.ok) return alert(res.error);
-    alert(`✅ Liquidación sellada (${res.count} registros).`);
+    alert(`✅ Liquidación sellada (${res.count} registros) · ${fmtMonto(res.montoTotal || totalSeleccionado)} acreditados a ${etiquetaCuentaRt(cuentaRt)}.`);
     cargar();
   };
 
@@ -342,6 +356,21 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
               Solo consulta · liquidaciones selladas
             </span>
           </div>
+        )}
+        {!esHistorial && (
+          <label className="muted" style={{ display: 'block', gridColumn: '1 / -1' }}>
+            Cuenta RT que recibe el efectivo
+            <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaRt} onChange={(e) => setCuentaRt(e.target.value)}>
+              {CUENTAS_RT.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nombre}
+                </option>
+              ))}
+            </select>
+            <span style={{ display: 'block', fontSize: '0.78rem', marginTop: '0.25rem' }}>
+              El monto liquidado se acredita a esta cuenta (Francisco o Andrés).
+            </span>
+          </label>
         )}
       </div>
 

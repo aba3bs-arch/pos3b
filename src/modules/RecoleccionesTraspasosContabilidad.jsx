@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
 import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
 import InputPin from '../components/InputPin.jsx';
 import SubcomandosHub from '../components/SubcomandosHub.jsx';
@@ -34,6 +35,19 @@ import {
   saldoEnTransitoRepartidor,
   slugRepartidorId,
 } from '../lib/controlEfectivo.js';
+import {
+  CUENTAS_RT,
+  calcularSaldosRt,
+  etiquetaCuentaRt,
+  etiquetaTipoMovimientoRt,
+  listarTodosMovimientosRt,
+  PRESETS_RT_CUENTAS,
+  resolverCuentaRtPorNombre,
+  resumenPeriodoRt,
+  rangoDesdePresetRt,
+  signoMovimientoRt,
+  transferirEntreCuentasRt,
+} from '../lib/rtCuentas.js';
 
 function etiquetaTipo(m) {
   if (m.tipo_movimiento === 'Cobro Servicio') return 'Servicio';
@@ -70,6 +84,16 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   const [gastoDesc, setGastoDesc] = useState('');
   const [gastoTienda, setGastoTienda] = useState('');
   const [saldoRep, setSaldoRep] = useState(null);
+  const [cuentaRtLiberar, setCuentaRtLiberar] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || CUENTAS_RT[0]?.id || '');
+
+  const [saldosRt, setSaldosRt] = useState({});
+  const [movsRt, setMovsRt] = useState([]);
+  const [presetRt, setPresetRt] = useState('hoy');
+  const [filtroCuentaRt, setFiltroCuentaRt] = useState('');
+  const [transDesde, setTransDesde] = useState('francisco');
+  const [transHacia, setTransHacia] = useState('andres');
+  const [transMonto, setTransMonto] = useState('');
+  const [transNotas, setTransNotas] = useState('');
 
   const tiendas = useMemo(() => listarTiendasEfectivo(), []);
 
@@ -133,10 +157,51 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   }, [supabase, desde, hasta, repFiltro, tiendaFiltro]);
 
   useEffect(() => {
+    const detectada = resolverCuentaRtPorNombre(user?.nombre);
+    if (detectada) setCuentaRtLiberar(detectada);
+  }, [user?.nombre]);
+
+  const cargarCuentasRt = useCallback(async () => {
+    if (!supabase) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const rango = rangoDesdePresetRt(presetRt) || {};
+      const [saldoRes, movRes] = await Promise.all([
+        calcularSaldosRt(supabase),
+        listarTodosMovimientosRt(supabase, {
+          desde: rango.desde,
+          hasta: rango.hasta,
+          cuentaId: filtroCuentaRt || undefined,
+        }),
+      ]);
+      if (saldoRes.error) setError(saldoRes.error);
+      else setSaldosRt(saldoRes.saldos || {});
+      if (movRes.error) setError(movRes.error);
+      else setMovsRt(movRes.data || []);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [supabase, presetRt, filtroCuentaRt]);
+
+  useEffect(() => {
     if ((tab === 'gastos' || tab === 'tienda' || tab === 'eliminar') && supabase) {
       listarRepartidores(supabase).then(setRepartidores).catch(() => {});
     }
   }, [tab, supabase]);
+
+  useEffect(() => {
+    if (transDesde === transHacia) {
+      const otra = CUENTAS_RT.find((c) => c.id !== transDesde);
+      if (otra) setTransHacia(otra.id);
+    }
+  }, [transDesde, transHacia]);
+
+  useEffect(() => {
+    if (tab === 'cuentas') cargarCuentasRt();
+  }, [tab, cargarCuentasRt]);
 
   useEffect(() => {
     if (tab === 'tienda') cargarReporte();
@@ -296,13 +361,32 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
     if (!gastoRep) return alert('Selecciona recolector.');
     if (!window.confirm(`¿Liberar (liquidar) todo el efectivo en tránsito de este recolector?`)) return;
     setGuardando(true);
-    const res = await liberarEfectivoRepartidor(supabase, { repartidorId: gastoRep, adminNombre });
+    const res = await liberarEfectivoRepartidor(supabase, { repartidorId: gastoRep, adminNombre, cuentaRtId: cuentaRtLiberar });
     setGuardando(false);
     if (!res.ok) return alert(res.error);
-    alert(`✅ Liberados ${res.count} movimiento(s).`);
+    alert(`✅ Liberados ${res.count} movimiento(s) · ${fmtMonto(res.montoTotal || 0)} acreditados a ${etiquetaCuentaRt(cuentaRtLiberar)}.`);
     saldoEnTransitoRepartidor(supabase, gastoRep).then(setSaldoRep);
     cargarReporte();
   };
+
+  const confirmarTransferencia = async () => {
+    setGuardando(true);
+    const res = await transferirEntreCuentasRt(supabase, {
+      desdeId: transDesde,
+      haciaId: transHacia,
+      monto: transMonto,
+      usuarioNombre: adminNombre,
+      notas: transNotas,
+    });
+    setGuardando(false);
+    if (!res.ok) return alert(res.error);
+    alert(`✅ Transferidos ${fmtMonto(res.monto)} de ${etiquetaCuentaRt(transDesde)} a ${etiquetaCuentaRt(transHacia)}.`);
+    setTransMonto('');
+    setTransNotas('');
+    cargarCuentasRt();
+  };
+
+  const resumenRt = useMemo(() => resumenPeriodoRt(movsRt), [movsRt]);
 
   const filtrosComunes = (
     <div className="card" style={{ padding: '0.85rem' }}>
@@ -743,11 +827,165 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
                 En tránsito: <strong>{fmtMonto(saldoRep.ingresos)}</strong> ({saldoRep.count} mov.)
               </p>
             )}
+            <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
+              Cuenta RT que recibe al liberar
+              <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaRtLiberar} onChange={(e) => setCuentaRtLiberar(e.target.value)}>
+                {CUENTAS_RT.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button type="button" className="btn btn-danger" disabled={guardando || !gastoRep} onClick={confirmarLiberar}>
               Liberar todo en tránsito
             </button>
           </div>
         </div>
+      )}
+
+      {tab === 'cuentas' && (
+        <>
+          <div className="grid-2" style={{ gap: '1rem' }}>
+            {CUENTAS_RT.map((c) => (
+              <div key={c.id} className="card" style={{ padding: '0.85rem', borderTop: `4px solid ${c.id === 'francisco' ? 'var(--brand-blue)' : 'var(--brand-gold)'}` }}>
+                <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
+                  Cuenta {c.nombre}
+                </p>
+                <p style={{ margin: '0.35rem 0 0', fontSize: '1.75rem', fontWeight: 700, color: 'var(--brand-blue)' }}>
+                  {fmtMonto(saldosRt[c.id] || 0)}
+                </p>
+                <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.78rem' }}>
+                  Saldo actual (liquidaciones − transferencias enviadas + recibidas)
+                </p>
+              </div>
+            ))}
+          </div>
+
+          <div className="card" style={{ padding: '0.85rem', borderLeft: '4px solid #0d9488' }}>
+            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Transferir entre cuentas</h3>
+            <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
+              Ejemplo: Andrés colectó $1,000 y transfiere ese efectivo a Francisco.
+            </p>
+            <div className="grid-2" style={{ gap: '0.75rem' }}>
+              <label className="muted">
+                Desde
+                <select className="select" style={{ marginTop: '0.35rem' }} value={transDesde} onChange={(e) => setTransDesde(e.target.value)}>
+                  {CUENTAS_RT.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nombre} ({fmtMonto(saldosRt[c.id] || 0)})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="muted">
+                Hacia
+                <select className="select" style={{ marginTop: '0.35rem' }} value={transHacia} onChange={(e) => setTransHacia(e.target.value)}>
+                  {CUENTAS_RT.filter((c) => c.id !== transDesde).map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="muted">
+                Monto ($)
+                <input className="input" type="number" min="0" step="0.01" style={{ marginTop: '0.35rem' }} value={transMonto} onChange={(e) => setTransMonto(e.target.value)} />
+              </label>
+              <label className="muted">
+                Notas (opcional)
+                <input className="input" style={{ marginTop: '0.35rem' }} value={transNotas} onChange={(e) => setTransNotas(e.target.value)} placeholder="Motivo de la transferencia" />
+              </label>
+            </div>
+            <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} disabled={guardando || !transMonto} onClick={confirmarTransferencia}>
+              Registrar transferencia
+            </button>
+          </div>
+
+          <div className="card" style={{ padding: '0.85rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+              <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Libro diario</h3>
+              <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} disabled={loading} onClick={cargarCuentasRt}>
+                {loading ? 'Cargando…' : 'Actualizar'}
+              </button>
+            </div>
+            <div className="grid-2" style={{ gap: '0.75rem' }}>
+              <FiltroPeriodo
+                presets={PRESETS_RT_CUENTAS}
+                preset={presetRt}
+                onPresetChange={setPresetRt}
+                desde=""
+                hasta=""
+                onDesdeChange={() => {}}
+                onHastaChange={() => {}}
+                labelPeriodo="Periodo"
+              />
+              <label className="muted">
+                Cuenta
+                <select className="select" style={{ marginTop: '0.35rem' }} value={filtroCuentaRt} onChange={(e) => setFiltroCuentaRt(e.target.value)}>
+                  <option value="">Todas</option>
+                  {CUENTAS_RT.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <p className="muted" style={{ margin: '0.75rem 0 0', fontSize: '0.85rem' }}>
+              {movsRt.length} movimiento(s) · Entradas {fmtMonto(resumenRt.ingresos)} · Salidas {fmtMonto(resumenRt.egresos)} · Neto{' '}
+              <strong>{fmtMonto(resumenRt.neto)}</strong>
+            </p>
+            {!movsRt.length ? (
+              <p className="muted" style={{ marginTop: '0.75rem' }}>
+                Sin movimientos en el periodo seleccionado.
+              </p>
+            ) : (
+              <div className="table-wrap" style={{ marginTop: '0.75rem' }}>
+                <table className="table" style={{ fontSize: '0.82rem' }}>
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Cuenta</th>
+                      <th>Tipo</th>
+                      <th>Detalle</th>
+                      <th style={{ textAlign: 'right' }}>Monto</th>
+                      <th>Usuario</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movsRt.map((m) => (
+                      <tr key={m.id}>
+                        <td>{fmtFechaHora(m.fecha)}</td>
+                        <td>{etiquetaCuentaRt(m.cuenta_id)}</td>
+                        <td>{etiquetaTipoMovimientoRt(m.tipo)}</td>
+                        <td>
+                          {m.notas || '—'}
+                          {m.cuenta_relacionada && (
+                            <span className="muted" style={{ display: 'block', fontSize: '0.75rem' }}>
+                              {m.tipo === 'transferencia_enviada' ? '→' : m.tipo === 'transferencia_recibida' ? '←' : ''}{' '}
+                              {etiquetaCuentaRt(m.cuenta_relacionada)}
+                            </span>
+                          )}
+                          {m.repartidor_nombre && (
+                            <span className="muted" style={{ display: 'block', fontSize: '0.75rem' }}>
+                              Recolector: {m.repartidor_nombre}
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'right', color: m.tipo === 'transferencia_enviada' ? 'var(--brand-red)' : 'var(--brand-green)' }}>
+                          {signoMovimientoRt(m.tipo)}
+                          {fmtMonto(m.monto)}
+                        </td>
+                        <td>{m.usuario || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
       )}
         </>
       )}

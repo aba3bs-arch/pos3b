@@ -323,6 +323,7 @@ export const ACCIONES_PRIVILEGIO = [
   { id: 'recol_ctb_recolectores', label: 'Panel RT — Recolectores' },
   { id: 'recol_ctb_eliminar', label: 'Panel RT — Eliminar registros' },
   { id: 'recol_ctb_gastos', label: 'Panel RT — Gastos / liberar efectivo' },
+  { id: 'recol_ctb_cuentas', label: 'Panel RT — Cuentas Francisco / Andrés' },
 ];
 
 const LS_VALES_TIENDAS = 'pos3b_vales_tiendas_permitidas';

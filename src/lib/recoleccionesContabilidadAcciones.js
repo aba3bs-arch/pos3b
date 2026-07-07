@@ -8,6 +8,7 @@ export const SUBCOMANDOS_RECOLECCIONES_CONTAB = [
   { id: 'recol_ctb_recolectores', tab: 'recolectores', label: 'Recolectores', desc: 'Alta, edición, desactivar y eliminar repartidores', icon: 'users' },
   { id: 'recol_ctb_eliminar', tab: 'eliminar', label: 'Eliminar registros', desc: 'Corregir capturas erróneas', icon: 'x' },
   { id: 'recol_ctb_gastos', tab: 'gastos', label: 'Gastos / liberar', desc: 'Gastos del recolector y liberación de efectivo', icon: 'truck' },
+  { id: 'recol_ctb_cuentas', tab: 'cuentas', label: 'Cuentas RT', desc: 'Saldos Francisco / Andrés, transferencias y libro diario', icon: 'dollar' },
 ];
 
 export function puedeSubcomandoRecoleccionesContab(rol, userId, accionId) {

@@ -728,7 +728,9 @@ function App() {
           {vista === 'Checador' && (
             <Checador inventario={inventarioTienda} supabase={supabase} sucursal={sucursal} user={user} sucursalesLista={listaSucursales} />
           )}
-          {vista === 'Proveedores' && <Proveedores supabase={supabase} inventario={inventario} user={user} />}
+          {vista === 'Proveedores' && (
+            <Proveedores supabase={supabase} inventario={inventario} user={user} sucursal={sucursal} cargarDatos={cargarDatos} />
+          )}
           {vista === 'Clientes' && <Clientes supabase={supabase} />}
           {vista === 'Usuarios' && (
             <Usuarios

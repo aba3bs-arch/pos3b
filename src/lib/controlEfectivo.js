@@ -712,10 +712,16 @@ export function resumenTotalesPorTipo(items) {
   };
 }
 
-export async function liquidarMovimientos(supabase, { ids, adminNombre, repartidorNombre }) {
+export async function liquidarMovimientos(supabase, { ids, adminNombre, repartidorNombre, cuentaRtId, montoLiquidacion }) {
   if (!ids?.length) return { ok: false, error: 'No hay movimientos para liquidar.' };
   const tLiq = ahoraIsoNogales();
   const sello = `Liquidación recibida por ${adminNombre} — ${repartidorNombre || ''}`;
+
+  let montoTotal = Number(montoLiquidacion) || 0;
+  if (montoTotal <= 0) {
+    const { data: rowsMonto } = await supabase.from('transito_efectivo').select('monto').in('id', ids);
+    montoTotal = (rowsMonto || []).reduce((a, r) => a + Number(r.monto || 0), 0);
+  }
 
   for (const id of ids) {
     const { data: prev } = await supabase.from('transito_efectivo').select('foto_url').eq('id', id).maybeSingle();
@@ -731,7 +737,20 @@ export async function liquidarMovimientos(supabase, { ids, adminNombre, repartid
       .eq('id', id);
     if (error) return { ok: false, error: error.message };
   }
-  return { ok: true, count: ids.length };
+
+  if (cuentaRtId && montoTotal > 0) {
+    const { acreditarLiquidacionCuentaRt } = await import('./rtCuentas.js');
+    const cred = await acreditarLiquidacionCuentaRt(supabase, {
+      cuentaId: cuentaRtId,
+      movimientoIds: ids,
+      montoTotal,
+      usuarioNombre: adminNombre,
+      repartidorNombre,
+    });
+    if (!cred.ok) return { ok: false, error: cred.error, count: ids.length, parcial: true };
+  }
+
+  return { ok: true, count: ids.length, montoTotal, cuentaRtId: cuentaRtId || null };
 }
 
 export async function listarAlertasRecoleccion(supabase) {
@@ -917,7 +936,7 @@ export async function registrarGastoRecolector(supabase, { repartidorId, monto, 
   return { ok: true, recolector: rep?.nombre };
 }
 
-export async function liberarEfectivoRepartidor(supabase, { repartidorId, adminNombre, ids }) {
+export async function liberarEfectivoRepartidor(supabase, { repartidorId, adminNombre, ids, cuentaRtId }) {
   let movs = [];
   if (ids?.length) {
     const { data, error } = await supabase
@@ -933,9 +952,12 @@ export async function liberarEfectivoRepartidor(supabase, { repartidorId, adminN
   }
   if (!movs.length) return { ok: false, error: 'No hay efectivo en tránsito para liberar.' };
   const rep = (await listarRepartidoresTodos(supabase)).find((r) => r.id === repartidorId);
+  const montoTotal = movs.reduce((a, m) => a + Number(m.monto || 0), 0);
   return liquidarMovimientos(supabase, {
     ids: movs.map((m) => m.id),
     adminNombre: adminNombre || 'Contabilidad',
     repartidorNombre: rep?.nombre || '',
+    cuentaRtId,
+    montoLiquidacion: montoTotal,
   });
 }

@@ -14,6 +14,7 @@ import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
 import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import { enRangoYmd, parseYmd, toYmd } from '../lib/fechas.js';
 import { ALMACEN_CENTRAL, aplicarDeltaStock } from '../lib/inventarioMultitienda.js';
+import { productoIdsDesdeProveedor } from '../lib/proveedorCatalogo.js';
 
 function totalPedido(lines) {
   return lines.reduce((a, l) => a + (Number(l.costo_est) || 0) * (Number(l.qty_pedido) || 0), 0);
@@ -179,9 +180,8 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
         setVinculoProductoIds([]);
         return;
       }
-      const { data } = await supabase.from('proveedor_producto').select('producto_id').eq('proveedor_id', proveedorId);
+      const ids = await productoIdsDesdeProveedor(supabase, proveedorId);
       if (!cancelled) {
-        const ids = (data || []).map((r) => String(r.producto_id));
         setVinculoProductoIds(ids);
       }
     })();
@@ -265,7 +265,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
   const abrirHerramientaNueva = () => {
     if (!proveedorId) return alert('Selecciona primero un proveedor.');
     if (!vinculoProductoIds.length) {
-      return alert('Este proveedor no tiene productos vinculados. Ve a Proveedores → vincula productos (ej. Coca Cola) y vuelve a intentar.');
+      return alert('Este proveedor no tiene productos en su catálogo ni vinculados. Ve a Proveedores → edita el proveedor, agrega productos al catálogo y regístralos en inventario.');
     }
     setCompraActiva(null);
     setModoRecepcion(false);
@@ -620,7 +620,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                     {lineasVisibles.length === 0 ? (
                       <tr>
                         <td colSpan={7 + (verDetalleVentas ? diasDetalle.length : 0)} className="muted">
-                          Sin productos. Activa “Ver todo el catálogo” o vincula productos al proveedor.
+                          Sin productos. Regístralos desde Proveedores → catálogo, o activa “Ver todo el catálogo”.
                         </td>
                       </tr>
                     ) : (
