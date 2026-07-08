@@ -10,6 +10,7 @@ import Clientes from './modules/Clientes.jsx';
 import Usuarios from './modules/Usuarios.jsx';
 import Consultas from './modules/Consultas.jsx';
 import Estadisticas from './modules/Estadisticas.jsx';
+import ResumenOperativo from './modules/ResumenOperativo.jsx';
 import Reportes from './modules/Reportes.jsx';
 import Nomina from './modules/Nomina.jsx';
 import RecoleccionesTraspasosContabilidad from './modules/RecoleccionesTraspasosContabilidad.jsx';
@@ -46,6 +47,11 @@ import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
 import { sincronizarPrivilegiosDesdeNube } from './lib/privilegiosSync.js';
 import { sincronizarTipoCambioDesdeNube } from './lib/tipoCambioSync.js';
+import {
+  AVISO_SIN_TABLA_PIN_CUBRE,
+  refrescarPinCubreTurnoSucursal,
+  sincronizarPinsCubreTurnoDesdeNube,
+} from './lib/cubreTurnoSync.js';
 import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from './lib/usuariosAuth.js';
 import {
   evaluarVinculoDispositivo,
@@ -54,8 +60,9 @@ import {
 import { usuarioAutorizadoLogin, turnoActual } from './lib/turnos.js';
 import {
   construirUsuarioCubreTurno,
-  esPinCubreTurno,
+  datosCubreTurnoCompletos,
   esUsuarioCubreTurno,
+  EVENTO_PIN_CUBRE_TURNO,
   pinCubreTurnoActivo,
   validarDatosCubreTurno,
 } from './lib/cubreTurno.js';
@@ -112,6 +119,7 @@ function App() {
   );
   const [tipoCambio, setTipoCambioRaw] = useState(() => leerTipoCambio());
   const [tickPrivilegios, setTickPrivilegios] = useState(0);
+  const [tickCubreTurno, setTickCubreTurno] = useState(0);
   const [inventario, setInventario] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [brandTitle, setBrandTitle] = useState(leerNombreNegocio);
@@ -132,13 +140,16 @@ function App() {
   useEffect(() => {
     const onTc = () => setTipoCambioRaw(leerTipoCambio());
     const onPriv = () => setTickPrivilegios((n) => n + 1);
+    const onCubre = () => setTickCubreTurno((n) => n + 1);
     const onTema = () => aplicarTemaInterfaz(leerTemaInterfaz());
     window.addEventListener(EVENTO_TIPO_CAMBIO, onTc);
     window.addEventListener(EVENTO_PRIVILEGIOS, onPriv);
+    window.addEventListener(EVENTO_PIN_CUBRE_TURNO, onCubre);
     window.addEventListener(EVENTO_TEMA_INTERFAZ, onTema);
     return () => {
       window.removeEventListener(EVENTO_TIPO_CAMBIO, onTc);
       window.removeEventListener(EVENTO_PRIVILEGIOS, onPriv);
+      window.removeEventListener(EVENTO_PIN_CUBRE_TURNO, onCubre);
       window.removeEventListener(EVENTO_TEMA_INTERFAZ, onTema);
     };
   }, []);
@@ -290,20 +301,35 @@ function App() {
   }, [sucursal]);
 
   useEffect(() => {
+    if (!supabase) return;
+    sincronizarPinsCubreTurnoDesdeNube(supabase).then((r) => {
+      if (r.cambio) setTickCubreTurno((n) => n + 1);
+    });
+  }, [supabase, sucursal]);
+
+  useEffect(() => {
     if (!sesion || !supabase) return;
     sincronizarPrivilegiosDesdeNube(supabase).then((r) => {
       if (r.cambio) setTickPrivilegios((n) => n + 1);
     });
     sincronizarTipoCambioDesdeNube(supabase);
+    sincronizarPinsCubreTurnoDesdeNube(supabase).then((r) => {
+      if (r.cambio) setTickCubreTurno((n) => n + 1);
+    });
   }, [sesion, supabase]);
 
   useEffect(() => {
-    if (!sesion || !supabase) return undefined;
+    if (!supabase) return undefined;
     const sync = () => {
-      sincronizarPrivilegiosDesdeNube(supabase).then((r) => {
-        if (r.cambio) setTickPrivilegios((n) => n + 1);
+      if (sesion) {
+        sincronizarPrivilegiosDesdeNube(supabase).then((r) => {
+          if (r.cambio) setTickPrivilegios((n) => n + 1);
+        });
+        sincronizarTipoCambioDesdeNube(supabase);
+      }
+      sincronizarPinsCubreTurnoDesdeNube(supabase).then((r) => {
+        if (r.cambio) setTickCubreTurno((n) => n + 1);
       });
-      sincronizarTipoCambioDesdeNube(supabase);
     };
     const id = setInterval(sync, 60_000);
     return () => clearInterval(id);
@@ -415,12 +441,18 @@ function App() {
     }
     const p = pin.trim();
     if (!p) return;
-    if (pinCubreTurnoActivo(sucursal) && esPinCubreTurno(p, sucursal)) {
+
+    // Siempre refrescar el PIN de esta tienda desde Supabase antes de validar (todas las cajas).
+    const syncPin = await refrescarPinCubreTurnoSucursal(supabase, sucursal);
+    setTickCubreTurno((n) => n + 1);
+    const pinCubreRemoto = String(syncPin.pin || '').trim();
+    if (pinCubreRemoto && p === pinCubreRemoto) {
       setPendienteCubreTurno(true);
       setPendienteAutorizacionTurno(null);
       setPin('');
       return;
     }
+
     const { user: data, error, avisoSucursal, sinColumnaSucursal, ajustarSucursal, sucursalReal } =
       await buscarUsuarioPorPinYSucursal(supabase, p, sucursal);
     if (error) {
@@ -439,23 +471,36 @@ function App() {
         return;
       }
       await completarLogin(data, { ajustarSucursal, autorizacionAdmin: Boolean(accesoTurno.autorizacionAdmin) });
+      return;
+    }
+
+    // PIN no es de usuario ni de cubre turno: mensajes claros (tabla faltante / sync).
+    if (syncPin.sinTabla) {
+      alert(
+        `PIN incorrecto.\n\n${syncPin.aviso || AVISO_SIN_TABLA_PIN_CUBRE}\n\nSin esa tabla, el PIN de cubre turno solo existe en el navegador donde se guardó.`,
+      );
+    } else if (syncPin.ok === false && syncPin.error) {
+      alert(`PIN incorrecto.\n\nNo se pudo verificar el PIN de cubre turno en la nube: ${syncPin.error}`);
     } else {
       alert(avisoSucursal ? mensajePinSucursalIncorrecta(etiquetaTienda(sucursal), sucursalReal) : 'PIN incorrecto');
-      setPin('');
     }
+    setPin('');
   };
 
   const manejarEntradaCubreTurno = async () => {
     const val = validarDatosCubreTurno({ nombre: nombreCubre, telefono: telefonoCubre });
     if (!val.ok) return alert(val.error);
     setEnviandoCubre(true);
-    const data = construirUsuarioCubreTurno({
-      nombre: val.nombre,
-      telefono: val.telefono,
-      sucursal,
-    });
-    await completarLogin(data, { cubreTurno: true });
-    setEnviandoCubre(false);
+    try {
+      const data = construirUsuarioCubreTurno({
+        nombre: val.nombre,
+        telefono: val.telefono,
+        sucursal,
+      });
+      await completarLogin(data, { cubreTurno: true });
+    } finally {
+      setEnviandoCubre(false);
+    }
   };
 
   const manejarAutorizacionAdminTurno = async () => {
@@ -515,6 +560,11 @@ function App() {
   };
 
   const puedeIngresarPin = Boolean(supabase) && codigoTiendaValido(sucursal) && !pendienteCubreTurno;
+  const cubreTurnoHabilitado = useMemo(() => pinCubreTurnoActivo(sucursal), [sucursal, tickCubreTurno]);
+  const cubreDatosListos = useMemo(
+    () => datosCubreTurnoCompletos({ nombre: nombreCubre, telefono: telefonoCubre }),
+    [nombreCubre, telefonoCubre],
+  );
 
   const inventarioTienda = useMemo(
     () => (sesion ? inventarioParaSucursal(inventario, sucursal) : []),
@@ -552,7 +602,8 @@ function App() {
           setTelefonoCubre('');
         }}
         enviandoCubre={enviandoCubre}
-        cubreTurnoHabilitado={pinCubreTurnoActivo(sucursal)}
+        cubreDatosListos={cubreDatosListos}
+        cubreTurnoHabilitado={cubreTurnoHabilitado}
         pendienteAutorizacionTurno={pendienteAutorizacionTurno}
         pinAdminAutorizacion={pinAdminAutorizacion}
         onPinAdminChange={(e) => setPinAdminAutorizacion(e.target.value)}
@@ -745,6 +796,7 @@ function App() {
             <Consultas supabase={supabase} inventario={inventario} sucursal={sucursal} sucursalesLista={listaSucursales} cargarDatos={cargarDatos} />
           )}
           {vista === 'Estadisticas' && <Estadisticas supabase={supabase} />}
+          {vista === 'Resumen operativo' && <ResumenOperativo supabase={supabase} inventarioCompleto={inventario} />}
           {vista === 'Reportes' && <Reportes supabase={supabase} inventario={inventarioTienda} sucursal={sucursal} />}
           {vista === 'Nómina' && (
             <>

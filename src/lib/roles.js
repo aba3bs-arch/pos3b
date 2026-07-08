@@ -134,6 +134,7 @@ export const MODULOS_ORDEN = [
   'Usuarios',
   'Consultas',
   'Estadisticas',
+  'Resumen operativo',
   'Reportes',
   'Vales y Préstamos',
   'Configuracion',

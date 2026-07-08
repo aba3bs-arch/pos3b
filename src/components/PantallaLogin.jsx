@@ -26,6 +26,7 @@ export default function PantallaLogin({
   onConfirmarCubreTurno,
   onCancelarCubreTurno,
   enviandoCubre,
+  cubreDatosListos = false,
   cubreTurnoHabilitado,
   pendienteAutorizacionTurno,
   pinAdminAutorizacion,
@@ -121,17 +122,18 @@ export default function PantallaLogin({
           <div className="login-auth-turno" style={{ borderColor: 'rgba(225,153,41,0.45)', background: 'rgba(225,153,41,0.08)' }}>
             <strong style={{ color: 'var(--brand-gold)' }}>Cubre turno · {etiquetaTienda(sucursal)}</strong>
             <p className="muted login-hint-sm" style={{ margin: '0.35rem 0 0.65rem' }}>
-              Mismos permisos de cajero. Indica quién está en mostrador (queda registrado en bitácora).
+              Obligatorio: <strong>nombre y apellido</strong> + <strong>teléfono</strong> (10 dígitos). Sin esos datos no puedes entrar.
             </p>
             <label className="muted login-field">
-              Nombre completo
+              Nombre y apellido completos
               <input
                 className="input"
                 value={nombreCubre}
                 onChange={onNombreCubreChange}
-                placeholder="Ej. María López"
+                placeholder="Ej. María López García"
                 autoFocus
                 maxLength={80}
+                required
               />
             </label>
             <label className="muted login-field">
@@ -142,13 +144,24 @@ export default function PantallaLogin({
                 inputMode="tel"
                 value={telefonoCubre}
                 onChange={onTelefonoCubreChange}
-                onKeyDown={(e) => e.key === 'Enter' && !enviandoCubre && onConfirmarCubreTurno()}
+                onKeyDown={(e) => e.key === 'Enter' && cubreDatosListos && !enviandoCubre && onConfirmarCubreTurno()}
                 placeholder="10 dígitos"
                 maxLength={15}
+                required
               />
             </label>
+            {!cubreDatosListos && (
+              <p className="muted login-hint-sm" style={{ margin: '0 0 0.5rem', color: 'var(--brand-gold)' }}>
+                Completa nombre y apellido + teléfono para continuar.
+              </p>
+            )}
             <div className="login-auth-actions">
-              <button type="button" className="btn btn-gold" onClick={onConfirmarCubreTurno} disabled={enviandoCubre}>
+              <button
+                type="button"
+                className="btn btn-gold"
+                onClick={onConfirmarCubreTurno}
+                disabled={enviandoCubre || !cubreDatosListos}
+              >
                 {enviandoCubre ? 'Entrando…' : 'Entrar a cubrir turno'}
               </button>
               <button type="button" className="btn btn-ghost" onClick={onCancelarCubreTurno} disabled={enviandoCubre}>

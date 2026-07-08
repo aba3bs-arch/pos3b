@@ -50,7 +50,7 @@ export function saldoDesdeMovimientos(movs = []) {
   return (movs || []).reduce((acc, m) => {
     const v = Number(m.monto) || 0;
     if (m.tipo === 'liquidacion' || m.tipo === 'transferencia_recibida') return acc + v;
-    if (m.tipo === 'transferencia_enviada') return acc - v;
+    if (m.tipo === 'transferencia_enviada' || m.tipo === 'gasto') return acc - v;
     return acc;
   }, 0);
 }
@@ -65,7 +65,7 @@ export function resumenPeriodoRt(movs = []) {
     .filter((m) => m.tipo === 'liquidacion' || m.tipo === 'transferencia_recibida')
     .reduce((a, m) => a + Number(m.monto || 0), 0);
   const egresos = movs
-    .filter((m) => m.tipo === 'transferencia_enviada')
+    .filter((m) => m.tipo === 'transferencia_enviada' || m.tipo === 'gasto')
     .reduce((a, m) => a + Number(m.monto || 0), 0);
   return { ingresos, egresos, neto: ingresos - egresos, count: movs.length };
 }
@@ -112,7 +112,7 @@ export async function calcularSaldosRt(supabase) {
   for (const m of movs || []) {
     if (!saldos[m.cuenta_id] && saldos[m.cuenta_id] !== 0) saldos[m.cuenta_id] = 0;
     if (m.tipo === 'liquidacion' || m.tipo === 'transferencia_recibida') saldos[m.cuenta_id] = (saldos[m.cuenta_id] || 0) + Number(m.monto || 0);
-    else if (m.tipo === 'transferencia_enviada') saldos[m.cuenta_id] = (saldos[m.cuenta_id] || 0) - Number(m.monto || 0);
+    else if (m.tipo === 'transferencia_enviada' || m.tipo === 'gasto') saldos[m.cuenta_id] = (saldos[m.cuenta_id] || 0) - Number(m.monto || 0);
   }
   return { saldos, error: null };
 }
@@ -343,16 +343,107 @@ export async function transferirEntreCuentasRt(supabase, opts = {}) {
   return { ok: true, monto: m, desdeId, haciaId };
 }
 
+/** Registra gasto desde saldo RT y lo refleja en cortes_contabilidad_gastos. */
+export async function registrarGastoCuentaRt(supabase, opts = {}) {
+  const {
+    cuentaId,
+    monto,
+    descripcion,
+    categoria = 'GASTOS OPERATIVOS',
+    subcategoria = 'CUENTA RT',
+    tienda = 'MAIN',
+    usuarioNombre,
+  } = opts;
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  if (!cuentaId) return { ok: false, error: 'Selecciona la cuenta RT (Francisco o Andrés).' };
+  const desc = String(descripcion || '').trim();
+  if (!desc) return { ok: false, error: 'Describe en qué se usó el dinero.' };
+  const m = Number(monto) || 0;
+  if (m <= 0) return { ok: false, error: 'Indica un monto mayor a cero.' };
+
+  const { saldos, error: errSaldo } = await calcularSaldosRt(supabase);
+  if (errSaldo) return { ok: false, error: errSaldo };
+  const disponible = Number(saldos[cuentaId]) || 0;
+  if (m > disponible + 0.001) {
+    return { ok: false, error: `Saldo insuficiente en ${etiquetaCuentaRt(cuentaId)} (${fmtMonto(disponible)} disponible).` };
+  }
+
+  const cuentaLabel = etiquetaCuentaRt(cuentaId);
+  const comentarioContab = `${desc} · pagado desde cuenta RT ${cuentaLabel}`;
+
+  const { data: gastoRow, error: errGasto } = await supabase
+    .from('cortes_contabilidad_gastos')
+    .insert([
+      {
+        sucursal_id: tienda || 'MAIN',
+        modulo: 'virtual',
+        categoria: String(categoria || 'GASTOS OPERATIVOS').trim().toUpperCase(),
+        subcategoria: String(subcategoria || 'CUENTA RT').trim().toUpperCase(),
+        comentario: comentarioContab,
+        monto: Math.round(m * 100) / 100,
+        usuario_nombre: cuentaLabel,
+        cerrado: false,
+        estado_aprobacion: 'aprobado',
+        solicitado_por: usuarioNombre || null,
+        aprobado_por: usuarioNombre || null,
+        aprobado_at: new Date().toISOString(),
+      },
+    ])
+    .select('id')
+    .single();
+
+  if (errGasto) {
+    if (errGasto.code === '42P01') {
+      return { ok: false, error: 'Ejecuta supabase/fix_cortes_contabilidad.sql en Supabase.' };
+    }
+    return { ok: false, error: errGasto.message };
+  }
+
+  const grupoId = crypto.randomUUID();
+  const row = {
+    cuenta_id: cuentaId,
+    tipo: 'gasto',
+    monto: Math.round(m * 100) / 100,
+    fecha: new Date().toISOString(),
+    usuario: usuarioNombre || null,
+    notas: desc,
+    grupo_id: grupoId,
+    gasto_contabilidad_id: gastoRow?.id || null,
+  };
+
+  const { error: errRt } = await supabase.from('rt_movimientos_cuenta').insert([row]);
+  if (errRt) {
+    if (gastoRow?.id) await supabase.from('cortes_contabilidad_gastos').delete().eq('id', gastoRow.id);
+    if (esErrorTablaRtCuentas(errRt)) {
+      return {
+        ok: false,
+        error: `${AVISO_FALTA_TABLA_RT_CUENTAS} También ejecuta supabase/fix_rt_cuentas_gasto.sql para permitir gastos.`,
+      };
+    }
+    if (String(errRt.message || '').includes('rt_movimientos_cuenta_tipo_check')) {
+      return { ok: false, error: 'Ejecuta supabase/fix_rt_cuentas_gasto.sql en Supabase para habilitar gastos RT.' };
+    }
+    return { ok: false, error: errRt.message };
+  }
+
+  return { ok: true, monto: m, cuentaId, gastoContabilidadId: gastoRow?.id };
+}
+
 export function etiquetaTipoMovimientoRt(tipo) {
   if (tipo === 'liquidacion') return 'Liquidación';
   if (tipo === 'transferencia_enviada') return 'Transferencia enviada';
   if (tipo === 'transferencia_recibida') return 'Transferencia recibida';
+  if (tipo === 'gasto') return 'Gasto';
   return tipo || '—';
 }
 
 export function signoMovimientoRt(tipo) {
-  if (tipo === 'transferencia_enviada') return '-';
+  if (tipo === 'transferencia_enviada' || tipo === 'gasto') return '-';
   return '+';
+}
+
+export function esEgresoMovimientoRt(tipo) {
+  return tipo === 'transferencia_enviada' || tipo === 'gasto';
 }
 
 export function rangoDesdePresetRt(preset) {

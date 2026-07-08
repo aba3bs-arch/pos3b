@@ -49,11 +49,13 @@ import {
   importarLiquidacionesHistoricasRt,
   listarTodosMovimientosRt,
   PRESETS_RT_CUENTAS,
+  registrarGastoCuentaRt,
   resolverCuentaRtPorNombre,
   resumenLiquidacionesHistoricasRt,
   resumenPeriodoRt,
   rangoDesdePresetRt,
   signoMovimientoRt,
+  esEgresoMovimientoRt,
   transferirEntreCuentasRt,
 } from '../lib/rtCuentas.js';
 
@@ -104,6 +106,11 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   const [transHacia, setTransHacia] = useState('andres');
   const [transMonto, setTransMonto] = useState('');
   const [transNotas, setTransNotas] = useState('');
+  const [gastoRtCuenta, setGastoRtCuenta] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || CUENTAS_RT[0]?.id || '');
+  const [gastoRtMonto, setGastoRtMonto] = useState('');
+  const [gastoRtModoMonto, setGastoRtModoMonto] = useState('fijo');
+  const [gastoRtDesc, setGastoRtDesc] = useState('');
+  const [gastoRtTienda, setGastoRtTienda] = useState('');
   const [resumenHistRt, setResumenHistRt] = useState(null);
   const [cuentaFallbackHist, setCuentaFallbackHist] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || CUENTAS_RT[0]?.id || '');
   const [transitoRt, setTransitoRt] = useState([]);
@@ -437,6 +444,31 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
     alert(`✅ Transferidos ${fmtMonto(res.monto)} de ${etiquetaCuentaRt(transDesde)} a ${etiquetaCuentaRt(transHacia)}.`);
     setTransMonto('');
     setTransNotas('');
+    cargarCuentasRt();
+  };
+
+  const confirmarGastoCuentaRt = async () => {
+    if (!gastoRtCuenta) return alert('Selecciona cuenta RT.');
+    if (!gastoRtDesc?.trim()) return alert('Describe en qué se usó el dinero.');
+    const disponible = Number(saldosRt[gastoRtCuenta]) || 0;
+    const monto = gastoRtModoMonto === 'todo' ? disponible : Number(gastoRtMonto);
+    if (!(monto > 0)) {
+      return alert(gastoRtModoMonto === 'todo' ? 'No hay saldo disponible en esa cuenta.' : 'Indica un monto válido.');
+    }
+    if (!window.confirm(`¿Registrar gasto de ${fmtMonto(monto)} desde cuenta ${etiquetaCuentaRt(gastoRtCuenta)}?\n\n${gastoRtDesc.trim()}`)) return;
+    setGuardando(true);
+    const res = await registrarGastoCuentaRt(supabase, {
+      cuentaId: gastoRtCuenta,
+      monto,
+      descripcion: gastoRtDesc,
+      tienda: gastoRtTienda || 'MAIN',
+      usuarioNombre: adminNombre,
+    });
+    setGuardando(false);
+    if (!res.ok) return alert(res.error);
+    alert(`✅ Gasto registrado: ${fmtMonto(res.monto)} · ${etiquetaCuentaRt(gastoRtCuenta)}. Quedó en contabilidad (Corte Virtual).`);
+    setGastoRtMonto('');
+    setGastoRtDesc('');
     cargarCuentasRt();
   };
 
@@ -1039,7 +1071,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
                   {fmtMonto(saldosRt[c.id] || 0)}
                 </p>
                 <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.78rem' }}>
-                  Saldo actual (liquidaciones − transferencias enviadas + recibidas)
+                  Saldo actual (liquidaciones − transferencias − gastos)
                 </p>
               </div>
             ))}
@@ -1076,6 +1108,70 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
               </button>
             </div>
           )}
+
+          <div className="card" style={{ padding: '0.85rem', borderLeft: '4px solid var(--brand-gold)' }}>
+            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Registrar gasto desde cuenta RT</h3>
+            <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
+              Descuenta del saldo de Francisco o Andrés y registra el gasto en contabilidad (Corte Virtual → GASTOS OPERATIVOS) con la descripción del uso.
+            </p>
+            <div className="grid-2" style={{ gap: '0.75rem' }}>
+              <label className="muted">
+                Cuenta
+                <select className="select" style={{ marginTop: '0.35rem' }} value={gastoRtCuenta} onChange={(e) => setGastoRtCuenta(e.target.value)}>
+                  {CUENTAS_RT.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nombre} ({fmtMonto(saldosRt[c.id] || 0)})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="muted">
+                Tienda contable (opcional)
+                <select className="select" style={{ marginTop: '0.35rem' }} value={gastoRtTienda} onChange={(e) => setGastoRtTienda(e.target.value)}>
+                  <option value="">Central (MAIN)</option>
+                  {tiendas.map((t) => (
+                    <option key={t.codigo} value={t.codigo}>
+                      {t.etiqueta}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <fieldset style={{ border: 'none', padding: 0, margin: '0.75rem 0 0' }}>
+              <legend className="muted" style={{ fontSize: '0.85rem' }}>
+                Monto
+              </legend>
+              <label style={{ display: 'block', marginTop: '0.35rem' }}>
+                <input type="radio" checked={gastoRtModoMonto === 'fijo'} onChange={() => setGastoRtModoMonto('fijo')} /> Monto fijo
+              </label>
+              <label style={{ display: 'block', marginTop: '0.25rem' }}>
+                <input
+                  type="radio"
+                  checked={gastoRtModoMonto === 'todo'}
+                  onChange={() => setGastoRtModoMonto('todo')}
+                  disabled={!(saldosRt[gastoRtCuenta] > 0)}
+                />{' '}
+                Todo el saldo ({fmtMonto(saldosRt[gastoRtCuenta] || 0)})
+              </label>
+            </fieldset>
+            {gastoRtModoMonto === 'fijo' ? (
+              <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
+                Monto ($)
+                <input className="input" type="number" min="0" step="0.01" style={{ marginTop: '0.35rem' }} value={gastoRtMonto} onChange={(e) => setGastoRtMonto(e.target.value)} />
+              </label>
+            ) : (
+              <p style={{ margin: '0.75rem 0 0', fontSize: '0.9rem' }}>
+                Se registrará: <strong>{fmtMonto(saldosRt[gastoRtCuenta] || 0)}</strong>
+              </p>
+            )}
+            <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
+              ¿En qué se usó? (descripción)
+              <input className="input" style={{ marginTop: '0.35rem' }} value={gastoRtDesc} onChange={(e) => setGastoRtDesc(e.target.value)} placeholder="Ej. Gasolina ruta, viáticos, papelería oficina" />
+            </label>
+            <button type="button" className="btn btn-gold" style={{ marginTop: '0.85rem' }} disabled={guardando || !gastoRtCuenta} onClick={confirmarGastoCuentaRt}>
+              Registrar gasto y descontar de cuenta
+            </button>
+          </div>
 
           <div className="card" style={{ padding: '0.85rem', borderLeft: '4px solid #0d9488' }}>
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Transferir entre cuentas</h3>
@@ -1188,7 +1284,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
                             </span>
                           )}
                         </td>
-                        <td style={{ textAlign: 'right', color: m.tipo === 'transferencia_enviada' ? 'var(--brand-red)' : 'var(--brand-green)' }}>
+                        <td style={{ textAlign: 'right', color: esEgresoMovimientoRt(m.tipo) ? 'var(--brand-red)' : 'var(--brand-green)' }}>
                           {signoMovimientoRt(m.tipo)}
                           {fmtMonto(m.monto)}
                         </td>

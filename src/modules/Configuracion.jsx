@@ -93,13 +93,14 @@ import {
 } from '../lib/turnos.js';
 import {
   EVENTO_PIN_CUBRE_TURNO,
-  guardarPinCubreTurno,
   leerPinCubreTurno,
   leerPinsCubreTurno,
+  persistirPinCubreTurno,
 } from '../lib/cubreTurno.js';
 import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarPrivilegios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, ROLES, listarTodosLosRoles, leerRolesPersonalizados, agregarRolPersonalizado, quitarRolPersonalizado, esRolSistema, EVENTO_ROLES, modulosDefaultRol, modulosEnEdicionPrivilegios, tieneListaPersonalizada, normalizarListaModulos, describeOrigenPrivilegios, normalizarRol } from '../lib/roles.js';
 import { puedeRecibirNotificacionesDispositivo } from '../lib/notificacionesDispositivo.js';
 import { sincronizarPrivilegiosDesdeNube } from '../lib/privilegiosSync.js';
+import { sincronizarPinsCubreTurnoDesdeNube, AVISO_SIN_TABLA_PIN_CUBRE } from '../lib/cubreTurnoSync.js';
 import BrandLogo from '../components/BrandLogo.jsx';
 import SelectorTemaInterfaz from '../components/SelectorTemaInterfaz.jsx';
 import PanelCatalogoIncidencias from '../components/PanelCatalogoIncidencias.jsx';
@@ -143,6 +144,9 @@ export default function Configuracion({
   const [rolesLista, setRolesLista] = useState(() => listarTodosLosRoles());
   const [nuevoRolNombre, setNuevoRolNombre] = useState('');
   const [nuevoRolPlantilla, setNuevoRolPlantilla] = useState('Cajero');
+  const [pinsCubreTurno, setPinsCubreTurno] = useState(() => leerPinsCubreTurno());
+  const [pinsCubreGuardando, setPinsCubreGuardando] = useState(null);
+  const [pinsCubreAvisoNube, setPinsCubreAvisoNube] = useState('');
   const esAdmin = puedeGestionarUsuarios(user?.rol);
   const puedePrivilegios = puedeGestionarPrivilegios(user?.rol);
   const recibeAlertas = puedeRecibirNotificacionesDispositivo(user?.rol);
@@ -160,6 +164,36 @@ export default function Configuracion({
       if (r.aviso) setPrivAvisoNube(r.aviso);
     });
   }, [puedePrivilegios, supabase]);
+
+  useEffect(() => {
+    if (!esAdmin || !supabase) return;
+    sincronizarPinsCubreTurnoDesdeNube(supabase).then((r) => {
+      if (r.cambio) setPinsCubreTurno(leerPinsCubreTurno());
+      if (r.sinTabla) setPinsCubreAvisoNube(r.aviso || AVISO_SIN_TABLA_PIN_CUBRE);
+      else if (r.aviso) setPinsCubreAvisoNube(r.aviso);
+      else if (r.ok === false && r.error) setPinsCubreAvisoNube(r.error);
+    });
+  }, [esAdmin, supabase]);
+
+  const guardarPinCubreYSubir = async (tienda) => {
+    setPinsCubreGuardando(tienda);
+    const res = await persistirPinCubreTurno(tienda, pinsCubreTurno[tienda] || '', supabase);
+    setPinsCubreTurno(leerPinsCubreTurno());
+    setPinsCubreGuardando(null);
+    if (!res.ok && res.error) alert(res.error);
+    if (res.remoto?.sinTabla) {
+      setPinsCubreAvisoNube(res.remoto.aviso || AVISO_SIN_TABLA_PIN_CUBRE);
+      alert(
+        `Se guardó en este equipo, pero NO se sincronizó a otras cajas.\n\n${res.remoto.aviso || AVISO_SIN_TABLA_PIN_CUBRE}`,
+      );
+    } else if (res.remoto?.ok === false && res.remoto?.error) {
+      setPinsCubreAvisoNube(res.remoto.error);
+      alert(`Se guardó en este equipo, pero no se pudo sincronizar: ${res.remoto.error}`);
+    } else if (res.remoto?.ok) {
+      setPinsCubreAvisoNube('');
+      alert(`PIN de cubre turno guardado y sincronizado para ${etiquetaTienda(tienda)}.`);
+    }
+  };
 
   const guardarPrivilegiosYSubir = async (data) => {
     setPrivGuardando(true);
@@ -195,7 +229,6 @@ export default function Configuracion({
   const [nuevoTurnoForm, setNuevoTurnoForm] = useState({ nombre: '', hora_inicio: '08:00', hora_fin: '16:00' });
   const [filtroUsuariosTurno, setFiltroUsuariosTurno] = useState('');
   const [valesTiendas, setValesTiendas] = useState(() => leerTiendasValesPermitidas() || listarSucursalesParaUI());
-  const [pinsCubreTurno, setPinsCubreTurno] = useState(() => leerPinsCubreTurno());
   const puedeAsignarTurnoEmpleados = puedeAsignarTurnos(user?.rol);
 
   const syncBrandingForm = () => {
@@ -1280,10 +1313,15 @@ export default function Configuracion({
         <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
           <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>PIN de cubre turno</h3>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-            Un <strong>PIN universal por sucursal</strong> para quien cubre turno sin usuario propio. Al usarlo, el POS pide
-            <strong> nombre y teléfono</strong>, entra con permisos de <strong>cajero</strong> (sin vincular equipo ni validar turno fijo).
-            Debe ser distinto de los PIN personales. Déjalo vacío para desactivar.
+            Un <strong>PIN universal por sucursal</strong> para quien cubre turno sin usuario propio. Al usarlo, el POS exige
+            <strong> nombre y apellido + teléfono</strong> antes de entrar (permisos de <strong>cajero</strong>, sin vincular equipo).
+            Debe ser distinto de los PIN personales. Déjalo vacío para desactivar. Se sincroniza en Supabase para todas las cajas de la tienda.
           </p>
+          {pinsCubreAvisoNube && (
+            <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.82rem', color: 'var(--brand-gold)' }}>
+              {pinsCubreAvisoNube}
+            </p>
+          )}
           <div className="table-wrap" style={{ marginTop: '0.75rem' }}>
             <table className="data">
               <thead>
@@ -1306,19 +1344,17 @@ export default function Configuracion({
                         value={pinsCubreTurno[t] || ''}
                         onChange={(e) => setPinsCubreTurno((prev) => ({ ...prev, [t]: e.target.value }))}
                         placeholder="Sin PIN"
+                        disabled={pinsCubreGuardando === t}
                       />
                     </td>
                     <td>
                       <button
                         type="button"
                         className="btn btn-primary btn-sm"
-                        onClick={() => {
-                          const r = guardarPinCubreTurno(t, pinsCubreTurno[t] || '');
-                          if (!r.ok) alert(r.error);
-                          else setPinsCubreTurno(leerPinsCubreTurno());
-                        }}
+                        disabled={Boolean(pinsCubreGuardando)}
+                        onClick={() => guardarPinCubreYSubir(t)}
                       >
-                        Guardar
+                        {pinsCubreGuardando === t ? 'Guardando…' : 'Guardar'}
                       </button>
                     </td>
                   </tr>
@@ -1328,7 +1364,7 @@ export default function Configuracion({
           </div>
           {leerPinCubreTurno(sucursal) && (
             <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.82rem' }}>
-              Esta tienda ({etiquetaTienda(sucursal)}) tiene PIN de cubre turno activo.
+              Esta tienda ({etiquetaTienda(sucursal)}) tiene PIN de cubre turno activo (sincronizado entre cajas).
             </p>
           )}
         </div>
