@@ -8,15 +8,29 @@ import { turnoActual, usuarioAutorizadoLogin, nombreTurnoLegible } from '../lib/
 import { aplicarDeltaStock } from '../lib/inventarioMultitienda.js';
 import { guardarMovimientoLocal } from '../lib/inventarioMovimientos.js';
 import { sonidoEscaneoProducto } from '../lib/sonidosPos.js';
+import ProductoThumb from '../components/ProductoThumb.jsx';
 
 function addToCart(carrito, producto) {
   const i = carrito.findIndex((c) => c.id === producto.id);
   if (i >= 0) {
     const next = [...carrito];
-    next[i] = { ...next[i], qty: (next[i].qty || 1) + 1 };
+    next[i] = {
+      ...next[i],
+      qty: (next[i].qty || 1) + 1,
+      foto_url: next[i].foto_url || producto.foto_url || null,
+    };
     return next;
   }
-  return [...carrito, { ...producto, qty: 1 }];
+  return [
+    ...carrito,
+    {
+      id: producto.id,
+      nombre: producto.nombre,
+      precio: producto.precio,
+      foto_url: producto.foto_url || null,
+      qty: 1,
+    },
+  ];
 }
 
 function resetCobro(setters) {
@@ -257,35 +271,20 @@ export default function Ventas({
                   setCarrito((c) => addToCart(c, p));
                   setBusqueda('');
                 }}
-                style={{
-                  display: 'flex',
-                  width: '100%',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '0.5rem 0',
-                  border: 'none',
-                  borderBottom: '1px solid var(--border)',
-                  background: 'transparent',
-                  cursor: 'pointer',
-                }}
+                className="ventas-resultado-item"
               >
-                <span>
+                <ProductoThumb producto={p} size={40} />
+                <span className="ventas-resultado-meta">
                   <strong>{p.nombre}</strong>
                   <span className="muted"> · {p.id}</span>
                 </span>
-                <span style={{ color: 'var(--brand-red)', fontWeight: 700 }}>${Number(p.precio).toFixed(2)}</span>
+                <span className="ventas-resultado-precio">${Number(p.precio).toFixed(2)}</span>
               </button>
             ))}
           </div>
         )}
         <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Favoritos</h4>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-            gap: '0.75rem',
-          }}
-        >
+        <div className="ventas-favoritos-grid">
           {inventario
             .filter((p) => productoEnVenta(p) && productoEsFavorito(p))
             .map((p) => (
@@ -293,16 +292,11 @@ export default function Ventas({
                 key={p.id}
                 type="button"
                 onClick={() => setCarrito((c) => addToCart(c, p))}
-                className="card"
-                style={{
-                  cursor: 'pointer',
-                  textAlign: 'center',
-                  padding: '0.85rem',
-                  border: '2px solid rgba(200, 180, 68, 0.35)',
-                }}
+                className="ventas-favorito-btn"
               >
-                <div style={{ color: 'var(--brand-red)', fontWeight: 800, fontSize: '1.05rem' }}>${Number(p.precio).toFixed(2)}</div>
-                <div style={{ fontSize: '0.85rem', marginTop: '0.35rem' }}>{p.nombre}</div>
+                <ProductoThumb producto={p} size="full" className="ventas-favorito-thumb" />
+                <div className="ventas-favorito-precio">${Number(p.precio).toFixed(2)}</div>
+                <div className="ventas-favorito-nombre">{p.nombre}</div>
               </button>
             ))}
         </div>
@@ -328,30 +322,23 @@ export default function Ventas({
         <div style={{ flex: 1, overflowY: 'auto', minHeight: '120px' }}>
           {carrito.length === 0 && <p className="muted">Carrito vacío</p>}
           {carrito.map((it) => (
-            <div
-              key={it.id}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr auto auto',
-                gap: '0.35rem',
-                alignItems: 'center',
-                marginBottom: '0.5rem',
-                fontSize: '0.9rem',
-              }}
-            >
-              <span>{it.nombre}</span>
+            <div key={it.id} className="ventas-carrito-linea">
+              <ProductoThumb producto={it} size={40} />
+              <div className="ventas-carrito-info">
+                <span className="ventas-carrito-nombre">{it.nombre}</span>
+                <button type="button" className="btn btn-ghost ventas-carrito-quitar" onClick={() => setCarrito((c) => c.filter((x) => x.id !== it.id))}>
+                  Quitar
+                </button>
+              </div>
               <input
                 type="number"
                 min={1}
                 className="input"
-                style={{ width: '64px', padding: '0.35rem' }}
+                style={{ width: '56px', padding: '0.35rem' }}
                 value={it.qty || 1}
                 onChange={(e) => setQty(it.id, parseInt(e.target.value, 10) || 1)}
               />
-              <b>${(Number(it.precio) * (it.qty || 1)).toFixed(2)}</b>
-              <button type="button" className="btn btn-ghost" style={{ gridColumn: '1 / -1', fontSize: '0.75rem' }} onClick={() => setCarrito((c) => c.filter((x) => x.id !== it.id))}>
-                Quitar línea
-              </button>
+              <b className="ventas-carrito-importe">${(Number(it.precio) * (it.qty || 1)).toFixed(2)}</b>
             </div>
           ))}
         </div>

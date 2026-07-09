@@ -17,6 +17,7 @@ import MenuPuntos from '../components/MenuPuntos.jsx';
 import Icon from '../components/Icon.jsx';
 import DetalleProducto from '../components/DetalleProducto.jsx';
 import ModalAjusteInventario from '../components/ModalAjusteInventario.jsx';
+import ProductoThumb from '../components/ProductoThumb.jsx';
 import { imprimirEtiquetasEstante } from '../lib/impresion.js';
 import AjusteInventario from './AjusteInventario.jsx';
 import HistorialProducto from '../components/HistorialProducto.jsx';
@@ -55,16 +56,6 @@ const FILTROS_VACIOS = {
   disponible: 'todo',
   departamento: '',
 };
-
-function inicialesProducto(nombre) {
-  const parts = String(nombre || '')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  if (!parts.length) return '??';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
 
 const TITULOS_VISTA = {
   lista: 'Producto',
@@ -500,7 +491,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+    <div className={vista === 'lista' ? 'prod-page' : undefined} style={vista === 'lista' ? undefined : { display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div className="productos-toolbar">
         <div>
           <h2>{TITULOS_VISTA[vista] || 'Productos'}</h2>
@@ -672,13 +663,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                       className={`prod-lista-item ${activo ? 'activo' : ''}`}
                       onClick={() => seleccionarProducto(p)}
                     >
-                      <div className="prod-lista-thumb">
-                        {p.foto_url ? (
-                          <img src={p.foto_url} alt="" />
-                        ) : (
-                          <div className="prod-thumb-placeholder">{inicialesProducto(p.nombre)}</div>
-                        )}
-                      </div>
+                      <ProductoThumb producto={p} size={48} className="prod-lista-thumb" />
                       <div className="prod-lista-meta">
                         <div className="prod-lista-codigo">
                           <span className="muted">PZA</span> {p.id}
@@ -703,17 +688,19 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                 </button>
               )}
             </div>
-            <DetalleProducto
-              producto={productoSeleccionado}
-              supabase={supabase}
-              sucursal={sucursal}
-              proveedores={proveedores}
-              vinculos={vinculos}
-              onEditar={editar}
-              onToggleFavorito={toggleFavorito}
-              onVincularProveedor={vincularProveedor}
-              onQuitarVinculo={quitarVinculo}
-            />
+            <div className="prod-detalle-panel-body">
+              <DetalleProducto
+                producto={productoSeleccionado}
+                supabase={supabase}
+                sucursal={sucursal}
+                proveedores={proveedores}
+                vinculos={vinculos}
+                onEditar={editar}
+                onToggleFavorito={toggleFavorito}
+                onVincularProveedor={vincularProveedor}
+                onQuitarVinculo={quitarVinculo}
+              />
+            </div>
           </section>
         </div>
       )}
