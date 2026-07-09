@@ -11,23 +11,40 @@ import { fmtMxn } from '../lib/valorInventario.js';
 import { imprimirAjusteInventario } from '../lib/impresion.js';
 import Icon from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
+import { eliminarAjusteEnEspera, guardarAjusteEnEspera } from '../lib/ajusteInventarioBorrador.js';
 
-export default function ConteoPorDepartamento({ supabase, inventario, cargarDatos, user, sucursal, onHistorialChange }) {
-  const [departamento, setDepartamento] = useState('GENERAL');
+export default function ConteoPorDepartamento({
+  supabase,
+  inventario,
+  cargarDatos,
+  user,
+  sucursal,
+  onHistorialChange,
+  departamentoInicial,
+  borradorInicial,
+}) {
+  const [departamento, setDepartamento] = useState(() => borradorInicial?.departamento || departamentoInicial || 'GENERAL');
   const [nuevoDepto, setNuevoDepto] = useState('');
-  const [conteoActivo, setConteoActivo] = useState(false);
-  const [conteos, setConteos] = useState({});
-  const [indiceActual, setIndiceActual] = useState(0);
+  const [conteoActivo, setConteoActivo] = useState(() => Boolean(borradorInicial?.conteos));
+  const [conteos, setConteos] = useState(() => (borradorInicial?.conteos && typeof borradorInicial.conteos === 'object' ? { ...borradorInicial.conteos } : {}));
+  const [indiceActual, setIndiceActual] = useState(() => Number(borradorInicial?.indiceActual) || 0);
   const [codigoEscaneo, setCodigoEscaneo] = useState('');
   const [mostrarResumen, setMostrarResumen] = useState(false);
   const [aplicando, setAplicando] = useState(false);
   const [folioAplicado, setFolioAplicado] = useState(null);
   const [ultimoAjuste, setUltimoAjuste] = useState(null);
+  const [borradorId, setBorradorId] = useState(() => borradorInicial?.id || null);
   const contadaInputRef = useRef(null);
   const scanInputRef = useRef(null);
 
   const departamentos = useMemo(() => listarDepartamentos(inventario), [inventario]);
   const productosDept = useMemo(() => productosEnDepartamento(inventario, departamento), [inventario, departamento]);
+
+  useEffect(() => {
+    if (departamentoInicial && !borradorInicial) {
+      setDepartamento(departamentoInicial);
+    }
+  }, [departamentoInicial, borradorInicial]);
 
   const lineas = useMemo(
     () => productosDept.map((p) => construirLineaConteo(p, conteos[p.id] ?? '')),
@@ -172,8 +189,28 @@ export default function ConteoPorDepartamento({ supabase, inventario, cargarDato
     setFolioAplicado(r.folio);
     setUltimoAjuste(r.ajuste);
     onHistorialChange?.(r.log);
+    if (borradorId) {
+      eliminarAjusteEnEspera(borradorId);
+      setBorradorId(null);
+    }
     cargarDatos();
     alert(`${r.mensaje}\n\nFolio de ajuste: ${r.folio}`);
+  };
+
+  const guardarEnEspera = () => {
+    if (!conteoActivo || folioAplicado) return;
+    const saved = guardarAjusteEnEspera({
+      id: borradorId || undefined,
+      tipo: 'departamento',
+      titulo: `Por departamento · ${etiquetaDepartamento(departamento)}`,
+      departamento,
+      conteos,
+      indiceActual,
+      sucursal,
+      usuario: user?.nombre,
+    });
+    setBorradorId(saved?.id || null);
+    alert('Ajuste guardado en espera. Puedes continuar después desde «Abrir ajuste en espera».');
   };
 
   const imprimirResumen = () => {
@@ -226,19 +263,24 @@ export default function ConteoPorDepartamento({ supabase, inventario, cargarDato
             </button>
           )}
           {conteoActivo && !folioAplicado && (
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() => {
-                if (confirm('¿Cancelar el conteo en curso?')) {
-                  setConteoActivo(false);
-                  setConteos({});
-                  setMostrarResumen(false);
-                }
-              }}
-            >
-              Cancelar conteo
-            </button>
+            <>
+              <button type="button" className="btn btn-ghost" onClick={guardarEnEspera}>
+                Guardar en espera
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  if (confirm('¿Cancelar el conteo en curso? Puedes guardarlo en espera antes de cancelar.')) {
+                    setConteoActivo(false);
+                    setConteos({});
+                    setMostrarResumen(false);
+                  }
+                }}
+              >
+                Cancelar conteo
+              </button>
+            </>
           )}
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>

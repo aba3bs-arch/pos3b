@@ -13,9 +13,10 @@ import { vaciarInventario, OPCIONES_VACIADO } from '../lib/borrarInventario.js';
 import { mensajeErrorColumnasProducto, productoDesdeDb, productoParaGuardar, productoVacio } from '../lib/productoForm.js';
 import { puedeCrearProveedor, puedeEliminarProductosCatalogo, puedeGestionarInventarioMultitienda } from '../lib/roles.js';
 import FormularioProducto from '../components/FormularioProducto.jsx';
-import CampoCodigo from '../components/CampoCodigo.jsx';
 import MenuPuntos from '../components/MenuPuntos.jsx';
 import Icon from '../components/Icon.jsx';
+import DetalleProducto from '../components/DetalleProducto.jsx';
+import ModalAjusteInventario from '../components/ModalAjusteInventario.jsx';
 import { imprimirEtiquetasEstante } from '../lib/impresion.js';
 import AjusteInventario from './AjusteInventario.jsx';
 import HistorialProducto from '../components/HistorialProducto.jsx';
@@ -24,8 +25,49 @@ import { esAlmacenCentral, etiquetaCedisEmpresa } from '../lib/inventarioMultiti
 
 const empty = productoVacio();
 
+const FILTROS_CHIP = {
+  tipo: [
+    { id: 'todo', label: 'Todo' },
+    { id: 'producto', label: 'Producto' },
+  ],
+  favoritos: [
+    { id: 'todo', label: 'Todo' },
+    { id: 'si', label: 'Sí' },
+    { id: 'no', label: 'No' },
+  ],
+  existencia: [
+    { id: 'todo', label: 'Todo' },
+    { id: 'si', label: 'Sí' },
+    { id: 'no', label: 'No' },
+    { id: 'negativa', label: 'Negativa' },
+  ],
+  disponible: [
+    { id: 'todo', label: 'Todo' },
+    { id: 'si', label: 'Sí' },
+    { id: 'no', label: 'No' },
+  ],
+};
+
+const FILTROS_VACIOS = {
+  tipo: 'todo',
+  favoritos: 'todo',
+  existencia: 'todo',
+  disponible: 'todo',
+  departamento: '',
+};
+
+function inicialesProducto(nombre) {
+  const parts = String(nombre || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return '??';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+}
+
 const TITULOS_VISTA = {
-  lista: 'Catálogo de productos',
+  lista: 'Producto',
   alta: 'Nuevo producto',
   editar: 'Editar producto',
   ajustes: 'Ajuste de inventario',
@@ -64,6 +106,12 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const [guardandoPrecios, setGuardandoPrecios] = useState(false);
   const [seleccionEliminar, setSeleccionEliminar] = useState(() => new Set());
   const [etiquetasSel, setEtiquetasSel] = useState(() => new Set());
+  const [productoSelId, setProductoSelId] = useState(null);
+  const [mostrarFiltros, setMostrarFiltros] = useState(false);
+  const [filtrosDraft, setFiltrosDraft] = useState(FILTROS_VACIOS);
+  const [filtros, setFiltros] = useState(FILTROS_VACIOS);
+  const [modalAjusteOpen, setModalAjusteOpen] = useState(false);
+  const [ajusteConfig, setAjusteConfig] = useState({ modo: 'libre', tipo: 'entrada' });
   const fileImportRef = useRef(null);
   const puedeAltaProveedor = puedeCrearProveedor(user?.rol);
   const puedeVaciarInventario = puedeGestionarInventarioMultitienda(user?.rol);
@@ -96,8 +144,39 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
             .includes(t) || String(p.id || '').toLowerCase().includes(t),
       );
     }
+    if (filtros.departamento) {
+      list = list.filter((p) => String(p.cat || '').toUpperCase() === filtros.departamento.toUpperCase());
+    }
+    if (filtros.favoritos === 'si') list = list.filter((p) => Boolean(p.en_favoritos) || p.cat === 'FAVORITOS');
+    if (filtros.favoritos === 'no') list = list.filter((p) => !p.en_favoritos && p.cat !== 'FAVORITOS');
+    if (filtros.existencia === 'si') list = list.filter((p) => Number(p.stock) > 0);
+    if (filtros.existencia === 'no') list = list.filter((p) => Number(p.stock) === 0);
+    if (filtros.existencia === 'negativa') list = list.filter((p) => Number(p.stock) < 0);
+    if (filtros.disponible === 'si') list = list.filter((p) => p.en_venta !== false);
+    if (filtros.disponible === 'no') list = list.filter((p) => p.en_venta === false);
     return list;
-  }, [inventario, q]);
+  }, [inventario, q, filtros]);
+
+  const productoSeleccionado = useMemo(() => {
+    if (!productoSelId) return rows[0] || inventario?.[0] || null;
+    return (inventario || []).find((p) => p.id === productoSelId) || rows[0] || null;
+  }, [inventario, productoSelId, rows]);
+
+  useEffect(() => {
+    if (!productoSelId && rows[0]) setProductoSelId(rows[0].id);
+    else if (productoSelId && !(inventario || []).some((p) => p.id === productoSelId) && rows[0]) {
+      setProductoSelId(rows[0].id);
+    }
+  }, [rows, inventario, productoSelId]);
+
+  const filtrosActivos = useMemo(() => {
+    let n = 0;
+    if (filtros.favoritos !== 'todo') n += 1;
+    if (filtros.existencia !== 'todo') n += 1;
+    if (filtros.disponible !== 'todo') n += 1;
+    if (filtros.departamento) n += 1;
+    return n;
+  }, [filtros]);
 
   const loadVinculos = async (productoId) => {
     if (!supabase || !productoId?.trim()) {
@@ -113,8 +192,9 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   };
 
   useEffect(() => {
-    loadVinculos(form.id);
-  }, [supabase, form.id]);
+    if (vista === 'lista' && productoSeleccionado?.id) loadVinculos(productoSeleccionado.id);
+    else if (form.id) loadVinculos(form.id);
+  }, [supabase, form.id, productoSeleccionado?.id, vista]);
 
   const irLista = () => {
     setVista('lista');
@@ -124,15 +204,65 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     setVinculos([]);
   };
 
+  const seleccionarProducto = (p) => {
+    setProductoSelId(p.id);
+  };
+
   const editar = (p) => {
     setForm(productoDesdeDb(p));
     setEsEdicionProducto(true);
+    setProductoSelId(p.id);
     setVista('editar');
   };
 
   const verHistorial = (p) => {
     setProductoHistorial(p);
+    setProductoSelId(p.id);
     setVista('historial');
+  };
+
+  const abrirAjusteDesdeModal = (cfg) => {
+    setAjusteConfig({
+      modo: cfg.modo || 'libre',
+      tipo: cfg.tipo || 'entrada',
+      departamento: cfg.departamento || null,
+      departamentos: cfg.departamentos || [],
+      borrador: cfg.borrador || null,
+    });
+    setVista('ajustes');
+  };
+
+  const aplicarFiltros = () => {
+    setFiltros({ ...filtrosDraft });
+    setMostrarFiltros(false);
+  };
+
+  const limpiarFiltros = () => {
+    setFiltrosDraft(FILTROS_VACIOS);
+    setFiltros(FILTROS_VACIOS);
+  };
+
+  const toggleFavorito = async (p) => {
+    if (!supabase || !p?.id) return;
+    const next = !Boolean(p.en_favoritos);
+    const { error } = await supabase.from('productos').update({ en_favoritos: next }).eq('id', p.id);
+    if (error) return alert(error.message);
+    cargarDatos();
+  };
+
+  const vincularProveedor = async (provId, sku) => {
+    if (!supabase || !productoSeleccionado?.id) return;
+    const { error } = await supabase.from('proveedor_producto').insert([
+      { proveedor_id: provId, producto_id: productoSeleccionado.id, sku_proveedor: sku?.trim() || null },
+    ]);
+    if (error) return alert(error.message);
+    loadVinculos(productoSeleccionado.id);
+  };
+
+  const quitarVinculo = async (vinculoId) => {
+    if (!supabase) return;
+    await supabase.from('proveedor_producto').delete().eq('id', vinculoId);
+    if (productoSeleccionado?.id) loadVinculos(productoSeleccionado.id);
   };
 
   const guardar = async () => {
@@ -146,6 +276,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
       return alert(aviso || error.message);
     }
     alert('Guardado. Catálogo actualizado para todas las tiendas; inventario aplicado a ' + tiendaLabel + '.');
+    setProductoSelId(payload.id);
     cargarDatos();
     irLista();
   };
@@ -296,10 +427,11 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
 
   const menuItems = [
     { id: 'alta', label: 'Nuevo producto', icon: 'plus', onClick: () => { setForm(empty); setEsEdicionProducto(false); setVista('alta'); } },
-    { id: 'ajustes', label: 'Ajuste de inventario', icon: 'refresh', onClick: () => setVista('ajustes') },
+    { id: 'ajustes', label: 'Ajuste de inventario', icon: 'refresh', onClick: () => setModalAjusteOpen(true) },
     { id: 'traspaso', label: 'Traspasos', icon: 'truck', onClick: () => setVista('traspaso') },
-    { id: 'etiquetas', label: 'Imprimir etiquetas de estante', icon: 'print', onClick: () => { setEtiquetasSel(new Set()); setVista('etiquetas'); } },
-    { id: 'importexport', label: 'Importar / Exportar archivos', icon: 'download', onClick: () => setVista('importexport') },
+    { id: 'etiquetas', label: 'Imprimir etiquetas', icon: 'print', onClick: () => { setEtiquetasSel(new Set()); setVista('etiquetas'); } },
+    { id: 'importexport', label: 'Importar archivo .xls', icon: 'download', onClick: () => setVista('importexport') },
+    { id: 'exportar', label: 'Exportar productos', icon: 'download', onClick: () => exportarCatalogoCsv(inventario) },
     ...(puedeVaciarInventario
       ? [{ id: 'vaciarinventario', label: 'Vaciar inventario', icon: 'trash', onClick: () => setVista('vaciarinventario') }]
       : []),
@@ -374,25 +506,22 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           <h2>{TITULOS_VISTA[vista] || 'Productos'}</h2>
           {vista === 'lista' && (
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-              {inventario.length} producto(s) en catálogo compartido · piso de venta en <strong>{tiendaLabel}</strong>
-            {enCentral && ' · CEDIS central en MAIN'}
+              {inventario.length} producto(s) · piso en <strong>{tiendaLabel}</strong>
+              {enCentral && ' · CEDIS central en MAIN'}
             </p>
           )}
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          {vista === 'lista' && (
-            <CampoCodigo
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Buscar producto…"
-              tituloCamara="Buscar en catálogo"
-              inputStyle={{ minWidth: '220px' }}
-            />
-          )}
           {vista !== 'lista' && (
             <button type="button" className="btn btn-ghost" onClick={irLista}>
               <Icon name="home" size={16} />
               Volver al catálogo
+            </button>
+          )}
+          {vista === 'lista' && productoSeleccionado && (
+            <button type="button" className="btn btn-ghost" onClick={() => editar(productoSeleccionado)} title="Editar producto">
+              <Icon name="settings" size={16} />
+              Editar
             </button>
           )}
           <MenuPuntos items={menuItems} />
@@ -400,20 +529,203 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
       </div>
 
       {vista === 'lista' && (
-        <div className="card" style={{ padding: '0.75rem 1rem', background: 'rgba(59,105,181,0.06)', border: '1px solid rgba(59,105,181,0.2)' }}>
-          <p style={{ margin: 0, fontSize: '0.88rem' }}>
-            <strong>Catálogo compartido:</strong> todas las tiendas ven los mismos productos, precios y departamentos.
-            Cada sucursal maneja su <strong>piso de venta</strong> (mostrador).
-            El <strong>CEDIS central (MAIN)</strong> es el único almacén de la empresa; desde ahí se reparte mercancía a las tiendas con traspaso «CEDIS central → Tienda».
-          </p>
+        <div className="prod-master">
+          <aside className="prod-lista-panel">
+            <div className="prod-lista-toolbar">
+              <div className="prod-search-row">
+                <Icon name="search" size={16} />
+                <input
+                  className="input"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder="Buscar"
+                  aria-label="Buscar productos"
+                />
+                <button
+                  type="button"
+                  className={`prod-filtro-btn ${mostrarFiltros || filtrosActivos ? 'activo' : ''}`}
+                  onClick={() => {
+                    setFiltrosDraft(filtros);
+                    setMostrarFiltros((v) => !v);
+                  }}
+                  title="Filtros"
+                >
+                  <Icon name="settings" size={16} />
+                  {filtrosActivos > 0 && <span className="prod-filtro-badge">{filtrosActivos}</span>}
+                </button>
+              </div>
+              <button
+                type="button"
+                className="btn btn-success prod-add-btn"
+                onClick={() => {
+                  setForm(empty);
+                  setEsEdicionProducto(false);
+                  setVista('alta');
+                }}
+                title="Nuevo producto"
+              >
+                <Icon name="plus" size={20} />
+              </button>
+            </div>
+
+            {mostrarFiltros && (
+              <div className="prod-filtros-panel">
+                <div className="prod-filtro-grupo">
+                  <span className="muted">Tipo</span>
+                  <div className="prod-chips">
+                    {FILTROS_CHIP.tipo.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className={filtrosDraft.tipo === c.id ? 'activo' : ''}
+                        onClick={() => setFiltrosDraft({ ...filtrosDraft, tipo: c.id })}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="prod-filtro-grupo">
+                  <span className="muted">Favoritos</span>
+                  <div className="prod-chips">
+                    {FILTROS_CHIP.favoritos.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className={filtrosDraft.favoritos === c.id ? 'activo' : ''}
+                        onClick={() => setFiltrosDraft({ ...filtrosDraft, favoritos: c.id })}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="prod-filtro-grupo">
+                  <span className="muted">Existencia</span>
+                  <div className="prod-chips">
+                    {FILTROS_CHIP.existencia.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className={filtrosDraft.existencia === c.id ? 'activo' : ''}
+                        onClick={() => setFiltrosDraft({ ...filtrosDraft, existencia: c.id })}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="prod-filtro-grupo">
+                  <span className="muted">Disponible</span>
+                  <div className="prod-chips">
+                    {FILTROS_CHIP.disponible.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className={filtrosDraft.disponible === c.id ? 'activo' : ''}
+                        onClick={() => setFiltrosDraft({ ...filtrosDraft, disponible: c.id })}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <label className="muted" style={{ display: 'block', marginTop: '0.5rem' }}>
+                  Departamentos
+                  <select
+                    className="select"
+                    style={{ marginTop: '0.35rem' }}
+                    value={filtrosDraft.departamento}
+                    onChange={(e) => setFiltrosDraft({ ...filtrosDraft, departamento: e.target.value })}
+                  >
+                    <option value="">Todos</option>
+                    {departamentos.map((d) => (
+                      <option key={d} value={d}>
+                        {etiquetaDepartamento(d)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="prod-filtros-acciones">
+                  <button type="button" className="btn btn-ghost" style={{ color: 'var(--brand-red)' }} onClick={limpiarFiltros}>
+                    Limpiar ({filtrosActivos})
+                  </button>
+                  <button type="button" className="btn btn-primary" onClick={aplicarFiltros}>
+                    Buscar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="prod-lista-scroll">
+              {rows.length === 0 ? (
+                <p className="muted" style={{ padding: '1rem', textAlign: 'center' }}>
+                  Sin productos. Usa + para dar de alta o el menú ⋮ para importar.
+                </p>
+              ) : (
+                rows.map((p) => {
+                  const activo = productoSeleccionado?.id === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className={`prod-lista-item ${activo ? 'activo' : ''}`}
+                      onClick={() => seleccionarProducto(p)}
+                    >
+                      <div className="prod-lista-thumb">
+                        {p.foto_url ? (
+                          <img src={p.foto_url} alt="" />
+                        ) : (
+                          <div className="prod-thumb-placeholder">{inicialesProducto(p.nombre)}</div>
+                        )}
+                      </div>
+                      <div className="prod-lista-meta">
+                        <div className="prod-lista-codigo">
+                          <span className="muted">PZA</span> {p.id}
+                        </div>
+                        <div className="prod-lista-nombre">{p.nombre}</div>
+                        <div className="prod-lista-stock">{Number(p.stock) || 0}</div>
+                      </div>
+                      <div className="prod-lista-precio">${Number(p.precio || 0).toFixed(2)}</div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </aside>
+
+          <section className="prod-detalle-panel card">
+            <div className="prod-detalle-panel-head">
+              <strong>Detalles del producto</strong>
+              {productoSeleccionado && (
+                <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem' }} onClick={() => editar(productoSeleccionado)}>
+                  <Icon name="settings" size={16} />
+                </button>
+              )}
+            </div>
+            <DetalleProducto
+              producto={productoSeleccionado}
+              supabase={supabase}
+              sucursal={sucursal}
+              proveedores={proveedores}
+              vinculos={vinculos}
+              onEditar={editar}
+              onToggleFavorito={toggleFavorito}
+              onVincularProveedor={vincularProveedor}
+              onQuitarVinculo={quitarVinculo}
+            />
+          </section>
         </div>
       )}
 
-      {vista === 'lista' && (
-        <div className="card">
-          {tablaProductos({ showActions: true })}
-        </div>
-      )}
+      <ModalAjusteInventario
+        open={modalAjusteOpen}
+        onClose={() => setModalAjusteOpen(false)}
+        inventario={inventario}
+        sucursal={sucursal}
+        onElegir={abrirAjusteDesdeModal}
+        onBorrarInventario={puedeVaciarInventario ? () => setVista('vaciarinventario') : undefined}
+      />
 
       {(vista === 'alta' || vista === 'editar') && (
         <>
@@ -493,7 +805,20 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
       )}
 
       {vista === 'ajustes' && (
-        <AjusteInventario supabase={supabase} inventario={inventario} inventarioCompleto={inventarioCompleto || inventario} cargarDatos={cargarDatos} user={user} sucursal={sucursal} modoInicial="libre" />
+        <AjusteInventario
+          key={`ajuste-${ajusteConfig.modo}-${ajusteConfig.tipo}-${ajusteConfig.departamento || ''}-${ajusteConfig.borrador?.id || ''}`}
+          supabase={supabase}
+          inventario={inventario}
+          inventarioCompleto={inventarioCompleto || inventario}
+          cargarDatos={cargarDatos}
+          user={user}
+          sucursal={sucursal}
+          modoInicial={ajusteConfig.modo || 'libre'}
+          tipoInicial={ajusteConfig.tipo || 'entrada'}
+          departamentoInicial={ajusteConfig.departamento || null}
+          borradorInicial={ajusteConfig.borrador || null}
+          ocultarSelectorModo={Boolean(ajusteConfig.borrador) || ajusteConfig.modo === 'departamento'}
+        />
       )}
 
       {vista === 'traspaso' && (

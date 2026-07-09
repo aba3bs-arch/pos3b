@@ -61,7 +61,7 @@ export default function FormularioProducto({
 
   return (
     <div className="card">
-      <h3 style={{ margin: '0 0 1rem', color: 'var(--brand-blue)' }}>Alta y edición de productos</h3>
+      <h3 style={{ margin: '0 0 1rem', color: 'var(--brand-blue)' }}>{esEdicion ? 'Editar producto' : 'Nuevo producto'}</h3>
       {tiendaLabel && (
         <p className="muted" style={{ margin: '0 0 1rem', fontSize: '0.85rem', padding: '0.65rem 0.75rem', borderRadius: 8, background: 'rgba(59,105,181,0.08)', border: '1px solid rgba(59,105,181,0.18)' }}>
           Catálogo compartido entre todas las tiendas. Precios y datos del producto aplican a toda la cadena.

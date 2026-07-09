@@ -36,13 +36,17 @@ export default function AjusteInventario({
   puedeElegirTienda = false,
   sucursalesLista: sucursalesListaProp,
   modoInicial = 'libre',
+  tipoInicial = 'entrada',
+  departamentoInicial = null,
+  borradorInicial = null,
+  ocultarSelectorModo = false,
   embebido = false,
 }) {
   const sucursalOp = sucursalOperacion || sucursal;
   const enCentral = esAlmacenCentral(sucursalOp);
   const catalogoCompleto = inventarioCompleto || inventario;
   const [modo, setModo] = useState(modoInicial);
-  const [tipo, setTipo] = useState('entrada');
+  const [tipo, setTipo] = useState(tipoInicial || 'entrada');
   const [productoId, setProductoId] = useState('');
   const [cantidad, setCantidad] = useState('1');
   const [motivo, setMotivo] = useState('');
@@ -69,6 +73,10 @@ export default function AjusteInventario({
   useEffect(() => {
     if (modoInicial) setModo(modoInicial);
   }, [modoInicial]);
+
+  useEffect(() => {
+    if (tipoInicial) setTipo(tipoInicial);
+  }, [tipoInicial]);
 
   useEffect(() => {
     if (modo === 'libre') scanInputRef.current?.focus();
@@ -385,38 +393,40 @@ export default function AjusteInventario({
           </p>
         )}
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
-          <span className="muted" style={{ width: '100%', fontSize: '0.8rem' }}>
-            Modo de selección
-          </span>
-          <button type="button" className={modo === 'libre' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setModo('libre')}>
-            Inventario libre
-          </button>
-          <button type="button" className={modo === 'departamento' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setModo('departamento')}>
-            Por departamento
-          </button>
-          <button
-            type="button"
-            className={modo === 'masivo' ? 'btn btn-primary' : 'btn btn-ghost'}
-            onClick={() => {
-              setModo('masivo');
-              setTipo('entrada');
-              setProductoId('');
-            }}
-          >
-            Entrada múltiple
-          </button>
-          <button
-            type="button"
-            className={modo === 'traspaso' ? 'btn btn-primary' : 'btn btn-ghost'}
-            onClick={() => {
-              setModo('traspaso');
-              setLineasTraspaso([]);
-            }}
-          >
-            Traspaso
-          </button>
-        </div>
+        {!ocultarSelectorModo && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
+            <span className="muted" style={{ width: '100%', fontSize: '0.8rem' }}>
+              Modo de selección
+            </span>
+            <button type="button" className={modo === 'libre' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setModo('libre')}>
+              Inventario libre
+            </button>
+            <button type="button" className={modo === 'departamento' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setModo('departamento')}>
+              Por departamento
+            </button>
+            <button
+              type="button"
+              className={modo === 'masivo' ? 'btn btn-primary' : 'btn btn-ghost'}
+              onClick={() => {
+                setModo('masivo');
+                setTipo('entrada');
+                setProductoId('');
+              }}
+            >
+              Entrada múltiple
+            </button>
+            <button
+              type="button"
+              className={modo === 'traspaso' ? 'btn btn-primary' : 'btn btn-ghost'}
+              onClick={() => {
+                setModo('traspaso');
+                setLineasTraspaso([]);
+              }}
+            >
+              Traspaso
+            </button>
+          </div>
+        )}
 
         {modo === 'departamento' && (
           <p className="muted" style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
@@ -463,6 +473,8 @@ export default function AjusteInventario({
           user={user}
           sucursal={sucursalOp}
           onHistorialChange={setHistorial}
+          departamentoInicial={departamentoInicial}
+          borradorInicial={borradorInicial}
         />
       ) : modo === 'masivo' ? (
         <div className="card">

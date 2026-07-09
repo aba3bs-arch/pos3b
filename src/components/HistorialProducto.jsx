@@ -32,7 +32,7 @@ function badgeTipo(tipo, modo) {
   );
 }
 
-export default function HistorialProducto({ supabase, producto, sucursal, onVolver }) {
+export default function HistorialProducto({ supabase, producto, sucursal, onVolver, embebido = false }) {
   const [presetFecha, setPresetFecha] = useState('7d');
   const [desde, setDesde] = useState(() => rangoDesdePreset('7d').desde);
   const [hasta, setHasta] = useState(() => rangoDesdePreset('7d').hasta);
@@ -122,27 +122,29 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          <div>
-            <strong style={{ fontSize: '1.15rem', color: 'var(--brand-blue)' }}>{producto.nombre}</strong>
-            <div className="muted" style={{ marginTop: '0.25rem', fontSize: '0.85rem' }}>
-              Código {producto.id} · {etiquetaDepartamento(producto.cat)} · IVA {Number(producto.impuesto ?? 8)}% · Ganancia {Number(producto.ganancia_pct ?? 30)}%
+      {!embebido && (
+        <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div>
+              <strong style={{ fontSize: '1.15rem', color: 'var(--brand-blue)' }}>{producto.nombre}</strong>
+              <div className="muted" style={{ marginTop: '0.25rem', fontSize: '0.85rem' }}>
+                Código {producto.id} · {etiquetaDepartamento(producto.cat)} · IVA {Number(producto.impuesto ?? 8)}% · Ganancia {Number(producto.ganancia_pct ?? 30)}%
+              </div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--brand-red)', marginTop: '0.5rem' }}>
+                ${Math.round(Number(producto.precio) || 0)}
+              </div>
+              <div style={{ marginTop: '0.35rem' }}>
+                Existencia: <strong>{producto.stock}</strong> piso · <strong>{producto.stock_cedis ?? 0}</strong> CEDIS
+              </div>
             </div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--brand-red)', marginTop: '0.5rem' }}>
-              ${Math.round(Number(producto.precio) || 0)}
-            </div>
-            <div style={{ marginTop: '0.35rem' }}>
-              Existencia: <strong>{producto.stock}</strong> piso · <strong>{producto.stock_cedis ?? 0}</strong> CEDIS
-            </div>
+            {onVolver && (
+              <button type="button" className="btn btn-ghost" onClick={onVolver}>
+                Volver al catálogo
+              </button>
+            )}
           </div>
-          {onVolver && (
-            <button type="button" className="btn btn-ghost" onClick={onVolver}>
-              Volver al catálogo
-            </button>
-          )}
         </div>
-      </div>
+      )}
 
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Rango de fechas</h3>
