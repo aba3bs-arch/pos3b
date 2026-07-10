@@ -61,6 +61,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const [valeForm, setValeForm] = useState({
     beneficiarioId: '',
+    beneficiarioLibre: '',
+    areaLibre: 'abarrotes',
+    otroConcepto: false,
+    descuentaNominaOtro: false,
     categoria: 'consumo',
     monto: '',
     motivo: '',
@@ -75,6 +79,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   });
   const [prestEmpForm, setPrestEmpForm] = useState({
     usuarioId: '',
+    nombreLibre: '',
+    otroConcepto: false,
     monto: '',
     notas: '',
     fecha: hoyISO(),
@@ -85,7 +91,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const puedeGenerarVales = tiendaPuedeGenerarVales(sucursal);
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
   const requiereAuthAhora = valeRequiereAutorizacionAdmin();
-  const valeFormRequiereAdmin = valeForm.categoria === 'consumo' || requiereAuthAhora;
+  const valeFormRequiereAdmin =
+    (!valeForm.otroConcepto && (valeForm.categoria === 'consumo' || requiereAuthAhora)) || valeForm.otroConcepto;
+
+  const categoriasValeDisponibles = useMemo(
+    () => (esAdmin ? CATEGORIAS_VALE : CATEGORIAS_VALE.filter((c) => c.id !== 'otro')),
+    [esAdmin],
+  );
 
   const valesPendientes = useMemo(() => vales.filter((v) => v.estado_aprobacion === 'pendiente_admin'), [vales]);
   const prestamosPendientesAdmin = useMemo(() => prestamosEmp.filter((p) => p.estado === 'pendiente_admin'), [prestamosEmp]);
@@ -137,22 +149,49 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const guardarVale = async () => {
     if (!supabase) return alert('Sin conexión.');
     if (!puedeGenerarVales) return alert('Esta tienda no puede generar vales. El administrador debe autorizarla en Configuración → Vales y préstamos.');
-    const ben = beneficiarioValePorId(valeForm.beneficiarioId);
-    if (!ben) return alert('Selecciona beneficiario.');
+    const otroConcepto = Boolean(esAdmin && valeForm.otroConcepto);
+    if (otroConcepto && !esAdmin) return alert('Solo el administrador puede registrar vales por otros conceptos.');
+
+    let nombreEmpleado = '';
+    let area = '';
+    let categoria = valeForm.categoria;
+
+    if (otroConcepto) {
+      nombreEmpleado = String(valeForm.beneficiarioLibre || '').trim();
+      area = valeForm.areaLibre || 'abarrotes';
+      categoria = 'otro';
+      if (!nombreEmpleado) return alert('Indica el beneficiario o concepto.');
+      if (!String(valeForm.motivo || '').trim()) return alert('El motivo/concepto es obligatorio.');
+    } else {
+      const ben = beneficiarioValePorId(valeForm.beneficiarioId);
+      if (!ben) return alert('Selecciona beneficiario.');
+      nombreEmpleado = ben.nombre;
+      area = ben.area;
+    }
+
     const monto = Number(valeForm.monto);
     if (!(monto > 0)) return alert('Monto inválido.');
-    const res = await registrarVale(supabase, {
-      sucursal_id: sucursal || 'MAIN',
-      usuario_id: null,
-      nombre_empleado: ben.nombre,
-      tipo: 'indirecto',
-      area: ben.area,
-      categoria: valeForm.categoria,
-      monto,
-      motivo: valeForm.motivo.trim() || null,
-      fecha: valeForm.fecha || hoyISO(),
-      created_by: user?.nombre || null,
-    }, { rolActor: user?.rol, nombreActor: user?.nombre });
+    const res = await registrarVale(
+      supabase,
+      {
+        sucursal_id: sucursal || 'MAIN',
+        usuario_id: null,
+        nombre_empleado: nombreEmpleado,
+        tipo: 'indirecto',
+        area,
+        categoria,
+        monto,
+        motivo: valeForm.motivo.trim() || null,
+        fecha: valeForm.fecha || hoyISO(),
+        created_by: user?.nombre || null,
+      },
+      {
+        rolActor: user?.rol,
+        nombreActor: user?.nombre,
+        otroConcepto,
+        descuentaNomina: otroConcepto ? Boolean(valeForm.descuentaNominaOtro) : undefined,
+      },
+    );
     if (!res.ok) {
       if (String(res.error).includes('fix_contabilidad')) setAviso(res.error);
       return alert(res.error);
@@ -161,28 +200,81 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     if (!res.pendiente && res.requiereFirma && confirm('¿Imprimir vale para firma del beneficiario?')) {
       imprimirVale(res.vale, { mostrarFirma: true });
     }
-    setValeForm({ beneficiarioId: '', categoria: 'consumo', monto: '', motivo: '', fecha: hoyISO() });
+    setValeForm({
+      beneficiarioId: '',
+      beneficiarioLibre: '',
+      areaLibre: 'abarrotes',
+      otroConcepto: false,
+      descuentaNominaOtro: false,
+      categoria: 'consumo',
+      monto: '',
+      motivo: '',
+      fecha: hoyISO(),
+    });
     recargarTodo();
   };
 
   const guardarPrestamoEmpleado = async () => {
     if (!supabase) return alert('Sin conexión.');
-    const emp = empleados.find((e) => String(e.id) === String(prestEmpForm.usuarioId));
-    if (!emp) return alert('Selecciona empleado.');
+    const otroConcepto = Boolean(esAdmin && prestEmpForm.otroConcepto);
+    if (otroConcepto && !esAdmin) return alert('Solo el administrador puede registrar préstamos por otros conceptos.');
+
+    let emp = null;
+    let nombreEmpleado = '';
+    let usuarioId = null;
+
+    if (otroConcepto) {
+      nombreEmpleado = String(prestEmpForm.nombreLibre || '').trim();
+      if (!nombreEmpleado) return alert('Indica el beneficiario o concepto del préstamo.');
+      if (!String(prestEmpForm.notas || '').trim()) return alert('El concepto/motivo es obligatorio.');
+      if (prestEmpForm.usuarioId) {
+        emp = empleados.find((e) => String(e.id) === String(prestEmpForm.usuarioId));
+        if (emp) {
+          usuarioId = emp.id;
+          if (!nombreEmpleado) nombreEmpleado = emp.nombre;
+        }
+      }
+    } else {
+      emp = empleados.find((e) => String(e.id) === String(prestEmpForm.usuarioId));
+      if (!emp) return alert('Selecciona empleado.');
+      nombreEmpleado = emp.nombre;
+      usuarioId = emp.id;
+    }
+
     const monto = Number(prestEmpForm.monto);
     if (!(monto > 0)) return alert('Monto inválido.');
-    const res = await registrarPrestamo(supabase, {
-      sucursal_id: sucursal || 'MAIN',
-      usuario_id: emp.id,
-      nombre_empleado: emp.nombre,
-      monto_original: monto,
-      fecha: prestEmpForm.fecha || hoyISO(),
-      notas: prestEmpForm.notas.trim() || null,
-      created_by: user?.nombre || null,
-    });
+    const res = await registrarPrestamo(
+      supabase,
+      {
+        sucursal_id: sucursal || 'MAIN',
+        usuario_id: usuarioId,
+        nombre_empleado: nombreEmpleado,
+        monto_original: monto,
+        fecha: prestEmpForm.fecha || hoyISO(),
+        notas: prestEmpForm.notas.trim() || null,
+        created_by: user?.nombre || null,
+      },
+      {
+        rolActor: user?.rol,
+        nombreActor: user?.nombre,
+        otroConcepto,
+        areaCorte: prestEmpForm.areaCorte,
+      },
+    );
     if (!res.ok) return alert(res.error);
     alert(res.mensaje);
-    setPrestEmpForm({ usuarioId: '', monto: '', notas: '', fecha: hoyISO(), areaCorte: prestEmpForm.areaCorte });
+    if (!res.pendiente && !res.pendienteSocio && res.requiereFirma && confirm('¿Imprimir ticket del préstamo?')) {
+      imprimirPrestamo(res.prestamo);
+    }
+    setPrestEmpForm({
+      usuarioId: '',
+      nombreLibre: '',
+      otroConcepto: false,
+      monto: '',
+      notas: '',
+      fecha: hoyISO(),
+      areaCorte: prestEmpForm.areaCorte,
+    });
     recargarTodo();
   };
 
@@ -327,7 +419,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <br />
         <strong>Préstamos</strong> — Admin aprueba siempre; mayores a ${MONTO_PRESTAMO_REQUIERE_SOCIO} requieren Antonio, Francisco o José Luis.
         Cuota semanal mín. ${CUOTA_SEMANAL_MINIMA} en nómina.
-        {requiereAuthAhora && !esAdmin && valeForm.categoria !== 'consumo' && (
+        {esAdmin && (
+          <>
+            <br />
+            <strong>Otros conceptos</strong> — Solo administrador: vales o préstamos con beneficiario/concepto libre (fuera de la lista fija).
+          </>
+        )}
+        {requiereAuthAhora && !esAdmin && valeForm.categoria !== 'consumo' && !valeForm.otroConcepto && (
           <span style={{ color: 'var(--danger)' }}> · Ahora ({new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}) vales post-9:00 van a bandeja admin.</span>
         )}
       </div>
@@ -393,26 +491,84 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <>
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nuevo vale</h3>
+            {esAdmin && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', fontSize: '0.9rem' }}>
+                <input
+                  type="checkbox"
+                  checked={valeForm.otroConcepto}
+                  onChange={(e) =>
+                    setValeForm({
+                      ...valeForm,
+                      otroConcepto: e.target.checked,
+                      categoria: e.target.checked ? 'otro' : valeForm.categoria === 'otro' ? 'consumo' : valeForm.categoria,
+                      beneficiarioId: e.target.checked ? '' : valeForm.beneficiarioId,
+                    })
+                  }
+                />
+                Otro concepto (solo administrador)
+              </label>
+            )}
             <div className="grid-2">
-              <select className="select" value={valeForm.beneficiarioId} onChange={(e) => setValeForm({ ...valeForm, beneficiarioId: e.target.value })}>
-                <option value="">— Beneficiario —</option>
-                {BENEFICIARIOS_VALES.map((b) => (
-                  <option key={b.id} value={b.id}>{b.nombre} — {ETIQUETA_AREA[b.area]}</option>
-                ))}
-              </select>
-              <select className="select" value={valeForm.categoria} onChange={(e) => setValeForm({ ...valeForm, categoria: e.target.value })}>
-                {CATEGORIAS_VALE.map((c) => (
-                  <option key={c.id} value={c.id}>{c.label}{c.descuentaNomina ? ' (nómina)' : ' (sin nómina)'}</option>
-                ))}
-              </select>
+              {valeForm.otroConcepto && esAdmin ? (
+                <>
+                  <input
+                    className="input"
+                    placeholder="Beneficiario o concepto"
+                    value={valeForm.beneficiarioLibre}
+                    onChange={(e) => setValeForm({ ...valeForm, beneficiarioLibre: e.target.value })}
+                  />
+                  <select className="select" value={valeForm.areaLibre} onChange={(e) => setValeForm({ ...valeForm, areaLibre: e.target.value })}>
+                    {AREAS_CONTABILIDAD.map((a) => (
+                      <option key={a} value={a}>{ETIQUETA_AREA[a]}</option>
+                    ))}
+                  </select>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={valeForm.descuentaNominaOtro}
+                      onChange={(e) => setValeForm({ ...valeForm, descuentaNominaOtro: e.target.checked })}
+                    />
+                    Descontar en nómina
+                  </label>
+                </>
+              ) : (
+                <>
+                  <select className="select" value={valeForm.beneficiarioId} onChange={(e) => setValeForm({ ...valeForm, beneficiarioId: e.target.value })}>
+                    <option value="">— Beneficiario —</option>
+                    {BENEFICIARIOS_VALES.map((b) => (
+                      <option key={b.id} value={b.id}>{b.nombre} — {ETIQUETA_AREA[b.area]}</option>
+                    ))}
+                  </select>
+                  <select className="select" value={valeForm.categoria} onChange={(e) => setValeForm({ ...valeForm, categoria: e.target.value })}>
+                    {categoriasValeDisponibles.filter((c) => c.id !== 'otro').map((c) => (
+                      <option key={c.id} value={c.id}>{c.label}{c.descuentaNomina ? ' (nómina)' : ' (sin nómina)'}</option>
+                    ))}
+                  </select>
+                </>
+              )}
               <input className="input" type="number" min="0" step="0.01" placeholder="Monto" value={valeForm.monto} onChange={(e) => setValeForm({ ...valeForm, monto: e.target.value })} />
               <SelectorCalendario label="Fecha del vale" value={valeForm.fecha} onChange={(f) => setValeForm({ ...valeForm, fecha: f })} />
-              <input className="input" placeholder="Motivo" style={{ gridColumn: '1 / -1' }} value={valeForm.motivo} onChange={(e) => setValeForm({ ...valeForm, motivo: e.target.value })} />
+              <input
+                className="input"
+                placeholder={valeForm.otroConcepto ? 'Motivo / concepto (obligatorio)' : 'Motivo'}
+                style={{ gridColumn: '1 / -1' }}
+                value={valeForm.motivo}
+                onChange={(e) => setValeForm({ ...valeForm, motivo: e.target.value })}
+              />
             </div>
             <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} disabled={!puedeGenerarVales} onClick={guardarVale}>
-              {valeFormRequiereAdmin && !esAdmin ? 'Solicitar vale (requiere autorización)' : 'Registrar vale'}
+              {valeForm.otroConcepto && esAdmin
+                ? 'Registrar vale (otro concepto)'
+                : valeFormRequiereAdmin && !esAdmin
+                  ? 'Solicitar vale (requiere autorización)'
+                  : 'Registrar vale'}
             </button>
-            {valeFormRequiereAdmin && !esAdmin && (
+            {valeForm.otroConcepto && esAdmin && (
+              <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
+                Vale libre: se registra aprobado de inmediato. Indica claramente el concepto en el motivo.
+              </p>
+            )}
+            {valeFormRequiereAdmin && !esAdmin && !valeForm.otroConcepto && (
               <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', color: 'var(--brand-red)' }}>
                 {valeForm.categoria === 'consumo'
                   ? 'Los vales de consumo siempre requieren aprobación del administrador.'
@@ -508,22 +664,62 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem' }}>Préstamo a empleado</h3>
             <p className="muted" style={{ fontSize: '0.85rem' }}>Notifica al admin. Cuota semanal mín. ${CUOTA_SEMANAL_MINIMA} en nómina.</p>
+            {esAdmin && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', fontSize: '0.9rem' }}>
+                <input
+                  type="checkbox"
+                  checked={prestEmpForm.otroConcepto}
+                  onChange={(e) =>
+                    setPrestEmpForm({
+                      ...prestEmpForm,
+                      otroConcepto: e.target.checked,
+                      usuarioId: e.target.checked ? prestEmpForm.usuarioId : prestEmpForm.usuarioId,
+                    })
+                  }
+                />
+                Otro concepto (solo administrador)
+              </label>
+            )}
             <div className="grid-2">
-              <select className="select" value={prestEmpForm.usuarioId} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, usuarioId: e.target.value })}>
-                <option value="">— Empleado —</option>
-                {empleados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-              </select>
+              {prestEmpForm.otroConcepto && esAdmin ? (
+                <>
+                  <input
+                    className="input"
+                    placeholder="Beneficiario o concepto"
+                    value={prestEmpForm.nombreLibre}
+                    onChange={(e) => setPrestEmpForm({ ...prestEmpForm, nombreLibre: e.target.value })}
+                  />
+                  <select className="select" value={prestEmpForm.usuarioId} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, usuarioId: e.target.value })}>
+                    <option value="">— Empleado (opcional, para nómina) —</option>
+                    {empleados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                  </select>
+                </>
+              ) : (
+                <select className="select" value={prestEmpForm.usuarioId} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, usuarioId: e.target.value })}>
+                  <option value="">— Empleado —</option>
+                  {empleados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                </select>
+              )}
               <input className="input" type="number" placeholder="Monto" value={prestEmpForm.monto} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, monto: e.target.value })} />
               <select className="select" value={prestEmpForm.areaCorte} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, areaCorte: e.target.value })}>
                 {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>Corte: {ETIQUETA_AREA[a]}</option>)}
               </select>
-              <input className="input" placeholder="Notas" value={prestEmpForm.notas} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, notas: e.target.value })} />
+              <input
+                className="input"
+                placeholder={prestEmpForm.otroConcepto ? 'Concepto / motivo (obligatorio)' : 'Notas'}
+                value={prestEmpForm.notas}
+                onChange={(e) => setPrestEmpForm({ ...prestEmpForm, notas: e.target.value })}
+              />
             </div>
             <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={guardarPrestamoEmpleado}>
-              Solicitar préstamo (requiere autorización)
+              {prestEmpForm.otroConcepto && esAdmin
+                ? 'Registrar préstamo (otro concepto)'
+                : 'Solicitar préstamo (requiere autorización)'}
             </button>
             <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
-              Todo préstamo a empleado queda pendiente hasta que el administrador apruebe{!esAdmin ? ' (y socio si supera $1,000)' : ''}.
+              {prestEmpForm.otroConcepto && esAdmin
+                ? `Queda activo de inmediato (si supera $${MONTO_PRESTAMO_REQUIERE_SOCIO} aún pide socio).`
+                : `Todo préstamo a empleado queda pendiente hasta que el administrador apruebe${!esAdmin ? ' (y socio si supera $1,000)' : ''}.`}
             </p>
           </div>
           <div className="card">

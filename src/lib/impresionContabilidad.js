@@ -75,7 +75,7 @@ export function htmlVale(vale, opts = {}) {
     <div style="font-size:20px;margin:12px 0"><strong>Monto: ${fmt(vale.monto)}</strong></div>
     <div>Motivo: ${esc(vale.motivo || '—')}</div>
     ${vale.autorizado_por ? `<div>Autorizado por: ${esc(vale.autorizado_por)}</div>` : ''}
-    ${descNomina ? `<div class="muted">Consumo descontable en nómina (vía corte).</div>` : `<div class="muted">Gasolina, herramienta y accesorios no se descuentan de nómina.</div>`}
+    ${descNomina ? `<div class="muted">Consumo descontable en nómina (vía corte).</div>` : `<div class="muted">${vale.categoria === 'otro' ? 'Otro concepto' : 'Gasolina, herramienta y accesorios'} — ${vale.descuenta_nomina ? 'descuenta nómina' : 'no se descuenta de nómina'}.</div>`}
     <div class="muted">Emitido por: ${esc(vale.created_by || '—')}</div>
     ${firma ? `<div class="firma">Firma del beneficiario: _________________________________</div>` : ''}
   </body></html>`;

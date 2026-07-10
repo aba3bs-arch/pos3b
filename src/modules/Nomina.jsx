@@ -4,6 +4,7 @@ import {
   cargarDatosNomina,
   cargarLineasPeriodo,
   guardarPeriodoNomina,
+  guardarSueldoDefault,
   lineasDesdeEmpleados,
   listarPeriodosNomina,
   totalLineaNomina,
@@ -165,9 +166,20 @@ export default function Nomina({ supabase, sucursal, user }) {
     if (!supabase || !borradorListo) return;
     const b = leerBorradorNomina();
     const mismoPeriodo = b?.inicio === inicio && b?.fin === fin;
-    const lineasBase = mismoPeriodo && b?.lineas?.length ? b.lineas : null;
-    const fusionar = modoNomina === 'manual';
-    cargarEmpleadosYGastos({ fusionar, lineasBase: fusionar ? lineasBase : null });
+    const lineasBase = mismoPeriodo && Array.isArray(b?.lineas) && b.lineas.length ? b.lineas : null;
+    // Restaurar borrador del mismo periodo también en automático: no perder salarios,
+    // bonos, otros ni ajustes manuales al reiniciar sesión.
+    if (lineasBase) {
+      for (const l of lineasBase) {
+        if (l?.usuario_id && (l.sueldo_manual || Number(l.salario_dia ?? l.sueldo_tarifa) > 0)) {
+          guardarSueldoDefault(l.usuario_id, l.salario_dia ?? l.sueldo_tarifa);
+        }
+      }
+    }
+    cargarEmpleadosYGastos({
+      fusionar: Boolean(lineasBase) || modoNomina === 'manual',
+      lineasBase,
+    });
     cargarPeriodos();
     // modoNomina no va en deps: el cambio de modo se maneja en cambiarModoNomina
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -175,6 +187,11 @@ export default function Nomina({ supabase, sucursal, user }) {
 
   useEffect(() => {
     if (!borradorListo) return;
+    // Evitar pisar el borrador guardado con un arreglo vacío antes de terminar la carga inicial.
+    if (lineas.length === 0) {
+      const b = leerBorradorNomina();
+      if (b?.lineas?.length && b.inicio === inicio && b.fin === fin) return;
+    }
     guardarBorradorNomina({
       inicio,
       fin,
@@ -197,7 +214,8 @@ export default function Nomina({ supabase, sucursal, user }) {
         return;
       }
       setModoNomina('automatico');
-      void cargarEmpleadosYGastos({ fusionar: false });
+      // Recalcula días/deducciones pero conserva salarios fijos y ajustes manuales del borrador.
+      void cargarEmpleadosYGastos({ fusionar: true });
       return;
     }
     setModoNomina('manual');
@@ -212,6 +230,7 @@ export default function Nomina({ supabase, sucursal, user }) {
 
       if (campo === 'salario_dia') {
         l.sueldo_tarifa = Number(valor) || 0;
+        if (l.usuario_id) guardarSueldoDefault(l.usuario_id, l.sueldo_tarifa);
       }
 
       if (campo === 'dias_trabajados' && !l.es_indirecto) {
@@ -758,11 +777,25 @@ export default function Nomina({ supabase, sucursal, user }) {
             type="button"
             className="btn btn-ghost"
             disabled={cargando}
-            onClick={() => cargarEmpleadosYGastos({ fusionar: modoManual })}
+            onClick={() => cargarEmpleadosYGastos({ fusionar: true })}
           >
             {modoManual ? 'Recalcular (conservar manual)' : 'Recalcular deducciones'}
           </button>
-          <button type="button" className="btn btn-ghost" disabled={cargando} onClick={() => cargarEmpleadosYGastos({ fusionar: false })}>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={cargando}
+            onClick={() => {
+              if (
+                !confirm(
+                  '¿Recargar todo desde cero?\n\nSe actualizarán días y deducciones automáticas. Los salarios por día guardados se conservan; bonos y “otros” del borrador se pierden.',
+                )
+              ) {
+                return;
+              }
+              void cargarEmpleadosYGastos({ fusionar: false });
+            }}
+          >
             Recargar todo
           </button>
           {excluidos.size > 0 && (

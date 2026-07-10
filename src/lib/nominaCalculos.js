@@ -186,9 +186,11 @@ export function fusionarLineasNomina(anteriores, nuevas) {
       merged.faltas_gasolina = ant.faltas_gasolina ?? nueva.faltas_gasolina;
       merged.deduccion_faltas = ant.deduccion_faltas ?? nueva.deduccion_faltas;
     }
-    if (ant.sueldo_manual) {
+    // Salario por día: queda fijo una vez capturado/ajustado hasta que se edite de nuevo.
+    if (ant.sueldo_manual || Number(ant.salario_dia ?? ant.sueldo_tarifa) > 0) {
       merged.salario_dia = ant.salario_dia ?? ant.sueldo_tarifa ?? nueva.salario_dia;
       merged.sueldo_tarifa = merged.salario_dia;
+      merged.sueldo_manual = ant.sueldo_manual || Number(ant.salario_dia ?? ant.sueldo_tarifa) > 0;
     }
     if (ant.gastos_manual) merged.deduccion_gastos = ant.deduccion_gastos;
     if (ant.inventario_manual) merged.deduccion_inventario = ant.deduccion_inventario;
@@ -213,7 +215,7 @@ export function fusionarLineasNomina(anteriores, nuevas) {
 
     merged.pagador_manual = ant.pagador_manual;
     merged.dias_manual = ant.dias_manual;
-    merged.sueldo_manual = ant.sueldo_manual;
+    merged.sueldo_manual = Boolean(merged.sueldo_manual || ant.sueldo_manual);
     merged.gastos_manual = ant.gastos_manual;
     merged.inventario_manual = ant.inventario_manual;
     merged.prestamos_manual = ant.prestamos_manual;

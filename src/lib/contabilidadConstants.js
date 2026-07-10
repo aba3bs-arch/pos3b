@@ -21,7 +21,13 @@ export const CATEGORIAS_VALE = [
   { id: 'gasolina', label: 'Gasolina', descuentaNomina: false },
   { id: 'herramienta', label: 'Herramienta', descuentaNomina: false },
   { id: 'accesorios', label: 'Accesorios', descuentaNomina: false },
+  /** Solo administrador: beneficiario y concepto libres. */
+  { id: 'otro', label: 'Otro concepto', descuentaNomina: false },
 ];
+
+export function esCategoriaOtroConcepto(categoria) {
+  return String(categoria || '').toLowerCase() === 'otro';
+}
 
 export const MONTO_PRESTAMO_REQUIERE_SOCIO = 1000;
 export const CUOTA_SEMANAL_MINIMA = 500;
@@ -41,7 +47,10 @@ export function beneficiarioValePorId(id) {
   return BENEFICIARIOS_VALES.find((b) => b.id === id) || null;
 }
 
-export function beneficiarioValePermitido(nombre, area) {
+export function beneficiarioValePermitido(nombre, area, opts = {}) {
+  if (opts.otroConcepto || esCategoriaOtroConcepto(opts.categoria)) {
+    return Boolean(String(nombre || '').trim());
+  }
   const n = String(nombre || '').trim().toLowerCase();
   return BENEFICIARIOS_VALES.some((b) => b.nombre.toLowerCase() === n && b.area === area);
 }
@@ -50,7 +59,8 @@ export function categoriaValePorId(id) {
   return CATEGORIAS_VALE.find((c) => c.id === id) || CATEGORIAS_VALE[0];
 }
 
-export function valeDescuentaNomina(categoria) {
+export function valeDescuentaNomina(categoria, override) {
+  if (typeof override === 'boolean') return override;
   return categoriaValePorId(categoria).descuentaNomina;
 }
 
@@ -58,8 +68,9 @@ export function etiquetaCategoriaVale(categoria) {
   return categoriaValePorId(categoria).label;
 }
 
-/** Consumos siempre requieren admin; otras categorías después de las 9:00. */
+/** Consumos siempre requieren admin; otras categorías después de las 9:00. Otro concepto solo lo crea el admin. */
 export function valeRequiereAutorizacionAdmin(fecha = new Date(), categoria = 'consumo') {
+  if (esCategoriaOtroConcepto(categoria)) return true;
   if (valeDescuentaNomina(categoria)) return true;
   return fecha.getHours() >= 9;
 }

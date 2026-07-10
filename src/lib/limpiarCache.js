@@ -26,6 +26,9 @@ const CLAVES_PRESERVAR = new Set([
   'pos3b_logo_url',
   'pos3b_departamentos_extra',
   'pos3b_nomina_sueldos_default',
+  'pos3b_nomina_salario_dia',
+  'pos3b_nomina_borrador',
+  'pos3b_nomina_saldos_arrastre',
   'pos3b_dispositivo_id',
   'pos3b_vales_tiendas_permitidas',
   'pos3b_anuncios_pos',
@@ -85,6 +88,7 @@ export function formatoBytesAprox(bytes) {
 
 export const TEXTO_AYUDA_LIMPIEZA =
   'Se borran copias locales temporales (cortes en caché, movimientos, ajustes, datos offline de contabilidad). ' +
-  'No se borran: tienda activa, tipo de cambio, turnos, impresión, branding, privilegios ni el vínculo del equipo. ' +
+  'No se borran: tienda activa, tipo de cambio, turnos, impresión, branding, privilegios, vínculo del equipo, ' +
+  'ni el borrador/salarios de nómina. ' +
   'El PIN de cubre turno solo vive en la nube (no en el navegador). ' +
   'La app permanece abierta con tu sesión actual; no hace falta recargar.';

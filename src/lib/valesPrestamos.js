@@ -7,6 +7,7 @@ import {
   cuotaSemanalPrestamo,
   prestamoRequiereSocio,
   esSocioAprobadorPrestamo,
+  esCategoriaOtroConcepto,
   MONTO_PRESTAMO_REQUIERE_SOCIO,
 } from './contabilidadConstants.js';
 import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
@@ -140,18 +141,34 @@ export async function marcarValeCobrado(supabase, valeId, cobrado, { nombre } = 
 
 export async function registrarVale(supabase, row, opts = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
-  if (!beneficiarioValePermitido(row.nombre_empleado, row.area)) {
-    return { ok: false, error: 'Solo vales para Luis Enrique (Abarrotes), Misael y Gonzalo (Virtual).' };
+  const esAdmin = normalizarRol(opts.rolActor) === 'Administrador';
+  const categoria = row.categoria || 'consumo';
+  const otroConcepto = Boolean(opts.otroConcepto) || esCategoriaOtroConcepto(categoria);
+
+  if (otroConcepto && !esAdmin) {
+    return { ok: false, error: 'Solo el administrador puede registrar vales por otros conceptos.' };
+  }
+  if (!beneficiarioValePermitido(row.nombre_empleado, row.area, { otroConcepto, categoria })) {
+    return {
+      ok: false,
+      error: otroConcepto
+        ? 'Indica el beneficiario o concepto del vale.'
+        : 'Solo vales para Luis Enrique (Abarrotes), Misael y Gonzalo (Virtual).',
+    };
+  }
+  if (otroConcepto && !String(row.motivo || '').trim()) {
+    return { ok: false, error: 'En otros conceptos el motivo/concepto es obligatorio.' };
   }
 
-  const categoria = row.categoria || 'consumo';
-  const esAdmin = normalizarRol(opts.rolActor) === 'Administrador';
-  const requiereAdmin = valeRequiereAutorizacionAdmin(new Date(), categoria);
-  const descuentaNomina = valeDescuentaNomina(categoria);
+  const requiereAdmin = !otroConcepto && valeRequiereAutorizacionAdmin(new Date(), categoria);
+  const descuentaNomina = valeDescuentaNomina(
+    categoria,
+    otroConcepto && typeof opts.descuentaNomina === 'boolean' ? opts.descuentaNomina : undefined,
+  );
 
   let estadoAprobacion = 'aprobado';
   let requiereAuth = false;
-  let autorizadoPor = null;
+  let autorizadoPor = otroConcepto ? opts.nombreActor || 'Administrador' : null;
   let aprobadoAt = new Date().toISOString();
 
   if (requiereAdmin && !esAdmin) {
@@ -165,7 +182,7 @@ export async function registrarVale(supabase, row, opts = {}) {
   const payload = {
     ...row,
     folio,
-    categoria,
+    categoria: otroConcepto ? 'otro' : categoria,
     descuenta_nomina: descuentaNomina,
     estado_aprobacion: estadoAprobacion,
     requiere_autorizacion: requiereAuth,
@@ -173,7 +190,7 @@ export async function registrarVale(supabase, row, opts = {}) {
     aprobado_at: aprobadoAt,
     cargado_corte: false,
     tipo: row.tipo || 'indirecto',
-    ...(categoria === 'gasolina' ? { cobrado: false } : {}),
+    ...(categoria === 'gasolina' && !otroConcepto ? { cobrado: false } : {}),
   };
 
   const { data, error } = await supabase.from('vales').insert([payload]).select('*').single();
@@ -204,7 +221,9 @@ export async function registrarVale(supabase, row, opts = {}) {
     ok: true,
     vale: data,
     pendiente: false,
-    mensaje: 'Vale autorizado. Imprima y solicite la firma del beneficiario.',
+    mensaje: otroConcepto
+      ? 'Vale de otro concepto registrado. Imprima y solicite la firma si aplica.'
+      : 'Vale autorizado. Imprima y solicite la firma del beneficiario.',
     requiereFirma: true,
   };
 }
@@ -301,15 +320,48 @@ export async function listarPrestamos(supabase, opts = {}) {
 
 export async function registrarPrestamo(supabase, row, opts = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const esAdmin = normalizarRol(opts.rolActor) === 'Administrador';
+  const otroConcepto = Boolean(opts.otroConcepto);
+  if (otroConcepto && !esAdmin) {
+    return { ok: false, error: 'Solo el administrador puede registrar préstamos por otros conceptos.' };
+  }
+  if (!String(row.nombre_empleado || '').trim()) {
+    return { ok: false, error: 'Indica el beneficiario del préstamo.' };
+  }
+  if (otroConcepto && !String(row.notas || '').trim()) {
+    return { ok: false, error: 'En otros conceptos el concepto/motivo es obligatorio.' };
+  }
+
   const monto = Number(row.monto_original) || 0;
+  const necesitaSocio = prestamoRequiereSocio(monto);
+  let estado = 'pendiente_admin';
+  let cuota = 0;
+  let aprobadoAdminPor = null;
+  let aprobadoAdminAt = null;
+
+  if (otroConcepto && esAdmin) {
+    if (necesitaSocio) {
+      estado = 'pendiente_socio';
+      aprobadoAdminPor = opts.nombreActor || 'Administrador';
+      aprobadoAdminAt = new Date().toISOString();
+    } else {
+      estado = 'activo';
+      cuota = cuotaSemanalPrestamo(monto, opts.cuotaPropuesta);
+      aprobadoAdminPor = opts.nombreActor || 'Administrador';
+      aprobadoAdminAt = new Date().toISOString();
+    }
+  }
+
   const payload = {
     ...row,
     saldo: monto,
     abono: 0,
-    estado: 'pendiente_admin',
-    requiere_aprobacion_socio: prestamoRequiereSocio(monto),
-    cuota_semanal: 0,
+    estado,
+    requiere_aprobacion_socio: necesitaSocio,
+    cuota_semanal: cuota,
     cargado_corte: false,
+    aprobado_admin_por: aprobadoAdminPor,
+    aprobado_admin_at: aprobadoAdminAt,
   };
   const { data, error } = await supabase.from('prestamos').insert([payload]).select('*').single();
   if (error) {
@@ -317,20 +369,49 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
     return { ok: false, error: error.message };
   }
 
-  await crearNotificacion(supabase, {
-    sucursal_id: row.sucursal_id,
-    tipo: TIPOS_NOTIF.PRESTAMO_ADMIN,
-    ref_tabla: 'prestamos',
-    ref_id: data.id,
-    titulo: `Préstamo pendiente · ${row.nombre_empleado}`,
-    mensaje: `$${monto.toFixed(2)}${prestamoRequiereSocio(monto) ? ' · requiere socio' : ''}`,
-  });
+  if (estado === 'pendiente_admin') {
+    await crearNotificacion(supabase, {
+      sucursal_id: row.sucursal_id,
+      tipo: TIPOS_NOTIF.PRESTAMO_ADMIN,
+      ref_tabla: 'prestamos',
+      ref_id: data.id,
+      titulo: `Préstamo pendiente · ${row.nombre_empleado}`,
+      mensaje: `$${monto.toFixed(2)}${necesitaSocio ? ' · requiere socio' : ''}`,
+    });
+    return {
+      ok: true,
+      prestamo: data,
+      pendiente: true,
+      mensaje: 'Préstamo registrado. El administrador debe aprobar antes de imprimir el ticket.',
+    };
+  }
 
+  if (estado === 'pendiente_socio') {
+    await crearNotificacion(supabase, {
+      sucursal_id: row.sucursal_id,
+      tipo: TIPOS_NOTIF.PRESTAMO_SOCIO,
+      ref_tabla: 'prestamos',
+      ref_id: data.id,
+      titulo: `Préstamo +$1,000 · ${row.nombre_empleado}`,
+      mensaje: `$${monto.toFixed(2)} · espera Antonio, Francisco o José Luis`,
+    });
+    return {
+      ok: true,
+      prestamo: data,
+      pendienteSocio: true,
+      mensaje: 'Préstamo de otro concepto registrado. Falta autorización de socio (>$1,000).',
+    };
+  }
+
+  if (opts.cargarCorte !== false) {
+    await cargarPrestamoEmpleadoACorte(supabase, data, opts.areaCorte);
+  }
   return {
     ok: true,
     prestamo: data,
-    pendiente: true,
-    mensaje: 'Préstamo registrado. El administrador debe aprobar antes de imprimir el ticket.',
+    pendiente: false,
+    mensaje: 'Préstamo de otro concepto activo. Ya puede imprimir el ticket.',
+    requiereFirma: true,
   };
 }
 
