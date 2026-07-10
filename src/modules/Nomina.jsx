@@ -91,7 +91,7 @@ export default function Nomina({ supabase, sucursal, user }) {
       setErr('');
       const { data: empleados, error } = await supabase
         .from('usuarios')
-        .select('id, nombre, rol, sucursal_id, nomina_pagador')
+        .select('id, nombre, rol, sucursal_id, nomina_pagador, turno_id, turno_horario')
         .order('nombre');
       if (error) {
         setErr(error.message);
@@ -99,7 +99,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         return;
       }
       const lista = empleadosParaNominaGlobal(empleados || []);
-      const { gastosRes, prestRes, cortesRes, valesRes } = await cargarDatosNomina(supabase, {
+      const { gastosRes, prestRes, cortesRes, valesRes, asistenciasRes } = await cargarDatosNomina(supabase, {
         desde: inicio,
         hasta: fin,
         empleados: lista,
@@ -110,6 +110,7 @@ export default function Nomina({ supabase, sucursal, user }) {
       if (prestRes.error) setErr(prestRes.error);
       if (cortesRes.error) setErr(cortesRes.error);
       if (valesRes.error) setErr(valesRes.error);
+      if (asistenciasRes?.error) setErr(asistenciasRes.error);
 
       const lineasNuevas = lineasDesdeEmpleados(lista, {
         gastosMap: gastosRes.map,
@@ -117,6 +118,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         cortesMap: cortesRes.map,
         valesGasolinaMap: valesRes.map,
         valesGasolinaNoCobradosMap: valesRes.mapNoCobrados,
+        asistenciasMap: asistenciasRes?.map || {},
         pagadorFiltro,
         arrastreMap: saldosArrastre,
       }).filter((l) => !excluidosIds.has(String(l.usuario_id)));
@@ -189,7 +191,7 @@ export default function Nomina({ supabase, sucursal, user }) {
     if (nuevo === 'automatico') {
       if (
         !confirm(
-          '¿Pasar a modo Automático?\n\nSe recalcularán días, consumos, inventario y préstamos desde cortes y vales. Se perderán ajustes manuales de esas columnas.',
+          '¿Pasar a modo Automático?\n\nSe recalcularán días desde el reloj checador (retardos: los primeros 4 cuentan; desde el 5º ese día no se paga) y consumos/inventario desde cortes Virtual, Abarrotes y Garage.',
         )
       ) {
         return;
@@ -434,13 +436,17 @@ export default function Nomina({ supabase, sucursal, user }) {
             />
           )}
         </td>
-        <td title={l.es_indirecto ? `Vales: ${l.vales_gasolina}` : `Cortes: ${l.cortes_periodo}`}>
+        <td title={l.es_indirecto ? `Vales: ${l.vales_gasolina}` : `Asistencias: ${l.asistencias_periodo ?? 0} · Retardos: ${l.retardos_periodo ?? 0} · Cortes ref: ${l.cortes_periodo}`}>
           {historial || autoBloqueado ? (
             <>
               <strong>{l.dias_trabajados ?? '—'}</strong>
               {!historial && (
                 <span className="muted" style={{ fontSize: '0.62rem', display: 'block' }}>
-                  {l.es_indirecto ? `auto: ${l.vales_gasolina}` : `auto: ${l.cortes_periodo}`}
+                  {l.es_indirecto
+                    ? `auto: ${l.vales_gasolina}`
+                    : (l.asistencias_periodo || 0) > 0
+                      ? `asist ${l.asistencias_periodo}${l.retardos_periodo ? ` · ret ${l.retardos_periodo}` : ''}`
+                      : `cortes: ${l.cortes_periodo}`}
                 </span>
               )}
             </>
@@ -456,7 +462,11 @@ export default function Nomina({ supabase, sucursal, user }) {
                 onChange={(e) => actualizarLinea(i, 'dias_trabajados', e.target.value)}
               />
               <span className="muted" style={{ fontSize: '0.62rem', display: 'block' }}>
-                {l.es_indirecto ? `auto: ${l.vales_gasolina}` : `auto: ${l.cortes_periodo}`}
+                {l.es_indirecto
+                  ? `auto: ${l.vales_gasolina}`
+                  : (l.asistencias_periodo || 0) > 0
+                    ? `asist ${l.asistencias_periodo}${l.retardos_periodo ? ` · ret ${l.retardos_periodo}` : ''}`
+                    : `cortes: ${l.cortes_periodo}`}
               </span>
             </>
           )}
@@ -628,7 +638,7 @@ export default function Nomina({ supabase, sucursal, user }) {
               <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros − arrastre.</strong>
               {modoManual
                 ? ' Modo Manual: puedes editar todos los campos a mano.'
-                : ' Modo Automático: días y deducciones salen de cortes/vales (solo bono y otros son editables).'}
+                : ' Modo Automático: días desde el reloj checador (tarde cuenta; desde el 5º retardo ese día no se paga). Consumos/inventario de cortes Virtual, Abarrotes y Garage.'}
             </p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.45rem' }}>

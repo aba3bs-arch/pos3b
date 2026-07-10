@@ -110,6 +110,7 @@ function App() {
   const [nombreCubre, setNombreCubre] = useState('');
   const [telefonoCubre, setTelefonoCubre] = useState('');
   const [enviandoCubre, setEnviandoCubre] = useState(false);
+  const [desbloqueandoTienda, setDesbloqueandoTienda] = useState(false);
   const [vista, setVista] = useState('Inicio');
   const [valesIrPendientes, setValesIrPendientes] = useState(false);
   const [valesNavOpts, setValesNavOpts] = useState(null);
@@ -554,15 +555,8 @@ function App() {
     setLoginPinKey((n) => n + 1);
   };
 
-  const desbloquearTiendaYReiniciarSesion = () => {
+  const aplicarDesbloqueoTienda = () => {
     if (SUCURSAL_FIJA_ENV) return;
-    if (
-      !confirm(
-        '¿Desbloquear la tienda de este equipo?\n\nPodrás elegir otra sucursal (por ejemplo Central MAIN) e iniciar sesión de nuevo.',
-      )
-    ) {
-      return;
-    }
     desbloquearTiendaEnEsteEquipo();
     setTiendaFijadaParaAcceso(false);
     setSucursal('MAIN');
@@ -571,6 +565,53 @@ function App() {
     cerrarSesion();
     setPin('');
     setLoginPinKey((n) => n + 1);
+  };
+
+  /** Desbloqueo en login: solo con PIN de Administrador (si lo pulsa la sucursal sin PIN, no funciona). */
+  const desbloquearTiendaConPinAdmin = async (pinAdmin) => {
+    if (SUCURSAL_FIJA_ENV) return false;
+    if (!supabase) {
+      alert('Sin conexión a Supabase.');
+      return false;
+    }
+    const p = String(pinAdmin || '').trim();
+    if (!p) {
+      alert('Indica el PIN del administrador.');
+      return false;
+    }
+    setDesbloqueandoTienda(true);
+    const auth = await verificarPinAdministradorGlobal(supabase, p);
+    setDesbloqueandoTienda(false);
+    if (!auth.ok) {
+      alert(auth.error || 'PIN incorrecto. Solo un administrador puede desbloquear la tienda.');
+      return false;
+    }
+    if (
+      !confirm(
+        `Autorizado por ${auth.nombre}.\n\n¿Desbloquear la tienda de este equipo?\nPodrás elegir Central (MAIN) u otra sucursal.`,
+      )
+    ) {
+      return false;
+    }
+    aplicarDesbloqueoTienda();
+    return true;
+  };
+
+  /** Desde Configuración: solo si la sesión ya es Administrador. */
+  const desbloquearTiendaYReiniciarSesion = () => {
+    if (SUCURSAL_FIJA_ENV) return;
+    if (!esAdministradorSinAnclaje(user?.rol)) {
+      alert('Solo un administrador puede desbloquear la tienda de este equipo.');
+      return;
+    }
+    if (
+      !confirm(
+        '¿Desbloquear la tienda de este equipo?\n\nPodrás elegir otra sucursal (por ejemplo Central MAIN) e iniciar sesión de nuevo.',
+      )
+    ) {
+      return;
+    }
+    aplicarDesbloqueoTienda();
   };
 
   const agregarNuevaTienda = (raw) => {
@@ -627,7 +668,8 @@ function App() {
           setTiendaFijadaParaAcceso(true);
         }}
         sucursalFijaEnv={SUCURSAL_FIJA_ENV}
-        onDesbloquearTienda={!SUCURSAL_FIJA_ENV && tiendaFijadaParaAcceso ? desbloquearTiendaYReiniciarSesion : undefined}
+        onDesbloquearTiendaConAdmin={!SUCURSAL_FIJA_ENV && tiendaFijadaParaAcceso ? desbloquearTiendaConPinAdmin : undefined}
+        desbloqueandoTienda={desbloqueandoTienda}
         supabaseConfigured={supabaseConfigured}
         pin={pin}
         pinFieldKey={loginPinKey}
@@ -890,7 +932,9 @@ function App() {
               onQuitarSucursalExtra={quitarTiendaExtra}
               tiendaNoCambiable={Boolean(SUCURSAL_FIJA_ENV || (tiendaFijadaParaAcceso && !puedeCambiarTienda))}
               bloqueoPorEntorno={Boolean(SUCURSAL_FIJA_ENV)}
-              onDesbloquearTiendaBrowser={sesion ? desbloquearTiendaYReiniciarSesion : undefined}
+              onDesbloquearTiendaBrowser={
+                sesion && esAdministradorSinAnclaje(user?.rol) ? desbloquearTiendaYReiniciarSesion : undefined
+              }
               user={user}
               inventario={inventario}
               cargarDatos={cargarDatos}

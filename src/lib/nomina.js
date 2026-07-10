@@ -18,7 +18,13 @@ import {
   sueldoBrutoLinea,
   recalcularLineaNomina,
 } from './nominaCalculos.js';
+import {
+  asistenciasPorEmpleado,
+  calcularDiasDesdeAsistencias,
+  resolverAsistenciasEmpleado,
+} from './nominaAsistencias.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
+import { leerTurnos } from './turnos.js';
 
 const LS_SUELDOS = 'pos3b_nomina_salario_dia';
 const LS_SUELDOS_LEGACY = 'pos3b_nomina_sueldos_default';
@@ -75,13 +81,18 @@ function splitGastosNomina(detalle = []) {
   };
 }
 
-function notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas) {
+function notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas, asistInfo = null) {
   const notas = [];
   if (indirecto) {
     if (valesGas > 0) notas.push(`Vales cobrados: ${valesGas}`);
     if (faltasGas > 0) notas.push(`Faltas (vale no cobrado): ${faltasGas}`);
-  } else if (cortes > 0) {
-    notas.push(`Cortes en periodo: ${cortes}`);
+  } else {
+    if (asistInfo && asistInfo.asistencias > 0) {
+      notas.push(
+        `Asistencias checador: ${asistInfo.asistencias} · Retardos: ${asistInfo.retardos} · Días pagados: ${asistInfo.diasTrabajados}`,
+      );
+    }
+    if (cortes > 0) notas.push(`Cortes (ref.): ${cortes}`);
   }
 
   const porSuc = gastosEmp?.porSucursal;
@@ -136,10 +147,12 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
     cortesMap = {},
     valesGasolinaMap = {},
     valesGasolinaNoCobradosMap = {},
+    asistenciasMap = {},
     pagadorFiltro = '',
     arrastreMap = {},
   } = opts;
 
+  const turnos = leerTurnos();
   let lista = empleados || [];
   if (pagadorFiltro) {
     lista = lista.filter((u) => empleadoIncluidoEnPagadorFiltro(u, pagadorFiltro));
@@ -157,6 +170,8 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
     const cortes = resolverCortesEmpleado(u, cortesMap);
     const valesGas = Number(valesGasolinaMap[String(u.id)] || 0);
     const faltasGas = Number(valesGasolinaNoCobradosMap[String(u.id)] || 0);
+    const entradas = resolverAsistenciasEmpleado(u, asistenciasMap);
+    const asistInfo = calcularDiasDesdeAsistencias(u, entradas, { turnos });
 
     let diasTrabajados = cortes;
     let sueldoBase = 0;
@@ -166,7 +181,13 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       diasTrabajados = valesGas;
       sueldoBase = sueldoIndirectoPorVales(salarioDia, valesGas);
       dedFaltas = sueldoIndirectoPorVales(salarioDia, faltasGas);
+    } else if (asistInfo.asistencias > 0) {
+      // Automático: días desde reloj checador (retardos cuentan hasta el límite).
+      diasTrabajados = asistInfo.diasTrabajados;
+      sueldoBase = sueldoPorSalarioDia(salarioDia, diasTrabajados);
     } else {
+      // Sin marcajes: respaldo por cierres de corte (Virtual/Abarrotes/Garage).
+      diasTrabajados = cortes;
       sueldoBase = sueldoPorSalarioDia(salarioDia, cortes);
     }
 
@@ -181,6 +202,8 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       sueldo_tarifa: salarioDia,
       dias_trabajados: diasTrabajados,
       cortes_periodo: cortes,
+      asistencias_periodo: asistInfo.asistencias,
+      retardos_periodo: asistInfo.retardos,
       vales_gasolina: valesGas,
       faltas_gasolina: faltasGas,
       sueldo_base: sueldoBase,
@@ -193,7 +216,7 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       deduccion_arrastre: round2(arrastreMap[String(u.id)] || 0),
       deducciones: 0,
       notas_otros: '',
-      notas: notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas),
+      notas: notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas, asistInfo),
       pagador_manual: false,
       dias_manual: false,
       sueldo_manual: false,
@@ -210,16 +233,17 @@ export function recalcularSueldoLinea(linea) {
   return recalcularLineaNomina(linea);
 }
 
-/** Carga gastos, préstamos, cortes y vales de todas las sucursales. */
+/** Carga gastos (3 cortes), préstamos, cierres, vales e asistencias del checador. */
 export async function cargarDatosNomina(supabase, { desde, hasta, empleados, todasSucursales = true, sucursal }) {
   const opts = { desde, hasta, empleados, todasSucursales, sucursal };
-  const [gastosRes, prestRes, cortesRes, valesRes] = await Promise.all([
+  const [gastosRes, prestRes, cortesRes, valesRes, asistenciasRes] = await Promise.all([
     gastosDeduccionPorEmpleado(supabase, opts),
     prestamosDeduccionPorEmpleado(supabase, opts),
     cortesPorEmpleado(supabase, opts),
     valesGasolinaPorEmpleado(supabase, opts),
+    asistenciasPorEmpleado(supabase, opts),
   ]);
-  return { gastosRes, prestRes, cortesRes, valesRes };
+  return { gastosRes, prestRes, cortesRes, valesRes, asistenciasRes };
 }
 
 export function faltaTablaNomina(error) {

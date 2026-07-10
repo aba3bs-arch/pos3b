@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import BrandLogo from './BrandLogo.jsx';
 import InputPin from './InputPin.jsx';
 import SelectorTemaInterfaz from './SelectorTemaInterfaz.jsx';
@@ -13,7 +13,8 @@ export default function PantallaLogin({
   onCambiarSucursal,
   onFijarTienda,
   sucursalFijaEnv,
-  onDesbloquearTienda,
+  onDesbloquearTiendaConAdmin,
+  desbloqueandoTienda = false,
   supabaseConfigured,
   pin,
   onPinChange,
@@ -37,6 +38,21 @@ export default function PantallaLogin({
   onCancelarAutorizacion,
   autorizandoTurno,
 }) {
+  const [pedirAdminDesbloqueo, setPedirAdminDesbloqueo] = useState(false);
+  const [pinAdminDesbloqueo, setPinAdminDesbloqueo] = useState('');
+
+  const cancelarDesbloqueo = () => {
+    setPedirAdminDesbloqueo(false);
+    setPinAdminDesbloqueo('');
+  };
+
+  const confirmarDesbloqueo = () => {
+    if (typeof onDesbloquearTiendaConAdmin !== 'function') return;
+    void onDesbloquearTiendaConAdmin(pinAdminDesbloqueo).then((ok) => {
+      if (ok) cancelarDesbloqueo();
+    });
+  };
+
   return (
     <div className="login-shell">
       <div className="login-shell-deco" aria-hidden />
@@ -85,14 +101,52 @@ export default function PantallaLogin({
             ) : (
               <>
                 <p className="muted login-hint-sm">Fijada en este navegador</p>
-                {typeof onDesbloquearTienda === 'function' && (
-                  <button type="button" className="btn btn-ghost login-btn-block" style={{ marginTop: '0.65rem' }} onClick={onDesbloquearTienda}>
-                    Cambiar / desbloquear tienda
+                {typeof onDesbloquearTiendaConAdmin === 'function' && !pedirAdminDesbloqueo && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost login-btn-block"
+                    style={{ marginTop: '0.65rem', fontSize: '0.82rem' }}
+                    onClick={() => setPedirAdminDesbloqueo(true)}
+                  >
+                    Desbloquear tienda (solo admin)
                   </button>
                 )}
-                <p className="muted login-hint-sm" style={{ marginTop: '0.35rem' }}>
-                  Úsalo para entrar a <strong>Central (MAIN)</strong> u otra sucursal desde este equipo.
-                </p>
+                {pedirAdminDesbloqueo && (
+                  <div
+                    className="login-auth-turno"
+                    style={{ marginTop: '0.75rem', borderColor: 'rgba(220,38,38,0.35)', background: 'rgba(220,38,38,0.06)' }}
+                  >
+                    <strong style={{ color: 'var(--brand-red)' }}>Autorización de administrador</strong>
+                    <p className="muted login-hint-sm" style={{ margin: '0.35rem 0 0.65rem' }}>
+                      Sin PIN de <strong>Administrador</strong> no se puede cambiar la tienda de esta caja.
+                    </p>
+                    <label className="muted login-field">
+                      PIN del administrador
+                      <InputPin
+                        value={pinAdminDesbloqueo}
+                        onChange={(e) => setPinAdminDesbloqueo(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && !desbloqueandoTienda && confirmarDesbloqueo()}
+                        placeholder="PIN admin"
+                        autoFocus
+                        autoComplete="new-password"
+                        name="desbloqueo-tienda-admin"
+                      />
+                    </label>
+                    <div className="login-auth-actions">
+                      <button
+                        type="button"
+                        className="btn btn-danger"
+                        onClick={confirmarDesbloqueo}
+                        disabled={desbloqueandoTienda || !pinAdminDesbloqueo.trim()}
+                      >
+                        {desbloqueandoTienda ? 'Verificando…' : 'Desbloquear'}
+                      </button>
+                      <button type="button" className="btn btn-ghost" onClick={cancelarDesbloqueo} disabled={desbloqueandoTienda}>
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -104,33 +158,33 @@ export default function PantallaLogin({
           </p>
         )}
 
-        {!pendienteCubreTurno && (
-        <>
-        <InputPin
-          key={`login-pin-${pinFieldKey}`}
-          value={pin}
-          onChange={onPinChange}
-          onKeyDown={(e) => e.key === 'Enter' && puedeIngresarPin && !pendienteAutorizacionTurno && onLogin()}
-          placeholder="PIN"
-          autoFocus={puedeIngresarPin}
-          disabled={!puedeIngresarPin}
-          autoComplete="new-password"
-          className="login-pin"
-        />
-        <button
-          type="button"
-          className="btn btn-primary login-btn-block login-btn-enter"
-          onClick={onLogin}
-          disabled={!puedeIngresarPin || Boolean(pendienteAutorizacionTurno)}
-        >
-          <BtnLabel icon="logIn">Entrar</BtnLabel>
-        </button>
-        {cubreTurnoHabilitado && (
-          <p className="muted login-hint-sm" style={{ marginTop: '0.5rem' }}>
-            Si cubres turno, usa el <strong>PIN de cubre turno</strong> configurado por el administrador en {etiquetaTienda(sucursal)}.
-          </p>
-        )}
-        </>
+        {!pendienteCubreTurno && !pedirAdminDesbloqueo && (
+          <>
+            <InputPin
+              key={`login-pin-${pinFieldKey}`}
+              value={pin}
+              onChange={onPinChange}
+              onKeyDown={(e) => e.key === 'Enter' && puedeIngresarPin && !pendienteAutorizacionTurno && onLogin()}
+              placeholder="PIN"
+              autoFocus={puedeIngresarPin}
+              disabled={!puedeIngresarPin}
+              autoComplete="new-password"
+              className="login-pin"
+            />
+            <button
+              type="button"
+              className="btn btn-primary login-btn-block login-btn-enter"
+              onClick={onLogin}
+              disabled={!puedeIngresarPin || Boolean(pendienteAutorizacionTurno)}
+            >
+              <BtnLabel icon="logIn">Entrar</BtnLabel>
+            </button>
+            {cubreTurnoHabilitado && (
+              <p className="muted login-hint-sm" style={{ marginTop: '0.5rem' }}>
+                Si cubres turno, usa el <strong>PIN de cubre turno</strong> configurado por el administrador en {etiquetaTienda(sucursal)}.
+              </p>
+            )}
+          </>
         )}
 
         {pendienteCubreTurno && (

@@ -180,6 +180,8 @@ export function fusionarLineasNomina(anteriores, nuevas) {
     if (ant.dias_manual) {
       merged.dias_trabajados = ant.dias_trabajados;
       merged.cortes_periodo = ant.cortes_periodo ?? nueva.cortes_periodo;
+      merged.asistencias_periodo = ant.asistencias_periodo ?? nueva.asistencias_periodo;
+      merged.retardos_periodo = ant.retardos_periodo ?? nueva.retardos_periodo;
       merged.vales_gasolina = ant.vales_gasolina ?? nueva.vales_gasolina;
       merged.faltas_gasolina = ant.faltas_gasolina ?? nueva.faltas_gasolina;
       merged.deduccion_faltas = ant.deduccion_faltas ?? nueva.deduccion_faltas;

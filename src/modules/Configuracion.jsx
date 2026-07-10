@@ -778,8 +778,13 @@ export default function Configuracion({
                   </p>
                   {typeof onDesbloquearTiendaBrowser === 'function' && (
                     <button type="button" className="btn btn-danger" onClick={onDesbloquearTiendaBrowser}>
-                      Cambiar tienda de este equipo (cierra sesión)
+                      Cambiar tienda de este equipo (solo admin · cierra sesión)
                     </button>
+                  )}
+                  {typeof onDesbloquearTiendaBrowser !== 'function' && !bloqueoPorEntorno && (
+                    <p className="muted" style={{ fontSize: '0.82rem', margin: 0 }}>
+                      Solo un <strong>administrador</strong> puede desbloquear la tienda de esta caja.
+                    </p>
                   )}
                 </>
               )}
