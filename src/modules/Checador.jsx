@@ -19,6 +19,12 @@ import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import InputPin from '../components/InputPin.jsx';
 import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
+import { refrescarPinCubreTurnoSucursal } from '../lib/cubreTurnoSync.js';
+import {
+  construirUsuarioCubreTurno,
+  datosCubreTurnoCompletos,
+  validarDatosCubreTurno,
+} from '../lib/cubreTurno.js';
 
 function inicioDiaLocal() {
   const d = new Date();
@@ -62,6 +68,10 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
   const [pinAdminChecador, setPinAdminChecador] = useState('');
   const [autorizandoChecador, setAutorizandoChecador] = useState(false);
   const [avisoCobertura, setAvisoCobertura] = useState('');
+  const [pendienteCubreChecador, setPendienteCubreChecador] = useState(false);
+  const [nombreCubreChecador, setNombreCubreChecador] = useState('');
+  const [telefonoCubreChecador, setTelefonoCubreChecador] = useState('');
+  const [enviandoCubreChecador, setEnviandoCubreChecador] = useState(false);
 
   const [filtroTiendaHist, setFiltroTiendaHist] = useState(sucursal || '');
   const [presetHist, setPresetHist] = useState('semana');
@@ -189,15 +199,66 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       .slice(0, 8);
   }, [codigo, inventario, producto]);
 
+  const cancelarCubreChecador = () => {
+    setPendienteCubreChecador(false);
+    setNombreCubreChecador('');
+    setTelefonoCubreChecador('');
+    setEnviandoCubreChecador(false);
+  };
+
+  const confirmarCubreChecador = () => {
+    const val = validarDatosCubreTurno({ nombre: nombreCubreChecador, telefono: telefonoCubreChecador });
+    if (!val.ok) {
+      setMsg(val.error);
+      return;
+    }
+    setEnviandoCubreChecador(true);
+    const data = construirUsuarioCubreTurno({
+      nombre: val.nombre,
+      telefono: val.telefono,
+      sucursal,
+    });
+    setEmpleado({
+      id: null,
+      nombre: data.nombre,
+      rol: data.rol,
+      esCubreTurno: true,
+      telefono: data.telefono,
+    });
+    setPendienteCubreChecador(false);
+    setNombreCubreChecador('');
+    setTelefonoCubreChecador('');
+    setEnviandoCubreChecador(false);
+    setPinEmpleado('');
+    setMsg('');
+    setAvisoCobertura('Marcaje de cubre turno (sin usuario fijo).');
+  };
+
   const identificarEmpleado = async () => {
     if (!supabase) {
       setMsg('Configura Supabase para usar el reloj checador.');
       return;
     }
     const p = pinEmpleado.trim();
-    if (!p) return;
+    if (!p || cargandoPin) return;
     setCargandoPin(true);
     setMsg('');
+    setPendienteCubreChecador(false);
+
+    const syncPin = await refrescarPinCubreTurnoSucursal(supabase, sucursal);
+    const pinCubreRemoto = String(syncPin.pin || '').trim();
+    if (pinCubreRemoto && p === pinCubreRemoto) {
+      setCargandoPin(false);
+      setPinEmpleado('');
+      setEmpleado(null);
+      setPendienteChecador(null);
+      setPendienteCubreChecador(true);
+      setNombreCubreChecador('');
+      setTelefonoCubreChecador('');
+      setAvisoCobertura('');
+      return;
+    }
+
     const { user: data, error, avisoSucursal, sucursalReal } = await buscarUsuarioPorPinYSucursal(supabase, p, sucursal);
     setCargandoPin(false);
     if (error) {
@@ -208,6 +269,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     if (!data) {
       setMsg(avisoSucursal ? mensajePinSucursalIncorrecta(etiquetaTienda(sucursal), sucursalReal) : 'PIN incorrecto');
       setEmpleado(null);
+      setPinEmpleado('');
       return;
     }
     const accesoTurno = usuarioAutorizadoChecador(data, new Date(), null, sucursal);
@@ -216,6 +278,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       setMsg('');
       setEmpleado(null);
       setAvisoCobertura('');
+      setPinEmpleado('');
       return;
     }
     setPendienteChecador(null);
@@ -225,6 +288,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     if (!vinculo.ok) {
       setMsg(vinculo.error);
       setEmpleado(null);
+      setPinEmpleado('');
       return;
     }
     setEmpleado({ id: data.id, nombre: data.nombre, rol: data.rol });
@@ -334,14 +398,13 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     if (!supabase || !empleado || !sucursal) return;
     setMarcando(true);
     setMsg('');
-    const { error } = await supabase.from('asistencias').insert([
-      {
-        usuario_id: empleado.id,
-        nombre: empleado.nombre,
-        sucursal_id: sucursal,
-        tipo,
-      },
-    ]);
+    const row = {
+      usuario_id: empleado.id || null,
+      nombre: empleado.esCubreTurno ? `${empleado.nombre} (cubre turno)` : empleado.nombre,
+      sucursal_id: sucursal,
+      tipo,
+    };
+    const { error } = await supabase.from('asistencias').insert([row]);
     setMarcando(false);
     if (error) {
       if (error.message?.includes('relation') || error.code === '42P01') {
@@ -356,6 +419,11 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     setAvisoCobertura('');
     void cargarHistorialHoy();
   };
+
+  const cubreChecadorListo = datosCubreTurnoCompletos({
+    nombre: nombreCubreChecador,
+    telefono: telefonoCubreChecador,
+  });
 
   return (
     <div style={{ maxWidth: '900px' }}>
@@ -443,8 +511,9 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
         <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
           <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Reloj checador</h3>
           <p className="muted" style={{ marginTop: 0 }}>
-            Empleados dados de alta en <strong>Usuarios</strong> marcan entrada o salida con su PIN. Si no coincide con su turno fijo, puede marcar cubriendo otro turno (±20 min). Tienda actual:{' '}
-            <span className="badge">{etiquetaTienda(sucursal)}</span>
+            Empleados dados de alta en <strong>Usuarios</strong> marcan con su PIN de esta tienda. Quien cubre turno usa el{' '}
+            <strong>PIN de cubre turno</strong> de la sucursal (nombre + teléfono). Si un fijo no coincide con su turno, puede marcar
+            cubriendo otro turno (±20 min). Tienda actual: <span className="badge">{etiquetaTienda(sucursal)}</span>
           </p>
           <div
             style={{
@@ -462,7 +531,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
             {reloj.toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </p>
 
-          {!empleado && !pendienteChecador ? (
+          {!empleado && !pendienteChecador && !pendienteCubreChecador ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', maxWidth: '360px' }}>
               <label className="muted">
                 PIN del empleado
@@ -470,8 +539,9 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                   <InputPin
                     value={pinEmpleado}
                     onChange={(e) => setPinEmpleado(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && identificarEmpleado()}
-                    placeholder="Mismo PIN que para entrar al POS"
+                    onKeyDown={(e) => e.key === 'Enter' && !cargandoPin && identificarEmpleado()}
+                    placeholder="PIN de esta tienda"
+                    autoComplete="new-password"
                     style={{ fontSize: '1.2rem', letterSpacing: '0.15em', marginBottom: 0 }}
                   />
                 </div>
@@ -479,6 +549,65 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
               <button type="button" className="btn btn-primary" onClick={identificarEmpleado} disabled={cargandoPin}>
                 {cargandoPin ? 'Verificando…' : 'Continuar'}
               </button>
+            </div>
+          ) : pendienteCubreChecador ? (
+            <div
+              style={{
+                maxWidth: '360px',
+                padding: '0.85rem',
+                borderRadius: '10px',
+                background: 'rgba(225,153,41,0.12)',
+                border: '1px solid rgba(225,153,41,0.45)',
+              }}
+            >
+              <strong style={{ color: 'var(--brand-gold)' }}>Cubre turno · {etiquetaTienda(sucursal)}</strong>
+              <p className="muted" style={{ margin: '0.35rem 0 0.65rem', fontSize: '0.82rem' }}>
+                Obligatorio: <strong>nombre y apellido</strong> + <strong>teléfono</strong> (10 dígitos).
+              </p>
+              <label className="muted" style={{ display: 'block', fontSize: '0.82rem' }}>
+                Nombre y apellido completos
+                <input
+                  className="input"
+                  value={nombreCubreChecador}
+                  onChange={(e) => setNombreCubreChecador(e.target.value)}
+                  placeholder="Ej. María López García"
+                  autoFocus
+                  maxLength={80}
+                  style={{ marginTop: '0.35rem', marginBottom: '0.5rem' }}
+                />
+              </label>
+              <label className="muted" style={{ display: 'block', fontSize: '0.82rem' }}>
+                Teléfono de contacto
+                <input
+                  className="input"
+                  type="tel"
+                  inputMode="tel"
+                  value={telefonoCubreChecador}
+                  onChange={(e) => setTelefonoCubreChecador(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && cubreChecadorListo && !enviandoCubreChecador && confirmarCubreChecador()}
+                  placeholder="10 dígitos"
+                  maxLength={15}
+                  style={{ marginTop: '0.35rem', marginBottom: 0 }}
+                />
+              </label>
+              {!cubreChecadorListo && (
+                <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem', color: 'var(--brand-gold)' }}>
+                  Completa nombre y apellido + teléfono para continuar.
+                </p>
+              )}
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.65rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-gold"
+                  onClick={confirmarCubreChecador}
+                  disabled={enviandoCubreChecador || !cubreChecadorListo}
+                >
+                  {enviandoCubreChecador ? 'Continuando…' : 'Continuar'}
+                </button>
+                <button type="button" className="btn btn-ghost" onClick={cancelarCubreChecador} disabled={enviandoCubreChecador}>
+                  Cancelar
+                </button>
+              </div>
             </div>
           ) : pendienteChecador ? (
             <div
@@ -528,7 +657,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
             <div style={{ padding: '1rem', borderRadius: '12px', background: 'rgba(59,105,181,0.08)', marginBottom: '1rem' }}>
               <div style={{ fontSize: '1.15rem', fontWeight: 700 }}>{empleado.nombre}</div>
               <div className="muted" style={{ fontSize: '0.9rem', marginTop: '0.25rem' }}>
-                Confirma el marcaje
+                {empleado.esCubreTurno ? 'Cubre turno · confirma el marcaje' : 'Confirma el marcaje'}
               </div>
               {avisoCobertura && (
                 <p style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', color: 'var(--brand-gold)' }}>{avisoCobertura}</p>
@@ -541,7 +670,16 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                   Salida
                 </button>
               </div>
-              <button type="button" className="btn btn-ghost" style={{ marginTop: '0.75rem' }} onClick={() => setEmpleado(null)} disabled={marcando}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ marginTop: '0.75rem' }}
+                onClick={() => {
+                  setEmpleado(null);
+                  setAvisoCobertura('');
+                }}
+                disabled={marcando}
+              >
                 Cancelar
               </button>
             </div>

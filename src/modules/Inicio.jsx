@@ -10,18 +10,52 @@ import PanelAnunciosAdmin from '../components/PanelAnunciosAdmin.jsx';
 import PanelPurgeDatosAdmin from '../components/PanelPurgeDatosAdmin.jsx';
 import PanelNotificacionesInicio from '../components/PanelNotificacionesInicio.jsx';
 import PanelAppMovilInicio from '../components/PanelAppMovilInicio.jsx';
+import { puedeGestionarUsuarios } from '../lib/roles.js';
+import { reiniciarPinCubreTurno, pinCubreTurnoActivo, EVENTO_PIN_CUBRE_TURNO } from '../lib/cubreTurno.js';
 
 function PuntoVerdeActivo() {
   return <span className="punto-verde-parpadeo" title="Anuncio activo" aria-hidden />;
 }
 
-export default function Inicio({ supabase, sucursal, inventario, inventarioCompleto, user, cargarDatos, onNavigate, onIrIncidencias, puedeModulo }) {
+export default function Inicio({ supabase, sucursal, inventario, inventarioCompleto, user, cargarDatos, onNavigate, onIrIncidencias, onReiniciarPagina, puedeModulo }) {
   const puede = typeof puedeModulo === 'function' ? puedeModulo : () => true;
   const puedeVerInventario = puede('Productos');
   const esAdminPrincipal = esAdministradorPrincipal(user);
+  const esAdmin = puedeGestionarUsuarios(user?.rol);
   const [panelAnuncios, setPanelAnuncios] = useState(false);
   const [panelPurge, setPanelPurge] = useState(false);
   const [hayAnuncio, setHayAnuncio] = useState(false);
+  const [reiniciandoPinCubre, setReiniciandoPinCubre] = useState(false);
+  const [tickCubre, setTickCubre] = useState(0);
+
+  useEffect(() => {
+    const onCubre = () => setTickCubre((n) => n + 1);
+    window.addEventListener(EVENTO_PIN_CUBRE_TURNO, onCubre);
+    return () => window.removeEventListener(EVENTO_PIN_CUBRE_TURNO, onCubre);
+  }, []);
+
+  const cubreActivo = useMemo(() => pinCubreTurnoActivo(sucursal), [sucursal, tickCubre]);
+
+  const reiniciarPinCubre = async () => {
+    if (!supabase || !sucursal) return;
+    if (
+      !confirm(
+        `¿Reiniciar el PIN de cubre turno de ${etiquetaTienda(sucursal)}?\n\nSe generará un PIN nuevo de 4 dígitos. El anterior dejará de funcionar de inmediato.`,
+      )
+    ) {
+      return;
+    }
+    setReiniciandoPinCubre(true);
+    const res = await reiniciarPinCubreTurno(sucursal, supabase);
+    setReiniciandoPinCubre(false);
+    if (!res.ok) {
+      alert(res.error || res.remoto?.error || res.remoto?.aviso || 'No se pudo reiniciar el PIN.');
+      return;
+    }
+    alert(
+      `PIN de cubre turno reiniciado para ${etiquetaTienda(sucursal)}.\n\nNuevo PIN: ${res.pin}\n\nAnota este número; no se guarda en el navegador.`,
+    );
+  };
 
   useEffect(() => {
     if (!esAdminPrincipal || !supabase) return;
@@ -150,6 +184,63 @@ export default function Inicio({ supabase, sucursal, inventario, inventarioCompl
           Sucursal <span className="badge">{nombreTienda}</span> · Resumen operativo del día
         </p>
       </div>
+
+      {typeof onReiniciarPagina === 'function' && (
+        <div
+          className="card"
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            borderLeft: '5px solid var(--brand-blue)',
+          }}
+        >
+          <div>
+            <h3 style={{ margin: 0, color: 'var(--brand-blue-dark)', fontSize: '1.05rem' }}>Reiniciar sesión</h3>
+            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
+              Cierra la sesión y recarga la página para entrar con otro usuario fijo o con PIN de cubre turno, sin que quede un PIN anterior.
+            </p>
+          </div>
+          <button type="button" className="btn btn-primary" onClick={onReiniciarPagina} style={{ flexShrink: 0 }}>
+            <BtnLabel icon="refresh">Reiniciar página</BtnLabel>
+          </button>
+        </div>
+      )}
+
+      {esAdmin && (
+        <div
+          className="card"
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            borderLeft: '5px solid var(--brand-gold)',
+          }}
+        >
+          <div>
+            <h3 style={{ margin: 0, color: 'var(--brand-blue-dark)', fontSize: '1.05rem' }}>PIN de cubre turno</h3>
+            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
+              {cubreActivo
+                ? `Hay PIN activo en ${nombreTienda}. Reinicia si se filtró o ya no lo recuerdas.`
+                : `No hay PIN de cubre turno en ${nombreTienda}. Reinicia para generar uno nuevo.`}
+            </p>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', flexShrink: 0 }}>
+            <button type="button" className="btn btn-gold" onClick={reiniciarPinCubre} disabled={reiniciandoPinCubre || !supabase}>
+              <BtnLabel icon="refresh">{reiniciandoPinCubre ? 'Reiniciando…' : 'Reiniciar PIN'}</BtnLabel>
+            </button>
+            {puede('Configuracion') && (
+              <button type="button" className="btn btn-ghost" onClick={() => onNavigate('Configuracion')}>
+                Ver en Configuración
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       <PanelNotificacionesInicio
         supabase={supabase}

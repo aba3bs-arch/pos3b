@@ -101,7 +101,10 @@ export default function ConteoPorDepartamento({
     if (!producto) {
       setCodigoEscaneo('');
       scanInputRef.current?.focus();
-      return alert(`Producto no encontrado: ${codigo}`);
+      return alert(
+        `No está en inventario: ${codigo}\n\n` +
+          'El ajuste solo busca en Productos. Si lo agregaste al catálogo del proveedor, regístralo en inventario desde Proveedores.',
+      );
     }
     if (String(producto.cat || 'GENERAL').toUpperCase() !== String(departamento).toUpperCase()) {
       setCodigoEscaneo('');

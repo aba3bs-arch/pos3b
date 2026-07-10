@@ -1,8 +1,12 @@
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
 
+/** Claves antiguas: se borran para que el PIN no quede en el navegador. */
 export const LS_PIN_CUBRE_TURNO = 'pos3b_pin_cubre_turno';
 export const LS_PIN_CUBRE_TURNO_AT = 'pos3b_pin_cubre_turno_updated_at';
 export const EVENTO_PIN_CUBRE_TURNO = 'pos3b-pin-cubre-turno';
+
+/** Solo en memoria de esta sesión: si la tienda tiene PIN activo (sin guardar el valor). */
+const activoPorSucursal = new Map();
 
 function emit() {
   try {
@@ -12,79 +16,98 @@ function emit() {
   }
 }
 
-function leerMetaMap() {
+/** Elimina copias locales antiguas del PIN (evita que aparezcan en todas las tiendas). */
+export function purgarCacheLocalPinCubreTurno() {
   try {
-    const raw = localStorage.getItem(LS_PIN_CUBRE_TURNO_AT);
-    if (!raw) return {};
-    const obj = JSON.parse(raw);
-    return obj && typeof obj === 'object' ? obj : {};
+    localStorage.removeItem(LS_PIN_CUBRE_TURNO);
+    localStorage.removeItem(LS_PIN_CUBRE_TURNO_AT);
   } catch {
-    return {};
+    /* ignore */
   }
 }
 
-function guardarMetaMap(map) {
-  localStorage.setItem(LS_PIN_CUBRE_TURNO_AT, JSON.stringify(map || {}));
+purgarCacheLocalPinCubreTurno();
+
+export function marcarPinCubreTurnoActivo(sucursal, activo) {
+  const suc = normalizarCodigoTienda(sucursal);
+  if (!suc) return;
+  if (activo) activoPorSucursal.set(suc, true);
+  else activoPorSucursal.delete(suc);
+  emit();
 }
 
+export function pinCubreTurnoActivo(sucursal) {
+  const suc = normalizarCodigoTienda(sucursal);
+  if (!suc) return false;
+  return Boolean(activoPorSucursal.get(suc));
+}
+
+/** @deprecated Ya no se guardan PIN en localStorage; siempre {}. */
 export function leerPinsCubreTurno() {
-  try {
-    const raw = localStorage.getItem(LS_PIN_CUBRE_TURNO);
-    if (!raw) return {};
-    const obj = JSON.parse(raw);
-    return obj && typeof obj === 'object' ? obj : {};
-  } catch {
-    return {};
-  }
+  return {};
 }
 
-export function leerPinCubreTurno(sucursal) {
-  const suc = normalizarCodigoTienda(sucursal);
-  if (!suc) return '';
-  return String(leerPinsCubreTurno()[suc] || '').trim();
+/** @deprecated Sin cache local del valor del PIN. */
+export function leerPinCubreTurno() {
+  return '';
 }
 
-export function leerPinCubreTurnoMeta(sucursal) {
-  const suc = normalizarCodigoTienda(sucursal);
-  if (!suc) return null;
-  return leerMetaMap()[suc] || null;
+export function leerPinCubreTurnoMeta() {
+  return null;
 }
 
-export function guardarPinCubreTurno(sucursal, pin, { updatedAt, silencioso = false } = {}) {
+/** Actualiza solo el flag en memoria (el valor vive en Supabase). */
+export function guardarPinCubreTurno(sucursal, pin, { silencioso = false } = {}) {
   const suc = normalizarCodigoTienda(sucursal);
   if (!suc) return { ok: false, error: 'Sucursal no válida.' };
   const p = String(pin || '').trim();
-  const map = { ...leerPinsCubreTurno() };
-  const meta = { ...leerMetaMap() };
-  if (!p) delete map[suc];
-  else map[suc] = p;
-  meta[suc] = updatedAt || new Date().toISOString();
-  localStorage.setItem(LS_PIN_CUBRE_TURNO, JSON.stringify(map));
-  guardarMetaMap(meta);
+  marcarPinCubreTurnoActivo(suc, Boolean(p));
   if (!silencioso) emit();
   return { ok: true };
 }
 
-/** Guarda local y sincroniza a Supabase (todas las cajas de esa sucursal). */
+/** Guarda solo en Supabase (no en el navegador). */
 export async function persistirPinCubreTurno(sucursal, pin, supabase) {
-  const local = guardarPinCubreTurno(sucursal, pin);
-  if (!local.ok) return local;
-  if (!supabase) return { ok: true, local };
-  const { subirPinCubreTurnoANube } = await import('./cubreTurnoSync.js');
-  const remoto = await subirPinCubreTurnoANube(supabase, sucursal, pin);
-  if (remoto.ok && remoto.updated_at) {
-    guardarPinCubreTurno(sucursal, remoto.pin ?? pin, { updatedAt: remoto.updated_at, silencioso: true });
+  const suc = normalizarCodigoTienda(sucursal);
+  if (!suc) return { ok: false, error: 'Sucursal no válida.' };
+  const p = String(pin || '').trim();
+  if (!supabase) {
+    return { ok: false, error: 'Sin conexión a Supabase; el PIN de cubre turno solo se guarda en la nube.' };
   }
-  // Local siempre queda; el caller debe revisar `remoto` para sync entre cajas.
-  return { ok: true, local, remoto };
+  const { subirPinCubreTurnoANube } = await import('./cubreTurnoSync.js');
+  const remoto = await subirPinCubreTurnoANube(supabase, suc, p);
+  if (remoto.ok) {
+    marcarPinCubreTurnoActivo(suc, Boolean(remoto.pin ?? p));
+  }
+  return { ok: Boolean(remoto.ok), remoto };
 }
 
-export function pinCubreTurnoActivo(sucursal) {
-  return Boolean(leerPinCubreTurno(sucursal));
+export function generarPinCubreTurnoAleatorio() {
+  return String(Math.floor(1000 + Math.random() * 9000));
 }
 
-export function esPinCubreTurno(pin, sucursal) {
-  const configurado = leerPinCubreTurno(sucursal);
+/** Genera un PIN nuevo de 4 dígitos, lo sube a la nube y lo devuelve (para mostrar una vez). */
+export async function reiniciarPinCubreTurno(sucursal, supabase) {
+  let pin = generarPinCubreTurnoAleatorio();
+  if (supabase) {
+    try {
+      const { pinUsuarioOcupadoEnSucursal } = await import('./usuariosAuth.js');
+      for (let i = 0; i < 12; i += 1) {
+        const choque = await pinUsuarioOcupadoEnSucursal(supabase, pin, sucursal);
+        if (!choque.ocupado) break;
+        pin = generarPinCubreTurnoAleatorio();
+      }
+    } catch {
+      /* si falla la consulta, igual se intenta subir el PIN generado */
+    }
+  }
+  const res = await persistirPinCubreTurno(sucursal, pin, supabase);
+  if (!res.ok) return { ...res, pin: null };
+  return { ok: true, pin, remoto: res.remoto };
+}
+
+export function esPinCubreTurno(pin, pinConfigurado) {
+  const configurado = String(pinConfigurado || '').trim();
   if (!configurado) return false;
   return String(pin || '').trim() === configurado;
 }

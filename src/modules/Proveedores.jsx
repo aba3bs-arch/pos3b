@@ -6,6 +6,7 @@ import {
   listarCatalogoProveedor,
   nombreCatalogoItem,
   registrarCatalogoEnInventario,
+  registrarCatalogoPendientesEnInventario,
 } from '../lib/proveedorCatalogo.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
@@ -30,6 +31,7 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
   const [editCatId, setEditCatId] = useState(null);
   const [busqProd, setBusqProd] = useState('');
   const [mostrarVinculos, setMostrarVinculos] = useState(false);
+  const [registrandoMasivo, setRegistrandoMasivo] = useState(false);
   const puedeAlta = puedeCrearProveedor(user?.rol);
 
   const load = async () => {
@@ -193,6 +195,46 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
     }
     loadCatalogo(editId);
     loadVinculos(editId);
+  };
+
+  const registrarTodosPendientes = async () => {
+    if (!supabase || !editId) return;
+    const pendientes = catalogo.filter((c) => !c.producto_id && c.activo !== false);
+    if (!pendientes.length) return alert('No hay productos pendientes.');
+
+    const conCodigo = pendientes.filter((c) => String(c.codigo_barras || '').trim());
+    const sinCodigo = pendientes.filter((c) => !String(c.codigo_barras || '').trim());
+    if (!conCodigo.length) {
+      return alert(
+        'Ningún pendiente tiene código de barras.\n\nEdita cada ítem del catálogo y pon el código (o SKU de barras) antes de registrar.',
+      );
+    }
+
+    const msg =
+      `¿Registrar ${conCodigo.length} producto(s) en inventario de ${etiquetaTienda(sucursal)}?\n\n` +
+      `• Usa el código y precio de compra del catálogo\n` +
+      `• Stock inicial: 0 (luego ajustas con conteo/ajuste)\n` +
+      (sinCodigo.length ? `\nSe omitirán ${sinCodigo.length} sin código de barras.` : '');
+    if (!confirm(msg)) return;
+
+    setRegistrandoMasivo(true);
+    const res = await registrarCatalogoPendientesEnInventario(supabase, pendientes, {
+      sucursal,
+      stockInicial: 0,
+      cargarDatos,
+    });
+    setRegistrandoMasivo(false);
+
+    await loadCatalogo(editId);
+    await loadVinculos(editId);
+
+    const partes = [
+      `Creados: ${res.registrados || 0}`,
+      `Enlazados a existentes: ${res.enlazados || 0}`,
+    ];
+    if (res.omitidos?.length) partes.push(`Sin código (omitidos): ${res.omitidos.length}`);
+    if (res.errores?.length) partes.push(`Errores:\n${res.errores.slice(0, 8).join('\n')}`);
+    alert(partes.join('\n'));
   };
 
   const productosFiltrados = inventario.filter((p) => {
@@ -379,9 +421,20 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
           </div>
 
           {pendientesCatalogo.length > 0 && (
-            <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
-              {pendientesCatalogo.length} producto(s) pendiente(s) de registrar en inventario de {etiquetaTienda(sucursal)}.
-            </p>
+            <div style={{ marginTop: '0.65rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+              <p className="muted" style={{ margin: 0, fontSize: '0.85rem', flex: '1 1 220px' }}>
+                {pendientesCatalogo.length} pendiente(s) en {etiquetaTienda(sucursal)}. Si ya tienen código de barras en el
+                catálogo, puedes pasarlos todos de una vez (stock 0).
+              </p>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={registrandoMasivo}
+                onClick={registrarTodosPendientes}
+              >
+                {registrandoMasivo ? 'Registrando…' : `Registrar todos (${pendientesCatalogo.length})`}
+              </button>
+            </div>
           )}
 
           <button type="button" className="btn btn-ghost" style={{ marginTop: '0.75rem', fontSize: '0.85rem' }} onClick={() => setMostrarVinculos((v) => !v)}>

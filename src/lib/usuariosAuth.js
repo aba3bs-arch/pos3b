@@ -26,8 +26,8 @@ function faltaColumnaSucursal(error) {
 }
 
 /**
- * Busca usuario por PIN y sucursal de la caja.
- * Si el PIN es único en la BD, permite entrar aunque la caja muestre otra tienda.
+ * Busca usuario por PIN solo en la sucursal de la caja.
+ * No permite entrar con un PIN de otra tienda (evita confusiones al registrar).
  */
 export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva) {
   if (!supabase) return { user: null, error: 'Sin conexión a Supabase.' };
@@ -47,31 +47,38 @@ export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva
       const qLegacy = await supabase.from('usuarios').select('*').eq('pin', p).maybeSingle();
       if (qLegacy.error) return { user: null, error: qLegacy.error.message };
       if (qLegacy.data) return { user: qLegacy.data, error: null, sinColumnaSucursal: true };
-      return { user: null, error: null };
     }
     return { user: null, error: qAll.error.message };
   }
 
   const list = qAll.data || [];
-  if (list.length === 1) {
-    const u = list[0];
-    const userSuc = sucursalUsuario(u);
-    return {
-      user: u,
-      error: null,
-      ajustarSucursal: userSuc && userSuc !== suc ? userSuc : null,
-    };
-  }
-  if (list.length > 1) {
-    const enTienda = list.find((u) => sucursalUsuario(u) === suc);
-    if (enTienda) return { user: enTienda, error: null };
-    return {
-      user: null,
-      error: null,
-      avisoSucursal: true,
-      sucursalReal: sucursalUsuario(list[0]),
-    };
-  }
+  if (list.length === 0) return { user: null, error: null };
 
-  return { user: null, error: null };
+  // PIN existe pero no en esta tienda: no ajustar sucursal ni permitir cruce entre cajas.
+  const enTienda = list.find((u) => sucursalUsuario(u) === suc);
+  if (enTienda) return { user: enTienda, error: null };
+
+  const sinSucursal = list.find((u) => !sucursalUsuario(u));
+  if (sinSucursal) return { user: sinSucursal, error: null, sinColumnaSucursal: true };
+
+  return {
+    user: null,
+    error: null,
+    avisoSucursal: true,
+    sucursalReal: sucursalUsuario(list[0]),
+  };
+}
+
+/** True si el PIN ya lo usa un empleado fijo de esa sucursal. */
+export async function pinUsuarioOcupadoEnSucursal(supabase, pin, sucursalActiva, { excluirUsuarioId } = {}) {
+  if (!supabase) return { ocupado: false, error: 'Sin conexión a Supabase.' };
+  const p = String(pin || '').trim();
+  if (!p) return { ocupado: false };
+  const suc = normalizarCodigoTienda(sucursalActiva);
+  let q = supabase.from('usuarios').select('id,nombre,sucursal_id').eq('pin', p).eq('sucursal_id', suc);
+  if (excluirUsuarioId) q = q.neq('id', excluirUsuarioId);
+  const { data, error } = await q.maybeSingle();
+  if (error && !faltaColumnaSucursal(error)) return { ocupado: false, error: error.message };
+  if (data) return { ocupado: true, usuario: data };
+  return { ocupado: false };
 }

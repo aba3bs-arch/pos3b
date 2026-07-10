@@ -302,7 +302,8 @@ function App() {
 
   useEffect(() => {
     if (!supabase) return;
-    sincronizarPinsCubreTurnoDesdeNube(supabase).then((r) => {
+    // Solo consulta si esta tienda tiene PIN (no descarga ni guarda PIN de otras tiendas).
+    sincronizarPinsCubreTurnoDesdeNube(supabase, sucursal).then((r) => {
       if (r.cambio) setTickCubreTurno((n) => n + 1);
     });
   }, [supabase, sucursal]);
@@ -313,10 +314,10 @@ function App() {
       if (r.cambio) setTickPrivilegios((n) => n + 1);
     });
     sincronizarTipoCambioDesdeNube(supabase);
-    sincronizarPinsCubreTurnoDesdeNube(supabase).then((r) => {
+    sincronizarPinsCubreTurnoDesdeNube(supabase, sucursal).then((r) => {
       if (r.cambio) setTickCubreTurno((n) => n + 1);
     });
-  }, [sesion, supabase]);
+  }, [sesion, supabase, sucursal]);
 
   useEffect(() => {
     if (!supabase) return undefined;
@@ -327,13 +328,13 @@ function App() {
         });
         sincronizarTipoCambioDesdeNube(supabase);
       }
-      sincronizarPinsCubreTurnoDesdeNube(supabase).then((r) => {
+      sincronizarPinsCubreTurnoDesdeNube(supabase, sucursal).then((r) => {
         if (r.cambio) setTickCubreTurno((n) => n + 1);
       });
     };
     const id = setInterval(sync, 60_000);
     return () => clearInterval(id);
-  }, [sesion, supabase]);
+  }, [sesion, supabase, sucursal]);
 
   useEffect(() => {
     if (!sesion || !user) return;
@@ -477,7 +478,7 @@ function App() {
     // PIN no es de usuario ni de cubre turno: mensajes claros (tabla faltante / sync).
     if (syncPin.sinTabla) {
       alert(
-        `PIN incorrecto.\n\n${syncPin.aviso || AVISO_SIN_TABLA_PIN_CUBRE}\n\nSin esa tabla, el PIN de cubre turno solo existe en el navegador donde se guardó.`,
+        `PIN incorrecto.\n\n${syncPin.aviso || AVISO_SIN_TABLA_PIN_CUBRE}\n\nSin esa tabla, el PIN de cubre turno no se puede verificar en la nube.`,
       );
     } else if (syncPin.ok === false && syncPin.error) {
       alert(`PIN incorrecto.\n\nNo se pudo verificar el PIN de cubre turno en la nube: ${syncPin.error}`);
@@ -528,6 +529,25 @@ function App() {
     setSesion(false);
     setUser(null);
     setVista('Inicio');
+    setPin('');
+    setPendienteCubreTurno(false);
+    setNombreCubre('');
+    setTelefonoCubre('');
+    setPendienteAutorizacionTurno(null);
+    setPinAdminAutorizacion('');
+  };
+
+  const reiniciarPaginaSesion = () => {
+    if (
+      !confirm(
+        '¿Reiniciar la página?\n\nSe cerrará la sesión actual. Úsalo para cambiar de usuario fijo a cubre turno (o al revés) sin que quede un PIN anterior en pantalla.',
+      )
+    ) {
+      return;
+    }
+    limpiarAnunciosVistos();
+    limpiarNotificacionesDispositivoMostradas();
+    window.location.reload();
   };
 
   const desbloquearTiendaYReiniciarSesion = () => {
@@ -578,7 +598,15 @@ function App() {
         tiendaFijadaParaAcceso={tiendaFijadaParaAcceso}
         sucursal={sucursal}
         listaSucursales={listaSucursales}
-        onCambiarSucursal={setSucursal}
+        onCambiarSucursal={(codigo) => {
+          setSucursal(codigo);
+          setPin('');
+          setPendienteCubreTurno(false);
+          setNombreCubre('');
+          setTelefonoCubre('');
+          setPendienteAutorizacionTurno(null);
+          setPinAdminAutorizacion('');
+        }}
         onFijarTienda={() => {
           bloquearTiendaEnEsteEquipo(sucursal);
           guardarSucursalLocal(sucursal);
@@ -727,6 +755,7 @@ function App() {
               cargarDatos={cargarDatos}
               onNavigate={irAModulo}
               onIrIncidencias={irAIncidencias}
+              onReiniciarPagina={reiniciarPaginaSesion}
               puedeModulo={(m) => puedeVerModulo(user?.rol, m, user?.id)}
             />
           )}

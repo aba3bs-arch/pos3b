@@ -5,8 +5,10 @@ import {
   descargarPlantillaCsv,
   descargarPlantillaExcel,
   exportarCatalogoCsv,
+  filtrarFilasPorProveedores,
   importarCatalogoSupabase,
   leerArchivoCatalogo,
+  listarProveedoresEnFilas,
   parsearTextoPegado,
 } from '../lib/importarCatalogo.js';
 import { vaciarInventario, OPCIONES_VACIADO } from '../lib/borrarInventario.js';
@@ -23,6 +25,7 @@ import AjusteInventario from './AjusteInventario.jsx';
 import HistorialProducto from '../components/HistorialProducto.jsx';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { esAlmacenCentral, etiquetaCedisEmpresa } from '../lib/inventarioMultitienda.js';
+import { sincronizarFotosCatalogo, tieneFoto } from '../lib/fotosCatalogo.js';
 
 const empty = productoVacio();
 
@@ -87,6 +90,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const [importando, setImportando] = useState(false);
   const [importAviso, setImportAviso] = useState('');
   const [textoPegado, setTextoPegado] = useState('');
+  const [importProvSel, setImportProvSel] = useState(() => new Set());
   const [alcanceVaciado, setAlcanceVaciado] = useState('tienda');
   const [motivoVaciado, setMotivoVaciado] = useState('');
   const [vaciando, setVaciando] = useState(false);
@@ -103,6 +107,8 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const [filtros, setFiltros] = useState(FILTROS_VACIOS);
   const [modalAjusteOpen, setModalAjusteOpen] = useState(false);
   const [ajusteConfig, setAjusteConfig] = useState({ modo: 'libre', tipo: 'entrada' });
+  const [sincronizandoFotos, setSincronizandoFotos] = useState(false);
+  const [progresoFotos, setProgresoFotos] = useState(null);
   const fileImportRef = useRef(null);
   const puedeAltaProveedor = puedeCrearProveedor(user?.rol);
   const puedeVaciarInventario = puedeGestionarInventarioMultitienda(user?.rol);
@@ -352,6 +358,33 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     alert('Precios actualizados.');
   };
 
+  const proveedoresEnImport = useMemo(() => listarProveedoresEnFilas(importFilas), [importFilas]);
+
+  const importFilasFiltradas = useMemo(() => {
+    // Sin columna proveedor: importa todo el archivo
+    if (!proveedoresEnImport.length) return importFilas;
+    // Con proveedores: solo los marcados (vacío = ninguno)
+    if (importProvSel.size === 0) return [];
+    return filtrarFilasPorProveedores(importFilas, [...importProvSel]);
+  }, [importFilas, importProvSel, proveedoresEnImport.length]);
+
+  const prepararImportFilas = (filas, origenLabel) => {
+    setImportFilas(filas);
+    setImportNombre(origenLabel || '');
+    const provs = listarProveedoresEnFilas(filas);
+    if (provs.length) {
+      setImportProvSel(new Set(provs.map((p) => p.nombre)));
+      setImportAviso(
+        `Listo: ${filas.length} producto(s) · ${provs.length} proveedor(es) detectado(s). Elige cuáles migrar y confirma.`,
+      );
+    } else {
+      setImportProvSel(new Set());
+      setImportAviso(
+        `Listo: ${filas.length} producto(s). No hay columna «proveedor»; se importan al inventario sin vincular. Puedes agregar la columna y volver a cargar.`,
+      );
+    }
+  };
+
   const elegirArchivoImport = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -362,18 +395,26 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
       setImportFilas([]);
       setImportNombre('');
       setImportAviso('');
+      setImportProvSel(new Set());
       return alert(r.error);
     }
-    setImportFilas(r.filas);
-    setImportNombre(file.name);
-    setImportAviso(`Archivo listo: ${r.filas.length} producto(s). Revisa la vista previa y pulsa «Confirmar importación».`);
+    prepararImportFilas(r.filas, file.name);
   };
 
   const confirmarImport = async () => {
     if (!importFilas.length) return alert('No hay filas para importar.');
-    if (!confirm(`¿Importar ${importFilas.length} producto(s) a la tienda ${sucursal || 'MAIN'}?`)) return;
+    const filas = importFilasFiltradas;
+    if (!filas.length) return alert('No hay productos con los proveedores seleccionados.');
+    const filtro = proveedoresEnImport.length ? [...importProvSel] : null;
+    const msgFiltro = filtro?.length
+      ? `\nProveedores (${filtro.length}): ${filtro.slice(0, 8).join(', ')}${filtro.length > 8 ? '…' : ''}`
+      : '';
+    if (!confirm(`¿Importar ${filas.length} producto(s) a la tienda ${sucursal || 'MAIN'}?${msgFiltro}\n\nSi el proveedor no existe en el POS, se crea y se vincula.`)) return;
     setImportando(true);
-    const r = await importarCatalogoSupabase(supabase, importFilas, { sucursal });
+    const r = await importarCatalogoSupabase(supabase, importFilas, {
+      sucursal,
+      proveedoresFiltro: filtro,
+    });
     setImportando(false);
     if (!r.ok) return alert(r.error);
     alert(r.mensaje || `Catálogo importado: ${r.count} producto(s).`);
@@ -381,15 +422,14 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     setImportNombre('');
     setTextoPegado('');
     setImportAviso('');
+    setImportProvSel(new Set());
     cargarDatos();
   };
 
   const pegarDesdePortapapeles = () => {
     const r = parsearTextoPegado(textoPegado);
     if (!r.ok) return alert(r.error);
-    setImportFilas(r.filas);
-    setImportNombre('Pegado desde Excel');
-    setImportAviso(`Listo: ${r.filas.length} producto(s). Pulsa «Confirmar importación».`);
+    prepararImportFilas(r.filas, 'Pegado desde Excel');
   };
 
   const ejecutarVaciado = async () => {
@@ -416,6 +456,37 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     setMotivoVaciado('');
   };
 
+  const sinFotoCount = useMemo(
+    () => (inventarioCompleto || inventario || []).filter((p) => !tieneFoto(p)).length,
+    [inventario, inventarioCompleto],
+  );
+
+  const jalarFotosInternet = async () => {
+    const base = inventarioCompleto || inventario || [];
+    const pendientes = base.filter((p) => !tieneFoto(p));
+    if (!pendientes.length) return alert('Todos los productos ya tienen foto (o no hay catálogo).');
+    if (
+      !confirm(
+        `¿Buscar fotos en internet para ${pendientes.length} producto(s) sin imagen?\n\n` +
+          'Usa Open Food Facts por código de barras. Puede tardar varios minutos; no cierres esta pestaña.',
+      )
+    ) {
+      return;
+    }
+    setSincronizandoFotos(true);
+    setProgresoFotos({ actual: 0, total: pendientes.length, actualizados: 0, sinFoto: 0 });
+    const r = await sincronizarFotosCatalogo(supabase, base, {
+      soloSinFoto: true,
+      delayMs: 300,
+      onProgress: (p) => setProgresoFotos(p),
+    });
+    setSincronizandoFotos(false);
+    setProgresoFotos(null);
+    if (!r.ok) return alert(r.error);
+    alert(r.mensaje);
+    cargarDatos();
+  };
+
   const menuItems = [
     { id: 'alta', label: 'Nuevo producto', icon: 'plus', onClick: () => { setForm(empty); setEsEdicionProducto(false); setVista('alta'); } },
     { id: 'ajustes', label: 'Ajuste de inventario', icon: 'refresh', onClick: () => setModalAjusteOpen(true) },
@@ -423,6 +494,16 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     { id: 'etiquetas', label: 'Imprimir etiquetas', icon: 'print', onClick: () => { setEtiquetasSel(new Set()); setVista('etiquetas'); } },
     { id: 'importexport', label: 'Importar archivo .xls', icon: 'download', onClick: () => setVista('importexport') },
     { id: 'exportar', label: 'Exportar productos', icon: 'download', onClick: () => exportarCatalogoCsv(inventario) },
+    {
+      id: 'fotos',
+      label: sincronizandoFotos
+        ? `Jalar fotos… ${progresoFotos ? `${progresoFotos.actual}/${progresoFotos.total}` : ''}`
+        : `Jalar fotos de internet${sinFotoCount ? ` (${sinFotoCount})` : ''}`,
+      icon: 'camera',
+      onClick: () => {
+        if (!sincronizandoFotos) jalarFotosInternet();
+      },
+    },
     ...(puedeVaciarInventario
       ? [{ id: 'vaciarinventario', label: 'Vaciar inventario', icon: 'trash', onClick: () => setVista('vaciarinventario') }]
       : []),
@@ -518,6 +599,24 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           <MenuPuntos items={menuItems} />
         </div>
       </div>
+
+      {sincronizandoFotos && progresoFotos && (
+        <div
+          className="card"
+          style={{
+            margin: vista === 'lista' ? '0 0 0.75rem' : undefined,
+            padding: '0.65rem 0.85rem',
+            borderTop: '3px solid var(--brand-blue)',
+            fontSize: '0.88rem',
+          }}
+        >
+          Buscando fotos en internet… <strong>{progresoFotos.actual}</strong> / {progresoFotos.total}
+          {' · '}encontradas {progresoFotos.actualizados}
+          {progresoFotos.nombre ? (
+            <span className="muted"> · {String(progresoFotos.nombre).slice(0, 48)}</span>
+          ) : null}
+        </div>
+      )}
 
       {vista === 'lista' && (
         <div className="prod-master">
@@ -804,7 +903,14 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           tipoInicial={ajusteConfig.tipo || 'entrada'}
           departamentoInicial={ajusteConfig.departamento || null}
           borradorInicial={ajusteConfig.borrador || null}
-          ocultarSelectorModo={Boolean(ajusteConfig.borrador) || ajusteConfig.modo === 'departamento'}
+          ocultarSelectorModo={
+            Boolean(ajusteConfig.borrador) ||
+            ajusteConfig.modo === 'departamento' ||
+            ajusteConfig.modo === 'libre' ||
+            ajusteConfig.modo === 'movimiento' ||
+            ajusteConfig.modo === 'masivo'
+          }
+          onVolver={irLista}
         />
       )}
 
@@ -841,8 +947,9 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
       {vista === 'importexport' && (
         <div className="card">
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-            <strong>Paso 1:</strong> Descarga la plantilla · <strong>Paso 2:</strong> Llena codigo y nombre (obligatorios) · <strong>Paso 3:</strong> Importar archivo · <strong>Paso 4:</strong> Confirmar importación.
-            El catálogo (nombre, precios, categoría) se comparte entre tiendas. <strong>stock_piso</strong> aplica a la tienda activa; <strong>stock_cedis</strong> siempre va al almacén central MAIN.
+            <strong>Paso 1:</strong> Elige archivo · <strong>Paso 2:</strong> Revisa proveedores · <strong>Paso 3:</strong> Confirma.
+            Acepta la plantilla del POS o el Excel de <strong>SICAR</strong> (<code>Plantilla_Productos.xlsx</code>: el campo <em>departamento</em> se usa como proveedor/marca).
+            Si el proveedor no existe, se crea solo. <strong>existencia</strong> → stock de la tienda activa.
           </p>
           {importAviso && (
             <p style={{ margin: '0 0 0.75rem', padding: '0.6rem 0.75rem', borderRadius: 8, background: 'rgba(59,105,181,0.1)', color: 'var(--brand-blue)', fontSize: '0.88rem' }}>
@@ -915,44 +1022,110 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           {importFilas.length > 0 && (
             <>
               <p className="muted" style={{ marginTop: '1rem' }}>
-                Vista previa: <strong>{importNombre}</strong> · {importFilas.length} fila(s)
+                Vista previa: <strong>{importNombre}</strong> · {importFilas.length} en archivo
+                {proveedoresEnImport.length > 0 ? ` · ${importFilasFiltradas.length} con filtro actual` : ''}
               </p>
+
+              {proveedoresEnImport.length > 0 && (
+                <div className="card" style={{ marginBottom: '0.75rem', padding: '0.75rem', background: 'rgba(59,105,181,0.06)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <strong style={{ color: 'var(--brand-blue)', fontSize: '0.9rem' }}>
+                      Migrar por proveedor ({proveedoresEnImport.length})
+                    </strong>
+                    <span style={{ display: 'flex', gap: '0.35rem' }}>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ padding: '0.25rem 0.45rem', fontSize: '0.75rem' }}
+                        onClick={() => setImportProvSel(new Set(proveedoresEnImport.map((p) => p.nombre)))}
+                      >
+                        Todos
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ padding: '0.25rem 0.45rem', fontSize: '0.75rem' }}
+                        onClick={() => setImportProvSel(new Set())}
+                      >
+                        Ninguno
+                      </button>
+                    </span>
+                  </div>
+                  <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.8rem' }}>
+                    Marca solo los proveedores que quieres pasar al POS. Los que no existan se crean automáticamente.
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', maxHeight: 180, overflowY: 'auto' }}>
+                    {proveedoresEnImport.map((p) => {
+                      const checked = importProvSel.has(p.nombre);
+                      return (
+                        <label key={p.nombre} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', cursor: 'pointer', fontSize: '0.88rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setImportProvSel((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(p.nombre)) next.delete(p.nombre);
+                                else next.add(p.nombre);
+                                return next;
+                              });
+                            }}
+                          />
+                          <span style={{ flex: 1 }}>{p.nombre}</span>
+                          <span className="muted">{p.count} prod.</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="table-wrap" style={{ maxHeight: '280px', marginBottom: '0.75rem' }}>
                 <table className="data">
                   <thead>
                     <tr>
                       <th>Código</th>
                       <th>Nombre</th>
+                      <th>Proveedor</th>
                       <th>Categoría</th>
                       <th>P. venta</th>
                       <th>Piso</th>
-                      <th>CEDIS</th>
                       <th>En venta</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {importFilas.slice(0, 50).map((f) => (
-                      <tr key={f.id}>
+                    {importFilasFiltradas.slice(0, 50).map((f) => (
+                      <tr key={`${f.id}-${f.proveedor || ''}`}>
                         <td>{f.id}</td>
                         <td>{f.nombre}</td>
+                        <td>{f.proveedor || '—'}</td>
                         <td>{f.cat}</td>
                         <td>${Number(f.precio).toFixed(2)}</td>
                         <td>{f.stock_piso}</td>
-                        <td>{f.stock_cedis}</td>
                         <td>{f.en_venta ? 'Sí' : 'No'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              {importFilas.length > 50 && (
-                <p className="muted" style={{ fontSize: '0.82rem' }}>Mostrando 50 de {importFilas.length} filas.</p>
+              {importFilasFiltradas.length > 50 && (
+                <p className="muted" style={{ fontSize: '0.82rem' }}>Mostrando 50 de {importFilasFiltradas.length} filas.</p>
               )}
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <button type="button" className="btn btn-success" onClick={confirmarImport} disabled={importando}>
-                  {importando ? 'Importando…' : `Confirmar importación (${importFilas.length})`}
+                <button type="button" className="btn btn-success" onClick={confirmarImport} disabled={importando || !importFilasFiltradas.length}>
+                  {importando ? 'Importando…' : `Confirmar importación (${importFilasFiltradas.length})`}
                 </button>
-                <button type="button" className="btn btn-ghost" onClick={() => { setImportFilas([]); setImportNombre(''); setTextoPegado(''); }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    setImportFilas([]);
+                    setImportNombre('');
+                    setTextoPegado('');
+                    setImportProvSel(new Set());
+                    setImportAviso('');
+                  }}
+                >
                   Cancelar
                 </button>
               </div>

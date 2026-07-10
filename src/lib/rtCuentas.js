@@ -420,8 +420,13 @@ export async function registrarGastoCuentaRt(supabase, opts = {}) {
         error: `${AVISO_FALTA_TABLA_RT_CUENTAS} También ejecuta supabase/fix_rt_cuentas_gasto.sql para permitir gastos.`,
       };
     }
-    if (String(errRt.message || '').includes('rt_movimientos_cuenta_tipo_check')) {
-      return { ok: false, error: 'Ejecuta supabase/fix_rt_cuentas_gasto.sql en Supabase para habilitar gastos RT.' };
+    const msg = String(errRt.message || '');
+    if (msg.includes('gasto_contabilidad_id') || msg.includes('rt_movimientos_cuenta_tipo_check')) {
+      return {
+        ok: false,
+        error:
+          'Falta migración en Supabase. Abre SQL Editor y ejecuta supabase/fix_rt_cuentas_gasto.sql (agrega tipo gasto y columna gasto_contabilidad_id). Luego reintenta el descuento.',
+      };
     }
     return { ok: false, error: errRt.message };
   }

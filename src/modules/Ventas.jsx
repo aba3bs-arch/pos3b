@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { etiquetaMetodoPago, leerMetodosPago, leerConfigImpresion } from '../lib/posConfig.js';
 import { imprimirVenta } from '../lib/impresion.js';
 import { productoEnVenta, productoEsFavorito } from '../lib/productoForm.js';
-import { BtnLabel } from '../components/Icon.jsx';
+import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from '../lib/departamentos.js';
+import Icon, { BtnLabel } from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import { turnoActual, usuarioAutorizadoLogin, nombreTurnoLegible } from '../lib/turnos.js';
 import { aplicarDeltaStock } from '../lib/inventarioMultitienda.js';
@@ -58,6 +59,8 @@ export default function Ventas({
   const [mostrarCobro, setMostrarCobro] = useState(false);
   const [metodosPago, setMetodosPago] = useState(() => leerMetodosPago());
   const [ultimaVenta, setUltimaVenta] = useState(null);
+  const [deptoActivo, setDeptoActivo] = useState('favoritos');
+  const [qDepto, setQDepto] = useState('');
 
   useEffect(() => {
     if (mostrarCobro) {
@@ -74,17 +77,62 @@ export default function Ventas({
     [metodosPago, formaPago],
   );
 
+  const enVenta = useMemo(() => (inventario || []).filter((p) => productoEnVenta(p)), [inventario]);
+
+  const favoritos = useMemo(() => enVenta.filter((p) => productoEsFavorito(p)), [enVenta]);
+
+  const departamentosMenu = useMemo(() => {
+    const counts = new Map();
+    for (const p of enVenta) {
+      const d = normalizarDepartamento(p.cat) || 'GENERAL';
+      counts.set(d, (counts.get(d) || 0) + 1);
+    }
+    const orden = listarDepartamentos(enVenta).filter((d) => d !== 'FAVORITOS' && (counts.get(d) || 0) > 0);
+    // Departamentos con stock en catálogo pero no en base list
+    for (const d of counts.keys()) {
+      if (d !== 'FAVORITOS' && !orden.includes(d)) orden.push(d);
+    }
+    return [
+      { id: 'favoritos', label: 'Favoritos', count: favoritos.length },
+      { id: 'todos', label: 'Todos', count: enVenta.length },
+      ...orden.map((d) => ({
+        id: d,
+        label: etiquetaDepartamento(d),
+        count: counts.get(d) || 0,
+      })),
+    ];
+  }, [enVenta, favoritos.length]);
+
+  const productosCatalogo = useMemo(() => {
+    let list = enVenta;
+    if (deptoActivo === 'favoritos') list = favoritos;
+    else if (deptoActivo !== 'todos') {
+      list = enVenta.filter((p) => normalizarDepartamento(p.cat) === deptoActivo);
+    }
+    const t = qDepto.trim().toLowerCase();
+    if (t) {
+      list = list.filter(
+        (p) =>
+          String(p.nombre || '')
+            .toLowerCase()
+            .includes(t) || String(p.id || '').toLowerCase().includes(t),
+      );
+    }
+    return list;
+  }, [enVenta, favoritos, deptoActivo, qDepto]);
+
   const filtrados = useMemo(() => {
     const q = (busqueda || '').trim().toLowerCase();
     if (!q) return [];
-    return inventario.filter(
+    return enVenta.filter(
       (p) =>
-        productoEnVenta(p) &&
-        (String(p.nombre || '')
+        String(p.nombre || '')
           .toLowerCase()
-          .includes(q) || String(p.id || '').includes(q)),
+          .includes(q) || String(p.id || '').toLowerCase().includes(q),
     );
-  }, [inventario, busqueda]);
+  }, [enVenta, busqueda]);
+
+  const deptoActualMeta = departamentosMenu.find((d) => d.id === deptoActivo) || departamentosMenu[0];
 
   const totalMXN = useMemo(() => carrito.reduce((acc, p) => acc + Number(p.precio || 0) * (p.qty || 1), 0), [carrito]);
 
@@ -241,85 +289,149 @@ export default function Ventas({
   };
 
   return (
-    <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap', alignItems: 'stretch' }}>
-      <div style={{ flex: '1 1 360px', minWidth: 0 }}>
-        <CampoCodigo
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-          onEscanear={procesarCodigoCamara}
-          placeholder="Escanee código o busque por nombre…"
-          tituloCamara="Escanear producto"
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && filtrados.length === 1) {
-              agregarAlCarrito(filtrados[0], true);
-              setBusqueda('');
-            }
-          }}
-          inputStyle={{ padding: '1rem 1.1rem', fontSize: '1.05rem' }}
-        />
-        <div style={{ marginBottom: '0.75rem' }} />
+    <div className="ventas-layout">
+      <div className="ventas-catalogo">
+        <div className="ventas-scan-bar">
+          <CampoCodigo
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            onEscanear={procesarCodigoCamara}
+            placeholder="Escanee código o busque por nombre…"
+            tituloCamara="Escanear producto"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && filtrados.length === 1) {
+                agregarAlCarrito(filtrados[0], true);
+                setBusqueda('');
+              }
+            }}
+            inputStyle={{ padding: '1rem 1.1rem', fontSize: '1.05rem' }}
+          />
+        </div>
+
         {filtrados.length > 0 && (
-          <div className="card" style={{ marginBottom: '1rem', maxHeight: '220px', overflowY: 'auto' }}>
-            <div className="muted" style={{ marginBottom: '0.5rem', fontSize: '0.8rem' }}>
-              Resultados
+          <div className="card ventas-resultados-card">
+            <div className="ventas-seccion-head">
+              <span>Resultados de búsqueda</span>
+              <span className="muted">{filtrados.length}</span>
             </div>
-            {filtrados.slice(0, 40).map((p) => (
+            <div className="ventas-resultados-lista">
+              {filtrados.slice(0, 40).map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    setCarrito((c) => addToCart(c, p));
+                    setBusqueda('');
+                  }}
+                  className="ventas-resultado-item"
+                >
+                  <ProductoThumb producto={p} size={40} />
+                  <span className="ventas-resultado-meta">
+                    <strong>{p.nombre}</strong>
+                    <span className="muted">
+                      {' '}
+                      · {p.id} · {etiquetaDepartamento(p.cat)}
+                    </span>
+                  </span>
+                  <span className="ventas-resultado-precio">${Number(p.precio).toFixed(2)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <section className="ventas-deptos card">
+          <div className="ventas-deptos-head">
+            <div>
+              <h4>Catálogo por departamento</h4>
+              <p className="muted">Elige un departamento o usa favoritos para venta rápida</p>
+            </div>
+            <div className="ventas-deptos-buscar">
+              <Icon name="search" size={15} />
+              <input
+                className="input"
+                value={qDepto}
+                onChange={(e) => setQDepto(e.target.value)}
+                placeholder={deptoActivo === 'favoritos' ? 'Filtrar favoritos…' : 'Filtrar en departamento…'}
+                aria-label="Filtrar productos del departamento"
+              />
+              {qDepto && (
+                <button type="button" className="ventas-deptos-clear" onClick={() => setQDepto('')} aria-label="Limpiar filtro">
+                  <Icon name="x" size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="ventas-deptos-tabs" role="tablist" aria-label="Departamentos">
+            {departamentosMenu.map((d) => (
               <button
-                key={p.id}
+                key={d.id}
                 type="button"
+                role="tab"
+                aria-selected={deptoActivo === d.id}
+                className={`ventas-depto-tab ${deptoActivo === d.id ? 'activo' : ''}`}
                 onClick={() => {
-                  setCarrito((c) => addToCart(c, p));
-                  setBusqueda('');
+                  setDeptoActivo(d.id);
+                  setQDepto('');
                 }}
-                className="ventas-resultado-item"
               >
-                <ProductoThumb producto={p} size={40} />
-                <span className="ventas-resultado-meta">
-                  <strong>{p.nombre}</strong>
-                  <span className="muted"> · {p.id}</span>
-                </span>
-                <span className="ventas-resultado-precio">${Number(p.precio).toFixed(2)}</span>
+                <span className="ventas-depto-tab-label">{d.label}</span>
+                <span className="ventas-depto-tab-count">{d.count}</span>
               </button>
             ))}
           </div>
-        )}
-        <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Favoritos</h4>
-        <div className="ventas-favoritos-grid">
-          {inventario
-            .filter((p) => productoEnVenta(p) && productoEsFavorito(p))
-            .map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => setCarrito((c) => addToCart(c, p))}
-                className="ventas-favorito-btn"
-              >
-                <ProductoThumb producto={p} size="full" className="ventas-favorito-thumb" />
-                <div className="ventas-favorito-precio">${Number(p.precio).toFixed(2)}</div>
-                <div className="ventas-favorito-nombre">{p.nombre}</div>
-              </button>
-            ))}
-        </div>
+
+          <div className="ventas-deptos-meta">
+            <strong>{deptoActualMeta?.label || 'Catálogo'}</strong>
+            <span className="muted">
+              {productosCatalogo.length} producto{productosCatalogo.length === 1 ? '' : 's'}
+              {qDepto.trim() ? ' · filtrado' : ''}
+            </span>
+          </div>
+
+          {productosCatalogo.length === 0 ? (
+            <div className="ventas-deptos-vacio">
+              <Icon name="package" size={36} />
+              <p>
+                {deptoActivo === 'favoritos'
+                  ? 'No hay favoritos. Márcalos en Productos para venta rápida.'
+                  : qDepto.trim()
+                    ? 'Sin coincidencias en este departamento.'
+                    : 'No hay productos en este departamento.'}
+              </p>
+            </div>
+          ) : (
+            <div className="ventas-favoritos-grid">
+              {productosCatalogo.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setCarrito((c) => addToCart(c, p))}
+                  className="ventas-favorito-btn"
+                  title={`${p.nombre} · ${p.id}`}
+                >
+                  <ProductoThumb producto={p} size="full" className="ventas-favorito-thumb" />
+                  <div className="ventas-favorito-precio">${Number(p.precio).toFixed(2)}</div>
+                  <div className="ventas-favorito-nombre">{p.nombre}</div>
+                  {deptoActivo === 'todos' && (
+                    <div className="ventas-favorito-depto">{etiquetaDepartamento(p.cat)}</div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
 
-      <aside
-        className="card"
-        style={{
-          width: '100%',
-          maxWidth: '340px',
-          flex: '0 0 auto',
-          display: 'flex',
-          flexDirection: 'column',
-          borderTop: '4px solid var(--brand-gold)',
-        }}
-      >
+      <aside className="card ventas-ticket">
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Ticket</h3>
         {ultimaVenta && (
           <button type="button" className="btn btn-ghost" style={{ marginBottom: '0.5rem', fontSize: '0.8rem', padding: '0.35rem 0.5rem' }} onClick={reimprimirUltima}>
             Reimprimir último ticket
           </button>
         )}
-        <div style={{ flex: 1, overflowY: 'auto', minHeight: '120px' }}>
+        <div className="ventas-ticket-lineas">
           {carrito.length === 0 && <p className="muted">Carrito vacío</p>}
           {carrito.map((it) => (
             <div key={it.id} className="ventas-carrito-linea">

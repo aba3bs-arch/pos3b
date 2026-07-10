@@ -14,7 +14,7 @@ export default function InputPin({
   className = 'input',
   style,
   inputMode = 'numeric',
-  autoComplete = 'off',
+  autoComplete = 'new-password',
 }) {
   const [visible, setVisible] = useState(false);
 

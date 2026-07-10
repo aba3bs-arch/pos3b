@@ -1,24 +1,59 @@
+function normalizarCodigoBusqueda(v) {
+  let s = String(v ?? '').trim();
+  if (!s) return '';
+  // Lectores a veces mandan sufijo Enter/tab o espacios raros
+  s = s.replace(/[\u0000-\u001f\u007f]/g, '').trim();
+  if (/e[+-]/i.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n)) s = String(Math.round(n));
+  }
+  if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, '');
+  return s;
+}
+
+/** Quita ceros a la izquierda solo para comparar códigos numéricos. */
+function codigoSinCeros(v) {
+  const s = String(v || '').trim();
+  if (!/^\d+$/.test(s)) return s;
+  const n = s.replace(/^0+/, '');
+  return n || '0';
+}
+
 /** Busca producto por código de barras exacto o, si hay un solo match por nombre, lo devuelve. */
 export function buscarProductoInventario(inventario, codigoRaw) {
-  const codigo = String(codigoRaw || '').trim();
-  if (!codigo) return { producto: null, ambiguo: false };
+  const codigo = normalizarCodigoBusqueda(codigoRaw);
+  if (!codigo) return { producto: null, ambiguo: false, candidatos: [] };
 
   const list = inventario || [];
-  const exact = list.find(
-    (p) => String(p.id) === codigo || String(p.id).toLowerCase() === codigo.toLowerCase(),
-  );
-  if (exact) return { producto: exact, ambiguo: false };
-
   const lower = codigo.toLowerCase();
+  const codigoDigits = codigoSinCeros(codigo);
+
+  const exact = list.find((p) => {
+    const id = String(p.id || '').trim();
+    if (!id) return false;
+    if (id === codigo || id.toLowerCase() === lower) return true;
+    if (/^\d+$/.test(id) && /^\d+$/.test(codigo) && codigoSinCeros(id) === codigoDigits) return true;
+    return false;
+  });
+  if (exact) return { producto: exact, ambiguo: false, candidatos: [exact] };
+
+  const porIdParcial = list.filter((p) => {
+    const id = String(p.id || '');
+    if (!id) return false;
+    if (id.includes(codigo) || id.toLowerCase().includes(lower)) return true;
+    if (/^\d+$/.test(id) && /^\d+$/.test(codigo)) {
+      return codigoSinCeros(id).includes(codigoDigits) || codigoDigits.includes(codigoSinCeros(id));
+    }
+    return false;
+  });
+  if (porIdParcial.length === 1) return { producto: porIdParcial[0], ambiguo: false, candidatos: porIdParcial };
+  if (porIdParcial.length > 1) return { producto: null, ambiguo: true, candidatos: porIdParcial.slice(0, 40) };
+
   const porNombre = list.filter((p) => String(p.nombre || '').toLowerCase().includes(lower));
-  if (porNombre.length === 1) return { producto: porNombre[0], ambiguo: false };
-  if (porNombre.length > 1) return { producto: null, ambiguo: true };
+  if (porNombre.length === 1) return { producto: porNombre[0], ambiguo: false, candidatos: porNombre };
+  if (porNombre.length > 1) return { producto: null, ambiguo: true, candidatos: porNombre.slice(0, 40) };
 
-  const porIdParcial = list.filter((p) => String(p.id || '').includes(codigo));
-  if (porIdParcial.length === 1) return { producto: porIdParcial[0], ambiguo: false };
-  if (porIdParcial.length > 1) return { producto: null, ambiguo: true };
-
-  return { producto: null, ambiguo: false };
+  return { producto: null, ambiguo: false, candidatos: [] };
 }
 
 /** Líneas de conteo al abrir un pedido: cantidad recibida en cero, referencia del pedido. */

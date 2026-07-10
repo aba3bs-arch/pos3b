@@ -15,6 +15,7 @@ import { esAlmacenCentral, etiquetaAlmacenCentral, etiquetaCedisEmpresa } from '
 import Icon from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import ConteoPorDepartamento from './ConteoPorDepartamento.jsx';
+import AjusteLibre from './AjusteLibre.jsx';
 import {
   FILTROS_HISTORIAL_TIPO,
   PRESETS_FECHA_PRODUCTO,
@@ -23,7 +24,7 @@ import {
 } from '../lib/consultasInventario.js';
 import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
 
-const TIPOS_LIBRE = TIPOS_MOVIMIENTO.filter((t) => t.id !== 'traspaso');
+const TIPOS_MOV = TIPOS_MOVIMIENTO.filter((t) => t.id === 'entrada' || t.id === 'retiro');
 
 export default function AjusteInventario({
   supabase,
@@ -41,6 +42,7 @@ export default function AjusteInventario({
   borradorInicial = null,
   ocultarSelectorModo = false,
   embebido = false,
+  onVolver = null,
 }) {
   const sucursalOp = sucursalOperacion || sucursal;
   const enCentral = esAlmacenCentral(sucursalOp);
@@ -171,7 +173,11 @@ export default function AjusteInventario({
   const procesarEscaneoTraspaso = (raw) => {
     const codigo = String(raw ?? codigoEscaneoTraspaso).trim();
     if (!codigo) return;
-    const { producto, ambiguo } = buscarProductoInventario(inventario, codigo);
+    const base = catalogoCompleto;
+    if (!base?.length) {
+      return alert('El inventario aún no está cargado. Ve a Productos, espera a que aparezca la lista y vuelve a intentar.');
+    }
+    const { producto, ambiguo } = buscarProductoInventario(base, codigo);
     if (ambiguo) {
       setBusquedaTraspaso(codigo);
       setCodigoEscaneoTraspaso('');
@@ -179,8 +185,13 @@ export default function AjusteInventario({
       return;
     }
     if (!producto) {
+      setBusquedaTraspaso(codigo);
       setCodigoEscaneoTraspaso('');
-      alert(`Producto no encontrado: ${codigo}`);
+      alert(
+        `No está en inventario (tabla Productos): ${codigo}\n\n` +
+          'Si solo lo agregaste al catálogo del proveedor, entra a Proveedores → edita el proveedor → «Registrar en inventario».\n' +
+          'Si ya está en Productos, revisa que el código de barras sea exactamente el id del producto.',
+      );
       return;
     }
     agregarProductoTraspaso(producto);
@@ -189,7 +200,11 @@ export default function AjusteInventario({
   const procesarEscaneo = (raw) => {
     const codigo = String(raw ?? codigoEscaneo).trim();
     if (!codigo) return;
-    const { producto, ambiguo } = buscarProductoInventario(inventario, codigo);
+    const base = catalogoCompleto;
+    if (!base?.length) {
+      return alert('El inventario aún no está cargado. Ve a Productos, espera a que aparezca la lista y vuelve a intentar.');
+    }
+    const { producto, ambiguo } = buscarProductoInventario(base, codigo);
     if (ambiguo) {
       setBusqueda(codigo);
       setCodigoEscaneo('');
@@ -197,8 +212,13 @@ export default function AjusteInventario({
       return;
     }
     if (!producto) {
+      setBusqueda(codigo);
       setCodigoEscaneo('');
-      alert(`Producto no encontrado: ${codigo}`);
+      alert(
+        `No está en inventario (tabla Productos): ${codigo}\n\n` +
+          'Si solo lo agregaste al catálogo del proveedor, entra a Proveedores → edita el proveedor → «Registrar en inventario».\n' +
+          'Si ya está en Productos, revisa que el código de barras sea exactamente el id del producto.',
+      );
       scanInputRef.current?.focus();
       return;
     }
@@ -375,15 +395,17 @@ export default function AjusteInventario({
     });
   };
 
+  const pantallaLibrePura = modo === 'libre' && ocultarSelectorModo;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {!pantallaLibrePura && (
       <div className="card" style={{ borderTop: embebido ? undefined : '4px solid var(--brand-gold)' }}>
         {!embebido && (
           <>
             <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Ajuste de inventario</h3>
             <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
               Registra entradas, retiros o traspasos. En MAIN las entradas van al CEDIS central; en tiendas al piso de venta. Los movimientos quedan en el historial de este equipo.
-              {modo === 'libre' && ' En inventario libre puedes escanear el código de barras con el lector USB (HID).'}
             </p>
           </>
         )}
@@ -435,23 +457,9 @@ export default function AjusteInventario({
         )}
 
         {modo === 'libre' && (
-          <>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '1rem' }}>
-              {TIPOS_LIBRE.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  className={tipo === t.id ? 'btn btn-primary' : 'btn btn-ghost'}
-                  style={{ flex: '1 1 140px' }}
-                  onClick={() => setTipo(t.id)}
-                  title={t.desc}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-            <p className="muted" style={{ fontSize: '0.8rem', margin: '0.35rem 0 0' }}>{TIPOS_LIBRE.find((t) => t.id === tipo)?.desc}</p>
-          </>
+          <p className="muted" style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
+            Agrega productos a la lista, cuenta existencias y aplica el ajuste. Usa filtros por diferencia, estado y departamento.
+          </p>
         )}
         {modo === 'masivo' && (
           <p className="muted" style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
@@ -464,6 +472,7 @@ export default function AjusteInventario({
           </p>
         )}
       </div>
+      )}
 
       {modo === 'departamento' ? (
         <ConteoPorDepartamento
@@ -751,105 +760,95 @@ export default function AjusteInventario({
           </div>
         </div>
       ) : modo === 'libre' ? (
-      <div className="card">
-        <div className="grid-2">
-          {modo === 'libre' && (
-            <>
-              <label className="muted" style={{ gridColumn: '1 / -1' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  <Icon name="scan" size={16} />
-                  Escanear código de barras
-                </span>
-                <div style={{ marginTop: '0.35rem' }}>
-                  <CampoCodigo
-                    inputRef={scanInputRef}
-                    value={codigoEscaneo}
-                    onChange={(e) => setCodigoEscaneo(e.target.value)}
-                    onEscanear={procesarEscaneo}
-                    onKeyDown={onScanKeyDown}
-                    placeholder="Apunta el lector aquí y escanea…"
-                    tituloCamara="Escanear inventario"
-                    inputStyle={{ fontSize: '1.1rem', padding: '0.75rem 1rem', letterSpacing: '0.05em' }}
-                  >
-                    <button type="button" className="btn btn-primary" onClick={() => procesarEscaneo()} disabled={!codigoEscaneo.trim()}>
-                      Buscar código
-                    </button>
-                  </CampoCodigo>
-                </div>
-                <span className="muted" style={{ display: 'block', fontSize: '0.75rem', marginTop: '0.35rem' }}>
-                  Lector USB (Enter) o botón Cámara en celular/tablet. Luego indica cantidad y aplica el movimiento.
-                </span>
-              </label>
-              <label className="muted" style={{ gridColumn: '1 / -1' }}>
-                O buscar por nombre / código
-                <div style={{ marginTop: '0.35rem' }}>
-                  <CampoCodigo
-                    value={busqueda}
-                    onChange={(e) => setBusqueda(e.target.value)}
-                    placeholder="Nombre o código…"
-                    tituloCamara="Buscar producto"
-                  />
-                </div>
-              </label>
-            </>
-          )}
-          <label className="muted">
-            Producto
-            <select className="select" style={{ marginTop: '0.35rem' }} value={productoId} onChange={(e) => setProductoId(e.target.value)}>
-              <option value="">— Elegir —</option>
-              {productosFiltrados.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.nombre} · Piso {p.stock}{enCentral ? ` · ${etiquetaCedisEmpresa()} ${p.stock_cedis ?? 0}` : ''} · {p.cat}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="muted">
-            Cantidad (unidades)
-            <input ref={cantidadInputRef} className="input" type="number" min={1} style={{ marginTop: '0.35rem' }} value={cantidad} onChange={(e) => setCantidad(e.target.value)} />
-          </label>
-          <label className="muted" style={{ gridColumn: '1 / -1' }}>
-            Motivo / referencia (opcional)
-            <input className="input" style={{ marginTop: '0.35rem' }} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej. Conteo físico, merma, traspaso a piso…" />
-          </label>
-        </div>
-
-        {productoOrigen && (
-          <div style={{ marginTop: '0.75rem', padding: '0.75rem', borderRadius: '10px', background: 'var(--surface)', fontSize: '0.9rem' }}>
-            <strong>{productoOrigen.nombre}</strong>
-            <span className="muted"> · Código {productoOrigen.id} · Depto. {productoOrigen.cat} · Piso: </span>
-            <strong>{productoOrigen.stock}</strong>
-            {enCentral && (
-              <>
-                <span className="muted"> · {etiquetaCedisEmpresa()}: </span>
-                <strong>{productoOrigen.stock_cedis ?? 0}</strong>
-              </>
-            )}
-            {tipo === 'entrada' && cantidad && (
-              <span className="muted">
-                {' → '}
-                {enCentral
-                  ? `${etiquetaCedisEmpresa()} quedaría en ${(Number(productoOrigen.stock_cedis) || 0) + (parseInt(cantidad, 10) || 0)}`
-                  : `piso quedaría en ${(Number(productoOrigen.stock) || 0) + (parseInt(cantidad, 10) || 0)}`}
-              </span>
-            )}
-            {tipo === 'retiro' && cantidad && (
-              <span className="muted">
-                {' → '}
-                {enCentral
-                  ? `${etiquetaCedisEmpresa()} quedaría en ${Math.max(0, (Number(productoOrigen.stock_cedis) || 0) - (parseInt(cantidad, 10) || 0))}`
-                  : `piso quedaría en ${Math.max(0, Number(productoOrigen.stock) - (parseInt(cantidad, 10) || 0))}`}
-              </span>
-            )}
+        <AjusteLibre
+          supabase={supabase}
+          inventario={inventario}
+          cargarDatos={cargarDatos}
+          user={user}
+          sucursal={sucursalOp}
+          onHistorialChange={setHistorial}
+          onCerrar={typeof onVolver === 'function' ? onVolver : undefined}
+        />
+      ) : modo === 'movimiento' ? (
+        <div className="card">
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+            {TIPOS_MOV.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                className={tipo === t.id ? 'btn btn-primary' : 'btn btn-ghost'}
+                style={{ flex: '1 1 140px' }}
+                onClick={() => setTipo(t.id)}
+                title={t.desc}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
-        )}
-
-        <button type="button" className="btn btn-success" style={{ marginTop: '0.75rem' }} onClick={aplicar} disabled={aplicando}>
-          {aplicando ? 'Aplicando…' : 'Aplicar movimiento'}
-        </button>
-      </div>
+          <div className="grid-2">
+            <label className="muted" style={{ gridColumn: '1 / -1' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Icon name="scan" size={16} />
+                Escanear código de barras
+              </span>
+              <div style={{ marginTop: '0.35rem' }}>
+                <CampoCodigo
+                  inputRef={scanInputRef}
+                  value={codigoEscaneo}
+                  onChange={(e) => setCodigoEscaneo(e.target.value)}
+                  onEscanear={procesarEscaneo}
+                  onKeyDown={onScanKeyDown}
+                  placeholder="Apunta el lector aquí y escanea…"
+                  tituloCamara="Escanear inventario"
+                  inputStyle={{ fontSize: '1.1rem', padding: '0.75rem 1rem', letterSpacing: '0.05em' }}
+                >
+                  <button type="button" className="btn btn-primary" onClick={() => procesarEscaneo()} disabled={!codigoEscaneo.trim()}>
+                    Buscar código
+                  </button>
+                </CampoCodigo>
+              </div>
+            </label>
+            <label className="muted" style={{ gridColumn: '1 / -1' }}>
+              O buscar por nombre / código
+              <div style={{ marginTop: '0.35rem' }}>
+                <CampoCodigo value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Nombre o código…" tituloCamara="Buscar producto" />
+              </div>
+            </label>
+            <label className="muted">
+              Producto
+              <select className="select" style={{ marginTop: '0.35rem' }} value={productoId} onChange={(e) => setProductoId(e.target.value)}>
+                <option value="">— Elegir —</option>
+                {productosFiltrados.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.nombre} · Piso {p.stock}
+                    {enCentral ? ` · ${etiquetaCedisEmpresa()} ${p.stock_cedis ?? 0}` : ''} · {p.cat}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="muted">
+              Cantidad (unidades)
+              <input ref={cantidadInputRef} className="input" type="number" min={1} style={{ marginTop: '0.35rem' }} value={cantidad} onChange={(e) => setCantidad(e.target.value)} />
+            </label>
+            <label className="muted" style={{ gridColumn: '1 / -1' }}>
+              Motivo / referencia (opcional)
+              <input className="input" style={{ marginTop: '0.35rem' }} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej. Merma, uso interno…" />
+            </label>
+          </div>
+          {productoOrigen && (
+            <div style={{ marginTop: '0.75rem', padding: '0.75rem', borderRadius: '10px', background: 'var(--surface)', fontSize: '0.9rem' }}>
+              <strong>{productoOrigen.nombre}</strong>
+              <span className="muted"> · Código {productoOrigen.id} · Piso: </span>
+              <strong>{productoOrigen.stock}</strong>
+            </div>
+          )}
+          <button type="button" className="btn btn-success" style={{ marginTop: '0.75rem' }} onClick={aplicar} disabled={aplicando}>
+            {aplicando ? 'Aplicando…' : 'Aplicar movimiento'}
+          </button>
+        </div>
       ) : null}
 
+      {!pantallaLibrePura && (
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           <h3 style={{ margin: '0', color: 'var(--brand-blue)' }}>Historial reciente (este equipo)</h3>
@@ -941,6 +940,7 @@ export default function AjusteInventario({
           </table>
         </div>
       </div>
+      )}
     </div>
   );
 }

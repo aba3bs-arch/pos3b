@@ -96,10 +96,11 @@ export default function PantallaLogin({
         <InputPin
           value={pin}
           onChange={onPinChange}
-          onKeyDown={(e) => e.key === 'Enter' && puedeIngresarPin && onLogin()}
+          onKeyDown={(e) => e.key === 'Enter' && puedeIngresarPin && !pendienteAutorizacionTurno && onLogin()}
           placeholder="PIN"
           autoFocus={puedeIngresarPin}
           disabled={!puedeIngresarPin}
+          autoComplete="new-password"
           className="login-pin"
         />
         <button

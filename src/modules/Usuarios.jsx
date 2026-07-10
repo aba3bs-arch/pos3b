@@ -10,6 +10,7 @@ import {
   rolExigeDispositivoUnico,
 } from '../lib/dispositivoUsuario.js';
 import InputPin from '../components/InputPin.jsx';
+import { pinEsCubreTurnoDeSucursal } from '../lib/cubreTurnoSync.js';
 
 const emptyForm = (sucursalDefault) => ({
   nombre: '',
@@ -132,6 +133,12 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       nomina_pagador: form.nomina_pagador || 'abarrotes',
       turno_id: esPersonalizado ? null : form.turno_id || null,
     };
+    const cubre = await pinEsCubreTurnoDeSucursal(supabase, payload.pin, payload.sucursal_id);
+    if (cubre.coincide) {
+      return alert(
+        `Ese PIN es el de cubre turno de ${etiquetaTienda(payload.sucursal_id)}. Elige otro PIN para el empleado fijo.`,
+      );
+    }
     const { error } = await supabase.from('usuarios').insert([payload]);
     if (error) {
       if (error.code === '23505' || String(error.message).includes('duplicate')) {
@@ -214,6 +221,12 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     if (!supabase || !esAdmin) return;
     const nuevo = String(nuevoRaw || '').trim();
     if (!nuevo) return alert('Escribe el nuevo PIN');
+    const cubre = await pinEsCubreTurnoDeSucursal(supabase, nuevo, row.sucursal_id);
+    if (cubre.coincide) {
+      return alert(
+        `Ese PIN es el de cubre turno de ${etiquetaTienda(row.sucursal_id)}. Elige otro PIN para el empleado fijo.`,
+      );
+    }
     const { error } = await supabase.from('usuarios').update({ pin: nuevo }).eq('id', row.id);
     if (error) {
       if (error.code === '23505') {

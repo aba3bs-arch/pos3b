@@ -92,19 +92,20 @@ import {
   turnoConTolerancia,
 } from '../lib/turnos.js';
 import {
-  EVENTO_PIN_CUBRE_TURNO,
-  leerPinCubreTurno,
-  leerPinsCubreTurno,
   persistirPinCubreTurno,
+  pinCubreTurnoActivo,
+  reiniciarPinCubreTurno,
 } from '../lib/cubreTurno.js';
+import { pinUsuarioOcupadoEnSucursal } from '../lib/usuariosAuth.js';
 import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarPrivilegios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, ROLES, listarTodosLosRoles, leerRolesPersonalizados, agregarRolPersonalizado, quitarRolPersonalizado, esRolSistema, EVENTO_ROLES, modulosDefaultRol, modulosEnEdicionPrivilegios, tieneListaPersonalizada, normalizarListaModulos, describeOrigenPrivilegios, normalizarRol } from '../lib/roles.js';
 import { puedeRecibirNotificacionesDispositivo } from '../lib/notificacionesDispositivo.js';
 import { sincronizarPrivilegiosDesdeNube } from '../lib/privilegiosSync.js';
-import { sincronizarPinsCubreTurnoDesdeNube, AVISO_SIN_TABLA_PIN_CUBRE } from '../lib/cubreTurnoSync.js';
+import { cargarPinsCubreTurnoDesdeNube, AVISO_SIN_TABLA_PIN_CUBRE } from '../lib/cubreTurnoSync.js';
 import BrandLogo from '../components/BrandLogo.jsx';
 import SelectorTemaInterfaz from '../components/SelectorTemaInterfaz.jsx';
 import PanelCatalogoIncidencias from '../components/PanelCatalogoIncidencias.jsx';
 import PanelNotificacionesAlertas from '../components/PanelNotificacionesAlertas.jsx';
+import InputPin from '../components/InputPin.jsx';
 import AdminInventarioCentral from './AdminInventarioCentral.jsx';
 import {
   ACCIONES_INCIDENCIAS_PRIVILEGIO,
@@ -144,9 +145,13 @@ export default function Configuracion({
   const [rolesLista, setRolesLista] = useState(() => listarTodosLosRoles());
   const [nuevoRolNombre, setNuevoRolNombre] = useState('');
   const [nuevoRolPlantilla, setNuevoRolPlantilla] = useState('Cajero');
-  const [pinsCubreTurno, setPinsCubreTurno] = useState(() => leerPinsCubreTurno());
+  const [pinsCubreTurno, setPinsCubreTurno] = useState({});
   const [pinsCubreGuardando, setPinsCubreGuardando] = useState(null);
   const [pinsCubreAvisoNube, setPinsCubreAvisoNube] = useState('');
+  const [pinsCubreVisibles, setPinsCubreVisibles] = useState(() => new Set());
+  const [pinsCubreCargando, setPinsCubreCargando] = useState(false);
+  const [pinCubreEnEdicion, setPinCubreEnEdicion] = useState(null);
+  const [nuevoPinCubreDraft, setNuevoPinCubreDraft] = useState('');
   const esAdmin = puedeGestionarUsuarios(user?.rol);
   const puedePrivilegios = puedeGestionarPrivilegios(user?.rol);
   const recibeAlertas = puedeRecibirNotificacionesDispositivo(user?.rol);
@@ -167,32 +172,105 @@ export default function Configuracion({
 
   useEffect(() => {
     if (!esAdmin || !supabase) return;
-    sincronizarPinsCubreTurnoDesdeNube(supabase).then((r) => {
-      if (r.cambio) setPinsCubreTurno(leerPinsCubreTurno());
+    let ok = true;
+    setPinsCubreCargando(true);
+    cargarPinsCubreTurnoDesdeNube(supabase).then((r) => {
+      if (!ok) return;
+      setPinsCubreCargando(false);
+      if (r.pins) setPinsCubreTurno(r.pins);
       if (r.sinTabla) setPinsCubreAvisoNube(r.aviso || AVISO_SIN_TABLA_PIN_CUBRE);
       else if (r.aviso) setPinsCubreAvisoNube(r.aviso);
       else if (r.ok === false && r.error) setPinsCubreAvisoNube(r.error);
+      else setPinsCubreAvisoNube('');
     });
+    return () => {
+      ok = false;
+    };
   }, [esAdmin, supabase]);
 
-  const guardarPinCubreYSubir = async (tienda) => {
+  const guardarPinCubreYSubir = async (tienda, pinRaw) => {
+    const p = String(pinRaw ?? '').trim();
+    if (p) {
+      const choque = await pinUsuarioOcupadoEnSucursal(supabase, p, tienda);
+      if (choque.error) {
+        alert(choque.error);
+        return;
+      }
+      if (choque.ocupado) {
+        alert(
+          `Ese PIN ya lo usa el empleado fijo «${choque.usuario?.nombre || 'usuario'}» en ${etiquetaTienda(tienda)}. Elige otro PIN para cubre turno.`,
+        );
+        return;
+      }
+    }
     setPinsCubreGuardando(tienda);
-    const res = await persistirPinCubreTurno(tienda, pinsCubreTurno[tienda] || '', supabase);
-    setPinsCubreTurno(leerPinsCubreTurno());
+    const res = await persistirPinCubreTurno(tienda, p, supabase);
     setPinsCubreGuardando(null);
-    if (!res.ok && res.error) alert(res.error);
+    if (!res.ok && res.error) {
+      alert(res.error);
+      return;
+    }
     if (res.remoto?.sinTabla) {
       setPinsCubreAvisoNube(res.remoto.aviso || AVISO_SIN_TABLA_PIN_CUBRE);
       alert(
-        `Se guardó en este equipo, pero NO se sincronizó a otras cajas.\n\n${res.remoto.aviso || AVISO_SIN_TABLA_PIN_CUBRE}`,
+        `No se pudo guardar en la nube.\n\n${res.remoto.aviso || AVISO_SIN_TABLA_PIN_CUBRE}`,
       );
     } else if (res.remoto?.ok === false && res.remoto?.error) {
       setPinsCubreAvisoNube(res.remoto.error);
-      alert(`Se guardó en este equipo, pero no se pudo sincronizar: ${res.remoto.error}`);
+      alert(`No se pudo guardar el PIN: ${res.remoto.error}`);
     } else if (res.remoto?.ok) {
       setPinsCubreAvisoNube('');
-      alert(`PIN de cubre turno guardado y sincronizado para ${etiquetaTienda(tienda)}.`);
+      setPinsCubreTurno((prev) => ({ ...prev, [tienda]: String(res.remoto.pin || '').trim() }));
+      setPinCubreEnEdicion(null);
+      setNuevoPinCubreDraft('');
+      setPinsCubreVisibles((prev) => {
+        const next = new Set(prev);
+        next.delete(tienda);
+        return next;
+      });
+      alert(
+        p
+          ? `PIN de cubre turno guardado en la nube para ${etiquetaTienda(tienda)}.`
+          : `PIN de cubre turno desactivado en ${etiquetaTienda(tienda)}.`,
+      );
     }
+  };
+
+  const reiniciarPinCubreConfig = async (tienda) => {
+    if (
+      !confirm(
+        `¿Reiniciar el PIN de cubre turno de ${etiquetaTienda(tienda)}?\n\nSe generará un PIN nuevo de 4 dígitos. El anterior dejará de funcionar de inmediato.`,
+      )
+    ) {
+      return;
+    }
+    setPinsCubreGuardando(tienda);
+    const res = await reiniciarPinCubreTurno(tienda, supabase);
+    setPinsCubreGuardando(null);
+    if (!res.ok) {
+      alert(res.error || res.remoto?.error || res.remoto?.aviso || 'No se pudo reiniciar el PIN.');
+      return;
+    }
+    setPinsCubreTurno((prev) => ({ ...prev, [tienda]: res.pin }));
+    setPinCubreEnEdicion(null);
+    setNuevoPinCubreDraft('');
+    setPinsCubreVisibles((prev) => {
+      const next = new Set(prev);
+      next.add(tienda);
+      return next;
+    });
+    alert(
+      `PIN de cubre turno reiniciado para ${etiquetaTienda(tienda)}.\n\nNuevo PIN: ${res.pin}\n\nAnota este número; no se guarda en el navegador.`,
+    );
+  };
+
+  const togglePinCubreVisible = (tienda) => {
+    setPinsCubreVisibles((prev) => {
+      const next = new Set(prev);
+      if (next.has(tienda)) next.delete(tienda);
+      else next.add(tienda);
+      return next;
+    });
   };
 
   const guardarPrivilegiosYSubir = async (data) => {
@@ -265,12 +343,6 @@ export default function Configuracion({
     };
     window.addEventListener(EVENTO_TURNOS, sync);
     return () => window.removeEventListener(EVENTO_TURNOS, sync);
-  }, []);
-
-  useEffect(() => {
-    const syncCubre = () => setPinsCubreTurno(leerPinsCubreTurno());
-    window.addEventListener(EVENTO_PIN_CUBRE_TURNO, syncCubre);
-    return () => window.removeEventListener(EVENTO_PIN_CUBRE_TURNO, syncCubre);
   }, []);
 
   const cargarUsuariosTurno = useCallback(async () => {
@@ -1313,58 +1385,148 @@ export default function Configuracion({
         <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
           <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>PIN de cubre turno</h3>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-            Un <strong>PIN universal por sucursal</strong> para quien cubre turno sin usuario propio. Al usarlo, el POS exige
-            <strong> nombre y apellido + teléfono</strong> antes de entrar (permisos de <strong>cajero</strong>, sin vincular equipo).
-            Debe ser distinto de los PIN personales. Déjalo vacío para desactivar. Se sincroniza en Supabase para todas las cajas de la tienda.
+            Un <strong>PIN universal por sucursal</strong> para quien cubre turno sin usuario propio. Al usarlo, el POS y el
+            checador exigen <strong>nombre y apellido + teléfono</strong> (permisos de <strong>cajero</strong>, sin vincular equipo).
+            Debe ser distinto de los PIN personales de esa tienda. Vacío = desactivado.
+            El PIN <strong>solo se guarda en la nube</strong> (no en el navegador) para que no se mezcle entre tiendas en esta PC.
+            No usa «Liberar equipo» porque el cubre turno no queda ligado a la caja.
           </p>
           {pinsCubreAvisoNube && (
             <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.82rem', color: 'var(--brand-gold)' }}>
               {pinsCubreAvisoNube}
             </p>
           )}
-          <div className="table-wrap" style={{ marginTop: '0.75rem' }}>
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Tienda</th>
-                  <th>PIN cubre turno</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {listarSucursalesParaUI().map((t) => (
-                  <tr key={t}>
-                    <td>{etiquetaTienda(t)}</td>
-                    <td>
-                      <input
-                        className="input"
-                        type="password"
-                        inputMode="numeric"
-                        style={{ maxWidth: 140 }}
-                        value={pinsCubreTurno[t] || ''}
-                        onChange={(e) => setPinsCubreTurno((prev) => ({ ...prev, [t]: e.target.value }))}
-                        placeholder="Sin PIN"
-                        disabled={pinsCubreGuardando === t}
-                      />
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className="btn btn-primary btn-sm"
-                        disabled={Boolean(pinsCubreGuardando)}
-                        onClick={() => guardarPinCubreYSubir(t)}
-                      >
-                        {pinsCubreGuardando === t ? 'Guardando…' : 'Guardar'}
-                      </button>
-                    </td>
+          {pinsCubreCargando ? (
+            <p className="muted">Cargando PIN desde la nube…</p>
+          ) : (
+            <div className="table-wrap" style={{ marginTop: '0.75rem' }}>
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Tienda</th>
+                    <th>PIN cubre turno</th>
+                    <th />
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {leerPinCubreTurno(sucursal) && (
+                </thead>
+                <tbody>
+                  {listarSucursalesParaUI().map((t) => (
+                    <tr key={t}>
+                      <td>{etiquetaTienda(t)}</td>
+                      <td>
+                        {pinCubreEnEdicion === t ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
+                            <InputPin
+                              value={nuevoPinCubreDraft}
+                              onChange={(e) => setNuevoPinCubreDraft(e.target.value)}
+                              placeholder="Nuevo PIN o vacío"
+                              autoComplete="new-password"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') void guardarPinCubreYSubir(t, nuevoPinCubreDraft);
+                              }}
+                              style={{ width: '160px', fontSize: '0.95rem', letterSpacing: '0.1em', marginBottom: 0 }}
+                              disabled={pinsCubreGuardando === t}
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                              disabled={Boolean(pinsCubreGuardando)}
+                              onClick={() => void guardarPinCubreYSubir(t, nuevoPinCubreDraft)}
+                            >
+                              {pinsCubreGuardando === t ? 'Guardando…' : 'Guardar'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                              disabled={pinsCubreGuardando === t}
+                              onClick={() => {
+                                setPinCubreEnEdicion(null);
+                                setNuevoPinCubreDraft('');
+                              }}
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        ) : (
+                          <span
+                            style={{
+                              fontFamily: 'ui-monospace, monospace',
+                              letterSpacing: pinsCubreVisibles.has(t) ? '0.05em' : '0.15em',
+                            }}
+                          >
+                            {pinsCubreTurno[t]
+                              ? pinsCubreVisibles.has(t)
+                                ? pinsCubreTurno[t]
+                                : '••••'
+                              : 'Sin PIN'}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        {pinCubreEnEdicion !== t && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', justifyContent: 'flex-end' }}>
+                            <button
+                              type="button"
+                              className="btn btn-gold"
+                              style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                              onClick={() => togglePinCubreVisible(t)}
+                              disabled={pinsCubreGuardando === t || !pinsCubreTurno[t]}
+                            >
+                              {pinsCubreVisibles.has(t) ? 'Ocultar' : 'Ver PIN'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                              disabled={Boolean(pinsCubreGuardando)}
+                              onClick={() => {
+                                setPinCubreEnEdicion(t);
+                                setNuevoPinCubreDraft(pinsCubreTurno[t] || '');
+                              }}
+                            >
+                              Cambiar PIN
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-gold"
+                              style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                              disabled={Boolean(pinsCubreGuardando)}
+                              onClick={() => void reiniciarPinCubreConfig(t)}
+                            >
+                              {pinsCubreGuardando === t ? 'Reiniciando…' : 'Reiniciar PIN'}
+                            </button>
+                            {pinsCubreTurno[t] && (
+                              <button
+                                type="button"
+                                className="btn btn-danger"
+                                style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                                disabled={Boolean(pinsCubreGuardando)}
+                                onClick={() => {
+                                  if (
+                                    confirm(
+                                      `¿Desactivar el PIN de cubre turno de ${etiquetaTienda(t)}? Quedará vacío hasta que configures uno nuevo.`,
+                                    )
+                                  ) {
+                                    void guardarPinCubreYSubir(t, '');
+                                  }
+                                }}
+                              >
+                                Desactivar
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {pinCubreTurnoActivo(sucursal) && (
             <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.82rem' }}>
-              Esta tienda ({etiquetaTienda(sucursal)}) tiene PIN de cubre turno activo (sincronizado entre cajas).
+              Esta tienda ({etiquetaTienda(sucursal)}) tiene PIN de cubre turno activo en la nube.
             </p>
           )}
         </div>

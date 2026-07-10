@@ -16,8 +16,6 @@ const CLAVES_PRESERVAR = new Set([
   'pos3b_config_impresion',
   'pos3b_config_audio',
   'pos3b_privilegios',
-  'pos3b_pin_cubre_turno',
-  'pos3b_pin_cubre_turno_updated_at',
   'pos3b_turnos_caja',
   'pos3b_tipo_horario',
   'pos3b_patrones_rotacion_3',
@@ -87,5 +85,6 @@ export function formatoBytesAprox(bytes) {
 
 export const TEXTO_AYUDA_LIMPIEZA =
   'Se borran copias locales temporales (cortes en caché, movimientos, ajustes, datos offline de contabilidad). ' +
-  'No se borran: tienda activa, tipo de cambio, turnos, impresión, branding, privilegios, PIN de cubre turno ni el vínculo del equipo. ' +
+  'No se borran: tienda activa, tipo de cambio, turnos, impresión, branding, privilegios ni el vínculo del equipo. ' +
+  'El PIN de cubre turno solo vive en la nube (no en el navegador). ' +
   'La app permanece abierta con tu sesión actual; no hace falta recargar.';

@@ -10,7 +10,7 @@ create table if not exists public.rt_cuentas (
 create table if not exists public.rt_movimientos_cuenta (
   id uuid primary key default gen_random_uuid(),
   cuenta_id text not null references public.rt_cuentas(id),
-  tipo text not null check (tipo in ('liquidacion', 'transferencia_enviada', 'transferencia_recibida')),
+  tipo text not null check (tipo in ('liquidacion', 'transferencia_enviada', 'transferencia_recibida', 'gasto')),
   monto numeric(12, 2) not null check (monto > 0),
   fecha timestamptz not null default now(),
   usuario text,
@@ -19,6 +19,7 @@ create table if not exists public.rt_movimientos_cuenta (
   cuenta_relacionada text references public.rt_cuentas(id),
   repartidor_nombre text,
   liquidacion_movimientos jsonb,
+  gasto_contabilidad_id uuid,
   created_at timestamptz not null default now()
 );
 

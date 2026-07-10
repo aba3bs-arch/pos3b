@@ -107,12 +107,12 @@ export default function ModalAjusteInventario({
   const elegirAccionDirecta = (id) => {
     setAccion(id);
     if (id === 'ingreso') {
-      onElegir?.({ accion: 'ingreso', modo: 'libre', tipo: 'entrada' });
+      onElegir?.({ accion: 'ingreso', modo: 'masivo', tipo: 'entrada' });
       resetYCerrar();
       return;
     }
     if (id === 'retiro') {
-      onElegir?.({ accion: 'retiro', modo: 'libre', tipo: 'retiro' });
+      onElegir?.({ accion: 'retiro', modo: 'movimiento', tipo: 'retiro' });
       resetYCerrar();
       return;
     }

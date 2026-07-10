@@ -19,6 +19,8 @@ export const COLUMNAS_CATALOGO = [
   { key: 'stock_minimo', label: 'stock_minimo', required: false, desc: 'Mínimo para alertas (default 6)' },
   { key: 'en_venta', label: 'en_venta', required: false, desc: 'si/no — visible en Ventas' },
   { key: 'en_favoritos', label: 'en_favoritos', required: false, desc: 'si/no — botón rápido en Ventas' },
+  { key: 'proveedor', label: 'proveedor', required: false, desc: 'Nombre del proveedor (se crea si no existe y se vincula)' },
+  { key: 'sku_proveedor', label: 'sku_proveedor', required: false, desc: 'SKU / clave del proveedor' },
 ];
 
 export const PLANTILLA_COLUMNAS = COLUMNAS_CATALOGO.map((c) => c.label).join(',');
@@ -27,19 +29,83 @@ const ALIAS = {
   codigo: ['codigo', 'código', 'code', 'id', 'barras', 'barcode', 'sku', 'clave', 'ean', 'upc'],
   nombre: ['nombre', 'descripcion_corta', 'producto', 'articulo', 'artículo', 'item'],
   descripcion: ['descripcion', 'descripción', 'desc', 'detalle'],
+  // Nota: en plantilla POS, departamento ≈ categoría. En SICAR, departamento = proveedor (se remapea aparte).
   categoria: ['categoria', 'categoría', 'cat', 'departamento', 'depto', 'dept'],
   clave_sat: ['clave_sat', 'sat', 'clave sat'],
   impuesto: ['impuesto', 'iva', 'tax'],
   precio_compra_sin: ['precio_compra_sin', 'costo_sin', 'compra_sin', 'costo_sin_iva'],
   precio_compra_con: ['precio_compra_con', 'costo_con', 'compra_con', 'costo'],
   ganancia_pct: ['ganancia_pct', 'ganancia', 'margen', 'margen_pct', 'utilidad_pct'],
-  precio_venta: ['precio_venta', 'precio', 'price', 'pvp', 'precio_publico'],
+  precio_venta: ['precio_venta', 'precio', 'price', 'pvp', 'precio_publico', 'precio1', 'precio_1'],
   stock_piso: ['stock_piso', 'stock', 'inventario', 'existencia', 'piso', 'cantidad', 'qty'],
   stock_cedis: ['stock_cedis', 'cedis', 'bodega', 'almacen'],
-  stock_minimo: ['stock_minimo', 'stock minimo', 'stock_mínimo', 'minimo', 'mínimo', 'min', 'min_stock'],
+  stock_minimo: ['stock_minimo', 'stock minimo', 'stock_mínimo', 'minimo', 'mínimo', 'min', 'min_stock', 'inv_min'],
   en_venta: ['en_venta', 'venta', 'activo', 'disponible'],
-  en_favoritos: ['en_favoritos', 'favorito', 'favoritos', 'destacado'],
+  en_favoritos: ['en_favoritos', 'favorito', 'favoritos', 'destacado', '(s/n) favorito'],
+  proveedor: ['proveedor', 'proveedores', 'supplier', 'distribuidor', 'vendor', 'casa', 'marca_proveedor'],
+  sku_proveedor: ['sku_proveedor', 'sku_prov', 'clave_proveedor', 'codigo_proveedor', 'cod_proveedor'],
 };
+
+/** Detecta plantilla SICAR (CODIGO/NOMBRE/departamento/precio1/costo). */
+export function esPlantillaSicar(rowOrHeaders) {
+  const keys = Array.isArray(rowOrHeaders)
+    ? rowOrHeaders.map((h) => normKey(h))
+    : Object.keys(rowOrHeaders || {}).map((h) => normKey(h));
+  const set = new Set(keys);
+  const tieneCodigo = set.has('codigo');
+  const tieneNombre = set.has('nombre');
+  const tieneDepto = set.has('departamento');
+  const tienePrecio1 = set.has('precio1') || set.has('precio_1');
+  const tieneCosto = set.has('costo');
+  const tieneFlagIva = [...set].some((k) => k.includes('imp_iva') || k.includes('iva_16') || k.includes('iva_8'));
+  return tieneCodigo && tieneNombre && tieneDepto && (tienePrecio1 || tieneCosto) && (tieneFlagIva || tienePrecio1);
+}
+
+function valorRawPorClave(row, predicado) {
+  for (const k of Object.keys(row || {})) {
+    if (predicado(normKey(k))) {
+      const v = row[k];
+      if (v != null && String(v).trim() !== '') return v;
+    }
+  }
+  return '';
+}
+
+/** Convierte una fila SICAR al shape que espera filaAProducto. */
+export function normalizarFilaSicar(row) {
+  const iva16 = parseBool(valorRawPorClave(row, (k) => k.includes('iva') && k.includes('16')), false);
+  const iva8 = parseBool(valorRawPorClave(row, (k) => k.includes('iva') && k.includes('8')), false);
+  let impuesto = IVA_DEFAULT;
+  if (iva16) impuesto = 16;
+  else if (iva8) impuesto = 8;
+
+  const depto = String(valorRawPorClave(row, (k) => k === 'departamento') || '').trim();
+  const catSicar = String(valorRawPorClave(row, (k) => k === 'categoria' || k === 'categoria') || '').trim();
+  // En SICAR el "departamento" es la marca/proveedor; la categoría suele ser C1/C2…
+  const catPos = depto
+    ? depto.toUpperCase().replace(/\s+/g, '_')
+    : catSicar && !/^c\d+$/i.test(catSicar)
+      ? catSicar.toUpperCase()
+      : 'GENERAL';
+
+  return {
+    codigo: valorCampo(row, 'codigo') || valorRawPorClave(row, (k) => k === 'codigo'),
+    nombre: valorCampo(row, 'nombre') || valorRawPorClave(row, (k) => k === 'nombre'),
+    descripcion: '',
+    categoria: catPos,
+    clave_sat: valorCampo(row, 'clave_sat') || valorRawPorClave(row, (k) => k.includes('clave') && k.includes('sat')),
+    impuesto,
+    // SICAR: costo y precio1 vienen con impuestos (flag "(s/n) precio con impuestos" = s)
+    precio_compra_con: valorCampo(row, 'precio_compra_con') || valorRawPorClave(row, (k) => k === 'costo'),
+    precio_venta: valorCampo(row, 'precio_venta') || valorRawPorClave(row, (k) => k === 'precio1' || k === 'precio_1'),
+    stock_piso: valorCampo(row, 'stock_piso') || valorRawPorClave(row, (k) => k === 'existencia'),
+    stock_minimo: valorCampo(row, 'stock_minimo') || valorRawPorClave(row, (k) => k === 'inv_min'),
+    en_favoritos: valorCampo(row, 'en_favoritos') || valorRawPorClave(row, (k) => k.includes('favorito')),
+    en_venta: 'si',
+    proveedor: depto,
+    sku_proveedor: '',
+  };
+}
 
 function normKey(s) {
   return String(s || '')
@@ -65,8 +131,9 @@ function valorCampo(row, campo) {
 function parseBool(v, defaultVal = true) {
   const s = String(v ?? '').trim().toLowerCase();
   if (!s) return defaultVal;
-  if (['1', 'si', 'sí', 'yes', 'true', 'verdadero', 'x'].includes(s)) return true;
-  if (['0', 'no', 'false', 'falso'].includes(s)) return false;
+  // SICAR usa s/n
+  if (['1', 'si', 'sí', 'yes', 'true', 'verdadero', 'x', 's'].includes(s)) return true;
+  if (['0', 'no', 'false', 'falso', 'n'].includes(s)) return false;
   return defaultVal;
 }
 
@@ -92,8 +159,12 @@ export function filaAProducto(row) {
   if (!id || !nombre) return null;
 
   const impRaw = valorCampo(row, 'impuesto');
-  const imp = impRaw !== '' && impRaw != null ? Math.max(0, Number(impRaw)) : IVA_DEFAULT;
-  const impuesto = impuestoEfectivo(imp);
+  // En importación se respeta 0 / 8 / 16 del archivo (SICAR marca IVA real).
+  // No usar impuestoEfectivo aquí: ese remapea 16→8 por datos legacy del POS.
+  const impuesto =
+    impRaw !== '' && impRaw != null && Number.isFinite(Number(impRaw))
+      ? Math.max(0, Number(impRaw))
+      : IVA_DEFAULT;
   let compraSin = Number(valorCampo(row, 'precio_compra_sin')) || 0;
   let compraCon = Number(valorCampo(row, 'precio_compra_con')) || 0;
   if (compraSin <= 0 && compraCon > 0) compraSin = sinImpuesto(compraCon, impuesto);
@@ -131,11 +202,139 @@ export function filaAProducto(row) {
     stock_minimo: Math.max(0, parseInt(String(valorCampo(row, 'stock_minimo') || '6'), 10) || 6),
     en_venta: parseBool(valorCampo(row, 'en_venta'), true),
     en_favoritos: parseBool(valorCampo(row, 'en_favoritos'), false),
+    proveedor: String(valorCampo(row, 'proveedor') || '').trim(),
+    sku_proveedor: String(valorCampo(row, 'sku_proveedor') || '').trim() || null,
   };
 }
 
+/** Normaliza nombre de proveedor para comparar (sin acentos, mayúsculas). */
+export function normalizarNombreProveedor(nombre) {
+  return String(nombre || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+/** Lista proveedores únicos presentes en filas de importación. */
+export function listarProveedoresEnFilas(filas) {
+  const map = new Map();
+  for (const f of filas || []) {
+    const nombre = String(f?.proveedor || '').trim();
+    if (!nombre) continue;
+    const key = normalizarNombreProveedor(nombre);
+    if (!map.has(key)) map.set(key, { nombre, count: 0 });
+    map.get(key).count += 1;
+  }
+  return [...map.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+}
+
+export function filtrarFilasPorProveedores(filas, nombresSeleccionados) {
+  const list = filas || [];
+  if (!nombresSeleccionados || !nombresSeleccionados.length) return list;
+  const set = new Set(nombresSeleccionados.map(normalizarNombreProveedor));
+  return list.filter((f) => {
+    const p = String(f?.proveedor || '').trim();
+    if (!p) return false;
+    return set.has(normalizarNombreProveedor(p));
+  });
+}
+
+async function asegurarProveedoresPorNombre(supabase, nombres) {
+  const unicos = [...new Set((nombres || []).map((n) => String(n || '').trim()).filter(Boolean))];
+  if (!unicos.length) return { ok: true, porNombre: new Map(), creados: 0 };
+
+  const { data: existentes, error } = await supabase.from('proveedores').select('id, nombre');
+  if (error) {
+    const msg = String(error.message || '');
+    if (msg.includes('relation') || error.code === '42P01') {
+      return { ok: false, error: 'Falta la tabla proveedores. Ejecuta supabase/schema.sql o migracion_completa.sql.' };
+    }
+    return { ok: false, error: error.message };
+  }
+
+  const porNombre = new Map();
+  for (const p of existentes || []) {
+    const key = normalizarNombreProveedor(p.nombre);
+    if (key && !porNombre.has(key)) porNombre.set(key, p.id);
+  }
+
+  let creados = 0;
+  for (const nombre of unicos) {
+    const key = normalizarNombreProveedor(nombre);
+    if (porNombre.has(key)) continue;
+    const { data, error: errIns } = await supabase.from('proveedores').insert([{ nombre }]).select('id, nombre').maybeSingle();
+    if (errIns) {
+      // Carrera / duplicado: reintentar lectura
+      const { data: otra } = await supabase.from('proveedores').select('id, nombre').ilike('nombre', nombre).limit(1);
+      const hit = (otra || []).find((x) => normalizarNombreProveedor(x.nombre) === key);
+      if (hit) {
+        porNombre.set(key, hit.id);
+        continue;
+      }
+      return { ok: false, error: `No se pudo crear proveedor «${nombre}»: ${errIns.message}` };
+    }
+    if (data?.id) {
+      porNombre.set(key, data.id);
+      creados += 1;
+    }
+  }
+
+  return { ok: true, porNombre, creados };
+}
+
+async function vincularProductosProveedor(supabase, vinculos) {
+  if (!vinculos?.length) return { ok: true, vinculados: 0, errores: [] };
+  const errores = [];
+  let vinculados = 0;
+  const BATCH = 40;
+
+  for (let i = 0; i < vinculos.length; i += BATCH) {
+    const chunk = vinculos.slice(i, i + BATCH);
+    const { error } = await supabase.from('proveedor_producto').upsert(chunk, {
+      onConflict: 'proveedor_id,producto_id',
+      ignoreDuplicates: true,
+    });
+    if (error) {
+      // Fallback fila a fila si upsert con constraint no está disponible
+      for (const v of chunk) {
+        const { data: existe } = await supabase
+          .from('proveedor_producto')
+          .select('id')
+          .eq('proveedor_id', v.proveedor_id)
+          .eq('producto_id', v.producto_id)
+          .maybeSingle();
+        if (existe?.id) {
+          if (v.sku_proveedor) {
+            await supabase.from('proveedor_producto').update({ sku_proveedor: v.sku_proveedor }).eq('id', existe.id);
+          }
+          vinculados += 1;
+          continue;
+        }
+        const { error: e2 } = await supabase.from('proveedor_producto').insert([v]);
+        if (e2) {
+          if (e2.code === '23505') vinculados += 1;
+          else errores.push(`${v.producto_id}: ${e2.message}`);
+        } else {
+          vinculados += 1;
+        }
+      }
+      continue;
+    }
+    vinculados += chunk.length;
+  }
+
+  return { ok: errores.length === 0, vinculados, errores };
+}
+
 export function parsearFilasCrudas(rows) {
-  return (rows || []).map(filaAProducto).filter(Boolean);
+  const list = rows || [];
+  if (!list.length) return [];
+  const sicar = esPlantillaSicar(list[0]);
+  return list
+    .map((row) => filaAProducto(sicar ? normalizarFilaSicar(row) : row))
+    .filter(Boolean);
 }
 
 /** Convierte hoja Excel a filas, detectando encabezados aunque no estén en fila 1. */
@@ -165,6 +364,7 @@ function hojaExcelAFilas(sheet) {
   }
 
   const headers = (matrix[headerIdx] || []).map((h) => String(h ?? '').trim());
+  // SICAR: no mapear "departamento" a categoría genérica; se trata en normalizarFilaSicar
   return matrix.slice(headerIdx + 1).map((row) => {
     const obj = {};
     headers.forEach((h, i) => {
@@ -237,13 +437,34 @@ export function parsearTextoPegado(texto) {
 
 export async function importarCatalogoSupabase(supabase, filas, opts = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
-  const { sucursal = 'MAIN' } = opts;
-  const productos = (filas || []).filter((p) => p?.id && p?.nombre);
-  if (!productos.length) return { ok: false, error: 'No hay productos válidos para importar (código + nombre obligatorios).' };
+  const { sucursal = 'MAIN', proveedoresFiltro = null } = opts;
+  let productos = (filas || []).filter((p) => p?.id && p?.nombre);
+  if (proveedoresFiltro?.length) {
+    productos = filtrarFilasPorProveedores(productos, proveedoresFiltro);
+  }
+  if (!productos.length) {
+    return {
+      ok: false,
+      error: proveedoresFiltro?.length
+        ? 'No hay productos del/los proveedor(es) seleccionado(s) para importar.'
+        : 'No hay productos válidos para importar (código + nombre obligatorios).',
+    };
+  }
+
+  const nombresProv = productos.map((p) => p.proveedor).filter(Boolean);
+  let proveedoresCreados = 0;
+  let porNombreProv = new Map();
+  if (nombresProv.length) {
+    const aseg = await asegurarProveedoresPorNombre(supabase, nombresProv);
+    if (!aseg.ok) return aseg;
+    porNombreProv = aseg.porNombre;
+    proveedoresCreados = aseg.creados || 0;
+  }
 
   const BATCH = 40;
   let total = 0;
   const errores = [];
+  const vinculos = [];
 
   for (let i = 0; i < productos.length; i += BATCH) {
     const chunk = productos.slice(i, i + BATCH);
@@ -276,7 +497,7 @@ export async function importarCatalogoSupabase(supabase, filas, opts = {}) {
         descripcion: p.descripcion,
         cat: p.cat,
         clave_sat: p.clave_sat,
-        impuesto: impuestoEfectivo(p.impuesto),
+        impuesto: Number.isFinite(Number(p.impuesto)) ? Number(p.impuesto) : IVA_DEFAULT,
         precio_compra_sin: p.precio_compra_sin,
         precio_compra_con: p.precio_compra_con,
         costo: p.costo,
@@ -304,14 +525,41 @@ export async function importarCatalogoSupabase(supabase, filas, opts = {}) {
       continue;
     }
     total += payloads.length;
+
+    for (const p of chunk) {
+      const nombreP = String(p.proveedor || '').trim();
+      if (!nombreP) continue;
+      const provId = porNombreProv.get(normalizarNombreProveedor(nombreP));
+      if (!provId) continue;
+      vinculos.push({
+        proveedor_id: provId,
+        producto_id: p.id,
+        sku_proveedor: p.sku_proveedor || null,
+      });
+    }
+  }
+
+  let vinculados = 0;
+  if (vinculos.length) {
+    const v = await vincularProductosProveedor(supabase, vinculos);
+    vinculados = v.vinculados || 0;
+    if (v.errores?.length) errores.push(...v.errores.slice(0, 10));
   }
 
   if (!total) return { ok: false, error: errores.join('\n') || 'No se importó ningún producto.' };
+
+  const partes = [`Importados ${total} producto(s)`];
+  if (proveedoresCreados) partes.push(`${proveedoresCreados} proveedor(es) nuevo(s)`);
+  if (vinculados) partes.push(`${vinculados} vínculo(s) proveedor↔producto`);
+  if (errores.length) partes.push('Algunos lotes/vínculos fallaron');
+
   return {
     ok: true,
     count: total,
+    proveedoresCreados,
+    vinculados,
     errores,
-    mensaje: errores.length ? `Importados ${total} producto(s). Algunos lotes fallaron.` : undefined,
+    mensaje: partes.join(' · ') + '.',
   };
 }
 
@@ -332,6 +580,8 @@ export function descargarPlantillaCsv() {
     '6',
     'si',
     'no',
+    'Coca Cola',
+    'CC-600',
   ].join(',');
   const csv = `${PLANTILLA_COLUMNAS}\n${ejemplo}`;
   const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
@@ -391,6 +641,8 @@ export function descargarPlantillaExcel() {
     6,
     'si',
     'no',
+    'Coca Cola',
+    'CC-600',
   ];
   const ws = XLSX.utils.aoa_to_sheet([headers, ejemplo]);
   // Columna codigo como texto (evita que Excel corrompa códigos de barras)
@@ -400,7 +652,7 @@ export function descargarPlantillaExcel() {
     ws[ref].z = '@';
     ws[ref].t = 's';
   }
-  ws['!cols'] = [{ wch: 16 }, { wch: 28 }, { wch: 24 }];
+  ws['!cols'] = [{ wch: 16 }, { wch: 28 }, { wch: 24 }, { wch: 14 }, { wch: 12 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 8 }, { wch: 8 }, { wch: 18 }, { wch: 12 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Catalogo');
   XLSX.writeFile(wb, 'plantilla_catalogo_3b.xlsx');

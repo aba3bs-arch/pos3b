@@ -169,6 +169,49 @@ export async function registrarCatalogoEnInventario(supabase, catalogoId, opts =
   return { ok: true, producto_id: codigoFinal, nombre: form.nombre };
 }
 
+/**
+ * Registra en inventario todos los ítems pendientes que ya tienen código de barras.
+ * Usa precio del catálogo y stock 0 (sin preguntar uno por uno).
+ */
+export async function registrarCatalogoPendientesEnInventario(supabase, items, opts = {}) {
+  const { sucursal, stockInicial = 0, cargarDatos } = opts;
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  if (!sucursal) return { ok: false, error: 'Selecciona la sucursal activa.' };
+
+  const pendientes = (items || []).filter((c) => !c.producto_id && c.activo !== false);
+  if (!pendientes.length) return { ok: true, registrados: 0, enlazados: 0, omitidos: [], errores: [] };
+
+  let registrados = 0;
+  let enlazados = 0;
+  const omitidos = [];
+  const errores = [];
+
+  for (const item of pendientes) {
+    const codigo = String(item.codigo_barras || '').trim();
+    if (!codigo) {
+      omitidos.push(nombreCatalogoItem(item) || item.id);
+      continue;
+    }
+    const res = await registrarCatalogoEnInventario(supabase, item.id, {
+      sucursal,
+      codigo,
+      stockInicial,
+      precioCompra: item.precio_compra_sugerido ?? 0,
+      // refrescar una sola vez al final
+      cargarDatos: null,
+    });
+    if (!res.ok) {
+      errores.push(`${nombreCatalogoItem(item) || codigo}: ${res.error}`);
+      continue;
+    }
+    if (res.existente || res.yaRegistrado) enlazados += 1;
+    else registrados += 1;
+  }
+
+  if (typeof cargarDatos === 'function') await cargarDatos();
+  return { ok: errores.length === 0 || registrados + enlazados > 0, registrados, enlazados, omitidos, errores };
+}
+
 export async function productoIdsDesdeProveedor(supabase, proveedorId) {
   if (!supabase || !proveedorId) return [];
   const ids = new Set();
