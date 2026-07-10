@@ -13,6 +13,7 @@ export default function PantallaLogin({
   onCambiarSucursal,
   onFijarTienda,
   sucursalFijaEnv,
+  onDesbloquearTienda,
   supabaseConfigured,
   pin,
   onPinChange,
@@ -70,7 +71,8 @@ export default function PantallaLogin({
             </button>
             <p className="muted login-hint">
               En la PC de caja, al fijar la tienda y entrar con PIN de <strong>cajero</strong> o <strong>repartidor</strong>, ese PIN
-              quedará ligado a esta computadora. Gerentes y administradores no quedan vinculados.
+              quedará ligado a esta computadora. El <strong>administrador</strong> no se ancla a ninguna sucursal ni dispositivo: puede
+              entrar desde cualquier caja o celular.
             </p>
           </>
         )}
@@ -81,7 +83,17 @@ export default function PantallaLogin({
             {sucursalFijaEnv ? (
               <p className="muted login-hint-sm">Fijada por instalación</p>
             ) : (
-              <p className="muted login-hint-sm">Fijada en este navegador</p>
+              <>
+                <p className="muted login-hint-sm">Fijada en este navegador</p>
+                {typeof onDesbloquearTienda === 'function' && (
+                  <button type="button" className="btn btn-ghost login-btn-block" style={{ marginTop: '0.65rem' }} onClick={onDesbloquearTienda}>
+                    Cambiar / desbloquear tienda
+                  </button>
+                )}
+                <p className="muted login-hint-sm" style={{ marginTop: '0.35rem' }}>
+                  Úsalo para entrar a <strong>Central (MAIN)</strong> u otra sucursal desde este equipo.
+                </p>
+              </>
             )}
           </div>
         )}

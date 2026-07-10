@@ -23,7 +23,8 @@ export function obtenerIdDispositivoLocal() {
   }
 }
 
-/** Cajeros y repartidores quedan ligados al primer equipo donde fijan tienda. */
+/** Cajeros y repartidores quedan ligados al primer equipo donde fijan tienda.
+ * Administradores (y el resto de roles) NO se anclan a ningún dispositivo. */
 export function rolExigeDispositivoUnico(rol) {
   const r = normalizarRol(rol);
   return r === 'Cajero' || r === 'Repartidor';
@@ -42,7 +43,10 @@ function faltaColumnaDispositivo(error) {
  * @returns {{ ok: boolean, error?: string, vincular?: boolean, deviceId?: string, aviso?: string }}
  */
 export function evaluarVinculoDispositivo(user, opts = {}) {
-  if (!user || esUsuarioCubreTurno(user) || !rolExigeDispositivoUnico(user.rol)) return { ok: true };
+  // Administrador y roles que no son cajero/repartidor: acceso desde cualquier PC o celular.
+  if (!user || esUsuarioCubreTurno(user) || !rolExigeDispositivoUnico(user.rol)) {
+    return { ok: true, sinAnclaje: true };
+  }
 
   const deviceId = obtenerIdDispositivoLocal();
   const terminalFijada = opts.terminalFijada ?? esTerminalTiendaFijada();

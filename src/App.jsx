@@ -52,10 +52,11 @@ import {
   refrescarPinCubreTurnoSucursal,
   sincronizarPinsCubreTurnoDesdeNube,
 } from './lib/cubreTurnoSync.js';
-import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from './lib/usuariosAuth.js';
+import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta, esAdministradorSinAnclaje } from './lib/usuariosAuth.js';
 import {
   evaluarVinculoDispositivo,
   vincularDispositivoUsuario,
+  liberarDispositivoUsuario,
 } from './lib/dispositivoUsuario.js';
 import { usuarioAutorizadoLogin, turnoActual } from './lib/turnos.js';
 import {
@@ -388,14 +389,24 @@ function App() {
         setPin('');
         return false;
       }
+      // Administrador: nunca anclar a dispositivo; liberar vínculo residual si existiera.
+      if (esAdministradorSinAnclaje(data.rol) && data.id && data.dispositivo_id) {
+        void liberarDispositivoUsuario(supabase, data.id);
+        data.dispositivo_id = null;
+      }
       let sucursalLogin = sucursal;
-      if (ajustarSucursal && normalizarCodigoTienda(ajustarSucursal) !== normalizarCodigoTienda(sucursal)) {
+      // No mover la caja a la sucursal del admin: el admin entra en la tienda seleccionada.
+      if (
+        !esAdministradorSinAnclaje(data.rol) &&
+        ajustarSucursal &&
+        normalizarCodigoTienda(ajustarSucursal) !== normalizarCodigoTienda(sucursal)
+      ) {
         sucursalLogin = ajustarSucursal;
         setSucursal(ajustarSucursal);
         guardarSucursalLocal(ajustarSucursal);
         if (tiendaFijadaParaAcceso) bloquearTiendaEnEsteEquipo(ajustarSucursal);
       }
-      if (vinculo.vincular && data.id) {
+      if (vinculo.vincular && data.id && !esAdministradorSinAnclaje(data.rol)) {
         const resVinculo = await vincularDispositivoUsuario(supabase, data.id, vinculo.deviceId);
         if (!resVinculo.ok) {
           alert(resVinculo.error);
@@ -545,12 +556,21 @@ function App() {
 
   const desbloquearTiendaYReiniciarSesion = () => {
     if (SUCURSAL_FIJA_ENV) return;
-    if (!confirm('¿Solo si esta terminal debe operar otra tienda? Se cerrará la sesión y podrás elegir y fijar de nuevo.')) return;
+    if (
+      !confirm(
+        '¿Desbloquear la tienda de este equipo?\n\nPodrás elegir otra sucursal (por ejemplo Central MAIN) e iniciar sesión de nuevo.',
+      )
+    ) {
+      return;
+    }
     desbloquearTiendaEnEsteEquipo();
     setTiendaFijadaParaAcceso(false);
-    setSucursal(leerSucursalGuardada());
+    setSucursal('MAIN');
+    guardarSucursalLocal('MAIN');
     refrescarListaSucursales();
     cerrarSesion();
+    setPin('');
+    setLoginPinKey((n) => n + 1);
   };
 
   const agregarNuevaTienda = (raw) => {
@@ -607,6 +627,7 @@ function App() {
           setTiendaFijadaParaAcceso(true);
         }}
         sucursalFijaEnv={SUCURSAL_FIJA_ENV}
+        onDesbloquearTienda={!SUCURSAL_FIJA_ENV && tiendaFijadaParaAcceso ? desbloquearTiendaYReiniciarSesion : undefined}
         supabaseConfigured={supabaseConfigured}
         pin={pin}
         pinFieldKey={loginPinKey}

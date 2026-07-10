@@ -76,9 +76,11 @@ export default function Nomina({ supabase, sucursal, user }) {
   const [lineas, setLineas] = useState([]);
   const [empleadosCache, setEmpleadosCache] = useState([]);
   const [excluidos, setExcluidos] = useState(() => new Set(leerBorradorNomina()?.excluidos || []));
+  const [modoNomina, setModoNomina] = useState(() => (leerBorradorNomina()?.modo === 'manual' ? 'manual' : 'automatico'));
   const [borradorListo, setBorradorListo] = useState(false);
   const [saldosArrastre, setSaldosArrastre] = useState({});
 
+  const modoManual = modoNomina === 'manual';
   const totalGeneral = useMemo(() => lineas.reduce((a, l) => a + totalLineaNomina(l), 0), [lineas]);
 
   const cargarEmpleadosYGastos = useCallback(
@@ -150,6 +152,7 @@ export default function Nomina({ supabase, sucursal, user }) {
       if (b.pagadorFiltro != null) setPagadorFiltro(b.pagadorFiltro);
       if (b.notasPeriodo) setNotasPeriodo(b.notasPeriodo);
       if (Array.isArray(b.excluidos)) setExcluidos(new Set(b.excluidos));
+      if (b.modo === 'manual' || b.modo === 'automatico') setModoNomina(b.modo);
       setBorradorListo(true);
     } else if (!borradorListo) {
       setBorradorListo(true);
@@ -161,8 +164,11 @@ export default function Nomina({ supabase, sucursal, user }) {
     const b = leerBorradorNomina();
     const mismoPeriodo = b?.inicio === inicio && b?.fin === fin;
     const lineasBase = mismoPeriodo && b?.lineas?.length ? b.lineas : null;
-    cargarEmpleadosYGastos({ fusionar: true, lineasBase });
+    const fusionar = modoNomina === 'manual';
+    cargarEmpleadosYGastos({ fusionar, lineasBase: fusionar ? lineasBase : null });
     cargarPeriodos();
+    // modoNomina no va en deps: el cambio de modo se maneja en cambiarModoNomina
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supabase, borradorListo, inicio, fin, pagadorFiltro, excluidos, cargarEmpleadosYGastos, cargarPeriodos]);
 
   useEffect(() => {
@@ -174,8 +180,26 @@ export default function Nomina({ supabase, sucursal, user }) {
       notasPeriodo,
       lineas,
       excluidos: [...excluidos],
+      modo: modoNomina,
     });
-  }, [lineas, inicio, fin, pagadorFiltro, notasPeriodo, excluidos, borradorListo]);
+  }, [lineas, inicio, fin, pagadorFiltro, notasPeriodo, excluidos, modoNomina, borradorListo]);
+
+  const cambiarModoNomina = (nuevo) => {
+    if (nuevo === modoNomina) return;
+    if (nuevo === 'automatico') {
+      if (
+        !confirm(
+          '¿Pasar a modo Automático?\n\nSe recalcularán días, consumos, inventario y préstamos desde cortes y vales. Se perderán ajustes manuales de esas columnas.',
+        )
+      ) {
+        return;
+      }
+      setModoNomina('automatico');
+      void cargarEmpleadosYGastos({ fusionar: false });
+      return;
+    }
+    setModoNomina('manual');
+  };
 
   const actualizarLinea = (idx, campo, valor) => {
     setLineas((prev) => {
@@ -310,7 +334,9 @@ export default function Nomina({ supabase, sucursal, user }) {
       notasPeriodo: res.periodo.notas || '',
       lineas: res.lineas || [],
       excluidos: [],
+      modo: 'manual',
     });
+    setModoNomina('manual');
     cargarPeriodos();
     alert(
       `Nómina reabierta para corrección.\n` +
@@ -355,6 +381,7 @@ export default function Nomina({ supabase, sucursal, user }) {
 
   const renderFila = (l, i, { historial = false } = {}) => {
     const key = historial ? l.id : l.usuario_id || i;
+    const autoBloqueado = !historial && !modoManual;
     return (
       <tr key={key}>
         <td>
@@ -408,8 +435,15 @@ export default function Nomina({ supabase, sucursal, user }) {
           )}
         </td>
         <td title={l.es_indirecto ? `Vales: ${l.vales_gasolina}` : `Cortes: ${l.cortes_periodo}`}>
-          {historial ? (
-            l.dias_trabajados ?? '—'
+          {historial || autoBloqueado ? (
+            <>
+              <strong>{l.dias_trabajados ?? '—'}</strong>
+              {!historial && (
+                <span className="muted" style={{ fontSize: '0.62rem', display: 'block' }}>
+                  {l.es_indirecto ? `auto: ${l.vales_gasolina}` : `auto: ${l.cortes_periodo}`}
+                </span>
+              )}
+            </>
           ) : (
             <>
               <input
@@ -446,7 +480,7 @@ export default function Nomina({ supabase, sucursal, user }) {
           )}
         </td>
         <td style={{ color: l.deduccion_gastos > 0 ? 'var(--danger)' : undefined }} title={l.notas}>
-          {historial ? (
+          {historial || autoBloqueado ? (
             fmt(l.deduccion_gastos)
           ) : (
             <input
@@ -461,7 +495,7 @@ export default function Nomina({ supabase, sucursal, user }) {
           )}
         </td>
         <td style={{ color: l.deduccion_inventario > 0 ? 'var(--danger)' : undefined }}>
-          {historial ? (
+          {historial || autoBloqueado ? (
             fmt(l.deduccion_inventario)
           ) : (
             <input
@@ -476,7 +510,7 @@ export default function Nomina({ supabase, sucursal, user }) {
           )}
         </td>
         <td style={{ color: l.deduccion_prestamos > 0 ? 'var(--danger)' : undefined }} title={l.notas}>
-          {historial ? (
+          {historial || autoBloqueado ? (
             fmt(l.deduccion_prestamos)
           ) : (
             <input
@@ -592,20 +626,42 @@ export default function Nomina({ supabase, sucursal, user }) {
             <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', maxWidth: '52rem' }}>
               Consolidada de <strong>todas las sucursales</strong>. Semana sábado–viernes.
               <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros − arrastre.</strong>
-              Si los gastos superan el sueldo, el pago puede quedar <strong>negativo</strong> y esa deuda se carga a la siguiente nómina (columna Arrastre).
+              {modoManual
+                ? ' Modo Manual: puedes editar todos los campos a mano.'
+                : ' Modo Automático: días y deducciones salen de cortes/vales (solo bono y otros son editables).'}
             </p>
           </div>
-          <div
-            style={{
-              padding: '0.4rem 0.65rem',
-              borderRadius: 8,
-              background: 'rgba(26,82,118,0.08)',
-              fontSize: '0.78rem',
-              fontWeight: 700,
-              color: 'var(--brand-blue)',
-            }}
-          >
-            Todas las sucursales
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.45rem' }}>
+            <div
+              style={{
+                padding: '0.4rem 0.65rem',
+                borderRadius: 8,
+                background: 'rgba(26,82,118,0.08)',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: 'var(--brand-blue)',
+              }}
+            >
+              Todas las sucursales
+            </div>
+            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className={!modoManual ? 'btn btn-primary' : 'btn btn-ghost'}
+                style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem' }}
+                onClick={() => cambiarModoNomina('automatico')}
+              >
+                Automático
+              </button>
+              <button
+                type="button"
+                className={modoManual ? 'btn btn-primary' : 'btn btn-ghost'}
+                style={{ padding: '0.4rem 0.75rem', fontSize: '0.85rem' }}
+                onClick={() => cambiarModoNomina('manual')}
+              >
+                Manual
+              </button>
+            </div>
           </div>
         </div>
 
@@ -688,8 +744,13 @@ export default function Nomina({ supabase, sucursal, user }) {
           <button type="button" className="btn btn-ghost" disabled={lineas.length === 0} onClick={imprimirTodosRecibos}>
             Recibos por empleado
           </button>
-          <button type="button" className="btn btn-ghost" disabled={cargando} onClick={() => cargarEmpleadosYGastos({ fusionar: true })}>
-            Recalcular deducciones
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={cargando}
+            onClick={() => cargarEmpleadosYGastos({ fusionar: modoManual })}
+          >
+            {modoManual ? 'Recalcular (conservar manual)' : 'Recalcular deducciones'}
           </button>
           <button type="button" className="btn btn-ghost" disabled={cargando} onClick={() => cargarEmpleadosYGastos({ fusionar: false })}>
             Recargar todo

@@ -261,7 +261,8 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nuevo empleado</h3>
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-          Cada empleado queda ligado a una <strong>sucursal</strong>.
+          Cada empleado fijo queda ligado a una <strong>sucursal</strong> y (si es cajero/repartidor) puede vincularse a un equipo.
+          El rol <strong>Administrador</strong> no se ancla a sucursal ni dispositivo: su PIN funciona en cualquier tienda o celular.
           {esPersonalizado
             ? ' Con horario personalizado, asigna turnos por día en Configuración → Turnos.'
             : ' Asigna un turno fijo para el corte de caja.'}
@@ -276,7 +277,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
             style={{ fontSize: '1.05rem', letterSpacing: '0.12em', marginBottom: 0 }}
           />
           <label className="muted">
-            Sucursal asignada
+            {normalizarRol(form.rol) === 'Administrador' ? 'Sucursal de referencia (no restringe el login)' : 'Sucursal asignada'}
             <select className="select" style={{ marginTop: '0.35rem' }} value={form.sucursal_id} onChange={(e) => setForm({ ...form, sucursal_id: e.target.value })}>
               {tiendas.map((s) => (
                 <option key={s} value={s}>

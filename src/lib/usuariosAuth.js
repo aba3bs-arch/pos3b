@@ -1,13 +1,19 @@
-import { normalizarCodigoTienda } from '../constants/sucursales.js';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { normalizarCodigoTienda, etiquetaTienda } from '../constants/sucursales.js';
+import { normalizarRol } from './roles.js';
 
 export function sucursalUsuario(user) {
   const s = user?.sucursal_id;
   return s ? normalizarCodigoTienda(s) : null;
 }
 
+/** Solo Administrador: sin anclaje a sucursal ni a dispositivo en el login. */
+export function esAdministradorSinAnclaje(rol) {
+  return normalizarRol(rol) === 'Administrador';
+}
+
 /** Usuario sin sucursal asignada (filas antiguas) puede entrar en cualquier tienda. */
 export function usuarioCoincideSucursal(user, sucursalActiva) {
+  if (esAdministradorSinAnclaje(user?.rol)) return true;
   const asignada = sucursalUsuario(user);
   if (!asignada) return true;
   return asignada === normalizarCodigoTienda(sucursalActiva);
@@ -25,9 +31,24 @@ function faltaColumnaSucursal(error) {
   return msg.includes('sucursal_id') && msg.includes('does not exist');
 }
 
+/** Si hay varios admins con el mismo PIN, prioriza la tienda actual, luego MAIN. */
+function elegirAdministradorPorPin(admins, sucursalActiva) {
+  if (!admins?.length) return null;
+  if (admins.length === 1) return admins[0];
+  const suc = normalizarCodigoTienda(sucursalActiva);
+  const enTienda = admins.find((u) => sucursalUsuario(u) === suc);
+  if (enTienda) return enTienda;
+  const main = admins.find((u) => sucursalUsuario(u) === 'MAIN');
+  if (main) return main;
+  const sinSuc = admins.find((u) => !sucursalUsuario(u));
+  if (sinSuc) return sinSuc;
+  return admins[0];
+}
+
 /**
- * Busca usuario por PIN solo en la sucursal de la caja.
- * No permite entrar con un PIN de otra tienda (evita confusiones al registrar).
+ * Busca usuario por PIN.
+ * - Empleados fijos (cajero, etc.): solo en la sucursal de la caja.
+ * - Administrador: PIN válido desde cualquier tienda o dispositivo (sin anclaje).
  */
 export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva) {
   if (!supabase) return { user: null, error: 'Sin conexión a Supabase.' };
@@ -54,7 +75,11 @@ export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva
   const list = qAll.data || [];
   if (list.length === 0) return { user: null, error: null };
 
-  // PIN existe pero no en esta tienda: no ajustar sucursal ni permitir cruce entre cajas.
+  // Administrador: puede entrar desde cualquier sucursal / dispositivo.
+  const admins = list.filter((u) => esAdministradorSinAnclaje(u.rol));
+  const admin = elegirAdministradorPorPin(admins, suc);
+  if (admin) return { user: admin, error: null };
+
   const enTienda = list.find((u) => sucursalUsuario(u) === suc);
   if (enTienda) return { user: enTienda, error: null };
 

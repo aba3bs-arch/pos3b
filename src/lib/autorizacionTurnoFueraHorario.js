@@ -69,10 +69,7 @@ export async function verificarPinAdministradorGlobal(supabase, pin) {
 
   const admins = (data || []).filter((u) => normalizarRol(u.rol) === 'Administrador');
   if (!admins.length) return { ok: false, error: 'Solo un administrador puede autorizar la entrada.' };
-  if (admins.length > 1) {
-    return { ok: false, error: 'Hay más de un administrador con ese PIN. Pide al soporte que unifique PINs.' };
-  }
-
+  // Varios admins pueden compartir PIN en seeds antiguos: toma el primero (login ya prioriza tienda/MAIN).
   return { ok: true, user: admins[0], nombre: admins[0].nombre };
 }
 
