@@ -18,6 +18,7 @@ export default function PantallaLogin({
   onPinChange,
   onLogin,
   puedeIngresarPin,
+  pinFieldKey = 0,
   pendienteCubreTurno,
   nombreCubre,
   telefonoCubre,
@@ -94,6 +95,7 @@ export default function PantallaLogin({
         {!pendienteCubreTurno && (
         <>
         <InputPin
+          key={`login-pin-${pinFieldKey}`}
           value={pin}
           onChange={onPinChange}
           onKeyDown={(e) => e.key === 'Enter' && puedeIngresarPin && !pendienteAutorizacionTurno && onLogin()}

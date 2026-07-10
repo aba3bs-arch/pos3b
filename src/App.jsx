@@ -61,6 +61,7 @@ import { usuarioAutorizadoLogin, turnoActual } from './lib/turnos.js';
 import {
   construirUsuarioCubreTurno,
   datosCubreTurnoCompletos,
+  esPinCubreTurno,
   esUsuarioCubreTurno,
   EVENTO_PIN_CUBRE_TURNO,
   pinCubreTurnoActivo,
@@ -100,6 +101,7 @@ function App() {
   const [sesion, setSesion] = useState(false);
   const [user, setUser] = useState(null);
   const [pin, setPin] = useState('');
+  const [loginPinKey, setLoginPinKey] = useState(0);
   const [pendienteAutorizacionTurno, setPendienteAutorizacionTurno] = useState(null);
   const [pinAdminAutorizacion, setPinAdminAutorizacion] = useState('');
   const [autorizandoTurno, setAutorizandoTurno] = useState(false);
@@ -447,7 +449,7 @@ function App() {
     const syncPin = await refrescarPinCubreTurnoSucursal(supabase, sucursal);
     setTickCubreTurno((n) => n + 1);
     const pinCubreRemoto = String(syncPin.pin || '').trim();
-    if (pinCubreRemoto && p === pinCubreRemoto) {
+    if (esPinCubreTurno(p, pinCubreRemoto)) {
       setPendienteCubreTurno(true);
       setPendienteAutorizacionTurno(null);
       setPin('');
@@ -535,19 +537,10 @@ function App() {
     setTelefonoCubre('');
     setPendienteAutorizacionTurno(null);
     setPinAdminAutorizacion('');
-  };
-
-  const reiniciarPaginaSesion = () => {
-    if (
-      !confirm(
-        '¿Reiniciar la página?\n\nSe cerrará la sesión actual. Úsalo para cambiar de usuario fijo a cubre turno (o al revés) sin que quede un PIN anterior en pantalla.',
-      )
-    ) {
-      return;
-    }
-    limpiarAnunciosVistos();
-    limpiarNotificacionesDispositivoMostradas();
-    window.location.reload();
+    setEnviandoCubre(false);
+    setAutorizandoTurno(false);
+    // Remonta el campo PIN vacío para que el navegador no reutilice el valor anterior.
+    setLoginPinKey((n) => n + 1);
   };
 
   const desbloquearTiendaYReiniciarSesion = () => {
@@ -606,6 +599,7 @@ function App() {
           setTelefonoCubre('');
           setPendienteAutorizacionTurno(null);
           setPinAdminAutorizacion('');
+          setLoginPinKey((n) => n + 1);
         }}
         onFijarTienda={() => {
           bloquearTiendaEnEsteEquipo(sucursal);
@@ -615,6 +609,7 @@ function App() {
         sucursalFijaEnv={SUCURSAL_FIJA_ENV}
         supabaseConfigured={supabaseConfigured}
         pin={pin}
+        pinFieldKey={loginPinKey}
         onPinChange={(e) => setPin(e.target.value)}
         onLogin={manejarLogin}
         puedeIngresarPin={puedeIngresarPin}
@@ -628,6 +623,8 @@ function App() {
           setPendienteCubreTurno(false);
           setNombreCubre('');
           setTelefonoCubre('');
+          setPin('');
+          setLoginPinKey((n) => n + 1);
         }}
         enviandoCubre={enviandoCubre}
         cubreDatosListos={cubreDatosListos}
@@ -639,6 +636,8 @@ function App() {
         onCancelarAutorizacion={() => {
           setPendienteAutorizacionTurno(null);
           setPinAdminAutorizacion('');
+          setPin('');
+          setLoginPinKey((n) => n + 1);
         }}
         autorizandoTurno={autorizandoTurno}
       />
@@ -755,7 +754,6 @@ function App() {
               cargarDatos={cargarDatos}
               onNavigate={irAModulo}
               onIrIncidencias={irAIncidencias}
-              onReiniciarPagina={reiniciarPaginaSesion}
               puedeModulo={(m) => puedeVerModulo(user?.rol, m, user?.id)}
             />
           )}

@@ -49,12 +49,13 @@ export async function crearMarcajeAsistencia(supabase, {
     return { ok: false, error: 'Completa empleado, tienda y tipo.' };
   }
   const row = {
-    usuario_id: usuario_id || null,
     nombre,
     sucursal_id,
     tipo,
     created_at: created_at || new Date().toISOString(),
   };
+  // Omitir usuario_id si no hay empleado fijo (cubre turno); evita fallos con NOT NULL / FK.
+  if (usuario_id) row.usuario_id = usuario_id;
   if (ajustado_por) row.ajustado_por = ajustado_por;
   let { error } = await supabase.from('asistencias').insert([row]);
   if (error?.message?.includes('ajustado_por')) {

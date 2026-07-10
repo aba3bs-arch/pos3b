@@ -45,6 +45,7 @@ export async function sincronizarPinsCubreTurnoDesdeNube(supabase, sucursal) {
 
 /**
  * Lee el PIN de una sucursal desde Supabase (login / checador). No lo guarda en localStorage.
+ * Tolera filas antiguas con distinta capitalización en sucursal_id.
  */
 export async function refrescarPinCubreTurnoSucursal(supabase, sucursal) {
   purgarCacheLocalPinCubreTurno();
@@ -68,10 +69,33 @@ export async function refrescarPinCubreTurnoSucursal(supabase, sucursal) {
         pin: '',
       };
     }
-    return { ok: false, error: error.message, pin: '' };
+    // Si maybeSingle falla (p. ej. duplicados), intenta búsqueda amplia abajo.
+  } else if (data) {
+    const remotoPin = String(data.pin || '').trim();
+    marcarPinCubreTurnoActivo(suc, Boolean(remotoPin));
+    return { ok: true, pin: remotoPin, desdeNube: true };
   }
 
-  const remotoPin = String(data?.pin || '').trim();
+  // Fallback: filas con sucursal_id en otra capitalización o formato.
+  const { data: todas, error: errTodas } = await supabase
+    .from('pos_pin_cubre_turno')
+    .select('sucursal_id, pin, updated_at');
+
+  if (errTodas) {
+    if (faltaTabla(errTodas)) {
+      return {
+        ok: false,
+        sinTabla: true,
+        aviso: AVISO_SIN_TABLA_PIN_CUBRE,
+        error: errTodas.message,
+        pin: '',
+      };
+    }
+    return { ok: false, error: errTodas.message || error?.message || 'No se pudo leer el PIN.', pin: '' };
+  }
+
+  const row = (todas || []).find((r) => normalizarCodigoTienda(r.sucursal_id) === suc);
+  const remotoPin = String(row?.pin || '').trim();
   marcarPinCubreTurnoActivo(suc, Boolean(remotoPin));
   return { ok: true, pin: remotoPin, desdeNube: true };
 }
@@ -130,8 +154,9 @@ export async function subirPinCubreTurnoANube(supabase, sucursal, pin) {
 /** True si el PIN coincide con el de cubre turno de esa sucursal. */
 export async function pinEsCubreTurnoDeSucursal(supabase, pin, sucursal) {
   const r = await refrescarPinCubreTurnoSucursal(supabase, sucursal);
-  const p = String(pin || '').trim();
-  const remoto = String(r.pin || '').trim();
-  if (!p || !remoto) return { coincide: false, error: r.ok === false ? r.error : null };
-  return { coincide: p === remoto };
+  const { esPinCubreTurno } = await import('./cubreTurno.js');
+  if (!String(pin || '').trim() || !String(r.pin || '').trim()) {
+    return { coincide: false, error: r.ok === false ? r.error : null };
+  }
+  return { coincide: esPinCubreTurno(pin, r.pin), error: r.ok === false ? r.error : null };
 }

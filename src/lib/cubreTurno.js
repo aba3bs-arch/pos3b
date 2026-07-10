@@ -106,10 +106,15 @@ export async function reiniciarPinCubreTurno(sucursal, supabase) {
   return { ok: true, pin, remoto: res.remoto };
 }
 
+/** Comparación estable de PIN (sin espacios; evita fallos por formato). */
+export function normalizarPinComparacion(pin) {
+  return String(pin || '').trim().replace(/\s+/g, '');
+}
+
 export function esPinCubreTurno(pin, pinConfigurado) {
-  const configurado = String(pinConfigurado || '').trim();
+  const configurado = normalizarPinComparacion(pinConfigurado);
   if (!configurado) return false;
-  return String(pin || '').trim() === configurado;
+  return normalizarPinComparacion(pin) === configurado;
 }
 
 export function esUsuarioCubreTurno(user) {

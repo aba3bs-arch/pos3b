@@ -19,10 +19,11 @@ import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import InputPin from '../components/InputPin.jsx';
 import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
-import { refrescarPinCubreTurnoSucursal } from '../lib/cubreTurnoSync.js';
+import { refrescarPinCubreTurnoSucursal, AVISO_SIN_TABLA_PIN_CUBRE } from '../lib/cubreTurnoSync.js';
 import {
   construirUsuarioCubreTurno,
   datosCubreTurnoCompletos,
+  esPinCubreTurno,
   validarDatosCubreTurno,
 } from '../lib/cubreTurno.js';
 
@@ -239,60 +240,75 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       setMsg('Configura Supabase para usar el reloj checador.');
       return;
     }
-    const p = pinEmpleado.trim();
+    if (!sucursal) {
+      setMsg('No hay tienda activa en esta caja. Fija la sucursal e intenta de nuevo.');
+      return;
+    }
+    const p = String(pinEmpleado || '').trim();
     if (!p || cargandoPin) return;
     setCargandoPin(true);
     setMsg('');
     setPendienteCubreChecador(false);
 
-    const syncPin = await refrescarPinCubreTurnoSucursal(supabase, sucursal);
-    const pinCubreRemoto = String(syncPin.pin || '').trim();
-    if (pinCubreRemoto && p === pinCubreRemoto) {
-      setCargandoPin(false);
-      setPinEmpleado('');
-      setEmpleado(null);
-      setPendienteChecador(null);
-      setPendienteCubreChecador(true);
-      setNombreCubreChecador('');
-      setTelefonoCubreChecador('');
-      setAvisoCobertura('');
-      return;
-    }
+    try {
+      const syncPin = await refrescarPinCubreTurnoSucursal(supabase, sucursal);
+      const pinCubreRemoto = String(syncPin.pin || '').trim();
+      if (esPinCubreTurno(p, pinCubreRemoto)) {
+        setPinEmpleado('');
+        setEmpleado(null);
+        setPendienteChecador(null);
+        setPendienteCubreChecador(true);
+        setNombreCubreChecador('');
+        setTelefonoCubreChecador('');
+        setAvisoCobertura('');
+        return;
+      }
 
-    const { user: data, error, avisoSucursal, sucursalReal } = await buscarUsuarioPorPinYSucursal(supabase, p, sucursal);
-    setCargandoPin(false);
-    if (error) {
-      setMsg(error);
-      setEmpleado(null);
-      return;
-    }
-    if (!data) {
-      setMsg(avisoSucursal ? mensajePinSucursalIncorrecta(etiquetaTienda(sucursal), sucursalReal) : 'PIN incorrecto');
-      setEmpleado(null);
+      const { user: data, error, avisoSucursal, sucursalReal } = await buscarUsuarioPorPinYSucursal(supabase, p, sucursal);
+      if (error) {
+        setMsg(error);
+        setEmpleado(null);
+        return;
+      }
+      if (!data) {
+        if (syncPin.sinTabla) {
+          setMsg(`PIN incorrecto. ${syncPin.aviso || AVISO_SIN_TABLA_PIN_CUBRE}`);
+        } else if (syncPin.ok === false && syncPin.error) {
+          setMsg(`PIN incorrecto. No se pudo verificar el PIN de cubre turno: ${syncPin.error}`);
+        } else {
+          setMsg(avisoSucursal ? mensajePinSucursalIncorrecta(etiquetaTienda(sucursal), sucursalReal) : 'PIN incorrecto');
+        }
+        setEmpleado(null);
+        setPinEmpleado('');
+        return;
+      }
+      const accesoTurno = usuarioAutorizadoChecador(data, new Date(), null, sucursal);
+      if (!accesoTurno.ok) {
+        setPendienteChecador({ user: data, error: accesoTurno.error });
+        setMsg('');
+        setEmpleado(null);
+        setAvisoCobertura('');
+        setPinEmpleado('');
+        return;
+      }
+      setPendienteChecador(null);
+      setPinAdminChecador('');
+      setAvisoCobertura(accesoTurno.coberturaTurno ? accesoTurno.mensaje || 'Cobertura de otro turno.' : '');
+      const vinculo = evaluarVinculoDispositivo(data);
+      if (!vinculo.ok) {
+        setMsg(vinculo.error);
+        setEmpleado(null);
+        setPinEmpleado('');
+        return;
+      }
+      setEmpleado({ id: data.id, nombre: data.nombre, rol: data.rol });
       setPinEmpleado('');
-      return;
-    }
-    const accesoTurno = usuarioAutorizadoChecador(data, new Date(), null, sucursal);
-    if (!accesoTurno.ok) {
-      setPendienteChecador({ user: data, error: accesoTurno.error });
-      setMsg('');
+    } catch (err) {
+      setMsg(err?.message || 'No se pudo verificar el PIN.');
       setEmpleado(null);
-      setAvisoCobertura('');
-      setPinEmpleado('');
-      return;
+    } finally {
+      setCargandoPin(false);
     }
-    setPendienteChecador(null);
-    setPinAdminChecador('');
-    setAvisoCobertura(accesoTurno.coberturaTurno ? accesoTurno.mensaje || 'Cobertura de otro turno.' : '');
-    const vinculo = evaluarVinculoDispositivo(data);
-    if (!vinculo.ok) {
-      setMsg(vinculo.error);
-      setEmpleado(null);
-      setPinEmpleado('');
-      return;
-    }
-    setEmpleado({ id: data.id, nombre: data.nombre, rol: data.rol });
-    setPinEmpleado('');
   };
 
   const autorizarChecadorConAdmin = async () => {
@@ -398,19 +414,20 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     if (!supabase || !empleado || !sucursal) return;
     setMarcando(true);
     setMsg('');
-    const row = {
+    const nombre = empleado.esCubreTurno ? `${empleado.nombre} (cubre turno)` : empleado.nombre;
+    const res = await crearMarcajeAsistencia(supabase, {
       usuario_id: empleado.id || null,
-      nombre: empleado.esCubreTurno ? `${empleado.nombre} (cubre turno)` : empleado.nombre,
+      nombre,
       sucursal_id: sucursal,
       tipo,
-    };
-    const { error } = await supabase.from('asistencias').insert([row]);
+    });
     setMarcando(false);
-    if (error) {
-      if (error.message?.includes('relation') || error.code === '42P01') {
+    if (!res.ok) {
+      const err = String(res.error || '');
+      if (err.includes('relation') || err.includes('42P01')) {
         setMsg('Falta la tabla asistencias. Ejecuta el SQL nuevo en supabase/schema.sql en el SQL Editor de Supabase.');
       } else {
-        setMsg(error.message);
+        setMsg(res.error || 'No se pudo registrar el marcaje.');
       }
       return;
     }
@@ -542,13 +559,34 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                     onKeyDown={(e) => e.key === 'Enter' && !cargandoPin && identificarEmpleado()}
                     placeholder="PIN de esta tienda"
                     autoComplete="new-password"
+                    name="checador-pin"
                     style={{ fontSize: '1.2rem', letterSpacing: '0.15em', marginBottom: 0 }}
                   />
                 </div>
               </label>
-              <button type="button" className="btn btn-primary" onClick={identificarEmpleado} disabled={cargandoPin}>
+              <button type="button" className="btn btn-primary" onClick={identificarEmpleado} disabled={cargandoPin || !pinEmpleado.trim()}>
                 {cargandoPin ? 'Verificando…' : 'Continuar'}
               </button>
+              {user?.esCubreTurno && (
+                <button
+                  type="button"
+                  className="btn btn-gold"
+                  onClick={() => {
+                    setEmpleado({
+                      id: null,
+                      nombre: user.nombre,
+                      rol: user.rol || 'Cajero',
+                      esCubreTurno: true,
+                      telefono: user.telefono || '',
+                    });
+                    setPinEmpleado('');
+                    setMsg('');
+                    setAvisoCobertura('Marcaje de cubre turno (sesión actual).');
+                  }}
+                >
+                  Marcar como {user.nombre} (cubre turno)
+                </button>
+              )}
             </div>
           ) : pendienteCubreChecador ? (
             <div

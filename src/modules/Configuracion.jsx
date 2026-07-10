@@ -94,7 +94,6 @@ import {
 import {
   persistirPinCubreTurno,
   pinCubreTurnoActivo,
-  reiniciarPinCubreTurno,
 } from '../lib/cubreTurno.js';
 import { pinUsuarioOcupadoEnSucursal } from '../lib/usuariosAuth.js';
 import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarPrivilegios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, ROLES, listarTodosLosRoles, leerRolesPersonalizados, agregarRolPersonalizado, quitarRolPersonalizado, esRolSistema, EVENTO_ROLES, modulosDefaultRol, modulosEnEdicionPrivilegios, tieneListaPersonalizada, normalizarListaModulos, describeOrigenPrivilegios, normalizarRol } from '../lib/roles.js';
@@ -234,34 +233,6 @@ export default function Configuracion({
           : `PIN de cubre turno desactivado en ${etiquetaTienda(tienda)}.`,
       );
     }
-  };
-
-  const reiniciarPinCubreConfig = async (tienda) => {
-    if (
-      !confirm(
-        `¿Reiniciar el PIN de cubre turno de ${etiquetaTienda(tienda)}?\n\nSe generará un PIN nuevo de 4 dígitos. El anterior dejará de funcionar de inmediato.`,
-      )
-    ) {
-      return;
-    }
-    setPinsCubreGuardando(tienda);
-    const res = await reiniciarPinCubreTurno(tienda, supabase);
-    setPinsCubreGuardando(null);
-    if (!res.ok) {
-      alert(res.error || res.remoto?.error || res.remoto?.aviso || 'No se pudo reiniciar el PIN.');
-      return;
-    }
-    setPinsCubreTurno((prev) => ({ ...prev, [tienda]: res.pin }));
-    setPinCubreEnEdicion(null);
-    setNuevoPinCubreDraft('');
-    setPinsCubreVisibles((prev) => {
-      const next = new Set(prev);
-      next.add(tienda);
-      return next;
-    });
-    alert(
-      `PIN de cubre turno reiniciado para ${etiquetaTienda(tienda)}.\n\nNuevo PIN: ${res.pin}\n\nAnota este número; no se guarda en el navegador.`,
-    );
   };
 
   const togglePinCubreVisible = (tienda) => {
@@ -1486,15 +1457,6 @@ export default function Configuracion({
                               }}
                             >
                               Cambiar PIN
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-gold"
-                              style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
-                              disabled={Boolean(pinsCubreGuardando)}
-                              onClick={() => void reiniciarPinCubreConfig(t)}
-                            >
-                              {pinsCubreGuardando === t ? 'Reiniciando…' : 'Reiniciar PIN'}
                             </button>
                             {pinsCubreTurno[t] && (
                               <button
