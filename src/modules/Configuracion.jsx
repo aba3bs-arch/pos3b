@@ -127,6 +127,7 @@ export default function Configuracion({
   tiendaNoCambiable,
   bloqueoPorEntorno,
   onDesbloquearTiendaBrowser,
+  desbloqueandoTienda = false,
   user,
   inventario,
   cargarDatos,
@@ -151,6 +152,8 @@ export default function Configuracion({
   const [pinsCubreCargando, setPinsCubreCargando] = useState(false);
   const [pinCubreEnEdicion, setPinCubreEnEdicion] = useState(null);
   const [nuevoPinCubreDraft, setNuevoPinCubreDraft] = useState('');
+  const [pedirPinDesbloqueo, setPedirPinDesbloqueo] = useState(false);
+  const [pinDesbloqueoTienda, setPinDesbloqueoTienda] = useState('');
   const esAdmin = puedeGestionarUsuarios(user?.rol);
   const puedePrivilegios = puedeGestionarPrivilegios(user?.rol);
   const recibeAlertas = puedeRecibirNotificacionesDispositivo(user?.rol);
@@ -776,14 +779,85 @@ export default function Configuracion({
                   <p className="muted" style={{ fontSize: '0.85rem', margin: '0 0 0.75rem' }}>
                     Esta caja quedó ligada a una sola tienda para no registrar ventas en sucursal equivocada.
                   </p>
-                  {typeof onDesbloquearTiendaBrowser === 'function' && (
-                    <button type="button" className="btn btn-danger" onClick={onDesbloquearTiendaBrowser}>
-                      Cambiar tienda de este equipo (solo admin · cierra sesión)
+                  {typeof onDesbloquearTiendaBrowser === 'function' && !pedirPinDesbloqueo && (
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      onClick={() => {
+                        setPedirPinDesbloqueo(true);
+                        setPinDesbloqueoTienda('');
+                      }}
+                    >
+                      Cambiar tienda de este equipo (requiere PIN admin)
                     </button>
+                  )}
+                  {typeof onDesbloquearTiendaBrowser === 'function' && pedirPinDesbloqueo && (
+                    <div
+                      style={{
+                        marginTop: '0.35rem',
+                        padding: '0.85rem',
+                        borderRadius: '10px',
+                        border: '1px solid rgba(220,38,38,0.35)',
+                        background: 'rgba(220,38,38,0.06)',
+                      }}
+                    >
+                      <strong style={{ color: 'var(--brand-red)' }}>Autorización de administrador</strong>
+                      <p className="muted" style={{ fontSize: '0.82rem', margin: '0.35rem 0 0.65rem' }}>
+                        Ingresa el PIN de un <strong>Administrador</strong>. No se guarda en este equipo.
+                      </p>
+                      <label className="muted" style={{ display: 'block' }}>
+                        PIN del administrador
+                        <InputPin
+                          value={pinDesbloqueoTienda}
+                          onChange={(e) => setPinDesbloqueoTienda(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Enter' || desbloqueandoTienda || !pinDesbloqueoTienda.trim()) return;
+                            void onDesbloquearTiendaBrowser(pinDesbloqueoTienda).then((ok) => {
+                              if (ok) {
+                                setPedirPinDesbloqueo(false);
+                                setPinDesbloqueoTienda('');
+                              }
+                            });
+                          }}
+                          placeholder="PIN admin"
+                          autoFocus
+                          name="config-desbloqueo-tienda-admin"
+                          style={{ marginTop: '0.35rem', marginBottom: '0.65rem' }}
+                        />
+                      </label>
+                      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <button
+                          type="button"
+                          className="btn btn-danger"
+                          disabled={desbloqueandoTienda || !pinDesbloqueoTienda.trim()}
+                          onClick={() => {
+                            void onDesbloquearTiendaBrowser(pinDesbloqueoTienda).then((ok) => {
+                              if (ok) {
+                                setPedirPinDesbloqueo(false);
+                                setPinDesbloqueoTienda('');
+                              }
+                            });
+                          }}
+                        >
+                          {desbloqueandoTienda ? 'Verificando…' : 'Desbloquear'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          disabled={desbloqueandoTienda}
+                          onClick={() => {
+                            setPedirPinDesbloqueo(false);
+                            setPinDesbloqueoTienda('');
+                          }}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
                   )}
                   {typeof onDesbloquearTiendaBrowser !== 'function' && !bloqueoPorEntorno && (
                     <p className="muted" style={{ fontSize: '0.82rem', margin: 0 }}>
-                      Solo un <strong>administrador</strong> puede desbloquear la tienda de esta caja.
+                      Solo con <strong>PIN de administrador</strong> se puede desbloquear la tienda de esta caja.
                     </p>
                   )}
                 </>
@@ -1395,7 +1469,8 @@ export default function Configuracion({
                               value={nuevoPinCubreDraft}
                               onChange={(e) => setNuevoPinCubreDraft(e.target.value)}
                               placeholder="Nuevo PIN o vacío"
-                              autoComplete="new-password"
+                              autoComplete="off"
+                              name={`pin-cubre-edit-${t}`}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') void guardarPinCubreYSubir(t, nuevoPinCubreDraft);
                               }}

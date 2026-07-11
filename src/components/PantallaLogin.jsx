@@ -128,7 +128,7 @@ export default function PantallaLogin({
                         onKeyDown={(e) => e.key === 'Enter' && !desbloqueandoTienda && confirmarDesbloqueo()}
                         placeholder="PIN admin"
                         autoFocus
-                        autoComplete="new-password"
+                        autoComplete="off"
                         name="desbloqueo-tienda-admin"
                       />
                     </label>
@@ -168,7 +168,8 @@ export default function PantallaLogin({
               placeholder="PIN"
               autoFocus={puedeIngresarPin}
               disabled={!puedeIngresarPin}
-              autoComplete="new-password"
+              autoComplete="off"
+              name={`login-pin-${pinFieldKey}`}
               className="login-pin"
             />
             <button
@@ -258,6 +259,8 @@ export default function PantallaLogin({
                 onKeyDown={(e) => e.key === 'Enter' && !autorizandoTurno && onAutorizarTurno()}
                 placeholder="PIN admin"
                 autoFocus
+                autoComplete="off"
+                name="autorizacion-turno-admin"
               />
             </label>
             <div className="login-auth-actions">

@@ -1,5 +1,6 @@
-import { abrirVentanaImpresion } from './impresion.js';
+import { abrirVentanaImpresion, estilosImpresion } from './impresion.js';
 import { leerNombreNegocio, leerLogoUrl } from './branding.js';
+import { leerConfigImpresion } from './posConfig.js';
 import { ETIQUETA_AREA, etiquetaCategoriaVale } from './contabilidadConstants.js';
 
 function esc(s) {
@@ -24,6 +25,19 @@ function estilos() {
   h1{font-size:16px;margin:0 0 8px} table{width:100%;border-collapse:collapse;margin-top:8px}
   th,td{border:1px solid #ccc;padding:4px 6px;text-align:left} th{background:#f0f0f0}
   .r{text-align:right} .muted{color:#666;font-size:11px}`;
+}
+
+/** Fecha corta para ticket térmico (evita saltos de línea largos). */
+function fmtFechaCorta(ymd) {
+  const s = String(ymd || '').trim();
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return s;
+}
+
+function filaTicket(label, valor, { bold = false, danger = false } = {}) {
+  const cls = [bold ? 'bold' : '', danger ? 'danger' : ''].filter(Boolean).join(' ');
+  return `<tr class="${cls}"><td class="lbl">${esc(label)}</td><td class="r val">${valor}</td></tr>`;
 }
 
 export function htmlNomina(data) {
@@ -75,7 +89,8 @@ export function htmlVale(vale, opts = {}) {
     <div style="font-size:20px;margin:12px 0"><strong>Monto: ${fmt(vale.monto)}</strong></div>
     <div>Motivo: ${esc(vale.motivo || '—')}</div>
     ${vale.autorizado_por ? `<div>Autorizado por: ${esc(vale.autorizado_por)}</div>` : ''}
-    ${descNomina ? `<div class="muted">Consumo descontable en nómina (vía corte).</div>` : `<div class="muted">${vale.categoria === 'otro' ? 'Otro concepto' : 'Gasolina, herramienta y accesorios'} — ${vale.descuenta_nomina ? 'descuenta nómina' : 'no se descuenta de nómina'}.</div>`}
+    ${descNomina ? `<div class="muted">Consumo descontable en nómina (vía corte).</div>` : `<div class="muted">Tipo «${esc(etiquetaCategoriaVale(vale.categoria))}» — no se descuenta de nómina (salvo configuración del tipo).</div>`}
+    <div class="muted">Corte: ${esc(ETIQUETA_AREA[vale.area] || vale.area || '—')}</div>
     <div class="muted">Emitido por: ${esc(vale.created_by || '—')}</div>
     ${firma ? `<div class="firma">Firma del beneficiario: _________________________________</div>` : ''}
   </body></html>`;
@@ -101,12 +116,114 @@ function fmtNom(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+function estilosReciboNomina(ancho) {
+  const base = estilosImpresion(ancho);
+  const esTicket = ancho === '58mm' || ancho === '80mm';
+  return `${base}
+  .recibo-nomina,
+  .recibo-nomina * {
+    color: #000 !important;
+    font-weight: 800 !important;
+  }
+  .recibo-nomina .muted {
+    color: #000 !important;
+    font-weight: 800 !important;
+  }
+  .recibo-nomina { width: 100%; }
+  .recibo-nomina .titulo {
+    text-align: center;
+    font-size: ${esTicket ? '1.15em' : '18px'};
+    letter-spacing: 0.06em;
+    margin: 2px 0 0;
+    text-transform: uppercase;
+  }
+  .recibo-nomina .negocio {
+    text-align: center;
+    font-size: 0.95em;
+    margin: 2px 0 6px;
+  }
+  .recibo-nomina .bloque { margin: 0; }
+  .recibo-nomina table.kv { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 0; }
+  .recibo-nomina table.kv td {
+    border: none;
+    padding: 2px 0;
+    vertical-align: top;
+    font-size: inherit;
+    background: transparent;
+  }
+  .recibo-nomina table.kv td.lbl {
+    width: 42%;
+    padding-right: 4px;
+    word-break: break-word;
+  }
+  .recibo-nomina table.kv td.val {
+    width: 58%;
+    text-align: right;
+    word-break: break-word;
+  }
+  .recibo-nomina .nombre-emp {
+    text-align: center;
+    font-size: 1.05em;
+    margin: 4px 0 2px;
+    word-break: break-word;
+    line-height: 1.25;
+  }
+  .recibo-nomina .sec {
+    text-align: center;
+    font-size: 0.92em;
+    margin: 2px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .recibo-nomina .neto-box {
+    margin: 8px 0 4px;
+    padding: 6px 4px;
+    border: 2px solid #000;
+    text-align: center;
+  }
+  .recibo-nomina .neto-box .neto-lbl {
+    font-size: 0.85em;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .recibo-nomina .neto-box .neto-monto {
+    font-size: ${esTicket ? '1.35em' : '22px'};
+    margin-top: 2px;
+    letter-spacing: 0.02em;
+  }
+  .recibo-nomina .firma {
+    margin-top: 18px;
+    text-align: center;
+    font-size: 0.9em;
+    line-height: 1.35;
+  }
+  .recibo-nomina .firma-linea {
+    margin: 22px auto 4px;
+    border-top: 1.5px solid #000;
+    width: 88%;
+  }
+  .recibo-nomina img.logo {
+    max-width: ${esTicket ? '55%' : '180px'};
+    max-height: ${esTicket ? '40px' : '72px'};
+    display: block;
+    margin: 0 auto 4px;
+  }
+  `;
+}
+
 export function htmlReciboNominaIndividual(linea, opts = {}) {
+  const cfg = leerConfigImpresion();
+  const ancho = opts.ancho || (cfg.ancho === '58mm' ? '58mm' : '80mm');
   const logo = leerLogoUrl();
   const negocio = leerNombreNegocio();
   const ahora = opts.fechaPago ? new Date(opts.fechaPago) : new Date();
-  const fechaPago = ahora.toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+  const fechaPago = ahora.toLocaleDateString('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
   const horaPago = ahora.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+  const periodo = `${fmtFechaCorta(opts.periodo_inicio)} — ${fmtFechaCorta(opts.periodo_fin)}`;
   const salarioDia = Number(linea.salario_dia ?? linea.sueldo_tarifa) || 0;
   const dias = Number(linea.dias_trabajados) || 0;
   const sueldo = fmtNom(salarioDia * dias);
@@ -124,88 +241,114 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
       : linea.total != null && linea.total !== ''
         ? Number(linea.total)
         : fmtNom(bruto - dedInv - dedCons - dedPrest - dedArrastre - (Number(linea.deducciones) || 0) - dedFaltas);
-  const filaDed = (label, monto) =>
-    monto > 0
-      ? `<tr><td>${esc(label)}</td><td class="r" style="color:#c0392b">− ${fmt(monto)}</td></tr>`
-      : '';
 
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recibo nómina — ${esc(linea.nombre)}</title><style>${estilos()}
-  .logo{display:block;margin:0 auto 10px;max-height:72px;max-width:85%}
-  .titulo{text-align:center;font-size:18px;font-weight:700;margin:8px 0 4px;letter-spacing:0.04em}
-  .subtitulo{text-align:center;color:#555;font-size:12px;margin-bottom:14px}
-  .campo{margin:6px 0;font-size:13px}
-  .campo strong{display:inline-block;min-width:130px}
-  .totales{margin-top:12px;border-top:2px solid #333;padding-top:8px}
-  .neto{font-size:18px;font-weight:800;color:#1a5276;margin-top:8px}
-  .firma{margin-top:56px;border-top:1px solid #333;width:75%;padding-top:8px;font-size:12px}
-  </style></head><body>
-    <img class="logo" src="${esc(logo)}" alt="Logo"/>
-    <div class="titulo">RECIBO DE NÓMINA</div>
-    <div class="subtitulo">${esc(negocio)}</div>
-    <div class="campo"><strong>Empleado:</strong> ${esc(linea.nombre)}</div>
-    ${linea.rol ? `<div class="campo"><strong>Puesto:</strong> ${esc(linea.rol)}</div>` : ''}
-    ${linea.pagador_nomina ? `<div class="campo"><strong>Pagador:</strong> ${esc(ETIQUETA_AREA[linea.pagador_nomina] || linea.pagador_nomina)}</div>` : ''}
-    <div class="campo"><strong>Periodo de pago:</strong> ${esc(opts.periodo_inicio)} — ${esc(opts.periodo_fin)}</div>
-    ${salarioDia > 0 ? `<div class="campo"><strong>Salario por día:</strong> ${fmt(salarioDia)}</div>` : ''}
-    ${linea.dias_trabajados != null && Number(linea.dias_trabajados) > 0 ? `<div class="campo"><strong>${linea.vales_gasolina > 0 && linea.es_indirecto ? 'Vales cobrados' : 'Días trabajados'}:</strong> ${esc(linea.dias_trabajados)}</div>` : ''}
-    ${linea.faltas_gasolina > 0 ? `<div class="campo"><strong>Faltas (vale no cobrado):</strong> ${esc(linea.faltas_gasolina)}</div>` : ''}
-    <div class="campo"><strong>Fecha de pago:</strong> ${esc(fechaPago)}</div>
-    <div class="campo"><strong>Hora:</strong> ${esc(horaPago)}</div>
-    <table style="margin-top:14px">
-      <tr><td><strong>Sueldo (${dias} × ${fmt(salarioDia)})</strong></td><td class="r"><strong>${fmt(sueldo)}</strong></td></tr>
-      ${bono > 0 ? `<tr><td>Bonificación</td><td class="r">${fmt(bono)}</td></tr>` : ''}
-      <tr><td><strong>Subtotal (sueldo + bono)</strong></td><td class="r"><strong>${fmt(bruto)}</strong></td></tr>
+  const labelDias =
+    linea.vales_gasolina > 0 && linea.es_indirecto ? 'Vales cobrados' : 'Días trabajados';
+
+  const filasDed = [
+    dedInv > 0 ? filaTicket('Inventario', `− ${fmt(dedInv)}`, { danger: true }) : '',
+    dedCons > 0 ? filaTicket('Consumos', `− ${fmt(dedCons)}`, { danger: true }) : '',
+    dedPrest > 0 ? filaTicket('Préstamos', `− ${fmt(dedPrest)}`, { danger: true }) : '',
+    dedArrastre > 0 ? filaTicket('Arrastre ant.', `− ${fmt(dedArrastre)}`, { danger: true }) : '',
+    dedFaltas > 0 ? filaTicket('Faltas gasolina', `− ${fmt(dedFaltas)}`, { danger: true }) : '',
+    Number(linea.deducciones) > 0
+      ? filaTicket(
+          linea.notas_otros ? `Otros (${String(linea.notas_otros).slice(0, 18)})` : 'Otros',
+          `− ${fmt(Number(linea.deducciones))}`,
+          { danger: true },
+        )
+      : '',
+  ]
+    .filter(Boolean)
+    .join('');
+
+  const sinDescuentos = dedInv + dedCons + dedPrest + dedArrastre + dedOtras === 0;
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recibo nómina — ${esc(linea.nombre)}</title>
+  <style>${estilosReciboNomina(ancho)}</style></head><body>
+  <div class="recibo-nomina">
+    <img class="logo" src="${esc(logo)}" alt=""/>
+    <div class="titulo">Recibo de nómina</div>
+    <div class="negocio">${esc(negocio)}</div>
+    <div class="sep"></div>
+    <div class="nombre-emp">${esc(linea.nombre)}</div>
+    <table class="kv bloque">
+      ${linea.rol ? filaTicket('Puesto', esc(linea.rol)) : ''}
+      ${linea.pagador_nomina ? filaTicket('Pagador', esc(ETIQUETA_AREA[linea.pagador_nomina] || linea.pagador_nomina)) : ''}
+      ${filaTicket('Periodo', esc(periodo))}
+      ${salarioDia > 0 ? filaTicket('Salario / día', fmt(salarioDia)) : ''}
+      ${dias > 0 ? filaTicket(labelDias, esc(String(dias))) : ''}
+      ${linea.faltas_gasolina > 0 ? filaTicket('Faltas (vale)', esc(String(linea.faltas_gasolina))) : ''}
+      ${filaTicket('Fecha pago', esc(fechaPago))}
+      ${filaTicket('Hora', esc(horaPago))}
     </table>
-    <div class="totales"><strong>Desglose de descuentos</strong></div>
-    <table>
-      ${filaDed('Inventario', dedInv)}
-      ${filaDed('Consumos', dedCons)}
-      ${filaDed('Préstamos', dedPrest)}
-      ${dedArrastre > 0 ? filaDed('Arrastre (nómina anterior)', dedArrastre) : ''}
-      ${dedFaltas > 0 ? filaDed('Faltas (gasolina)', dedFaltas) : ''}
-      ${Number(linea.deducciones) > 0 ? filaDed(linea.notas_otros ? `Otros (${linea.notas_otros})` : 'Otros', Number(linea.deducciones)) : ''}
-      ${dedInv + dedCons + dedPrest + dedArrastre + dedOtras === 0 ? '<tr><td colspan="2" class="muted">Sin descuentos</td></tr>' : ''}
+    <div class="sep"></div>
+    <div class="sec">Percepciones</div>
+    <table class="kv bloque">
+      ${filaTicket(`Sueldo (${dias}×${fmt(salarioDia)})`, fmt(sueldo), { bold: true })}
+      ${bono > 0 ? filaTicket('Bonificación', fmt(bono)) : ''}
+      ${filaTicket('Subtotal', fmt(bruto), { bold: true })}
     </table>
-    <div class="neto" style="color:${neto < 0 ? '#c0392b' : '#1a5276'}">Pago neto a recibir: ${fmtPagoImp(neto)}</div>
-    ${(linea.saldo_pendiente || 0) > 0 ? `<p class="muted" style="color:#c0392b">Deuda a próxima nómina: ${fmt(linea.saldo_pendiente)}</p>` : ''}
-    <div class="firma">Recibí de conformidad el importe neto indicado.<br/><br/>
-      <strong>${esc(linea.nombre)}</strong><br/>
-      _________________________________________________<br/>
-      <span class="muted">Firma del empleado</span>
+    <div class="sep"></div>
+    <div class="sec">Descuentos</div>
+    <table class="kv bloque">
+      ${sinDescuentos ? '<tr><td colspan="2" class="muted center">Sin descuentos</td></tr>' : filasDed}
+    </table>
+    <div class="neto-box">
+      <div class="neto-lbl">Pago neto a recibir</div>
+      <div class="neto-monto">${fmtPagoImp(neto)}</div>
     </div>
-    ${opts.notas ? `<p class="muted" style="margin-top:12px">Notas: ${esc(opts.notas)}</p>` : ''}
-    ${linea.notas ? `<p class="muted" style="margin-top:8px;font-size:11px">Detalle: ${esc(linea.notas)}</p>` : ''}
+    ${(linea.saldo_pendiente || 0) > 0 ? `<div class="center bold" style="margin:4px 0">Deuda próxima nómina: ${fmt(linea.saldo_pendiente)}</div>` : ''}
+    <div class="sep"></div>
+    <div class="firma">
+      Recibí de conformidad el importe neto indicado.
+      <div style="margin-top:8px" class="bold">${esc(linea.nombre)}</div>
+      <div class="firma-linea"></div>
+      <div class="muted">Firma del empleado</div>
+    </div>
+    ${opts.notas ? `<div class="muted" style="margin-top:8px">Notas: ${esc(opts.notas)}</div>` : ''}
+    ${linea.notas ? `<div class="muted" style="margin-top:4px">Detalle: ${esc(linea.notas)}</div>` : ''}
+  </div>
   </body></html>`;
 }
 
 export function imprimirReciboNominaIndividual(linea, opts = {}) {
-  return abrirVentanaImpresion(htmlReciboNominaIndividual(linea, opts), `Recibo — ${linea.nombre || 'empleado'}`);
+  const cfg = leerConfigImpresion();
+  const ancho = opts.ancho || (cfg.ancho === '58mm' ? '58mm' : '80mm');
+  return abrirVentanaImpresion(htmlReciboNominaIndividual(linea, { ...opts, ancho }), `Recibo — ${linea.nombre || 'empleado'}`, {
+    ancho,
+  });
 }
 
 /** Un documento con recibo por empleado (salto de página entre cada uno). */
 export function htmlRecibosNominaTodos(lineas, opts = {}) {
   const lista = lineas || [];
   if (!lista.length) return '';
-  const muestra = htmlReciboNominaIndividual(lista[0], opts);
+  const cfg = leerConfigImpresion();
+  const ancho = opts.ancho || (cfg.ancho === '58mm' ? '58mm' : '80mm');
+  const optsAncho = { ...opts, ancho };
+  const muestra = htmlReciboNominaIndividual(lista[0], optsAncho);
   const styleMatch = muestra.match(/<style>([\s\S]*?)<\/style>/i);
-  const estilos = styleMatch ? styleMatch[1] : '';
+  const estilosDoc = styleMatch ? styleMatch[1] : '';
   const cuerpos = lista
     .map((l) => {
-      const html = htmlReciboNominaIndividual(l, opts);
+      const html = htmlReciboNominaIndividual(l, optsAncho);
       const m = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
       return m ? `<div class="recibo-page">${m[1]}</div>` : '';
     })
     .join('');
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recibos nómina</title><style>${estilos}.recibo-page{page-break-after:always;padding-bottom:12px}.recibo-page:last-child{page-break-after:auto}</style></head><body>${cuerpos}</body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recibos nómina</title><style>${estilosDoc}.recibo-page{page-break-after:always;padding-bottom:8px}.recibo-page:last-child{page-break-after:auto}</style></head><body>${cuerpos}</body></html>`;
 }
 
 export function imprimirTodosRecibosNomina(lineas, opts = {}) {
   if (!lineas?.length) return false;
-  return abrirVentanaImpresion(htmlRecibosNominaTodos(lineas, opts), 'Recibos nómina');
+  const cfg = leerConfigImpresion();
+  const ancho = opts.ancho || (cfg.ancho === '58mm' ? '58mm' : '80mm');
+  return abrirVentanaImpresion(htmlRecibosNominaTodos(lineas, { ...opts, ancho }), 'Recibos nómina', { ancho });
 }
 
 export function imprimirNomina(datos) {
-  return abrirVentanaImpresion(htmlNomina(datos), 'Nómina');
+  return abrirVentanaImpresion(htmlNomina(datos), 'Nómina', { ancho: 'carta' });
 }
 
 export function imprimirVale(vale, opts) {

@@ -558,7 +558,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                     onChange={(e) => setPinEmpleado(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && !cargandoPin && identificarEmpleado()}
                     placeholder="PIN de esta tienda"
-                    autoComplete="new-password"
+                    autoComplete="off"
                     name="checador-pin"
                     style={{ fontSize: '1.2rem', letterSpacing: '0.15em', marginBottom: 0 }}
                   />

@@ -1,10 +1,10 @@
-import { ETIQUETA_AREA, etiquetaCategoriaVale } from './contabilidadConstants.js';
+import { etiquetaCategoriaVale, normalizarAreaCorte } from './contabilidadConstants.js';
 
-/** Registra un vale aprobado como gasto del turno en el corte del área. */
+/** Registra un vale aprobado como gasto del turno en el corte del área del beneficiario. */
 export async function cargarValeACorte(supabase, vale) {
   if (!supabase || !vale?.id) return { ok: false, error: 'Vale inválido.' };
   if (vale.cargado_corte) return { ok: true, yaCargado: true };
-  const modulo = vale.area && ETIQUETA_AREA[vale.area] ? vale.area : 'virtual';
+  const modulo = normalizarAreaCorte(vale.area, 'virtual');
   const payload = {
     sucursal_id: vale.sucursal_id || 'MAIN',
     modulo,
@@ -21,14 +21,14 @@ export async function cargarValeACorte(supabase, vale) {
   if (e1) return { ok: false, error: e1.message };
   const { error: e2 } = await supabase.from('vales').update({ cargado_corte: true }).eq('id', vale.id);
   if (e2) return { ok: false, error: e2.message };
-  return { ok: true };
+  return { ok: true, modulo };
 }
 
 /** Quita el gasto del vale del turno abierto (si aún no se cerró el corte). */
 export async function quitarValeDeCorteAbierto(supabase, vale) {
   if (!supabase || !vale?.cargado_corte) return { ok: true };
   const folio = String(vale.folio || '').trim();
-  const modulo = vale.area && ETIQUETA_AREA[vale.area] ? vale.area : 'virtual';
+  const modulo = normalizarAreaCorte(vale.area, 'virtual');
   let q = supabase
     .from('cortes_contabilidad_gastos')
     .select('id')
@@ -50,10 +50,10 @@ export async function quitarValeDeCorteAbierto(supabase, vale) {
   return { ok: true, removidos: ids.length };
 }
 
-export async function cargarPrestamoEmpleadoACorte(supabase, prestamo, areaCorte = 'virtual') {
+export async function cargarPrestamoEmpleadoACorte(supabase, prestamo, areaCorte) {
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
   if (prestamo.cargado_corte) return { ok: true, yaCargado: true };
-  const modulo = areaCorte && ETIQUETA_AREA[areaCorte] ? areaCorte : 'virtual';
+  const modulo = normalizarAreaCorte(areaCorte || prestamo.area_corte, 'virtual');
   const payload = {
     sucursal_id: prestamo.sucursal_id || 'MAIN',
     modulo,
@@ -68,7 +68,17 @@ export async function cargarPrestamoEmpleadoACorte(supabase, prestamo, areaCorte
   };
   const { error: e1 } = await supabase.from('cortes_contabilidad_gastos').insert([payload]);
   if (e1) return { ok: false, error: e1.message };
-  const { error: e2 } = await supabase.from('prestamos').update({ cargado_corte: true }).eq('id', prestamo.id);
-  if (e2) return { ok: false, error: e2.message };
-  return { ok: true };
+  const { error: e2 } = await supabase
+    .from('prestamos')
+    .update({ cargado_corte: true, area_corte: modulo })
+    .eq('id', prestamo.id);
+  if (e2) {
+    if (String(e2.message || '').toLowerCase().includes('area_corte')) {
+      const { error: e2b } = await supabase.from('prestamos').update({ cargado_corte: true }).eq('id', prestamo.id);
+      if (e2b) return { ok: false, error: e2b.message };
+    } else {
+      return { ok: false, error: e2.message };
+    }
+  }
+  return { ok: true, modulo };
 }

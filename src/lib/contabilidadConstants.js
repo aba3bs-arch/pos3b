@@ -1,3 +1,21 @@
+import {
+  CATEGORIAS_VALE,
+  CATEGORIAS_VALE_FIJAS,
+  listarCategoriasVale,
+  categoriaValePorId,
+  valeDescuentaNomina,
+  etiquetaCategoriaVale,
+} from './valesCategorias.js';
+
+export {
+  CATEGORIAS_VALE,
+  CATEGORIAS_VALE_FIJAS,
+  listarCategoriasVale,
+  categoriaValePorId,
+  valeDescuentaNomina,
+  etiquetaCategoriaVale,
+};
+
 export const AREAS_CONTABILIDAD = ['virtual', 'abarrotes', 'garage'];
 
 export const PAGADORES_NOMINA = ['virtual', 'abarrotes', 'garage', 'ambos'];
@@ -9,25 +27,12 @@ export const ETIQUETA_AREA = {
   ambos: 'Abarrotes y Virtual',
 };
 
-/** Únicos beneficiarios permitidos para vales. */
+/** Únicos beneficiarios permitidos para vales. El área define a qué corte va el vale. */
 export const BENEFICIARIOS_VALES = [
   { id: 'luis-enrique', nombre: 'Luis Enrique', area: 'abarrotes' },
   { id: 'misael', nombre: 'Misael', area: 'virtual' },
   { id: 'gonzalo', nombre: 'Gonzalo', area: 'virtual' },
 ];
-
-export const CATEGORIAS_VALE = [
-  { id: 'consumo', label: 'Consumo / personal', descuentaNomina: true },
-  { id: 'gasolina', label: 'Gasolina', descuentaNomina: false },
-  { id: 'herramienta', label: 'Herramienta', descuentaNomina: false },
-  { id: 'accesorios', label: 'Accesorios', descuentaNomina: false },
-  /** Solo administrador: beneficiario y concepto libres. */
-  { id: 'otro', label: 'Otro concepto', descuentaNomina: false },
-];
-
-export function esCategoriaOtroConcepto(categoria) {
-  return String(categoria || '').toLowerCase() === 'otro';
-}
 
 export const MONTO_PRESTAMO_REQUIERE_SOCIO = 1000;
 export const CUOTA_SEMANAL_MINIMA = 500;
@@ -47,30 +52,22 @@ export function beneficiarioValePorId(id) {
   return BENEFICIARIOS_VALES.find((b) => b.id === id) || null;
 }
 
-export function beneficiarioValePermitido(nombre, area, opts = {}) {
-  if (opts.otroConcepto || esCategoriaOtroConcepto(opts.categoria)) {
-    return Boolean(String(nombre || '').trim());
-  }
+export function beneficiarioValePermitido(nombre, area) {
   const n = String(nombre || '').trim().toLowerCase();
   return BENEFICIARIOS_VALES.some((b) => b.nombre.toLowerCase() === n && b.area === area);
 }
 
-export function categoriaValePorId(id) {
-  return CATEGORIAS_VALE.find((c) => c.id === id) || CATEGORIAS_VALE[0];
+export function areaCorteValida(area) {
+  return AREAS_CONTABILIDAD.includes(String(area || '').toLowerCase());
 }
 
-export function valeDescuentaNomina(categoria, override) {
-  if (typeof override === 'boolean') return override;
-  return categoriaValePorId(categoria).descuentaNomina;
+export function normalizarAreaCorte(area, fallback = 'virtual') {
+  const a = String(area || '').toLowerCase();
+  return areaCorteValida(a) ? a : fallback;
 }
 
-export function etiquetaCategoriaVale(categoria) {
-  return categoriaValePorId(categoria).label;
-}
-
-/** Consumos siempre requieren admin; otras categorías después de las 9:00. Otro concepto solo lo crea el admin. */
+/** Consumos (y tipos con descuentaNomina) siempre requieren admin; otras categorías después de las 9:00. */
 export function valeRequiereAutorizacionAdmin(fecha = new Date(), categoria = 'consumo') {
-  if (esCategoriaOtroConcepto(categoria)) return true;
   if (valeDescuentaNomina(categoria)) return true;
   return fecha.getHours() >= 9;
 }

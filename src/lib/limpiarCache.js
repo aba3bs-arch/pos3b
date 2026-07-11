@@ -29,10 +29,12 @@ const CLAVES_PRESERVAR = new Set([
   'pos3b_nomina_salario_dia',
   'pos3b_nomina_borrador',
   'pos3b_nomina_saldos_arrastre',
+  'pos3b_vales_categorias_extra',
   'pos3b_dispositivo_id',
   'pos3b_vales_tiendas_permitidas',
   'pos3b_anuncios_pos',
 ]);
+
 
 /** sessionStorage temporal (no afecta la sesión de PIN en memoria). */
 const SESSION_TEMPORAL = new Set(['pos3b_anuncios_vistos']);

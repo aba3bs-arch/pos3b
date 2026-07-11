@@ -1,9 +1,18 @@
-import React, { useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import Icon from './Icon.jsx';
+
+function soportaEnmascaradoCss() {
+  try {
+    return typeof CSS !== 'undefined' && CSS.supports('-webkit-text-security', 'disc');
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Campo PIN oculto con botón de ojo para mostrar/ocultar.
- * No usa autocomplete de contraseña del navegador para evitar que quede un PIN anterior.
+ * Evita que el navegador / gestores de contraseñas guarden o rellenen el PIN:
+ * no usa type=password cuando el CSS puede enmascarar; nombres únicos y readOnly hasta el foco.
  */
 export default function InputPin({
   value,
@@ -15,16 +24,27 @@ export default function InputPin({
   className = 'input',
   style,
   inputMode = 'numeric',
-  autoComplete = 'new-password',
-  name = 'pos-pin',
+  autoComplete = 'off',
+  name,
 }) {
+  const uid = useId();
   const [visible, setVisible] = useState(false);
+  const [unlocked, setUnlocked] = useState(false);
+  const [maskCss, setMaskCss] = useState(true);
+  const fieldName = name || `pos-pin-${uid.replace(/:/g, '')}`;
+
+  useEffect(() => {
+    setMaskCss(soportaEnmascaradoCss());
+  }, []);
+
+  // Preferir text + CSS; solo password si el navegador no enmascara (p. ej. Firefox).
+  const inputType = visible || maskCss ? 'text' : 'password';
 
   return (
     <div className="input-pin-wrap" style={style?.marginBottom != null ? { marginBottom: style.marginBottom } : undefined}>
       <input
-        type={visible ? 'text' : 'password'}
-        name={name}
+        type={inputType}
+        name={fieldName}
         inputMode={inputMode}
         autoComplete={autoComplete}
         autoCorrect="off"
@@ -32,8 +52,12 @@ export default function InputPin({
         spellCheck={false}
         data-lpignore="true"
         data-1p-ignore="true"
+        data-bwignore="true"
         data-form-type="other"
-        className={className}
+        role="presentation"
+        readOnly={!unlocked && !disabled}
+        onFocus={() => setUnlocked(true)}
+        className={`${className}${!visible && maskCss ? ' input-pin-masked' : ''}`}
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}

@@ -232,6 +232,12 @@ textarea {
   margin-bottom: 1rem;
 }
 
+/* Enmascara el PIN sin type=password (evita que el navegador lo guarde). */
+.input-pin-masked {
+  -webkit-text-security: disc;
+  text-security: disc;
+}
+
 .input-pin-toggle {
   position: absolute;
   right: 0.45rem;

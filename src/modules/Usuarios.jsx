@@ -273,7 +273,8 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
             value={form.pin}
             onChange={(e) => setForm({ ...form, pin: e.target.value })}
             placeholder="PIN de acceso"
-            autoComplete="new-password"
+            autoComplete="off"
+            name="usuario-nuevo-pin"
             style={{ fontSize: '1.05rem', letterSpacing: '0.12em', marginBottom: 0 }}
           />
           <label className="muted">
@@ -441,7 +442,8 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                             value={nuevoPinDraft}
                             onChange={(e) => setNuevoPinDraft(e.target.value)}
                             placeholder="Nuevo PIN"
-                            autoComplete="new-password"
+                            autoComplete="off"
+                            name={`usuario-edit-pin-${r.id}`}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') guardarNuevoPin(r, nuevoPinDraft);
                             }}

@@ -597,22 +597,8 @@ function App() {
     return true;
   };
 
-  /** Desde Configuración: solo si la sesión ya es Administrador. */
-  const desbloquearTiendaYReiniciarSesion = () => {
-    if (SUCURSAL_FIJA_ENV) return;
-    if (!esAdministradorSinAnclaje(user?.rol)) {
-      alert('Solo un administrador puede desbloquear la tienda de este equipo.');
-      return;
-    }
-    if (
-      !confirm(
-        '¿Desbloquear la tienda de este equipo?\n\nPodrás elegir otra sucursal (por ejemplo Central MAIN) e iniciar sesión de nuevo.',
-      )
-    ) {
-      return;
-    }
-    aplicarDesbloqueoTienda();
-  };
+  /** Desde Configuración: siempre exige PIN de administrador (aunque la sesión ya sea admin). */
+  const desbloquearTiendaDesdeConfig = async (pinAdmin) => desbloquearTiendaConPinAdmin(pinAdmin);
 
   const agregarNuevaTienda = (raw) => {
     const r = agregarSucursalExtra(raw);
@@ -773,7 +759,7 @@ function App() {
             </div>
           </div>
           <div className="app-header-meta">
-            {puedeCambiarTienda && !SUCURSAL_FIJA_ENV ? (
+            {puedeCambiarTienda && !SUCURSAL_FIJA_ENV && !tiendaFijadaParaAcceso ? (
               <select
                 className="select app-header-select"
                 value={sucursal}
@@ -930,11 +916,12 @@ function App() {
               sucursalesLista={listaSucursales}
               onAgregarSucursal={agregarNuevaTienda}
               onQuitarSucursalExtra={quitarTiendaExtra}
-              tiendaNoCambiable={Boolean(SUCURSAL_FIJA_ENV || (tiendaFijadaParaAcceso && !puedeCambiarTienda))}
+              tiendaNoCambiable={Boolean(SUCURSAL_FIJA_ENV || tiendaFijadaParaAcceso)}
               bloqueoPorEntorno={Boolean(SUCURSAL_FIJA_ENV)}
               onDesbloquearTiendaBrowser={
-                sesion && esAdministradorSinAnclaje(user?.rol) ? desbloquearTiendaYReiniciarSesion : undefined
+                !SUCURSAL_FIJA_ENV && tiendaFijadaParaAcceso ? desbloquearTiendaDesdeConfig : undefined
               }
+              desbloqueandoTienda={desbloqueandoTienda}
               user={user}
               inventario={inventario}
               cargarDatos={cargarDatos}
