@@ -62,6 +62,7 @@ export default function PantallaLogin({
           <BrandLogo alt={brandTitle} maxHeight={140} style={{ maxWidth: '100%' }} />
         </div>
         <h2 className="login-title">{brandTitle}</h2>
+        <p className="brand-credit">By: A.Marrero</p>
         <p className="login-sub muted">
           {pendienteCubreTurno
             ? 'Identifícate para cubrir turno en esta tienda.'

@@ -713,6 +713,7 @@ function App() {
           <div className="app-sidebar-brand">
             <BrandLogo alt="" maxHeight={56} style={{ marginBottom: '0.35rem' }} />
             <div className="app-sidebar-title">{brandTitle}</div>
+            <div className="brand-credit">By: A.Marrero</div>
             {mobile && (
               <button type="button" className="app-sidebar-close btn btn-ghost" onClick={() => setSidebarOpen(false)} aria-label="Cerrar">
                 <Icon name="x" size={20} />
