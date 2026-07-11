@@ -1,6 +1,7 @@
 import { normalizarRol } from './roles.js';
 import { tieneAutorizacionFueraHorario } from './autorizacionTurnoFueraHorario.js';
 import { esUsuarioCubreTurno } from './cubreTurno.js';
+import { esPersonalCentralAdmin } from './usuariosAuth.js';
 
 export const LS_TURNOS = 'pos3b_turnos_caja';
 export const LS_TIPO_HORARIO = 'pos3b_tipo_horario';
@@ -647,6 +648,9 @@ export function usuarioAutorizadoLogin(user, date = new Date(), turnos = null, s
  * otro turno con ±20 min antes del inicio / después del cierre.
  */
 export function usuarioAutorizadoChecador(user, date = new Date(), turnos = null, sucursal = null) {
+  // Personal de Central (MAIN): siempre puede marcar entrada/salida en el reloj.
+  if (esPersonalCentralAdmin(user)) return { ok: true, personalCentral: true };
+
   const rol = normalizarRol(user?.rol);
   if (!rolSujetoTurno(rol)) return { ok: true };
 

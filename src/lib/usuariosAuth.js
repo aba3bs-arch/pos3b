@@ -1,9 +1,14 @@
-import { normalizarCodigoTienda, etiquetaTienda } from '../constants/sucursales.js';
+import { normalizarCodigoTienda, etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
 import { normalizarRol } from './roles.js';
 
 export function sucursalUsuario(user) {
   const s = user?.sucursal_id;
   return s ? normalizarCodigoTienda(s) : null;
+}
+
+/** Personal asignado a Central de administración (MAIN). */
+export function esPersonalCentralAdmin(user) {
+  return esAlmacenCentral(sucursalUsuario(user));
 }
 
 /** Solo Administrador: sin anclaje a sucursal ni a dispositivo en el login. */
@@ -49,8 +54,9 @@ function elegirAdministradorPorPin(admins, sucursalActiva) {
  * Busca usuario por PIN.
  * - Empleados fijos (cajero, etc.): solo en la sucursal de la caja.
  * - Administrador: PIN válido desde cualquier tienda o dispositivo (sin anclaje).
+ * - opts.aceptarPersonalCentral: personal de MAIN también válido (reloj empleados).
  */
-export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva) {
+export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva, opts = {}) {
   if (!supabase) return { user: null, error: 'Sin conexión a Supabase.' };
   const p = String(pin || '').trim();
   if (!p) return { user: null, error: null };
@@ -79,6 +85,16 @@ export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva
   const admins = list.filter((u) => esAdministradorSinAnclaje(u.rol));
   const admin = elegirAdministradorPorPin(admins, suc);
   if (admin) return { user: admin, error: null };
+
+  // Reloj empleados: personal de Central (MAIN) puede marcar en cualquier caja.
+  if (opts.aceptarPersonalCentral) {
+    const centrales = list.filter((u) => esPersonalCentralAdmin(u));
+    if (centrales.length === 1) return { user: centrales[0], error: null, personalCentral: true };
+    if (centrales.length > 1) {
+      const enMain = centrales.find((u) => sucursalUsuario(u) === 'MAIN') || centrales[0];
+      return { user: enMain, error: null, personalCentral: true };
+    }
+  }
 
   const enTienda = list.find((u) => sucursalUsuario(u) === suc);
   if (enTienda) return { user: enTienda, error: null };

@@ -4,6 +4,13 @@ import { round2 } from './nominaGastos.js';
 
 export const DIAS_SEMANA_NOMINA = 7;
 
+/** Días trabajados con decimales (ej. 5.5). Redondea a 2 decimales; no fuerza enteros. */
+export function normalizarDiasNomina(dias) {
+  const n = Number(dias);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.round(n * 100) / 100;
+}
+
 function totalLineaNominaImport(l) {
   return pagoNominaLinea(l);
 }
@@ -25,14 +32,14 @@ export function empleadoIncluidoEnPagadorFiltro(empleado, filtro) {
 
 export function sueldoProporcionalDias(tarifaSemanal, dias) {
   const t = Number(tarifaSemanal) || 0;
-  const d = Math.max(0, Math.min(DIAS_SEMANA_NOMINA, Number(dias) || 0));
+  const d = Math.max(0, Math.min(DIAS_SEMANA_NOMINA, normalizarDiasNomina(dias)));
   return round2((t * d) / DIAS_SEMANA_NOMINA);
 }
 
-/** Sueldo = salario por día × días trabajados. */
+/** Sueldo = salario por día × días trabajados (acepta medios días, ej. 5.5). */
 export function sueldoPorSalarioDia(salarioDia, dias) {
   const sd = Number(salarioDia) || 0;
-  const d = Math.max(0, Number(dias) || 0);
+  const d = normalizarDiasNomina(dias);
   return round2(sd * d);
 }
 
@@ -84,6 +91,13 @@ export function pagoNominaLinea(linea) {
 /** Recalcula sueldo bruto, faltas y pago según la fórmula. */
 export function recalcularLineaNomina(linea) {
   const l = { ...linea };
+  // Conserva el valor en edición (string "5.") y normaliza solo si ya es número usable.
+  if (l.dias_trabajados !== '' && l.dias_trabajados != null) {
+    const raw = String(l.dias_trabajados).trim();
+    if (raw !== '' && !raw.endsWith('.') && Number.isFinite(Number(raw))) {
+      l.dias_trabajados = normalizarDiasNomina(raw);
+    }
+  }
   if (l.es_indirecto) {
     l.deduccion_faltas = sueldoPorSalarioDia(salarioDiaLinea(l), l.faltas_gasolina);
   }

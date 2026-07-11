@@ -1,10 +1,10 @@
-const UA = 'POS3B/1.0 (https://github.com/local; catalog photo sync)';
+const UA = 'POS3B/1.0 (catalog-photo-sync; abarrotes-3b)';
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function tieneFoto(producto) {
+export function tieneFoto(producto) {
   const u = String(producto?.foto_url || '').trim();
   if (!u || u === 'null' || u === 'undefined') return false;
   return (
@@ -17,9 +17,27 @@ function tieneFoto(producto) {
   );
 }
 
-async function buscarEnApi(base, codigo) {
+const APIS_CODIGO = [
+  'https://world.openfoodfacts.org',
+  'https://world.openproductsfacts.org',
+  'https://world.openbeautyfacts.org',
+  'https://world.openpetfoodfacts.org',
+];
+
+function variantesCodigo(codigoRaw) {
+  const codigo = String(codigoRaw || '').trim();
+  if (!codigo || !/^\d{6,18}$/.test(codigo)) return [];
+  const set = new Set([codigo]);
+  // Variantes comunes EAN/UPC
+  if (codigo.length === 12) set.add(`0${codigo}`);
+  if (codigo.length === 13 && codigo.startsWith('0')) set.add(codigo.slice(1));
+  if (codigo.length < 13) set.add(codigo.padStart(13, '0'));
+  return [...set];
+}
+
+async function buscarEnApiCodigo(base, codigo) {
   const url = `${base}/api/v2/product/${encodeURIComponent(codigo)}?fields=code,product_name,image_front_small_url,image_front_url,image_url`;
-  const r = await fetch(url, { headers: { 'User-Agent': UA } });
+  const r = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'application/json' } });
   if (!r.ok) return null;
   const j = await r.json();
   if (j.status !== 1 || !j.product) return null;
@@ -31,24 +49,61 @@ async function buscarEnApi(base, codigo) {
   );
 }
 
-/** Busca foto por código de barras en Open Food Facts / Open Products Facts. */
-export async function buscarFotoPorCodigo(codigoRaw) {
-  const codigo = String(codigoRaw || '').trim();
-  if (!codigo || !/^\d{6,18}$/.test(codigo)) return null;
+/** Busca por nombre en Open Food Facts (cuando el código no trae foto). */
+async function buscarPorNombre(nombreRaw) {
+  const q = String(nombreRaw || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, 80);
+  if (q.length < 4) return null;
+  const params = new URLSearchParams({
+    search_terms: q,
+    search_simple: '1',
+    action: 'process',
+    json: '1',
+    page_size: '5',
+    fields: 'code,product_name,image_front_small_url,image_front_url,image_url',
+  });
   try {
-    const off = await buscarEnApi('https://world.openfoodfacts.org', codigo);
-    if (off) return off;
-    const opf = await buscarEnApi('https://world.openproductsfacts.org', codigo);
-    if (opf) return opf;
+    const r = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?${params}`, {
+      headers: { 'User-Agent': UA, Accept: 'application/json' },
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const products = j.products || [];
+    for (const p of products) {
+      const url = p.image_front_small_url || p.image_front_url || p.image_url;
+      if (url) return url;
+    }
   } catch {
     return null;
   }
   return null;
 }
 
+/** Busca foto por código de barras (varias bases) y, si hay nombre, por búsqueda. */
+export async function buscarFotoPorCodigo(codigoRaw, nombreHint = '') {
+  const codigos = variantesCodigo(codigoRaw);
+  for (const codigo of codigos) {
+    for (const base of APIS_CODIGO) {
+      try {
+        const url = await buscarEnApiCodigo(base, codigo);
+        if (url) return url;
+      } catch {
+        /* siguiente fuente */
+      }
+    }
+  }
+  if (nombreHint) {
+    const porNombre = await buscarPorNombre(nombreHint);
+    if (porNombre) return porNombre;
+  }
+  return null;
+}
+
 /**
- * Rellena foto_url en productos sin imagen, consultando internet por código de barras.
- * opts: { soloSinFoto=true, limite=null, delayMs=350, onProgress, forzar=false }
+ * Rellena foto_url en productos sin imagen, consultando internet.
+ * opts: { soloSinFoto=true, limite=null, delayMs=350, onProgress, forzar=false, buscarNombre=true }
  */
 export async function sincronizarFotosCatalogo(supabase, inventario, opts = {}) {
   const {
@@ -57,6 +112,7 @@ export async function sincronizarFotosCatalogo(supabase, inventario, opts = {}) 
     delayMs = 350,
     onProgress = null,
     forzar = false,
+    buscarNombre = true,
   } = opts;
 
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
@@ -85,7 +141,7 @@ export async function sincronizarFotosCatalogo(supabase, inventario, opts = {}) 
       sinFoto,
     });
 
-    const url = await buscarFotoPorCodigo(p.id);
+    const url = await buscarFotoPorCodigo(p.id, buscarNombre ? p.nombre : '');
     if (!url) {
       sinFoto += 1;
     } else {
@@ -107,4 +163,4 @@ export async function sincronizarFotosCatalogo(supabase, inventario, opts = {}) 
   };
 }
 
-export { tieneFoto };
+export { sleep };

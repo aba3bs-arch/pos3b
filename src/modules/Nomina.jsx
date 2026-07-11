@@ -16,7 +16,7 @@ import { imprimirNomina, imprimirReciboNominaIndividual, imprimirTodosRecibosNom
 import { empleadosParaNominaGlobal } from '../lib/empleadosVisibles.js';
 import { leerBorradorNomina, guardarBorradorNomina, limpiarBorradorNomina } from '../lib/nominaBorrador.js';
 import { cargarMapaSaldosArrastre } from '../lib/nominaSaldoArrastre.js';
-import { reabrirPeriodoNomina } from '../lib/nominaReabrir.js';
+import { reabrirPeriodoNomina, eliminarPeriodoNomina } from '../lib/nominaReabrir.js';
 import PanelAsistenciaGasolina from '../components/PanelAsistenciaGasolina.jsx';
 import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
 import { normalizarRol } from '../lib/roles.js';
@@ -63,6 +63,8 @@ const COLS = [
 export default function Nomina({ supabase, sucursal, user }) {
   const semana = useMemo(() => periodoSemanaNomina(), []);
   const esAdmin = normalizarRol(user?.rol) === 'Administrador';
+  /** Quien puede cerrar nómina también puede borrar duplicadas del historial. */
+  const puedeEliminarNomina = Boolean(user);
   const [aviso, setAviso] = useState('');
   const [err, setErr] = useState('');
   const [cargando, setCargando] = useState(false);
@@ -234,10 +236,12 @@ export default function Nomina({ supabase, sucursal, user }) {
       }
 
       if (campo === 'dias_trabajados' && !l.es_indirecto) {
-        l.cortes_periodo = Number(valor) || 0;
+        const d = Number(valor);
+        if (Number.isFinite(d)) l.cortes_periodo = d;
       }
       if (campo === 'dias_trabajados' && l.es_indirecto) {
-        l.vales_gasolina = Number(valor) || 0;
+        const d = Number(valor);
+        if (Number.isFinite(d)) l.vales_gasolina = d;
       }
 
       next[idx] = recalcularLineaNomina(l);
@@ -366,6 +370,47 @@ export default function Nomina({ supabase, sucursal, user }) {
     );
   };
 
+  const eliminarPeriodo = async (periodo) => {
+    if (!puedeEliminarNomina) return alert('No tienes permiso para eliminar nóminas.');
+    const p = periodo || periodoSel;
+    if (!p?.id || !supabase) return;
+    if (
+      !window.confirm(
+        `¿Eliminar la nómina del ${p.periodo_inicio} al ${p.periodo_fin}?\n\n` +
+          `Total: ${fmt(p.total)}\n\n` +
+          'Se borrará del historial (útil si quedó duplicada). También se revertirán gastos de cortes, abonos de préstamos y arrastre ligados a ese cierre.\n\n' +
+          'Esta acción no se puede deshacer.',
+      )
+    ) {
+      return;
+    }
+    setCargando(true);
+    setErr('');
+    let res = await eliminarPeriodoNomina(supabase, p.id, { revertirEfectos: true });
+    // Si falló la reversión de efectos, intentar borrar solo el registro del historial.
+    if (!res.ok) {
+      const forzoso = window.confirm(
+        `No se pudieron revertir todos los efectos (${res.error || 'error'}).\n\n` +
+          '¿Eliminar de todas formas solo el registro del historial?',
+      );
+      if (!forzoso) {
+        setCargando(false);
+        return;
+      }
+      res = await eliminarPeriodoNomina(supabase, p.id, { revertirEfectos: false });
+    }
+    setCargando(false);
+    if (!res.ok) return alert(res.error || 'No se pudo eliminar.');
+    if (periodoSel?.id === p.id) {
+      setPeriodoSel(null);
+      setLineasHist([]);
+    }
+    if (res.arrastreMap) setSaldosArrastre(res.arrastreMap);
+    await cargarPeriodos();
+    if (supabase) cargarMapaSaldosArrastre(supabase).then(setSaldosArrastre);
+    alert(`Nómina eliminada del historial.${res.gastosRevertidos != null ? ` Gastos desmarcados: ${res.gastosRevertidos}.` : ''}`);
+  };
+
   const imprimirHistorial = () => {
     if (!periodoSel) return;
     imprimirNomina({
@@ -475,8 +520,10 @@ export default function Nomina({ supabase, sucursal, user }) {
                 className="input"
                 type="number"
                 min="0"
-                step="1"
-                style={{ width: '52px' }}
+                step="0.5"
+                inputMode="decimal"
+                style={{ width: '58px' }}
+                title="Puedes usar decimales (ej. 5.5 medio día)"
                 value={l.dias_trabajados}
                 onChange={(e) => actualizarLinea(i, 'dias_trabajados', e.target.value)}
               />
@@ -812,11 +859,16 @@ export default function Nomina({ supabase, sucursal, user }) {
 
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Historial</h3>
-        {esAdmin && (
-          <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.65rem' }}>
-            Administrador: abre un periodo con <strong>Ver</strong> y usa <strong>Reabrir para corregir</strong> (solo el más reciente).
-          </p>
-        )}
+        <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Historial</h3>
+        <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.65rem' }}>
+          Usa <strong>Eliminar</strong> si cerraste una nómina duplicada o incorrecta.
+          {esAdmin && (
+            <>
+              {' '}
+              Como administrador también puedes <strong>Reabrir</strong> la más reciente para corregirla.
+            </>
+          )}
+        </p>
         <div className="table-wrap">
           <table className="data">
             <thead>
@@ -829,21 +881,43 @@ export default function Nomina({ supabase, sucursal, user }) {
               </tr>
             </thead>
             <tbody>
-              {periodos.map((p) => (
-                <tr key={p.id}>
-                  <td>
-                    {p.periodo_inicio} — {p.periodo_fin}
-                  </td>
-                  <td>{p.pagador_filtro ? ETIQUETA_AREA[p.pagador_filtro] || p.pagador_filtro : 'Todos'}</td>
-                  <td>{fmt(p.total)}</td>
-                  <td className="muted">{p.created_at ? new Date(p.created_at).toLocaleString() : '—'}</td>
-                  <td>
-                    <button type="button" className="btn btn-ghost" style={{ padding: '0.25rem 0.5rem' }} onClick={() => verPeriodo(p)}>
-                      Ver
-                    </button>
+              {periodos.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="muted">
+                    Aún no hay nóminas cerradas en el historial.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                periodos.map((p) => (
+                  <tr key={p.id}>
+                    <td>
+                      {p.periodo_inicio} — {p.periodo_fin}
+                    </td>
+                    <td>{p.pagador_filtro ? ETIQUETA_AREA[p.pagador_filtro] || p.pagador_filtro : 'Todos'}</td>
+                    <td>{fmt(p.total)}</td>
+                    <td className="muted">{p.created_at ? new Date(p.created_at).toLocaleString() : '—'}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <button type="button" className="btn btn-ghost" style={{ padding: '0.25rem 0.5rem' }} onClick={() => verPeriodo(p)}>
+                          Ver
+                        </button>
+                        {puedeEliminarNomina && (
+                          <button
+                            type="button"
+                            className="btn btn-danger"
+                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+                            disabled={cargando}
+                            onClick={() => eliminarPeriodo(p)}
+                            title="Eliminar esta nómina del historial"
+                          >
+                            Eliminar
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -881,6 +955,17 @@ export default function Nomina({ supabase, sucursal, user }) {
                     title="Solo la nómina más reciente. Revierte gastos y préstamos aplicados."
                   >
                     Reabrir para corregir
+                  </button>
+                )}
+                {puedeEliminarNomina && (
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    disabled={cargando}
+                    onClick={() => eliminarPeriodo(periodoSel)}
+                    title="Borra esta nómina del historial (p. ej. si quedó duplicada)."
+                  >
+                    Eliminar del historial
                   </button>
                 )}
               </div>

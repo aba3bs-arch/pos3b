@@ -17,6 +17,7 @@ import {
   saldoPendienteDesdePago,
   sueldoBrutoLinea,
   recalcularLineaNomina,
+  normalizarDiasNomina,
 } from './nominaCalculos.js';
 import {
   asistenciasPorEmpleado,
@@ -307,7 +308,7 @@ export async function guardarPeriodoNomina(supabase, payload) {
     rol: calc.rol || null,
     pagador_nomina: calc.pagador_nomina || null,
     sueldo_tarifa: Number(calc.salario_dia ?? calc.sueldo_tarifa) || 0,
-    dias_trabajados: Number(calc.dias_trabajados) || 0,
+    dias_trabajados: normalizarDiasNomina(calc.dias_trabajados),
     cortes_periodo: Number(calc.cortes_periodo) || 0,
     vales_gasolina: Number(calc.vales_gasolina) || 0,
     sueldo_base: Number(calc.sueldo_base) || 0,

@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { etiquetaTienda, listarSucursalesParaUI } from '../constants/sucursales.js';
-import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta } from '../lib/usuariosAuth.js';
+import { buscarUsuarioPorPinYSucursal, esPersonalCentralAdmin, mensajePinSucursalIncorrecta } from '../lib/usuariosAuth.js';
 import { evaluarVinculoDispositivo } from '../lib/dispositivoUsuario.js';
 import { usuarioAutorizadoChecador } from '../lib/turnos.js';
 import {
@@ -264,7 +264,12 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
         return;
       }
 
-      const { user: data, error, avisoSucursal, sucursalReal } = await buscarUsuarioPorPinYSucursal(supabase, p, sucursal);
+      const { user: data, error, avisoSucursal, sucursalReal, personalCentral } = await buscarUsuarioPorPinYSucursal(
+        supabase,
+        p,
+        sucursal,
+        { aceptarPersonalCentral: true },
+      );
       if (error) {
         setMsg(error);
         setEmpleado(null);
@@ -293,13 +298,22 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       }
       setPendienteChecador(null);
       setPinAdminChecador('');
-      setAvisoCobertura(accesoTurno.coberturaTurno ? accesoTurno.mensaje || 'Cobertura de otro turno.' : '');
-      const vinculo = evaluarVinculoDispositivo(data);
-      if (!vinculo.ok) {
-        setMsg(vinculo.error);
-        setEmpleado(null);
-        setPinEmpleado('');
-        return;
+      const avisoCentral =
+        personalCentral || esPersonalCentralAdmin(data) || accesoTurno.personalCentral
+          ? 'Personal de Central de administración (MAIN).'
+          : '';
+      setAvisoCobertura(
+        avisoCentral || (accesoTurno.coberturaTurno ? accesoTurno.mensaje || 'Cobertura de otro turno.' : ''),
+      );
+      // Personal de MAIN no se ancla a dispositivo en el reloj.
+      if (!esPersonalCentralAdmin(data)) {
+        const vinculo = evaluarVinculoDispositivo(data);
+        if (!vinculo.ok) {
+          setMsg(vinculo.error);
+          setEmpleado(null);
+          setPinEmpleado('');
+          return;
+        }
       }
       setEmpleado({ id: data.id, nombre: data.nombre, rol: data.rol });
       setPinEmpleado('');
@@ -528,7 +542,8 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
         <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
           <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Reloj checador</h3>
           <p className="muted" style={{ marginTop: 0 }}>
-            Empleados dados de alta en <strong>Usuarios</strong> marcan con su PIN de esta tienda. Quien cubre turno usa el{' '}
+            Empleados dados de alta en <strong>Usuarios</strong> marcan con su PIN de esta tienda. El personal de{' '}
+            <strong>Central de administración (MAIN)</strong> puede marcar en cualquier caja. Quien cubre turno usa el{' '}
             <strong>PIN de cubre turno</strong> de la sucursal (nombre + teléfono). Si un fijo no coincide con su turno, puede marcar
             cubriendo otro turno (±20 min). Tienda actual: <span className="badge">{etiquetaTienda(sucursal)}</span>
           </p>

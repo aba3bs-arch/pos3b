@@ -468,7 +468,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     if (
       !confirm(
         `¿Buscar fotos en internet para ${pendientes.length} producto(s) sin imagen?\n\n` +
-          'Usa Open Food Facts por código de barras. Puede tardar varios minutos; no cierres esta pestaña.',
+          'Usa Open Food Facts (código y nombre). Puede tardar varios minutos; no cierres esta pestaña.',
       )
     ) {
       return;

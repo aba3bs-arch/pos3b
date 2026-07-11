@@ -141,18 +141,48 @@ export async function reabrirPeriodoNomina(supabase, periodoId) {
     };
   }
 
+  const borrado = await eliminarPeriodoNomina(supabase, periodoId, { revertirEfectos: true });
+  if (!borrado.ok) return borrado;
+
+  return {
+    ok: true,
+    periodo,
+    lineas: lineasReabiertasParaEdicion(borrado.lineas || []),
+    arrastreMap: borrado.arrastreMap,
+    gastosRevertidos: borrado.gastosRevertidos || 0,
+  };
+}
+
+/**
+ * Elimina un periodo de nómina (p. ej. duplicado).
+ * Por defecto revierte gastos de cortes, abonos de préstamos y arrastre local.
+ */
+export async function eliminarPeriodoNomina(supabase, periodoId, opts = {}) {
+  const { revertirEfectos = true } = opts;
+  if (!supabase || !periodoId) return { ok: false, error: 'Periodo inválido.' };
+
+  const { data: periodo, error: ePer } = await supabase.from('nomina_periodos').select('*').eq('id', periodoId).maybeSingle();
+  if (ePer) return { ok: false, error: ePer.message };
+  if (!periodo) return { ok: false, error: 'Periodo no encontrado.' };
+
   const resLineas = await cargarLineasPeriodo(supabase, periodoId);
   if (resLineas.error) return { ok: false, error: resLineas.error };
   const lineas = resLineas.data || [];
 
-  const gRes = await revertirGastosNominaPeriodo(supabase, periodoId);
-  if (!gRes.ok) return { ok: false, error: gRes.error };
+  let gastosRevertidos = 0;
+  let arrastreMap = null;
 
-  const listaEmp = lineas.map((l) => ({ id: l.usuario_id, nombre: l.nombre })).filter((e) => e.id);
-  const pRes = await revertirPrestamosNomina(supabase, { lineas, empleados: listaEmp, todasSucursales: true });
-  if (!pRes.ok) return { ok: false, error: pRes.error };
+  if (revertirEfectos) {
+    const gRes = await revertirGastosNominaPeriodo(supabase, periodoId);
+    if (!gRes.ok) return { ok: false, error: gRes.error };
+    gastosRevertidos = gRes.count || 0;
 
-  const arrastreMap = revertirArrastreNomina(lineas);
+    const listaEmp = lineas.map((l) => ({ id: l.usuario_id, nombre: l.nombre })).filter((e) => e.id);
+    const pRes = await revertirPrestamosNomina(supabase, { lineas, empleados: listaEmp, todasSucursales: true });
+    if (!pRes.ok) return { ok: false, error: pRes.error };
+
+    arrastreMap = revertirArrastreNomina(lineas);
+  }
 
   const { error: eDelLin } = await supabase.from('nomina_lineas').delete().eq('periodo_id', periodoId);
   if (eDelLin) return { ok: false, error: eDelLin.message };
@@ -163,8 +193,8 @@ export async function reabrirPeriodoNomina(supabase, periodoId) {
   return {
     ok: true,
     periodo,
-    lineas: lineasReabiertasParaEdicion(lineas),
+    lineas,
     arrastreMap,
-    gastosRevertidos: gRes.count || 0,
+    gastosRevertidos,
   };
 }

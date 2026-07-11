@@ -315,15 +315,67 @@ export function abrirVentanaImpresion(html, titulo = 'Imprimir', opts = {}) {
   const m = medidasPapel(ancho);
   const w = window.open('', '_blank', `width=${m.ventana},height=640,scrollbars=yes`);
   if (!w) return { ok: false, error: 'Permite ventanas emergentes para imprimir.' };
+
+  w.document.open();
   w.document.write(html);
   w.document.close();
   w.document.title = titulo;
-  w.focus();
-  if (opts.autoPrint !== false) {
-    setTimeout(() => {
-      w.print();
-    }, 400);
+  try {
+    w.focus();
+  } catch {
+    /* ignore */
   }
+
+  if (opts.autoPrint === false) return { ok: true };
+
+  let impreso = false;
+  let preparando = false;
+  const dispararPrint = () => {
+    if (impreso) return;
+    impreso = true;
+    try {
+      w.focus();
+      w.print();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const cuandoListo = () => {
+    if (preparando || impreso) return;
+    preparando = true;
+    const imgs = Array.from(w.document.images || []);
+    const pendientes = imgs.filter((img) => !img.complete);
+    if (!pendientes.length) {
+      // Un frame extra evita el fallo de la 1ª impresión en Chrome/Edge.
+      if (typeof w.requestAnimationFrame === 'function') {
+        w.requestAnimationFrame(() => setTimeout(dispararPrint, 80));
+      } else {
+        setTimeout(dispararPrint, 80);
+      }
+      return;
+    }
+    let restantes = pendientes.length;
+    const unoListo = () => {
+      restantes -= 1;
+      if (restantes <= 0) setTimeout(dispararPrint, 80);
+    };
+    pendientes.forEach((img) => {
+      img.addEventListener('load', unoListo, { once: true });
+      img.addEventListener('error', unoListo, { once: true });
+    });
+  };
+
+  if (w.document.readyState === 'complete') {
+    cuandoListo();
+  } else {
+    w.addEventListener('load', cuandoListo, { once: true });
+    // Fallback si el evento load no llega (document.write en algunos navegadores).
+    setTimeout(cuandoListo, 300);
+  }
+  // Tope de seguridad: nunca dejar la ventana sin diálogo de impresión.
+  setTimeout(dispararPrint, 2500);
+
   return { ok: true };
 }
 
