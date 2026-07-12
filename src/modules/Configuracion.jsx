@@ -128,6 +128,8 @@ export default function Configuracion({
   bloqueoPorEntorno,
   onDesbloquearTiendaBrowser,
   desbloqueandoTienda = false,
+  puedeCambiarTiendaSesion = false,
+  onCambiarTiendaSesion,
   user,
   inventario,
   cargarDatos,
@@ -779,6 +781,23 @@ export default function Configuracion({
                   <p className="muted" style={{ fontSize: '0.85rem', margin: '0 0 0.75rem' }}>
                     Esta caja quedó ligada a una sola tienda para no registrar ventas en sucursal equivocada.
                   </p>
+                  {puedeCambiarTiendaSesion && typeof onCambiarTiendaSesion === 'function' && (
+                    <label className="muted" style={{ display: 'block', marginBottom: '0.75rem' }}>
+                      Consultar otra tienda (solo esta sesión)
+                      <select
+                        className="select"
+                        style={{ marginTop: '0.35rem' }}
+                        value={sucursal}
+                        onChange={(e) => onCambiarTiendaSesion(e.target.value)}
+                      >
+                        {(sucursalesLista || []).map((suc) => (
+                          <option key={suc} value={suc}>
+                            {etiquetaTienda(suc)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   {typeof onDesbloquearTiendaBrowser === 'function' && !pedirPinDesbloqueo && (
                     <button
                       type="button"

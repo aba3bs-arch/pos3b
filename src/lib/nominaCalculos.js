@@ -221,7 +221,13 @@ export function fusionarLineasNomina(anteriores, nuevas) {
       merged.notas_otros = ant.notas_otros ?? nueva.notas_otros ?? '';
     }
     merged.deduccion_faltas = ant.deduccion_faltas ?? nueva.deduccion_faltas;
-    merged.notas = [ant.notas, nueva.notas].filter(Boolean).join(' · ') || nueva.notas;
+    // No conservar textos viejos de checador en notas del borrador.
+    const notasLimpias = [nueva.notas, ant.notas]
+      .filter(Boolean)
+      .flatMap((t) => String(t).split(/\s*·\s*/))
+      .map((p) => p.trim())
+      .filter((p) => p && !/asistencia|checador|retardos?/i.test(p));
+    merged.notas = [...new Set(notasLimpias)].join(' · ') || nueva.notas || '';
 
     merged.total = totalLineaNominaImport(recalcularLineaNomina(merged));
     merged.pago = merged.total;

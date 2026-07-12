@@ -82,17 +82,12 @@ function splitGastosNomina(detalle = []) {
   };
 }
 
-function notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas, asistInfo = null) {
+function notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas) {
   const notas = [];
   if (indirecto) {
     if (valesGas > 0) notas.push(`Vales cobrados: ${valesGas}`);
     if (faltasGas > 0) notas.push(`Faltas (vale no cobrado): ${faltasGas}`);
   } else {
-    if (asistInfo && asistInfo.asistencias > 0) {
-      notas.push(
-        `Asistencias checador: ${asistInfo.asistencias} · Retardos: ${asistInfo.retardos} · Días pagados: ${asistInfo.diasTrabajados}`,
-      );
-    }
     if (cortes > 0) notas.push(`Cortes (ref.): ${cortes}`);
   }
 
@@ -217,7 +212,7 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       deduccion_arrastre: round2(arrastreMap[String(u.id)] || 0),
       deducciones: 0,
       notas_otros: '',
-      notas: notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas, asistInfo),
+      notas: notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas),
       pagador_manual: false,
       dias_manual: false,
       sueldo_manual: false,

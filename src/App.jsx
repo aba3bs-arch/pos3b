@@ -694,6 +694,9 @@ function App() {
   }
 
   const puedeCambiarTienda = puedeCambiarTiendaLibremente(user?.rol);
+  // En caja fijada, el equipo sigue bloqueado (desbloqueo con PIN en Config).
+  // En sesión, admin/gerente/central sí pueden consultar otras tiendas (p. ej. desde MAIN).
+  const puedeCambiarTiendaSesion = puedeCambiarTienda && !SUCURSAL_FIJA_ENV;
   const modulosNav = modulosParaSidebar(user.rol, user.id);
   const subContabilidad = submodulosContabilidadVisibles(user.rol, user.id);
   const contabilidadActiva = vista === VISTA_HUB_CONTABILIDAD || SUBMODULOS_CONTABILIDAD.includes(vista);
@@ -760,7 +763,7 @@ function App() {
             </div>
           </div>
           <div className="app-header-meta">
-            {puedeCambiarTienda && !SUCURSAL_FIJA_ENV && !tiendaFijadaParaAcceso ? (
+            {puedeCambiarTiendaSesion ? (
               <select
                 className="select app-header-select"
                 value={sucursal}
@@ -923,6 +926,8 @@ function App() {
                 !SUCURSAL_FIJA_ENV && tiendaFijadaParaAcceso ? desbloquearTiendaDesdeConfig : undefined
               }
               desbloqueandoTienda={desbloqueandoTienda}
+              puedeCambiarTiendaSesion={puedeCambiarTiendaSesion}
+              onCambiarTiendaSesion={puedeCambiarTiendaSesion ? setSucursal : undefined}
               user={user}
               inventario={inventario}
               cargarDatos={cargarDatos}

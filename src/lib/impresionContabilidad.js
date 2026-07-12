@@ -129,7 +129,11 @@ function estilosReciboNomina(ancho) {
     color: #000 !important;
     font-weight: 800 !important;
   }
-  .recibo-nomina { width: 100%; }
+  .recibo-nomina {
+    width: 100%;
+    text-align: center;
+    margin: 0 auto;
+  }
   .recibo-nomina .titulo {
     text-align: center;
     font-size: ${esTicket ? '1.15em' : '18px'};
@@ -142,44 +146,53 @@ function estilosReciboNomina(ancho) {
     font-size: 0.95em;
     margin: 2px 0 6px;
   }
-  .recibo-nomina .bloque { margin: 0; }
-  .recibo-nomina table.kv { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 0; }
+  .recibo-nomina .bloque { margin: 0 auto; width: 100%; }
+  .recibo-nomina table.kv {
+    width: 92%;
+    margin: 0 auto;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
   .recibo-nomina table.kv td {
     border: none;
-    padding: 2px 0;
+    padding: 2px 2px;
     vertical-align: top;
     font-size: inherit;
     background: transparent;
+    text-align: center;
   }
   .recibo-nomina table.kv td.lbl {
-    width: 42%;
-    padding-right: 4px;
+    width: 48%;
+    padding-right: 3px;
+    text-align: right;
     word-break: break-word;
   }
   .recibo-nomina table.kv td.val {
-    width: 58%;
-    text-align: right;
+    width: 52%;
+    text-align: left;
+    padding-left: 3px;
     word-break: break-word;
   }
   .recibo-nomina .nombre-emp {
     text-align: center;
-    font-size: 1.05em;
-    margin: 4px 0 2px;
+    font-size: 1.1em;
+    margin: 6px 0 4px;
     word-break: break-word;
     line-height: 1.25;
   }
   .recibo-nomina .sec {
     text-align: center;
     font-size: 0.92em;
-    margin: 2px 0;
+    margin: 4px 0;
     text-transform: uppercase;
     letter-spacing: 0.03em;
   }
   .recibo-nomina .neto-box {
-    margin: 8px 0 4px;
+    margin: 8px auto 4px;
     padding: 6px 4px;
     border: 2px solid #000;
     text-align: center;
+    width: 92%;
   }
   .recibo-nomina .neto-box .neto-lbl {
     font-size: 0.85em;
@@ -192,22 +205,31 @@ function estilosReciboNomina(ancho) {
     letter-spacing: 0.02em;
   }
   .recibo-nomina .firma {
-    margin-top: 18px;
+    margin: 18px auto 0;
     text-align: center;
     font-size: 0.9em;
     line-height: 1.35;
+    width: 92%;
   }
   .recibo-nomina .firma-linea {
     margin: 22px auto 4px;
     border-top: 1.5px solid #000;
-    width: 88%;
+    width: 80%;
   }
   .recibo-nomina img.logo {
-    max-width: ${esTicket ? '55%' : '180px'};
-    max-height: ${esTicket ? '40px' : '72px'};
+    max-width: ${esTicket ? '72%' : '220px'};
+    max-height: ${esTicket ? '56px' : '88px'};
     display: block;
-    margin: 0 auto 4px;
+    margin: 0 auto 8px;
+    object-fit: contain;
   }
+  .recibo-nomina .sep {
+    border: none;
+    border-top: 1px dashed #000;
+    margin: 6px auto;
+    width: 88%;
+  }
+  .recibo-nomina .center { text-align: center; }
   `;
 }
 
@@ -267,9 +289,9 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recibo nómina — ${esc(linea.nombre)}</title>
   <style>${estilosReciboNomina(ancho)}</style></head><body>
   <div class="recibo-nomina">
-    <img class="logo" src="${esc(logo)}" alt=""/>
+    ${logo ? `<img class="logo" src="${esc(logo)}" alt="${esc(negocio)}"/>` : `<div class="titulo">${esc(negocio)}</div>`}
     <div class="titulo">Recibo de nómina</div>
-    <div class="negocio">${esc(negocio)}</div>
+    ${logo ? `<div class="negocio">${esc(negocio)}</div>` : ''}
     <div class="sep"></div>
     <div class="nombre-emp">${esc(linea.nombre)}</div>
     <table class="kv bloque">
@@ -306,8 +328,6 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
       <div class="firma-linea"></div>
       <div class="muted">Firma del empleado</div>
     </div>
-    ${opts.notas ? `<div class="muted" style="margin-top:8px">Notas: ${esc(opts.notas)}</div>` : ''}
-    ${linea.notas ? `<div class="muted" style="margin-top:4px">Detalle: ${esc(linea.notas)}</div>` : ''}
   </div>
   </body></html>`;
 }

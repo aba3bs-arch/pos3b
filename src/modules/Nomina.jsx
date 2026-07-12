@@ -300,6 +300,7 @@ export default function Nomina({ supabase, sucursal, user }) {
     imprimirReciboNominaIndividual(linea, {
       periodo_inicio: periodo.periodo_inicio ?? inicio,
       periodo_fin: periodo.periodo_fin ?? fin,
+      // Solo notas del periodo (sin detalle de checador / notas de línea).
       notas: periodo.notas ?? notasPeriodo,
       fechaPago: periodo.created_at || undefined,
     });
