@@ -1,8 +1,8 @@
-import { normalizarCodigoTienda, etiquetaTienda } from '../constants/sucursales.js';
+import { esAlmacenCentral, normalizarCodigoTienda, etiquetaTienda } from '../constants/sucursales.js';
 import { obtenerIdDispositivoLocal } from './dispositivoUsuario.js';
 
 /** Ventana para considerar la caja “en línea” (ms). */
-export const PRESENCIA_ONLINE_MS = 3 * 60 * 1000;
+export const PRESENCIA_ONLINE_MS = 2 * 60 * 1000;
 /** Intervalo de latido del POS activo. */
 export const PRESENCIA_HEARTBEAT_MS = 30 * 1000;
 
@@ -38,20 +38,25 @@ export async function cargarPresenciaSucursales(supabase) {
   for (const row of data || []) {
     const id = normalizarCodigoTienda(row.sucursal_id);
     if (!id) continue;
+    // MAIN/Central no es caja de tienda: nunca mostrar “en línea” como POS.
+    const online = !esAlmacenCentral(id) && presenciaEstaEnLinea(row.last_seen, ahora);
     map[id] = {
       last_seen: row.last_seen,
       usuario_nombre: row.usuario_nombre || '',
-      online: presenciaEstaEnLinea(row.last_seen, ahora),
+      online,
     };
   }
   return { ok: true, map };
 }
 
-/** Latido: esta caja está abierta en `sucursal`. */
+/**
+ * Latido solo de caja física (tienda fijada / VITE_SUCURSAL_FIJA).
+ * No usarlo al cambiar de tienda libremente desde Central.
+ */
 export async function enviarHeartbeatPresencia(supabase, { sucursal, usuarioNombre } = {}) {
   if (!supabase) return { ok: false };
   const sid = normalizarCodigoTienda(sucursal);
-  if (!sid) return { ok: false };
+  if (!sid || esAlmacenCentral(sid)) return { ok: false, skipped: true };
   let dispositivo = null;
   try {
     dispositivo = typeof obtenerIdDispositivoLocal === 'function' ? obtenerIdDispositivoLocal() : null;
@@ -69,6 +74,26 @@ export async function enviarHeartbeatPresencia(supabase, { sucursal, usuarioNomb
   );
   if (error) {
     if (faltaTablaPresencia(error)) return { ok: false, sinTabla: true, aviso: AVISO_SIN_TABLA_PRESENCIA };
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
+/** Al cerrar sesión en una caja física: marcar fuera de línea de inmediato. */
+export async function marcarPresenciaFueraDeLinea(supabase, sucursal) {
+  if (!supabase) return { ok: false };
+  const sid = normalizarCodigoTienda(sucursal);
+  if (!sid || esAlmacenCentral(sid)) return { ok: false, skipped: true };
+  const { error } = await supabase.from('pos_presencia_sucursal').upsert(
+    {
+      sucursal_id: sid,
+      last_seen: new Date(0).toISOString(),
+      usuario_nombre: null,
+    },
+    { onConflict: 'sucursal_id' },
+  );
+  if (error) {
+    if (faltaTablaPresencia(error)) return { ok: false, sinTabla: true };
     return { ok: false, error: error.message };
   }
   return { ok: true };

@@ -1,6 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import Icon from './Icon.jsx';
 import { camaraEscaneoDisponible, FORMATOS_BARRAS } from '../lib/escanerCamara.js';
+import { prepararAudioPos, sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 
 /**
  * Modal de escaneo con cámara trasera (móvil / tablet).
@@ -60,6 +61,8 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
             leidoRef.current = true;
             const texto = String(decoded || '').trim();
             if (!texto) return;
+            // Misma confirmación audible que el lector USB (móvil / tablet).
+            sonidoEscaneoProducto();
             onCodigo?.(texto);
             scanner
               .stop()
@@ -149,7 +152,17 @@ export function BotonEscanerCamara({ onCodigo, titulo, label = 'Cámara', classN
 
   return (
     <>
-      <button type="button" className={className} style={style} onClick={() => setAbierto(true)} title="Escanear con cámara">
+      <button
+        type="button"
+        className={className}
+        style={style}
+        onClick={() => {
+          // Gesto de usuario: habilita beep al escanear en iOS/Android.
+          prepararAudioPos();
+          setAbierto(true);
+        }}
+        title="Escanear con cámara"
+      >
         <Icon name="camera" size={18} />
         <span>{label}</span>
       </button>

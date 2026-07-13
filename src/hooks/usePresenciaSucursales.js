@@ -4,11 +4,13 @@ import {
   cargarPresenciaSucursales,
   enviarHeartbeatPresencia,
   etiquetaOpcionSucursal,
+  marcarPresenciaFueraDeLinea,
 } from '../lib/presenciaSucursal.js';
 
 /**
- * Latido de esta caja + mapa de sucursales en línea para el selector.
- * @param {{ supabase: any, sucursal: string, sesion: boolean, usuarioNombre?: string, habilitado?: boolean }} opts
+ * Latido de caja física + mapa de sucursales en línea para el selector.
+ * `sucursal` debe ser solo la tienda fijada en el equipo (no la consulta libre desde Central).
+ * @param {{ supabase: any, sucursal: string|null, sesion: boolean, usuarioNombre?: string, habilitado?: boolean }} opts
  */
 export function usePresenciaSucursales({ supabase, sucursal, sesion, usuarioNombre, habilitado = true }) {
   const [presenciaMap, setPresenciaMap] = useState({});
@@ -23,8 +25,11 @@ export function usePresenciaSucursales({ supabase, sucursal, sesion, usuarioNomb
     if (r.map) setPresenciaMap(r.map);
   }, [supabase, habilitado]);
 
+  // Solo latido si hay sesión en una caja física (sucursal fijada / env).
+  const latidoActivo = Boolean(sesion && sucursal);
+
   useEffect(() => {
-    if (!supabase || !habilitado || !sesion) return undefined;
+    if (!supabase || !habilitado || !latidoActivo) return undefined;
     let cancel = false;
     const latido = async () => {
       const hb = await enviarHeartbeatPresencia(supabase, { sucursal, usuarioNombre });
@@ -38,7 +43,7 @@ export function usePresenciaSucursales({ supabase, sucursal, sesion, usuarioNomb
       cancel = true;
       clearInterval(id);
     };
-  }, [supabase, habilitado, sesion, sucursal, usuarioNombre, refrescar]);
+  }, [supabase, habilitado, latidoActivo, sucursal, usuarioNombre, refrescar]);
 
   useEffect(() => {
     if (!supabase || !habilitado) return undefined;
@@ -47,7 +52,19 @@ export function usePresenciaSucursales({ supabase, sucursal, sesion, usuarioNomb
     return () => clearInterval(id);
   }, [supabase, habilitado, refrescar]);
 
+  const marcarFueraDeLinea = useCallback(async () => {
+    if (!supabase || !sucursal) return;
+    await marcarPresenciaFueraDeLinea(supabase, sucursal);
+    await refrescar();
+  }, [supabase, sucursal, refrescar]);
+
   const etiquetaOpcion = useCallback((codigo) => etiquetaOpcionSucursal(codigo, presenciaMap), [presenciaMap]);
 
-  return { presenciaMap, etiquetaOpcion, avisoPresencia: aviso, refrescarPresencia: refrescar };
+  return {
+    presenciaMap,
+    etiquetaOpcion,
+    avisoPresencia: aviso,
+    refrescarPresencia: refrescar,
+    marcarPresenciaFueraDeLinea: marcarFueraDeLinea,
+  };
 }

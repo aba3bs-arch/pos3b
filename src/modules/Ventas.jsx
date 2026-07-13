@@ -281,7 +281,8 @@ export default function Ventas({
     if (!c) return;
     const exacto = inventario.find((p) => productoEnVenta(p) && String(p.id) === c);
     if (exacto) {
-      agregarAlCarrito(exacto, true);
+      // El beep ya lo emite EscanerCamara al leer el código.
+      agregarAlCarrito(exacto, false);
       setBusqueda('');
       return;
     }

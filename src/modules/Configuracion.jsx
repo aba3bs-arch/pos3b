@@ -911,7 +911,7 @@ export default function Configuracion({
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem' }}>
           <input type="checkbox" checked={audioCfg.sonidoEscaneo !== false} onChange={(e) => setAudioCfg({ ...audioCfg, sonidoEscaneo: e.target.checked })} />
-          Sonido al escanear producto en Ventas
+          Sonido al escanear producto (lector o cámara del celular)
         </label>
         <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={() => { guardarConfigAudio(audioCfg); alert('Preferencias de sonido guardadas.'); }}>
           Guardar sonidos

@@ -81,6 +81,7 @@ import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesCon
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
 import SelectorSucursal from './components/SelectorSucursal.jsx';
 import { usePresenciaSucursales } from './hooks/usePresenciaSucursales.js';
+import { instalarSeleccionCamposCantidad } from './lib/seleccionarCamposCantidad.js';
 import { limpiarAnunciosVistos } from './lib/anunciosPos.js';
 import {
   puedeRecibirNotificacionesDispositivo,
@@ -132,13 +133,14 @@ function App() {
   const [brandTitle, setBrandTitle] = useState(leerNombreNegocio);
   const [listaSucursales, setListaSucursales] = useState(() => listarSucursalesParaUI());
 
-  // Caja fijada: el latido es de esa tienda aunque en sesión se consulte otra.
+  // Solo latido de caja física (env o tienda bloqueada en el equipo).
+  // Si desde Central se cambia de tienda libremente, NO marcar esas sucursales “en línea”.
   const sucursalLatido =
     SUCURSAL_FIJA_ENV ||
-    (tiendaFijadaParaAcceso ? codigoTiendaBloqueadaLocal() || sucursal : null) ||
-    sucursal;
+    (tiendaFijadaParaAcceso ? codigoTiendaBloqueadaLocal() || null : null) ||
+    null;
 
-  const { presenciaMap, avisoPresencia } = usePresenciaSucursales({
+  const { presenciaMap, avisoPresencia, marcarPresenciaFueraDeLinea } = usePresenciaSucursales({
     supabase,
     sucursal: sucursalLatido,
     sesion,
@@ -178,6 +180,8 @@ function App() {
   useEffect(() => {
     return registrarCapturaInstalacionPwa();
   }, []);
+
+  useEffect(() => instalarSeleccionCamposCantidad(), []);
 
   useEffect(() => {
     if (SUCURSAL_FIJA_ENV) {
@@ -555,6 +559,7 @@ function App() {
   };
 
   const cerrarSesion = () => {
+    if (sucursalLatido) void marcarPresenciaFueraDeLinea();
     limpiarAnunciosVistos();
     limpiarNotificacionesDispositivoMostradas();
     setSesion(false);

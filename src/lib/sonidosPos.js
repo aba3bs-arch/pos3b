@@ -36,8 +36,15 @@ export function sonidoMenuNavegacion() {
   setTimeout(() => tono(680, 0.05, 0.08), 40);
 }
 
+/** Desbloquea AudioContext tras un gesto (abrir cámara); en iOS/Android hace falta. */
+export function prepararAudioPos() {
+  ctx();
+}
+
 export function sonidoEscaneoProducto() {
   if (!leerConfigAudio().sonidoEscaneo) return;
+  const c = ctx();
+  if (!c) return;
   tono(880, 0.05, 0.14, 'square');
   setTimeout(() => tono(1100, 0.04, 0.1, 'square'), 35);
 }

@@ -8,7 +8,10 @@ create table if not exists public.pos_presencia_sucursal (
 );
 
 comment on table public.pos_presencia_sucursal is
-  'Última actividad del POS por sucursal. En línea si last_seen < ~2.5 min.';
+  'Última actividad del POS por sucursal fijada. En línea si last_seen < ~2 min. MAIN no cuenta.';
+
+-- Si quedaron latidos falsos (p. ej. al navegar tiendas desde Central), limpia:
+-- update public.pos_presencia_sucursal set last_seen = timestamptz '1970-01-01+00';
 
 alter table public.pos_presencia_sucursal enable row level security;
 
