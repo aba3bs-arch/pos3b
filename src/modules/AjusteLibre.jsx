@@ -8,6 +8,14 @@ import Icon from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import ProductoThumb from '../components/ProductoThumb.jsx';
 import MenuPuntos from '../components/MenuPuntos.jsx';
+import {
+  borradorTieneDatos,
+  eliminarAjusteEnEspera,
+  guardarAjusteEnEspera,
+  idAutoBorrador,
+  leerBorradorAuto,
+} from '../lib/ajusteInventarioBorrador.js';
+import { useAutoGuardarBorrador } from '../hooks/useAutoGuardarBorrador.js';
 
 const FILTROS_VACIOS = {
   diferencia: 'todo',
@@ -37,6 +45,20 @@ function guardarPrefs(prefs) {
   }
 }
 
+function estadoInicialLibre(sucursal, borradorInicial) {
+  let base = borradorInicial;
+  if (!base) {
+    const auto = leerBorradorAuto('libre', sucursal);
+    if (borradorTieneDatos(auto)) base = auto;
+  }
+  return {
+    ordenIds: Array.isArray(base?.ordenIds) ? [...base.ordenIds] : [],
+    conteos: base?.conteos && typeof base.conteos === 'object' ? { ...base.conteos } : {},
+    borradorId: base?.id || idAutoBorrador('libre', sucursal),
+    recuperado: Boolean(!borradorInicial && base && borradorTieneDatos(base)),
+  };
+}
+
 export default function AjusteLibre({
   supabase,
   inventario,
@@ -45,12 +67,18 @@ export default function AjusteLibre({
   sucursal,
   onHistorialChange,
   onCerrar,
+  borradorInicial = null,
 }) {
+  const init = useMemo(
+    () => estadoInicialLibre(sucursal, borradorInicial),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
   const [prefs, setPrefs] = useState(leerPrefs);
   const [qLista, setQLista] = useState('');
   const [codigoEscaneo, setCodigoEscaneo] = useState('');
-  const [ordenIds, setOrdenIds] = useState([]);
-  const [conteos, setConteos] = useState({});
+  const [ordenIds, setOrdenIds] = useState(init.ordenIds);
+  const [conteos, setConteos] = useState(init.conteos);
   const [mostrarFiltros, setMostrarFiltros] = useState(false);
   const [filtrosDraft, setFiltrosDraft] = useState(FILTROS_VACIOS);
   const [filtros, setFiltros] = useState(FILTROS_VACIOS);
@@ -63,6 +91,8 @@ export default function AjusteLibre({
   const [busquedaCatalogo, setBusquedaCatalogo] = useState('');
   const [mostrarAgregar, setMostrarAgregar] = useState(false);
   const [avisoBusqueda, setAvisoBusqueda] = useState('');
+  const [borradorId, setBorradorId] = useState(init.borradorId);
+  const [avisoRecuperado, setAvisoRecuperado] = useState(init.recuperado);
   const scanRef = useRef(null);
   const cantidadRef = useRef(null);
 
@@ -70,6 +100,28 @@ export default function AjusteLibre({
   useEffect(() => {
     if (typeof cargarDatos === 'function') cargarDatos();
   }, [cargarDatos]);
+
+  useAutoGuardarBorrador(
+    () => {
+      if (folioAplicado) return null;
+      if (!borradorTieneDatos({ ordenIds, conteos })) return null;
+      return {
+        id: borradorId || idAutoBorrador('libre', sucursal),
+        tipo: 'libre',
+        titulo: 'Ajuste libre',
+        ordenIds,
+        conteos,
+        sucursal,
+        usuario: user?.nombre,
+        auto: true,
+      };
+    },
+    (draft) => {
+      const saved = guardarAjusteEnEspera(draft);
+      if (saved?.id && saved.id !== borradorId) setBorradorId(saved.id);
+    },
+    { enabled: !folioAplicado },
+  );
 
   const departamentos = useMemo(() => listarDepartamentos(inventario), [inventario]);
   const categorias = useMemo(() => {
@@ -261,6 +313,9 @@ export default function AjusteLibre({
     setFolioAplicado(r.folio);
     setUltimoAjuste(r.ajuste);
     onHistorialChange?.(r.log);
+    eliminarAjusteEnEspera(borradorId || idAutoBorrador('libre', sucursal));
+    eliminarAjusteEnEspera(idAutoBorrador('libre', sucursal));
+    setAvisoRecuperado(false);
     cargarDatos();
     alert(`${r.mensaje}\n\nFolio: ${r.folio}`);
   };
@@ -307,6 +362,23 @@ export default function AjusteLibre({
           <MenuPuntos items={menuItems} />
         </div>
       </header>
+      {avisoRecuperado && !folioAplicado && ordenIds.length > 0 && (
+        <p
+          style={{
+            margin: '0 0 0.75rem',
+            padding: '0.55rem 0.65rem',
+            borderRadius: 8,
+            background: 'rgba(34,197,94,0.1)',
+            border: '1px solid rgba(34,197,94,0.35)',
+            fontSize: '0.85rem',
+          }}
+        >
+          Se recuperó la lista que tenías ({ordenIds.length} producto(s)). No se pierde si entra una llamada.
+          <button type="button" className="btn btn-ghost" style={{ marginLeft: '0.5rem', padding: '0.2rem 0.45rem', fontSize: '0.8rem' }} onClick={() => setAvisoRecuperado(false)}>
+            Entendido
+          </button>
+        </p>
+      )}
 
       <div className="ajuste-libre-toolbar">
         <div className="ajuste-libre-search">

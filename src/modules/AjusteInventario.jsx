@@ -23,8 +23,23 @@ import {
   rangoDesdePreset,
 } from '../lib/consultasInventario.js';
 import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
+import {
+  borradorTieneDatos,
+  eliminarAjusteEnEspera,
+  guardarAjusteEnEspera,
+  idAutoBorrador,
+  leerBorradorAuto,
+} from '../lib/ajusteInventarioBorrador.js';
+import { useAutoGuardarBorrador } from '../hooks/useAutoGuardarBorrador.js';
 
 const TIPOS_MOV = TIPOS_MOVIMIENTO.filter((t) => t.id === 'entrada' || t.id === 'retiro');
+
+function lineasMasivasIniciales(modoInicial, sucursalOp, borradorInicial) {
+  if (modoInicial !== 'masivo') return [];
+  const base = borradorInicial?.tipo === 'masivo' ? borradorInicial : leerBorradorAuto('masivo', sucursalOp);
+  if (borradorTieneDatos(base) && Array.isArray(base.lineasMasivas)) return base.lineasMasivas.map((l) => ({ ...l }));
+  return [];
+}
 
 export default function AjusteInventario({
   supabase,
@@ -59,7 +74,10 @@ export default function AjusteInventario({
   const [histDesde, setHistDesde] = useState('');
   const [histHasta, setHistHasta] = useState('');
   const [aplicando, setAplicando] = useState(false);
-  const [lineasMasivas, setLineasMasivas] = useState([]);
+  const [lineasMasivas, setLineasMasivas] = useState(() => lineasMasivasIniciales(modoInicial, sucursalOp, borradorInicial));
+  const [avisoMasivoRecuperado, setAvisoMasivoRecuperado] = useState(
+    () => modoInicial === 'masivo' && !borradorInicial && borradorTieneDatos(leerBorradorAuto('masivo', sucursalOp)),
+  );
   const [busquedaMasiva, setBusquedaMasiva] = useState('');
   const [productoMasivoId, setProductoMasivoId] = useState('');
   const [codigoEscaneo, setCodigoEscaneo] = useState('');
@@ -83,6 +101,24 @@ export default function AjusteInventario({
   useEffect(() => {
     if (modo === 'libre') scanInputRef.current?.focus();
   }, [modo]);
+
+  useAutoGuardarBorrador(
+    () => {
+      if (modo !== 'masivo') return null;
+      if (!lineasMasivas.length) return null;
+      return {
+        id: idAutoBorrador('masivo', sucursalOp),
+        tipo: 'masivo',
+        titulo: 'Entrada masiva',
+        lineasMasivas,
+        sucursal: sucursalOp,
+        usuario: user?.nombre,
+        auto: true,
+      };
+    },
+    (draft) => guardarAjusteEnEspera(draft),
+    { enabled: modo === 'masivo' },
+  );
 
   const productosFiltrados = useMemo(() => {
     let list = inventario || [];
@@ -302,6 +338,8 @@ export default function AjusteInventario({
     }
     alert(r.mensaje + (r.errores?.length ? `\n\nErrores:\n${r.errores.join('\n')}` : ''));
     setHistorial(r.log || leerMovimientosLocal());
+    eliminarAjusteEnEspera(idAutoBorrador('masivo', sucursalOp));
+    setAvisoMasivoRecuperado(false);
     const lineasPrint = validas.map((l) => {
       const p = inventario.find((x) => x.id === l.productoId);
       return { id: l.productoId, nombre: p?.nombre || l.productoId, cantidad: l.cantidad, tipo: 'entrada' };
@@ -464,6 +502,24 @@ export default function AjusteInventario({
         {modo === 'masivo' && (
           <p className="muted" style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
             Agrega varios productos con sus cantidades y aplica todas las entradas en un solo paso (recepción de mercancía, conteo, etc.).
+            La lista se guarda sola en este equipo si se interrumpe la captura.
+          </p>
+        )}
+        {modo === 'masivo' && avisoMasivoRecuperado && lineasMasivas.length > 0 && (
+          <p
+            style={{
+              margin: '0.65rem 0 0',
+              padding: '0.55rem 0.65rem',
+              borderRadius: 8,
+              background: 'rgba(34,197,94,0.1)',
+              border: '1px solid rgba(34,197,94,0.35)',
+              fontSize: '0.85rem',
+            }}
+          >
+            Se recuperó la entrada masiva ({lineasMasivas.length} línea(s)).
+            <button type="button" className="btn btn-ghost" style={{ marginLeft: '0.5rem', padding: '0.2rem 0.45rem', fontSize: '0.8rem' }} onClick={() => setAvisoMasivoRecuperado(false)}>
+              Entendido
+            </button>
           </p>
         )}
         {modo === 'traspaso' && (
@@ -768,6 +824,7 @@ export default function AjusteInventario({
           sucursal={sucursalOp}
           onHistorialChange={setHistorial}
           onCerrar={typeof onVolver === 'function' ? onVolver : undefined}
+          borradorInicial={borradorInicial?.tipo === 'libre' ? borradorInicial : null}
         />
       ) : modo === 'movimiento' ? (
         <div className="card">

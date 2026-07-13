@@ -105,6 +105,7 @@ import SelectorTemaInterfaz from '../components/SelectorTemaInterfaz.jsx';
 import PanelCatalogoIncidencias from '../components/PanelCatalogoIncidencias.jsx';
 import PanelNotificacionesAlertas from '../components/PanelNotificacionesAlertas.jsx';
 import InputPin from '../components/InputPin.jsx';
+import SelectorSucursal from '../components/SelectorSucursal.jsx';
 import AdminInventarioCentral from './AdminInventarioCentral.jsx';
 import {
   ACCIONES_INCIDENCIAS_PRIVILEGIO,
@@ -130,7 +131,7 @@ export default function Configuracion({
   desbloqueandoTienda = false,
   puedeCambiarTiendaSesion = false,
   onCambiarTiendaSesion,
-  etiquetaSucursalOpcion,
+  presenciaMap,
   avisoPresencia,
   user,
   inventario,
@@ -786,18 +787,17 @@ export default function Configuracion({
                   {puedeCambiarTiendaSesion && typeof onCambiarTiendaSesion === 'function' && (
                     <label className="muted" style={{ display: 'block', marginBottom: '0.75rem' }}>
                       Consultar otra tienda (solo esta sesión)
-                      <select
+                      <SelectorSucursal
                         className="select"
                         style={{ marginTop: '0.35rem' }}
                         value={sucursal}
-                        onChange={(e) => onCambiarTiendaSesion(e.target.value)}
-                      >
-                        {(sucursalesLista || []).map((suc) => (
-                          <option key={suc} value={suc}>
-                            {typeof etiquetaSucursalOpcion === 'function' ? etiquetaSucursalOpcion(suc) : etiquetaTienda(suc)}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={onCambiarTiendaSesion}
+                        lista={sucursalesLista || []}
+                        presenciaMap={presenciaMap}
+                        title="Consultar otra tienda"
+                        mostrarLeyenda
+                        avisoPresencia={avisoPresencia}
+                      />
                     </label>
                   )}
                   {typeof onDesbloquearTiendaBrowser === 'function' && !pedirPinDesbloqueo && (
@@ -885,16 +885,17 @@ export default function Configuracion({
               )}
             </div>
           ) : (
-            <select className="select" style={{ marginTop: '0.35rem' }} value={sucursal} onChange={(e) => setSucursal(e.target.value)}>
-              {(sucursalesLista || []).map((suc) => (
-                <option key={suc} value={suc}>
-                  {typeof etiquetaSucursalOpcion === 'function' ? etiquetaSucursalOpcion(suc) : etiquetaTienda(suc)}
-                </option>
-              ))}
-            </select>
-            <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0' }}>
-              {avisoPresencia || '🟢 = POS con sesión abierta en esa tienda'}
-            </p>
+            <SelectorSucursal
+              className="select"
+              style={{ marginTop: '0.35rem' }}
+              value={sucursal}
+              onChange={setSucursal}
+              lista={sucursalesLista || []}
+              presenciaMap={presenciaMap}
+              title="Tienda / sucursal activa"
+              mostrarLeyenda
+              avisoPresencia={avisoPresencia}
+            />
           )}
         </div>
       </div>

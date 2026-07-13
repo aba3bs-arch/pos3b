@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import BrandLogo from './BrandLogo.jsx';
 import InputPin from './InputPin.jsx';
 import SelectorTemaInterfaz from './SelectorTemaInterfaz.jsx';
+import SelectorSucursal from './SelectorSucursal.jsx';
 import { BtnLabel } from './Icon.jsx';
 import { etiquetaTienda } from '../constants/sucursales.js';
 
@@ -10,7 +11,7 @@ export default function PantallaLogin({
   tiendaFijadaParaAcceso,
   sucursal,
   listaSucursales,
-  etiquetaSucursalOpcion,
+  presenciaMap,
   avisoPresencia,
   onCambiarSucursal,
   onFijarTienda,
@@ -77,23 +78,18 @@ export default function PantallaLogin({
           <>
             <label className="muted login-field">
               Tienda de este punto de venta
-              <select className="select" value={sucursal} onChange={(e) => onCambiarSucursal(e.target.value)}>
-                {listaSucursales.map((s) => (
-                  <option key={s} value={s}>
-                    {typeof etiquetaSucursalOpcion === 'function' ? etiquetaSucursalOpcion(s) : s}
-                  </option>
-                ))}
-              </select>
+              <SelectorSucursal
+                className="select"
+                style={{ marginTop: '0.35rem' }}
+                value={sucursal}
+                onChange={onCambiarSucursal}
+                lista={listaSucursales}
+                presenciaMap={presenciaMap}
+                title="Tienda de este punto de venta"
+                mostrarLeyenda
+                avisoPresencia={avisoPresencia}
+              />
             </label>
-            {avisoPresencia ? (
-              <p className="muted login-hint-sm" style={{ marginTop: '0.35rem' }}>
-                {avisoPresencia}
-              </p>
-            ) : (
-              <p className="muted login-hint-sm" style={{ marginTop: '0.35rem' }}>
-                🟢 = POS con sesión abierta en esa tienda
-              </p>
-            )}
             <button type="button" className="btn btn-gold login-btn-block" onClick={onFijarTienda}>
               Fijar tienda en este equipo
             </button>

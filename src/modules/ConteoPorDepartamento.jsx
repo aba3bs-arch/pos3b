@@ -11,7 +11,30 @@ import { fmtMxn } from '../lib/valorInventario.js';
 import { imprimirAjusteInventario } from '../lib/impresion.js';
 import Icon from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
-import { eliminarAjusteEnEspera, guardarAjusteEnEspera } from '../lib/ajusteInventarioBorrador.js';
+import {
+  borradorTieneDatos,
+  eliminarAjusteEnEspera,
+  guardarAjusteEnEspera,
+  idAutoBorrador,
+  leerBorradorAuto,
+} from '../lib/ajusteInventarioBorrador.js';
+import { useAutoGuardarBorrador } from '../hooks/useAutoGuardarBorrador.js';
+
+function estadoInicialDesdeBorrador(borradorInicial, departamentoInicial, sucursal) {
+  let base = borradorInicial;
+  if (!base) {
+    const auto = leerBorradorAuto('departamento', sucursal);
+    if (borradorTieneDatos(auto)) base = auto;
+  }
+  return {
+    departamento: base?.departamento || departamentoInicial || 'GENERAL',
+    conteoActivo: Boolean(base && borradorTieneDatos(base)),
+    conteos: base?.conteos && typeof base.conteos === 'object' ? { ...base.conteos } : {},
+    indiceActual: Number(base?.indiceActual) || 0,
+    borradorId: base?.id || idAutoBorrador('departamento', sucursal),
+    recuperado: Boolean(!borradorInicial && base && borradorTieneDatos(base)),
+  };
+}
 
 export default function ConteoPorDepartamento({
   supabase,
@@ -23,17 +46,24 @@ export default function ConteoPorDepartamento({
   departamentoInicial,
   borradorInicial,
 }) {
-  const [departamento, setDepartamento] = useState(() => borradorInicial?.departamento || departamentoInicial || 'GENERAL');
+  const init = useMemo(
+    () => estadoInicialDesdeBorrador(borradorInicial, departamentoInicial, sucursal),
+    // Solo al montar
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const [departamento, setDepartamento] = useState(init.departamento);
   const [nuevoDepto, setNuevoDepto] = useState('');
-  const [conteoActivo, setConteoActivo] = useState(() => Boolean(borradorInicial?.conteos));
-  const [conteos, setConteos] = useState(() => (borradorInicial?.conteos && typeof borradorInicial.conteos === 'object' ? { ...borradorInicial.conteos } : {}));
-  const [indiceActual, setIndiceActual] = useState(() => Number(borradorInicial?.indiceActual) || 0);
+  const [conteoActivo, setConteoActivo] = useState(init.conteoActivo);
+  const [conteos, setConteos] = useState(init.conteos);
+  const [indiceActual, setIndiceActual] = useState(init.indiceActual);
   const [codigoEscaneo, setCodigoEscaneo] = useState('');
   const [mostrarResumen, setMostrarResumen] = useState(false);
   const [aplicando, setAplicando] = useState(false);
   const [folioAplicado, setFolioAplicado] = useState(null);
   const [ultimoAjuste, setUltimoAjuste] = useState(null);
-  const [borradorId, setBorradorId] = useState(() => borradorInicial?.id || null);
+  const [borradorId, setBorradorId] = useState(init.borradorId);
+  const [avisoRecuperado, setAvisoRecuperado] = useState(init.recuperado);
   const contadaInputRef = useRef(null);
   const scanInputRef = useRef(null);
 
@@ -58,8 +88,32 @@ export default function ConteoPorDepartamento({
     if (conteoActivo && !mostrarResumen && !folioAplicado) contadaInputRef.current?.focus();
   }, [conteoActivo, indiceActual, mostrarResumen, folioAplicado]);
 
+  useAutoGuardarBorrador(
+    () => {
+      if (!conteoActivo || folioAplicado) return null;
+      if (!borradorTieneDatos({ conteos })) return null;
+      return {
+        id: borradorId || idAutoBorrador('departamento', sucursal),
+        tipo: 'departamento',
+        titulo: `Por departamento · ${etiquetaDepartamento(departamento)}`,
+        departamento,
+        conteos,
+        indiceActual,
+        sucursal,
+        usuario: user?.nombre,
+        auto: true,
+      };
+    },
+    (draft) => {
+      const saved = guardarAjusteEnEspera(draft);
+      if (saved?.id && saved.id !== borradorId) setBorradorId(saved.id);
+    },
+    { enabled: Boolean(conteoActivo && !folioAplicado) },
+  );
+
   const iniciarConteo = () => {
     if (!productosDept.length) return alert('No hay productos en este departamento.');
+    const autoId = idAutoBorrador('departamento', sucursal);
     setConteos({});
     setIndiceActual(0);
     setMostrarResumen(false);
@@ -67,6 +121,8 @@ export default function ConteoPorDepartamento({
     setUltimoAjuste(null);
     setConteoActivo(true);
     setCodigoEscaneo('');
+    setBorradorId(autoId);
+    setAvisoRecuperado(false);
   };
 
   const cambiarDepartamento = (dept) => {
@@ -194,8 +250,10 @@ export default function ConteoPorDepartamento({
     onHistorialChange?.(r.log);
     if (borradorId) {
       eliminarAjusteEnEspera(borradorId);
+      eliminarAjusteEnEspera(idAutoBorrador('departamento', sucursal));
       setBorradorId(null);
     }
+    setAvisoRecuperado(false);
     cargarDatos();
     alert(`${r.mensaje}\n\nFolio de ajuste: ${r.folio}`);
   };
@@ -203,7 +261,7 @@ export default function ConteoPorDepartamento({
   const guardarEnEspera = () => {
     if (!conteoActivo || folioAplicado) return;
     const saved = guardarAjusteEnEspera({
-      id: borradorId || undefined,
+      id: borradorId || idAutoBorrador('departamento', sucursal),
       tipo: 'departamento',
       titulo: `Por departamento · ${etiquetaDepartamento(departamento)}`,
       departamento,
@@ -211,6 +269,7 @@ export default function ConteoPorDepartamento({
       indiceActual,
       sucursal,
       usuario: user?.nombre,
+      auto: false,
     });
     setBorradorId(saved?.id || null);
     alert('Ajuste guardado en espera. Puedes continuar después desde «Abrir ajuste en espera».');
@@ -242,7 +301,25 @@ export default function ConteoPorDepartamento({
         <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Conteo físico por departamento</h4>
         <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
           Selecciona el departamento, cuenta pieza por pieza y al terminar aplica el ajuste. Se genera un folio único.
+          El progreso se guarda solo en este equipo (si llega una llamada no se pierde).
         </p>
+        {avisoRecuperado && conteoActivo && !folioAplicado && (
+          <p
+            style={{
+              margin: '0.65rem 0 0',
+              padding: '0.55rem 0.65rem',
+              borderRadius: 8,
+              background: 'rgba(34,197,94,0.1)',
+              border: '1px solid rgba(34,197,94,0.35)',
+              fontSize: '0.85rem',
+            }}
+          >
+            Se recuperó el conteo que tenías en curso ({Object.keys(conteos).length} artículo(s)).
+            <button type="button" className="btn btn-ghost" style={{ marginLeft: '0.5rem', padding: '0.2rem 0.45rem', fontSize: '0.8rem' }} onClick={() => setAvisoRecuperado(false)}>
+              Entendido
+            </button>
+          </p>
+        )}
         <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <label className="muted" style={{ flex: '1 1 200px' }}>
             Departamento
@@ -274,10 +351,14 @@ export default function ConteoPorDepartamento({
                 type="button"
                 className="btn btn-ghost"
                 onClick={() => {
-                  if (confirm('¿Cancelar el conteo en curso? Puedes guardarlo en espera antes de cancelar.')) {
+                  if (confirm('¿Cancelar el conteo en curso? Se borrará el borrador automático de este equipo.')) {
+                    eliminarAjusteEnEspera(borradorId || idAutoBorrador('departamento', sucursal));
+                    eliminarAjusteEnEspera(idAutoBorrador('departamento', sucursal));
                     setConteoActivo(false);
                     setConteos({});
                     setMostrarResumen(false);
+                    setBorradorId(idAutoBorrador('departamento', sucursal));
+                    setAvisoRecuperado(false);
                   }
                 }}
               >

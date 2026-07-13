@@ -123,7 +123,10 @@ export default function ModalAjusteInventario({
   };
 
   const abrirEspera = (draft) => {
-    onElegir?.({ accion: 'espera', modo: 'departamento', borrador: draft });
+    const tipo = draft?.tipo || 'departamento';
+    const modo =
+      tipo === 'libre' ? 'libre' : tipo === 'masivo' ? 'masivo' : 'departamento';
+    onElegir?.({ accion: 'espera', modo, borrador: draft });
     resetYCerrar();
   };
 
@@ -232,7 +235,15 @@ export default function ModalAjusteInventario({
                               <Icon name="file" size={20} />
                               <span>
                                 <strong>{d.titulo || d.departamento || 'Ajuste'}</strong>
-                                <small>{fmtFecha(d.savedAt)} · {Object.keys(d.conteos || {}).length} contado(s)</small>
+                                <small>
+                                  {fmtFecha(d.savedAt)} ·{' '}
+                                  {d.tipo === 'masivo'
+                                    ? `${(d.lineasMasivas || []).length} línea(s)`
+                                    : d.tipo === 'libre'
+                                      ? `${(d.ordenIds || []).length || Object.keys(d.conteos || {}).length} producto(s)`
+                                      : `${Object.keys(d.conteos || {}).length} contado(s)`}
+                                  {d.auto ? ' · auto' : ''}
+                                </small>
                               </span>
                             </button>
                             <button

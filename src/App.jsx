@@ -39,6 +39,7 @@ import {
   bloquearTiendaEnEsteEquipo,
   desbloquearTiendaEnEsteEquipo,
   tiendaBloqueadaEnEsteEquipo,
+  codigoTiendaBloqueadaLocal,
   normalizarCodigoTienda,
 } from './constants/sucursales.js';
 import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias } from './lib/roles.js';
@@ -78,6 +79,7 @@ import BotonLimpiarCache from './components/BotonLimpiarCache.jsx';
 import { EVENTO_CACHE_LIMPIADO } from './lib/limpiarCache.js';
 import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesContabilidad.jsx';
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
+import SelectorSucursal from './components/SelectorSucursal.jsx';
 import { usePresenciaSucursales } from './hooks/usePresenciaSucursales.js';
 import { limpiarAnunciosVistos } from './lib/anunciosPos.js';
 import {
@@ -130,9 +132,15 @@ function App() {
   const [brandTitle, setBrandTitle] = useState(leerNombreNegocio);
   const [listaSucursales, setListaSucursales] = useState(() => listarSucursalesParaUI());
 
-  const { etiquetaOpcion: etiquetaSucursalOpcion, avisoPresencia } = usePresenciaSucursales({
+  // Caja fijada: el latido es de esa tienda aunque en sesión se consulte otra.
+  const sucursalLatido =
+    SUCURSAL_FIJA_ENV ||
+    (tiendaFijadaParaAcceso ? codigoTiendaBloqueadaLocal() || sucursal : null) ||
+    sucursal;
+
+  const { presenciaMap, avisoPresencia } = usePresenciaSucursales({
     supabase,
-    sucursal,
+    sucursal: sucursalLatido,
     sesion,
     usuarioNombre: user?.nombre,
     habilitado: Boolean(supabase),
@@ -647,7 +655,7 @@ function App() {
         tiendaFijadaParaAcceso={tiendaFijadaParaAcceso}
         sucursal={sucursal}
         listaSucursales={listaSucursales}
-        etiquetaSucursalOpcion={etiquetaSucursalOpcion}
+        presenciaMap={presenciaMap}
         avisoPresencia={avisoPresencia}
         onCambiarSucursal={(codigo) => {
           setSucursal(codigo);
@@ -775,20 +783,23 @@ function App() {
           </div>
           <div className="app-header-meta">
             {puedeCambiarTiendaSesion ? (
-              <select
+              <SelectorSucursal
                 className="select app-header-select"
                 value={sucursal}
-                onChange={(e) => setSucursal(e.target.value)}
-                title="Cambiar tienda activa"
-              >
-                {listaSucursales.map((s) => (
-                  <option key={s} value={s}>
-                    {etiquetaSucursalOpcion(s)}
-                  </option>
-                ))}
-              </select>
+                onChange={setSucursal}
+                lista={listaSucursales}
+                presenciaMap={presenciaMap}
+                title="Cambiar tienda activa · punto verde = POS abierto"
+              />
             ) : (
-              <span className="badge app-header-badge">{etiquetaSucursalOpcion(sucursal)}</span>
+              <span className="badge app-header-badge" title={avisoPresencia || undefined}>
+                <span
+                  className={`sucursal-dot ${presenciaMap?.[normalizarCodigoTienda(sucursal)]?.online ? 'is-online' : 'is-offline'}`}
+                  style={{ display: 'inline-block', marginRight: '0.35rem', verticalAlign: 'middle' }}
+                  aria-hidden
+                />
+                {etiquetaTienda(sucursal)}
+              </span>
             )}
             <span className="app-header-user">{user?.nombre}</span>
             {esUsuarioCubreTurno(user) && (
@@ -939,7 +950,7 @@ function App() {
               desbloqueandoTienda={desbloqueandoTienda}
               puedeCambiarTiendaSesion={puedeCambiarTiendaSesion}
               onCambiarTiendaSesion={puedeCambiarTiendaSesion ? setSucursal : undefined}
-              etiquetaSucursalOpcion={etiquetaSucursalOpcion}
+              presenciaMap={presenciaMap}
               avisoPresencia={avisoPresencia}
               user={user}
               inventario={inventario}

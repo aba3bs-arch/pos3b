@@ -782,6 +782,123 @@ table.data th {
   max-width: 200px;
 }
 
+/* Selector de sucursal con punto en línea (CSS; no depende de emoji en <option>). */
+.sucursal-select-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.sucursal-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.sucursal-select-trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sucursal-select-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sucursal-select-caret {
+  opacity: 0.55;
+  font-size: 0.75em;
+  flex-shrink: 0;
+}
+
+.sucursal-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: #b0b0b0;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.sucursal-dot.is-online {
+  background: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.28);
+}
+
+.sucursal-dot.is-offline {
+  background: #c4c4c4;
+}
+
+.sucursal-select-menu {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  min-width: 220px;
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  padding: 0.35rem;
+  list-style: none;
+  background: var(--card, #fff);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
+.sucursal-select-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.55rem;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sucursal-select-item:hover,
+.sucursal-select-item.is-active {
+  background: rgba(59, 102, 181, 0.1);
+}
+
+.sucursal-select-online-tag {
+  margin-left: auto;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #16a34a;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.sucursal-select-leyenda {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+}
+
+.app-header-meta .sucursal-select-wrap {
+  max-width: 220px;
+}
+
+.app-header-meta .sucursal-select-menu {
+  right: auto;
+  width: max-content;
+  max-width: min(320px, 90vw);
+}
+
 .app-header-badge {
   font-size: 0.8rem;
 }

@@ -31,6 +31,8 @@ const CLAVES_PRESERVAR = new Set([
   'pos3b_nomina_saldos_arrastre',
   'pos3b_vales_categorias_extra',
   'pos3b_dispositivo_id',
+  'pos3b_ajustes_inventario_espera',
+  'pos3b_ajuste_libre_prefs',
   'pos3b_vales_tiendas_permitidas',
   'pos3b_anuncios_pos',
 ]);

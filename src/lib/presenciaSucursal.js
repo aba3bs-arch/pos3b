@@ -2,9 +2,9 @@ import { normalizarCodigoTienda, etiquetaTienda } from '../constants/sucursales.
 import { obtenerIdDispositivoLocal } from './dispositivoUsuario.js';
 
 /** Ventana para considerar la caja “en línea” (ms). */
-export const PRESENCIA_ONLINE_MS = 2.5 * 60 * 1000;
+export const PRESENCIA_ONLINE_MS = 3 * 60 * 1000;
 /** Intervalo de latido del POS activo. */
-export const PRESENCIA_HEARTBEAT_MS = 45 * 1000;
+export const PRESENCIA_HEARTBEAT_MS = 30 * 1000;
 
 export const AVISO_SIN_TABLA_PRESENCIA =
   'Falta la tabla pos_presencia_sucursal. Ejecuta supabase/fix_presencia_sucursal.sql en Supabase.';
