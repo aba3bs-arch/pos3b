@@ -78,6 +78,7 @@ import BotonLimpiarCache from './components/BotonLimpiarCache.jsx';
 import { EVENTO_CACHE_LIMPIADO } from './lib/limpiarCache.js';
 import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesContabilidad.jsx';
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
+import { usePresenciaSucursales } from './hooks/usePresenciaSucursales.js';
 import { limpiarAnunciosVistos } from './lib/anunciosPos.js';
 import {
   puedeRecibirNotificacionesDispositivo,
@@ -128,6 +129,14 @@ function App() {
   const [busqueda, setBusqueda] = useState('');
   const [brandTitle, setBrandTitle] = useState(leerNombreNegocio);
   const [listaSucursales, setListaSucursales] = useState(() => listarSucursalesParaUI());
+
+  const { etiquetaOpcion: etiquetaSucursalOpcion, avisoPresencia } = usePresenciaSucursales({
+    supabase,
+    sucursal,
+    sesion,
+    usuarioNombre: user?.nombre,
+    habilitado: Boolean(supabase),
+  });
 
   const refrescarListaSucursales = useCallback(() => {
     setListaSucursales(listarSucursalesParaUI());
@@ -638,6 +647,8 @@ function App() {
         tiendaFijadaParaAcceso={tiendaFijadaParaAcceso}
         sucursal={sucursal}
         listaSucursales={listaSucursales}
+        etiquetaSucursalOpcion={etiquetaSucursalOpcion}
+        avisoPresencia={avisoPresencia}
         onCambiarSucursal={(codigo) => {
           setSucursal(codigo);
           setPin('');
@@ -772,12 +783,12 @@ function App() {
               >
                 {listaSucursales.map((s) => (
                   <option key={s} value={s}>
-                    {etiquetaTienda(s)}
+                    {etiquetaSucursalOpcion(s)}
                   </option>
                 ))}
               </select>
             ) : (
-              <span className="badge app-header-badge">{etiquetaTienda(sucursal)}</span>
+              <span className="badge app-header-badge">{etiquetaSucursalOpcion(sucursal)}</span>
             )}
             <span className="app-header-user">{user?.nombre}</span>
             {esUsuarioCubreTurno(user) && (
@@ -928,6 +939,8 @@ function App() {
               desbloqueandoTienda={desbloqueandoTienda}
               puedeCambiarTiendaSesion={puedeCambiarTiendaSesion}
               onCambiarTiendaSesion={puedeCambiarTiendaSesion ? setSucursal : undefined}
+              etiquetaSucursalOpcion={etiquetaSucursalOpcion}
+              avisoPresencia={avisoPresencia}
               user={user}
               inventario={inventario}
               cargarDatos={cargarDatos}

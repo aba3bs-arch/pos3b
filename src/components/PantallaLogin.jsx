@@ -10,6 +10,8 @@ export default function PantallaLogin({
   tiendaFijadaParaAcceso,
   sucursal,
   listaSucursales,
+  etiquetaSucursalOpcion,
+  avisoPresencia,
   onCambiarSucursal,
   onFijarTienda,
   sucursalFijaEnv,
@@ -78,11 +80,20 @@ export default function PantallaLogin({
               <select className="select" value={sucursal} onChange={(e) => onCambiarSucursal(e.target.value)}>
                 {listaSucursales.map((s) => (
                   <option key={s} value={s}>
-                    {etiquetaTienda(s)}
+                    {typeof etiquetaSucursalOpcion === 'function' ? etiquetaSucursalOpcion(s) : s}
                   </option>
                 ))}
               </select>
             </label>
+            {avisoPresencia ? (
+              <p className="muted login-hint-sm" style={{ marginTop: '0.35rem' }}>
+                {avisoPresencia}
+              </p>
+            ) : (
+              <p className="muted login-hint-sm" style={{ marginTop: '0.35rem' }}>
+                🟢 = POS con sesión abierta en esa tienda
+              </p>
+            )}
             <button type="button" className="btn btn-gold login-btn-block" onClick={onFijarTienda}>
               Fijar tienda en este equipo
             </button>

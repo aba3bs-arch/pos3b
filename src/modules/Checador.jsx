@@ -543,7 +543,8 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
           <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Reloj checador</h3>
           <p className="muted" style={{ marginTop: 0 }}>
             Empleados dados de alta en <strong>Usuarios</strong> marcan con su PIN de esta tienda. El personal de{' '}
-            <strong>Central de administración (MAIN)</strong> puede marcar en cualquier caja. Quien cubre turno usa el{' '}
+            <strong>Central de administración (MAIN)</strong> y roles Auditor / Técnico / Repartidor pueden marcar en cualquier caja.
+            Quien cubre turno usa el{' '}
             <strong>PIN de cubre turno</strong> de la sucursal (nombre + teléfono). Si un fijo no coincide con su turno, puede marcar
             cubriendo otro turno (±20 min). Tienda actual: <span className="badge">{etiquetaTienda(sucursal)}</span>
           </p>

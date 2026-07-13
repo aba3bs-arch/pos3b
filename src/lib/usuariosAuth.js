@@ -6,9 +6,24 @@ export function sucursalUsuario(user) {
   return s ? normalizarCodigoTienda(s) : null;
 }
 
-/** Personal asignado a Central de administración (MAIN). */
+/** Roles de personal de Central (reloj / asistencia en cualquier sucursal). */
+export const ROLES_PERSONAL_CENTRAL = ['Administrador', 'Auditor', 'Técnico', 'Repartidor'];
+
+/**
+ * Personal de Central de administración:
+ * - asignado a MAIN, o
+ * - rol de central (Auditor / Técnico / Repartidor / Administrador).
+ * Gerente de piso NO entra aquí (sigue ligado a su tienda en el checador).
+ */
 export function esPersonalCentralAdmin(user) {
-  return esAlmacenCentral(sucursalUsuario(user));
+  if (esAlmacenCentral(sucursalUsuario(user))) return true;
+  const r = normalizarRol(user?.rol);
+  return ROLES_PERSONAL_CENTRAL.includes(r);
+}
+
+/** Puede marcar asistencia en el checador de cualquier sucursal. */
+export function puedeMarcarAsistenciaCualquierSucursal(user) {
+  return esPersonalCentralAdmin(user);
 }
 
 /** Solo Administrador: sin anclaje a sucursal ni a dispositivo en el login. */
@@ -86,9 +101,9 @@ export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva
   const admin = elegirAdministradorPorPin(admins, suc);
   if (admin) return { user: admin, error: null };
 
-  // Reloj empleados: personal de Central (MAIN) puede marcar en cualquier caja.
+  // Reloj empleados: personal de Central puede marcar en cualquier caja.
   if (opts.aceptarPersonalCentral) {
-    const centrales = list.filter((u) => esPersonalCentralAdmin(u));
+    const centrales = list.filter((u) => puedeMarcarAsistenciaCualquierSucursal(u));
     if (centrales.length === 1) return { user: centrales[0], error: null, personalCentral: true };
     if (centrales.length > 1) {
       const enMain = centrales.find((u) => sucursalUsuario(u) === 'MAIN') || centrales[0];

@@ -9,6 +9,7 @@ import {
   liquidarMovimientos,
   listarAlertasRecoleccion,
   listarEnTransitoPorRepartidor,
+  listarGastosActivosParaLiquidacion,
   listarLiquidacionesRepartidor,
   listarRepartidores,
   marcarAlertaVista,
@@ -53,6 +54,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const [repartidores, setRepartidores] = useState([]);
   const [repLiq, setRepLiq] = useState('');
   const [enTransito, setEnTransito] = useState([]);
+  const [gastosActivos, setGastosActivos] = useState([]);
   const [selIds, setSelIds] = useState({});
   const [alertas, setAlertas] = useState([]);
   const [guardando, setGuardando] = useState(false);
@@ -112,15 +114,17 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       const desde = presetFecha === 'todos' ? '' : filtroDesde;
       const hasta = presetFecha === 'todos' ? '' : filtroHasta;
 
-      const [movs, alr] = await Promise.all([
+      const [movs, alr, gastos] = await Promise.all([
         esHistorial
           ? listarLiquidacionesRepartidor(supabase, repId, { desde, hasta })
           : listarEnTransitoPorRepartidor(supabase, repId).then((rows) =>
               filtrarMovimientosPorFecha(rows, { desde, hasta, diaDe: 'recoleccion' }),
             ),
         esHistorial ? Promise.resolve([]) : listarAlertasRecoleccion(supabase),
+        esHistorial ? Promise.resolve([]) : listarGastosActivosParaLiquidacion(supabase, repId),
       ]);
       setEnTransito(movs);
+      setGastosActivos(gastos);
       setAlertas(alr);
       setSelIds(esHistorial ? {} : inicializarSeleccionLiquidacion(movs));
     } catch (e) {
@@ -136,6 +140,15 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
 
   const seleccionados = useMemo(() => enTransito.filter((m) => selIds[m.id]), [enTransito, selIds]);
   const totalSeleccionado = useMemo(() => seleccionados.reduce((a, m) => a + Number(m.monto || 0), 0), [seleccionados]);
+  const totalGastosActivos = useMemo(
+    () => gastosActivos.reduce((a, m) => a + Number(m.monto || 0), 0),
+    [gastosActivos],
+  );
+  /** Efectivo a recibir en oficina = recolecciones seleccionadas − gastos ya aceptados. */
+  const totalARecolectar = useMemo(
+    () => Math.max(0, Math.round((totalSeleccionado - totalGastosActivos) * 100) / 100),
+    [totalSeleccionado, totalGastosActivos],
+  );
   const resumenSel = useMemo(() => resumenTotalesPorTipo(seleccionados), [seleccionados]);
 
   const diasSeleccionados = useMemo(
@@ -187,7 +200,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       <p class="muted">Recolector: ${rep} · ${esHistorial ? 'Liquidaciones' : 'Fecha sellado'}: ${fechaLiquidacion} · Total: ${fmtMonto(reporte.granTotal)}</p>
       <table><thead><tr><th>Tienda</th>${headDias}<th>Total tienda</th></tr></thead>
       <tbody>${filasHtml}<tr style="background:#f9f9f9"><td><strong>Total por día</strong></td>${totDia}<td><strong>${fmtMonto(reporte.granTotal)}</strong></td></tr></tbody></table>
-      <p class="muted" style="margin-top:1rem">Días seleccionados para liquidar: ${diasSeleccionados.map((d) => d.etiqueta).join(', ') || 'Ninguno'} · Monto a liquidar: ${fmtMonto(totalSeleccionado)}</p>
+      <p class="muted" style="margin-top:1rem">Días seleccionados para liquidar: ${diasSeleccionados.map((d) => d.etiqueta).join(', ') || 'Ninguno'} · Bruto: ${fmtMonto(totalSeleccionado)} · Gastos: −${fmtMonto(totalGastosActivos)} · A recolectar: ${fmtMonto(totalARecolectar)}</p>
       <script>window.onload=function(){window.print();}</script></body></html>`);
     win.document.close();
   };
@@ -199,7 +212,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
     const diasTxt = diasSeleccionados.map((d) => d.etiqueta).join(', ');
     if (
       !window.confirm(
-        `¿Sellar liquidación del ${fechaLiquidacion}?\n\nCuenta: ${etiquetaCuentaRt(cuentaRt)}\nDías: ${diasTxt || '—'}\nMonto: ${fmtMonto(totalSeleccionado)} (${ids.length} movimiento(s))`,
+        `¿Sellar liquidación del ${fechaLiquidacion}?\n\nCuenta: ${etiquetaCuentaRt(cuentaRt)}\nDías: ${diasTxt || '—'}\nRecolecciones: ${fmtMonto(totalSeleccionado)}\nGastos aceptados: −${fmtMonto(totalGastosActivos)}\nA recolectar / acreditar: ${fmtMonto(totalARecolectar)} (${ids.length} movimiento(s))`,
       )
     )
       return;
@@ -209,11 +222,14 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       adminNombre: user?.nombre || rol,
       repartidorNombre: repNombre,
       cuentaRtId: cuentaRt,
-      montoLiquidacion: totalSeleccionado,
+      montoLiquidacion: totalARecolectar,
     });
     setGuardando(false);
     if (!res.ok) return alert(res.error);
-    alert(`✅ Liquidación sellada (${res.count} registros) · ${fmtMonto(res.montoTotal || totalSeleccionado)} acreditados a ${etiquetaCuentaRt(cuentaRt)}.`);
+    alert(
+      `✅ Liquidación sellada (${res.count} registros) · ${fmtMonto(res.montoTotal || totalARecolectar)} acreditados a ${etiquetaCuentaRt(cuentaRt)}` +
+        (totalGastosActivos > 0 ? ` (ya descontados ${fmtMonto(totalGastosActivos)} de gastos).` : '.'),
+    );
     cargar();
   };
 
@@ -506,6 +522,35 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
           </div>
           )}
 
+          {/* Gastos aceptados por el recolector */}
+          {!esHistorial && gastosActivos.length > 0 && (
+            <div
+              style={{
+                marginTop: '1rem',
+                padding: '0.85rem',
+                borderRadius: '10px',
+                background: 'rgba(220,38,38,0.06)',
+                border: '1px solid rgba(220,38,38,0.28)',
+              }}
+            >
+              <strong style={{ color: 'var(--brand-red)' }}>Gastos aceptados (descontar al recolectar)</strong>
+              <p className="muted" style={{ margin: '0.35rem 0 0.5rem', fontSize: '0.8rem' }}>
+                Autorizados en Panel RT y aceptados por el recolector. Se restan del efectivo en tránsito.
+              </p>
+              <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.85rem' }}>
+                {gastosActivos.map((g) => (
+                  <li key={g.id} style={{ marginBottom: '0.25rem' }}>
+                    {g.descripcion_gasto || g.num_traspaso || 'Gasto'} · {g.sucursal_origen || '—'} ·{' '}
+                    <strong style={{ color: 'var(--brand-red)' }}>−{fmtMonto(g.monto)}</strong>
+                  </li>
+                ))}
+              </ul>
+              <p style={{ margin: '0.5rem 0 0', fontWeight: 700, color: 'var(--brand-red)' }}>
+                Total gastos: −{fmtMonto(totalGastosActivos)}
+              </p>
+            </div>
+          )}
+
           {/* Total seleccionado */}
           {!esHistorial && (
           <div
@@ -517,9 +562,14 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
               border: '1px solid rgba(13,148,136,0.25)',
             }}
           >
-            <p style={{ margin: 0, fontWeight: 700 }}>Total a liquidar hoy: {fmtMonto(totalSeleccionado)}</p>
+            <p style={{ margin: 0, fontWeight: 700 }}>
+              A recolectar hoy: {fmtMonto(totalARecolectar)}
+            </p>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-              {seleccionados.length} movimiento(s) · {diasSeleccionados.length} día(s) marcado(s) · Mercancía {fmtMonto(resumenSel.mercancia)} · Servicios{' '}
+              Recolecciones {fmtMonto(totalSeleccionado)}
+              {totalGastosActivos > 0 ? ` − gastos ${fmtMonto(totalGastosActivos)}` : ''}
+              {' · '}
+              {seleccionados.length} movimiento(s) · {diasSeleccionados.length} día(s) · Mercancía {fmtMonto(resumenSel.mercancia)} · Servicios{' '}
               {fmtMonto(resumenSel.servicios)}
             </p>
           </div>
@@ -533,8 +583,8 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
           />
 
           {!esHistorial && (
-          <button type="button" className="btn btn-danger" style={{ marginTop: '1rem' }} disabled={guardando || totalSeleccionado <= 0} onClick={confirmarLiquidacion}>
-            {guardando ? 'Sellando…' : `Sellar liquidación · ${fmtMonto(totalSeleccionado)}`}
+          <button type="button" className="btn btn-danger" style={{ marginTop: '1rem' }} disabled={guardando || seleccionados.length === 0} onClick={confirmarLiquidacion}>
+            {guardando ? 'Sellando…' : `Sellar liquidación · ${fmtMonto(totalARecolectar)}`}
           </button>
           )}
         </>

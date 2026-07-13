@@ -130,6 +130,8 @@ export default function Configuracion({
   desbloqueandoTienda = false,
   puedeCambiarTiendaSesion = false,
   onCambiarTiendaSesion,
+  etiquetaSucursalOpcion,
+  avisoPresencia,
   user,
   inventario,
   cargarDatos,
@@ -792,7 +794,7 @@ export default function Configuracion({
                       >
                         {(sucursalesLista || []).map((suc) => (
                           <option key={suc} value={suc}>
-                            {etiquetaTienda(suc)}
+                            {typeof etiquetaSucursalOpcion === 'function' ? etiquetaSucursalOpcion(suc) : etiquetaTienda(suc)}
                           </option>
                         ))}
                       </select>
@@ -886,10 +888,13 @@ export default function Configuracion({
             <select className="select" style={{ marginTop: '0.35rem' }} value={sucursal} onChange={(e) => setSucursal(e.target.value)}>
               {(sucursalesLista || []).map((suc) => (
                 <option key={suc} value={suc}>
-                  {etiquetaTienda(suc)}
+                  {typeof etiquetaSucursalOpcion === 'function' ? etiquetaSucursalOpcion(suc) : etiquetaTienda(suc)}
                 </option>
               ))}
             </select>
+            <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0' }}>
+              {avisoPresencia || '🟢 = POS con sesión abierta en esa tienda'}
+            </p>
           )}
         </div>
       </div>

@@ -1075,6 +1075,41 @@ export async function listarGastosLiquidadosRecolector(supabase, { repartidorId 
   return data || [];
 }
 
+/**
+ * Gastos ya aceptados por el recolector que aún descuentan del efectivo en tránsito
+ * (posteriores a la última liquidación sellada de recolecciones).
+ */
+export async function listarGastosActivosParaLiquidacion(supabase, repartidorId) {
+  if (!supabase || !repartidorId) return [];
+  const { data: lastLiq, error: e1 } = await supabase
+    .from('transito_efectivo')
+    .select('fecha_liquidacion')
+    .eq('repartidor_id', repartidorId)
+    .eq('estatus', 'Liquidado')
+    .neq('tipo_movimiento', 'Gasto')
+    .not('fecha_liquidacion', 'is', null)
+    .order('fecha_liquidacion', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (e1) throw e1;
+
+  let q = supabase
+    .from('transito_efectivo')
+    .select(
+      'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, descripcion_gasto, estatus, fecha_liquidacion, usuario_liquida',
+    )
+    .eq('repartidor_id', repartidorId)
+    .eq('tipo_movimiento', 'Gasto')
+    .eq('estatus', 'Liquidado')
+    .order('fecha_liquidacion', { ascending: true });
+  if (lastLiq?.fecha_liquidacion) {
+    q = q.gt('fecha_liquidacion', lastLiq.fecha_liquidacion);
+  }
+  const { data, error } = await q;
+  if (error) throw error;
+  return data || [];
+}
+
 export async function registrarGastoRecolector(supabase, { repartidorId, monto, descripcion, adminNombre, tienda }) {
   const m = Number(monto);
   if (!(m > 0)) return { ok: false, error: 'Monto inválido.' };
