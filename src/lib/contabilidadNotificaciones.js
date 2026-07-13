@@ -135,6 +135,7 @@ export const TIPOS_NOTIF = {
   PRESTAMO_INTERAREA: 'prestamo_interarea',
   INCIDENCIA: 'incidencia_tienda',
   CONSUMO_CORTE: 'consumo_corte_pendiente',
+  RECOLECCION_POST_LIQ: 'recoleccion_post_liquidacion',
 };
 
 export function etiquetaTipoNotificacion(tipo) {
@@ -151,6 +152,8 @@ export function etiquetaTipoNotificacion(tipo) {
       return 'Incidencia';
     case TIPOS_NOTIF.CONSUMO_CORTE:
       return 'Consumo en corte';
+    case TIPOS_NOTIF.RECOLECCION_POST_LIQ:
+      return 'Cobro post-liquidación';
     default:
       return tipo || 'Notificación';
   }

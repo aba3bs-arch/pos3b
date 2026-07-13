@@ -90,7 +90,7 @@ import {
   limpiarNotificacionesDispositivoMostradas,
   registrarServiceWorkerNotificaciones,
 } from './lib/notificacionesDispositivo.js';
-import { EVENTO_NOTIFICACION_DISPOSITIVO, iniciarMonitorNotificacionesDispositivo, EVENTO_NOTIFICACIONES } from './lib/contabilidadNotificaciones.js';
+import { EVENTO_NOTIFICACIONES, EVENTO_NOTIFICACION_DISPOSITIVO, iniciarMonitorNotificacionesDispositivo, TIPOS_NOTIF } from './lib/contabilidadNotificaciones.js';
 import { registrarCapturaInstalacionPwa } from './lib/appMovil.js';
 import BotonActivarNotificaciones from './components/BotonActivarNotificaciones.jsx';
 import PantallaLogin from './components/PantallaLogin.jsx';
@@ -245,7 +245,11 @@ function App() {
     if (!sesion || !user || !supabase) return undefined;
     if (!puedeRecibirNotificacionesDispositivo(user?.rol)) return undefined;
 
-    const abrirPendientes = () => {
+    const abrirPendientes = (n) => {
+      if (n?.tipo === TIPOS_NOTIF.RECOLECCION_POST_LIQ && puedeVerModulo(user?.rol, 'Liquidación recolecciones', user?.id)) {
+        setVista('Liquidación recolecciones');
+        return;
+      }
       if (puedeAbrirBandejaIncidencias(user?.rol, user?.id) && puedeVerModulo(user?.rol, 'Incidencias', user?.id)) {
         setBuzonPestana('pendientes');
         setVista('Incidencias');
@@ -275,7 +279,7 @@ function App() {
             id: row.id,
             titulo: row.titulo,
             mensaje: row.mensaje,
-            onClick: abrirPendientes,
+            onClick: () => abrirPendientes(row),
           });
           window.dispatchEvent(new CustomEvent(EVENTO_NOTIFICACIONES));
         },
@@ -289,7 +293,7 @@ function App() {
         id: row.id,
         titulo: row.titulo,
         mensaje: row.mensaje,
-        onClick: abrirPendientes,
+        onClick: () => abrirPendientes(row),
       });
     };
     window.addEventListener(EVENTO_NOTIFICACION_DISPOSITIVO, onLocal);

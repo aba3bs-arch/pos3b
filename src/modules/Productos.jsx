@@ -17,6 +17,7 @@ import { puedeCrearProveedor, puedeEliminarProductosCatalogo, puedeGestionarInve
 import FormularioProducto from '../components/FormularioProducto.jsx';
 import MenuPuntos from '../components/MenuPuntos.jsx';
 import Icon from '../components/Icon.jsx';
+import CampoCodigo from '../components/CampoCodigo.jsx';
 import DetalleProducto from '../components/DetalleProducto.jsx';
 import ModalAjusteInventario from '../components/ModalAjusteInventario.jsx';
 import ProductoThumb from '../components/ProductoThumb.jsx';
@@ -627,15 +628,23 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
         <div className="prod-master">
           <aside className="prod-lista-panel">
             <div className="prod-lista-toolbar">
-              <div className="prod-search-row">
-                <Icon name="search" size={16} />
-                <input
-                  className="input"
-                  value={q}
-                  onChange={(e) => setQ(e.target.value)}
-                  placeholder="Buscar"
-                  aria-label="Buscar productos"
-                />
+              <div className="prod-search-row" style={{ flexWrap: 'wrap', gap: '0.35rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flex: '1 1 160px', minWidth: 0 }}>
+                  <Icon name="search" size={16} />
+                  <CampoCodigo
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    onEscanear={(codigo) => {
+                      setQ(codigo);
+                      setFiltros(FILTROS_VACIOS);
+                      setFiltrosDraft(FILTROS_VACIOS);
+                    }}
+                    beepAlEnter
+                    placeholder="Buscar o escanear…"
+                    tituloCamara="Buscar producto en catálogo"
+                    inputStyle={{ flex: 1, minWidth: 0 }}
+                  />
+                </div>
                 <button
                   type="button"
                   className={`prod-filtro-btn ${mostrarFiltros || filtrosActivos ? 'activo' : ''}`}

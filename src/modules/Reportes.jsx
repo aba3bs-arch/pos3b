@@ -4,6 +4,7 @@ import { imprimirInventario, imprimirReporte } from '../lib/impresion.js';
 import { BtnLabel } from '../components/Icon.jsx';
 import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
 import ReporteGastosDetalle from '../components/ReporteGastosDetalle.jsx';
+import ReporteInventario from '../components/ReporteInventario.jsx';
 
 function toCsv(rows, columns) {
   const esc = (v) => {
@@ -146,6 +147,8 @@ export default function Reportes({ supabase, inventario, sucursal }) {
           </div>
         </div>
       </div>
+
+      <ReporteInventario sucursal={sucursal} />
 
       <ReporteGastosDetalle supabase={supabase} sucursal={sucursal} />
     </div>

@@ -269,9 +269,13 @@ textarea {
   width: 100%;
 }
 
-.campo-codigo-input {
-  flex: 1 1 180px;
+.prod-search-row .campo-codigo-row {
+  flex: 1 1 auto;
   min-width: 0;
+}
+
+.prod-search-row .campo-codigo-input {
+  flex: 1 1 120px;
 }
 
 .header-title {

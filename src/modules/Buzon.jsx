@@ -233,6 +233,10 @@ export default function Buzon({
       return;
     }
     if (n.tipo === TIPOS_NOTIF.CONSUMO_CORTE) return;
+    if (n.tipo === TIPOS_NOTIF.RECOLECCION_POST_LIQ) {
+      if (typeof onNavigate === 'function') onNavigate('Liquidación recolecciones');
+      return;
+    }
     if (typeof onIrValesPendientes === 'function') onIrValesPendientes();
     else if (typeof onNavigate === 'function') onNavigate('Vales y Préstamos');
   };
@@ -434,6 +438,18 @@ export default function Buzon({
                             <button type="button" className="btn btn-primary btn-sm" onClick={() => setPestana('incidencias')}>
                               Ver incidencia
                             </button>
+                          )}
+                          {n.tipo === TIPOS_NOTIF.RECOLECCION_POST_LIQ && (
+                            <>
+                              <button type="button" className="btn btn-gold btn-sm" onClick={() => irAccionNotif(n)}>
+                                Ir a liquidación
+                              </button>
+                              {puedeGestionarNotif && (
+                                <button type="button" className="btn btn-ghost btn-sm" onClick={() => marcarVisto(n)}>
+                                  Marcar visto
+                                </button>
+                              )}
+                            </>
                           )}
                           {puedeGestionarNotif &&
                             (n.tipo === TIPOS_NOTIF.PRESTAMO_INTERAREA || n.tipo === TIPOS_NOTIF.INCIDENCIA) && (

@@ -22,6 +22,7 @@ import {
   servicioResueltoEnTienda,
   serviciosObligatoriosPendientesTienda,
   sucursalParaControlEfectivo,
+  estadoVentanaRecoleccion,
 } from '../lib/controlEfectivo.js';
 
 function TabBtn({ active, onClick, children }) {
@@ -68,6 +69,18 @@ export default function Recolecciones({ supabase, sucursal, user }) {
   const [gastosPendientes, setGastosPendientes] = useState([]);
   const [selGasto, setSelGasto] = useState({});
   const [saldoGasto, setSaldoGasto] = useState(null);
+  const [tickVentana, setTickVentana] = useState(0);
+
+  const ventana = useMemo(() => estadoVentanaRecoleccion(), [tickVentana]);
+
+  useEffect(() => {
+    const id = setInterval(() => setTickVentana((n) => n + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (!ventana.abierta && esEfectivo) setEsEfectivo(false);
+  }, [ventana.abierta, esEfectivo]);
 
   const cargarCatalogos = useCallback(async () => {
     if (!supabase) return;
@@ -327,6 +340,24 @@ export default function Recolecciones({ supabase, sucursal, user }) {
         </p>
       </div>
 
+      <div
+        className="card"
+        style={{
+          padding: '0.75rem 1rem',
+          borderLeft: `4px solid ${ventana.abierta ? 'var(--brand-green, #16a34a)' : 'var(--brand-red, #c0392b)'}`,
+          background: ventana.abierta ? 'rgba(22,163,74,0.06)' : 'rgba(192,57,43,0.08)',
+        }}
+      >
+        <strong style={{ color: 'var(--brand-blue)' }}>
+          Ventana de recolección: 09:00 – 20:00 (hora Sonora)
+        </strong>
+        <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
+          {ventana.abierta
+            ? 'Abierta: puedes cobrar CFE, efectivo y créditos. Tras el cobro de CFE puedes seguir con traspasos o reparto.'
+            : ventana.mensaje}
+        </p>
+      </div>
+
       {errorTabla && (
         <div className="card" style={{ borderColor: 'var(--brand-red)', color: 'var(--brand-red)' }}>
           {errorTabla}
@@ -373,7 +404,8 @@ export default function Recolecciones({ supabase, sucursal, user }) {
             </div>
             <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
               Debes registrar el cobro de servicios (CFE, etc.) antes de entregar mercancía o registrar traspaso en{' '}
-              <strong>{tiendaSesion}</strong>.
+              <strong>{tiendaSesion}</strong>. Tras registrar CFE puedes seguir traspasando o repartiendo producto.
+              {!ventana.abierta && ' Fuera de horario solo se registran servicios no cobrados / pendientes.'}
             </p>
 
             {servicios.map((srv) => {
@@ -435,7 +467,7 @@ export default function Recolecciones({ supabase, sucursal, user }) {
                         />
                       </label>
                       <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-                        <button type="button" className="btn btn-success" disabled={guardando} onClick={() => confirmarCobroServicio(srv)}>
+                        <button type="button" className="btn btn-success" disabled={guardando || !ventana.abierta} onClick={() => confirmarCobroServicio(srv)}>
                           Cobrar {srv.clave}
                         </button>
                         <button
@@ -486,8 +518,15 @@ export default function Recolecciones({ supabase, sucursal, user }) {
               <legend className="muted" style={{ fontSize: '0.85rem' }}>
                 Forma de pago
               </legend>
-              <label style={{ display: 'block', marginTop: '0.35rem' }}>
-                <input type="radio" checked={esEfectivo} onChange={() => setEsEfectivo(true)} /> Efectivo (cobrado ahora)
+              <label style={{ display: 'block', marginTop: '0.35rem', opacity: ventana.abierta ? 1 : 0.5 }}>
+                <input
+                  type="radio"
+                  checked={esEfectivo}
+                  disabled={!ventana.abierta}
+                  onChange={() => setEsEfectivo(true)}
+                />{' '}
+                Efectivo (cobrado ahora)
+                {!ventana.abierta && <span className="muted"> — fuera de ventana 9–20 h</span>}
               </label>
               <label style={{ display: 'block', marginTop: '0.25rem' }}>
                 <input type="radio" checked={!esEfectivo} onChange={() => setEsEfectivo(false)} /> Crédito (pendiente de cobro)
@@ -647,8 +686,8 @@ export default function Recolecciones({ supabase, sucursal, user }) {
                 PIN recolector
                 <InputPin value={pinCobro} onChange={(e) => setPinCobro(e.target.value)} placeholder="PIN" style={{ marginBottom: 0 }} />
               </label>
-              <button type="button" className="btn btn-success" style={{ marginTop: '1rem' }} disabled={guardando || totalCobroSel <= 0} onClick={confirmarCobro}>
-                {guardando ? 'Procesando…' : `Confirmar cobro · ${fmtMonto(totalCobroSel)}`}
+              <button type="button" className="btn btn-success" style={{ marginTop: '1rem' }} disabled={guardando || totalCobroSel <= 0 || !ventana.abierta} onClick={confirmarCobro}>
+                {guardando ? 'Procesando…' : !ventana.abierta ? 'Fuera de ventana 9–20 h' : `Confirmar cobro · ${fmtMonto(totalCobroSel)}`}
               </button>
             </>
           )}

@@ -113,6 +113,22 @@ export default function PanelNotificacionesAlertas() {
       <p className="muted" style={{ margin: '0.75rem 0 0', fontSize: '0.78rem' }}>
         También puede usar el botón 🔔 en la barra superior al iniciar sesión. En Supabase ejecute <code>fix_notificaciones_realtime.sql</code> para alertas instantáneas (sin eso hay revisión cada ~8 s).
       </p>
+
+      <div style={{ marginTop: '1rem', padding: '0.85rem', borderRadius: '10px', background: 'rgba(41,128,185,0.08)', border: '1px solid rgba(41,128,185,0.2)', fontSize: '0.82rem' }}>
+        <strong style={{ color: 'var(--brand-blue)' }}>Avisos con la app cerrada (Web Push / VAPID)</strong>
+        <p className="muted" style={{ margin: '0.4rem 0 0' }}>
+          Hoy el aviso solo llega si el POS está abierto. Para 100% con el celular bloqueado hace falta:
+        </p>
+        <ol style={{ margin: '0.4rem 0 0', paddingLeft: '1.15rem' }} className="muted">
+          <li>Claves VAPID (públicas/privadas) del proyecto</li>
+          <li>Tabla en Supabase que guarde la suscripción de cada admin</li>
+          <li>Función en el servidor (Edge Function) que envíe el push al crear una notificación</li>
+          <li>Service Worker con evento <code>push</code> (hoy solo maneja el clic)</li>
+        </ol>
+        <p className="muted" style={{ margin: '0.5rem 0 0' }}>
+          Eso requiere un pequeño backend y keys seguras; se puede armar en un siguiente paso si lo autorizas.
+        </p>
+      </div>
     </div>
   );
 }

@@ -1,9 +1,13 @@
 import { normalizarCodigoTienda, etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
 import { normalizarRol } from './roles.js';
 import { enRangoYmd } from './fechas.js';
+import { estadoVentanaRecoleccion } from './ventanaRecoleccion.js';
+import { crearNotificacion, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
 
 const TIPOS_TRASPASO = ['Recolección', 'Entrega Crédito'];
 const TZ = 'America/Hermosillo';
+
+export { estadoVentanaRecoleccion, ventanaRecoleccionAbierta } from './ventanaRecoleccion.js';
 
 const SERVICIO_CFE_DEFAULT = {
   clave: 'CFE',
@@ -75,6 +79,54 @@ export function fmtFechaHora(iso) {
 
 export function hoyClaveNogales() {
   return new Date().toLocaleDateString('en-CA', { timeZone: TZ });
+}
+
+/** Bloqueo de cobros de efectivo fuera de 9:00–20:00. */
+function errorSiVentanaRecoleccionCerrada() {
+  const v = estadoVentanaRecoleccion();
+  if (v.abierta) return null;
+  return { ok: false, error: v.mensaje, fueraDeVentana: true };
+}
+
+/**
+ * Si el recolector ya tuvo liquidación sellada y vuelve a cobrar, avisa al administrador.
+ */
+async function notificarCobroPostLiquidacion(supabase, { repartidorId, tienda, monto, detalle, refId }) {
+  if (!supabase || !repartidorId) return;
+  try {
+    const { data: ultima, error } = await supabase
+      .from('transito_efectivo')
+      .select('fecha_liquidacion')
+      .eq('repartidor_id', repartidorId)
+      .eq('estatus', 'Liquidado')
+      .neq('tipo_movimiento', 'Gasto')
+      .not('fecha_liquidacion', 'is', null)
+      .order('fecha_liquidacion', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !ultima?.fecha_liquidacion) return;
+
+    const repNombre = await (async () => {
+      try {
+        const { data } = await supabase.from('repartidores').select('nombre').eq('id', repartidorId).maybeSingle();
+        return data?.nombre || 'Recolector';
+      } catch {
+        return 'Recolector';
+      }
+    })();
+
+    const tiendaLabel = tienda ? etiquetaTienda(normalizarCodigoTienda(tienda) || tienda) : 'tienda';
+    await crearNotificacion(supabase, {
+      sucursal_id: normalizarCodigoTienda(tienda) || 'MAIN',
+      tipo: TIPOS_NOTIF.RECOLECCION_POST_LIQ,
+      ref_tabla: 'transito_efectivo',
+      ref_id: String(refId || `post_liq_${repartidorId}_${Date.now()}`),
+      titulo: 'Cobro después de liquidación',
+      mensaje: `${repNombre} registró ${detalle || 'cobro'} en ${tiendaLabel} por ${fmtMonto(monto)} después de haber liquidado.`,
+    });
+  } catch {
+    /* no bloquear el cobro si falla el aviso */
+  }
 }
 
 /** Día de agrupación: recolección (fecha_hora) o liquidación (fecha_liquidacion). */
@@ -412,6 +464,8 @@ export function construirDatosCobroServicio({
 }
 
 export async function registrarCobroServicio(supabase, { tienda, repartidorId, cajero, srv, monto, pin, repartidores }) {
+  const fuera = errorSiVentanaRecoleccionCerrada();
+  if (fuera) return fuera;
   if (!pinRepartidorValido(pin, repartidorId, repartidores)) {
     return { ok: false, error: 'PIN de recolector incorrecto.' };
   }
@@ -427,8 +481,15 @@ export async function registrarCobroServicio(supabase, { tienda, repartidorId, c
     servicioEtiqueta: srv.nombre,
     nota: `Cobro ${srv.nombre} ${fmtFechaClave(fechaClaveDesdeIso(ahoraIsoNogales()))}`,
   });
-  const { error } = await supabase.from('transito_efectivo').insert(datos);
+  const { data: inserted, error } = await supabase.from('transito_efectivo').insert(datos).select('id').single();
   if (error) return { ok: false, error: error.message };
+  await notificarCobroPostLiquidacion(supabase, {
+    repartidorId,
+    tienda,
+    monto: m,
+    detalle: `cobro ${srv.nombre}`,
+    refId: inserted?.id,
+  });
   return { ok: true };
 }
 
@@ -514,6 +575,12 @@ export async function registrarTraspasos(supabase, filas, opts) {
   if (!validas.length) return { ok: false, error: 'Agrega al menos un folio con monto.' };
   if (!cajero?.trim()) return { ok: false, error: 'Escribe el nombre del cajero.' };
 
+  // Efectivo = recolección: solo en ventana 9–20. Crédito / reparto sí fuera de horario.
+  if (esEfectivo) {
+    const fuera = errorSiVentanaRecoleccionCerrada();
+    if (fuera) return fuera;
+  }
+
   const pendientesSrv = await serviciosObligatoriosPendientesTienda(supabase, tienda);
   if (pendientesSrv.length) {
     return {
@@ -541,8 +608,20 @@ export async function registrarTraspasos(supabase, filas, opts) {
     }),
   );
 
-  const { error } = await supabase.from('transito_efectivo').insert(registros);
+  const { data: inserted, error } = await supabase.from('transito_efectivo').insert(registros).select('id, monto');
   if (error) return { ok: false, error: error.message };
+
+  if (esEfectivo) {
+    const total = (inserted || registros).reduce((a, r) => a + Number(r.monto || 0), 0);
+    await notificarCobroPostLiquidacion(supabase, {
+      repartidorId,
+      tienda,
+      monto: total,
+      detalle: `${(inserted || registros).length} traspaso(s) en efectivo`,
+      refId: inserted?.[0]?.id,
+    });
+  }
+
   return { ok: true, count: registros.length };
 }
 
@@ -550,7 +629,7 @@ export async function listarCreditosPendientes(supabase, tienda) {
   if (!supabase || !tienda) return [];
   const { data, error } = await supabase
     .from('transito_efectivo')
-    .select('id, num_traspaso, monto, cajero_nombre, fecha_hora, descripcion_gasto')
+    .select('id, num_traspaso, monto, cajero_nombre, fecha_hora, descripcion_gasto, sucursal_origen')
     .eq('sucursal_origen', tienda)
     .eq('estatus', 'Por Cobrar')
     .eq('tipo_movimiento', 'Entrega Crédito')
@@ -560,6 +639,8 @@ export async function listarCreditosPendientes(supabase, tienda) {
 }
 
 export async function cobrarCreditosSeleccionados(supabase, { ids, repartidorId, cajero, pendientes }) {
+  const fuera = errorSiVentanaRecoleccionCerrada();
+  if (fuera) return fuera;
   if (!ids?.length) return { ok: false, error: 'Selecciona al menos un folio.' };
   if (!cajero?.trim()) return { ok: false, error: 'Escribe el nombre del cajero.' };
 
@@ -577,12 +658,21 @@ export async function cobrarCreditosSeleccionados(supabase, { ids, repartidorId,
         foto_url: `Crédito cobrado. Desglose: ${foliosLista}`,
         tipo_movimiento: 'Recolección',
         usuario_liquida: 'No Leído',
+        fecha_hora: ahoraIsoNogales(),
       })
       .eq('id', p.id);
     if (error) return { ok: false, error: error.message };
   }
 
   const total = sel.reduce((a, p) => a + Number(p.monto || 0), 0);
+  const tienda = sel[0]?.sucursal_origen;
+  await notificarCobroPostLiquidacion(supabase, {
+    repartidorId,
+    tienda,
+    monto: total,
+    detalle: `cobro de ${sel.length} crédito(s)`,
+    refId: sel[0]?.id,
+  });
   return { ok: true, count: sel.length, total };
 }
 

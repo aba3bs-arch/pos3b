@@ -41,10 +41,25 @@ export function prepararAudioPos() {
   ctx();
 }
 
+function vibrarEscaneo() {
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(35);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 export function sonidoEscaneoProducto() {
-  if (!leerConfigAudio().sonidoEscaneo) return;
+  if (!leerConfigAudio().sonidoEscaneo) {
+    vibrarEscaneo();
+    return;
+  }
   const c = ctx();
+  vibrarEscaneo();
   if (!c) return;
-  tono(880, 0.05, 0.14, 'square');
-  setTimeout(() => tono(1100, 0.04, 0.1, 'square'), 35);
+  // Un poco más audible en celulares con volumen medio.
+  tono(880, 0.07, 0.2, 'square');
+  setTimeout(() => tono(1175, 0.06, 0.14, 'square'), 40);
 }

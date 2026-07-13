@@ -124,9 +124,14 @@ export default function FormularioProducto({
                 <CampoCodigo
                   value={form.id}
                   onChange={(e) => setCampoSimple('id', e.target.value)}
-                  placeholder="EAN, UPC o clave interna"
+                  onEscanear={(codigo) => setCampoSimple('id', codigo)}
+                  beepAlEnter
+                  placeholder="Apunta lector o usa Cámara…"
                   tituloCamara="Escanear código de producto"
                 />
+                <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.78rem' }}>
+                  Lector USB/Bluetooth → Enter · Celular → botón Cámara (suena al capturar).
+                </p>
               </div>
             )}
           </label>
