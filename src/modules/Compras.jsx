@@ -15,6 +15,7 @@ import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import { enRangoYmd, parseYmd, toYmd } from '../lib/fechas.js';
 import { ALMACEN_CENTRAL, aplicarDeltaStock } from '../lib/inventarioMultitienda.js';
 import { productoIdsDesdeProveedor } from '../lib/proveedorCatalogo.js';
+import { cargarTodosLosProductos } from '../lib/cargarCatalogoProductos.js';
 
 function totalPedido(lines) {
   return lines.reduce((a, l) => a + (Number(l.costo_est) || 0) * (Number(l.qty_pedido) || 0), 0);
@@ -392,9 +393,13 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
       return;
     }
 
-    const { data: productosDb, error: eProd } = await supabase.from('productos').select('*');
-    if (eProd) {
-      alert(`Compra cerrada pero no se pudo actualizar inventario: ${eProd.message}`);
+    const { data: productosDb, error: eProd, ok } = await (async () => {
+      const r = await cargarTodosLosProductos(supabase);
+      if (!r.ok) return { data: null, error: r.error, ok: false };
+      return { data: r.data, error: null, ok: true };
+    })();
+    if (!ok) {
+      alert(`Compra cerrada pero no se pudo actualizar inventario: ${eProd?.message || eProd}`);
       return;
     }
     const byId = new Map((productosDb || []).map((p) => [p.id, p]));

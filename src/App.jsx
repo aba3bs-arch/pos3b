@@ -82,6 +82,7 @@ import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
 import SelectorSucursal from './components/SelectorSucursal.jsx';
 import { usePresenciaSucursales } from './hooks/usePresenciaSucursales.js';
 import { instalarSeleccionCamposCantidad } from './lib/seleccionarCamposCantidad.js';
+import { cargarTodosLosProductos } from './lib/cargarCatalogoProductos.js';
 import { limpiarAnunciosVistos } from './lib/anunciosPos.js';
 import {
   puedeRecibirNotificacionesDispositivo,
@@ -198,15 +199,32 @@ function App() {
     }
   }, [listaSucursales, sucursal]);
 
+  const cargarDatosGenRef = React.useRef(0);
+
   const cargarDatos = useCallback(async () => {
     if (!supabase) return;
-    const { data, error } = await supabase.from('productos').select('*').order('nombre');
-    if (error) {
-      console.error(error);
+    const gen = ++cargarDatosGenRef.current;
+    const r = await cargarTodosLosProductos(supabase);
+    // Ignorar respuestas viejas si hubo otra recarga en paralelo.
+    if (gen !== cargarDatosGenRef.current) return;
+    if (!r.ok) {
+      console.error(r.error);
       setInventario([]);
       return;
     }
-    setInventario(data || []);
+    setInventario(r.data || []);
+  }, []);
+
+  /** Fusiona o agrega un producto ya guardado sin esperar toda la recarga. */
+  const fusionarProductoEnCatalogo = useCallback((row) => {
+    if (!row?.id) return;
+    setInventario((prev) => {
+      const list = Array.isArray(prev) ? [...prev] : [];
+      const i = list.findIndex((p) => p.id === row.id);
+      if (i >= 0) list[i] = { ...list[i], ...row };
+      else list.push(row);
+      return list;
+    });
   }, []);
 
   useEffect(() => {
@@ -878,7 +896,15 @@ function App() {
             </>
           )}
           {vista === 'Productos' && (
-            <Productos supabase={supabase} inventario={inventarioTienda} inventarioCompleto={inventario} cargarDatos={cargarDatos} user={user} sucursal={sucursal} />
+            <Productos
+              supabase={supabase}
+              inventario={inventarioTienda}
+              inventarioCompleto={inventario}
+              cargarDatos={cargarDatos}
+              fusionarProducto={fusionarProductoEnCatalogo}
+              user={user}
+              sucursal={sucursal}
+            />
           )}
           {vista === 'Compras' && (
             <Compras supabase={supabase} sucursal={sucursal} inventario={inventarioTienda} cargarDatos={cargarDatos} onNavigate={irAModulo} />

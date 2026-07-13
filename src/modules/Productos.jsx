@@ -74,7 +74,7 @@ const TITULOS_VISTA = {
   eliminar: 'Eliminar productos',
 };
 
-export default function Productos({ supabase, inventario, inventarioCompleto, cargarDatos, user, sucursal }) {
+export default function Productos({ supabase, inventario, inventarioCompleto, cargarDatos, fusionarProducto, user, sucursal }) {
   const [vista, setVista] = useState('lista');
   const [form, setForm] = useState(empty);
   const [q, setQ] = useState('');
@@ -267,14 +267,19 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     const productoDb = (inventarioCompleto || inventario).find((p) => p.id === form.id);
     const payload = productoParaGuardar(form, { productoDb, sucursal });
     if (!payload.id || !payload.nombre) return alert('Código y nombre son obligatorios');
-    const { error } = await supabase.from('productos').upsert([payload]);
+    const { data: saved, error } = await supabase.from('productos').upsert([payload]).select('*').single();
     if (error) {
       const aviso = mensajeErrorColumnasProducto(error);
       return alert(aviso || error.message);
     }
     alert('Guardado. Catálogo actualizado para todas las tiendas; inventario aplicado a ' + tiendaLabel + '.');
-    setProductoSelId(payload.id);
-    cargarDatos();
+    const row = saved || payload;
+    fusionarProducto?.(row);
+    setProductoSelId(row.id);
+    setQ(String(row.id));
+    setFiltros(FILTROS_VACIOS);
+    setFiltrosDraft(FILTROS_VACIOS);
+    if (typeof cargarDatos === 'function') await cargarDatos();
     irLista();
   };
 
