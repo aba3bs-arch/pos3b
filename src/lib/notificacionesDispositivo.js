@@ -136,12 +136,26 @@ export async function mostrarNotificacionDispositivo({ id, titulo, mensaje, onCl
   }
 }
 
-export async function enviarNotificacionPrueba() {
-  return mostrarNotificacionDispositivo({
+export async function enviarNotificacionPrueba(supabase = null) {
+  const okLocal = await mostrarNotificacionDispositivo({
     id: `prueba-${Date.now()}`,
     titulo: `${leerNombreNegocio()} — Prueba`,
     mensaje: 'Si ve esto, las alertas del dispositivo están funcionando.',
   });
+  if (supabase) {
+    try {
+      const { dispararPushRemoto } = await import('./webPush.js');
+      await dispararPushRemoto(supabase, {
+        id: `prueba-push-${Date.now()}`,
+        titulo: `${leerNombreNegocio()} — Prueba Push`,
+        mensaje: 'Web Push activo: esta alerta también llega con la app cerrada.',
+        tipo: 'prueba',
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+  return okLocal;
 }
 
 export function limpiarNotificacionesDispositivoMostradas() {

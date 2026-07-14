@@ -791,7 +791,9 @@ function App() {
               {vista}
             </h2>
             <div className="app-header-quick">
-              {puedeRecibirNotificacionesDispositivo(user?.rol) && <BotonActivarNotificaciones />}
+              {puedeRecibirNotificacionesDispositivo(user?.rol) && (
+                <BotonActivarNotificaciones supabase={supabase} user={user} />
+              )}
               <BadgeNotificacionesContabilidad
                 supabase={supabase}
                 sucursal={sucursal}

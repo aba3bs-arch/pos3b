@@ -918,7 +918,7 @@ export default function Configuracion({
         </button>
       </div>
 
-      {recibeAlertas && <PanelNotificacionesAlertas />}
+      {recibeAlertas && <PanelNotificacionesAlertas supabase={supabase} user={user} />}
 
       {esAdmin && (
         <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>

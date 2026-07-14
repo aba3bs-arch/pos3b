@@ -1,4 +1,5 @@
 import { mostrarNotificacionDispositivo, puedeRecibirNotificacionesDispositivo, intervaloMonitorNotificacionesMs } from './notificacionesDispositivo.js';
+import { dispararPushRemoto } from './webPush.js';
 
 export const AVISO_FALTA_NOTIF =
   'Faltan notificaciones de contabilidad. Ejecuta supabase/fix_vales_prestamos_aprobaciones.sql';
@@ -42,6 +43,13 @@ export async function crearNotificacion(supabase, row) {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent(EVENTO_NOTIFICACION_DISPOSITIVO, { detail: { ...payload, id: data.id } }));
     }
+    // Push remoto (admin/gerente con app cerrada). No bloquear el flujo.
+    void dispararPushRemoto(supabase, {
+      id: data.id,
+      titulo: payload.titulo,
+      mensaje: payload.mensaje,
+      tipo: payload.tipo,
+    });
   }
   return { ok: true, id: data?.id };
 }
