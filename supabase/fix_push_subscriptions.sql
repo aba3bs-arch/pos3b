@@ -8,7 +8,7 @@ create table if not exists public.pos_push_subscriptions (
   p256dh text not null,
   auth text not null,
   usuario_nombre text,
-  usuario_nombre text,
+  usuario_id text,
   rol text,
   dispositivo_id text,
   user_agent text,
