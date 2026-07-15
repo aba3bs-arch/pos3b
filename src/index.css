@@ -787,12 +787,52 @@ table.data th {
   z-index: 5;
 }
 
-/* Select nativo en móvil: el SO abre su propio picker */
+/* Select nativo VISIBLE en móvil (opacity:0 bloquea el picker en Android/iOS) */
 .sucursal-select-wrap--native {
   width: 100%;
   max-width: 100%;
 }
 
+.sucursal-select-native-visible {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  box-sizing: border-box;
+  padding: 0 0.35rem 0 0.55rem;
+}
+
+.sucursal-select-native-visible .sucursal-dot {
+  flex-shrink: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.sucursal-select-native-visible-el {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+  margin: 0;
+  padding: 0.4rem 1.75rem 0.4rem 0.15rem;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 16px; /* evita zoom iOS */
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+  -webkit-appearance: menulist-button;
+  appearance: auto;
+  z-index: 2;
+  touch-action: manipulation;
+}
+
+/* Estilos viejos del overlay invisible (por si quedó alguna referencia) */
 .sucursal-select-native {
   position: relative;
   display: inline-flex;
@@ -803,16 +843,6 @@ table.data th {
   padding: 0.35rem 0.55rem;
   margin: 0;
   box-sizing: border-box;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.sucursal-select-native .sucursal-select-label {
-  flex: 1;
-  min-width: 0;
-  position: relative;
-  z-index: 1;
-  pointer-events: none;
 }
 
 .sucursal-select-native-el {
@@ -820,24 +850,9 @@ table.data th {
   inset: 0;
   width: 100%;
   height: 100%;
-  margin: 0;
-  padding: 0;
-  opacity: 0;
-  font-size: 16px; /* evita zoom automático en iOS */
-  border: 0;
-  background: transparent;
-  cursor: pointer;
+  opacity: 0.01;
   z-index: 3;
-  -webkit-appearance: none;
-  appearance: none;
-}
-
-.sucursal-select-native .sucursal-dot,
-.sucursal-select-native .sucursal-select-caret {
-  position: relative;
-  z-index: 1;
-  pointer-events: none;
-  flex-shrink: 0;
+  font-size: 16px;
 }
 
 .app-header-meta-scroll {
