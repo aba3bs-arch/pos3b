@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 
 /**
- * Panel visible en Inicio (Central): cambiar de tienda sin depender solo del header.
+ * Cambio de tienda desde Central (Inicio).
+ * Incluye botón + lista modal, y un <select> nativo visible por si el modal falla en algún teléfono.
  */
 export default function PanelCambiarTiendaCentral({
   sucursal,
@@ -17,6 +18,7 @@ export default function PanelCambiarTiendaCentral({
 
   const actual = normalizarCodigoTienda(sucursal);
   const onlineActual = Boolean(presenciaMap?.[actual]?.online);
+  const opciones = lista || [];
 
   const portal =
     abierto && typeof document !== 'undefined'
@@ -26,16 +28,13 @@ export default function PanelCambiarTiendaCentral({
             <div className="sucursal-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="panel-tienda-central-title">
               <div className="sucursal-sheet-handle" aria-hidden />
               <div className="sucursal-sheet-head">
-                <h3 id="panel-tienda-central-title">Consultar / operar tienda</h3>
+                <h3 id="panel-tienda-central-title">Elegir tienda</h3>
                 <button type="button" className="btn btn-ghost sucursal-sheet-close" onClick={() => setAbierto(false)}>
                   Cerrar
                 </button>
               </div>
-              <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', padding: '0 0.15rem' }}>
-                Elige una sucursal para ver su inventario, aprobar vales/gastos o revisar el día. Central (MAIN) sigue siendo el panel admin.
-              </p>
               <ul className="sucursal-sheet-list" role="listbox">
-                {(lista || []).map((s) => {
+                {opciones.map((s) => {
                   const id = normalizarCodigoTienda(s);
                   const online = Boolean(presenciaMap?.[id]?.online);
                   const activo = id === actual;
@@ -52,7 +51,6 @@ export default function PanelCambiarTiendaCentral({
                         <span className={`sucursal-dot ${online ? 'is-online' : 'is-offline'}`} aria-hidden />
                         <span className="sucursal-select-item-label">{etiquetaTienda(id)}</span>
                         {online && <span className="sucursal-select-online-tag">en línea</span>}
-                        {activo && <span className="muted" style={{ fontSize: '0.75rem', marginLeft: '0.35rem' }}>actual</span>}
                       </button>
                     </li>
                   );
@@ -70,26 +68,51 @@ export default function PanelCambiarTiendaCentral({
       style={{
         borderLeft: '5px solid var(--brand-blue)',
         padding: '1rem 1.15rem',
-        background: 'linear-gradient(135deg, rgba(59,105,181,0.08) 0%, #fff 55%)',
+        background: 'linear-gradient(135deg, rgba(59,105,181,0.1) 0%, #fff 60%)',
       }}
     >
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ flex: '1 1 200px' }}>
-          <p className="muted" style={{ margin: 0, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700 }}>
-            Tienda activa ahora
-          </p>
-          <p style={{ margin: '0.25rem 0 0', fontSize: '1.15rem', fontWeight: 800, color: 'var(--brand-blue)', display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
-            <span className={`sucursal-dot ${onlineActual ? 'is-online' : 'is-offline'}`} aria-hidden />
-            {etiquetaTienda(actual)}
-          </p>
-          <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.82rem' }}>
-            Para aprobar un vale o gasto de una caja, cambia a esa sucursal (ej. 3B5) y entra a Vales / Incidencias.
-          </p>
-        </div>
-        <button type="button" className="btn btn-primary" style={{ minHeight: 48, fontWeight: 700 }} onClick={() => setAbierto(true)}>
-          Cambiar de tienda
-        </button>
-      </div>
+      <p className="muted" style={{ margin: 0, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700 }}>
+        Tienda activa
+      </p>
+      <p style={{ margin: '0.35rem 0 0', fontSize: '1.2rem', fontWeight: 800, color: 'var(--brand-blue)', display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+        <span className={`sucursal-dot ${onlineActual ? 'is-online' : 'is-offline'}`} aria-hidden />
+        {etiquetaTienda(actual)}
+      </p>
+      <p className="muted" style={{ margin: '0.45rem 0 0.85rem', fontSize: '0.88rem' }}>
+        Para ver datos o aprobar vales/gastos de una caja, selecciona esa sucursal aquí.
+      </p>
+
+      <button
+        type="button"
+        className="btn btn-primary"
+        style={{ width: '100%', minHeight: 52, fontWeight: 800, fontSize: '1.05rem', marginBottom: '0.75rem' }}
+        onClick={() => setAbierto(true)}
+      >
+        Cambiar de tienda
+      </button>
+
+      {/* Fallback nativo: en Android/iPhone abre el picker del sistema (siempre visible). */}
+      <label className="muted" style={{ display: 'block', fontSize: '0.8rem', fontWeight: 700 }}>
+        O elige directamente (lista del teléfono)
+        <select
+          className="select"
+          style={{ marginTop: '0.4rem', minHeight: 48, fontSize: 16, fontWeight: 700, width: '100%' }}
+          value={actual}
+          onChange={(e) => onCambiar(normalizarCodigoTienda(e.target.value))}
+          aria-label="Elegir sucursal"
+        >
+          {opciones.map((s) => {
+            const id = normalizarCodigoTienda(s);
+            const online = Boolean(presenciaMap?.[id]?.online);
+            return (
+              <option key={id} value={id}>
+                {online ? `● ${etiquetaTienda(id)}` : `○ ${etiquetaTienda(id)}`}
+              </option>
+            );
+          })}
+        </select>
+      </label>
+
       {portal}
     </div>
   );
