@@ -763,11 +763,9 @@ function App() {
 
   const puedeCambiarTienda = puedeCambiarTiendaLibremente(user?.rol);
   const rolNorm = normalizarRol(user?.rol);
-  // Admin/Gerente siempre pueden consultar otra tienda en la sesión (móvil/central).
-  // Caja física (VITE_SUCURSAL_FIJA=3B…) solo bloquea a cajero y roles de piso.
-  const puedeCambiarTiendaSesion =
-    puedeCambiarTienda &&
-    (!CAJA_FISICA_FIJA_ENV || rolNorm === 'Administrador' || rolNorm === 'Gerente');
+  const esAdminOGerente = rolNorm === 'Administrador' || rolNorm === 'Gerente';
+  // Admin/Gerente SIEMPRE pueden cambiar tienda en la sesión (necesario en celular / central).
+  const puedeCambiarTiendaSesion = Boolean(puedeCambiarTienda || esAdminOGerente);
   const tiendaCajaFisicaBloqueada = Boolean(CAJA_FISICA_FIJA_ENV || tiendaFijadaParaAcceso);
   const modulosNav = modulosParaSidebar(user.rol, user.id);
   const subContabilidad = submodulosContabilidadVisibles(user.rol, user.id);
@@ -896,9 +894,10 @@ function App() {
               onIrIncidencias={irAIncidencias}
               puedeModulo={(m) => puedeVerModulo(user?.rol, m, user?.id)}
               puedeCambiarTienda={puedeCambiarTiendaSesion}
-              onCambiarTienda={puedeCambiarTiendaSesion ? setSucursal : undefined}
+              onCambiarTienda={setSucursal}
               listaSucursales={listaSucursales}
               presenciaMap={presenciaMap}
+              userRol={user?.rol}
             />
           )}
           {vista === 'Incidencias' && (

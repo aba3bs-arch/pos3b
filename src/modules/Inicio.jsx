@@ -6,6 +6,7 @@ import { etiquetaTienda } from '../constants/sucursales.js';
 import { fmtMxn, resumirValorInventario } from '../lib/valorInventario.js';
 import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
 import { hayAnuncioActivo, EVENTO_ANUNCIOS } from '../lib/anunciosPos.js';
+import { normalizarRol, puedeCambiarTiendaLibremente } from '../lib/roles.js';
 import PanelAnunciosAdmin from '../components/PanelAnunciosAdmin.jsx';
 import PanelPurgeDatosAdmin from '../components/PanelPurgeDatosAdmin.jsx';
 import PanelNotificacionesInicio from '../components/PanelNotificacionesInicio.jsx';
@@ -30,11 +31,15 @@ export default function Inicio({
   onCambiarTienda,
   listaSucursales = [],
   presenciaMap = {},
+  userRol,
 }) {
   const puede = typeof puedeModulo === 'function' ? puedeModulo : () => true;
   const puedeVerInventario = puede('Productos');
   const esAdminPrincipal = esAdministradorPrincipal(user);
-  const mostrarCambioTienda = typeof onCambiarTienda === 'function';
+  const rol = normalizarRol(userRol || user?.rol);
+  const mostrarCambioTienda =
+    typeof onCambiarTienda === 'function' &&
+    (puedeCambiarTienda || puedeCambiarTiendaLibremente(rol) || rol === 'Administrador' || rol === 'Gerente');
   const [panelAnuncios, setPanelAnuncios] = useState(false);
   const [panelPurge, setPanelPurge] = useState(false);
   const [hayAnuncio, setHayAnuncio] = useState(false);
