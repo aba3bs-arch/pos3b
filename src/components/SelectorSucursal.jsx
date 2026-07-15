@@ -2,14 +2,22 @@ import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'reac
 import { createPortal } from 'react-dom';
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 
-function esMovilViewport() {
+/** Android/iPhone (y tablets táctiles): usar selector nativo del sistema. */
+function esDispositivoTactil() {
   if (typeof window === 'undefined') return false;
-  return window.matchMedia('(max-width: 768px)').matches;
+  try {
+    if (window.matchMedia('(pointer: coarse)').matches) return true;
+    if (window.matchMedia('(max-width: 768px)').matches) return true;
+  } catch {
+    /* ignore */
+  }
+  return 'ontouchstart' in window && Math.min(window.innerWidth, window.innerHeight) <= 900;
 }
 
 /**
  * Selector de sucursal con punto verde/gris.
- * En móvil: hoja inferior (bottom sheet) vía portal — no depende del overflow del header.
+ * - Móvil/táctil: &lt;select&gt; nativo (abre el picker del sistema; no falla por overflow del header).
+ * - Escritorio: menú custom con portal.
  */
 export default function SelectorSucursal({
   value,
@@ -25,22 +33,19 @@ export default function SelectorSucursal({
 }) {
   const [abierto, setAbierto] = useState(false);
   const [menuPos, setMenuPos] = useState(null);
-  const [sheetMovil, setSheetMovil] = useState(() => esMovilViewport());
+  const [tactil, setTactil] = useState(() => esDispositivoTactil());
   const wrapRef = useRef(null);
   const triggerRef = useRef(null);
   const menuRef = useRef(null);
-  const touchRef = useRef({ x: 0, y: 0, moved: false });
-  const ignoreClickRef = useRef(false);
   const listId = useId();
   const actual = normalizarCodigoTienda(value);
   const onlineActual = Boolean(presenciaMap?.[actual]?.online);
 
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 768px)');
-    const sync = () => setSheetMovil(mq.matches);
+    const sync = () => setTactil(esDispositivoTactil());
     sync();
-    mq.addEventListener('change', sync);
-    return () => mq.removeEventListener('change', sync);
+    window.addEventListener('resize', sync);
+    return () => window.removeEventListener('resize', sync);
   }, []);
 
   const actualizarPosicionEscritorio = () => {
@@ -61,7 +66,7 @@ export default function SelectorSucursal({
   };
 
   useLayoutEffect(() => {
-    if (!abierto || sheetMovil) {
+    if (!abierto || tactil) {
       if (!abierto) setMenuPos(null);
       return undefined;
     }
@@ -73,40 +78,35 @@ export default function SelectorSucursal({
       window.removeEventListener('resize', onReposition);
       window.removeEventListener('scroll', onReposition);
     };
-  }, [abierto, sheetMovil]);
+  }, [abierto, tactil]);
 
   useEffect(() => {
-    if (!abierto) return undefined;
+    if (!abierto || tactil) return undefined;
     const onKey = (e) => {
       if (e.key === 'Escape') setAbierto(false);
     };
-    document.addEventListener('keydown', onKey);
-    const prevOverflow = document.body.style.overflow;
-    if (sheetMovil) document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = prevOverflow;
+    const onPointerDown = (e) => {
+      if (wrapRef.current?.contains(e.target)) return;
+      if (menuRef.current?.contains(e.target)) return;
+      setAbierto(false);
     };
-  }, [abierto, sheetMovil]);
-
-  const cerrar = () => setAbierto(false);
-
-  const toggleDesdeClick = (e) => {
-    e.stopPropagation();
-    if (ignoreClickRef.current) {
-      ignoreClickRef.current = false;
-      return;
-    }
-    if (disabled) return;
-    setAbierto((v) => !v);
-  };
+    document.addEventListener('keydown', onKey);
+    const t = window.setTimeout(() => {
+      document.addEventListener('pointerdown', onPointerDown, true);
+    }, 0);
+    return () => {
+      window.clearTimeout(t);
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, [abierto, tactil]);
 
   const elegir = (codigo) => {
-    onChange?.(codigo);
+    onChange?.(normalizarCodigoTienda(codigo));
     setAbierto(false);
   };
 
-  const items = (lista || []).map((s) => {
+  const itemsLista = (lista || []).map((s) => {
     const id = normalizarCodigoTienda(s);
     const online = Boolean(presenciaMap?.[id]?.online);
     const activo = id === actual;
@@ -126,53 +126,73 @@ export default function SelectorSucursal({
   });
 
   const menuPortal =
-    abierto && typeof document !== 'undefined'
+    !tactil && abierto && menuPos && typeof document !== 'undefined'
       ? createPortal(
-          sheetMovil ? (
-            <div className="sucursal-sheet" role="presentation">
-              <button type="button" className="sucursal-sheet-backdrop" aria-label="Cerrar" onClick={cerrar} />
-              <div
-                className="sucursal-sheet-panel"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby={`${listId}-title`}
-                ref={menuRef}
-              >
-                <div className="sucursal-sheet-handle" aria-hidden />
-                <div className="sucursal-sheet-head">
-                  <h3 id={`${listId}-title`}>Elegir sucursal</h3>
-                  <button type="button" className="btn btn-ghost sucursal-sheet-close" onClick={cerrar}>
-                    Cerrar
-                  </button>
-                </div>
-                <ul id={listId} className="sucursal-sheet-list" role="listbox">
-                  {items}
-                </ul>
-              </div>
-            </div>
-          ) : menuPos ? (
-            <>
-              <button type="button" className="sucursal-select-backdrop" aria-label="Cerrar lista" onClick={cerrar} />
-              <ul
-                ref={menuRef}
-                id={listId}
-                className="sucursal-select-menu sucursal-select-menu--portal"
-                role="listbox"
-                style={{
-                  top: menuPos.top,
-                  left: menuPos.left,
-                  width: menuPos.width,
-                  maxHeight: menuPos.maxHeight,
-                }}
-              >
-                {items}
-              </ul>
-            </>
-          ) : null,
+          <>
+            <button type="button" className="sucursal-select-backdrop" aria-label="Cerrar lista" onClick={() => setAbierto(false)} />
+            <ul
+              ref={menuRef}
+              id={listId}
+              className="sucursal-select-menu sucursal-select-menu--portal"
+              role="listbox"
+              style={{
+                top: menuPos.top,
+                left: menuPos.left,
+                width: menuPos.width,
+                maxHeight: menuPos.maxHeight,
+              }}
+            >
+              {itemsLista}
+            </ul>
+          </>,
           document.body,
         )
       : null;
 
+  // ——— Móvil / táctil: picker nativo del SO (siempre funciona en Android e iPhone) ———
+  if (tactil) {
+    return (
+      <div className="sucursal-select-wrap sucursal-select-wrap--native" ref={wrapRef} style={style}>
+        <label className={`sucursal-select-native ${className}`} title={title}>
+          <span className={`sucursal-dot ${onlineActual ? 'is-online' : 'is-offline'}`} aria-hidden />
+          <span className="sucursal-select-label">{etiquetaTienda(actual)}</span>
+          <span className="sucursal-select-caret" aria-hidden>
+            ▾
+          </span>
+          <select
+            className="sucursal-select-native-el"
+            value={actual}
+            disabled={disabled}
+            aria-label={title}
+            onChange={(e) => onChange?.(normalizarCodigoTienda(e.target.value))}
+          >
+            {(lista || []).map((s) => {
+              const id = normalizarCodigoTienda(s);
+              const online = Boolean(presenciaMap?.[id]?.online);
+              const base = etiquetaTienda(id);
+              return (
+                <option key={id} value={id}>
+                  {online ? `● ${base}` : `○ ${base}`}
+                </option>
+              );
+            })}
+          </select>
+        </label>
+        {mostrarLeyenda && (
+          <p className="muted sucursal-select-leyenda">
+            {avisoPresencia || (
+              <>
+                <span className="sucursal-dot is-online" style={{ display: 'inline-block', verticalAlign: 'middle' }} />{' '}
+                ● = en línea · ○ = sin sesión
+              </>
+            )}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // ——— Escritorio: menú custom ———
   return (
     <div className="sucursal-select-wrap" ref={wrapRef} style={style}>
       <button
@@ -184,27 +204,7 @@ export default function SelectorSucursal({
         aria-haspopup="listbox"
         aria-expanded={abierto}
         aria-controls={listId}
-        onClick={toggleDesdeClick}
-        onTouchStart={(e) => {
-          const t = e.touches?.[0];
-          if (!t) return;
-          touchRef.current = { x: t.clientX, y: t.clientY, moved: false };
-        }}
-        onTouchMove={(e) => {
-          const t = e.touches?.[0];
-          if (!t) return;
-          const dx = Math.abs(t.clientX - touchRef.current.x);
-          const dy = Math.abs(t.clientY - touchRef.current.y);
-          if (dx > 10 || dy > 10) touchRef.current.moved = true;
-        }}
-        onTouchEnd={(e) => {
-          if (disabled || touchRef.current.moved) return;
-          // Evita que el click sintético cierre al instante lo que acabamos de abrir.
-          ignoreClickRef.current = true;
-          e.preventDefault();
-          e.stopPropagation();
-          setAbierto(true);
-        }}
+        onClick={() => !disabled && setAbierto((v) => !v)}
       >
         <span className={`sucursal-dot ${onlineActual ? 'is-online' : 'is-offline'}`} aria-hidden />
         <span className="sucursal-select-label">{etiquetaTienda(actual)}</span>
@@ -218,7 +218,7 @@ export default function SelectorSucursal({
           {avisoPresencia || (
             <>
               <span className="sucursal-dot is-online" style={{ display: 'inline-block', verticalAlign: 'middle' }} />{' '}
-              = POS abierto · gris = sin sesión
+              = POS / central abierto · gris = sin sesión
             </>
           )}
         </p>

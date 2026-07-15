@@ -142,10 +142,12 @@ function App() {
   const [brandTitle, setBrandTitle] = useState(leerNombreNegocio);
   const [listaSucursales, setListaSucursales] = useState(() => listarSucursalesParaUI());
 
-  // Solo latido de caja física (env de tienda de venta o bloqueo local distinto de MAIN).
+  // Latido: caja física fijada, O sesión activa en Central (MAIN).
+  // Si el admin solo "consulta" 3B5 desde MAIN sin fijar, NO latea 3B5 (evita falso “en línea”).
   const sucursalLatido =
     (CAJA_FISICA_FIJA_ENV ? SUCURSAL_FIJA_ENV : null) ||
     (tiendaFijadaParaAcceso ? codigoTiendaBloqueadaLocal() || null : null) ||
+    (sesion && esAlmacenCentral(sucursal) ? 'MAIN' : null) ||
     null;
 
   const { presenciaMap, avisoPresencia, marcarPresenciaFueraDeLinea } = usePresenciaSucursales({

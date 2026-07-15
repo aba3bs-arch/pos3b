@@ -8,8 +8,8 @@ import {
 } from '../lib/presenciaSucursal.js';
 
 /**
- * Latido de caja física + mapa de sucursales en línea para el selector.
- * `sucursal` debe ser solo la tienda fijada en el equipo (no la consulta libre desde Central).
+ * Latido de caja física + sesión Central (MAIN) + mapa de en línea.
+ * `sucursal` = caja fijada, o MAIN si la sesión está en central (no la tienda solo consultada).
  * @param {{ supabase: any, sucursal: string|null, sesion: boolean, usuarioNombre?: string, habilitado?: boolean }} opts
  */
 export function usePresenciaSucursales({ supabase, sucursal, sesion, usuarioNombre, habilitado = true }) {
