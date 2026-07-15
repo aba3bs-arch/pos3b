@@ -858,6 +858,14 @@ table.data th {
   box-shadow: var(--shadow);
 }
 
+/* Fuera del overflow del header (móvil): el menú no queda tapado. */
+.sucursal-select-menu--fixed {
+  position: fixed;
+  right: auto;
+  z-index: 400;
+  min-width: 0;
+}
+
 .sucursal-select-item {
   display: flex;
   align-items: center;

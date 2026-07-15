@@ -146,15 +146,29 @@ export function codigoTiendaBloqueadaLocal() {
   if (!tiendaBloqueadaEnEsteEquipo()) return null;
   try {
     const c = normalizarCodigoTienda(localStorage.getItem(LS_SUCURSAL));
-    return codigoTiendaValido(c) ? c : null;
+    if (!codigoTiendaValido(c)) return null;
+    // Locks antiguos a MAIN no cuentan (central libre).
+    if (esAlmacenCentral(c)) {
+      desbloquearTiendaEnEsteEquipo();
+      return null;
+    }
+    return c;
   } catch {
     return null;
   }
 }
 
+/** Caja física fijada por env (solo tiendas de venta; MAIN no bloquea el selector). */
+export function sucursalFijaEsCajaFisica() {
+  const env = sucursalFijaPorEntorno();
+  return Boolean(env && !esAlmacenCentral(env));
+}
+
 export function bloquearTiendaEnEsteEquipo(codigo) {
   const c = normalizarCodigoTienda(codigo);
   if (!codigoTiendaValido(c)) return;
+  // Central MAIN es panel administrativo: nunca se “fijera” como caja de una sola tienda.
+  if (esAlmacenCentral(c)) return;
   try {
     localStorage.setItem(LS_SUCURSAL, c);
     localStorage.setItem(LS_TIENDA_BLOQUEADA, '1');

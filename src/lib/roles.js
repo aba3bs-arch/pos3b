@@ -338,9 +338,9 @@ export function puedeEliminarProductosCatalogo(rol) {
 }
 
 /** Roles de central MAIN que pueden elegir cualquier tienda en la sesión. */
-export const ROLES_CAMBIO_TIENDA_CENTRAL = ['Auditor', 'Técnico', 'Repartidor'];
+export const ROLES_CAMBIO_TIENDA_CENTRAL = ['Auditor', 'Técnico', 'Repartidor', 'Supervisor'];
 
-/** Administrador, gerente y personal de central (auditor, técnico, repartidor) pueden cambiar tienda. */
+/** Administrador, gerente y personal de central pueden cambiar tienda (incl. móvil). */
 export function puedeCambiarTiendaLibremente(rol) {
   const r = normalizarRol(rol);
   return r === 'Administrador' || r === 'Gerente' || ROLES_CAMBIO_TIENDA_CENTRAL.includes(r);

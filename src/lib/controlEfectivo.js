@@ -1107,17 +1107,19 @@ export async function saldoEnTransitoRepartidor(supabase, repartidorId) {
     .from('transito_efectivo')
     .select('id, monto, tipo_movimiento, estatus, num_traspaso, sucursal_origen, fecha_hora')
     .eq('repartidor_id', repartidorId)
-    .in('estatus', ['En Tránsito', 'Liquidado', 'Por Aceptar']);
+    .in('estatus', ['En Tránsito', 'Por Aceptar']);
   if (error) throw error;
   const rows = data || [];
   const enTransito = rows.filter((m) => m.estatus === 'En Tránsito' && m.tipo_movimiento !== 'Gasto');
-  const gastos = rows.filter((m) => m.tipo_movimiento === 'Gasto' && m.estatus === 'Liquidado');
   const pendientes = rows.filter((m) => m.tipo_movimiento === 'Gasto' && m.estatus === 'Por Aceptar');
+  // Solo gastos aceptados posteriores a la última liquidación de recolecciones
+  // (los anteriores ya se descontaron al acreditar a Francisco/Andrés).
+  const gastos = await listarGastosActivosParaLiquidacion(supabase, repartidorId);
   const ingresos = enTransito.reduce((a, m) => a + Number(m.monto || 0), 0);
   const egresos = gastos.reduce((a, m) => a + Number(m.monto || 0), 0);
   const reservado = pendientes.reduce((a, m) => a + Number(m.monto || 0), 0);
-  const total = ingresos - egresos;
-  const disponible = total - reservado;
+  const total = Math.round((ingresos - egresos) * 100) / 100;
+  const disponible = Math.round((total - reservado) * 100) / 100;
   return {
     movimientos: enTransito,
     gastos,
@@ -1126,7 +1128,8 @@ export async function saldoEnTransitoRepartidor(supabase, repartidorId) {
     egresos,
     reservado,
     total,
-    disponible,
+    disponible: Math.max(0, disponible),
+    aLiberar: Math.max(0, total),
     count: enTransito.length,
   };
 }
@@ -1297,12 +1300,29 @@ export async function liberarEfectivoRepartidor(supabase, { repartidorId, adminN
   }
   if (!movs.length) return { ok: false, error: 'No hay efectivo en tránsito para liberar.' };
   const rep = (await listarRepartidoresTodos(supabase)).find((r) => r.id === repartidorId);
-  const montoTotal = movs.reduce((a, m) => a + Number(m.monto || 0), 0);
-  return liquidarMovimientos(supabase, {
+  const bruto = movs.reduce((a, m) => a + Number(m.monto || 0), 0);
+  // A Francisco/Andrés solo llega el efectivo neto: liquidación − gastos aceptados.
+  const gastosActivos = await listarGastosActivosParaLiquidacion(supabase, repartidorId);
+  const totalGastos = gastosActivos.reduce((a, m) => a + Number(m.monto || 0), 0);
+  const montoTotal = Math.max(0, Math.round((bruto - totalGastos) * 100) / 100);
+  if (!(montoTotal > 0)) {
+    return {
+      ok: false,
+      error: `No hay efectivo neto para liberar (recolecciones ${fmtMonto(bruto)} − gastos ${fmtMonto(totalGastos)}).`,
+    };
+  }
+  const res = await liquidarMovimientos(supabase, {
     ids: movs.map((m) => m.id),
     adminNombre: adminNombre || 'Contabilidad',
     repartidorNombre: rep?.nombre || '',
     cuentaRtId,
     montoLiquidacion: montoTotal,
   });
+  if (!res.ok) return res;
+  return {
+    ...res,
+    bruto,
+    totalGastos,
+    montoTotal,
+  };
 }

@@ -2290,7 +2290,7 @@ export default function Configuracion({
             Variables <code>VITE_SUPABASE_URL</code> y <code>VITE_SUPABASE_ANON_KEY</code> en archivo <code>.env</code> (no subir a GitHub).
           </li>
           <li>
-            Opcional: <code>VITE_SUCURSAL_FIJA</code> (ej. <code>MAIN</code>, <code>3B10</code>) para que este build solo opere esa tienda, sin selector.
+            Opcional: <code>VITE_SUCURSAL_FIJA</code> (ej. <code>3B10</code>) fija una caja de venta. Si pones <code>MAIN</code>, el panel central sigue pudiendo elegir todas las sucursales.
           </li>
           <li>
             Ejecuta <code>supabase/fix_turnos.sql</code> para turnos en corte de caja (un corte por turno).

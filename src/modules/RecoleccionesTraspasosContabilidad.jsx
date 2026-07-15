@@ -99,6 +99,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   const [cuentaRtLiberar, setCuentaRtLiberar] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || CUENTAS_RT[0]?.id || '');
 
   const [saldosRt, setSaldosRt] = useState({});
+  const [desgloseRt, setDesgloseRt] = useState({});
   const [movsRt, setMovsRt] = useState([]);
   const [presetRt, setPresetRt] = useState('hoy');
   const [filtroCuentaRt, setFiltroCuentaRt] = useState('');
@@ -199,7 +200,10 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
         listarGastosLiquidadosRecolector(supabase),
       ]);
       if (saldoRes.error) setError(saldoRes.error);
-      else setSaldosRt(saldoRes.saldos || {});
+      else {
+        setSaldosRt(saldoRes.saldos || {});
+        setDesgloseRt(saldoRes.desglose || {});
+      }
       if (movRes.error) setError(movRes.error);
       else setMovsRt(movRes.data || []);
       setTransitoRt(transito || []);
@@ -420,14 +424,32 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
 
   const confirmarLiberar = async () => {
     if (!gastoRep) return alert('Selecciona recolector.');
-    if (!window.confirm(`¿Liberar (liquidar) todo el efectivo en tránsito de este recolector?`)) return;
+    const bruto = Number(saldoRep?.ingresos || 0);
+    const gastos = Number(saldoRep?.egresos || 0);
+    const neto = Number(saldoRep?.aLiberar ?? saldoRep?.total ?? 0);
+    if (
+      !window.confirm(
+        `¿Liberar efectivo del recolector a ${etiquetaCuentaRt(cuentaRtLiberar)}?\n\n` +
+          `Recolecciones: ${fmtMonto(bruto)}\n` +
+          `Gastos aceptados: −${fmtMonto(gastos)}\n` +
+          `A acreditar (neto): ${fmtMonto(neto)}\n\n` +
+          'Solo ese neto queda disponible en la cuenta RT para gastos (p. ej. Francisco).',
+      )
+    ) {
+      return;
+    }
     setGuardando(true);
     const res = await liberarEfectivoRepartidor(supabase, { repartidorId: gastoRep, adminNombre, cuentaRtId: cuentaRtLiberar });
     setGuardando(false);
     if (!res.ok) return alert(res.error);
-    alert(`✅ Liberados ${res.count} movimiento(s) · ${fmtMonto(res.montoTotal || 0)} acreditados a ${etiquetaCuentaRt(cuentaRtLiberar)}.`);
+    alert(
+      `✅ Liberados ${res.count} movimiento(s).\n` +
+        `Bruto ${fmtMonto(res.bruto ?? bruto)} − gastos ${fmtMonto(res.totalGastos ?? gastos)} = ` +
+        `${fmtMonto(res.montoTotal || 0)} acreditados a ${etiquetaCuentaRt(cuentaRtLiberar)}.`,
+    );
     saldoEnTransitoRepartidor(supabase, gastoRep).then(setSaldoRep);
     cargarReporte();
+    cargarCuentasRt();
   };
 
   const confirmarTransferencia = async () => {
@@ -997,9 +1019,20 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
               </select>
             </label>
             {saldoRep && gastoRep && (
-              <p style={{ margin: '0.75rem 0' }}>
-                En tránsito: <strong>{fmtMonto(saldoRep.ingresos)}</strong> ({saldoRep.count} mov.)
-              </p>
+              <div style={{ margin: '0.75rem 0', padding: '0.75rem', borderRadius: 10, background: 'rgba(13,148,136,0.08)', border: '1px solid rgba(13,148,136,0.25)' }}>
+                <p style={{ margin: 0, fontSize: '0.85rem' }}>
+                  Recolecciones: <strong>{fmtMonto(saldoRep.ingresos)}</strong> ({saldoRep.count} mov.)
+                </p>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: 'var(--brand-red)' }}>
+                  Gastos aceptados: −{fmtMonto(saldoRep.egresos)}
+                </p>
+                <p style={{ margin: '0.45rem 0 0', fontWeight: 800, fontSize: '1.05rem', color: 'var(--brand-blue)' }}>
+                  A liberar / acreditar: {fmtMonto(saldoRep.aLiberar ?? saldoRep.total)}
+                </p>
+                <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.78rem' }}>
+                  Ese neto es lo que puede usar Francisco (u Andrés) para gastos desde la cuenta RT.
+                </p>
+              </div>
             )}
             <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
               Cuenta RT que recibe al liberar
@@ -1011,8 +1044,13 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
                 ))}
               </select>
             </label>
-            <button type="button" className="btn btn-danger" disabled={guardando || !gastoRep} onClick={confirmarLiberar}>
-              Liberar todo en tránsito
+            <button
+              type="button"
+              className="btn btn-danger"
+              disabled={guardando || !gastoRep || !(Number(saldoRep?.aLiberar ?? saldoRep?.total) > 0)}
+              onClick={confirmarLiberar}
+            >
+              Liberar neto · {fmtMonto(saldoRep?.aLiberar ?? saldoRep?.total || 0)}
             </button>
           </div>
         </div>
@@ -1062,19 +1100,38 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
           </div>
 
           <div className="grid-2" style={{ gap: '1rem' }}>
-            {CUENTAS_RT.map((c) => (
-              <div key={c.id} className="card" style={{ padding: '0.85rem', borderTop: `4px solid ${c.id === 'francisco' ? 'var(--brand-blue)' : 'var(--brand-gold)'}` }}>
-                <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
-                  Cuenta {c.nombre}
-                </p>
-                <p style={{ margin: '0.35rem 0 0', fontSize: '1.75rem', fontWeight: 700, color: 'var(--brand-blue)' }}>
-                  {fmtMonto(saldosRt[c.id] || 0)}
-                </p>
-                <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.78rem' }}>
-                  Saldo actual (liquidaciones − transferencias − gastos)
-                </p>
-              </div>
-            ))}
+            {CUENTAS_RT.map((c) => {
+              const d = desgloseRt[c.id] || {};
+              const disponible = Number(saldosRt[c.id] || 0);
+              return (
+                <div key={c.id} className="card" style={{ padding: '0.85rem', borderTop: `4px solid ${c.id === 'francisco' ? 'var(--brand-blue)' : 'var(--brand-gold)'}` }}>
+                  <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
+                    Cuenta {c.nombre}
+                  </p>
+                  <p style={{ margin: '0.35rem 0 0', fontSize: '1.75rem', fontWeight: 800, color: 'var(--brand-blue)' }}>
+                    {fmtMonto(disponible)}
+                  </p>
+                  <p className="muted" style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', fontWeight: 700 }}>
+                    Disponible para gastos
+                  </p>
+                  <div style={{ marginTop: '0.65rem', fontSize: '0.8rem', lineHeight: 1.45 }}>
+                    <div>
+                      Liquidaciones: <strong>{fmtMonto(d.liquidaciones || 0)}</strong>
+                      {(d.transferenciasIn || 0) > 0 ? (
+                        <span className="muted"> (+ transf. {fmtMonto(d.transferenciasIn)})</span>
+                      ) : null}
+                    </div>
+                    <div style={{ color: 'var(--brand-red)' }}>
+                      − Gastos: {fmtMonto(d.gastos || 0)}
+                      {(d.transferenciasOut || 0) > 0 ? ` · − transf. ${fmtMonto(d.transferenciasOut)}` : ''}
+                    </div>
+                    <div style={{ marginTop: '0.25rem', fontWeight: 700 }}>
+                      = {fmtMonto(disponible)}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           {resumenHistRt?.ok && resumenHistRt.gruposAsignables > 0 && (
@@ -1112,8 +1169,13 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
           <div className="card" style={{ padding: '0.85rem', borderLeft: '4px solid var(--brand-gold)' }}>
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Registrar gasto desde cuenta RT</h3>
             <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
-              Descuenta del saldo de Francisco o Andrés y registra el gasto en contabilidad (Corte Virtual → GASTOS OPERATIVOS) con la descripción del uso.
+              Solo se puede gastar el <strong>disponible</strong> de cada cuenta (liquidaciones − gastos previos − transferencias). Al registrar, se descuenta y queda en Corte Virtual → GASTOS OPERATIVOS.
             </p>
+            {gastoRtCuenta ? (
+              <p style={{ margin: '0 0 0.75rem', fontSize: '0.9rem', fontWeight: 700, color: 'var(--brand-blue)' }}>
+                Disponible {etiquetaCuentaRt(gastoRtCuenta)}: {fmtMonto(saldosRt[gastoRtCuenta] || 0)}
+              </p>
+            ) : null}
             <div className="grid-2" style={{ gap: '0.75rem' }}>
               <label className="muted">
                 Cuenta

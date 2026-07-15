@@ -551,25 +551,45 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
             </div>
           )}
 
-          {/* Total seleccionado */}
+          {/* Total seleccionado: solo el neto (liquidación − gastos) */}
           {!esHistorial && (
           <div
             style={{
               marginTop: '1rem',
-              padding: '0.85rem',
-              borderRadius: '10px',
-              background: 'rgba(13,148,136,0.08)',
-              border: '1px solid rgba(13,148,136,0.25)',
+              padding: '1rem',
+              borderRadius: '12px',
+              background: 'rgba(13,148,136,0.1)',
+              border: '2px solid rgba(13,148,136,0.45)',
             }}
           >
-            <p style={{ margin: 0, fontWeight: 700 }}>
-              A recolectar hoy: {fmtMonto(totalARecolectar)}
+            <p className="muted" style={{ margin: 0, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700 }}>
+              Efectivo neto a acreditar ({etiquetaCuentaRt(cuentaRt) || 'cuenta RT'})
             </p>
-            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-              Recolecciones {fmtMonto(totalSeleccionado)}
-              {totalGastosActivos > 0 ? ` − gastos ${fmtMonto(totalGastosActivos)}` : ''}
-              {' · '}
-              {seleccionados.length} movimiento(s) · {diasSeleccionados.length} día(s) · Mercancía {fmtMonto(resumenSel.mercancia)} · Servicios{' '}
+            <div style={{ marginTop: '0.55rem', fontSize: '0.95rem', lineHeight: 1.5 }}>
+              <div>
+                Total liquidación: <strong>{fmtMonto(totalSeleccionado)}</strong>
+              </div>
+              <div style={{ color: 'var(--brand-red)' }}>
+                − Gastos aceptados: {fmtMonto(totalGastosActivos)}
+              </div>
+              <div
+                style={{
+                  marginTop: '0.45rem',
+                  paddingTop: '0.45rem',
+                  borderTop: '1px dashed rgba(13,148,136,0.4)',
+                  fontWeight: 800,
+                  fontSize: '1.35rem',
+                  color: 'var(--brand-blue)',
+                }}
+              >
+                = {fmtMonto(totalARecolectar)}
+              </div>
+            </div>
+            <p className="muted" style={{ margin: '0.55rem 0 0', fontSize: '0.82rem' }}>
+              Solo ese neto queda en la cuenta para gastos (ej. Francisco). No se acredita el bruto.
+            </p>
+            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.78rem' }}>
+              {seleccionados.length} movimiento(s) · {diasSeleccionados.length} día(s) · Merc. {fmtMonto(resumenSel.mercancia)} · Serv.{' '}
               {fmtMonto(resumenSel.servicios)}
             </p>
           </div>
@@ -584,7 +604,9 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
 
           {!esHistorial && (
           <button type="button" className="btn btn-danger" style={{ marginTop: '1rem' }} disabled={guardando || seleccionados.length === 0} onClick={confirmarLiquidacion}>
-            {guardando ? 'Sellando…' : `Sellar liquidación · ${fmtMonto(totalARecolectar)}`}
+            {guardando
+              ? 'Sellando…'
+              : `Sellar y acreditar neto · ${fmtMonto(totalARecolectar)}`}
           </button>
           )}
         </>

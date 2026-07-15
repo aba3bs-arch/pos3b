@@ -94,9 +94,8 @@ export default function PantallaLogin({
               Fijar tienda en este equipo
             </button>
             <p className="muted login-hint">
-              En la PC de caja, al fijar la tienda y entrar con PIN de <strong>cajero</strong> o <strong>repartidor</strong>, ese PIN
-              quedará ligado a esta computadora. El <strong>administrador</strong> no se ancla a ninguna sucursal ni dispositivo: puede
-              entrar desde cualquier caja o celular.
+              En la PC de caja, al fijar una <strong>tienda de venta</strong> y entrar con PIN de cajero o repartidor, ese PIN
+              quedará ligado a esta computadora. <strong>Central (MAIN)</strong> no se fija: es el panel admin y permite elegir cualquier sucursal. El administrador tampoco se ancla a dispositivo.
             </p>
           </>
         )}

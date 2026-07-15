@@ -41,6 +41,8 @@ import {
   tiendaBloqueadaEnEsteEquipo,
   codigoTiendaBloqueadaLocal,
   normalizarCodigoTienda,
+  esAlmacenCentral,
+  sucursalFijaEsCajaFisica,
 } from './constants/sucursales.js';
 import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias } from './lib/roles.js';
 import { inventarioParaSucursal } from './lib/inventarioMultitienda.js';
@@ -101,6 +103,8 @@ import { EVENTO_TEMA_INTERFAZ, aplicarTemaInterfaz, leerTemaInterfaz } from './l
 import { iconoDeModulo, colorDeModulo } from './lib/moduloIcons.js';
 
 const SUCURSAL_FIJA_ENV = sucursalFijaPorEntorno();
+/** MAIN como VITE_SUCURSAL_FIJA no bloquea el selector (es panel admin). */
+const CAJA_FISICA_FIJA_ENV = sucursalFijaEsCajaFisica();
 
 function App() {
   const mobile = useMobileLayout();
@@ -122,7 +126,11 @@ function App() {
   const [valesRetornoModulo, setValesRetornoModulo] = useState(null);
   const [buzonPestana, setBuzonPestana] = useState('pendientes');
   const [sucursal, setSucursal] = useState(sucursalInicial);
-  const [tiendaFijadaParaAcceso, setTiendaFijadaParaAcceso] = useState(() => Boolean(SUCURSAL_FIJA_ENV || tiendaBloqueadaEnEsteEquipo()));
+  const [tiendaFijadaParaAcceso, setTiendaFijadaParaAcceso] = useState(() => {
+    if (CAJA_FISICA_FIJA_ENV) return true;
+    // Limpia locks antiguos a MAIN.
+    return Boolean(codigoTiendaBloqueadaLocal());
+  });
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window !== 'undefined' ? !window.matchMedia('(max-width: 768px)').matches : true,
   );
@@ -134,10 +142,9 @@ function App() {
   const [brandTitle, setBrandTitle] = useState(leerNombreNegocio);
   const [listaSucursales, setListaSucursales] = useState(() => listarSucursalesParaUI());
 
-  // Solo latido de caja física (env o tienda bloqueada en el equipo).
-  // Si desde Central se cambia de tienda libremente, NO marcar esas sucursales “en línea”.
+  // Solo latido de caja física (env de tienda de venta o bloqueo local distinto de MAIN).
   const sucursalLatido =
-    SUCURSAL_FIJA_ENV ||
+    (CAJA_FISICA_FIJA_ENV ? SUCURSAL_FIJA_ENV : null) ||
     (tiendaFijadaParaAcceso ? codigoTiendaBloqueadaLocal() || null : null) ||
     null;
 
@@ -185,10 +192,13 @@ function App() {
   useEffect(() => instalarSeleccionCamposCantidad(), []);
 
   useEffect(() => {
-    if (SUCURSAL_FIJA_ENV) {
+    if (CAJA_FISICA_FIJA_ENV) {
       setSucursal(SUCURSAL_FIJA_ENV);
       setTiendaFijadaParaAcceso(true);
     } else {
+      // codigoTiendaBloqueadaLocal libera locks antiguos a MAIN.
+      const locked = codigoTiendaBloqueadaLocal();
+      setTiendaFijadaParaAcceso(Boolean(locked));
       setSucursal((s) => (codigoTiendaValido(s) ? s : 'MAIN'));
     }
   }, []);
@@ -426,7 +436,7 @@ function App() {
 
   const completarLogin = useCallback(
     async (data, { ajustarSucursal, autorizacionAdmin = false, cubreTurno = false } = {}) => {
-      const terminalFijada = Boolean(SUCURSAL_FIJA_ENV || tiendaFijadaParaAcceso);
+      const terminalFijada = Boolean(CAJA_FISICA_FIJA_ENV || tiendaFijadaParaAcceso);
       const vinculo = evaluarVinculoDispositivo(data, { terminalFijada });
       if (!vinculo.ok) {
         alert(vinculo.error);
@@ -600,7 +610,7 @@ function App() {
   };
 
   const aplicarDesbloqueoTienda = () => {
-    if (SUCURSAL_FIJA_ENV) return;
+    if (CAJA_FISICA_FIJA_ENV) return;
     desbloquearTiendaEnEsteEquipo();
     setTiendaFijadaParaAcceso(false);
     setSucursal('MAIN');
@@ -613,7 +623,7 @@ function App() {
 
   /** Desbloqueo en login: solo con PIN de Administrador (si lo pulsa la sucursal sin PIN, no funciona). */
   const desbloquearTiendaConPinAdmin = async (pinAdmin) => {
-    if (SUCURSAL_FIJA_ENV) return false;
+    if (CAJA_FISICA_FIJA_ENV) return false;
     if (!supabase) {
       alert('Sin conexión a Supabase.');
       return false;
@@ -695,12 +705,22 @@ function App() {
           setLoginPinKey((n) => n + 1);
         }}
         onFijarTienda={() => {
+          if (esAlmacenCentral(sucursal)) {
+            alert(
+              'Central (MAIN) no se fija en el equipo.\n\nEs el panel administrativo: puedes desplegar y elegir todas las sucursales. Para fijar una caja, elige una tienda de venta (3B5, 3B7, etc.).',
+            );
+            return;
+          }
           bloquearTiendaEnEsteEquipo(sucursal);
+          if (!codigoTiendaBloqueadaLocal()) {
+            alert('No se pudo fijar esa tienda.');
+            return;
+          }
           guardarSucursalLocal(sucursal);
           setTiendaFijadaParaAcceso(true);
         }}
-        sucursalFijaEnv={SUCURSAL_FIJA_ENV}
-        onDesbloquearTiendaConAdmin={!SUCURSAL_FIJA_ENV && tiendaFijadaParaAcceso ? desbloquearTiendaConPinAdmin : undefined}
+        sucursalFijaEnv={CAJA_FISICA_FIJA_ENV ? SUCURSAL_FIJA_ENV : null}
+        onDesbloquearTiendaConAdmin={!CAJA_FISICA_FIJA_ENV && tiendaFijadaParaAcceso ? desbloquearTiendaConPinAdmin : undefined}
         desbloqueandoTienda={desbloqueandoTienda}
         supabaseConfigured={supabaseConfigured}
         pin={pin}
@@ -740,9 +760,9 @@ function App() {
   }
 
   const puedeCambiarTienda = puedeCambiarTiendaLibremente(user?.rol);
-  // En caja fijada, el equipo sigue bloqueado (desbloqueo con PIN en Config).
-  // En sesión, admin/gerente/central sí pueden consultar otras tiendas (p. ej. desde MAIN).
-  const puedeCambiarTiendaSesion = puedeCambiarTienda && !SUCURSAL_FIJA_ENV;
+  // Caja física (3B5…) sí queda fija. Central MAIN / VITE=MAIN: siempre se puede cambiar de sucursal.
+  const puedeCambiarTiendaSesion = puedeCambiarTienda && !CAJA_FISICA_FIJA_ENV;
+  const tiendaCajaFisicaBloqueada = Boolean(CAJA_FISICA_FIJA_ENV || tiendaFijadaParaAcceso);
   const modulosNav = modulosParaSidebar(user.rol, user.id);
   const subContabilidad = submodulosContabilidadVisibles(user.rol, user.id);
   const contabilidadActiva = vista === VISTA_HUB_CONTABILIDAD || SUBMODULOS_CONTABILIDAD.includes(vista);
@@ -818,7 +838,8 @@ function App() {
                 onChange={setSucursal}
                 lista={listaSucursales}
                 presenciaMap={presenciaMap}
-                title="Cambiar tienda activa · punto verde = POS abierto"
+                avisoPresencia={avisoPresencia}
+                title="Cambiar tienda activa · punto verde = POS abierto en esa sucursal"
               />
             ) : (
               <span className="badge app-header-badge" title={avisoPresencia || undefined}>
@@ -828,6 +849,11 @@ function App() {
                   aria-hidden
                 />
                 {etiquetaTienda(sucursal)}
+              </span>
+            )}
+            {avisoPresencia && (
+              <span className="muted" style={{ fontSize: '0.72rem', maxWidth: 220 }} title={avisoPresencia}>
+                {avisoPresencia.includes('Falta la tabla') ? 'Presencia: falta SQL en Supabase' : 'Presencia: aviso'}
               </span>
             )}
             <span className="app-header-user">{user?.nombre}</span>
@@ -979,10 +1005,10 @@ function App() {
               sucursalesLista={listaSucursales}
               onAgregarSucursal={agregarNuevaTienda}
               onQuitarSucursalExtra={quitarTiendaExtra}
-              tiendaNoCambiable={Boolean(SUCURSAL_FIJA_ENV || tiendaFijadaParaAcceso)}
-              bloqueoPorEntorno={Boolean(SUCURSAL_FIJA_ENV)}
+              tiendaNoCambiable={tiendaCajaFisicaBloqueada && !puedeCambiarTiendaSesion}
+              bloqueoPorEntorno={Boolean(CAJA_FISICA_FIJA_ENV)}
               onDesbloquearTiendaBrowser={
-                !SUCURSAL_FIJA_ENV && tiendaFijadaParaAcceso ? desbloquearTiendaDesdeConfig : undefined
+                !CAJA_FISICA_FIJA_ENV && tiendaFijadaParaAcceso ? desbloquearTiendaDesdeConfig : undefined
               }
               desbloqueandoTienda={desbloqueandoTienda}
               puedeCambiarTiendaSesion={puedeCambiarTiendaSesion}

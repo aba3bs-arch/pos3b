@@ -104,17 +104,44 @@ export async function listarTodosMovimientosRt(supabase, { desde, hasta, cuentaI
 export async function calcularSaldosRt(supabase) {
   const { data: movs, error } = await supabase.from('rt_movimientos_cuenta').select('cuenta_id, tipo, monto');
   if (error) {
-    if (esErrorTablaRtCuentas(error)) return { saldos: {}, error: AVISO_FALTA_TABLA_RT_CUENTAS };
-    return { saldos: {}, error: error.message };
+    if (esErrorTablaRtCuentas(error)) return { saldos: {}, desglose: {}, error: AVISO_FALTA_TABLA_RT_CUENTAS };
+    return { saldos: {}, desglose: {}, error: error.message };
   }
   const saldos = {};
-  for (const c of CUENTAS_RT) saldos[c.id] = 0;
-  for (const m of movs || []) {
-    if (!saldos[m.cuenta_id] && saldos[m.cuenta_id] !== 0) saldos[m.cuenta_id] = 0;
-    if (m.tipo === 'liquidacion' || m.tipo === 'transferencia_recibida') saldos[m.cuenta_id] = (saldos[m.cuenta_id] || 0) + Number(m.monto || 0);
-    else if (m.tipo === 'transferencia_enviada' || m.tipo === 'gasto') saldos[m.cuenta_id] = (saldos[m.cuenta_id] || 0) - Number(m.monto || 0);
+  const desglose = {};
+  for (const c of CUENTAS_RT) {
+    saldos[c.id] = 0;
+    desglose[c.id] = { liquidaciones: 0, transferenciasIn: 0, transferenciasOut: 0, gastos: 0, disponible: 0 };
   }
-  return { saldos, error: null };
+  for (const m of movs || []) {
+    const cid = m.cuenta_id;
+    if (!desglose[cid]) {
+      saldos[cid] = 0;
+      desglose[cid] = { liquidaciones: 0, transferenciasIn: 0, transferenciasOut: 0, gastos: 0, disponible: 0 };
+    }
+    const v = Number(m.monto || 0);
+    if (m.tipo === 'liquidacion') {
+      saldos[cid] += v;
+      desglose[cid].liquidaciones += v;
+    } else if (m.tipo === 'transferencia_recibida') {
+      saldos[cid] += v;
+      desglose[cid].transferenciasIn += v;
+    } else if (m.tipo === 'transferencia_enviada') {
+      saldos[cid] -= v;
+      desglose[cid].transferenciasOut += v;
+    } else if (m.tipo === 'gasto') {
+      saldos[cid] -= v;
+      desglose[cid].gastos += v;
+    }
+  }
+  for (const id of Object.keys(desglose)) {
+    desglose[id].disponible = Math.round((saldos[id] || 0) * 100) / 100;
+    desglose[id].liquidaciones = Math.round(desglose[id].liquidaciones * 100) / 100;
+    desglose[id].transferenciasIn = Math.round(desglose[id].transferenciasIn * 100) / 100;
+    desglose[id].transferenciasOut = Math.round(desglose[id].transferenciasOut * 100) / 100;
+    desglose[id].gastos = Math.round(desglose[id].gastos * 100) / 100;
+  }
+  return { saldos, desglose, error: null };
 }
 
 export async function acreditarLiquidacionCuentaRt(supabase, opts = {}) {
