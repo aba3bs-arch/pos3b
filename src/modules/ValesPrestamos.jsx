@@ -377,6 +377,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         </div>
       )}
 
+      {(sucursal === 'MAIN' || String(sucursal || '').toUpperCase() === 'MAIN') && (
+        <div className="card" style={{ borderLeft: '4px solid var(--brand-blue)', background: 'rgba(59,105,181,0.07)' }}>
+          <strong>Estás en Central (MAIN)</strong>
+          <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
+            Los vales de las cajas (3B5, 3B7…) no aparecen aquí hasta que cambies la tienda activa. Ve a{' '}
+            <strong>Inicio</strong> y pulsa <strong>Cambiar de tienda</strong>, o usa el selector de sucursal arriba.
+          </p>
+        </div>
+      )}
+
       {!puedeGenerarVales && (
         <div className="card" style={{ borderLeft: '4px solid var(--danger)', background: 'rgba(211,47,47,0.06)' }}>
           <strong>Esta tienda no está autorizada para generar vales.</strong>
