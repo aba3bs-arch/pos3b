@@ -833,15 +833,17 @@ function App() {
           </div>
           <div className="app-header-meta">
             {puedeCambiarTiendaSesion ? (
-              <SelectorSucursal
-                className="select app-header-select"
-                value={sucursal}
-                onChange={setSucursal}
-                lista={listaSucursales}
-                presenciaMap={presenciaMap}
-                avisoPresencia={avisoPresencia}
-                title="Cambiar tienda activa · punto verde = POS abierto en esa sucursal"
-              />
+              <div className="app-header-tienda">
+                <SelectorSucursal
+                  className="select app-header-select"
+                  value={sucursal}
+                  onChange={setSucursal}
+                  lista={listaSucursales}
+                  presenciaMap={presenciaMap}
+                  avisoPresencia={avisoPresencia}
+                  title="Cambiar tienda activa · punto verde = POS abierto en esa sucursal"
+                />
+              </div>
             ) : (
               <span className="badge app-header-badge" title={avisoPresencia || undefined}>
                 <span
@@ -852,6 +854,7 @@ function App() {
                 {etiquetaTienda(sucursal)}
               </span>
             )}
+            <div className="app-header-meta-scroll">
             {avisoPresencia && (
               <span className="muted" style={{ fontSize: '0.72rem', maxWidth: 220 }} title={avisoPresencia}>
                 {avisoPresencia.includes('Falta la tabla') ? 'Presencia: falta SQL en Supabase' : 'Presencia: aviso'}
@@ -870,6 +873,7 @@ function App() {
               <button type="button" className="btn btn-danger btn-sm-mobile" onClick={cerrarSesion}>
                 <BtnLabel icon="logOut">Salir</BtnLabel>
               </button>
+            </div>
             </div>
           </div>
         </header>
