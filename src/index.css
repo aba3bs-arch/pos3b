@@ -1293,8 +1293,14 @@ table.data th {
   }
 
   .app-shell--mobile .app-header-tienda {
-    flex: 0 0 auto;
-    max-width: min(200px, 48vw);
+    flex: 1 1 auto;
+    max-width: min(280px, 72vw);
+    min-width: 140px;
+  }
+
+  .app-shell--mobile .sucursal-select-trigger {
+    min-height: 48px;
+    width: 100%;
   }
 
   .app-shell--mobile .app-header-meta-scroll {
