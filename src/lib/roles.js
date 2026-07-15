@@ -340,10 +340,22 @@ export function puedeEliminarProductosCatalogo(rol) {
 /** Roles de central MAIN que pueden elegir cualquier tienda en la sesión. */
 export const ROLES_CAMBIO_TIENDA_CENTRAL = ['Auditor', 'Técnico', 'Repartidor', 'Supervisor'];
 
+/** Rol de sistema efectivo (roles personalizados usan su plantilla). */
+function rolSistemaEfectivo(rol) {
+  const r = normalizarRol(rol);
+  if (ROLES.includes(r)) return r;
+  const custom = leerRolesPersonalizados().find((x) => x.nombre.toLowerCase() === r.toLowerCase());
+  if (custom?.plantilla && ROLES.includes(custom.plantilla)) return custom.plantilla;
+  return r;
+}
+
 /** Administrador, gerente y personal de central pueden cambiar tienda (incl. móvil). */
 export function puedeCambiarTiendaLibremente(rol) {
-  const r = normalizarRol(rol);
-  return r === 'Administrador' || r === 'Gerente' || ROLES_CAMBIO_TIENDA_CENTRAL.includes(r);
+  const r = rolSistemaEfectivo(rol);
+  if (r === 'Administrador' || r === 'Gerente' || ROLES_CAMBIO_TIENDA_CENTRAL.includes(r)) return true;
+  // Rol personalizado “Contabilidad” (u homónimo) opera desde central MAIN.
+  const nom = String(rol || '').trim().toLowerCase();
+  return nom.includes('contabilidad') || nom.includes('administraci');
 }
 
 export function puedeGestionarInventarioMultitienda(rol) {

@@ -586,7 +586,9 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
               </div>
             </div>
             <p className="muted" style={{ margin: '0.55rem 0 0', fontSize: '0.82rem' }}>
-              Solo ese neto queda en la cuenta para gastos (ej. Francisco). No se acredita el bruto.
+              Solo ese neto queda en la cuenta para gastos (ej. Francisco). Los {fmtMonto(totalGastosActivos)} de gasto del
+              recolector <strong>no</strong> se depositan: ya se gastaron. Si Francisco muestra más después, son netos de
+              otras liquidaciones acumuladas.
             </p>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.78rem' }}>
               {seleccionados.length} movimiento(s) · {diasSeleccionados.length} día(s) · Merc. {fmtMonto(resumenSel.mercancia)} · Serv.{' '}

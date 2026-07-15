@@ -1116,19 +1116,22 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
                   </p>
                   <div style={{ marginTop: '0.65rem', fontSize: '0.8rem', lineHeight: 1.45 }}>
                     <div>
-                      Liquidaciones: <strong>{fmtMonto(d.liquidaciones || 0)}</strong>
+                      Netos liquidado(s): <strong>{fmtMonto(d.liquidaciones || 0)}</strong>
                       {(d.transferenciasIn || 0) > 0 ? (
                         <span className="muted"> (+ transf. {fmtMonto(d.transferenciasIn)})</span>
                       ) : null}
                     </div>
                     <div style={{ color: 'var(--brand-red)' }}>
-                      − Gastos: {fmtMonto(d.gastos || 0)}
+                      − Gastos de esta cuenta: {fmtMonto(d.gastos || 0)}
                       {(d.transferenciasOut || 0) > 0 ? ` · − transf. ${fmtMonto(d.transferenciasOut)}` : ''}
                     </div>
                     <div style={{ marginTop: '0.25rem', fontWeight: 700 }}>
                       = {fmtMonto(disponible)}
                     </div>
                   </div>
+                  <p className="muted" style={{ margin: '0.55rem 0 0', fontSize: '0.72rem', lineHeight: 1.35 }}>
+                    Los gastos del recolector ya se restaron al sellar; aquí solo entra el neto. Si hay varias liquidaciones, el disponible es la suma de todos esos netos.
+                  </p>
                 </div>
               );
             })}
