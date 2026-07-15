@@ -34,6 +34,7 @@ export default function Inicio({
   const puede = typeof puedeModulo === 'function' ? puedeModulo : () => true;
   const puedeVerInventario = puede('Productos');
   const esAdminPrincipal = esAdministradorPrincipal(user);
+  const mostrarCambioTienda = typeof onCambiarTienda === 'function';
   const [panelAnuncios, setPanelAnuncios] = useState(false);
   const [panelPurge, setPanelPurge] = useState(false);
   const [hayAnuncio, setHayAnuncio] = useState(false);
@@ -109,7 +110,7 @@ export default function Inicio({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       <PanelCambiarTiendaCentral
-        habilitado={Boolean(puedeCambiarTienda && onCambiarTienda)}
+        habilitado={mostrarCambioTienda}
         sucursal={sucursal}
         lista={listaSucursales}
         presenciaMap={presenciaMap}

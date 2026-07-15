@@ -762,9 +762,12 @@ function App() {
   }
 
   const puedeCambiarTienda = puedeCambiarTiendaLibremente(user?.rol);
-  // Caja física (3B5…) sí queda fija. Central MAIN / VITE=MAIN: siempre se puede cambiar de sucursal.
-  // Si el equipo tenía “tienda fijada” pero el usuario es admin/central, igual puede desplegar y elegir.
-  const puedeCambiarTiendaSesion = puedeCambiarTienda && !CAJA_FISICA_FIJA_ENV;
+  const rolNorm = normalizarRol(user?.rol);
+  // Admin/Gerente siempre pueden consultar otra tienda en la sesión (móvil/central).
+  // Caja física (VITE_SUCURSAL_FIJA=3B…) solo bloquea a cajero y roles de piso.
+  const puedeCambiarTiendaSesion =
+    puedeCambiarTienda &&
+    (!CAJA_FISICA_FIJA_ENV || rolNorm === 'Administrador' || rolNorm === 'Gerente');
   const tiendaCajaFisicaBloqueada = Boolean(CAJA_FISICA_FIJA_ENV || tiendaFijadaParaAcceso);
   const modulosNav = modulosParaSidebar(user.rol, user.id);
   const subContabilidad = submodulosContabilidadVisibles(user.rol, user.id);
