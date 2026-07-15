@@ -51,9 +51,8 @@ function esTemporalPos3b(clave) {
 }
 
 /**
- * Elimina datos locales temporales (cortes en caché, movimientos, contabilidad offline, etc.).
- * No borra la caché del navegador ni recarga: la app sigue abierta con la sesión actual.
- * @returns {Promise<{ claves: number, bytes: number, session: number, detalle: string[] }>}
+ * Elimina datos locales temporales y la Cache API del navegador (JS/CSS viejos).
+ * Fuerza recarga para que el celular/PC tome el build nuevo de Netlify.
  */
 export async function limpiarCacheTemporal() {
   const detalle = [];
@@ -77,11 +76,29 @@ export async function limpiarCacheTemporal() {
     detalle.push(`session:${key}`);
   }
 
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent(EVENTO_CACHE_LIMPIADO, { detail: { claves, bytes, session } }));
+  let cachesBorrados = 0;
+  try {
+    if (typeof caches !== 'undefined' && caches?.keys) {
+      const keys = await caches.keys();
+      await Promise.all(
+        keys.map(async (k) => {
+          await caches.delete(k);
+          cachesBorrados += 1;
+          detalle.push(`cache:${k}`);
+        }),
+      );
+    }
+  } catch {
+    /* ignore */
   }
 
-  return { claves, bytes, session, detalle };
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent(EVENTO_CACHE_LIMPIADO, { detail: { claves, bytes, session, cachesBorrados } }),
+    );
+  }
+
+  return { claves, bytes, session, cachesBorrados, detalle, recargar: true };
 }
 
 export function formatoBytesAprox(bytes) {
@@ -91,8 +108,5 @@ export function formatoBytesAprox(bytes) {
 }
 
 export const TEXTO_AYUDA_LIMPIEZA =
-  'Se borran copias locales temporales (cortes en caché, movimientos, ajustes, datos offline de contabilidad). ' +
-  'No se borran: tienda activa, tipo de cambio, turnos, impresión, branding, privilegios, vínculo del equipo, ' +
-  'ni el borrador/salarios de nómina. ' +
-  'El PIN de cubre turno solo vive en la nube (no en el navegador). ' +
-  'La app permanece abierta con tu sesión actual; no hace falta recargar.';
+  'Se borran copias locales temporales y caché del navegador, y la pantalla se recarga para cargar la versión nueva. ' +
+  'No se borran: tienda activa, tipo de cambio, turnos, impresión, branding, privilegios ni vínculo del equipo.';

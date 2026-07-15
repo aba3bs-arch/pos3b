@@ -974,14 +974,33 @@ table.data th {
   overscroll-behavior: contain;
 }
 
-/* Hoja inferior en móvil: siempre visible encima de todo */
+/* Panel elegir sucursal: PC y móvil (encima de todo) */
 .sucursal-sheet {
   position: fixed;
   inset: 0;
-  z-index: 13000;
+  z-index: 20000;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+}
+
+@media (min-width: 769px) {
+  .sucursal-sheet {
+    justify-content: center;
+    align-items: center;
+    padding: 1.5rem;
+  }
+
+  .sucursal-sheet-panel {
+    width: min(420px, 100%);
+    max-height: min(70vh, 520px);
+    border-radius: 16px;
+    animation: none;
+  }
+
+  .sucursal-sheet-handle {
+    display: none;
+  }
 }
 
 .sucursal-sheet-backdrop {
