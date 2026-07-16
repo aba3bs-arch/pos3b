@@ -21,6 +21,7 @@ export const MODULOS_IDS = [
   'Vales y Préstamos',
   'Nómina',
   'Panel RT',
+  'IE VIRTUAL',
   'Configuracion',
   'Ayuda',
 ];
@@ -33,6 +34,7 @@ const ALIAS_MODULO = {
   Estadísticas: 'Estadisticas',
   Configuración: 'Configuracion',
   'Corte de Caja': 'Corte de caja',
+  'Cont Virtual': 'IE VIRTUAL',
 };
 
 export function normalizarListaModulos(lista) {

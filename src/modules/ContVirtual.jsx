@@ -825,7 +825,7 @@ export default function ContVirtual({ supabase, user }) {
       <>
         <div className="cv-mas-hd">
           <h2>Ajustes</h2>
-          <span className="ver">Cont Virtual</span>
+          <span className="ver">IE VIRTUAL</span>
         </div>
         <div className="cv-mas-grid">
           <button type="button" className="cv-mas-item" onClick={() => setMasVista('catalogo')}>

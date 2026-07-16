@@ -986,7 +986,7 @@ function App() {
           {vista === 'Panel RT' && (
             <RecoleccionesTraspasosContabilidad supabase={supabase} user={user} onVolverContabilidad={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
           )}
-          {vista === 'Cont Virtual' && (
+          {vista === 'IE VIRTUAL' && (
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
               <ContVirtual supabase={supabase} user={user} />

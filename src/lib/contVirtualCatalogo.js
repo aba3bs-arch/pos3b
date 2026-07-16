@@ -6,7 +6,7 @@ const LS_CAT = 'pos3b_cont_virtual_catalogo';
 export const EVENTO_CONT_VIRTUAL_CATALOGO = 'pos3b-cont-virtual-catalogo';
 
 export const AVISO_FALTA_CONT_VIRTUAL =
-  'Ejecuta supabase/fix_cont_virtual.sql en Supabase para categorías y egresos Cont Virtual.';
+  'Ejecuta supabase/fix_cont_virtual.sql en Supabase para categorías y egresos IE VIRTUAL.';
 
 export const CATEGORIAS_CONT_VIRTUAL_DEFAULT = [
   {
