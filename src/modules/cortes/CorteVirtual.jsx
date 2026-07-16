@@ -7,8 +7,10 @@ import {
   calcularVirtual,
   cajaChicaAcumulada,
   cajaVirtualEnNegativo,
+  monedaAInyectarVirtual,
   monedaInicialTurnoEfectiva,
   monedaRecolectorRef,
+  monedaTopeVirtual,
   prepararTrasRecoleccionVirtual,
   round2,
   siguienteMonedaInicialTurnoVirtual,
@@ -47,8 +49,8 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     };
   }, []);
 
-  const prepararTrasRecoleccion = useCallback((estado, calc, { nuevaMoneda }) => {
-    return prepararTrasRecoleccionVirtual(estado, calc, { nuevaMoneda });
+  const prepararTrasRecoleccion = useCallback((estado, calc, opts) => {
+    return prepararTrasRecoleccionVirtual(estado, calc, opts);
   }, []);
 
   const {
@@ -86,6 +88,8 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
   const monedaReferencia = monedaRecolectorRef(estado);
   const monedaInicioCorte = monedaInicialTurnoEfectiva(estado);
   const cajaAcumulada = cajaChicaAcumulada(estado, calc);
+  const monedaTope = monedaTopeVirtual(estado);
+  const monedaInyectar = monedaAInyectarVirtual(estado, estado.precoleccion);
   const cajaNegativa = cajaVirtualEnNegativo(estado, calc);
   const monedaSobreInicial =
     estado.moneda_final_editada && round2(estado.moneda_final) > monedaInicioCorte + 0.001;
@@ -114,14 +118,20 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
 
   const confirmarRecoleccion = async () => {
     const montoRec = round2(estado.recoleccion ?? estado.recoleccion_turno);
+    const tope = monedaTopeVirtual(estado);
+    const inyectar = monedaAInyectarVirtual(estado, estado.precoleccion);
+    const monOp = tope > 0 ? tope : round2(estado.precoleccion);
     const msg =
       `¿Registrar recolección?\n\n` +
       `Recolector: ${user?.nombre || '—'}\n` +
       `Precolección (moneda contada): ${fmtCorte(estado.precoleccion)}\n` +
       `Recolección en efectivo: ${fmtCorte(montoRec)}\n` +
+      `Moneda tope: ${fmtCorte(tope)}\n` +
+      `Inyectar a sucursal: ${fmtCorte(inyectar)}\n` +
+      `(tope − precolección)\n` +
       `Caja chica del periodo: ${fmtCorte(cajaAcumulada)}\n\n` +
       `Se recoge el efectivo y el periodo reinicia en ${fmtCorte(0)}.\n` +
-      `Moneda de referencia e inicio de operación: ${fmtCorte(estado.precoleccion)}.\n` +
+      `Moneda de referencia e inicio de operación (actualizada al tope): ${fmtCorte(monOp)}.\n` +
       `Los gastos del periodo quedan registrados en historial y nómina.`;
     if (!confirm(msg)) return;
     const res = await registrarRecoleccion({
@@ -248,10 +258,10 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
           <h4 style={{ margin: '0 0 0.75rem' }}>Moneda y venta</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }} data-corte-form="virtual-moneda">
             <CampoCorte
-              label="Fondo fijo"
+              label="Fondo fijo (moneda tope)"
               value={estado.fondo ?? 0}
               editable={Boolean(perm.editarTodo)}
-              hint="Referencia del administrador · no afecta la venta"
+              hint="Tope de moneda de la operación (ej. $5,000). Si está en 0, se usa la moneda de referencia morada."
               onChange={(v) => patchEstado({ fondo: v })}
             />
             <CampoCorte
@@ -338,7 +348,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
                   label="Precolección (moneda contada ahora)"
                   value={estado.precoleccion ?? ''}
                   editable
-                  hint="Moneda en caja tras retirar efectivo · actualiza referencia morada al registrar"
+                  hint="Moneda en caja tras retirar efectivo · se resta del tope para calcular la inyección"
                   onChange={(v) => patchEstado({ precoleccion: v, _precoleccion_editada: true })}
                 />
                 <CampoCorte
@@ -348,11 +358,18 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
                   hint="Efectivo retirado que anota el recolector (ej. $9,000)"
                   onChange={(v) => patchEstado({ recoleccion_turno: v, recoleccion: v })}
                 />
+                <div style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(142,68,173,0.12)', borderRadius: 8, marginTop: '0.5rem' }}>
+                  <div className="muted" style={{ fontSize: '0.75rem' }}>INYECTAR A SUCURSAL</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: COLOR }}>{fmtCorte(monedaInyectar)}</div>
+                  <div className="muted" style={{ fontSize: '0.7rem' }}>
+                    Tope {fmtCorte(monedaTope)} − precolección {fmtCorte(estado.precoleccion || 0)}
+                  </div>
+                </div>
                 <div style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(225,153,41,0.12)', borderRadius: 8, marginTop: '0.5rem' }}>
                   <div className="muted" style={{ fontSize: '0.75rem' }}>Caja chica acumulada</div>
                   <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--brand-gold)' }}>{fmtCorte(cajaAcumulada)}</div>
                   <div className="muted" style={{ fontSize: '0.7rem' }}>
-                    Al registrar: periodo en {fmtCorte(0)} · operación con moneda {fmtCorte(estado.precoleccion || 0)}
+                    Al registrar: periodo en {fmtCorte(0)} · operación con moneda tope {fmtCorte(monedaTope > 0 ? monedaTope : estado.precoleccion || 0)}
                   </div>
                 </div>
                 <button

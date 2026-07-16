@@ -99,9 +99,35 @@ export function cajaChicaAcumulada(estado, calc) {
   return round2((calc?.cajaActual ?? 0) + rec);
 }
 
-/** Tras recolección: reinicio de periodo (caja/venta en $0), moneda ref. = precolección. Historial y gastos en BD intactos. */
-export function prepararTrasRecoleccionVirtual(estado, _calc, { nuevaMoneda }) {
-  const mi = round2(nuevaMoneda);
+/**
+ * Moneda tope de la operación Virtual.
+ * Usa fondo fijo si el admin lo configuró; si no, la moneda inicial de referencia (morado).
+ */
+export function monedaTopeVirtual(estado) {
+  const fondo = round2(estado?.fondo);
+  if (fondo > 0) return fondo;
+  return round2(estado?.moneda_inicial);
+}
+
+/**
+ * Moneda a inyectar en sucursal tras recolección:
+ * tope − precolección (lo que falta para dejar la moneda en el tope).
+ */
+export function monedaAInyectarVirtual(estado, precoleccion) {
+  const tope = monedaTopeVirtual(estado);
+  const prec = round2(precoleccion != null ? precoleccion : estado?.precoleccion);
+  return round2(Math.max(0, tope - prec));
+}
+
+/**
+ * Tras recolección: reinicio de periodo; moneda de operación = tope (tras inyectar).
+ * Historial y gastos en BD intactos.
+ */
+export function prepararTrasRecoleccionVirtual(estado, _calc, { nuevaMoneda, monedaTope } = {}) {
+  const topeCalc = monedaTope != null ? round2(monedaTope) : monedaTopeVirtual(estado);
+  const prec = round2(nuevaMoneda);
+  // Si hay tope, la operación queda en tope (ya inyectada); si no, usa la precolección.
+  const mi = topeCalc > 0 ? topeCalc : prec;
   return {
     ...estado,
     moneda_inicial: mi,

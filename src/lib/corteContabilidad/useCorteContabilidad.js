@@ -3,7 +3,7 @@ import { turnoActual, nombreTurnoLegible } from '../turnos.js';
 import { empleadosParaCorte } from '../empleadosVisibles.js';
 import { permisosCorteContabilidad, puedeEditarCorteCampo } from './permisos.js';
 import { gastoRequiereEmpleado } from './catalogoGastos.js';
-import { round2 } from './calc.js';
+import { monedaAInyectarVirtual, monedaTopeVirtual, round2 } from './calc.js';
 import {
   AVISO_FALTA_CORTES,
   agregarGastoTurno,
@@ -239,6 +239,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     }
 
     const mf = round2(estado.precoleccion);
+    const monedaTope = monedaTopeVirtual(estado);
+    const monedaInyectar = monedaAInyectarVirtual(estado, mf);
     if (corteAnteriorId && monedaFinalAnterior != null && monedaFinalAnterior !== '') {
       const upd = await actualizarDetalleCierre(
         supabase,
@@ -266,6 +268,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         precoleccion: mf,
         recoleccion: montoRec,
         recoleccion_turno: montoRec,
+        moneda_tope: monedaTope,
+        moneda_inyectar: monedaInyectar,
         gastos,
         gastos_total: calc.gastosTotal,
         subtotal: calc.subtotal,
@@ -281,16 +285,26 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
 
     await limpiarGastosTurno(supabase, sucursal, modulo);
     const prep = prepararTrasRecoleccion || ((e) => e);
-    const nuevoEstado = prep(estado, calc, { nuevaMoneda: mf, montoRecoleccion: montoRec });
+    const nuevoEstado = prep(estado, calc, {
+      nuevaMoneda: mf,
+      montoRecoleccion: montoRec,
+      monedaTope,
+      monedaInyectar,
+    });
     await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
     setEstado(nuevoEstado);
     setGastos([]);
     const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
     setHistorial(hist.data || []);
+    const monOp = monedaTope > 0 ? monedaTope : mf;
     alert(
       `Recolección de ${fmtCorte(montoRec)} registrada.\n\n` +
+        `Precolección: ${fmtCorte(mf)}\n` +
+        `Moneda tope: ${fmtCorte(monedaTope)}\n` +
+        `Inyectar a sucursal: ${fmtCorte(monedaInyectar)}\n` +
+        `(tope − precolección)\n\n` +
         `Periodo reiniciado: caja y ventas en ${fmtCorte(0)}.\n` +
-        `Moneda de referencia e inicio de operación: ${fmtCorte(mf)}.\n` +
+        `Moneda de referencia e inicio de operación: ${fmtCorte(monOp)}.\n` +
         `Los gastos del periodo quedan en historial y nómina.`,
     );
     return { ok: true };

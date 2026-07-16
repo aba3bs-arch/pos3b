@@ -94,6 +94,9 @@ function filasResumenModulo(data) {
     filas.push(['Moneda inicial del corte', fmt(e.moneda_inicial_turno ?? e.moneda_inicial)]);
     filas.push(['Moneda final', fmt(e.moneda_final)]);
     if (e.recoleccion || e.recoleccion_turno) filas.push(['Recolección', fmt(e.recoleccion ?? e.recoleccion_turno)]);
+    if (e.precoleccion != null && e.tipo_cierre === 'recoleccion') filas.push(['Precolección', fmt(e.precoleccion)]);
+    if (e.moneda_tope != null) filas.push(['Moneda tope', fmt(e.moneda_tope)]);
+    if (e.moneda_inyectar != null) filas.push(['Inyectar a sucursal', fmt(e.moneda_inyectar)]);
   } else if (mod === 'abarrotes') {
     filas.push(['Venta total', fmt(e.venta)]);
     filas.push(['Tarjeta', fmt(e.tarjeta)]);
