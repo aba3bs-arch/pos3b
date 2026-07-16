@@ -924,13 +924,16 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
                 ))}
               </select>
             </label>
-            {saldoRep && (
+            {saldoRep && gastoRep && (
               <p style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
-                Saldo neto: <strong>{fmtMonto(saldoRep.total)}</strong>
-                <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
-                  Recolectado {fmtMonto(saldoRep.ingresos)} − gastos {fmtMonto(saldoRep.egresos)}
-                  {saldoRep.reservado > 0 ? ` · pendiente aceptar ${fmtMonto(saldoRep.reservado)}` : ''}
-                  {' · '}disponible {fmtMonto(saldoRep.disponible)}
+                Efectivo en tránsito (recolector): <strong>{fmtMonto(saldoRep.ingresos)}</strong>
+                {saldoRep.reservado > 0 ? (
+                  <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
+                    Pendiente de aceptar por el recolector: {fmtMonto(saldoRep.reservado)}
+                  </span>
+                ) : null}
+                <span className="muted" style={{ display: 'block', fontSize: '0.78rem', marginTop: '0.2rem' }}>
+                  Los gastos aceptados no se muestran al recolector; se descuentan solo al liquidar en oficina.
                 </span>
               </p>
             )}
@@ -1024,16 +1027,15 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
             {saldoRep && gastoRep && (
               <div style={{ margin: '0.75rem 0', padding: '0.75rem', borderRadius: 10, background: 'rgba(13,148,136,0.08)', border: '1px solid rgba(13,148,136,0.25)' }}>
                 <p style={{ margin: 0, fontSize: '0.85rem' }}>
-                  Recolecciones: <strong>{fmtMonto(saldoRep.ingresos)}</strong> ({saldoRep.count} mov.)
+                  En tránsito: <strong>{fmtMonto(saldoRep.ingresos)}</strong> ({saldoRep.count} mov.)
                 </p>
-                <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem', color: 'var(--brand-red)' }}>
-                  Gastos aceptados: −{fmtMonto(saldoRep.egresos)}
-                </p>
+                {saldoRep.egresos > 0 && (
+                  <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.78rem' }}>
+                    Gastos aceptados (solo liquidación): {fmtMonto(saldoRep.egresos)}
+                  </p>
+                )}
                 <p style={{ margin: '0.45rem 0 0', fontWeight: 800, fontSize: '1.05rem', color: 'var(--brand-blue)' }}>
                   A liberar / acreditar: {fmtMonto(saldoRep.aLiberar ?? saldoRep.total)}
-                </p>
-                <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.78rem' }}>
-                  Ese neto es lo que puede usar Francisco (u Andrés) para gastos desde la cuenta RT.
                 </p>
               </div>
             )}

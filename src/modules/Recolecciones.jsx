@@ -717,7 +717,14 @@ export default function Recolecciones({ supabase, sucursal, user }) {
           {!repGasto ? (
             <p className="muted" style={{ marginTop: '1rem' }}>Selecciona tu nombre de recolector.</p>
           ) : !gastosPendientes.length ? (
-            <p className="muted" style={{ marginTop: '1rem' }}>✅ No hay gastos pendientes de aceptar.</p>
+            <p className="muted" style={{ marginTop: '1rem' }}>
+              ✅ No hay gastos pendientes de aceptar.
+              {esRepartidor && (
+                <span style={{ display: 'block', marginTop: '0.35rem', fontSize: '0.8rem' }}>
+                  No se muestra saldo en tránsito en esta pantalla. Los gastos aceptados solo aplican en liquidación de oficina.
+                </span>
+              )}
+            </p>
           ) : (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>

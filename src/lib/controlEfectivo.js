@@ -42,6 +42,11 @@ export function fmtMonto(n) {
   return `$${Number(n || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+/** Monto visible en caja/recolector: nunca negativo (evita “sobrante” mal interpretado). */
+export function fmtMontoVisible(n) {
+  return fmtMonto(Math.max(0, Number(n) || 0));
+}
+
 export function ahoraIsoNogales() {
   return new Date().toISOString();
 }
@@ -1231,8 +1236,9 @@ export async function saldoEnTransitoRepartidor(supabase, repartidorId, opts = {
   const ingresos = enTransito.reduce((a, m) => a + Number(m.monto || 0), 0);
   const egresos = gastos.reduce((a, m) => a + Number(m.monto || 0), 0);
   const reservado = pendientes.reduce((a, m) => a + Number(m.monto || 0), 0);
-  const total = Math.round((ingresos - egresos) * 100) / 100;
-  const disponible = Math.round((total - reservado) * 100) / 100;
+  const totalReal = Math.round((ingresos - egresos) * 100) / 100;
+  const total = Math.max(0, totalReal);
+  const disponible = Math.max(0, Math.round((total - reservado) * 100) / 100);
   return {
     movimientos: enTransito,
     gastos,
@@ -1241,8 +1247,9 @@ export async function saldoEnTransitoRepartidor(supabase, repartidorId, opts = {
     egresos,
     reservado,
     total,
-    disponible: Math.max(0, disponible),
-    aLiberar: Math.max(0, total),
+    totalReal,
+    disponible,
+    aLiberar: total,
     count: enTransito.length,
   };
 }
