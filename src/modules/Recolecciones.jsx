@@ -698,8 +698,9 @@ export default function Recolecciones({ supabase, sucursal, user }) {
         <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)' }}>
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Gastos autorizados</h3>
           <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
-            Contabilidad autoriza gastos desde Panel RT. Al aceptar con tu PIN, el gasto queda registrado para
-            liquidación. No verás saldos ni montos en tránsito aquí: solo pendientes de aceptar.
+            Solo aparecen gastos pendientes de aceptar con tu PIN. Al aceptarlos desaparecen de aquí y se aplican
+            únicamente en la liquidación de oficina. Esta pantalla no muestra efectivo en tránsito ni montos
+            disponibles.
           </p>
 
           <label className="muted" style={{ display: 'block' }}>
@@ -717,14 +718,7 @@ export default function Recolecciones({ supabase, sucursal, user }) {
           {!repGasto ? (
             <p className="muted" style={{ marginTop: '1rem' }}>Selecciona tu nombre de recolector.</p>
           ) : !gastosPendientes.length ? (
-            <p className="muted" style={{ marginTop: '1rem' }}>
-              ✅ No hay gastos pendientes de aceptar.
-              {esRepartidor && (
-                <span style={{ display: 'block', marginTop: '0.35rem', fontSize: '0.8rem' }}>
-                  No se muestra saldo en tránsito en esta pantalla. Los gastos aceptados solo aplican en liquidación de oficina.
-                </span>
-              )}
-            </p>
+            <p className="muted" style={{ marginTop: '1rem' }}>✅ No hay gastos pendientes de aceptar.</p>
           ) : (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
