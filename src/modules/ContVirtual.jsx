@@ -235,7 +235,7 @@ export default function ContVirtual({ supabase, user }) {
         return { desde: h, hasta: h };
       }
       if (estadPreset === 'semana') {
-        const d = new Date(anio, mes, Math.min(now.getDate(), 28));
+        const d = new Date(anio, mes, Math.min(hoyRef.getDate(), 28));
         const day = d.getDay();
         const sinceSat = (day + 1) % 7;
         const ini = new Date(d);
@@ -250,7 +250,7 @@ export default function ContVirtual({ supabase, user }) {
     }
     if (nav === 'trans' && transTab === 'mensual') return rangoAnioContVirtual(anio);
     return rangoMesContVirtual(anio, mes);
-  }, [nav, transTab, anio, mes, estadPreset, now]);
+  }, [nav, transTab, anio, mes, estadPreset, hoyRef]);
 
   const labelPeriodo = useMemo(() => {
     if (nav === 'trans' && transTab === 'mensual') return String(anio);
@@ -326,9 +326,9 @@ export default function ContVirtual({ supabase, user }) {
         balance: Math.round((ing - gas) * 100) / 100,
         semanas: semanasDelMesContVirtual(anio, i, porDia),
       };
-    }).filter((m) => m.i <= now.getMonth() || anio < now.getFullYear() || m.ingresos || m.gastos)
+    }).filter((m) => m.i <= hoyRef.getMonth() || anio < hoyRef.getFullYear() || m.ingresos || m.gastos)
       .reverse();
-  }, [transTab, datos, anio, porDia, now]);
+  }, [transTab, datos, anio, porDia, hoyRef]);
 
   const calCells = useMemo(() => buildCalendarCells(anio, mes, byFecha), [anio, mes, byFecha]);
 
