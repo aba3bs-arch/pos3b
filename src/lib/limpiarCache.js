@@ -35,6 +35,7 @@ const CLAVES_PRESERVAR = new Set([
   'pos3b_ajuste_libre_prefs',
   'pos3b_vales_tiendas_permitidas',
   'pos3b_anuncios_pos',
+  'pos3b_ventana_recoleccion',
 ]);
 
 

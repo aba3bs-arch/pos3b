@@ -7,7 +7,7 @@ import { crearNotificacion, TIPOS_NOTIF } from './contabilidadNotificaciones.js'
 const TIPOS_TRASPASO = ['Recolección', 'Entrega Crédito'];
 const TZ = 'America/Hermosillo';
 
-export { estadoVentanaRecoleccion, ventanaRecoleccionAbierta } from './ventanaRecoleccion.js';
+export { estadoVentanaRecoleccion, ventanaRecoleccionAbierta, EVENTO_VENTANA_RECOLECCION, leerVentanaRecoleccion, guardarVentanaRecoleccion, etiquetaVentanaRecoleccion } from './ventanaRecoleccion.js';
 
 const SERVICIO_CFE_DEFAULT = {
   clave: 'CFE',
@@ -933,8 +933,18 @@ export async function liquidarMovimientos(supabase, { ids, adminNombre, repartid
     montoTotal = (rowsMonto || []).reduce((a, r) => a + Number(r.monto || 0), 0);
   }
 
+  const { data: rowsPrev } = await supabase.from('transito_efectivo').select('id, repartidor_id, foto_url').in('id', ids);
+  const repartidorIds = [...new Set((rowsPrev || []).map((r) => r.repartidor_id).filter(Boolean))];
+
+  // Snapshot de gastos activos ANTES de sellar recolecciones (luego lastLiq cambia).
+  const gastosACerrar = [];
+  for (const rid of repartidorIds) {
+    const activos = await listarGastosActivosParaLiquidacion(supabase, rid);
+    for (const g of activos) gastosACerrar.push(g);
+  }
+
   for (const id of ids) {
-    const { data: prev } = await supabase.from('transito_efectivo').select('foto_url').eq('id', id).maybeSingle();
+    const prev = (rowsPrev || []).find((r) => r.id === id);
     const bitacora = [prev?.foto_url, sello].filter(Boolean).join(' | ');
     const { error } = await supabase
       .from('transito_efectivo')
@@ -946,6 +956,17 @@ export async function liquidarMovimientos(supabase, { ids, adminNombre, repartid
       })
       .eq('id', id);
     if (error) return { ok: false, error: error.message };
+  }
+
+  let gastosCerrados = 0;
+  if (gastosACerrar.length) {
+    const cerrados = await marcarGastosAplicadosEnLiquidacion(supabase, {
+      gastos: gastosACerrar,
+      fechaLiquidacion: tLiq,
+      adminNombre,
+    });
+    if (!cerrados.ok) return { ok: false, error: cerrados.error, count: ids.length, parcial: true };
+    gastosCerrados = cerrados.count || 0;
   }
 
   if (cuentaRtId && montoTotal > 0) {
@@ -960,7 +981,7 @@ export async function liquidarMovimientos(supabase, { ids, adminNombre, repartid
     if (!cred.ok) return { ok: false, error: cred.error, count: ids.length, parcial: true };
   }
 
-  return { ok: true, count: ids.length, montoTotal, cuentaRtId: cuentaRtId || null };
+  return { ok: true, count: ids.length, montoTotal, cuentaRtId: cuentaRtId || null, gastosCerrados };
 }
 
 export async function listarAlertasRecoleccion(supabase) {
@@ -1170,11 +1191,11 @@ export async function listarGastosLiquidadosRecolector(supabase, { repartidorId 
 
 /**
  * Gastos ya aceptados por el recolector que aún descuentan del efectivo en tránsito
- * (posteriores a la última liquidación sellada de recolecciones).
+ * (posteriores a la última liquidación sellada de recolecciones y no marcados como aplicados).
  */
 export async function listarGastosActivosParaLiquidacion(supabase, repartidorId) {
   if (!supabase || !repartidorId) return [];
-  const { data: lastLiq, error: e1 } = await supabase
+  const { data: lastRows, error: e1 } = await supabase
     .from('transito_efectivo')
     .select('fecha_liquidacion')
     .eq('repartidor_id', repartidorId)
@@ -1182,14 +1203,14 @@ export async function listarGastosActivosParaLiquidacion(supabase, repartidorId)
     .neq('tipo_movimiento', 'Gasto')
     .not('fecha_liquidacion', 'is', null)
     .order('fecha_liquidacion', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
   if (e1) throw e1;
+  const lastLiq = lastRows?.[0] || null;
 
   let q = supabase
     .from('transito_efectivo')
     .select(
-      'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, descripcion_gasto, estatus, fecha_liquidacion, usuario_liquida',
+      'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, descripcion_gasto, estatus, fecha_liquidacion, usuario_liquida, foto_url',
     )
     .eq('repartidor_id', repartidorId)
     .eq('tipo_movimiento', 'Gasto')
@@ -1200,7 +1221,29 @@ export async function listarGastosActivosParaLiquidacion(supabase, repartidorId)
   }
   const { data, error } = await q;
   if (error) throw error;
-  return data || [];
+  return (data || []).filter((g) => !String(g.foto_url || '').includes('| LIQ_APLICADA'));
+}
+
+/** Marca gastos como ya descontados en una liquidación (no vuelven a restar). */
+export async function marcarGastosAplicadosEnLiquidacion(supabase, { gastos = [], fechaLiquidacion, adminNombre } = {}) {
+  if (!gastos.length) return { ok: true, count: 0 };
+  const tLiq = fechaLiquidacion || ahoraIsoNogales();
+  let count = 0;
+  for (const g of gastos) {
+    const bitacora = `${g.foto_url || g.descripcion_gasto || ''} | LIQ_APLICADA ${tLiq} · ${adminNombre || ''}`.trim();
+    const { error } = await supabase
+      .from('transito_efectivo')
+      .update({
+        fecha_liquidacion: tLiq,
+        foto_url: bitacora,
+        usuario_liquida: `Aplicado liquidación · ${adminNombre || ''}`.trim(),
+      })
+      .eq('id', g.id)
+      .eq('tipo_movimiento', 'Gasto');
+    if (error) return { ok: false, error: error.message };
+    count += 1;
+  }
+  return { ok: true, count };
 }
 
 export async function registrarGastoRecolector(supabase, { repartidorId, monto, descripcion, adminNombre, tienda }) {

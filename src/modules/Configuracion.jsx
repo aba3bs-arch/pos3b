@@ -115,6 +115,13 @@ import {
   DESCRIPCION_MODULO_INCIDENCIAS,
   tieneAccionIncidencia,
 } from '../lib/incidenciasPrivilegios.js';
+import {
+  leerVentanaRecoleccion,
+  guardarVentanaRecoleccion,
+  etiquetaVentanaRecoleccion,
+  HORA_INICIO_RECOLECCION_DEFAULT,
+  HORA_FIN_RECOLECCION_DEFAULT,
+} from '../lib/ventanaRecoleccion.js';
 
 export default function Configuracion({
   supabase,
@@ -159,6 +166,7 @@ export default function Configuracion({
   const [nuevoPinCubreDraft, setNuevoPinCubreDraft] = useState('');
   const [pedirPinDesbloqueo, setPedirPinDesbloqueo] = useState(false);
   const [pinDesbloqueoTienda, setPinDesbloqueoTienda] = useState('');
+  const [ventanaRec, setVentanaRec] = useState(() => leerVentanaRecoleccion());
   const esAdmin = puedeGestionarUsuarios(user?.rol);
   const puedePrivilegios = puedeGestionarPrivilegios(user?.rol);
   const recibeAlertas = puedeRecibirNotificacionesDispositivo(user?.rol);
@@ -767,6 +775,73 @@ export default function Configuracion({
         <p className="muted" style={{ fontSize: '0.85rem' }}>
           El cambio al cliente se calcula en pesos según este valor. Se sincroniza en la nube para todas las sucursales; cada caja lo descarga al iniciar sesión.
         </p>
+
+        <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '1.25rem 0' }} />
+        <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Ventana de recolección</h4>
+        <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
+          Horario en que se puede cobrar efectivo / CFE en ruta (hora Sonora). Norma: {String(HORA_INICIO_RECOLECCION_DEFAULT).padStart(2, '0')}:00 –{' '}
+          {String(HORA_FIN_RECOLECCION_DEFAULT).padStart(2, '0')}:00. Crédito / reparto siguen permitidos fuera de ventana.
+        </p>
+        <div className="grid-2" style={{ gap: '0.75rem', marginTop: '0.5rem' }}>
+          <label className="muted">
+            Hora inicio (0–23)
+            <input
+              type="number"
+              min={0}
+              max={22}
+              className="input"
+              style={{ marginTop: '0.35rem' }}
+              value={ventanaRec.horaInicio}
+              onChange={(e) => setVentanaRec((v) => ({ ...v, horaInicio: Number(e.target.value) }))}
+            />
+          </label>
+          <label className="muted">
+            Hora fin (1–23, exclusiva)
+            <input
+              type="number"
+              min={1}
+              max={23}
+              className="input"
+              style={{ marginTop: '0.35rem' }}
+              value={ventanaRec.horaFin}
+              onChange={(e) => setVentanaRec((v) => ({ ...v, horaFin: Number(e.target.value) }))}
+            />
+          </label>
+        </div>
+        <p className="muted" style={{ fontSize: '0.82rem', margin: '0.5rem 0 0' }}>
+          Actual: <strong>{etiquetaVentanaRecoleccion(ventanaRec)}</strong> (abierta desde inicio hasta un minuto antes del fin).
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.65rem' }}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => {
+              try {
+                const next = guardarVentanaRecoleccion(ventanaRec);
+                setVentanaRec(next);
+                alert(`Ventana de recolección guardada: ${etiquetaVentanaRecoleccion(next)} (hora Sonora).`);
+              } catch (e) {
+                alert(e?.message || String(e));
+              }
+            }}
+          >
+            Guardar ventana
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => {
+              const next = guardarVentanaRecoleccion({
+                horaInicio: HORA_INICIO_RECOLECCION_DEFAULT,
+                horaFin: HORA_FIN_RECOLECCION_DEFAULT,
+              });
+              setVentanaRec(next);
+              alert(`Restaurada la norma: ${etiquetaVentanaRecoleccion(next)}.`);
+            }}
+          >
+            Restaurar 8:00 – 20:00
+          </button>
+        </div>
 
         <div style={{ marginTop: '0.75rem' }}>
           <label className="muted" style={{ display: 'block' }}>

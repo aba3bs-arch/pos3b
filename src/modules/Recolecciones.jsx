@@ -23,6 +23,7 @@ import {
   serviciosObligatoriosPendientesTienda,
   sucursalParaControlEfectivo,
   estadoVentanaRecoleccion,
+  EVENTO_VENTANA_RECOLECCION,
 } from '../lib/controlEfectivo.js';
 
 function TabBtn({ active, onClick, children }) {
@@ -75,7 +76,12 @@ export default function Recolecciones({ supabase, sucursal, user }) {
 
   useEffect(() => {
     const id = setInterval(() => setTickVentana((n) => n + 1), 60_000);
-    return () => clearInterval(id);
+    const onCfg = () => setTickVentana((n) => n + 1);
+    window.addEventListener(EVENTO_VENTANA_RECOLECCION, onCfg);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener(EVENTO_VENTANA_RECOLECCION, onCfg);
+    };
   }, []);
 
   useEffect(() => {
@@ -349,7 +355,7 @@ export default function Recolecciones({ supabase, sucursal, user }) {
         }}
       >
         <strong style={{ color: 'var(--brand-blue)' }}>
-          Ventana de recolección: 09:00 – 20:00 (hora Sonora)
+          Ventana de recolección: {ventana.etiqueta || '08:00 – 20:00'} (hora Sonora)
         </strong>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
           {ventana.abierta
@@ -526,7 +532,7 @@ export default function Recolecciones({ supabase, sucursal, user }) {
                   onChange={() => setEsEfectivo(true)}
                 />{' '}
                 Efectivo (cobrado ahora)
-                {!ventana.abierta && <span className="muted"> — fuera de ventana 9–20 h</span>}
+                {!ventana.abierta && <span className="muted"> — fuera de ventana {ventana.etiqueta}</span>}
               </label>
               <label style={{ display: 'block', marginTop: '0.25rem' }}>
                 <input type="radio" checked={!esEfectivo} onChange={() => setEsEfectivo(false)} /> Crédito (pendiente de cobro)
@@ -687,7 +693,7 @@ export default function Recolecciones({ supabase, sucursal, user }) {
                 <InputPin value={pinCobro} onChange={(e) => setPinCobro(e.target.value)} placeholder="PIN" style={{ marginBottom: 0 }} />
               </label>
               <button type="button" className="btn btn-success" style={{ marginTop: '1rem' }} disabled={guardando || totalCobroSel <= 0 || !ventana.abierta} onClick={confirmarCobro}>
-                {guardando ? 'Procesando…' : !ventana.abierta ? 'Fuera de ventana 9–20 h' : `Confirmar cobro · ${fmtMonto(totalCobroSel)}`}
+                {guardando ? 'Procesando…' : !ventana.abierta ? `Fuera de ventana ${ventana.etiqueta}` : `Confirmar cobro · ${fmtMonto(totalCobroSel)}`}
               </button>
             </>
           )}
