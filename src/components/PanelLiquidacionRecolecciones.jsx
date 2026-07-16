@@ -15,6 +15,8 @@ import {
   marcarAlertaVista,
   reporteRecoleccionTiendaFecha,
   resumenTotalesPorTipo,
+  calcularNetosLiquidacion,
+  armarAcreditacionesLiquidacion,
 } from '../lib/controlEfectivo.js';
 import {
   CUENTAS_RT,
@@ -64,7 +66,8 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const [filtroDesde, setFiltroDesde] = useState('');
   const [filtroHasta, setFiltroHasta] = useState('');
   const [fechaSellado, setFechaSellado] = useState(() => hoyClaveNogales());
-  const [cuentaRt, setCuentaRt] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || CUENTAS_RT[0]?.id || '');
+  const [cuentaRtMercancia, setCuentaRtMercancia] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || 'francisco');
+  const [cuentaRtServicios, setCuentaRtServicios] = useState('andres');
 
   const esHistorial = modoConsulta === 'historial';
   const diaDe = esHistorial ? 'liquidacion' : 'recoleccion';
@@ -98,7 +101,7 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
 
   useEffect(() => {
     const detectada = resolverCuentaRtPorNombre(user?.nombre);
-    if (detectada) setCuentaRt(detectada);
+    if (detectada) setCuentaRtMercancia(detectada);
   }, [user?.nombre]);
 
   const cargar = useCallback(async () => {
@@ -144,11 +147,12 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
     () => gastosActivos.reduce((a, m) => a + Number(m.monto || 0), 0),
     [gastosActivos],
   );
-  /** Efectivo a recibir en oficina = recolecciones seleccionadas − gastos ya aceptados. */
-  const totalARecolectar = useMemo(
-    () => Math.max(0, Math.round((totalSeleccionado - totalGastosActivos) * 100) / 100),
-    [totalSeleccionado, totalGastosActivos],
+  const netosLiquidacion = useMemo(
+    () => calcularNetosLiquidacion(seleccionados, totalGastosActivos),
+    [seleccionados, totalGastosActivos],
   );
+  /** Efectivo a recibir en oficina = mercancía (neto) + servicios. */
+  const totalARecolectar = netosLiquidacion.totalARecolectar;
   const resumenSel = useMemo(() => resumenTotalesPorTipo(seleccionados), [seleccionados]);
 
   const diasSeleccionados = useMemo(
@@ -208,11 +212,32 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
   const confirmarLiquidacion = async () => {
     const ids = seleccionados.map((m) => m.id);
     if (!ids.length) return alert('Selecciona al menos un día o movimiento para liquidar.');
-    if (!cuentaRt) return alert('Selecciona la cuenta RT (Francisco o Andrés) que recibe el efectivo.');
+    if (!cuentaRtMercancia && netosLiquidacion.netoMercancia > 0) {
+      return alert('Selecciona la cuenta RT para mercancía.');
+    }
+    if (!cuentaRtServicios && netosLiquidacion.netoServicios > 0) {
+      return alert('Selecciona la cuenta RT para servicios.');
+    }
+    const { acreditaciones } = armarAcreditacionesLiquidacion({
+      seleccionados,
+      totalGastos: totalGastosActivos,
+      cuentaRtMercancia,
+      cuentaRtServicios,
+      repartidorNombre: repNombre,
+    });
+    if (!acreditaciones.length) return alert('No hay monto neto para acreditar.');
     const diasTxt = diasSeleccionados.map((d) => d.etiqueta).join(', ');
+    const lineasCuentas = acreditaciones
+      .map((a) => `${etiquetaCuentaRt(a.cuentaRtId)}: ${fmtMonto(a.monto)}`)
+      .join('\n');
     if (
       !window.confirm(
-        `¿Sellar liquidación del ${fechaLiquidacion}?\n\nCuenta: ${etiquetaCuentaRt(cuentaRt)}\nDías: ${diasTxt || '—'}\nRecolecciones: ${fmtMonto(totalSeleccionado)}\nGastos aceptados: −${fmtMonto(totalGastosActivos)}\nA recolectar / acreditar: ${fmtMonto(totalARecolectar)} (${ids.length} movimiento(s))`,
+        `¿Sellar liquidación del ${fechaLiquidacion}?\n\n` +
+          `Días: ${diasTxt || '—'}\n` +
+          `Mercancía bruta: ${fmtMonto(netosLiquidacion.brutoMerc)} · Servicios: ${fmtMonto(netosLiquidacion.brutoSrv)}\n` +
+          `Gastos aceptados: −${fmtMonto(totalGastosActivos)} (solo mercancía)\n\n` +
+          `Acreditar:\n${lineasCuentas}\n\n` +
+          `Total neto: ${fmtMonto(totalARecolectar)} (${ids.length} movimiento(s))`,
       )
     )
       return;
@@ -221,14 +246,17 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
       ids,
       adminNombre: user?.nombre || rol,
       repartidorNombre: repNombre,
-      cuentaRtId: cuentaRt,
+      acreditaciones,
       montoLiquidacion: totalARecolectar,
     });
     setGuardando(false);
     if (!res.ok) return alert(res.error);
     alert(
-      `✅ Liquidación sellada (${res.count} registros) · ${fmtMonto(res.montoTotal || totalARecolectar)} acreditados a ${etiquetaCuentaRt(cuentaRt)}` +
-        (totalGastosActivos > 0 ? ` (ya descontados ${fmtMonto(totalGastosActivos)} de gastos).` : '.'),
+      `✅ Liquidación sellada (${res.count} registros) · ${fmtMonto(res.montoTotal || totalARecolectar)} acreditados` +
+        (acreditaciones.length > 1
+          ? ` (${acreditaciones.map((a) => `${etiquetaCuentaRt(a.cuentaRtId)} ${fmtMonto(a.monto)}`).join(' · ')})`
+          : ` a ${etiquetaCuentaRt(acreditaciones[0]?.cuentaRtId)}`) +
+        (totalGastosActivos > 0 ? `. Gastos descontados de mercancía: ${fmtMonto(totalGastosActivos)}.` : '.'),
     );
     cargar();
   };
@@ -314,19 +342,34 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
           </div>
         )}
         {!esHistorial && (
-          <label className="muted" style={{ display: 'block', gridColumn: '1 / -1' }}>
-            Cuenta RT que recibe el efectivo
-            <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaRt} onChange={(e) => setCuentaRt(e.target.value)}>
-              {CUENTAS_RT.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nombre}
-                </option>
-              ))}
-            </select>
-            <span style={{ display: 'block', fontSize: '0.78rem', marginTop: '0.25rem' }}>
-              El monto liquidado se acredita a esta cuenta (Francisco o Andrés).
-            </span>
-          </label>
+          <div className="grid-2" style={{ gap: '0.75rem', gridColumn: '1 / -1' }}>
+            <label className="muted" style={{ display: 'block' }}>
+              Cuenta RT — Mercancía (traspasos, crédito cobrado)
+              <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaRtMercancia} onChange={(e) => setCuentaRtMercancia(e.target.value)}>
+                {CUENTAS_RT.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre}
+                  </option>
+                ))}
+              </select>
+              <span style={{ display: 'block', fontSize: '0.78rem', marginTop: '0.25rem' }}>
+                Recolecciones y créditos. Los gastos aceptados se descuentan solo de esta partida.
+              </span>
+            </label>
+            <label className="muted" style={{ display: 'block' }}>
+              Cuenta RT — Servicios (CFE, etc.)
+              <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaRtServicios} onChange={(e) => setCuentaRtServicios(e.target.value)}>
+                {CUENTAS_RT.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre}
+                  </option>
+                ))}
+              </select>
+              <span style={{ display: 'block', fontSize: '0.78rem', marginTop: '0.25rem' }}>
+                Cobros de servicios obligatorios. Van en cuenta separada de la mercancía.
+              </span>
+            </label>
+          </div>
         )}
       </div>
 
@@ -563,14 +606,21 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
             }}
           >
             <p className="muted" style={{ margin: 0, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700 }}>
-              Efectivo neto a acreditar ({etiquetaCuentaRt(cuentaRt) || 'cuenta RT'})
+              Efectivo neto a acreditar (dos cuentas)
             </p>
-            <div style={{ marginTop: '0.55rem', fontSize: '0.95rem', lineHeight: 1.5 }}>
+            <div style={{ marginTop: '0.55rem', fontSize: '0.95rem', lineHeight: 1.55 }}>
               <div>
-                Total liquidación: <strong>{fmtMonto(totalSeleccionado)}</strong>
+                Mercancía bruta: <strong>{fmtMonto(netosLiquidacion.brutoMerc)}</strong>
+                {totalGastosActivos > 0 && (
+                  <span style={{ color: 'var(--brand-red)' }}> − gastos {fmtMonto(totalGastosActivos)}</span>
+                )}
+                {' → '}
+                <strong>{fmtMonto(netosLiquidacion.netoMercancia)}</strong>
+                <span className="muted" style={{ fontSize: '0.82rem' }}> ({etiquetaCuentaRt(cuentaRtMercancia)})</span>
               </div>
-              <div style={{ color: 'var(--brand-red)' }}>
-                − Gastos aceptados: {fmtMonto(totalGastosActivos)}
+              <div>
+                Servicios: <strong>{fmtMonto(netosLiquidacion.netoServicios)}</strong>
+                <span className="muted" style={{ fontSize: '0.82rem' }}> ({etiquetaCuentaRt(cuentaRtServicios)})</span>
               </div>
               <div
                 style={{
@@ -582,13 +632,11 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
                   color: 'var(--brand-blue)',
                 }}
               >
-                = {fmtMonto(totalARecolectar)}
+                = {fmtMonto(totalARecolectar)} total
               </div>
             </div>
             <p className="muted" style={{ margin: '0.55rem 0 0', fontSize: '0.82rem' }}>
-              Solo ese neto queda en la cuenta para gastos (ej. Francisco). Los {fmtMonto(totalGastosActivos)} de gasto del
-              recolector <strong>no</strong> se depositan: ya se gastaron. Si Francisco muestra más después, son netos de
-              otras liquidaciones acumuladas.
+              Los gastos del recolector solo restan de mercancía. Servicios (CFE) van íntegros a su cuenta.
             </p>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.78rem' }}>
               {seleccionados.length} movimiento(s) · {diasSeleccionados.length} día(s) · Merc. {fmtMonto(resumenSel.mercancia)} · Serv.{' '}

@@ -914,15 +914,78 @@ export function agruparEnTransitoPorDia(movimientos, { diaDe = 'recoleccion' } =
 }
 
 export function resumenTotalesPorTipo(items) {
-  const merc = items.filter((m) => m.tipo_movimiento === 'Recolección' || m.tipo_movimiento === 'Entrega Crédito');
-  const srv = items.filter((m) => m.tipo_movimiento === 'Cobro Servicio');
+  const merc = movimientosMercancia(items);
+  const srv = movimientosServicios(items);
   return {
     mercancia: merc.reduce((a, m) => a + Number(m.monto || 0), 0),
     servicios: srv.reduce((a, m) => a + Number(m.monto || 0), 0),
   };
 }
 
-export async function liquidarMovimientos(supabase, { ids, adminNombre, repartidorNombre, cuentaRtId, montoLiquidacion }) {
+export function movimientosMercancia(items) {
+  return (items || []).filter((m) => m.tipo_movimiento === 'Recolección' || m.tipo_movimiento === 'Entrega Crédito');
+}
+
+export function movimientosServicios(items) {
+  return (items || []).filter((m) => m.tipo_movimiento === 'Cobro Servicio');
+}
+
+/** Neto a acreditar: mercancía − gastos; servicios aparte. */
+export function calcularNetosLiquidacion(seleccionados, totalGastos = 0) {
+  const merc = movimientosMercancia(seleccionados);
+  const srv = movimientosServicios(seleccionados);
+  const brutoMerc = merc.reduce((a, m) => a + Number(m.monto || 0), 0);
+  const brutoSrv = srv.reduce((a, m) => a + Number(m.monto || 0), 0);
+  const gastos = Number(totalGastos) || 0;
+  const netoMercancia = Math.max(0, Math.round((brutoMerc - gastos) * 100) / 100);
+  const netoServicios = Math.round(brutoSrv * 100) / 100;
+  return {
+    merc,
+    srv,
+    brutoMerc,
+    brutoSrv,
+    netoMercancia,
+    netoServicios,
+    totalARecolectar: Math.round((netoMercancia + netoServicios) * 100) / 100,
+  };
+}
+
+export function armarAcreditacionesLiquidacion({
+  seleccionados,
+  totalGastos = 0,
+  cuentaRtMercancia,
+  cuentaRtServicios,
+  repartidorNombre,
+}) {
+  const netos = calcularNetosLiquidacion(seleccionados, totalGastos);
+  const acreditaciones = [];
+  if (netos.netoMercancia > 0 && cuentaRtMercancia) {
+    acreditaciones.push({
+      cuentaRtId: cuentaRtMercancia,
+      monto: netos.netoMercancia,
+      movimientoIds: netos.merc.map((m) => m.id),
+      notas: `Mercancía · ${repartidorNombre || 'recolector'}${totalGastos > 0 ? ` · gastos −${fmtMonto(totalGastos)}` : ''}`,
+    });
+  }
+  if (netos.netoServicios > 0 && cuentaRtServicios) {
+    acreditaciones.push({
+      cuentaRtId: cuentaRtServicios,
+      monto: netos.netoServicios,
+      movimientoIds: netos.srv.map((m) => m.id),
+      notas: `Servicios (CFE, etc.) · ${repartidorNombre || 'recolector'}`,
+    });
+  }
+  return { acreditaciones, netos };
+}
+
+export async function liquidarMovimientos(supabase, {
+  ids,
+  adminNombre,
+  repartidorNombre,
+  cuentaRtId,
+  montoLiquidacion,
+  acreditaciones = null,
+}) {
   if (!ids?.length) return { ok: false, error: 'No hay movimientos para liquidar.' };
   const tLiq = ahoraIsoNogales();
   const sello = `Liquidación recibida por ${adminNombre} — ${repartidorNombre || ''}`;
@@ -967,6 +1030,32 @@ export async function liquidarMovimientos(supabase, { ids, adminNombre, repartid
     });
     if (!cerrados.ok) return { ok: false, error: cerrados.error, count: ids.length, parcial: true };
     gastosCerrados = cerrados.count || 0;
+  }
+
+  if (Array.isArray(acreditaciones) && acreditaciones.length) {
+    const { acreditarLiquidacionCuentaRt } = await import('./rtCuentas.js');
+    let montoAcreditado = 0;
+    for (const ac of acreditaciones) {
+      const monto = Number(ac.monto) || 0;
+      if (monto <= 0 || !ac.cuentaRtId) continue;
+      const cred = await acreditarLiquidacionCuentaRt(supabase, {
+        cuentaId: ac.cuentaRtId,
+        movimientoIds: ac.movimientoIds || ids,
+        montoTotal: monto,
+        usuarioNombre: adminNombre,
+        repartidorNombre,
+        notas: ac.notas,
+      });
+      if (!cred.ok) return { ok: false, error: cred.error, count: ids.length, parcial: true };
+      montoAcreditado = Math.round((montoAcreditado + monto) * 100) / 100;
+    }
+    return {
+      ok: true,
+      count: ids.length,
+      montoTotal: montoAcreditado,
+      acreditaciones,
+      gastosCerrados,
+    };
   }
 
   if (cuentaRtId && montoTotal > 0) {
@@ -1326,7 +1415,14 @@ export async function cancelarGastoPendiente(supabase, id) {
   return { ok: true };
 }
 
-export async function liberarEfectivoRepartidor(supabase, { repartidorId, adminNombre, ids, cuentaRtId }) {
+export async function liberarEfectivoRepartidor(supabase, {
+  repartidorId,
+  adminNombre,
+  ids,
+  cuentaRtId,
+  cuentaRtMercancia,
+  cuentaRtServicios,
+}) {
   let movs = [];
   if (ids?.length) {
     const { data, error } = await supabase
@@ -1343,21 +1439,31 @@ export async function liberarEfectivoRepartidor(supabase, { repartidorId, adminN
   if (!movs.length) return { ok: false, error: 'No hay efectivo en tránsito para liberar.' };
   const rep = (await listarRepartidoresTodos(supabase)).find((r) => r.id === repartidorId);
   const bruto = movs.reduce((a, m) => a + Number(m.monto || 0), 0);
-  // A Francisco/Andrés solo llega el efectivo neto: liquidación − gastos aceptados.
   const gastosActivos = await listarGastosActivosParaLiquidacion(supabase, repartidorId);
   const totalGastos = gastosActivos.reduce((a, m) => a + Number(m.monto || 0), 0);
-  const montoTotal = Math.max(0, Math.round((bruto - totalGastos) * 100) / 100);
+  const cMerc = cuentaRtMercancia || cuentaRtId;
+  const cSrv = cuentaRtServicios || cuentaRtId;
+  const { acreditaciones, netos } = armarAcreditacionesLiquidacion({
+    seleccionados: movs,
+    totalGastos,
+    cuentaRtMercancia: cMerc,
+    cuentaRtServicios: cSrv,
+    repartidorNombre: rep?.nombre,
+  });
+  const montoTotal = netos.totalARecolectar;
   if (!(montoTotal > 0)) {
+    const resumen = resumenTotalesPorTipo(movs);
     return {
       ok: false,
-      error: `No hay efectivo neto para liberar (recolecciones ${fmtMonto(bruto)} − gastos ${fmtMonto(totalGastos)}).`,
+      error: `No hay efectivo neto para liberar (merc. ${fmtMonto(resumen.mercancia)} − gastos ${fmtMonto(totalGastos)} + serv. ${fmtMonto(resumen.servicios)}).`,
     };
   }
   const res = await liquidarMovimientos(supabase, {
     ids: movs.map((m) => m.id),
     adminNombre: adminNombre || 'Contabilidad',
     repartidorNombre: rep?.nombre || '',
-    cuentaRtId,
+    acreditaciones: acreditaciones.length ? acreditaciones : undefined,
+    cuentaRtId: acreditaciones.length ? undefined : cuentaRtId,
     montoLiquidacion: montoTotal,
   });
   if (!res.ok) return res;

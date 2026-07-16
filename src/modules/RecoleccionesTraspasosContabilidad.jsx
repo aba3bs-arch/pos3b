@@ -96,7 +96,8 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   const [gastoTienda, setGastoTienda] = useState('');
   const [saldoRep, setSaldoRep] = useState(null);
   const [gastosPendientes, setGastosPendientes] = useState([]);
-  const [cuentaRtLiberar, setCuentaRtLiberar] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || CUENTAS_RT[0]?.id || '');
+  const [cuentaRtLiberarMerc, setCuentaRtLiberarMerc] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || 'francisco');
+  const [cuentaRtLiberarSrv, setCuentaRtLiberarSrv] = useState('andres');
 
   const [saldosRt, setSaldosRt] = useState({});
   const [desgloseRt, setDesgloseRt] = useState({});
@@ -429,24 +430,26 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
     const neto = Number(saldoRep?.aLiberar ?? saldoRep?.total ?? 0);
     if (
       !window.confirm(
-        `¿Liberar efectivo del recolector a ${etiquetaCuentaRt(cuentaRtLiberar)}?\n\n` +
+        `¿Liberar efectivo del recolector?\n\n` +
+          `Mercancía → ${etiquetaCuentaRt(cuentaRtLiberarMerc)}\n` +
+          `Servicios → ${etiquetaCuentaRt(cuentaRtLiberarSrv)}\n\n` +
           `Recolecciones: ${fmtMonto(bruto)}\n` +
-          `Gastos aceptados: −${fmtMonto(gastos)}\n` +
-          `A acreditar (neto): ${fmtMonto(neto)}\n\n` +
-          'Solo ese neto queda disponible en la cuenta RT para gastos (p. ej. Francisco).',
+          `Gastos aceptados: −${fmtMonto(gastos)} (solo mercancía)\n` +
+          `A acreditar (neto): ${fmtMonto(neto)}`,
       )
     ) {
       return;
     }
     setGuardando(true);
-    const res = await liberarEfectivoRepartidor(supabase, { repartidorId: gastoRep, adminNombre, cuentaRtId: cuentaRtLiberar });
+    const res = await liberarEfectivoRepartidor(supabase, {
+      repartidorId: gastoRep,
+      adminNombre,
+      cuentaRtMercancia: cuentaRtLiberarMerc,
+      cuentaRtServicios: cuentaRtLiberarSrv,
+    });
     setGuardando(false);
     if (!res.ok) return alert(res.error);
-    alert(
-      `✅ Liberados ${res.count} movimiento(s).\n` +
-        `Bruto ${fmtMonto(res.bruto ?? bruto)} − gastos ${fmtMonto(res.totalGastos ?? gastos)} = ` +
-        `${fmtMonto(res.montoTotal || 0)} acreditados a ${etiquetaCuentaRt(cuentaRtLiberar)}.`,
-    );
+    alert(`✅ Liberados ${res.count} movimiento(s). Neto acreditado: ${fmtMonto(res.montoTotal || 0)}.`);
     saldoEnTransitoRepartidor(supabase, gastoRep).then(setSaldoRep);
     cargarReporte();
     cargarCuentasRt();
@@ -1034,16 +1037,28 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
                 </p>
               </div>
             )}
-            <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
-              Cuenta RT que recibe al liberar
-              <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaRtLiberar} onChange={(e) => setCuentaRtLiberar(e.target.value)}>
-                {CUENTAS_RT.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nombre}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="grid-2" style={{ gap: '0.75rem', marginTop: '0.75rem' }}>
+              <label className="muted" style={{ display: 'block' }}>
+                Cuenta RT — Mercancía
+                <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaRtLiberarMerc} onChange={(e) => setCuentaRtLiberarMerc(e.target.value)}>
+                  {CUENTAS_RT.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="muted" style={{ display: 'block' }}>
+                Cuenta RT — Servicios
+                <select className="select" style={{ marginTop: '0.35rem' }} value={cuentaRtLiberarSrv} onChange={(e) => setCuentaRtLiberarSrv(e.target.value)}>
+                  {CUENTAS_RT.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <button
               type="button"
               className="btn btn-danger"

@@ -18,7 +18,6 @@ import {
   registrarServicioNoCobrado,
   registrarTraspasos,
   resolverRepartidorPorNombre,
-  saldoEnTransitoRepartidor,
   servicioResueltoEnTienda,
   serviciosObligatoriosPendientesTienda,
   sucursalParaControlEfectivo,
@@ -69,7 +68,6 @@ export default function Recolecciones({ supabase, sucursal, user }) {
   const [pinGasto, setPinGasto] = useState('');
   const [gastosPendientes, setGastosPendientes] = useState([]);
   const [selGasto, setSelGasto] = useState({});
-  const [saldoGasto, setSaldoGasto] = useState(null);
   const [tickVentana, setTickVentana] = useState(0);
 
   const ventana = useMemo(() => estadoVentanaRecoleccion(), [tickVentana]);
@@ -121,12 +119,8 @@ export default function Recolecciones({ supabase, sucursal, user }) {
   const cargarGastosPendientes = useCallback(async () => {
     if (!supabase || !repGasto) return;
     try {
-      const [pend, saldo] = await Promise.all([
-        listarGastosPendientesRecolector(supabase, repGasto),
-        saldoEnTransitoRepartidor(supabase, repGasto, { descontarGastosAceptados: false }),
-      ]);
+      const pend = await listarGastosPendientesRecolector(supabase, repGasto);
       setGastosPendientes(pend);
-      setSaldoGasto(saldo);
       const init = {};
       pend.forEach((g) => {
         init[g.id] = true;
@@ -705,7 +699,7 @@ export default function Recolecciones({ supabase, sucursal, user }) {
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Gastos autorizados</h3>
           <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
             Contabilidad autoriza gastos desde Panel RT. Al aceptar con tu PIN, el gasto queda registrado para
-            liquidación. No se muestra ni descuenta en tu módulo de cobro; aquí solo ves pendientes de aceptar.
+            liquidación. No verás saldos ni montos en tránsito aquí: solo pendientes de aceptar.
           </p>
 
           <label className="muted" style={{ display: 'block' }}>
@@ -719,17 +713,6 @@ export default function Recolecciones({ supabase, sucursal, user }) {
               ))}
             </select>
           </label>
-
-          {saldoGasto && repGasto && gastosPendientes.length > 0 && (
-            <p style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
-              Efectivo en tránsito: <strong>{fmtMonto(Math.max(0, saldoGasto.ingresos || 0))}</strong>
-              {saldoGasto.reservado > 0 ? (
-                <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
-                  Pendiente de aceptar {fmtMonto(saldoGasto.reservado)}
-                </span>
-              ) : null}
-            </p>
-          )}
 
           {!repGasto ? (
             <p className="muted" style={{ marginTop: '1rem' }}>Selecciona tu nombre de recolector.</p>
