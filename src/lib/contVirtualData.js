@@ -44,6 +44,90 @@ export function rangoDesdePresetContVirtual(preset) {
   return null;
 }
 
+/** Rango completo de un mes (1 → último día). mes = 0–11. */
+export function rangoMesContVirtual(anio, mes) {
+  const desde = toYmd(new Date(anio, mes, 1));
+  const hasta = toYmd(new Date(anio, mes + 1, 0));
+  return { desde, hasta };
+}
+
+/** Rango completo de un año. */
+export function rangoAnioContVirtual(anio) {
+  return { desde: `${anio}-01-01`, hasta: `${anio}-12-31` };
+}
+
+export const MESES_CORTO_ES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+/** Agrupa egresos e ingresos por día YYYY-MM-DD. */
+export function agruparMovimientosPorDia({ detalleGastos = [], ingresosPorDia = [] } = {}) {
+  const map = {};
+  for (const g of detalleGastos || []) {
+    const f = String(g.fecha || '').slice(0, 10);
+    if (!f) continue;
+    if (!map[f]) map[f] = { fecha: f, ingresos: 0, gastos: 0, items: [] };
+    map[f].gastos = round2(map[f].gastos + (Number(g.monto) || 0));
+    map[f].items.push({ ...g, tipo: 'gasto' });
+  }
+  for (const i of ingresosPorDia || []) {
+    const f = String(i.fecha || '').slice(0, 10);
+    if (!f) continue;
+    if (!map[f]) map[f] = { fecha: f, ingresos: 0, gastos: 0, items: [] };
+    map[f].ingresos = round2(map[f].ingresos + (Number(i.monto) || 0));
+    map[f].items.push({ ...i, tipo: 'ingreso' });
+  }
+  return Object.values(map).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+}
+
+/** Semanas del mes (sáb–vie alineado a nómina) con totales. */
+export function semanasDelMesContVirtual(anio, mes, porDia = []) {
+  const { desde, hasta } = rangoMesContVirtual(anio, mes);
+  const dias = [];
+  let cur = new Date(`${desde}T12:00:00`);
+  const fin = new Date(`${hasta}T12:00:00`);
+  while (cur <= fin) {
+    dias.push(toYmd(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  const byFecha = Object.fromEntries((porDia || []).map((d) => [d.fecha, d]));
+  const semanas = [];
+  let i = 0;
+  while (i < dias.length) {
+    const start = dias[i];
+    const d0 = new Date(`${start}T12:00:00`);
+    const day = d0.getDay();
+    const daysSinceSat = (day + 1) % 7;
+    // Semana nómina: sáb–vie; si el mes no empieza en sáb, primer tramo hasta vie
+    let endIdx = i;
+    const endTarget = new Date(d0);
+    if (daysSinceSat === 0) {
+      endTarget.setDate(d0.getDate() + 6);
+    } else {
+      endTarget.setDate(d0.getDate() + (6 - daysSinceSat));
+    }
+    const endYmd = toYmd(endTarget);
+    while (endIdx < dias.length - 1 && dias[endIdx] < endYmd) endIdx += 1;
+    if (dias[endIdx] > endYmd) {
+      while (endIdx > i && dias[endIdx] > endYmd) endIdx -= 1;
+    }
+    const slice = dias.slice(i, endIdx + 1);
+    let ingresos = 0;
+    let gastos = 0;
+    for (const f of slice) {
+      ingresos += Number(byFecha[f]?.ingresos) || 0;
+      gastos += Number(byFecha[f]?.gastos) || 0;
+    }
+    semanas.push({
+      desde: slice[0],
+      hasta: slice[slice.length - 1],
+      ingresos: round2(ingresos),
+      gastos: round2(gastos),
+      balance: round2(ingresos - gastos),
+    });
+    i = endIdx + 1;
+  }
+  return semanas;
+}
+
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
@@ -123,6 +207,7 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     ingresosPorTienda[t] = { id: t, label: etiquetaTienda(t), ingresos: 0, cierres: 0, recolecciones: 0 };
   }
   let ingresosTotal = 0;
+  const ingresosPorDiaMap = {};
   for (const c of cierres) {
     const t = c.sucursal_id || 'MAIN';
     if (sucursal && t !== sucursal) continue;
@@ -133,7 +218,14 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + venta);
     ingresosPorTienda[t].cierres += 1;
     ingresosTotal = round2(ingresosTotal + venta);
+    const f = String(c.created_at || '').slice(0, 10);
+    if (f) {
+      ingresosPorDiaMap[f] = round2((ingresosPorDiaMap[f] || 0) + venta);
+    }
   }
+  const ingresosPorDia = Object.entries(ingresosPorDiaMap)
+    .map(([fecha, monto]) => ({ fecha, monto, id: `ing-${fecha}`, comentario: 'Cierre Virtual' }))
+    .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
 
   const recolecciones = (cierresRes.data || []).filter((c) => tipoCierre(c) === 'recoleccion');
   let recoleccionTotal = 0;
@@ -208,6 +300,7 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     ingresosPorTienda: Object.values(ingresosPorTienda).sort((a, b) => b.ingresos - a.ingresos),
     egresosPorTienda: Object.values(egresosPorTienda).sort((a, b) => b.total - a.total),
     detalleGastos: unificado.detalle.slice(0, 400),
+    ingresosPorDia,
     pastelCategorias: unificado.pastelCategorias,
     pastelSubcategorias: unificado.pastelSubcategorias,
     catalogo,
