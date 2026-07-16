@@ -258,10 +258,10 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
           <h4 style={{ margin: '0 0 0.75rem' }}>Moneda y venta</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }} data-corte-form="virtual-moneda">
             <CampoCorte
-              label="Fondo fijo (moneda tope)"
+              label="Fondo fijo"
               value={estado.fondo ?? 0}
               editable={Boolean(perm.editarTodo)}
-              hint="Tope de moneda de la operación (ej. $5,000). Si está en 0, se usa la moneda de referencia morada."
+              hint="Cambio y premios chicos · no afecta la venta ni el tope de operación"
               onChange={(v) => patchEstado({ fondo: v })}
             />
             <CampoCorte
@@ -348,7 +348,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
                   label="Precolección (moneda contada ahora)"
                   value={estado.precoleccion ?? ''}
                   editable
-                  hint="Moneda en caja tras retirar efectivo · se resta del tope para calcular la inyección"
+                  hint="Moneda en caja tras retirar efectivo · se resta de la moneda inicial de operación (tope) para calcular la inyección"
                   onChange={(v) => patchEstado({ precoleccion: v, _precoleccion_editada: true })}
                 />
                 <CampoCorte
@@ -362,14 +362,14 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
                   <div className="muted" style={{ fontSize: '0.75rem' }}>INYECTAR A SUCURSAL</div>
                   <div style={{ fontSize: '1.25rem', fontWeight: 800, color: COLOR }}>{fmtCorte(monedaInyectar)}</div>
                   <div className="muted" style={{ fontSize: '0.7rem' }}>
-                    Tope {fmtCorte(monedaTope)} − precolección {fmtCorte(estado.precoleccion || 0)}
+                    Moneda inicial {fmtCorte(monedaTope)} − precolección {fmtCorte(estado.precoleccion || 0)}
                   </div>
                 </div>
                 <div style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(225,153,41,0.12)', borderRadius: 8, marginTop: '0.5rem' }}>
                   <div className="muted" style={{ fontSize: '0.75rem' }}>Caja chica acumulada</div>
                   <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--brand-gold)' }}>{fmtCorte(cajaAcumulada)}</div>
                   <div className="muted" style={{ fontSize: '0.7rem' }}>
-                    Al registrar: periodo en {fmtCorte(0)} · operación con moneda tope {fmtCorte(monedaTope > 0 ? monedaTope : estado.precoleccion || 0)}
+                    Al registrar: periodo en {fmtCorte(0)} · operación con moneda inicial {fmtCorte(monedaTope > 0 ? monedaTope : estado.precoleccion || 0)}
                   </div>
                 </div>
                 <button

@@ -100,12 +100,10 @@ export function cajaChicaAcumulada(estado, calc) {
 }
 
 /**
- * Moneda tope de la operación Virtual.
- * Usa fondo fijo si el admin lo configuró; si no, la moneda inicial de referencia (morado).
+ * Moneda tope de la operación Virtual = moneda inicial de referencia (morado).
+ * El fondo fijo no interviene (solo cambio / premios chicos).
  */
 export function monedaTopeVirtual(estado) {
-  const fondo = round2(estado?.fondo);
-  if (fondo > 0) return fondo;
   return round2(estado?.moneda_inicial);
 }
 
