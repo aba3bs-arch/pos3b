@@ -1067,7 +1067,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
               disabled={guardando || !gastoRep || !(Number(saldoRep?.aLiberar ?? saldoRep?.total) > 0)}
               onClick={confirmarLiberar}
             >
-              Liberar neto · {fmtMonto(saldoRep?.aLiberar ?? saldoRep?.total || 0)}
+              Liberar neto · {fmtMonto(saldoRep?.aLiberar ?? saldoRep?.total ?? 0)}
             </button>
           </div>
         </div>
