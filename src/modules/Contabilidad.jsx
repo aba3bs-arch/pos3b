@@ -7,6 +7,7 @@ const DESCRIPCIONES = {
   Nómina: 'Periodos, sueldos, asistencia y recibos',
   'Panel RT': 'Reportes, servicios, recolectores y gastos',
   'Liquidación recolecciones': 'Sellar efectivo en tránsito por tienda y día',
+  'Cont Virtual': 'Ingresos y egresos Virtual por tienda y periodo',
 };
 
 /** Hub de Contabilidad: solo botones; cada submódulo abre su pantalla. */

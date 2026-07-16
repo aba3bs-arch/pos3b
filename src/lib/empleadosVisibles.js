@@ -14,6 +14,7 @@ export function empleadosVisiblesParaTienda(empleados, sucursalActiva, actorRol 
 
   const suc = normalizarCodigoTienda(sucursalActiva);
   return lista.filter((e) => {
+    if (e?.activo === false) return false;
     const rol = normalizarRol(e.rol);
     if (rol === 'Administrador') return false;
     const empSuc = normalizarCodigoTienda(e.sucursal_id);
@@ -57,6 +58,7 @@ export function empleadosParaCorte(empleados, sucursalActiva, modulo, actorRol =
   const adminVeTodosEnTurno = ['Administrador', 'Gerente', 'Supervisor'].includes(actor);
 
   const deTienda = (empleados || []).filter((e) => {
+    if (e?.activo === false) return false;
     if (normalizarRol(e.rol) === 'Administrador') return false;
     if (normalizarCodigoTienda(e.sucursal_id) !== suc) return false;
     const rol = normalizarRol(e.rol);
@@ -126,7 +128,7 @@ export function enriquecerEmpleadosNominaIndirectos(empleados) {
 
 /** Lista global para nómina: empleados operativos de todas las sucursales (sin placeholders indirectos). */
 export function empleadosParaNominaGlobal(empleados) {
-  return (empleados || []).filter((e) => normalizarRol(e.rol) !== 'Administrador');
+  return (empleados || []).filter((e) => e?.activo !== false && normalizarRol(e.rol) !== 'Administrador');
 }
 
 /** Pantalla Usuarios (solo admin): filtro opcional por tienda. */

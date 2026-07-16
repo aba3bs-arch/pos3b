@@ -31,6 +31,20 @@ export function esAdministradorSinAnclaje(rol) {
   return normalizarRol(rol) === 'Administrador';
 }
 
+/** Empleado dado de alta (activo !== false). Sin columna = se trata como activo. */
+export function usuarioEstaActivo(user) {
+  if (!user) return false;
+  return user.activo !== false;
+}
+
+function rechazarSiInactivo(user) {
+  if (!user) return { user: null, error: null };
+  if (!usuarioEstaActivo(user)) {
+    return { user: null, error: 'Este usuario está dado de baja. Pide al administrador reactivarlo.' };
+  }
+  return { user, error: null };
+}
+
 /** Usuario sin sucursal asignada (filas antiguas) puede entrar en cualquier tienda. */
 export function usuarioCoincideSucursal(user, sucursalActiva) {
   if (esAdministradorSinAnclaje(user?.rol)) return true;
@@ -81,20 +95,30 @@ export async function buscarUsuarioPorPinYSucursal(supabase, pin, sucursalActiva
   if (qExact.error && !faltaColumnaSucursal(qExact.error)) {
     return { user: null, error: qExact.error.message };
   }
-  if (qExact.data) return { user: qExact.data, error: null };
+  if (qExact.data) {
+    const r = rechazarSiInactivo(qExact.data);
+    return r.error ? r : { user: r.user, error: null };
+  }
 
   const qAll = await supabase.from('usuarios').select('*').eq('pin', p);
   if (qAll.error) {
     if (faltaColumnaSucursal(qAll.error)) {
       const qLegacy = await supabase.from('usuarios').select('*').eq('pin', p).maybeSingle();
       if (qLegacy.error) return { user: null, error: qLegacy.error.message };
-      if (qLegacy.data) return { user: qLegacy.data, error: null, sinColumnaSucursal: true };
+      if (qLegacy.data) {
+        const r = rechazarSiInactivo(qLegacy.data);
+        return r.error ? r : { user: r.user, error: null, sinColumnaSucursal: true };
+      }
     }
     return { user: null, error: qAll.error.message };
   }
 
-  const list = qAll.data || [];
-  if (list.length === 0) return { user: null, error: null };
+  const list = (qAll.data || []).filter(usuarioEstaActivo);
+  if (list.length === 0) {
+    const algunoBaja = (qAll.data || []).some((u) => !usuarioEstaActivo(u));
+    if (algunoBaja) return { user: null, error: 'Este usuario está dado de baja. Pide al administrador reactivarlo.' };
+    return { user: null, error: null };
+  }
 
   // Administrador: puede entrar desde cualquier sucursal / dispositivo.
   const admins = list.filter((u) => esAdministradorSinAnclaje(u.rol));

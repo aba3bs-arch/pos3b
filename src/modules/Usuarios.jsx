@@ -30,6 +30,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
   const [editandoId, setEditandoId] = useState(null);
   const [editForm, setEditForm] = useState({ nombre: '', rol: 'Cajero', sucursal_id: 'MAIN', nomina_pagador: 'abarrotes' });
   const [filtroSucursal, setFiltroSucursal] = useState('');
+  const [mostrarBajas, setMostrarBajas] = useState(false);
   const [turnos, setTurnos] = useState(() => leerTurnos());
   const [configHorario, setConfigHorario] = useState(() => leerConfigHorario());
   const [rolesLista, setRolesLista] = useState(() => listarTodosLosRoles());
@@ -71,9 +72,10 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     };
   }, []);
 
-  const filas = esAdmin
+  const filas = (esAdmin
     ? filtrarEmpleadosAdmin(rows, filtroSucursal)
-    : empleadosVisiblesParaTienda(rows, sucursal, actor?.rol);
+    : empleadosVisiblesParaTienda(rows, sucursal, actor?.rol)
+  ).filter((r) => (mostrarBajas ? r.activo === false : r.activo !== false));
 
   const togglePinVisible = (id) => {
     setPinsVisibles((prev) => {
@@ -132,6 +134,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       sucursal_id: normalizarCodigoTienda(form.sucursal_id) || 'MAIN',
       nomina_pagador: form.nomina_pagador || 'abarrotes',
       turno_id: esPersonalizado ? null : form.turno_id || null,
+      activo: true,
     };
     const cubre = await pinEsCubreTurnoDeSucursal(supabase, payload.pin, payload.sucursal_id);
     if (cubre.coincide) {
@@ -210,8 +213,37 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     load();
   };
 
+  const darDeBaja = async (r) => {
+    if (!supabase || !esAdmin || !r?.id) return;
+    if (actor?.id === r.id) return alert('No puedes darte de baja a ti mismo.');
+    if (!confirm(`¿Dar de baja a ${r.nombre}?\n\nNo podrá iniciar sesión ni aparecerá en nómina, vales o cortes. Puedes reactivarlo después.`)) return;
+    const { error } = await supabase.from('usuarios').update({ activo: false }).eq('id', r.id);
+    if (error) {
+      if (String(error.message).includes('activo')) {
+        return alert('Ejecuta supabase/fix_usuarios_activo.sql en Supabase para habilitar bajas.');
+      }
+      return alert(error.message);
+    }
+    load();
+    alert(`${r.nombre} quedó dado de baja.`);
+  };
+
+  const reactivar = async (r) => {
+    if (!supabase || !esAdmin || !r?.id) return;
+    if (!confirm(`¿Reactivar a ${r.nombre}?`)) return;
+    const { error } = await supabase.from('usuarios').update({ activo: true }).eq('id', r.id);
+    if (error) {
+      if (String(error.message).includes('activo')) {
+        return alert('Ejecuta supabase/fix_usuarios_activo.sql en Supabase.');
+      }
+      return alert(error.message);
+    }
+    load();
+    alert(`${r.nombre} reactivado.`);
+  };
+
   const borrar = async (id) => {
-    if (!supabase || !esAdmin || !confirm('¿Eliminar usuario?')) return;
+    if (!supabase || !esAdmin || !confirm('¿Eliminar usuario de forma permanente?\n\nPreferible: usa «Dar de baja» para conservar historial.')) return;
     const { error } = await supabase.from('usuarios').delete().eq('id', id);
     if (error) return alert(error.message);
     load();
@@ -330,17 +362,23 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
           <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Equipo registrado</h3>
-          <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            Filtrar tienda
-            <select className="select" style={{ minWidth: '140px' }} value={filtroSucursal} onChange={(e) => setFiltroSucursal(e.target.value)}>
-              <option value="">{esAdmin ? 'Todas las tiendas' : etiquetaTienda(sucursal)}</option>
-              {tiendas.map((s) => (
-                <option key={s} value={s}>
-                  {etiquetaTienda(s)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
+            <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
+              <input type="checkbox" checked={mostrarBajas} onChange={(e) => setMostrarBajas(e.target.checked)} />
+              Ver dados de baja
+            </label>
+            <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              Filtrar tienda
+              <select className="select" style={{ minWidth: '140px' }} value={filtroSucursal} onChange={(e) => setFiltroSucursal(e.target.value)}>
+                <option value="">{esAdmin ? 'Todas las tiendas' : etiquetaTienda(sucursal)}</option>
+                {tiendas.map((s) => (
+                  <option key={s} value={s}>
+                    {etiquetaTienda(s)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
         <div className="table-wrap">
           <table className="data">
@@ -365,8 +403,15 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                 </tr>
               ) : (
                 filas.map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.nombre}</td>
+                  <tr key={r.id} style={r.activo === false ? { opacity: 0.72 } : undefined}>
+                    <td>
+                      {r.nombre}
+                      {r.activo === false && (
+                        <span className="badge" style={{ marginLeft: '0.35rem', background: '#fee2e2', color: '#991b1b' }}>
+                          Baja
+                        </span>
+                      )}
+                    </td>
                     <td>
                       <select
                         className="select"
@@ -496,9 +541,20 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                                 Liberar equipo
                               </button>
                             )}
-                            <button type="button" className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => borrar(r.id)}>
-                              Eliminar
-                            </button>
+                            {r.activo === false ? (
+                              <button type="button" className="btn btn-success" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => reactivar(r)}>
+                                Reactivar
+                              </button>
+                            ) : (
+                              <button type="button" className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => darDeBaja(r)}>
+                                Dar de baja
+                              </button>
+                            )}
+                            {mostrarBajas && r.activo === false && (
+                              <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => borrar(r.id)}>
+                                Eliminar
+                              </button>
+                            )}
                           </>
                         )}
                       </div>

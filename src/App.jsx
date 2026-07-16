@@ -15,6 +15,7 @@ import Reportes from './modules/Reportes.jsx';
 import Nomina from './modules/Nomina.jsx';
 import RecoleccionesTraspasosContabilidad from './modules/RecoleccionesTraspasosContabilidad.jsx';
 import Contabilidad from './modules/Contabilidad.jsx';
+import ContVirtual from './modules/ContVirtual.jsx';
 import VolverContabilidad from './components/VolverContabilidad.jsx';
 import ValesPrestamos from './modules/ValesPrestamos.jsx';
 import CorteVirtual from './modules/cortes/CorteVirtual.jsx';
@@ -984,6 +985,12 @@ function App() {
           )}
           {vista === 'Panel RT' && (
             <RecoleccionesTraspasosContabilidad supabase={supabase} user={user} onVolverContabilidad={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+          )}
+          {vista === 'Cont Virtual' && (
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <ContVirtual supabase={supabase} />
+            </>
           )}
           {vista === 'Vales y Préstamos' && (
             <ValesPrestamos
