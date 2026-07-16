@@ -1123,7 +1123,8 @@ export async function eliminarMovimientoTransito(supabase, id) {
   return { ok: true };
 }
 
-export async function saldoEnTransitoRepartidor(supabase, repartidorId) {
+export async function saldoEnTransitoRepartidor(supabase, repartidorId, opts = {}) {
+  const { descontarGastosAceptados = true } = opts;
   const { data, error } = await supabase
     .from('transito_efectivo')
     .select('id, monto, tipo_movimiento, estatus, num_traspaso, sucursal_origen, fecha_hora')
@@ -1133,9 +1134,11 @@ export async function saldoEnTransitoRepartidor(supabase, repartidorId) {
   const rows = data || [];
   const enTransito = rows.filter((m) => m.estatus === 'En Tránsito' && m.tipo_movimiento !== 'Gasto');
   const pendientes = rows.filter((m) => m.tipo_movimiento === 'Gasto' && m.estatus === 'Por Aceptar');
-  // Solo gastos aceptados posteriores a la última liquidación de recolecciones
-  // (los anteriores ya se descontaron al acreditar a Francisco/Andrés).
-  const gastos = await listarGastosActivosParaLiquidacion(supabase, repartidorId);
+  // En liquidación / Panel RT se descuentan gastos aceptados.
+  // En el módulo del repartidor (cobro/gastos) no: solo ve efectivo en tránsito y pendientes de aceptar.
+  const gastos = descontarGastosAceptados
+    ? await listarGastosActivosParaLiquidacion(supabase, repartidorId)
+    : [];
   const ingresos = enTransito.reduce((a, m) => a + Number(m.monto || 0), 0);
   const egresos = gastos.reduce((a, m) => a + Number(m.monto || 0), 0);
   const reservado = pendientes.reduce((a, m) => a + Number(m.monto || 0), 0);
@@ -1289,11 +1292,7 @@ export async function aceptarGastosRecolector(supabase, { ids, repartidorId, rec
   const rows = data || [];
   if (!rows.length) return { ok: false, error: 'No hay gastos pendientes para aceptar.' };
   const montoTotal = rows.reduce((a, m) => a + Number(m.monto || 0), 0);
-  const saldo = await saldoEnTransitoRepartidor(supabase, repartidorId);
-  const reservadoOtros = (saldo.reservado || 0) - montoTotal;
-  if (montoTotal + reservadoOtros > saldo.total + 0.001) {
-    return { ok: false, error: `El saldo en tránsito (${fmtMonto(saldo.total)}) ya no alcanza para estos gastos.` };
-  }
+  // No descuenta del saldo visible del recolector; el impacto es solo en liquidación.
   const ahora = ahoraIsoNogales();
   for (const row of rows) {
     const { error: upErr } = await supabase

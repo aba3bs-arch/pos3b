@@ -123,7 +123,7 @@ export default function Recolecciones({ supabase, sucursal, user }) {
     try {
       const [pend, saldo] = await Promise.all([
         listarGastosPendientesRecolector(supabase, repGasto),
-        saldoEnTransitoRepartidor(supabase, repGasto),
+        saldoEnTransitoRepartidor(supabase, repGasto, { descontarGastosAceptados: false }),
       ]);
       setGastosPendientes(pend);
       setSaldoGasto(saldo);
@@ -704,7 +704,8 @@ export default function Recolecciones({ supabase, sucursal, user }) {
         <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)' }}>
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Gastos autorizados</h3>
           <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
-            Contabilidad autoriza gastos desde Panel RT. Al aceptar con tu PIN, el gasto se registra automáticamente y descuenta de tu efectivo en tránsito.
+            Contabilidad autoriza gastos desde Panel RT. Al aceptar con tu PIN, el gasto queda registrado para
+            liquidación. No se muestra ni descuenta en tu módulo de cobro; aquí solo ves pendientes de aceptar.
           </p>
 
           <label className="muted" style={{ display: 'block' }}>
@@ -719,13 +720,14 @@ export default function Recolecciones({ supabase, sucursal, user }) {
             </select>
           </label>
 
-          {saldoGasto && repGasto && (
+          {saldoGasto && repGasto && gastosPendientes.length > 0 && (
             <p style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
-              Saldo en tránsito: <strong>{fmtMonto(saldoGasto.total)}</strong>
-              <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
-                Disponible {fmtMonto(saldoGasto.disponible)}
-                {saldoGasto.reservado > 0 ? ` · pendiente aceptar ${fmtMonto(saldoGasto.reservado)}` : ''}
-              </span>
+              Efectivo en tránsito: <strong>{fmtMonto(Math.max(0, saldoGasto.ingresos || 0))}</strong>
+              {saldoGasto.reservado > 0 ? (
+                <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
+                  Pendiente de aceptar {fmtMonto(saldoGasto.reservado)}
+                </span>
+              ) : null}
             </p>
           )}
 
@@ -784,7 +786,7 @@ export default function Recolecciones({ supabase, sucursal, user }) {
               >
                 <p style={{ margin: 0, fontWeight: 700, fontSize: '1.1rem' }}>Total a aceptar: {fmtMonto(totalGastoSel)}</p>
                 <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
-                  Al confirmar, el gasto queda registrado y ya puedes usar ese dinero.
+                  Al confirmar, el gasto pasa a liquidación. Deja de verse aquí y no afecta tu cobro.
                 </p>
               </div>
 
