@@ -1,7 +1,12 @@
 import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
 import { periodoSemanaNomina } from './semanaNomina.js';
-import { filtrarValesPorPeriodo, fechaEfectivaVale, valeEstaAprobado } from './valesPrestamos.js';
 import { CUOTA_SEMANAL_MINIMA } from './contabilidadConstants.js';
+import { listarCatalogoContVirtual } from './contVirtualCatalogo.js';
+import {
+  listarEgresosContVirtual,
+  sincronizarValesContVirtual,
+  unificarEgresosParaPanel,
+} from './contVirtualEgresos.js';
 
 function toYmd(d) {
   const y = d.getFullYear();
@@ -10,16 +15,12 @@ function toYmd(d) {
   return `${y}-${m}-${day}`;
 }
 
-function ymdEnRango(ymd, desde, hasta) {
-  const f = String(ymd || '').slice(0, 10);
+function isoEnRango(iso, desde, hasta) {
+  const f = String(iso || '').slice(0, 10);
   if (!f) return false;
   if (desde && f < desde) return false;
   if (hasta && f > hasta) return false;
   return true;
-}
-
-function isoEnRango(iso, desde, hasta) {
-  return ymdEnRango(String(iso || '').slice(0, 10), desde, hasta);
 }
 
 export const PRESETS_CONT_VIRTUAL = [
@@ -56,17 +57,8 @@ function esCierreTurno(row) {
   return t !== 'recoleccion' && t !== 'actualizacion';
 }
 
-function clasificarGasto(g) {
-  const cat = String(g.categoria || '').toUpperCase();
-  if (cat === 'CONSUMO') return 'consumo';
-  if (cat === 'VALES') return 'vales';
-  if (cat === 'PRESTAMOS') return 'prestamos';
-  return 'operativos';
-}
-
 /**
- * Panel Cont Virtual: ingresos (cierres virtual) + egresos (gastos corte, vales, préstamos).
- * No mezcla Resumen operativo / abarrotes.
+ * Panel Cont Virtual: ingresos (cierres virtual) + egresos por categoría/subcategoría.
  */
 export async function cargarContVirtual(supabase, { desde, hasta, sucursal = null } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
@@ -77,6 +69,8 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
 
   const desdeIso = `${desde}T00:00:00`;
   const hastaIso = `${hasta}T23:59:59.999`;
+
+  await sincronizarValesContVirtual(supabase);
 
   let qCierres = supabase
     .from('cortes_contabilidad_cierres')
@@ -98,13 +92,6 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     .limit(5000);
   if (sucursal) qGastos = qGastos.eq('sucursal_id', sucursal);
 
-  let qVales = supabase
-    .from('vales')
-    .select('*')
-    .order('fecha', { ascending: false })
-    .limit(2000);
-  if (sucursal) qVales = qVales.eq('sucursal_id', sucursal);
-
   let qPrestamos = supabase
     .from('prestamos')
     .select('*')
@@ -112,7 +99,13 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     .limit(1000);
   if (sucursal) qPrestamos = qPrestamos.eq('sucursal_id', sucursal);
 
-  const [cierresRes, gastosRes, valesRes, prestamosRes] = await Promise.all([qCierres, qGastos, qVales, qPrestamos]);
+  const [cierresRes, gastosRes, prestamosRes, catalogoRes, egresosLibroRes] = await Promise.all([
+    qCierres,
+    qGastos,
+    qPrestamos,
+    listarCatalogoContVirtual(supabase),
+    listarEgresosContVirtual(supabase, { desde, hasta, sucursal }),
+  ]);
 
   if (cierresRes.error && cierresRes.error.code !== '42P01') {
     return { ok: false, error: cierresRes.error.message };
@@ -123,6 +116,7 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
 
   const cierres = (cierresRes.data || []).filter((c) => esCierreTurno(c));
   const gastos = gastosRes.data || [];
+  const catalogo = (catalogoRes.data || []).filter((c) => c.activo !== false);
 
   const ingresosPorTienda = {};
   for (const t of tiendasFiltro) {
@@ -141,7 +135,6 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     ingresosTotal = round2(ingresosTotal + venta);
   }
 
-  // Recolecciones (informativo, no suma a ingresos de venta)
   const recolecciones = (cierresRes.data || []).filter((c) => tipoCierre(c) === 'recoleccion');
   let recoleccionTotal = 0;
   for (const r of recolecciones) {
@@ -152,71 +145,6 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     if (ingresosPorTienda[t]) ingresosPorTienda[t].recolecciones = round2((ingresosPorTienda[t].recolecciones || 0) + monto);
   }
 
-  const egresosPorCat = { consumo: 0, vales: 0, prestamos: 0, operativos: 0 };
-  const egresosPorTienda = {};
-  for (const t of tiendasFiltro) {
-    egresosPorTienda[t] = { id: t, label: etiquetaTienda(t), total: 0, consumo: 0, vales: 0, prestamos: 0, operativos: 0 };
-  }
-
-  const detalleGastos = [];
-  for (const g of gastos) {
-    const t = g.sucursal_id || 'MAIN';
-    if (sucursal && t !== sucursal) continue;
-    const monto = round2(g.monto);
-    const bucket = clasificarGasto(g);
-    egresosPorCat[bucket] = round2(egresosPorCat[bucket] + monto);
-    if (!egresosPorTienda[t]) {
-      egresosPorTienda[t] = { id: t, label: etiquetaTienda(t), total: 0, consumo: 0, vales: 0, prestamos: 0, operativos: 0 };
-    }
-    egresosPorTienda[t][bucket] = round2(egresosPorTienda[t][bucket] + monto);
-    egresosPorTienda[t].total = round2(egresosPorTienda[t].total + monto);
-    detalleGastos.push({
-      fuente: 'corte',
-      id: g.id,
-      fecha: String(g.created_at || '').slice(0, 10),
-      tienda: t,
-      categoria: g.categoria,
-      subcategoria: g.subcategoria,
-      comentario: g.comentario,
-      empleado: g.usuario_nombre,
-      monto,
-      bucket,
-    });
-  }
-
-  // Vales virtual no cargados aún al corte (evitar doble conteo si cargado_corte)
-  const valesAll = valesRes.error ? [] : valesRes.data || [];
-  const valesVirtual = filtrarValesPorPeriodo(valesAll, desde, hasta).filter((v) => {
-    if (!valeEstaAprobado(v)) return false;
-    const area = String(v.area || 'virtual').toLowerCase();
-    if (area !== 'virtual') return false;
-    if (v.cargado_corte) return false;
-    return true;
-  });
-  for (const v of valesVirtual) {
-    const t = v.sucursal_id || 'MAIN';
-    const monto = round2(v.monto);
-    egresosPorCat.vales = round2(egresosPorCat.vales + monto);
-    if (!egresosPorTienda[t]) {
-      egresosPorTienda[t] = { id: t, label: etiquetaTienda(t), total: 0, consumo: 0, vales: 0, prestamos: 0, operativos: 0 };
-    }
-    egresosPorTienda[t].vales = round2(egresosPorTienda[t].vales + monto);
-    egresosPorTienda[t].total = round2(egresosPorTienda[t].total + monto);
-    detalleGastos.push({
-      fuente: 'vale',
-      id: v.id,
-      fecha: fechaEfectivaVale(v),
-      tienda: t,
-      categoria: 'VALES',
-      subcategoria: v.categoria,
-      comentario: v.folio || '',
-      empleado: v.nombre_empleado,
-      monto,
-      bucket: 'vales',
-    });
-  }
-
-  // Préstamos: desembolsos en periodo (si no están en gastos de corte)
   const prestamosAll = prestamosRes.error ? [] : prestamosRes.data || [];
   const prestamosPeriodo = prestamosAll.filter((p) => {
     if (['rechazado', 'pendiente_admin'].includes(String(p.estado))) return false;
@@ -227,30 +155,29 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     return true;
   });
 
-  for (const p of prestamosPeriodo) {
-    const t = p.sucursal_id || 'MAIN';
-    const monto = round2(p.monto_original);
-    egresosPorCat.prestamos = round2(egresosPorCat.prestamos + monto);
-    if (!egresosPorTienda[t]) {
-      egresosPorTienda[t] = { id: t, label: etiquetaTienda(t), total: 0, consumo: 0, vales: 0, prestamos: 0, operativos: 0 };
-    }
-    egresosPorTienda[t].prestamos = round2(egresosPorTienda[t].prestamos + monto);
-    egresosPorTienda[t].total = round2(egresosPorTienda[t].total + monto);
-    detalleGastos.push({
-      fuente: 'prestamo',
-      id: p.id,
-      fecha: String(p.created_at || '').slice(0, 10),
-      tienda: t,
-      categoria: 'PRESTAMOS',
-      subcategoria: 'DESEMBOLSO',
-      comentario: p.nombre_empleado,
-      empleado: p.nombre_empleado,
-      monto,
-      bucket: 'prestamos',
-    });
+  const unificado = unificarEgresosParaPanel({
+    egresosLibro: egresosLibroRes.data || [],
+    gastosCorte: gastos.filter((g) => !sucursal || g.sucursal_id === sucursal),
+    prestamos: prestamosPeriodo,
+    catalogo,
+  });
+
+  const egresosPorTienda = {};
+  for (const t of tiendasFiltro) {
+    egresosPorTienda[t] = { id: t, label: etiquetaTienda(t), total: 0 };
+  }
+  for (const d of unificado.detalle) {
+    const t = d.tienda || 'MAIN';
+    if (!egresosPorTienda[t]) egresosPorTienda[t] = { id: t, label: etiquetaTienda(t), total: 0 };
+    egresosPorTienda[t].total = round2(egresosPorTienda[t].total + d.monto);
   }
 
-  // Préstamos activos: cuotas semanales esperadas en nómina (informativo)
+  const egresosPorCat = {};
+  for (const [catId, total] of Object.entries(unificado.porCategoria || {})) {
+    const nombre = catalogo.find((c) => c.id === catId)?.nombre || catId;
+    egresosPorCat[nombre] = total;
+  }
+
   const prestamosActivos = prestamosAll.filter((p) => p.estado === 'activo' && (Number(p.saldo) || 0) > 0);
   const cuotasNomina = prestamosActivos.map((p) => {
     const saldo = Number(p.saldo) || 0;
@@ -267,23 +194,24 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
   });
   const cuotasNominaTotal = round2(cuotasNomina.reduce((s, x) => s + x.cuota_semanal, 0));
 
-  const egresosTotal = round2(Object.values(egresosPorCat).reduce((s, n) => s + n, 0));
-  const neto = round2(ingresosTotal - egresosTotal);
-
-  detalleGastos.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+  const neto = round2(ingresosTotal - unificado.egresosTotal);
 
   return {
     ok: true,
     desde,
     hasta,
     ingresosTotal,
-    egresosTotal,
+    egresosTotal: unificado.egresosTotal,
     neto,
     recoleccionTotal,
     egresosPorCat,
     ingresosPorTienda: Object.values(ingresosPorTienda).sort((a, b) => b.ingresos - a.ingresos),
     egresosPorTienda: Object.values(egresosPorTienda).sort((a, b) => b.total - a.total),
-    detalleGastos: detalleGastos.slice(0, 300),
+    detalleGastos: unificado.detalle.slice(0, 400),
+    pastelCategorias: unificado.pastelCategorias,
+    pastelSubcategorias: unificado.pastelSubcategorias,
+    catalogo,
+    avisoCatalogo: catalogoRes.aviso || egresosLibroRes.aviso || null,
     cierresCount: cierres.length,
     cuotasNomina,
     cuotasNominaTotal,

@@ -989,7 +989,7 @@ function App() {
           {vista === 'Cont Virtual' && (
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
-              <ContVirtual supabase={supabase} />
+              <ContVirtual supabase={supabase} user={user} />
             </>
           )}
           {vista === 'Vales y Préstamos' && (

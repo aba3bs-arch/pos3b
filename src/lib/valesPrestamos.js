@@ -209,6 +209,12 @@ export async function registrarVale(supabase, row, opts = {}) {
   }
 
   await cargarValeACorte(supabase, data);
+  try {
+    const { registrarEgresoDesdeVale } = await import('./contVirtualEgresos.js');
+    await registrarEgresoDesdeVale(supabase, data);
+  } catch {
+    /* Cont Virtual opcional */
+  }
   return {
     ok: true,
     vale: data,
@@ -240,6 +246,12 @@ export async function aprobarVale(supabase, valeId, { nombreAprobador, cargarCor
 
   await marcarNotificacionAtendida(supabase, 'vales', valeId, nombreAprobador);
   if (cargarCorte) await cargarValeACorte(supabase, data);
+  try {
+    const { registrarEgresoDesdeVale } = await import('./contVirtualEgresos.js');
+    await registrarEgresoDesdeVale(supabase, data);
+  } catch {
+    /* Cont Virtual opcional */
+  }
   return { ok: true, vale: data };
 }
 
