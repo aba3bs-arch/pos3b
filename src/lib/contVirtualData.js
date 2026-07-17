@@ -142,12 +142,14 @@ function esCierreTurno(row) {
 }
 
 /**
- * Panel Cont Virtual: ingresos (cierres virtual) + egresos por categoría/subcategoría.
+ * Panel IE VIRTUAL: ingresos/egresos de Virtual + Garage (cuentas separadas).
+ * Incluye cierres de turno y recolecciones.
  */
-export async function cargarContVirtual(supabase, { desde, hasta, sucursal = null } = {}) {
+export async function cargarContVirtual(supabase, { desde, hasta, sucursal = null, cuenta = null } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   if (!desde || !hasta) return { ok: false, error: 'Indica el periodo.' };
 
+  const cuentaFiltro = cuenta === 'virtual' || cuenta === 'garage' ? cuenta : null;
   const tiendas = listarSucursalesOperativas();
   const tiendasFiltro = sucursal ? [sucursal] : tiendas;
 
@@ -159,17 +161,17 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
   let qCierres = supabase
     .from('cortes_contabilidad_cierres')
     .select('*')
-    .eq('modulo', 'virtual')
+    .in('modulo', ['virtual', 'garage'])
     .gte('created_at', desdeIso)
     .lte('created_at', hastaIso)
     .order('created_at', { ascending: false })
-    .limit(2000);
+    .limit(3000);
   if (sucursal) qCierres = qCierres.eq('sucursal_id', sucursal);
 
   let qGastos = supabase
     .from('cortes_contabilidad_gastos')
     .select('*')
-    .eq('modulo', 'virtual')
+    .in('modulo', ['virtual', 'garage'])
     .gte('created_at', desdeIso)
     .lte('created_at', hastaIso)
     .order('created_at', { ascending: false })
@@ -198,61 +200,128 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     return { ok: false, error: gastosRes.error.message };
   }
 
-  const cierres = (cierresRes.data || []).filter((c) => esCierreTurno(c));
-  const gastos = gastosRes.data || [];
+  const todosCierres = (cierresRes.data || []).filter((c) => {
+    if (!cuentaFiltro) return true;
+    return String(c.modulo || '').toLowerCase() === cuentaFiltro;
+  });
+  const cierres = todosCierres.filter((c) => esCierreTurno(c));
+  const recolecciones = todosCierres.filter((c) => tipoCierre(c) === 'recoleccion');
+  const gastos = (gastosRes.data || []).filter((g) => {
+    if (sucursal && g.sucursal_id !== sucursal) return false;
+    if (!cuentaFiltro) return true;
+    return String(g.modulo || '').toLowerCase() === cuentaFiltro;
+  });
   const catalogo = (catalogoRes.data || []).filter((c) => c.activo !== false);
+
+  const etiquetaCuenta = (mod) => (String(mod).toLowerCase() === 'garage' ? 'Garage' : 'Virtual');
 
   const ingresosPorTienda = {};
   for (const t of tiendasFiltro) {
     ingresosPorTienda[t] = { id: t, label: etiquetaTienda(t), ingresos: 0, cierres: 0, recolecciones: 0 };
   }
+
+  const porCuenta = {
+    virtual: { id: 'virtual', label: 'Virtual', ingresos: 0, egresos: 0, neto: 0, recolecciones: 0, cierres: 0 },
+    garage: { id: 'garage', label: 'Garage', ingresos: 0, egresos: 0, neto: 0, recolecciones: 0, cierres: 0 },
+  };
+
   let ingresosTotal = 0;
-  const ingresosPorDiaMap = {};
+  const ingresosItems = [];
+
   for (const c of cierres) {
     const t = c.sucursal_id || 'MAIN';
     if (sucursal && t !== sucursal) continue;
+    const mod = String(c.modulo || 'virtual').toLowerCase() === 'garage' ? 'garage' : 'virtual';
     if (!ingresosPorTienda[t]) {
       ingresosPorTienda[t] = { id: t, label: etiquetaTienda(t), ingresos: 0, cierres: 0, recolecciones: 0 };
     }
     const venta = Number(c.ventas) || Number(c.detalle?.venta) || 0;
+    if (!(venta > 0)) {
+      porCuenta[mod].cierres += 1;
+      ingresosPorTienda[t].cierres += 1;
+      continue;
+    }
     ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + venta);
     ingresosPorTienda[t].cierres += 1;
     ingresosTotal = round2(ingresosTotal + venta);
+    porCuenta[mod].ingresos = round2(porCuenta[mod].ingresos + venta);
+    porCuenta[mod].cierres += 1;
     const f = String(c.created_at || '').slice(0, 10);
     if (f) {
-      ingresosPorDiaMap[f] = round2((ingresosPorDiaMap[f] || 0) + venta);
+      ingresosItems.push({
+        id: `cierre-${c.id}`,
+        fecha: f,
+        monto: round2(venta),
+        comentario: `Cierre ${etiquetaCuenta(mod)} · ${etiquetaTienda(t)} · ${c.folio || ''}`.trim(),
+        cuenta: mod,
+        tienda: t,
+        tipo_mov: 'cierre',
+      });
     }
   }
-  const ingresosPorDia = Object.entries(ingresosPorDiaMap)
-    .map(([fecha, monto]) => ({ fecha, monto, id: `ing-${fecha}`, comentario: 'Cierre Virtual' }))
-    .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
 
-  const recolecciones = (cierresRes.data || []).filter((c) => tipoCierre(c) === 'recoleccion');
   let recoleccionTotal = 0;
   for (const r of recolecciones) {
     const t = r.sucursal_id || 'MAIN';
     if (sucursal && t !== sucursal) continue;
+    const mod = String(r.modulo || 'virtual').toLowerCase() === 'garage' ? 'garage' : 'virtual';
     const monto = Number(r.detalle?.recoleccion || r.detalle?.recoleccion_turno) || 0;
+    if (!(monto > 0)) continue;
     recoleccionTotal = round2(recoleccionTotal + monto);
-    if (ingresosPorTienda[t]) ingresosPorTienda[t].recolecciones = round2((ingresosPorTienda[t].recolecciones || 0) + monto);
+    ingresosTotal = round2(ingresosTotal + monto);
+    porCuenta[mod].ingresos = round2(porCuenta[mod].ingresos + monto);
+    porCuenta[mod].recolecciones = round2(porCuenta[mod].recolecciones + monto);
+    if (ingresosPorTienda[t]) {
+      ingresosPorTienda[t].recolecciones = round2((ingresosPorTienda[t].recolecciones || 0) + monto);
+      ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + monto);
+    }
+    const f = String(r.created_at || '').slice(0, 10);
+    const iny = Number(r.detalle?.moneda_inyectar) || 0;
+    ingresosItems.push({
+      id: `rec-${r.id}`,
+      fecha: f || desde,
+      monto: round2(monto),
+      comentario: `Recolección ${etiquetaCuenta(mod)} · ${etiquetaTienda(t)}${iny > 0 ? ` · inyectar ${iny}` : ''} · ${r.folio || ''}`.trim(),
+      cuenta: mod,
+      tienda: t,
+      tipo_mov: 'recoleccion',
+    });
   }
+
+  const ingresosPorDia = ingresosItems.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
 
   const prestamosAll = prestamosRes.error ? [] : prestamosRes.data || [];
   const prestamosPeriodo = prestamosAll.filter((p) => {
     if (['rechazado', 'pendiente_admin'].includes(String(p.estado))) return false;
     const area = String(p.area_corte || 'virtual').toLowerCase();
-    if (area !== 'virtual') return false;
+    if (area !== 'virtual' && area !== 'garage') return false;
+    if (cuentaFiltro && area !== cuentaFiltro) return false;
     if (!isoEnRango(p.created_at || p.aprobado_admin_at, desde, hasta)) return false;
     if (p.cargado_corte) return false;
     return true;
   });
 
+  let egresosLibro = egresosLibroRes.data || [];
+  if (cuentaFiltro) {
+    egresosLibro = egresosLibro.filter((e) => {
+      const c = String(e.cuenta || 'virtual').toLowerCase();
+      return (c === 'garage' ? 'garage' : 'virtual') === cuentaFiltro;
+    });
+  }
+
   const unificado = unificarEgresosParaPanel({
-    egresosLibro: egresosLibroRes.data || [],
-    gastosCorte: gastos.filter((g) => !sucursal || g.sucursal_id === sucursal),
+    egresosLibro,
+    gastosCorte: gastos,
     prestamos: prestamosPeriodo,
     catalogo,
   });
+
+  for (const d of unificado.detalle) {
+    const mod = String(d.cuenta || 'virtual').toLowerCase() === 'garage' ? 'garage' : 'virtual';
+    porCuenta[mod].egresos = round2(porCuenta[mod].egresos + d.monto);
+  }
+  porCuenta.virtual.neto = round2(porCuenta.virtual.ingresos - porCuenta.virtual.egresos);
+  porCuenta.garage.neto = round2(porCuenta.garage.ingresos - porCuenta.garage.egresos);
 
   const egresosPorTienda = {};
   for (const t of tiendasFiltro) {
@@ -299,13 +368,15 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     egresosPorCat,
     ingresosPorTienda: Object.values(ingresosPorTienda).sort((a, b) => b.ingresos - a.ingresos),
     egresosPorTienda: Object.values(egresosPorTienda).sort((a, b) => b.total - a.total),
-    detalleGastos: unificado.detalle.slice(0, 400),
+    detalleGastos: unificado.detalle.slice(0, 500),
     ingresosPorDia,
+    porCuenta,
     pastelCategorias: unificado.pastelCategorias,
     pastelSubcategorias: unificado.pastelSubcategorias,
     catalogo,
     avisoCatalogo: catalogoRes.aviso || egresosLibroRes.aviso || null,
     cierresCount: cierres.length,
+    recoleccionesCount: recolecciones.length,
     cuotasNomina,
     cuotasNominaTotal,
     cuotaMinima: CUOTA_SEMANAL_MINIMA,

@@ -47,6 +47,12 @@ create unique index if not exists idx_cont_virtual_egresos_ref
   on public.cont_virtual_egresos (ref_tabla, ref_id)
   where ref_tabla is not null and ref_id is not null;
 
+-- Cuenta contable: virtual | garage (IE VIRTUAL con cuentas separadas)
+alter table public.cont_virtual_egresos
+  add column if not exists cuenta text not null default 'virtual';
+
+create index if not exists idx_cont_virtual_egresos_cuenta on public.cont_virtual_egresos (cuenta, fecha desc);
+
 alter table public.cont_virtual_categorias enable row level security;
 alter table public.cont_virtual_subcategorias enable row level security;
 alter table public.cont_virtual_egresos enable row level security;

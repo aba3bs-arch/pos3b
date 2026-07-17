@@ -57,14 +57,19 @@ function ymdEnRango(ymd, desde, hasta) {
   return true;
 }
 
-/** Categorías de vale que se auto-registran en Cont Virtual (área virtual). */
+/** Categorías de vale que se auto-registran en IE VIRTUAL (área virtual o garage). */
 export function valeDebeIrAContVirtual(vale) {
   if (!vale) return false;
   const area = String(vale.area || 'virtual').toLowerCase();
-  if (area !== 'virtual') return false;
+  if (area !== 'virtual' && area !== 'garage') return false;
   if (!valeEstaAprobado(vale)) return false;
   const cat = String(vale.categoria || '').toLowerCase();
   return Boolean(VALE_A_CONT_VIRTUAL[cat]);
+}
+
+function normalizarCuentaIe(raw, fallback = 'virtual') {
+  const c = String(raw || fallback).toLowerCase();
+  return c === 'garage' ? 'garage' : 'virtual';
 }
 
 export async function registrarEgresoContVirtual(supabase, row) {
@@ -85,6 +90,7 @@ export async function registrarEgresoContVirtual(supabase, row) {
     ref_tabla: row.ref_tabla || null,
     ref_id: row.ref_id != null ? String(row.ref_id) : null,
     usuario_nombre: row.usuario_nombre || null,
+    cuenta: normalizarCuentaIe(row.cuenta || row.area || row.modulo, 'virtual'),
   };
 
   if (!supabase) {
@@ -118,6 +124,14 @@ export async function registrarEgresoContVirtual(supabase, row) {
       guardarLocal(lista);
       return { ok: true, id, soloLocal: true, aviso: AVISO_FALTA_CONT_VIRTUAL };
     }
+    // Columna cuenta aún no existe: reintentar sin ella
+    if (String(error.message || '').toLowerCase().includes('cuenta')) {
+      const { cuenta: _c, ...sinCuenta } = payload;
+      const retry = await supabase.from('cont_virtual_egresos').insert([sinCuenta]).select('id').single();
+      if (!retry.error) return { ok: true, id: retry.data?.id };
+      if (String(retry.error.message || '').toLowerCase().includes('duplicate')) return { ok: true, yaExiste: true };
+      return { ok: false, error: retry.error.message };
+    }
     if (String(error.message || '').toLowerCase().includes('duplicate')) return { ok: true, yaExiste: true };
     return { ok: false, error: error.message };
   }
@@ -145,6 +159,7 @@ export async function registrarEgresoDesdeVale(supabase, vale) {
     ref_tabla: 'vales',
     ref_id: vale.id,
     usuario_nombre: vale.nombre_empleado || vale.autorizado_por || null,
+    cuenta: normalizarCuentaIe(vale.area, 'virtual'),
   });
 }
 
@@ -236,6 +251,7 @@ export function unificarEgresosParaPanel({
       monto: round2(e.monto),
       fuente: e.fuente || 'manual',
       borrable: e.fuente === 'manual',
+      cuenta: normalizarCuentaIe(e.cuenta, 'virtual'),
     });
   }
 
@@ -258,6 +274,7 @@ export function unificarEgresosParaPanel({
       monto: round2(g.monto),
       fuente: 'corte',
       borrable: false,
+      cuenta: normalizarCuentaIe(g.modulo, 'virtual'),
     });
   }
 
@@ -276,6 +293,7 @@ export function unificarEgresosParaPanel({
       monto: round2(p.monto_original),
       fuente: 'prestamo',
       borrable: false,
+      cuenta: normalizarCuentaIe(p.area_corte, 'virtual'),
     });
   }
 

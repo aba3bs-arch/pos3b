@@ -39,6 +39,10 @@ function fmtMoney(n) {
   return `$ ${fmt(n)}`;
 }
 
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
 function hoyYmd() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -204,6 +208,7 @@ export default function ContVirtual({ supabase, user }) {
   const [mesExpandido, setMesExpandido] = useState(() => new Date().getMonth());
   const hoyRef = useMemo(() => new Date(), []);
   const [filtroTienda, setFiltroTienda] = useState('');
+  const [filtroCuenta, setFiltroCuenta] = useState(''); // '' | virtual | garage
   const [showFiltro, setShowFiltro] = useState(false);
   const [showManual, setShowManual] = useState(false);
   const [masVista, setMasVista] = useState('menu'); // menu | catalogo
@@ -220,6 +225,7 @@ export default function ContVirtual({ supabase, user }) {
   const [manual, setManual] = useState({
     fecha: hoyYmd(),
     sucursal_id: '',
+    cuenta: 'virtual',
     categoria_id: 'manual',
     subcategoria_id: 'manual-otros',
     monto: '',
@@ -272,6 +278,7 @@ export default function ContVirtual({ supabase, user }) {
       desde: rango.desde,
       hasta: rango.hasta,
       sucursal: filtroTienda || null,
+      cuenta: filtroCuenta || null,
     });
     setCargando(false);
     if (!res.ok) {
@@ -282,7 +289,7 @@ export default function ContVirtual({ supabase, user }) {
     setDatos(res);
     if (res.catalogo?.length) setCatalogo(res.catalogo.filter((c) => c.activo !== false));
     if (res.avisoCatalogo) setAvisoSql(res.avisoCatalogo);
-  }, [supabase, rango, filtroTienda]);
+  }, [supabase, rango, filtroTienda, filtroCuenta]);
 
   useEffect(() => {
     cargarCatalogo();
@@ -367,6 +374,7 @@ export default function ContVirtual({ supabase, user }) {
     const res = await registrarEgresoContVirtual(supabase, {
       fecha: manual.fecha || hoyYmd(),
       sucursal_id: manual.sucursal_id || filtroTienda || 'MAIN',
+      cuenta: manual.cuenta || 'virtual',
       categoria_id: manual.categoria_id,
       categoria_nombre: nombres.categoria_nombre,
       subcategoria_id: manual.subcategoria_id || null,
@@ -480,9 +488,17 @@ export default function ContVirtual({ supabase, user }) {
             <span className={`cv-row-dot ${it.tipo === 'ingreso' ? 'ingreso' : 'gasto'}`} />
             <div className="cv-row-main">
               <div className="title">
-                {it.tipo === 'ingreso' ? 'Ingreso / cierre' : `${it.categoria}${it.subcategoria ? ` · ${it.subcategoria}` : ''}`}
+                {it.tipo === 'ingreso'
+                  ? (String(it.comentario || '').startsWith('Recolección')
+                    ? it.comentario
+                    : (it.comentario || 'Ingreso / cierre'))
+                  : `${it.categoria}${it.subcategoria ? ` · ${it.subcategoria}` : ''}`}
               </div>
-              <div className="sub">{it.comentario || it.empleado || etiquetaTienda(it.tienda) || '—'}</div>
+              <div className="sub">
+                {[it.cuenta === 'garage' ? 'Garage' : it.cuenta === 'virtual' ? 'Virtual' : null, it.empleado || etiquetaTienda(it.tienda)]
+                  .filter(Boolean)
+                  .join(' · ') || '—'}
+              </div>
             </div>
             <span className={`cv-row-amt ${it.tipo === 'ingreso' ? 'ingreso' : 'gasto'}`}>
               {fmt(it.monto)}
@@ -638,6 +654,11 @@ export default function ContVirtual({ supabase, user }) {
       </div>
       {showFiltro && (
         <div className="cv-filter-bar">
+          <select value={filtroCuenta} onChange={(e) => setFiltroCuenta(e.target.value)}>
+            <option value="">Cuentas: Virtual + Garage</option>
+            <option value="virtual">Solo Virtual</option>
+            <option value="garage">Solo Garage</option>
+          </select>
           <select value={filtroTienda} onChange={(e) => setFiltroTienda(e.target.value)}>
             <option value="">Todas las tiendas</option>
             {tiendas.map((t) => (
@@ -700,10 +721,12 @@ export default function ContVirtual({ supabase, user }) {
   );
 
   const renderCuentas = () => {
-    const capital = ingresos;
+    const pc = datos?.porCuenta || {};
+    const virtual = pc.virtual || { ingresos: 0, egresos: 0, neto: 0, recolecciones: 0 };
+    const garage = pc.garage || { ingresos: 0, egresos: 0, neto: 0, recolecciones: 0 };
+    const capital = round2((virtual.neto || 0) + (garage.neto || 0));
     const aDeber = 0;
     const bal = capital - aDeber;
-    const porTienda = datos?.ingresosPorTienda || [];
     return (
       <>
         <div className="cv-cuentas-hd">
@@ -728,44 +751,51 @@ export default function ContVirtual({ supabase, user }) {
         </div>
         <div className="cv-cuenta-group">
           <div className="hd">
-            <span>Efectivo</span>
-            <span className="amt">{fmtMoney(capital)}</span>
+            <span>Virtual</span>
+            <span className="amt">{fmtMoney(virtual.neto)}</span>
           </div>
           <div className="item">
-            <span>Efectivo / Virtual</span>
-            <span className="amt">{fmtMoney(capital)}</span>
+            <span>Ingresos (cierres + recolecciones)</span>
+            <span className="amt">{fmtMoney(virtual.ingresos)}</span>
+          </div>
+          <div className="item">
+            <span>Egresos</span>
+            <span className="amt" style={{ color: 'var(--cv-gasto)' }}>{fmtMoney(virtual.egresos)}</span>
+          </div>
+          <div className="item">
+            <span>Recolecciones</span>
+            <span className="amt">{fmtMoney(virtual.recolecciones)}</span>
           </div>
         </div>
         <div className="cv-cuenta-group">
           <div className="hd">
-            <span>Cuentas</span>
-            <span className="amt">{fmtMoney(0)}</span>
+            <span>Garage</span>
+            <span className="amt">{fmtMoney(garage.neto)}</span>
           </div>
-          {porTienda.length === 0 ? (
-            <div className="item">
-              <span>Cuentas</span>
-              <span className="amt">{fmtMoney(0)}</span>
-            </div>
-          ) : (
-            porTienda.map((t) => (
-              <div key={t.id} className="item">
-                <span>{t.label}</span>
-                <span className="amt">{fmtMoney(t.ingresos)}</span>
-              </div>
-            ))
-          )}
+          <div className="item">
+            <span>Ingresos (cierres + recolecciones)</span>
+            <span className="amt">{fmtMoney(garage.ingresos)}</span>
+          </div>
+          <div className="item">
+            <span>Egresos</span>
+            <span className="amt" style={{ color: 'var(--cv-gasto)' }}>{fmtMoney(garage.egresos)}</span>
+          </div>
+          <div className="item">
+            <span>Recolecciones</span>
+            <span className="amt">{fmtMoney(garage.recolecciones)}</span>
+          </div>
         </div>
         <div className="cv-cuenta-group">
-          <div className="cc-hd">
-            <span>Tarjetas de crédito</span>
-            <span>Saldo a pagar</span>
-            <span>Saldo restante</span>
+          <div className="hd">
+            <span>Por tienda (ingresos)</span>
+            <span className="amt">{fmtMoney(ingresos)}</span>
           </div>
-          <div className="cv-cc-row">
-            <span>Tarjetas de crédito</span>
-            <span>$ 0.00</span>
-            <span>$ 0.00</span>
-          </div>
+          {(datos?.ingresosPorTienda || []).filter((t) => t.ingresos > 0 || t.recolecciones > 0).map((t) => (
+            <div key={t.id} className="item">
+              <span>{t.label}</span>
+              <span className="amt">{fmtMoney(t.ingresos)}</span>
+            </div>
+          ))}
         </div>
       </>
     );
@@ -917,6 +947,13 @@ export default function ContVirtual({ supabase, user }) {
                 {tiendas.map((t) => (
                   <option key={t} value={t}>{etiquetaTienda(t)}</option>
                 ))}
+              </select>
+            </label>
+            <label>
+              Cuenta
+              <select value={manual.cuenta} onChange={(e) => setManual({ ...manual, cuenta: e.target.value })}>
+                <option value="virtual">Virtual</option>
+                <option value="garage">Garage</option>
               </select>
             </label>
             <label>
