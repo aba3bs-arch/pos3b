@@ -108,7 +108,7 @@ export function quitarRolPersonalizado(nombre) {
 }
 
 /** Submódulos bajo Contabilidad en el menú lateral. */
-export const SUBMODULOS_CONTABILIDAD = ['Nómina', 'Panel RT', 'Liquidación recolecciones', 'IE VIRTUAL'];
+export const SUBMODULOS_CONTABILIDAD = ['Nómina', 'Panel RT', 'Liquidación recolecciones', 'IE VIRTUAL', 'Auto Fin'];
 
 export const VISTA_HUB_CONTABILIDAD = 'Contabilidad';
 
@@ -220,6 +220,7 @@ const ACCESO_POR_ROL = {
     'Panel RT',
     'Liquidación recolecciones',
     'IE VIRTUAL',
+    'Auto Fin',
     'Vales y Préstamos',
     'Configuracion',
     'Ayuda',

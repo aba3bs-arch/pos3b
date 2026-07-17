@@ -16,6 +16,7 @@ import Nomina from './modules/Nomina.jsx';
 import RecoleccionesTraspasosContabilidad from './modules/RecoleccionesTraspasosContabilidad.jsx';
 import Contabilidad from './modules/Contabilidad.jsx';
 import ContVirtual from './modules/ContVirtual.jsx';
+import AutoFin from './modules/AutoFin.jsx';
 import VolverContabilidad from './components/VolverContabilidad.jsx';
 import ValesPrestamos from './modules/ValesPrestamos.jsx';
 import CorteVirtual from './modules/cortes/CorteVirtual.jsx';
@@ -990,6 +991,12 @@ function App() {
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
               <ContVirtual supabase={supabase} user={user} />
+            </>
+          )}
+          {vista === 'Auto Fin' && (
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <AutoFin supabase={supabase} user={user} />
             </>
           )}
           {vista === 'Vales y Préstamos' && (

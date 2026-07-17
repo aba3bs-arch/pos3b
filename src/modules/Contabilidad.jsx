@@ -8,6 +8,7 @@ const DESCRIPCIONES = {
   'Panel RT': 'Reportes, servicios, recolectores y gastos',
   'Liquidación recolecciones': 'Sellar efectivo en tránsito por tienda y día',
   'IE VIRTUAL': 'Ingresos y egresos Virtual + Garage (cuentas separadas)',
+  'Auto Fin': 'Autofinanciamiento: enganche, cuotas e intereses por cliente',
 };
 
 /** Hub de Contabilidad: solo botones; cada submódulo abre su pantalla. */
