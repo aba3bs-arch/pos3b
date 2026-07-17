@@ -90,7 +90,6 @@ function filasResumenModulo(data) {
   if (mod === 'virtual') {
     filas.push(['Fondo fijo', fmt(e.fondo)]);
     filas.push(['Caja chica anterior', fmt(e.caja_anterior)]);
-    filas.push(['Moneda inicial ref. (morado)', fmt(e.moneda_inicial)]);
     filas.push(['Moneda inicial del corte', fmt(e.moneda_inicial_turno ?? e.moneda_inicial)]);
     filas.push(['Moneda final', fmt(e.moneda_final)]);
     if (e.recoleccion || e.recoleccion_turno) filas.push(['Recolección', fmt(e.recoleccion ?? e.recoleccion_turno)]);
