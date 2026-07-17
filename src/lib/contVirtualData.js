@@ -265,6 +265,7 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     const t = r.sucursal_id || 'MAIN';
     if (sucursal && t !== sucursal) continue;
     const mod = String(r.modulo || 'virtual').toLowerCase() === 'garage' ? 'garage' : 'virtual';
+    // Solo el efectivo recolectado es ingreso. Nunca fondo, inyección ni moneda final en caja.
     const monto = Number(r.detalle?.recoleccion || r.detalle?.recoleccion_turno) || 0;
     if (!(monto > 0)) continue;
     recoleccionTotal = round2(recoleccionTotal + monto);
@@ -276,12 +277,11 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
       ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + monto);
     }
     const f = String(r.created_at || '').slice(0, 10);
-    const iny = Number(r.detalle?.moneda_inyectar) || 0;
     ingresosItems.push({
       id: `rec-${r.id}`,
       fecha: f || desde,
       monto: round2(monto),
-      comentario: `Recolección ${etiquetaCuenta(mod)} · ${etiquetaTienda(t)}${iny > 0 ? ` · inyectar ${iny}` : ''} · ${r.folio || ''}`.trim(),
+      comentario: `Recolección ${etiquetaCuenta(mod)} · ${etiquetaTienda(t)} · ${r.folio || ''}`.trim(),
       cuenta: mod,
       tienda: t,
       tipo_mov: 'recoleccion',

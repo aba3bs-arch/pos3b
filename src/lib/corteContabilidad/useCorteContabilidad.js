@@ -230,7 +230,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       return alert('Solo el administrador o recolector con privilegio puede registrar recolección.');
     }
     if (!estado._precoleccion_editada && !round2(estado.precoleccion)) {
-      return alert('Capture la precolección (moneda contada en caja) antes de registrar la recolección.');
+      return alert('Capture la moneda final de recolección (moneda en caja) antes de registrar.');
     }
     const montoRec = round2(estado.recoleccion ?? estado.recoleccion_turno);
     if (!(montoRec > 0)) return alert('Indique el monto de recolección en efectivo retirado.');
@@ -260,16 +260,20 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       usuario_id: user?.id || null,
       usuario_nombre: user?.nombre || null,
       caja_actual: round2(Math.max(0, calc.cajaActual)),
-      ventas: calc.venta ?? 0,
+      // Recolección: el ingreso en IE es solo el efectivo retirado (detalle.recoleccion), nunca el fondo.
+      ventas: 0,
       detalle: {
         ...estado,
+        fondo: round2(estado.fondo),
         moneda_final: mf,
         moneda_final_editada: true,
         precoleccion: mf,
+        moneda_final_recoleccion: mf,
         recoleccion: montoRec,
         recoleccion_turno: montoRec,
         moneda_tope: monedaTope,
         moneda_inyectar: monedaInyectar,
+        venta: 0,
         gastos,
         gastos_total: calc.gastosTotal,
         subtotal: calc.subtotal,
@@ -299,10 +303,11 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const monOp = monedaTope > 0 ? monedaTope : mf;
     alert(
       `Recolección de ${fmtCorte(montoRec)} registrada.\n\n` +
-        `Precolección: ${fmtCorte(mf)}\n` +
-        `Moneda tope: ${fmtCorte(monedaTope)}\n` +
-        `Inyectar a sucursal: ${fmtCorte(monedaInyectar)}\n` +
-        `(tope − precolección)\n\n` +
+        `Moneda final recolección: ${fmtCorte(mf)}\n` +
+        `Moneda inicial (tope): ${fmtCorte(monedaTope)}\n` +
+        `Inyectar a sucursal: ${fmtCorte(monedaInyectar)} (no es ingreso)\n` +
+        `Ingreso en IE VIRTUAL: ${fmtCorte(montoRec)} (solo efectivo recolectado)\n` +
+        `El fondo fijo no se registra como ingreso.\n\n` +
         `Periodo reiniciado: caja y ventas en ${fmtCorte(0)}.\n` +
         `Moneda de referencia e inicio de operación: ${fmtCorte(monOp)}.\n` +
         `Los gastos del periodo quedan en historial y nómina.`,

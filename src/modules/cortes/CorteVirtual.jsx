@@ -124,14 +124,14 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     const msg =
       `¿Registrar recolección?\n\n` +
       `Recolector: ${user?.nombre || '—'}\n` +
-      `Precolección (moneda contada): ${fmtCorte(estado.precoleccion)}\n` +
-      `Recolección en efectivo: ${fmtCorte(montoRec)}\n` +
-      `Moneda tope: ${fmtCorte(tope)}\n` +
+      `Moneda final recolección: ${fmtCorte(estado.precoleccion)}\n` +
+      `Recolección en efectivo (ingreso IE): ${fmtCorte(montoRec)}\n` +
+      `Moneda inicial (tope): ${fmtCorte(tope)}\n` +
       `Inyectar a sucursal: ${fmtCorte(inyectar)}\n` +
-      `(tope − precolección)\n` +
+      `(no es ingreso · el fondo fijo no aplica)\n` +
       `Caja chica del periodo: ${fmtCorte(cajaAcumulada)}\n\n` +
       `Se recoge el efectivo y el periodo reinicia en ${fmtCorte(0)}.\n` +
-      `Moneda de referencia e inicio de operación (actualizada al tope): ${fmtCorte(monOp)}.\n` +
+      `Moneda de referencia e inicio de operación: ${fmtCorte(monOp)}.\n` +
       `Los gastos del periodo quedan registrados en historial y nómina.`;
     if (!confirm(msg)) return;
     const res = await registrarRecoleccion({
@@ -261,7 +261,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
               label="Fondo fijo"
               value={estado.fondo ?? 0}
               editable={Boolean(perm.editarTodo)}
-              hint="Cambio y premios chicos · no afecta la venta ni el tope de operación"
+              hint="Solo cambio y premios chicos · no es ingreso ni afecta recolección / IE VIRTUAL"
               onChange={(v) => patchEstado({ fondo: v })}
             />
             <CampoCorte
@@ -345,24 +345,27 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
                 )}
 
                 <CampoCorte
-                  label="Precolección (moneda contada ahora)"
+                  label="Moneda final recolección"
                   value={estado.precoleccion ?? ''}
                   editable
-                  hint="Moneda en caja tras retirar efectivo · se resta de la moneda inicial de operación (tope) para calcular la inyección"
+                  hint="Moneda que queda en caja al recolectar · se resta de la moneda inicial para calcular cuánto inyectar (el fondo fijo no aplica)"
                   onChange={(v) => patchEstado({ precoleccion: v, _precoleccion_editada: true })}
                 />
                 <CampoCorte
                   label="Recolección ($)"
                   value={estado.recoleccion_turno ?? estado.recoleccion ?? ''}
                   editable
-                  hint="Efectivo retirado que anota el recolector (ej. $9,000)"
+                  hint="Efectivo retirado que anota el recolector (ej. $9,000) · este monto sí va a IE VIRTUAL como ingreso"
                   onChange={(v) => patchEstado({ recoleccion_turno: v, recoleccion: v })}
                 />
                 <div style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(142,68,173,0.12)', borderRadius: 8, marginTop: '0.5rem' }}>
                   <div className="muted" style={{ fontSize: '0.75rem' }}>INYECTAR A SUCURSAL</div>
                   <div style={{ fontSize: '1.25rem', fontWeight: 800, color: COLOR }}>{fmtCorte(monedaInyectar)}</div>
                   <div className="muted" style={{ fontSize: '0.7rem' }}>
-                    Moneda inicial {fmtCorte(monedaTope)} − precolección {fmtCorte(estado.precoleccion || 0)}
+                    Moneda inicial {fmtCorte(monedaTope)} − moneda final recolección {fmtCorte(estado.precoleccion || 0)}
+                  </div>
+                  <div className="muted" style={{ fontSize: '0.68rem', marginTop: '0.25rem' }}>
+                    No es ingreso · el fondo fijo no entra en este cálculo
                   </div>
                 </div>
                 <div style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(225,153,41,0.12)', borderRadius: 8, marginTop: '0.5rem' }}>
