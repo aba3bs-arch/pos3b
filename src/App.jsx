@@ -80,6 +80,7 @@ import {
 import BrandLogo from './components/BrandLogo.jsx';
 import Icon, { BtnLabel } from './components/Icon.jsx';
 import BotonLimpiarCache from './components/BotonLimpiarCache.jsx';
+import RelojNogales from './components/RelojNogales.jsx';
 import { EVENTO_CACHE_LIMPIADO } from './lib/limpiarCache.js';
 import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesContabilidad.jsx';
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
@@ -816,6 +817,7 @@ function App() {
               <Icon name={iconoDeModulo(vista)} size={22} style={{ color: colorDeModulo(vista) }} />
               {vista}
             </h2>
+            <RelojNogales />
             <div className="app-header-quick">
               {puedeRecibirNotificacionesDispositivo(user?.rol) && (
                 <BotonActivarNotificaciones supabase={supabase} user={user} />

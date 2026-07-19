@@ -3,6 +3,7 @@ import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursa
 import {
   AVISO_FALTA_AUTO_FIN,
   FRECUENCIAS_AUTO_FIN,
+  actualizarFechaFinanciamientoAutoFin,
   calcularPlanAutoFin,
   cancelarCreditoAutoFin,
   crearCreditoAutoFin,
@@ -52,6 +53,7 @@ export default function AutoFin({ supabase, user }) {
   const [clientes, setClientes] = useState([]);
   const [detalle, setDetalle] = useState(null);
   const [pago, setPago] = useState({ cuotaId: '', monto: '', fecha: hoyYmd(), metodo: 'efectivo', nota: '' });
+  const [fechaFinanciamiento, setFechaFinanciamiento] = useState(hoyYmd());
 
   const planPreview = useMemo(
     () =>
@@ -98,6 +100,7 @@ export default function AutoFin({ supabase, user }) {
     if (!res.ok) return alert(res.error || 'No se pudo cargar');
     if (res.aviso) setAviso(res.aviso);
     setDetalle(res);
+    setFechaFinanciamiento(String(res.credito?.fecha_inicio || hoyYmd()).slice(0, 10));
     const primeraPend = (res.cuotas || []).find((c) => c.estado !== 'pagada');
     setPago({
       cuotaId: primeraPend?.id || '',
@@ -173,6 +176,25 @@ export default function AutoFin({ supabase, user }) {
     if (!res.ok) return alert(res.error);
     cargarLista();
     setVista('lista');
+  };
+
+  const guardarFechaFinanciamiento = async () => {
+    if (!detalle?.credito?.id) return;
+    if (detalle.credito.estado === 'cancelado') {
+      return alert('No se puede modificar un crédito cancelado.');
+    }
+    const actual = String(detalle.credito.fecha_inicio || '').slice(0, 10);
+    if (fechaFinanciamiento === actual) return alert('La fecha es la misma que la actual.');
+    if (!confirm(`¿Cambiar la fecha de financiamiento a ${fechaFinanciamiento}?\n\nSe regenerarán las fechas de vencimiento de todas las cuotas. Los montos y pagos ya aplicados se conservan.`)) {
+      return;
+    }
+    setGuardando(true);
+    const res = await actualizarFechaFinanciamientoAutoFin(supabase, detalle.credito.id, fechaFinanciamiento);
+    setGuardando(false);
+    if (!res.ok) return alert(res.error);
+    alert('Fecha de financiamiento actualizada.');
+    abrirDetalle(detalle.credito.id);
+    cargarLista();
   };
 
   return (
@@ -423,6 +445,29 @@ export default function AutoFin({ supabase, user }) {
               <Kpi label="Pagado" value={fmt(detalle.pagadoTotal)} />
               <Kpi label="Saldo" value={fmt(detalle.saldo)} accent={COLOR} />
             </div>
+            {detalle.credito.estado !== 'cancelado' && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem', alignItems: 'flex-end', marginTop: '1rem', paddingTop: '0.85rem', borderTop: '1px solid var(--border, #e5e7eb)' }}>
+                <label className="muted" style={{ fontSize: '0.8rem', flex: '1 1 180px' }}>
+                  Fecha de financiamiento
+                  <input
+                    className="input"
+                    type="date"
+                    style={{ display: 'block', marginTop: '0.25rem', width: '100%' }}
+                    value={fechaFinanciamiento}
+                    onChange={(e) => setFechaFinanciamiento(e.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ flex: '0 0 auto' }}
+                  disabled={guardando || fechaFinanciamiento === String(detalle.credito.fecha_inicio || '').slice(0, 10)}
+                  onClick={guardarFechaFinanciamiento}
+                >
+                  {guardando ? 'Guardando…' : 'Actualizar fecha'}
+                </button>
+              </div>
+            )}
           </div>
 
           {detalle.credito.estado === 'activo' && (

@@ -304,3 +304,53 @@ export async function cancelarCreditoAutoFin(supabase, id) {
   }
   return { ok: true };
 }
+
+/**
+ * Cambia la fecha de inicio del financiamiento y regenera solo las fechas
+ * de vencimiento de las cuotas (conserva montos y pagos ya aplicados).
+ */
+export async function actualizarFechaFinanciamientoAutoFin(supabase, creditoId, nuevaFechaInicio) {
+  if (!supabase || !creditoId) return { ok: false, error: 'Crédito inválido.' };
+  const inicio = String(nuevaFechaInicio || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(inicio)) return { ok: false, error: 'Fecha inválida.' };
+
+  const { data: credito, error } = await supabase
+    .from('auto_fin_creditos')
+    .select('id, frecuencia, num_cuotas, estado')
+    .eq('id', creditoId)
+    .maybeSingle();
+  if (error && faltaTabla(error)) return { ok: false, error: AVISO_FALTA_AUTO_FIN, aviso: AVISO_FALTA_AUTO_FIN };
+  if (error) return { ok: false, error: error.message };
+  if (!credito) return { ok: false, error: 'Crédito no encontrado.' };
+  if (credito.estado === 'cancelado') return { ok: false, error: 'No se puede modificar un crédito cancelado.' };
+
+  const { data: cuotas, error: eCuotas } = await supabase
+    .from('auto_fin_cuotas')
+    .select('id, numero')
+    .eq('credito_id', creditoId)
+    .order('numero');
+  if (eCuotas) return { ok: false, error: eCuotas.message };
+  if (!cuotas?.length) return { ok: false, error: 'El crédito no tiene cuotas.' };
+
+  const freq = FRECUENCIAS_AUTO_FIN.find((f) => f.id === credito.frecuencia) || FRECUENCIAS_AUTO_FIN[0];
+
+  const { error: eFecha } = await supabase
+    .from('auto_fin_creditos')
+    .update({ fecha_inicio: inicio })
+    .eq('id', creditoId);
+  if (eFecha) return { ok: false, error: eFecha.message };
+
+  for (const cuota of cuotas) {
+    const fecha =
+      freq.id === 'mensual'
+        ? addMonths(inicio, cuota.numero)
+        : addDays(inicio, freq.dias * cuota.numero);
+    const { error: eUpd } = await supabase
+      .from('auto_fin_cuotas')
+      .update({ fecha_vencimiento: fecha })
+      .eq('id', cuota.id);
+    if (eUpd) return { ok: false, error: eUpd.message };
+  }
+
+  return { ok: true, fecha_inicio: inicio };
+}
