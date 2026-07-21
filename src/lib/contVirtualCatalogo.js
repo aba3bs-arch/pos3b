@@ -47,6 +47,22 @@ export const CATEGORIAS_CONT_VIRTUAL_DEFAULT = [
     ],
   },
   {
+    id: 'cubre-turno',
+    nombre: 'Cubre turno',
+    orden: 35,
+    activo: true,
+    fijo: true,
+    subcategorias: [{ id: 'cubre-turno-pago', nombre: 'Pago', orden: 10, activo: true, fijo: true }],
+  },
+  {
+    id: 'taxis',
+    nombre: 'Taxis',
+    orden: 36,
+    activo: true,
+    fijo: true,
+    subcategorias: [{ id: 'taxis-servicio', nombre: 'Servicio', orden: 10, activo: true, fijo: true }],
+  },
+  {
     id: 'prestamos',
     nombre: 'Préstamos',
     orden: 40,
@@ -71,6 +87,45 @@ export const VALE_A_CONT_VIRTUAL = {
   accesorios: { categoriaId: 'vales', subcategoriaId: 'vales-accesorios' },
   consumo: { categoriaId: 'vales', subcategoriaId: 'vales-consumo' },
 };
+
+/** Categorías de corte Virtual que se auto-registran en el libro IE VIRTUAL. */
+export const CORTE_A_CONT_VIRTUAL = {
+  'CUBRE TURNO': { categoriaId: 'cubre-turno', subcategoriaId: 'cubre-turno-pago' },
+  CUBRETURNO: { categoriaId: 'cubre-turno', subcategoriaId: 'cubre-turno-pago' },
+  TAXIS: { categoriaId: 'taxis', subcategoriaId: 'taxis-servicio' },
+  TAXI: { categoriaId: 'taxis', subcategoriaId: 'taxis-servicio' },
+};
+
+/** True si el gasto de corte es cubre turno o taxi (por categoría o subcategoría). */
+export function esGastoCubreTurnoOTaxi(gasto) {
+  const cat = String(gasto?.categoria || '').trim().toUpperCase();
+  const sub = String(gasto?.subcategoria || '').trim().toUpperCase();
+  if (CORTE_A_CONT_VIRTUAL[cat]) return true;
+  if (cat.includes('CUBRE') && cat.includes('TURNO')) return true;
+  if (cat === 'TAXI' || cat === 'TAXIS' || cat.includes('TAXI')) return true;
+  if (sub.includes('CUBRE') && sub.includes('TURNO')) return true;
+  if (sub === 'TAXI' || sub === 'TAXIS' || sub.includes('TAXI')) return true;
+  return false;
+}
+
+export function mapearGastoCorteCubreTaxiACatalogo(gasto) {
+  const cat = String(gasto?.categoria || '').trim().toUpperCase();
+  const sub = String(gasto?.subcategoria || '').trim().toUpperCase();
+  if (CORTE_A_CONT_VIRTUAL[cat]) return CORTE_A_CONT_VIRTUAL[cat];
+  if (cat.includes('CUBRE') && cat.includes('TURNO')) {
+    return { categoriaId: 'cubre-turno', subcategoriaId: 'cubre-turno-pago' };
+  }
+  if (cat === 'TAXI' || cat === 'TAXIS' || cat.includes('TAXI')) {
+    return { categoriaId: 'taxis', subcategoriaId: 'taxis-servicio' };
+  }
+  if (sub.includes('CUBRE') && sub.includes('TURNO')) {
+    return { categoriaId: 'cubre-turno', subcategoriaId: 'cubre-turno-pago' };
+  }
+  if (sub === 'TAXI' || sub === 'TAXIS' || sub.includes('TAXI')) {
+    return { categoriaId: 'taxis', subcategoriaId: 'taxis-servicio' };
+  }
+  return null;
+}
 
 function slug(label, prefix = 'cat') {
   const base = String(label || '')
@@ -162,6 +217,19 @@ export async function listarCatalogoContVirtual(supabase) {
     await sembrarCatalogoDefault(supabase);
     const again = await listarCatalogoContVirtual(supabase);
     return again;
+  }
+  const ids = new Set((cRes.data || []).map((c) => c.id));
+  if (!ids.has('cubre-turno') || !ids.has('taxis')) {
+    await sembrarCatalogoDefault(supabase);
+    const [c2, s2] = await Promise.all([
+      supabase.from('cont_virtual_categorias').select('*').order('orden'),
+      supabase.from('cont_virtual_subcategorias').select('*').order('orden'),
+    ]);
+    if (!c2.error) {
+      const data = armarCatalogo(c2.data, s2.data || []);
+      guardarLocal(data);
+      return { data };
+    }
   }
   const data = armarCatalogo(cRes.data, sRes.data || []);
   guardarLocal(data);
@@ -301,6 +369,8 @@ export function resolverNombresCatalogo(catalogo, categoriaId, subcategoriaId) {
 export function mapearCorteACatalogo(categoria, subcategoria) {
   const cat = String(categoria || '').trim().toUpperCase();
   const sub = String(subcategoria || '').trim().toUpperCase();
+  const cubreTaxi = mapearGastoCorteCubreTaxiACatalogo({ categoria: cat, subcategoria: sub });
+  if (cubreTaxi) return cubreTaxi;
   if (cat === 'CONSUMO') {
     if (sub.includes('OFICINA')) return { categoriaId: 'consumo', subcategoriaId: 'consumo-oficina' };
     return { categoriaId: 'consumo', subcategoriaId: 'consumo-empleado' };

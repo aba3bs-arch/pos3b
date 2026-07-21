@@ -4,6 +4,7 @@ import { CUOTA_SEMANAL_MINIMA } from './contabilidadConstants.js';
 import { listarCatalogoContVirtual } from './contVirtualCatalogo.js';
 import {
   listarEgresosContVirtual,
+  sincronizarGastosCubreTaxiContVirtual,
   sincronizarValesContVirtual,
   unificarEgresosParaPanel,
 } from './contVirtualEgresos.js';
@@ -156,7 +157,10 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
   const desdeIso = `${desde}T00:00:00`;
   const hastaIso = `${hasta}T23:59:59.999`;
 
-  await sincronizarValesContVirtual(supabase);
+  await Promise.all([
+    sincronizarValesContVirtual(supabase),
+    sincronizarGastosCubreTaxiContVirtual(supabase),
+  ]);
 
   let qCierres = supabase
     .from('cortes_contabilidad_cierres')

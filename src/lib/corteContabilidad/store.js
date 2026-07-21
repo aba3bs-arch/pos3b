@@ -140,6 +140,14 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
       mensaje: 'Gasto enviado. El administrador debe aprobar antes de descontarlo en el corte.',
     };
   }
+  if (modulo === 'virtual' && data) {
+    try {
+      const { registrarEgresoDesdeGastoCorte } = await import('../contVirtualEgresos.js');
+      await registrarEgresoDesdeGastoCorte(supabase, data);
+    } catch {
+      /* IE sync no debe bloquear el corte */
+    }
+  }
   return { ok: true, data };
 }
 
@@ -157,6 +165,14 @@ export async function aprobarGastoTurno(supabase, gastoId, { nombre } = {}) {
     .single();
   if (error) return { ok: false, error: error.message };
   await marcarNotificacionAtendida(supabase, 'cortes_contabilidad_gastos', gastoId, nombre);
+  if (data && String(data.modulo || '').toLowerCase() === 'virtual') {
+    try {
+      const { registrarEgresoDesdeGastoCorte } = await import('../contVirtualEgresos.js');
+      await registrarEgresoDesdeGastoCorte(supabase, data);
+    } catch {
+      /* IE sync no debe bloquear la aprobación */
+    }
+  }
   return { ok: true, gasto: data };
 }
 

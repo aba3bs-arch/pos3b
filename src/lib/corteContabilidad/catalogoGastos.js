@@ -11,6 +11,8 @@ const DEFAULTS = {
   virtual: [
     { categoria: 'CONSUMO', subcategorias: ['EMPLEADO', 'OFICINA'] },
     { categoria: 'GASTOS OPERATIVOS', subcategorias: ['SUMINISTROS', 'SERVICIOS', 'MANTENIMIENTO', 'OTROS'] },
+    { categoria: 'CUBRE TURNO', subcategorias: ['PAGO'] },
+    { categoria: 'TAXIS', subcategorias: ['SERVICIO'] },
     { categoria: 'TARJETA', subcategorias: ['PAGOS TARJETA'] },
     { categoria: 'FALTANTE', subcategorias: ['FALTANTE'] },
     { categoria: 'PREMIOS', subcategorias: ['PAGO DE PREMIO'] },
@@ -66,6 +68,23 @@ async function listarDesdeNube(supabase, sucursalId, modulo) {
     .order('categoria');
 }
 
+/** Asegura categorías fijas nuevas (CUBRE TURNO / TAXIS) en catálogo Virtual global. */
+async function asegurarCategoriasVirtualFijas(supabase, rows) {
+  if (!supabase) return rows;
+  const lista = mapRows(rows);
+  const cats = new Set(lista.map((r) => String(r.categoria || '').toUpperCase()));
+  const faltantes = (DEFAULTS.virtual || []).filter(
+    (d) => (d.categoria === 'CUBRE TURNO' || d.categoria === 'TAXIS') && !cats.has(d.categoria),
+  );
+  if (!faltantes.length) return lista;
+  for (const d of faltantes) {
+    await guardarCategoriaGasto(supabase, CATALOGO_GASTOS_GLOBAL, 'virtual', d.categoria, d.subcategorias);
+  }
+  const again = await listarDesdeNube(supabase, CATALOGO_GASTOS_GLOBAL, 'virtual');
+  if (!again.error && again.data?.length) return mapRows(again.data);
+  return [...lista, ...faltantes];
+}
+
 /** Lista catálogo global; si no hay filas globales, usa legado de la sucursal activa. */
 export async function listarCatalogoGastos(supabase, sucursal, modulo) {
   if (!supabase) return { data: leerLocal(modulo) };
@@ -75,11 +94,22 @@ export async function listarCatalogoGastos(supabase, sucursal, modulo) {
     if (globalRes.error.code === '42P01') return { data: leerLocal(modulo), aviso: 'Ejecuta fix_contabilidad_ampliacion.sql' };
     return { data: leerLocal(modulo), error: globalRes.error.message };
   }
-  if (globalRes.data?.length) return { data: mapRows(globalRes.data), fuente: 'global' };
+  if (globalRes.data?.length) {
+    const data =
+      modulo === 'virtual' ? await asegurarCategoriasVirtualFijas(supabase, globalRes.data) : mapRows(globalRes.data);
+    return { data, fuente: 'global' };
+  }
 
   const legacyRes = await listarDesdeNube(supabase, sucursal || 'MAIN', modulo);
   if (legacyRes.error) return { data: leerLocal(modulo), error: legacyRes.error.message };
-  if (legacyRes.data?.length) return { data: mapRows(legacyRes.data), fuente: 'legacy' };
+  if (legacyRes.data?.length) {
+    if (modulo === 'virtual') {
+      // Migrar faltantes al catálogo global para todas las tiendas
+      const data = await asegurarCategoriasVirtualFijas(supabase, legacyRes.data);
+      return { data, fuente: 'legacy+fijas' };
+    }
+    return { data: mapRows(legacyRes.data), fuente: 'legacy' };
+  }
 
   return { data: DEFAULTS[modulo] || [] };
 }

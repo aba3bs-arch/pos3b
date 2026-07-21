@@ -25,6 +25,7 @@ import { etiquetaTienda } from '../constants/sucursales.js';
 import { imprimirCorte } from '../lib/impresion.js';
 import { leerConfigImpresion } from '../lib/posConfig.js';
 import SelectorCalendario from '../components/SelectorCalendario.jsx';
+import { hoyClaveNogales } from '../lib/controlEfectivo.js';
 
 function fmtHora(iso) {
   if (!iso) return '—';
@@ -32,7 +33,7 @@ function fmtHora(iso) {
 }
 
 export default function CorteCaja({ supabase, sucursal, user, inventario, inventarioCompleto, cargarDatos }) {
-  const hoy = new Date().toISOString().slice(0, 10);
+  const hoy = hoyClaveNogales();
   const [pestana, setPestana] = useState('corte');
   const [fecha, setFecha] = useState(hoy);
   const [ventas, setVentas] = useState([]);
@@ -55,6 +56,7 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
   const [motivoCancel, setMotivoCancel] = useState('');
   const [cancelando, setCancelando] = useState(false);
   const [ventasOtrasTiendas, setVentasOtrasTiendas] = useState(null);
+  const [ventasDiaSinTurno, setVentasDiaSinTurno] = useState(0);
   const [turnos, setTurnos] = useState(() => leerTurnos());
   const [turnoActivo, setTurnoActivo] = useState(() => turnoActual());
   const [corteExistente, setCorteExistente] = useState(null);
@@ -87,7 +89,14 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
     setError('');
     setMsg('');
     setAviso('');
-    const { ventas: rows, cancelaciones: canc, error: err, aviso: av, ventasOtrasTiendas: otras } = await cargarDiaCaja(supabase, {
+    const {
+      ventas: rows,
+      cancelaciones: canc,
+      error: err,
+      aviso: av,
+      ventasOtrasTiendas: otras,
+      ventasDiaSinTurno: sinTurno,
+    } = await cargarDiaCaja(supabase, {
       sucursal,
       fecha,
       turno: turnoActivo,
@@ -98,11 +107,13 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
       setVentas([]);
       setCancelaciones([]);
       setVentasOtrasTiendas(null);
+      setVentasDiaSinTurno(0);
       return;
     }
     setVentas(rows);
     setCancelaciones(canc);
     setVentasOtrasTiendas(otras);
+    setVentasDiaSinTurno(Number(sinTurno) || 0);
     if (av) setAviso(av);
   }, [supabase, sucursal, fecha, turnoActivo?.id]);
 
@@ -298,6 +309,12 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
           <br />
           El corte solo muestra ventas hechas en <strong>esta misma tienda</strong> (la fijada en la caja al cobrar en Ventas).
         </p>
+        {ventasDiaSinTurno > 0 && ventas.length === 0 && (
+          <p style={{ margin: '0.5rem 0 0', fontSize: '0.9rem', color: '#b45309' }}>
+            Hay <strong>{ventasDiaSinTurno}</strong> venta(s) de esta tienda en esa fecha, pero de{' '}
+            <strong>otro turno</strong>. El corte solo muestra el turno activo ({nombreTurnoLegible(turnoActivo) || '—'}).
+          </p>
+        )}
         {ventasOtrasTiendas && Object.keys(ventasOtrasTiendas).length > 0 && (
           <p style={{ margin: '0.5rem 0 0', fontSize: '0.9rem' }}>
             Hoy sí hay tickets en otra tienda:{' '}
@@ -307,9 +324,11 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
             . Cambia la tienda de la caja en Configuración o al iniciar sesión.
           </p>
         )}
-        {!ventasOtrasTiendas && (
+        {!ventasOtrasTiendas && ventasDiaSinTurno === 0 && (
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
-            Si acabas de vender, confirma que la tienda de la caja coincida. También puedes cambiar la fecha arriba.
+            Si acabas de vender, confirma que la tienda de la caja coincida. En turno nocturno (19:00–07:00) las ventas
+            de la noche van con la fecha del día en que empezó el turno (ej. ventas a las 20:00 del 20 van en el 20, no en el 21).
+            También puedes revisar en <strong>Consultas → Ventas</strong> con «Todas las tiendas».
           </p>
         )}
       </div>

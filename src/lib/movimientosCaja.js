@@ -246,6 +246,7 @@ export async function cargarDiaCaja(supabase, { sucursal, fecha, turno = null })
   }
   return {
     ventas: ventas || [],
+    ventasDiaSinTurno: ventasRaw.length,
     cancelaciones: cancel.data || [],
     error: error || null,
     aviso: cancel.aviso || (sinFecha ? aviso : null),

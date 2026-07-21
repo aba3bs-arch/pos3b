@@ -71,6 +71,8 @@ insert into public.cont_virtual_categorias (id, nombre, orden, activo, fijo) val
   ('vales', 'Vales', 10, true, true),
   ('consumo', 'Consumo', 20, true, true),
   ('operativos', 'Gastos operativos', 30, true, true),
+  ('cubre-turno', 'Cubre turno', 35, true, true),
+  ('taxis', 'Taxis', 36, true, true),
   ('prestamos', 'Préstamos', 40, true, true),
   ('manual', 'Otros / manual', 90, true, true)
 on conflict (id) do update set nombre = excluded.nombre, fijo = true, activo = true;
@@ -86,9 +88,11 @@ insert into public.cont_virtual_subcategorias (id, categoria_id, nombre, orden, 
   ('operativos-servicios', 'operativos', 'Servicios', 20, true, true),
   ('operativos-mantenimiento', 'operativos', 'Mantenimiento', 30, true, true),
   ('operativos-otros', 'operativos', 'Otros', 40, true, true),
+  ('cubre-turno-pago', 'cubre-turno', 'Pago', 10, true, true),
+  ('taxis-servicio', 'taxis', 'Servicio', 10, true, true),
   ('prestamos-desembolso', 'prestamos', 'Desembolso', 10, true, true),
   ('manual-otros', 'manual', 'Otros', 10, true, true)
 on conflict (id) do update set nombre = excluded.nombre, categoria_id = excluded.categoria_id, fijo = true, activo = true;
 
 comment on table public.cont_virtual_egresos is
-  'Libro de egresos Cont Virtual (manual + auto desde vales Virtual).';
+  'Libro de egresos Cont Virtual (manual + auto desde vales Virtual y gastos CUBRE TURNO/TAXIS de Corte Virtual).';

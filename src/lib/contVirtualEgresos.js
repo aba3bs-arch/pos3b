@@ -1,8 +1,10 @@
 import {
   AVISO_FALTA_CONT_VIRTUAL,
   VALE_A_CONT_VIRTUAL,
+  esGastoCubreTurnoOTaxi,
   listarCatalogoContVirtual,
   mapearCorteACatalogo,
+  mapearGastoCorteCubreTaxiACatalogo,
   resolverNombresCatalogo,
 } from './contVirtualCatalogo.js';
 import { etiquetaCategoriaVale } from './valesCategorias.js';
@@ -15,6 +17,15 @@ function fechaEfectivaVale(vale) {
 function valeEstaAprobado(vale) {
   const e = vale?.estado_aprobacion;
   return !e || e === 'aprobado';
+}
+
+function gastoCorteEstaAprobado(gasto) {
+  const e = gasto?.estado_aprobacion;
+  return !e || e === 'aprobado';
+}
+
+function fechaEfectivaGastoCorte(gasto) {
+  return String(gasto?.created_at || gasto?.fecha || '').slice(0, 10);
 }
 
 const LS_EGRESOS = 'pos3b_cont_virtual_egresos';
@@ -65,6 +76,17 @@ export function valeDebeIrAContVirtual(vale) {
   if (!valeEstaAprobado(vale)) return false;
   const cat = String(vale.categoria || '').toLowerCase();
   return Boolean(VALE_A_CONT_VIRTUAL[cat]);
+}
+
+/**
+ * Gastos CUBRE TURNO / TAXIS capturados en Corte Virtual (aprobados)
+ * van directo al libro IE VIRTUAL, clasificados por tienda.
+ */
+export function gastoCorteDebeIrAContVirtual(gasto) {
+  if (!gasto) return false;
+  if (String(gasto.modulo || '').toLowerCase() !== 'virtual') return false;
+  if (!gastoCorteEstaAprobado(gasto)) return false;
+  return esGastoCubreTurnoOTaxi(gasto);
 }
 
 function normalizarCuentaIe(raw, fallback = 'virtual') {
@@ -163,6 +185,34 @@ export async function registrarEgresoDesdeVale(supabase, vale) {
   });
 }
 
+export async function registrarEgresoDesdeGastoCorte(supabase, gasto) {
+  if (!gastoCorteDebeIrAContVirtual(gasto)) return { ok: true, omitido: true };
+  const map = mapearGastoCorteCubreTaxiACatalogo(gasto);
+  if (!map) return { ok: true, omitido: true };
+
+  const catRes = await listarCatalogoContVirtual(supabase);
+  const nombres = resolverNombresCatalogo(catRes.data, map.categoriaId, map.subcategoriaId);
+  const catLbl = String(gasto.categoria || '').trim().toUpperCase();
+  const subLbl = String(gasto.subcategoria || '').trim().toUpperCase();
+  const nota = String(gasto.comentario || '').trim();
+
+  return registrarEgresoContVirtual(supabase, {
+    sucursal_id: gasto.sucursal_id || 'MAIN',
+    fecha: fechaEfectivaGastoCorte(gasto) || new Date().toISOString().slice(0, 10),
+    categoria_id: map.categoriaId,
+    categoria_nombre: nombres.categoria_nombre,
+    subcategoria_id: map.subcategoriaId,
+    subcategoria_nombre: nombres.subcategoria_nombre,
+    monto: gasto.monto,
+    descripcion: [catLbl, subLbl, nota].filter(Boolean).join(' · '),
+    fuente: 'corte',
+    ref_tabla: 'cortes_contabilidad_gastos',
+    ref_id: gasto.id,
+    usuario_nombre: gasto.usuario_nombre || gasto.solicitado_por || null,
+    cuenta: 'virtual',
+  });
+}
+
 export async function eliminarEgresoContVirtual(supabase, id) {
   if (!id) return { ok: false, error: 'ID inválido.' };
   if (!supabase || String(id).startsWith('local-')) {
@@ -220,6 +270,28 @@ export async function sincronizarValesContVirtual(supabase, { limit = 400 } = {}
   return { ok: true, count };
 }
 
+/** Backfill: gastos CUBRE TURNO / TAXIS de Corte Virtual aún no en el libro IE. */
+export async function sincronizarGastosCubreTaxiContVirtual(supabase, { limit = 500 } = {}) {
+  if (!supabase) return { ok: true, count: 0 };
+  const { data, error } = await supabase
+    .from('cortes_contabilidad_gastos')
+    .select('*')
+    .eq('modulo', 'virtual')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) {
+    if (faltaTabla(error) || error.code === '42P01') return { ok: true, count: 0 };
+    return { ok: false, error: error.message };
+  }
+  let count = 0;
+  for (const g of data || []) {
+    if (!gastoCorteDebeIrAContVirtual(g)) continue;
+    const res = await registrarEgresoDesdeGastoCorte(supabase, g);
+    if (res.ok && !res.yaExiste && !res.omitido) count += 1;
+  }
+  return { ok: true, count };
+}
+
 /**
  * Unifica egresos del periodo: libro Cont Virtual + gastos de corte (no VALES duplicados) + préstamos.
  */
@@ -232,6 +304,11 @@ export function unificarEgresosParaPanel({
   const refsVale = new Set(
     (egresosLibro || [])
       .filter((e) => e.ref_tabla === 'vales' && e.ref_id)
+      .map((e) => String(e.ref_id)),
+  );
+  const refsGastoCorte = new Set(
+    (egresosLibro || [])
+      .filter((e) => e.ref_tabla === 'cortes_contabilidad_gastos' && e.ref_id)
       .map((e) => String(e.ref_id)),
   );
 
@@ -256,9 +333,12 @@ export function unificarEgresosParaPanel({
   }
 
   for (const g of gastosCorte || []) {
+    if (!gastoCorteEstaAprobado(g)) continue;
     const catRaw = String(g.categoria || '').toUpperCase();
     if (catRaw === 'VALES') continue; // los vales van por el libro / sync
     if (catRaw === 'PRESTAMOS') continue;
+    // CUBRE TURNO / TAXIS Virtual van al libro (sync); evitar doble conteo
+    if (esGastoCubreTurnoOTaxi(g) || refsGastoCorte.has(String(g.id))) continue;
     const map = mapearCorteACatalogo(g.categoria, g.subcategoria);
     const nombres = resolverNombresCatalogo(catalogo, map.categoriaId, map.subcategoriaId);
     detalle.push({
