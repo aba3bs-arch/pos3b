@@ -22,6 +22,7 @@ export const MODULOS_IDS = [
   'Nómina',
   'Panel RT',
   'IE VIRTUAL',
+  'IE ABARROTES',
   'Auto Fin',
   'Configuracion',
   'Ayuda',

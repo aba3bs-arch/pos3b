@@ -7,6 +7,7 @@ import Icon, { BtnLabel } from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import { turnoActual, usuarioAutorizadoLogin, nombreTurnoLegible } from '../lib/turnos.js';
 import { aplicarDeltaStock } from '../lib/inventarioMultitienda.js';
+import { normalizarCodigoTienda } from '../constants/sucursales.js';
 import { guardarMovimientoLocal } from '../lib/inventarioMovimientos.js';
 import { sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
@@ -188,7 +189,7 @@ export default function Ventas({
       {
         vendedor: user.nombre,
         usuario_id: user.id || null,
-        sucursal_id: sucursal,
+        sucursal_id: normalizarCodigoTienda(sucursal) || sucursal,
         total: totalMXN,
         metodo_pago: textoMetodoPago,
         articulos,

@@ -306,6 +306,11 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
   });
 
   let egresosLibro = egresosLibroRes.data || [];
+  // IE VIRTUAL (Antonio): nunca mezclar egresos de Abarrotes (Francisco)
+  egresosLibro = egresosLibro.filter((e) => {
+    const c = String(e.cuenta || 'virtual').toLowerCase();
+    return c === 'virtual' || c === 'garage';
+  });
   if (cuentaFiltro) {
     egresosLibro = egresosLibro.filter((e) => {
       const c = String(e.cuenta || 'virtual').toLowerCase();
@@ -383,6 +388,209 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     recoleccionesCount: recolecciones.length,
     cuotasNomina,
     cuotasNominaTotal,
+    cuotaMinima: CUOTA_SEMANAL_MINIMA,
+  };
+}
+
+/**
+ * Panel IE ABARROTES (Francisco): ingresos/egresos solo de Abarrotes.
+ * Independiente de Virtual/Garage (Antonio).
+ */
+export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = null } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  if (!desde || !hasta) return { ok: false, error: 'Indica el periodo.' };
+
+  const tiendas = listarSucursalesOperativas();
+  const tiendasFiltro = sucursal ? [sucursal] : tiendas;
+  const desdeIso = `${desde}T00:00:00`;
+  const hastaIso = `${hasta}T23:59:59.999`;
+
+  let qCierres = supabase
+    .from('cortes_contabilidad_cierres')
+    .select('*')
+    .eq('modulo', 'abarrotes')
+    .gte('created_at', desdeIso)
+    .lte('created_at', hastaIso)
+    .order('created_at', { ascending: false })
+    .limit(3000);
+  if (sucursal) qCierres = qCierres.eq('sucursal_id', sucursal);
+
+  let qGastos = supabase
+    .from('cortes_contabilidad_gastos')
+    .select('*')
+    .eq('modulo', 'abarrotes')
+    .gte('created_at', desdeIso)
+    .lte('created_at', hastaIso)
+    .order('created_at', { ascending: false })
+    .limit(5000);
+  if (sucursal) qGastos = qGastos.eq('sucursal_id', sucursal);
+
+  let qPrestamos = supabase.from('prestamos').select('*').order('created_at', { ascending: false }).limit(1000);
+  if (sucursal) qPrestamos = qPrestamos.eq('sucursal_id', sucursal);
+
+  const [cierresRes, gastosRes, prestamosRes, catalogoRes, egresosLibroRes] = await Promise.all([
+    qCierres,
+    qGastos,
+    qPrestamos,
+    listarCatalogoContVirtual(supabase),
+    listarEgresosContVirtual(supabase, { desde, hasta, sucursal, cuenta: 'abarrotes' }),
+  ]);
+
+  if (cierresRes.error && cierresRes.error.code !== '42P01') {
+    return { ok: false, error: cierresRes.error.message };
+  }
+  if (gastosRes.error && gastosRes.error.code !== '42P01') {
+    return { ok: false, error: gastosRes.error.message };
+  }
+
+  const todosCierres = cierresRes.data || [];
+  const cierres = todosCierres.filter((c) => esCierreTurno(c));
+  const recolecciones = todosCierres.filter((c) => tipoCierre(c) === 'recoleccion');
+  const gastos = (gastosRes.data || []).filter((g) => {
+    if (sucursal && g.sucursal_id !== sucursal) return false;
+    const est = g.estado_aprobacion;
+    return !est || est === 'aprobado';
+  });
+  const catalogo = (catalogoRes.data || []).filter((c) => c.activo !== false);
+
+  const ingresosPorTienda = {};
+  for (const t of tiendasFiltro) {
+    ingresosPorTienda[t] = { id: t, label: etiquetaTienda(t), ingresos: 0, cierres: 0, recolecciones: 0 };
+  }
+
+  const porCuenta = {
+    abarrotes: { id: 'abarrotes', label: 'Abarrotes', ingresos: 0, egresos: 0, neto: 0, recolecciones: 0, cierres: 0 },
+  };
+
+  let ingresosTotal = 0;
+  const ingresosItems = [];
+
+  for (const c of cierres) {
+    const t = c.sucursal_id || 'MAIN';
+    if (sucursal && t !== sucursal) continue;
+    if (!ingresosPorTienda[t]) {
+      ingresosPorTienda[t] = { id: t, label: etiquetaTienda(t), ingresos: 0, cierres: 0, recolecciones: 0 };
+    }
+    const venta = Number(c.ventas) || Number(c.detalle?.venta) || 0;
+    if (!(venta > 0)) {
+      porCuenta.abarrotes.cierres += 1;
+      ingresosPorTienda[t].cierres += 1;
+      continue;
+    }
+    ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + venta);
+    ingresosPorTienda[t].cierres += 1;
+    ingresosTotal = round2(ingresosTotal + venta);
+    porCuenta.abarrotes.ingresos = round2(porCuenta.abarrotes.ingresos + venta);
+    porCuenta.abarrotes.cierres += 1;
+    const f = String(c.created_at || '').slice(0, 10);
+    if (f) {
+      ingresosItems.push({
+        id: `cierre-${c.id}`,
+        fecha: f,
+        monto: round2(venta),
+        comentario: `Cierre Abarrotes · ${etiquetaTienda(t)} · ${c.folio || ''}`.trim(),
+        cuenta: 'abarrotes',
+        tienda: t,
+        tipo_mov: 'cierre',
+      });
+    }
+  }
+
+  let recoleccionTotal = 0;
+  for (const r of recolecciones) {
+    const t = r.sucursal_id || 'MAIN';
+    if (sucursal && t !== sucursal) continue;
+    const monto = Number(r.detalle?.recoleccion || r.detalle?.recoleccion_turno) || 0;
+    if (!(monto > 0)) continue;
+    recoleccionTotal = round2(recoleccionTotal + monto);
+    ingresosTotal = round2(ingresosTotal + monto);
+    porCuenta.abarrotes.ingresos = round2(porCuenta.abarrotes.ingresos + monto);
+    porCuenta.abarrotes.recolecciones = round2(porCuenta.abarrotes.recolecciones + monto);
+    if (ingresosPorTienda[t]) {
+      ingresosPorTienda[t].recolecciones = round2((ingresosPorTienda[t].recolecciones || 0) + monto);
+      ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + monto);
+    }
+    const f = String(r.created_at || '').slice(0, 10);
+    ingresosItems.push({
+      id: `rec-${r.id}`,
+      fecha: f || desde,
+      monto: round2(monto),
+      comentario: `Recolección Abarrotes · ${etiquetaTienda(t)} · ${r.folio || ''}`.trim(),
+      cuenta: 'abarrotes',
+      tienda: t,
+      tipo_mov: 'recoleccion',
+    });
+  }
+
+  const ingresosPorDia = ingresosItems.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+
+  const prestamosAll = prestamosRes.error ? [] : prestamosRes.data || [];
+  const prestamosPeriodo = prestamosAll.filter((p) => {
+    if (['rechazado', 'pendiente_admin'].includes(String(p.estado))) return false;
+    const area = String(p.area_corte || '').toLowerCase();
+    if (area !== 'abarrotes') return false;
+    if (!isoEnRango(p.created_at || p.aprobado_admin_at, desde, hasta)) return false;
+    if (p.cargado_corte) return false;
+    return true;
+  });
+
+  let egresosLibro = (egresosLibroRes.data || []).filter((e) => String(e.cuenta || '').toLowerCase() === 'abarrotes');
+
+  const unificado = unificarEgresosParaPanel({
+    egresosLibro,
+    gastosCorte: gastos.map((g) => ({ ...g, modulo: 'abarrotes' })),
+    prestamos: prestamosPeriodo,
+    catalogo,
+  });
+
+  // Forzar cuenta abarrotes en detalle unificado (mapearCorte usa virtual por defecto)
+  for (const d of unificado.detalle) {
+    d.cuenta = 'abarrotes';
+    porCuenta.abarrotes.egresos = round2(porCuenta.abarrotes.egresos + d.monto);
+  }
+  porCuenta.abarrotes.neto = round2(porCuenta.abarrotes.ingresos - porCuenta.abarrotes.egresos);
+
+  const egresosPorTienda = {};
+  for (const t of tiendasFiltro) {
+    egresosPorTienda[t] = { id: t, label: etiquetaTienda(t), total: 0 };
+  }
+  for (const d of unificado.detalle) {
+    const t = d.tienda || 'MAIN';
+    if (!egresosPorTienda[t]) egresosPorTienda[t] = { id: t, label: etiquetaTienda(t), total: 0 };
+    egresosPorTienda[t].total = round2(egresosPorTienda[t].total + d.monto);
+  }
+
+  const egresosPorCat = {};
+  for (const [catId, total] of Object.entries(unificado.porCategoria || {})) {
+    const nombre = catalogo.find((c) => c.id === catId)?.nombre || catId;
+    egresosPorCat[nombre] = total;
+  }
+
+  const neto = round2(ingresosTotal - unificado.egresosTotal);
+
+  return {
+    ok: true,
+    desde,
+    hasta,
+    propietario: 'francisco',
+    ingresosTotal,
+    egresosTotal: unificado.egresosTotal,
+    neto,
+    recoleccionTotal,
+    egresosPorCat,
+    ingresosPorTienda: Object.values(ingresosPorTienda).sort((a, b) => b.ingresos - a.ingresos),
+    egresosPorTienda: Object.values(egresosPorTienda).sort((a, b) => b.total - a.total),
+    detalleGastos: unificado.detalle.slice(0, 500),
+    ingresosPorDia,
+    porCuenta,
+    pastelCategorias: unificado.pastelCategorias,
+    pastelSubcategorias: unificado.pastelSubcategorias,
+    catalogo,
+    avisoCatalogo: catalogoRes.aviso || egresosLibroRes.aviso || null,
+    cierresCount: cierres.length,
+    recoleccionesCount: recolecciones.length,
+    cuotasNomina: [],
+    cuotasNominaTotal: 0,
     cuotaMinima: CUOTA_SEMANAL_MINIMA,
   };
 }

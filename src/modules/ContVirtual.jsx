@@ -4,6 +4,7 @@ import { puedeGestionarUsuarios } from '../lib/roles.js';
 import { estiloPastel } from '../lib/estadisticasData.js';
 import {
   cargarContVirtual,
+  cargarContAbarrotes,
   rangoMesContVirtual,
   rangoAnioContVirtual,
   MESES_CORTO_ES,
@@ -195,8 +196,13 @@ function buildCalendarCells(anio, mes, byFecha) {
   return cells;
 }
 
-export default function ContVirtual({ supabase, user }) {
+export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
   const esAdmin = puedeGestionarUsuarios(user?.rol);
+  const esFrancisco = libro === 'francisco';
+  const tituloLibro = esFrancisco ? 'IE ABARROTES' : 'IE VIRTUAL';
+  const subtituloLibro = esFrancisco
+    ? 'Francisco · ingresos y egresos de Abarrotes'
+    : 'Antonio · ingresos y egresos de Virtual y Garage';
   const tiendas = useMemo(() => listarSucursalesOperativas(), []);
 
   const [nav, setNav] = useState('trans'); // trans | estad | cuentas | mas
@@ -225,7 +231,7 @@ export default function ContVirtual({ supabase, user }) {
   const [manual, setManual] = useState({
     fecha: hoyYmd(),
     sucursal_id: '',
-    cuenta: 'virtual',
+    cuenta: esFrancisco ? 'abarrotes' : 'virtual',
     categoria_id: 'manual',
     subcategoria_id: 'manual-otros',
     monto: '',
@@ -274,12 +280,18 @@ export default function ContVirtual({ supabase, user }) {
     if (!supabase || !rango?.desde || !rango?.hasta) return;
     setCargando(true);
     setError('');
-    const res = await cargarContVirtual(supabase, {
-      desde: rango.desde,
-      hasta: rango.hasta,
-      sucursal: filtroTienda || null,
-      cuenta: filtroCuenta || null,
-    });
+    const res = esFrancisco
+      ? await cargarContAbarrotes(supabase, {
+          desde: rango.desde,
+          hasta: rango.hasta,
+          sucursal: filtroTienda || null,
+        })
+      : await cargarContVirtual(supabase, {
+          desde: rango.desde,
+          hasta: rango.hasta,
+          sucursal: filtroTienda || null,
+          cuenta: filtroCuenta || null,
+        });
     setCargando(false);
     if (!res.ok) {
       setError(res.error || 'Error al cargar');
@@ -289,7 +301,7 @@ export default function ContVirtual({ supabase, user }) {
     setDatos(res);
     if (res.catalogo?.length) setCatalogo(res.catalogo.filter((c) => c.activo !== false));
     if (res.avisoCatalogo) setAvisoSql(res.avisoCatalogo);
-  }, [supabase, rango, filtroTienda, filtroCuenta]);
+  }, [supabase, rango, filtroTienda, filtroCuenta, esFrancisco]);
 
   useEffect(() => {
     cargarCatalogo();
@@ -495,7 +507,10 @@ export default function ContVirtual({ supabase, user }) {
                   : `${it.categoria}${it.subcategoria ? ` · ${it.subcategoria}` : ''}`}
               </div>
               <div className="sub">
-                {[it.cuenta === 'garage' ? 'Garage' : it.cuenta === 'virtual' ? 'Virtual' : null, it.empleado || etiquetaTienda(it.tienda)]
+                {[
+                  it.cuenta === 'garage' ? 'Garage' : it.cuenta === 'abarrotes' ? 'Abarrotes' : it.cuenta === 'virtual' ? 'Virtual' : null,
+                  it.empleado || etiquetaTienda(it.tienda),
+                ]
                   .filter(Boolean)
                   .join(' · ') || '—'}
               </div>
@@ -654,11 +669,13 @@ export default function ContVirtual({ supabase, user }) {
       </div>
       {showFiltro && (
         <div className="cv-filter-bar">
-          <select value={filtroCuenta} onChange={(e) => setFiltroCuenta(e.target.value)}>
-            <option value="">Cuentas: Virtual + Garage</option>
-            <option value="virtual">Solo Virtual</option>
-            <option value="garage">Solo Garage</option>
-          </select>
+          {!esFrancisco && (
+            <select value={filtroCuenta} onChange={(e) => setFiltroCuenta(e.target.value)}>
+              <option value="">Cuentas: Virtual + Garage</option>
+              <option value="virtual">Solo Virtual</option>
+              <option value="garage">Solo Garage</option>
+            </select>
+          )}
           <select value={filtroTienda} onChange={(e) => setFiltroTienda(e.target.value)}>
             <option value="">Todas las tiendas</option>
             {tiendas.map((t) => (
@@ -722,6 +739,42 @@ export default function ContVirtual({ supabase, user }) {
 
   const renderCuentas = () => {
     const pc = datos?.porCuenta || {};
+    if (esFrancisco) {
+      const ab = pc.abarrotes || { ingresos: 0, egresos: 0, neto: 0, recolecciones: 0, cierres: 0 };
+      return (
+        <>
+          <div className="cv-cuentas-hd">
+            <span>Abarrotes · Francisco</span>
+            <button type="button" className="cv-icon-btn" onClick={() => setNav('estad')} aria-label="Estadísticas">
+              <IconChart />
+            </button>
+          </div>
+          <div className="cv-summary">
+            <div>
+              <div className="lbl">Ingresos</div>
+              <div className="val ingreso">{fmt(ab.ingresos)}</div>
+            </div>
+            <div>
+              <div className="lbl">Egresos</div>
+              <div className="val gasto">{fmt(ab.egresos)}</div>
+            </div>
+            <div>
+              <div className="lbl">Neto</div>
+              <div className="val balance">{fmt(ab.neto)}</div>
+            </div>
+          </div>
+          <div className="cv-cuenta-group">
+            <div className="hd">
+              <span>Abarrotes</span>
+              <strong>{fmtMoney(ab.neto)}</strong>
+            </div>
+            <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0' }}>
+              {ab.cierres || 0} cierres · recolecciones {fmtMoney(ab.recolecciones || 0)}
+            </p>
+          </div>
+        </>
+      );
+    }
     const virtual = pc.virtual || { ingresos: 0, egresos: 0, neto: 0, recolecciones: 0 };
     const garage = pc.garage || { ingresos: 0, egresos: 0, neto: 0, recolecciones: 0 };
     const capital = round2((virtual.neto || 0) + (garage.neto || 0));
@@ -730,7 +783,7 @@ export default function ContVirtual({ supabase, user }) {
     return (
       <>
         <div className="cv-cuentas-hd">
-          <span>Cuentas</span>
+          <span>Cuentas · Antonio</span>
           <button type="button" className="cv-icon-btn" onClick={() => setNav('estad')} aria-label="Estadísticas">
             <IconChart />
           </button>
@@ -855,7 +908,7 @@ export default function ContVirtual({ supabase, user }) {
       <>
         <div className="cv-mas-hd">
           <h2>Ajustes</h2>
-          <span className="ver">IE VIRTUAL</span>
+          <span className="ver">{tituloLibro}</span>
         </div>
         <div className="cv-mas-grid">
           <button type="button" className="cv-mas-item" onClick={() => setMasVista('catalogo')}>
@@ -874,7 +927,9 @@ export default function ContVirtual({ supabase, user }) {
             <span className="ico">🎨</span>
             Apariencia
           </button>
-          <button type="button" className="cv-mas-item" onClick={() => alert('Vales de gasolina, herramienta y accesorios de Virtual se registran solos como gastos.')}>
+          <button type="button" className="cv-mas-item" onClick={() => alert(esFrancisco
+            ? 'IE ABARROTES (Francisco): solo ingresos y egresos del departamento Abarrotes. No incluye Virtual ni Garage.'
+            : 'IE VIRTUAL (Antonio): Virtual y Garage. Vales de gasolina/herramienta/accesorios y gastos CUBRE TURNO/TAXIS de Virtual se registran solos. Abarrotes va en IE ABARROTES.')}>
             <span className="ico">?</span>
             Ayuda
           </button>
@@ -892,6 +947,10 @@ export default function ContVirtual({ supabase, user }) {
 
   return (
     <div className="cv-app">
+      <div className="cv-libro-banner" style={{ padding: '0.55rem 0.85rem', background: esFrancisco ? 'rgba(181,166,66,0.12)' : 'rgba(142,68,173,0.1)', borderBottom: '1px solid var(--border, #e5e7eb)' }}>
+        <strong style={{ color: esFrancisco ? '#b5a642' : '#8e44ad' }}>{tituloLibro}</strong>
+        <span className="muted" style={{ display: 'block', fontSize: '0.78rem', marginTop: 2 }}>{subtituloLibro}</span>
+      </div>
       {(avisoSql || datos?.avisoCatalogo) && (
         <div className="cv-aviso">{avisoSql || datos?.avisoCatalogo || AVISO_FALTA_CONT_VIRTUAL}</div>
       )}
@@ -952,8 +1011,14 @@ export default function ContVirtual({ supabase, user }) {
             <label>
               Cuenta
               <select value={manual.cuenta} onChange={(e) => setManual({ ...manual, cuenta: e.target.value })}>
-                <option value="virtual">Virtual</option>
-                <option value="garage">Garage</option>
+                {esFrancisco ? (
+                  <option value="abarrotes">Abarrotes</option>
+                ) : (
+                  <>
+                    <option value="virtual">Virtual</option>
+                    <option value="garage">Garage</option>
+                  </>
+                )}
               </select>
             </label>
             <label>

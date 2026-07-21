@@ -1,8 +1,9 @@
-import { clasificarPago, inicioDia, finDia, resumirVentas } from './corteCaja.js';
+import { clasificarPago, rangoConsultaCorte, resumirVentas } from './corteCaja.js';
 import { consultarVentas } from './ventasQuery.js';
 import { filtrarVentasPorTurno } from './turnos.js';
 import { aplicarDeltaStock } from './inventarioMultitienda.js';
 import { guardarMovimientoLocal } from './inventarioMovimientos.js';
+import { normalizarCodigoTienda } from '../constants/sucursales.js';
 
 const LS_CANCELACIONES = 'pos3b_cancelaciones';
 
@@ -151,11 +152,11 @@ export function listaMovimientosCaja(ventas, cancelaciones) {
   });
 }
 
-export async function cargarCancelacionesDelDia(supabase, { sucursal, fecha }) {
-  const ini = inicioDia(fecha);
-  const fin = finDia(fecha);
+export async function cargarCancelacionesDelDia(supabase, { sucursal, fecha, turno = null }) {
+  const { ini, fin } = rangoConsultaCorte(fecha, turno);
+  const suc = sucursal ? normalizarCodigoTienda(sucursal) : null;
   const locales = leerCancelacionesLocales().filter((c) => {
-    if (sucursal && String(c.sucursal_id || c.sucursal) !== sucursal) return false;
+    if (suc && normalizarCodigoTienda(c.sucursal_id || c.sucursal) !== suc) return false;
     const t = new Date(c.created_at || c.hora || 0);
     return t >= ini && t <= fin;
   });
@@ -168,7 +169,7 @@ export async function cargarCancelacionesDelDia(supabase, { sucursal, fecha }) {
     .gte('created_at', ini.toISOString())
     .lte('created_at', fin.toISOString())
     .order('created_at', { ascending: true });
-  if (sucursal) q = q.eq('sucursal_id', sucursal);
+  if (suc) q = q.eq('sucursal_id', suc);
 
   const { data, error } = await q;
   if (error) {
@@ -196,8 +197,8 @@ export async function cargarCancelacionesDelDia(supabase, { sucursal, fecha }) {
 }
 
 export async function cargarDiaCaja(supabase, { sucursal, fecha, turno = null }) {
-  const ini = inicioDia(fecha);
-  const fin = finDia(fecha);
+  const { ini, fin, modo } = rangoConsultaCorte(fecha, turno);
+  const suc = sucursal ? normalizarCodigoTienda(sucursal) : null;
   const colsFull = 'id,total,metodo_pago,vendedor,sucursal_id,articulos,created_at,turno_id,turno_nombre,usuario_id';
   const colsBase = 'id,total,metodo_pago,vendedor,sucursal_id,articulos,created_at';
   let ventasRaw = [];
@@ -209,7 +210,7 @@ export async function cargarDiaCaja(supabase, { sucursal, fecha, turno = null })
     columns: colsFull,
     desde: ini,
     hasta: fin,
-    sucursal,
+    sucursal: suc,
     limit: 2000,
   });
   if (r.error && String(r.error).includes('turno')) {
@@ -217,7 +218,7 @@ export async function cargarDiaCaja(supabase, { sucursal, fecha, turno = null })
       columns: colsBase,
       desde: ini,
       hasta: fin,
-      sucursal,
+      sucursal: suc,
       limit: 2000,
     });
     aviso = 'Ejecuta supabase/fix_turnos_seguridad.sql para ligar ventas al turno (turno_id en ventas).';
@@ -227,8 +228,9 @@ export async function cargarDiaCaja(supabase, { sucursal, fecha, turno = null })
   sinFecha = r.sinFecha;
   if (r.aviso) aviso = r.aviso;
 
+  // Turno nocturno: la ventana ya es del turno; filtrar por turno solo si hay id/nombre, con fallback por hora.
   const ventas = turno ? filtrarVentasPorTurno(ventasRaw, turno) : ventasRaw;
-  const cancel = await cargarCancelacionesDelDia(supabase, { sucursal, fecha });
+  const cancel = await cargarCancelacionesDelDia(supabase, { sucursal: suc, fecha, turno });
   let ventasOtrasTiendas = null;
   if (supabase && (!ventas || ventas.length === 0)) {
     const { data: todas } = await supabase
@@ -238,18 +240,21 @@ export async function cargarDiaCaja(supabase, { sucursal, fecha, turno = null })
       .lte('created_at', fin.toISOString());
     const counts = {};
     for (const v of todas || []) {
-      const s = v.sucursal_id || '—';
-      if (sucursal && s === sucursal) continue;
+      const s = normalizarCodigoTienda(v.sucursal_id) || '—';
+      if (suc && s === suc) continue;
       counts[s] = (counts[s] || 0) + 1;
     }
     if (Object.keys(counts).length) ventasOtrasTiendas = counts;
+  }
+  if (!aviso && modo === 'turno_nocturno' && turno) {
+    aviso = `Turno nocturno: mostrando ventas de ${turno.hora_inicio} (${fecha}) a ${turno.hora_fin} (día siguiente), hora Nogales.`;
   }
   return {
     ventas: ventas || [],
     ventasDiaSinTurno: ventasRaw.length,
     cancelaciones: cancel.data || [],
     error: error || null,
-    aviso: cancel.aviso || (sinFecha ? aviso : null),
+    aviso: cancel.aviso || aviso || null,
     ventasOtrasTiendas,
   };
 }

@@ -2,16 +2,105 @@ import { consultarVentas } from './ventasQuery.js';
 
 const LS_CORTES = 'pos3b_cortes_caja';
 
+/** Nogales, Sonora: UTC−7 fijo (sin horario de verano). */
+export const TZ_CAJA = 'America/Hermosillo';
+const OFFSET_HORAS_NOGALES = 7;
+
+function ymdNogalesFromDate(date = new Date()) {
+  try {
+    return date.toLocaleDateString('en-CA', { timeZone: TZ_CAJA });
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
+}
+
+function hoyYmdNogales() {
+  return ymdNogalesFromDate(new Date());
+}
+
+/**
+ * Interpreta YYYY-MM-DD + hora local de Nogales como instante UTC.
+ * Evita que el huso del PC desfase el corte respecto al reloj de la app.
+ */
+export function dateFromNogales(ymd, hour = 0, minute = 0, second = 0, ms = 0) {
+  const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return new Date(NaN);
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  return new Date(Date.UTC(y, mo - 1, d, hour + OFFSET_HORAS_NOGALES, minute, second, ms));
+}
+
+export function addDaysYmd(ymd, days) {
+  const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return hoyYmdNogales();
+  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + Number(days || 0)));
+  return dt.toISOString().slice(0, 10);
+}
+
 export function inicioDia(isoDate) {
-  const d = isoDate ? new Date(`${isoDate}T12:00:00`) : new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
+  const ymd = isoDate && /^\d{4}-\d{2}-\d{2}$/.test(isoDate) ? isoDate : hoyYmdNogales();
+  return dateFromNogales(ymd, 0, 0, 0, 0);
 }
 
 export function finDia(isoDate) {
-  const d = isoDate ? new Date(`${isoDate}T12:00:00`) : new Date();
-  d.setHours(23, 59, 59, 999);
-  return d;
+  const ymd = isoDate && /^\d{4}-\d{2}-\d{2}$/.test(isoDate) ? isoDate : hoyYmdNogales();
+  return dateFromNogales(ymd, 23, 59, 59, 999);
+}
+
+function minutosHora(hora) {
+  const n = String(hora || '').match(/^(\d{1,2}):(\d{2})$/);
+  if (!n) return 0;
+  return Number(n[1]) * 60 + Number(n[2]);
+}
+
+/** Turno que cruza medianoche (ej. nocturno 19:00–07:00). */
+export function turnoCruzaMedianoche(turno) {
+  if (!turno?.hora_inicio || !turno?.hora_fin) return false;
+  const ini = minutosHora(turno.hora_inicio);
+  const fin = minutosHora(turno.hora_fin);
+  return ini !== fin && ini > fin;
+}
+
+/**
+ * Ventana de consulta del corte.
+ * - Turno diurno: día calendario Nogales.
+ * - Turno nocturno: desde hora_inicio del día elegido hasta hora_fin del día siguiente.
+ */
+export function rangoConsultaCorte(fecha, turno = null) {
+  const ymd = fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha) ? fecha : hoyYmdNogales();
+  if (turno && turnoCruzaMedianoche(turno)) {
+    const [hi, mi] = String(turno.hora_inicio).split(':').map(Number);
+    const [hf, mf] = String(turno.hora_fin).split(':').map(Number);
+    const ini = dateFromNogales(ymd, hi, mi || 0, 0, 0);
+    const fin = new Date(dateFromNogales(addDaysYmd(ymd, 1), hf, mf || 0, 0, 0).getTime() - 1);
+    return { ini, fin, modo: 'turno_nocturno' };
+  }
+  return { ini: inicioDia(ymd), fin: finDia(ymd), modo: 'dia' };
+}
+
+/**
+ * Fecha de corte sugerida según el turno activo en hora Nogales.
+ * En la madrugada del nocturno (antes de hora_fin) usa el día en que empezó el turno.
+ */
+export function fechaCorteSugerida(turno = null, now = new Date()) {
+  const hoy = ymdNogalesFromDate(now);
+  if (!turno || !turnoCruzaMedianoche(turno)) return hoy;
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: TZ_CAJA,
+      hour: 'numeric',
+      minute: 'numeric',
+      hourCycle: 'h23',
+    }).formatToParts(now);
+    const hour = Number(parts.find((p) => p.type === 'hour')?.value || 0);
+    const minute = Number(parts.find((p) => p.type === 'minute')?.value || 0);
+    const nowMin = hour * 60 + minute;
+    if (nowMin < minutosHora(turno.hora_fin)) return addDaysYmd(hoy, -1);
+  } catch {
+    /* ignore */
+  }
+  return hoy;
 }
 
 /** Clasifica metodo_pago guardado en ventas */

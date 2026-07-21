@@ -1,5 +1,6 @@
 import { enRangoYmd, toYmd } from './fechas.js';
 import { fmtMonto } from './controlEfectivo.js';
+import { moduloCorteDesdeCuentaRt } from './contabilidadDepartamentos.js';
 
 export const AVISO_FALTA_TABLA_RT_CUENTAS =
   'Ejecuta en Supabase: supabase/fix_rt_cuentas.sql para crear las cuentas RT.';
@@ -403,7 +404,7 @@ export async function registrarGastoCuentaRt(supabase, opts = {}) {
     .insert([
       {
         sucursal_id: tienda || 'MAIN',
-        modulo: 'virtual',
+        modulo: moduloCorteDesdeCuentaRt(cuentaId),
         categoria: String(categoria || 'GASTOS OPERATIVOS').trim().toUpperCase(),
         subcategoria: String(subcategoria || 'CUENTA RT').trim().toUpperCase(),
         comentario: comentarioContab,

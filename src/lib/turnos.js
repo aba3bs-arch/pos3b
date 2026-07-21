@@ -460,9 +460,22 @@ export function etiquetaVentanaLogin(turno, tolerancia = null) {
   return `${t.hora_inicio}–${t.hora_fin}`;
 }
 
-/** ¿La hora actual cae en este turno? (soporta turno nocturno que cruza medianoche) */
+/** ¿La hora (Nogales, Sonora) cae en este turno? (soporta turno nocturno que cruza medianoche) */
 export function horaEnTurno(turno, date = new Date()) {
-  const now = date.getHours() * 60 + date.getMinutes();
+  let now;
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Hermosillo',
+      hour: 'numeric',
+      minute: 'numeric',
+      hourCycle: 'h23',
+    }).formatToParts(date);
+    const hour = Number(parts.find((p) => p.type === 'hour')?.value || 0);
+    const minute = Number(parts.find((p) => p.type === 'minute')?.value || 0);
+    now = hour * 60 + minute;
+  } catch {
+    now = date.getHours() * 60 + date.getMinutes();
+  }
   const ini = minutosDesdeMedianoche(turno.hora_inicio);
   const fin = minutosDesdeMedianoche(turno.hora_fin);
   if (ini === fin) return true;
@@ -574,9 +587,22 @@ export function contarDiasLaboralesUsuario(user) {
 
 export function ventaPerteneceTurno(venta, turno, dateFallback = null) {
   if (!turno) return false;
-  if (venta?.turno_id) return String(venta.turno_id) === String(turno.id);
+  if (venta?.turno_id && String(venta.turno_id) === String(turno.id)) return true;
+
+  const nomV = String(venta?.turno_nombre || '').toLowerCase();
+  const nomT = String(turno.nombre || '').toLowerCase();
+  const idT = String(turno.id || '').toLowerCase();
+  if (nomV) {
+    if ((nomV.includes('nocturn') || nomV.includes('noche')) && (nomT.includes('nocturn') || nomT.includes('noche') || idT.includes('nocturn') || idT === 'noche')) {
+      return true;
+    }
+    if ((nomV.includes('diurn') || nomV.includes('mañana') || nomV.includes('manana')) && (nomT.includes('diurn') || idT.includes('diurn') || idT === 'manana' || idT === 'mañana')) {
+      return true;
+    }
+  }
+
   const when = venta?.created_at ? new Date(venta.created_at) : dateFallback;
-  if (when && !Number.isNaN(when.getTime())) return horaEnTurno(turno, when);
+  if (when && !Number.isNaN(when.getTime()) && horaEnTurno(turno, when)) return true;
   return false;
 }
 

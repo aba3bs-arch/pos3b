@@ -7,7 +7,8 @@ const DESCRIPCIONES = {
   Nómina: 'Periodos, sueldos, asistencia y recibos',
   'Panel RT': 'Reportes, servicios, recolectores y gastos',
   'Liquidación recolecciones': 'Sellar efectivo en tránsito por tienda y día',
-  'IE VIRTUAL': 'Ingresos y egresos Virtual + Garage (cuentas separadas)',
+  'IE VIRTUAL': 'Antonio · ingresos y egresos Virtual + Garage',
+  'IE ABARROTES': 'Francisco · ingresos y egresos de Abarrotes',
   'Auto Fin': 'Autofinanciamiento: enganche, cuotas e intereses por cliente',
 };
 

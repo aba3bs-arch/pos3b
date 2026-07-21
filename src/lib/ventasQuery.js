@@ -1,3 +1,5 @@
+import { normalizarCodigoTienda } from '../constants/sucursales.js';
+
 export const VENTAS_SELECT_BASE = 'id,total,metodo_pago,vendedor,sucursal_id,articulos';
 export const VENTAS_SELECT_FULL = `${VENTAS_SELECT_BASE},created_at`;
 
@@ -25,9 +27,11 @@ export async function consultarVentas(supabase, opts = {}) {
     orderAsc = false,
   } = opts;
 
+  const suc = sucursal ? normalizarCodigoTienda(sucursal) : null;
+
   const build = (cols) => {
     let q = supabase.from('ventas').select(cols);
-    if (sucursal) q = q.eq('sucursal_id', sucursal);
+    if (suc) q = q.eq('sucursal_id', suc);
     const usaFecha = cols.includes('created_at');
     if (usaFecha && desde) q = q.gte('created_at', desde.toISOString());
     if (usaFecha && hasta) q = q.lte('created_at', hasta.toISOString());

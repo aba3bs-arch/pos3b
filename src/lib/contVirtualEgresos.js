@@ -91,7 +91,9 @@ export function gastoCorteDebeIrAContVirtual(gasto) {
 
 function normalizarCuentaIe(raw, fallback = 'virtual') {
   const c = String(raw || fallback).toLowerCase();
-  return c === 'garage' ? 'garage' : 'virtual';
+  if (c === 'garage') return 'garage';
+  if (c === 'abarrotes') return 'abarrotes';
+  return 'virtual';
 }
 
 export async function registrarEgresoContVirtual(supabase, row) {
@@ -228,24 +230,48 @@ export async function eliminarEgresoContVirtual(supabase, id) {
   return { ok: true };
 }
 
-export async function listarEgresosContVirtual(supabase, { desde, hasta, sucursal } = {}) {
+export async function listarEgresosContVirtual(supabase, { desde, hasta, sucursal, cuenta } = {}) {
   if (!supabase) {
     let lista = leerLocal();
     lista = lista.filter((e) => ymdEnRango(e.fecha, desde, hasta));
     if (sucursal) lista = lista.filter((e) => e.sucursal_id === sucursal);
+    if (cuenta) {
+      const c = normalizarCuentaIe(cuenta);
+      lista = lista.filter((e) => normalizarCuentaIe(e.cuenta) === c);
+    }
     return { data: lista };
   }
   let q = supabase.from('cont_virtual_egresos').select('*').order('fecha', { ascending: false }).limit(3000);
   if (desde) q = q.gte('fecha', desde);
   if (hasta) q = q.lte('fecha', hasta);
   if (sucursal) q = q.eq('sucursal_id', sucursal);
+  if (cuenta) q = q.eq('cuenta', normalizarCuentaIe(cuenta));
   const { data, error } = await q;
   if (error && faltaTabla(error)) {
     let lista = leerLocal().filter((e) => ymdEnRango(e.fecha, desde, hasta));
     if (sucursal) lista = lista.filter((e) => e.sucursal_id === sucursal);
+    if (cuenta) {
+      const c = normalizarCuentaIe(cuenta);
+      lista = lista.filter((e) => normalizarCuentaIe(e.cuenta) === c);
+    }
     return { data: lista, aviso: AVISO_FALTA_CONT_VIRTUAL };
   }
-  if (error) return { data: [], error: error.message };
+  if (error) {
+    // Columna cuenta aún no existe: devolver sin filtro de cuenta
+    if (String(error.message || '').toLowerCase().includes('cuenta') && cuenta) {
+      const retry = await supabase
+        .from('cont_virtual_egresos')
+        .select('*')
+        .order('fecha', { ascending: false })
+        .limit(3000);
+      let lista = retry.data || [];
+      if (desde) lista = lista.filter((e) => ymdEnRango(e.fecha, desde, hasta));
+      if (hasta) lista = lista.filter((e) => ymdEnRango(e.fecha, desde, hasta));
+      if (sucursal) lista = lista.filter((e) => e.sucursal_id === sucursal);
+      return { data: lista };
+    }
+    return { data: [], error: error.message };
+  }
   return { data: data || [] };
 }
 
@@ -335,10 +361,12 @@ export function unificarEgresosParaPanel({
   for (const g of gastosCorte || []) {
     if (!gastoCorteEstaAprobado(g)) continue;
     const catRaw = String(g.categoria || '').toUpperCase();
-    if (catRaw === 'VALES') continue; // los vales van por el libro / sync
+    const modGasto = String(g.modulo || '').toLowerCase();
+    // Vales Virtual/Garage van por el libro / sync; vales Abarrotes sí cuentan en IE ABARROTES
+    if (catRaw === 'VALES' && modGasto !== 'abarrotes') continue;
     if (catRaw === 'PRESTAMOS') continue;
-    // CUBRE TURNO / TAXIS Virtual van al libro (sync); evitar doble conteo
-    if (esGastoCubreTurnoOTaxi(g) || refsGastoCorte.has(String(g.id))) continue;
+    // CUBRE TURNO / TAXIS Virtual van al libro (sync); en Abarrotes sí se muestran en el unificado
+    if ((esGastoCubreTurnoOTaxi(g) && modGasto !== 'abarrotes') || refsGastoCorte.has(String(g.id))) continue;
     const map = mapearCorteACatalogo(g.categoria, g.subcategoria);
     const nombres = resolverNombresCatalogo(catalogo, map.categoriaId, map.subcategoriaId);
     detalle.push({
@@ -354,7 +382,7 @@ export function unificarEgresosParaPanel({
       monto: round2(g.monto),
       fuente: 'corte',
       borrable: false,
-      cuenta: normalizarCuentaIe(g.modulo, 'virtual'),
+      cuenta: normalizarCuentaIe(g.modulo || g.cuenta, modGasto === 'abarrotes' ? 'abarrotes' : 'virtual'),
     });
   }
 

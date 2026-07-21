@@ -6,6 +6,7 @@ import {
   corteYaRegistrado,
   armarCorroboracion,
   RUBROS_CORROBORACION,
+  fechaCorteSugerida,
 } from '../lib/corteCaja.js';
 import {
   EVENTO_TURNOS,
@@ -25,7 +26,6 @@ import { etiquetaTienda } from '../constants/sucursales.js';
 import { imprimirCorte } from '../lib/impresion.js';
 import { leerConfigImpresion } from '../lib/posConfig.js';
 import SelectorCalendario from '../components/SelectorCalendario.jsx';
-import { hoyClaveNogales } from '../lib/controlEfectivo.js';
 
 function fmtHora(iso) {
   if (!iso) return '—';
@@ -33,9 +33,10 @@ function fmtHora(iso) {
 }
 
 export default function CorteCaja({ supabase, sucursal, user, inventario, inventarioCompleto, cargarDatos }) {
-  const hoy = hoyClaveNogales();
+  const [turnos, setTurnos] = useState(() => leerTurnos());
+  const [turnoActivo, setTurnoActivo] = useState(() => turnoActual());
+  const [fecha, setFecha] = useState(() => fechaCorteSugerida(turnoActual()));
   const [pestana, setPestana] = useState('corte');
-  const [fecha, setFecha] = useState(hoy);
   const [ventas, setVentas] = useState([]);
   const [cancelaciones, setCancelaciones] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -57,8 +58,6 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
   const [cancelando, setCancelando] = useState(false);
   const [ventasOtrasTiendas, setVentasOtrasTiendas] = useState(null);
   const [ventasDiaSinTurno, setVentasDiaSinTurno] = useState(0);
-  const [turnos, setTurnos] = useState(() => leerTurnos());
-  const [turnoActivo, setTurnoActivo] = useState(() => turnoActual());
   const [corteExistente, setCorteExistente] = useState(null);
   const [bloqueoCorte, setBloqueoCorte] = useState('');
 
@@ -137,8 +136,10 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
   useEffect(() => {
     const sync = () => {
       const t = leerTurnos();
+      const ta = turnoActual(t);
       setTurnos(t);
-      setTurnoActivo(turnoActual(t));
+      setTurnoActivo(ta);
+      setFecha(fechaCorteSugerida(ta));
     };
     sync();
     window.addEventListener(EVENTO_TURNOS, sync);

@@ -1256,7 +1256,7 @@ export default function Configuracion({
                     )}
                   </div>
                   <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
-                    Los submódulos <strong>Nómina</strong>, <strong>Panel RT</strong>, <strong>Liquidación recolecciones</strong>, <strong>IE VIRTUAL</strong> y <strong>Auto Fin</strong> aparecen al abrir Contabilidad. Los subcomandos del Panel RT se asignan en Acciones especiales abajo.
+                    Los submódulos <strong>Nómina</strong>, <strong>Panel RT</strong>, <strong>Liquidación recolecciones</strong>, <strong>IE VIRTUAL</strong> (Antonio), <strong>IE ABARROTES</strong> (Francisco) y <strong>Auto Fin</strong> aparecen al abrir Contabilidad. Los subcomandos del Panel RT se asignan en Acciones especiales abajo.
                   </p>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>
                     <input
