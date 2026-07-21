@@ -4,7 +4,7 @@ import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursal
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
 import CampoCorte, { InputCorteInline } from '../../components/corteContabilidad/CampoCorte.jsx';
 import ResumenOperacionCorte from '../../components/corteContabilidad/ResumenOperacionCorte.jsx';
-import { calcularGarage, maquinasGarageDefault, sumaLecturaGarage } from '../../lib/corteContabilidad/calc.js';
+import { calcularGarage, CLAVES_LECTURA_GARAGE, maquinasGarageDefault } from '../../lib/corteContabilidad/calc.js';
 import { datosImpresionCorteActual, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 
@@ -12,7 +12,6 @@ const COLOR = '#7f8c8d';
 
 export default function CorteGarage({ supabase, sucursal, user }) {
   const prepararTrasCierre = useCallback((estado) => {
-    const lecturaCierre = sumaLecturaGarage(estado);
     return {
       ...estado,
       maquinas: maquinasGarageDefault(),
@@ -20,7 +19,6 @@ export default function CorteGarage({ supabase, sucursal, user }) {
       pin2: 0,
       dsch: 0,
       recoleccion: 0,
-      caja_anterior: lecturaCierre,
       comentarios: '',
       venta_manual: '',
       subtotal_manual: '',
@@ -38,24 +36,25 @@ export default function CorteGarage({ supabase, sucursal, user }) {
       prepararTrasCierre,
     });
 
-  const maquinas = estado.maquinas || maquinasGarageDefault();
+  const maquinasBase = maquinasGarageDefault();
+  const maquinas = { ...maquinasBase, ...(estado.maquinas || {}) };
   const puedeEditar = !perm.soloLectura;
-  const puedeLecturaAnterior = Boolean(perm.caja_anterior || perm.recoleccion || perm.editarTodo);
 
   const setMaquina = (key, val) => {
-    patchEstado({ maquinas: { ...maquinas, [key]: val } });
+    const next = { ...maquinasBase };
+    for (const k of CLAVES_LECTURA_GARAGE) next[k] = maquinas[k] ?? 0;
+    next[key] = val;
+    patchEstado({ maquinas: next });
   };
 
   const confirmarCierre = () => {
     const msg =
       `¿Cerrar corte garage?\n\n` +
       `Folio: ${folio}\n` +
-      `Lectura total: ${fmtCorte(calc.totalLectura)}\n` +
-      `Venta del turno: ${fmtCorte(calc.venta)}\n` +
+      `Venta actual: ${fmtCorte(calc.venta)}\n` +
       `Gastos: ${fmtCorte(calc.gastosTotal)}\n` +
       `Venta neta: ${fmtCorte(calc.ventaNeta)}\n` +
-      `Saldo caja: ${fmtCorte(calc.cajaActual)}\n\n` +
-      `La lectura total (${fmtCorte(calc.totalLectura)}) será la referencia del siguiente corte.`;
+      `Saldo en caja: ${fmtCorte(calc.cajaActual)}`;
     if (confirm(msg)) cerrarCorte();
   };
 
@@ -94,11 +93,11 @@ export default function CorteGarage({ supabase, sucursal, user }) {
         <div className="card">
           <h4 style={{ margin: '0 0 0.75rem' }}>Lectura máquinas</h4>
           <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.65rem' }}>
-            Venta del turno = (M1 + M2 + M3 + PIN1 + DSCH) − lectura anterior. Enter avanza al siguiente campo.
+            Venta actual = M1…M7 + PIN1 + PIN2 + DSCH. Enter avanza al siguiente campo.
           </p>
           <div data-corte-form="garage-lectura">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
-              {Object.keys(maquinas).map((k) => (
+              {CLAVES_LECTURA_GARAGE.map((k) => (
                 <label key={k} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.85rem' }}>
                   <span style={{ width: 28, fontWeight: 700 }}>{k}</span>
                   <InputCorteInline
@@ -163,29 +162,16 @@ export default function CorteGarage({ supabase, sucursal, user }) {
             }}
           >
             <div className="muted" style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase' }}>
-              Lectura anterior (referencia)
+              Venta actual
             </div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: COLOR }}>{fmtCorte(calc.lecturaAnterior)}</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: COLOR }}>{fmtCorte(calc.venta)}</div>
+            <p className="muted" style={{ fontSize: '0.7rem', margin: '0.25rem 0 0' }}>
+              M1…M7 + PIN1 + PIN2 + DSCH
+            </p>
             <ResumenOperacionCorte venta={calc.venta} gastos={calc.gastosTotal} ventaNeta={calc.ventaNeta} />
           </div>
 
           <div data-corte-form="garage-resumen" style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-            <CampoCorte
-              label="Lectura anterior (ref)"
-              value={estado.caja_anterior ?? 0}
-              editable={puedeLecturaAnterior}
-              hint="Se actualiza al cerrar corte con la lectura total del día · no se suma a la venta"
-              onChange={(v) => patchEstado({ caja_anterior: v })}
-            />
-
-            <div style={{ padding: '0.5rem', background: 'rgba(22,160,133,0.08)', borderRadius: 8, textAlign: 'center' }}>
-              <div className="muted" style={{ fontSize: '0.75rem' }}>Lectura total (M1+M2+M3+PIN1+DSCH)</div>
-              <div style={{ fontSize: '1.2rem', fontWeight: 800 }}>{fmtCorte(calc.totalLectura)}</div>
-              <div className="muted" style={{ fontSize: '0.7rem', marginTop: '0.25rem' }}>
-                Subtotal verificación: {fmtCorte(calc.totalLectura - calc.venta)} (= lectura anterior)
-              </div>
-            </div>
-
             <CampoCorte
               label="Recolección"
               value={estado.recoleccion ?? ''}
@@ -195,22 +181,18 @@ export default function CorteGarage({ supabase, sucursal, user }) {
             />
           </div>
 
-          <div style={{ textAlign: 'center', marginBottom: '0.75rem' }}>
-            <div className="muted" style={{ fontSize: '0.8rem' }}>Venta del turno</div>
-            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: calc.venta < 0 ? 'var(--danger)' : '#16a085' }}>{fmtCorte(calc.venta)}</div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
+          <div style={{ textAlign: 'center', marginTop: '0.75rem' }}>
             <div style={{ fontWeight: 700 }}>Saldo en caja</div>
             <div style={{ fontSize: '2rem', fontWeight: 800, color: cajaNegativa ? 'var(--danger)' : '#16a085' }}>{fmtCorte(calc.cajaActual)}</div>
             <p className="muted" style={{ fontSize: '0.75rem', margin: '0.35rem 0 0' }}>
-              Venta neta − recolección (sin sumar lectura anterior)
+              Venta neta − recolección
             </p>
             {cajaNegativa && <div style={{ color: 'var(--danger)', fontWeight: 700, fontSize: '0.85rem' }}>CAJA GARAGE EN NEGATIVO</div>}
           </div>
           {perm.editarTodo && (
             <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed var(--border)' }} data-corte-form="garage-admin">
               <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.35rem', fontWeight: 700 }}>Ajuste manual (admin)</div>
-              <CampoCorte label="Venta del turno" value={estado.venta_manual ?? ''} hint="Vacío = lectura total − lectura anterior" onChange={(v) => patchEstado({ venta_manual: v })} />
+              <CampoCorte label="Venta actual" value={estado.venta_manual ?? ''} hint="Vacío = M1…M7 + PIN1 + PIN2 + DSCH" onChange={(v) => patchEstado({ venta_manual: v })} />
               <CampoCorte label="Saldo en caja" value={estado.caja_actual_manual ?? ''} hint="Vacío = venta neta − recolección" onChange={(v) => patchEstado({ caja_actual_manual: v })} />
             </div>
           )}

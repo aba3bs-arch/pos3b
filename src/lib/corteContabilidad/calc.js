@@ -164,20 +164,26 @@ export function sumaMaquinasGarage(maquinas = {}) {
   return round2(Object.values(maquinas || {}).reduce((a, v) => a + (Number(v) || 0), 0));
 }
 
-/** Lectura del día: M1 + M2 + M3 + PIN1 + DSCH (contadores de máquinas). */
-export const CLAVES_LECTURA_GARAGE = ['M1', 'M2', 'M3'];
+/** Venta actual garage: M1…M7 + PIN1 + PIN2 + DSCH. */
+export const CLAVES_LECTURA_GARAGE = ['M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7'];
 
 export function sumaLecturaGarage(estado) {
   const m = estado?.maquinas || {};
   const maq = CLAVES_LECTURA_GARAGE.reduce((a, k) => a + (Number(m[k]) || 0), 0);
-  return round2(maq + (Number(estado?.pin1) || 0) + (Number(estado?.dsch) || 0));
+  return round2(
+    maq + (Number(estado?.pin1) || 0) + (Number(estado?.pin2) || 0) + (Number(estado?.dsch) || 0),
+  );
 }
 
+/**
+ * Garage:
+ * venta actual = M1…M7 + PIN1 + PIN2 + DSCH
+ * venta neta = venta actual − gastos
+ * saldo caja = venta neta − recolección
+ */
 export function calcularGarage(estado, gastos = []) {
   const gastosTotal = totalGastos(gastos);
-  const totalLectura = sumaLecturaGarage(estado);
-  const lecturaAnterior = round2(estado.caja_anterior);
-  const ventaCalc = round2(totalLectura - lecturaAnterior);
+  const ventaCalc = sumaLecturaGarage(estado);
   const venta = valorManual(estado, 'venta_manual', ventaCalc);
   const subtotalCalc = round2(venta - gastosTotal);
   const subtotal = valorManual(estado, 'subtotal_manual', subtotalCalc);
@@ -189,8 +195,8 @@ export function calcularGarage(estado, gastos = []) {
     gastosTotal,
     subtotal,
     ventaNeta: subtotal,
-    totalLectura,
-    lecturaAnterior,
+    totalLectura: ventaCalc,
+    lecturaAnterior: 0,
     cajaActual,
   };
 }
@@ -224,7 +230,7 @@ export const ESTADO_ABARROTES_DEFAULT = {
 
 export function maquinasGarageDefault() {
   const m = {};
-  for (let i = 1; i <= 8; i += 1) m[`M${i}`] = 0;
+  for (let i = 1; i <= 7; i += 1) m[`M${i}`] = 0;
   return m;
 }
 
@@ -233,7 +239,6 @@ export const ESTADO_GARAGE_DEFAULT = {
   pin1: 0,
   pin2: 0,
   dsch: 0,
-  caja_anterior: 0,
   recoleccion: 0,
   comentarios: '',
 };

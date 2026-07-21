@@ -102,9 +102,7 @@ function filasResumenModulo(data) {
     filas.push(['Faltante', fmt(e.faltante)]);
     filas.push(['Recolección', fmt(e.recoleccion)]);
   } else if (mod === 'garage') {
-    filas.push(['Lectura total', fmt(data.total_lectura)]);
-    filas.push(['Lectura anterior', fmt(e.caja_anterior)]);
-    filas.push(['Venta turno', fmt(data.venta)]);
+    filas.push(['Venta actual', fmt(data.venta)]);
     filas.push(['Recolección', fmt(e.recoleccion)]);
   }
 

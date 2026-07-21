@@ -44,8 +44,10 @@ export async function cargarEstadoCorte(supabase, sucursal, modulo) {
   if (modulo === 'virtual') {
     return { estado: normalizarEstadoVirtual(estado), soloLocal: false };
   }
-  if (modulo === 'garage' && estado.maquinas) {
-    estado.maquinas = { ...estadoDefault('garage').maquinas, ...estado.maquinas };
+  if (modulo === 'garage') {
+    const defM = estadoDefault('garage').maquinas;
+    const prev = estado.maquinas || {};
+    estado.maquinas = Object.fromEntries(Object.keys(defM).map((k) => [k, Number(prev[k]) || 0]));
   }
   return { estado, soloLocal: false };
 }
