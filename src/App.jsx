@@ -897,11 +897,6 @@ function App() {
               onNavigate={irAModulo}
               onIrIncidencias={irAIncidencias}
               puedeModulo={(m) => puedeVerModulo(user?.rol, m, user?.id)}
-              puedeCambiarTienda={puedeCambiarTiendaSesion}
-              onCambiarTienda={setSucursal}
-              listaSucursales={listaSucursales}
-              presenciaMap={presenciaMap}
-              userRol={user?.rol}
             />
           )}
           {vista === 'Incidencias' && (

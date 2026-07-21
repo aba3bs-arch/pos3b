@@ -6,12 +6,10 @@ import { etiquetaTienda } from '../constants/sucursales.js';
 import { fmtMxn, resumirValorInventario } from '../lib/valorInventario.js';
 import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
 import { hayAnuncioActivo, EVENTO_ANUNCIOS } from '../lib/anunciosPos.js';
-import { normalizarRol, puedeCambiarTiendaLibremente } from '../lib/roles.js';
 import PanelAnunciosAdmin from '../components/PanelAnunciosAdmin.jsx';
 import PanelPurgeDatosAdmin from '../components/PanelPurgeDatosAdmin.jsx';
 import PanelNotificacionesInicio from '../components/PanelNotificacionesInicio.jsx';
 import PanelAppMovilInicio from '../components/PanelAppMovilInicio.jsx';
-import PanelCambiarTiendaCentral from '../components/PanelCambiarTiendaCentral.jsx';
 
 function PuntoVerdeActivo() {
   return <span className="punto-verde-parpadeo" title="Anuncio activo" aria-hidden />;
@@ -27,19 +25,10 @@ export default function Inicio({
   onNavigate,
   onIrIncidencias,
   puedeModulo,
-  puedeCambiarTienda = false,
-  onCambiarTienda,
-  listaSucursales = [],
-  presenciaMap = {},
-  userRol,
 }) {
   const puede = typeof puedeModulo === 'function' ? puedeModulo : () => true;
   const puedeVerInventario = puede('Productos');
   const esAdminPrincipal = esAdministradorPrincipal(user);
-  const rol = normalizarRol(userRol || user?.rol);
-  const mostrarCambioTienda =
-    typeof onCambiarTienda === 'function' &&
-    (puedeCambiarTienda || puedeCambiarTiendaLibremente(rol) || rol === 'Administrador' || rol === 'Gerente');
   const [panelAnuncios, setPanelAnuncios] = useState(false);
   const [panelPurge, setPanelPurge] = useState(false);
   const [hayAnuncio, setHayAnuncio] = useState(false);
@@ -114,13 +103,6 @@ export default function Inicio({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      <PanelCambiarTiendaCentral
-        habilitado={mostrarCambioTienda}
-        sucursal={sucursal}
-        lista={listaSucursales}
-        presenciaMap={presenciaMap}
-        onCambiar={onCambiarTienda}
-      />
       {puedeVerInventario && (
       <div
         className="card"

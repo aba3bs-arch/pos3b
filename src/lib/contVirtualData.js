@@ -4,10 +4,15 @@ import { CUOTA_SEMANAL_MINIMA } from './contabilidadConstants.js';
 import { listarCatalogoContVirtual } from './contVirtualCatalogo.js';
 import {
   listarEgresosContVirtual,
+  listarRefsEgresosEliminadosIe,
   sincronizarGastosCubreTaxiContVirtual,
   sincronizarValesContVirtual,
   unificarEgresosParaPanel,
 } from './contVirtualEgresos.js';
+import {
+  gastoEsCuentaRtFrancisco,
+  reclasificarGastosRtFranciscoAAbarrotes,
+} from './contabilidadDepartamentos.js';
 
 function toYmd(d) {
   const y = d.getFullYear();
@@ -189,12 +194,13 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     .limit(1000);
   if (sucursal) qPrestamos = qPrestamos.eq('sucursal_id', sucursal);
 
-  const [cierresRes, gastosRes, prestamosRes, catalogoRes, egresosLibroRes] = await Promise.all([
+  const [cierresRes, gastosRes, prestamosRes, catalogoRes, egresosLibroRes, refsPrestElimRes] = await Promise.all([
     qCierres,
     qGastos,
     qPrestamos,
     listarCatalogoContVirtual(supabase),
     listarEgresosContVirtual(supabase, { desde, hasta, sucursal }),
+    listarRefsEgresosEliminadosIe(supabase, 'prestamos'),
   ]);
 
   if (cierresRes.error && cierresRes.error.code !== '42P01') {
@@ -210,8 +216,13 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
   });
   const cierres = todosCierres.filter((c) => esCierreTurno(c));
   const recolecciones = todosCierres.filter((c) => tipoCierre(c) === 'recoleccion');
-  const gastos = (gastosRes.data || []).filter((g) => {
+  const gastosRaw = gastosRes.data || [];
+  // Históricos RT Francisco mal etiquetados como virtual → no deben verse en IE VIRTUAL
+  await reclasificarGastosRtFranciscoAAbarrotes(supabase, gastosRaw);
+
+  const gastos = gastosRaw.filter((g) => {
     if (sucursal && g.sucursal_id !== sucursal) return false;
+    if (gastoEsCuentaRtFrancisco(g)) return false;
     if (!cuentaFiltro) return true;
     return String(g.modulo || '').toLowerCase() === cuentaFiltro;
   });
@@ -323,6 +334,7 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     gastosCorte: gastos,
     prestamos: prestamosPeriodo,
     catalogo,
+    refsPrestamosEliminados: new Set(refsPrestElimRes.data || []),
   });
 
   for (const d of unificado.detalle) {
@@ -425,15 +437,29 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     .limit(5000);
   if (sucursal) qGastos = qGastos.eq('sucursal_id', sucursal);
 
+  // Legacy: gastos RT Francisco que aún aparecen con modulo=virtual
+  let qGastosRtLegacy = supabase
+    .from('cortes_contabilidad_gastos')
+    .select('*')
+    .eq('modulo', 'virtual')
+    .ilike('subcategoria', '%CUENTA RT%')
+    .gte('created_at', desdeIso)
+    .lte('created_at', hastaIso)
+    .order('created_at', { ascending: false })
+    .limit(2000);
+  if (sucursal) qGastosRtLegacy = qGastosRtLegacy.eq('sucursal_id', sucursal);
+
   let qPrestamos = supabase.from('prestamos').select('*').order('created_at', { ascending: false }).limit(1000);
   if (sucursal) qPrestamos = qPrestamos.eq('sucursal_id', sucursal);
 
-  const [cierresRes, gastosRes, prestamosRes, catalogoRes, egresosLibroRes] = await Promise.all([
+  const [cierresRes, gastosRes, gastosLegacyRes, prestamosRes, catalogoRes, egresosLibroRes, refsPrestElimRes] = await Promise.all([
     qCierres,
     qGastos,
+    qGastosRtLegacy,
     qPrestamos,
     listarCatalogoContVirtual(supabase),
     listarEgresosContVirtual(supabase, { desde, hasta, sucursal, cuenta: 'abarrotes' }),
+    listarRefsEgresosEliminadosIe(supabase, 'prestamos'),
   ]);
 
   if (cierresRes.error && cierresRes.error.code !== '42P01') {
@@ -443,10 +469,13 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     return { ok: false, error: gastosRes.error.message };
   }
 
+  const legacyFrancisco = (gastosLegacyRes.error ? [] : gastosLegacyRes.data || []).filter(gastoEsCuentaRtFrancisco);
+  await reclasificarGastosRtFranciscoAAbarrotes(supabase, legacyFrancisco);
+
   const todosCierres = cierresRes.data || [];
   const cierres = todosCierres.filter((c) => esCierreTurno(c));
   const recolecciones = todosCierres.filter((c) => tipoCierre(c) === 'recoleccion');
-  const gastos = (gastosRes.data || []).filter((g) => {
+  const gastos = [...(gastosRes.data || []), ...legacyFrancisco].filter((g) => {
     if (sucursal && g.sucursal_id !== sucursal) return false;
     const est = g.estado_aprobacion;
     return !est || est === 'aprobado';
@@ -541,6 +570,7 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     gastosCorte: gastos.map((g) => ({ ...g, modulo: 'abarrotes' })),
     prestamos: prestamosPeriodo,
     catalogo,
+    refsPrestamosEliminados: new Set(refsPrestElimRes.data || []),
   });
 
   // Forzar cuenta abarrotes en detalle unificado (mapearCorte usa virtual por defecto)

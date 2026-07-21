@@ -20,7 +20,7 @@ import {
   resolverNombresCatalogo,
   AVISO_FALTA_CONT_VIRTUAL,
 } from '../lib/contVirtualCatalogo.js';
-import { eliminarEgresoContVirtual, registrarEgresoContVirtual } from '../lib/contVirtualEgresos.js';
+import { eliminarEgresoDesdePanelIe, registrarEgresoContVirtual } from '../lib/contVirtualEgresos.js';
 import './ContVirtual.css';
 
 const LS_NOTAS = 'pos3b_cont_virtual_notas';
@@ -405,10 +405,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
   };
 
   const borrarEgreso = async (row) => {
-    if (!esAdmin || !row?.borrable) return;
-    if (!confirm('¿Eliminar este egreso manual?')) return;
-    const res = await eliminarEgresoContVirtual(supabase, row.id);
-    if (!res.ok) return alert(res.error);
+    if (!esAdmin || row?.tipo === 'ingreso') return;
+    if (!confirm(`¿Eliminar este egreso de ${tituloLibro}?\n\n${row.categoria || ''}${row.subcategoria ? ` · ${row.subcategoria}` : ''}\n${fmt(row.monto)}`)) return;
+    const res = await eliminarEgresoDesdePanelIe(supabase, row);
+    if (!res.ok) return alert(res.error || 'No se pudo eliminar.');
     cargar();
   };
 
@@ -518,8 +518,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
             <span className={`cv-row-amt ${it.tipo === 'ingreso' ? 'ingreso' : 'gasto'}`}>
               {fmt(it.monto)}
             </span>
-            {esAdmin && it.borrable && (
-              <button type="button" className="cv-row-del" onClick={() => borrarEgreso(it)}>✕</button>
+            {esAdmin && it.tipo === 'gasto' && (
+              <button type="button" className="cv-row-del" title="Eliminar egreso" onClick={() => borrarEgreso(it)}>✕</button>
             )}
           </div>
         ))}

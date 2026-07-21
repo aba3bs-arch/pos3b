@@ -221,16 +221,134 @@ export async function eliminarEgresoContVirtual(supabase, id) {
     guardarLocal(leerLocal().filter((e) => String(e.id) !== String(id)));
     return { ok: true };
   }
-  const { data: row } = await supabase.from('cont_virtual_egresos').select('fuente').eq('id', id).maybeSingle();
-  if (row && row.fuente !== 'manual') {
-    return { ok: false, error: 'Solo se pueden borrar egresos capturados manualmente.' };
-  }
   const { error } = await supabase.from('cont_virtual_egresos').delete().eq('id', id);
   if (error) return { ok: false, error: error.message };
   return { ok: true };
 }
 
+/**
+ * Soft-delete en libro IE: deja la fila con fuente=eliminado para que el sync
+ * (vales / CUBRE / TAXIS) no vuelva a crear el egreso por la misma ref.
+ */
+async function marcarEgresoLibroEliminado(supabase, id) {
+  if (!supabase || !id) return { ok: false, error: 'Sin ID.' };
+  if (String(id).startsWith('local-')) {
+    guardarLocal(leerLocal().filter((e) => String(e.id) !== String(id)));
+    return { ok: true };
+  }
+  const { error } = await supabase
+    .from('cont_virtual_egresos')
+    .update({
+      fuente: 'eliminado',
+      monto: 0,
+      descripcion: '[Eliminado en IE]',
+    })
+    .eq('id', id);
+  if (error) {
+    // Si no puede actualizar, intentar borrado duro
+    return eliminarEgresoContVirtual(supabase, id);
+  }
+  return { ok: true };
+}
+
+async function eliminarEgresosLibroPorRef(supabase, refTabla, refId) {
+  if (!supabase || !refTabla || refId == null) return;
+  await supabase
+    .from('cont_virtual_egresos')
+    .update({ fuente: 'eliminado', monto: 0, descripcion: '[Eliminado en IE]' })
+    .eq('ref_tabla', refTabla)
+    .eq('ref_id', String(refId));
+}
+
+/**
+ * Elimina cualquier egreso del panel IE VIRTUAL / IE ABARROTES (admin).
+ * Cubre: manual, sync libro, gastos de corte y préstamos del unificado.
+ */
+export async function eliminarEgresoDesdePanelIe(supabase, row) {
+  if (!row?.id) return { ok: false, error: 'ID inválido.' };
+  const id = String(row.id);
+  const fuente = String(row.fuente || '').toLowerCase();
+
+  // Gasto de corte (solo en unificado, id sintético)
+  if (id.startsWith('corte-')) {
+    const gastoId = id.slice('corte-'.length);
+    if (!supabase) return { ok: false, error: 'Sin conexión.' };
+    const { error } = await supabase.from('cortes_contabilidad_gastos').delete().eq('id', gastoId);
+    if (error) return { ok: false, error: error.message };
+    await eliminarEgresosLibroPorRef(supabase, 'cortes_contabilidad_gastos', gastoId);
+    return { ok: true };
+  }
+
+  // Préstamo en el unificado
+  if (id.startsWith('prestamo-')) {
+    const prestamoId = id.slice('prestamo-'.length);
+    if (!supabase) return { ok: false, error: 'Sin conexión.' };
+    // Tombstone en libro para no reaparecer; no borramos el préstamo operativo
+    const payload = {
+      sucursal_id: row.tienda || 'MAIN',
+      fecha: String(row.fecha || new Date().toISOString()).slice(0, 10),
+      categoria_id: 'prestamos',
+      categoria_nombre: 'Préstamos',
+      subcategoria_id: 'prestamos-desembolso',
+      subcategoria_nombre: 'Desembolso',
+      monto: 0,
+      descripcion: '[Eliminado en IE]',
+      fuente: 'eliminado',
+      ref_tabla: 'prestamos',
+      ref_id: String(prestamoId),
+      cuenta: normalizarCuentaIe(row.cuenta, 'virtual'),
+    };
+    const { data: prev } = await supabase
+      .from('cont_virtual_egresos')
+      .select('id')
+      .eq('ref_tabla', 'prestamos')
+      .eq('ref_id', String(prestamoId))
+      .maybeSingle();
+    if (prev?.id) {
+      return marcarEgresoLibroEliminado(supabase, prev.id);
+    }
+    const { error } = await supabase.from('cont_virtual_egresos').insert([payload]);
+    if (error && String(error.message || '').toLowerCase().includes('cuenta')) {
+      const { cuenta: _c, ...sinCuenta } = payload;
+      const retry = await supabase.from('cont_virtual_egresos').insert([sinCuenta]);
+      if (retry.error) return { ok: false, error: retry.error.message };
+      return { ok: true };
+    }
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  }
+
+  // Fila del libro cont_virtual_egresos
+  if (!supabase || id.startsWith('local-')) {
+    return eliminarEgresoContVirtual(supabase, id);
+  }
+
+  const { data: libro } = await supabase
+    .from('cont_virtual_egresos')
+    .select('id, fuente, ref_tabla, ref_id')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (libro?.ref_tabla === 'cortes_contabilidad_gastos' && libro.ref_id) {
+    await supabase.from('cortes_contabilidad_gastos').delete().eq('id', libro.ref_id);
+    return marcarEgresoLibroEliminado(supabase, id);
+  }
+
+  if (libro?.ref_tabla === 'vales' && libro.ref_id) {
+    // Soft-delete: el sync ve la ref y no recrea
+    return marcarEgresoLibroEliminado(supabase, id);
+  }
+
+  // Manual u otros: borrado duro (o soft si vino de sync sin ref)
+  if (fuente === 'vale' || fuente === 'corte' || libro?.fuente === 'vale' || libro?.fuente === 'corte') {
+    return marcarEgresoLibroEliminado(supabase, id);
+  }
+  return eliminarEgresoContVirtual(supabase, id);
+}
+
 export async function listarEgresosContVirtual(supabase, { desde, hasta, sucursal, cuenta } = {}) {
+  const esActivo = (e) => String(e?.fuente || '') !== 'eliminado' && round2(e?.monto) > 0;
+
   if (!supabase) {
     let lista = leerLocal();
     lista = lista.filter((e) => ymdEnRango(e.fecha, desde, hasta));
@@ -239,7 +357,7 @@ export async function listarEgresosContVirtual(supabase, { desde, hasta, sucursa
       const c = normalizarCuentaIe(cuenta);
       lista = lista.filter((e) => normalizarCuentaIe(e.cuenta) === c);
     }
-    return { data: lista };
+    return { data: lista.filter(esActivo) };
   }
   let q = supabase.from('cont_virtual_egresos').select('*').order('fecha', { ascending: false }).limit(3000);
   if (desde) q = q.gte('fecha', desde);
@@ -254,7 +372,7 @@ export async function listarEgresosContVirtual(supabase, { desde, hasta, sucursa
       const c = normalizarCuentaIe(cuenta);
       lista = lista.filter((e) => normalizarCuentaIe(e.cuenta) === c);
     }
-    return { data: lista, aviso: AVISO_FALTA_CONT_VIRTUAL };
+    return { data: lista.filter(esActivo), aviso: AVISO_FALTA_CONT_VIRTUAL };
   }
   if (error) {
     // Columna cuenta aún no existe: devolver sin filtro de cuenta
@@ -268,11 +386,24 @@ export async function listarEgresosContVirtual(supabase, { desde, hasta, sucursa
       if (desde) lista = lista.filter((e) => ymdEnRango(e.fecha, desde, hasta));
       if (hasta) lista = lista.filter((e) => ymdEnRango(e.fecha, desde, hasta));
       if (sucursal) lista = lista.filter((e) => e.sucursal_id === sucursal);
-      return { data: lista };
+      return { data: lista.filter(esActivo) };
     }
     return { data: [], error: error.message };
   }
-  return { data: data || [] };
+  return { data: (data || []).filter(esActivo) };
+}
+
+/** Refs de egresos marcados eliminado en IE (p. ej. préstamos ocultos del panel). */
+export async function listarRefsEgresosEliminadosIe(supabase, refTabla) {
+  if (!supabase || !refTabla) return { data: [] };
+  const { data, error } = await supabase
+    .from('cont_virtual_egresos')
+    .select('ref_id')
+    .eq('fuente', 'eliminado')
+    .eq('ref_tabla', refTabla)
+    .limit(5000);
+  if (error) return { data: [] };
+  return { data: (data || []).map((r) => String(r.ref_id)).filter(Boolean) };
 }
 
 /** Backfill: vales Virtual (gasolina/herramienta/accesorios/consumo) aún no en el libro. */
@@ -326,6 +457,7 @@ export function unificarEgresosParaPanel({
   gastosCorte = [],
   prestamos = [],
   catalogo = [],
+  refsPrestamosEliminados = null,
 }) {
   const refsVale = new Set(
     (egresosLibro || [])
@@ -337,6 +469,9 @@ export function unificarEgresosParaPanel({
       .filter((e) => e.ref_tabla === 'cortes_contabilidad_gastos' && e.ref_id)
       .map((e) => String(e.ref_id)),
   );
+  const exclPrestamos = refsPrestamosEliminados instanceof Set
+    ? refsPrestamosEliminados
+    : new Set(refsPrestamosEliminados || []);
 
   const detalle = [];
 
@@ -353,7 +488,7 @@ export function unificarEgresosParaPanel({
       empleado: e.usuario_nombre,
       monto: round2(e.monto),
       fuente: e.fuente || 'manual',
-      borrable: e.fuente === 'manual',
+      borrable: true,
       cuenta: normalizarCuentaIe(e.cuenta, 'virtual'),
     });
   }
@@ -381,12 +516,13 @@ export function unificarEgresosParaPanel({
       empleado: g.usuario_nombre,
       monto: round2(g.monto),
       fuente: 'corte',
-      borrable: false,
+      borrable: true,
       cuenta: normalizarCuentaIe(g.modulo || g.cuenta, modGasto === 'abarrotes' ? 'abarrotes' : 'virtual'),
     });
   }
 
   for (const p of prestamos || []) {
+    if (exclPrestamos.has(String(p.id))) continue;
     const nombres = resolverNombresCatalogo(catalogo, 'prestamos', 'prestamos-desembolso');
     detalle.push({
       id: `prestamo-${p.id}`,
@@ -400,7 +536,7 @@ export function unificarEgresosParaPanel({
       empleado: p.nombre_empleado,
       monto: round2(p.monto_original),
       fuente: 'prestamo',
-      borrable: false,
+      borrable: true,
       cuenta: normalizarCuentaIe(p.area_corte, 'virtual'),
     });
   }

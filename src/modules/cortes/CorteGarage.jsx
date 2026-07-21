@@ -20,9 +20,6 @@ export default function CorteGarage({ supabase, sucursal, user }) {
       dsch: 0,
       recoleccion: 0,
       comentarios: '',
-      venta_manual: '',
-      subtotal_manual: '',
-      caja_actual_manual: '',
     };
   }, []);
 
@@ -124,29 +121,19 @@ export default function CorteGarage({ supabase, sucursal, user }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <CorteGastosPanel
-            modulo="garage"
-            supabase={supabase}
-            sucursal={sucursal}
-            empleados={empleados}
-            gastos={gastos}
-            onAgregar={agregarGasto}
-            onEliminar={quitarGasto}
-            onEditar={editarGasto}
-            habilitado={perm.gastos}
-            puedeCatalogo={perm.editarTodo}
-            puedeEditarGastos={perm.editarTodo}
-          />
-          <textarea
-            className="input"
-            placeholder="Comentarios"
-            style={{ minHeight: 72 }}
-            value={estado.comentarios || ''}
-            readOnly={!perm.comentarios}
-            onChange={(e) => patchEstado({ comentarios: e.target.value })}
-          />
-        </div>
+        <CorteGastosPanel
+          modulo="garage"
+          supabase={supabase}
+          sucursal={sucursal}
+          empleados={empleados}
+          gastos={gastos}
+          onAgregar={agregarGasto}
+          onEliminar={quitarGasto}
+          onEditar={editarGasto}
+          habilitado={perm.gastos}
+          puedeCatalogo={perm.editarTodo}
+          puedeEditarGastos={perm.editarTodo}
+        />
 
         <div className="card">
           <h4 style={{ margin: '0 0 0.75rem' }}>Resumen</h4>
@@ -189,13 +176,18 @@ export default function CorteGarage({ supabase, sucursal, user }) {
             </p>
             {cajaNegativa && <div style={{ color: 'var(--danger)', fontWeight: 700, fontSize: '0.85rem' }}>CAJA GARAGE EN NEGATIVO</div>}
           </div>
-          {perm.editarTodo && (
-            <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed var(--border)' }} data-corte-form="garage-admin">
-              <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.35rem', fontWeight: 700 }}>Ajuste manual (admin)</div>
-              <CampoCorte label="Venta actual" value={estado.venta_manual ?? ''} hint="Vacío = M1…M7 + PIN1 + PIN2 + DSCH" onChange={(v) => patchEstado({ venta_manual: v })} />
-              <CampoCorte label="Saldo en caja" value={estado.caja_actual_manual ?? ''} hint="Vacío = venta neta − recolección" onChange={(v) => patchEstado({ caja_actual_manual: v })} />
-            </div>
-          )}
+
+          <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed var(--border)' }}>
+            <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem' }}>Comentarios</h4>
+            <textarea
+              className="input"
+              placeholder="Notas del turno…"
+              style={{ minHeight: 96, width: '100%', boxSizing: 'border-box' }}
+              value={estado.comentarios || ''}
+              readOnly={!perm.comentarios}
+              onChange={(e) => patchEstado({ comentarios: e.target.value })}
+            />
+          </div>
         </div>
       </div>
 
