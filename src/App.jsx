@@ -271,6 +271,7 @@ function App() {
       } else if (puedeVerModulo(user?.rol, 'Vales y Préstamos', user?.id)) {
         setValesIrPendientes(true);
         setVista('Vales y Préstamos');
+        setValesNavOpts({ pestana: 'pendientes', retorno: null });
       }
     };
 
@@ -417,7 +418,16 @@ function App() {
 
   const irAModulo = useCallback(
     (m, opts = {}) => {
-      if (!puedeVerModulo(user?.rol, m, user?.id)) return;
+      if (!puedeVerModulo(user?.rol, m, user?.id)) {
+        if (m === 'Vales y Préstamos') {
+          alert(
+            'Tu usuario no tiene acceso a «Vales y Préstamos».\n\n' +
+              'Pide al administrador: Configuración → Privilegios → marcar «Vales y Préstamos» para tu rol/usuario.\n\n' +
+              'Mientras tanto, puedes aprobar vales desde Incidencias → Pendientes (botón Aprobar vale).',
+          );
+        }
+        return;
+      }
       if (m === 'Incidencias') {
         const abrePendientes = puedeVerBandejaPendientesIncidencias(user?.rol, user?.id);
         setBuzonPestana(opts.pestana || (abrePendientes ? 'pendientes' : 'incidencias'));
@@ -827,13 +837,18 @@ function App() {
                 sucursal={sucursal}
                 user={user}
                 onClick={() => {
+                  // Campanita = bandeja general (gastos de corte, incidencias, recaudaciones, vales).
                   if (puedeAbrirBandejaIncidencias(user?.rol, user?.id) && puedeVerModulo(user?.rol, 'Incidencias', user?.id)) {
                     setBuzonPestana('pendientes');
                     irAModulo('Incidencias');
                     return;
                   }
                   setValesIrPendientes(true);
-                  if (puedeVerModulo(user?.rol, 'Vales y Préstamos', user?.id)) irAModulo('Vales y Préstamos');
+                  if (puedeVerModulo(user?.rol, 'Vales y Préstamos', user?.id)) {
+                    irAModulo('Vales y Préstamos', { pestana: 'pendientes' });
+                    return;
+                  }
+                  alert('No tienes acceso a la bandeja. Revisa privilegios de Incidencias o Vales y Préstamos.');
                 }}
               />
             </div>
@@ -906,9 +921,17 @@ function App() {
               user={user}
               pestanaInicial={buzonPestana}
               onNavigate={irAModulo}
-              onIrValesPendientes={() => {
+              onIrValesPendientes={(notif) => {
+                const sid = notif?.sucursal_id;
+                if (sid && String(sid).toUpperCase() !== String(sucursal || '').toUpperCase()) {
+                  setSucursal(String(sid).toUpperCase());
+                }
                 setValesIrPendientes(true);
-                if (puedeVerModulo(user?.rol, 'Vales y Préstamos', user?.id)) irAModulo('Vales y Préstamos');
+                if (puedeVerModulo(user?.rol, 'Vales y Préstamos', user?.id)) {
+                  irAModulo('Vales y Préstamos', { pestana: 'pendientes' });
+                } else {
+                  alert('No tienes acceso al módulo Vales y Préstamos. Pide al administrador que te lo habilite.');
+                }
               }}
             />
           )}

@@ -44,7 +44,7 @@ import {
   leerCategoriasValeExtra,
   sincronizarCategoriasValeDesdeNube,
 } from '../lib/valesCategorias.js';
-import { listarNotificacionesPendientes } from '../lib/contabilidadNotificaciones.js';
+import { listarNotificacionesPendientes, TIPOS_NOTIF } from '../lib/contabilidadNotificaciones.js';
 import { imprimirPrestamo, imprimirVale } from '../lib/impresionContabilidad.js';
 import { normalizarRol } from '../lib/roles.js';
 import { empleadosVisiblesParaTienda } from '../lib/empleadosVisibles.js';
@@ -102,10 +102,18 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   });
   const [categoriasTick, setCategoriasTick] = useState(0);
   const [nuevoTipoVale, setNuevoTipoVale] = useState({ label: '', descuentaNomina: false });
+  const [valesPendAll, setValesPendAll] = useState([]);
+  const [prestamosPendAll, setPrestamosPendAll] = useState([]);
 
-  const esAdmin = normalizarRol(user?.rol) === 'Administrador';
+  const rolNorm = normalizarRol(user?.rol);
+  const esAdmin = rolNorm === 'Administrador';
+  const esGerente = rolNorm === 'Gerente';
   const puedeGenerarVales = tiendaPuedeGenerarVales(sucursal);
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
+  /** Admin/gerente aprueban vales; socio solo préstamos >$1,000. */
+  const puedeAprobarVales = esAdmin || esGerente;
+  const puedeVerBandejaAprobacion = puedeAprobarVales || esSocio;
+  const vePendientesTodasTiendas = puedeAprobarVales;
   const requiereAuthAhora = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria);
   const valeFormRequiereAdmin = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria);
 
@@ -114,9 +122,27 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const beneficiarioSel = beneficiarioValePorId(valeForm.beneficiarioId);
   const areaCorteVale = beneficiarioSel?.area || null;
 
-  const valesPendientes = useMemo(() => vales.filter((v) => v.estado_aprobacion === 'pendiente_admin'), [vales]);
-  const prestamosPendientesAdmin = useMemo(() => prestamosEmp.filter((p) => p.estado === 'pendiente_admin'), [prestamosEmp]);
-  const prestamosPendientesSocio = useMemo(() => prestamosEmp.filter((p) => p.estado === 'pendiente_socio'), [prestamosEmp]);
+  const valesPendientes = useMemo(() => {
+    const fuente = vePendientesTodasTiendas ? valesPendAll : vales;
+    return (fuente || []).filter((v) => v.estado_aprobacion === 'pendiente_admin');
+  }, [vales, valesPendAll, vePendientesTodasTiendas]);
+  const prestamosPendientesAdmin = useMemo(() => {
+    const fuente = vePendientesTodasTiendas ? prestamosPendAll : prestamosEmp;
+    return (fuente || []).filter((p) => p.estado === 'pendiente_admin');
+  }, [prestamosEmp, prestamosPendAll, vePendientesTodasTiendas]);
+  const prestamosPendientesSocio = useMemo(() => {
+    const fuente = esSocio ? (prestamosPendAll.length ? prestamosPendAll : prestamosEmp) : prestamosEmp;
+    return (fuente || []).filter((p) => p.estado === 'pendiente_socio');
+  }, [prestamosEmp, prestamosPendAll, esSocio]);
+  const notifsBandeja = useMemo(() => {
+    const esValeOPrestamo = (n) =>
+      n.tipo === TIPOS_NOTIF.VALE_PENDIENTE ||
+      n.tipo === TIPOS_NOTIF.PRESTAMO_ADMIN ||
+      n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO;
+    if (puedeAprobarVales) return notifs.filter(esValeOPrestamo);
+    if (esSocio) return notifs.filter((n) => n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO);
+    return [];
+  }, [notifs, puedeAprobarVales, esSocio]);
   const sucursalesDestino = useMemo(
     () => listarSucursalesOperativas().filter((s) => s !== String(sucursal || '').toUpperCase()),
     [sucursal],
@@ -128,12 +154,22 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const recargarTodo = useCallback(async () => {
     if (!supabase) return;
-    const [vRes, paRes, psRes, peRes, nRes] = await Promise.all([
+    const [vRes, paRes, psRes, peRes, nRes, vPendRes, pePendRes] = await Promise.all([
       listarVales(supabase, { sucursal, tipo: 'indirecto' }),
       listarPrestamosInterarea(supabase, { sucursal }),
       listarPrestamosSucursales(supabase, { sucursal }),
       listarPrestamos(supabase, { sucursal, incluirPendientes: true }),
-      listarNotificacionesPendientes(supabase, { sucursal }),
+      listarNotificacionesPendientes(supabase, {
+        sucursal: vePendientesTodasTiendas || esSocio ? undefined : sucursal,
+        todasTiendas: vePendientesTodasTiendas || esSocio,
+        limit: 150,
+      }),
+      vePendientesTodasTiendas
+        ? listarVales(supabase, { tipo: 'indirecto', estadoAprobacion: 'pendiente_admin', limit: 150 })
+        : Promise.resolve({ data: [] }),
+      vePendientesTodasTiendas || esSocio
+        ? listarPrestamos(supabase, { incluirPendientes: true, limit: 150 })
+        : Promise.resolve({ data: [] }),
     ]);
     if (vRes.aviso) setAviso(vRes.aviso);
     else if (psRes.aviso) setAviso(psRes.aviso);
@@ -144,7 +180,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     setPrestamosSuc(psRes.data || []);
     setPrestamosEmp(peRes.data || []);
     setNotifs(nRes.data || []);
-  }, [supabase, sucursal]);
+    setValesPendAll(vPendRes.data || []);
+    setPrestamosPendAll(pePendRes.data || []);
+  }, [supabase, sucursal, vePendientesTodasTiendas, esSocio]);
 
   useEffect(() => {
     recargarTodo();
@@ -167,11 +205,17 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   }, []);
 
   useEffect(() => {
-    if (irAPendientes && (esAdmin || esSocio)) {
+    if (irAPendientes && puedeVerBandejaAprobacion) {
       setPestana('pendientes');
       onPendientesVisto?.();
     }
-  }, [irAPendientes, esAdmin, esSocio, onPendientesVisto]);
+  }, [irAPendientes, puedeVerBandejaAprobacion, onPendientesVisto]);
+
+  useEffect(() => {
+    if (pestana !== 'pendientes') return;
+    const el = document.getElementById('bandeja-aprobaciones-vales');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [pestana]);
 
   useEffect(() => {
     if (!navOpts) return;
@@ -459,11 +503,17 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         </div>
       )}
 
-      {(esAdmin || esSocio) && notifs.length > 0 && (
+      {puedeVerBandejaAprobacion && (notifsBandeja.length > 0 || valesPendientes.length > 0 || prestamosPendientesAdmin.length > 0 || (esSocio && prestamosPendientesSocio.length > 0)) && (
         <div className="card" style={{ borderLeft: '4px solid var(--danger)', background: 'rgba(211,47,47,0.06)' }}>
-          <strong>{notifs.length} pendiente(s) de autorización</strong>
-          <button type="button" className="btn btn-ghost" style={{ marginLeft: '0.5rem' }} onClick={() => setPestana('pendientes')}>
-            Ver bandeja
+          <strong>
+            {(valesPendientes.length + prestamosPendientesAdmin.length + (esSocio ? prestamosPendientesSocio.length : 0)) || notifsBandeja.length}
+            {' '}pendiente(s) de vales / préstamos
+          </strong>
+          {vePendientesTodasTiendas && (
+            <span className="muted" style={{ marginLeft: '0.35rem', fontSize: '0.85rem' }}>· todas las tiendas</span>
+          )}
+          <button type="button" className="btn btn-primary" style={{ marginLeft: '0.5rem' }} onClick={() => setPestana('pendientes')}>
+            Abrir bandeja de vales
           </button>
         </div>
       )}
@@ -483,7 +533,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       </div>
 
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        {['vales', 'prestamos', 'prestamos_emp', esAdmin && 'tipos', esAdmin && 'gasolina', (esAdmin || esSocio) && 'pendientes'].filter(Boolean).map((p) => (
+        {['vales', 'prestamos', 'prestamos_emp', esAdmin && 'tipos', esAdmin && 'gasolina', puedeVerBandejaAprobacion && 'pendientes'].filter(Boolean).map((p) => (
           <button key={p} type="button" className={`btn ${pestana === p ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPestana(p)}>
             {p === 'vales' && 'Vales'}
             {p === 'prestamos' && 'Préstamos área / sucursal'}
@@ -495,29 +545,50 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         ))}
       </div>
 
-      {pestana === 'pendientes' && (esAdmin || esSocio) && (
-        <div className="card">
-          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Bandeja de aprobaciones</h3>
-          {esAdmin && valesPendientes.length > 0 && (
+      {pestana === 'pendientes' && puedeVerBandejaAprobacion && (
+        <div className="card" id="bandeja-aprobaciones-vales">
+          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>
+            Bandeja de aprobaciones
+            {vePendientesTodasTiendas && (
+              <span className="muted" style={{ fontWeight: 500, fontSize: '0.85rem', marginLeft: '0.5rem' }}>
+                (todas las tiendas)
+              </span>
+            )}
+          </h3>
+          {puedeAprobarVales && valesPendientes.length > 0 && (
             <>
               <h4 style={{ margin: '0.5rem 0' }}>Vales pendientes</h4>
               {valesPendientes.map((v) => (
                 <div key={v.id} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.5rem', padding: '0.5rem', background: 'var(--surface)', borderRadius: 8 }}>
-                  <span>{v.folio} · {v.nombre_empleado} · {fmt(v.monto)} · {etiquetaCategoriaVale(v.categoria)}</span>
+                  <span>
+                    {vePendientesTodasTiendas && (
+                      <strong style={{ marginRight: '0.35rem' }}>{etiquetaTienda(v.sucursal_id)}</strong>
+                    )}
+                    {v.folio} · {v.nombre_empleado} · {fmt(v.monto)} · {etiquetaCategoriaVale(v.categoria)}
+                  </span>
                   <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => aprobarV(v.id)}>Aprobar</button>
-                  <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem', color: 'var(--danger)' }} onClick={() => cancelarV(v)}>Cancelar</button>
+                  {esAdmin && (
+                    <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem', color: 'var(--danger)' }} onClick={() => cancelarV(v)}>Cancelar</button>
+                  )}
                 </div>
               ))}
             </>
           )}
-          {esAdmin && prestamosPendientesAdmin.length > 0 && (
+          {puedeAprobarVales && prestamosPendientesAdmin.length > 0 && (
             <>
               <h4 style={{ margin: '0.75rem 0 0.5rem' }}>Préstamos — admin</h4>
               {prestamosPendientesAdmin.map((p) => (
                 <div key={p.id} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.5rem', padding: '0.5rem', background: 'var(--surface)', borderRadius: 8 }}>
-                  <span>{p.nombre_empleado} · {fmt(p.monto_original)}{Number(p.monto_original) > MONTO_PRESTAMO_REQUIERE_SOCIO ? ' · +socio' : ''}</span>
+                  <span>
+                    {vePendientesTodasTiendas && (
+                      <strong style={{ marginRight: '0.35rem' }}>{etiquetaTienda(p.sucursal_id)}</strong>
+                    )}
+                    {p.nombre_empleado} · {fmt(p.monto_original)}{Number(p.monto_original) > MONTO_PRESTAMO_REQUIERE_SOCIO ? ' · +socio' : ''}
+                  </span>
                   <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => aprobarPAdmin(p.id)}>Aprobar</button>
-                  <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem', color: 'var(--danger)' }} onClick={() => rechazarPrestamo(supabase, p.id, { nombre: user?.nombre }).then(recargarTodo)}>Rechazar</button>
+                  {esAdmin && (
+                    <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem', color: 'var(--danger)' }} onClick={() => rechazarPrestamo(supabase, p.id, { nombre: user?.nombre }).then(recargarTodo)}>Rechazar</button>
+                  )}
                 </div>
               ))}
             </>
@@ -535,14 +606,23 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               />
               {prestamosPendientesSocio.map((p) => (
                 <div key={p.id} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.5rem', padding: '0.5rem', background: 'var(--surface)', borderRadius: 8 }}>
-                  <span>{p.nombre_empleado} · {fmt(p.monto_original)}</span>
+                  <span>
+                    <strong style={{ marginRight: '0.35rem' }}>{etiquetaTienda(p.sucursal_id)}</strong>
+                    {p.nombre_empleado} · {fmt(p.monto_original)}
+                  </span>
                   <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => aprobarPSocio(p.id)}>Autorizar</button>
                 </div>
               ))}
             </>
           )}
           {valesPendientes.length === 0 && prestamosPendientesAdmin.length === 0 && (!esSocio || prestamosPendientesSocio.length === 0) && (
-            <p className="muted">Sin pendientes.</p>
+            <div>
+              <p className="muted" style={{ marginBottom: '0.5rem' }}>No hay vales ni préstamos pendientes de aprobación.</p>
+              <p className="muted" style={{ fontSize: '0.85rem', margin: 0 }}>
+                Si la campanita 🔔 muestra avisos, suelen ser <strong>gastos de corte</strong>, <strong>incidencias</strong> o{' '}
+                <strong>cobros post-liquidación</strong>: ábrelos en el menú <strong>Incidencias → Pendientes</strong> (no aquí).
+              </p>
+            </div>
           )}
         </div>
       )}

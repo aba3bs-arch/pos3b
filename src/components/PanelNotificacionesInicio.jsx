@@ -95,7 +95,7 @@ export default function PanelNotificacionesInicio({ supabase, sucursal, user, on
             </button>
           )}
           {puedeVales && (notifs.some((n) => n.tipo !== TIPOS_NOTIF.INCIDENCIA) || !(puedeAbrirBandejaIncidencias(rol, user?.id) && puedeIncidencias)) && (
-            <button type="button" className="btn btn-gold" onClick={() => onNavigate('Vales y Préstamos')}>
+            <button type="button" className="btn btn-gold" onClick={() => onNavigate('Vales y Préstamos', { pestana: 'pendientes' })}>
               Vales y préstamos
             </button>
           )}

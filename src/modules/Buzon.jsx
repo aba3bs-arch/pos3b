@@ -41,6 +41,7 @@ import {
 } from '../lib/incidenciasPrivilegios.js';
 import { esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
 import { aprobarGastoTurno, rechazarGastoTurno } from '../lib/corteContabilidad/store.js';
+import { aprobarPrestamoAdmin, aprobarVale, cancelarVale, rechazarPrestamo } from '../lib/valesPrestamos.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { BtnLabel } from '../components/Icon.jsx';
 import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
@@ -237,9 +238,11 @@ export default function Buzon({
       if (typeof onNavigate === 'function') onNavigate('Liquidación recolecciones');
       return;
     }
-    if (typeof onIrValesPendientes === 'function') onIrValesPendientes();
+    if (typeof onIrValesPendientes === 'function') onIrValesPendientes(n);
     else if (typeof onNavigate === 'function') onNavigate('Vales y Préstamos');
   };
+
+  const puedeAprobarValesAqui = esAdmin || esGerente;
 
   const aprobarConsumoCorte = async (n) => {
     if (!esAdmin && !esGerente) return;
@@ -260,6 +263,49 @@ export default function Buzon({
     if (!res.ok) setMsg(res.error || 'No se pudo rechazar.');
     else {
       setMsg('Consumo rechazado.');
+      recargar();
+    }
+  };
+
+  const aprobarValeDesdeBandeja = async (n) => {
+    if (!puedeAprobarValesAqui || !n.ref_id) return;
+    const res = await aprobarVale(supabase, n.ref_id, { nombreAprobador: user?.nombre, cargarCorte: true });
+    if (!res.ok) setMsg(res.error || 'No se pudo aprobar el vale.');
+    else {
+      setMsg('Vale aprobado.');
+      recargar();
+    }
+  };
+
+  const cancelarValeDesdeBandeja = async (n) => {
+    if (!esAdmin || !n.ref_id) return;
+    const motivo = prompt('¿Cancelar este vale?\nMotivo (opcional):');
+    if (motivo === null) return;
+    const res = await cancelarVale(supabase, n.ref_id, { nombre: user?.nombre, motivo: motivo.trim() || null });
+    if (!res.ok) setMsg(res.error || 'No se pudo cancelar el vale.');
+    else {
+      setMsg('Vale cancelado.');
+      recargar();
+    }
+  };
+
+  const aprobarPrestamoDesdeBandeja = async (n) => {
+    if (!puedeAprobarValesAqui || !n.ref_id) return;
+    const res = await aprobarPrestamoAdmin(supabase, n.ref_id, { nombreAprobador: user?.nombre });
+    if (!res.ok) setMsg(res.error || 'No se pudo aprobar el préstamo.');
+    else {
+      setMsg(res.mensaje || 'Préstamo aprobado.');
+      recargar();
+    }
+  };
+
+  const rechazarPrestamoDesdeBandeja = async (n) => {
+    if (!esAdmin || !n.ref_id) return;
+    if (!confirm('¿Rechazar este préstamo?')) return;
+    const res = await rechazarPrestamo(supabase, n.ref_id, { nombre: user?.nombre });
+    if (!res.ok) setMsg(res.error || 'No se pudo rechazar.');
+    else {
+      setMsg('Préstamo rechazado.');
       recargar();
     }
   };
@@ -427,11 +473,35 @@ export default function Buzon({
                               </button>
                             </>
                           )}
+                          {n.tipo === TIPOS_NOTIF.VALE_PENDIENTE && puedeAprobarValesAqui && (
+                            <>
+                              <button type="button" className="btn btn-primary btn-sm" onClick={() => aprobarValeDesdeBandeja(n)}>
+                                Aprobar vale
+                              </button>
+                              {esAdmin && (
+                                <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => cancelarValeDesdeBandeja(n)}>
+                                  Cancelar
+                                </button>
+                              )}
+                            </>
+                          )}
+                          {n.tipo === TIPOS_NOTIF.PRESTAMO_ADMIN && puedeAprobarValesAqui && (
+                            <>
+                              <button type="button" className="btn btn-primary btn-sm" onClick={() => aprobarPrestamoDesdeBandeja(n)}>
+                                Aprobar préstamo
+                              </button>
+                              {esAdmin && (
+                                <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => rechazarPrestamoDesdeBandeja(n)}>
+                                  Rechazar
+                                </button>
+                              )}
+                            </>
+                          )}
                           {(n.tipo === TIPOS_NOTIF.VALE_PENDIENTE ||
                             n.tipo === TIPOS_NOTIF.PRESTAMO_ADMIN ||
                             n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO) && (
                             <button type="button" className="btn btn-gold btn-sm" onClick={() => irAccionNotif(n)}>
-                              Ir a aprobar
+                              Abrir módulo vales
                             </button>
                           )}
                           {n.tipo === TIPOS_NOTIF.INCIDENCIA && (

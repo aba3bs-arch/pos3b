@@ -177,6 +177,7 @@ const ACCESO_POR_ROL = {
     'Estadisticas',
     'Reportes',
     'Panel RT',
+    'Vales y Préstamos',
     'Ayuda',
   ],
   Supervisor: [
