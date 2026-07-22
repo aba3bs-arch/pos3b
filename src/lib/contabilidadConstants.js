@@ -126,7 +126,9 @@ export function etiquetaEstadoPrestamo(p) {
   const e = p?.estado;
   if (e === 'pendiente_admin') return 'Pendiente admin';
   if (e === 'pendiente_socio') return 'Pendiente socio (+$1,000)';
+  if (e === 'pendiente_cobro') return 'Pendiente de cobro';
   if (e === 'rechazado') return 'Rechazado';
+  if (e === 'cancelado') return 'Cancelado';
   if (e === 'liquidado') return 'Liquidado';
   if (e === 'activo') return 'Activo';
   return e || '—';

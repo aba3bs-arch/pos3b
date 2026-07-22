@@ -141,6 +141,7 @@ export const TIPOS_NOTIF = {
   PRESTAMO_ADMIN: 'prestamo_pendiente_admin',
   PRESTAMO_SOCIO: 'prestamo_pendiente_socio',
   PRESTAMO_INTERAREA: 'prestamo_interarea',
+  PRESTAMO_SUCURSAL: 'prestamo_sucursal',
   INCIDENCIA: 'incidencia_tienda',
   CONSUMO_CORTE: 'consumo_corte_pendiente',
   RECOLECCION_POST_LIQ: 'recoleccion_post_liquidacion',
@@ -156,6 +157,8 @@ export function etiquetaTipoNotificacion(tipo) {
       return 'Préstamo (socio)';
     case TIPOS_NOTIF.PRESTAMO_INTERAREA:
       return 'Préstamo entre áreas';
+    case TIPOS_NOTIF.PRESTAMO_SUCURSAL:
+      return 'Préstamo entre sucursales';
     case TIPOS_NOTIF.INCIDENCIA:
       return 'Incidencia';
     case TIPOS_NOTIF.CONSUMO_CORTE:

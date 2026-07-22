@@ -1,6 +1,6 @@
 /**
- * Continúa jalando fotos del catálogo (productos sin foto_url).
- * Uso: node scripts/sync-fotos-catalogo.mjs [--limite=200] [--delay=400] [--offset=0]
+ * Jalá fotos priorizando códigos mexicanos (750…) y barcodes reales.
+ * Uso: node scripts/sync-fotos-abarrotes.mjs [--limite=500] [--delay=200] [--offset=0]
  */
 import { readFileSync } from 'fs';
 import { createClient } from '@supabase/supabase-js';
@@ -13,7 +13,7 @@ function loadEnv() {
     const env = {};
     for (const line of raw.split(/\r?\n/)) {
       const m = line.match(/^([^#=]+)=(.*)$/);
-      if (m) env[m[1].trim().replace(/^\uFEFF/, '')] = m[2].trim().replace(/^["']|["']$/g, '');
+      if (m) env[m[1].trim()] = m[2].trim().replace(/^["']|["']$/g, '');
     }
     return env;
   } catch {
@@ -37,11 +37,11 @@ if (!url || !key || url.includes('tu-proyecto')) {
 }
 
 const limite = argNum('limite', 500);
-const delayMs = argNum('delay', 400);
+const delayMs = argNum('delay', 200);
 const offset = argNum('offset', 0);
 const supabase = createClient(url, key);
 
-console.log(`Cargando productos sin foto (offset ${offset}, límite ${limite})…`);
+console.log(`Cargando productos sin foto (prioridad abarrotes MX 750…, offset ${offset})…`);
 
 const PAGE = 1000;
 let from = 0;
@@ -64,8 +64,17 @@ for (;;) {
   from += PAGE;
 }
 
-const cola = sinFoto.slice(Math.max(0, offset), Math.max(0, offset) + limite);
-console.log(`Sin foto: ${sinFoto.length}. Procesando ${cola.length} (offset ${offset})…`);
+const esBarcode = (id) => /^\d{8,18}$/.test(String(id || '').trim());
+const esMx = (id) => String(id || '').trim().startsWith('750');
+
+const mx = sinFoto.filter((p) => esMx(p.id));
+const otrosBar = sinFoto.filter((p) => esBarcode(p.id) && !esMx(p.id));
+const priorizados = [...mx, ...otrosBar];
+const cola = priorizados.slice(Math.max(0, offset), Math.max(0, offset) + limite);
+
+console.log(
+  `Sin foto: ${sinFoto.length} · MX750: ${mx.length} · otros barcode: ${otrosBar.length} · procesando: ${cola.length} (offset ${offset})`
+);
 
 const r = await sincronizarFotosCatalogo(supabase, cola, {
   soloSinFoto: true,
@@ -74,10 +83,11 @@ const r = await sincronizarFotosCatalogo(supabase, cola, {
   buscarNombre: true,
   onProgress: ({ actual, total, id, nombre, actualizados, sinFoto: sf }) => {
     if (actual % 10 === 0 || actual === total) {
-      console.log(`[${actual}/${total}] +${actualizados} ok · ${sf} sin img · ${id} ${String(nombre || '').slice(0, 40)}`);
+      console.log(
+        `[${actual}/${total}] +${actualizados} ok · ${sf} sin img · ${id} ${String(nombre || '').slice(0, 40)}`
+      );
     }
   },
 });
 
 console.log(r.mensaje || r.error || r);
-process.exit(r.ok ? 0 : 1);

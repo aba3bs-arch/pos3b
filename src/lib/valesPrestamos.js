@@ -551,4 +551,115 @@ export async function registrarPrestamoInterarea(supabase, row) {
   return { ok: true, prestamo: data };
 }
 
+export const AVISO_FALTA_PRESTAMOS_SUCURSALES =
+  'Falta la tabla de préstamos entre sucursales. Ejecuta supabase/fix_prestamos_sucursales.sql';
+
+function faltaTablaPrestamosSucursales(error) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  return (
+    error?.code === '42P01' ||
+    msg.includes('prestamos_sucursales') ||
+    (msg.includes('schema cache') && msg.includes('prestamos_sucursales'))
+  );
+}
+
+/** Lista préstamos entre tiendas visibles para la sucursal (origen o destino). */
+export async function listarPrestamosSucursales(supabase, opts = {}) {
+  if (!supabase) return { data: [], error: null };
+  const { sucursal, limit = 100, soloPendientes = false } = opts;
+  let q = supabase
+    .from('prestamos_sucursales')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (sucursal) {
+    q = q.or(`sucursal_origen.eq.${sucursal},sucursal_destino.eq.${sucursal}`);
+  }
+  if (soloPendientes) q = q.eq('estado', 'pendiente_cobro');
+  const { data, error } = await q;
+  if (faltaTablaPrestamosSucursales(error)) return { data: [], aviso: AVISO_FALTA_PRESTAMOS_SUCURSALES };
+  return { data: data || [], error: error?.message || null };
+}
+
+/**
+ * Préstamo de una tienda a otra. No se carga al corte; queda pendiente de cobro
+ * hasta que se liquide en la sucursal donde se originó.
+ */
+export async function registrarPrestamoSucursal(supabase, row) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const origen = String(row.sucursal_origen || '').trim().toUpperCase();
+  const destino = String(row.sucursal_destino || '').trim().toUpperCase();
+  if (!origen || !destino) return { ok: false, error: 'Origen y destino son obligatorios.' };
+  if (origen === destino) return { ok: false, error: 'La sucursal destino debe ser distinta a la de origen.' };
+  const monto = Number(row.monto);
+  if (!(monto > 0)) return { ok: false, error: 'Monto inválido.' };
+
+  const payload = {
+    sucursal_origen: origen,
+    sucursal_destino: destino,
+    monto,
+    saldo: monto,
+    abono: 0,
+    fecha: row.fecha || new Date().toISOString().slice(0, 10),
+    notas: row.notas || null,
+    estado: 'pendiente_cobro',
+    created_by: row.created_by || null,
+  };
+
+  const { data, error } = await supabase.from('prestamos_sucursales').insert([payload]).select('*').single();
+  if (faltaTablaPrestamosSucursales(error)) return { ok: false, error: AVISO_FALTA_PRESTAMOS_SUCURSALES };
+  if (error) return { ok: false, error: error.message };
+
+  await crearNotificacion(supabase, {
+    sucursal_id: origen,
+    tipo: TIPOS_NOTIF.PRESTAMO_SUCURSAL,
+    ref_tabla: 'prestamos_sucursales',
+    ref_id: data.id,
+    titulo: `Préstamo a sucursal · ${origen} → ${destino}`,
+    mensaje: `$${monto.toFixed(2)} pendiente de cobro${row.notas ? ` · ${row.notas}` : ''}`,
+  });
+  await crearNotificacion(supabase, {
+    sucursal_id: destino,
+    tipo: TIPOS_NOTIF.PRESTAMO_SUCURSAL,
+    ref_tabla: 'prestamos_sucursales',
+    ref_id: data.id,
+    titulo: `Préstamo recibido · ${origen} → ${destino}`,
+    mensaje: `$${monto.toFixed(2)} — pagar a ${origen}${row.notas ? ` · ${row.notas}` : ''}`,
+  });
+
+  return { ok: true, prestamo: data };
+}
+
+/** Abono o liquidación del préstamo entre sucursales (solo en la tienda origen). */
+export async function abonarPrestamoSucursal(supabase, prestamo, montoAbono, { nombreActor } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  if (!prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  if (prestamo.estado === 'liquidado' || prestamo.estado === 'cancelado') {
+    return { ok: false, error: 'Este préstamo ya está cerrado.' };
+  }
+  const abono = Number(montoAbono);
+  if (!(abono > 0)) return { ok: false, error: 'Monto de abono inválido.' };
+  const saldoActual = Number(prestamo.saldo) || 0;
+  if (abono > saldoActual + 0.001) return { ok: false, error: 'El abono no puede superar el saldo.' };
+
+  const saldo = Math.max(0, Math.round((saldoActual - abono) * 100) / 100);
+  const { data, error } = await supabase
+    .from('prestamos_sucursales')
+    .update({
+      saldo,
+      abono: (Number(prestamo.abono) || 0) + abono,
+      estado: saldo <= 0 ? 'liquidado' : 'pendiente_cobro',
+    })
+    .eq('id', prestamo.id)
+    .select('*')
+    .single();
+  if (faltaTablaPrestamosSucursales(error)) return { ok: false, error: AVISO_FALTA_PRESTAMOS_SUCURSALES };
+  if (error) return { ok: false, error: error.message };
+
+  if (saldo <= 0) {
+    await marcarNotificacionAtendida(supabase, 'prestamos_sucursales', prestamo.id, nombreActor || null);
+  }
+  return { ok: true, prestamo: data, saldo };
+}
+
 export { cargarValeACorte, cargarPrestamoEmpleadoACorte } from './cargosContabilidad.js';

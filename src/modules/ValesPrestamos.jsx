@@ -8,11 +8,14 @@ import {
   cargarValeACorte,
   listarPrestamos,
   listarPrestamosInterarea,
+  listarPrestamosSucursales,
   listarVales,
   rechazarPrestamo,
   cancelarVale,
+  abonarPrestamoSucursal,
   registrarPrestamo,
   registrarPrestamoInterarea,
+  registrarPrestamoSucursal,
   registrarVale,
 } from '../lib/valesPrestamos.js';
 import {
@@ -46,6 +49,7 @@ import { imprimirPrestamo, imprimirVale } from '../lib/impresionContabilidad.js'
 import { normalizarRol } from '../lib/roles.js';
 import { empleadosVisiblesParaTienda } from '../lib/empleadosVisibles.js';
 import { tiendaPuedeGenerarVales } from '../lib/posConfig.js';
+import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
 import PanelAsistenciaGasolina from '../components/PanelAsistenciaGasolina.jsx';
 import SelectorCalendario from '../components/SelectorCalendario.jsx';
 import InputPin from '../components/InputPin.jsx';
@@ -63,6 +67,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const [aviso, setAviso] = useState('');
   const [vales, setVales] = useState([]);
   const [prestamosArea, setPrestamosArea] = useState([]);
+  const [prestamosSuc, setPrestamosSuc] = useState([]);
   const [prestamosEmp, setPrestamosEmp] = useState([]);
   const [empleados, setEmpleados] = useState([]);
   const [notifs, setNotifs] = useState([]);
@@ -78,6 +83,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const [prestForm, setPrestForm] = useState({
     origen: 'virtual',
     gastos_area: 'abarrotes',
+    monto: '',
+    notas: '',
+    fecha: hoyISO(),
+  });
+  const [prestSucForm, setPrestSucForm] = useState({
+    destino: '',
     monto: '',
     notas: '',
     fecha: hoyISO(),
@@ -106,20 +117,31 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const valesPendientes = useMemo(() => vales.filter((v) => v.estado_aprobacion === 'pendiente_admin'), [vales]);
   const prestamosPendientesAdmin = useMemo(() => prestamosEmp.filter((p) => p.estado === 'pendiente_admin'), [prestamosEmp]);
   const prestamosPendientesSocio = useMemo(() => prestamosEmp.filter((p) => p.estado === 'pendiente_socio'), [prestamosEmp]);
+  const sucursalesDestino = useMemo(
+    () => listarSucursalesOperativas().filter((s) => s !== String(sucursal || '').toUpperCase()),
+    [sucursal],
+  );
+  const prestamosSucPendientesCobro = useMemo(
+    () => prestamosSuc.filter((p) => p.estado === 'pendiente_cobro' && p.sucursal_origen === String(sucursal || '').toUpperCase()),
+    [prestamosSuc, sucursal],
+  );
 
   const recargarTodo = useCallback(async () => {
     if (!supabase) return;
-    const [vRes, paRes, peRes, nRes] = await Promise.all([
+    const [vRes, paRes, psRes, peRes, nRes] = await Promise.all([
       listarVales(supabase, { sucursal, tipo: 'indirecto' }),
       listarPrestamosInterarea(supabase, { sucursal }),
+      listarPrestamosSucursales(supabase, { sucursal }),
       listarPrestamos(supabase, { sucursal, incluirPendientes: true }),
       listarNotificacionesPendientes(supabase, { sucursal }),
     ]);
     if (vRes.aviso) setAviso(vRes.aviso);
+    else if (psRes.aviso) setAviso(psRes.aviso);
     else if (vRes.error) setAviso(vRes.error);
     else setAviso('');
     setVales(vRes.data || []);
     setPrestamosArea(paRes.data || []);
+    setPrestamosSuc(psRes.data || []);
     setPrestamosEmp(peRes.data || []);
     setNotifs(nRes.data || []);
   }, [supabase, sucursal]);
@@ -265,6 +287,47 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       created_by: user?.nombre || null,
     });
     if (!res.ok) return alert(res.error);
+    recargarTodo();
+  };
+
+  const guardarPrestamoSucursal = async () => {
+    if (!supabase) return alert('Sin conexión.');
+    if (!prestSucForm.destino) return alert('Selecciona la sucursal destino.');
+    const monto = Number(prestSucForm.monto);
+    if (!(monto > 0)) return alert('Monto inválido.');
+    const origen = String(sucursal || '').toUpperCase();
+    if (!origen || origen === 'MAIN') return alert('Cambia a la tienda que otorga el préstamo (no MAIN).');
+    const res = await registrarPrestamoSucursal(supabase, {
+      sucursal_origen: origen,
+      sucursal_destino: prestSucForm.destino,
+      monto,
+      fecha: prestSucForm.fecha || hoyISO(),
+      notas: prestSucForm.notas.trim() || null,
+      created_by: user?.nombre || null,
+    });
+    if (!res.ok) return alert(res.error);
+    alert(`Préstamo a ${etiquetaTienda(prestSucForm.destino)} registrado. Queda pendiente de cobro (no va al corte).`);
+    setPrestSucForm({ destino: '', monto: '', notas: '', fecha: hoyISO() });
+    recargarTodo();
+  };
+
+  const cobrarPrestamoSucursal = async (p, liquidar = false) => {
+    if (!supabase) return;
+    if (p.sucursal_origen !== String(sucursal || '').toUpperCase()) {
+      return alert(`El cobro solo se registra en ${etiquetaTienda(p.sucursal_origen)}.`);
+    }
+    const saldo = Number(p.saldo) || 0;
+    let monto = saldo;
+    if (!liquidar) {
+      const raw = prompt(`Abono a cobrar (saldo ${fmt(saldo)}):`, String(saldo));
+      if (raw == null) return;
+      monto = Number(raw);
+    } else if (!confirm(`¿Registrar cobro total de ${fmt(saldo)} en ${etiquetaTienda(p.sucursal_origen)}?`)) {
+      return;
+    }
+    const res = await abonarPrestamoSucursal(supabase, p, monto, { nombreActor: user?.nombre });
+    if (!res.ok) return alert(res.error);
+    alert(res.saldo <= 0 ? 'Préstamo liquidado.' : `Abono registrado. Saldo: ${fmt(res.saldo)}`);
     recargarTodo();
   };
 
@@ -423,7 +486,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         {['vales', 'prestamos', 'prestamos_emp', esAdmin && 'tipos', esAdmin && 'gasolina', (esAdmin || esSocio) && 'pendientes'].filter(Boolean).map((p) => (
           <button key={p} type="button" className={`btn ${pestana === p ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPestana(p)}>
             {p === 'vales' && 'Vales'}
-            {p === 'prestamos' && 'Préstamos área'}
+            {p === 'prestamos' && 'Préstamos área / sucursal'}
             {p === 'prestamos_emp' && 'Préstamos empleados'}
             {p === 'tipos' && 'Tipos de vale'}
             {p === 'gasolina' && 'Gasolina / asistencia'}
@@ -640,29 +703,134 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       )}
 
       {pestana === 'prestamos' && (
-        <div className="card">
-          <h3 style={{ margin: '0 0 0.75rem' }}>Préstamo entre áreas (gastos)</h3>
-          <div className="grid-2">
-            <select className="select" value={prestForm.origen} onChange={(e) => setPrestForm({ ...prestForm, origen: e.target.value })}>
-              {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>{ETIQUETA_AREA[a]}</option>)}
-            </select>
-            <select className="select" value={prestForm.gastos_area} onChange={(e) => setPrestForm({ ...prestForm, gastos_area: e.target.value })}>
-              {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>{ETIQUETA_AREA[a]}</option>)}
-            </select>
-            <input className="input" type="number" placeholder="Monto" value={prestForm.monto} onChange={(e) => setPrestForm({ ...prestForm, monto: e.target.value })} />
-            <button type="button" className="btn btn-primary" onClick={guardarPrestamoGastos}>Registrar</button>
+        <>
+          <div className="card">
+            <h3 style={{ margin: '0 0 0.75rem' }}>Préstamo entre áreas (gastos)</h3>
+            <div className="grid-2">
+              <select className="select" value={prestForm.origen} onChange={(e) => setPrestForm({ ...prestForm, origen: e.target.value })}>
+                {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>{ETIQUETA_AREA[a]}</option>)}
+              </select>
+              <select className="select" value={prestForm.gastos_area} onChange={(e) => setPrestForm({ ...prestForm, gastos_area: e.target.value })}>
+                {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>{ETIQUETA_AREA[a]}</option>)}
+              </select>
+              <input className="input" type="number" placeholder="Monto" value={prestForm.monto} onChange={(e) => setPrestForm({ ...prestForm, monto: e.target.value })} />
+              <button type="button" className="btn btn-primary" onClick={guardarPrestamoGastos}>Registrar</button>
+            </div>
+            <div className="table-wrap" style={{ marginTop: '1rem' }}>
+              <table className="data">
+                <thead><tr><th>Fecha</th><th>Origen</th><th>Destino</th><th>Monto</th></tr></thead>
+                <tbody>
+                  {prestamosArea.map((p) => (
+                    <tr key={p.id}><td>{p.fecha}</td><td>{ETIQUETA_AREA[p.origen]}</td><td>{ETIQUETA_AREA[p.destino]}</td><td>{fmt(p.monto)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div className="table-wrap" style={{ marginTop: '1rem' }}>
-            <table className="data">
-              <thead><tr><th>Fecha</th><th>Origen</th><th>Destino</th><th>Monto</th></tr></thead>
-              <tbody>
-                {prestamosArea.map((p) => (
-                  <tr key={p.id}><td>{p.fecha}</td><td>{ETIQUETA_AREA[p.origen]}</td><td>{ETIQUETA_AREA[p.destino]}</td><td>{fmt(p.monto)}</td></tr>
+
+          <div className="card">
+            <h3 style={{ margin: '0 0 0.75rem' }}>Préstamo a otra sucursal</h3>
+            <p className="muted" style={{ fontSize: '0.85rem' }}>
+              Presta efectivo a otra tienda. <strong>No se refleja en el corte</strong>; queda pendiente de cobro
+              hasta que se pague a <strong>{etiquetaTienda(sucursal)}</strong> (origen).
+            </p>
+            <div className="grid-2">
+              <select
+                className="select"
+                value={prestSucForm.destino}
+                onChange={(e) => setPrestSucForm({ ...prestSucForm, destino: e.target.value })}
+              >
+                <option value="">— Sucursal destino —</option>
+                {sucursalesDestino.map((s) => (
+                  <option key={s} value={s}>{etiquetaTienda(s)}</option>
                 ))}
-              </tbody>
-            </table>
+              </select>
+              <input
+                className="input"
+                type="number"
+                placeholder="Monto"
+                value={prestSucForm.monto}
+                onChange={(e) => setPrestSucForm({ ...prestSucForm, monto: e.target.value })}
+              />
+              <input
+                className="input"
+                placeholder="Notas"
+                value={prestSucForm.notas}
+                onChange={(e) => setPrestSucForm({ ...prestSucForm, notas: e.target.value })}
+              />
+              <button type="button" className="btn btn-primary" onClick={guardarPrestamoSucursal}>Registrar préstamo</button>
+            </div>
+            <div className="table-wrap" style={{ marginTop: '1rem' }}>
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Origen</th>
+                    <th>Destino</th>
+                    <th>Monto</th>
+                    <th>Saldo</th>
+                    <th>Estado</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {prestamosSuc.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="muted">No hay préstamos entre sucursales.</td>
+                    </tr>
+                  ) : (
+                    prestamosSuc.map((p) => {
+                      const esOrigen = p.sucursal_origen === String(sucursal || '').toUpperCase();
+                      const pendiente = p.estado === 'pendiente_cobro';
+                      return (
+                        <tr key={p.id}>
+                          <td>{p.fecha}</td>
+                          <td>{etiquetaTienda(p.sucursal_origen)}</td>
+                          <td style={{ fontWeight: 700 }}>{etiquetaTienda(p.sucursal_destino)}</td>
+                          <td>{fmt(p.monto)}</td>
+                          <td style={{ fontWeight: 700 }}>{fmt(p.saldo)}</td>
+                          <td>{etiquetaEstadoPrestamo(p)}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            {esOrigen && pendiente && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost"
+                                  style={{ padding: '0.2rem 0.4rem' }}
+                                  onClick={() => cobrarPrestamoSucursal(p, false)}
+                                >
+                                  Abonar
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-primary"
+                                  style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }}
+                                  onClick={() => cobrarPrestamoSucursal(p, true)}
+                                >
+                                  Cobrar todo
+                                </button>
+                              </>
+                            )}
+                            {!esOrigen && pendiente && (
+                              <span className="muted" style={{ fontSize: '0.8rem' }}>
+                                Pagar a {etiquetaTienda(p.sucursal_origen)}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {prestamosSucPendientesCobro.length > 0 && (
+              <p className="muted" style={{ margin: '0.75rem 0 0', fontSize: '0.82rem' }}>
+                {prestamosSucPendientesCobro.length} préstamo(s) pendiente(s) de cobro en esta tienda.
+              </p>
+            )}
           </div>
-        </div>
+        </>
       )}
 
       {pestana === 'prestamos_emp' && (

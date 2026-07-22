@@ -452,7 +452,9 @@ export default function Buzon({
                             </>
                           )}
                           {puedeGestionarNotif &&
-                            (n.tipo === TIPOS_NOTIF.PRESTAMO_INTERAREA || n.tipo === TIPOS_NOTIF.INCIDENCIA) && (
+                            (n.tipo === TIPOS_NOTIF.PRESTAMO_INTERAREA ||
+                              n.tipo === TIPOS_NOTIF.PRESTAMO_SUCURSAL ||
+                              n.tipo === TIPOS_NOTIF.INCIDENCIA) && (
                               <button type="button" className="btn btn-ghost btn-sm" onClick={() => marcarVisto(n)}>
                                 Marcar visto
                               </button>
