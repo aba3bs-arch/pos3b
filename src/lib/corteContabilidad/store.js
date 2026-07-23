@@ -100,7 +100,7 @@ export async function listarGastosTurno(supabase, sucursal, modulo) {
 }
 
 export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts = {}) {
-  const esConsumo = gastoDescuentaNomina(modulo, gasto.categoria);
+  const esConsumo = gastoDescuentaNomina(modulo, gasto.categoria, gasto.subcategoria);
   const esAdmin = normalizarRol(opts.rolActor) === 'Administrador';
   const catUpper = String(gasto.categoria || '').toUpperCase();
   // No van a IE: recuperación inversión, envío MAIN→tienda (solo bajan caja del corte).

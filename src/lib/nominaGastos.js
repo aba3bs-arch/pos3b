@@ -7,13 +7,20 @@ export function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-/** Gastos de cortes que deben descontarse en nómina (CONSUMO + vales que descuentan). */
+/** Gastos de cortes que deben descontarse en nómina (consumo, recargas, anticipos, faltante + vales). */
 export function gastoCuentaEnNomina(g) {
-  if (gastoDescuentaNomina(g.modulo, g.categoria)) return true;
+  if (gastoDescuentaNomina(g.modulo, g.categoria, g.subcategoria)) return true;
   const cat = String(g.categoria || '').trim().toUpperCase();
   if (cat !== 'VALES') return false;
   const sub = String(g.subcategoria || '').trim().toUpperCase();
-  return sub.includes('CONSUMO') || sub.includes('PERSONAL') || sub.includes('NOMINA');
+  return (
+    sub.includes('CONSUMO') ||
+    sub.includes('PERSONAL') ||
+    sub.includes('NOMINA') ||
+    sub.includes('RECARG') ||
+    sub.includes('ANTICIPO') ||
+    sub.includes('FALTANTE')
+  );
 }
 
 function gastoAprobadoParaNomina(g) {

@@ -147,7 +147,7 @@ export default function CorteGastosPanel({
       </div>
       <p className="muted" style={{ fontSize: '0.75rem', margin: '0.35rem 0 0.5rem' }}>
         {notaNomina ||
-          `CONSUMO se descuenta en nómina (Virtual, Abarrotes y Garage). Empleados del turno ${nombreTurnoLegible(turnoActual())}. Los consumos requieren autorización del administrador.`}
+          `Solo CONSUMO, RECARGAS, ANTICIPOS y FALTANTE descuentan nómina (con empleado). CubreTurno, Taxi y operativos no. Turno ${nombreTurnoLegible(turnoActual())}.`}
       </p>
 
       {mostrarCat && puedeCatalogo && (

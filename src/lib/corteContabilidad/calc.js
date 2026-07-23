@@ -67,20 +67,36 @@ export function ventasVirtualCorte(monedaInicial, monedaFinal, opts = {}) {
 
 export function calcularVirtual(estado, gastos = []) {
   const gastosTotal = totalGastos(gastos);
-  const monedaTurno = monedaInicialTurnoEfectiva(estado);
-  const ventaCalc = ventasVirtualCorte(estado.moneda_inicial, estado.moneda_final, {
-    capturada: Boolean(estado.moneda_final_editada),
-    monedaInicialTurno: monedaTurno,
-  });
+  // Excel: Moneda Inicial / Moneda Final se capturan en la misma plantilla
+  const mi = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
+  const mf = round2(estado.moneda_final);
+  const capturada = Boolean(estado.moneda_final_editada) || mf > 0;
+  const ventaCalc = capturada ? round2(mi - mf) : 0;
   const venta = valorManual(estado, 'venta_manual', ventaCalc);
+  const cajaChica = round2(estado.caja_anterior);
+  // Excel: RECOLECCION = Caja chica + Venta-Efvo − Gastos (faltante va en gastos / nómina)
+  const recoleccionCalc = round2(cajaChica + venta - gastosTotal);
+  const recoleccionCapturada = round2(estado.recoleccion ?? estado.recoleccion_turno);
+  const recoleccion = recoleccionCapturada > 0 ? recoleccionCapturada : Math.max(0, recoleccionCalc);
+  // Excel: Total = Caja chica + Venta − Gastos − Recolección
+  const total = round2(cajaChica + venta - gastosTotal - recoleccion);
   const subtotalCalc = round2(venta - gastosTotal);
   const subtotal = valorManual(estado, 'subtotal_manual', subtotalCalc);
-  const cajaAnterior = round2(estado.caja_anterior);
-  const recoleccion = round2(estado.recoleccion ?? estado.recoleccion_turno);
-  const cajaActualCalc = round2(cajaAnterior + subtotal - recoleccion);
+  const cajaActualCalc = round2(total);
   const cajaActual = valorManual(estado, 'caja_actual_manual', cajaActualCalc);
   const ventaNeta = round2(venta - gastosTotal);
-  return { venta, gastosTotal, subtotal, ventaNeta, cajaActual, monedaTurno };
+  return {
+    venta,
+    gastosTotal,
+    subtotal,
+    ventaNeta,
+    cajaActual,
+    monedaTurno: mi,
+    cajaChica,
+    recoleccionCalc: Math.max(0, recoleccionCalc),
+    recoleccion,
+    total,
+  };
 }
 
 /** Caja en negativo: subtotal negativo o moneda final por encima de la moneda inicial (premios sin préstamo). */
@@ -95,8 +111,7 @@ export function cajaVirtualEnNegativo(estado, calc) {
 
 /** Caja chica acumulada antes de aplicar la recolección capturada. */
 export function cajaChicaAcumulada(estado, calc) {
-  const rec = round2(estado.recoleccion ?? estado.recoleccion_turno);
-  return round2((calc?.cajaActual ?? 0) + rec);
+  return round2(calc?.cajaChica ?? estado?.caja_anterior ?? 0);
 }
 
 /**
@@ -118,22 +133,21 @@ export function monedaAInyectarVirtual(estado, precoleccion) {
 }
 
 /**
- * Tras recolección (modelo Excel): reinicia periodo; conserva moneda de referencia.
- * La moneda final del turno pasa a ser el inicio del siguiente periodo operativo.
+ * Tras recolección Excel: deja Fondo; actualiza Caja chica; pone en 0 el resto
+ * (como la 2.ª captura de la plantilla).
  */
-export function prepararTrasRecoleccionVirtual(estado, _calc, { nuevaMoneda, monedaTope } = {}) {
-  const ref = monedaTope != null ? round2(monedaTope) : monedaTopeVirtual(estado);
-  const mf = round2(nuevaMoneda != null ? nuevaMoneda : estado?.moneda_final);
-  const miSiguiente = mf > 0 ? mf : ref > 0 ? ref : 0;
+export function prepararTrasRecoleccionVirtual(estado, _calc, { nuevaCajaChica } = {}) {
+  const caja = nuevaCajaChica != null ? round2(nuevaCajaChica) : 0;
   return {
     ...estado,
-    moneda_inicial: ref > 0 ? ref : miSiguiente,
-    moneda_inicial_turno: miSiguiente,
+    fondo: round2(estado.fondo),
+    caja_anterior: caja,
+    moneda_inicial: 0,
+    moneda_inicial_turno: 0,
     moneda_final: 0,
     moneda_final_editada: false,
     precoleccion: 0,
     _precoleccion_editada: false,
-    caja_anterior: 0,
     recoleccion: 0,
     recoleccion_turno: 0,
     faltante: 0,
@@ -146,13 +160,13 @@ export function prepararTrasRecoleccionVirtual(estado, _calc, { nuevaMoneda, mon
   };
 }
 
-/** Recolección Excel: Moneda inicial − Moneda final − Gastos. */
+/** Recolección Excel: Caja chica + Venta-Efvo − Gastos. */
 export function recoleccionVirtualExcel(estado, calc) {
-  const mi = monedaInicialTurnoEfectiva(estado);
-  const mf = estado?.moneda_final_editada ? round2(estado.moneda_final) : 0;
+  if (calc?.recoleccionCalc != null) return round2(Math.max(0, calc.recoleccionCalc));
+  const caja = round2(estado?.caja_anterior);
+  const venta = round2(calc?.venta);
   const gastos = round2(calc?.gastosTotal);
-  if (!estado?.moneda_final_editada) return round2(Math.max(0, round2(calc?.ventaNeta || calc?.subtotal || 0)));
-  return round2(mi - mf - gastos);
+  return round2(Math.max(0, caja + venta - gastos));
 }
 
 export function calcularAbarrotes(estado, gastos = []) {

@@ -10,31 +10,51 @@ function lsKey(modulo) {
 const DEFAULTS = {
   virtual: [
     { categoria: 'CONSUMO', subcategorias: ['EMPLEADO', 'OFICINA'] },
+    { categoria: 'RECARGAS', subcategorias: ['CELULAR', 'OTRAS'] },
+    { categoria: 'ANTICIPOS', subcategorias: ['EMPLEADO'] },
+    { categoria: 'FALTANTE', subcategorias: ['FALTANTE'] },
     { categoria: 'GASTOS OPERATIVOS', subcategorias: ['SUMINISTROS', 'SERVICIOS', 'MANTENIMIENTO', 'OTROS'] },
     { categoria: 'CUBRE TURNO', subcategorias: ['PAGO'] },
     { categoria: 'TAXIS', subcategorias: ['SERVICIO'] },
     { categoria: 'TARJETA', subcategorias: ['PAGOS TARJETA'] },
-    { categoria: 'FALTANTE', subcategorias: ['FALTANTE'] },
     { categoria: 'PREMIOS', subcategorias: ['PAGO DE PREMIO'] },
   ],
   abarrotes: [
     { categoria: 'CONSUMO', subcategorias: ['EMPLEADO', 'LIMPIEZA'] },
+    { categoria: 'RECARGAS', subcategorias: ['CELULAR', 'OTRAS'] },
+    { categoria: 'ANTICIPOS', subcategorias: ['EMPLEADO'] },
+    { categoria: 'FALTANTE', subcategorias: ['FALTANTE'] },
     { categoria: 'GASTOS OPERATIVOS', subcategorias: ['SUMINISTROS', 'SERVICIOS', 'MANTENIMIENTO', 'OTROS'] },
   ],
   garage: [
     { categoria: 'CONSUMO', subcategorias: ['EMPLEADO', 'MANTENIMIENTO'] },
+    { categoria: 'RECARGAS', subcategorias: ['CELULAR', 'OTRAS'] },
+    { categoria: 'ANTICIPOS', subcategorias: ['EMPLEADO'] },
+    { categoria: 'FALTANTE', subcategorias: ['FALTANTE'] },
     { categoria: 'GASTOS OPERATIVOS', subcategorias: ['SUMINISTROS', 'SERVICIOS', 'MANTENIMIENTO', 'OTROS'] },
   ],
 };
 
-/** Solo CONSUMO descuenta nómina al empleado asignado; demás gastos afectan el corte pero no nómina. */
-export function gastoDescuentaNomina(_modulo, categoria) {
+/** Solo cargos del empleado: consumo, recargas, anticipos y faltante → nómina. */
+export const CATEGORIAS_GASTO_NOMINA = ['CONSUMO', 'RECARGAS', 'RECARGA', 'ANTICIPOS', 'ANTICIPO', 'FALTANTE'];
+
+/** Gastos generados por el empleado (no CubreTurno, Taxi, operativos, etc.). */
+export function gastoDescuentaNomina(_modulo, categoria, subcategoria = '') {
   const cat = String(categoria || '').trim().toUpperCase();
-  return cat === 'CONSUMO';
+  const sub = String(subcategoria || '').trim().toUpperCase();
+  if (CATEGORIAS_GASTO_NOMINA.includes(cat)) return true;
+  // Por si el catálogo usa otra etiqueta pero el concepto es el mismo
+  if (cat.includes('CONSUMO') || cat.includes('RECARG') || cat.includes('ANTICIPO') || cat.includes('FALTANTE')) {
+    return true;
+  }
+  if (sub.includes('CONSUMO') || sub.includes('RECARG') || sub.includes('ANTICIPO') || sub === 'FALTANTE') {
+    return true;
+  }
+  return false;
 }
 
-export function gastoRequiereEmpleado(modulo, categoria) {
-  return gastoDescuentaNomina(modulo, categoria);
+export function gastoRequiereEmpleado(modulo, categoria, subcategoria = '') {
+  return gastoDescuentaNomina(modulo, categoria, subcategoria);
 }
 
 function leerLocal(modulo) {
@@ -73,8 +93,9 @@ async function asegurarCategoriasVirtualFijas(supabase, rows) {
   if (!supabase) return rows;
   const lista = mapRows(rows);
   const cats = new Set(lista.map((r) => String(r.categoria || '').toUpperCase()));
+  const fijasNomina = ['CUBRE TURNO', 'TAXIS', 'FALTANTE', 'RECARGAS', 'ANTICIPOS'];
   const faltantes = (DEFAULTS.virtual || []).filter(
-    (d) => (d.categoria === 'CUBRE TURNO' || d.categoria === 'TAXIS') && !cats.has(d.categoria),
+    (d) => fijasNomina.includes(d.categoria) && !cats.has(d.categoria),
   );
   if (!faltantes.length) return lista;
   for (const d of faltantes) {

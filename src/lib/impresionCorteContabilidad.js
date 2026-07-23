@@ -190,7 +190,7 @@ export function htmlCorteContabilidad(data) {
     </table>
     ${data.comentarios ? `<div class="sep"></div><p class="muted"><strong>Comentarios:</strong> ${esc(data.comentarios)}</p>` : ''}
     <div class="sep"></div>
-    <p class="muted" style="text-align:center">Solo CONSUMO con empleado asignado descuenta nómina.</p>
+    <p class="muted" style="text-align:center">Solo CONSUMO, RECARGAS, ANTICIPOS y FALTANTE con empleado descuentan nómina.</p>
   </body></html>`;
 }
 
@@ -240,9 +240,12 @@ export function htmlRecoleccionVirtual(data) {
   const e = data.estado || {};
   const mi = round2(e.moneda_inicial_turno ?? e.moneda_inicial);
   const mf = round2(e.moneda_final);
+  const caja = round2(e.caja_anterior);
   const gastos = round2(data.gastos_total);
-  const formula = round2(mi - mf - gastos);
+  const venta = round2(data.venta ?? (mi - mf));
+  const formula = round2(caja + venta - gastos);
   const rec = round2(data.recoleccion ?? e.recoleccion ?? formula);
+  const total = round2(caja + venta - gastos - rec);
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recolección Virtual</title><style>
     body{font-family:Arial,sans-serif;font-size:12px;margin:12px;max-width:420px;color:#111}
@@ -250,14 +253,16 @@ export function htmlRecoleccionVirtual(data) {
     h1{font-size:16px;margin:0 0 4px;text-align:center}
     .sub{text-align:center;color:#555;font-size:11px;margin-bottom:10px}
     .banner{background:#111;color:#fff;text-align:center;font-weight:800;padding:8px;margin:8px 0;letter-spacing:0.04em}
-    table{width:100%;border-collapse:collapse}
-    td{padding:3px 2px;vertical-align:top}
+    table{width:100%;border-collapse:collapse;border:1px solid #333}
+    td{padding:4px 6px;vertical-align:top;border:1px solid #333}
     td.r{text-align:right;white-space:nowrap}
     .sep{border-top:1px dashed #333;margin:10px 0}
     .cat-block{margin:8px 0;padding:6px 0;border-top:1px solid #ddd}
     .cat-head{margin-bottom:4px;font-size:12px}
     .muted{color:#666;font-size:10px}
-    .hl{background:#fff3cd;font-weight:800}
+    .yl{background:#fff59d;font-weight:700}
+    .peach{background:#f8cbad}
+    .blk{background:#111;color:#fff;font-weight:800}
     @media print{body{margin:0;padding:8px}}
   </style></head><body>
     <img class="logo" src="${esc(logo)}" alt=""/>
@@ -271,27 +276,27 @@ export function htmlRecoleccionVirtual(data) {
       <tr><td>Recolector</td><td class="r">${esc(data.usuario_nombre || '—')}</td></tr>
     </table>
     <div class="sep"></div>
-    <strong>Moneda virtual</strong>
     <table>
-      <tr><td>Fondo</td><td class="r">${fmt(e.fondo)}</td></tr>
-      <tr><td>Caja chica</td><td class="r">${fmt(e.caja_anterior)}</td></tr>
-      <tr><td>Moneda inicial</td><td class="r">${fmt(mi)}</td></tr>
-      <tr><td>Moneda final</td><td class="r">${fmt(mf)}</td></tr>
-      <tr><td>Venta efectivo</td><td class="r">${fmt(data.venta)}</td></tr>
-      <tr><td>Gastos</td><td class="r">${fmt(gastos)}</td></tr>
-      <tr><td>Faltante</td><td class="r">${fmt(e.faltante)}</td></tr>
-      <tr class="hl"><td>RECOLECCIÓN</td><td class="r">${fmt(rec)}</td></tr>
+      <tr><td colspan="2" style="text-align:center;background:#c6efce;font-weight:800">MONEDA VIRTUAL</td></tr>
+      <tr class="peach"><td>Fondo</td><td class="r">${fmt(e.fondo)}</td></tr>
+      <tr class="peach"><td>Caja chica</td><td class="r">${fmt(caja)}</td></tr>
+      <tr><td>Moneda Inicial</td><td class="r">${fmt(mi)}</td></tr>
+      <tr><td>Moneda Final</td><td class="r">${fmt(mf)}</td></tr>
+      <tr class="yl"><td>Venta-Efvo</td><td class="r">${fmt(venta)}</td></tr>
+      <tr class="yl"><td>Gastos</td><td class="r">${fmt(gastos)}</td></tr>
+      <tr class="blk"><td>RECOLECCION</td><td class="r">${fmt(rec)}</td></tr>
+      <tr class="yl"><td>Total</td><td class="r">${fmt(total)}</td></tr>
     </table>
-    <p class="muted">Fórmula: Moneda inicial − Moneda final − Gastos = ${fmt(formula)}</p>
+    <p class="muted">Fórmula: Caja chica + Venta-Efvo − Gastos = ${fmt(formula)}</p>
     <div class="sep"></div>
     <strong>Gastos por cajero (concepto y cantidad)</strong>
     ${htmlGastosPorCajero(data)}
-    <table style="margin-top:8px">
-      <tr><td><strong>Total gastos</strong></td><td class="r"><strong>${fmt(gastos)}</strong></td></tr>
+    <table style="margin-top:8px;border:none">
+      <tr><td style="border:none"><strong>Total gastos</strong></td><td class="r" style="border:none"><strong>${fmt(gastos)}</strong></td></tr>
     </table>
     ${data.comentarios ? `<div class="sep"></div><p class="muted"><strong>Comentarios:</strong> ${esc(data.comentarios)}</p>` : ''}
     <div class="sep"></div>
-    <p class="muted" style="text-align:center">Este ticket no es el corte de cajero. Solo la recolección entra a contabilidad (IE).</p>
+    <p class="muted" style="text-align:center">Solo la recolección entra a contabilidad (IE). Nómina: consumo, recargas, anticipos y faltante.</p>
   </body></html>`;
 }
 
