@@ -244,7 +244,7 @@ export function htmlRecoleccionVirtual(data) {
   const gastos = round2(data.gastos_total);
   const venta = round2(data.venta ?? (mi - mf));
   const formula = round2(caja + venta - gastos);
-  const rec = round2(data.recoleccion ?? e.recoleccion ?? formula);
+  const rec = round2(data.recoleccion ?? e.recoleccion ?? 0);
   const total = round2(caja + venta - gastos - rec);
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recolección Virtual</title><style>
@@ -252,17 +252,15 @@ export function htmlRecoleccionVirtual(data) {
     img.logo{max-width:70%;max-height:64px;display:block;margin:0 auto 8px}
     h1{font-size:16px;margin:0 0 4px;text-align:center}
     .sub{text-align:center;color:#555;font-size:11px;margin-bottom:10px}
-    .banner{background:#111;color:#fff;text-align:center;font-weight:800;padding:8px;margin:8px 0;letter-spacing:0.04em}
-    table{width:100%;border-collapse:collapse;border:1px solid #333}
-    td{padding:4px 6px;vertical-align:top;border:1px solid #333}
+    .banner{background:#6c3483;color:#fff;text-align:center;font-weight:800;padding:8px;margin:8px 0;letter-spacing:0.04em;border-radius:4px}
+    table{width:100%;border-collapse:collapse}
+    td{padding:5px 4px;vertical-align:top;border-bottom:1px solid #eee}
     td.r{text-align:right;white-space:nowrap}
     .sep{border-top:1px dashed #333;margin:10px 0}
     .cat-block{margin:8px 0;padding:6px 0;border-top:1px solid #ddd}
     .cat-head{margin-bottom:4px;font-size:12px}
     .muted{color:#666;font-size:10px}
-    .yl{background:#fff59d;font-weight:700}
-    .peach{background:#f8cbad}
-    .blk{background:#111;color:#fff;font-weight:800}
+    .rec{font-weight:800;font-size:14px}
     @media print{body{margin:0;padding:8px}}
   </style></head><body>
     <img class="logo" src="${esc(logo)}" alt=""/>
@@ -277,22 +275,21 @@ export function htmlRecoleccionVirtual(data) {
     </table>
     <div class="sep"></div>
     <table>
-      <tr><td colspan="2" style="text-align:center;background:#c6efce;font-weight:800">MONEDA VIRTUAL</td></tr>
-      <tr class="peach"><td>Fondo</td><td class="r">${fmt(e.fondo)}</td></tr>
-      <tr class="peach"><td>Caja chica</td><td class="r">${fmt(caja)}</td></tr>
-      <tr><td>Moneda Inicial</td><td class="r">${fmt(mi)}</td></tr>
-      <tr><td>Moneda Final</td><td class="r">${fmt(mf)}</td></tr>
-      <tr class="yl"><td>Venta-Efvo</td><td class="r">${fmt(venta)}</td></tr>
-      <tr class="yl"><td>Gastos</td><td class="r">${fmt(gastos)}</td></tr>
-      <tr class="blk"><td>RECOLECCION</td><td class="r">${fmt(rec)}</td></tr>
-      <tr class="yl"><td>Total</td><td class="r">${fmt(total)}</td></tr>
+      <tr><td>Fondo</td><td class="r">${fmt(e.fondo)}</td></tr>
+      <tr><td>Caja chica</td><td class="r">${fmt(caja)}</td></tr>
+      <tr><td>Moneda inicial</td><td class="r">${fmt(mi)}</td></tr>
+      <tr><td>Moneda final</td><td class="r">${fmt(mf)}</td></tr>
+      <tr><td>Venta efectivo</td><td class="r">${fmt(venta)}</td></tr>
+      <tr><td>Gastos</td><td class="r">${fmt(gastos)}</td></tr>
+      <tr><td class="rec">Recolección (manual)</td><td class="r rec">${fmt(rec)}</td></tr>
+      <tr><td>Total / caja actual</td><td class="r">${fmt(total)}</td></tr>
     </table>
-    <p class="muted">Fórmula: Caja chica + Venta-Efvo − Gastos = ${fmt(formula)}</p>
+    <p class="muted">Referencia (caja + venta − gastos): ${fmt(formula)}. El monto IE es el capturado manualmente.</p>
     <div class="sep"></div>
     <strong>Gastos por cajero (concepto y cantidad)</strong>
     ${htmlGastosPorCajero(data)}
-    <table style="margin-top:8px;border:none">
-      <tr><td style="border:none"><strong>Total gastos</strong></td><td class="r" style="border:none"><strong>${fmt(gastos)}</strong></td></tr>
+    <table style="margin-top:8px">
+      <tr><td><strong>Total gastos</strong></td><td class="r"><strong>${fmt(gastos)}</strong></td></tr>
     </table>
     ${data.comentarios ? `<div class="sep"></div><p class="muted"><strong>Comentarios:</strong> ${esc(data.comentarios)}</p>` : ''}
     <div class="sep"></div>

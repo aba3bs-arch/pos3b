@@ -4,7 +4,6 @@ import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursal
 import {
   calcularVirtual,
   prepararTrasRecoleccionVirtual,
-  recoleccionVirtualExcel,
   round2,
   siguienteMonedaInicialTurnoVirtual,
 } from '../../lib/corteContabilidad/calc.js';
@@ -19,68 +18,74 @@ import { etiquetaTipoCierre, puedeEditarCorteCampo } from '../../lib/corteContab
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 import { etiquetaTienda } from '../../constants/sucursales.js';
 
-const COLOR = '#8e44ad';
-
-const cell = {
-  border: '1px solid #333',
-  padding: '0.35rem 0.5rem',
-  fontSize: '0.9rem',
-};
-
-const inputCell = {
-  ...cell,
-  width: '100%',
-  textAlign: 'right',
-  fontWeight: 700,
-  border: 'none',
-  background: 'transparent',
-  outline: 'none',
-};
+const ACCENT = '#6c3483';
 
 function moneyNum(v) {
   if (v === '' || v == null) return '';
   return Number(v);
 }
 
-/** Fila Excel: etiqueta | valor (editable o solo lectura). */
-function Fila({
-  label,
-  value,
-  editable,
-  onChange,
-  tone, // peach | yellow | black | green | none
-  readOnlyDisplay,
-}) {
-  const bg =
-    tone === 'peach'
-      ? '#f8cbad'
-      : tone === 'yellow'
-        ? '#fff59d'
-        : tone === 'black'
-          ? '#111'
-          : tone === 'green'
-            ? '#c6efce'
-            : '#fff';
-  const color = tone === 'black' ? '#fff' : '#111';
+function Campo({ label, hint, children, emphasize }) {
   return (
-    <tr>
-      <td style={{ ...cell, background: bg, color, fontWeight: tone === 'black' || tone === 'green' ? 800 : 600 }}>
+    <label
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '0.28rem',
+        padding: emphasize ? '0.65rem 0.75rem' : '0.15rem 0',
+        borderRadius: emphasize ? 10 : 0,
+        background: emphasize ? 'rgba(108,52,131,0.06)' : 'transparent',
+        border: emphasize ? '1px solid rgba(108,52,131,0.2)' : 'none',
+      }}
+    >
+      <span style={{ fontSize: '0.78rem', fontWeight: 700, color: emphasize ? ACCENT : 'var(--text, #1f2937)' }}>
         {label}
-      </td>
-      <td style={{ ...cell, background: bg, color, textAlign: 'right', minWidth: 120 }}>
-        {editable ? (
-          <input
-            type="number"
-            step="0.01"
-            value={value === '' || value == null ? '' : value}
-            onChange={(e) => onChange?.(e.target.value)}
-            style={{ ...inputCell, color }}
-          />
-        ) : (
-          <strong style={{ fontWeight: 800 }}>{readOnlyDisplay ?? fmtCorte(value)}</strong>
-        )}
-      </td>
-    </tr>
+      </span>
+      {children}
+      {hint ? <span className="muted" style={{ fontSize: '0.72rem' }}>{hint}</span> : null}
+    </label>
+  );
+}
+
+function InputMoney({ value, onChange, editable, placeholder }) {
+  if (!editable) {
+    return (
+      <div
+        style={{
+          fontSize: '1.15rem',
+          fontWeight: 800,
+          textAlign: 'right',
+          padding: '0.45rem 0.55rem',
+          background: 'var(--surface, #f8fafc)',
+          borderRadius: 8,
+          border: '1px solid var(--border, #e5e7eb)',
+        }}
+      >
+        {fmtCorte(value)}
+      </div>
+    );
+  }
+  return (
+    <input
+      className="input"
+      type="number"
+      step="0.01"
+      placeholder={placeholder || '0.00'}
+      value={value === '' || value == null ? '' : value}
+      onChange={(e) => onChange?.(e.target.value)}
+      style={{ textAlign: 'right', fontWeight: 700, fontSize: '1.05rem' }}
+    />
+  );
+}
+
+function ResumenPill({ label, value, muted }) {
+  return (
+    <div style={{ textAlign: 'center', minWidth: 100 }}>
+      <div className="muted" style={{ fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+        {label}
+      </div>
+      <div style={{ fontSize: '1.15rem', fontWeight: 800, color: muted ? 'var(--muted)' : ACCENT }}>{fmtCorte(value)}</div>
+    </div>
   );
 }
 
@@ -144,8 +149,9 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
   const puedeCaja = Boolean(perm.caja_anterior || perm.editarTodo || perm.recoleccion);
   const puedeFondo = Boolean(perm.editarTodo || perm.recoleccion);
   const puedeComentarios = puedeEditarCorteCampo(perm, 'comentarios');
+  const puedeRec = Boolean(perm.recoleccion);
   const mi = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
-  const recCalc = recoleccionVirtualExcel(estado, calc);
+  const montoRec = round2(estado.recoleccion ?? estado.recoleccion_turno);
 
   const setMi = (v) => {
     const n = moneyNum(v);
@@ -161,39 +167,44 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
     patchEstado({ moneda_final: moneyNum(v), moneda_final_editada: true });
   };
 
+  const setRecoleccion = (v) => {
+    const n = moneyNum(v);
+    patchEstado({ recoleccion: n, recoleccion_turno: n });
+  };
+
   const confirmarCierre = () => {
     if (!perm.guardar) return alert('Sin permiso para cerrar corte.');
-    const msg =
+    if (!confirm(
       `¿Cerrar corte virtual?\n\n` +
-      `Moneda inicial: ${fmtCorte(mi)}\n` +
-      `Moneda final: ${fmtCorte(estado.moneda_final)}\n` +
-      `Venta-Efvo: ${fmtCorte(calc.venta)}\n` +
-      `Gastos: ${fmtCorte(calc.gastosTotal)}\n\n` +
-      `Este cierre no va a IE. Solo la recolección entra a contabilidad.`;
-    if (confirm(msg)) cerrarCorte();
+        `Moneda inicial: ${fmtCorte(mi)}\n` +
+        `Moneda final: ${fmtCorte(estado.moneda_final)}\n` +
+        `Venta efectivo: ${fmtCorte(calc.venta)}\n` +
+        `Gastos: ${fmtCorte(calc.gastosTotal)}\n\n` +
+        `Las ventas del cierre no van a IE. Solo la recolección contabiliza.`,
+    )) return;
+    cerrarCorte();
   };
 
   const confirmarRecoleccion = async () => {
-    if (!perm.recoleccion) return alert('Solo admin/recolector puede recolectar.');
-    const monto = recCalc;
-    const rawCaja =
-      nuevaCajaChica !== ''
-        ? nuevaCajaChica
-        : window.prompt(
-            `Recolección ${fmtCorte(monto)} (Caja chica + Venta − Gastos).\n\n¿Nueva Caja chica después de recolectar?`,
-            String(estado.caja_anterior || 0),
-          );
-    if (rawCaja == null) return;
-    const cajaNueva = round2(rawCaja);
+    if (!puedeRec) return alert('Solo admin/recolector puede registrar recolección.');
+    if (!(montoRec > 0)) return alert('Capture el monto de recolección (dato manual).');
+
+    let cajaNueva = nuevaCajaChica !== '' ? round2(nuevaCajaChica) : null;
+    if (cajaNueva == null) {
+      const raw = window.prompt('Nueva caja chica después de recolectar:', String(estado.caja_anterior || 0));
+      if (raw == null) return;
+      cajaNueva = round2(raw);
+    }
+
     if (!confirm(
       `¿Registrar recolección?\n\n` +
-        `Caja chica ${fmtCorte(estado.caja_anterior)} + Venta ${fmtCorte(calc.venta)} − Gastos ${fmtCorte(calc.gastosTotal)}\n` +
-        `= ${fmtCorte(monto)} → IE VIRTUAL\n\n` +
-        `Después quedará como la plantilla: MI/MF/venta/gastos/rec = 0 · Caja chica = ${fmtCorte(cajaNueva)}`,
+        `Monto (manual): ${fmtCorte(montoRec)} → IE VIRTUAL\n` +
+        `Caja chica nueva: ${fmtCorte(cajaNueva)}\n\n` +
+        `Se reinicia moneda inicial/final y se limpia el periodo de gastos.`,
     )) return;
 
     const res = await registrarRecoleccion({
-      montoRecoleccion: monto,
+      montoRecoleccion: montoRec,
       nuevaCajaChica: cajaNueva,
     });
     if (!res?.ok) {
@@ -223,175 +234,174 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div className="card" style={{ borderTop: `3px solid ${ACCENT}` }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           <div>
-            <h3 style={{ margin: 0, color: COLOR }}>Corte Virtual</h3>
-            <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-              Plantilla Excel · Folio {folio} · {turno} · {etiquetaTienda(sucursal)}
+            <h3 style={{ margin: 0, color: ACCENT, letterSpacing: '-0.02em' }}>Corte Virtual</h3>
+            <p className="muted" style={{ margin: '0.3rem 0 0', fontSize: '0.84rem' }}>
+              {etiquetaTienda(sucursal)} · Folio {folio} · {turno}
             </p>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
             {perm.guardar && (
               <button type="button" className="btn btn-primary" onClick={confirmarCierre} disabled={cargando}>
                 Cerrar corte
               </button>
             )}
             <button type="button" className="btn btn-ghost" onClick={imprimirBorrador} disabled={cargando}>
-              Imprimir corte
+              Imprimir
             </button>
-            {perm.recoleccion && (
-              <button type="button" className="btn btn-gold" onClick={confirmarRecoleccion} disabled={cargando}>
-                Recolectar e imprimir
+            {puedeRec && (
+              <button type="button" className="btn btn-gold" onClick={confirmarRecoleccion} disabled={cargando || !(montoRec > 0)}>
+                Registrar recolección
               </button>
             )}
           </div>
         </div>
         {aviso && <p style={{ margin: '0.75rem 0 0', fontSize: '0.85rem', color: 'var(--brand-gold)' }}>{aviso}</p>}
         <CorteSucursalAviso sucursal={sucursal} user={user} />
-        <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.78rem' }}>
-          Captura en la plantilla. El <strong>faltante</strong> va en Gastos → FALTANTE (nómina). Solo recolección a IE.
-          Nómina: consumo, recargas, anticipos y faltante — no CubreTurno/Taxi/operativos.
-        </p>
       </div>
 
-      {/* Plantilla Excel: MONEDA VIRTUAL | GASTOS X TURNO */}
+      <div
+        className="card"
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '1.25rem',
+          justifyContent: 'space-around',
+          alignItems: 'center',
+          padding: '1rem 1.25rem',
+        }}
+      >
+        <ResumenPill label="Venta efectivo" value={calc.venta} />
+        <ResumenPill label="Gastos" value={calc.gastosTotal} />
+        <ResumenPill label="Recolección" value={calc.recoleccion} />
+        <ResumenPill label="Caja chica actual" value={calc.cajaActual} />
+      </div>
+
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'minmax(280px, 1fr) minmax(300px, 1.2fr)',
-          gap: '0.75rem',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap: '1rem',
           alignItems: 'start',
         }}
       >
-        <div style={{ border: '2px solid #333', background: '#fff', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <tbody>
-              <Fila label="MONEDA VIRTUAL" value="" tone="green" editable={false} readOnlyDisplay=" " />
-              <Fila
-                label="Fondo"
+        <div className="card">
+          <h4 style={{ margin: '0 0 0.85rem', color: ACCENT }}>Moneda virtual</h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <Campo label="Fondo" hint="Cambio / premios chicos · no es ingreso IE">
+              <InputMoney
                 value={estado.fondo ?? ''}
                 editable={puedeFondo && puedeEditar}
-                tone="peach"
                 onChange={(v) => patchEstado({ fondo: moneyNum(v) })}
               />
-              <Fila
-                label="Caja chica"
+            </Campo>
+            <Campo label="Caja chica">
+              <InputMoney
                 value={estado.caja_anterior ?? ''}
                 editable={puedeCaja && puedeEditar}
-                tone="peach"
                 onChange={(v) => patchEstado({ caja_anterior: moneyNum(v) })}
               />
-              <Fila
-                label="Moneda Inicial"
+            </Campo>
+            <Campo label="Moneda inicial" hint="Captura del turno">
+              <InputMoney
                 value={estado.moneda_inicial_turno ?? estado.moneda_inicial ?? ''}
                 editable={puedeMoneda && puedeEditar}
                 onChange={setMi}
               />
-              <Fila
-                label="Moneda Final"
+            </Campo>
+            <Campo label="Moneda final">
+              <InputMoney
                 value={estado.moneda_final ?? ''}
                 editable={puedeMoneda && puedeEditar}
                 onChange={setMf}
               />
-              <Fila label="Venta-Efvo" value={calc.venta} tone="yellow" editable={false} />
-              <Fila label="Gastos" value={calc.gastosTotal} tone="yellow" editable={false} />
-              <Fila label="RECOLECCION" value={recCalc} tone="black" editable={false} />
-              <Fila label="Total" value={calc.total} tone="yellow" editable={false} />
-            </tbody>
-          </table>
-          <div style={{ height: 8, background: '#5b9bd5' }} />
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <tbody>
-              <Fila label="Caja Chica Actual" value={calc.cajaActual} tone="yellow" editable={false} />
-            </tbody>
-          </table>
-          {perm.recoleccion && (
-            <div style={{ padding: '0.5rem', borderTop: '1px solid #333', fontSize: '0.8rem' }}>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span className="muted">Nueva caja chica al recolectar (como tras actualizar a 10,000)</span>
-                <input
-                  className="input"
-                  type="number"
-                  step="0.01"
-                  placeholder={String(estado.caja_anterior || 0)}
-                  value={nuevaCajaChica}
-                  onChange={(e) => setNuevaCajaChica(e.target.value)}
-                />
-              </label>
-            </div>
-          )}
+            </Campo>
+            <Campo label="Venta efectivo" hint="Moneda inicial − moneda final">
+              <InputMoney value={calc.venta} editable={false} />
+            </Campo>
+            <Campo label="Gastos del periodo" hint="Suma del panel de gastos">
+              <InputMoney value={calc.gastosTotal} editable={false} />
+            </Campo>
+
+            <Campo
+              label="Recolección"
+              emphasize
+              hint={
+                puedeRec
+                  ? `Captura manual (solo este monto va a IE). Referencia: ${fmtCorte(calc.recoleccionSugerida)}`
+                  : 'Solo el recolector/admin captura este monto'
+              }
+            >
+              <InputMoney
+                value={estado.recoleccion ?? estado.recoleccion_turno ?? ''}
+                editable={puedeRec && puedeEditar}
+                onChange={setRecoleccion}
+                placeholder="Monto a retirar"
+              />
+            </Campo>
+
+            <Campo label="Total / caja chica actual" hint="Caja chica + venta − gastos − recolección">
+              <InputMoney value={calc.cajaActual} editable={false} />
+            </Campo>
+
+            {puedeRec && (
+              <Campo label="Nueva caja chica (después de recolectar)" hint="Ej. dejar 10,000 al reiniciar el periodo">
+                <InputMoney value={nuevaCajaChica} editable onChange={setNuevaCajaChica} placeholder={String(estado.caja_anterior || 0)} />
+              </Campo>
+            )}
+          </div>
         </div>
 
-        <div style={{ border: '2px solid #333', background: '#fff', minHeight: 320 }}>
+        <div className="card">
+          <h4 style={{ margin: '0 0 0.35rem', color: ACCENT }}>Gastos del turno</h4>
+          <p className="muted" style={{ fontSize: '0.76rem', margin: '0 0 0.75rem' }}>
+            CubreTurno, Taxi y operativos afectan el corte pero no nómina.
+            Solo consumo, recargas, anticipos y faltante (con empleado) descuentan nómina.
+          </p>
+          <CorteGastosPanel
+            modulo="virtual"
+            supabase={supabase}
+            sucursal={sucursal}
+            empleados={empleados}
+            gastos={gastos}
+            onAgregar={agregarGasto}
+            onEliminar={quitarGasto}
+            onEditar={editarGasto}
+            habilitado={puedeEditarCorteCampo(perm, 'gastos')}
+            puedeCatalogo={perm.editarTodo}
+            puedeEditarGastos={perm.gastos || perm.editarTodo}
+            notaNomina="Nómina: CONSUMO, RECARGAS, ANTICIPOS y FALTANTE. El resto no descuenta nómina."
+          />
           <div
             style={{
-              ...cell,
-              background: '#c6efce',
-              textAlign: 'center',
-              fontWeight: 800,
-              borderBottom: '2px solid #333',
+              marginTop: '0.85rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '0.65rem 0.75rem',
+              borderRadius: 10,
+              background: 'var(--surface, #f8fafc)',
+              border: '1px solid var(--border, #e5e7eb)',
             }}
           >
-            GASTOS X TURNO
-          </div>
-          <div style={{ padding: '0.5rem' }}>
-            <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.5rem' }}>
-              Incluye CubreTurno, Taxi, Limp. Baño, etc. (afectan el corte, <strong>no</strong> nómina).
-              Solo <strong>CONSUMO, RECARGAS, ANTICIPOS y FALTANTE</strong> descuentan nómina (elige empleado).
-            </p>
-            <CorteGastosPanel
-              modulo="virtual"
-              supabase={supabase}
-              sucursal={sucursal}
-              empleados={empleados}
-              gastos={gastos}
-              onAgregar={agregarGasto}
-              onEliminar={quitarGasto}
-              onEditar={editarGasto}
-              habilitado={puedeEditarCorteCampo(perm, 'gastos')}
-              puedeCatalogo={perm.editarTodo}
-              puedeEditarGastos={perm.gastos || perm.editarTodo}
-              notaNomina="Nómina solo: CONSUMO, RECARGAS, ANTICIPOS y FALTANTE (con empleado). CubreTurno, Taxi y operativos no van a nómina."
-            />
-            <div
-              style={{
-                marginTop: '0.65rem',
-                padding: '0.45rem 0.55rem',
-                background: '#fff59d',
-                border: '1px solid #333',
-                display: 'flex',
-                justifyContent: 'space-between',
-                fontWeight: 800,
-                color: '#c0392b',
-                fontStyle: 'italic',
-              }}
-            >
-              <span>GASTOS X TURNO</span>
-              <span>{fmtCorte(calc.gastosTotal)}</span>
-            </div>
+            <span style={{ fontWeight: 700, fontSize: '0.85rem' }}>Total gastos</span>
+            <span style={{ fontWeight: 800, fontSize: '1.1rem' }}>{fmtCorte(calc.gastosTotal)}</span>
           </div>
         </div>
       </div>
 
-      <div style={{ border: '2px solid #333', background: '#fff' }}>
-        <div style={{ ...cell, background: '#c6efce', fontWeight: 800, borderBottom: '1px solid #333' }}>COMENTARIOS</div>
+      <div className="card">
+        <h4 style={{ margin: '0 0 0.5rem', color: ACCENT }}>Comentarios</h4>
         <textarea
+          className="input"
           value={estado.comentarios || ''}
           readOnly={!puedeComentarios}
           onChange={(e) => patchEstado({ comentarios: e.target.value })}
-          placeholder="Ej. recolecté y actualicé a 10,000…"
-          style={{
-            width: '100%',
-            minHeight: 72,
-            border: 'none',
-            padding: '0.65rem',
-            resize: 'vertical',
-            fontSize: '0.9rem',
-            boxSizing: 'border-box',
-          }}
+          placeholder="Notas del turno o de la recolección…"
+          style={{ minHeight: 80, width: '100%', resize: 'vertical' }}
         />
-        <div style={{ height: 6, background: '#70ad47' }} />
       </div>
 
       <CorteHistorialImpresion

@@ -243,11 +243,12 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     }
 
     if (modulo === 'virtual') {
-      const { recoleccionVirtualExcel } = await import('./calc.js');
       const calcRec =
-        opts.montoRecoleccion != null ? round2(opts.montoRecoleccion) : recoleccionVirtualExcel(estado, calc);
+        opts.montoRecoleccion != null
+          ? round2(opts.montoRecoleccion)
+          : round2(estado.recoleccion ?? estado.recoleccion_turno);
       if (!(calcRec > 0)) {
-        return alert('La recolección calculada es $0. Capture caja chica / moneda inicial / moneda final o revise gastos.');
+        return alert('Indique el monto de recolección (captura manual).');
       }
       const mf = round2(estado.moneda_final);
       const mi = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
@@ -279,7 +280,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
           total: calc.total,
           caja_chica_actual: calc.cajaActual,
           nueva_caja_chica: nuevaCaja,
-          formula_recoleccion: 'caja_chica + venta_efvo - gastos',
+          recoleccion_sugerida: calc.recoleccionSugerida,
+          formula_recoleccion: 'manual',
           tipo_cierre: 'recoleccion',
           comentarios: estado.comentarios || '',
         },

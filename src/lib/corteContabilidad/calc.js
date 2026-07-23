@@ -67,23 +67,20 @@ export function ventasVirtualCorte(monedaInicial, monedaFinal, opts = {}) {
 
 export function calcularVirtual(estado, gastos = []) {
   const gastosTotal = totalGastos(gastos);
-  // Excel: Moneda Inicial / Moneda Final se capturan en la misma plantilla
   const mi = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
   const mf = round2(estado.moneda_final);
   const capturada = Boolean(estado.moneda_final_editada) || mf > 0;
   const ventaCalc = capturada ? round2(mi - mf) : 0;
   const venta = valorManual(estado, 'venta_manual', ventaCalc);
   const cajaChica = round2(estado.caja_anterior);
-  // Excel: RECOLECCION = Caja chica + Venta-Efvo − Gastos (faltante va en gastos / nómina)
-  const recoleccionCalc = round2(cajaChica + venta - gastosTotal);
-  const recoleccionCapturada = round2(estado.recoleccion ?? estado.recoleccion_turno);
-  const recoleccion = recoleccionCapturada > 0 ? recoleccionCapturada : Math.max(0, recoleccionCalc);
-  // Excel: Total = Caja chica + Venta − Gastos − Recolección
+  // Recolección: siempre manual (lo que el recolector ingresa)
+  const recoleccion = round2(estado.recoleccion ?? estado.recoleccion_turno);
+  // Referencia opcional (no se usa como valor automático)
+  const recoleccionSugerida = round2(Math.max(0, cajaChica + venta - gastosTotal));
   const total = round2(cajaChica + venta - gastosTotal - recoleccion);
   const subtotalCalc = round2(venta - gastosTotal);
   const subtotal = valorManual(estado, 'subtotal_manual', subtotalCalc);
-  const cajaActualCalc = round2(total);
-  const cajaActual = valorManual(estado, 'caja_actual_manual', cajaActualCalc);
+  const cajaActual = valorManual(estado, 'caja_actual_manual', total);
   const ventaNeta = round2(venta - gastosTotal);
   return {
     venta,
@@ -93,7 +90,8 @@ export function calcularVirtual(estado, gastos = []) {
     cajaActual,
     monedaTurno: mi,
     cajaChica,
-    recoleccionCalc: Math.max(0, recoleccionCalc),
+    recoleccionSugerida,
+    recoleccionCalc: recoleccionSugerida,
     recoleccion,
     total,
   };
@@ -160,9 +158,9 @@ export function prepararTrasRecoleccionVirtual(estado, _calc, { nuevaCajaChica }
   };
 }
 
-/** Recolección Excel: Caja chica + Venta-Efvo − Gastos. */
+/** Monto sugerido de referencia (no sustituye la captura manual). */
 export function recoleccionVirtualExcel(estado, calc) {
-  if (calc?.recoleccionCalc != null) return round2(Math.max(0, calc.recoleccionCalc));
+  if (calc?.recoleccionSugerida != null) return round2(calc.recoleccionSugerida);
   const caja = round2(estado?.caja_anterior);
   const venta = round2(calc?.venta);
   const gastos = round2(calc?.gastosTotal);
