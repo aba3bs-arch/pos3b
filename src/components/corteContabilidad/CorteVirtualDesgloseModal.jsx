@@ -1,14 +1,24 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { etiquetaTipoCierre } from '../../lib/corteContabilidad/permisos.js';
 import { fmtCorte } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 import { round2 } from '../../lib/corteContabilidad/calc.js';
 
 const ACCENT = '#6c3483';
 
+function esRecoleccion(h) {
+  return h?.detalle?.tipo_cierre === 'recoleccion';
+}
+
+function ts(h) {
+  const t = h?.created_at ? new Date(h.created_at).getTime() : 0;
+  return Number.isFinite(t) ? t : 0;
+}
+
 /**
- * Vista para recolector/admin: ventas y gastos por cada cierre del periodo
- * (historial) + resumen del corte abierto.
- * Click en el monto de gastos → desglose del turno.
+ * Solo el periodo desde la recolección anterior:
+ * - resumen de esa recolección
+ * - cierres posteriores (hasta ahora) + corte abierto
+ * Click en Gastos → detalle del turno.
  */
 export default function CorteVirtualDesgloseModal({
   abierto,
@@ -22,23 +32,25 @@ export default function CorteVirtualDesgloseModal({
     if (!abierto) setExpandidoId(null);
   }, [abierto]);
 
+  const { recAnterior, cierresPeriodo } = useMemo(() => {
+    const lista = [...(historial || [])].sort((a, b) => ts(b) - ts(a));
+    const rec = lista.find(esRecoleccion) || null;
+    const desde = rec ? ts(rec) : 0;
+    // Cierres del periodo actual = después de la recolección anterior (sin incluirla).
+    const cierres = lista.filter((h) => !esRecoleccion(h) && (!rec || ts(h) > desde));
+    return { recAnterior: rec, cierresPeriodo: cierres };
+  }, [historial]);
+
   if (!abierto) return null;
 
-  const cierres = (historial || []).filter((h) => {
-    const t = h?.detalle?.tipo_cierre;
-    return t !== 'recoleccion';
-  });
-  const recolecciones = (historial || []).filter((h) => h?.detalle?.tipo_cierre === 'recoleccion');
-
-  const totVentas = round2(cierres.reduce((a, h) => a + (Number(h.ventas) || Number(h.detalle?.venta) || 0), 0));
-  const totGastos = round2(
-    cierres.reduce((a, h) => a + (Number(h.detalle?.gastos_total) || 0), 0),
+  const totVentas = round2(
+    cierresPeriodo.reduce((a, h) => a + (Number(h.ventas) || Number(h.detalle?.venta) || 0), 0),
   );
-  const totRec = round2(
-    recolecciones.reduce(
-      (a, h) => a + (Number(h.detalle?.recoleccion) || Number(h.detalle?.recoleccion_turno) || 0),
-      0,
-    ),
+  const totGastos = round2(
+    cierresPeriodo.reduce((a, h) => a + (Number(h.detalle?.gastos_total) || 0), 0),
+  );
+  const montoRecAnt = round2(
+    Number(recAnterior?.detalle?.recoleccion ?? recAnterior?.detalle?.recoleccion_turno) || 0,
   );
 
   const toggle = (id) => {
@@ -75,9 +87,9 @@ export default function CorteVirtualDesgloseModal({
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div>
-            <h3 style={{ margin: 0, color: ACCENT }}>Desglose de cortes</h3>
+            <h3 style={{ margin: 0, color: ACCENT }}>Desglose desde recolección anterior</h3>
             <p className="muted" style={{ margin: '0.3rem 0 0', fontSize: '0.82rem' }}>
-              Ventas y gastos por turno · toca el monto de <strong>Gastos</strong> para ver el detalle
+              Solo el periodo actual · toca <strong>Gastos</strong> para ver el detalle del turno
             </p>
           </div>
           <button type="button" className="btn btn-ghost" onClick={onCerrar}>
@@ -87,16 +99,46 @@ export default function CorteVirtualDesgloseModal({
 
         <div
           style={{
+            margin: '1rem 0',
+            padding: '0.85rem',
+            borderRadius: 8,
+            background: 'rgba(108,52,131,0.1)',
+            border: `1px solid rgba(108,52,131,0.25)`,
+          }}
+        >
+          <div style={{ fontWeight: 800, color: ACCENT, marginBottom: '0.35rem' }}>Recolección anterior</div>
+          {recAnterior ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
+              <Kpi label="Monto" value={fmtCorte(montoRecAnt)} accent />
+              <Kpi
+                label="Fecha"
+                value={
+                  recAnterior.created_at
+                    ? new Date(recAnterior.created_at).toLocaleString('es-MX')
+                    : '—'
+                }
+              />
+              <Kpi label="Folio" value={recAnterior.folio || '—'} />
+              <Kpi label="Recolector" value={recAnterior.usuario_nombre || '—'} />
+            </div>
+          ) : (
+            <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
+              Aún no hay recolección registrada. Se muestran todos los cierres del historial reciente.
+            </p>
+          )}
+        </div>
+
+        <div
+          style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
             gap: '0.65rem',
-            margin: '1rem 0',
+            margin: '0 0 1rem',
           }}
         >
-          <Kpi label="Ventas cierres" value={fmtCorte(totVentas)} />
-          <Kpi label="Gastos cierres" value={fmtCorte(totGastos)} />
-          <Kpi label="Recolecciones" value={fmtCorte(totRec)} accent />
-          <Kpi label="Cierres" value={String(cierres.length)} />
+          <Kpi label="Ventas del periodo" value={fmtCorte(totVentas)} />
+          <Kpi label="Gastos del periodo" value={fmtCorte(totGastos)} />
+          <Kpi label="Cierres desde entonces" value={String(cierresPeriodo.length)} />
         </div>
 
         {corteActual && (
@@ -153,7 +195,7 @@ export default function CorteVirtualDesgloseModal({
           </div>
         )}
 
-        <h4 style={{ margin: '0 0 0.5rem', color: ACCENT }}>Historial del periodo</h4>
+        <h4 style={{ margin: '0 0 0.5rem', color: ACCENT }}>Cierres desde la recolección anterior</h4>
         <div className="table-wrap">
           <table className="data">
             <thead>
@@ -165,21 +207,18 @@ export default function CorteVirtualDesgloseModal({
                 <th>Venta</th>
                 <th>Gastos</th>
                 <th>Subtotal</th>
-                <th>Caja / Rec.</th>
+                <th>Caja</th>
               </tr>
             </thead>
             <tbody>
-              {(historial || []).map((h) => {
+              {cierresPeriodo.map((h) => {
                 const d = h.detalle || {};
                 const tipo = etiquetaTipoCierre(d);
-                const esRec = d.tipo_cierre === 'recoleccion';
                 const venta = Number(h.ventas) || Number(d.venta) || 0;
                 const gastosMonto = Number(d.gastos_total) || 0;
                 const listaGastos = Array.isArray(d.gastos) ? d.gastos : [];
                 const sub = Number(d.subtotal);
-                const cajaORec = esRec
-                  ? Number(d.recoleccion ?? d.recoleccion_turno) || 0
-                  : Number(h.caja_actual) || 0;
+                const caja = Number(h.caja_actual) || 0;
                 const abiertoFila = expandidoId === h.id;
                 return (
                   <React.Fragment key={h.id}>
@@ -190,25 +229,19 @@ export default function CorteVirtualDesgloseModal({
                       <td>{tipo}</td>
                       <td>{h.folio || '—'}</td>
                       <td className="muted">{h.usuario_nombre || '—'}</td>
-                      <td style={{ fontWeight: esRec ? 400 : 700 }}>{esRec ? '—' : fmtCorte(venta)}</td>
+                      <td style={{ fontWeight: 700 }}>{fmtCorte(venta)}</td>
                       <td>
-                        {esRec ? (
-                          '—'
-                        ) : (
-                          <BotonGastos
-                            monto={gastosMonto}
-                            activo={abiertoFila}
-                            onClick={() => toggle(h.id)}
-                            disabled={!(gastosMonto > 0) && !listaGastos.length}
-                          />
-                        )}
+                        <BotonGastos
+                          monto={gastosMonto}
+                          activo={abiertoFila}
+                          onClick={() => toggle(h.id)}
+                          disabled={!(gastosMonto > 0) && !listaGastos.length}
+                        />
                       </td>
-                      <td>{Number.isFinite(sub) && !esRec ? fmtCorte(sub) : '—'}</td>
-                      <td style={{ fontWeight: esRec ? 800 : 400, color: esRec ? ACCENT : undefined }}>
-                        {fmtCorte(cajaORec)}
-                      </td>
+                      <td>{Number.isFinite(sub) ? fmtCorte(sub) : '—'}</td>
+                      <td>{fmtCorte(caja)}</td>
                     </tr>
-                    {abiertoFila && !esRec && (
+                    {abiertoFila && (
                       <tr>
                         <td colSpan={8} style={{ padding: '0.5rem 0.75rem 0.85rem', background: 'rgba(108,52,131,0.04)' }}>
                           <DetalleGastosTurno
@@ -221,10 +254,10 @@ export default function CorteVirtualDesgloseModal({
                   </React.Fragment>
                 );
               })}
-              {!(historial || []).length && (
+              {!cierresPeriodo.length && (
                 <tr>
                   <td colSpan={8} className="muted">
-                    Sin cierres en el historial aún.
+                    Sin cierres después de la recolección anterior.
                   </td>
                 </tr>
               )}
