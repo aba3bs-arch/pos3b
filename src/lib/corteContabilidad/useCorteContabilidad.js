@@ -248,12 +248,12 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
           ? round2(opts.montoRecoleccion)
           : round2(estado.recoleccion ?? estado.recoleccion_turno);
       if (!(calcRec > 0)) {
-        return alert('Indique el monto de recolección (captura manual).');
+        return alert('Indique el monto de recolección.');
       }
       const mf = round2(estado.moneda_final);
       const mi = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
-      const nuevaCaja =
-        opts.nuevaCajaChica != null ? round2(opts.nuevaCajaChica) : round2(estado.caja_anterior);
+      const tope = monedaTopeVirtual(estado);
+      const monedaInyectar = monedaAInyectarVirtual(estado, mf);
       const payload = {
         sucursal_id: sucursal || 'MAIN',
         modulo,
@@ -261,26 +261,25 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         turno: 'RECOLECCION',
         usuario_id: user?.id || null,
         usuario_nombre: user?.nombre || null,
-        caja_actual: round2(Math.max(0, calc.cajaActual)),
+        caja_actual: 0,
         ventas: 0,
         detalle: {
           ...estado,
           fondo: round2(estado.fondo),
           caja_anterior: round2(estado.caja_anterior),
-          moneda_inicial: mi,
+          moneda_inicial: round2(estado.moneda_inicial),
           moneda_inicial_turno: mi,
           moneda_final: mf,
           moneda_final_editada: true,
+          faltante: round2(estado.faltante),
           recoleccion: calcRec,
           recoleccion_turno: calcRec,
           venta: calc.venta,
           gastos,
           gastos_total: calc.gastosTotal,
           subtotal: calc.subtotal,
-          total: calc.total,
-          caja_chica_actual: calc.cajaActual,
-          nueva_caja_chica: nuevaCaja,
-          recoleccion_sugerida: calc.recoleccionSugerida,
+          moneda_tope: tope,
+          moneda_inyectar: monedaInyectar,
           formula_recoleccion: 'manual',
           tipo_cierre: 'recoleccion',
           comentarios: estado.comentarios || '',
@@ -292,8 +291,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       await limpiarGastosTurno(supabase, sucursal, modulo);
       const prep = prepararTrasRecoleccion || ((e) => e);
       const nuevoEstado = prep(estado, calc, {
-        nuevaCajaChica: nuevaCaja,
+        monedaTope: tope,
         montoRecoleccion: calcRec,
+        monedaInyectar,
       });
       await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
       setEstado(nuevoEstado);
@@ -304,6 +304,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         ok: true,
         folio: payload.folio,
         recoleccion: calcRec,
+        monedaInyectar,
         estadoImpresion: payload.detalle,
         gastosImpresion: gastos,
         calcImpresion: { ...calc },
