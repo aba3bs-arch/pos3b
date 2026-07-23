@@ -89,12 +89,12 @@ function filasResumenModulo(data) {
   const filas = [];
 
   if (mod === 'virtual') {
+    filas.push(['Moneda operación', fmt(e.moneda_inicial)]);
     filas.push(['Fondo fijo', fmt(e.fondo)]);
-    filas.push(['Caja chica', fmt(e.caja_anterior)]);
-    filas.push(['Moneda inicial', fmt(e.moneda_inicial_turno ?? e.moneda_inicial)]);
+    filas.push(['Caja chica (anterior)', fmt(e.caja_anterior)]);
+    filas.push(['Moneda inicial (corte)', fmt(e.moneda_inicial_turno ?? e.moneda_inicial)]);
     filas.push(['Moneda final', fmt(e.moneda_final)]);
     filas.push(['Venta efectivo', fmt(data.venta)]);
-    filas.push(['Faltante', fmt(e.faltante)]);
     if (e.recoleccion || e.recoleccion_turno) filas.push(['Recolección', fmt(e.recoleccion ?? e.recoleccion_turno)]);
     if (e.moneda_inyectar != null && e.tipo_cierre === 'recoleccion') {
       filas.push(['Moneda inyectada', fmt(e.moneda_inyectar)]);
@@ -240,14 +240,16 @@ export function htmlRecoleccionVirtual(data) {
   const negocio = leerNombreNegocio();
   const fecha = data.fecha ? new Date(data.fecha).toLocaleString('es-MX') : new Date().toLocaleString('es-MX');
   const e = data.estado || {};
+  const miOp = round2(e.moneda_inicial);
   const mi = round2(e.moneda_inicial_turno ?? e.moneda_inicial);
   const mf = round2(e.moneda_final);
+  const cajaAnt = round2(e.caja_anterior);
   const gastos = round2(data.gastos_total);
   const venta = round2(data.venta ?? (mi - mf));
-  const faltante = round2(e.faltante);
   const rec = round2(data.recoleccion ?? e.recoleccion ?? 0);
   const iny = round2(e.moneda_inyectar);
-  const subtotal = round2(venta - faltante - gastos);
+  const subtotal = round2(data.subtotal ?? (venta - gastos));
+  const cajaActual = round2(data.caja_actual ?? (cajaAnt + subtotal));
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recolección Virtual</title><style>
     body{font-family:Arial,sans-serif;font-size:12px;margin:12px;max-width:420px;color:#111}
@@ -263,6 +265,7 @@ export function htmlRecoleccionVirtual(data) {
     .cat-head{margin-bottom:4px;font-size:12px}
     .muted{color:#666;font-size:10px}
     .rec{font-weight:800}
+    .op{color:#6c3483;font-weight:800}
     @media print{body{margin:0;padding:8px}}
   </style></head><body>
     <img class="logo" src="${esc(logo)}" alt=""/>
@@ -277,14 +280,15 @@ export function htmlRecoleccionVirtual(data) {
     </table>
     <div class="sep"></div>
     <table>
+      <tr><td class="op">Moneda operación</td><td class="r op">${fmt(miOp)}</td></tr>
       <tr><td>Fondo fijo</td><td class="r">${fmt(e.fondo)}</td></tr>
-      <tr><td>Caja chica (antes)</td><td class="r">${fmt(e.caja_anterior)}</td></tr>
-      <tr><td>Moneda inicial</td><td class="r">${fmt(mi)}</td></tr>
+      <tr><td>Caja chica (anterior)</td><td class="r">${fmt(cajaAnt)}</td></tr>
+      <tr><td>Moneda inicial (corte)</td><td class="r">${fmt(mi)}</td></tr>
       <tr><td>Moneda final</td><td class="r">${fmt(mf)}</td></tr>
       <tr><td>Venta efectivo</td><td class="r">${fmt(venta)}</td></tr>
-      <tr><td>Faltante</td><td class="r">${fmt(faltante)}</td></tr>
       <tr><td>Gastos</td><td class="r">${fmt(gastos)}</td></tr>
       <tr><td>Subtotal</td><td class="r">${fmt(subtotal)}</td></tr>
+      <tr><td>Caja chica actual</td><td class="r">${fmt(cajaActual)}</td></tr>
       <tr><td class="rec">Recolección</td><td class="r rec">${fmt(rec)}</td></tr>
       <tr><td>Moneda inyectada (próximo corte)</td><td class="r">${fmt(iny)}</td></tr>
       <tr><td>Caja chica nueva</td><td class="r">${fmt(0)}</td></tr>
@@ -297,7 +301,7 @@ export function htmlRecoleccionVirtual(data) {
     </table>
     ${data.comentarios ? `<div class="sep"></div><p class="muted"><strong>Comentarios:</strong> ${esc(data.comentarios)}</p>` : ''}
     <div class="sep"></div>
-    <p class="muted" style="text-align:center">Solo la recolección entra a IE. Nómina: consumo, recargas, anticipos y faltante.</p>
+    <p class="muted" style="text-align:center">Solo la recolección entra a IE. Nómina: consumo, recargas, anticipos y faltante (puede arrastrarse a varios pagos).</p>
   </body></html>`;
 }
 

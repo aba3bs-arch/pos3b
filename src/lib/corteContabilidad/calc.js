@@ -65,6 +65,15 @@ export function ventasVirtualCorte(monedaInicial, monedaFinal, opts = {}) {
   return round2(mi - mf);
 }
 
+/**
+ * Virtual:
+ * - moneda_inicial = moneda de la operación (visible en encabezado; fija hasta recolección)
+ * - moneda_inicial_turno = moneda final del corte anterior
+ * - venta = MI turno − MF
+ * - subtotal = venta − gastos
+ * - caja chica actual = caja chica anterior + subtotal
+ * - faltante va en Gastos → nómina (no resta aquí)
+ */
 export function calcularVirtual(estado, gastos = []) {
   const gastosTotal = totalGastos(gastos);
   const mi = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
@@ -72,28 +81,27 @@ export function calcularVirtual(estado, gastos = []) {
   const capturada = Boolean(estado.moneda_final_editada) || mf > 0;
   const ventaCalc = capturada ? round2(mi - mf) : 0;
   const venta = valorManual(estado, 'venta_manual', ventaCalc);
-  const faltante = round2(estado.faltante);
   const fondo = round2(estado.fondo);
-  const cajaChica = round2(estado.caja_anterior);
-  // Fondo y caja chica se arrastran; no entran en la venta del corte.
-  const ventaTrasFaltante = round2(venta - faltante);
-  const subtotalCalc = round2(ventaTrasFaltante - gastosTotal);
+  const cajaAnterior = round2(estado.caja_anterior);
+  const subtotalCalc = round2(venta - gastosTotal);
   const subtotal = valorManual(estado, 'subtotal_manual', subtotalCalc);
+  const cajaActualCalc = round2(cajaAnterior + subtotal);
+  const cajaActual = valorManual(estado, 'caja_actual_manual', cajaActualCalc);
   const recoleccion = round2(estado.recoleccion ?? estado.recoleccion_turno);
   const tope = round2(estado.moneda_inicial);
   const monedaInyectar = round2(Math.max(0, tope - mf));
-  const ventaNeta = ventaTrasFaltante;
   return {
     venta,
-    faltante,
-    ventaTrasFaltante,
+    faltante: round2(estado.faltante),
     gastosTotal,
     subtotal,
-    ventaNeta,
-    cajaActual: cajaChica,
-    cajaChica,
+    ventaNeta: venta,
+    cajaAnterior,
+    cajaActual,
+    cajaChica: cajaActual,
     fondo,
     monedaTurno: mi,
+    monedaOperacion: tope,
     recoleccion,
     recoleccionSugerida: 0,
     recoleccionCalc: 0,
@@ -103,8 +111,9 @@ export function calcularVirtual(estado, gastos = []) {
   };
 }
 
-/** Caja en negativo: venta/subtotal negativos o MF > MI. */
+/** Caja en negativo: venta/subtotal/caja actuales negativos o MF > MI del corte. */
 export function cajaVirtualEnNegativo(estado, calc) {
+  if ((calc?.cajaActual ?? 0) < -0.001) return true;
   if ((calc?.subtotal ?? 0) < -0.001) return true;
   if ((calc?.venta ?? 0) < -0.001) return true;
   if (!estado?.moneda_final_editada && !(round2(estado?.moneda_final) > 0)) return false;
@@ -113,9 +122,9 @@ export function cajaVirtualEnNegativo(estado, calc) {
   return mf > mi + 0.001;
 }
 
-/** Caja chica arrastrada (no se mezcla con venta). */
+/** Caja chica del corte = anterior + subtotal. */
 export function cajaChicaAcumulada(estado, calc) {
-  return round2(calc?.cajaChica ?? estado?.caja_anterior ?? 0);
+  return round2(calc?.cajaActual ?? round2(estado?.caja_anterior) + round2(calc?.subtotal));
 }
 
 /** Tope / referencia de moneda (para inyección tras recolección). */
@@ -134,7 +143,7 @@ export function monedaAInyectarVirtual(estado, monedaFinal) {
  * Tras recolección:
  * - caja chica → 0
  * - fondo se conserva
- * - inyecta moneda: próximo corte inicia en el tope (moneda_inicial)
+ * - moneda de operación / próximo corte = tope (moneda_inicial)
  */
 export function prepararTrasRecoleccionVirtual(estado, _calc, { monedaTope } = {}) {
   const tope = monedaTope != null ? round2(monedaTope) : monedaTopeVirtual(estado);
@@ -157,6 +166,31 @@ export function prepararTrasRecoleccionVirtual(estado, _calc, { monedaTope } = {
     subtotal_manual: '',
     caja_actual_manual: '',
     corte_reabierto_id: null,
+    _mi_turno_inicializado: true,
+  };
+}
+
+/** Tras cerrar corte: MI siguiente = MF; caja chica = caja anterior + subtotal. */
+export function prepararTrasCierreVirtual(estado, calc) {
+  const turnoSiguiente = siguienteMonedaInicialTurnoVirtual(estado);
+  const cajaNueva = round2(
+    calc?.cajaActual ?? round2(estado.caja_anterior) + round2(calc?.subtotal),
+  );
+  return {
+    ...estado,
+    fondo: round2(estado.fondo),
+    caja_anterior: cajaNueva,
+    moneda_final: 0,
+    moneda_final_editada: false,
+    moneda_inicial: round2(estado.moneda_inicial),
+    moneda_inicial_turno: turnoSiguiente,
+    recoleccion_turno: 0,
+    recoleccion: 0,
+    faltante: 0,
+    comentarios: '',
+    venta_manual: '',
+    subtotal_manual: '',
+    caja_actual_manual: '',
     _mi_turno_inicializado: true,
   };
 }
