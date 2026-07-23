@@ -238,6 +238,14 @@ export default function Buzon({
       if (typeof onNavigate === 'function') onNavigate('Liquidación recolecciones');
       return;
     }
+    if (n.tipo === TIPOS_NOTIF.INVERSION_OFICINA) {
+      const m = String(n.mensaje || '').toLowerCase();
+      let dest = 'Corte Abarrotes';
+      if (m.includes('corte virtual')) dest = 'Corte Virtual';
+      else if (m.includes('corte garage')) dest = 'Corte Garage';
+      if (typeof onNavigate === 'function') onNavigate(dest);
+      return;
+    }
     if (typeof onIrValesPendientes === 'function') onIrValesPendientes(n);
     else if (typeof onNavigate === 'function') onNavigate('Vales y Préstamos');
   };
@@ -513,6 +521,18 @@ export default function Buzon({
                             <>
                               <button type="button" className="btn btn-gold btn-sm" onClick={() => irAccionNotif(n)}>
                                 Ir a liquidación
+                              </button>
+                              {puedeGestionarNotif && (
+                                <button type="button" className="btn btn-ghost btn-sm" onClick={() => marcarVisto(n)}>
+                                  Marcar visto
+                                </button>
+                              )}
+                            </>
+                          )}
+                          {n.tipo === TIPOS_NOTIF.INVERSION_OFICINA && (
+                            <>
+                              <button type="button" className="btn btn-gold btn-sm" onClick={() => irAccionNotif(n)}>
+                                Ir al corte
                               </button>
                               {puedeGestionarNotif && (
                                 <button type="button" className="btn btn-ghost btn-sm" onClick={() => marcarVisto(n)}>

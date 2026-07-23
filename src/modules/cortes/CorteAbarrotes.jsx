@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
+import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
 import { calcularAbarrotes } from '../../lib/corteContabilidad/calc.js';
@@ -31,7 +32,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     caja_actual_manual: '',
   }), []);
 
-  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte, eliminarCierreHistorial } =
+  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte, eliminarCierreHistorial, recargar } =
     useCorteContabilidad({
       supabase,
       sucursal,
@@ -148,6 +149,14 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#f1c40f' }}>{fmtCorte(calc.subtotal)}</div>
             <div style={{ fontSize: '0.75rem', opacity: 0.85 }}>Venta − egresos − tarjeta − faltante</div>
           </div>
+          <CorteInversionesPanel
+            modulo="abarrotes"
+            supabase={supabase}
+            sucursal={sucursal}
+            user={user}
+            habilitado={perm.gastos || perm.editarTodo}
+            onCobrado={() => recargar()}
+          />
           <CorteGastosPanel
             modulo="abarrotes"
             supabase={supabase}

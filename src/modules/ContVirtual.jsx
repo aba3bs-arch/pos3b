@@ -21,6 +21,13 @@ import {
   AVISO_FALTA_CONT_VIRTUAL,
 } from '../lib/contVirtualCatalogo.js';
 import { eliminarEgresoDesdePanelIe, registrarEgresoContVirtual } from '../lib/contVirtualEgresos.js';
+import {
+  AVISO_FALTA_INVERSIONES_OFICINA,
+  cancelarInversionOficina,
+  defaultsInversionPorLibro,
+  listarInversionesOficina,
+  registrarInversionOficinaProveedor,
+} from '../lib/inversionesOficinaProveedor.js';
 import './ContVirtual.css';
 
 const LS_NOTAS = 'pos3b_cont_virtual_notas';
@@ -217,7 +224,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
   const [filtroCuenta, setFiltroCuenta] = useState(''); // '' | virtual | garage
   const [showFiltro, setShowFiltro] = useState(false);
   const [showManual, setShowManual] = useState(false);
-  const [masVista, setMasVista] = useState('menu'); // menu | catalogo
+  const [showInversion, setShowInversion] = useState(false);
+  const [masVista, setMasVista] = useState('menu'); // menu | catalogo | inversiones
 
   const [cargando, setCargando] = useState(false);
   const [datos, setDatos] = useState(null);
@@ -227,7 +235,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
   const [notas, setNotas] = useState(() => leerNotas());
   const [notaDraft, setNotaDraft] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [inversiones, setInversiones] = useState([]);
+  const [avisoInversiones, setAvisoInversiones] = useState('');
 
+  const defsInv = defaultsInversionPorLibro(libro);
   const [manual, setManual] = useState({
     fecha: hoyYmd(),
     sucursal_id: '',
@@ -236,6 +247,15 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     subcategoria_id: 'manual-otros',
     monto: '',
     descripcion: '',
+  });
+  const [inversionForm, setInversionForm] = useState({
+    fecha: hoyYmd(),
+    proveedor_nombre: '',
+    monto: '',
+    sucursal_destino: '',
+    cuenta: defsInv.cuenta,
+    modulo_corte: defsInv.modulo_corte,
+    notas: '',
   });
   const [nuevaCat, setNuevaCat] = useState('');
   const [nuevaSub, setNuevaSub] = useState({ categoriaId: 'vales', nombre: '' });
@@ -376,6 +396,17 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     });
   };
 
+  const cargarInversiones = useCallback(async () => {
+    if (!supabase) return;
+    const res = await listarInversionesOficina(supabase, { libro: defsInv.libro, limit: 80 });
+    setInversiones(res.data || []);
+    setAvisoInversiones(res.aviso || '');
+  }, [supabase, defsInv.libro]);
+
+  useEffect(() => {
+    if (masVista === 'inversiones') cargarInversiones();
+  }, [masVista, cargarInversiones]);
+
   const guardarManual = async () => {
     if (!esAdmin) return alert('Solo el administrador puede capturar egresos manuales.');
     const monto = Number(manual.monto);
@@ -402,6 +433,42 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     setManual((m) => ({ ...m, monto: '', descripcion: '' }));
     setShowManual(false);
     cargar();
+  };
+
+  const guardarInversion = async () => {
+    if (!esAdmin) return alert('Solo el administrador puede registrar inversiones de oficina.');
+    setGuardando(true);
+    const res = await registrarInversionOficinaProveedor(
+      supabase,
+      {
+        ...inversionForm,
+        libro: defsInv.libro,
+        sucursal_origen: 'MAIN',
+        monto: Number(inversionForm.monto),
+      },
+      { nombreActor: user?.nombre || 'Administrador' },
+    );
+    setGuardando(false);
+    if (!res.ok) return alert(res.error);
+    alert(res.mensaje);
+    setInversionForm((f) => ({
+      ...f,
+      proveedor_nombre: '',
+      monto: '',
+      notas: '',
+      fecha: hoyYmd(),
+    }));
+    setShowInversion(false);
+    cargar();
+    if (masVista === 'inversiones') cargarInversiones();
+  };
+
+  const cancelarInv = async (inv) => {
+    if (!esAdmin) return;
+    if (!confirm('¿Cancelar esta inversión? Solo si aún no tiene abonos. El egreso en IE permanece (ajústalo manualmente si aplica).')) return;
+    const res = await cancelarInversionOficina(supabase, inv.id, { nombre: user?.nombre });
+    if (!res.ok) return alert(res.error);
+    cargarInversiones();
   };
 
   const borrarEgreso = async (row) => {
@@ -855,6 +922,63 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
   };
 
   const renderMas = () => {
+    if (masVista === 'inversiones') {
+      const pendientes = inversiones.filter((i) => i.estado === 'pendiente_cobro');
+      const otros = inversiones.filter((i) => i.estado !== 'pendiente_cobro');
+      return (
+        <div className="cv-catalogo">
+          <div className="cv-top">
+            <button type="button" className="cv-btn ghost" style={{ padding: '0.35rem 0.7rem' }} onClick={() => setMasVista('menu')}>‹ Volver</button>
+            <strong>Inversión proveedor</strong>
+            <span />
+          </div>
+          <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.75rem' }}>
+            Oficina paga al proveedor (egreso en {tituloLibro}) y se recupera descontando caja en el corte de la tienda.
+          </p>
+          {avisoInversiones && <div className="cv-aviso">{avisoInversiones || AVISO_FALTA_INVERSIONES_OFICINA}</div>}
+          {esAdmin && (
+            <button type="button" className="cv-btn" style={{ width: '100%', marginBottom: '0.75rem' }} onClick={() => setShowInversion(true)}>
+              + Nueva inversión
+            </button>
+          )}
+          <strong style={{ display: 'block', marginBottom: '0.4rem' }}>Pendientes de cobro ({pendientes.length})</strong>
+          {!pendientes.length && <p className="muted" style={{ fontSize: '0.8rem' }}>No hay inversiones pendientes.</p>}
+          {pendientes.map((inv) => (
+            <div key={inv.id} className="cv-cat-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
+                <strong>{inv.proveedor_nombre || 'Proveedor'}</strong>
+                <span className="amt">{fmtMoney(inv.saldo)}</span>
+              </div>
+              <div className="muted" style={{ fontSize: '0.75rem' }}>
+                {String(inv.fecha || '').slice(0, 10)} · Recupera: {etiquetaTienda(inv.sucursal_destino)} · Corte {inv.modulo_corte}
+                {inv.notas ? ` · ${inv.notas}` : ''}
+              </div>
+              {esAdmin && Number(inv.abono) <= 0 && (
+                <button type="button" className="cv-row-del" style={{ marginTop: '0.35rem' }} onClick={() => cancelarInv(inv)}>
+                  Cancelar
+                </button>
+              )}
+            </div>
+          ))}
+          {otros.length > 0 && (
+            <>
+              <strong style={{ display: 'block', margin: '0.85rem 0 0.4rem' }}>Histórico</strong>
+              {otros.slice(0, 30).map((inv) => (
+                <div key={inv.id} className="cv-cat-card" style={{ opacity: 0.85 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>{inv.proveedor_nombre || 'Proveedor'} · {inv.estado}</span>
+                    <span>{fmtMoney(inv.monto)}</span>
+                  </div>
+                  <div className="muted" style={{ fontSize: '0.75rem' }}>
+                    {etiquetaTienda(inv.sucursal_destino)} · {String(inv.fecha || '').slice(0, 10)}
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      );
+    }
     if (masVista === 'catalogo') {
       return (
         <div className="cv-catalogo">
@@ -911,6 +1035,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
           <span className="ver">{tituloLibro}</span>
         </div>
         <div className="cv-mas-grid">
+          <button type="button" className="cv-mas-item" onClick={() => setMasVista('inversiones')}>
+            <span className="ico">$</span>
+            Inversión proveedor
+          </button>
           <button type="button" className="cv-mas-item" onClick={() => setMasVista('catalogo')}>
             <span className="ico">⚙</span>
             Configuración
@@ -990,6 +1118,101 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
           Más
         </button>
       </nav>
+
+      {showInversion && (
+        <div className="cv-modal-backdrop" onClick={() => setShowInversion(false)} role="presentation">
+          <div className="cv-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Inversión oficina">
+            <h3>Inversión oficina → proveedor</h3>
+            <p className="muted" style={{ fontSize: '0.78rem', marginTop: 0 }}>
+              Registra egreso en {tituloLibro} y deja el cobro pendiente en el corte de la tienda.
+            </p>
+            <label>
+              Fecha
+              <input type="date" value={inversionForm.fecha} onChange={(e) => setInversionForm({ ...inversionForm, fecha: e.target.value })} />
+            </label>
+            <label>
+              Proveedor
+              <input
+                value={inversionForm.proveedor_nombre}
+                onChange={(e) => setInversionForm({ ...inversionForm, proveedor_nombre: e.target.value })}
+                placeholder="Nombre del proveedor"
+              />
+            </label>
+            <label>
+              Monto
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={inversionForm.monto}
+                onChange={(e) => setInversionForm({ ...inversionForm, monto: e.target.value })}
+              />
+            </label>
+            <label>
+              Tienda a recuperar
+              <select
+                value={inversionForm.sucursal_destino}
+                onChange={(e) => setInversionForm({ ...inversionForm, sucursal_destino: e.target.value })}
+              >
+                <option value="">Selecciona tienda…</option>
+                {tiendas.map((t) => (
+                  <option key={t} value={t}>{etiquetaTienda(t)}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Cuenta IE
+              <select
+                value={inversionForm.cuenta}
+                onChange={(e) => {
+                  const cuenta = e.target.value;
+                  const modulo_corte = cuenta === 'garage' ? 'garage' : cuenta === 'abarrotes' ? 'abarrotes' : 'virtual';
+                  setInversionForm({ ...inversionForm, cuenta, modulo_corte });
+                }}
+              >
+                {esFrancisco ? (
+                  <option value="abarrotes">Abarrotes</option>
+                ) : (
+                  <>
+                    <option value="virtual">Virtual</option>
+                    <option value="garage">Garage</option>
+                  </>
+                )}
+              </select>
+            </label>
+            <label>
+              Corte donde se cobra
+              <select
+                value={inversionForm.modulo_corte}
+                onChange={(e) => setInversionForm({ ...inversionForm, modulo_corte: e.target.value })}
+              >
+                {esFrancisco ? (
+                  <option value="abarrotes">Corte Abarrotes</option>
+                ) : (
+                  <>
+                    <option value="virtual">Corte Virtual</option>
+                    <option value="garage">Corte Garage</option>
+                  </>
+                )}
+              </select>
+            </label>
+            <label>
+              Notas
+              <input
+                value={inversionForm.notas}
+                onChange={(e) => setInversionForm({ ...inversionForm, notas: e.target.value })}
+                placeholder="Opcional"
+              />
+            </label>
+            <div className="cv-modal-actions">
+              <button type="button" className="cv-btn ghost" onClick={() => setShowInversion(false)}>Cancelar</button>
+              <button type="button" className="cv-btn" disabled={guardando} onClick={guardarInversion}>
+                {guardando ? 'Guardando…' : 'Registrar inversión'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showManual && (
         <div className="cv-modal-backdrop" onClick={() => setShowManual(false)} role="presentation">

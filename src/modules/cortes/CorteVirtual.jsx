@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
+import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import CampoCorte from '../../components/corteContabilidad/CampoCorte.jsx';
 import ResumenOperacionCorte from '../../components/corteContabilidad/ResumenOperacionCorte.jsx';
@@ -71,6 +72,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     cerrarCorte,
     registrarRecoleccion,
     eliminarCierreHistorial,
+    recargar,
   } = useCorteContabilidad({
     supabase,
     sucursal,
@@ -391,6 +393,14 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <CorteInversionesPanel
+            modulo="virtual"
+            supabase={supabase}
+            sucursal={sucursal}
+            user={user}
+            habilitado={puedeEditarCorteCampo(perm, 'gastos') || perm.editarTodo}
+            onCobrado={() => recargar()}
+          />
           <CorteGastosPanel
             modulo="virtual"
             supabase={supabase}

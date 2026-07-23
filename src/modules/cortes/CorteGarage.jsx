@@ -1,5 +1,6 @@
 import React, { useCallback } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
+import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
 import CampoCorte, { InputCorteInline } from '../../components/corteContabilidad/CampoCorte.jsx';
@@ -23,7 +24,7 @@ export default function CorteGarage({ supabase, sucursal, user }) {
     };
   }, []);
 
-  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte, eliminarCierreHistorial } =
+  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte, eliminarCierreHistorial, recargar } =
     useCorteContabilidad({
       supabase,
       sucursal,
@@ -121,6 +122,14 @@ export default function CorteGarage({ supabase, sucursal, user }) {
           </div>
         </div>
 
+        <CorteInversionesPanel
+          modulo="garage"
+          supabase={supabase}
+          sucursal={sucursal}
+          user={user}
+          habilitado={perm.gastos || perm.editarTodo}
+          onCobrado={() => recargar()}
+        />
         <CorteGastosPanel
           modulo="garage"
           supabase={supabase}

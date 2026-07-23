@@ -102,7 +102,10 @@ export async function listarGastosTurno(supabase, sucursal, modulo) {
 export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts = {}) {
   const esConsumo = gastoDescuentaNomina(modulo, gasto.categoria);
   const esAdmin = normalizarRol(opts.rolActor) === 'Administrador';
-  const requiereAprobacion = !esAdmin && (modulo === 'virtual' || esConsumo);
+  const catUpper = String(gasto.categoria || '').toUpperCase();
+  // Recuperación de inversión oficina: ya salió en IE al registrar; solo baja caja del corte.
+  const esRecuperacionInversion = catUpper === 'INVERSION OFICINA' || opts.autoAprobar === true;
+  const requiereAprobacion = !esRecuperacionInversion && !esAdmin && (modulo === 'virtual' || esConsumo);
   const estadoAprobacion = requiereAprobacion ? 'pendiente_admin' : 'aprobado';
   const row = {
     sucursal_id: sucursal || 'MAIN',
@@ -142,7 +145,7 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
       mensaje: 'Gasto enviado. El administrador debe aprobar antes de descontarlo en el corte.',
     };
   }
-  if (modulo === 'virtual' && data) {
+  if (modulo === 'virtual' && data && !esRecuperacionInversion) {
     try {
       const { registrarEgresoDesdeGastoCorte } = await import('../contVirtualEgresos.js');
       await registrarEgresoDesdeGastoCorte(supabase, data);
