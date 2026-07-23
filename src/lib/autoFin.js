@@ -1,10 +1,15 @@
 /**
- * Auto Fin — cálculo de planes (semanal / quincenal / mensual) con o sin interés.
- * Interés plano sobre el saldo financiado (total del plan), repartido en cuotas iguales.
+ * Auto Fin — planes (semanal / quincenal / mensual) con o sin interés.
+ * Tipos: vehiculo (precio + enganche) | prestamo (monto a financiar en cuotas).
  */
 
 export const AVISO_FALTA_AUTO_FIN =
-  'Ejecuta supabase/fix_auto_fin.sql en Supabase para el módulo Auto Fin.';
+  'Ejecuta supabase/fix_auto_fin.sql y supabase/fix_auto_fin_prestamos.sql en Supabase para Auto Fin.';
+
+export const TIPOS_AUTO_FIN = [
+  { id: 'vehiculo', label: 'Vehículo / autofinanciamiento' },
+  { id: 'prestamo', label: 'Préstamo' },
+];
 
 export const FRECUENCIAS_AUTO_FIN = [
   { id: 'semanal', label: 'Semanal', dias: 7 },
@@ -19,6 +24,11 @@ function round2(n) {
 function faltaTabla(error) {
   const msg = String(error?.message || '').toLowerCase();
   return error?.code === '42P01' || msg.includes('auto_fin') || (msg.includes('schema cache') && msg.includes('auto_fin'));
+}
+
+function faltaColumnaTipo(error) {
+  const msg = String(error?.message || '').toLowerCase();
+  return msg.includes('tipo') || msg.includes('beneficiario') || msg.includes('empleado_') || msg.includes('prestamo_id');
 }
 
 function toYmd(d) {
@@ -44,16 +54,17 @@ export function etiquetaFrecuencia(id) {
   return FRECUENCIAS_AUTO_FIN.find((f) => f.id === id)?.label || id;
 }
 
+export function etiquetaTipoAutoFin(id) {
+  return TIPOS_AUTO_FIN.find((t) => t.id === id)?.label || id || 'Vehículo';
+}
+
+export function esCreditoPrestamo(credito) {
+  return String(credito?.tipo || 'vehiculo').toLowerCase() === 'prestamo';
+}
+
 /**
  * Calcula el plan de cuotas.
- * @param {object} opts
- * @param {number} opts.precio
- * @param {number} opts.enganche
- * @param {'semanal'|'quincenal'|'mensual'} opts.frecuencia
- * @param {number} opts.numCuotas
- * @param {boolean} opts.conInteres
- * @param {number} opts.tasaInteres - % sobre el saldo financiado (total del plan)
- * @param {string} [opts.fechaInicio] YYYY-MM-DD
+ * precio = precio vehículo o monto del préstamo.
  */
 export function calcularPlanAutoFin({
   precio,
@@ -72,7 +83,6 @@ export function calcularPlanAutoFin({
   const interesTotal = conInteres ? round2(montoFinanciar * (tasa / 100)) : 0;
   const totalPagar = round2(montoFinanciar + interesTotal);
 
-  // Cuotas iguales; ajuste de centavos en la última
   const cuotaBase = n > 0 ? round2(totalPagar / n) : 0;
   const capitalBase = n > 0 ? round2(montoFinanciar / n) : 0;
   const interesBase = n > 0 ? round2(interesTotal / n) : 0;
@@ -131,14 +141,33 @@ export function calcularPlanAutoFin({
   };
 }
 
-export async function listarCreditosAutoFin(supabase, { estado } = {}) {
+export async function listarCreditosAutoFin(supabase, { estado, tipo } = {}) {
   if (!supabase) return { data: [], aviso: AVISO_FALTA_AUTO_FIN };
   let q = supabase.from('auto_fin_creditos').select('*').order('created_at', { ascending: false }).limit(500);
   if (estado) q = q.eq('estado', estado);
+  if (tipo) q = q.eq('tipo', tipo);
   const { data, error } = await q;
   if (error && faltaTabla(error)) return { data: [], aviso: AVISO_FALTA_AUTO_FIN };
+  if (error && tipo && faltaColumnaTipo(error)) {
+    return listarCreditosAutoFin(supabase, { estado });
+  }
   if (error) return { data: [], error: error.message };
   return { data: data || [] };
+}
+
+export async function listarPrestamosActivosParaFinanciar(supabase, { sucursal } = {}) {
+  if (!supabase) return { data: [], error: null };
+  let q = supabase
+    .from('prestamos')
+    .select('id, sucursal_id, usuario_id, nombre_empleado, monto_original, saldo, cuota_semanal, estado, fecha')
+    .eq('estado', 'activo')
+    .gt('saldo', 0)
+    .order('fecha', { ascending: false })
+    .limit(200);
+  if (sucursal) q = q.eq('sucursal_id', sucursal);
+  const { data, error } = await q;
+  if (error) return { data: [], error: error.message };
+  return { data: data || [], error: null };
 }
 
 export async function obtenerCreditoAutoFin(supabase, id) {
@@ -179,14 +208,31 @@ export async function obtenerCreditoAutoFin(supabase, id) {
 
 export async function crearCreditoAutoFin(supabase, input, usuarioNombre) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
-  const nombre = String(input.cliente_nombre || '').trim();
-  if (!nombre) return { ok: false, error: 'Indica el cliente.' };
-  if (!(Number(input.precio) > 0)) return { ok: false, error: 'Indica el precio del vehículo / plan.' };
+  const tipo = String(input.tipo || 'vehiculo').toLowerCase() === 'prestamo' ? 'prestamo' : 'vehiculo';
+  const beneficiarioTipo =
+    String(input.beneficiario_tipo || (tipo === 'prestamo' ? 'empleado' : 'cliente')).toLowerCase() === 'empleado'
+      ? 'empleado'
+      : 'cliente';
+
+  const nombre = String(
+    beneficiarioTipo === 'empleado'
+      ? input.empleado_nombre || input.cliente_nombre || ''
+      : input.cliente_nombre || '',
+  ).trim();
+  if (!nombre) {
+    return {
+      ok: false,
+      error: beneficiarioTipo === 'empleado' ? 'Indica el empleado.' : 'Indica el cliente.',
+    };
+  }
+
+  const montoLabel = tipo === 'prestamo' ? 'monto del préstamo' : 'precio del vehículo / plan';
+  if (!(Number(input.precio) > 0)) return { ok: false, error: `Indica el ${montoLabel}.` };
   if (!(Number(input.num_cuotas) > 0)) return { ok: false, error: 'Indica el número de cuotas.' };
 
   const plan = calcularPlanAutoFin({
     precio: input.precio,
-    enganche: input.enganche,
+    enganche: Number(input.enganche) || 0,
     frecuencia: input.frecuencia,
     numCuotas: input.num_cuotas,
     conInteres: input.con_interes,
@@ -194,19 +240,18 @@ export async function crearCreditoAutoFin(supabase, input, usuarioNombre) {
     fechaInicio: input.fecha_inicio,
   });
 
-  if (!(plan.monto_financiar > 0) && !(plan.enganche >= plan.precio)) {
-    return { ok: false, error: 'El enganche no puede ser mayor o igual al precio si hay cuotas; ajusta montos.' };
-  }
   if (plan.monto_financiar <= 0) {
-    return { ok: false, error: 'Con ese enganche no queda saldo a financiar.' };
+    return { ok: false, error: 'No queda saldo a financiar. Revisa monto y enganche.' };
   }
 
-  const row = {
+  const descripcionDefault = tipo === 'prestamo' ? `Préstamo · ${nombre}` : null;
+
+  const rowBase = {
     sucursal_id: input.sucursal_id || 'MAIN',
-    cliente_id: input.cliente_id || null,
+    cliente_id: beneficiarioTipo === 'cliente' ? input.cliente_id || null : null,
     cliente_nombre: nombre,
     cliente_telefono: String(input.cliente_telefono || '').trim() || null,
-    descripcion: String(input.descripcion || '').trim() || null,
+    descripcion: String(input.descripcion || '').trim() || descripcionDefault,
     precio: plan.precio,
     enganche: plan.enganche,
     monto_financiar: plan.monto_financiar,
@@ -223,7 +268,21 @@ export async function crearCreditoAutoFin(supabase, input, usuarioNombre) {
     usuario_nombre: usuarioNombre || null,
   };
 
-  const { data: credito, error } = await supabase.from('auto_fin_creditos').insert([row]).select('*').single();
+  const rowConTipo = {
+    ...rowBase,
+    tipo,
+    beneficiario_tipo: beneficiarioTipo,
+    empleado_id: beneficiarioTipo === 'empleado' ? input.empleado_id || null : null,
+    empleado_nombre: beneficiarioTipo === 'empleado' ? nombre : null,
+    prestamo_id: input.prestamo_id || null,
+  };
+
+  let { data: credito, error } = await supabase.from('auto_fin_creditos').insert([rowConTipo]).select('*').single();
+
+  if (error && faltaColumnaTipo(error)) {
+    ({ data: credito, error } = await supabase.from('auto_fin_creditos').insert([rowBase]).select('*').single());
+  }
+
   if (error) {
     if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_AUTO_FIN, aviso: AVISO_FALTA_AUTO_FIN };
     return { ok: false, error: error.message };
@@ -244,6 +303,19 @@ export async function crearCreditoAutoFin(supabase, input, usuarioNombre) {
   if (e2) {
     await supabase.from('auto_fin_creditos').delete().eq('id', credito.id);
     return { ok: false, error: e2.message };
+  }
+
+  if (input.prestamo_id) {
+    try {
+      await supabase
+        .from('prestamos')
+        .update({
+          notas: `Financiado en Auto Fin (${credito.id}). Cobros por cuotas Auto Fin.`,
+        })
+        .eq('id', input.prestamo_id);
+    } catch {
+      /* ignore */
+    }
   }
 
   return { ok: true, credito, plan };

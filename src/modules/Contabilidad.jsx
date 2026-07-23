@@ -9,7 +9,7 @@ const DESCRIPCIONES = {
   'Liquidación recolecciones': 'Sellar efectivo en tránsito por tienda y día',
   'IE VIRTUAL': 'Antonio · ingresos y egresos Virtual + Garage',
   'IE ABARROTES': 'Francisco · ingresos y egresos de Abarrotes',
-  'Auto Fin': 'Autofinanciamiento: enganche, cuotas e intereses por cliente',
+  'Auto Fin': 'Antonio · vehículos y préstamos con enganche y cuotas',
 };
 
 /** Hub de Contabilidad: solo botones; cada submódulo abre su pantalla. */

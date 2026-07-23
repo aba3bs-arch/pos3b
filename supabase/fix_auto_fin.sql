@@ -73,4 +73,12 @@ create policy "auto_fin_cuotas_anon_rw" on public.auto_fin_cuotas for all using 
 drop policy if exists "auto_fin_pagos_anon_rw" on public.auto_fin_pagos;
 create policy "auto_fin_pagos_anon_rw" on public.auto_fin_pagos for all using (true) with check (true);
 
-comment on table public.auto_fin_creditos is 'Autofinanciamiento Contabilidad → Auto Fin';
+comment on table public.auto_fin_creditos is 'Autofinanciamiento Contabilidad → Auto Fin (vehículos y préstamos)';
+
+-- Extensión préstamos (también en fix_auto_fin_prestamos.sql)
+alter table public.auto_fin_creditos add column if not exists tipo text not null default 'vehiculo';
+alter table public.auto_fin_creditos add column if not exists beneficiario_tipo text not null default 'cliente';
+alter table public.auto_fin_creditos add column if not exists empleado_id text;
+alter table public.auto_fin_creditos add column if not exists empleado_nombre text;
+alter table public.auto_fin_creditos add column if not exists prestamo_id uuid;
+create index if not exists idx_auto_fin_creditos_tipo on public.auto_fin_creditos (tipo, estado, created_at desc);

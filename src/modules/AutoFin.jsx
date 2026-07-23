@@ -3,12 +3,16 @@ import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursa
 import {
   AVISO_FALTA_AUTO_FIN,
   FRECUENCIAS_AUTO_FIN,
+  TIPOS_AUTO_FIN,
   actualizarFechaFinanciamientoAutoFin,
   calcularPlanAutoFin,
   cancelarCreditoAutoFin,
   crearCreditoAutoFin,
+  esCreditoPrestamo,
   etiquetaFrecuencia,
+  etiquetaTipoAutoFin,
   listarCreditosAutoFin,
+  listarPrestamosActivosParaFinanciar,
   obtenerCreditoAutoFin,
   registrarPagoAutoFin,
 } from '../lib/autoFin.js';
@@ -25,10 +29,15 @@ function hoyYmd() {
 }
 
 const FORM_VACIO = {
+  tipo: 'vehiculo',
+  beneficiario_tipo: 'cliente',
   sucursal_id: 'MAIN',
   cliente_id: '',
   cliente_nombre: '',
   cliente_telefono: '',
+  empleado_id: '',
+  empleado_nombre: '',
+  prestamo_id: '',
   descripcion: '',
   precio: '',
   enganche: '',
@@ -45,15 +54,20 @@ export default function AutoFin({ supabase, user }) {
   const [vista, setVista] = useState('lista'); // lista | nuevo | detalle
   const [creditos, setCreditos] = useState([]);
   const [filtroEstado, setFiltroEstado] = useState('activo');
+  const [filtroTipo, setFiltroTipo] = useState('todos');
   const [aviso, setAviso] = useState('');
   const [error, setError] = useState('');
   const [cargando, setCargando] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [form, setForm] = useState(FORM_VACIO);
   const [clientes, setClientes] = useState([]);
+  const [empleados, setEmpleados] = useState([]);
+  const [prestamosActivos, setPrestamosActivos] = useState([]);
   const [detalle, setDetalle] = useState(null);
   const [pago, setPago] = useState({ cuotaId: '', monto: '', fecha: hoyYmd(), metodo: 'efectivo', nota: '' });
   const [fechaFinanciamiento, setFechaFinanciamiento] = useState(hoyYmd());
+
+  const esPrestamo = form.tipo === 'prestamo';
 
   const planPreview = useMemo(
     () =>
@@ -75,23 +89,30 @@ export default function AutoFin({ supabase, user }) {
     setError('');
     const res = await listarCreditosAutoFin(supabase, {
       estado: filtroEstado === 'todos' ? null : filtroEstado,
+      tipo: filtroTipo === 'todos' ? null : filtroTipo,
     });
     setCargando(false);
     if (res.aviso) setAviso(res.aviso);
     if (res.error) setError(res.error);
     setCreditos(res.data || []);
-  }, [supabase, filtroEstado]);
+  }, [supabase, filtroEstado, filtroTipo]);
 
-  const cargarClientes = useCallback(async () => {
+  const cargarCatalogos = useCallback(async () => {
     if (!supabase) return;
-    const { data } = await supabase.from('clientes').select('id,nombre,telefono').order('nombre').limit(500);
-    setClientes(data || []);
+    const [{ data: cli }, { data: emp }, prest] = await Promise.all([
+      supabase.from('clientes').select('id,nombre,telefono').order('nombre').limit(500),
+      supabase.from('usuarios').select('id,nombre,rol,sucursal_id').order('nombre').limit(500),
+      listarPrestamosActivosParaFinanciar(supabase, {}),
+    ]);
+    setClientes(cli || []);
+    setEmpleados(emp || []);
+    setPrestamosActivos(prest.data || []);
   }, [supabase]);
 
   useEffect(() => {
     cargarLista();
-    cargarClientes();
-  }, [cargarLista, cargarClientes]);
+    cargarCatalogos();
+  }, [cargarLista, cargarCatalogos]);
 
   const abrirDetalle = async (id) => {
     setCargando(true);
@@ -122,6 +143,39 @@ export default function AutoFin({ supabase, user }) {
     }));
   };
 
+  const seleccionarEmpleado = (id) => {
+    const e = empleados.find((x) => String(x.id) === String(id));
+    setForm((f) => ({
+      ...f,
+      empleado_id: id,
+      empleado_nombre: e?.nombre || f.empleado_nombre,
+      cliente_nombre: e?.nombre || f.cliente_nombre,
+      beneficiario_tipo: 'empleado',
+    }));
+  };
+
+  const seleccionarPrestamoExistente = (id) => {
+    const p = prestamosActivos.find((x) => String(x.id) === String(id));
+    if (!p) {
+      setForm((f) => ({ ...f, prestamo_id: '' }));
+      return;
+    }
+    setForm((f) => ({
+      ...f,
+      tipo: 'prestamo',
+      beneficiario_tipo: 'empleado',
+      prestamo_id: p.id,
+      empleado_id: p.usuario_id || '',
+      empleado_nombre: p.nombre_empleado || '',
+      cliente_nombre: p.nombre_empleado || '',
+      precio: String(p.saldo || p.monto_original || ''),
+      enganche: '0',
+      sucursal_id: p.sucursal_id || f.sucursal_id,
+      descripcion: `Préstamo existente · saldo ${fmt(p.saldo)}`,
+      notas: `Origen préstamo ${p.id}`,
+    }));
+  };
+
   const guardarCredito = async () => {
     setGuardando(true);
     const res = await crearCreditoAutoFin(
@@ -132,6 +186,7 @@ export default function AutoFin({ supabase, user }) {
         enganche: Number(form.enganche) || 0,
         num_cuotas: Number(form.num_cuotas),
         tasa_interes: Number(form.tasa_interes) || 0,
+        prestamo_id: form.prestamo_id || null,
       },
       user?.nombre || 'Usuario',
     );
@@ -140,8 +195,8 @@ export default function AutoFin({ supabase, user }) {
       if (res.aviso) setAviso(res.aviso);
       return alert(res.error);
     }
-    alert('Crédito Auto Fin creado con desglose de cuotas.');
-    setForm(FORM_VACIO);
+    alert(esPrestamo ? 'Préstamo financiado en Auto Fin con desglose de cuotas.' : 'Crédito Auto Fin creado con desglose de cuotas.');
+    setForm({ ...FORM_VACIO, fecha_inicio: hoyYmd() });
     setVista('lista');
     cargarLista();
     abrirDetalle(res.credito.id);
@@ -204,7 +259,7 @@ export default function AutoFin({ supabase, user }) {
           <div>
             <h2 style={{ margin: 0, color: COLOR }}>Auto Fin</h2>
             <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
-              Autofinanciamiento con enganche y cuotas semanales, quincenales o mensuales · con o sin intereses
+              Vehículos y préstamos · enganche opcional · cuotas semanales, quincenales o mensuales · con o sin intereses
             </p>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -214,9 +269,22 @@ export default function AutoFin({ supabase, user }) {
               </button>
             )}
             {vista === 'lista' && (
-              <button type="button" className="btn btn-primary" style={{ background: COLOR, borderColor: COLOR }} onClick={() => { setForm({ ...FORM_VACIO, fecha_inicio: hoyYmd() }); setVista('nuevo'); }}>
-                + Nuevo crédito
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ borderColor: COLOR, color: COLOR }}
+                  onClick={() => {
+                    setForm({ ...FORM_VACIO, tipo: 'prestamo', beneficiario_tipo: 'empleado', enganche: '0', fecha_inicio: hoyYmd() });
+                    setVista('nuevo');
+                  }}
+                >
+                  + Financiar préstamo
+                </button>
+                <button type="button" className="btn btn-primary" style={{ background: COLOR, borderColor: COLOR }} onClick={() => { setForm({ ...FORM_VACIO, fecha_inicio: hoyYmd() }); setVista('nuevo'); }}>
+                  + Nuevo crédito
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -230,6 +298,14 @@ export default function AutoFin({ supabase, user }) {
       {vista === 'lista' && (
         <>
           <div className="card" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
+            <label className="muted" style={{ fontSize: '0.8rem' }}>
+              Tipo
+              <select className="select" style={{ display: 'block', marginTop: '0.2rem' }} value={filtroTipo} onChange={(e) => setFiltroTipo(e.target.value)}>
+                <option value="todos">Todos</option>
+                <option value="vehiculo">Vehículos</option>
+                <option value="prestamo">Préstamos</option>
+              </select>
+            </label>
             <label className="muted" style={{ fontSize: '0.8rem' }}>
               Estado
               <select className="select" style={{ display: 'block', marginTop: '0.2rem' }} value={filtroEstado} onChange={(e) => setFiltroEstado(e.target.value)}>
@@ -251,7 +327,8 @@ export default function AutoFin({ supabase, user }) {
                 <table className="data">
                   <thead>
                     <tr>
-                      <th>Cliente</th>
+                      <th>Tipo</th>
+                      <th>Beneficiario</th>
                       <th>Descripción</th>
                       <th>Frecuencia</th>
                       <th>Cuotas</th>
@@ -265,7 +342,12 @@ export default function AutoFin({ supabase, user }) {
                     {creditos.map((c) => (
                       <tr key={c.id}>
                         <td>
-                          <strong>{c.cliente_nombre}</strong>
+                          <span style={{ fontWeight: 700, color: esCreditoPrestamo(c) ? '#7c3aed' : COLOR }}>
+                            {esCreditoPrestamo(c) ? 'Préstamo' : 'Vehículo'}
+                          </span>
+                        </td>
+                        <td>
+                          <strong>{c.empleado_nombre || c.cliente_nombre}</strong>
                           {c.cliente_telefono && <div className="muted" style={{ fontSize: '0.75rem' }}>{c.cliente_telefono}</div>}
                         </td>
                         <td>{c.descripcion || '—'}</td>
@@ -292,28 +374,120 @@ export default function AutoFin({ supabase, user }) {
       {vista === 'nuevo' && (
         <div className="grid-2" style={{ gap: '1rem', alignItems: 'start' }}>
           <div className="card" style={{ borderLeft: `4px solid ${COLOR}` }}>
-            <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Nuevo crédito</h3>
+            <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>
+              {esPrestamo ? 'Financiar préstamo' : 'Nuevo crédito (vehículo)'}
+            </h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
               <label className="muted">
-                Cliente del catálogo (opcional)
-                <select className="select" style={{ marginTop: '0.25rem' }} value={form.cliente_id} onChange={(e) => seleccionarCliente(e.target.value)}>
-                  <option value="">— Escribir manualmente —</option>
-                  {clientes.map((c) => (
-                    <option key={c.id} value={c.id}>{c.nombre}</option>
+                Tipo *
+                <select
+                  className="select"
+                  style={{ marginTop: '0.25rem' }}
+                  value={form.tipo}
+                  onChange={(e) => {
+                    const tipo = e.target.value;
+                    setForm((f) => ({
+                      ...f,
+                      tipo,
+                      beneficiario_tipo: tipo === 'prestamo' ? 'empleado' : 'cliente',
+                      enganche: tipo === 'prestamo' ? (f.enganche || '0') : f.enganche,
+                      prestamo_id: tipo === 'prestamo' ? f.prestamo_id : '',
+                    }));
+                  }}
+                >
+                  {TIPOS_AUTO_FIN.map((t) => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
                   ))}
                 </select>
               </label>
+
+              {esPrestamo && (
+                <>
+                  <label className="muted">
+                    Préstamo activo existente (opcional)
+                    <select
+                      className="select"
+                      style={{ marginTop: '0.25rem' }}
+                      value={form.prestamo_id}
+                      onChange={(e) => seleccionarPrestamoExistente(e.target.value)}
+                    >
+                      <option value="">— Nuevo / capturar monto —</option>
+                      {prestamosActivos.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.nombre_empleado} · saldo {fmt(p.saldo)} · {etiquetaTienda(p.sucursal_id)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="muted">
+                    Beneficiario
+                    <select
+                      className="select"
+                      style={{ marginTop: '0.25rem' }}
+                      value={form.beneficiario_tipo}
+                      onChange={(e) => setForm({ ...form, beneficiario_tipo: e.target.value })}
+                    >
+                      <option value="empleado">Empleado</option>
+                      <option value="cliente">Cliente</option>
+                    </select>
+                  </label>
+                </>
+              )}
+
+              {form.beneficiario_tipo === 'empleado' && (
+                <>
+                  <label className="muted">
+                    Empleado *
+                    <select className="select" style={{ marginTop: '0.25rem' }} value={form.empleado_id} onChange={(e) => seleccionarEmpleado(e.target.value)}>
+                      <option value="">— Seleccionar —</option>
+                      {empleados.map((e) => (
+                        <option key={e.id} value={e.id}>{e.nombre}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="muted">
+                    Nombre del empleado *
+                    <input
+                      className="input"
+                      style={{ marginTop: '0.25rem' }}
+                      value={form.empleado_nombre || form.cliente_nombre}
+                      onChange={(e) => setForm({ ...form, empleado_nombre: e.target.value, cliente_nombre: e.target.value })}
+                    />
+                  </label>
+                </>
+              )}
+
+              {form.beneficiario_tipo === 'cliente' && (
+                <>
+                  <label className="muted">
+                    Cliente del catálogo (opcional)
+                    <select className="select" style={{ marginTop: '0.25rem' }} value={form.cliente_id} onChange={(e) => seleccionarCliente(e.target.value)}>
+                      <option value="">— Escribir manualmente —</option>
+                      {clientes.map((c) => (
+                        <option key={c.id} value={c.id}>{c.nombre}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="muted">
+                    Nombre del cliente *
+                    <input className="input" style={{ marginTop: '0.25rem' }} value={form.cliente_nombre} onChange={(e) => setForm({ ...form, cliente_nombre: e.target.value })} />
+                  </label>
+                  <label className="muted">
+                    Teléfono
+                    <input className="input" style={{ marginTop: '0.25rem' }} value={form.cliente_telefono} onChange={(e) => setForm({ ...form, cliente_telefono: e.target.value })} />
+                  </label>
+                </>
+              )}
+
               <label className="muted">
-                Nombre del cliente *
-                <input className="input" style={{ marginTop: '0.25rem' }} value={form.cliente_nombre} onChange={(e) => setForm({ ...form, cliente_nombre: e.target.value })} />
-              </label>
-              <label className="muted">
-                Teléfono
-                <input className="input" style={{ marginTop: '0.25rem' }} value={form.cliente_telefono} onChange={(e) => setForm({ ...form, cliente_telefono: e.target.value })} />
-              </label>
-              <label className="muted">
-                Descripción (auto / unidad)
-                <input className="input" style={{ marginTop: '0.25rem' }} value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Ej. Nissan Versa 2018" />
+                {esPrestamo ? 'Concepto / nota' : 'Descripción (auto / unidad)'}
+                <input
+                  className="input"
+                  style={{ marginTop: '0.25rem' }}
+                  value={form.descripcion}
+                  onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
+                  placeholder={esPrestamo ? 'Ej. Préstamo personal · emergencia' : 'Ej. Nissan Versa 2018'}
+                />
               </label>
               <label className="muted">
                 Sucursal
@@ -325,11 +499,11 @@ export default function AutoFin({ supabase, user }) {
               </label>
               <div className="grid-2" style={{ gap: '0.65rem' }}>
                 <label className="muted">
-                  Precio *
+                  {esPrestamo ? 'Monto del préstamo *' : 'Precio *'}
                   <input className="input" type="number" min="0" step="0.01" style={{ marginTop: '0.25rem' }} value={form.precio} onChange={(e) => setForm({ ...form, precio: e.target.value })} />
                 </label>
                 <label className="muted">
-                  Enganche
+                  Enganche {esPrestamo ? '(opcional)' : ''}
                   <input className="input" type="number" min="0" step="0.01" style={{ marginTop: '0.25rem' }} value={form.enganche} onChange={(e) => setForm({ ...form, enganche: e.target.value })} />
                 </label>
               </div>
@@ -374,7 +548,7 @@ export default function AutoFin({ supabase, user }) {
                 <input className="input" style={{ marginTop: '0.25rem' }} value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} />
               </label>
               <button type="button" className="btn btn-primary" style={{ background: COLOR, borderColor: COLOR }} disabled={guardando} onClick={guardarCredito}>
-                {guardando ? 'Guardando…' : 'Crear crédito y generar cuotas'}
+                {guardando ? 'Guardando…' : esPrestamo ? 'Financiar préstamo y generar cuotas' : 'Crear crédito y generar cuotas'}
               </button>
             </div>
           </div>
@@ -424,9 +598,9 @@ export default function AutoFin({ supabase, user }) {
           <div className="card" style={{ borderLeft: `4px solid ${COLOR}` }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '0.75rem' }}>
               <div>
-                <h3 style={{ margin: 0, color: COLOR }}>{detalle.credito.cliente_nombre}</h3>
+                <h3 style={{ margin: 0, color: COLOR }}>{detalle.credito.empleado_nombre || detalle.credito.cliente_nombre}</h3>
                 <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-                  {detalle.credito.descripcion || 'Sin descripción'} · {etiquetaFrecuencia(detalle.credito.frecuencia)} ·{' '}
+                  {etiquetaTipoAutoFin(detalle.credito.tipo)} · {detalle.credito.descripcion || 'Sin descripción'} · {etiquetaFrecuencia(detalle.credito.frecuencia)} ·{' '}
                   {detalle.credito.con_interes ? `Interés ${detalle.credito.tasa_interes}%` : 'Sin intereses'} · Estado: {detalle.credito.estado}
                 </p>
               </div>
@@ -437,7 +611,7 @@ export default function AutoFin({ supabase, user }) {
               )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginTop: '1rem' }}>
-              <Kpi label="Precio" value={fmt(detalle.credito.precio)} />
+              <Kpi label={esCreditoPrestamo(detalle.credito) ? 'Monto préstamo' : 'Precio'} value={fmt(detalle.credito.precio)} />
               <Kpi label="Enganche" value={fmt(detalle.credito.enganche)} />
               <Kpi label="Financiado" value={fmt(detalle.credito.monto_financiar)} />
               <Kpi label="Interés" value={fmt(detalle.credito.interes_total)} />
