@@ -13,7 +13,11 @@ import {
   leerTurnos,
   nombreTurnoLegible,
   turnoActual,
+  turnoEnEntrega,
+  turnoIdParaUsuario,
+  turnosDisponiblesParaCorte,
   usuarioAutorizadoCorte,
+  leerToleranciaTurnos,
 } from '../lib/turnos.js';
 import {
   cargarDiaCaja,
@@ -34,8 +38,15 @@ function fmtHora(iso) {
 
 export default function CorteCaja({ supabase, sucursal, user, inventario, inventarioCompleto, cargarDatos }) {
   const [turnos, setTurnos] = useState(() => leerTurnos());
-  const [turnoActivo, setTurnoActivo] = useState(() => turnoActual());
-  const [fecha, setFecha] = useState(() => fechaCorteSugerida(turnoActual()));
+  const [turnoActivo, setTurnoActivo] = useState(() => {
+    const list = leerTurnos();
+    const entrega = turnoEnEntrega(list);
+    const asignado = turnoIdParaUsuario(user);
+    if (entrega && String(asignado) === String(entrega.id)) return entrega;
+    return turnoActual(list);
+  });
+  const [fecha, setFecha] = useState(() => fechaCorteSugerida(turnoActivo));
+  const [turnoManual, setTurnoManual] = useState(false);
   const [pestana, setPestana] = useState('corte');
   const [ventas, setVentas] = useState([]);
   const [cancelaciones, setCancelaciones] = useState([]);
@@ -133,25 +144,38 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
     );
   }, [ventaParaCancel, cancelaciones]);
 
+  const opcionesCorte = useMemo(() => turnosDisponiblesParaCorte(turnos), [turnos]);
+
   useEffect(() => {
     const sync = () => {
       const t = leerTurnos();
-      const ta = turnoActual(t);
       setTurnos(t);
-      setTurnoActivo(ta);
-      setFecha(fechaCorteSugerida(ta));
+      if (!turnoManual) {
+        const entrega = turnoEnEntrega(t);
+        const asignado = turnoIdParaUsuario(user);
+        const sugerido =
+          entrega && String(asignado) === String(entrega.id) ? entrega : turnoActual(t);
+        setTurnoActivo(sugerido);
+        setFecha(fechaCorteSugerida(sugerido));
+      }
     };
     sync();
     window.addEventListener(EVENTO_TURNOS, sync);
-    return () => window.removeEventListener(EVENTO_TURNOS, sync);
-  }, []);
+    const id = setInterval(sync, 30_000);
+    return () => {
+      window.removeEventListener(EVENTO_TURNOS, sync);
+      clearInterval(id);
+    };
+  }, [user, turnoManual]);
 
   useEffect(() => {
-    const t = turnoActual(turnos);
-    setTurnoActivo(t);
-    const auth = usuarioAutorizadoCorte(user, t);
+    if (!turnoActivo) {
+      setBloqueoCorte('No hay turno configurado.');
+      return;
+    }
+    const auth = usuarioAutorizadoCorte(user, turnoActivo, new Date(), { turnos, sucursal });
     setBloqueoCorte(auth.ok ? '' : auth.error);
-  }, [turnos, user]);
+  }, [turnos, user, turnoActivo, sucursal]);
 
   useEffect(() => {
     if (!supabase || !turnoActivo) {
@@ -340,7 +364,7 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
       <div>
         <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>Corte de caja</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
-          Total acumulado del sistema, movimientos por ticket y cancelaciones. Solo se incluyen ventas del turno activo (evita mezclar caja diurna con nocturna). Tienda: <span className="badge">{sucursal}</span>
+          Total acumulado del sistema, movimientos por ticket y cancelaciones. Solo se incluyen ventas del turno elegido (evita mezclar caja diurna con nocturna). Tienda: <span className="badge">{sucursal}</span>
           {turnoActivo && (
             <>
               {' '}
@@ -351,6 +375,41 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
             </>
           )}
         </p>
+        {opcionesCorte.length > 1 && (
+          <div style={{ marginTop: '0.65rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+            <label className="muted" style={{ fontSize: '0.85rem' }}>
+              Turno a cortar
+              <select
+                className="select"
+                style={{ marginLeft: '0.4rem', minWidth: 220 }}
+                value={turnoActivo?.id || ''}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const hit = opcionesCorte.find((o) => String(o.turno.id) === String(id));
+                  if (!hit) return;
+                  setTurnoManual(true);
+                  setTurnoActivo(hit.turno);
+                  setFecha(fechaCorteSugerida(hit.turno));
+                }}
+              >
+                {opcionesCorte.map((o) => (
+                  <option key={o.turno.id} value={o.turno.id}>
+                    {nombreTurnoLegible(o.turno)} ({o.turno.hora_inicio}–{o.turno.hora_fin})
+                    {o.motivo === 'entrega' ? ' · se entrega' : ' · en curso'}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <span className="muted" style={{ fontSize: '0.78rem' }}>
+              Tras la salida hay {leerToleranciaTurnos().minutos_despues_fin} min para cortar el turno que se entrega.
+            </span>
+          </div>
+        )}
+        {opcionesCorte.some((o) => o.motivo === 'entrega') && opcionesCorte.length === 1 && (
+          <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', color: 'var(--brand-gold)' }}>
+            Estás en la ventana de entrega: puedes cortar <strong>{nombreTurnoLegible(opcionesCorte[0].turno)}</strong> aunque ya empezó el siguiente.
+          </p>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -370,6 +429,10 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
         <div className="card" style={{ borderColor: 'rgba(211,47,47,0.4)', background: '#fff5f5' }}>
           <strong style={{ color: 'var(--brand-red)' }}>Corte no permitido</strong>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.9rem' }}>{bloqueoCorte}</p>
+          <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
+            Si el relevo llegó tarde: 1) el saliente corta en los {leerToleranciaTurnos().minutos_despues_fin} min de gracia;
+            2) un <strong>gerente/admin</strong> hace el corte; o 3) admin autoriza la entrada con PIN en el login (8 h).
+          </p>
         </div>
       )}
       {corteExistente?.existe && (

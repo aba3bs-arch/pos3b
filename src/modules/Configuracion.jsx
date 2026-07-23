@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { SUCURSALES_BASE, etiquetaTienda, listarSucursalesParaUI } from '../constants/sucursales.js';
+import { SUCURSALES_BASE, etiquetaTienda, listarSucursalesParaUI, listarSucursalesOperativas } from '../constants/sucursales.js';
 import {
   CONEXIONES_PERIFERICO,
   TIPOS_PERIFERICO,
@@ -122,6 +122,11 @@ import {
   HORA_INICIO_RECOLECCION_DEFAULT,
   HORA_FIN_RECOLECCION_DEFAULT,
 } from '../lib/ventanaRecoleccion.js';
+import {
+  aplicarVentanaRecoleccionATiendas,
+  sincronizarVentanaRecoleccionDesdeNube,
+  AVISO_FALTA_VENTANA_RECOLECCION,
+} from '../lib/ventanaRecoleccionSync.js';
 
 export default function Configuracion({
   supabase,
@@ -167,6 +172,8 @@ export default function Configuracion({
   const [pedirPinDesbloqueo, setPedirPinDesbloqueo] = useState(false);
   const [pinDesbloqueoTienda, setPinDesbloqueoTienda] = useState('');
   const [ventanaRec, setVentanaRec] = useState(() => leerVentanaRecoleccion());
+  const [ventanaTiendas, setVentanaTiendas] = useState(() => listarSucursalesOperativas());
+  const [ventanaGuardando, setVentanaGuardando] = useState(false);
   const esAdmin = puedeGestionarUsuarios(user?.rol);
   const puedePrivilegios = puedeGestionarPrivilegios(user?.rol);
   const recibeAlertas = puedeRecibirNotificacionesDispositivo(user?.rol);
@@ -781,6 +788,7 @@ export default function Configuracion({
         <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
           Horario en que se puede cobrar efectivo / CFE en ruta (hora Sonora). Norma: {String(HORA_INICIO_RECOLECCION_DEFAULT).padStart(2, '0')}:00 –{' '}
           {String(HORA_FIN_RECOLECCION_DEFAULT).padStart(2, '0')}:00. Crédito / reparto siguen permitidos fuera de ventana.
+          Puedes guardar solo en este equipo o <strong>aplicar a todas / tiendas seleccionadas</strong> (sincroniza en la nube).
         </p>
         <div className="grid-2" style={{ gap: '0.75rem', marginTop: '0.5rem' }}>
           <label className="muted">
@@ -809,38 +817,148 @@ export default function Configuracion({
           </label>
         </div>
         <p className="muted" style={{ fontSize: '0.82rem', margin: '0.5rem 0 0' }}>
-          Actual: <strong>{etiquetaVentanaRecoleccion(ventanaRec)}</strong> (abierta desde inicio hasta un minuto antes del fin).
+          Actual en este equipo: <strong>{etiquetaVentanaRecoleccion(ventanaRec)}</strong> (abierta desde inicio hasta un minuto antes del fin).
         </p>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.65rem' }}>
+
+        <div style={{ marginTop: '0.85rem', padding: '0.75rem', borderRadius: 8, background: 'var(--surface)', border: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
+            <strong style={{ fontSize: '0.9rem' }}>Aplicar a tiendas</strong>
+            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                onClick={() => setVentanaTiendas(listarSucursalesOperativas())}
+              >
+                Todas
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                onClick={() => setVentanaTiendas([])}
+              >
+                Ninguna
+              </button>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '0.35rem', marginTop: '0.65rem' }}>
+            {listarSucursalesOperativas().map((t) => {
+              const activa = ventanaTiendas.includes(t);
+              return (
+                <label key={t} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={activa}
+                    onChange={() => {
+                      setVentanaTiendas((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
+                    }}
+                  />
+                  {etiquetaTienda(t)}
+                </label>
+              );
+            })}
+          </div>
+          <p className="muted" style={{ fontSize: '0.78rem', margin: '0.5rem 0 0' }}>
+            Seleccionadas: <strong>{ventanaTiendas.length || 'ninguna'}</strong>
+            {ventanaTiendas.length === 0 ? ' — usa «Todas» o marca tiendas para sincronizar.' : ''}
+          </p>
+        </div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
           <button
             type="button"
-            className="btn btn-primary"
+            className="btn btn-ghost"
+            disabled={ventanaGuardando}
             onClick={() => {
               try {
                 const next = guardarVentanaRecoleccion(ventanaRec);
                 setVentanaRec(next);
-                alert(`Ventana de recolección guardada: ${etiquetaVentanaRecoleccion(next)} (hora Sonora).`);
+                alert(`Guardada solo en este equipo: ${etiquetaVentanaRecoleccion(next)} (hora Sonora).`);
               } catch (e) {
                 alert(e?.message || String(e));
               }
             }}
           >
-            Guardar ventana
+            Guardar en este equipo
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={ventanaGuardando || !supabase}
+            onClick={async () => {
+              const tiendas = ventanaTiendas.length ? ventanaTiendas : listarSucursalesOperativas();
+              if (!tiendas.length) return alert('No hay tiendas para aplicar.');
+              if (!confirm(`¿Aplicar ${etiquetaVentanaRecoleccion(ventanaRec)} a ${tiendas.length} tienda(s)?\n\n${tiendas.map(etiquetaTienda).join(', ')}`)) {
+                return;
+              }
+              setVentanaGuardando(true);
+              try {
+                const r = await aplicarVentanaRecoleccionATiendas(supabase, { cfg: ventanaRec, tiendas });
+                if (!r.ok) {
+                  alert(r.aviso || r.error || 'No se pudo sincronizar.');
+                  if (r.sinTabla) alert(AVISO_FALTA_VENTANA_RECOLECCION);
+                  return;
+                }
+                setVentanaRec(r.cfg);
+                alert(
+                  `Ventana aplicada y sincronizada: ${etiquetaVentanaRecoleccion(r.cfg)}\n\n` +
+                    `Tiendas: ${r.tiendas.map(etiquetaTienda).join(', ')}\n\n` +
+                    'Cada caja descargará el horario al iniciar sesión.',
+                );
+              } finally {
+                setVentanaGuardando(false);
+              }
+            }}
+          >
+            {ventanaGuardando ? 'Aplicando…' : ventanaTiendas.length && ventanaTiendas.length < listarSucursalesOperativas().length
+              ? `Aplicar a ${ventanaTiendas.length} seleccionada(s)`
+              : 'Aplicar a todas las tiendas'}
           </button>
           <button
             type="button"
             className="btn btn-ghost"
-            onClick={() => {
-              const next = guardarVentanaRecoleccion({
+            disabled={ventanaGuardando}
+            onClick={async () => {
+              const next = {
                 horaInicio: HORA_INICIO_RECOLECCION_DEFAULT,
                 horaFin: HORA_FIN_RECOLECCION_DEFAULT,
-              });
+              };
               setVentanaRec(next);
-              alert(`Restaurada la norma: ${etiquetaVentanaRecoleccion(next)}.`);
+              if (supabase && confirm('¿También restaurar 8:00–20:00 en la nube para las tiendas seleccionadas (o todas)?')) {
+                setVentanaGuardando(true);
+                try {
+                  const tiendas = ventanaTiendas.length ? ventanaTiendas : listarSucursalesOperativas();
+                  const r = await aplicarVentanaRecoleccionATiendas(supabase, { cfg: next, tiendas });
+                  if (!r.ok) alert(r.aviso || r.error || 'No se pudo sincronizar.');
+                  else alert(`Restaurada la norma en ${r.tiendas.length} tienda(s): ${etiquetaVentanaRecoleccion(next)}.`);
+                } finally {
+                  setVentanaGuardando(false);
+                }
+                return;
+              }
+              guardarVentanaRecoleccion(next);
+              alert(`Restaurada la norma en este equipo: ${etiquetaVentanaRecoleccion(next)}.`);
             }}
           >
             Restaurar 8:00 – 20:00
           </button>
+          {supabase && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={ventanaGuardando}
+              onClick={async () => {
+                const r = await sincronizarVentanaRecoleccionDesdeNube(supabase, sucursal);
+                if (r.aviso) alert(r.aviso);
+                if (r.cfg) setVentanaRec(r.cfg);
+                else setVentanaRec(leerVentanaRecoleccion());
+                alert(r.cambio ? 'Ventana actualizada desde la nube.' : 'Sin cambios en la nube para esta tienda.');
+              }}
+            >
+              Descargar de la nube
+            </button>
+          )}
         </div>
 
         <div style={{ marginTop: '0.75rem' }}>

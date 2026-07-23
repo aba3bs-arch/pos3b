@@ -488,6 +488,62 @@ export function turnoActual(turnos = null, date = new Date()) {
   return list.find((t) => horaEnTurno(t, date)) || list[0] || null;
 }
 
+function minutosAhoraNogales(date = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Hermosillo',
+      hour: 'numeric',
+      minute: 'numeric',
+      hourCycle: 'h23',
+    }).formatToParts(date);
+    const hour = Number(parts.find((p) => p.type === 'hour')?.value || 0);
+    const minute = Number(parts.find((p) => p.type === 'minute')?.value || 0);
+    return hour * 60 + minute;
+  } catch {
+    return date.getHours() * 60 + date.getMinutes();
+  }
+}
+
+function enRangoMinutos(now, ini, fin) {
+  if (ini === fin) return true;
+  if (ini < fin) return now >= ini && now < fin;
+  return now >= ini || now < fin;
+}
+
+/**
+ * Turno que ya terminó oficialmente pero aún está en gracia
+ * (minutos_despues_fin) — el que se está entregando.
+ */
+export function turnoEnEntrega(turnos = null, date = new Date(), tolerancia = null) {
+  const list = turnos || leerTurnos();
+  const tol = tolerancia || leerToleranciaTurnos();
+  if (!tol.minutos_despues_fin) return null;
+  const now = minutosAhoraNogales(date);
+
+  for (const t of list) {
+    if (horaEnTurno(t, date)) continue;
+    const fin = minutosDesdeMedianoche(t.hora_fin);
+    const vFin = (fin + tol.minutos_despues_fin) % (24 * 60);
+    // Solo la franja DESPUÉS del cierre oficial (gracia), no la llegada temprana.
+    if (!enRangoMinutos(now, fin, vFin)) continue;
+    if (horaEnVentanaLogin(t, date, tol)) return t;
+  }
+  return null;
+}
+
+/** Turnos que se pueden cortar ahora: el en curso y, si hay gracia, el que se entrega. */
+export function turnosDisponiblesParaCorte(turnos = null, date = new Date(), tolerancia = null) {
+  const list = turnos || leerTurnos();
+  const actual = turnoActual(list, date);
+  const entrega = turnoEnEntrega(list, date, tolerancia);
+  const out = [];
+  if (entrega) out.push({ turno: entrega, motivo: 'entrega' });
+  if (actual && (!entrega || String(actual.id) !== String(entrega.id))) {
+    out.push({ turno: actual, motivo: 'actual' });
+  }
+  return out;
+}
+
 /** Nombre corto para UI (sin “12 h”, etc.). */
 export function nombreTurnoLegible(turnoOrNombre, id) {
   const nombre = typeof turnoOrNombre === 'string' ? turnoOrNombre : turnoOrNombre?.nombre;
@@ -746,11 +802,39 @@ export function usuarioAutorizadoChecador(user, date = new Date(), turnos = null
   };
 }
 
-/** Cajero debe coincidir con turno y día; Gerente/Admin/Supervisor pueden cortar cualquier turno. */
-export function usuarioAutorizadoCorte(user, turno, date = new Date()) {
+/**
+ * Cajero corta su turno en curso o el que se entrega (gracia post-cierre).
+ * Gerente/Admin/Supervisor pueden cortar cualquiera.
+ * Con autorización admin fuera de horario, puede cortar su turno asignado si está disponible.
+ */
+export function usuarioAutorizadoCorte(user, turno, date = new Date(), opts = {}) {
   if (!turno) return { ok: false, error: 'No hay turno configurado para esta hora.' };
   const rol = normalizarRol(user?.rol);
   if (['Administrador', 'Gerente', 'Supervisor'].includes(rol)) return { ok: true };
+
+  const list = opts.turnos || leerTurnos();
+  const disponibles = turnosDisponiblesParaCorte(list, date);
+  const enLista = disponibles.some((d) => String(d.turno.id) === String(turno.id));
+  const entrega = disponibles.find((d) => d.motivo === 'entrega')?.turno;
+  const enEntrega = Boolean(entrega && String(entrega.id) === String(turno.id));
+
+  if (!enLista) {
+    const tol = leerToleranciaTurnos();
+    return {
+      ok: false,
+      error:
+        `Ese turno ya no se puede cortar. Durante ${tol.minutos_despues_fin} min después de la salida ` +
+        `aún puedes cortar el turno que se entrega` +
+        (entrega ? ` (${nombreTurnoLegible(entrega)})` : '') +
+        `. Si el relevo llegó tarde, un administrador o gerente puede hacer el corte, ` +
+        `o autorizar la entrada con PIN en el login.`,
+    };
+  }
+
+  const sucursal = opts.sucursal;
+  if (sucursal && tieneAutorizacionFueraHorario(user, sucursal, date)) {
+    return { ok: true, autorizacionAdmin: true, enEntrega };
+  }
 
   const asignado = turnoIdParaUsuario(user, date);
   if (!asignado) {
@@ -770,14 +854,17 @@ export function usuarioAutorizadoCorte(user, turno, date = new Date()) {
       error: 'Tu usuario no tiene turno asignado. Configúralo en Usuarios o Configuración → Turnos.',
     };
   }
+  if (esTurnoAmbos(asignado)) return { ok: true, enEntrega };
   if (String(asignado) !== String(turno.id)) {
-    if (esTurnoAmbos(asignado)) return { ok: true };
     return {
       ok: false,
-      error: `Turno actual: ${nombreTurnoLegible(turno)}. Hoy te corresponde ${etiquetaTurno(asignado, leerTurnos())}.`,
+      error: `Estás cortando ${nombreTurnoLegible(turno)}. Hoy te corresponde ${etiquetaTurno(asignado, list)}. ` +
+        (enEntrega
+          ? 'Si entregas este turno, usa el usuario del turno saliente o pide a un gerente/admin.'
+          : 'Un gerente o administrador puede hacer el corte del turno que se entrega.'),
     };
   }
-  return { ok: true };
+  return { ok: true, enEntrega };
 }
 
 export function nuevoIdTurno(nombre) {

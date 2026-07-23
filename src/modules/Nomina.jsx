@@ -705,7 +705,7 @@ export default function Nomina({ supabase, sucursal, user }) {
               <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros − arrastre.</strong>
               {modoManual
                 ? ' Modo Manual: puedes editar todos los campos a mano.'
-                : ' Modo Automático: días desde el reloj checador (tarde cuenta; desde el 5º retardo ese día no se paga). Consumos/inventario de cortes Virtual, Abarrotes y Garage.'}
+                : ' Modo Automático: días desde el reloj checador (tarde cuenta; desde el 5º retardo ese día no se paga). Consumos y gastos de empleados de TODAS las tiendas (cortes Virtual / Abarrotes / Garage + vales consumo) se consolidan en la columna Consumos.'}
             </p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.45rem' }}>

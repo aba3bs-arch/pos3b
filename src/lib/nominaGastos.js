@@ -7,13 +7,13 @@ export function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
-/** Gastos de cortes que deben descontarse en nómina (CONSUMO + vales consumo). */
+/** Gastos de cortes que deben descontarse en nómina (CONSUMO + vales que descuentan). */
 export function gastoCuentaEnNomina(g) {
   if (gastoDescuentaNomina(g.modulo, g.categoria)) return true;
   const cat = String(g.categoria || '').trim().toUpperCase();
   if (cat !== 'VALES') return false;
   const sub = String(g.subcategoria || '').trim().toUpperCase();
-  return sub.includes('CONSUMO') || sub.includes('PERSONAL');
+  return sub.includes('CONSUMO') || sub.includes('PERSONAL') || sub.includes('NOMINA');
 }
 
 function gastoAprobadoParaNomina(g) {
@@ -40,7 +40,41 @@ function agruparGastosPorEmpleado(rows, indice) {
   return map;
 }
 
-/** Suma gastos de cortes (virtual, abarrotes, garage) por empleado en un periodo. */
+/**
+ * Red de seguridad: vales aprobados con descuenta_nomina que aún no están en corte
+ * (o falló el espejo) se suman como consumos por empleado / tienda.
+ */
+async function valesDescuentoDirecto(supabase, { sucursal, desde, hasta, todasSucursales = true }) {
+  if (!supabase) return [];
+  const finTs = `${hasta}T23:59:59`;
+  let q = supabase
+    .from('vales')
+    .select('id, folio, sucursal_id, usuario_id, nombre_empleado, monto, categoria, descuenta_nomina, estado_aprobacion, cargado_corte, created_at, area')
+    .eq('descuenta_nomina', true)
+    .eq('estado_aprobacion', 'aprobado')
+    .eq('cargado_corte', false)
+    .gte('created_at', desde)
+    .lte('created_at', finTs);
+  if (!todasSucursales && sucursal) q = q.eq('sucursal_id', sucursal || 'MAIN');
+  const { data, error } = await q;
+  if (error) return [];
+  return (data || []).map((v) => ({
+    usuario_id: v.usuario_id || null,
+    usuario_nombre: v.nombre_empleado || null,
+    monto: Number(v.monto) || 0,
+    categoria: 'VALES',
+    subcategoria: 'CONSUMO · NOMINA',
+    comentario: `VALE ${v.folio || ''} · ${v.nombre_empleado || ''} (directo)`.trim().toUpperCase(),
+    modulo: v.area || 'virtual',
+    sucursal_id: v.sucursal_id || 'MAIN',
+    created_at: v.created_at,
+    estado_aprobacion: 'aprobado',
+    descontado_nomina: false,
+    _vale_id: v.id,
+  }));
+}
+
+/** Suma gastos de cortes (virtual, abarrotes, garage) por empleado en un periodo — todas las tiendas. */
 export async function gastosDeduccionPorEmpleado(supabase, { sucursal, desde, hasta, empleados = [], todasSucursales = true }) {
   if (!supabase) return { map: {}, error: null };
   const finTs = `${hasta}T23:59:59`;
@@ -58,7 +92,10 @@ export async function gastosDeduccionPorEmpleado(supabase, { sucursal, desde, ha
 
   if (!todasSucursales && sucursal) q = q.eq('sucursal_id', sucursal || 'MAIN');
 
-  const { data, error } = await q;
+  const [{ data, error }, valesExtra] = await Promise.all([
+    q,
+    valesDescuentoDirecto(supabase, { sucursal, desde, hasta, todasSucursales }),
+  ]);
 
   if (error) {
     if (error.code === '42P01' || String(error.message).includes('descontado_nomina')) {
@@ -70,11 +107,11 @@ export async function gastosDeduccionPorEmpleado(supabase, { sucursal, desde, ha
       if (!todasSucursales && sucursal) q2 = q2.eq('sucursal_id', sucursal || 'MAIN');
       const { data: d2, error: e2 } = await q2;
       if (e2) return { map: {}, error: e2.message };
-      return { map: agruparGastosPorEmpleado(d2, indice), error: null };
+      return { map: agruparGastosPorEmpleado([...(d2 || []), ...valesExtra], indice), error: null };
     }
     return { map: {}, error: error.message };
   }
-  return { map: agruparGastosPorEmpleado(data, indice), error: null };
+  return { map: agruparGastosPorEmpleado([...(data || []), ...valesExtra], indice), error: null };
 }
 
 export async function marcarGastosDescontadosNomina(supabase, { sucursal, desde, hasta, periodoId, empleados = [], todasSucursales = true }) {

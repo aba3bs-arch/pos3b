@@ -1,23 +1,32 @@
-import { etiquetaCategoriaVale, normalizarAreaCorte } from './contabilidadConstants.js';
+import { etiquetaCategoriaVale, normalizarAreaCorte, valeDescuentaNomina } from './contabilidadConstants.js';
 
 /** Registra un vale aprobado como gasto del turno en el corte del área del beneficiario. */
 export async function cargarValeACorte(supabase, vale) {
   if (!supabase || !vale?.id) return { ok: false, error: 'Vale inválido.' };
   if (vale.cargado_corte) return { ok: true, yaCargado: true };
   const modulo = normalizarAreaCorte(vale.area, 'virtual');
+  const etiqueta = String(etiquetaCategoriaVale(vale.categoria) || 'CONSUMO').toUpperCase();
+  const descuenta =
+    vale.descuenta_nomina === true ||
+    vale.descuenta_nomina === false
+      ? Boolean(vale.descuenta_nomina)
+      : valeDescuentaNomina(vale.categoria);
+  // Marca NOMINA para que el consolidado de nómina lo tome aunque el label no diga CONSUMO.
+  const subcategoria = descuenta && !etiqueta.includes('CONSUMO') && !etiqueta.includes('PERSONAL') && !etiqueta.includes('NOMINA')
+    ? `${etiqueta} · NOMINA`
+    : etiqueta;
   const payload = {
     sucursal_id: vale.sucursal_id || 'MAIN',
     modulo,
     categoria: 'VALES',
-    subcategoria: String(etiquetaCategoriaVale(vale.categoria) || 'CONSUMO').toUpperCase(),
+    subcategoria,
     comentario: `VALE ${vale.folio || ''} · ${vale.nombre_empleado}`.trim().toUpperCase(),
     monto: Number(vale.monto) || 0,
     usuario_id: vale.usuario_id || null,
     usuario_nombre: vale.nombre_empleado || null,
     cerrado: false,
     descontado_nomina: false,
-  };
-  const { error: e1 } = await supabase.from('cortes_contabilidad_gastos').insert([payload]);
+  };  const { error: e1 } = await supabase.from('cortes_contabilidad_gastos').insert([payload]);
   if (e1) return { ok: false, error: e1.message };
   const { error: e2 } = await supabase.from('vales').update({ cargado_corte: true }).eq('id', vale.id);
   if (e2) return { ok: false, error: e2.message };
