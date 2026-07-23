@@ -584,12 +584,19 @@ export async function listarPrestamosSucursales(supabase, opts = {}) {
 /**
  * Préstamo de una tienda a otra. No se carga al corte; queda pendiente de cobro
  * hasta que se liquide en la sucursal donde se originó.
+ * (MAIN no usa este flujo: usa registrarEnvioMainATienda.)
  */
 export async function registrarPrestamoSucursal(supabase, row) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const origen = String(row.sucursal_origen || '').trim().toUpperCase();
   const destino = String(row.sucursal_destino || '').trim().toUpperCase();
   if (!origen || !destino) return { ok: false, error: 'Origen y destino son obligatorios.' };
+  if (origen === 'MAIN') {
+    return {
+      ok: false,
+      error: 'Desde MAIN usa «Vale envío MAIN → tienda» (se carga al corte, no a contabilidad).',
+    };
+  }
   if (origen === destino) return { ok: false, error: 'La sucursal destino debe ser distinta a la de origen.' };
   const monto = Number(row.monto);
   if (!(monto > 0)) return { ok: false, error: 'Monto inválido.' };
@@ -628,6 +635,89 @@ export async function registrarPrestamoSucursal(supabase, row) {
   });
 
   return { ok: true, prestamo: data };
+}
+
+/**
+ * MAIN manda efectivo a una tienda: se carga al corte de esa tienda al generar.
+ * No inyecta moneda/caja y no registra nada en IE / contabilidad.
+ */
+export async function registrarEnvioMainATienda(supabase, row, opts = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const destino = String(row.sucursal_destino || '').trim().toUpperCase();
+  if (!destino || destino === 'MAIN') return { ok: false, error: 'Indica la tienda destino.' };
+  const monto = Number(row.monto);
+  if (!(monto > 0)) return { ok: false, error: 'Monto inválido.' };
+  const area = String(row.area_corte || opts.areaCorte || 'abarrotes').toLowerCase();
+  if (!['virtual', 'abarrotes', 'garage'].includes(area)) {
+    return { ok: false, error: 'Área de corte inválida (virtual, abarrotes o garage).' };
+  }
+  const fecha = row.fecha || new Date().toISOString().slice(0, 10);
+  const notas = row.notas || null;
+  const created_by = row.created_by || opts.nombreActor || null;
+
+  const payload = {
+    sucursal_origen: 'MAIN',
+    sucursal_destino: destino,
+    monto,
+    saldo: 0,
+    abono: monto,
+    fecha,
+    notas,
+    estado: 'liquidado',
+    created_by,
+  };
+
+  const { data, error } = await supabase.from('prestamos_sucursales').insert([payload]).select('*').single();
+  if (faltaTablaPrestamosSucursales(error)) return { ok: false, error: AVISO_FALTA_PRESTAMOS_SUCURSALES };
+  if (error) return { ok: false, error: error.message };
+
+  // Columnas opcionales (fix_prestamos_sucursales_main.sql); ignorar si aún no existen.
+  const { error: eExtra } = await supabase
+    .from('prestamos_sucursales')
+    .update({ area_corte: area, cargado_corte: true, tipo: 'main_envio' })
+    .eq('id', data.id);
+  if (eExtra && !/column|schema cache/i.test(String(eExtra.message || ''))) {
+    /* no bloquear el flujo por metadatos opcionales */
+  }
+
+  const { agregarGastoTurno } = await import('./corteContabilidad/store.js');
+  const gastoRes = await agregarGastoTurno(
+    supabase,
+    destino,
+    area,
+    {
+      categoria: 'VALE MAIN',
+      subcategoria: 'ENVIO EFECTIVO',
+      comentario: `MAIN → ${destino}${notas ? ` · ${notas}` : ''} · ${String(data.id).slice(0, 8)}`.toUpperCase(),
+      monto,
+    },
+    {
+      rolActor: opts.rolActor || 'Administrador',
+      nombreActor: created_by,
+      autoAprobar: true,
+      omitirIe: true,
+    },
+  );
+  if (!gastoRes.ok) {
+    await supabase.from('prestamos_sucursales').update({ estado: 'cancelado', saldo: monto, abono: 0 }).eq('id', data.id);
+    return { ok: false, error: gastoRes.error || 'No se pudo cargar al corte de la tienda.' };
+  }
+
+  await crearNotificacion(supabase, {
+    sucursal_id: destino,
+    tipo: TIPOS_NOTIF.PRESTAMO_SUCURSAL,
+    ref_tabla: 'prestamos_sucursales',
+    ref_id: data.id,
+    titulo: `Vale MAIN cargado · ${destino}`,
+    mensaje: `$${monto.toFixed(2)} en corte ${area} (sin contabilidad)${notas ? ` · ${notas}` : ''}`,
+  });
+
+  return {
+    ok: true,
+    prestamo: { ...data, area_corte: area, cargado_corte: true, tipo: 'main_envio', estado: 'liquidado', saldo: 0, abono: monto },
+    gasto: gastoRes.data,
+    mensaje: `Vale MAIN → ${destino} cargado al corte ${area}. No se registra en IE/contabilidad.`,
+  };
 }
 
 /** Abono o liquidación del préstamo entre sucursales (solo en la tienda origen). */

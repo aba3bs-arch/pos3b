@@ -16,6 +16,7 @@ import {
   registrarPrestamo,
   registrarPrestamoInterarea,
   registrarPrestamoSucursal,
+  registrarEnvioMainATienda,
   registrarVale,
 } from '../lib/valesPrestamos.js';
 import {
@@ -92,6 +93,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     monto: '',
     notas: '',
     fecha: hoyISO(),
+    areaCorte: 'abarrotes',
   });
   const [prestEmpForm, setPrestEmpForm] = useState({
     usuarioId: '',
@@ -108,6 +110,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const rolNorm = normalizarRol(user?.rol);
   const esAdmin = rolNorm === 'Administrador';
   const esGerente = rolNorm === 'Gerente';
+  const esMain = String(sucursal || '').toUpperCase() === 'MAIN';
   const puedeGenerarVales = tiendaPuedeGenerarVales(sucursal);
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
   /** Admin/gerente aprueban vales; socio solo préstamos >$1,000. */
@@ -340,7 +343,29 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     const monto = Number(prestSucForm.monto);
     if (!(monto > 0)) return alert('Monto inválido.');
     const origen = String(sucursal || '').toUpperCase();
-    if (!origen || origen === 'MAIN') return alert('Cambia a la tienda que otorga el préstamo (no MAIN).');
+
+    if (origen === 'MAIN') {
+      if (!esAdmin && !esGerente) return alert('Solo admin o gerente pueden generar vales desde MAIN.');
+      const res = await registrarEnvioMainATienda(
+        supabase,
+        {
+          sucursal_destino: prestSucForm.destino,
+          monto,
+          fecha: prestSucForm.fecha || hoyISO(),
+          notas: prestSucForm.notas.trim() || null,
+          area_corte: prestSucForm.areaCorte || 'abarrotes',
+          created_by: user?.nombre || null,
+        },
+        { nombreActor: user?.nombre, rolActor: user?.rol },
+      );
+      if (!res.ok) return alert(res.error);
+      alert(res.mensaje);
+      setPrestSucForm({ destino: '', monto: '', notas: '', fecha: hoyISO(), areaCorte: 'abarrotes' });
+      recargarTodo();
+      return;
+    }
+
+    if (!origen) return alert('Sucursal de origen inválida.');
     const res = await registrarPrestamoSucursal(supabase, {
       sucursal_origen: origen,
       sucursal_destino: prestSucForm.destino,
@@ -351,7 +376,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     });
     if (!res.ok) return alert(res.error);
     alert(`Préstamo a ${etiquetaTienda(prestSucForm.destino)} registrado. Queda pendiente de cobro (no va al corte).`);
-    setPrestSucForm({ destino: '', monto: '', notas: '', fecha: hoyISO() });
+    setPrestSucForm({ destino: '', monto: '', notas: '', fecha: hoyISO(), areaCorte: 'abarrotes' });
     recargarTodo();
   };
 
@@ -484,12 +509,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         </div>
       )}
 
-      {(sucursal === 'MAIN' || String(sucursal || '').toUpperCase() === 'MAIN') && (
+      {(esMain) && (
         <div className="card" style={{ borderLeft: '4px solid var(--brand-blue)', background: 'rgba(59,105,181,0.07)' }}>
           <strong>Estás en Central (MAIN)</strong>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
-            Los vales de las cajas (3B5, 3B7…) no aparecen aquí hasta que cambies la tienda activa. Ve a{' '}
-            <strong>Inicio</strong> y pulsa <strong>Cambiar de tienda</strong>, o usa el selector de sucursal arriba.
+            Aquí puedes generar un <strong>vale de envío de efectivo</strong> a una tienda (pestaña Préstamos).
+            Se carga al corte de esa tienda y <strong>no va a IE/contabilidad</strong>. No inyecta moneda a caja.
+            Los vales de consumo de cada sucursal se ven al cambiar de tienda en Inicio.
           </p>
         </div>
       )}
@@ -809,10 +835,21 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           </div>
 
           <div className="card">
-            <h3 style={{ margin: '0 0 0.75rem' }}>Préstamo a otra sucursal</h3>
+            <h3 style={{ margin: '0 0 0.75rem' }}>
+              {esMain ? 'Vale envío MAIN → tienda' : 'Préstamo a otra sucursal'}
+            </h3>
             <p className="muted" style={{ fontSize: '0.85rem' }}>
-              Presta efectivo a otra tienda. <strong>No se refleja en el corte</strong>; queda pendiente de cobro
-              hasta que se pague a <strong>{etiquetaTienda(sucursal)}</strong> (origen).
+              {esMain ? (
+                <>
+                  Registra el efectivo que MAIN manda a la tienda. Al generar se <strong>carga al corte</strong> elegido
+                  (baja caja). <strong>No se inyecta</strong> moneda y <strong>no va a IE/contabilidad</strong>.
+                </>
+              ) : (
+                <>
+                  Presta efectivo a otra tienda. <strong>No se refleja en el corte</strong>; queda pendiente de cobro
+                  hasta que se pague a <strong>{etiquetaTienda(sucursal)}</strong> (origen).
+                </>
+              )}
             </p>
             <div className="grid-2">
               <select
@@ -832,13 +869,26 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 value={prestSucForm.monto}
                 onChange={(e) => setPrestSucForm({ ...prestSucForm, monto: e.target.value })}
               />
+              {esMain && (
+                <select
+                  className="select"
+                  value={prestSucForm.areaCorte || 'abarrotes'}
+                  onChange={(e) => setPrestSucForm({ ...prestSucForm, areaCorte: e.target.value })}
+                >
+                  <option value="abarrotes">Corte Abarrotes</option>
+                  <option value="virtual">Corte Virtual</option>
+                  <option value="garage">Corte Garage</option>
+                </select>
+              )}
               <input
                 className="input"
                 placeholder="Notas"
                 value={prestSucForm.notas}
                 onChange={(e) => setPrestSucForm({ ...prestSucForm, notas: e.target.value })}
               />
-              <button type="button" className="btn btn-primary" onClick={guardarPrestamoSucursal}>Registrar préstamo</button>
+              <button type="button" className="btn btn-primary" onClick={guardarPrestamoSucursal}>
+                {esMain ? 'Generar vale y cargar al corte' : 'Registrar préstamo'}
+              </button>
             </div>
             <div className="table-wrap" style={{ marginTop: '1rem' }}>
               <table className="data">
@@ -856,12 +906,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 <tbody>
                   {prestamosSuc.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="muted">No hay préstamos entre sucursales.</td>
+                      <td colSpan={7} className="muted">
+                        {esMain ? 'No hay envíos MAIN registrados.' : 'No hay préstamos entre sucursales.'}
+                      </td>
                     </tr>
                   ) : (
                     prestamosSuc.map((p) => {
                       const esOrigen = p.sucursal_origen === String(sucursal || '').toUpperCase();
                       const pendiente = p.estado === 'pendiente_cobro';
+                      const esEnvioMain = p.sucursal_origen === 'MAIN' || p.tipo === 'main_envio';
                       return (
                         <tr key={p.id}>
                           <td>{p.fecha}</td>
@@ -869,9 +922,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                           <td style={{ fontWeight: 700 }}>{etiquetaTienda(p.sucursal_destino)}</td>
                           <td>{fmt(p.monto)}</td>
                           <td style={{ fontWeight: 700 }}>{fmt(p.saldo)}</td>
-                          <td>{etiquetaEstadoPrestamo(p)}</td>
+                          <td>
+                            {esEnvioMain && p.estado === 'liquidado'
+                              ? `Cargado corte${p.area_corte ? ` ${p.area_corte}` : ''}`
+                              : etiquetaEstadoPrestamo(p)}
+                          </td>
                           <td style={{ whiteSpace: 'nowrap' }}>
-                            {esOrigen && pendiente && (
+                            {!esEnvioMain && esOrigen && pendiente && (
                               <>
                                 <button
                                   type="button"
@@ -891,10 +948,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                                 </button>
                               </>
                             )}
-                            {!esOrigen && pendiente && (
+                            {!esEnvioMain && !esOrigen && pendiente && (
                               <span className="muted" style={{ fontSize: '0.8rem' }}>
                                 Pagar a {etiquetaTienda(p.sucursal_origen)}
                               </span>
+                            )}
+                            {esEnvioMain && (
+                              <span className="muted" style={{ fontSize: '0.8rem' }}>Sin IE</span>
                             )}
                           </td>
                         </tr>
@@ -904,7 +964,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 </tbody>
               </table>
             </div>
-            {prestamosSucPendientesCobro.length > 0 && (
+            {!esMain && prestamosSucPendientesCobro.length > 0 && (
               <p className="muted" style={{ margin: '0.75rem 0 0', fontSize: '0.82rem' }}>
                 {prestamosSucPendientesCobro.length} préstamo(s) pendiente(s) de cobro en esta tienda.
               </p>
