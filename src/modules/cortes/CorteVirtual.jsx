@@ -311,6 +311,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
           gastos: calc.gastosTotal,
           subtotal: calc.subtotal,
           caja: calc.cajaActual,
+          listaGastos: gastos,
         }}
       />
 
