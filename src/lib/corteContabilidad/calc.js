@@ -42,7 +42,7 @@ export function siguienteMonedaInicialTurnoVirtual(estado) {
   return monedaInicialTurnoEfectiva(estado);
 }
 
-/** Asegura moneda_inicial_turno en datos guardados antes de la separación morado/corte. */
+/** Asegura moneda_inicial_turno / base en datos guardados antes de la separación tope/corte. */
 export function normalizarEstadoVirtual(estado = {}) {
   const e = { ...estadoDefault('virtual'), ...estado };
   const raw = e.moneda_inicial_turno;
@@ -52,6 +52,13 @@ export function normalizarEstadoVirtual(estado = {}) {
     (!e._mi_turno_inicializado && round2(raw) === 0 && round2(e.moneda_inicial) > 0);
   if (sinTurnoExplicito && round2(e.moneda_inicial) > 0) {
     e.moneda_inicial_turno = round2(e.moneda_inicial);
+  }
+  if (
+    (e.moneda_turno_base == null || e.moneda_turno_base === '') &&
+    e.moneda_inicial_turno != null &&
+    e.moneda_inicial_turno !== ''
+  ) {
+    e.moneda_turno_base = round2(e.moneda_inicial_turno);
   }
   return e;
 }
@@ -67,8 +74,8 @@ export function ventasVirtualCorte(monedaInicial, monedaFinal, opts = {}) {
 
 /**
  * Virtual:
- * - moneda_inicial = moneda de la operación (visible en encabezado; fija hasta recolección)
- * - moneda_inicial_turno = moneda final del corte anterior
+ * - moneda_inicial = tope/referencia de la operación (encabezado morado; no se autoinyecta)
+ * - moneda_inicial_turno = moneda final del corte anterior (bloqueada; solo admin inyecta)
  * - venta = MI turno − MF
  * - subtotal = venta − gastos
  * - caja chica actual = caja chica anterior + subtotal
@@ -89,7 +96,17 @@ export function calcularVirtual(estado, gastos = []) {
   const cajaActual = valorManual(estado, 'caja_actual_manual', cajaActualCalc);
   const recoleccion = round2(estado.recoleccion ?? estado.recoleccion_turno);
   const tope = round2(estado.moneda_inicial);
-  const monedaInyectar = round2(Math.max(0, tope - mf));
+  const base = round2(
+    estado.moneda_turno_base != null && estado.moneda_turno_base !== ''
+      ? estado.moneda_turno_base
+      : mi,
+  );
+  const inyectada = Boolean(estado.moneda_inyectada) || Math.abs(mi - base) > 0.001;
+  const monedaInyectadaMonto = round2(
+    estado.moneda_inyectada_monto != null && estado.moneda_inyectada_monto !== ''
+      ? estado.moneda_inyectada_monto
+      : mi - base,
+  );
   return {
     venta,
     faltante: round2(estado.faltante),
@@ -102,12 +119,16 @@ export function calcularVirtual(estado, gastos = []) {
     fondo,
     monedaTurno: mi,
     monedaOperacion: tope,
+    monedaTurnoBase: base,
+    monedaInyectada: inyectada,
+    monedaInyectadaMonto,
     recoleccion,
     recoleccionSugerida: 0,
     recoleccionCalc: 0,
     total: subtotal,
     monedaTope: tope,
-    monedaInyectar,
+    // Ya no se autoinyecta tope − MF; la inyección es manual del admin.
+    monedaInyectar: 0,
   };
 }
 
@@ -127,33 +148,41 @@ export function cajaChicaAcumulada(estado, calc) {
   return round2(calc?.cajaActual ?? round2(estado?.caja_anterior) + round2(calc?.subtotal));
 }
 
-/** Tope / referencia de moneda (para inyección tras recolección). */
+/** Tope / referencia de la operación (encabezado). No se autoinyecta. */
 export function monedaTopeVirtual(estado) {
   return round2(estado?.moneda_inicial);
 }
 
-/** Moneda a inyectar = tope − moneda final (restablece float del próximo corte). */
-export function monedaAInyectarVirtual(estado, monedaFinal) {
-  const tope = monedaTopeVirtual(estado);
-  const mf = round2(monedaFinal != null ? monedaFinal : estado?.moneda_final);
-  return round2(Math.max(0, tope - mf));
+/** @deprecated La inyección es manual del admin sobre moneda_inicial_turno. */
+export function monedaAInyectarVirtual(_estado, _monedaFinal) {
+  return 0;
+}
+
+/** Moneda que queda en portal tras recolección = MF del corte (no el tope). */
+export function monedaTrasRecoleccionVirtual(estado) {
+  const mf = round2(estado?.moneda_final);
+  if (estado?.moneda_final_editada || mf > 0) return mf;
+  return monedaInicialTurnoEfectiva(estado);
 }
 
 /**
  * Tras recolección:
  * - caja chica → 0
- * - fondo se conserva
- * - moneda de operación / próximo corte = tope (moneda_inicial)
+ * - fondo y tope de operación se conservan (referencia)
+ * - MI del próximo corte = moneda final (NO se restablece al tope)
  */
-export function prepararTrasRecoleccionVirtual(estado, _calc, { monedaTope } = {}) {
-  const tope = monedaTope != null ? round2(monedaTope) : monedaTopeVirtual(estado);
-  const mi = tope > 0 ? tope : round2(estado.moneda_inicial);
+export function prepararTrasRecoleccionVirtual(estado) {
+  const tope = monedaTopeVirtual(estado);
+  const miSiguiente = monedaTrasRecoleccionVirtual(estado);
   return {
     ...estado,
     fondo: round2(estado.fondo),
     caja_anterior: 0,
-    moneda_inicial: mi,
-    moneda_inicial_turno: mi,
+    moneda_inicial: tope > 0 ? tope : round2(estado.moneda_inicial),
+    moneda_inicial_turno: miSiguiente,
+    moneda_turno_base: miSiguiente,
+    moneda_inyectada: false,
+    moneda_inyectada_monto: 0,
     moneda_final: 0,
     moneda_final_editada: false,
     precoleccion: 0,
@@ -170,7 +199,7 @@ export function prepararTrasRecoleccionVirtual(estado, _calc, { monedaTope } = {
   };
 }
 
-/** Tras cerrar corte: MI siguiente = MF; caja chica = caja anterior + subtotal. */
+/** Tras cerrar corte: MI siguiente = MF; caja chica = anterior + subtotal. */
 export function prepararTrasCierreVirtual(estado, calc) {
   const turnoSiguiente = siguienteMonedaInicialTurnoVirtual(estado);
   const cajaNueva = round2(
@@ -184,6 +213,9 @@ export function prepararTrasCierreVirtual(estado, calc) {
     moneda_final_editada: false,
     moneda_inicial: round2(estado.moneda_inicial),
     moneda_inicial_turno: turnoSiguiente,
+    moneda_turno_base: turnoSiguiente,
+    moneda_inyectada: false,
+    moneda_inyectada_monto: 0,
     recoleccion_turno: 0,
     recoleccion: 0,
     faltante: 0,
@@ -191,6 +223,25 @@ export function prepararTrasCierreVirtual(estado, calc) {
     venta_manual: '',
     subtotal_manual: '',
     caja_actual_manual: '',
+    _mi_turno_inicializado: true,
+  };
+}
+
+/** Admin inyecta moneda al portal: actualiza MI del corte y marca aviso visual. */
+export function aplicarInyeccionMonedaVirtual(estado, nuevaMi) {
+  const base = round2(
+    estado.moneda_turno_base != null && estado.moneda_turno_base !== ''
+      ? estado.moneda_turno_base
+      : estado.moneda_inicial_turno ?? estado.moneda_inicial,
+  );
+  const mi = round2(nuevaMi);
+  const diff = round2(mi - base);
+  const inyectada = Math.abs(diff) > 0.001;
+  return {
+    moneda_inicial_turno: mi,
+    moneda_turno_base: base,
+    moneda_inyectada: inyectada,
+    moneda_inyectada_monto: inyectada ? diff : 0,
     _mi_turno_inicializado: true,
   };
 }
@@ -259,6 +310,9 @@ export const ESTADO_VIRTUAL_DEFAULT = {
   fondo: 0,
   moneda_inicial: 0,
   moneda_inicial_turno: null,
+  moneda_turno_base: null,
+  moneda_inyectada: false,
+  moneda_inyectada_monto: 0,
   moneda_final: 0,
   moneda_final_editada: false,
   caja_anterior: 0,

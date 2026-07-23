@@ -98,9 +98,10 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       if ('comentarios' in filtrado && !puedeEditarCorteCampo(perm, 'comentarios')) return;
       if ('fondo' in filtrado && !(perm.fondo || perm.recoleccion)) return;
       if ('caja_anterior' in filtrado && !(perm.caja_anterior || perm.recoleccion)) return;
+      // MI del corte solo admin (inyección manual). Tope de operación: admin/recolector.
+      if ('moneda_inicial_turno' in filtrado && !perm.editarTodo) return;
       if (
         ('moneda_inicial' in filtrado ||
-          'moneda_inicial_turno' in filtrado ||
           'recoleccion' in filtrado ||
           'recoleccion_turno' in filtrado ||
           'precoleccion' in filtrado ||
@@ -253,7 +254,6 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       const mf = round2(estado.moneda_final);
       const mi = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
       const tope = monedaTopeVirtual(estado);
-      const monedaInyectar = monedaAInyectarVirtual(estado, mf);
       const payload = {
         sucursal_id: sucursal || 'MAIN',
         modulo,
@@ -278,8 +278,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
           gastos,
           gastos_total: calc.gastosTotal,
           subtotal: calc.subtotal,
+          caja_actual: calc.cajaActual,
           moneda_tope: tope,
-          moneda_inyectar: monedaInyectar,
+          moneda_inyectar: 0,
           formula_recoleccion: 'manual',
           tipo_cierre: 'recoleccion',
           comentarios: estado.comentarios || '',
@@ -293,7 +294,6 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       const nuevoEstado = prep(estado, calc, {
         monedaTope: tope,
         montoRecoleccion: calcRec,
-        monedaInyectar,
       });
       await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
       setEstado(nuevoEstado);
@@ -304,7 +304,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         ok: true,
         folio: payload.folio,
         recoleccion: calcRec,
-        monedaInyectar,
+        monedaInyectar: 0,
+        miSiguiente: nuevoEstado.moneda_inicial_turno,
         estadoImpresion: payload.detalle,
         gastosImpresion: gastos,
         calcImpresion: { ...calc },

@@ -29,12 +29,14 @@ export default function CampoCorte({
   hint,
   color,
   className = '',
+  inputClassName = '',
+  inputStyle = {},
 }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.8rem' }} className={className}>
       <span style={{ fontWeight: 700, color: color || 'var(--muted)' }}>{label}</span>
       <input
-        className={`input${editable ? ' corte-campo-editable' : ''}`}
+        className={`input${editable ? ' corte-campo-editable' : ''}${inputClassName ? ` ${inputClassName}` : ''}`}
         type="text"
         inputMode="decimal"
         autoComplete="off"
@@ -48,6 +50,7 @@ export default function CampoCorte({
           fontWeight: 700,
           textAlign: 'center',
           ...(editable ? {} : { opacity: 0.85, cursor: 'default', background: 'var(--surface)' }),
+          ...inputStyle,
         }}
       />
       {hint && <span className="muted" style={{ fontSize: '0.7rem' }}>{hint}</span>}

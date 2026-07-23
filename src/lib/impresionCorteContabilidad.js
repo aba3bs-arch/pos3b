@@ -96,8 +96,8 @@ function filasResumenModulo(data) {
     filas.push(['Moneda final', fmt(e.moneda_final)]);
     filas.push(['Venta efectivo', fmt(data.venta)]);
     if (e.recoleccion || e.recoleccion_turno) filas.push(['Recolección', fmt(e.recoleccion ?? e.recoleccion_turno)]);
-    if (e.moneda_inyectar != null && e.tipo_cierre === 'recoleccion') {
-      filas.push(['Moneda inyectada', fmt(e.moneda_inyectar)]);
+    if (e.moneda_inyectada) {
+      filas.push(['Moneda inyectada (admin)', fmt(e.moneda_inyectada_monto)]);
     }
   } else if (mod === 'abarrotes') {
     filas.push(['Venta total', fmt(e.venta)]);
@@ -247,9 +247,9 @@ export function htmlRecoleccionVirtual(data) {
   const gastos = round2(data.gastos_total);
   const venta = round2(data.venta ?? (mi - mf));
   const rec = round2(data.recoleccion ?? e.recoleccion ?? 0);
-  const iny = round2(e.moneda_inyectar);
   const subtotal = round2(data.subtotal ?? (venta - gastos));
   const cajaActual = round2(data.caja_actual ?? (cajaAnt + subtotal));
+  const miSiguiente = mf > 0 || e.moneda_final_editada ? mf : mi;
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recolección Virtual</title><style>
     body{font-family:Arial,sans-serif;font-size:12px;margin:12px;max-width:420px;color:#111}
@@ -280,7 +280,7 @@ export function htmlRecoleccionVirtual(data) {
     </table>
     <div class="sep"></div>
     <table>
-      <tr><td class="op">Moneda operación</td><td class="r op">${fmt(miOp)}</td></tr>
+      <tr><td class="op">Moneda tope (ref)</td><td class="r op">${fmt(miOp)}</td></tr>
       <tr><td>Fondo fijo</td><td class="r">${fmt(e.fondo)}</td></tr>
       <tr><td>Caja chica (anterior)</td><td class="r">${fmt(cajaAnt)}</td></tr>
       <tr><td>Moneda inicial (corte)</td><td class="r">${fmt(mi)}</td></tr>
@@ -290,7 +290,7 @@ export function htmlRecoleccionVirtual(data) {
       <tr><td>Subtotal</td><td class="r">${fmt(subtotal)}</td></tr>
       <tr><td>Caja chica actual</td><td class="r">${fmt(cajaActual)}</td></tr>
       <tr><td class="rec">Recolección</td><td class="r rec">${fmt(rec)}</td></tr>
-      <tr><td>Moneda inyectada (próximo corte)</td><td class="r">${fmt(iny)}</td></tr>
+      <tr><td>Próxima MI (portal)</td><td class="r">${fmt(miSiguiente)}</td></tr>
       <tr><td>Caja chica nueva</td><td class="r">${fmt(0)}</td></tr>
     </table>
     <div class="sep"></div>
@@ -301,7 +301,7 @@ export function htmlRecoleccionVirtual(data) {
     </table>
     ${data.comentarios ? `<div class="sep"></div><p class="muted"><strong>Comentarios:</strong> ${esc(data.comentarios)}</p>` : ''}
     <div class="sep"></div>
-    <p class="muted" style="text-align:center">Solo la recolección entra a IE. Nómina: consumo, recargas, anticipos y faltante (puede arrastrarse a varios pagos).</p>
+    <p class="muted" style="text-align:center">Solo la recolección entra a IE. Inyección de moneda: solo admin en el campo Moneda inicial.</p>
   </body></html>`;
 }
 
