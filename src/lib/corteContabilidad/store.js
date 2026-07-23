@@ -73,9 +73,10 @@ export async function guardarEstadoCorte(supabase, sucursal, modulo, estado) {
 }
 
 export async function listarGastosTurno(supabase, sucursal, modulo) {
+  const sid = sucursal || 'MAIN';
   if (!supabase) {
     try {
-      const raw = localStorage.getItem(lsKey(sucursal, modulo, 'gastos'));
+      const raw = localStorage.getItem(lsKey(sid, modulo, 'gastos'));
       return { data: raw ? JSON.parse(raw) : [] };
     } catch {
       return { data: [] };
@@ -84,19 +85,27 @@ export async function listarGastosTurno(supabase, sucursal, modulo) {
   const { data, error } = await supabase
     .from('cortes_contabilidad_gastos')
     .select('*')
-    .eq('sucursal_id', sucursal || 'MAIN')
+    .eq('sucursal_id', sid)
     .eq('modulo', modulo)
-    .eq('cerrado', false)
     .order('created_at', { ascending: true });
   if (error && faltaTabla(error, 'cortes_contabilidad_gastos')) {
     try {
-      const raw = localStorage.getItem(lsKey(sucursal, modulo, 'gastos'));
+      const raw = localStorage.getItem(lsKey(sid, modulo, 'gastos'));
       return { data: raw ? JSON.parse(raw) : [], aviso: AVISO_FALTA_CORTES };
     } catch {
       return { data: [], aviso: AVISO_FALTA_CORTES };
     }
   }
-  return { data: data || [], error: error?.message || null };
+  if (error) return { data: [], error: error.message };
+
+  // Solo gastos del turno abierto (cerrado !== true; incluye null legacy).
+  const abiertos = (data || []).filter((g) => g.cerrado !== true);
+  try {
+    localStorage.setItem(lsKey(sid, modulo, 'gastos'), JSON.stringify(abiertos));
+  } catch {
+    /* ignore */
+  }
+  return { data: abiertos, error: null };
 }
 
 export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts = {}) {
@@ -235,19 +244,129 @@ export async function actualizarGastoTurno(supabase, id, patch, sucursal, modulo
   return { ok: true };
 }
 
-export async function limpiarGastosTurno(supabase, sucursal, modulo) {
-  if (!supabase) {
-    localStorage.setItem(lsKey(sucursal, modulo, 'gastos'), '[]');
-    return { ok: true };
+/**
+ * Cierra los gastos del turno abierto para que el siguiente corte arranque en $0.
+ * Los registros permanecen (historial / nómina) con cerrado=true.
+ * @param {string[]|null} idsOpcionales — IDs en memoria del corte actual (más fiable).
+ */
+export async function limpiarGastosTurno(supabase, sucursal, modulo, idsOpcionales = null) {
+  const sid = sucursal || 'MAIN';
+  try {
+    localStorage.setItem(lsKey(sid, modulo, 'gastos'), '[]');
+  } catch {
+    /* ignore */
   }
-  const { error } = await supabase
+
+  if (!supabase) {
+    return { ok: true, count: 0, soloLocal: true };
+  }
+
+  const idsSet = new Set(
+    (idsOpcionales || []).map((id) => String(id)).filter((id) => id && !id.startsWith('local-')),
+  );
+
+  // Captura también cualquier gasto abierto que no esté en memoria (otro dispositivo / race).
+  const { data: rows, error: eList } = await supabase
+    .from('cortes_contabilidad_gastos')
+    .select('id, cerrado')
+    .eq('sucursal_id', sid)
+    .eq('modulo', modulo);
+
+  if (eList) {
+    if (faltaTabla(eList, 'cortes_contabilidad_gastos')) {
+      return { ok: true, count: 0, aviso: AVISO_FALTA_CORTES, soloLocal: true };
+    }
+    return { ok: false, error: eList.message, count: 0 };
+  }
+
+  for (const g of rows || []) {
+    if (g.cerrado !== true) idsSet.add(String(g.id));
+  }
+
+  const ids = [...idsSet];
+  if (!ids.length) return { ok: true, count: 0 };
+
+  const { data: updated, error } = await supabase
     .from('cortes_contabilidad_gastos')
     .update({ cerrado: true })
-    .eq('sucursal_id', sucursal || 'MAIN')
-    .eq('modulo', modulo)
-    .eq('cerrado', false);
-  if (error) return { ok: false, error: error.message };
-  return { ok: true };
+    .in('id', ids)
+    .select('id');
+
+  if (error) return { ok: false, error: error.message, count: 0 };
+
+  // Verificación: no debe quedar ninguno abierto en esta sucursal/módulo.
+  const { data: quedan, error: eCheck } = await supabase
+    .from('cortes_contabilidad_gastos')
+    .select('id, cerrado')
+    .eq('sucursal_id', sid)
+    .eq('modulo', modulo);
+
+  if (eCheck) return { ok: false, error: eCheck.message, count: (updated || []).length };
+
+  const abiertos = (quedan || []).filter((g) => g.cerrado !== true);
+  if (abiertos.length > 0) {
+    // Segundo intento por si el primer update no aplicó a todos.
+    const retryIds = abiertos.map((g) => g.id);
+    const { error: e2 } = await supabase
+      .from('cortes_contabilidad_gastos')
+      .update({ cerrado: true })
+      .in('id', retryIds)
+      .select('id');
+    if (e2) {
+      return {
+        ok: false,
+        error: `Quedaron ${abiertos.length} gastos abiertos: ${e2.message}`,
+        count: (updated || []).length,
+      };
+    }
+    return { ok: true, count: ids.length, retried: retryIds.length };
+  }
+
+  return { ok: true, count: (updated || ids).length };
+}
+
+/**
+ * Cierra gastos huérfanos: siguen abiertos pero ya están en el detalle de un cierre.
+ * Corrige turnos donde limpiarGastosTurno falló o se ignoró el error.
+ */
+export async function cerrarGastosHuerfanosTrasCierre(supabase, sucursal, modulo) {
+  const sid = sucursal || 'MAIN';
+  if (!supabase) return { ok: true, count: 0 };
+
+  const [{ data: abiertos, error: eAb }, { data: cierres, error: eCi }] = await Promise.all([
+    supabase
+      .from('cortes_contabilidad_gastos')
+      .select('id, cerrado')
+      .eq('sucursal_id', sid)
+      .eq('modulo', modulo),
+    supabase
+      .from('cortes_contabilidad_cierres')
+      .select('id, detalle, created_at')
+      .eq('sucursal_id', sid)
+      .eq('modulo', modulo)
+      .order('created_at', { ascending: false })
+      .limit(20),
+  ]);
+
+  if (eAb || eCi) return { ok: false, error: (eAb || eCi).message, count: 0 };
+
+  const idsEnCierres = new Set();
+  for (const c of cierres || []) {
+    const lista = c?.detalle?.gastos;
+    if (!Array.isArray(lista)) continue;
+    for (const g of lista) {
+      if (g?.id) idsEnCierres.add(String(g.id));
+    }
+  }
+
+  const huerfanos = (abiertos || []).filter(
+    (g) => g.cerrado !== true && idsEnCierres.has(String(g.id)),
+  );
+  if (!huerfanos.length) return { ok: true, count: 0 };
+
+  const ids = huerfanos.map((g) => g.id);
+  const limpia = await limpiarGastosTurno(supabase, sid, modulo, ids);
+  return { ok: limpia.ok, count: ids.length, error: limpia.error };
 }
 
 export async function peekFolio(supabase, sucursal, modulo) {
