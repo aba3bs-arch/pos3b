@@ -184,6 +184,7 @@ export default function CorteVirtualDesgloseModal({
                       <td colSpan={6} style={{ padding: '0.5rem 0.75rem 0.85rem', background: 'rgba(108,52,131,0.04)' }}>
                         <DetalleGastosTurno
                           gastos={corteActual.listaGastos || []}
+                          cajeroFallback={corteActual.usuario || ''}
                           titulo={`Gastos del corte abierto · ${corteActual.folio || ''}`}
                         />
                       </td>
@@ -246,6 +247,7 @@ export default function CorteVirtualDesgloseModal({
                         <td colSpan={8} style={{ padding: '0.5rem 0.75rem 0.85rem', background: 'rgba(108,52,131,0.04)' }}>
                           <DetalleGastosTurno
                             gastos={listaGastos}
+                            cajeroFallback={h.usuario_nombre || ''}
                             titulo={`Gastos · ${h.folio || tipo} · ${h.usuario_nombre || ''}`}
                           />
                         </td>
@@ -295,12 +297,13 @@ function BotonGastos({ monto, activo, onClick, disabled }) {
   );
 }
 
-function DetalleGastosTurno({ gastos = [], titulo }) {
+function DetalleGastosTurno({ gastos = [], titulo, cajeroFallback = '' }) {
   if (!gastos.length) {
     return <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Sin detalle de gastos guardado en este cierre.</p>;
   }
 
   const total = round2(gastos.reduce((a, g) => a + (Number(g.monto) || 0), 0));
+  const cajeroDef = String(cajeroFallback || '').trim();
 
   return (
     <div>
@@ -311,8 +314,7 @@ function DetalleGastosTurno({ gastos = [], titulo }) {
             <th>Hora</th>
             <th>Cat.</th>
             <th>Sub</th>
-            <th>Empleado</th>
-            <th>Generó</th>
+            <th>Empleado / Cajero</th>
             <th>Nota</th>
             <th style={{ textAlign: 'right' }}>Monto</th>
           </tr>
@@ -322,22 +324,22 @@ function DetalleGastosTurno({ gastos = [], titulo }) {
             const hora = g.created_at
               ? new Date(g.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
               : '—';
-            const emp = String(g.usuario_nombre || '').trim() || '—';
-            const gen = String(g.solicitado_por || '').trim() || '—';
+            // Nómina → empleado asignado; si no, quién capturó / cajero del cierre.
+            const emp =
+              String(g.usuario_nombre || g.solicitado_por || cajeroDef || '').trim() || '—';
             return (
               <tr key={g.id || `${g.categoria}-${idx}`}>
                 <td style={{ whiteSpace: 'nowrap' }}>{hora}</td>
                 <td>{g.categoria || '—'}</td>
                 <td className="muted">{g.subcategoria || '—'}</td>
-                <td style={{ fontWeight: emp !== '—' ? 700 : 400 }}>{emp}</td>
-                <td className="muted">{gen}</td>
+                <td style={{ fontWeight: 700 }}>{emp}</td>
                 <td className="muted">{g.comentario || '—'}</td>
                 <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtCorte(g.monto)}</td>
               </tr>
             );
           })}
           <tr>
-            <td colSpan={6} style={{ textAlign: 'right', fontWeight: 800 }}>Total</td>
+            <td colSpan={5} style={{ textAlign: 'right', fontWeight: 800 }}>Total</td>
             <td style={{ textAlign: 'right', fontWeight: 800, color: ACCENT }}>{fmtCorte(total)}</td>
           </tr>
         </tbody>
