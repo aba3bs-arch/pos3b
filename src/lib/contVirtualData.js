@@ -250,6 +250,12 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     if (!ingresosPorTienda[t]) {
       ingresosPorTienda[t] = { id: t, label: etiquetaTienda(t), ingresos: 0, cierres: 0, recolecciones: 0 };
     }
+    // Cierres Virtual: solo contadores. El ingreso a IE es únicamente la recolección.
+    if (mod === 'virtual') {
+      porCuenta[mod].cierres += 1;
+      ingresosPorTienda[t].cierres += 1;
+      continue;
+    }
     const venta = Number(c.ventas) || Number(c.detalle?.venta) || 0;
     if (!(venta > 0)) {
       porCuenta[mod].cierres += 1;

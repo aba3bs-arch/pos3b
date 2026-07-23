@@ -3,21 +3,23 @@ import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPane
 import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import CampoCorte from '../../components/corteContabilidad/CampoCorte.jsx';
-import ResumenOperacionCorte from '../../components/corteContabilidad/ResumenOperacionCorte.jsx';
 import {
   calcularVirtual,
-  cajaChicaAcumulada,
   cajaVirtualEnNegativo,
-  monedaAInyectarVirtual,
   monedaInicialTurnoEfectiva,
   monedaRecolectorRef,
-  monedaTopeVirtual,
   prepararTrasRecoleccionVirtual,
+  recoleccionVirtualExcel,
   round2,
   siguienteMonedaInicialTurnoVirtual,
 } from '../../lib/corteContabilidad/calc.js';
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
-import { datosImpresionCorteActual, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
+import {
+  datosImpresionCorteActual,
+  datosImpresionRecoleccionVirtual,
+  imprimirCorteContabilidad,
+  imprimirRecoleccionVirtual,
+} from '../../lib/impresionCorteContabilidad.js';
 import { etiquetaTipoCierre, puedeEditarCorteCampo } from '../../lib/corteContabilidad/permisos.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 import { etiquetaTienda } from '../../constants/sucursales.js';
@@ -27,6 +29,26 @@ const COLOR = '#8e44ad';
 function esCierreTurno(h) {
   const t = h?.detalle?.tipo_cierre;
   return t !== 'recoleccion' && t !== 'actualizacion';
+}
+
+function FilaExcel({ label, value, highlight, bold }) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '0.4rem 0.55rem',
+        borderBottom: '1px solid var(--border, #e5e7eb)',
+        background: highlight ? '#111' : bold ? 'rgba(225,153,41,0.12)' : 'transparent',
+        color: highlight ? '#fff' : 'inherit',
+        fontWeight: highlight || bold ? 800 : 500,
+      }}
+    >
+      <span style={{ fontSize: '0.85rem' }}>{label}</span>
+      <span style={{ fontSize: highlight ? '1.05rem' : '0.95rem' }}>{value}</span>
+    </div>
+  );
 }
 
 export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
@@ -46,6 +68,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
       caja_actual_manual: '',
       moneda_inicial: estado.moneda_inicial,
       moneda_inicial_turno: turnoSiguiente,
+      corte_reabierto_id: null,
       _mi_turno_inicializado: true,
     };
   }, []);
@@ -84,66 +107,87 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
   });
 
   const [corteAnteriorId, setCorteAnteriorId] = useState('');
-  const [monedaFinalAnterior, setMonedaFinalAnterior] = useState('');
+  const [montoRecOverride, setMontoRecOverride] = useState('');
 
   const cortesAnteriores = useMemo(() => (historial || []).filter(esCierreTurno), [historial]);
   const monedaReferencia = monedaRecolectorRef(estado);
   const monedaInicioCorte = monedaInicialTurnoEfectiva(estado);
-  const cajaAcumulada = cajaChicaAcumulada(estado, calc);
-  const monedaTope = monedaTopeVirtual(estado);
-  const monedaInyectar = monedaAInyectarVirtual(estado, estado.precoleccion);
   const cajaNegativa = cajaVirtualEnNegativo(estado, calc);
-  const monedaSobreInicial =
-    estado.moneda_final_editada && round2(estado.moneda_final) > monedaInicioCorte + 0.001;
+  const recCalc = recoleccionVirtualExcel(estado, calc);
+  const recMostrada = montoRecOverride !== '' ? round2(montoRecOverride) : recCalc;
 
-  const seleccionarCorteAnterior = (id) => {
-    setCorteAnteriorId(id);
-    const h = cortesAnteriores.find((x) => String(x.id) === String(id));
-    setMonedaFinalAnterior(h?.detalle?.moneda_final ?? '');
+  const abrirCorteAnterior = () => {
+    if (!corteAnteriorId) return alert('Selecciona un corte del historial.');
+    const h = cortesAnteriores.find((x) => String(x.id) === String(corteAnteriorId));
+    if (!h) return;
+    const d = h.detalle || {};
+    const mfPrev = round2(d.moneda_final);
+    if (!(mfPrev > 0) && !d.moneda_final_editada) {
+      return alert('Ese corte no tiene moneda final capturada.');
+    }
+    if (!confirm(
+      `¿Abrir segundo corte del turno a partir de ${h.folio}?\n\n` +
+        `Moneda inicial del nuevo corte = moneda final del anterior (${fmtCorte(mfPrev)}).\n` +
+        `Los gastos del periodo se conservan hasta la recolección.`,
+    )) return;
+    patchEstado({
+      moneda_inicial_turno: mfPrev,
+      moneda_final: 0,
+      moneda_final_editada: false,
+      caja_anterior: round2(d.caja_anterior ?? estado.caja_anterior),
+      fondo: d.fondo != null ? d.fondo : estado.fondo,
+      corte_reabierto_id: h.id,
+      comentarios: '',
+      _mi_turno_inicializado: true,
+    });
+    alert(`Corte anterior ${h.folio} abierto. Puede cerrar un segundo corte del mismo turno.`);
   };
 
   const confirmarCierre = () => {
     if (!estado.moneda_final_editada && perm.moneda_final) {
-      if (!confirm('No capturó moneda final. Las ventas del turno se registrarán en $0.00.\n\n¿Continuar?')) return;
+      if (!confirm('No capturó moneda final. La venta del turno quedará en $0.00.\n\n¿Continuar?')) return;
     }
     const msg =
       `¿Cerrar corte virtual?\n\n` +
       `Tienda: ${etiquetaTienda(sucursal)}\n` +
-      `Moneda inicial del corte: ${fmtCorte(monedaInicioCorte)}\n` +
+      `Moneda inicial: ${fmtCorte(monedaInicioCorte)}\n` +
       `Moneda final: ${fmtCorte(estado.moneda_final)}\n` +
-      `Venta efectivo del turno: ${fmtCorte(calc.venta)}\n` +
-      `Caja chica actual (acumulada): ${fmtCorte(calc.cajaActual)}\n\n` +
-      `La moneda final pasará al siguiente turno.\n` +
-      `La caja acumulada se arrastra al siguiente corte.`;
+      `Venta efectivo: ${fmtCorte(calc.venta)}\n` +
+      `Gastos: ${fmtCorte(calc.gastosTotal)}\n\n` +
+      `Este cierre NO va a IE. Solo la recolección entra a contabilidad.\n` +
+      `Puede abrir otro corte del mismo turno desde el historial.`;
     if (confirm(msg)) cerrarCorte();
   };
 
   const confirmarRecoleccion = async () => {
-    const montoRec = round2(estado.recoleccion ?? estado.recoleccion_turno);
-    const tope = monedaTopeVirtual(estado);
-    const inyectar = monedaAInyectarVirtual(estado, estado.precoleccion);
-    const monOp = tope > 0 ? tope : round2(estado.precoleccion);
+    const monto = recMostrada;
     const msg =
       `¿Registrar recolección?\n\n` +
-      `Recolector: ${user?.nombre || '—'}\n` +
-      `Moneda final recolección: ${fmtCorte(estado.precoleccion)}\n` +
-      `Recolección en efectivo (ingreso IE): ${fmtCorte(montoRec)}\n` +
-      `Moneda inicial (tope): ${fmtCorte(tope)}\n` +
-      `Inyectar a sucursal: ${fmtCorte(inyectar)}\n` +
-      `(no es ingreso · el fondo fijo no aplica)\n` +
-      `Caja chica del periodo: ${fmtCorte(cajaAcumulada)}\n\n` +
-      `Se recoge el efectivo y el periodo reinicia en ${fmtCorte(0)}.\n` +
-      `Moneda de referencia e inicio de operación: ${fmtCorte(monOp)}.\n` +
-      `Los gastos del periodo quedan registrados en historial y nómina.`;
+      `Fórmula: Moneda inicial − Moneda final − Gastos\n` +
+      `${fmtCorte(monedaInicioCorte)} − ${fmtCorte(estado.moneda_final)} − ${fmtCorte(calc.gastosTotal)}\n` +
+      `= ${fmtCorte(monto)}\n\n` +
+      `Solo este monto va a IE VIRTUAL.\n` +
+      `Se imprimirá el ticket de recolección (gastos por cajero).`;
     if (!confirm(msg)) return;
-    const res = await registrarRecoleccion({
-      corteAnteriorId: corteAnteriorId || null,
-      monedaFinalAnterior: corteAnteriorId ? monedaFinalAnterior : null,
-    });
-    if (res?.ok) {
-      setCorteAnteriorId('');
-      setMonedaFinalAnterior('');
+    const res = await registrarRecoleccion({ montoRecoleccion: monto });
+    if (!res?.ok) {
+      if (res?.error) alert(res.error);
+      return;
     }
+    setMontoRecOverride('');
+    setCorteAnteriorId('');
+    imprimirRecoleccionVirtual(
+      datosImpresionRecoleccionVirtual({
+        sucursal,
+        folio: res.folio,
+        user,
+        estado: res.estadoImpresion,
+        gastos: res.gastosImpresion,
+        calc: res.calcImpresion,
+        recoleccion: res.recoleccion,
+      }),
+    );
+    alert(`Recolección ${fmtCorte(res.recoleccion)} registrada e impresa.\nIngreso único en IE VIRTUAL.`);
   };
 
   const irPrestamoArea = () => {
@@ -154,13 +198,12 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
   const aplicarReferenciaMoneda = () => {
     if (!perm.recoleccion && !perm.editarTodo) return alert('Solo el administrador o recolector puede ajustar la moneda de referencia.');
     const ref = round2(estado.moneda_inicial);
-    if (!confirm(`¿Usar ${fmtCorte(ref)} como moneda de referencia (morado) e inicio de turno?\n\nNo retira efectivo; solo corrige la referencia.`)) return;
+    if (!confirm(`¿Usar ${fmtCorte(ref)} como moneda de referencia e inicio de turno?`)) return;
     patchEstado({
       moneda_inicial: ref,
       moneda_inicial_turno: ref,
       _mi_turno_inicializado: true,
     });
-    alert('Moneda de referencia actualizada.');
   };
 
   const puedeMonedaFinal = puedeEditarCorteCampo(perm, 'moneda_final');
@@ -180,20 +223,26 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
           <div>
             <h3 style={{ margin: 0, color: COLOR }}>Corte Virtual</h3>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-              Módulo contable independiente del POS · Folio {folio} · {turno}
+              Modelo Excel · Folio {folio} · {turno}
+              {estado.corte_reabierto_id ? ' · 2.º corte del turno' : ''}
             </p>
           </div>
-          {puedeCerrarCorteTienda && (
-            <button type="button" className="btn btn-primary" onClick={confirmarCierre} disabled={cargando}>
-              Cerrar corte · {etiquetaTienda(sucursal)}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            {puedeCerrarCorteTienda && (
+              <button type="button" className="btn btn-primary" onClick={confirmarCierre} disabled={cargando}>
+                Cerrar corte · {etiquetaTienda(sucursal)}
+              </button>
+            )}
+            <button type="button" className="btn btn-ghost" onClick={imprimirBorrador} disabled={cargando}>
+              Imprimir corte
             </button>
-          )}
-          <button type="button" className="btn btn-ghost" onClick={imprimirBorrador} disabled={cargando}>
-            Imprimir corte
-          </button>
+          </div>
         </div>
         {aviso && <p style={{ margin: '0.75rem 0 0', fontSize: '0.85rem', color: 'var(--brand-gold)' }}>{aviso}</p>}
         <CorteSucursalAviso sucursal={sucursal} user={user} />
+        <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
+          Los cierres de cajero <strong>no</strong> van a IE. Solo la <strong>recolección</strong> entra a contabilidad.
+        </p>
       </div>
 
       {cajaNegativa && (
@@ -210,11 +259,9 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
           }}
         >
           <div>
-            <div style={{ fontWeight: 800, color: 'var(--danger)' }}>Caja chica en negativo</div>
+            <div style={{ fontWeight: 800, color: 'var(--danger)' }}>Caja / moneda en negativo</div>
             <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-              {monedaSobreInicial
-                ? 'La moneda final supera la moneda inicial del corte (premio sin fondos). Solicite préstamo de área.'
-                : 'Revise gastos o solicite préstamo de área.'}
+              Revise moneda final o gastos, o solicite préstamo de área.
             </p>
           </div>
           <button type="button" className="btn btn-primary" onClick={irPrestamoArea} disabled={!onNavigate}>
@@ -223,173 +270,141 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         </div>
       )}
 
-      <div
-        className="card"
-        style={{
-          textAlign: 'center',
-          background: 'linear-gradient(135deg, rgba(142,68,173,0.12), rgba(142,68,173,0.04))',
-          border: '2px solid rgba(142,68,173,0.35)',
-        }}
-      >
-        <div className="muted" style={{ fontSize: '0.8rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          Moneda inicial de referencia
-        </div>
-        <div style={{ fontSize: '2.4rem', fontWeight: 800, color: COLOR, margin: '0.25rem 0' }}>{fmtCorte(monedaReferencia)}</div>
-        <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0' }}>
-          Fijada por el recolector en recolección · no cambia al cerrar turno
+      <div className="card" style={{ border: `2px solid rgba(142,68,173,0.35)` }}>
+        <h4 style={{ margin: '0 0 0.5rem', color: COLOR, textAlign: 'center' }}>MONEDA VIRTUAL</h4>
+        <FilaExcel label="Fondo" value={fmtCorte(estado.fondo)} />
+        <FilaExcel label="Caja chica" value={fmtCorte(estado.caja_anterior)} />
+        <FilaExcel label="Moneda inicial" value={fmtCorte(monedaInicioCorte)} bold />
+        <FilaExcel label="Moneda final" value={fmtCorte(estado.moneda_final)} bold />
+        <FilaExcel label="Venta-Efvo" value={fmtCorte(calc.venta)} bold />
+        <FilaExcel label="Gastos" value={fmtCorte(calc.gastosTotal)} bold />
+        <FilaExcel label="Faltante" value={fmtCorte(estado.faltante)} />
+        <FilaExcel label="RECOLECCIÓN" value={fmtCorte(recMostrada)} highlight />
+        <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.75rem', textAlign: 'center' }}>
+          Recolección = Moneda inicial − Moneda final − Gastos
         </p>
-        {perm.recoleccion && (
-          <div style={{ maxWidth: 320, margin: '0.75rem auto 0', textAlign: 'left' }}>
-            <CampoCorte
-              label="Moneda de referencia (morado)"
-              value={estado.moneda_inicial ?? ''}
-              editable
-              hint="Corrección manual de referencia"
-              onChange={(v) => patchEstado({ moneda_inicial: v })}
-            />
-            <button type="button" className="btn btn-ghost" style={{ marginTop: '0.35rem', width: '100%' }} onClick={aplicarReferenciaMoneda} disabled={cargando}>
-              Aplicar referencia al turno
-            </button>
-          </div>
-        )}
-        <ResumenOperacionCorte venta={calc.venta} gastos={calc.gastosTotal} ventaNeta={calc.ventaNeta} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
         <div className="card">
-          <h4 style={{ margin: '0 0 0.75rem' }}>Moneda y venta</h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }} data-corte-form="virtual-moneda">
+          <h4 style={{ margin: '0 0 0.75rem' }}>Captura</h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
             <CampoCorte
               label="Fondo fijo"
               value={estado.fondo ?? 0}
               editable={Boolean(perm.editarTodo)}
-              hint="Solo cambio y premios chicos · no es ingreso ni afecta recolección / IE VIRTUAL"
+              hint="Cambio / premios chicos · no es ingreso IE"
               onChange={(v) => patchEstado({ fondo: v })}
             />
             <CampoCorte
-              label="Caja chica anterior (+)"
+              label="Caja chica"
               value={estado.caja_anterior ?? 0}
               editable={Boolean(perm.caja_anterior || perm.editarTodo)}
-              hint="Ventas acumuladas de turnos anteriores (sin gastos del turno previo)"
               onChange={(v) => patchEstado({ caja_anterior: v })}
             />
+            <CampoCorte
+              label="Moneda inicial (referencia)"
+              value={monedaReferencia}
+              editable={false}
+              hint="Fijada por recolector · no cambia al cerrar turno"
+            />
+            {perm.recoleccion && (
+              <>
+                <CampoCorte
+                  label="Ajustar moneda de referencia"
+                  value={estado.moneda_inicial ?? ''}
+                  editable
+                  onChange={(v) => patchEstado({ moneda_inicial: v })}
+                />
+                <button type="button" className="btn btn-ghost" onClick={aplicarReferenciaMoneda} disabled={cargando}>
+                  Aplicar referencia al turno
+                </button>
+              </>
+            )}
             <CampoCorte
               label="Moneda inicial del corte"
               value={monedaInicioCorte}
               editable={false}
-              hint="Arranca con referencia del recolector · cada cierre pasa la moneda final al siguiente turno"
+              hint="Del recolector o del corte anterior reabierto"
             />
-            {!perm.recoleccion && (
-              <CampoCorte
-                label="Moneda final"
-                value={estado.moneda_final ?? ''}
-                editable={puedeMonedaFinal}
-                hint="Efectivo al cierre del turno · pasa a ser moneda inicial del siguiente turno"
-                onChange={(v) => patchEstado({ moneda_final: v, moneda_final_editada: true })}
-              />
-            )}
-            {perm.guardar && perm.recoleccion && (
-              <CampoCorte
-                label="Moneda final (mi turno)"
-                value={estado.moneda_final ?? ''}
-                editable={puedeMonedaFinal}
-                hint="Moneda al cerrar tu turno como cajero"
-                onChange={(v) => patchEstado({ moneda_final: v, moneda_final_editada: true })}
-              />
-            )}
-            <div style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(22,160,133,0.1)', borderRadius: 8 }}>
-              <div className="muted" style={{ fontSize: '0.75rem' }}>VENTA EFECTIVO (turno actual)</div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: calc.venta < 0 ? 'var(--danger)' : '#16a085' }}>{fmtCorte(calc.venta)}</div>
-              <div className="muted" style={{ fontSize: '0.7rem' }}>Moneda inicial del corte − moneda final</div>
-            </div>
-
-            {perm.recoleccion && (
-              <div
-                style={{
-                  marginTop: '0.5rem',
-                  padding: '0.75rem',
-                  borderRadius: 8,
-                  border: '2px solid rgba(142,68,173,0.35)',
-                  background: 'rgba(142,68,173,0.06)',
-                }}
-                data-corte-form="virtual-recoleccion"
-              >
-                <div className="muted" style={{ fontSize: '0.75rem', fontWeight: 700, marginBottom: '0.5rem', color: COLOR }}>
-                  RECOLECCIÓN VIRTUAL
-                </div>
-
-                {cortesAnteriores.length > 0 && (
-                  <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.8rem' }}>
-                    <span style={{ fontWeight: 700, display: 'block', marginBottom: '0.2rem' }}>Corte anterior (para recolección)</span>
-                    <select
-                      className="select"
-                      value={corteAnteriorId}
-                      onChange={(e) => seleccionarCorteAnterior(e.target.value)}
-                    >
-                      <option value="">— Turno abierto / sin seleccionar —</option>
-                      {cortesAnteriores.map((h) => (
-                        <option key={h.id} value={h.id}>
-                          {h.folio} · {h.usuario_nombre || '—'} · venta {fmtCorte(h.ventas)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-
-                {corteAnteriorId && (
-                  <CampoCorte
-                    label="Moneda final del corte anterior"
-                    value={monedaFinalAnterior}
-                    editable
-                    hint="Actualice la moneda final tras retirar efectivo del periodo anterior"
-                    onChange={(v) => setMonedaFinalAnterior(v)}
-                  />
-                )}
-
-                <CampoCorte
-                  label="Moneda final recolección"
-                  value={estado.precoleccion ?? ''}
-                  editable
-                  hint="Moneda que queda en caja al recolectar · se resta de la moneda inicial para calcular cuánto inyectar (el fondo fijo no aplica)"
-                  onChange={(v) => patchEstado({ precoleccion: v, _precoleccion_editada: true })}
-                />
-                <CampoCorte
-                  label="Recolección ($)"
-                  value={estado.recoleccion_turno ?? estado.recoleccion ?? ''}
-                  editable
-                  hint="Efectivo retirado que anota el recolector (ej. $9,000) · este monto sí va a IE VIRTUAL como ingreso"
-                  onChange={(v) => patchEstado({ recoleccion_turno: v, recoleccion: v })}
-                />
-                <div style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(142,68,173,0.12)', borderRadius: 8, marginTop: '0.5rem' }}>
-                  <div className="muted" style={{ fontSize: '0.75rem' }}>INYECTAR A SUCURSAL</div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 800, color: COLOR }}>{fmtCorte(monedaInyectar)}</div>
-                  <div className="muted" style={{ fontSize: '0.7rem' }}>
-                    Moneda inicial {fmtCorte(monedaTope)} − moneda final recolección {fmtCorte(estado.precoleccion || 0)}
-                  </div>
-                  <div className="muted" style={{ fontSize: '0.68rem', marginTop: '0.25rem' }}>
-                    No es ingreso · el fondo fijo no entra en este cálculo
-                  </div>
-                </div>
-                <div style={{ textAlign: 'center', padding: '0.5rem', background: 'rgba(225,153,41,0.12)', borderRadius: 8, marginTop: '0.5rem' }}>
-                  <div className="muted" style={{ fontSize: '0.75rem' }}>Caja chica acumulada</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--brand-gold)' }}>{fmtCorte(cajaAcumulada)}</div>
-                  <div className="muted" style={{ fontSize: '0.7rem' }}>
-                    Al registrar: periodo en {fmtCorte(0)} · operación con moneda inicial {fmtCorte(monedaTope > 0 ? monedaTope : estado.precoleccion || 0)}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-gold"
-                  style={{ width: '100%', marginTop: '0.65rem' }}
-                  onClick={confirmarRecoleccion}
-                  disabled={cargando || cajaNegativa}
-                >
-                  Registrar recolección
-                </button>
-              </div>
-            )}
-
+            <CampoCorte
+              label="Moneda final"
+              value={estado.moneda_final ?? ''}
+              editable={puedeMonedaFinal}
+              hint="Efectivo al cierre"
+              onChange={(v) => patchEstado({ moneda_final: v, moneda_final_editada: true })}
+            />
+            <CampoCorte
+              label="Faltante"
+              value={estado.faltante ?? 0}
+              editable={puedeMonedaFinal || perm.editarTodo}
+              onChange={(v) => patchEstado({ faltante: v })}
+            />
           </div>
+
+          {(perm.guardar || perm.recoleccion) && cortesAnteriores.length > 0 && (
+            <div
+              style={{
+                marginTop: '1rem',
+                padding: '0.75rem',
+                borderRadius: 8,
+                border: '1px dashed rgba(142,68,173,0.45)',
+                background: 'rgba(142,68,173,0.05)',
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: '0.4rem', color: COLOR }}>
+                Abrir corte del turno anterior (2 cortes / turno)
+              </div>
+              <select
+                className="select"
+                value={corteAnteriorId}
+                onChange={(e) => setCorteAnteriorId(e.target.value)}
+                style={{ width: '100%', marginBottom: '0.5rem' }}
+              >
+                <option value="">— Seleccionar corte —</option>
+                {cortesAnteriores.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.folio} · {h.usuario_nombre || '—'} · MF {fmtCorte(h.detalle?.moneda_final)} · venta {fmtCorte(h.ventas)}
+                  </option>
+                ))}
+              </select>
+              <button type="button" className="btn btn-primary" style={{ width: '100%' }} onClick={abrirCorteAnterior} disabled={cargando}>
+                Abrir como 2.º corte
+              </button>
+            </div>
+          )}
+
+          {perm.recoleccion && (
+            <div
+              style={{
+                marginTop: '1rem',
+                padding: '0.75rem',
+                borderRadius: 8,
+                border: '2px solid #111',
+                background: 'rgba(0,0,0,0.03)',
+              }}
+            >
+              <div style={{ fontWeight: 800, marginBottom: '0.35rem' }}>Recolectar</div>
+              <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.5rem' }}>
+                Calculada: {fmtCorte(recCalc)}. Puede ajustar el monto retirado si hace falta.
+              </p>
+              <CampoCorte
+                label="Monto recolección (IE)"
+                value={montoRecOverride !== '' ? montoRecOverride : recCalc}
+                editable
+                onChange={(v) => setMontoRecOverride(v)}
+              />
+              <button
+                type="button"
+                className="btn btn-gold"
+                style={{ width: '100%', marginTop: '0.5rem' }}
+                onClick={confirmarRecoleccion}
+                disabled={cargando || !estado.moneda_final_editada}
+              >
+                Registrar recolección e imprimir ticket
+              </button>
+            </div>
+          )}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -413,7 +428,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
             habilitado={puedeEditarCorteCampo(perm, 'gastos')}
             puedeCatalogo={perm.editarTodo}
             puedeEditarGastos={perm.gastos || perm.editarTodo}
-            notaNomina="Todos los gastos requieren aprobación del administrador. Los consumos de empleados se descontarán en nómina."
+            notaNomina="Gastos del periodo (se conservan entre cierres hasta la recolección). Consumos con empleado van a nómina."
           />
           <textarea
             className="input"
@@ -423,26 +438,11 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
             readOnly={!puedeComentarios}
             onChange={(e) => patchEstado({ comentarios: e.target.value })}
           />
-        </div>
-
-        <div className="card">
-          <h4 style={{ margin: '0 0 0.75rem' }}>Caja chica</h4>
-          <div style={{ background: '#2c3e50', color: '#fff', padding: '0.75rem', borderRadius: 8, textAlign: 'center', marginBottom: '0.75rem' }}>
-            <div style={{ fontSize: '0.8rem' }}>Subtotal del turno</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#f1c40f' }}>{fmtCorte(calc.subtotal)}</div>
-            <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>Venta efectivo − gastos aprobados</div>
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '0.85rem', fontWeight: 700 }}>Caja chica actual</div>
-            <div style={{ fontSize: '2rem', fontWeight: 800, color: cajaNegativa ? 'var(--danger)' : '#2980b9' }}>{fmtCorte(calc.cajaActual)}</div>
-            <p className="muted" style={{ fontSize: '0.75rem', margin: '0.35rem 0 0' }}>
-              Caja anterior + subtotal − recolección · suma de ventas entre recolecciones
-            </p>
-            {cajaNegativa && (
-              <button type="button" className="btn btn-ghost" style={{ marginTop: '0.5rem', color: 'var(--danger)' }} onClick={irPrestamoArea}>
-                Préstamo de área
-              </button>
-            )}
+          <div className="card" style={{ textAlign: 'center' }}>
+            <div className="muted" style={{ fontSize: '0.8rem' }}>Caja chica actual</div>
+            <div style={{ fontSize: '1.8rem', fontWeight: 800, color: cajaNegativa ? 'var(--danger)' : '#2980b9' }}>
+              {fmtCorte(calc.cajaActual)}
+            </div>
           </div>
         </div>
       </div>

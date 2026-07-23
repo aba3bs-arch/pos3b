@@ -210,7 +210,10 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const res = await registrarCierreCorte(supabase, payload);
     if (!res.ok) return alert(res.error || AVISO_FALTA_CORTES);
 
-    await limpiarGastosTurno(supabase, sucursal, modulo);
+    // Virtual: gastos del periodo siguen abiertos hasta la recolección (Excel).
+    if (modulo !== 'virtual') {
+      await limpiarGastosTurno(supabase, sucursal, modulo);
+    }
     const nuevoEstado = prepararTrasCierre(estado, calc, detalleExtra);
     if (modulo !== 'abarrotes') {
       const nuevoFolio = await siguienteFolio(supabase, sucursal, modulo);
@@ -219,16 +222,89 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     }
     await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
     setEstado(nuevoEstado);
-    setGastos([]);
+    if (modulo === 'virtual') {
+      const gas = await listarGastosTurno(supabase, sucursal, modulo);
+      setGastos(gas.data || []);
+    } else {
+      setGastos([]);
+    }
     const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
     setHistorial(hist.data || []);
-    alert('Corte cerrado y guardado en historial contabilidad.');
+    alert(
+      modulo === 'virtual'
+        ? 'Corte cerrado. Las ventas de este cierre no van a IE; solo la recolección posterior.'
+        : 'Corte cerrado y guardado en historial contabilidad.',
+    );
   };
 
-  const registrarRecoleccion = async ({ corteAnteriorId, monedaFinalAnterior } = {}) => {
+  const registrarRecoleccion = async (opts = {}) => {
     if (!perm.recoleccion) {
       return alert('Solo el administrador o recolector con privilegio puede registrar recolección.');
     }
+
+    if (modulo === 'virtual') {
+      const { recoleccionVirtualExcel } = await import('./calc.js');
+      const calcRec =
+        opts.montoRecoleccion != null ? round2(opts.montoRecoleccion) : recoleccionVirtualExcel(estado, calc);
+      if (!(calcRec > 0)) return alert('La recolección calculada es $0. Capture moneda final o revise gastos.');
+      if (!estado.moneda_final_editada) {
+        return alert('Capture la moneda final antes de recolectar.');
+      }
+      const mf = round2(estado.moneda_final);
+      const monedaTope = monedaTopeVirtual(estado);
+      const payload = {
+        sucursal_id: sucursal || 'MAIN',
+        modulo,
+        folio: `REC-${folio || 'V'}`,
+        turno: 'RECOLECCION',
+        usuario_id: user?.id || null,
+        usuario_nombre: user?.nombre || null,
+        caja_actual: round2(Math.max(0, calc.cajaActual)),
+        ventas: 0,
+        detalle: {
+          ...estado,
+          fondo: round2(estado.fondo),
+          moneda_final: mf,
+          moneda_final_editada: true,
+          recoleccion: calcRec,
+          recoleccion_turno: calcRec,
+          moneda_tope: monedaTope,
+          venta: calc.venta,
+          gastos,
+          gastos_total: calc.gastosTotal,
+          subtotal: calc.subtotal,
+          formula_recoleccion: 'moneda_inicial - moneda_final - gastos',
+          corte_reabierto_id: estado.corte_reabierto_id || null,
+          tipo_cierre: 'recoleccion',
+          comentarios: estado.comentarios || '',
+        },
+      };
+      const res = await registrarCierreCorte(supabase, payload);
+      if (!res.ok) return { ok: false, error: res.error || AVISO_FALTA_CORTES };
+
+      await limpiarGastosTurno(supabase, sucursal, modulo);
+      const prep = prepararTrasRecoleccion || ((e) => e);
+      const nuevoEstado = prep(estado, calc, {
+        nuevaMoneda: mf,
+        montoRecoleccion: calcRec,
+        monedaTope,
+      });
+      await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
+      setEstado(nuevoEstado);
+      setGastos([]);
+      const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
+      setHistorial(hist.data || []);
+      return {
+        ok: true,
+        folio: payload.folio,
+        recoleccion: calcRec,
+        estadoImpresion: payload.detalle,
+        gastosImpresion: gastos,
+        calcImpresion: { ...calc },
+      };
+    }
+
+    const { corteAnteriorId, monedaFinalAnterior } = opts;
     if (!estado._precoleccion_editada && !round2(estado.precoleccion)) {
       return alert('Capture la moneda final de recolección (moneda en caja) antes de registrar.');
     }
@@ -260,7 +336,6 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       usuario_id: user?.id || null,
       usuario_nombre: user?.nombre || null,
       caja_actual: round2(Math.max(0, calc.cajaActual)),
-      // Recolección: el ingreso en IE es solo el efectivo retirado (detalle.recoleccion), nunca el fondo.
       ventas: 0,
       detalle: {
         ...estado,

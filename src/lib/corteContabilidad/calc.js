@@ -118,18 +118,17 @@ export function monedaAInyectarVirtual(estado, precoleccion) {
 }
 
 /**
- * Tras recolección: reinicio de periodo; moneda de operación = tope (tras inyectar).
- * Historial y gastos en BD intactos.
+ * Tras recolección (modelo Excel): reinicia periodo; conserva moneda de referencia.
+ * La moneda final del turno pasa a ser el inicio del siguiente periodo operativo.
  */
 export function prepararTrasRecoleccionVirtual(estado, _calc, { nuevaMoneda, monedaTope } = {}) {
-  const topeCalc = monedaTope != null ? round2(monedaTope) : monedaTopeVirtual(estado);
-  const prec = round2(nuevaMoneda);
-  // Si hay tope, la operación queda en tope (ya inyectada); si no, usa la precolección.
-  const mi = topeCalc > 0 ? topeCalc : prec;
+  const ref = monedaTope != null ? round2(monedaTope) : monedaTopeVirtual(estado);
+  const mf = round2(nuevaMoneda != null ? nuevaMoneda : estado?.moneda_final);
+  const miSiguiente = mf > 0 ? mf : ref > 0 ? ref : 0;
   return {
     ...estado,
-    moneda_inicial: mi,
-    moneda_inicial_turno: mi,
+    moneda_inicial: ref > 0 ? ref : miSiguiente,
+    moneda_inicial_turno: miSiguiente,
     moneda_final: 0,
     moneda_final_editada: false,
     precoleccion: 0,
@@ -142,8 +141,18 @@ export function prepararTrasRecoleccionVirtual(estado, _calc, { nuevaMoneda, mon
     venta_manual: '',
     subtotal_manual: '',
     caja_actual_manual: '',
+    corte_reabierto_id: null,
     _mi_turno_inicializado: true,
   };
+}
+
+/** Recolección Excel: Moneda inicial − Moneda final − Gastos. */
+export function recoleccionVirtualExcel(estado, calc) {
+  const mi = monedaInicialTurnoEfectiva(estado);
+  const mf = estado?.moneda_final_editada ? round2(estado.moneda_final) : 0;
+  const gastos = round2(calc?.gastosTotal);
+  if (!estado?.moneda_final_editada) return round2(Math.max(0, round2(calc?.ventaNeta || calc?.subtotal || 0)));
+  return round2(mi - mf - gastos);
 }
 
 export function calcularAbarrotes(estado, gastos = []) {

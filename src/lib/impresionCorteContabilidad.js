@@ -71,13 +71,14 @@ export function datosImpresionDesdeHistorial(h, modulo) {
     usuario_nombre: h.usuario_nombre,
     tipo_cierre: d.tipo_cierre || 'cierre',
     fecha: h.created_at,
-    venta: h.ventas,
+    venta: h.ventas ?? d.venta ?? 0,
     subtotal: d.subtotal,
     caja_actual: h.caja_actual,
     gastos_total: d.gastos_total,
     gastos: d.gastos || [],
     estado: d,
     comentarios: d.comentarios || '',
+    recoleccion: d.recoleccion ?? d.recoleccion_turno ?? 0,
     es_borrador: false,
   };
 }
@@ -193,7 +194,135 @@ export function htmlCorteContabilidad(data) {
   </body></html>`;
 }
 
+function htmlGastosPorCajero(data) {
+  const gastos = data.gastos || [];
+  if (!gastos.length) return '<p class="muted">Sin gastos registrados.</p>';
+
+  const porCajero = {};
+  for (const g of gastos) {
+    const key = String(g.usuario_nombre || g.solicitado_por || 'Sin cajero').trim() || 'Sin cajero';
+    if (!porCajero[key]) porCajero[key] = { total: 0, items: [] };
+    porCajero[key].total += Number(g.monto) || 0;
+    porCajero[key].items.push(g);
+  }
+
+  return Object.entries(porCajero)
+    .sort((a, b) => a[0].localeCompare(b[0], 'es'))
+    .map(([cajero, block]) => {
+      const rows = block.items
+        .map((it) => {
+          const concepto = [it.categoria, it.subcategoria, it.comentario].filter(Boolean).join(' · ');
+          return `<tr>
+            <td>${esc(concepto || '—')}</td>
+            <td class="r">${fmt(it.monto)}</td>
+          </tr>`;
+        })
+        .join('');
+      return `
+        <div class="cat-block">
+          <div class="cat-head"><strong>Cajero: ${esc(cajero)}</strong>
+            <span class="r" style="float:right">${fmt(block.total)}</span>
+          </div>
+          <table>
+            <tr><td class="muted">Concepto</td><td class="r muted">Cantidad</td></tr>
+            ${rows}
+          </table>
+        </div>`;
+    })
+    .join('');
+}
+
+/** Ticket específico de recolección Virtual (distinto al corte normal). */
+export function htmlRecoleccionVirtual(data) {
+  const logo = leerLogoUrl();
+  const negocio = leerNombreNegocio();
+  const fecha = data.fecha ? new Date(data.fecha).toLocaleString('es-MX') : new Date().toLocaleString('es-MX');
+  const e = data.estado || {};
+  const mi = round2(e.moneda_inicial_turno ?? e.moneda_inicial);
+  const mf = round2(e.moneda_final);
+  const gastos = round2(data.gastos_total);
+  const formula = round2(mi - mf - gastos);
+  const rec = round2(data.recoleccion ?? e.recoleccion ?? formula);
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recolección Virtual</title><style>
+    body{font-family:Arial,sans-serif;font-size:12px;margin:12px;max-width:420px;color:#111}
+    img.logo{max-width:70%;max-height:64px;display:block;margin:0 auto 8px}
+    h1{font-size:16px;margin:0 0 4px;text-align:center}
+    .sub{text-align:center;color:#555;font-size:11px;margin-bottom:10px}
+    .banner{background:#111;color:#fff;text-align:center;font-weight:800;padding:8px;margin:8px 0;letter-spacing:0.04em}
+    table{width:100%;border-collapse:collapse}
+    td{padding:3px 2px;vertical-align:top}
+    td.r{text-align:right;white-space:nowrap}
+    .sep{border-top:1px dashed #333;margin:10px 0}
+    .cat-block{margin:8px 0;padding:6px 0;border-top:1px solid #ddd}
+    .cat-head{margin-bottom:4px;font-size:12px}
+    .muted{color:#666;font-size:10px}
+    .hl{background:#fff3cd;font-weight:800}
+    @media print{body{margin:0;padding:8px}}
+  </style></head><body>
+    <img class="logo" src="${esc(logo)}" alt=""/>
+    <h1>${esc(negocio)}</h1>
+    <div class="sub">TICKET DE RECOLECCIÓN · VIRTUAL</div>
+    <div class="banner">RECOLECCIÓN</div>
+    <table>
+      <tr><td>Tienda</td><td class="r"><strong>${esc(etiquetaTienda(data.sucursal))}</strong></td></tr>
+      <tr><td>Folio</td><td class="r"><strong>${esc(data.folio || '—')}</strong></td></tr>
+      <tr><td>Fecha</td><td class="r">${esc(fecha)}</td></tr>
+      <tr><td>Recolector</td><td class="r">${esc(data.usuario_nombre || '—')}</td></tr>
+    </table>
+    <div class="sep"></div>
+    <strong>Moneda virtual</strong>
+    <table>
+      <tr><td>Fondo</td><td class="r">${fmt(e.fondo)}</td></tr>
+      <tr><td>Caja chica</td><td class="r">${fmt(e.caja_anterior)}</td></tr>
+      <tr><td>Moneda inicial</td><td class="r">${fmt(mi)}</td></tr>
+      <tr><td>Moneda final</td><td class="r">${fmt(mf)}</td></tr>
+      <tr><td>Venta efectivo</td><td class="r">${fmt(data.venta)}</td></tr>
+      <tr><td>Gastos</td><td class="r">${fmt(gastos)}</td></tr>
+      <tr><td>Faltante</td><td class="r">${fmt(e.faltante)}</td></tr>
+      <tr class="hl"><td>RECOLECCIÓN</td><td class="r">${fmt(rec)}</td></tr>
+    </table>
+    <p class="muted">Fórmula: Moneda inicial − Moneda final − Gastos = ${fmt(formula)}</p>
+    <div class="sep"></div>
+    <strong>Gastos por cajero (concepto y cantidad)</strong>
+    ${htmlGastosPorCajero(data)}
+    <table style="margin-top:8px">
+      <tr><td><strong>Total gastos</strong></td><td class="r"><strong>${fmt(gastos)}</strong></td></tr>
+    </table>
+    ${data.comentarios ? `<div class="sep"></div><p class="muted"><strong>Comentarios:</strong> ${esc(data.comentarios)}</p>` : ''}
+    <div class="sep"></div>
+    <p class="muted" style="text-align:center">Este ticket no es el corte de cajero. Solo la recolección entra a contabilidad (IE).</p>
+  </body></html>`;
+}
+
+export function datosImpresionRecoleccionVirtual({ sucursal, folio, user, estado, gastos, calc, recoleccion, fecha }) {
+  return {
+    modulo: 'virtual',
+    sucursal,
+    folio,
+    usuario_nombre: user?.nombre || null,
+    tipo_cierre: 'recoleccion',
+    fecha: fecha || new Date().toISOString(),
+    venta: calc?.venta ?? 0,
+    subtotal: calc?.subtotal ?? 0,
+    caja_actual: calc?.cajaActual ?? 0,
+    gastos_total: calc?.gastosTotal ?? 0,
+    gastos: gastos || [],
+    estado: estado || {},
+    comentarios: estado?.comentarios || '',
+    recoleccion: recoleccion ?? 0,
+    es_borrador: false,
+  };
+}
+
+export function imprimirRecoleccionVirtual(data) {
+  return abrirVentanaImpresion(htmlRecoleccionVirtual(data), 'Recolección Virtual');
+}
+
 export function imprimirCorteContabilidad(data) {
   const mod = ETIQUETA_AREA[data.modulo] || data.modulo || 'Corte';
+  if (data.tipo_cierre === 'recoleccion' && data.modulo === 'virtual') {
+    return imprimirRecoleccionVirtual(data);
+  }
   return abrirVentanaImpresion(htmlCorteContabilidad(data), `Corte ${mod}`);
 }
