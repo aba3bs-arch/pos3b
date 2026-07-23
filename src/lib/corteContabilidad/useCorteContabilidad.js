@@ -211,10 +211,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const res = await registrarCierreCorte(supabase, payload);
     if (!res.ok) return alert(res.error || AVISO_FALTA_CORTES);
 
-    // Virtual: gastos del periodo siguen abiertos hasta la recolección (Excel).
-    if (modulo !== 'virtual') {
-      await limpiarGastosTurno(supabase, sucursal, modulo);
-    }
+    // Gastos del corte quedan en el historial del cierre / nómina; el nuevo corte arranca en cero.
+    await limpiarGastosTurno(supabase, sucursal, modulo);
     const nuevoEstado = prepararTrasCierre(estado, calc, detalleExtra);
     if (modulo !== 'abarrotes') {
       const nuevoFolio = await siguienteFolio(supabase, sucursal, modulo);
@@ -223,17 +221,12 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     }
     await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
     setEstado(nuevoEstado);
-    if (modulo === 'virtual') {
-      const gas = await listarGastosTurno(supabase, sucursal, modulo);
-      setGastos(gas.data || []);
-    } else {
-      setGastos([]);
-    }
+    setGastos([]);
     const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
     setHistorial(hist.data || []);
     alert(
       modulo === 'virtual'
-        ? 'Corte cerrado. Las ventas de este cierre no van a IE; solo la recolección posterior.'
+        ? 'Corte cerrado. Gastos en cero para el nuevo corte. Esta venta no va a IE; solo la recolección.'
         : 'Corte cerrado y guardado en historial contabilidad.',
     );
   };

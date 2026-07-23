@@ -90,7 +90,7 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
         `Subtotal: ${fmtCorte(calc.subtotal)}\n` +
         `Caja chica actual: ${fmtCorte(calc.cajaActual)}\n\n` +
         `Siguiente corte: MI = MF · caja chica = actual.\n` +
-        `Este cierre no va a IE.`,
+        `Este cierre no va a IE. Gastos quedan en cero para el siguiente corte.`,
     )) return;
     cerrarCorte();
   };
