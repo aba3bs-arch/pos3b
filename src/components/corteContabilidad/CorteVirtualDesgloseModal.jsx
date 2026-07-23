@@ -312,6 +312,7 @@ function DetalleGastosTurno({ gastos = [], titulo }) {
             <th>Cat.</th>
             <th>Sub</th>
             <th>Empleado</th>
+            <th>Generó</th>
             <th>Nota</th>
             <th style={{ textAlign: 'right' }}>Monto</th>
           </tr>
@@ -321,19 +322,22 @@ function DetalleGastosTurno({ gastos = [], titulo }) {
             const hora = g.created_at
               ? new Date(g.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
               : '—';
+            const emp = String(g.usuario_nombre || '').trim() || '—';
+            const gen = String(g.solicitado_por || '').trim() || '—';
             return (
               <tr key={g.id || `${g.categoria}-${idx}`}>
                 <td style={{ whiteSpace: 'nowrap' }}>{hora}</td>
                 <td>{g.categoria || '—'}</td>
                 <td className="muted">{g.subcategoria || '—'}</td>
-                <td className="muted">{g.usuario_nombre || '—'}</td>
+                <td style={{ fontWeight: emp !== '—' ? 700 : 400 }}>{emp}</td>
+                <td className="muted">{gen}</td>
                 <td className="muted">{g.comentario || '—'}</td>
                 <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtCorte(g.monto)}</td>
               </tr>
             );
           })}
           <tr>
-            <td colSpan={5} style={{ textAlign: 'right', fontWeight: 800 }}>Total</td>
+            <td colSpan={6} style={{ textAlign: 'right', fontWeight: 800 }}>Total</td>
             <td style={{ textAlign: 'right', fontWeight: 800, color: ACCENT }}>{fmtCorte(total)}</td>
           </tr>
         </tbody>

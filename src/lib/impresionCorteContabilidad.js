@@ -127,13 +127,22 @@ function htmlGastosPorCategoria(data) {
     .map((g) => {
       const items = g.items
         .map((it) => {
-          const nom = it.usuario_nombre && g.descuentaNomina ? ` · ${esc(it.usuario_nombre)}` : '';
+          const emp = String(it.usuario_nombre || '').trim();
+          const gen = String(it.solicitado_por || '').trim();
+          const quien =
+            emp && gen && emp !== gen
+              ? ` · Emp: ${esc(emp)} · Gen: ${esc(gen)}`
+              : emp
+                ? ` · ${esc(emp)}`
+                : gen
+                  ? ` · Gen: ${esc(gen)}`
+                  : '';
           const com = it.comentario ? ` — ${esc(it.comentario)}` : '';
           const hora = it.created_at
             ? ` · ${esc(new Date(it.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }))}`
             : '';
           return `<tr>
-            <td class="muted" style="padding-left:8px">${esc(it.subcategoria || '—')}${com}${nom}${hora}</td>
+            <td class="muted" style="padding-left:8px">${esc(it.subcategoria || '—')}${com}${quien}${hora}</td>
             <td class="r">${fmt(it.monto)}</td>
           </tr>`;
         })
@@ -202,25 +211,28 @@ function htmlGastosPorCajero(data) {
   const gastos = data.gastos || [];
   if (!gastos.length) return '<p class="muted">Sin gastos registrados.</p>';
 
-  const porCajero = {};
+  const porGenerador = {};
   for (const g of gastos) {
-    const key = String(g.usuario_nombre || g.solicitado_por || 'Sin cajero').trim() || 'Sin cajero';
-    if (!porCajero[key]) porCajero[key] = { total: 0, items: [] };
-    porCajero[key].total += Number(g.monto) || 0;
-    porCajero[key].items.push(g);
+    const key =
+      String(g.solicitado_por || g.usuario_nombre || 'Sin responsable').trim() || 'Sin responsable';
+    if (!porGenerador[key]) porGenerador[key] = { total: 0, items: [] };
+    porGenerador[key].total += Number(g.monto) || 0;
+    porGenerador[key].items.push(g);
   }
 
-  return Object.entries(porCajero)
+  return Object.entries(porGenerador)
     .sort((a, b) => a[0].localeCompare(b[0], 'es'))
-    .map(([cajero, block]) => {
+    .map(([quien, block]) => {
       const rows = block.items
         .map((it) => {
           const concepto = [it.categoria, it.subcategoria, it.comentario].filter(Boolean).join(' · ');
+          const emp = String(it.usuario_nombre || '').trim() || '—';
           const hora = it.created_at
             ? new Date(it.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
             : '—';
           return `<tr>
             <td>${esc(concepto || '—')}</td>
+            <td>${esc(emp)}</td>
             <td class="r muted">${esc(hora)}</td>
             <td class="r">${fmt(it.monto)}</td>
           </tr>`;
@@ -228,9 +240,9 @@ function htmlGastosPorCajero(data) {
         .join('');
       return `
         <div class="cat-block">
-          <div class="cat-head"><strong>Cajero: ${esc(cajero)}</strong></div>
+          <div class="cat-head"><strong>Generó: ${esc(quien)}</strong></div>
           <table>
-            <tr><td class="muted">Concepto</td><td class="r muted">Hora</td><td class="r muted">Monto</td></tr>
+            <tr><td class="muted">Concepto</td><td class="muted">Empleado</td><td class="r muted">Hora</td><td class="r muted">Monto</td></tr>
             ${rows}
           </table>
         </div>`;
