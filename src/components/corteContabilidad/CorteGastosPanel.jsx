@@ -258,6 +258,7 @@ export default function CorteGastosPanel({
         <table className="data">
           <thead>
             <tr>
+              <th>Hora</th>
               <th>Empleado</th>
               <th>Cat.</th>
               <th>Sub</th>
@@ -272,8 +273,12 @@ export default function CorteGastosPanel({
               const est = g.estado_aprobacion || 'aprobado';
               const pendiente = est === 'pendiente_admin';
               const rechazado = est === 'rechazado';
+              const hora = g.created_at
+                ? new Date(g.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+                : '—';
               return (
               <tr key={g.id} style={pendiente ? { background: 'rgba(225,153,41,0.08)' } : rechazado ? { opacity: 0.55 } : undefined}>
+                <td style={{ fontWeight: 700, whiteSpace: 'nowrap', fontSize: '0.8rem' }}>{hora}</td>
                 <td>
                   {gastoDescuentaNomina(modulo, g.categoria) ? g.usuario_nombre || '—' : <span className="muted">—</span>}
                 </td>
@@ -315,7 +320,7 @@ export default function CorteGastosPanel({
             })}
             {(!gastos || gastos.length === 0) && (
               <tr>
-                <td colSpan={habilitado ? 7 : 6} className="muted">
+                <td colSpan={habilitado ? 8 : 7} className="muted">
                   Sin gastos en este turno.
                 </td>
               </tr>

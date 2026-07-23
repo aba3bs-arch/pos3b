@@ -1,7 +1,8 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import CampoCorte from '../../components/corteContabilidad/CampoCorte.jsx';
+import CorteVirtualDesgloseModal from '../../components/corteContabilidad/CorteVirtualDesgloseModal.jsx';
 import {
   aplicarInyeccionMonedaVirtual,
   calcularVirtual,
@@ -19,6 +20,11 @@ import {
 import { etiquetaTipoCierre, puedeEditarCorteCampo } from '../../lib/corteContabilidad/permisos.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 import { etiquetaTienda } from '../../constants/sucursales.js';
+import {
+  aprobarTodosGastosPendientes,
+  listarGastosPendientesAprobacion,
+} from '../../lib/corteContabilidad/store.js';
+import { normalizarRol } from '../../lib/roles.js';
 
 const ACCENT = '#6c3483';
 
@@ -28,7 +34,10 @@ function moneyNum(v) {
   return Number.isFinite(n) ? n : '';
 }
 
-export default function CorteVirtual({ supabase, sucursal, user }) {
+export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
+  const [mostrarDesglose, setMostrarDesglose] = useState(false);
+  const [aprobando, setAprobando] = useState(false);
+
   const prepararTrasCierre = useCallback((estado, calc) => {
     return prepararTrasCierreVirtual(estado, calc);
   }, []);
@@ -55,6 +64,7 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
     cerrarCorte,
     registrarRecoleccion,
     eliminarCierreHistorial,
+    recargar,
   } = useCorteContabilidad({
     supabase,
     sucursal,
@@ -65,6 +75,7 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
     prepararTrasRecoleccion,
   });
 
+  const rol = normalizarRol(user?.rol ?? user?.role);
   const puedeEditar = !perm.soloLectura;
   const puedeMonedaFinal = puedeEditarCorteCampo(perm, 'moneda_final') || perm.editarTodo;
   const puedeCaja = Boolean(perm.caja_anterior || perm.editarTodo || perm.recoleccion);
@@ -73,10 +84,12 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
   const puedeRec = Boolean(perm.recoleccion);
   const puedeMonedaOperacion = Boolean(perm.editarTodo || perm.recoleccion);
   const puedeInyectarMi = Boolean(perm.editarTodo);
+  const puedeAprobarIe = Boolean(perm.editarTodo || rol === 'Gerente' || perm.recoleccion);
   const miCorte = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
   const monedaOperacion = round2(estado.moneda_inicial);
   const montoRec = round2(estado.recoleccion ?? estado.recoleccion_turno);
   const miInyectada = Boolean(calc.monedaInyectada);
+  const pendientesLocales = (gastos || []).filter((g) => (g.estado_aprobacion || 'aprobado') === 'pendiente_admin').length;
 
   const confirmarCierre = () => {
     if (!perm.guardar) return alert('Sin permiso para cerrar corte.');
@@ -141,6 +154,61 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
     );
   };
 
+  const aprobarYIrIe = async () => {
+    if (!puedeAprobarIe) return alert('Sin permiso para aprobar gastos / abrir IE VIRTUAL.');
+    setAprobando(true);
+    try {
+      const pend = await listarGastosPendientesAprobacion(supabase, sucursal, 'virtual');
+      const n = (pend.data || []).length;
+      if (n > 0) {
+        if (!confirm(
+          `Hay ${n} gasto(s) pendiente(s) de aprobación en Virtual (${etiquetaTienda(sucursal)}).\n\n` +
+            `¿Aprobar todos y enviarlos a IE VIRTUAL?`,
+        )) {
+          setAprobando(false);
+          return;
+        }
+        const res = await aprobarTodosGastosPendientes(supabase, {
+          sucursal,
+          modulo: 'virtual',
+          nombre: user?.nombre,
+        });
+        await recargar?.();
+        if (!res.ok) {
+          alert(`Se aprobaron ${res.aprobados} de ${res.pendientes}.\n${res.error || ''}`);
+        } else {
+          alert(
+            res.aprobados > 0
+              ? `Se aprobaron ${res.aprobados} gasto(s) y se reflejaron en IE VIRTUAL.`
+              : 'No había gastos pendientes.',
+          );
+        }
+      } else if (pendientesLocales > 0) {
+        // Pendientes visibles en el corte abierto (misma tienda)
+        if (!confirm(`¿Aprobar los ${pendientesLocales} gasto(s) pendiente(s) de este corte?`)) {
+          setAprobando(false);
+          return;
+        }
+        const res = await aprobarTodosGastosPendientes(supabase, {
+          sucursal,
+          modulo: 'virtual',
+          nombre: user?.nombre,
+        });
+        await recargar?.();
+        alert(res.ok ? `Aprobados: ${res.aprobados}.` : res.error || 'Error al aprobar.');
+      } else {
+        const ir = confirm('No hay gastos pendientes. ¿Abrir IE VIRTUAL?');
+        if (!ir) {
+          setAprobando(false);
+          return;
+        }
+      }
+      if (typeof onNavigate === 'function') onNavigate('IE VIRTUAL');
+    } finally {
+      setAprobando(false);
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }} data-corte-form="virtual">
       <div className="card" style={{ borderTop: `3px solid ${ACCENT}` }}>
@@ -196,7 +264,28 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
               </p>
             )}
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', justifyContent: 'flex-end', maxWidth: 420 }}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setMostrarDesglose(true)}
+              disabled={cargando}
+              title="Ventas y gastos por turno antes de recolectar"
+            >
+              Desglose de cortes
+            </button>
+            {puedeAprobarIe && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={aprobarYIrIe}
+                disabled={cargando || aprobando}
+                title="Aprobar gastos pendientes y abrir IE VIRTUAL"
+                style={{ borderColor: ACCENT, color: ACCENT }}
+              >
+                {aprobando ? 'Aprobando…' : pendientesLocales > 0 ? `Aprobar e IE (${pendientesLocales})` : 'Aprobar / IE Virtual'}
+              </button>
+            )}
             {perm.guardar && (
               <button type="button" className="btn btn-primary" onClick={confirmarCierre} disabled={cargando}>
                 Cerrar corte
@@ -210,6 +299,20 @@ export default function CorteVirtual({ supabase, sucursal, user }) {
         {aviso && <p style={{ margin: '0.75rem 0 0', fontSize: '0.85rem', color: 'var(--brand-gold)' }}>{aviso}</p>}
         <CorteSucursalAviso sucursal={sucursal} user={user} />
       </div>
+
+      <CorteVirtualDesgloseModal
+        abierto={mostrarDesglose}
+        onCerrar={() => setMostrarDesglose(false)}
+        historial={historial}
+        corteActual={{
+          folio,
+          turno,
+          venta: calc.venta,
+          gastos: calc.gastosTotal,
+          subtotal: calc.subtotal,
+          caja: calc.cajaActual,
+        }}
+      />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1rem', alignItems: 'start' }}>
         <div className="card">

@@ -206,6 +206,46 @@ export async function rechazarGastoTurno(supabase, gastoId, { nombre } = {}) {
   return { ok: true };
 }
 
+/** Lista gastos pendientes de aprobación (admin) para un módulo/sucursal. */
+export async function listarGastosPendientesAprobacion(supabase, sucursal, modulo) {
+  if (!supabase) return { data: [], error: null };
+  let q = supabase
+    .from('cortes_contabilidad_gastos')
+    .select('*')
+    .eq('estado_aprobacion', 'pendiente_admin')
+    .order('created_at', { ascending: true });
+  if (sucursal) q = q.eq('sucursal_id', sucursal || 'MAIN');
+  if (modulo) q = q.eq('modulo', modulo);
+  const { data, error } = await q;
+  if (error) return { data: [], error: error.message };
+  return { data: data || [], error: null };
+}
+
+/**
+ * Aprueba todos los gastos pendientes del módulo (p. ej. virtual) y los refleja en IE.
+ * Si sucursal es null, aprueba de todas las tiendas del módulo.
+ */
+export async function aprobarTodosGastosPendientes(supabase, { sucursal, modulo, nombre } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.', aprobados: 0 };
+  const { data, error } = await listarGastosPendientesAprobacion(supabase, sucursal, modulo);
+  if (error) return { ok: false, error, aprobados: 0 };
+  if (!data.length) return { ok: true, aprobados: 0, pendientes: 0 };
+
+  let okCount = 0;
+  const fallos = [];
+  for (const g of data) {
+    const res = await aprobarGastoTurno(supabase, g.id, { nombre });
+    if (res.ok) okCount += 1;
+    else fallos.push(res.error || g.id);
+  }
+  return {
+    ok: fallos.length === 0,
+    aprobados: okCount,
+    pendientes: data.length,
+    error: fallos.length ? fallos[0] : null,
+  };
+}
+
 export function gastoCuentaEnCorte(gasto) {
   const est = gasto?.estado_aprobacion || 'aprobado';
   return est === 'aprobado';

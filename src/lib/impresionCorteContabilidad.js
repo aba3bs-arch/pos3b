@@ -128,10 +128,12 @@ function htmlGastosPorCategoria(data) {
       const items = g.items
         .map((it) => {
           const nom = it.usuario_nombre && g.descuentaNomina ? ` · ${esc(it.usuario_nombre)}` : '';
-          const sub = it.subcategoria ? ` / ${esc(it.subcategoria)}` : '';
           const com = it.comentario ? ` — ${esc(it.comentario)}` : '';
+          const hora = it.created_at
+            ? ` · ${esc(new Date(it.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }))}`
+            : '';
           return `<tr>
-            <td class="muted" style="padding-left:8px">${esc(it.subcategoria || '—')}${com}${nom}</td>
+            <td class="muted" style="padding-left:8px">${esc(it.subcategoria || '—')}${com}${nom}${hora}</td>
             <td class="r">${fmt(it.monto)}</td>
           </tr>`;
         })
@@ -139,7 +141,7 @@ function htmlGastosPorCategoria(data) {
       const badge = g.descuentaNomina ? ' <span class="tag">nómina</span>' : '';
       return `
         <div class="cat-block">
-          <div class="cat-head"><strong>${esc(g.categoria)}</strong>${badge} <span class="r" style="float:right">${fmt(g.total)}</span></div>
+          <div class="cat-head"><strong>${esc(g.categoria)}</strong>${badge}</div>
           <table>${items}</table>
         </div>`;
     })
@@ -214,19 +216,21 @@ function htmlGastosPorCajero(data) {
       const rows = block.items
         .map((it) => {
           const concepto = [it.categoria, it.subcategoria, it.comentario].filter(Boolean).join(' · ');
+          const hora = it.created_at
+            ? new Date(it.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+            : '—';
           return `<tr>
             <td>${esc(concepto || '—')}</td>
+            <td class="r muted">${esc(hora)}</td>
             <td class="r">${fmt(it.monto)}</td>
           </tr>`;
         })
         .join('');
       return `
         <div class="cat-block">
-          <div class="cat-head"><strong>Cajero: ${esc(cajero)}</strong>
-            <span class="r" style="float:right">${fmt(block.total)}</span>
-          </div>
+          <div class="cat-head"><strong>Cajero: ${esc(cajero)}</strong></div>
           <table>
-            <tr><td class="muted">Concepto</td><td class="r muted">Cantidad</td></tr>
+            <tr><td class="muted">Concepto</td><td class="r muted">Hora</td><td class="r muted">Monto</td></tr>
             ${rows}
           </table>
         </div>`;
