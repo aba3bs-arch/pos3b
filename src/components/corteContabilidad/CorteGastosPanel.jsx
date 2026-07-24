@@ -146,16 +146,24 @@ export default function CorteGastosPanel({
       </div>
       <p className="muted" style={{ fontSize: '0.75rem', margin: '0.35rem 0 0.5rem' }}>
         {notaNomina ||
-          `Categorías de IE Virtual. Solo CONSUMO, RECARGAS, ANTICIPOS y FALTANTE descuentan nómina (empleado de esta tienda).${
-            modulo === 'abarrotes' ? ' PROVEEDORES se mantiene en Abarrotes.' : ''
-          }`}
+          (modulo === 'abarrotes'
+            ? 'Categorías y subcategorías de IE Abarrotes (+ PROVEEDORES). Solo CONSUMO, RECARGAS, ANTICIPOS y FALTANTE descuentan nómina (empleado de esta tienda).'
+            : 'Categorías de IE Virtual. Solo CONSUMO, RECARGAS, ANTICIPOS y FALTANTE descuentan nómina (empleado de esta tienda).')}
       </p>
 
       {mostrarCat && puedeCatalogo && (
         <div style={{ marginBottom: '0.75rem', padding: '0.5rem', background: 'var(--surface)', borderRadius: 8 }}>
           <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.5rem' }}>
-            Catálogo compartido desde <strong>IE Virtual</strong>
-            {modulo === 'abarrotes' ? ' (+ proveedores solo en Abarrotes)' : ''}. También se edita en Contabilidad → IE Virtual → Catálogo.
+            {modulo === 'abarrotes' ? (
+              <>
+                Catálogo de <strong>IE Abarrotes</strong> (compartido con IE Virtual) más <strong>PROVEEDORES</strong> solo en este corte.
+                Proveedores no se mueven a IE.
+              </>
+            ) : (
+              <>
+                Catálogo compartido desde <strong>IE Virtual</strong>. También se edita en Contabilidad → IE Virtual → Catálogo.
+              </>
+            )}
           </p>
           <button type="button" className="btn btn-ghost" style={{ ...btnSm, marginBottom: '0.5rem' }} onClick={nuevaCategoria}>
             + Categoría

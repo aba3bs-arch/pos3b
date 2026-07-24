@@ -169,7 +169,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             habilitado={perm.gastos}
             puedeCatalogo={perm.editarTodo}
             puedeEditarGastos={perm.editarTodo}
-            notaNomina="Categorías de IE Virtual + PROVEEDORES. Nómina: CONSUMO, RECARGAS, ANTICIPOS y FALTANTE (solo empleados de esta tienda)."
+            notaNomina="Categorías/subcategorías de IE Abarrotes + PROVEEDORES (sin mover a IE). Nómina: CONSUMO, RECARGAS, ANTICIPOS y FALTANTE (empleados de esta tienda)."
           />
           <textarea
             className="input"

@@ -1,4 +1,5 @@
 import {
+  CATEGORIAS_CONT_VIRTUAL_DEFAULT,
   crearCategoriaContVirtual,
   crearSubcategoriaContVirtual,
   editarCategoriaContVirtual,
@@ -16,7 +17,7 @@ function lsKey(modulo) {
   return `${LS_CAT}_${modulo}_global`;
 }
 
-/** Categorías de proveedores solo en Corte Abarrotes (no vienen de IE Virtual). */
+/** Categorías de proveedores solo en Corte Abarrotes (no se mueven a IE). */
 export const DEFAULT_PROVEEDORES_ABARROTES = {
   categoria: 'PROVEEDORES',
   subcategorias: ['PAGO', 'MERCANCIA', 'OTROS'],
@@ -79,8 +80,8 @@ function mapRows(data) {
   }));
 }
 
-/** Convierte catálogo IE Virtual → formato de corte (nombres en mayúsculas). */
-export function catalogoIeAFormatoCorte(ieCats) {
+/** Convierte catálogo IE (Virtual/Abarrotes, compartido) → formato de corte. */
+export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual') {
   const out = [];
   const vistos = new Set();
   for (const c of ieCats || []) {
@@ -100,10 +101,16 @@ export function catalogoIeAFormatoCorte(ieCats) {
             .filter(Boolean),
         ),
       ],
-      fuente: 'ie_virtual',
+      fuente,
     });
   }
   return out;
+}
+
+function catalogoIeConFallback(ieData, fuente = 'ie_virtual') {
+  const desdeIe = catalogoIeAFormatoCorte(ieData, fuente);
+  if (desdeIe.length) return desdeIe;
+  return catalogoIeAFormatoCorte(CATEGORIAS_CONT_VIRTUAL_DEFAULT, fuente);
 }
 
 async function listarDesdeNube(supabase, sucursalId, modulo) {
@@ -164,32 +171,38 @@ async function guardarCategoriaGastoProveedor(supabase, categoria, subcategorias
 }
 
 /**
- * Catálogo de gastos del corte = categorías de IE Virtual (compartidas).
- * En Abarrotes se unen además las categorías de proveedores.
+ * Catálogo de gastos del corte:
+ * - Virtual / Garage → categorías y subcategorías de IE Virtual (compartido).
+ * - Abarrotes → mismas categorías/subcategorías de IE Abarrotes (mismo catálogo IE)
+ *   + categorías PROVEEDORES propias (no se migran a IE).
  */
 export async function listarCatalogoGastos(supabase, sucursal, modulo) {
   const ieRes = await listarCatalogoContVirtual(supabase);
-  const desdeIe = catalogoIeAFormatoCorte(ieRes.data || []);
+  const fuenteIe = modulo === 'abarrotes' ? 'ie_abarrotes' : 'ie_virtual';
+  const desdeIe = catalogoIeConFallback(ieRes.data || [], fuenteIe);
 
   if (modulo !== 'abarrotes') {
-    if (!desdeIe.length) {
-      return {
-        data: leerLocal(modulo),
-        error: ieRes.error,
-        aviso: ieRes.aviso,
-        fuente: 'fallback',
-      };
-    }
-    return { data: desdeIe, fuente: 'ie_virtual', aviso: ieRes.aviso };
+    return { data: desdeIe, fuente: fuenteIe, aviso: ieRes.aviso, error: ieRes.error };
   }
 
+  // Proveedores: solo desde cortes_gasto_catalogo (no tocar / no mover a IE).
   const proveedores = await listarProveedoresAbarrotes(supabase);
   const catsIe = new Set(desdeIe.map((c) => c.categoria));
-  const extraProv = proveedores.filter((p) => !catsIe.has(p.categoria));
+  const extraProv = (proveedores || [])
+    .filter((p) => esCategoriaProveedores(p.categoria))
+    .filter((p) => !catsIe.has(String(p.categoria || '').toUpperCase()))
+    .map((p) => ({
+      ...p,
+      categoria: String(p.categoria || '').trim().toUpperCase(),
+      subcategorias: (p.subcategorias || []).map((s) => String(s).trim().toUpperCase()).filter(Boolean),
+      fuente: 'proveedores',
+    }));
+
   return {
     data: [...desdeIe, ...extraProv],
-    fuente: 'ie_virtual+proveedores',
+    fuente: 'ie_abarrotes+proveedores',
     aviso: ieRes.aviso,
+    error: ieRes.error,
   };
 }
 
