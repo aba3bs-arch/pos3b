@@ -4,8 +4,10 @@ import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursal
 import CampoCorte from '../../components/corteContabilidad/CampoCorte.jsx';
 import CorteVirtualDesgloseModal from '../../components/corteContabilidad/CorteVirtualDesgloseModal.jsx';
 import {
+  aplicarCambioTopePostRecoleccionVirtual,
   aplicarInyeccionMonedaVirtual,
   calcularVirtual,
+  monedaAInyectarVirtual,
   prepararTrasCierreVirtual,
   prepararTrasRecoleccionVirtual,
   round2,
@@ -112,17 +114,22 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     if (!puedeRec) return alert('Solo admin/recolector puede recolectar.');
     if (!(montoRec > 0)) return alert('Indique el monto a recolectar.');
 
-    const miSiguiente = round2(estado.moneda_final_editada || round2(estado.moneda_final) > 0
+    const mfActual = round2(estado.moneda_final_editada || round2(estado.moneda_final) > 0
       ? estado.moneda_final
       : miCorte);
+    const inyectar = monedaAInyectarVirtual(estado, mfActual);
+    const miSiguiente = round2(monedaOperacion > 0 ? monedaOperacion : mfActual);
 
     if (!confirm(
       `¿Registrar recolección?\n\n` +
         `Monto: ${fmtCorte(montoRec)} → IE VIRTUAL\n` +
         `Caja chica quedará en ${fmtCorte(0)}\n` +
-        `Próxima moneda inicial = moneda final: ${fmtCorte(miSiguiente)}\n` +
-        `Tope de operación (referencia): ${fmtCorte(monedaOperacion)}\n\n` +
-        `No se inyecta moneda automáticamente. Si hace falta, el admin la inyecta en Moneda inicial.`,
+        `Moneda final actual: ${fmtCorte(mfActual)}\n` +
+        `Tope de operación: ${fmtCorte(monedaOperacion)}\n` +
+        `Inyección automática: ${fmtCorte(inyectar)}\n` +
+        `Próxima moneda inicial (MI = tope): ${fmtCorte(miSiguiente)}\n\n` +
+        `Después de la recolección, si cambia el tope, la MI del corte también cambia.\n` +
+        `Al cerrar el siguiente turno, la MI del corte siguiente será la MF de ese cierre.`,
     )) return;
 
     const res = await registrarRecoleccion({ montoRecoleccion: montoRec });
@@ -144,6 +151,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     alert(
       `Recolección ${fmtCorte(res.recoleccion)} registrada.\n` +
         `Caja chica en $0.00.\n` +
+        `Inyectado: ${fmtCorte(res.monedaInyectar ?? inyectar)}.\n` +
         `Moneda inicial del próximo corte: ${fmtCorte(res.miSiguiente ?? miSiguiente)}.`,
     );
   };
@@ -230,6 +238,10 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
                   value={estado.moneda_inicial ?? ''}
                   onChange={(e) => {
                     const v = moneyNum(e.target.value);
+                    if (estado._post_recoleccion) {
+                      patchEstado(aplicarCambioTopePostRecoleccionVirtual(estado, v));
+                      return;
+                    }
                     const patch = { moneda_inicial: v };
                     if (!estado._mi_turno_inicializado) {
                       patch.moneda_inicial_turno = v;
@@ -253,7 +265,9 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
               )}
             </div>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.72rem' }}>
-              Solo referencia · entre turnos la MI del corte es la MF anterior · no se autoinyecta
+              {estado._post_recoleccion
+                ? 'Tras recolección: al cambiar el tope se actualiza la MI (inyección = tope − base)'
+                : 'Referencia · tras cierre la MI = MF anterior · tras recolección se inyecta tope − MF'}
             </p>
             {miInyectada && (
               <p className="moneda-virtual-aviso-inyeccion">
@@ -339,9 +353,11 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
               value={estado.moneda_inicial_turno ?? estado.moneda_inicial ?? ''}
               editable={puedeInyectarMi && puedeEditar}
               hint={
-                puedeInyectarMi
-                  ? 'Bloqueada para cajero · solo admin inyecta aquí'
-                  : 'Moneda final del corte anterior (bloqueada)'
+                estado._post_recoleccion
+                  ? 'Tras recolección = tope (con inyección). También cambia si editas el tope.'
+                  : puedeInyectarMi
+                    ? 'Tras cierre = MF anterior · solo admin inyecta aquí'
+                    : 'Moneda final del corte anterior (bloqueada)'
               }
               color={miInyectada ? '#15803d' : '#1d4ed8'}
               inputClassName={miInyectada ? 'moneda-virtual-mi-inyectada' : 'moneda-virtual-mi-normal'}
@@ -393,7 +409,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
                 label="Recolección"
                 value={estado.recoleccion ?? estado.recoleccion_turno ?? ''}
                 editable={puedeRec && puedeEditar}
-                hint={puedeRec ? 'Solo va a IE · no inyecta moneda al tope' : 'Solo recolector/admin'}
+                hint={puedeRec ? 'Va a IE · al confirmar se inyecta tope − MF en la MI' : 'Solo recolector/admin'}
                 onChange={(v) => patchEstado({ recoleccion: moneyNum(v), recoleccion_turno: moneyNum(v) })}
               />
               {puedeRec && (

@@ -22,6 +22,29 @@ import {
   eliminarCierreCorte,
 } from './store.js';
 
+function snapshotTurno(date = new Date()) {
+  const t = turnoActual(null, date);
+  if (!t) return null;
+  return {
+    id: t.id,
+    nombre: t.nombre,
+    hora_inicio: t.hora_inicio,
+    hora_fin: t.hora_fin,
+  };
+}
+
+function resolverTurnoSesion(estado, gastos = []) {
+  if (estado?.turno_sesion?.id || estado?.turno_sesion?.nombre) {
+    return estado.turno_sesion;
+  }
+  const primerGasto = (gastos || []).find((g) => g?.created_at);
+  if (primerGasto?.created_at) {
+    const when = new Date(primerGasto.created_at);
+    if (!Number.isNaN(when.getTime())) return snapshotTurno(when);
+  }
+  return snapshotTurno();
+}
+
 export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn, prepararTrasCierre, prepararTrasRecoleccion }) {
   const [estado, setEstado] = useState(() => ({}));
   const [gastos, setGastos] = useState([]);
@@ -35,7 +58,10 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     () => permisosCorteContabilidad(user?.rol ?? user?.role, user?.id),
     [user?.rol, user?.role, user?.id],
   );
-  const turno = useMemo(() => nombreTurnoLegible(turnoActual()), []);
+  const turno = useMemo(
+    () => nombreTurnoLegible(estado?.turno_sesion || turnoActual()),
+    [estado?.turno_sesion],
+  );
 
   const calc = useMemo(() => calcFn(estado, gastos), [estado, gastos, calcFn]);
 
@@ -133,19 +159,30 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         : Promise.resolve({ data: [] }),
     ]);
     if (estRes.aviso || gasRes.aviso) setAviso(estRes.aviso || gasRes.aviso || '');
-    setEstado(estRes.estado || {});
-    setGastos(gasRes.data || []);
+    let nextEstado = estRes.estado || {};
+    const nextGastos = gasRes.data || [];
+    if (modulo === 'virtual' && !nextEstado.turno_sesion) {
+      const sesion = resolverTurnoSesion(nextEstado, nextGastos);
+      if (sesion) {
+        nextEstado = { ...nextEstado, turno_sesion: sesion };
+        await guardarEstadoCorte(supabase, sucursal, modulo, nextEstado);
+      }
+    }
+    setEstado(nextEstado);
+    setGastos(nextGastos);
     setHistorial(histRes.data || []);
     setEmpleados(
-      empleadosParaCorte(empRes.data || [], sucursal, modulo, user?.rol, { turno: turnoActual() }),
+      empleadosParaCorte(empRes.data || [], sucursal, modulo, user?.rol, {
+        turno: nextEstado.turno_sesion || turnoActual(),
+      }),
     );
-    if (!estRes.estado?.folio && modulo !== 'abarrotes') {
+    if (!nextEstado?.folio && modulo !== 'abarrotes') {
       const f = await peekFolio(supabase, sucursal, modulo);
       setFolio(f);
     } else if (modulo === 'abarrotes') {
-      setFolio(estRes.estado?.folio || 'AB-001');
+      setFolio(nextEstado?.folio || 'AB-001');
     } else {
-      setFolio(estRes.estado?.folio || '');
+      setFolio(nextEstado?.folio || '');
     }
     setCargando(false);
   }, [supabase, sucursal, modulo, user?.rol]);
@@ -159,6 +196,11 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     if (!puedeEditarCorteCampo(perm, 'gastos')) return;
     if (gastoRequiereEmpleado(modulo, gasto?.categoria) && !gasto?.usuario_id) {
       return alert('Selecciona el empleado a quien se descontará el consumo en nómina.');
+    }
+    // Fija el turno de la sesión al primer registro (si el corte quedó abierto entre turnos).
+    if (modulo === 'virtual' && !estado.turno_sesion) {
+      const sesion = snapshotTurno();
+      if (sesion) patchEstado({ turno_sesion: sesion });
     }
     const res = await agregarGastoTurno(supabase, sucursal, modulo, gasto, {
       rolActor: user?.rol,
@@ -190,11 +232,15 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       return alert('No tiene permiso para cerrar este corte.');
     }
 
+    // Queda a nombre del turno donde se hicieron los registros (sesión abierta),
+    // aunque se cierre ya entrado el siguiente turno.
+    const turnoCierre = estado.turno_sesion || snapshotTurno() || turnoActual();
+
     const payload = {
       sucursal_id: sucursal || 'MAIN',
       modulo,
       folio: modulo === 'abarrotes' ? estado.folio || folio : folio,
-      turno: turnoActual(),
+      turno: turnoCierre,
       usuario_id: user?.id || null,
       usuario_nombre: user?.nombre || null,
       caja_actual: calc.cajaActual ?? 0,
@@ -209,6 +255,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         comentarios: estado.comentarios || '',
         ...detalleExtra,
         tipo_cierre: 'cierre',
+        turno_sesion: turnoCierre,
       },
     };
     const res = await registrarCierreCorte(supabase, payload);
@@ -218,6 +265,10 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const idsGastos = (gastos || []).map((g) => g.id).filter(Boolean);
     const limpia = await limpiarGastosTurno(supabase, sucursal, modulo, idsGastos);
     const nuevoEstado = prepararTrasCierre(estado, calc, detalleExtra);
+    // Nueva sesión abierta: turno actual (cuando arranca el siguiente corte).
+    if (modulo === 'virtual') {
+      nuevoEstado.turno_sesion = snapshotTurno() || turnoActual();
+    }
     if (modulo !== 'abarrotes') {
       const nuevoFolio = await siguienteFolio(supabase, sucursal, modulo);
       setFolio(nuevoFolio);
@@ -265,6 +316,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       const mf = round2(estado.moneda_final);
       const mi = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
       const tope = monedaTopeVirtual(estado);
+      const monedaInyectar = monedaAInyectarVirtual(estado, mf);
       const payload = {
         sucursal_id: sucursal || 'MAIN',
         modulo,
@@ -291,8 +343,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
           subtotal: calc.subtotal,
           caja_actual: calc.cajaActual,
           moneda_tope: tope,
-          moneda_inyectar: 0,
-          formula_recoleccion: 'manual',
+          moneda_inyectar: monedaInyectar,
+          formula_recoleccion: 'tope_menos_mf',
           tipo_cierre: 'recoleccion',
           comentarios: estado.comentarios || '',
         },
@@ -306,6 +358,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         monedaTope: tope,
         montoRecoleccion: calcRec,
       });
+      nuevoEstado.turno_sesion = snapshotTurno() || turnoActual();
       await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
       setEstado(nuevoEstado);
       const gasRec = await listarGastosTurno(supabase, sucursal, modulo);
@@ -316,7 +369,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         ok: true,
         folio: payload.folio,
         recoleccion: calcRec,
-        monedaInyectar: 0,
+        monedaInyectar,
         miSiguiente: nuevoEstado.moneda_inicial_turno,
         estadoImpresion: payload.detalle,
         gastosImpresion: gastos,

@@ -74,8 +74,8 @@ export function ventasVirtualCorte(monedaInicial, monedaFinal, opts = {}) {
 
 /**
  * Virtual:
- * - moneda_inicial = tope/referencia de la operación (encabezado morado; no se autoinyecta)
- * - moneda_inicial_turno = moneda final del corte anterior (bloqueada; solo admin inyecta)
+ * - moneda_inicial = tope/referencia de la operación (encabezado morado)
+ * - moneda_inicial_turno = MI del corte (tras cierre = MF anterior; tras recolección = tope con inyección)
  * - venta = MI turno − MF
  * - subtotal = venta − gastos
  * - caja chica actual = caja chica anterior + subtotal
@@ -107,6 +107,9 @@ export function calcularVirtual(estado, gastos = []) {
       ? estado.moneda_inyectada_monto
       : mi - base,
   );
+  const monedaInyectar = estado._post_recoleccion
+    ? 0
+    : round2(Math.max(0, tope - (capturada ? mf : 0)));
   return {
     venta,
     faltante: round2(estado.faltante),
@@ -127,8 +130,7 @@ export function calcularVirtual(estado, gastos = []) {
     recoleccionCalc: 0,
     total: subtotal,
     monedaTope: tope,
-    // Ya no se autoinyecta tope − MF; la inyección es manual del admin.
-    monedaInyectar: 0,
+    monedaInyectar,
   };
 }
 
@@ -148,17 +150,27 @@ export function cajaChicaAcumulada(estado, calc) {
   return round2(calc?.cajaActual ?? round2(estado?.caja_anterior) + round2(calc?.subtotal));
 }
 
-/** Tope / referencia de la operación (encabezado). No se autoinyecta. */
+/** Tope / referencia de la operación (encabezado). */
 export function monedaTopeVirtual(estado) {
   return round2(estado?.moneda_inicial);
 }
 
-/** @deprecated La inyección es manual del admin sobre moneda_inicial_turno. */
-export function monedaAInyectarVirtual(_estado, _monedaFinal) {
-  return 0;
+/** Monto a inyectar al portal en recolección: tope − MF (si tope > MF). */
+export function monedaAInyectarVirtual(estado, monedaFinal) {
+  const tope = monedaTopeVirtual(estado);
+  let mf;
+  if (monedaFinal != null && monedaFinal !== '') {
+    mf = round2(monedaFinal);
+  } else if (estado?.moneda_final_editada || round2(estado?.moneda_final) > 0) {
+    mf = round2(estado.moneda_final);
+  } else {
+    mf = monedaInicialTurnoEfectiva(estado);
+  }
+  if (!(tope > 0)) return 0;
+  return round2(Math.max(0, tope - mf));
 }
 
-/** Moneda que queda en portal tras recolección = MF del corte (no el tope). */
+/** Efectivo físico que queda en portal al recolectar (= MF capturada). */
 export function monedaTrasRecoleccionVirtual(estado) {
   const mf = round2(estado?.moneda_final);
   if (estado?.moneda_final_editada || mf > 0) return mf;
@@ -168,21 +180,26 @@ export function monedaTrasRecoleccionVirtual(estado) {
 /**
  * Tras recolección:
  * - caja chica → 0
- * - fondo y tope de operación se conservan (referencia)
- * - MI del próximo corte = moneda final (NO se restablece al tope)
+ * - tope de operación se conserva
+ * - se inyecta (tope − MF) para que MI del próximo corte = tope
+ * - base = MF (efectivo real); la diferencia queda marcada como inyección
+ * - _post_recoleccion: al cambiar el tope, la MI sigue al tope
  */
 export function prepararTrasRecoleccionVirtual(estado) {
   const tope = monedaTopeVirtual(estado);
-  const miSiguiente = monedaTrasRecoleccionVirtual(estado);
+  const mf = monedaTrasRecoleccionVirtual(estado);
+  const miSiguiente = tope > 0 ? tope : mf;
+  const inyectar = round2(miSiguiente - mf);
+  const hayInyeccion = Math.abs(inyectar) > 0.001;
   return {
     ...estado,
     fondo: round2(estado.fondo),
     caja_anterior: 0,
     moneda_inicial: tope > 0 ? tope : round2(estado.moneda_inicial),
     moneda_inicial_turno: miSiguiente,
-    moneda_turno_base: miSiguiente,
-    moneda_inyectada: false,
-    moneda_inyectada_monto: 0,
+    moneda_turno_base: mf,
+    moneda_inyectada: hayInyeccion,
+    moneda_inyectada_monto: hayInyeccion ? inyectar : 0,
     moneda_final: 0,
     moneda_final_editada: false,
     precoleccion: 0,
@@ -196,6 +213,8 @@ export function prepararTrasRecoleccionVirtual(estado) {
     caja_actual_manual: '',
     corte_reabierto_id: null,
     _mi_turno_inicializado: true,
+    _post_recoleccion: true,
+    turno_sesion: null,
   };
 }
 
@@ -223,6 +242,32 @@ export function prepararTrasCierreVirtual(estado, calc) {
     venta_manual: '',
     subtotal_manual: '',
     caja_actual_manual: '',
+    _mi_turno_inicializado: true,
+    _post_recoleccion: false,
+    turno_sesion: null,
+  };
+}
+
+/**
+ * Solo tras recolección: al cambiar el tope de referencia, la MI del corte
+ * se iguala al nuevo tope (inyectando la diferencia respecto a la base física).
+ */
+export function aplicarCambioTopePostRecoleccionVirtual(estado, nuevoTope) {
+  const tope = round2(nuevoTope);
+  const base = round2(
+    estado.moneda_turno_base != null && estado.moneda_turno_base !== ''
+      ? estado.moneda_turno_base
+      : estado.moneda_inicial_turno ?? 0,
+  );
+  const diff = round2(tope - base);
+  const inyectada = Math.abs(diff) > 0.001;
+  return {
+    moneda_inicial: tope,
+    moneda_inicial_turno: tope,
+    moneda_turno_base: base,
+    moneda_inyectada: inyectada,
+    moneda_inyectada_monto: inyectada ? diff : 0,
+    _post_recoleccion: true,
     _mi_turno_inicializado: true,
   };
 }
@@ -323,6 +368,8 @@ export const ESTADO_VIRTUAL_DEFAULT = {
   precoleccion: 0,
   _precoleccion_editada: false,
   _mi_turno_inicializado: false,
+  _post_recoleccion: false,
+  turno_sesion: null,
 };
 
 export const ESTADO_ABARROTES_DEFAULT = {
