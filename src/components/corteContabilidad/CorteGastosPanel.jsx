@@ -8,7 +8,6 @@ import {
   gastoRequiereEmpleado,
   gastoDescuentaNomina,
 } from '../../lib/corteContabilidad/catalogoGastos.js';
-import { turnoActual, nombreTurnoLegible } from '../../lib/turnos.js';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -147,20 +146,23 @@ export default function CorteGastosPanel({
       </div>
       <p className="muted" style={{ fontSize: '0.75rem', margin: '0.35rem 0 0.5rem' }}>
         {notaNomina ||
-          `Solo CONSUMO, RECARGAS, ANTICIPOS y FALTANTE descuentan nómina (con empleado). CubreTurno, Taxi y operativos no. Turno ${nombreTurnoLegible(turnoActual())}.`}
+          `Categorías de IE Virtual. Solo CONSUMO, RECARGAS, ANTICIPOS y FALTANTE descuentan nómina (empleado de esta tienda).${
+            modulo === 'abarrotes' ? ' PROVEEDORES se mantiene en Abarrotes.' : ''
+          }`}
       </p>
 
       {mostrarCat && puedeCatalogo && (
         <div style={{ marginBottom: '0.75rem', padding: '0.5rem', background: 'var(--surface)', borderRadius: 8 }}>
           <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.5rem' }}>
-            Catálogo compartido en <strong>todas las sucursales</strong>.
+            Catálogo compartido desde <strong>IE Virtual</strong>
+            {modulo === 'abarrotes' ? ' (+ proveedores solo en Abarrotes)' : ''}. También se edita en Contabilidad → IE Virtual → Catálogo.
           </p>
           <button type="button" className="btn btn-ghost" style={{ ...btnSm, marginBottom: '0.5rem' }} onClick={nuevaCategoria}>
             + Categoría
           </button>
           {catalogo.map((c) => (
             <div
-              key={c.categoria}
+              key={c.ieId || c.categoria}
               style={{
                 display: 'flex',
                 flexWrap: 'wrap',
@@ -171,7 +173,15 @@ export default function CorteGastosPanel({
                 borderBottom: '1px solid var(--border)',
               }}
             >
-              <strong style={{ fontSize: '0.85rem', minWidth: 90 }}>{c.categoria}</strong>
+              <strong style={{ fontSize: '0.85rem', minWidth: 90 }}>
+                {c.categoria}
+                {c.fuente === 'proveedores' ? (
+                  <span className="muted" style={{ fontWeight: 500, fontSize: '0.72rem' }}>
+                    {' '}
+                    · prov.
+                  </span>
+                ) : null}
+              </strong>
               <span className="muted" style={{ fontSize: '0.8rem', flex: 1 }}>
                 {(c.subcategorias || []).length ? c.subcategorias.join(' · ') : 'Sin subcategorías'}
               </span>
@@ -200,11 +210,10 @@ export default function CorteGastosPanel({
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.4rem', marginBottom: '0.4rem' }}>
             {requiereEmpleado && (
               <select className="select" value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)}>
-                <option value="">Empleado (consumo · turno actual)</option>
+                <option value="">Empleado de esta tienda</option>
                 {(empleados || []).map((e) => (
                   <option key={e.id} value={e.id}>
                     {e.nombre}
-                    {e.es_indirecto_corte ? ' · indirecto' : ''}
                   </option>
                 ))}
               </select>

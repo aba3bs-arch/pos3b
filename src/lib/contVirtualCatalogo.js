@@ -34,6 +34,33 @@ export const CATEGORIAS_CONT_VIRTUAL_DEFAULT = [
     ],
   },
   {
+    id: 'recargas',
+    nombre: 'Recargas',
+    orden: 22,
+    activo: true,
+    fijo: true,
+    subcategorias: [
+      { id: 'recargas-celular', nombre: 'Celular', orden: 10, activo: true, fijo: true },
+      { id: 'recargas-otras', nombre: 'Otras', orden: 20, activo: true, fijo: true },
+    ],
+  },
+  {
+    id: 'anticipos',
+    nombre: 'Anticipos',
+    orden: 24,
+    activo: true,
+    fijo: true,
+    subcategorias: [{ id: 'anticipos-empleado', nombre: 'Empleado', orden: 10, activo: true, fijo: true }],
+  },
+  {
+    id: 'faltante',
+    nombre: 'Faltante',
+    orden: 26,
+    activo: true,
+    fijo: true,
+    subcategorias: [{ id: 'faltante-caja', nombre: 'Faltante', orden: 10, activo: true, fijo: true }],
+  },
+  {
     id: 'operativos',
     nombre: 'Gastos operativos',
     orden: 30,
@@ -219,7 +246,7 @@ export async function listarCatalogoContVirtual(supabase) {
     return again;
   }
   const ids = new Set((cRes.data || []).map((c) => c.id));
-  if (!ids.has('cubre-turno') || !ids.has('taxis')) {
+  if (!ids.has('cubre-turno') || !ids.has('taxis') || !ids.has('recargas') || !ids.has('anticipos') || !ids.has('faltante')) {
     await sembrarCatalogoDefault(supabase);
     const [c2, s2] = await Promise.all([
       supabase.from('cont_virtual_categorias').select('*').order('orden'),

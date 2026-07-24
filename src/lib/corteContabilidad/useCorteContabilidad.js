@@ -171,11 +171,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     setEstado(nextEstado);
     setGastos(nextGastos);
     setHistorial(histRes.data || []);
-    setEmpleados(
-      empleadosParaCorte(empRes.data || [], sucursal, modulo, user?.rol, {
-        turno: nextEstado.turno_sesion || turnoActual(),
-      }),
-    );
+    setEmpleados(empleadosParaCorte(empRes.data || [], sucursal, modulo, user?.rol));
     if (!nextEstado?.folio && modulo !== 'abarrotes') {
       const f = await peekFolio(supabase, sucursal, modulo);
       setFolio(f);

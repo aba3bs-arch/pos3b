@@ -1,0 +1,14 @@
+---
+description: Siempre hacer commit y push tras cada cambio
+alwaysApply: true
+---
+
+# Commit y push después de cada cambio
+
+Tras completar cualquier cambio de código solicitado por el usuario:
+
+1. Hacer **commit** con mensaje claro (estilo del repo).
+2. Hacer **push** a `origin` de la rama actual.
+3. No esperar a que el usuario lo pida otra vez; es el flujo normal de este proyecto.
+
+Excepciones: el usuario pide explícitamente no subir, o el cambio es solo exploración/lectura sin editar archivos.

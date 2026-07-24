@@ -444,7 +444,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
             habilitado={puedeEditarCorteCampo(perm, 'gastos')}
             puedeCatalogo={perm.editarTodo}
             puedeEditarGastos={perm.gastos || perm.editarTodo}
-            notaNomina="Nómina: CONSUMO, RECARGAS, ANTICIPOS y FALTANTE (puede descontarse en varios pagos)."
+            notaNomina="Categorías de IE Virtual. Nómina: CONSUMO, RECARGAS, ANTICIPOS y FALTANTE (solo empleados de esta tienda)."
           />
         </div>
       </div>

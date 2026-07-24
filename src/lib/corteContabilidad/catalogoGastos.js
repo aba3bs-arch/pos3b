@@ -1,38 +1,32 @@
+import {
+  crearCategoriaContVirtual,
+  crearSubcategoriaContVirtual,
+  editarCategoriaContVirtual,
+  eliminarCategoriaContVirtual,
+  eliminarSubcategoriaContVirtual,
+  listarCatalogoContVirtual,
+} from '../contVirtualCatalogo.js';
+
 const LS_CAT = 'pos3b_corte_catalogo';
 
-/** Catálogo compartido entre todas las sucursales. */
+/** Catálogo compartido entre todas las sucursales (legado / proveedores Abarrotes). */
 export const CATALOGO_GASTOS_GLOBAL = 'GLOBAL';
 
 function lsKey(modulo) {
   return `${LS_CAT}_${modulo}_global`;
 }
 
+/** Categorías de proveedores solo en Corte Abarrotes (no vienen de IE Virtual). */
+export const DEFAULT_PROVEEDORES_ABARROTES = {
+  categoria: 'PROVEEDORES',
+  subcategorias: ['PAGO', 'MERCANCIA', 'OTROS'],
+  fuente: 'proveedores',
+};
+
 const DEFAULTS = {
-  virtual: [
-    { categoria: 'CONSUMO', subcategorias: ['EMPLEADO', 'OFICINA'] },
-    { categoria: 'RECARGAS', subcategorias: ['CELULAR', 'OTRAS'] },
-    { categoria: 'ANTICIPOS', subcategorias: ['EMPLEADO'] },
-    { categoria: 'FALTANTE', subcategorias: ['FALTANTE'] },
-    { categoria: 'GASTOS OPERATIVOS', subcategorias: ['SUMINISTROS', 'SERVICIOS', 'MANTENIMIENTO', 'OTROS'] },
-    { categoria: 'CUBRE TURNO', subcategorias: ['PAGO'] },
-    { categoria: 'TAXIS', subcategorias: ['SERVICIO'] },
-    { categoria: 'TARJETA', subcategorias: ['PAGOS TARJETA'] },
-    { categoria: 'PREMIOS', subcategorias: ['PAGO DE PREMIO'] },
-  ],
-  abarrotes: [
-    { categoria: 'CONSUMO', subcategorias: ['EMPLEADO', 'LIMPIEZA'] },
-    { categoria: 'RECARGAS', subcategorias: ['CELULAR', 'OTRAS'] },
-    { categoria: 'ANTICIPOS', subcategorias: ['EMPLEADO'] },
-    { categoria: 'FALTANTE', subcategorias: ['FALTANTE'] },
-    { categoria: 'GASTOS OPERATIVOS', subcategorias: ['SUMINISTROS', 'SERVICIOS', 'MANTENIMIENTO', 'OTROS'] },
-  ],
-  garage: [
-    { categoria: 'CONSUMO', subcategorias: ['EMPLEADO', 'MANTENIMIENTO'] },
-    { categoria: 'RECARGAS', subcategorias: ['CELULAR', 'OTRAS'] },
-    { categoria: 'ANTICIPOS', subcategorias: ['EMPLEADO'] },
-    { categoria: 'FALTANTE', subcategorias: ['FALTANTE'] },
-    { categoria: 'GASTOS OPERATIVOS', subcategorias: ['SUMINISTROS', 'SERVICIOS', 'MANTENIMIENTO', 'OTROS'] },
-  ],
+  virtual: [],
+  abarrotes: [{ ...DEFAULT_PROVEEDORES_ABARROTES }],
+  garage: [],
 };
 
 /** Solo cargos del empleado: consumo, recargas, anticipos y faltante → nómina. */
@@ -43,7 +37,6 @@ export function gastoDescuentaNomina(_modulo, categoria, subcategoria = '') {
   const cat = String(categoria || '').trim().toUpperCase();
   const sub = String(subcategoria || '').trim().toUpperCase();
   if (CATEGORIAS_GASTO_NOMINA.includes(cat)) return true;
-  // Por si el catálogo usa otra etiqueta pero el concepto es el mismo
   if (cat.includes('CONSUMO') || cat.includes('RECARG') || cat.includes('ANTICIPO') || cat.includes('FALTANTE')) {
     return true;
   }
@@ -55,6 +48,11 @@ export function gastoDescuentaNomina(_modulo, categoria, subcategoria = '') {
 
 export function gastoRequiereEmpleado(modulo, categoria, subcategoria = '') {
   return gastoDescuentaNomina(modulo, categoria, subcategoria);
+}
+
+export function esCategoriaProveedores(categoria) {
+  const cat = String(categoria || '').trim().toUpperCase();
+  return cat.includes('PROVEEDOR');
 }
 
 function leerLocal(modulo) {
@@ -76,7 +74,36 @@ function mapRows(data) {
     id: r.id,
     categoria: r.categoria,
     subcategorias: Array.isArray(r.subcategorias) ? r.subcategorias : [],
+    fuente: r.fuente || 'legado',
+    ieId: r.ieId || null,
   }));
+}
+
+/** Convierte catálogo IE Virtual → formato de corte (nombres en mayúsculas). */
+export function catalogoIeAFormatoCorte(ieCats) {
+  const out = [];
+  const vistos = new Set();
+  for (const c of ieCats || []) {
+    if (c?.activo === false) continue;
+    const categoria = String(c.nombre || '').trim().toUpperCase();
+    if (!categoria || vistos.has(categoria)) continue;
+    vistos.add(categoria);
+    out.push({
+      id: c.id,
+      ieId: c.id,
+      categoria,
+      subcategorias: [
+        ...new Set(
+          (c.subcategorias || [])
+            .filter((s) => s?.activo !== false)
+            .map((s) => String(s.nombre || '').trim().toUpperCase())
+            .filter(Boolean),
+        ),
+      ],
+      fuente: 'ie_virtual',
+    });
+  }
+  return out;
 }
 
 async function listarDesdeNube(supabase, sucursalId, modulo) {
@@ -88,69 +115,45 @@ async function listarDesdeNube(supabase, sucursalId, modulo) {
     .order('categoria');
 }
 
-/** Asegura categorías fijas nuevas (CUBRE TURNO / TAXIS) en catálogo Virtual global. */
-async function asegurarCategoriasVirtualFijas(supabase, rows) {
-  if (!supabase) return rows;
-  const lista = mapRows(rows);
-  const cats = new Set(lista.map((r) => String(r.categoria || '').toUpperCase()));
-  const fijasNomina = ['CUBRE TURNO', 'TAXIS', 'FALTANTE', 'RECARGAS', 'ANTICIPOS'];
-  const faltantes = (DEFAULTS.virtual || []).filter(
-    (d) => fijasNomina.includes(d.categoria) && !cats.has(d.categoria),
+async function listarProveedoresAbarrotes(supabase) {
+  if (!supabase) {
+    const local = leerLocal('abarrotes').filter((r) => esCategoriaProveedores(r.categoria));
+    return local.length ? mapRows(local) : [{ ...DEFAULT_PROVEEDORES_ABARROTES }];
+  }
+
+  const globalRes = await listarDesdeNube(supabase, CATALOGO_GASTOS_GLOBAL, 'abarrotes');
+  const rows = !globalRes.error && globalRes.data?.length ? mapRows(globalRes.data) : [];
+  const proveedores = rows
+    .filter((r) => esCategoriaProveedores(r.categoria))
+    .map((r) => ({ ...r, fuente: 'proveedores' }));
+
+  if (proveedores.length) return proveedores;
+
+  // Sembrar default de proveedores en catálogo global de abarrotes
+  await guardarCategoriaGastoProveedor(
+    supabase,
+    DEFAULT_PROVEEDORES_ABARROTES.categoria,
+    DEFAULT_PROVEEDORES_ABARROTES.subcategorias,
   );
-  if (!faltantes.length) return lista;
-  for (const d of faltantes) {
-    await guardarCategoriaGasto(supabase, CATALOGO_GASTOS_GLOBAL, 'virtual', d.categoria, d.subcategorias);
-  }
-  const again = await listarDesdeNube(supabase, CATALOGO_GASTOS_GLOBAL, 'virtual');
-  if (!again.error && again.data?.length) return mapRows(again.data);
-  return [...lista, ...faltantes];
+  return [{ ...DEFAULT_PROVEEDORES_ABARROTES }];
 }
 
-/** Lista catálogo global; si no hay filas globales, usa legado de la sucursal activa. */
-export async function listarCatalogoGastos(supabase, sucursal, modulo) {
-  if (!supabase) return { data: leerLocal(modulo) };
-
-  const globalRes = await listarDesdeNube(supabase, CATALOGO_GASTOS_GLOBAL, modulo);
-  if (globalRes.error) {
-    if (globalRes.error.code === '42P01') return { data: leerLocal(modulo), aviso: 'Ejecuta fix_contabilidad_ampliacion.sql' };
-    return { data: leerLocal(modulo), error: globalRes.error.message };
-  }
-  if (globalRes.data?.length) {
-    const data =
-      modulo === 'virtual' ? await asegurarCategoriasVirtualFijas(supabase, globalRes.data) : mapRows(globalRes.data);
-    return { data, fuente: 'global' };
-  }
-
-  const legacyRes = await listarDesdeNube(supabase, sucursal || 'MAIN', modulo);
-  if (legacyRes.error) return { data: leerLocal(modulo), error: legacyRes.error.message };
-  if (legacyRes.data?.length) {
-    if (modulo === 'virtual') {
-      // Migrar faltantes al catálogo global para todas las tiendas
-      const data = await asegurarCategoriasVirtualFijas(supabase, legacyRes.data);
-      return { data, fuente: 'legacy+fijas' };
-    }
-    return { data: mapRows(legacyRes.data), fuente: 'legacy' };
-  }
-
-  return { data: DEFAULTS[modulo] || [] };
-}
-
-export async function guardarCategoriaGasto(supabase, sucursal, modulo, categoria, subcategorias = []) {
+async function guardarCategoriaGastoProveedor(supabase, categoria, subcategorias = []) {
   const cat = String(categoria || '').trim().toUpperCase();
   if (!cat) return { ok: false, error: 'Categoría vacía.' };
   const subs = (subcategorias || []).map((s) => String(s).trim().toUpperCase()).filter(Boolean);
 
   if (!supabase) {
-    const lista = leerLocal(modulo).filter((x) => x.categoria !== cat);
-    lista.push({ categoria: cat, subcategorias: subs });
-    guardarLocal(modulo, lista);
+    const lista = leerLocal('abarrotes').filter((x) => x.categoria !== cat);
+    lista.push({ categoria: cat, subcategorias: subs, fuente: 'proveedores' });
+    guardarLocal('abarrotes', lista);
     return { ok: true };
   }
 
   const { error } = await supabase.from('cortes_gasto_catalogo').upsert(
     {
       sucursal_id: CATALOGO_GASTOS_GLOBAL,
-      modulo,
+      modulo: 'abarrotes',
       categoria: cat,
       subcategorias: subs,
     },
@@ -160,45 +163,169 @@ export async function guardarCategoriaGasto(supabase, sucursal, modulo, categori
   return { ok: true };
 }
 
+/**
+ * Catálogo de gastos del corte = categorías de IE Virtual (compartidas).
+ * En Abarrotes se unen además las categorías de proveedores.
+ */
+export async function listarCatalogoGastos(supabase, sucursal, modulo) {
+  const ieRes = await listarCatalogoContVirtual(supabase);
+  const desdeIe = catalogoIeAFormatoCorte(ieRes.data || []);
+
+  if (modulo !== 'abarrotes') {
+    if (!desdeIe.length) {
+      return {
+        data: leerLocal(modulo),
+        error: ieRes.error,
+        aviso: ieRes.aviso,
+        fuente: 'fallback',
+      };
+    }
+    return { data: desdeIe, fuente: 'ie_virtual', aviso: ieRes.aviso };
+  }
+
+  const proveedores = await listarProveedoresAbarrotes(supabase);
+  const catsIe = new Set(desdeIe.map((c) => c.categoria));
+  const extraProv = proveedores.filter((p) => !catsIe.has(p.categoria));
+  return {
+    data: [...desdeIe, ...extraProv],
+    fuente: 'ie_virtual+proveedores',
+    aviso: ieRes.aviso,
+  };
+}
+
+function filaPorCategoria(lista, categoria) {
+  const cat = String(categoria || '').trim().toUpperCase();
+  return (lista || []).find((x) => String(x.categoria || '').toUpperCase() === cat) || null;
+}
+
+export async function guardarCategoriaGasto(supabase, sucursal, modulo, categoria, subcategorias = []) {
+  const cat = String(categoria || '').trim().toUpperCase();
+  if (!cat) return { ok: false, error: 'Categoría vacía.' };
+  const subs = (subcategorias || []).map((s) => String(s).trim().toUpperCase()).filter(Boolean);
+
+  if (modulo === 'abarrotes' && esCategoriaProveedores(cat)) {
+    return guardarCategoriaGastoProveedor(supabase, cat, subs);
+  }
+
+  const actual = await listarCatalogoGastos(supabase, sucursal, modulo);
+  const row = filaPorCategoria(actual.data, cat);
+  if (row?.ieId) {
+    const edit = await editarCategoriaContVirtual(supabase, row.ieId, { nombre: cat });
+    if (!edit.ok) return edit;
+    // Reemplazar subcategorías: crear faltantes
+    const ie = await listarCatalogoContVirtual(supabase);
+    const ieCat = (ie.data || []).find((c) => c.id === row.ieId);
+    const existentes = new Set(
+      (ieCat?.subcategorias || []).map((s) => String(s.nombre || '').trim().toUpperCase()),
+    );
+    for (const sub of subs) {
+      if (!existentes.has(sub)) {
+        const r = await crearSubcategoriaContVirtual(supabase, { categoriaId: row.ieId, nombre: sub });
+        if (!r.ok) return r;
+      }
+    }
+    return { ok: true };
+  }
+
+  const creada = await crearCategoriaContVirtual(supabase, { nombre: cat });
+  if (!creada.ok) return creada;
+  for (const sub of subs) {
+    const r = await crearSubcategoriaContVirtual(supabase, { categoriaId: creada.id, nombre: sub });
+    if (!r.ok) return r;
+  }
+  return { ok: true, id: creada.id };
+}
+
 export async function agregarSubcategoriaGasto(supabase, sucursal, modulo, categoria, subcategoria) {
   const res = await listarCatalogoGastos(supabase, sucursal, modulo);
   const cat = String(categoria || '').trim().toUpperCase();
   const sub = String(subcategoria || '').trim().toUpperCase();
   if (!cat || !sub) return { ok: false, error: 'Datos incompletos.' };
-  const row = (res.data || []).find((x) => x.categoria === cat);
+  const row = filaPorCategoria(res.data, cat);
   const subs = row ? [...new Set([...(row.subcategorias || []), sub])] : [sub];
+
+  if (modulo === 'abarrotes' && esCategoriaProveedores(cat)) {
+    return guardarCategoriaGastoProveedor(supabase, cat, subs);
+  }
+
+  if (row?.ieId) {
+    return crearSubcategoriaContVirtual(supabase, { categoriaId: row.ieId, nombre: sub });
+  }
   return guardarCategoriaGasto(supabase, sucursal, modulo, cat, subs);
 }
 
 export async function eliminarCategoriaGasto(supabase, sucursal, modulo, categoria) {
   const cat = String(categoria || '').trim().toUpperCase();
-  if (!supabase) {
-    guardarLocal(
-      modulo,
-      leerLocal(modulo).filter((x) => x.categoria !== cat),
-    );
+  const actual = await listarCatalogoGastos(supabase, sucursal, modulo);
+  const row = filaPorCategoria(actual.data, cat);
+
+  if (modulo === 'abarrotes' && esCategoriaProveedores(cat)) {
+    if (!supabase) {
+      guardarLocal(
+        'abarrotes',
+        leerLocal('abarrotes').filter((x) => x.categoria !== cat),
+      );
+      return { ok: true };
+    }
+    const { error } = await supabase
+      .from('cortes_gasto_catalogo')
+      .delete()
+      .eq('sucursal_id', CATALOGO_GASTOS_GLOBAL)
+      .eq('modulo', 'abarrotes')
+      .eq('categoria', cat);
+    if (error) return { ok: false, error: error.message };
     return { ok: true };
   }
-  const { error } = await supabase
-    .from('cortes_gasto_catalogo')
-    .delete()
-    .eq('sucursal_id', CATALOGO_GASTOS_GLOBAL)
-    .eq('modulo', modulo)
-    .eq('categoria', cat);
-  if (error) return { ok: false, error: error.message };
-  return { ok: true };
+
+  if (row?.ieId) {
+    return eliminarCategoriaContVirtual(supabase, row.ieId);
+  }
+  return { ok: false, error: 'Categoría no encontrada en IE Virtual.' };
 }
 
 export async function renombrarCategoriaGasto(supabase, sucursal, modulo, categoriaVieja, categoriaNueva, subcategorias) {
   const vieja = String(categoriaVieja || '').trim().toUpperCase();
   const nueva = String(categoriaNueva || '').trim().toUpperCase();
   if (!vieja || !nueva) return { ok: false, error: 'Nombre de categoría inválido.' };
-  if (vieja === nueva) {
+
+  if (modulo === 'abarrotes' && (esCategoriaProveedores(vieja) || esCategoriaProveedores(nueva))) {
+    if (vieja !== nueva) {
+      const del = await eliminarCategoriaGasto(supabase, sucursal, modulo, vieja);
+      if (!del.ok) return del;
+    }
+    return guardarCategoriaGastoProveedor(supabase, nueva, subcategorias);
+  }
+
+  const actual = await listarCatalogoGastos(supabase, sucursal, modulo);
+  const row = filaPorCategoria(actual.data, vieja);
+  if (!row?.ieId) {
     return guardarCategoriaGasto(supabase, sucursal, modulo, nueva, subcategorias);
   }
-  const del = await eliminarCategoriaGasto(supabase, sucursal, modulo, vieja);
-  if (!del.ok) return del;
-  return guardarCategoriaGasto(supabase, sucursal, modulo, nueva, subcategorias);
+
+  if (vieja !== nueva) {
+    const edit = await editarCategoriaContVirtual(supabase, row.ieId, { nombre: nueva });
+    if (!edit.ok) return edit;
+  }
+
+  const ie = await listarCatalogoContVirtual(supabase);
+  const ieCat = (ie.data || []).find((c) => c.id === row.ieId);
+  const want = new Set((subcategorias || []).map((s) => String(s).trim().toUpperCase()).filter(Boolean));
+  for (const s of ieCat?.subcategorias || []) {
+    const nom = String(s.nombre || '').trim().toUpperCase();
+    if (!want.has(nom) && !s.fijo) {
+      await eliminarSubcategoriaContVirtual(supabase, s.id);
+    }
+  }
+  const after = await listarCatalogoContVirtual(supabase);
+  const ieCat2 = (after.data || []).find((c) => c.id === row.ieId);
+  const have = new Set((ieCat2?.subcategorias || []).map((s) => String(s.nombre || '').trim().toUpperCase()));
+  for (const sub of want) {
+    if (!have.has(sub)) {
+      const r = await crearSubcategoriaContVirtual(supabase, { categoriaId: row.ieId, nombre: sub });
+      if (!r.ok) return r;
+    }
+  }
+  return { ok: true };
 }
 
 export async function actualizarSubcategoriasGasto(supabase, sucursal, modulo, categoria, subcategorias) {
@@ -209,8 +336,24 @@ export async function eliminarSubcategoriaGasto(supabase, sucursal, modulo, cate
   const res = await listarCatalogoGastos(supabase, sucursal, modulo);
   const cat = String(categoria || '').trim().toUpperCase();
   const sub = String(subcategoria || '').trim().toUpperCase();
-  const row = (res.data || []).find((x) => x.categoria === cat);
+  const row = filaPorCategoria(res.data, cat);
   if (!row) return { ok: false, error: 'Categoría no encontrada.' };
+
+  if (modulo === 'abarrotes' && esCategoriaProveedores(cat)) {
+    const subs = (row.subcategorias || []).filter((s) => s !== sub);
+    return guardarCategoriaGastoProveedor(supabase, cat, subs);
+  }
+
+  if (row.ieId) {
+    const ie = await listarCatalogoContVirtual(supabase);
+    const ieCat = (ie.data || []).find((c) => c.id === row.ieId);
+    const subRow = (ieCat?.subcategorias || []).find(
+      (s) => String(s.nombre || '').trim().toUpperCase() === sub,
+    );
+    if (!subRow) return { ok: false, error: 'Subcategoría no encontrada.' };
+    return eliminarSubcategoriaContVirtual(supabase, subRow.id);
+  }
+
   const subs = (row.subcategorias || []).filter((s) => s !== sub);
   return guardarCategoriaGasto(supabase, sucursal, modulo, cat, subs);
 }
