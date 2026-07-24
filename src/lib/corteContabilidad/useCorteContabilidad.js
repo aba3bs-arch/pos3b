@@ -203,7 +203,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       nombreActor: user?.nombre,
     });
     if (!res.ok) return alert(res.error);
-    if (res.pendiente) alert(res.mensaje || 'Consumo pendiente de autorización del administrador.');
+    await cargar();
     const gas = await listarGastosTurno(supabase, sucursal, modulo);
     setGastos(gas.data || []);
   };

@@ -79,12 +79,13 @@ export function valeDebeIrAContVirtual(vale) {
 }
 
 /**
- * Gastos CUBRE TURNO / TAXIS capturados en Corte Virtual (aprobados)
- * van directo al libro IE VIRTUAL, clasificados por tienda.
+ * CUBRE TURNO / TAXIS del corte van directo a IE Virtual o IE Abarrotes
+ * según el módulo del corte (cuenta virtual / garage / abarrotes).
  */
 export function gastoCorteDebeIrAContVirtual(gasto) {
   if (!gasto) return false;
-  if (String(gasto.modulo || '').toLowerCase() !== 'virtual') return false;
+  const mod = String(gasto.modulo || '').toLowerCase();
+  if (!['virtual', 'abarrotes', 'garage'].includes(mod)) return false;
   if (!gastoCorteEstaAprobado(gasto)) return false;
   return esGastoCubreTurnoOTaxi(gasto);
 }
@@ -197,6 +198,8 @@ export async function registrarEgresoDesdeGastoCorte(supabase, gasto) {
   const catLbl = String(gasto.categoria || '').trim().toUpperCase();
   const subLbl = String(gasto.subcategoria || '').trim().toUpperCase();
   const nota = String(gasto.comentario || '').trim();
+  const mod = String(gasto.modulo || '').toLowerCase();
+  const cuenta = normalizarCuentaIe(mod, mod === 'abarrotes' ? 'abarrotes' : mod === 'garage' ? 'garage' : 'virtual');
 
   return registrarEgresoContVirtual(supabase, {
     sucursal_id: gasto.sucursal_id || 'MAIN',
@@ -206,12 +209,12 @@ export async function registrarEgresoDesdeGastoCorte(supabase, gasto) {
     subcategoria_id: map.subcategoriaId,
     subcategoria_nombre: nombres.subcategoria_nombre,
     monto: gasto.monto,
-    descripcion: [catLbl, subLbl, nota].filter(Boolean).join(' · '),
+    descripcion: ['NÓMINA', catLbl, subLbl, nota].filter(Boolean).join(' · '),
     fuente: 'corte',
     ref_tabla: 'cortes_contabilidad_gastos',
     ref_id: gasto.id,
     usuario_nombre: gasto.usuario_nombre || gasto.solicitado_por || null,
-    cuenta: 'virtual',
+    cuenta,
   });
 }
 
@@ -427,13 +430,13 @@ export async function sincronizarValesContVirtual(supabase, { limit = 400 } = {}
   return { ok: true, count };
 }
 
-/** Backfill: gastos CUBRE TURNO / TAXIS de Corte Virtual aún no en el libro IE. */
+/** Backfill: gastos CUBRE TURNO / TAXIS de cortes aún no en el libro IE. */
 export async function sincronizarGastosCubreTaxiContVirtual(supabase, { limit = 500 } = {}) {
   if (!supabase) return { ok: true, count: 0 };
   const { data, error } = await supabase
     .from('cortes_contabilidad_gastos')
     .select('*')
-    .eq('modulo', 'virtual')
+    .in('modulo', ['virtual', 'abarrotes', 'garage'])
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) {
@@ -500,8 +503,8 @@ export function unificarEgresosParaPanel({
     // Vales Virtual/Garage van por el libro / sync; vales Abarrotes sí cuentan en IE ABARROTES
     if (catRaw === 'VALES' && modGasto !== 'abarrotes') continue;
     if (catRaw === 'PRESTAMOS') continue;
-    // CUBRE TURNO / TAXIS Virtual van al libro (sync); en Abarrotes sí se muestran en el unificado
-    if ((esGastoCubreTurnoOTaxi(g) && modGasto !== 'abarrotes') || refsGastoCorte.has(String(g.id))) continue;
+    // CUBRE TURNO / TAXIS ya van al libro IE (Virtual o Abarrotes) por sync directo
+    if (esGastoCubreTurnoOTaxi(g) || refsGastoCorte.has(String(g.id))) continue;
     const map = mapearCorteACatalogo(g.categoria, g.subcategoria);
     const nombres = resolverNombresCatalogo(catalogo, map.categoriaId, map.subcategoriaId);
     detalle.push({

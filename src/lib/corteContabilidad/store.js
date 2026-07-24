@@ -1,8 +1,5 @@
 import { estadoDefault, normalizarEstadoVirtual } from './calc.js';
-import { gastoDescuentaNomina } from './catalogoGastos.js';
-import { normalizarRol } from '../roles.js';
-import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from '../contabilidadNotificaciones.js';
-import { ETIQUETA_AREA } from '../contabilidadConstants.js';
+import { marcarNotificacionAtendida } from '../contabilidadNotificaciones.js';
 
 export const AVISO_FALTA_CORTES =
   'Faltan tablas de cortes contabilidad. En Supabase → SQL Editor ejecuta: supabase/fix_cortes_contabilidad.sql';
@@ -109,8 +106,6 @@ export async function listarGastosTurno(supabase, sucursal, modulo) {
 }
 
 export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts = {}) {
-  const esConsumo = gastoDescuentaNomina(modulo, gasto.categoria, gasto.subcategoria);
-  const esAdmin = normalizarRol(opts.rolActor) === 'Administrador';
   const catUpper = String(gasto.categoria || '').toUpperCase();
   // No van a IE: recuperación inversión, envío MAIN→tienda (solo bajan caja del corte).
   const omitirIe =
@@ -118,9 +113,8 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
     catUpper === 'INVERSION OFICINA' ||
     catUpper === 'ENVIO MAIN' ||
     catUpper === 'VALE MAIN';
-  const autoAprobar = opts.autoAprobar === true || omitirIe;
-  const requiereAprobacion = !autoAprobar && !esAdmin && (modulo === 'virtual' || esConsumo);
-  const estadoAprobacion = requiereAprobacion ? 'pendiente_admin' : 'aprobado';
+  // Gastos de corte: sin aprobación. Solo vales y préstamos (otros módulos) requieren admin.
+  const estadoAprobacion = 'aprobado';
   const row = {
     sucursal_id: sucursal || 'MAIN',
     modulo,
@@ -142,24 +136,7 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
   }
   const { data, error } = await supabase.from('cortes_contabilidad_gastos').insert([row]).select('*').single();
   if (error) return { ok: false, error: error.message };
-  if (estadoAprobacion === 'pendiente_admin') {
-    const areaLbl = ETIQUETA_AREA[modulo] || modulo;
-    await crearNotificacion(supabase, {
-      sucursal_id: sucursal || 'MAIN',
-      tipo: TIPOS_NOTIF.CONSUMO_CORTE,
-      ref_tabla: 'cortes_contabilidad_gastos',
-      ref_id: data.id,
-      titulo: `Gasto pendiente · ${gasto.categoria || 'corte'}`,
-      mensaje: `${areaLbl} · $${Number(gasto.monto).toFixed(2)} · ${gasto.categoria || 'GASTO'}${gasto.usuario_nombre ? ` · ${gasto.usuario_nombre}` : ''}`,
-    });
-    return {
-      ok: true,
-      data,
-      pendiente: true,
-      mensaje: 'Gasto enviado. El administrador debe aprobar antes de descontarlo en el corte.',
-    };
-  }
-  if (modulo === 'virtual' && data && !omitirIe) {
+  if (data && !omitirIe) {
     try {
       const { registrarEgresoDesdeGastoCorte } = await import('../contVirtualEgresos.js');
       await registrarEgresoDesdeGastoCorte(supabase, data);
@@ -184,7 +161,7 @@ export async function aprobarGastoTurno(supabase, gastoId, { nombre } = {}) {
     .single();
   if (error) return { ok: false, error: error.message };
   await marcarNotificacionAtendida(supabase, 'cortes_contabilidad_gastos', gastoId, nombre);
-  if (data && String(data.modulo || '').toLowerCase() === 'virtual') {
+  if (data) {
     try {
       const { registrarEgresoDesdeGastoCorte } = await import('../contVirtualEgresos.js');
       await registrarEgresoDesdeGastoCorte(supabase, data);

@@ -147,8 +147,8 @@ export default function CorteGastosPanel({
       <p className="muted" style={{ fontSize: '0.75rem', margin: '0.35rem 0 0.5rem' }}>
         {notaNomina ||
           (modulo === 'abarrotes'
-            ? 'Categorías y subcategorías de IE Abarrotes (+ PROVEEDORES). Solo CONSUMO, RECARGAS, ANTICIPOS y FALTANTE descuentan nómina (empleado de esta tienda).'
-            : 'Categorías de IE Virtual. Solo CONSUMO, RECARGAS, ANTICIPOS y FALTANTE descuentan nómina (empleado de esta tienda).')}
+            ? 'Categorías de IE Abarrotes (+ PROVEEDORES). Gastos del corte no requieren aprobación. CUBRE TURNO va a IE Abarrotes (nómina). Solo CONSUMO/RECARGAS/ANTICIPOS/FALTANTE descuentan al empleado.'
+            : 'Categorías de IE Virtual. Gastos del corte no requieren aprobación. CUBRE TURNO va a IE (nómina). Solo CONSUMO/RECARGAS/ANTICIPOS/FALTANTE descuentan al empleado. Vales y préstamos sí requieren admin.')}
       </p>
 
       {mostrarCat && puedeCatalogo && (

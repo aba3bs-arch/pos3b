@@ -423,6 +423,8 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
   const desdeIso = `${desde}T00:00:00`;
   const hastaIso = `${hasta}T23:59:59.999`;
 
+  await sincronizarGastosCubreTaxiContVirtual(supabase);
+
   let qCierres = supabase
     .from('cortes_contabilidad_cierres')
     .select('*')

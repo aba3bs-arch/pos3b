@@ -142,7 +142,7 @@ export default function CorteGarage({ supabase, sucursal, user }) {
           habilitado={perm.gastos}
           puedeCatalogo={perm.editarTodo}
           puedeEditarGastos={perm.editarTodo}
-          notaNomina="Categorías de IE Virtual. Nómina: CONSUMO, RECARGAS, ANTICIPOS y FALTANTE (solo empleados de esta tienda)."
+          notaNomina="Gastos sin aprobación. CUBRE TURNO → IE Virtual/Garage (nómina). Consumo/recargas/anticipos/faltante descuentan al empleado. Vales y préstamos requieren admin."
         />
 
         <div className="card">
