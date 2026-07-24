@@ -326,15 +326,60 @@ export async function crearSubcategoriaContVirtual(supabase, { categoriaId, nomb
   return { ok: true, id };
 }
 
-export async function desactivarCategoriaContVirtual(supabase, id) {
+export async function editarCategoriaContVirtual(supabase, id, { nombre } = {}) {
   if (!id) return { ok: false, error: 'ID inválido.' };
+  const label = String(nombre || '').trim();
+  if (!label) return { ok: false, error: 'Nombre obligatorio.' };
   if (!supabase) {
-    const lista = leerLocal().map((c) => (c.id === id && !c.fijo ? { ...c, activo: false } : c));
+    const lista = leerLocal();
+    const cat = lista.find((c) => c.id === id);
+    if (!cat) return { ok: false, error: 'Categoría no encontrada.' };
+    cat.nombre = label;
     guardarLocal(lista);
     return { ok: true };
   }
-  const { data: row } = await supabase.from('cont_virtual_categorias').select('fijo').eq('id', id).maybeSingle();
-  if (row?.fijo) return { ok: false, error: 'No se puede desactivar una categoría del sistema.' };
+  const { error } = await supabase.from('cont_virtual_categorias').update({ nombre: label }).eq('id', id);
+  if (error) {
+    if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CONT_VIRTUAL };
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
+export async function editarSubcategoriaContVirtual(supabase, id, { nombre } = {}) {
+  if (!id) return { ok: false, error: 'ID inválido.' };
+  const label = String(nombre || '').trim();
+  if (!label) return { ok: false, error: 'Nombre obligatorio.' };
+  if (!supabase) {
+    const lista = leerLocal();
+    let found = false;
+    for (const c of lista) {
+      const s = (c.subcategorias || []).find((x) => x.id === id);
+      if (s) {
+        s.nombre = label;
+        found = true;
+        break;
+      }
+    }
+    if (!found) return { ok: false, error: 'Subcategoría no encontrada.' };
+    guardarLocal(lista);
+    return { ok: true };
+  }
+  const { error } = await supabase.from('cont_virtual_subcategorias').update({ nombre: label }).eq('id', id);
+  if (error) {
+    if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CONT_VIRTUAL };
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
+export async function desactivarCategoriaContVirtual(supabase, id) {
+  if (!id) return { ok: false, error: 'ID inválido.' };
+  if (!supabase) {
+    const lista = leerLocal().map((c) => (c.id === id ? { ...c, activo: false } : c));
+    guardarLocal(lista);
+    return { ok: true };
+  }
   const { error } = await supabase.from('cont_virtual_categorias').update({ activo: false }).eq('id', id);
   if (error) return { ok: false, error: error.message };
   return { ok: true };
@@ -345,14 +390,69 @@ export async function desactivarSubcategoriaContVirtual(supabase, id) {
   if (!supabase) {
     const lista = leerLocal().map((c) => ({
       ...c,
-      subcategorias: (c.subcategorias || []).map((s) => (s.id === id && !s.fijo ? { ...s, activo: false } : s)),
+      subcategorias: (c.subcategorias || []).map((s) => (s.id === id ? { ...s, activo: false } : s)),
     }));
     guardarLocal(lista);
     return { ok: true };
   }
-  const { data: row } = await supabase.from('cont_virtual_subcategorias').select('fijo').eq('id', id).maybeSingle();
-  if (row?.fijo) return { ok: false, error: 'No se puede desactivar una subcategoría del sistema.' };
   const { error } = await supabase.from('cont_virtual_subcategorias').update({ activo: false }).eq('id', id);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/** Elimina categoría. Las del sistema (fijo) solo se desactivan. */
+export async function eliminarCategoriaContVirtual(supabase, id) {
+  if (!id) return { ok: false, error: 'ID inválido.' };
+  if (!supabase) {
+    const lista = leerLocal();
+    const cat = lista.find((c) => c.id === id);
+    if (!cat) return { ok: false, error: 'Categoría no encontrada.' };
+    if (cat.fijo) {
+      cat.activo = false;
+      guardarLocal(lista);
+      return { ok: true, desactivada: true };
+    }
+    guardarLocal(lista.filter((c) => c.id !== id));
+    return { ok: true };
+  }
+  const { data: row } = await supabase.from('cont_virtual_categorias').select('fijo').eq('id', id).maybeSingle();
+  if (row?.fijo) {
+    const { error } = await supabase.from('cont_virtual_categorias').update({ activo: false }).eq('id', id);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, desactivada: true };
+  }
+  const { error } = await supabase.from('cont_virtual_categorias').delete().eq('id', id);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/** Elimina subcategoría. Las del sistema (fijo) solo se desactivan. */
+export async function eliminarSubcategoriaContVirtual(supabase, id) {
+  if (!id) return { ok: false, error: 'ID inválido.' };
+  if (!supabase) {
+    const lista = leerLocal();
+    let desactivada = false;
+    for (const c of lista) {
+      const s = (c.subcategorias || []).find((x) => x.id === id);
+      if (!s) continue;
+      if (s.fijo) {
+        s.activo = false;
+        desactivada = true;
+      } else {
+        c.subcategorias = (c.subcategorias || []).filter((x) => x.id !== id);
+      }
+      break;
+    }
+    guardarLocal(lista);
+    return { ok: true, desactivada };
+  }
+  const { data: row } = await supabase.from('cont_virtual_subcategorias').select('fijo').eq('id', id).maybeSingle();
+  if (row?.fijo) {
+    const { error } = await supabase.from('cont_virtual_subcategorias').update({ activo: false }).eq('id', id);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, desactivada: true };
+  }
+  const { error } = await supabase.from('cont_virtual_subcategorias').delete().eq('id', id);
   if (error) return { ok: false, error: error.message };
   return { ok: true };
 }

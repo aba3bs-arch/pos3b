@@ -933,3 +933,46 @@
   padding: 0.3rem 0.45rem;
   font-size: 0.78rem;
 }
+
+.cv-search-bar .cv-search-input {
+  flex: 1;
+  min-width: 140px;
+  background: var(--cv-bg3);
+  border: 1px solid var(--cv-line);
+  color: var(--cv-text);
+  border-radius: 6px;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.82rem;
+}
+
+.cv-icon-btn.active {
+  color: var(--cv-ingreso, #4ea8f5);
+}
+
+.cv-cat-hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.cv-cat-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.cv-cat-btn {
+  padding: 0.15rem 0.4rem !important;
+  font-size: 0.72rem !important;
+}
+
+.cv-sub-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.25rem;
+}

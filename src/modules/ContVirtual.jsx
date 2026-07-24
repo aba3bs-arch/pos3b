@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { listarSucursalesOperativas, etiquetaTienda } from '../constants/sucursales.js';
+import { listarSucursales, etiquetaTienda } from '../constants/sucursales.js';
 import { puedeGestionarUsuarios } from '../lib/roles.js';
 import { estiloPastel } from '../lib/estadisticasData.js';
 import {
@@ -14,8 +14,10 @@ import {
 import {
   crearCategoriaContVirtual,
   crearSubcategoriaContVirtual,
-  desactivarCategoriaContVirtual,
-  desactivarSubcategoriaContVirtual,
+  editarCategoriaContVirtual,
+  editarSubcategoriaContVirtual,
+  eliminarCategoriaContVirtual,
+  eliminarSubcategoriaContVirtual,
   listarCatalogoContVirtual,
   resolverNombresCatalogo,
   AVISO_FALTA_CONT_VIRTUAL,
@@ -210,7 +212,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
   const subtituloLibro = esFrancisco
     ? 'Francisco · ingresos y egresos de Abarrotes'
     : 'Antonio · ingresos y egresos de Virtual y Garage';
-  const tiendas = useMemo(() => listarSucursalesOperativas(), []);
+  const tiendas = useMemo(() => listarSucursales(), []);
 
   const [nav, setNav] = useState('trans'); // trans | estad | cuentas | mas
   const [transTab, setTransTab] = useState('diario');
@@ -222,7 +224,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
   const hoyRef = useMemo(() => new Date(), []);
   const [filtroTienda, setFiltroTienda] = useState('');
   const [filtroCuenta, setFiltroCuenta] = useState(''); // '' | virtual | garage
-  const [showFiltro, setShowFiltro] = useState(false);
+  const [showFiltro, setShowFiltro] = useState(true);
+  const [showBuscar, setShowBuscar] = useState(false);
+  const [qBusqueda, setQBusqueda] = useState('');
+  const [filtroTipoBusq, setFiltroTipoBusq] = useState(''); // '' | ingreso | gasto
   const [showManual, setShowManual] = useState(false);
   const [showInversion, setShowInversion] = useState(false);
   const [masVista, setMasVista] = useState('menu'); // menu | catalogo | inversiones
@@ -241,7 +246,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
   const defsInv = defaultsInversionPorLibro(libro);
   const [manual, setManual] = useState({
     fecha: hoyYmd(),
-    sucursal_id: '',
+    sucursal_id: tiendas[0] || 'MAIN',
     cuenta: esFrancisco ? 'abarrotes' : 'virtual',
     categoria_id: 'manual',
     subcategoria_id: 'manual-otros',
@@ -331,7 +336,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     cargar();
   }, [cargar]);
 
-  const porDia = useMemo(
+  const porDiaBase = useMemo(
     () => agruparMovimientosPorDia({
       detalleGastos: datos?.detalleGastos || [],
       ingresosPorDia: datos?.ingresosPorDia || [],
@@ -339,11 +344,67 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     [datos],
   );
 
-  const byFecha = useMemo(() => Object.fromEntries(porDia.map((d) => [d.fecha, d])), [porDia]);
+  const porDia = useMemo(() => {
+    const q = qBusqueda.trim().toLowerCase();
+    const tipo = filtroTipoBusq;
+    if (!q && !tipo) return porDiaBase;
+    return porDiaBase
+      .map((dia) => {
+        const items = (dia.items || []).filter((it) => {
+          if (tipo && it.tipo !== tipo) return false;
+          if (!q) return true;
+          const blob = [
+            it.categoria,
+            it.subcategoria,
+            it.comentario,
+            it.empleado,
+            it.tienda,
+            etiquetaTienda(it.tienda),
+            it.cuenta,
+            String(it.monto ?? ''),
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+          return blob.includes(q);
+        });
+        if (!items.length) return null;
+        let ingresos = 0;
+        let gastos = 0;
+        for (const it of items) {
+          if (it.tipo === 'ingreso') ingresos += Number(it.monto) || 0;
+          else gastos += Number(it.monto) || 0;
+        }
+        return {
+          ...dia,
+          items,
+          ingresos: Math.round(ingresos * 100) / 100,
+          gastos: Math.round(gastos * 100) / 100,
+        };
+      })
+      .filter(Boolean);
+  }, [porDiaBase, qBusqueda, filtroTipoBusq]);
 
-  const ingresos = datos?.ingresosTotal || 0;
-  const gastos = datos?.egresosTotal || 0;
-  const balance = datos?.neto ?? ingresos - gastos;
+  const byFecha = useMemo(() => Object.fromEntries(porDiaBase.map((d) => [d.fecha, d])), [porDiaBase]);
+
+  const ingresosFiltrados = useMemo(() => {
+    if (!qBusqueda.trim() && !filtroTipoBusq) return null;
+    let ing = 0;
+    let gas = 0;
+    for (const d of porDia) {
+      ing += d.ingresos || 0;
+      gas += d.gastos || 0;
+    }
+    return {
+      ingresos: Math.round(ing * 100) / 100,
+      gastos: Math.round(gas * 100) / 100,
+      balance: Math.round((ing - gas) * 100) / 100,
+    };
+  }, [porDia, qBusqueda, filtroTipoBusq]);
+
+  const ingresos = ingresosFiltrados?.ingresos ?? (datos?.ingresosTotal || 0);
+  const gastos = ingresosFiltrados?.gastos ?? (datos?.egresosTotal || 0);
+  const balance = ingresosFiltrados?.balance ?? (datos?.neto ?? ingresos - gastos);
 
   const mesesAnio = useMemo(() => {
     if (transTab !== 'mensual' || !datos) return [];
@@ -351,7 +412,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
       const { desde, hasta } = rangoMesContVirtual(anio, i);
       let ing = 0;
       let gas = 0;
-      for (const d of porDia) {
+      for (const d of porDiaBase) {
         if (d.fecha >= desde && d.fecha <= hasta) {
           ing += d.ingresos;
           gas += d.gastos;
@@ -363,11 +424,11 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
         ingresos: Math.round(ing * 100) / 100,
         gastos: Math.round(gas * 100) / 100,
         balance: Math.round((ing - gas) * 100) / 100,
-        semanas: semanasDelMesContVirtual(anio, i, porDia),
+        semanas: semanasDelMesContVirtual(anio, i, porDiaBase),
       };
     }).filter((m) => m.i <= hoyRef.getMonth() || anio < hoyRef.getFullYear() || m.ingresos || m.gastos)
       .reverse();
-  }, [transTab, datos, anio, porDia, hoyRef]);
+  }, [transTab, datos, anio, porDiaBase, hoyRef]);
 
   const calCells = useMemo(() => buildCalendarCells(anio, mes, byFecha), [anio, mes, byFecha]);
 
@@ -411,13 +472,14 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     if (!esAdmin) return alert('Solo el administrador puede capturar egresos manuales.');
     const monto = Number(manual.monto);
     if (!(monto > 0)) return alert('Indica un monto válido.');
+    if (!manual.sucursal_id) return alert('Elige la sucursal del egreso.');
     if (!manual.categoria_id) return alert('Elige categoría.');
     const nombres = resolverNombresCatalogo(catalogo, manual.categoria_id, manual.subcategoria_id);
     setGuardando(true);
     const res = await registrarEgresoContVirtual(supabase, {
       fecha: manual.fecha || hoyYmd(),
-      sucursal_id: manual.sucursal_id || filtroTienda || 'MAIN',
-      cuenta: manual.cuenta || 'virtual',
+      sucursal_id: manual.sucursal_id,
+      cuenta: manual.cuenta || (esFrancisco ? 'abarrotes' : 'virtual'),
       categoria_id: manual.categoria_id,
       categoria_nombre: nombres.categoria_nombre,
       subcategoria_id: manual.subcategoria_id || null,
@@ -511,20 +573,89 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     await cargarCatalogo();
   };
 
+  const editarCategoria = async (cat) => {
+    if (!esAdmin || !cat) return;
+    const nombre = prompt('Nuevo nombre de categoría:', cat.nombre);
+    if (nombre == null) return;
+    if (!String(nombre).trim()) return alert('Nombre obligatorio.');
+    const res = await editarCategoriaContVirtual(supabase, cat.id, { nombre });
+    if (!res.ok) return alert(res.error);
+    await cargarCatalogo();
+  };
+
+  const editarSub = async (sub) => {
+    if (!esAdmin || !sub) return;
+    const nombre = prompt('Nuevo nombre de subcategoría:', sub.nombre);
+    if (nombre == null) return;
+    if (!String(nombre).trim()) return alert('Nombre obligatorio.');
+    const res = await editarSubcategoriaContVirtual(supabase, sub.id, { nombre });
+    if (!res.ok) return alert(res.error);
+    await cargarCatalogo();
+  };
+
+  const borrarCategoria = async (cat) => {
+    if (!esAdmin || !cat) return;
+    const msg = cat.fijo
+      ? `¿Desactivar la categoría del sistema «${cat.nombre}»?\n(No se borra del todo para no romper egresos históricos.)`
+      : `¿Eliminar la categoría «${cat.nombre}» y sus subcategorías?`;
+    if (!confirm(msg)) return;
+    const res = await eliminarCategoriaContVirtual(supabase, cat.id);
+    if (!res.ok) return alert(res.error);
+    await cargarCatalogo();
+  };
+
+  const borrarSub = async (sub) => {
+    if (!esAdmin || !sub) return;
+    const msg = sub.fijo
+      ? `¿Desactivar la subcategoría del sistema «${sub.nombre}»?`
+      : `¿Eliminar la subcategoría «${sub.nombre}»?`;
+    if (!confirm(msg)) return;
+    const res = await eliminarSubcategoriaContVirtual(supabase, sub.id);
+    if (!res.ok) return alert(res.error);
+    await cargarCatalogo();
+  };
+
+  const nuevaSubEnCat = async (categoriaId, categoriaNombre) => {
+    if (!esAdmin) return;
+    const nombre = prompt(`Nueva subcategoría en «${categoriaNombre}»:`);
+    if (!nombre?.trim()) return;
+    const res = await crearSubcategoriaContVirtual(supabase, { categoriaId, nombre });
+    if (!res.ok) return alert(res.error);
+    await cargarCatalogo();
+  };
+
   const exportarCsv = () => {
-    const rows = [['fecha', 'tipo', 'categoria', 'subcategoria', 'monto', 'detalle']];
+    const rows = [['fecha', 'tipo', 'sucursal', 'cuenta', 'categoria', 'subcategoria', 'monto', 'detalle']];
     for (const g of datos?.detalleGastos || []) {
-      rows.push([g.fecha, 'gasto', g.categoria, g.subcategoria || '', g.monto, g.comentario || '']);
+      rows.push([
+        g.fecha,
+        'gasto',
+        g.tienda || '',
+        g.cuenta || '',
+        g.categoria,
+        g.subcategoria || '',
+        g.monto,
+        g.comentario || '',
+      ]);
     }
     for (const i of datos?.ingresosPorDia || []) {
-      rows.push([i.fecha, 'ingreso', 'Cierre', '', i.monto, i.comentario || '']);
+      rows.push([
+        i.fecha,
+        'ingreso',
+        i.tienda || '',
+        i.cuenta || '',
+        'Cierre',
+        '',
+        i.monto,
+        i.comentario || '',
+      ]);
     }
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `cont-virtual-${rango.desde}_${rango.hasta}.csv`;
+    a.download = `cont-virtual-${rango.desde}_${rango.hasta}${filtroTienda ? `-${filtroTienda}` : ''}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -576,7 +707,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
               <div className="sub">
                 {[
                   it.cuenta === 'garage' ? 'Garage' : it.cuenta === 'abarrotes' ? 'Abarrotes' : it.cuenta === 'virtual' ? 'Virtual' : null,
-                  it.empleado || etiquetaTienda(it.tienda),
+                  etiquetaTienda(it.tienda || 'MAIN'),
+                  it.empleado || null,
                 ]
                   .filter(Boolean)
                   .join(' · ') || '—'}
@@ -717,8 +849,24 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
         <PeriodNav label={labelPeriodo} onPrev={() => shiftPeriod(-1)} onNext={() => shiftPeriod(1)} />
         <div className="cv-top-actions">
           <button type="button" className="cv-icon-btn" title="Favoritos" aria-label="Favoritos">★</button>
-          <button type="button" className="cv-icon-btn" title="Buscar" aria-label="Buscar">⌕</button>
-          <button type="button" className="cv-icon-btn" title="Filtro" aria-label="Filtro" onClick={() => setShowFiltro((v) => !v)}>⚙</button>
+          <button
+            type="button"
+            className={`cv-icon-btn${showBuscar ? ' active' : ''}`}
+            title="Buscar"
+            aria-label="Buscar"
+            onClick={() => { setShowBuscar((v) => !v); setShowFiltro(true); }}
+          >
+            ⌕
+          </button>
+          <button
+            type="button"
+            className={`cv-icon-btn${showFiltro ? ' active' : ''}`}
+            title="Filtro"
+            aria-label="Filtro"
+            onClick={() => setShowFiltro((v) => !v)}
+          >
+            ⚙
+          </button>
         </div>
       </div>
       <div className="cv-subtabs">
@@ -734,8 +882,14 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
           </button>
         ))}
       </div>
-      {showFiltro && (
+      {(showFiltro || showBuscar) && (
         <div className="cv-filter-bar">
+          <select value={filtroTienda} onChange={(e) => setFiltroTienda(e.target.value)} title="Sucursal">
+            <option value="">Todas las sucursales</option>
+            {tiendas.map((t) => (
+              <option key={t} value={t}>{etiquetaTienda(t)}</option>
+            ))}
+          </select>
           {!esFrancisco && (
             <select value={filtroCuenta} onChange={(e) => setFiltroCuenta(e.target.value)}>
               <option value="">Cuentas: Virtual + Garage</option>
@@ -743,15 +897,35 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
               <option value="garage">Solo Garage</option>
             </select>
           )}
-          <select value={filtroTienda} onChange={(e) => setFiltroTienda(e.target.value)}>
-            <option value="">Todas las tiendas</option>
-            {tiendas.map((t) => (
-              <option key={t} value={t}>{etiquetaTienda(t)}</option>
-            ))}
-          </select>
           <button type="button" className="cv-btn ghost" style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }} onClick={cargar}>
             Actualizar
           </button>
+        </div>
+      )}
+      {showBuscar && (
+        <div className="cv-filter-bar cv-search-bar">
+          <input
+            className="cv-search-input"
+            value={qBusqueda}
+            onChange={(e) => setQBusqueda(e.target.value)}
+            placeholder="Buscar ingreso o egreso…"
+            autoFocus
+          />
+          <select value={filtroTipoBusq} onChange={(e) => setFiltroTipoBusq(e.target.value)}>
+            <option value="">Ingresos y egresos</option>
+            <option value="ingreso">Solo ingresos</option>
+            <option value="gasto">Solo egresos</option>
+          </select>
+          {(qBusqueda || filtroTipoBusq) && (
+            <button
+              type="button"
+              className="cv-btn ghost"
+              style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
+              onClick={() => { setQBusqueda(''); setFiltroTipoBusq(''); }}
+            >
+              Limpiar
+            </button>
+          )}
         </div>
       )}
       {transTab !== 'nota' && <SummaryBar ingresos={ingresos} gastos={gastos} balance={balance} />}
@@ -777,6 +951,21 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
             <option key={p.id} value={p.id}>{p.label}</option>
           ))}
         </select>
+      </div>
+      <div className="cv-filter-bar">
+        <select value={filtroTienda} onChange={(e) => setFiltroTienda(e.target.value)} title="Sucursal">
+          <option value="">Todas las sucursales</option>
+          {tiendas.map((t) => (
+            <option key={t} value={t}>{etiquetaTienda(t)}</option>
+          ))}
+        </select>
+        {!esFrancisco && (
+          <select value={filtroCuenta} onChange={(e) => setFiltroCuenta(e.target.value)}>
+            <option value="">Virtual + Garage</option>
+            <option value="virtual">Solo Virtual</option>
+            <option value="garage">Solo Garage</option>
+          </select>
+        )}
       </div>
       <div className="cv-estad-tabs">
         <button type="button" className={estadTab === 'ingresos' ? 'active' : ''} onClick={() => setEstadTab('ingresos')}>Ingresos</button>
@@ -987,28 +1176,41 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
             <strong>Categorías</strong>
             <span />
           </div>
+          <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.75rem' }}>
+            Catálogo compartido de IE (Virtual y Abarrotes). Los movimientos sí se filtran por sucursal.
+          </p>
           {!esAdmin && <p className="cv-error">Solo el administrador puede editar categorías.</p>}
           {(catalogo || []).map((c) => (
             <div key={c.id} className="cv-cat-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <strong>{c.nombre}</strong>
-                {esAdmin && !c.fijo && (
-                  <button type="button" className="cv-row-del" onClick={() => desactivarCategoriaContVirtual(supabase, c.id).then(cargarCatalogo)}>
-                    Desactivar
-                  </button>
+              <div className="cv-cat-hd">
+                <strong>{c.nombre}{c.fijo ? ' · sistema' : ''}</strong>
+                {esAdmin && (
+                  <span className="cv-cat-actions">
+                    <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => nuevaSubEnCat(c.id, c.nombre)}>+ Sub</button>
+                    <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarCategoria(c)}>Editar</button>
+                    <button type="button" className="cv-row-del" onClick={() => borrarCategoria(c)}>
+                      {c.fijo ? 'Desactivar' : 'Eliminar'}
+                    </button>
+                  </span>
                 )}
               </div>
               <ul>
                 {(c.subcategorias || []).filter((s) => s.activo !== false).map((s) => (
-                  <li key={s.id} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <li key={s.id} className="cv-sub-row">
                     <span>{s.nombre}{s.fijo ? ' · sistema' : ''}</span>
-                    {esAdmin && !s.fijo && (
-                      <button type="button" className="cv-row-del" onClick={() => desactivarSubcategoriaContVirtual(supabase, s.id).then(cargarCatalogo)}>
-                        Quitar
-                      </button>
+                    {esAdmin && (
+                      <span className="cv-cat-actions">
+                        <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarSub(s)}>Editar</button>
+                        <button type="button" className="cv-row-del" onClick={() => borrarSub(s)}>
+                          {s.fijo ? 'Quitar' : 'Eliminar'}
+                        </button>
+                      </span>
                     )}
                   </li>
                 ))}
+                {!(c.subcategorias || []).filter((s) => s.activo !== false).length && (
+                  <li className="muted">Sin subcategorías</li>
+                )}
               </ul>
             </div>
           ))}
@@ -1043,9 +1245,9 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
             <span className="ico">⚙</span>
             Configuración
           </button>
-          <button type="button" className="cv-mas-item" onClick={() => setShowFiltro(true)}>
+          <button type="button" className="cv-mas-item" onClick={() => { setNav('trans'); setShowFiltro(true); setShowBuscar(true); }}>
             <span className="ico">🖥</span>
-            Tienda
+            Sucursal / búsqueda
           </button>
           <button type="button" className="cv-mas-item" onClick={cargar}>
             <span className="ico">↺</span>
@@ -1223,9 +1425,9 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
               <input type="date" value={manual.fecha} onChange={(e) => setManual({ ...manual, fecha: e.target.value })} />
             </label>
             <label>
-              Tienda
-              <select value={manual.sucursal_id} onChange={(e) => setManual({ ...manual, sucursal_id: e.target.value })}>
-                <option value="">MAIN / oficina</option>
+              Sucursal
+              <select value={manual.sucursal_id} onChange={(e) => setManual({ ...manual, sucursal_id: e.target.value })} required>
+                <option value="">— Elige sucursal —</option>
                 {tiendas.map((t) => (
                   <option key={t} value={t}>{etiquetaTienda(t)}</option>
                 ))}
