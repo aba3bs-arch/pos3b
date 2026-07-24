@@ -2,6 +2,7 @@ import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursa
 import { periodoSemanaNomina } from './semanaNomina.js';
 import { CUOTA_SEMANAL_MINIMA } from './contabilidadConstants.js';
 import { listarCatalogoContVirtual } from './contVirtualCatalogo.js';
+import { montoRecoleccionParaContabilidad } from './corteContabilidad/calc.js';
 import {
   listarEgresosContVirtual,
   listarRefsEgresosEliminadosIe,
@@ -250,35 +251,9 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     if (!ingresosPorTienda[t]) {
       ingresosPorTienda[t] = { id: t, label: etiquetaTienda(t), ingresos: 0, cierres: 0, recolecciones: 0 };
     }
-    // Cierres Virtual: solo contadores. El ingreso a IE es únicamente la recolección.
-    if (mod === 'virtual') {
-      porCuenta[mod].cierres += 1;
-      ingresosPorTienda[t].cierres += 1;
-      continue;
-    }
-    const venta = Number(c.ventas) || Number(c.detalle?.venta) || 0;
-    if (!(venta > 0)) {
-      porCuenta[mod].cierres += 1;
-      ingresosPorTienda[t].cierres += 1;
-      continue;
-    }
-    ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + venta);
-    ingresosPorTienda[t].cierres += 1;
-    ingresosTotal = round2(ingresosTotal + venta);
-    porCuenta[mod].ingresos = round2(porCuenta[mod].ingresos + venta);
+    // Cierres Virtual/Garage: solo contadores. El ingreso a IE es la recolección (bruta).
     porCuenta[mod].cierres += 1;
-    const f = String(c.created_at || '').slice(0, 10);
-    if (f) {
-      ingresosItems.push({
-        id: `cierre-${c.id}`,
-        fecha: f,
-        monto: round2(venta),
-        comentario: `Cierre ${etiquetaCuenta(mod)} · ${etiquetaTienda(t)} · ${c.folio || ''}`.trim(),
-        cuenta: mod,
-        tienda: t,
-        tipo_mov: 'cierre',
-      });
-    }
+    ingresosPorTienda[t].cierres += 1;
   }
 
   let recoleccionTotal = 0;
@@ -286,9 +261,11 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     const t = r.sucursal_id || 'MAIN';
     if (sucursal && t !== sucursal) continue;
     const mod = String(r.modulo || 'virtual').toLowerCase() === 'garage' ? 'garage' : 'virtual';
-    // Solo el efectivo recolectado es ingreso. Nunca fondo, inyección ni moneda final en caja.
-    const monto = Number(r.detalle?.recoleccion || r.detalle?.recoleccion_turno) || 0;
+    // Bruto: efectivo + gastos. Los gastos se descuentan una sola vez como egresos en IE.
+    const monto = montoRecoleccionParaContabilidad(r.detalle || {});
     if (!(monto > 0)) continue;
+    const efectivo = round2(Number(r.detalle?.recoleccion ?? r.detalle?.recoleccion_turno) || 0);
+    const gastosEmb = round2(Number(r.detalle?.gastos_total) || 0);
     recoleccionTotal = round2(recoleccionTotal + monto);
     ingresosTotal = round2(ingresosTotal + monto);
     porCuenta[mod].ingresos = round2(porCuenta[mod].ingresos + monto);
@@ -302,7 +279,9 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
       id: `rec-${r.id}`,
       fecha: f || desde,
       monto: round2(monto),
-      comentario: `Recolección ${etiquetaCuenta(mod)} · ${etiquetaTienda(t)} · ${r.folio || ''}`.trim(),
+      comentario: `Recolección ${etiquetaCuenta(mod)} · ${etiquetaTienda(t)} · ${r.folio || ''}${
+        gastosEmb > 0 ? ` · bruto (efectivo ${efectivo.toFixed(2)} + gastos ${gastosEmb.toFixed(2)})` : ''
+      }`.trim(),
       cuenta: mod,
       tienda: t,
       tipo_mov: 'recoleccion',
@@ -508,37 +487,20 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     if (!ingresosPorTienda[t]) {
       ingresosPorTienda[t] = { id: t, label: etiquetaTienda(t), ingresos: 0, cierres: 0, recolecciones: 0 };
     }
-    const venta = Number(c.ventas) || Number(c.detalle?.venta) || 0;
-    if (!(venta > 0)) {
-      porCuenta.abarrotes.cierres += 1;
-      ingresosPorTienda[t].cierres += 1;
-      continue;
-    }
-    ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + venta);
-    ingresosPorTienda[t].cierres += 1;
-    ingresosTotal = round2(ingresosTotal + venta);
-    porCuenta.abarrotes.ingresos = round2(porCuenta.abarrotes.ingresos + venta);
+    // Cierres Abarrotes: solo contadores. El ingreso a IE es la recolección (bruta).
     porCuenta.abarrotes.cierres += 1;
-    const f = String(c.created_at || '').slice(0, 10);
-    if (f) {
-      ingresosItems.push({
-        id: `cierre-${c.id}`,
-        fecha: f,
-        monto: round2(venta),
-        comentario: `Cierre Abarrotes · ${etiquetaTienda(t)} · ${c.folio || ''}`.trim(),
-        cuenta: 'abarrotes',
-        tienda: t,
-        tipo_mov: 'cierre',
-      });
-    }
+    ingresosPorTienda[t].cierres += 1;
   }
 
   let recoleccionTotal = 0;
   for (const r of recolecciones) {
     const t = r.sucursal_id || 'MAIN';
     if (sucursal && t !== sucursal) continue;
-    const monto = Number(r.detalle?.recoleccion || r.detalle?.recoleccion_turno) || 0;
+    // Bruto: efectivo + gastos. Los gastos se descuentan una sola vez como egresos en IE Abarrotes.
+    const monto = montoRecoleccionParaContabilidad(r.detalle || {});
     if (!(monto > 0)) continue;
+    const efectivo = round2(Number(r.detalle?.recoleccion ?? r.detalle?.recoleccion_turno) || 0);
+    const gastosEmb = round2(Number(r.detalle?.gastos_total) || 0);
     recoleccionTotal = round2(recoleccionTotal + monto);
     ingresosTotal = round2(ingresosTotal + monto);
     porCuenta.abarrotes.ingresos = round2(porCuenta.abarrotes.ingresos + monto);
@@ -552,7 +514,9 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
       id: `rec-${r.id}`,
       fecha: f || desde,
       monto: round2(monto),
-      comentario: `Recolección Abarrotes · ${etiquetaTienda(t)} · ${r.folio || ''}`.trim(),
+      comentario: `Recolección Abarrotes · ${etiquetaTienda(t)} · ${r.folio || ''}${
+        gastosEmb > 0 ? ` · bruto (efectivo ${efectivo.toFixed(2)} + gastos ${gastosEmb.toFixed(2)})` : ''
+      }`.trim(),
       cuenta: 'abarrotes',
       tienda: t,
       tipo_mov: 'recoleccion',

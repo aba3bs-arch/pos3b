@@ -19,6 +19,56 @@ export function totalGastos(gastos = []) {
   );
 }
 
+/**
+ * Monto de recolección que debe ir a contabilidad / IE:
+ * efectivo retirado + gastos del periodo (sin descontar gastos aquí).
+ * Los gastos se restan una sola vez como egresos en IE Virtual / IE Abarrotes.
+ */
+export function montoRecoleccionParaContabilidad(detalle = {}) {
+  const d = detalle || {};
+  if (d.recoleccion_contabilidad != null && d.recoleccion_contabilidad !== '') {
+    return round2(d.recoleccion_contabilidad);
+  }
+  const efectivo = round2(d.recoleccion ?? d.recoleccion_turno ?? 0);
+  const gastos = round2(d.gastos_total ?? 0);
+  return round2(efectivo + gastos);
+}
+
+/** Campos a guardar en el detalle de una recolección para IE (evita doble descuento). */
+export function detalleRecoleccionParaIe({ efectivo, gastosTotal, extras = {} }) {
+  const rec = round2(efectivo);
+  const gastos = round2(gastosTotal);
+  return {
+    ...extras,
+    recoleccion: rec,
+    recoleccion_turno: rec,
+    recoleccion_efectivo: rec,
+    gastos_total: gastos,
+    recoleccion_contabilidad: round2(rec + gastos),
+    formula_recoleccion_ie: 'efectivo_mas_gastos',
+    gastos_deducidos_en_ie: true,
+  };
+}
+
+/**
+ * Gastos del periodo desde la última recolección (cierres de turno + abiertos actuales).
+ * Sirve para mandar la recolección bruta a IE sin descontar gastos dos veces.
+ */
+export function gastosPeriodoDesdeUltimaRecoleccion(historial = [], gastosAbiertosTotal = 0) {
+  let sum = round2(gastosAbiertosTotal);
+  const lista = [...(historial || [])].sort((a, b) => {
+    const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+    return tb - ta;
+  });
+  for (const h of lista) {
+    const tipo = String(h?.detalle?.tipo_cierre || h?.turno || '').toLowerCase();
+    if (tipo === 'recoleccion') break;
+    sum = round2(sum + (Number(h?.detalle?.gastos_total) || 0));
+  }
+  return sum;
+}
+
 /** Referencia del recolector (morado): fija hasta la próxima recolección; no cambia con los cierres de cajero. */
 export function monedaRecolectorRef(estado) {
   return round2(estado?.moneda_inicial);

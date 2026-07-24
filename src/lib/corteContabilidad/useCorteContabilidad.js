@@ -3,7 +3,13 @@ import { turnoActual, nombreTurnoLegible } from '../turnos.js';
 import { empleadosParaCorte } from '../empleadosVisibles.js';
 import { permisosCorteContabilidad, puedeEditarCorteCampo } from './permisos.js';
 import { gastoRequiereEmpleado } from './catalogoGastos.js';
-import { monedaAInyectarVirtual, monedaTopeVirtual, round2 } from './calc.js';
+import {
+  detalleRecoleccionParaIe,
+  gastosPeriodoDesdeUltimaRecoleccion,
+  monedaAInyectarVirtual,
+  monedaTopeVirtual,
+  round2,
+} from './calc.js';
 import {
   AVISO_FALTA_CORTES,
   agregarGastoTurno,
@@ -313,6 +319,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       const mi = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
       const tope = monedaTopeVirtual(estado);
       const monedaInyectar = monedaAInyectarVirtual(estado, mf);
+      const gastosPeriodo = gastosPeriodoDesdeUltimaRecoleccion(historial, calc.gastosTotal);
       const payload = {
         sucursal_id: sucursal || 'MAIN',
         modulo,
@@ -322,28 +329,30 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         usuario_nombre: user?.nombre || null,
         caja_actual: 0,
         ventas: 0,
-        detalle: {
-          ...estado,
-          fondo: round2(estado.fondo),
-          caja_anterior: round2(estado.caja_anterior),
-          moneda_inicial: round2(estado.moneda_inicial),
-          moneda_inicial_turno: mi,
-          moneda_final: mf,
-          moneda_final_editada: true,
-          faltante: round2(estado.faltante),
-          recoleccion: calcRec,
-          recoleccion_turno: calcRec,
-          venta: calc.venta,
-          gastos,
-          gastos_total: calc.gastosTotal,
-          subtotal: calc.subtotal,
-          caja_actual: calc.cajaActual,
-          moneda_tope: tope,
-          moneda_inyectar: monedaInyectar,
-          formula_recoleccion: 'tope_menos_mf',
-          tipo_cierre: 'recoleccion',
-          comentarios: estado.comentarios || '',
-        },
+        detalle: detalleRecoleccionParaIe({
+          efectivo: calcRec,
+          gastosTotal: gastosPeriodo,
+          extras: {
+            ...estado,
+            fondo: round2(estado.fondo),
+            caja_anterior: round2(estado.caja_anterior),
+            moneda_inicial: round2(estado.moneda_inicial),
+            moneda_inicial_turno: mi,
+            moneda_final: mf,
+            moneda_final_editada: true,
+            faltante: round2(estado.faltante),
+            venta: calc.venta,
+            gastos,
+            gastos_turno_actual: calc.gastosTotal,
+            subtotal: calc.subtotal,
+            caja_actual: calc.cajaActual,
+            moneda_tope: tope,
+            moneda_inyectar: monedaInyectar,
+            formula_recoleccion: 'tope_menos_mf',
+            tipo_cierre: 'recoleccion',
+            comentarios: estado.comentarios || '',
+          },
+        }),
       };
       const res = await registrarCierreCorte(supabase, payload);
       if (!res.ok) return { ok: false, error: res.error || AVISO_FALTA_CORTES };
@@ -397,6 +406,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       if (!upd.ok) return alert(upd.error || 'No se pudo actualizar el corte anterior.');
     }
 
+    const gastosPeriodo = gastosPeriodoDesdeUltimaRecoleccion(historial, calc.gastosTotal);
     const payload = {
       sucursal_id: sucursal || 'MAIN',
       modulo,
@@ -406,26 +416,28 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       usuario_nombre: user?.nombre || null,
       caja_actual: round2(Math.max(0, calc.cajaActual)),
       ventas: 0,
-      detalle: {
-        ...estado,
-        fondo: round2(estado.fondo),
-        moneda_final: mf,
-        moneda_final_editada: true,
-        precoleccion: mf,
-        moneda_final_recoleccion: mf,
-        recoleccion: montoRec,
-        recoleccion_turno: montoRec,
-        moneda_tope: monedaTope,
-        moneda_inyectar: monedaInyectar,
-        venta: 0,
-        gastos,
-        gastos_total: calc.gastosTotal,
-        subtotal: calc.subtotal,
-        caja_antes_recoleccion: round2(calc.cajaActual + montoRec),
-        corte_anterior_id: corteAnteriorId || null,
-        tipo_cierre: 'recoleccion',
-        comentarios: estado.comentarios || '',
-      },
+      detalle: detalleRecoleccionParaIe({
+        efectivo: montoRec,
+        gastosTotal: gastosPeriodo,
+        extras: {
+          ...estado,
+          fondo: round2(estado.fondo),
+          moneda_final: mf,
+          moneda_final_editada: true,
+          precoleccion: mf,
+          moneda_final_recoleccion: mf,
+          moneda_tope: monedaTope,
+          moneda_inyectar: monedaInyectar,
+          venta: 0,
+          gastos,
+          gastos_turno_actual: calc.gastosTotal,
+          subtotal: calc.subtotal,
+          caja_antes_recoleccion: round2(calc.cajaActual + montoRec),
+          corte_anterior_id: corteAnteriorId || null,
+          tipo_cierre: 'recoleccion',
+          comentarios: estado.comentarios || '',
+        },
+      }),
     };
 
     const res = await registrarCierreCorte(supabase, payload);
@@ -446,16 +458,18 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
     setHistorial(hist.data || []);
     const monOp = monedaTope > 0 ? monedaTope : mf;
+    const brutoIe = round2(montoRec + gastosPeriodo);
     alert(
       `Recolección de ${fmtCorte(montoRec)} registrada.\n\n` +
         `Moneda final recolección: ${fmtCorte(mf)}\n` +
         `Moneda inicial (tope): ${fmtCorte(monedaTope)}\n` +
         `Inyectar a sucursal: ${fmtCorte(monedaInyectar)} (no es ingreso)\n` +
-        `Ingreso en IE VIRTUAL: ${fmtCorte(montoRec)} (solo efectivo recolectado)\n` +
+        `Ingreso en IE (bruto, sin descontar gastos): ${fmtCorte(brutoIe)}\n` +
+        `Efectivo retirado: ${fmtCorte(montoRec)} · Gastos del periodo: ${fmtCorte(gastosPeriodo)} (se descuentan solo en IE)\n` +
         `El fondo fijo no se registra como ingreso.\n\n` +
         `Periodo reiniciado: caja y ventas en ${fmtCorte(0)}.\n` +
         `Moneda de referencia e inicio de operación: ${fmtCorte(monOp)}.\n` +
-        `Los gastos del periodo quedan en historial y nómina.`,
+        `Los gastos del periodo quedan en historial y se deducen en IE (una sola vez).`,
     );
     return { ok: true };
   };

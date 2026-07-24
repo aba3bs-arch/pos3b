@@ -122,7 +122,9 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
 
     if (!confirm(
       `¿Registrar recolección?\n\n` +
-        `Monto: ${fmtCorte(montoRec)} → IE VIRTUAL\n` +
+        `Efectivo: ${fmtCorte(montoRec)}\n` +
+        `Gastos del periodo se deducen solo en IE (no se restan aquí).\n` +
+        `Ingreso bruto a IE: efectivo + gastos del periodo\n` +
         `Caja chica quedará en ${fmtCorte(0)}\n` +
         `Moneda final actual: ${fmtCorte(mfActual)}\n` +
         `Tope de operación: ${fmtCorte(monedaOperacion)}\n` +
