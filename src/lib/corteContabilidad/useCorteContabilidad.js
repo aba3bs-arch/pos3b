@@ -160,7 +160,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       supabase
         ? supabase
             .from('usuarios')
-            .select('id, nombre, rol, sucursal_id, nomina_pagador, turno_id, turno_horario')
+            .select('id, nombre, rol, sucursal_id, nomina_pagador, turno_id, turno_horario, activo')
             .order('nombre')
         : Promise.resolve({ data: [] }),
     ]);
