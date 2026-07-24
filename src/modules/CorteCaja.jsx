@@ -19,6 +19,7 @@ import {
   usuarioAutorizadoCorte,
   leerToleranciaTurnos,
 } from '../lib/turnos.js';
+import { EVENTO_EXTENSION_SESION, minutosRestantesExtension } from '../lib/extensionSesionTurno.js';
 import {
   cargarDiaCaja,
   lineasCancelablesVenta,
@@ -40,7 +41,7 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
   const [turnos, setTurnos] = useState(() => leerTurnos());
   const [turnoActivo, setTurnoActivo] = useState(() => {
     const list = leerTurnos();
-    const entrega = turnoEnEntrega(list);
+    const entrega = turnoEnEntrega(list, new Date(), null, { user, sucursal });
     const asignado = turnoIdParaUsuario(user);
     if (entrega && String(asignado) === String(entrega.id)) return entrega;
     return turnoActual(list);
@@ -144,14 +145,18 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
     );
   }, [ventaParaCancel, cancelaciones]);
 
-  const opcionesCorte = useMemo(() => turnosDisponiblesParaCorte(turnos), [turnos]);
+  const opcionesCorte = useMemo(
+    () => turnosDisponiblesParaCorte(turnos, new Date(), null, { user, sucursal }),
+    [turnos, user, sucursal],
+  );
+  const minsExt = minutosRestantesExtension(user, sucursal);
 
   useEffect(() => {
     const sync = () => {
       const t = leerTurnos();
       setTurnos(t);
       if (!turnoManual) {
-        const entrega = turnoEnEntrega(t);
+        const entrega = turnoEnEntrega(t, new Date(), null, { user, sucursal });
         const asignado = turnoIdParaUsuario(user);
         const sugerido =
           entrega && String(asignado) === String(entrega.id) ? entrega : turnoActual(t);
@@ -161,12 +166,14 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
     };
     sync();
     window.addEventListener(EVENTO_TURNOS, sync);
+    window.addEventListener(EVENTO_EXTENSION_SESION, sync);
     const id = setInterval(sync, 30_000);
     return () => {
       window.removeEventListener(EVENTO_TURNOS, sync);
+      window.removeEventListener(EVENTO_EXTENSION_SESION, sync);
       clearInterval(id);
     };
-  }, [user, turnoManual]);
+  }, [user, sucursal, turnoManual]);
 
   useEffect(() => {
     if (!turnoActivo) {
@@ -401,7 +408,8 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
               </select>
             </label>
             <span className="muted" style={{ fontSize: '0.78rem' }}>
-              Tras la salida hay {leerToleranciaTurnos().minutos_despues_fin} min para cortar el turno que se entrega.
+              Tras la salida hay {leerToleranciaTurnos().minutos_despues_fin} min para cortar el turno que se entrega
+              {minsExt > 0 ? ` · extensión activa (${minsExt} min)` : ''}.
             </span>
           </div>
         )}
@@ -430,8 +438,9 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
           <strong style={{ color: 'var(--brand-red)' }}>Corte no permitido</strong>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.9rem' }}>{bloqueoCorte}</p>
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
-            Si el relevo llegó tarde: 1) el saliente corta en los {leerToleranciaTurnos().minutos_despues_fin} min de gracia;
-            2) un <strong>gerente/admin</strong> hace el corte; o 3) admin autoriza la entrada con PIN en el login (8 h).
+            Si el relevo llegó tarde: 1) el saliente corta en los {leerToleranciaTurnos().minutos_despues_fin} min de gracia
+            (y puede pedir +30 min al expirar); 2) un <strong>gerente/admin</strong> hace el corte a nombre del turno anterior;
+            o 3) admin autoriza la entrada con PIN en el login (8 h).
           </p>
         </div>
       )}

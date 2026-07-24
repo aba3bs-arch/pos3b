@@ -64,7 +64,7 @@ import {
   vincularDispositivoUsuario,
   liberarDispositivoUsuario,
 } from './lib/dispositivoUsuario.js';
-import { usuarioAutorizadoLogin, turnoActual } from './lib/turnos.js';
+import { usuarioAutorizadoLogin, turnoActual, turnoIdParaUsuario } from './lib/turnos.js';
 import {
   construirUsuarioCubreTurno,
   datosCubreTurnoCompletos,
@@ -78,10 +78,16 @@ import {
   otorgarAutorizacionFueraHorario,
   verificarPinAdministradorGlobal,
 } from './lib/autorizacionTurnoFueraHorario.js';
+import {
+  limpiarExtensionSesionTurno,
+  MINUTOS_EXTENSION_SESION,
+  otorgarExtensionSesionTurno,
+} from './lib/extensionSesionTurno.js';
 import BrandLogo from './components/BrandLogo.jsx';
 import Icon, { BtnLabel } from './components/Icon.jsx';
 import BotonLimpiarCache from './components/BotonLimpiarCache.jsx';
 import RelojNogales from './components/RelojNogales.jsx';
+import ModalExtensionTurno from './components/ModalExtensionTurno.jsx';
 import { EVENTO_CACHE_LIMPIADO } from './lib/limpiarCache.js';
 import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesContabilidad.jsx';
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
@@ -118,6 +124,7 @@ function App() {
   const [loginPinKey, setLoginPinKey] = useState(0);
   const [pendienteAutorizacionTurno, setPendienteAutorizacionTurno] = useState(null);
   const [pinAdminAutorizacion, setPinAdminAutorizacion] = useState('');
+  const [avisoExtensionTurno, setAvisoExtensionTurno] = useState(null);
   const [autorizandoTurno, setAutorizandoTurno] = useState(false);
   const [pendienteCubreTurno, setPendienteCubreTurno] = useState(false);
   const [nombreCubre, setNombreCubre] = useState('');
@@ -346,19 +353,18 @@ function App() {
     if (!sesion || !user) return undefined;
     const vigilarTurno = () => {
       if (esUsuarioCubreTurno(user)) return;
+      if (avisoExtensionTurno) return;
       const auth = usuarioAutorizadoLogin(user, new Date(), null, sucursal);
       if (!auth.ok) {
-        alert(`${auth.error}\n\nSe cerrará la sesión por seguridad.`);
-        setSesion(false);
-        setUser(null);
-        setVista('Inicio');
-        setPin('');
+        setAvisoExtensionTurno({
+          turnoId: turnoIdParaUsuario(user) || null,
+        });
       }
     };
     vigilarTurno();
     const id = setInterval(vigilarTurno, 60_000);
     return () => clearInterval(id);
-  }, [sesion, user, sucursal]);
+  }, [sesion, user, sucursal, avisoExtensionTurno]);
 
   useEffect(() => {
     guardarSucursalLocal(sucursal);
@@ -490,6 +496,7 @@ function App() {
       setUser(data);
       setSesion(true);
       setPin('');
+      setAvisoExtensionTurno(null);
       setPendienteAutorizacionTurno(null);
       setPinAdminAutorizacion('');
       setPendienteCubreTurno(false);
@@ -608,10 +615,32 @@ function App() {
     });
   };
 
+  const forzarCierreSesionPorTurno = useCallback(() => {
+    if (user?.id && sucursal) limpiarExtensionSesionTurno(user.id, sucursal);
+    setAvisoExtensionTurno(null);
+    setSesion(false);
+    setUser(null);
+    setVista('Inicio');
+    setPin('');
+  }, [user, sucursal]);
+
+  const aceptarExtensionTurno = useCallback(() => {
+    if (!user?.id || !sucursal) return;
+    otorgarExtensionSesionTurno({
+      usuarioId: user.id,
+      sucursal,
+      minutos: MINUTOS_EXTENSION_SESION,
+      turnoId: avisoExtensionTurno?.turnoId || turnoIdParaUsuario(user) || null,
+    });
+    setAvisoExtensionTurno(null);
+  }, [user, sucursal, avisoExtensionTurno]);
+
   const cerrarSesion = () => {
     if (sucursalLatido) void marcarPresenciaFueraDeLinea();
+    if (user?.id && sucursal) limpiarExtensionSesionTurno(user.id, sucursal);
     limpiarAnunciosVistos();
     limpiarNotificacionesDispositivoMostradas();
+    setAvisoExtensionTurno(null);
     setSesion(false);
     setUser(null);
     setVista('Inicio');
@@ -1079,6 +1108,12 @@ function App() {
           {vista === 'Ayuda' && <Ayuda user={user} />}
         </div>
         <AnuncioPosOverlay supabase={supabase} onIrVentas={() => irAModulo('Ventas')} />
+        <ModalExtensionTurno
+          open={Boolean(avisoExtensionTurno)}
+          minutos={MINUTOS_EXTENSION_SESION}
+          onAceptar={aceptarExtensionTurno}
+          onRechazar={forzarCierreSesionPorTurno}
+        />
         {mobile && (
           <MobileBottomNav
             modulos={modulosNav}
