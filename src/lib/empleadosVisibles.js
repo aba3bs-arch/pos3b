@@ -43,19 +43,79 @@ function esPersonalIndirecto(user) {
 }
 
 /**
- * Empleados en cortes contabilidad (Virtual / Abarrotes / Garage):
- * solo personal dado de alta en esa tienda (activo, sin administradores).
- * Sirve para descontar en nómina consumo, recargas, anticipos y faltantes.
+ * Empleados en cortes (Virtual / Abarrotes / Garage):
+ * - personal activo de la tienda (incluye Administrador de esa tienda)
+ * - todos los Administradores activos (aparecen en cualquier tienda/corte)
+ * - empleados indirectos (Luis Enrique, Misael, Gonzalo) en todas las tiendas y cortes
  */
 export function empleadosParaCorte(empleados, sucursalActiva, _modulo = null, _actorRol = null, _opts = {}) {
   const suc = normalizarCodigoTienda(sucursalActiva);
-  return (empleados || [])
-    .filter((e) => {
-      if (e?.activo === false) return false;
-      if (normalizarRol(e.rol) === 'Administrador') return false;
-      return normalizarCodigoTienda(e.sucursal_id) === suc;
-    })
-    .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));
+  const ids = new Set();
+  const out = [];
+
+  const push = (e, extra = {}) => {
+    if (!e || e?.activo === false) return;
+    const id = String(e.id);
+    if (ids.has(id)) return;
+    ids.add(id);
+    out.push({ ...e, ...extra });
+  };
+
+  for (const e of empleados || []) {
+    if (e?.activo === false) continue;
+    const empSuc = normalizarCodigoTienda(e.sucursal_id);
+    const rol = normalizarRol(e.rol);
+    if (empSuc === suc) {
+      push(e);
+      continue;
+    }
+    // Admin de cualquier tienda: visible en todos los cortes
+    if (rol === 'Administrador') push(e, { es_admin_global_corte: true });
+  }
+
+  return mergeIndirectosTodasLasTiendas(out, empleados);
+}
+
+/** Indirectos en todas las tiendas y módulos de corte (no filtrar por área). */
+function mergeIndirectosTodasLasTiendas(lista, todosUsuarios) {
+  const ids = new Set(lista.map((e) => String(e.id)));
+  const nombres = new Set(
+    lista.map((e) => String(e.nombre || '').trim().toLowerCase()).filter(Boolean),
+  );
+  const out = [...lista];
+
+  for (const b of BENEFICIARIOS_VALES) {
+    const nom = b.nombre.toLowerCase();
+    if (nombres.has(nom)) {
+      // Marcar el match real como indirecto si ya estaba en la lista
+      const hit = out.find((e) => String(e.nombre || '').trim().toLowerCase() === nom);
+      if (hit) hit.es_indirecto_corte = true;
+      continue;
+    }
+    const match = (todosUsuarios || []).find(
+      (u) => u?.activo !== false && String(u.nombre || '').trim().toLowerCase() === nom,
+    );
+    if (match) {
+      if (!ids.has(String(match.id))) {
+        out.push({ ...match, es_indirecto_corte: true });
+        ids.add(String(match.id));
+        nombres.add(nom);
+      }
+    } else if (!ids.has(`indirect:${b.id}`)) {
+      out.push({
+        id: `indirect:${b.id}`,
+        nombre: b.nombre,
+        rol: 'Indirecto',
+        sucursal_id: 'MAIN',
+        nomina_pagador: b.area,
+        es_indirecto_corte: true,
+      });
+      ids.add(`indirect:${b.id}`);
+      nombres.add(nom);
+    }
+  }
+
+  return out.sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));
 }
 
 /** Añade placeholders de indirectos para cruce de gastos en nómina. */

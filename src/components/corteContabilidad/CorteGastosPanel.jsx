@@ -8,6 +8,7 @@ import {
   gastoRequiereEmpleado,
   gastoDescuentaNomina,
 } from '../../lib/corteContabilidad/catalogoGastos.js';
+import { normalizarRol } from '../../lib/roles.js';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -218,10 +219,12 @@ export default function CorteGastosPanel({
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.4rem', marginBottom: '0.4rem' }}>
             {requiereEmpleado && (
               <select className="select" value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)}>
-                <option value="">Empleado de esta tienda</option>
+                <option value="">Empleado (tienda · indirectos · admin)</option>
                 {(empleados || []).map((e) => (
                   <option key={e.id} value={e.id}>
                     {e.nombre}
+                    {e.es_indirecto_corte ? ' · indirecto' : ''}
+                    {normalizarRol(e.rol) === 'Administrador' || e.es_admin_global_corte ? ' · admin' : ''}
                   </option>
                 ))}
               </select>
