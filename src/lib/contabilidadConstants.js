@@ -44,6 +44,25 @@ export const SOCIOS_APROBADORES_PRESTAMO = [
   { id: 'jose-luis', etiqueta: 'José Luis', patrones: ['jose luis', 'josé luis', 'jose luis'] },
 ];
 
+/**
+ * ABB / FJBB / JLBB: aprueban recolecciones de corte hacia IE (y autoaprueban si ellos recolectan).
+ * Patrones incluyen iniciales y nombres habituales.
+ */
+export const APROBADORES_RECOLECCION_IE = [
+  { id: 'abb', etiqueta: 'ABB', patrones: ['abb', 'antonio'] },
+  { id: 'fjbb', etiqueta: 'FJBB', patrones: ['fjbb', 'francisco'] },
+  { id: 'jlbb', etiqueta: 'JLBB', patrones: ['jlbb', 'jose luis', 'josé luis'] },
+];
+
+/** Si recolectan ellos, la transferencia a IE queda pendiente hasta ABB/FJBB/JLBB. */
+export const RECOLECTORES_REQUIEREN_APROBACION_IE = [
+  { id: 'luis-enrique', etiqueta: 'Luis Enrique Mada Osuna', patrones: ['luis enrique mada osuna', 'luis enrique mada', 'luis enrique'] },
+  { id: 'amr', etiqueta: 'AMR', patrones: ['amr'] },
+];
+
+/** Gastos de corte anteriores a esta fecha siguen contando en IE por fecha (legado). */
+export const LEGACY_GASTOS_CORTE_IE_HASTA = '2026-07-25';
+
 export const ESTADOS_VALE_APROBADO = new Set(['aprobado']);
 export const ESTADOS_PRESTAMO_ACTIVO = new Set(['activo']);
 export const ESTADOS_PRESTAMO_PENDIENTE = new Set(['pendiente_admin', 'pendiente_socio']);
@@ -87,13 +106,80 @@ export function prestamoRequiereSocio(monto) {
   return (Number(monto) || 0) > MONTO_PRESTAMO_REQUIERE_SOCIO;
 }
 
-export function esSocioAprobadorPrestamo(nombre) {
-  const n = String(nombre || '')
+function normalizarNombreMatch(nombre) {
+  return String(nombre || '')
     .trim()
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-  return SOCIOS_APROBADORES_PRESTAMO.some((s) => s.patrones.some((p) => n.includes(p.replace(/í/g, 'i')) || p.includes(n)));
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function nombreCoincidePatrones(nombre, patrones = []) {
+  const n = normalizarNombreMatch(nombre);
+  if (!n) return false;
+  const tokens = n.split(' ').filter(Boolean);
+  return (patrones || []).some((p) => {
+    const pn = normalizarNombreMatch(p).replace(/í/g, 'i');
+    if (!pn) return false;
+    if (pn.length <= 4) {
+      return n === pn || tokens.includes(pn);
+    }
+    return n.includes(pn) || pn.includes(n);
+  });
+}
+
+export function esSocioAprobadorPrestamo(nombre) {
+  return SOCIOS_APROBADORES_PRESTAMO.some((s) => nombreCoincidePatrones(nombre, s.patrones));
+}
+
+/** ABB, FJBB o JLBB (o Antonio / Francisco / José Luis). */
+export function esAprobadorRecoleccionIe(nombre) {
+  return APROBADORES_RECOLECCION_IE.some((s) => nombreCoincidePatrones(nombre, s.patrones));
+}
+
+/** Luis Enrique Mada Osuna o AMR: requieren aprobación de ABB/FJBB/JLBB. */
+export function recolectorRequiereAprobacionIe(nombre) {
+  return RECOLECTORES_REQUIEREN_APROBACION_IE.some((s) => nombreCoincidePatrones(nombre, s.patrones));
+}
+
+/**
+ * Estado inicial de la recolección hacia IE:
+ * - ABB/FJBB/JLBB (u otros no listados) → aprobado
+ * - Luis Enrique / AMR → pendiente_admin
+ */
+export function estadoAprobacionRecoleccionInicial(nombreRecolector) {
+  if (esAprobadorRecoleccionIe(nombreRecolector)) return 'aprobado';
+  if (recolectorRequiereAprobacionIe(nombreRecolector)) return 'pendiente_admin';
+  return 'aprobado';
+}
+
+export function recoleccionAprobadaParaIe(cierre) {
+  if (!cierre) return false;
+  const raw = cierre?.detalle?.estado_aprobacion ?? cierre?.estado_aprobacion;
+  if (raw == null || raw === '') return true; // legado sin campo = ya en IE
+  return String(raw).toLowerCase() === 'aprobado';
+}
+
+export function gastoCorteLiberadoParaIe(gasto, idsLiberados) {
+  if (!gasto) return false;
+  const id = gasto.id != null ? String(gasto.id) : '';
+  if (id && idsLiberados instanceof Set && idsLiberados.has(id)) return true;
+  const f = String(gasto.created_at || gasto.fecha || '').slice(0, 10);
+  return Boolean(f && f < LEGACY_GASTOS_CORTE_IE_HASTA);
+}
+
+export function idsGastosLiberadosPorRecolecciones(recolecciones = []) {
+  const ids = new Set();
+  for (const r of recolecciones || []) {
+    if (!recoleccionAprobadaParaIe(r)) continue;
+    const list = r?.detalle?.gastos_ids;
+    if (!Array.isArray(list)) continue;
+    for (const id of list) {
+      if (id != null && id !== '') ids.add(String(id));
+    }
+  }
+  return ids;
 }
 
 export function valePuedeImprimir(vale) {

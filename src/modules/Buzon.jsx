@@ -39,8 +39,13 @@ import {
   puedeRedirigirIncidenciaPrivilegio,
   tieneAccionIncidencia,
 } from '../lib/incidenciasPrivilegios.js';
-import { esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
-import { aprobarGastoTurno, rechazarGastoTurno } from '../lib/corteContabilidad/store.js';
+import { esAprobadorRecoleccionIe, esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
+import {
+  aprobarGastoTurno,
+  aprobarRecoleccionCorteIe,
+  rechazarGastoTurno,
+  rechazarRecoleccionCorteIe,
+} from '../lib/corteContabilidad/store.js';
 import { aprobarPrestamoAdmin, aprobarVale, cancelarVale, rechazarPrestamo } from '../lib/valesPrestamos.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { BtnLabel } from '../components/Icon.jsx';
@@ -72,10 +77,11 @@ export default function Buzon({
   const esAdmin = rol === 'Administrador';
   const esGerente = rol === 'Gerente';
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
+  const esAprobadorRecIe = esAprobadorRecoleccionIe(user?.nombre);
   const modoVista = modoVistaIncidencias(rol, user?.id);
-  const veTodasTiendas = puedeVerTodasIncidencias(rol, user?.id, sucursal);
+  const veTodasTiendas = puedeVerTodasIncidencias(rol, user?.id, sucursal) || esAprobadorRecIe;
   const puedeGestionarNotif = esAdmin;
-  const puedeBandejaPendientes = puedeVerBandejaPendientesIncidencias(rol, user?.id);
+  const puedeBandejaPendientes = puedeVerBandejaPendientesIncidencias(rol, user?.id) || esAprobadorRecIe;
   const puedeHistorial = puedeVerHistorialIncidencias(rol, user?.id);
   const puedeResolver = puedeResolverAlgunaIncidencia(rol, user?.id);
   const soloIncidencias = rolSoloPestanaIncidencias(rol, user?.id);
@@ -131,11 +137,17 @@ export default function Buzon({
 
   const filtrarPendientes = useCallback(
     (lista) => {
-      if (esAdmin || esGerente || veTodasTiendas) return lista;
-      if (esSocio) return lista.filter((n) => n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO);
+      if (esAdmin || esGerente) return lista;
+      if (esSocio || esAprobadorRecIe) {
+        return lista.filter((n) =>
+          (esSocio && n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO)
+          || (esAprobadorRecIe && n.tipo === TIPOS_NOTIF.RECOLECCION_CORTE_IE),
+        );
+      }
+      if (veTodasTiendas) return lista;
       return lista.filter((n) => n.tipo === TIPOS_NOTIF.INCIDENCIA || n.sucursal_id === sucursal);
     },
-    [esAdmin, esGerente, esSocio, sucursal, veTodasTiendas],
+    [esAdmin, esGerente, esSocio, esAprobadorRecIe, sucursal, veTodasTiendas],
   );
 
   const recargar = useCallback(async () => {
@@ -228,12 +240,34 @@ export default function Buzon({
     [puedeResolver, esAdmin, incidenciasFiltradas, user, rol],
   );
 
+  const aprobarRecoleccionIe = async (n) => {
+    if (!esAprobadorRecIe || !n.ref_id) return;
+    const res = await aprobarRecoleccionCorteIe(supabase, n.ref_id, { nombre: user?.nombre });
+    if (!res.ok) setMsg(res.error || 'No se pudo aprobar la recolección.');
+    else {
+      setMsg('Recolección aprobada: ingresos y gastos pasaron a IE.');
+      recargar();
+    }
+  };
+
+  const rechazarRecoleccionIe = async (n) => {
+    if (!esAprobadorRecIe || !n.ref_id) return;
+    if (!confirm('¿Rechazar esta recolección hacia IE? No se registrarán ingresos ni gastos en IE.')) return;
+    const res = await rechazarRecoleccionCorteIe(supabase, n.ref_id, { nombre: user?.nombre });
+    if (!res.ok) setMsg(res.error || 'No se pudo rechazar.');
+    else {
+      setMsg('Recolección rechazada.');
+      recargar();
+    }
+  };
+
   const irAccionNotif = (n) => {
     if (n.tipo === TIPOS_NOTIF.INCIDENCIA) {
       setPestana('incidencias');
       return;
     }
     if (n.tipo === TIPOS_NOTIF.CONSUMO_CORTE) return;
+    if (n.tipo === TIPOS_NOTIF.RECOLECCION_CORTE_IE) return;
     if (n.tipo === TIPOS_NOTIF.RECOLECCION_POST_LIQ) {
       if (typeof onNavigate === 'function') onNavigate('Liquidación recolecciones');
       return;
@@ -477,6 +511,16 @@ export default function Buzon({
                                 Aprobar
                               </button>
                               <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => rechazarConsumoCorte(n)}>
+                                Rechazar
+                              </button>
+                            </>
+                          )}
+                          {n.tipo === TIPOS_NOTIF.RECOLECCION_CORTE_IE && esAprobadorRecIe && (
+                            <>
+                              <button type="button" className="btn btn-primary btn-sm" onClick={() => aprobarRecoleccionIe(n)}>
+                                Aprobar → IE
+                              </button>
+                              <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => rechazarRecoleccionIe(n)}>
                                 Rechazar
                               </button>
                             </>

@@ -5,7 +5,7 @@ import {
   TIPOS_NOTIF,
 } from '../lib/contabilidadNotificaciones.js';
 import { normalizarRol, puedeVerBandejaPendientesIncidencias, puedeVerTodasIncidencias } from '../lib/roles.js';
-import { esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
+import { esAprobadorRecoleccionIe, esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
 
 export default function BadgeNotificacionesContabilidad({ supabase, sucursal, user, onClick }) {
   const [count, setCount] = useState(0);
@@ -13,8 +13,9 @@ export default function BadgeNotificacionesContabilidad({ supabase, sucursal, us
   const esAdmin = rol === 'Administrador';
   const esGerente = rol === 'Gerente';
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
-  const veTodasTiendas = puedeVerTodasIncidencias(rol, user?.id, sucursal) || esAdmin || esGerente;
-  const puedeVer = esAdmin || esGerente || esSocio || puedeVerBandejaPendientesIncidencias(rol, user?.id);
+  const esAprobadorRecIe = esAprobadorRecoleccionIe(user?.nombre);
+  const veTodasTiendas = puedeVerTodasIncidencias(rol, user?.id, sucursal) || esAdmin || esGerente || esAprobadorRecIe;
+  const puedeVer = esAdmin || esGerente || esSocio || esAprobadorRecIe || puedeVerBandejaPendientesIncidencias(rol, user?.id);
 
   const refrescar = useCallback(async () => {
     if (!supabase || !puedeVer) {
@@ -26,11 +27,14 @@ export default function BadgeNotificacionesContabilidad({ supabase, sucursal, us
       todasTiendas: veTodasTiendas,
     });
     let lista = nRes.data || [];
-    if (esSocio && !esAdmin && !esGerente) {
-      lista = lista.filter((x) => x.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO);
+    if (!esAdmin && !esGerente && (esSocio || esAprobadorRecIe)) {
+      lista = lista.filter((x) =>
+        (esSocio && x.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO)
+        || (esAprobadorRecIe && x.tipo === TIPOS_NOTIF.RECOLECCION_CORTE_IE),
+      );
     }
     setCount(lista.length);
-  }, [supabase, sucursal, puedeVer, veTodasTiendas, esAdmin, esGerente, esSocio]);
+  }, [supabase, sucursal, puedeVer, veTodasTiendas, esAdmin, esGerente, esSocio, esAprobadorRecIe]);
 
   useEffect(() => {
     refrescar();

@@ -1,5 +1,14 @@
 import { estadoDefault, normalizarEstadoVirtual } from './calc.js';
-import { marcarNotificacionAtendida } from '../contabilidadNotificaciones.js';
+import {
+  esAprobadorRecoleccionIe,
+  recoleccionAprobadaParaIe,
+} from '../contabilidadConstants.js';
+import {
+  TIPOS_NOTIF,
+  crearNotificacion,
+  marcarNotificacionAtendida,
+} from '../contabilidadNotificaciones.js';
+import { etiquetaTienda } from '../../constants/sucursales.js';
 
 export const AVISO_FALTA_CORTES =
   'Faltan tablas de cortes contabilidad. En Supabase → SQL Editor ejecuta: supabase/fix_cortes_contabilidad.sql';
@@ -136,15 +145,9 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
   }
   const { data, error } = await supabase.from('cortes_contabilidad_gastos').insert([row]).select('*').single();
   if (error) return { ok: false, error: error.message };
-  if (data && !omitirIe) {
-    try {
-      const { registrarEgresoDesdeGastoCorte } = await import('../contVirtualEgresos.js');
-      await registrarEgresoDesdeGastoCorte(supabase, data);
-    } catch {
-      /* IE sync no debe bloquear el corte */
-    }
-  }
-  return { ok: true, data };
+  // Gastos aplican en corte sin aprobación. A IE solo con recolección aprobada
+  // (omitirIe = nunca van a IE: inversión oficina, envío MAIN, etc.).
+  return { ok: true, data, omitirIe: Boolean(omitirIe) };
 }
 
 export async function aprobarGastoTurno(supabase, gastoId, { nombre } = {}) {
@@ -161,14 +164,7 @@ export async function aprobarGastoTurno(supabase, gastoId, { nombre } = {}) {
     .single();
   if (error) return { ok: false, error: error.message };
   await marcarNotificacionAtendida(supabase, 'cortes_contabilidad_gastos', gastoId, nombre);
-  if (data) {
-    try {
-      const { registrarEgresoDesdeGastoCorte } = await import('../contVirtualEgresos.js');
-      await registrarEgresoDesdeGastoCorte(supabase, data);
-    } catch {
-      /* IE sync no debe bloquear la aprobación */
-    }
-  }
+  // No enviar a IE aquí: los egresos de corte viajan con la recolección aprobada.
   return { ok: true, gasto: data };
 }
 
@@ -440,16 +436,115 @@ export async function registrarCierreCorte(supabase, payload) {
     } catch {
       hist = [];
     }
-    hist.unshift({ ...payload, id: `local-${Date.now()}`, created_at: new Date().toISOString() });
+    const row = { ...payload, id: `local-${Date.now()}`, created_at: new Date().toISOString() };
+    hist.unshift(row);
     localStorage.setItem(key, JSON.stringify(hist.slice(0, 100)));
-    return { ok: true, soloLocal: true };
+    return { ok: true, soloLocal: true, data: row };
   }
-  const { error } = await supabase.from('cortes_contabilidad_cierres').insert([payload]);
+  const { data, error } = await supabase.from('cortes_contabilidad_cierres').insert([payload]).select('*').single();
   if (error && faltaTabla(error, 'cortes_contabilidad_cierres')) {
     return { ok: false, error: AVISO_FALTA_CORTES };
   }
   if (error) return { ok: false, error: error.message };
+  return { ok: true, data };
+}
+
+/** Recolecciones de corte pendientes de ABB/FJBB/JLBB para pasar a IE. */
+export async function listarRecoleccionesPendientesIe(supabase, { sucursal = null, limit = 80 } = {}) {
+  if (!supabase) return { data: [], error: null };
+  let q = supabase
+    .from('cortes_contabilidad_cierres')
+    .select('*')
+    .eq('turno', 'RECOLECCION')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (sucursal) q = q.eq('sucursal_id', sucursal || 'MAIN');
+  const { data, error } = await q;
+  if (error) return { data: [], error: error.message };
+  const pend = (data || []).filter((c) => {
+    const tipo = String(c?.detalle?.tipo_cierre || c?.turno || '').toLowerCase();
+    if (tipo !== 'recoleccion') return false;
+    return String(c?.detalle?.estado_aprobacion || '').toLowerCase() === 'pendiente_admin';
+  });
+  return { data: pend, error: null };
+}
+
+export async function aprobarRecoleccionCorteIe(supabase, cierreId, { nombre } = {}) {
+  if (!supabase || !cierreId) return { ok: false, error: 'Recolección inválida.' };
+  if (!esAprobadorRecoleccionIe(nombre)) {
+    return { ok: false, error: 'Solo ABB, FJBB o JLBB pueden aprobar la recolección hacia IE.' };
+  }
+  const { data: row, error: errGet } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .select('*')
+    .eq('id', cierreId)
+    .maybeSingle();
+  if (errGet) return { ok: false, error: errGet.message };
+  if (!row) return { ok: false, error: 'Recolección no encontrada.' };
+  if (recoleccionAprobadaParaIe(row)) return { ok: true, data: row, yaAprobada: true };
+
+  const detalle = {
+    ...(row.detalle || {}),
+    estado_aprobacion: 'aprobado',
+    aprobado_por: nombre || null,
+    aprobado_at: new Date().toISOString(),
+  };
+  const { data, error } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .update({ detalle })
+    .eq('id', cierreId)
+    .select('*')
+    .single();
+  if (error) return { ok: false, error: error.message };
+
+  try {
+    const { liberarGastosCorteAIeTrasRecoleccion } = await import('../contVirtualEgresos.js');
+    await liberarGastosCorteAIeTrasRecoleccion(supabase, data);
+  } catch {
+    /* no bloquear aprobación */
+  }
+  await marcarNotificacionAtendida(supabase, 'cortes_contabilidad_cierres', cierreId, nombre);
+  return { ok: true, data };
+}
+
+export async function rechazarRecoleccionCorteIe(supabase, cierreId, { nombre } = {}) {
+  if (!supabase || !cierreId) return { ok: false, error: 'Recolección inválida.' };
+  if (!esAprobadorRecoleccionIe(nombre)) {
+    return { ok: false, error: 'Solo ABB, FJBB o JLBB pueden rechazar la recolección hacia IE.' };
+  }
+  const { data: row, error: errGet } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .select('detalle')
+    .eq('id', cierreId)
+    .maybeSingle();
+  if (errGet) return { ok: false, error: errGet.message };
+  if (!row) return { ok: false, error: 'Recolección no encontrada.' };
+
+  const detalle = {
+    ...(row.detalle || {}),
+    estado_aprobacion: 'rechazado',
+    aprobado_por: nombre || null,
+    aprobado_at: new Date().toISOString(),
+  };
+  const { error } = await supabase.from('cortes_contabilidad_cierres').update({ detalle }).eq('id', cierreId);
+  if (error) return { ok: false, error: error.message };
+  await marcarNotificacionAtendida(supabase, 'cortes_contabilidad_cierres', cierreId, nombre);
   return { ok: true };
+}
+
+export async function notificarRecoleccionPendienteIe(supabase, cierre) {
+  if (!supabase || !cierre?.id) return { ok: true };
+  const tienda = etiquetaTienda(cierre.sucursal_id || 'MAIN');
+  const monto = Number(cierre?.detalle?.recoleccion_contabilidad
+    ?? ((Number(cierre?.detalle?.recoleccion) || 0) + (Number(cierre?.detalle?.gastos_total) || 0))) || 0;
+  return crearNotificacion(supabase, {
+    sucursal_id: cierre.sucursal_id || 'MAIN',
+    tipo: TIPOS_NOTIF.RECOLECCION_CORTE_IE,
+    ref_tabla: 'cortes_contabilidad_cierres',
+    ref_id: cierre.id,
+    titulo: `Recolección pendiente IE · ${tienda}`,
+    mensaje: `${cierre.usuario_nombre || 'Recolector'} · ${cierre.folio || ''} · $${monto.toFixed(2)} · requiere ABB/FJBB/JLBB`,
+  });
 }
 
 export async function listarCierresCorte(supabase, sucursal, modulo, limit = 30) {

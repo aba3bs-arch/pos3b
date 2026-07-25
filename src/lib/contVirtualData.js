@@ -1,6 +1,10 @@
 import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
 import { periodoSemanaNomina } from './semanaNomina.js';
-import { CUOTA_SEMANAL_MINIMA } from './contabilidadConstants.js';
+import {
+  CUOTA_SEMANAL_MINIMA,
+  idsGastosLiberadosPorRecolecciones,
+  recoleccionAprobadaParaIe,
+} from './contabilidadConstants.js';
 import { listarCatalogoContVirtual } from './contVirtualCatalogo.js';
 import { montoRecoleccionParaContabilidad } from './corteContabilidad/calc.js';
 import {
@@ -216,7 +220,9 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     return String(c.modulo || '').toLowerCase() === cuentaFiltro;
   });
   const cierres = todosCierres.filter((c) => esCierreTurno(c));
-  const recolecciones = todosCierres.filter((c) => tipoCierre(c) === 'recoleccion');
+  const recoleccionesTodas = todosCierres.filter((c) => tipoCierre(c) === 'recoleccion');
+  const recolecciones = recoleccionesTodas.filter((c) => recoleccionAprobadaParaIe(c));
+  const idsGastosLiberados = idsGastosLiberadosPorRecolecciones(recoleccionesTodas);
   const gastosRaw = gastosRes.data || [];
   // Históricos RT Francisco mal etiquetados como virtual → no deben verse en IE VIRTUAL
   await reclasificarGastosRtFranciscoAAbarrotes(supabase, gastosRaw);
@@ -320,6 +326,7 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     prestamos: prestamosPeriodo,
     catalogo,
     refsPrestamosEliminados: new Set(refsPrestElimRes.data || []),
+    idsGastosLiberados,
   });
 
   for (const d of unificado.detalle) {
@@ -461,7 +468,9 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
 
   const todosCierres = cierresRes.data || [];
   const cierres = todosCierres.filter((c) => esCierreTurno(c));
-  const recolecciones = todosCierres.filter((c) => tipoCierre(c) === 'recoleccion');
+  const recoleccionesTodas = todosCierres.filter((c) => tipoCierre(c) === 'recoleccion');
+  const recolecciones = recoleccionesTodas.filter((c) => recoleccionAprobadaParaIe(c));
+  const idsGastosLiberados = idsGastosLiberadosPorRecolecciones(recoleccionesTodas);
   const gastos = [...(gastosRes.data || []), ...legacyFrancisco].filter((g) => {
     if (sucursal && g.sucursal_id !== sucursal) return false;
     const est = g.estado_aprobacion;
@@ -543,6 +552,7 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     prestamos: prestamosPeriodo,
     catalogo,
     refsPrestamosEliminados: new Set(refsPrestElimRes.data || []),
+    idsGastosLiberados,
   });
 
   // Forzar cuenta abarrotes en detalle unificado (mapearCorte usa virtual por defecto)

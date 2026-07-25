@@ -5,6 +5,7 @@ import { permisosCorteContabilidad, puedeEditarCorteCampo } from './permisos.js'
 import { gastoRequiereEmpleado } from './catalogoGastos.js';
 import {
   detalleRecoleccionParaIe,
+  gastosIdsDesdeUltimaRecoleccion,
   gastosPeriodoDesdeUltimaRecoleccion,
   monedaAInyectarVirtual,
   monedaTopeVirtual,
@@ -26,7 +27,9 @@ import {
   siguienteFolio,
   actualizarDetalleCierre,
   eliminarCierreCorte,
+  notificarRecoleccionPendienteIe,
 } from './store.js';
+import { estadoAprobacionRecoleccionInicial } from '../contabilidadConstants.js';
 
 function snapshotTurno(date = new Date()) {
   const t = turnoActual(null, date);
@@ -320,6 +323,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       const tope = monedaTopeVirtual(estado);
       const monedaInyectar = monedaAInyectarVirtual(estado, mf);
       const gastosPeriodo = gastosPeriodoDesdeUltimaRecoleccion(historial, calc.gastosTotal);
+      const gastosIds = gastosIdsDesdeUltimaRecoleccion(historial, gastos);
+      const estadoAprob = estadoAprobacionRecoleccionInicial(user?.nombre);
       const payload = {
         sucursal_id: sucursal || 'MAIN',
         modulo,
@@ -343,6 +348,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
             faltante: round2(estado.faltante),
             venta: calc.venta,
             gastos,
+            gastos_ids: gastosIds,
             gastos_turno_actual: calc.gastosTotal,
             subtotal: calc.subtotal,
             caja_actual: calc.cajaActual,
@@ -350,12 +356,24 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
             moneda_inyectar: monedaInyectar,
             formula_recoleccion: 'tope_menos_mf',
             tipo_cierre: 'recoleccion',
+            estado_aprobacion: estadoAprob,
             comentarios: estado.comentarios || '',
           },
         }),
       };
       const res = await registrarCierreCorte(supabase, payload);
       if (!res.ok) return { ok: false, error: res.error || AVISO_FALTA_CORTES };
+
+      if (estadoAprob === 'aprobado' && res.data) {
+        try {
+          const { liberarGastosCorteAIeTrasRecoleccion } = await import('../contVirtualEgresos.js');
+          await liberarGastosCorteAIeTrasRecoleccion(supabase, res.data);
+        } catch {
+          /* no bloquear */
+        }
+      } else if (estadoAprob === 'pendiente_admin' && res.data) {
+        await notificarRecoleccionPendienteIe(supabase, res.data);
+      }
 
       await limpiarGastosTurno(supabase, sucursal, modulo, (gastos || []).map((g) => g.id).filter(Boolean));
       const prep = prepararTrasRecoleccion || ((e) => e);
@@ -379,6 +397,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         estadoImpresion: payload.detalle,
         gastosImpresion: gastos,
         calcImpresion: { ...calc },
+        estadoAprobacion: estadoAprob,
+        pendienteIe: estadoAprob === 'pendiente_admin',
       };
     }
 
@@ -407,6 +427,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     }
 
     const gastosPeriodo = gastosPeriodoDesdeUltimaRecoleccion(historial, calc.gastosTotal);
+    const gastosIds = gastosIdsDesdeUltimaRecoleccion(historial, gastos);
+    const estadoAprob = estadoAprobacionRecoleccionInicial(user?.nombre);
     const payload = {
       sucursal_id: sucursal || 'MAIN',
       modulo,
@@ -430,11 +452,13 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
           moneda_inyectar: monedaInyectar,
           venta: 0,
           gastos,
+          gastos_ids: gastosIds,
           gastos_turno_actual: calc.gastosTotal,
           subtotal: calc.subtotal,
           caja_antes_recoleccion: round2(calc.cajaActual + montoRec),
           corte_anterior_id: corteAnteriorId || null,
           tipo_cierre: 'recoleccion',
+          estado_aprobacion: estadoAprob,
           comentarios: estado.comentarios || '',
         },
       }),
@@ -442,6 +466,17 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
 
     const res = await registrarCierreCorte(supabase, payload);
     if (!res.ok) return alert(res.error || AVISO_FALTA_CORTES);
+
+    if (estadoAprob === 'aprobado' && res.data) {
+      try {
+        const { liberarGastosCorteAIeTrasRecoleccion } = await import('../contVirtualEgresos.js');
+        await liberarGastosCorteAIeTrasRecoleccion(supabase, res.data);
+      } catch {
+        /* no bloquear */
+      }
+    } else if (estadoAprob === 'pendiente_admin' && res.data) {
+      await notificarRecoleccionPendienteIe(supabase, res.data);
+    }
 
     await limpiarGastosTurno(supabase, sucursal, modulo, (gastos || []).map((g) => g.id).filter(Boolean));
     const prep = prepararTrasRecoleccion || ((e) => e);
@@ -459,6 +494,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     setHistorial(hist.data || []);
     const monOp = monedaTope > 0 ? monedaTope : mf;
     const brutoIe = round2(montoRec + gastosPeriodo);
+    const avisoPend = estadoAprob === 'pendiente_admin'
+      ? '\n⚠️ Transferencia a IE pendiente de aprobación (ABB / FJBB / JLBB).\n'
+      : '';
     alert(
       `Recolección de ${fmtCorte(montoRec)} registrada.\n\n` +
         `Moneda final recolección: ${fmtCorte(mf)}\n` +
@@ -466,7 +504,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         `Inyectar a sucursal: ${fmtCorte(monedaInyectar)} (no es ingreso)\n` +
         `Ingreso en IE (bruto, sin descontar gastos): ${fmtCorte(brutoIe)}\n` +
         `Efectivo retirado: ${fmtCorte(montoRec)} · Gastos del periodo: ${fmtCorte(gastosPeriodo)} (se descuentan solo en IE)\n` +
-        `El fondo fijo no se registra como ingreso.\n\n` +
+        `El fondo fijo no se registra como ingreso.` +
+        avisoPend +
+        `\n\n` +
         `Periodo reiniciado: caja y ventas en ${fmtCorte(0)}.\n` +
         `Moneda de referencia e inicio de operación: ${fmtCorte(monOp)}.\n` +
         `Los gastos del periodo quedan en historial y se deducen en IE (una sola vez).`,

@@ -69,6 +69,27 @@ export function gastosPeriodoDesdeUltimaRecoleccion(historial = [], gastosAbiert
   return sum;
 }
 
+/** IDs de gastos del periodo (abiertos + embebidos en cierres) desde la última recolección. */
+export function gastosIdsDesdeUltimaRecoleccion(historial = [], gastosAbiertos = []) {
+  const ids = new Set();
+  for (const g of gastosAbiertos || []) {
+    if (g?.id != null && g.id !== '') ids.add(String(g.id));
+  }
+  const lista = [...(historial || [])].sort((a, b) => {
+    const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+    return tb - ta;
+  });
+  for (const h of lista) {
+    const tipo = String(h?.detalle?.tipo_cierre || h?.turno || '').toLowerCase();
+    if (tipo === 'recoleccion') break;
+    for (const g of h?.detalle?.gastos || []) {
+      if (g?.id != null && g.id !== '') ids.add(String(g.id));
+    }
+  }
+  return [...ids];
+}
+
 /** Referencia del recolector (morado): fija hasta la próxima recolección; no cambia con los cierres de cajero. */
 export function monedaRecolectorRef(estado) {
   return round2(estado?.moneda_inicial);

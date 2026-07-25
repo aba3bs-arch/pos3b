@@ -154,7 +154,10 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
       `Recolección ${fmtCorte(res.recoleccion)} registrada.\n` +
         `Caja chica en $0.00.\n` +
         `Inyectado: ${fmtCorte(res.monedaInyectar ?? inyectar)}.\n` +
-        `Moneda inicial del próximo corte: ${fmtCorte(res.miSiguiente ?? miSiguiente)}.`,
+        `Moneda inicial del próximo corte: ${fmtCorte(res.miSiguiente ?? miSiguiente)}.` +
+        (res.pendienteIe
+          ? '\n\n⚠️ Transferencia a IE (ingresos + gastos) pendiente de aprobación por ABB, FJBB o JLBB.'
+          : '\n\nTransferencia a IE aplicada (ingresos y gastos del periodo).'),
     );
   };
 

@@ -145,6 +145,7 @@ export const TIPOS_NOTIF = {
   INCIDENCIA: 'incidencia_tienda',
   CONSUMO_CORTE: 'consumo_corte_pendiente',
   RECOLECCION_POST_LIQ: 'recoleccion_post_liquidacion',
+  RECOLECCION_CORTE_IE: 'recoleccion_corte_pendiente_ie',
   INVERSION_OFICINA: 'inversion_oficina_proveedor',
 };
 
@@ -166,6 +167,8 @@ export function etiquetaTipoNotificacion(tipo) {
       return 'Consumo en corte';
     case TIPOS_NOTIF.RECOLECCION_POST_LIQ:
       return 'Cobro post-liquidación';
+    case TIPOS_NOTIF.RECOLECCION_CORTE_IE:
+      return 'Recolección a IE pendiente';
     case TIPOS_NOTIF.INVERSION_OFICINA:
       return 'Inversión a recuperar';
     default:

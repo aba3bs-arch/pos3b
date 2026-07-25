@@ -7,8 +7,14 @@ import {
   mapearGastoCorteCubreTaxiACatalogo,
   resolverNombresCatalogo,
 } from './contVirtualCatalogo.js';
+import { gastoCorteLiberadoParaIe } from './contabilidadConstants.js';
 import { etiquetaCategoriaVale } from './valesCategorias.js';
 import { pastelDesdeMapa } from './resumenOperativoData.js';
+
+function gastoCorteOmitirIeSiempre(gasto) {
+  const catUpper = String(gasto?.categoria || '').toUpperCase();
+  return catUpper === 'INVERSION OFICINA' || catUpper === 'ENVIO MAIN' || catUpper === 'VALE MAIN';
+}
 
 function fechaEfectivaVale(vale) {
   return String(vale?.fecha || vale?.created_at || '').slice(0, 10);
@@ -430,13 +436,45 @@ export async function sincronizarValesContVirtual(supabase, { limit = 400 } = {}
   return { ok: true, count };
 }
 
-/** Backfill: gastos CUBRE TURNO / TAXIS de cortes aún no en el libro IE. */
+/**
+ * Tras aprobar una recolección: envía a IE los gastos CUBRE/TAXIS del periodo
+ * (el resto entra por unificarEgresosParaPanel filtrando gastos_ids).
+ */
+export async function liberarGastosCorteAIeTrasRecoleccion(supabase, cierre) {
+  if (!supabase || !cierre) return { ok: true, count: 0 };
+  const ids = (cierre?.detalle?.gastos_ids || []).map((id) => String(id)).filter(Boolean);
+  if (!ids.length) return { ok: true, count: 0 };
+
+  const { data, error } = await supabase
+    .from('cortes_contabilidad_gastos')
+    .select('*')
+    .in('id', ids);
+  if (error) {
+    if (faltaTabla(error) || error.code === '42P01') return { ok: true, count: 0 };
+    return { ok: false, error: error.message, count: 0 };
+  }
+
+  let count = 0;
+  for (const g of data || []) {
+    if (gastoCorteOmitirIeSiempre(g)) continue;
+    if (!gastoCorteDebeIrAContVirtual(g)) continue;
+    const res = await registrarEgresoDesdeGastoCorte(supabase, g);
+    if (res.ok && !res.yaExiste && !res.omitido) count += 1;
+  }
+  return { ok: true, count };
+}
+
+/**
+ * Solo backfill de legado (antes de diferir a recolección).
+ * Los gastos nuevos van a IE al aprobar la recolección.
+ */
 export async function sincronizarGastosCubreTaxiContVirtual(supabase, { limit = 500 } = {}) {
   if (!supabase) return { ok: true, count: 0 };
   const { data, error } = await supabase
     .from('cortes_contabilidad_gastos')
     .select('*')
     .in('modulo', ['virtual', 'abarrotes', 'garage'])
+    .lt('created_at', '2026-07-25T00:00:00')
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) {
@@ -461,6 +499,7 @@ export function unificarEgresosParaPanel({
   prestamos = [],
   catalogo = [],
   refsPrestamosEliminados = null,
+  idsGastosLiberados = null,
 }) {
   const refsVale = new Set(
     (egresosLibro || [])
@@ -475,6 +514,9 @@ export function unificarEgresosParaPanel({
   const exclPrestamos = refsPrestamosEliminados instanceof Set
     ? refsPrestamosEliminados
     : new Set(refsPrestamosEliminados || []);
+  const liberados = idsGastosLiberados instanceof Set
+    ? idsGastosLiberados
+    : new Set(idsGastosLiberados || []);
 
   const detalle = [];
 
@@ -498,6 +540,8 @@ export function unificarEgresosParaPanel({
 
   for (const g of gastosCorte || []) {
     if (!gastoCorteEstaAprobado(g)) continue;
+    if (gastoCorteOmitirIeSiempre(g)) continue;
+    if (!gastoCorteLiberadoParaIe(g, liberados)) continue;
     const catRaw = String(g.categoria || '').toUpperCase();
     const modGasto = String(g.modulo || '').toLowerCase();
     // Vales Virtual/Garage van por el libro / sync; vales Abarrotes sí cuentan en IE ABARROTES

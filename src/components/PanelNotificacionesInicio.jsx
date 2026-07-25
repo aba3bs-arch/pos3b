@@ -7,13 +7,18 @@ import {
   TIPOS_NOTIF,
 } from '../lib/contabilidadNotificaciones.js';
 import { normalizarRol, puedeAbrirBandejaIncidencias, puedeVerTodasIncidencias } from '../lib/roles.js';
-import { esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
+import { esAprobadorRecoleccionIe, esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { BtnLabel } from './Icon.jsx';
 
-function filtrarParaUsuario(notifs, { esAdmin, esGerente, esSocio }) {
+function filtrarParaUsuario(notifs, { esAdmin, esGerente, esSocio, esAprobadorRecIe }) {
   if (esAdmin || esGerente) return notifs;
-  if (esSocio) return notifs.filter((n) => n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO);
+  if (esSocio || esAprobadorRecIe) {
+    return notifs.filter((n) =>
+      (esSocio && n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO)
+      || (esAprobadorRecIe && n.tipo === TIPOS_NOTIF.RECOLECCION_CORTE_IE),
+    );
+  }
   return notifs;
 }
 
@@ -22,8 +27,9 @@ export default function PanelNotificacionesInicio({ supabase, sucursal, user, on
   const esAdmin = rol === 'Administrador';
   const esGerente = rol === 'Gerente';
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
-  const veTodasTiendas = puedeVerTodasIncidencias(rol, user?.id, sucursal) || esAdmin || esGerente;
-  const puedeVer = esAdmin || esGerente || esSocio || rol === 'Supervisor' || puedeAbrirBandejaIncidencias(rol, user?.id);
+  const esAprobadorRecIe = esAprobadorRecoleccionIe(user?.nombre);
+  const veTodasTiendas = puedeVerTodasIncidencias(rol, user?.id, sucursal) || esAdmin || esGerente || esAprobadorRecIe;
+  const puedeVer = esAdmin || esGerente || esSocio || esAprobadorRecIe || rol === 'Supervisor' || puedeAbrirBandejaIncidencias(rol, user?.id);
 
   const [notifs, setNotifs] = useState([]);
   const [aviso, setAviso] = useState('');
@@ -39,8 +45,8 @@ export default function PanelNotificacionesInicio({ supabase, sucursal, user, on
     });
     if (nRes.aviso) setAviso(nRes.aviso);
     else setAviso('');
-    setNotifs(filtrarParaUsuario(nRes.data || [], { esAdmin, esGerente, esSocio }));
-  }, [supabase, sucursal, puedeVer, veTodasTiendas, esAdmin, esGerente, esSocio]);
+    setNotifs(filtrarParaUsuario(nRes.data || [], { esAdmin, esGerente, esSocio, esAprobadorRecIe }));
+  }, [supabase, sucursal, puedeVer, veTodasTiendas, esAdmin, esGerente, esSocio, esAprobadorRecIe]);
 
   useEffect(() => {
     refrescar();
