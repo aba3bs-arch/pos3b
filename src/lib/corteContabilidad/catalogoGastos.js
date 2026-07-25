@@ -30,13 +30,26 @@ const DEFAULTS = {
   garage: [],
 };
 
-/** Solo cargos del empleado: consumo, recargas, anticipos y faltante → nómina. */
-export const CATEGORIAS_GASTO_NOMINA = ['CONSUMO', 'RECARGAS', 'RECARGA', 'ANTICIPOS', 'ANTICIPO', 'FALTANTE'];
+/** Solo cargos del empleado: categoría EMPLEADO + tipos legacy → nómina. */
+export const CATEGORIAS_GASTO_NOMINA = [
+  'EMPLEADO',
+  'CONSUMO',
+  'RECARGAS',
+  'RECARGA',
+  'ANTICIPOS',
+  'ANTICIPO',
+  'FALTANTE',
+];
 
 /** Gastos generados por el empleado (no CubreTurno, Taxi, operativos, etc.). */
 export function gastoDescuentaNomina(_modulo, categoria, subcategoria = '') {
-  const cat = String(categoria || '').trim().toUpperCase();
+  const cat = String(categoria || '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
   const sub = String(subcategoria || '').trim().toUpperCase();
+  if (cat === 'EMPLEADO' || cat.startsWith('EMPLEADO ')) return true;
   if (CATEGORIAS_GASTO_NOMINA.includes(cat)) return true;
   if (cat.includes('CONSUMO') || cat.includes('RECARG') || cat.includes('ANTICIPO') || cat.includes('FALTANTE')) {
     return true;
@@ -86,12 +99,37 @@ export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual') {
   const vistos = new Set();
   for (const c of ieCats || []) {
     if (c?.activo === false) continue;
-    const categoria = String(c.nombre || '').trim().toUpperCase();
+    const nomRaw = String(c.nombre || '').trim();
+    const categoria = nomRaw.toUpperCase();
     if (!categoria || vistos.has(categoria)) continue;
+    // Categoría Empleado: en corte las "subs" son los tipos (consumo, faltante…);
+    // el empleado se elige en el select aparte (MAIN / tienda).
+    const esEmp =
+      String(c.id || '').toLowerCase() === 'empleado'
+      || categoria === 'EMPLEADO'
+      || categoria.startsWith('EMPLEADO ');
+    if (esEmp) {
+      vistos.add(categoria);
+      vistos.add('EMPLEADO');
+      const plantilla = (c.subcategorias || []).filter((s) => s?.activo !== false && !s.es_empleado_vivo);
+      const tipos = plantilla.length
+        ? plantilla.map((s) => String(s.nombre || '').trim().toUpperCase()).filter(Boolean)
+        : ['CONSUMO', 'ANTICIPO', 'CUBRE TURNOS', 'FALTANTE', 'NOMINA EMPLEADO', 'OTROS', 'RECARGAS'];
+      out.push({
+        id: c.id,
+        ieId: c.id,
+        categoria: 'EMPLEADO',
+        subcategorias: [...new Set(tipos)],
+        fuente,
+        es_categoria_empleado: true,
+      });
+      continue;
+    }
     vistos.add(categoria);
     const subs = [];
     for (const s of c.subcategorias || []) {
       if (s?.activo === false) continue;
+      if (s.es_empleado_vivo) continue;
       const subNom = String(s.nombre || '').trim().toUpperCase();
       if (!subNom) continue;
       const dets = (s.detalles || []).filter((d) => d?.activo !== false);

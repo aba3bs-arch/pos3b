@@ -9,6 +9,8 @@ import {
   gastoDescuentaNomina,
 } from '../../lib/corteContabilidad/catalogoGastos.js';
 import { agruparEmpleadosParaSelectCorte } from '../../lib/empleadosVisibles.js';
+import { esCategoriaEmpleado } from '../../lib/catalogoEmpleadoGastos.js';
+import { etiquetaTienda } from '../../constants/sucursales.js';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -170,7 +172,58 @@ export default function CorteGastosPanel({
           <button type="button" className="btn btn-ghost" style={{ ...btnSm, marginBottom: '0.5rem' }} onClick={nuevaCategoria}>
             + Categoría
           </button>
-          {catalogo.map((c) => (
+          {catalogo.map((c) => {
+            const esEmp = esCategoriaEmpleado(c) || c.es_categoria_empleado;
+            if (esEmp) {
+              const g = gruposEmpleados;
+              return (
+                <div
+                  key={c.ieId || c.categoria}
+                  style={{
+                    marginBottom: '0.5rem',
+                    padding: '0.45rem 0',
+                    borderBottom: '1px solid var(--border)',
+                  }}
+                >
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.35rem', marginBottom: '0.35rem' }}>
+                    <strong style={{ fontSize: '0.85rem' }}>{c.categoria}</strong>
+                    <span className="muted" style={{ fontSize: '0.78rem', flex: 1 }}>
+                      Tipos: {(c.subcategorias || []).join(' · ') || '—'}
+                    </span>
+                    <button type="button" className="btn btn-ghost" style={btnSm} onClick={() => nuevaSubcategoria(c.categoria)}>
+                      + Tipo
+                    </button>
+                    <button type="button" className="btn btn-ghost" style={btnSm} onClick={() => editarCategoria(c.categoria)}>
+                      Editar tipos
+                    </button>
+                  </div>
+                  <p className="muted" style={{ fontSize: '0.72rem', margin: '0 0 0.35rem' }}>
+                    Main en todas las tiendas · tienda solo {etiquetaTienda(sucursal)}. Editar/baja en módulo Empleados.
+                  </p>
+                  <div style={{ fontSize: '0.8rem', paddingLeft: '0.25rem' }}>
+                    <div style={{ fontWeight: 600, marginBottom: '0.2rem' }}>Main / indirectos</div>
+                    {g.indirectos.length
+                      ? g.indirectos.map((e) => (
+                          <div key={e.id} className="muted" style={{ marginBottom: '0.15rem' }}>
+                            {e.nombre}
+                            <span style={{ opacity: 0.75 }}> · {(c.subcategorias || []).slice(0, 4).join(', ')}{(c.subcategorias || []).length > 4 ? '…' : ''}</span>
+                          </div>
+                        ))
+                      : <div className="muted">Sin empleados Main</div>}
+                    <div style={{ fontWeight: 600, margin: '0.35rem 0 0.2rem' }}>Tienda {etiquetaTienda(sucursal)}</div>
+                    {g.tienda.length
+                      ? g.tienda.map((e) => (
+                          <div key={e.id} className="muted" style={{ marginBottom: '0.15rem' }}>
+                            {e.nombre}
+                            <span style={{ opacity: 0.75 }}> · {(c.subcategorias || []).slice(0, 4).join(', ')}{(c.subcategorias || []).length > 4 ? '…' : ''}</span>
+                          </div>
+                        ))
+                      : <div className="muted">Sin empleados de tienda (máx. 2)</div>}
+                  </div>
+                </div>
+              );
+            }
+            return (
             <div
               key={c.ieId || c.categoria}
               style={{
@@ -205,7 +258,8 @@ export default function CorteGastosPanel({
                 Eliminar
               </button>
             </div>
-          ))}
+            );
+          })}
           {!catalogo.length && <p className="muted" style={{ fontSize: '0.8rem', margin: 0 }}>Sin categorías. Usa + Categoría.</p>}
         </div>
       )}

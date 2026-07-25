@@ -23,6 +23,22 @@ export const CATEGORIAS_CONT_VIRTUAL_DEFAULT = [
     ],
   },
   {
+    id: 'empleado',
+    nombre: 'Empleado 🤵',
+    orden: 18,
+    activo: true,
+    fijo: true,
+    subcategorias: [
+      { id: 'empleado-consumo', nombre: 'Consumo 🥫', orden: 10, activo: true, fijo: true },
+      { id: 'empleado-anticipo', nombre: 'Anticipo $', orden: 20, activo: true, fijo: true },
+      { id: 'empleado-cubre', nombre: 'Cubre turnos 👭', orden: 30, activo: true, fijo: true },
+      { id: 'empleado-faltante', nombre: 'Faltante ❎', orden: 40, activo: true, fijo: true },
+      { id: 'empleado-nomina', nombre: 'Nomina Empleado 💰', orden: 50, activo: true, fijo: true },
+      { id: 'empleado-otros', nombre: 'otros ‼️', orden: 60, activo: true, fijo: true },
+      { id: 'empleado-recargas', nombre: 'Recargas 📱', orden: 70, activo: true, fijo: true },
+    ],
+  },
+  {
     id: 'consumo',
     nombre: 'Consumo',
     orden: 20,
@@ -276,7 +292,23 @@ export async function listarCatalogoContVirtual(supabase) {
     return again;
   }
   const ids = new Set((cRes.data || []).map((c) => c.id));
-  if (!ids.has('cubre-turno') || !ids.has('taxis') || !ids.has('recargas') || !ids.has('anticipos') || !ids.has('faltante')) {
+  const tieneCatEmpleado = (cRes.data || []).some((c) => {
+    const id = String(c.id || '').toLowerCase();
+    const nom = String(c.nombre || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '');
+    return id === 'empleado' || nom === 'empleado' || nom.startsWith('empleado ');
+  });
+  if (
+    !ids.has('cubre-turno')
+    || !ids.has('taxis')
+    || !ids.has('recargas')
+    || !ids.has('anticipos')
+    || !ids.has('faltante')
+    || !tieneCatEmpleado
+  ) {
     await sembrarCatalogoDefault(supabase);
     const [c2, s2, d2] = await Promise.all([
       supabase.from('cont_virtual_categorias').select('*').order('orden'),
@@ -652,6 +684,21 @@ export function mapearCorteACatalogo(categoria, subcategoria) {
   const sub = String(subcategoria || '').trim().toUpperCase();
   const cubreTaxi = mapearGastoCorteCubreTaxiACatalogo({ categoria: cat, subcategoria: sub });
   if (cubreTaxi) return cubreTaxi;
+  if (cat === 'EMPLEADO' || cat.startsWith('EMPLEADO ')) {
+    const mapa = [
+      ['CONSUMO', 'empleado-consumo'],
+      ['ANTICIPO', 'empleado-anticipo'],
+      ['CUBRE', 'empleado-cubre'],
+      ['FALTANTE', 'empleado-faltante'],
+      ['NOMINA', 'empleado-nomina'],
+      ['RECARG', 'empleado-recargas'],
+      ['OTRO', 'empleado-otros'],
+    ];
+    for (const [needle, sid] of mapa) {
+      if (sub.includes(needle)) return { categoriaId: 'empleado', subcategoriaId: sid };
+    }
+    return { categoriaId: 'empleado', subcategoriaId: 'empleado-otros' };
+  }
   if (cat === 'CONSUMO') {
     if (sub.includes('OFICINA')) return { categoriaId: 'consumo', subcategoriaId: 'consumo-oficina' };
     return { categoriaId: 'consumo', subcategoriaId: 'consumo-empleado' };

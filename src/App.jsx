@@ -1042,13 +1042,13 @@ function App() {
           {vista === 'IE VIRTUAL' && (
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
-              <ContVirtual supabase={supabase} user={user} libro="antonio" />
+              <ContVirtual supabase={supabase} user={user} libro="antonio" sucursal={sucursal} />
             </>
           )}
           {vista === 'IE ABARROTES' && (
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
-              <ContVirtual supabase={supabase} user={user} libro="francisco" />
+              <ContVirtual supabase={supabase} user={user} libro="francisco" sucursal={sucursal} />
             </>
           )}
           {vista === 'Auto Fin' && (

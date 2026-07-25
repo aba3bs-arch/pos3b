@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { listarSucursales, etiquetaTienda } from '../constants/sucursales.js';
+import { listarSucursales, etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { puedeGestionarUsuarios } from '../lib/roles.js';
 import { estiloPastel } from '../lib/estadisticasData.js';
 import {
@@ -25,6 +25,11 @@ import {
   resolverNombresCatalogo,
   AVISO_FALTA_CONT_VIRTUAL,
 } from '../lib/contVirtualCatalogo.js';
+import {
+  enriquecerCatalogoConEmpleados,
+  esCategoriaEmpleado,
+  plantillaDetallesEmpleado,
+} from '../lib/catalogoEmpleadoGastos.js';
 import { eliminarEgresoDesdePanelIe, registrarEgresoContVirtual } from '../lib/contVirtualEgresos.js';
 import {
   AVISO_FALTA_INVERSIONES_OFICINA,
@@ -277,7 +282,7 @@ function buildCalendarCells(anio, mes, byFecha) {
   return cells;
 }
 
-export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
+export default function ContVirtual({ supabase, user, libro = 'antonio', sucursal: sucursalProp = '' }) {
   const esAdmin = puedeGestionarUsuarios(user?.rol);
   const esFrancisco = libro === 'francisco';
   const tituloLibro = esFrancisco ? 'IE ABARROTES' : 'IE VIRTUAL';
@@ -285,6 +290,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     ? 'Francisco · ingresos y egresos de Abarrotes'
     : 'Antonio · ingresos y egresos de Virtual y Garage';
   const tiendas = useMemo(() => listarSucursales(), []);
+  const sucursalActiva = normalizarCodigoTienda(sucursalProp) || '';
 
   const [nav, setNav] = useState('trans'); // trans | estad | cuentas | mas
   const [transTab, setTransTab] = useState('diario');
@@ -308,6 +314,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState('');
   const [catalogo, setCatalogo] = useState([]);
+  const [usuariosCat, setUsuariosCat] = useState([]);
+  const [catEmpSucursal, setCatEmpSucursal] = useState(() => normalizarCodigoTienda(sucursalProp) || '');
   const [avisoSql, setAvisoSql] = useState('');
   const [notas, setNotas] = useState(() => leerNotas());
   const [notaDraft, setNotaDraft] = useState('');
@@ -375,6 +383,29 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     if (res.aviso) setAvisoSql(res.aviso);
   }, [supabase]);
 
+  const cargarUsuariosCat = useCallback(async () => {
+    if (!supabase) {
+      setUsuariosCat([]);
+      return;
+    }
+    const { data, error } = await supabase.from('usuarios').select('*').order('nombre');
+    if (error) {
+      console.error(error);
+      setUsuariosCat([]);
+      return;
+    }
+    setUsuariosCat(data || []);
+  }, [supabase]);
+
+  useEffect(() => {
+    if (sucursalActiva) setCatEmpSucursal(sucursalActiva);
+  }, [sucursalActiva]);
+
+  const catalogoVista = useMemo(
+    () => enriquecerCatalogoConEmpleados(catalogo, usuariosCat, catEmpSucursal || sucursalActiva),
+    [catalogo, usuariosCat, catEmpSucursal, sucursalActiva],
+  );
+
   const cargar = useCallback(async () => {
     if (!supabase || !rango?.desde || !rango?.hasta) return;
     setCargando(true);
@@ -405,6 +436,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
   useEffect(() => {
     cargarCatalogo();
   }, [cargarCatalogo]);
+
+  useEffect(() => {
+    cargarUsuariosCat();
+  }, [cargarUsuariosCat]);
 
   useEffect(() => {
     cargar();
@@ -551,10 +586,15 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
 
   const calCells = useMemo(() => buildCalendarCells(anio, mes, byFecha), [anio, mes, byFecha]);
 
+  const catalogoManual = useMemo(
+    () => enriquecerCatalogoConEmpleados(catalogo, usuariosCat, manual.sucursal_id || catEmpSucursal || sucursalActiva),
+    [catalogo, usuariosCat, manual.sucursal_id, catEmpSucursal, sucursalActiva],
+  );
+
   const subsManual = useMemo(() => {
-    const cat = catalogo.find((c) => c.id === manual.categoria_id);
+    const cat = catalogoManual.find((c) => c.id === manual.categoria_id);
     return (cat?.subcategorias || []).filter((s) => s.activo !== false);
-  }, [catalogo, manual.categoria_id]);
+  }, [catalogoManual, manual.categoria_id]);
 
   const detsManual = useMemo(() => {
     const sub = subsManual.find((s) => s.id === manual.subcategoria_id);
@@ -603,12 +643,39 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     if (!(monto > 0)) return alert('Indica un monto válido.');
     if (!manual.sucursal_id) return alert('Elige la sucursal del egreso.');
     if (!manual.categoria_id) return alert('Elige categoría.');
-    const nombres = resolverNombresCatalogo(
+    const catVista = enriquecerCatalogoConEmpleados(
       catalogo,
+      usuariosCat,
+      manual.sucursal_id || catEmpSucursal || sucursalActiva,
+    );
+    const nombres = resolverNombresCatalogo(
+      catVista,
       manual.categoria_id,
       manual.subcategoria_id,
       manual.detalle_id || null,
     );
+    const subViva = (catVista.find((c) => c.id === manual.categoria_id)?.subcategorias || [])
+      .find((s) => s.id === manual.subcategoria_id);
+    const catRaw = catalogo.find((c) => c.id === manual.categoria_id);
+    let subcategoria_id = manual.subcategoria_id || null;
+    let subcategoria_nombre = nombres.subcategoria_nombre;
+    let detalle_id = manual.detalle_id || null;
+    let detalle_nombre = nombres.detalle_nombre || null;
+    let usuario_nombre = user?.nombre || 'Administrador';
+    if (subViva?.es_empleado_vivo) {
+      // Persistir tipo de gasto real (plantilla) + nombre del empleado
+      const tipoNom = String(detalle_nombre || '').trim();
+      const plantillaHit = (catRaw?.subcategorias || []).find(
+        (s) => String(s.nombre || '').trim().toUpperCase() === tipoNom.toUpperCase(),
+      );
+      subcategoria_id = plantillaHit?.id || null;
+      subcategoria_nombre = tipoNom
+        ? `${subViva.nombre} › ${tipoNom}`
+        : subViva.nombre;
+      detalle_id = null;
+      detalle_nombre = tipoNom || null;
+      usuario_nombre = subViva.nombre;
+    }
     setGuardando(true);
     const res = await registrarEgresoContVirtual(supabase, {
       fecha: manual.fecha || hoyYmd(),
@@ -616,14 +683,14 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
       cuenta: manual.cuenta || (esFrancisco ? 'abarrotes' : 'virtual'),
       categoria_id: manual.categoria_id,
       categoria_nombre: nombres.categoria_nombre,
-      subcategoria_id: manual.subcategoria_id || null,
-      subcategoria_nombre: nombres.subcategoria_nombre,
-      detalle_id: manual.detalle_id || null,
-      detalle_nombre: nombres.detalle_nombre || null,
+      subcategoria_id,
+      subcategoria_nombre,
+      detalle_id,
+      detalle_nombre,
       monto,
       descripcion: manual.descripcion,
       fuente: 'manual',
-      usuario_nombre: user?.nombre || 'Administrador',
+      usuario_nombre,
     });
     setGuardando(false);
     if (!res.ok) return alert(res.error);
@@ -788,11 +855,52 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
 
   const nuevaSubEnCat = async (categoriaId, categoriaNombre) => {
     if (!esAdmin) return;
+    const cat = catalogo.find((c) => c.id === categoriaId);
+    if (esCategoriaEmpleado(cat)) {
+      const nombre = prompt(
+        `Nuevo tipo de gasto (detalle) para cada empleado en «${categoriaNombre}»:\n(Ej. Consumo, Anticipo, Recargas…)`,
+      );
+      if (!nombre?.trim()) return;
+      const res = await crearSubcategoriaContVirtual(supabase, { categoriaId, nombre });
+      if (!res.ok) return alert(res.error);
+      await cargarCatalogo();
+      return;
+    }
     const nombre = prompt(`Nueva subcategoría en «${categoriaNombre}»:`);
     if (!nombre?.trim()) return;
     const res = await crearSubcategoriaContVirtual(supabase, { categoriaId, nombre });
     if (!res.ok) return alert(res.error);
     await cargarCatalogo();
+  };
+
+  const editarEmpleadoCat = async (emp) => {
+    if (!esAdmin || !emp?.usuario_id || !supabase) return;
+    const nombre = prompt('Nombre del empleado:', emp.nombre || '');
+    if (nombre == null) return;
+    const n = String(nombre).trim();
+    if (!n) return alert('Nombre obligatorio.');
+    const { error } = await supabase.from('usuarios').update({ nombre: n }).eq('id', emp.usuario_id);
+    if (error) return alert(error.message);
+    await cargarUsuariosCat();
+  };
+
+  const eliminarEmpleadoCat = async (emp) => {
+    if (!esAdmin || !emp?.usuario_id || !supabase) return;
+    if (
+      !confirm(
+        `¿Dar de baja a ${emp.nombre}?\n\nNo podrá iniciar sesión ni aparecerá en cortes/nómina. Puedes reactivarlo en Empleados.`,
+      )
+    ) {
+      return;
+    }
+    const { error } = await supabase.from('usuarios').update({ activo: false }).eq('id', emp.usuario_id);
+    if (error) {
+      if (String(error.message).includes('activo')) {
+        return alert('Ejecuta supabase/fix_usuarios_activo.sql en Supabase.');
+      }
+      return alert(error.message);
+    }
+    await cargarUsuariosCat();
   };
 
   const nuevoDetalleEnSub = async (subcategoriaId, subNombre) => {
@@ -1352,6 +1460,114 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
       );
     }
     if (masVista === 'catalogo') {
+      const renderEmpleadoCat = (c) => {
+        const plantilla = c.plantilla_detalles || plantillaDetallesEmpleado(c);
+        const main = c.grupos_empleado?.main || [];
+        const tiendaGrupos = c.grupos_empleado?.tiendaGrupos || [];
+        const catRaw = catalogo.find((x) => x.id === c.id) || c;
+        return (
+          <div key={c.id} className="cv-cat-card">
+            <div className="cv-cat-hd">
+              <strong>{c.nombre}{c.fijo ? ' · sistema' : ''}</strong>
+              {esAdmin && (
+                <span className="cv-cat-actions">
+                  <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => nuevaSubEnCat(c.id, c.nombre)}>+ Tipo gasto</button>
+                  <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarCategoria(catRaw)}>Editar</button>
+                  <button type="button" className="cv-row-del" onClick={() => borrarCategoria(catRaw)}>
+                    {c.fijo ? 'Desactivar' : 'Eliminar'}
+                  </button>
+                </span>
+              )}
+            </div>
+            <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.5rem' }}>
+              Empleados de <strong>Main</strong> en todas las tiendas. Empleados de <strong>tienda</strong> solo los de la sucursal elegida (máx. 2).
+              Cada uno tiene los mismos tipos: consumo, faltante, anticipo, recarga, etc. Altas en el módulo Empleados.
+            </p>
+            <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', marginBottom: '0.65rem' }}>
+              Sucursal (empleados de tienda)
+              <select
+                className="select"
+                style={{ minWidth: 140 }}
+                value={catEmpSucursal}
+                onChange={(e) => setCatEmpSucursal(e.target.value)}
+              >
+                <option value="">Todas (vista admin)</option>
+                {tiendas.filter((t) => normalizarCodigoTienda(t) !== 'MAIN').map((t) => (
+                  <option key={t} value={normalizarCodigoTienda(t)}>{etiquetaTienda(t)}</option>
+                ))}
+              </select>
+            </label>
+            <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.5rem' }}>
+              Tipos de gasto por empleado:{' '}
+              {plantilla.map((d) => d.nombre).join(' · ') || '—'}
+            </div>
+            <ul>
+              <li className="cv-sub-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.35rem', background: 'rgba(0,0,0,0.04)' }}>
+                <strong style={{ fontSize: '0.85rem' }}>Empleados de Main (todas las sucursales)</strong>
+              </li>
+              {main.length ? main.map((e) => {
+                const sub = (c.subcategorias || []).find((s) => String(s.usuario_id) === String(e.id));
+                return (
+                  <li key={`main-${e.id}`} className="cv-sub-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.35rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'center' }}>
+                      <span>{e.nombre}</span>
+                      {esAdmin && (
+                        <span className="cv-cat-actions">
+                          <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarEmpleadoCat(sub || { usuario_id: e.id, nombre: e.nombre })}>Editar</button>
+                          <button type="button" className="cv-row-del" onClick={() => eliminarEmpleadoCat(sub || { usuario_id: e.id, nombre: e.nombre })}>Eliminar</button>
+                        </span>
+                      )}
+                    </div>
+                    <ul style={{ margin: 0, paddingLeft: '1rem', listStyle: 'disc' }}>
+                      {(sub?.detalles || plantilla).map((d) => (
+                        <li key={d.id || d.nombre} className="muted" style={{ fontSize: '0.82rem', padding: '0.1rem 0' }}>{d.nombre}</li>
+                      ))}
+                    </ul>
+                  </li>
+                );
+              }) : (
+                <li className="muted" style={{ fontSize: '0.8rem' }}>Sin empleados Main / indirectos. Dales de alta en Empleados → Indirecto/MAIN.</li>
+              )}
+              <li className="cv-sub-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.35rem', background: 'rgba(0,0,0,0.04)', marginTop: '0.35rem' }}>
+                <strong style={{ fontSize: '0.85rem' }}>Empleados de tienda</strong>
+              </li>
+              {tiendaGrupos.length ? tiendaGrupos.map((g) => (
+                <React.Fragment key={`tg-${g.sucursalId}`}>
+                  <li className="muted" style={{ fontSize: '0.78rem', listStyle: 'none', padding: '0.35rem 0 0.15rem' }}>
+                    {g.label} · {(g.empleados || []).length}/2
+                  </li>
+                  {(g.empleados || []).length ? (g.empleados || []).map((e) => {
+                    const sub = (c.subcategorias || []).find((s) => String(s.usuario_id) === String(e.id));
+                    return (
+                      <li key={`tienda-${e.id}`} className="cv-sub-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.35rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'center' }}>
+                          <span>{e.nombre}</span>
+                          {esAdmin && (
+                            <span className="cv-cat-actions">
+                              <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarEmpleadoCat(sub || { usuario_id: e.id, nombre: e.nombre })}>Editar</button>
+                              <button type="button" className="cv-row-del" onClick={() => eliminarEmpleadoCat(sub || { usuario_id: e.id, nombre: e.nombre })}>Eliminar</button>
+                            </span>
+                          )}
+                        </div>
+                        <ul style={{ margin: 0, paddingLeft: '1rem', listStyle: 'disc' }}>
+                          {(sub?.detalles || plantilla).map((d) => (
+                            <li key={d.id || d.nombre} className="muted" style={{ fontSize: '0.82rem', padding: '0.1rem 0' }}>{d.nombre}</li>
+                          ))}
+                        </ul>
+                      </li>
+                    );
+                  }) : (
+                    <li className="muted" style={{ fontSize: '0.8rem' }}>Sin empleados de tienda en esta sucursal.</li>
+                  )}
+                </React.Fragment>
+              )) : (
+                <li className="muted" style={{ fontSize: '0.8rem' }}>Elige una sucursal o da de alta empleados de tienda.</li>
+              )}
+            </ul>
+          </div>
+        );
+      };
+
       return (
         <div className="cv-catalogo">
           <div className="cv-top">
@@ -1361,10 +1577,11 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
           </div>
           <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.75rem' }}>
             Catálogo compartido de IE (Virtual y Abarrotes): <strong>Categoría → Subcategoría → Detalle</strong>.
-            Los movimientos sí se filtran por sucursal/cuenta.
+            En <strong>Empleado</strong> se listan Main e tienda; cada persona tiene sus tipos de gasto.
           </p>
           {!esAdmin && <p className="cv-error">Solo el administrador puede editar categorías.</p>}
-          {(catalogo || []).map((c) => (
+          {(catalogoVista || []).map((c) => (
+            esCategoriaEmpleado(c) ? renderEmpleadoCat(c) : (
             <div key={c.id} className="cv-cat-card">
               <div className="cv-cat-hd">
                 <strong>{c.nombre}{c.fijo ? ' · sistema' : ''}</strong>
@@ -1416,6 +1633,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
                 )}
               </ul>
             </div>
+            )
           ))}
           {esAdmin && (
             <div className="cv-nota-form">
@@ -1678,7 +1896,12 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
                 value={manual.categoria_id}
                 onChange={(e) => {
                   const categoria_id = e.target.value;
-                  const firstSub = (catalogo.find((c) => c.id === categoria_id)?.subcategorias || []).find((s) => s.activo !== false);
+                  const catM = enriquecerCatalogoConEmpleados(
+                    catalogo,
+                    usuariosCat,
+                    manual.sucursal_id || catEmpSucursal || sucursalActiva,
+                  ).find((c) => c.id === categoria_id);
+                  const firstSub = (catM?.subcategorias || []).find((s) => s.activo !== false);
                   const firstDet = (firstSub?.detalles || []).find((d) => d.activo !== false);
                   setManual({
                     ...manual,
@@ -1694,7 +1917,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
               </select>
             </label>
             <label>
-              Subcategoría
+              {esCategoriaEmpleado(catalogo.find((c) => c.id === manual.categoria_id)) ? 'Empleado' : 'Subcategoría'}
               <select
                 value={manual.subcategoria_id}
                 onChange={(e) => {
@@ -1704,8 +1927,13 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
                   setManual({ ...manual, subcategoria_id, detalle_id: firstDet?.id || '' });
                 }}
               >
+                {!subsManual.length && <option value="">Sin empleados en esta sucursal</option>}
                 {subsManual.map((s) => (
-                  <option key={s.id} value={s.id}>{s.nombre}</option>
+                  <option key={s.id} value={s.id}>
+                    {s.es_empleado_vivo
+                      ? `${s.grupo_empleado === 'main' ? 'Main · ' : 'Tienda · '}${s.nombre}`
+                      : s.nombre}
+                  </option>
                 ))}
               </select>
             </label>
