@@ -166,9 +166,54 @@
   color: var(--cv-text);
 }
 
+.cv-summary-ingreso-wrap {
+  min-width: 0;
+}
+
+.cv-summary-ingreso-btn {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.cv-summary-ingreso-btn:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.cv-summary-ingreso-btn .lbl {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.cv-summary-ingreso-btn .chev {
+  display: inline-block;
+  font-size: 0.65rem;
+  transition: transform 0.15s ease;
+  opacity: 0.8;
+}
+
+.cv-summary-ingreso-btn.open .chev {
+  transform: rotate(180deg);
+}
+
 .cv-summary-desglose {
   border-top: 1px solid rgba(51, 51, 60, 0.5);
   padding: 0.35rem 0 0.45rem;
+  animation: cv-desglose-in 0.15s ease;
+}
+
+@keyframes cv-desglose-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .cv-summary-desglose-hd {

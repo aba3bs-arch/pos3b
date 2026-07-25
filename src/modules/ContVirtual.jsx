@@ -142,13 +142,30 @@ function EmptyState() {
 }
 
 function SummaryBar({ ingresos, gastos, balance, ingresosPorTienda = [] }) {
+  const [abierto, setAbierto] = useState(false);
   const desglose = ingresosPorTienda.filter((t) => (Number(t.ingresos) || 0) > 0);
+  const tieneDesglose = desglose.length > 0;
+
   return (
     <div className="cv-summary">
       <div className="cv-summary-totals">
-        <div>
-          <div className="lbl">Ingresos</div>
-          <div className="val ingreso">{fmt(ingresos)}</div>
+        <div className={tieneDesglose ? 'cv-summary-ingreso-wrap' : undefined}>
+          {tieneDesglose ? (
+            <button
+              type="button"
+              className={`cv-summary-ingreso-btn${abierto ? ' open' : ''}`}
+              onClick={() => setAbierto((v) => !v)}
+              aria-expanded={abierto}
+            >
+              <div className="lbl">Ingresos <span className="chev" aria-hidden>▾</span></div>
+              <div className="val ingreso">{fmt(ingresos)}</div>
+            </button>
+          ) : (
+            <>
+              <div className="lbl">Ingresos</div>
+              <div className="val ingreso">{fmt(ingresos)}</div>
+            </>
+          )}
         </div>
         <div>
           <div className="lbl">Gastos</div>
@@ -159,9 +176,9 @@ function SummaryBar({ ingresos, gastos, balance, ingresosPorTienda = [] }) {
           <div className="val balance">{fmt(balance)}</div>
         </div>
       </div>
-      {desglose.length > 0 && (
+      {tieneDesglose && abierto && (
         <div className="cv-summary-desglose">
-          <div className="cv-summary-desglose-hd">Ingresos por sucursal</div>
+          <div className="cv-summary-desglose-hd">Por sucursal</div>
           {desglose.map((t) => (
             <div key={t.id} className="cv-summary-desglose-row">
               <span>{t.label}</span>
