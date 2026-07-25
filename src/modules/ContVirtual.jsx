@@ -141,21 +141,35 @@ function EmptyState() {
   );
 }
 
-function SummaryBar({ ingresos, gastos, balance }) {
+function SummaryBar({ ingresos, gastos, balance, ingresosPorTienda = [] }) {
+  const desglose = ingresosPorTienda.filter((t) => (Number(t.ingresos) || 0) > 0);
   return (
     <div className="cv-summary">
-      <div>
-        <div className="lbl">Ingresos</div>
-        <div className="val ingreso">{fmt(ingresos)}</div>
+      <div className="cv-summary-totals">
+        <div>
+          <div className="lbl">Ingresos</div>
+          <div className="val ingreso">{fmt(ingresos)}</div>
+        </div>
+        <div>
+          <div className="lbl">Gastos</div>
+          <div className="val gasto">{fmt(gastos)}</div>
+        </div>
+        <div>
+          <div className="lbl">Balance</div>
+          <div className="val balance">{fmt(balance)}</div>
+        </div>
       </div>
-      <div>
-        <div className="lbl">Gastos</div>
-        <div className="val gasto">{fmt(gastos)}</div>
-      </div>
-      <div>
-        <div className="lbl">Balance</div>
-        <div className="val balance">{fmt(balance)}</div>
-      </div>
+      {desglose.length > 0 && (
+        <div className="cv-summary-desglose">
+          <div className="cv-summary-desglose-hd">Ingresos por sucursal</div>
+          {desglose.map((t) => (
+            <div key={t.id} className="cv-summary-desglose-row">
+              <span>{t.label}</span>
+              <span className="amt">{fmt(t.ingresos)}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -405,6 +419,26 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
   const ingresos = ingresosFiltrados?.ingresos ?? (datos?.ingresosTotal || 0);
   const gastos = ingresosFiltrados?.gastos ?? (datos?.egresosTotal || 0);
   const balance = ingresosFiltrados?.balance ?? (datos?.neto ?? ingresos - gastos);
+
+  const ingresosPorTiendaResumen = useMemo(() => {
+    if (filtroTienda) return [];
+    if (ingresosFiltrados) {
+      const map = {};
+      for (const d of porDia) {
+        for (const it of d.items || []) {
+          if (it.tipo !== 'ingreso') continue;
+          const id = it.tienda || 'MAIN';
+          if (!map[id]) map[id] = { id, label: etiquetaTienda(id), ingresos: 0 };
+          map[id].ingresos += Number(it.monto) || 0;
+        }
+      }
+      return Object.values(map)
+        .map((t) => ({ ...t, ingresos: Math.round(t.ingresos * 100) / 100 }))
+        .filter((t) => t.ingresos > 0)
+        .sort((a, b) => b.ingresos - a.ingresos);
+    }
+    return (datos?.ingresosPorTienda || []).filter((t) => (Number(t.ingresos) || 0) > 0);
+  }, [filtroTienda, ingresosFiltrados, porDia, datos]);
 
   const mesesAnio = useMemo(() => {
     if (transTab !== 'mensual' || !datos) return [];
@@ -928,7 +962,14 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
           )}
         </div>
       )}
-      {transTab !== 'nota' && <SummaryBar ingresos={ingresos} gastos={gastos} balance={balance} />}
+      {transTab !== 'nota' && (
+        <SummaryBar
+          ingresos={ingresos}
+          gastos={gastos}
+          balance={balance}
+          ingresosPorTienda={ingresosPorTiendaResumen}
+        />
+      )}
       {cargando && <div className="cv-loading">Cargando…</div>}
       {!cargando && transTab === 'diario' && renderDiario()}
       {!cargando && transTab === 'calendario' && renderCalendario()}
