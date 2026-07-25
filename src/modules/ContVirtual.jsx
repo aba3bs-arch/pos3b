@@ -14,10 +14,13 @@ import {
 import {
   crearCategoriaContVirtual,
   crearSubcategoriaContVirtual,
+  crearDetalleContVirtual,
   editarCategoriaContVirtual,
   editarSubcategoriaContVirtual,
+  editarDetalleContVirtual,
   eliminarCategoriaContVirtual,
   eliminarSubcategoriaContVirtual,
+  eliminarDetalleContVirtual,
   listarCatalogoContVirtual,
   resolverNombresCatalogo,
   AVISO_FALTA_CONT_VIRTUAL,
@@ -319,6 +322,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     cuenta: esFrancisco ? 'abarrotes' : 'virtual',
     categoria_id: 'manual',
     subcategoria_id: 'manual-otros',
+    detalle_id: '',
     monto: '',
     descripcion: '',
   });
@@ -333,6 +337,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
   });
   const [nuevaCat, setNuevaCat] = useState('');
   const [nuevaSub, setNuevaSub] = useState({ categoriaId: 'vales', nombre: '' });
+  const [nuevaDet, setNuevaDet] = useState({ categoriaId: 'vales', subcategoriaId: '', nombre: '' });
 
   const rango = useMemo(() => {
     if (nav === 'estad') {
@@ -551,6 +556,16 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     return (cat?.subcategorias || []).filter((s) => s.activo !== false);
   }, [catalogo, manual.categoria_id]);
 
+  const detsManual = useMemo(() => {
+    const sub = subsManual.find((s) => s.id === manual.subcategoria_id);
+    return (sub?.detalles || []).filter((d) => d.activo !== false);
+  }, [subsManual, manual.subcategoria_id]);
+
+  const subsParaNuevoDet = useMemo(() => {
+    const cat = catalogo.find((c) => c.id === nuevaDet.categoriaId);
+    return (cat?.subcategorias || []).filter((s) => s.activo !== false);
+  }, [catalogo, nuevaDet.categoriaId]);
+
   const shiftPeriod = (dir) => {
     if ((nav === 'trans' && transTab === 'mensual') || (nav === 'estad' && estadPreset === 'ano')) {
       setAnio((y) => y + dir);
@@ -588,7 +603,12 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     if (!(monto > 0)) return alert('Indica un monto válido.');
     if (!manual.sucursal_id) return alert('Elige la sucursal del egreso.');
     if (!manual.categoria_id) return alert('Elige categoría.');
-    const nombres = resolverNombresCatalogo(catalogo, manual.categoria_id, manual.subcategoria_id);
+    const nombres = resolverNombresCatalogo(
+      catalogo,
+      manual.categoria_id,
+      manual.subcategoria_id,
+      manual.detalle_id || null,
+    );
     setGuardando(true);
     const res = await registrarEgresoContVirtual(supabase, {
       fecha: manual.fecha || hoyYmd(),
@@ -598,6 +618,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
       categoria_nombre: nombres.categoria_nombre,
       subcategoria_id: manual.subcategoria_id || null,
       subcategoria_nombre: nombres.subcategoria_nombre,
+      detalle_id: manual.detalle_id || null,
+      detalle_nombre: nombres.detalle_nombre || null,
       monto,
       descripcion: manual.descripcion,
       fuente: 'manual',
@@ -687,6 +709,20 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     await cargarCatalogo();
   };
 
+  const agregarDetalle = async () => {
+    if (!esAdmin) return;
+    if (!nuevaDet.subcategoriaId) return alert('Elige la subcategoría.');
+    setGuardando(true);
+    const res = await crearDetalleContVirtual(supabase, {
+      subcategoriaId: nuevaDet.subcategoriaId,
+      nombre: nuevaDet.nombre,
+    });
+    setGuardando(false);
+    if (!res.ok) return alert(res.error);
+    setNuevaDet((d) => ({ ...d, nombre: '' }));
+    await cargarCatalogo();
+  };
+
   const editarCategoria = async (cat) => {
     if (!esAdmin || !cat) return;
     const nombre = prompt('Nuevo nombre de categoría:', cat.nombre);
@@ -707,11 +743,21 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     await cargarCatalogo();
   };
 
+  const editarDetalle = async (det) => {
+    if (!esAdmin || !det) return;
+    const nombre = prompt('Nuevo nombre de detalle:', det.nombre);
+    if (nombre == null) return;
+    if (!String(nombre).trim()) return alert('Nombre obligatorio.');
+    const res = await editarDetalleContVirtual(supabase, det.id, { nombre });
+    if (!res.ok) return alert(res.error);
+    await cargarCatalogo();
+  };
+
   const borrarCategoria = async (cat) => {
     if (!esAdmin || !cat) return;
     const msg = cat.fijo
       ? `¿Desactivar la categoría del sistema «${cat.nombre}»?\n(No se borra del todo para no romper egresos históricos.)`
-      : `¿Eliminar la categoría «${cat.nombre}» y sus subcategorías?`;
+      : `¿Eliminar la categoría «${cat.nombre}» y sus subcategorías/detalles?`;
     if (!confirm(msg)) return;
     const res = await eliminarCategoriaContVirtual(supabase, cat.id);
     if (!res.ok) return alert(res.error);
@@ -722,9 +768,20 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     if (!esAdmin || !sub) return;
     const msg = sub.fijo
       ? `¿Desactivar la subcategoría del sistema «${sub.nombre}»?`
-      : `¿Eliminar la subcategoría «${sub.nombre}»?`;
+      : `¿Eliminar la subcategoría «${sub.nombre}» y sus detalles?`;
     if (!confirm(msg)) return;
     const res = await eliminarSubcategoriaContVirtual(supabase, sub.id);
+    if (!res.ok) return alert(res.error);
+    await cargarCatalogo();
+  };
+
+  const borrarDetalle = async (det) => {
+    if (!esAdmin || !det) return;
+    const msg = det.fijo
+      ? `¿Desactivar el detalle del sistema «${det.nombre}»?`
+      : `¿Eliminar el detalle «${det.nombre}»?`;
+    if (!confirm(msg)) return;
+    const res = await eliminarDetalleContVirtual(supabase, det.id);
     if (!res.ok) return alert(res.error);
     await cargarCatalogo();
   };
@@ -734,6 +791,15 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     const nombre = prompt(`Nueva subcategoría en «${categoriaNombre}»:`);
     if (!nombre?.trim()) return;
     const res = await crearSubcategoriaContVirtual(supabase, { categoriaId, nombre });
+    if (!res.ok) return alert(res.error);
+    await cargarCatalogo();
+  };
+
+  const nuevoDetalleEnSub = async (subcategoriaId, subNombre) => {
+    if (!esAdmin) return;
+    const nombre = prompt(`Nuevo detalle en «${subNombre}»:`);
+    if (!nombre?.trim()) return;
+    const res = await crearDetalleContVirtual(supabase, { subcategoriaId, nombre });
     if (!res.ok) return alert(res.error);
     await cargarCatalogo();
   };
@@ -1294,7 +1360,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
             <span />
           </div>
           <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.75rem' }}>
-            Catálogo compartido de IE (Virtual y Abarrotes). Los movimientos sí se filtran por sucursal.
+            Catálogo compartido de IE (Virtual y Abarrotes): <strong>Categoría → Subcategoría → Detalle</strong>.
+            Los movimientos sí se filtran por sucursal/cuenta.
           </p>
           {!esAdmin && <p className="cv-error">Solo el administrador puede editar categorías.</p>}
           {(catalogo || []).map((c) => (
@@ -1313,16 +1380,35 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
               </div>
               <ul>
                 {(c.subcategorias || []).filter((s) => s.activo !== false).map((s) => (
-                  <li key={s.id} className="cv-sub-row">
-                    <span>{s.nombre}{s.fijo ? ' · sistema' : ''}</span>
-                    {esAdmin && (
-                      <span className="cv-cat-actions">
-                        <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarSub(s)}>Editar</button>
-                        <button type="button" className="cv-row-del" onClick={() => borrarSub(s)}>
-                          {s.fijo ? 'Quitar' : 'Eliminar'}
-                        </button>
-                      </span>
-                    )}
+                  <li key={s.id} className="cv-sub-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.35rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'center' }}>
+                      <span>{s.nombre}{s.fijo ? ' · sistema' : ''}</span>
+                      {esAdmin && (
+                        <span className="cv-cat-actions">
+                          <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => nuevoDetalleEnSub(s.id, s.nombre)}>+ Detalle</button>
+                          <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarSub(s)}>Editar</button>
+                          <button type="button" className="cv-row-del" onClick={() => borrarSub(s)}>
+                            {s.fijo ? 'Quitar' : 'Eliminar'}
+                          </button>
+                        </span>
+                      )}
+                    </div>
+                    <ul style={{ margin: 0, paddingLeft: '1rem', listStyle: 'disc' }}>
+                      {(s.detalles || []).filter((d) => d.activo !== false).map((d) => (
+                        <li key={d.id} className="cv-sub-row" style={{ border: 'none', padding: '0.15rem 0' }}>
+                          <span className="muted" style={{ fontSize: '0.82rem' }}>{d.nombre}</span>
+                          {esAdmin && (
+                            <span className="cv-cat-actions">
+                              <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarDetalle(d)}>Editar</button>
+                              <button type="button" className="cv-row-del" onClick={() => borrarDetalle(d)}>Eliminar</button>
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                      {!(s.detalles || []).filter((d) => d.activo !== false).length && (
+                        <li className="muted" style={{ fontSize: '0.75rem', listStyle: 'none', paddingLeft: 0 }}>Sin detalle</li>
+                      )}
+                    </ul>
                   </li>
                 ))}
                 {!(c.subcategorias || []).filter((s) => s.activo !== false).length && (
@@ -1342,6 +1428,29 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
               </select>
               <input value={nuevaSub.nombre} onChange={(e) => setNuevaSub({ ...nuevaSub, nombre: e.target.value })} placeholder="Nueva subcategoría" />
               <button type="button" className="cv-btn" disabled={guardando || !nuevaSub.nombre.trim()} onClick={agregarSub}>Agregar subcategoría</button>
+              <select
+                value={nuevaDet.categoriaId}
+                onChange={(e) => {
+                  const categoriaId = e.target.value;
+                  const firstSub = (catalogo.find((c) => c.id === categoriaId)?.subcategorias || []).find((s) => s.activo !== false);
+                  setNuevaDet({ categoriaId, subcategoriaId: firstSub?.id || '', nombre: nuevaDet.nombre });
+                }}
+              >
+                {catalogo.map((c) => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
+              <select
+                value={nuevaDet.subcategoriaId}
+                onChange={(e) => setNuevaDet({ ...nuevaDet, subcategoriaId: e.target.value })}
+              >
+                <option value="">Subcategoría…</option>
+                {subsParaNuevoDet.map((s) => (
+                  <option key={s.id} value={s.id}>{s.nombre}</option>
+                ))}
+              </select>
+              <input value={nuevaDet.nombre} onChange={(e) => setNuevaDet({ ...nuevaDet, nombre: e.target.value })} placeholder="Nuevo detalle (3er nivel)" />
+              <button type="button" className="cv-btn" disabled={guardando || !nuevaDet.nombre.trim() || !nuevaDet.subcategoriaId} onClick={agregarDetalle}>Agregar detalle</button>
             </div>
           )}
         </div>
@@ -1570,7 +1679,13 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
                 onChange={(e) => {
                   const categoria_id = e.target.value;
                   const firstSub = (catalogo.find((c) => c.id === categoria_id)?.subcategorias || []).find((s) => s.activo !== false);
-                  setManual({ ...manual, categoria_id, subcategoria_id: firstSub?.id || '' });
+                  const firstDet = (firstSub?.detalles || []).find((d) => d.activo !== false);
+                  setManual({
+                    ...manual,
+                    categoria_id,
+                    subcategoria_id: firstSub?.id || '',
+                    detalle_id: firstDet?.id || '',
+                  });
                 }}
               >
                 {catalogo.map((c) => (
@@ -1580,9 +1695,30 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
             </label>
             <label>
               Subcategoría
-              <select value={manual.subcategoria_id} onChange={(e) => setManual({ ...manual, subcategoria_id: e.target.value })}>
+              <select
+                value={manual.subcategoria_id}
+                onChange={(e) => {
+                  const subcategoria_id = e.target.value;
+                  const sub = subsManual.find((s) => s.id === subcategoria_id);
+                  const firstDet = (sub?.detalles || []).find((d) => d.activo !== false);
+                  setManual({ ...manual, subcategoria_id, detalle_id: firstDet?.id || '' });
+                }}
+              >
                 {subsManual.map((s) => (
                   <option key={s.id} value={s.id}>{s.nombre}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Detalle
+              <select
+                value={manual.detalle_id}
+                onChange={(e) => setManual({ ...manual, detalle_id: e.target.value })}
+                disabled={!detsManual.length}
+              >
+                <option value="">{detsManual.length ? '— Sin detalle —' : 'Sin detalles en esta sub'}</option>
+                {detsManual.map((d) => (
+                  <option key={d.id} value={d.id}>{d.nombre}</option>
                 ))}
               </select>
             </label>
@@ -1592,7 +1728,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
             </label>
             <label>
               Descripción
-              <input value={manual.descripcion} onChange={(e) => setManual({ ...manual, descripcion: e.target.value })} placeholder="Detalle" />
+              <input value={manual.descripcion} onChange={(e) => setManual({ ...manual, descripcion: e.target.value })} placeholder="Nota u observación" />
             </label>
             <div className="cv-modal-actions">
               <button type="button" className="cv-btn ghost" onClick={() => setShowManual(false)}>Cancelar</button>

@@ -98,7 +98,8 @@ export default function PanelPurgeDatosAdmin({
         </button>
       </div>
       <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
-        Elimina cortes, ventas, inventario y caché local por rango de fechas y tiendas. Requiere PIN del administrador principal Andrés.
+        Para arrancar limpio (sin pruebas): marca «Borrar toda la información», selecciona también IE, recolecciones RT y notificaciones, escribe BORRAR TODO y confirma con tu PIN.
+        No borra el catálogo de productos ni las categorías de IE. Solo Andrés.
       </p>
 
       <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '1rem', fontWeight: 700, color: 'var(--brand-red)' }}>

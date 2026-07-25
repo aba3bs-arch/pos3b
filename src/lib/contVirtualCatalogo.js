@@ -1,12 +1,12 @@
 /**
- * Catálogo Cont Virtual: categorías y subcategorías (admin).
+ * Catálogo Cont Virtual / IE: Categoría → Subcategoría → Detalle (admin).
  * Supabase + respaldo localStorage si falta la tabla.
  */
 const LS_CAT = 'pos3b_cont_virtual_catalogo';
 export const EVENTO_CONT_VIRTUAL_CATALOGO = 'pos3b-cont-virtual-catalogo';
 
 export const AVISO_FALTA_CONT_VIRTUAL =
-  'Ejecuta supabase/fix_cont_virtual.sql en Supabase para categorías, egresos y columna cuenta (virtual/garage) de IE VIRTUAL.';
+  'Ejecuta supabase/fix_cont_virtual.sql y supabase/fix_cont_virtual_detalle.sql en Supabase (categorías IE + detalle).';
 
 export const CATEGORIAS_CONT_VIRTUAL_DEFAULT = [
   {
@@ -176,14 +176,22 @@ function leerLocal() {
     const raw = localStorage.getItem(LS_CAT);
     if (raw) {
       const j = JSON.parse(raw);
-      if (Array.isArray(j) && j.length) return j;
+      if (Array.isArray(j) && j.length) {
+        return j.map((c) => ({
+          ...c,
+          subcategorias: (c.subcategorias || []).map((s) => ({
+            ...s,
+            detalles: (s.detalles || []).map((d) => ({ ...d })),
+          })),
+        }));
+      }
     }
   } catch {
     /* ignore */
   }
   return CATEGORIAS_CONT_VIRTUAL_DEFAULT.map((c) => ({
     ...c,
-    subcategorias: (c.subcategorias || []).map((s) => ({ ...s })),
+    subcategorias: (c.subcategorias || []).map((s) => ({ ...s, detalles: s.detalles || [] })),
   }));
 }
 
@@ -198,8 +206,9 @@ function guardarLocal(lista) {
   }
 }
 
-function armarCatalogo(cats, subs) {
+function armarCatalogo(cats, subs, detalles = []) {
   const byCat = {};
+  const bySub = {};
   for (const c of cats || []) {
     byCat[c.id] = {
       id: c.id,
@@ -213,28 +222,49 @@ function armarCatalogo(cats, subs) {
   for (const s of subs || []) {
     const parent = byCat[s.categoria_id];
     if (!parent) continue;
-    parent.subcategorias.push({
+    const row = {
       id: s.id,
       nombre: s.nombre,
       orden: Number(s.orden) || 0,
       activo: s.activo !== false,
       fijo: Boolean(s.fijo),
       categoria_id: s.categoria_id,
+      detalles: [],
+    };
+    parent.subcategorias.push(row);
+    bySub[s.id] = row;
+  }
+  for (const d of detalles || []) {
+    const parent = bySub[d.subcategoria_id];
+    if (!parent) continue;
+    parent.detalles.push({
+      id: d.id,
+      nombre: d.nombre,
+      orden: Number(d.orden) || 0,
+      activo: d.activo !== false,
+      fijo: Boolean(d.fijo),
+      subcategoria_id: d.subcategoria_id,
     });
   }
   return Object.values(byCat)
     .map((c) => ({
       ...c,
-      subcategorias: c.subcategorias.sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es')),
+      subcategorias: c.subcategorias
+        .map((s) => ({
+          ...s,
+          detalles: (s.detalles || []).sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es')),
+        }))
+        .sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es')),
     }))
     .sort((a, b) => a.orden - b.orden || a.nombre.localeCompare(b.nombre, 'es'));
 }
 
 export async function listarCatalogoContVirtual(supabase) {
   if (!supabase) return { data: leerLocal(), soloLocal: true };
-  const [cRes, sRes] = await Promise.all([
+  const [cRes, sRes, dRes] = await Promise.all([
     supabase.from('cont_virtual_categorias').select('*').order('orden'),
     supabase.from('cont_virtual_subcategorias').select('*').order('orden'),
+    supabase.from('cont_virtual_detalles').select('*').order('orden'),
   ]);
   if (cRes.error && faltaTabla(cRes.error)) {
     return { data: leerLocal(), soloLocal: true, aviso: AVISO_FALTA_CONT_VIRTUAL };
@@ -248,19 +278,25 @@ export async function listarCatalogoContVirtual(supabase) {
   const ids = new Set((cRes.data || []).map((c) => c.id));
   if (!ids.has('cubre-turno') || !ids.has('taxis') || !ids.has('recargas') || !ids.has('anticipos') || !ids.has('faltante')) {
     await sembrarCatalogoDefault(supabase);
-    const [c2, s2] = await Promise.all([
+    const [c2, s2, d2] = await Promise.all([
       supabase.from('cont_virtual_categorias').select('*').order('orden'),
       supabase.from('cont_virtual_subcategorias').select('*').order('orden'),
+      supabase.from('cont_virtual_detalles').select('*').order('orden'),
     ]);
     if (!c2.error) {
-      const data = armarCatalogo(c2.data, s2.data || []);
+      const det = d2.error && faltaTabla(d2.error) ? [] : (d2.data || []);
+      const data = armarCatalogo(c2.data, s2.data || [], det);
       guardarLocal(data);
-      return { data };
+      return { data, aviso: d2.error && faltaTabla(d2.error) ? AVISO_FALTA_CONT_VIRTUAL : undefined };
     }
   }
-  const data = armarCatalogo(cRes.data, sRes.data || []);
+  const det = dRes.error && faltaTabla(dRes.error) ? [] : (dRes.data || []);
+  const data = armarCatalogo(cRes.data, sRes.data || [], det);
   guardarLocal(data);
-  return { data };
+  return {
+    data,
+    aviso: dRes.error && faltaTabla(dRes.error) ? AVISO_FALTA_CONT_VIRTUAL : undefined,
+  };
 }
 
 export async function sembrarCatalogoDefault(supabase) {
@@ -334,13 +370,61 @@ export async function crearSubcategoriaContVirtual(supabase, { categoriaId, nomb
     if (!cat) return { ok: false, error: 'Categoría no encontrada.' };
     cat.subcategorias = cat.subcategorias || [];
     if (cat.subcategorias.some((s) => s.id === id)) return { ok: false, error: 'Ya existe esa subcategoría.' };
-    cat.subcategorias.push({ id, nombre: label, orden: 100, activo: true, fijo: false, categoria_id: categoriaId });
+    cat.subcategorias.push({
+      id,
+      nombre: label,
+      orden: 100,
+      activo: true,
+      fijo: false,
+      categoria_id: categoriaId,
+      detalles: [],
+    });
     guardarLocal(lista);
     return { ok: true, id };
   }
   const { error } = await supabase.from('cont_virtual_subcategorias').insert({
     id,
     categoria_id: categoriaId,
+    nombre: label,
+    orden: 100,
+    activo: true,
+    fijo: false,
+  });
+  if (error) {
+    if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CONT_VIRTUAL };
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, id };
+}
+
+export async function crearDetalleContVirtual(supabase, { subcategoriaId, nombre }) {
+  const label = String(nombre || '').trim();
+  if (!subcategoriaId || !label) return { ok: false, error: 'Subcategoría y nombre obligatorios.' };
+  const id = slug(`${subcategoriaId}-${label}`, 'det');
+  if (!supabase) {
+    const lista = leerLocal();
+    let found = null;
+    for (const c of lista) {
+      found = (c.subcategorias || []).find((s) => s.id === subcategoriaId);
+      if (found) break;
+    }
+    if (!found) return { ok: false, error: 'Subcategoría no encontrada.' };
+    found.detalles = found.detalles || [];
+    if (found.detalles.some((d) => d.id === id)) return { ok: false, error: 'Ya existe ese detalle.' };
+    found.detalles.push({
+      id,
+      nombre: label,
+      orden: 100,
+      activo: true,
+      fijo: false,
+      subcategoria_id: subcategoriaId,
+    });
+    guardarLocal(lista);
+    return { ok: true, id };
+  }
+  const { error } = await supabase.from('cont_virtual_detalles').insert({
+    id,
+    subcategoria_id: subcategoriaId,
     nombre: label,
     orden: 100,
     activo: true,
@@ -393,6 +477,36 @@ export async function editarSubcategoriaContVirtual(supabase, id, { nombre } = {
     return { ok: true };
   }
   const { error } = await supabase.from('cont_virtual_subcategorias').update({ nombre: label }).eq('id', id);
+  if (error) {
+    if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CONT_VIRTUAL };
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
+export async function editarDetalleContVirtual(supabase, id, { nombre } = {}) {
+  if (!id) return { ok: false, error: 'ID inválido.' };
+  const label = String(nombre || '').trim();
+  if (!label) return { ok: false, error: 'Nombre obligatorio.' };
+  if (!supabase) {
+    const lista = leerLocal();
+    let found = false;
+    for (const c of lista) {
+      for (const s of c.subcategorias || []) {
+        const d = (s.detalles || []).find((x) => x.id === id);
+        if (d) {
+          d.nombre = label;
+          found = true;
+          break;
+        }
+      }
+      if (found) break;
+    }
+    if (!found) return { ok: false, error: 'Detalle no encontrado.' };
+    guardarLocal(lista);
+    return { ok: true };
+  }
+  const { error } = await supabase.from('cont_virtual_detalles').update({ nombre: label }).eq('id', id);
   if (error) {
     if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CONT_VIRTUAL };
     return { ok: false, error: error.message };
@@ -484,12 +598,52 @@ export async function eliminarSubcategoriaContVirtual(supabase, id) {
   return { ok: true };
 }
 
-export function resolverNombresCatalogo(catalogo, categoriaId, subcategoriaId) {
+/** Elimina detalle (3er nivel). Las del sistema (fijo) solo se desactivan. */
+export async function eliminarDetalleContVirtual(supabase, id) {
+  if (!id) return { ok: false, error: 'ID inválido.' };
+  if (!supabase) {
+    const lista = leerLocal();
+    let desactivada = false;
+    for (const c of lista) {
+      for (const s of c.subcategorias || []) {
+        const d = (s.detalles || []).find((x) => x.id === id);
+        if (!d) continue;
+        if (d.fijo) {
+          d.activo = false;
+          desactivada = true;
+        } else {
+          s.detalles = (s.detalles || []).filter((x) => x.id !== id);
+        }
+        guardarLocal(lista);
+        return { ok: true, desactivada };
+      }
+    }
+    return { ok: false, error: 'Detalle no encontrado.' };
+  }
+  const { data: row } = await supabase.from('cont_virtual_detalles').select('fijo').eq('id', id).maybeSingle();
+  if (row?.fijo) {
+    const { error } = await supabase.from('cont_virtual_detalles').update({ activo: false }).eq('id', id);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, desactivada: true };
+  }
+  const { error } = await supabase.from('cont_virtual_detalles').delete().eq('id', id);
+  if (error) {
+    if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CONT_VIRTUAL };
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
+export function resolverNombresCatalogo(catalogo, categoriaId, subcategoriaId, detalleId = null) {
   const cat = (catalogo || []).find((c) => c.id === categoriaId);
   const sub = (cat?.subcategorias || []).find((s) => s.id === subcategoriaId);
+  const det = detalleId
+    ? (sub?.detalles || []).find((d) => d.id === detalleId)
+    : null;
   return {
     categoria_nombre: cat?.nombre || categoriaId || '—',
     subcategoria_nombre: sub?.nombre || subcategoriaId || '',
+    detalle_nombre: det?.nombre || detalleId || '',
   };
 }
 

@@ -89,18 +89,26 @@ export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual') {
     const categoria = String(c.nombre || '').trim().toUpperCase();
     if (!categoria || vistos.has(categoria)) continue;
     vistos.add(categoria);
+    const subs = [];
+    for (const s of c.subcategorias || []) {
+      if (s?.activo === false) continue;
+      const subNom = String(s.nombre || '').trim().toUpperCase();
+      if (!subNom) continue;
+      const dets = (s.detalles || []).filter((d) => d?.activo !== false);
+      if (dets.length) {
+        for (const d of dets) {
+          const detNom = String(d.nombre || '').trim().toUpperCase();
+          if (detNom) subs.push(`${subNom} › ${detNom}`);
+        }
+      } else {
+        subs.push(subNom);
+      }
+    }
     out.push({
       id: c.id,
       ieId: c.id,
       categoria,
-      subcategorias: [
-        ...new Set(
-          (c.subcategorias || [])
-            .filter((s) => s?.activo !== false)
-            .map((s) => String(s.nombre || '').trim().toUpperCase())
-            .filter(Boolean),
-        ),
-      ],
+      subcategorias: [...new Set(subs)],
       fuente,
     });
   }

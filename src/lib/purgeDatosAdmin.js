@@ -4,9 +4,12 @@ import { vaciarInventario } from './borrarInventario.js';
 export const TIPOS_PURGA = [
   { id: 'ventas', label: 'Ventas', desc: 'Tickets y totales en la nube.' },
   { id: 'cortes_caja', label: 'Cortes de caja', desc: 'Historial de cortes del POS.' },
-  { id: 'cortes_contabilidad', label: 'Cortes de contabilidad', desc: 'Virtual, Abarrotes y Garage (gastos, cierres, estado).' },
+  { id: 'cortes_contabilidad', label: 'Cortes de contabilidad', desc: 'Virtual, Abarrotes y Garage (gastos, cierres, recolecciones de corte, estado).' },
+  { id: 'ie_egresos', label: 'IE Virtual / IE Abarrotes', desc: 'Libro de egresos e ingresos de prueba en Cont Virtual (cont_virtual_egresos).' },
+  { id: 'recolecciones_rt', label: 'Recolecciones RT / tránsito', desc: 'Movimientos de efectivo en tránsito y liquidaciones de recolector.' },
+  { id: 'notificaciones', label: 'Notificaciones / buzón', desc: 'Avisos pendientes e historial de bandeja de contabilidad.' },
   { id: 'inventario', label: 'Inventario', desc: 'Pone en cero el stock (no borra el catálogo de productos).' },
-  { id: 'cache_local', label: 'Caché local', desc: 'Movimientos, cortes locales y ajustes en este navegador.' },
+  { id: 'cache_local', label: 'Caché local', desc: 'Cortes locales, egresos IE locales, movimientos y ajustes en este navegador.' },
 ];
 
 const LS_PURGA_KEYS = [
@@ -15,6 +18,8 @@ const LS_PURGA_KEYS = [
   'pos3b_ajustes_inventario',
   'pos3b_cancelaciones',
   'pos3b_folio_ajuste_seq',
+  'pos3b_cont_virtual_egresos',
+  'pos3b_cont_virtual_notas',
 ];
 
 function toDateStart(ymd) {
@@ -89,7 +94,69 @@ function limpiarCacheLocal() {
       /* ignore */
     }
   }
+  // Cortes de contabilidad / egresos locales por tienda-módulo
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      if (
+        k.startsWith('pos3b_corte_')
+        || k.startsWith('pos3b_cont_virtual')
+        || k.includes('historial')
+      ) {
+        keys.push(k);
+      }
+    }
+    for (const k of keys) localStorage.removeItem(k);
+  } catch {
+    /* ignore */
+  }
   return { ok: true, detalle: 'Caché local de reportes y movimientos limpiada.' };
+}
+
+async function borrarIeEgresos(supabase, { sucursales, desde, hasta }) {
+  let q = supabase.from('cont_virtual_egresos').delete();
+  q = aplicarFiltroTienda(q, sucursales);
+  if (desde) q = q.gte('fecha', desde);
+  if (hasta) q = q.lte('fecha', hasta);
+  const { error } = await q;
+  if (error) return { ok: false, error: error.message };
+  try {
+    localStorage.removeItem('pos3b_cont_virtual_egresos');
+  } catch {
+    /* ignore */
+  }
+  return { ok: true, detalle: 'Egresos de IE eliminados.' };
+}
+
+async function borrarRecoleccionesRt(supabase, { sucursales, desde, hasta }) {
+  let q = supabase.from('transito_efectivo').delete();
+  // En RT a veces es sucursal_origen
+  if (sucursales?.length) {
+    if (sucursales.length === 1) q = q.eq('sucursal_origen', sucursales[0]);
+    else q = q.in('sucursal_origen', sucursales);
+  }
+  q = aplicarFiltroFecha(q, desde, hasta);
+  const { error } = await q;
+  if (error) {
+    // Fallback: columna sucursal_id en algunos esquemas
+    let q2 = supabase.from('transito_efectivo').delete();
+    q2 = aplicarFiltroTienda(q2, sucursales);
+    q2 = aplicarFiltroFecha(q2, desde, hasta);
+    const r2 = await q2;
+    if (r2.error) return { ok: false, error: `${error.message} / ${r2.error.message}` };
+  }
+  return { ok: true, detalle: 'Movimientos de recolección RT eliminados.' };
+}
+
+async function borrarNotificaciones(supabase, { sucursales, desde, hasta }) {
+  let q = supabase.from('contabilidad_notificaciones').delete();
+  q = aplicarFiltroTienda(q, sucursales);
+  q = aplicarFiltroFecha(q, desde, hasta);
+  const { error } = await q;
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, detalle: 'Notificaciones del buzón eliminadas.' };
 }
 
 /**
@@ -145,6 +212,36 @@ export async function ejecutarPurgaDatos(supabase, opts) {
 
   if (tiposSet.has('cortes_contabilidad')) {
     const r = await borrarCortesContabilidad(supabase, {
+      sucursales: tiendas,
+      desde: borrarTodo ? null : desde,
+      hasta: borrarTodo ? null : hasta,
+    });
+    if (r.ok) resultados.push(r.detalle);
+    else errores.push(r.error);
+  }
+
+  if (tiposSet.has('ie_egresos')) {
+    const r = await borrarIeEgresos(supabase, {
+      sucursales: tiendas,
+      desde: borrarTodo ? null : desde,
+      hasta: borrarTodo ? null : hasta,
+    });
+    if (r.ok) resultados.push(r.detalle);
+    else errores.push(r.error);
+  }
+
+  if (tiposSet.has('recolecciones_rt')) {
+    const r = await borrarRecoleccionesRt(supabase, {
+      sucursales: tiendas,
+      desde: borrarTodo ? null : desde,
+      hasta: borrarTodo ? null : hasta,
+    });
+    if (r.ok) resultados.push(r.detalle);
+    else errores.push(r.error);
+  }
+
+  if (tiposSet.has('notificaciones')) {
+    const r = await borrarNotificaciones(supabase, {
       sucursales: tiendas,
       desde: borrarTodo ? null : desde,
       hasta: borrarTodo ? null : hasta,

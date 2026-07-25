@@ -115,6 +115,8 @@ export async function registrarEgresoContVirtual(supabase, row) {
     categoria_nombre: row.categoria_nombre || row.categoria_id,
     subcategoria_id: row.subcategoria_id || null,
     subcategoria_nombre: row.subcategoria_nombre || null,
+    detalle_id: row.detalle_id || null,
+    detalle_nombre: row.detalle_nombre || null,
     monto,
     descripcion: String(row.descripcion || '').trim() || null,
     fuente: row.fuente || 'manual',
@@ -155,15 +157,29 @@ export async function registrarEgresoContVirtual(supabase, row) {
       guardarLocal(lista);
       return { ok: true, id, soloLocal: true, aviso: AVISO_FALTA_CONT_VIRTUAL };
     }
-    // Columna cuenta aún no existe: reintentar sin ella
-    if (String(error.message || '').toLowerCase().includes('cuenta')) {
+    const msg = String(error.message || '').toLowerCase();
+    // Columnas nuevas aún no aplicadas en Supabase: reintentar sin ellas
+    if (msg.includes('detalle_id') || msg.includes('detalle_nombre')) {
+      const { detalle_id: _d, detalle_nombre: _dn, ...sinDet } = payload;
+      const retry = await supabase.from('cont_virtual_egresos').insert([sinDet]).select('id').single();
+      if (!retry.error) {
+        return {
+          ok: true,
+          id: retry.data?.id,
+          aviso: 'Egreso guardado sin detalle. Ejecuta supabase/fix_cont_virtual_detalle.sql en Supabase.',
+        };
+      }
+      if (String(retry.error.message || '').toLowerCase().includes('duplicate')) return { ok: true, yaExiste: true };
+      return { ok: false, error: retry.error.message };
+    }
+    if (msg.includes('cuenta')) {
       const { cuenta: _c, ...sinCuenta } = payload;
       const retry = await supabase.from('cont_virtual_egresos').insert([sinCuenta]).select('id').single();
       if (!retry.error) return { ok: true, id: retry.data?.id };
       if (String(retry.error.message || '').toLowerCase().includes('duplicate')) return { ok: true, yaExiste: true };
       return { ok: false, error: retry.error.message };
     }
-    if (String(error.message || '').toLowerCase().includes('duplicate')) return { ok: true, yaExiste: true };
+    if (msg.includes('duplicate')) return { ok: true, yaExiste: true };
     return { ok: false, error: error.message };
   }
   return { ok: true, id: data?.id };
@@ -521,14 +537,18 @@ export function unificarEgresosParaPanel({
   const detalle = [];
 
   for (const e of egresosLibro || []) {
+    const subNom = e.subcategoria_nombre || e.subcategoria_id || '';
+    const detNom = e.detalle_nombre || e.detalle_id || '';
     detalle.push({
       id: e.id,
       fecha: String(e.fecha || '').slice(0, 10),
       tienda: e.sucursal_id,
       categoria: e.categoria_nombre || e.categoria_id,
       categoria_id: e.categoria_id,
-      subcategoria: e.subcategoria_nombre || e.subcategoria_id || '',
+      subcategoria: detNom ? `${subNom}${subNom ? ' › ' : ''}${detNom}` : subNom,
       subcategoria_id: e.subcategoria_id,
+      detalle: detNom,
+      detalle_id: e.detalle_id,
       comentario: e.descripcion,
       empleado: e.usuario_nombre,
       monto: round2(e.monto),
