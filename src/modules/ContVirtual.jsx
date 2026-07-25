@@ -141,7 +141,14 @@ function EmptyState() {
   );
 }
 
-function SummaryBar({ ingresos, gastos, balance, ingresosPorTienda = [] }) {
+function SummaryBar({
+  ingresos,
+  gastos,
+  balance,
+  ingresosPorTienda = [],
+  labelGastos = 'Gastos',
+  labelBalance = 'Balance',
+}) {
   const [abierto, setAbierto] = useState(false);
   const [tiendaAbierta, setTiendaAbierta] = useState(null);
   const desglose = ingresosPorTienda.filter((t) => (Number(t.ingresos) || 0) > 0);
@@ -174,11 +181,11 @@ function SummaryBar({ ingresos, gastos, balance, ingresosPorTienda = [] }) {
           )}
         </div>
         <div>
-          <div className="lbl">Gastos</div>
+          <div className="lbl">{labelGastos}</div>
           <div className="val gasto">{fmt(gastos)}</div>
         </div>
         <div>
-          <div className="lbl">Balance</div>
+          <div className="lbl">{labelBalance}</div>
           <div className="val balance">{fmt(balance)}</div>
         </div>
       </div>
@@ -469,8 +476,6 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
   const balance = ingresosFiltrados?.balance ?? (datos?.neto ?? ingresos - gastos);
 
   const ingresosPorTiendaResumen = useMemo(() => {
-    if (filtroTienda) return [];
-
     const itemsIngreso = [];
     if (ingresosFiltrados) {
       for (const d of porDia) {
@@ -485,6 +490,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
     const map = {};
     for (const it of itemsIngreso) {
       const id = it.tienda || 'MAIN';
+      if (filtroTienda && id !== filtroTienda) continue;
       if (!map[id]) {
         map[id] = {
           id,
@@ -1120,20 +1126,14 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
               <IconChart />
             </button>
           </div>
-          <div className="cv-summary">
-            <div>
-              <div className="lbl">Ingresos</div>
-              <div className="val ingreso">{fmt(ab.ingresos)}</div>
-            </div>
-            <div>
-              <div className="lbl">Egresos</div>
-              <div className="val gasto">{fmt(ab.egresos)}</div>
-            </div>
-            <div>
-              <div className="lbl">Neto</div>
-              <div className="val balance">{fmt(ab.neto)}</div>
-            </div>
-          </div>
+          <SummaryBar
+            ingresos={ab.ingresos}
+            gastos={ab.egresos}
+            balance={ab.neto}
+            ingresosPorTienda={ingresosPorTiendaResumen}
+            labelGastos="Egresos"
+            labelBalance="Neto"
+          />
           <div className="cv-cuenta-group">
             <div className="hd">
               <span>Abarrotes</span>
@@ -1160,17 +1160,19 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
           </button>
         </div>
         <div className="cv-summary">
-          <div>
-            <div className="lbl">Capital</div>
-            <div className="val ingreso">{fmt(capital)}</div>
-          </div>
-          <div>
-            <div className="lbl">A deber</div>
-            <div className="val gasto">{fmt(aDeber)}</div>
-          </div>
-          <div>
-            <div className="lbl">Balance</div>
-            <div className="val balance">{fmt(bal)}</div>
+          <div className="cv-summary-totals">
+            <div>
+              <div className="lbl">Capital</div>
+              <div className="val ingreso">{fmt(capital)}</div>
+            </div>
+            <div>
+              <div className="lbl">A deber</div>
+              <div className="val gasto">{fmt(aDeber)}</div>
+            </div>
+            <div>
+              <div className="lbl">Balance</div>
+              <div className="val balance">{fmt(bal)}</div>
+            </div>
           </div>
         </div>
         <div className="cv-cuenta-group">
