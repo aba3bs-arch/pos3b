@@ -143,6 +143,7 @@ function EmptyState() {
 
 function SummaryBar({ ingresos, gastos, balance, ingresosPorTienda = [] }) {
   const [abierto, setAbierto] = useState(false);
+  const [tiendaAbierta, setTiendaAbierta] = useState(null);
   const desglose = ingresosPorTienda.filter((t) => (Number(t.ingresos) || 0) > 0);
   const tieneDesglose = desglose.length > 0;
 
@@ -154,7 +155,12 @@ function SummaryBar({ ingresos, gastos, balance, ingresosPorTienda = [] }) {
             <button
               type="button"
               className={`cv-summary-ingreso-btn${abierto ? ' open' : ''}`}
-              onClick={() => setAbierto((v) => !v)}
+              onClick={() => {
+                setAbierto((v) => {
+                  if (v) setTiendaAbierta(null);
+                  return !v;
+                });
+              }}
               aria-expanded={abierto}
             >
               <div className="lbl">Ingresos <span className="chev" aria-hidden>▾</span></div>
@@ -179,12 +185,37 @@ function SummaryBar({ ingresos, gastos, balance, ingresosPorTienda = [] }) {
       {tieneDesglose && abierto && (
         <div className="cv-summary-desglose">
           <div className="cv-summary-desglose-hd">Por sucursal</div>
-          {desglose.map((t) => (
-            <div key={t.id} className="cv-summary-desglose-row">
-              <span>{t.label}</span>
-              <span className="amt">{fmt(t.ingresos)}</span>
-            </div>
-          ))}
+          {desglose.map((t) => {
+            const recs = t.recolecciones || [];
+            const expandida = tiendaAbierta === t.id;
+            return (
+              <div key={t.id} className="cv-summary-tienda">
+                <button
+                  type="button"
+                  className={`cv-summary-desglose-row btn${expandida ? ' open' : ''}`}
+                  onClick={() => setTiendaAbierta((prev) => (prev === t.id ? null : t.id))}
+                  aria-expanded={expandida}
+                  disabled={!recs.length}
+                >
+                  <span>{t.label}</span>
+                  <span className="amt">
+                    {fmt(t.ingresos)}
+                    {recs.length > 0 && <span className="chev" aria-hidden>▾</span>}
+                  </span>
+                </button>
+                {expandida && recs.length > 0 && (
+                  <div className="cv-summary-recs">
+                    {recs.map((r) => (
+                      <div key={r.id} className="cv-summary-rec-row">
+                        <span className="fecha">{fmtFechaCorta(r.fecha)}</span>
+                        <span className="amt">{fmt(r.monto)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -439,22 +470,48 @@ export default function ContVirtual({ supabase, user, libro = 'antonio' }) {
 
   const ingresosPorTiendaResumen = useMemo(() => {
     if (filtroTienda) return [];
+
+    const itemsIngreso = [];
     if (ingresosFiltrados) {
-      const map = {};
       for (const d of porDia) {
         for (const it of d.items || []) {
-          if (it.tipo !== 'ingreso') continue;
-          const id = it.tienda || 'MAIN';
-          if (!map[id]) map[id] = { id, label: etiquetaTienda(id), ingresos: 0 };
-          map[id].ingresos += Number(it.monto) || 0;
+          if (it.tipo === 'ingreso') itemsIngreso.push(it);
         }
       }
-      return Object.values(map)
-        .map((t) => ({ ...t, ingresos: Math.round(t.ingresos * 100) / 100 }))
-        .filter((t) => t.ingresos > 0)
-        .sort((a, b) => b.ingresos - a.ingresos);
+    } else {
+      for (const it of datos?.ingresosPorDia || []) itemsIngreso.push(it);
     }
-    return (datos?.ingresosPorTienda || []).filter((t) => (Number(t.ingresos) || 0) > 0);
+
+    const map = {};
+    for (const it of itemsIngreso) {
+      const id = it.tienda || 'MAIN';
+      if (!map[id]) {
+        map[id] = {
+          id,
+          label: etiquetaTienda(id),
+          ingresos: 0,
+          recolecciones: [],
+        };
+      }
+      const monto = Number(it.monto) || 0;
+      map[id].ingresos += monto;
+      map[id].recolecciones.push({
+        id: it.id || `${id}-${it.fecha}-${map[id].recolecciones.length}`,
+        fecha: String(it.fecha || '').slice(0, 10),
+        monto: Math.round(monto * 100) / 100,
+      });
+    }
+
+    return Object.values(map)
+      .map((t) => ({
+        ...t,
+        ingresos: Math.round(t.ingresos * 100) / 100,
+        recolecciones: t.recolecciones
+          .filter((r) => r.monto > 0 && r.fecha)
+          .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))),
+      }))
+      .filter((t) => t.ingresos > 0)
+      .sort((a, b) => b.ingresos - a.ingresos);
   }, [filtroTienda, ingresosFiltrados, porDia, datos]);
 
   const mesesAnio = useMemo(() => {
