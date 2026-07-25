@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   agregarSubcategoriaGasto,
   eliminarCategoriaGasto,
@@ -8,7 +8,7 @@ import {
   gastoRequiereEmpleado,
   gastoDescuentaNomina,
 } from '../../lib/corteContabilidad/catalogoGastos.js';
-import { normalizarRol } from '../../lib/roles.js';
+import { agruparEmpleadosParaSelectCorte } from '../../lib/empleadosVisibles.js';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -37,6 +37,7 @@ export default function CorteGastosPanel({
   const [comentario, setComentario] = useState('');
   const [usuarioId, setUsuarioId] = useState('');
   const [mostrarCat, setMostrarCat] = useState(false);
+  const gruposEmpleados = useMemo(() => agruparEmpleadosParaSelectCorte(empleados), [empleados]);
 
   const cargarCat = useCallback(async () => {
     const res = await listarCatalogoGastos(supabase, sucursal, modulo);
@@ -219,14 +220,34 @@ export default function CorteGastosPanel({
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.4rem', marginBottom: '0.4rem' }}>
             {requiereEmpleado && (
               <select className="select" value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)}>
-                <option value="">Empleado (tienda · indirectos · admin)</option>
-                {(empleados || []).map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.nombre}
-                    {e.es_indirecto_corte ? ' · indirecto' : ''}
-                    {normalizarRol(e.rol) === 'Administrador' || e.es_admin_global_corte ? ' · admin' : ''}
-                  </option>
-                ))}
+                <option value="">Empleado…</option>
+                {gruposEmpleados.tienda.length > 0 && (
+                  <optgroup label="Empleados de esta tienda">
+                    {gruposEmpleados.tienda.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.nombre}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {gruposEmpleados.indirectos.length > 0 && (
+                  <optgroup label="Indirectos / MAIN (todas las sucursales)">
+                    {gruposEmpleados.indirectos.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.nombre}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {gruposEmpleados.admins.length > 0 && (
+                  <optgroup label="Administradores">
+                    {gruposEmpleados.admins.map((e) => (
+                      <option key={e.id} value={e.id}>
+                        {e.nombre}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             )}
             <select

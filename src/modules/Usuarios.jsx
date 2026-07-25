@@ -1,9 +1,16 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { listarTodosLosRoles, normalizarRol, puedeGestionarUsuarios, EVENTO_ROLES } from '../lib/roles.js';
 import { ETIQUETA_AREA, PAGADORES_NOMINA } from '../lib/contabilidadConstants.js';
-import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { leerTurnos, leerConfigHorario, esHorarioPersonalizado, resumenHorarioUsuario, EVENTO_TURNOS, nombreTurnoLegible, TURNO_AMBOS_ID, etiquetaTurno } from '../lib/turnos.js';
-import { empleadosVisiblesParaTienda, filtrarEmpleadosAdmin } from '../lib/empleadosVisibles.js';
+import {
+  agruparEmpleadosCatalogo,
+  empleadosVisiblesParaTienda,
+  filtrarEmpleadosAdmin,
+  MAX_EMPLEADOS_POR_TIENDA,
+  puedeAgregarEmpleadoTienda,
+  resolverTipoEmpleado,
+} from '../lib/empleadosVisibles.js';
 import {
   etiquetaDispositivoUsuario,
   liberarDispositivoUsuario,
@@ -16,7 +23,8 @@ const emptyForm = (sucursalDefault) => ({
   nombre: '',
   pin: '',
   rol: 'Cajero',
-  sucursal_id: normalizarCodigoTienda(sucursalDefault) || 'MAIN',
+  tipo_empleado: 'tienda',
+  sucursal_id: normalizarCodigoTienda(sucursalDefault) || listarSucursalesOperativas()[0] || 'MAIN',
   nomina_pagador: 'abarrotes',
   turno_id: '',
 });
@@ -28,7 +36,13 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
   const [pinEnEdicion, setPinEnEdicion] = useState(null);
   const [nuevoPinDraft, setNuevoPinDraft] = useState('');
   const [editandoId, setEditandoId] = useState(null);
-  const [editForm, setEditForm] = useState({ nombre: '', rol: 'Cajero', sucursal_id: 'MAIN', nomina_pagador: 'abarrotes' });
+  const [editForm, setEditForm] = useState({
+    nombre: '',
+    rol: 'Cajero',
+    tipo_empleado: 'tienda',
+    sucursal_id: 'MAIN',
+    nomina_pagador: 'abarrotes',
+  });
   const [filtroSucursal, setFiltroSucursal] = useState('');
   const [mostrarBajas, setMostrarBajas] = useState(false);
   const [turnos, setTurnos] = useState(() => leerTurnos());
@@ -75,7 +89,14 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
   const filas = (esAdmin
     ? filtrarEmpleadosAdmin(rows, filtroSucursal)
     : empleadosVisiblesParaTienda(rows, sucursal, actor?.rol)
-  ).filter((r) => (mostrarBajas ? r.activo === false : r.activo !== false));
+  ).filter((r) => (mostrarBajas ? true : r.activo !== false));
+
+  const catalogoGrupos = useMemo(
+    () => agruparEmpleadosCatalogo(filas, { incluirBajas: mostrarBajas }),
+    [filas, mostrarBajas],
+  );
+
+  const tiendasOps = listarSucursalesOperativas();
 
   const togglePinVisible = (id) => {
     setPinsVisibles((prev) => {
@@ -88,10 +109,12 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
 
   const abrirEdicion = (r) => {
     setEditandoId(r.id);
+    const tipo = resolverTipoEmpleado(r);
     setEditForm({
       nombre: r.nombre || '',
       rol: normalizarRol(r.rol),
-      sucursal_id: normalizarCodigoTienda(r.sucursal_id) || 'MAIN',
+      tipo_empleado: tipo,
+      sucursal_id: tipo === 'indirecto' ? 'MAIN' : (normalizarCodigoTienda(r.sucursal_id) || tiendasOps[0] || 'MAIN'),
       nomina_pagador: r.nomina_pagador || 'abarrotes',
     });
   };
@@ -100,14 +123,28 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     if (!supabase || !esAdmin || !editandoId) return;
     const nombre = editForm.nombre.trim();
     if (!nombre) return alert('El nombre es obligatorio.');
+    const tipo = editForm.tipo_empleado === 'indirecto' ? 'indirecto' : 'tienda';
+    const sucursal_id = tipo === 'indirecto'
+      ? 'MAIN'
+      : (normalizarCodigoTienda(editForm.sucursal_id) || tiendasOps[0] || 'MAIN');
+    if (tipo === 'tienda' && normalizarRol(editForm.rol) !== 'Administrador') {
+      const cupo = puedeAgregarEmpleadoTienda(rows, sucursal_id, { excluirId: editandoId });
+      if (!cupo.ok) return alert(cupo.error);
+    }
     const payload = {
       nombre,
       rol: normalizarRol(editForm.rol),
-      sucursal_id: normalizarCodigoTienda(editForm.sucursal_id) || 'MAIN',
+      tipo_empleado: tipo,
+      sucursal_id,
       nomina_pagador: editForm.nomina_pagador || 'abarrotes',
     };
     const { error } = await supabase.from('usuarios').update(payload).eq('id', editandoId);
-    if (error) return alert(error.message);
+    if (error) {
+      if (String(error.message).includes('tipo_empleado')) {
+        return alert('Ejecuta supabase/fix_usuarios_tipo_empleado.sql en Supabase.');
+      }
+      return alert(error.message);
+    }
     if (actor?.id === editandoId) onUsuarioActualizado?.({ ...actor, ...payload });
     setEditandoId(null);
     load();
@@ -127,11 +164,20 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
   const crear = async () => {
     if (!supabase || !esAdmin) return;
     if (!form.nombre.trim() || !String(form.pin).trim()) return alert('Nombre y PIN obligatorios');
+    const tipo = form.tipo_empleado === 'indirecto' ? 'indirecto' : 'tienda';
+    const sucursal_id = tipo === 'indirecto'
+      ? 'MAIN'
+      : (normalizarCodigoTienda(form.sucursal_id) || tiendasOps[0] || 'MAIN');
+    if (tipo === 'tienda' && normalizarRol(form.rol) !== 'Administrador') {
+      const cupo = puedeAgregarEmpleadoTienda(rows, sucursal_id);
+      if (!cupo.ok) return alert(cupo.error);
+    }
     const payload = {
       nombre: form.nombre.trim(),
       pin: String(form.pin).trim(),
       rol: normalizarRol(form.rol),
-      sucursal_id: normalizarCodigoTienda(form.sucursal_id) || 'MAIN',
+      tipo_empleado: tipo,
+      sucursal_id,
       nomina_pagador: form.nomina_pagador || 'abarrotes',
       turno_id: esPersonalizado ? null : form.turno_id || null,
       activo: true,
@@ -146,6 +192,9 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     if (error) {
       if (error.code === '23505' || String(error.message).includes('duplicate')) {
         return alert(`Ya existe un usuario con PIN ${payload.pin} en ${payload.sucursal_id}.`);
+      }
+      if (String(error.message).includes('tipo_empleado')) {
+        return alert('Ejecuta supabase/fix_usuarios_tipo_empleado.sql en Supabase.');
       }
       if (String(error.message).includes('usuarios_rol_check')) {
         return alert(
@@ -167,12 +216,49 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     load();
   };
 
+  const actualizarTipoEmpleado = async (id, tipoRaw) => {
+    if (!supabase || !esAdmin) return;
+    const row = rows.find((r) => r.id === id);
+    if (!row) return;
+    const tipo = tipoRaw === 'indirecto' ? 'indirecto' : 'tienda';
+    const sucursal_id = tipo === 'indirecto'
+      ? 'MAIN'
+      : (normalizarCodigoTienda(row.sucursal_id) === 'MAIN'
+        ? (tiendasOps[0] || 'MAIN')
+        : normalizarCodigoTienda(row.sucursal_id));
+    if (tipo === 'tienda' && normalizarRol(row.rol) !== 'Administrador' && row.activo !== false) {
+      const cupo = puedeAgregarEmpleadoTienda(rows, sucursal_id, { excluirId: id });
+      if (!cupo.ok) return alert(cupo.error);
+    }
+    const { error } = await supabase.from('usuarios').update({ tipo_empleado: tipo, sucursal_id }).eq('id', id);
+    if (error) {
+      if (String(error.message).includes('tipo_empleado')) {
+        return alert('Ejecuta supabase/fix_usuarios_tipo_empleado.sql en Supabase.');
+      }
+      return alert(error.message);
+    }
+    if (actor?.id === id) onUsuarioActualizado?.({ ...actor, tipo_empleado: tipo, sucursal_id });
+    load();
+  };
+
   const actualizarSucursal = async (id, nueva) => {
     if (!supabase || !esAdmin) return;
+    const row = rows.find((r) => r.id === id);
+    const tipo = resolverTipoEmpleado(row || {});
+    if (tipo === 'indirecto') {
+      return alert('Los empleados indirectos / MAIN no cambian de sucursal (aparecen en todas).');
+    }
     const sucursal_id = normalizarCodigoTienda(nueva) || 'MAIN';
-    const { error } = await supabase.from('usuarios').update({ sucursal_id }).eq('id', id);
+    if (sucursal_id === 'MAIN') {
+      return alert('Para MAIN usa el tipo «Indirecto / MAIN».');
+    }
+    if (row && row.activo !== false && normalizarRol(row.rol) !== 'Administrador') {
+      const cupo = puedeAgregarEmpleadoTienda(rows, sucursal_id, { excluirId: id });
+      if (!cupo.ok) return alert(cupo.error);
+    }
+    const { error } = await supabase.from('usuarios').update({ sucursal_id, tipo_empleado: 'tienda' }).eq('id', id);
     if (error) return alert(error.message);
-    if (actor?.id === id) onUsuarioActualizado?.({ ...actor, sucursal_id });
+    if (actor?.id === id) onUsuarioActualizado?.({ ...actor, sucursal_id, tipo_empleado: 'tienda' });
     load();
   };
 
@@ -230,6 +316,10 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
 
   const reactivar = async (r) => {
     if (!supabase || !esAdmin || !r?.id) return;
+    if (resolverTipoEmpleado(r) === 'tienda' && normalizarRol(r.rol) !== 'Administrador') {
+      const cupo = puedeAgregarEmpleadoTienda(rows, r.sucursal_id, { excluirId: r.id });
+      if (!cupo.ok) return alert(cupo.error);
+    }
     if (!confirm(`¿Reactivar a ${r.nombre}?`)) return;
     const { error } = await supabase.from('usuarios').update({ activo: true }).eq('id', r.id);
     if (error) {
@@ -277,6 +367,134 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     load();
   };
 
+  const renderFilaEmpleado = (r, { soloMain = false } = {}) => (
+    <tr key={r.id} style={r.activo === false ? { opacity: 0.72 } : undefined}>
+      <td>
+        {r.nombre}
+        {r.activo === false && (
+          <span className="badge" style={{ marginLeft: '0.35rem', background: '#fee2e2', color: '#991b1b' }}>
+            Baja
+          </span>
+        )}
+      </td>
+      <td>
+        <select
+          className="select"
+          style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem', minWidth: '130px' }}
+          value={resolverTipoEmpleado(r)}
+          onChange={(e) => actualizarTipoEmpleado(r.id, e.target.value)}
+        >
+          <option value="tienda">De tienda</option>
+          <option value="indirecto">Indirecto / MAIN</option>
+        </select>
+      </td>
+      <td>
+        {soloMain ? (
+          <span className="muted">{etiquetaTienda('MAIN')}</span>
+        ) : (
+          <select
+            className="select"
+            style={{ padding: '0.35rem 0.5rem', fontSize: '0.85rem', minWidth: '120px' }}
+            value={normalizarCodigoTienda(r.sucursal_id) || 'MAIN'}
+            onChange={(e) => actualizarSucursal(r.id, e.target.value)}
+          >
+            {tiendasOps.map((s) => (
+              <option key={s} value={s}>{etiquetaTienda(s)}</option>
+            ))}
+          </select>
+        )}
+      </td>
+      <td>
+        <select
+          className="select"
+          style={{ padding: '0.35rem 0.5rem', fontSize: '0.85rem', minWidth: '130px' }}
+          value={normalizarRol(r.rol)}
+          onChange={(e) => actualizarRol(r.id, e.target.value)}
+        >
+          {rolesLista.map((rol) => (
+            <option key={rol} value={rol}>{rol}</option>
+          ))}
+        </select>
+      </td>
+      <td>
+        <select
+          className="select"
+          style={{ padding: '0.35rem 0.5rem', fontSize: '0.85rem', minWidth: '110px' }}
+          value={r.nomina_pagador || 'abarrotes'}
+          onChange={(e) => actualizarPagadorNomina(r.id, e.target.value)}
+        >
+          {PAGADORES_NOMINA.map((a) => (
+            <option key={a} value={a}>{ETIQUETA_AREA[a]}</option>
+          ))}
+        </select>
+      </td>
+      {!esPersonalizado ? (
+        <td>
+          <select
+            className="select"
+            style={{ padding: '0.35rem 0.5rem', fontSize: '0.85rem', minWidth: '140px' }}
+            value={r.turno_id || ''}
+            onChange={(e) => actualizarTurno(r.id, e.target.value || null)}
+          >
+            <option value="">—</option>
+            <option value={TURNO_AMBOS_ID}>Ambos turnos</option>
+            {turnos.map((t) => (
+              <option key={t.id} value={t.id}>{nombreTurnoLegible(t)}</option>
+            ))}
+          </select>
+        </td>
+      ) : (
+        <td className="muted" style={{ fontSize: '0.82rem' }}>{resumenHorarioUsuario(r, turnos)}</td>
+      )}
+      <td className="muted" style={{ fontSize: '0.8rem' }}>
+        {rolExigeDispositivoUnico(r.rol) ? etiquetaDispositivoUsuario(r) : '—'}
+      </td>
+      <td>
+        {pinEnEdicion === r.id ? (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
+            <InputPin
+              value={nuevoPinDraft}
+              onChange={(e) => setNuevoPinDraft(e.target.value)}
+              placeholder="Nuevo PIN"
+              autoComplete="off"
+              name={`usuario-edit-pin-${r.id}`}
+              onKeyDown={(e) => { if (e.key === 'Enter') guardarNuevoPin(r, nuevoPinDraft); }}
+              style={{ width: '160px', fontSize: '0.95rem', letterSpacing: '0.1em', marginBottom: 0 }}
+            />
+            <button type="button" className="btn btn-primary" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => guardarNuevoPin(r, nuevoPinDraft)}>Guardar</button>
+            <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => { setPinEnEdicion(null); setNuevoPinDraft(''); }}>Cancelar</button>
+          </div>
+        ) : (
+          <span style={{ fontFamily: 'ui-monospace, monospace', letterSpacing: pinsVisibles.has(r.id) ? '0.05em' : '0.15em' }}>
+            {pinsVisibles.has(r.id) ? String(r.pin ?? '—') : '••••••'}
+          </span>
+        )}
+      </td>
+      <td>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', justifyContent: 'flex-end' }}>
+          {pinEnEdicion !== r.id && (
+            <>
+              <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => abrirEdicion(r)}>Editar</button>
+              <button type="button" className="btn btn-gold" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => togglePinVisible(r.id)}>{pinsVisibles.has(r.id) ? 'Ocultar' : 'Ver PIN'}</button>
+              <button type="button" className="btn btn-primary" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => { setPinEnEdicion(r.id); setNuevoPinDraft(''); }}>Cambiar PIN</button>
+              {esAdmin && r.dispositivo_id && rolExigeDispositivoUnico(r.rol) && (
+                <button type="button" className="btn btn-gold" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => liberarEquipo(r)}>Liberar equipo</button>
+              )}
+              {r.activo === false ? (
+                <button type="button" className="btn btn-success" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => reactivar(r)}>Reactivar</button>
+              ) : (
+                <button type="button" className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => darDeBaja(r)}>Dar de baja</button>
+              )}
+              {mostrarBajas && r.activo === false && (
+                <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => borrar(r.id)}>Eliminar</button>
+              )}
+            </>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+
   if (!esAdmin) {
     return (
       <div className="card" style={{ maxWidth: '520px' }}>
@@ -293,8 +511,9 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nuevo empleado</h3>
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-          Cada empleado fijo queda ligado a una <strong>sucursal</strong> y (si es cajero/repartidor) puede vincularse a un equipo.
-          El rol <strong>Administrador</strong> no se ancla a sucursal ni dispositivo: su PIN funciona en cualquier tienda o celular.
+          Catálogo: <strong>Empleados por tienda</strong> (máx. {MAX_EMPLEADOS_POR_TIENDA} activos por sucursal) e{' '}
+          <strong>Indirectos / MAIN</strong> (aparecen en todas las sucursales y en cortes Virtual, Abarrotes y Garage).
+          El rol <strong>Administrador</strong> no se ancla a dispositivo.
           {esPersonalizado
             ? ' Con horario personalizado, asigna turnos por día en Configuración → Turnos.'
             : ' Asigna un turno fijo para el corte de caja.'}
@@ -310,9 +529,36 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
             style={{ fontSize: '1.05rem', letterSpacing: '0.12em', marginBottom: 0 }}
           />
           <label className="muted">
-            {normalizarRol(form.rol) === 'Administrador' ? 'Sucursal de referencia (no restringe el login)' : 'Sucursal asignada'}
-            <select className="select" style={{ marginTop: '0.35rem' }} value={form.sucursal_id} onChange={(e) => setForm({ ...form, sucursal_id: e.target.value })}>
-              {tiendas.map((s) => (
+            Tipo / subcategoría
+            <select
+              className="select"
+              style={{ marginTop: '0.35rem' }}
+              value={form.tipo_empleado}
+              onChange={(e) => {
+                const tipo_empleado = e.target.value === 'indirecto' ? 'indirecto' : 'tienda';
+                setForm({
+                  ...form,
+                  tipo_empleado,
+                  sucursal_id: tipo_empleado === 'indirecto' ? 'MAIN' : (tiendasOps.includes(form.sucursal_id) ? form.sucursal_id : (tiendasOps[0] || 'MAIN')),
+                });
+              }}
+            >
+              <option value="tienda">Empleado de tienda (máx. {MAX_EMPLEADOS_POR_TIENDA})</option>
+              <option value="indirecto">Indirecto / MAIN (todas las sucursales)</option>
+            </select>
+          </label>
+          <label className="muted">
+            {form.tipo_empleado === 'indirecto' || normalizarRol(form.rol) === 'Administrador'
+              ? 'Sucursal (MAIN para indirectos)'
+              : 'Sucursal asignada'}
+            <select
+              className="select"
+              style={{ marginTop: '0.35rem' }}
+              value={form.tipo_empleado === 'indirecto' ? 'MAIN' : form.sucursal_id}
+              disabled={form.tipo_empleado === 'indirecto'}
+              onChange={(e) => setForm({ ...form, sucursal_id: e.target.value })}
+            >
+              {(form.tipo_empleado === 'indirecto' ? ['MAIN'] : tiendasOps).map((s) => (
                 <option key={s} value={s}>
                   {etiquetaTienda(s)}
                 </option>
@@ -385,6 +631,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
             <thead>
               <tr>
                 <th>Nombre</th>
+                <th>Tipo</th>
                 <th>Sucursal</th>
                 <th>Rol</th>
                 <th>Nómina</th>
@@ -397,170 +644,56 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
             <tbody>
               {filas.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="muted">
+                  <td colSpan={9} className="muted">
                     Sin usuarios. Ejecuta el SQL de sucursal y el seed si es la primera vez.
                   </td>
                 </tr>
               ) : (
-                filas.map((r) => (
-                  <tr key={r.id} style={r.activo === false ? { opacity: 0.72 } : undefined}>
-                    <td>
-                      {r.nombre}
-                      {r.activo === false && (
-                        <span className="badge" style={{ marginLeft: '0.35rem', background: '#fee2e2', color: '#991b1b' }}>
-                          Baja
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <select
-                        className="select"
-                        style={{ padding: '0.35rem 0.5rem', fontSize: '0.85rem', minWidth: '120px' }}
-                        value={normalizarCodigoTienda(r.sucursal_id) || 'MAIN'}
-                        onChange={(e) => actualizarSucursal(r.id, e.target.value)}
-                      >
-                        {tiendas.map((s) => (
-                          <option key={s} value={s}>
-                            {etiquetaTienda(s)}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <select
-                        className="select"
-                        style={{ padding: '0.35rem 0.5rem', fontSize: '0.85rem', minWidth: '130px' }}
-                        value={normalizarRol(r.rol)}
-                        onChange={(e) => actualizarRol(r.id, e.target.value)}
-                      >
-                        {rolesLista.map((rol) => (
-                          <option key={rol} value={rol}>
-                            {rol}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <select
-                        className="select"
-                        style={{ padding: '0.35rem 0.5rem', fontSize: '0.85rem', minWidth: '110px' }}
-                        value={r.nomina_pagador || 'abarrotes'}
-                        onChange={(e) => actualizarPagadorNomina(r.id, e.target.value)}
-                      >
-                        {PAGADORES_NOMINA.map((a) => (
-                          <option key={a} value={a}>
-                            {ETIQUETA_AREA[a]}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    {!esPersonalizado && (
-                      <td>
-                        <select
-                          className="select"
-                          style={{ padding: '0.35rem 0.5rem', fontSize: '0.85rem', minWidth: '140px' }}
-                          value={r.turno_id || ''}
-                          onChange={(e) => actualizarTurno(r.id, e.target.value || null)}
-                        >
-                          <option value="">—</option>
-                          <option value={TURNO_AMBOS_ID}>Ambos turnos</option>
-                          {turnos.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {nombreTurnoLegible(t)}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                    )}
-                    {esPersonalizado && (
-                      <td className="muted" style={{ fontSize: '0.82rem' }} colSpan={1}>
-                        {resumenHorarioUsuario(r, turnos)}
-                      </td>
-                    )}
-                    <td className="muted" style={{ fontSize: '0.8rem' }}>
-                      {rolExigeDispositivoUnico(r.rol) ? etiquetaDispositivoUsuario(r) : '—'}
-                    </td>
-                    <td>
-                      {pinEnEdicion === r.id ? (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
-                          <InputPin
-                            value={nuevoPinDraft}
-                            onChange={(e) => setNuevoPinDraft(e.target.value)}
-                            placeholder="Nuevo PIN"
-                            autoComplete="off"
-                            name={`usuario-edit-pin-${r.id}`}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') guardarNuevoPin(r, nuevoPinDraft);
-                            }}
-                            style={{ width: '160px', fontSize: '0.95rem', letterSpacing: '0.1em', marginBottom: 0 }}
-                          />
-                          <button type="button" className="btn btn-primary" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => guardarNuevoPin(r, nuevoPinDraft)}>
-                            Guardar
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-ghost"
-                            style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
-                            onClick={() => {
-                              setPinEnEdicion(null);
-                              setNuevoPinDraft('');
-                            }}
-                          >
-                            Cancelar
-                          </button>
-                        </div>
-                      ) : (
-                        <span style={{ fontFamily: 'ui-monospace, monospace', letterSpacing: pinsVisibles.has(r.id) ? '0.05em' : '0.15em' }}>
-                          {pinsVisibles.has(r.id) ? String(r.pin ?? '—') : '••••••'}
-                        </span>
-                      )}
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', justifyContent: 'flex-end' }}>
-                        {pinEnEdicion !== r.id && (
-                          <>
-                            <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => abrirEdicion(r)}>
-                              Editar
-                            </button>
-                            <button type="button" className="btn btn-gold" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => togglePinVisible(r.id)}>
-                              {pinsVisibles.has(r.id) ? 'Ocultar' : 'Ver PIN'}
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-primary"
-                              style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
-                              onClick={() => {
-                                setPinEnEdicion(r.id);
-                                setNuevoPinDraft('');
-                              }}
-                            >
-                              Cambiar PIN
-                            </button>
-                            {esAdmin && r.dispositivo_id && rolExigeDispositivoUnico(r.rol) && (
-                              <button type="button" className="btn btn-gold" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => liberarEquipo(r)}>
-                                Liberar equipo
-                              </button>
-                            )}
-                            {r.activo === false ? (
-                              <button type="button" className="btn btn-success" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => reactivar(r)}>
-                                Reactivar
-                              </button>
-                            ) : (
-                              <button type="button" className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => darDeBaja(r)}>
-                                Dar de baja
-                              </button>
-                            )}
-                            {mostrarBajas && r.activo === false && (
-                              <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => borrar(r.id)}>
-                                Eliminar
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>
+                <>
+                  <tr>
+                    <td colSpan={9} style={{ background: 'var(--bg-muted, #f3f4f6)', fontWeight: 700, fontSize: '0.85rem' }}>
+                      Empleados por tienda (máx. {MAX_EMPLEADOS_POR_TIENDA} activos · solo esa sucursal)
                     </td>
                   </tr>
-                ))
+                  {catalogoGrupos.porTienda.map((g) => (
+                    <React.Fragment key={`grp-tienda-${g.sucursalId}`}>
+                      <tr>
+                        <td colSpan={9} className="muted" style={{ fontSize: '0.8rem', paddingTop: '0.65rem' }}>
+                          {etiquetaTienda(g.sucursalId)} · {g.empleados.filter((e) => e.activo !== false).length}/{MAX_EMPLEADOS_POR_TIENDA}
+                        </td>
+                      </tr>
+                      {g.empleados.length
+                        ? g.empleados.map((r) => renderFilaEmpleado(r))
+                        : (
+                          <tr>
+                            <td colSpan={9} className="muted" style={{ fontSize: '0.8rem' }}>Sin empleados de tienda</td>
+                          </tr>
+                        )}
+                    </React.Fragment>
+                  ))}
+                  <tr>
+                    <td colSpan={9} style={{ background: 'var(--bg-muted, #f3f4f6)', fontWeight: 700, fontSize: '0.85rem' }}>
+                      Indirectos / MAIN (aparecen en todas las sucursales y cortes)
+                    </td>
+                  </tr>
+                  {catalogoGrupos.indirectos.length
+                    ? catalogoGrupos.indirectos.map((r) => renderFilaEmpleado(r, { soloMain: true }))
+                    : (
+                      <tr>
+                        <td colSpan={9} className="muted" style={{ fontSize: '0.8rem' }}>Sin empleados indirectos / MAIN</td>
+                      </tr>
+                    )}
+                  {filas.filter((r) => normalizarRol(r.rol) === 'Administrador').length > 0 && (
+                    <>
+                      <tr>
+                        <td colSpan={9} style={{ background: 'var(--bg-muted, #f3f4f6)', fontWeight: 700, fontSize: '0.85rem' }}>
+                          Administradores
+                        </td>
+                      </tr>
+                      {filas.filter((r) => normalizarRol(r.rol) === 'Administrador').map((r) => renderFilaEmpleado(r))}
+                    </>
+                  )}
+                </>
               )}
             </tbody>
           </table>
@@ -576,9 +709,36 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
               <input className="input" style={{ marginTop: '0.35rem' }} value={editForm.nombre} onChange={(e) => setEditForm({ ...editForm, nombre: e.target.value })} />
             </label>
             <label className="muted">
-              Sucursal
-              <select className="select" style={{ marginTop: '0.35rem' }} value={editForm.sucursal_id} onChange={(e) => setEditForm({ ...editForm, sucursal_id: e.target.value })}>
-                {tiendas.map((s) => (
+              Tipo / subcategoría
+              <select
+                className="select"
+                style={{ marginTop: '0.35rem' }}
+                value={editForm.tipo_empleado}
+                onChange={(e) => {
+                  const tipo_empleado = e.target.value === 'indirecto' ? 'indirecto' : 'tienda';
+                  setEditForm({
+                    ...editForm,
+                    tipo_empleado,
+                    sucursal_id: tipo_empleado === 'indirecto'
+                      ? 'MAIN'
+                      : (tiendasOps.includes(editForm.sucursal_id) ? editForm.sucursal_id : (tiendasOps[0] || 'MAIN')),
+                  });
+                }}
+              >
+                <option value="tienda">Empleado de tienda (máx. {MAX_EMPLEADOS_POR_TIENDA})</option>
+                <option value="indirecto">Indirecto / MAIN (todas las sucursales)</option>
+              </select>
+            </label>
+            <label className="muted">
+              {editForm.tipo_empleado === 'indirecto' ? 'Sucursal (MAIN)' : 'Sucursal asignada'}
+              <select
+                className="select"
+                style={{ marginTop: '0.35rem' }}
+                value={editForm.tipo_empleado === 'indirecto' ? 'MAIN' : editForm.sucursal_id}
+                disabled={editForm.tipo_empleado === 'indirecto'}
+                onChange={(e) => setEditForm({ ...editForm, sucursal_id: e.target.value })}
+              >
+                {(editForm.tipo_empleado === 'indirecto' ? ['MAIN'] : tiendasOps).map((s) => (
                   <option key={s} value={s}>
                     {etiquetaTienda(s)}
                   </option>
