@@ -178,7 +178,7 @@ export function empleadosParaCorte(empleados, sucursalActiva, _modulo = null, _a
     if (rol === 'Administrador') push(e, { es_admin_global_corte: true });
   }
 
-  return mergeIndirectosTodasLasTiendas(out, empleados);
+  return mergeIndirectosTodasLasTiendas(dedupeEmpleadosPorNombre(out), empleados);
 }
 
 /** Agrupa la lista ya filtrada de corte para <optgroup>. */
@@ -186,7 +186,7 @@ export function agruparEmpleadosParaSelectCorte(empleados) {
   const tienda = [];
   const indirectos = [];
   const admins = [];
-  for (const e of empleados || []) {
+  for (const e of dedupeEmpleadosPorNombre(empleados || [])) {
     const rol = normalizarRol(e.rol);
     if (rol === 'Administrador' || e.es_admin_global_corte) {
       admins.push(e);
@@ -206,28 +206,86 @@ export function agruparEmpleadosParaSelectCorte(empleados) {
   };
 }
 
+/** Normaliza nombre para comparar personas (Gonzalo ≈ Gonzalo Leal). */
+export function normalizarNombrePersona(nombre) {
+  return String(nombre || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+/** True si parecen la misma persona (nombre corto vs nombre completo). */
+export function nombresMismaPersona(a, b) {
+  const na = normalizarNombrePersona(a);
+  const nb = normalizarNombrePersona(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (na.startsWith(`${nb} `) || nb.startsWith(`${na} `)) return true;
+  const ta = na.split(' ');
+  const tb = nb.split(' ');
+  if (ta[0] && ta[0] === tb[0] && ta[0].length >= 4) {
+    if (na.startsWith(nb) || nb.startsWith(na)) return true;
+    if (ta.length >= 2 && tb.length >= 2 && ta[1] === tb[1]) return true;
+  }
+  return false;
+}
+
+function scoreEmpleadoDedup(e) {
+  let s = 0;
+  const id = String(e?.id || '');
+  if (id && !id.startsWith('indirect:')) s += 20;
+  s += String(e?.nombre || '').trim().length;
+  if (e?.es_indirecto_corte || resolverTipoEmpleado(e) === 'indirecto') s += 2;
+  return s;
+}
+
+/** Quita duplicados tipo Gonzalo / Gonzalo Leal; prioriza registro real y nombre más completo. */
+export function dedupeEmpleadosPorNombre(lista) {
+  const out = [];
+  for (const e of lista || []) {
+    if (!e) continue;
+    const idx = out.findIndex((x) => nombresMismaPersona(x.nombre, e.nombre));
+    if (idx < 0) {
+      out.push(e);
+      continue;
+    }
+    const prev = out[idx];
+    if (scoreEmpleadoDedup(e) > scoreEmpleadoDedup(prev)) {
+      out[idx] = {
+        ...e,
+        es_indirecto_corte: Boolean(prev.es_indirecto_corte || e.es_indirecto_corte),
+        es_admin_global_corte: Boolean(prev.es_admin_global_corte || e.es_admin_global_corte),
+      };
+    } else {
+      out[idx] = {
+        ...prev,
+        es_indirecto_corte: Boolean(prev.es_indirecto_corte || e.es_indirecto_corte),
+        es_admin_global_corte: Boolean(prev.es_admin_global_corte || e.es_admin_global_corte),
+      };
+    }
+  }
+  return out;
+}
+
 /** Indirectos en todas las tiendas y módulos de corte (no filtrar por área). */
 function mergeIndirectosTodasLasTiendas(lista, todosUsuarios) {
   const ids = new Set(lista.map((e) => String(e.id)));
-  const nombres = new Set(
-    lista.map((e) => String(e.nombre || '').trim().toLowerCase()).filter(Boolean),
-  );
-  const out = [...lista];
+  let out = [...lista];
 
-  // Marcar usuarios tipo_empleado=indirecto ya presentes
   for (const e of out) {
     if (resolverTipoEmpleado(e) === 'indirecto') e.es_indirecto_corte = true;
   }
 
   for (const b of BENEFICIARIOS_VALES) {
-    const nom = b.nombre.toLowerCase();
-    if (nombres.has(nom)) {
-      const hit = out.find((e) => String(e.nombre || '').trim().toLowerCase() === nom);
-      if (hit) hit.es_indirecto_corte = true;
+    const hit = out.find((e) => nombresMismaPersona(e.nombre, b.nombre));
+    if (hit) {
+      hit.es_indirecto_corte = true;
       continue;
     }
     const match = (todosUsuarios || []).find(
-      (u) => u?.activo !== false && String(u.nombre || '').trim().toLowerCase() === nom,
+      (u) => u?.activo !== false && nombresMismaPersona(u.nombre, b.nombre),
     );
     if (match) {
       if (!ids.has(String(match.id))) {
@@ -237,7 +295,6 @@ function mergeIndirectosTodasLasTiendas(lista, todosUsuarios) {
           es_indirecto_corte: true,
         });
         ids.add(String(match.id));
-        nombres.add(nom);
       }
     } else if (!ids.has(`indirect:${b.id}`)) {
       out.push({
@@ -250,23 +307,19 @@ function mergeIndirectosTodasLasTiendas(lista, todosUsuarios) {
         es_indirecto_corte: true,
       });
       ids.add(`indirect:${b.id}`);
-      nombres.add(nom);
     }
   }
 
+  out = dedupeEmpleadosPorNombre(out);
   return out.sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));
 }
 
 /** Añade placeholders de indirectos para cruce de gastos en nómina. */
 export function enriquecerEmpleadosNominaIndirectos(empleados) {
   const ids = new Set((empleados || []).map((e) => String(e.id)));
-  const nombres = new Set(
-    (empleados || []).map((e) => String(e.nombre || '').trim().toLowerCase()).filter(Boolean),
-  );
   const out = [...(empleados || [])];
   for (const b of BENEFICIARIOS_VALES) {
-    const nom = b.nombre.toLowerCase();
-    if (nombres.has(nom)) continue;
+    if (out.some((e) => nombresMismaPersona(e.nombre, b.nombre))) continue;
     const id = `indirect:${b.id}`;
     if (ids.has(id)) continue;
     out.push({
@@ -279,9 +332,8 @@ export function enriquecerEmpleadosNominaIndirectos(empleados) {
       es_indirecto: true,
     });
     ids.add(id);
-    nombres.add(nom);
   }
-  return out;
+  return dedupeEmpleadosPorNombre(out);
 }
 
 /** Lista global para nómina: empleados operativos de todas las sucursales (sin placeholders indirectos). */

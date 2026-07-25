@@ -28,8 +28,8 @@ import {
 import {
   enriquecerCatalogoConEmpleados,
   esCategoriaEmpleado,
-  plantillaDetallesEmpleado,
 } from '../lib/catalogoEmpleadoGastos.js';
+import { agruparEmpleadosParaSelectCorte, empleadosParaCorte } from '../lib/empleadosVisibles.js';
 import { eliminarEgresoDesdePanelIe, registrarEgresoContVirtual } from '../lib/contVirtualEgresos.js';
 import {
   AVISO_FALTA_INVERSIONES_OFICINA,
@@ -331,6 +331,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     categoria_id: 'manual',
     subcategoria_id: 'manual-otros',
     detalle_id: '',
+    empleado_id: '',
     monto: '',
     descripcion: '',
   });
@@ -586,20 +587,23 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
   const calCells = useMemo(() => buildCalendarCells(anio, mes, byFecha), [anio, mes, byFecha]);
 
-  const catalogoManual = useMemo(
-    () => enriquecerCatalogoConEmpleados(catalogo, usuariosCat, manual.sucursal_id || catEmpSucursal || sucursalActiva),
-    [catalogo, usuariosCat, manual.sucursal_id, catEmpSucursal, sucursalActiva],
-  );
-
   const subsManual = useMemo(() => {
-    const cat = catalogoManual.find((c) => c.id === manual.categoria_id);
+    const cat = catalogo.find((c) => c.id === manual.categoria_id);
     return (cat?.subcategorias || []).filter((s) => s.activo !== false);
-  }, [catalogoManual, manual.categoria_id]);
+  }, [catalogo, manual.categoria_id]);
 
   const detsManual = useMemo(() => {
     const sub = subsManual.find((s) => s.id === manual.subcategoria_id);
     return (sub?.detalles || []).filter((d) => d.activo !== false);
   }, [subsManual, manual.subcategoria_id]);
+
+  const manualEsEmpleado = esCategoriaEmpleado(catalogo.find((c) => c.id === manual.categoria_id));
+  const gruposManualEmp = useMemo(() => {
+    if (!manualEsEmpleado) return { tienda: [], indirectos: [], admins: [] };
+    return agruparEmpleadosParaSelectCorte(
+      empleadosParaCorte(usuariosCat, manual.sucursal_id || sucursalActiva),
+    );
+  }, [manualEsEmpleado, usuariosCat, manual.sucursal_id, sucursalActiva]);
 
   const subsParaNuevoDet = useMemo(() => {
     const cat = catalogo.find((c) => c.id === nuevaDet.categoriaId);
@@ -643,39 +647,17 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     if (!(monto > 0)) return alert('Indica un monto válido.');
     if (!manual.sucursal_id) return alert('Elige la sucursal del egreso.');
     if (!manual.categoria_id) return alert('Elige categoría.');
-    const catVista = enriquecerCatalogoConEmpleados(
-      catalogo,
-      usuariosCat,
-      manual.sucursal_id || catEmpSucursal || sucursalActiva,
-    );
+    const catEmp = esCategoriaEmpleado(catalogo.find((c) => c.id === manual.categoria_id));
+    if (catEmp && !manual.empleado_id) return alert('Elige el empleado (Main o tienda).');
     const nombres = resolverNombresCatalogo(
-      catVista,
+      catalogo,
       manual.categoria_id,
       manual.subcategoria_id,
       manual.detalle_id || null,
     );
-    const subViva = (catVista.find((c) => c.id === manual.categoria_id)?.subcategorias || [])
-      .find((s) => s.id === manual.subcategoria_id);
-    const catRaw = catalogo.find((c) => c.id === manual.categoria_id);
-    let subcategoria_id = manual.subcategoria_id || null;
-    let subcategoria_nombre = nombres.subcategoria_nombre;
-    let detalle_id = manual.detalle_id || null;
-    let detalle_nombre = nombres.detalle_nombre || null;
-    let usuario_nombre = user?.nombre || 'Administrador';
-    if (subViva?.es_empleado_vivo) {
-      // Persistir tipo de gasto real (plantilla) + nombre del empleado
-      const tipoNom = String(detalle_nombre || '').trim();
-      const plantillaHit = (catRaw?.subcategorias || []).find(
-        (s) => String(s.nombre || '').trim().toUpperCase() === tipoNom.toUpperCase(),
-      );
-      subcategoria_id = plantillaHit?.id || null;
-      subcategoria_nombre = tipoNom
-        ? `${subViva.nombre} › ${tipoNom}`
-        : subViva.nombre;
-      detalle_id = null;
-      detalle_nombre = tipoNom || null;
-      usuario_nombre = subViva.nombre;
-    }
+    const emp = catEmp
+      ? empleadosParaCorte(usuariosCat, manual.sucursal_id).find((e) => String(e.id) === String(manual.empleado_id))
+      : null;
     setGuardando(true);
     const res = await registrarEgresoContVirtual(supabase, {
       fecha: manual.fecha || hoyYmd(),
@@ -683,19 +665,19 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       cuenta: manual.cuenta || (esFrancisco ? 'abarrotes' : 'virtual'),
       categoria_id: manual.categoria_id,
       categoria_nombre: nombres.categoria_nombre,
-      subcategoria_id,
-      subcategoria_nombre,
-      detalle_id,
-      detalle_nombre,
+      subcategoria_id: manual.subcategoria_id || null,
+      subcategoria_nombre: nombres.subcategoria_nombre,
+      detalle_id: manual.detalle_id || null,
+      detalle_nombre: nombres.detalle_nombre || null,
       monto,
       descripcion: manual.descripcion,
       fuente: 'manual',
-      usuario_nombre,
+      usuario_nombre: emp?.nombre || user?.nombre || 'Administrador',
     });
     setGuardando(false);
     if (!res.ok) return alert(res.error);
     if (res.aviso) alert(res.aviso);
-    setManual((m) => ({ ...m, monto: '', descripcion: '' }));
+    setManual((m) => ({ ...m, monto: '', descripcion: '', empleado_id: '' }));
     setShowManual(false);
     cargar();
   };
@@ -855,17 +837,6 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
   const nuevaSubEnCat = async (categoriaId, categoriaNombre) => {
     if (!esAdmin) return;
-    const cat = catalogo.find((c) => c.id === categoriaId);
-    if (esCategoriaEmpleado(cat)) {
-      const nombre = prompt(
-        `Nuevo tipo de gasto (detalle) para cada empleado en «${categoriaNombre}»:\n(Ej. Consumo, Anticipo, Recargas…)`,
-      );
-      if (!nombre?.trim()) return;
-      const res = await crearSubcategoriaContVirtual(supabase, { categoriaId, nombre });
-      if (!res.ok) return alert(res.error);
-      await cargarCatalogo();
-      return;
-    }
     const nombre = prompt(`Nueva subcategoría en «${categoriaNombre}»:`);
     if (!nombre?.trim()) return;
     const res = await crearSubcategoriaContVirtual(supabase, { categoriaId, nombre });
@@ -1460,113 +1431,9 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       );
     }
     if (masVista === 'catalogo') {
-      const renderEmpleadoCat = (c) => {
-        const plantilla = c.plantilla_detalles || plantillaDetallesEmpleado(c);
-        const main = c.grupos_empleado?.main || [];
-        const tiendaGrupos = c.grupos_empleado?.tiendaGrupos || [];
-        const catRaw = catalogo.find((x) => x.id === c.id) || c;
-        return (
-          <div key={c.id} className="cv-cat-card">
-            <div className="cv-cat-hd">
-              <strong>{c.nombre}{c.fijo ? ' · sistema' : ''}</strong>
-              {esAdmin && (
-                <span className="cv-cat-actions">
-                  <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => nuevaSubEnCat(c.id, c.nombre)}>+ Tipo gasto</button>
-                  <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarCategoria(catRaw)}>Editar</button>
-                  <button type="button" className="cv-row-del" onClick={() => borrarCategoria(catRaw)}>
-                    {c.fijo ? 'Desactivar' : 'Eliminar'}
-                  </button>
-                </span>
-              )}
-            </div>
-            <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.5rem' }}>
-              Empleados de <strong>Main</strong> en todas las tiendas. Empleados de <strong>tienda</strong> solo los de la sucursal elegida (máx. 2).
-              Cada uno tiene los mismos tipos: consumo, faltante, anticipo, recarga, etc. Altas en el módulo Empleados.
-            </p>
-            <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', marginBottom: '0.65rem' }}>
-              Sucursal (empleados de tienda)
-              <select
-                className="select"
-                style={{ minWidth: 140 }}
-                value={catEmpSucursal}
-                onChange={(e) => setCatEmpSucursal(e.target.value)}
-              >
-                <option value="">Todas (vista admin)</option>
-                {tiendas.filter((t) => normalizarCodigoTienda(t) !== 'MAIN').map((t) => (
-                  <option key={t} value={normalizarCodigoTienda(t)}>{etiquetaTienda(t)}</option>
-                ))}
-              </select>
-            </label>
-            <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.5rem' }}>
-              Tipos de gasto por empleado:{' '}
-              {plantilla.map((d) => d.nombre).join(' · ') || '—'}
-            </div>
-            <ul>
-              <li className="cv-sub-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.35rem', background: 'rgba(0,0,0,0.04)' }}>
-                <strong style={{ fontSize: '0.85rem' }}>Empleados de Main (todas las sucursales)</strong>
-              </li>
-              {main.length ? main.map((e) => {
-                const sub = (c.subcategorias || []).find((s) => String(s.usuario_id) === String(e.id));
-                return (
-                  <li key={`main-${e.id}`} className="cv-sub-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.35rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'center' }}>
-                      <span>{e.nombre}</span>
-                      {esAdmin && (
-                        <span className="cv-cat-actions">
-                          <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarEmpleadoCat(sub || { usuario_id: e.id, nombre: e.nombre })}>Editar</button>
-                          <button type="button" className="cv-row-del" onClick={() => eliminarEmpleadoCat(sub || { usuario_id: e.id, nombre: e.nombre })}>Eliminar</button>
-                        </span>
-                      )}
-                    </div>
-                    <ul style={{ margin: 0, paddingLeft: '1rem', listStyle: 'disc' }}>
-                      {(sub?.detalles || plantilla).map((d) => (
-                        <li key={d.id || d.nombre} className="muted" style={{ fontSize: '0.82rem', padding: '0.1rem 0' }}>{d.nombre}</li>
-                      ))}
-                    </ul>
-                  </li>
-                );
-              }) : (
-                <li className="muted" style={{ fontSize: '0.8rem' }}>Sin empleados Main / indirectos. Dales de alta en Empleados → Indirecto/MAIN.</li>
-              )}
-              <li className="cv-sub-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.35rem', background: 'rgba(0,0,0,0.04)', marginTop: '0.35rem' }}>
-                <strong style={{ fontSize: '0.85rem' }}>Empleados de tienda</strong>
-              </li>
-              {tiendaGrupos.length ? tiendaGrupos.map((g) => (
-                <React.Fragment key={`tg-${g.sucursalId}`}>
-                  <li className="muted" style={{ fontSize: '0.78rem', listStyle: 'none', padding: '0.35rem 0 0.15rem' }}>
-                    {g.label} · {(g.empleados || []).length}/2
-                  </li>
-                  {(g.empleados || []).length ? (g.empleados || []).map((e) => {
-                    const sub = (c.subcategorias || []).find((s) => String(s.usuario_id) === String(e.id));
-                    return (
-                      <li key={`tienda-${e.id}`} className="cv-sub-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.35rem' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'center' }}>
-                          <span>{e.nombre}</span>
-                          {esAdmin && (
-                            <span className="cv-cat-actions">
-                              <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarEmpleadoCat(sub || { usuario_id: e.id, nombre: e.nombre })}>Editar</button>
-                              <button type="button" className="cv-row-del" onClick={() => eliminarEmpleadoCat(sub || { usuario_id: e.id, nombre: e.nombre })}>Eliminar</button>
-                            </span>
-                          )}
-                        </div>
-                        <ul style={{ margin: 0, paddingLeft: '1rem', listStyle: 'disc' }}>
-                          {(sub?.detalles || plantilla).map((d) => (
-                            <li key={d.id || d.nombre} className="muted" style={{ fontSize: '0.82rem', padding: '0.1rem 0' }}>{d.nombre}</li>
-                          ))}
-                        </ul>
-                      </li>
-                    );
-                  }) : (
-                    <li className="muted" style={{ fontSize: '0.8rem' }}>Sin empleados de tienda en esta sucursal.</li>
-                  )}
-                </React.Fragment>
-              )) : (
-                <li className="muted" style={{ fontSize: '0.8rem' }}>Elige una sucursal o da de alta empleados de tienda.</li>
-              )}
-            </ul>
-          </div>
-        );
-      };
+      const catEmpVista = (catalogoVista || []).find((c) => esCategoriaEmpleado(c));
+      const empMain = catEmpVista?.grupos_empleado?.main || [];
+      const empTienda = catEmpVista?.grupos_empleado?.tiendaGrupos || [];
 
       return (
         <div className="cv-catalogo">
@@ -1577,11 +1444,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           </div>
           <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.75rem' }}>
             Catálogo compartido de IE (Virtual y Abarrotes): <strong>Categoría → Subcategoría → Detalle</strong>.
-            En <strong>Empleado</strong> se listan Main e tienda; cada persona tiene sus tipos de gasto.
+            Puedes editar o eliminar los tres niveles. En <strong>Empleado</strong>, abajo ves quién aplica (Main / tienda).
           </p>
           {!esAdmin && <p className="cv-error">Solo el administrador puede editar categorías.</p>}
-          {(catalogoVista || []).map((c) => (
-            esCategoriaEmpleado(c) ? renderEmpleadoCat(c) : (
+          {(catalogo || []).map((c) => (
             <div key={c.id} className="cv-cat-card">
               <div className="cv-cat-hd">
                 <strong>{c.nombre}{c.fijo ? ' · sistema' : ''}</strong>
@@ -1632,8 +1498,68 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                   <li className="muted">Sin subcategorías</li>
                 )}
               </ul>
+              {esCategoriaEmpleado(c) && (
+                <div style={{ marginTop: '0.75rem', paddingTop: '0.65rem', borderTop: '1px dashed var(--border, #ddd)' }}>
+                  <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.45rem' }}>
+                    Personal que puede recibir estos gastos: <strong>Main</strong> (todas las tiendas) y <strong>tienda</strong> (solo la sucursal).
+                    Al capturar en corte o egreso manual se elige la persona. Altas en módulo Empleados.
+                  </p>
+                  <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
+                    Sucursal tienda
+                    <select
+                      className="select"
+                      style={{ minWidth: 140 }}
+                      value={catEmpSucursal}
+                      onChange={(e) => setCatEmpSucursal(e.target.value)}
+                    >
+                      <option value="">Todas</option>
+                      {tiendas.filter((t) => normalizarCodigoTienda(t) !== 'MAIN').map((t) => (
+                        <option key={t} value={normalizarCodigoTienda(t)}>{etiquetaTienda(t)}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <ul>
+                    <li className="cv-sub-row" style={{ background: 'rgba(0,0,0,0.04)', fontWeight: 700, fontSize: '0.82rem' }}>
+                      Empleados de Main
+                    </li>
+                    {empMain.length ? empMain.map((e) => (
+                      <li key={`m-${e.id}`} className="cv-sub-row" style={{ justifyContent: 'space-between' }}>
+                        <span>{e.nombre}</span>
+                        {esAdmin && (
+                          <span className="cv-cat-actions">
+                            <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarEmpleadoCat({ usuario_id: e.id, nombre: e.nombre })}>Editar</button>
+                            <button type="button" className="cv-row-del" onClick={() => eliminarEmpleadoCat({ usuario_id: e.id, nombre: e.nombre })}>Eliminar</button>
+                          </span>
+                        )}
+                      </li>
+                    )) : (
+                      <li className="muted" style={{ fontSize: '0.78rem' }}>Sin Main / indirectos</li>
+                    )}
+                    <li className="cv-sub-row" style={{ background: 'rgba(0,0,0,0.04)', fontWeight: 700, fontSize: '0.82rem', marginTop: '0.25rem' }}>
+                      Empleados de tienda
+                    </li>
+                    {empTienda.map((g) => (
+                      <React.Fragment key={`tg-${g.sucursalId}`}>
+                        <li className="muted" style={{ fontSize: '0.75rem', listStyle: 'none' }}>{g.label} · {(g.empleados || []).length}/2</li>
+                        {(g.empleados || []).length ? (g.empleados || []).map((e) => (
+                          <li key={`t-${e.id}`} className="cv-sub-row" style={{ justifyContent: 'space-between' }}>
+                            <span>{e.nombre}</span>
+                            {esAdmin && (
+                              <span className="cv-cat-actions">
+                                <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarEmpleadoCat({ usuario_id: e.id, nombre: e.nombre })}>Editar</button>
+                                <button type="button" className="cv-row-del" onClick={() => eliminarEmpleadoCat({ usuario_id: e.id, nombre: e.nombre })}>Eliminar</button>
+                              </span>
+                            )}
+                          </li>
+                        )) : (
+                          <li className="muted" style={{ fontSize: '0.78rem' }}>Sin empleados de tienda</li>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
-            )
           ))}
           {esAdmin && (
             <div className="cv-nota-form">
@@ -1896,18 +1822,14 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                 value={manual.categoria_id}
                 onChange={(e) => {
                   const categoria_id = e.target.value;
-                  const catM = enriquecerCatalogoConEmpleados(
-                    catalogo,
-                    usuariosCat,
-                    manual.sucursal_id || catEmpSucursal || sucursalActiva,
-                  ).find((c) => c.id === categoria_id);
-                  const firstSub = (catM?.subcategorias || []).find((s) => s.activo !== false);
+                  const firstSub = (catalogo.find((c) => c.id === categoria_id)?.subcategorias || []).find((s) => s.activo !== false);
                   const firstDet = (firstSub?.detalles || []).find((d) => d.activo !== false);
                   setManual({
                     ...manual,
                     categoria_id,
                     subcategoria_id: firstSub?.id || '',
                     detalle_id: firstDet?.id || '',
+                    empleado_id: '',
                   });
                 }}
               >
@@ -1916,8 +1838,33 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                 ))}
               </select>
             </label>
+            {manualEsEmpleado && (
+              <label>
+                Empleado (Main / tienda)
+                <select
+                  value={manual.empleado_id}
+                  onChange={(e) => setManual({ ...manual, empleado_id: e.target.value })}
+                >
+                  <option value="">Elige empleado…</option>
+                  {gruposManualEmp.tienda.length > 0 && (
+                    <optgroup label="Empleados de esta tienda">
+                      {gruposManualEmp.tienda.map((e) => (
+                        <option key={e.id} value={e.id}>{e.nombre}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {gruposManualEmp.indirectos.length > 0 && (
+                    <optgroup label="Indirectos / MAIN">
+                      {gruposManualEmp.indirectos.map((e) => (
+                        <option key={e.id} value={e.id}>{e.nombre}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </label>
+            )}
             <label>
-              {esCategoriaEmpleado(catalogo.find((c) => c.id === manual.categoria_id)) ? 'Empleado' : 'Subcategoría'}
+              Subcategoría
               <select
                 value={manual.subcategoria_id}
                 onChange={(e) => {
@@ -1927,13 +1874,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                   setManual({ ...manual, subcategoria_id, detalle_id: firstDet?.id || '' });
                 }}
               >
-                {!subsManual.length && <option value="">Sin empleados en esta sucursal</option>}
                 {subsManual.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.es_empleado_vivo
-                      ? `${s.grupo_empleado === 'main' ? 'Main · ' : 'Tienda · '}${s.nombre}`
-                      : s.nombre}
-                  </option>
+                  <option key={s.id} value={s.id}>{s.nombre}</option>
                 ))}
               </select>
             </label>

@@ -5,6 +5,7 @@
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import {
   agruparEmpleadosCatalogo,
+  dedupeEmpleadosPorNombre,
   esEmpleadoIndirectoOMain,
   resolverTipoEmpleado,
 } from './empleadosVisibles.js';
@@ -58,6 +59,7 @@ export function plantillaDetallesEmpleado(cat) {
 export function empleadosParaCatalogoEmpleado(empleados, sucursalActiva) {
   const { porTienda, indirectos } = agruparEmpleadosCatalogo(empleados, { incluirBajas: false });
   const suc = normalizarCodigoTienda(sucursalActiva);
+  const main = dedupeEmpleadosPorNombre(indirectos);
 
   let tiendaGrupos;
   if (suc && suc !== 'MAIN') {
@@ -66,7 +68,7 @@ export function empleadosParaCatalogoEmpleado(empleados, sucursalActiva) {
       {
         sucursalId: suc,
         label: etiquetaTienda(suc),
-        empleados: g?.empleados || [],
+        empleados: dedupeEmpleadosPorNombre(g?.empleados || []),
       },
     ];
   } else {
@@ -75,12 +77,12 @@ export function empleadosParaCatalogoEmpleado(empleados, sucursalActiva) {
       .map((g) => ({
         sucursalId: g.sucursalId,
         label: etiquetaTienda(g.sucursalId),
-        empleados: g.empleados,
+        empleados: dedupeEmpleadosPorNombre(g.empleados),
       }));
   }
 
   return {
-    main: indirectos,
+    main,
     tiendaGrupos,
     plantilla: null,
   };
