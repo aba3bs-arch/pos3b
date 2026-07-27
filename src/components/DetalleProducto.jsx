@@ -64,7 +64,7 @@ export default function DetalleProducto({
   return (
     <div className="prod-detalle">
       <div className="prod-detalle-header">
-        <ProductoThumb producto={producto} size={110} className="prod-detalle-foto" referencias />
+        <ProductoThumb producto={producto} size={110} className="prod-detalle-foto" />
         <div className="prod-detalle-info">
           <div className="prod-detalle-codigo">
             <span>{producto.id}</span>
