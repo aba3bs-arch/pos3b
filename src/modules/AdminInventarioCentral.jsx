@@ -10,6 +10,7 @@ import {
   stockAlmacenCentral,
 } from '../lib/inventarioMultitienda.js';
 import AjusteInventario from './AjusteInventario.jsx';
+import CampoCodigo from '../components/CampoCodigo.jsx';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 
 export default function AdminInventarioCentral({
@@ -91,13 +92,16 @@ export default function AdminInventarioCentral({
         <div style={{ marginTop: '1rem' }}>
           <label className="muted" style={{ display: 'block', marginBottom: '0.75rem' }}>
             Buscar producto
-            <input
-              className="input"
-              style={{ marginTop: '0.35rem' }}
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              placeholder="Código o nombre…"
-            />
+            <div style={{ marginTop: '0.35rem' }}>
+              <CampoCodigo
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                onEscanear={(codigo) => setBusqueda(String(codigo || '').trim())}
+                beepAlEnter
+                placeholder="Código o nombre… usa Escanear"
+                tituloCamara="Buscar producto en inventario central"
+              />
+            </div>
           </label>
           <div className="table-wrap">
             <table className="data" style={{ fontSize: '0.82rem' }}>

@@ -540,14 +540,21 @@ export default function AjusteLibre({
                   Cerrar
                 </button>
               </div>
-              <input
-                className="input"
+              <CampoCodigo
                 value={busquedaCatalogo}
                 onChange={(e) => {
                   setBusquedaCatalogo(e.target.value);
                   if (avisoBusqueda) setAvisoBusqueda('');
                 }}
-                placeholder="Buscar por nombre o código…"
+                onEscanear={(codigo) => {
+                  const c = String(codigo || '').trim();
+                  if (!c) return;
+                  if (avisoBusqueda) setAvisoBusqueda('');
+                  procesarEscaneo(c);
+                }}
+                beepAlEnter
+                placeholder="Buscar por nombre o código… usa Cámara"
+                tituloCamara="Buscar en catálogo"
                 autoFocus
               />
               {avisoBusqueda ? (

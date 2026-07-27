@@ -11,7 +11,7 @@ import { normalizarCodigoTienda } from '../constants/sucursales.js';
 import { guardarMovimientoLocal } from '../lib/inventarioMovimientos.js';
 import { sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
-import { productoCoincideBusqueda, productoPorCodigoExacto } from '../lib/buscarProductoTexto.js';
+import { productoCoincideBusqueda, productoPorCodigoExacto, pareceCodigoProducto } from '../lib/buscarProductoTexto.js';
 
 function addToCart(carrito, producto) {
   const i = carrito.findIndex((c) => c.id === producto.id);
@@ -286,6 +286,9 @@ export default function Ventas({
       return;
     }
     setBusqueda(c);
+    if (pareceCodigoProducto(c)) {
+      alert(`No se encontró el producto ${c} en el catálogo de venta.`);
+    }
   };
 
   return (
@@ -296,8 +299,8 @@ export default function Ventas({
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
             onEscanear={procesarCodigoCamara}
-            placeholder="Escanee código o busque por nombre…"
-            tituloCamara="Escanear producto"
+            placeholder="Escanea con Cámara o busca por nombre…"
+            tituloCamara="Escanear producto del catálogo"
             onKeyDown={(e) => {
               if (e.key !== 'Enter') return;
               const q = (busqueda || '').trim();

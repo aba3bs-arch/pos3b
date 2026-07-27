@@ -122,7 +122,7 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
         </button>
       </div>
       <p style={{ margin: '0 0 0.75rem', color: 'rgba(255,255,255,0.8)', fontSize: '0.85rem' }}>
-        Apunta al código de barras dentro del recuadro. Funciona en celular y tablet (HTTPS).
+        Apunta al código de barras del producto. Al leerlo se busca en el catálogo (celular o tablet con HTTPS).
       </p>
       {error ? (
         <div className="card" style={{ color: 'var(--brand-red)', marginBottom: '0.75rem' }}>
@@ -146,7 +146,7 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
   );
 }
 
-export function BotonEscanerCamara({ onCodigo, titulo, label = 'Cámara', className = 'btn btn-camera', style }) {
+export function BotonEscanerCamara({ onCodigo, titulo, label = 'Escanear', className = 'btn btn-camera', style }) {
   const [abierto, setAbierto] = useState(false);
   if (!camaraEscaneoDisponible()) return null;
 

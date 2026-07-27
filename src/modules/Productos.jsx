@@ -27,7 +27,7 @@ import HistorialProducto from '../components/HistorialProducto.jsx';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { esAlmacenCentral, etiquetaCedisEmpresa } from '../lib/inventarioMultitienda.js';
 import { sincronizarFotosCatalogo, tieneFoto } from '../lib/fotosCatalogo.js';
-import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
+import { productoCoincideBusqueda, productoPorCodigoExacto } from '../lib/buscarProductoTexto.js';
 
 const empty = productoVacio();
 
@@ -631,12 +631,20 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                     value={q}
                     onChange={(e) => setQ(e.target.value)}
                     onEscanear={(codigo) => {
-                      setQ(codigo);
+                      const c = String(codigo || '').trim();
                       setFiltros(FILTROS_VACIOS);
                       setFiltrosDraft(FILTROS_VACIOS);
+                      const exacto = productoPorCodigoExacto(inventario, c);
+                      if (exacto) {
+                        setQ(String(exacto.id));
+                        seleccionarProducto(exacto);
+                        return;
+                      }
+                      setQ(c);
+                      alert(`No se encontró el producto con código ${c} en el catálogo.`);
                     }}
                     beepAlEnter
-                    placeholder="Buscar o escanear…"
+                    placeholder="Buscar o escanear con cámara…"
                     tituloCamara="Buscar producto en catálogo"
                     inputStyle={{ flex: 1, minWidth: 0 }}
                   />

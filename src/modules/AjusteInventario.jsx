@@ -295,6 +295,35 @@ export default function AjusteInventario({
     setBusquedaMasiva('');
   };
 
+  const procesarEscaneoMasivo = (raw) => {
+    const codigo = String(raw ?? busquedaMasiva).trim();
+    if (!codigo) return;
+    const base = catalogoCompleto;
+    if (!base?.length) {
+      return alert('El inventario aún no está cargado. Ve a Productos, espera a que aparezca la lista y vuelve a intentar.');
+    }
+    const { producto, ambiguo } = buscarProductoInventario(base, codigo);
+    if (ambiguo) {
+      setBusquedaMasiva(codigo);
+      alert('Varios productos coinciden. Elige uno de la lista.');
+      return;
+    }
+    if (!producto) {
+      setBusquedaMasiva(codigo);
+      alert(`No está en el catálogo: ${codigo}`);
+      return;
+    }
+    if (lineasMasivas.some((l) => l.productoId === producto.id)) {
+      setProductoMasivoId(producto.id);
+      setBusquedaMasiva('');
+      alert('Ese producto ya está en la lista.');
+      return;
+    }
+    setLineasMasivas([...lineasMasivas, { productoId: producto.id, cantidad: '1' }]);
+    setProductoMasivoId('');
+    setBusquedaMasiva('');
+  };
+
   const actualizarCantidadMasiva = (productoId, cantidad) => {
     setLineasMasivas(lineasMasivas.map((l) => (l.productoId === productoId ? { ...l, cantidad } : l)));
   };
@@ -539,8 +568,10 @@ export default function AjusteInventario({
                   <CampoCodigo
                     value={busquedaMasiva}
                     onChange={(e) => setBusquedaMasiva(e.target.value)}
-                    placeholder="Nombre o código…"
-                    tituloCamara="Buscar en entrada masiva"
+                    onEscanear={procesarEscaneoMasivo}
+                    beepAlEnter
+                    placeholder="Nombre o código… usa Cámara"
+                    tituloCamara="Escanear producto a ingresar"
                   />
                 </div>
               </label>
@@ -854,7 +885,14 @@ export default function AjusteInventario({
             <label className="muted" style={{ gridColumn: '1 / -1' }}>
               O buscar por nombre / código
               <div style={{ marginTop: '0.35rem' }}>
-                <CampoCodigo value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Nombre o código…" tituloCamara="Buscar producto" />
+                <CampoCodigo
+                  value={busqueda}
+                  onChange={(e) => setBusqueda(e.target.value)}
+                  onEscanear={procesarEscaneo}
+                  beepAlEnter
+                  placeholder="Nombre o código… usa Cámara"
+                  tituloCamara="Buscar producto en inventario"
+                />
               </div>
             </label>
             <label className="muted">
