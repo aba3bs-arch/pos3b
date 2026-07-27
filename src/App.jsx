@@ -485,13 +485,14 @@ function App() {
         if (tiendaFijadaParaAcceso) bloquearTiendaEnEsteEquipo(ajustarSucursal);
       }
       if (vinculo.vincular && data.id && !esAdministradorSinAnclaje(data.rol)) {
-        const resVinculo = await vincularDispositivoUsuario(supabase, data.id, vinculo.deviceId);
+        const resVinculo = await vincularDispositivoUsuario(supabase, data.id, vinculo.deviceId, data);
         if (!resVinculo.ok) {
           alert(resVinculo.error);
           setPin('');
           return false;
         }
-        data.dispositivo_id = vinculo.deviceId;
+        if (resVinculo.dispositivo_id) data.dispositivo_id = resVinculo.dispositivo_id;
+        if (resVinculo.dispositivo_id_2) data.dispositivo_id_2 = resVinculo.dispositivo_id_2;
       }
       setUser(data);
       setSesion(true);

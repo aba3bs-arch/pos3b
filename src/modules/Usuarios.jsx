@@ -153,12 +153,19 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
 
   const liberarEquipo = async (r) => {
     if (!supabase || !esAdmin || !r?.id) return;
-    if (!r.dispositivo_id) return alert('Este usuario no tiene equipo vinculado.');
-    if (!confirm(`¿Liberar el equipo vinculado de ${r.nombre}? Podrá entrar desde otra computadora al fijar tienda de nuevo.`)) return;
+    const n = [r.dispositivo_id, r.dispositivo_id_2].filter(Boolean).length;
+    if (!n) return alert('Este usuario no tiene equipo vinculado.');
+    if (
+      !confirm(
+        `¿Liberar ${n === 1 ? 'el equipo vinculado' : 'los 2 equipos vinculados'} de ${r.nombre}? Podrá anclar de nuevo al entrar en una tienda fijada.`,
+      )
+    ) {
+      return;
+    }
     const res = await liberarDispositivoUsuario(supabase, r.id);
     if (!res.ok) return alert(res.error);
     load();
-    alert('Equipo liberado.');
+    alert(n === 1 ? 'Equipo liberado.' : 'Equipos liberados.');
   };
 
   const crear = async () => {
@@ -477,8 +484,10 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
               <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => abrirEdicion(r)}>Editar</button>
               <button type="button" className="btn btn-gold" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => togglePinVisible(r.id)}>{pinsVisibles.has(r.id) ? 'Ocultar' : 'Ver PIN'}</button>
               <button type="button" className="btn btn-primary" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => { setPinEnEdicion(r.id); setNuevoPinDraft(''); }}>Cambiar PIN</button>
-              {esAdmin && r.dispositivo_id && rolExigeDispositivoUnico(r.rol) && (
-                <button type="button" className="btn btn-gold" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => liberarEquipo(r)}>Liberar equipo</button>
+              {esAdmin && (r.dispositivo_id || r.dispositivo_id_2) && rolExigeDispositivoUnico(r.rol) && (
+                <button type="button" className="btn btn-gold" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => liberarEquipo(r)}>
+                  Liberar equipo{r.dispositivo_id_2 ? 's' : ''}
+                </button>
               )}
               {r.activo === false ? (
                 <button type="button" className="btn btn-success" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => reactivar(r)}>Reactivar</button>
@@ -513,7 +522,8 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
           Catálogo: <strong>Empleados por tienda</strong> (máx. {MAX_EMPLEADOS_POR_TIENDA} activos por sucursal) e{' '}
           <strong>Indirectos / MAIN</strong> (aparecen en todas las sucursales y en cortes Virtual, Abarrotes y Garage).
-          El rol <strong>Administrador</strong> no se ancla a dispositivo.
+          El rol <strong>Administrador</strong> no se ancla a dispositivo. Cajero/Repartidor pueden anclar hasta{' '}
+          <strong>2 dispositivos</strong> (ej. dos celulares de la misma tienda) con el mismo PIN.
           {esPersonalizado
             ? ' Con horario personalizado, asigna turnos por día en Configuración → Turnos.'
             : ' Asigna un turno fijo para el corte de caja.'}
