@@ -173,7 +173,7 @@ export default function PantallaLogin({
               onChange={onPinChange}
               onKeyDown={(e) => e.key === 'Enter' && puedeIngresarPin && !pendienteAutorizacionTurno && onLogin()}
               placeholder="PIN"
-              autoFocus={puedeIngresarPin}
+              autoFocus={false}
               disabled={!puedeIngresarPin}
               autoComplete="off"
               name={`login-pin-${pinFieldKey}`}

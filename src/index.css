@@ -18,6 +18,10 @@
   font-family: 'DM Sans', system-ui, sans-serif;
   color: var(--text);
   background: var(--surface);
+  /* Base fija: evita que Android/iOS inflen rem y “zoomeen” la UI del POS */
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 *,
@@ -26,13 +30,32 @@
   box-sizing: border-box;
 }
 
+html {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  touch-action: manipulation;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 #root {
   min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 button,
@@ -40,6 +63,8 @@ input,
 select,
 textarea {
   font: inherit;
+  /* Evita zoom automático de iOS/Android al enfocar campos */
+  font-size: max(16px, 1em);
 }
 
 .btn {
@@ -291,6 +316,7 @@ textarea {
   border: 1px solid var(--border);
   border-radius: 10px;
   background: #fff;
+  font-size: 16px;
 }
 
 .input:focus,
@@ -1667,6 +1693,7 @@ table.data th {
 
 .login-pin {
   margin-bottom: 1rem;
+  font-size: 18px !important;
 }
 
 .login-auth-turno {

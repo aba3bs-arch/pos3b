@@ -65,7 +65,7 @@ export default function InputPin({
         disabled={disabled}
         autoFocus={autoFocus}
         style={{
-          fontSize: '1.5rem',
+          fontSize: '18px',
           textAlign: 'center',
           letterSpacing: '0.2em',
           width: '100%',
