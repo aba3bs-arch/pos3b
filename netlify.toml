@@ -7,6 +7,13 @@
   NODE_VERSION = "20"
   ELECTRON_SKIP_BINARY_DOWNLOAD = "1"
 
+# Assets con hash inexistentes (post-deploy): 404 real, NUNCA el HTML de la SPA.
+# Si no, el navegador recibe index.html como .js → "Failed to fetch dynamically imported module".
+[[redirects]]
+  from = "/assets/*"
+  to = "/asset-not-found.txt"
+  status = 404
+
 # Rutas del cliente React
 [[redirects]]
   from = "/*"
@@ -18,13 +25,23 @@
   for = "/index.html"
   [headers.values]
     Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
 
 [[headers]]
   for = "/"
   [headers.values]
     Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
 
+# Hashes de Vite: cache agresivo solo cuando el archivo existe
 [[headers]]
   for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
+
+# 404 de assets: no cachear la respuesta vacía
+[[headers]]
+  for = "/asset-not-found.txt"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Content-Type = "text/plain; charset=utf-8"
