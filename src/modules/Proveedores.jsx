@@ -10,6 +10,7 @@ import {
 } from '../lib/proveedorCatalogo.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
+import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 
 const empty = { nombre: '', contacto: '', telefono: '', email: '', notas: '' };
 const emptyCatalogo = {
@@ -238,13 +239,9 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
   };
 
   const productosFiltrados = inventario.filter((p) => {
-    const t = busqProd.trim().toLowerCase();
+    const t = busqProd.trim();
     if (!t) return false;
-    return (
-      String(p.nombre || '')
-        .toLowerCase()
-        .includes(t) || String(p.id || '').includes(t)
-    );
+    return productoCoincideBusqueda(p, t);
   });
 
   const vincularProducto = async (p) => {

@@ -11,6 +11,7 @@ import { normalizarCodigoTienda } from '../constants/sucursales.js';
 import { guardarMovimientoLocal } from '../lib/inventarioMovimientos.js';
 import { sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
+import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 
 function addToCart(carrito, producto) {
   const i = carrito.findIndex((c) => c.id === producto.id);
@@ -110,27 +111,17 @@ export default function Ventas({
     else if (deptoActivo !== 'todos') {
       list = enVenta.filter((p) => normalizarDepartamento(p.cat) === deptoActivo);
     }
-    const t = qDepto.trim().toLowerCase();
+    const t = qDepto.trim();
     if (t) {
-      list = list.filter(
-        (p) =>
-          String(p.nombre || '')
-            .toLowerCase()
-            .includes(t) || String(p.id || '').toLowerCase().includes(t),
-      );
+      list = list.filter((p) => productoCoincideBusqueda(p, t));
     }
     return list;
   }, [enVenta, favoritos, deptoActivo, qDepto]);
 
   const filtrados = useMemo(() => {
-    const q = (busqueda || '').trim().toLowerCase();
+    const q = (busqueda || '').trim();
     if (!q) return [];
-    return enVenta.filter(
-      (p) =>
-        String(p.nombre || '')
-          .toLowerCase()
-          .includes(q) || String(p.id || '').toLowerCase().includes(q),
-    );
+    return enVenta.filter((p) => productoCoincideBusqueda(p, q));
   }, [enVenta, busqueda]);
 
   const deptoActualMeta = departamentosMenu.find((d) => d.id === deptoActivo) || departamentosMenu[0];

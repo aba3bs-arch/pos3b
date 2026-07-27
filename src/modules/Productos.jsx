@@ -27,6 +27,7 @@ import HistorialProducto from '../components/HistorialProducto.jsx';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { esAlmacenCentral, etiquetaCedisEmpresa } from '../lib/inventarioMultitienda.js';
 import { sincronizarFotosCatalogo, tieneFoto } from '../lib/fotosCatalogo.js';
+import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 
 const empty = productoVacio();
 
@@ -132,15 +133,10 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   }, [supabase]);
 
   const rows = useMemo(() => {
-    const t = q.trim().toLowerCase();
+    const t = q.trim();
     let list = inventario || [];
     if (t) {
-      list = list.filter(
-        (p) =>
-          String(p.nombre || '')
-            .toLowerCase()
-            .includes(t) || String(p.id || '').toLowerCase().includes(t),
-      );
+      list = list.filter((p) => productoCoincideBusqueda(p, t));
     }
     if (filtros.departamento) {
       list = list.filter((p) => String(p.cat || '').toUpperCase() === filtros.departamento.toUpperCase());

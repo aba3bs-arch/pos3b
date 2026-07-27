@@ -16,6 +16,7 @@ import {
   leerBorradorAuto,
 } from '../lib/ajusteInventarioBorrador.js';
 import { useAutoGuardarBorrador } from '../hooks/useAutoGuardarBorrador.js';
+import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 
 const FILTROS_VACIOS = {
   diferencia: 'todo',
@@ -164,13 +165,10 @@ export default function AjusteLibre({
 
   const lineasVisibles = useMemo(() => {
     let list = lineas;
-    const t = qLista.trim().toLowerCase();
+    const t = qLista.trim();
     if (t) {
-      list = list.filter(
-        (l) =>
-          String(l.nombre || '')
-            .toLowerCase()
-            .includes(t) || String(l.codigo || '').toLowerCase().includes(t),
+      list = list.filter((l) =>
+        productoCoincideBusqueda({ id: l.codigo, nombre: l.nombre }, t),
       );
     }
     if (filtros.diferencia === 'sin') list = list.filter((l) => l.contadaNum != null && l.diferencia === 0);
@@ -192,17 +190,7 @@ export default function AjusteLibre({
     const enLista = new Set(ordenIds);
     let list = (inventario || []).filter((p) => !enLista.has(p.id));
     if (t) {
-      const tDigits = t.replace(/^0+/, '') || t;
-      list = list.filter((p) => {
-        const id = String(p.id || '');
-        const nombre = String(p.nombre || '').toLowerCase();
-        if (nombre.includes(t) || id.toLowerCase().includes(t)) return true;
-        if (/^\d+$/.test(t) && /^\d+$/.test(id)) {
-          const idN = id.replace(/^0+/, '') || id;
-          return idN.includes(tDigits) || tDigits.includes(idN);
-        }
-        return false;
-      });
+      list = list.filter((p) => productoCoincideBusqueda(p, t));
     } else {
       // Sin texto: muestra primeros del catálogo para elegir rápido
       list = [...list].sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));

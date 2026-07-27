@@ -31,6 +31,7 @@ import {
   leerBorradorAuto,
 } from '../lib/ajusteInventarioBorrador.js';
 import { useAutoGuardarBorrador } from '../hooks/useAutoGuardarBorrador.js';
+import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 
 const TIPOS_MOV = TIPOS_MOVIMIENTO.filter((t) => t.id === 'entrada' || t.id === 'retiro');
 
@@ -122,14 +123,9 @@ export default function AjusteInventario({
 
   const productosFiltrados = useMemo(() => {
     let list = inventario || [];
-    const t = busqueda.trim().toLowerCase();
+    const t = busqueda.trim();
     if (t) {
-      list = list.filter(
-        (p) =>
-          String(p.nombre || '')
-            .toLowerCase()
-            .includes(t) || String(p.id || '').toLowerCase().includes(t),
-      );
+      list = list.filter((p) => productoCoincideBusqueda(p, t));
     }
     return list.slice(0, 80);
   }, [inventario, busqueda]);
@@ -161,30 +157,20 @@ export default function AjusteInventario({
   );
 
   const productosBusquedaTraspaso = useMemo(() => {
-    const t = busquedaTraspaso.trim().toLowerCase();
+    const t = busquedaTraspaso.trim();
     let list = inventario || [];
     if (t) {
-      list = list.filter(
-        (p) =>
-          String(p.nombre || '')
-            .toLowerCase()
-            .includes(t) || String(p.id || '').toLowerCase().includes(t),
-      );
+      list = list.filter((p) => productoCoincideBusqueda(p, t));
     }
     const idsEnLista = new Set(lineasTraspaso.map((l) => l.productoId));
     return list.filter((p) => !idsEnLista.has(p.id)).slice(0, 40);
   }, [inventario, busquedaTraspaso, lineasTraspaso]);
 
   const productosBusquedaMasiva = useMemo(() => {
-    const t = busquedaMasiva.trim().toLowerCase();
+    const t = busquedaMasiva.trim();
     let list = inventario || [];
     if (t) {
-      list = list.filter(
-        (p) =>
-          String(p.nombre || '')
-            .toLowerCase()
-            .includes(t) || String(p.id || '').toLowerCase().includes(t),
-      );
+      list = list.filter((p) => productoCoincideBusqueda(p, t));
     }
     const idsEnLista = new Set(lineasMasivas.map((l) => l.productoId));
     return list.filter((p) => !idsEnLista.has(p.id)).slice(0, 40);

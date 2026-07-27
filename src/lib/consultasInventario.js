@@ -1,4 +1,5 @@
 import { leerMovimientosLocal } from './inventarioMovimientos.js';
+import { filtrarProductosPorTexto } from './buscarProductoTexto.js';
 
 export const FILTROS_EVENTO_PRODUCTO = [
   { id: 'todos', label: 'Todos' },
@@ -179,13 +180,9 @@ export function filtrarMovimientosPorEvento(movimientos, filtroEvento) {
 }
 
 export function buscarProductos(inventario, q) {
-  const t = String(q || '').trim().toLowerCase();
+  const t = String(q || '').trim();
   if (!t) return [];
-  return (inventario || []).filter(
-    (p) =>
-      String(p.id || '').toLowerCase().includes(t) ||
-      String(p.nombre || '').toLowerCase().includes(t),
-  );
+  return filtrarProductosPorTexto(inventario, t);
 }
 
 export const PRESETS_FECHA_PRODUCTO = [

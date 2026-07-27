@@ -10,6 +10,7 @@ import {
   stockAlmacenCentral,
 } from '../lib/inventarioMultitienda.js';
 import AjusteInventario from './AjusteInventario.jsx';
+import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 
 export default function AdminInventarioCentral({
   supabase,
@@ -25,15 +26,10 @@ export default function AdminInventarioCentral({
   const inventarioOp = useMemo(() => inventarioParaSucursal(inventario, tiendaOp), [inventario, tiendaOp]);
 
   const productosResumen = useMemo(() => {
-    const t = busqueda.trim().toLowerCase();
+    const t = busqueda.trim();
     let list = inventario || [];
     if (t) {
-      list = list.filter(
-        (p) =>
-          String(p.nombre || '')
-            .toLowerCase()
-            .includes(t) || String(p.id || '').toLowerCase().includes(t),
-      );
+      list = list.filter((p) => productoCoincideBusqueda(p, t));
     }
     return list.slice(0, 60);
   }, [inventario, busqueda]);
