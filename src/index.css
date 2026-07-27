@@ -2277,6 +2277,24 @@ table.data th {
   border-radius: 12px;
 }
 
+.prod-detalle-foto-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+  width: 110px;
+}
+
+.prod-detalle-tomar-foto {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0.35rem 0.4rem;
+  font-size: 0.72rem;
+}
+
 .prod-detalle-foto img {
   width: 100%;
   height: 100%;

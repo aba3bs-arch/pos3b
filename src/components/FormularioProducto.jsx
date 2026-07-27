@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { agregarDepartamentoExtra, etiquetaDepartamento } from '../lib/departamentos.js';
-import { leerArchivoComoDataUrl } from '../lib/branding.js';
+import { leerImagenProductoComoDataUrl } from '../lib/imagenProducto.js';
 import {
   OPCIONES_IMPUESTO,
   IVA_DEFAULT,
@@ -27,7 +27,9 @@ export default function FormularioProducto({
   const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : null;
   const enCentral = esAlmacenCentral(sucursal);
   const fotoRef = useRef(null);
+  const camaraRef = useRef(null);
   const [nuevoDepto, setNuevoDepto] = useState('');
+  const [procesandoFoto, setProcesandoFoto] = useState(false);
 
   const setCampo = (campo, valor) => {
     setForm((prev) => actualizarCampoProducto(prev, campo, valor));
@@ -37,16 +39,18 @@ export default function FormularioProducto({
     setForm((prev) => ({ ...prev, [campo]: valor }));
   };
 
-  const subirFoto = async (e) => {
+  const aplicarFoto = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    if (file.size > 1024 * 1024) return alert('La foto no debe superar 1 MB.');
+    setProcesandoFoto(true);
     try {
-      const dataUrl = await leerArchivoComoDataUrl(file);
+      const dataUrl = await leerImagenProductoComoDataUrl(file);
       setCampoSimple('foto_url', dataUrl);
     } catch (err) {
       alert(err.message || String(err));
+    } finally {
+      setProcesandoFoto(false);
     }
   };
 
@@ -58,6 +62,8 @@ export default function FormularioProducto({
     onDepartamentoAgregado?.(r.codigo);
     alert(`Departamento "${etiquetaDepartamento(r.codigo)}" agregado.`);
   };
+
+  const sinFoto = !String(form.foto_url || '').trim();
 
   return (
     <div className="card">
@@ -97,11 +103,47 @@ export default function FormularioProducto({
               </span>
             )}
           </div>
-          <input ref={fotoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={subirFoto} />
-          <button type="button" className="btn btn-ghost" style={{ marginTop: '0.5rem', fontSize: '0.8rem', width: '100%' }} onClick={() => fotoRef.current?.click()}>
-            Subir foto
+          <input ref={fotoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={aplicarFoto} />
+          <input
+            ref={camaraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            style={{ display: 'none' }}
+            onChange={aplicarFoto}
+          />
+          {sinFoto ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ marginTop: '0.5rem', fontSize: '0.8rem', width: '100%' }}
+              disabled={procesandoFoto}
+              onClick={() => camaraRef.current?.click()}
+            >
+              <BtnLabel icon="camera">{procesandoFoto ? 'Procesando…' : 'Tomar foto'}</BtnLabel>
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ marginTop: sinFoto ? '0.35rem' : '0.5rem', fontSize: '0.8rem', width: '100%' }}
+            disabled={procesandoFoto}
+            onClick={() => fotoRef.current?.click()}
+          >
+            {sinFoto ? 'Subir foto' : 'Cambiar foto'}
           </button>
-          {form.foto_url && (
+          {!sinFoto && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ marginTop: '0.35rem', fontSize: '0.75rem', width: '100%' }}
+              disabled={procesandoFoto}
+              onClick={() => camaraRef.current?.click()}
+            >
+              <BtnLabel icon="camera">Tomar otra</BtnLabel>
+            </button>
+          )}
+          {!sinFoto && (
             <button type="button" className="btn btn-ghost" style={{ marginTop: '0.35rem', fontSize: '0.75rem', width: '100%' }} onClick={() => setCampoSimple('foto_url', '')}>
               Quitar foto
             </button>

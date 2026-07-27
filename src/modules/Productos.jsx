@@ -812,6 +812,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                 onToggleFavorito={toggleFavorito}
                 onVincularProveedor={vincularProveedor}
                 onQuitarVinculo={quitarVinculo}
+                onFotoActualizada={(row) => fusionarProducto?.(row)}
               />
             </div>
           </section>

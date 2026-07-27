@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Icon from './Icon.jsx';
 import HistorialProducto from './HistorialProducto.jsx';
 import ProductoThumb from './ProductoThumb.jsx';
 import { etiquetaDepartamento } from '../lib/departamentos.js';
 import { esAlmacenCentral, etiquetaCedisEmpresa } from '../lib/inventarioMultitienda.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
+import { tieneFoto } from '../lib/fotosCatalogo.js';
+import { leerImagenProductoComoDataUrl } from '../lib/imagenProducto.js';
 
 function fmtPrecio(n) {
   return `$${Number(n || 0).toFixed(2)}`;
@@ -20,18 +22,22 @@ export default function DetalleProducto({
   onToggleFavorito,
   onVincularProveedor,
   onQuitarVinculo,
+  onFotoActualizada,
 }) {
   const [tab, setTab] = useState('detalles');
   const [proveedoresOpen, setProveedoresOpen] = useState(false);
   const [nuevoProvId, setNuevoProvId] = useState('');
   const [nuevoSkuProv, setNuevoSkuProv] = useState('');
   const [copiado, setCopiado] = useState(false);
+  const [guardandoFoto, setGuardandoFoto] = useState(false);
+  const camaraRef = useRef(null);
 
   useEffect(() => {
     setTab('detalles');
     setProveedoresOpen(false);
     setNuevoProvId('');
     setNuevoSkuProv('');
+    setGuardandoFoto(false);
   }, [producto?.id]);
 
   if (!producto) {
@@ -50,6 +56,7 @@ export default function DetalleProducto({
   const precioSin = Number(producto.precio_venta_sin ?? (precioCon / (1 + impuesto / 100)));
   const favorito = Boolean(producto.en_favoritos) || producto.cat === 'FAVORITOS';
   const stock = Number(producto.stock) || 0;
+  const sinFoto = !tieneFoto(producto);
 
   const copiarCodigo = async () => {
     try {
@@ -61,10 +68,51 @@ export default function DetalleProducto({
     }
   };
 
+  const tomarFoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !supabase || !producto?.id) return;
+    setGuardandoFoto(true);
+    try {
+      const dataUrl = await leerImagenProductoComoDataUrl(file);
+      const { error } = await supabase.from('productos').update({ foto_url: dataUrl }).eq('id', producto.id);
+      if (error) throw new Error(error.message);
+      onFotoActualizada?.({ ...producto, foto_url: dataUrl });
+    } catch (err) {
+      alert(err.message || String(err));
+    } finally {
+      setGuardandoFoto(false);
+    }
+  };
+
   return (
     <div className="prod-detalle">
       <div className="prod-detalle-header">
-        <ProductoThumb producto={producto} size={110} className="prod-detalle-foto" />
+        <div className="prod-detalle-foto-wrap">
+          <ProductoThumb producto={producto} size={110} className="prod-detalle-foto" />
+          {sinFoto && (
+            <>
+              <input
+                ref={camaraRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                style={{ display: 'none' }}
+                onChange={tomarFoto}
+              />
+              <button
+                type="button"
+                className="btn btn-primary prod-detalle-tomar-foto"
+                disabled={guardandoFoto}
+                onClick={() => camaraRef.current?.click()}
+                title="Tomar foto con el dispositivo"
+              >
+                <Icon name="camera" size={14} />
+                {guardandoFoto ? 'Guardando…' : 'Tomar foto'}
+              </button>
+            </>
+          )}
+        </div>
         <div className="prod-detalle-info">
           <div className="prod-detalle-codigo">
             <span>{producto.id}</span>
