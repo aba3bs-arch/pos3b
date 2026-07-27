@@ -1,19 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import Icon from './Icon.jsx';
 import HistorialProducto from './HistorialProducto.jsx';
+import ProductoThumb from './ProductoThumb.jsx';
 import { etiquetaDepartamento } from '../lib/departamentos.js';
 import { esAlmacenCentral, etiquetaCedisEmpresa } from '../lib/inventarioMultitienda.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
-
-function iniciales(nombre) {
-  const parts = String(nombre || '')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
-  if (!parts.length) return '??';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
 
 function fmtPrecio(n) {
   return `$${Number(n || 0).toFixed(2)}`;
@@ -73,13 +64,7 @@ export default function DetalleProducto({
   return (
     <div className="prod-detalle">
       <div className="prod-detalle-header">
-        <div className="prod-detalle-foto">
-          {producto.foto_url ? (
-            <img src={producto.foto_url} alt={producto.nombre} />
-          ) : (
-            <div className="prod-thumb-placeholder grande">{iniciales(producto.nombre)}</div>
-          )}
-        </div>
+        <ProductoThumb producto={producto} size={110} className="prod-detalle-foto" referencias />
         <div className="prod-detalle-info">
           <div className="prod-detalle-codigo">
             <span>{producto.id}</span>

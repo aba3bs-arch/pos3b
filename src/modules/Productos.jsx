@@ -776,7 +776,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                       className={`prod-lista-item ${activo ? 'activo' : ''}`}
                       onClick={() => seleccionarProducto(p)}
                     >
-                      <ProductoThumb producto={p} size={48} className="prod-lista-thumb" />
+                      <ProductoThumb producto={p} size={48} className="prod-lista-thumb" referencias />
                       <div className="prod-lista-meta">
                         <div className="prod-lista-codigo">
                           <span className="muted">PZA</span> {p.id}
