@@ -2102,6 +2102,56 @@ table.data th {
   overflow: auto;
 }
 
+.prod-filtros-backdrop {
+  z-index: 14000;
+  align-items: flex-end;
+}
+
+@media (min-width: 640px) {
+  .prod-filtros-backdrop {
+    align-items: center;
+  }
+}
+
+.prod-filtros-modal {
+  width: min(420px, 100%);
+  max-height: min(88vh, 640px);
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border-radius: 16px 16px 12px 12px;
+  overflow: hidden;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.28);
+}
+
+@media (min-width: 640px) {
+  .prod-filtros-modal {
+    border-radius: 14px;
+  }
+}
+
+.prod-filtros-modal-body {
+  padding: 0.9rem 1rem 0.5rem;
+  overflow: auto;
+  flex: 1 1 auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.prod-filtros-modal-acciones {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  padding: 0.75rem 1rem calc(0.85rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+  background: rgba(59, 105, 181, 0.04);
+}
+
+.prod-filtros-modal-acciones .btn {
+  flex: 1 1 auto;
+  min-width: 5.5rem;
+}
+
 .prod-filtro-grupo {
   margin-bottom: 0.65rem;
 }

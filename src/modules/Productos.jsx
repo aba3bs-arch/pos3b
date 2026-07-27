@@ -693,7 +693,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                   className={`prod-filtro-btn ${mostrarFiltros || filtrosActivos ? 'activo' : ''}`}
                   onClick={() => {
                     setFiltrosDraft(filtros);
-                    setMostrarFiltros((v) => !v);
+                    setMostrarFiltros(true);
                   }}
                   title="Filtros"
                 >
@@ -716,107 +716,141 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
             </div>
 
             {mostrarFiltros && (
-              <div className="prod-filtros-panel">
-                <div className="prod-filtro-grupo">
-                  <span className="muted">Tipo</span>
-                  <div className="prod-chips">
-                    {FILTROS_CHIP.tipo.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        className={filtrosDraft.tipo === c.id ? 'activo' : ''}
-                        onClick={() => setFiltrosDraft({ ...filtrosDraft, tipo: c.id })}
+              <div
+                className="prod-modal-backdrop prod-filtros-backdrop"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="prod-filtros-titulo"
+                onClick={(e) => {
+                  if (e.target === e.currentTarget) setMostrarFiltros(false);
+                }}
+              >
+                <div className="prod-filtros-modal">
+                  <header className="prod-modal-header">
+                    <h2 id="prod-filtros-titulo">Filtros de productos</h2>
+                    <button
+                      type="button"
+                      className="prod-modal-close"
+                      onClick={() => setMostrarFiltros(false)}
+                      aria-label="Cerrar"
+                    >
+                      <Icon name="x" size={18} />
+                    </button>
+                  </header>
+                  <div className="prod-filtros-modal-body">
+                    <div className="prod-filtro-grupo">
+                      <span className="muted">Tipo</span>
+                      <div className="prod-chips">
+                        {FILTROS_CHIP.tipo.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className={filtrosDraft.tipo === c.id ? 'activo' : ''}
+                            onClick={() => setFiltrosDraft({ ...filtrosDraft, tipo: c.id })}
+                          >
+                            {c.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="prod-filtro-grupo">
+                      <span className="muted">Favoritos</span>
+                      <div className="prod-chips">
+                        {FILTROS_CHIP.favoritos.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className={filtrosDraft.favoritos === c.id ? 'activo' : ''}
+                            onClick={() => setFiltrosDraft({ ...filtrosDraft, favoritos: c.id })}
+                          >
+                            {c.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="prod-filtro-grupo">
+                      <span className="muted">Existencia</span>
+                      <div className="prod-chips">
+                        {FILTROS_CHIP.existencia.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className={filtrosDraft.existencia === c.id ? 'activo' : ''}
+                            onClick={() => setFiltrosDraft({ ...filtrosDraft, existencia: c.id })}
+                          >
+                            {c.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="prod-filtro-grupo">
+                      <span className="muted">Disponible</span>
+                      <div className="prod-chips">
+                        {FILTROS_CHIP.disponible.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            className={filtrosDraft.disponible === c.id ? 'activo' : ''}
+                            onClick={() => setFiltrosDraft({ ...filtrosDraft, disponible: c.id })}
+                          >
+                            {c.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <label className="muted" style={{ display: 'block', marginTop: '0.35rem' }}>
+                      Departamento
+                      <select
+                        className="select"
+                        style={{ marginTop: '0.35rem' }}
+                        value={filtrosDraft.departamento}
+                        onChange={(e) => setFiltrosDraft({ ...filtrosDraft, departamento: e.target.value })}
                       >
-                        {c.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="prod-filtro-grupo">
-                  <span className="muted">Favoritos</span>
-                  <div className="prod-chips">
-                    {FILTROS_CHIP.favoritos.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        className={filtrosDraft.favoritos === c.id ? 'activo' : ''}
-                        onClick={() => setFiltrosDraft({ ...filtrosDraft, favoritos: c.id })}
+                        <option value="">Todos</option>
+                        {departamentos.map((d) => (
+                          <option key={d} value={d}>
+                            {etiquetaDepartamento(d)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="muted" style={{ display: 'block', marginTop: '0.65rem' }}>
+                      Proveedor
+                      <select
+                        className="select"
+                        style={{ marginTop: '0.35rem' }}
+                        value={filtrosDraft.proveedor}
+                        onChange={(e) => setFiltrosDraft({ ...filtrosDraft, proveedor: e.target.value })}
                       >
-                        {c.label}
-                      </button>
-                    ))}
+                        <option value="">Todos</option>
+                        <option value="__ninguno__">Sin proveedor vinculado</option>
+                        {proveedores.map((pr) => (
+                          <option key={pr.id} value={String(pr.id)}>
+                            {pr.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
-                </div>
-                <div className="prod-filtro-grupo">
-                  <span className="muted">Existencia</span>
-                  <div className="prod-chips">
-                    {FILTROS_CHIP.existencia.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        className={filtrosDraft.existencia === c.id ? 'activo' : ''}
-                        onClick={() => setFiltrosDraft({ ...filtrosDraft, existencia: c.id })}
-                      >
-                        {c.label}
-                      </button>
-                    ))}
+                  <div className="prod-filtros-modal-acciones">
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ color: 'var(--brand-red)' }}
+                      onClick={() => {
+                        setFiltrosDraft(FILTROS_VACIOS);
+                        setFiltros(FILTROS_VACIOS);
+                      }}
+                    >
+                      Limpiar
+                    </button>
+                    <button type="button" className="btn btn-ghost" onClick={() => setMostrarFiltros(false)}>
+                      Cancelar
+                    </button>
+                    <button type="button" className="btn btn-primary" onClick={aplicarFiltros}>
+                      Aplicar filtros
+                    </button>
                   </div>
-                </div>
-                <div className="prod-filtro-grupo">
-                  <span className="muted">Disponible</span>
-                  <div className="prod-chips">
-                    {FILTROS_CHIP.disponible.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        className={filtrosDraft.disponible === c.id ? 'activo' : ''}
-                        onClick={() => setFiltrosDraft({ ...filtrosDraft, disponible: c.id })}
-                      >
-                        {c.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <label className="muted" style={{ display: 'block', marginTop: '0.5rem' }}>
-                  Departamentos
-                  <select
-                    className="select"
-                    style={{ marginTop: '0.35rem' }}
-                    value={filtrosDraft.departamento}
-                    onChange={(e) => setFiltrosDraft({ ...filtrosDraft, departamento: e.target.value })}
-                  >
-                    <option value="">Todos</option>
-                    {departamentos.map((d) => (
-                      <option key={d} value={d}>
-                        {etiquetaDepartamento(d)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="muted" style={{ display: 'block', marginTop: '0.5rem' }}>
-                  Proveedor
-                  <select
-                    className="select"
-                    style={{ marginTop: '0.35rem' }}
-                    value={filtrosDraft.proveedor}
-                    onChange={(e) => setFiltrosDraft({ ...filtrosDraft, proveedor: e.target.value })}
-                  >
-                    <option value="">Todos</option>
-                    <option value="__ninguno__">Sin proveedor vinculado</option>
-                    {proveedores.map((pr) => (
-                      <option key={pr.id} value={String(pr.id)}>
-                        {pr.nombre}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="prod-filtros-acciones">
-                  <button type="button" className="btn btn-ghost" style={{ color: 'var(--brand-red)' }} onClick={limpiarFiltros}>
-                    Limpiar ({filtrosActivos})
-                  </button>
-                  <button type="button" className="btn btn-primary" onClick={aplicarFiltros}>
-                    Buscar
-                  </button>
                 </div>
               </div>
             )}
