@@ -2152,6 +2152,114 @@ table.data th {
   min-width: 5.5rem;
 }
 
+/* Mover productos (proveedor / departamento) */
+.mover-prod-grid {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 0.85rem;
+  align-items: stretch;
+}
+
+.mover-prod-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(59, 105, 181, 0.04);
+}
+
+.mover-prod-col h4 {
+  margin: 0 0 0.25rem;
+  color: var(--brand-blue);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.95rem;
+}
+
+.mover-prod-lista-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+}
+
+.mover-prod-lista {
+  margin-top: 0.25rem;
+  max-height: min(52vh, 420px);
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mover-prod-item {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 0.88rem;
+}
+
+.mover-prod-item:last-child {
+  border-bottom: none;
+}
+
+.mover-prod-item.activo {
+  background: rgba(59, 105, 181, 0.1);
+}
+
+.mover-prod-item-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.mover-prod-item-meta strong {
+  line-height: 1.25;
+}
+
+.mover-prod-flecha {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--brand-blue);
+  opacity: 0.75;
+}
+
+.mover-prod-resumen {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px dashed var(--border);
+}
+
+@media (max-width: 800px) {
+  .mover-prod-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mover-prod-flecha {
+    transform: rotate(90deg);
+    padding: 0.15rem 0;
+  }
+
+  .mover-prod-lista {
+    max-height: 280px;
+  }
+}
+
 .prod-filtro-grupo {
   margin-bottom: 0.65rem;
 }

@@ -21,6 +21,7 @@ import CampoCodigo from '../components/CampoCodigo.jsx';
 import DetalleProducto from '../components/DetalleProducto.jsx';
 import ModalAjusteInventario from '../components/ModalAjusteInventario.jsx';
 import ProductoThumb from '../components/ProductoThumb.jsx';
+import MoverProductosLote from '../components/MoverProductosLote.jsx';
 import { imprimirEtiquetasEstante } from '../lib/impresion.js';
 import AjusteInventario from './AjusteInventario.jsx';
 import HistorialProducto from '../components/HistorialProducto.jsx';
@@ -69,6 +70,7 @@ const TITULOS_VISTA = {
   editar: 'Editar producto',
   ajustes: 'Ajuste de inventario',
   traspaso: 'Traspasos',
+  mover: 'Mover productos',
   etiquetas: 'Etiquetas de estante',
   importexport: 'Importar / Exportar',
   vaciarinventario: 'Vaciar inventario',
@@ -532,6 +534,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     { id: 'alta', label: 'Nuevo producto', icon: 'plus', onClick: () => { setForm(empty); setEsEdicionProducto(false); setVista('alta'); } },
     { id: 'ajustes', label: 'Ajuste de inventario', icon: 'refresh', onClick: () => setModalAjusteOpen(true) },
     { id: 'traspaso', label: 'Traspasos', icon: 'truck', onClick: () => setVista('traspaso') },
+    { id: 'mover', label: 'Mover productos (proveedor / depto)', icon: 'refresh', onClick: () => setVista('mover') },
     { id: 'etiquetas', label: 'Imprimir etiquetas', icon: 'print', onClick: () => { setEtiquetasSel(new Set()); setVista('etiquetas'); } },
     { id: 'importexport', label: 'Importar archivo .xls', icon: 'download', onClick: () => setVista('importexport') },
     { id: 'exportar', label: 'Exportar productos', icon: 'download', onClick: () => exportarCatalogoCsv(inventario) },
@@ -1025,6 +1028,18 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
 
       {vista === 'traspaso' && (
         <AjusteInventario supabase={supabase} inventario={inventario} inventarioCompleto={inventarioCompleto || inventario} cargarDatos={cargarDatos} user={user} sucursal={sucursal} modoInicial="traspaso" />
+      )}
+
+      {vista === 'mover' && (
+        <MoverProductosLote
+          supabase={supabase}
+          inventario={inventarioCompleto || inventario}
+          proveedores={proveedores}
+          productosPorProveedor={productosPorProveedor}
+          idsConProveedor={idsConProveedor}
+          onMapaProveedoresChange={cargarMapaProveedores}
+          onCatalogoChange={cargarDatos}
+        />
       )}
 
       {vista === 'etiquetas' && (
