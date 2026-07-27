@@ -149,6 +149,17 @@ const IMPRESION_DEFAULT = {
   autoCorte: false,
   copias: 1,
   impresoraId: null,
+  /** Reglas de ticket de venta según el total cobrado. */
+  ventaPorMonto: {
+    activo: false,
+    /** Imprimir automático solo si total >= este monto (MXN). */
+    umbralMinimo: 0,
+    /** Si total < umbralMinimo: 'no_imprimir' | 'preguntar' */
+    debajoDelUmbral: 'no_imprimir',
+    /** Opcional: a partir de este monto usar más copias (null = desactivado). */
+    umbralCopiasExtra: null,
+    copiasAltoMonto: 2,
+  },
   modos: {
     venta: true,
     pedido_compra: true,
@@ -163,19 +174,30 @@ const IMPRESION_DEFAULT = {
 export function leerConfigImpresion() {
   try {
     const raw = localStorage.getItem(LS_IMPRESION);
-    if (!raw) return { ...IMPRESION_DEFAULT, modos: { ...IMPRESION_DEFAULT.modos } };
+    if (!raw) {
+      return {
+        ...IMPRESION_DEFAULT,
+        modos: { ...IMPRESION_DEFAULT.modos },
+        ventaPorMonto: { ...IMPRESION_DEFAULT.ventaPorMonto },
+      };
+    }
     const v = JSON.parse(raw);
     const merged = {
       ...IMPRESION_DEFAULT,
       ...v,
       modos: { ...IMPRESION_DEFAULT.modos, ...(v.modos || {}) },
+      ventaPorMonto: { ...IMPRESION_DEFAULT.ventaPorMonto, ...(v.ventaPorMonto || {}) },
     };
     if (!v.entregaVenta) {
       merged.entregaVenta = v.autoVenta === false ? 'preguntar' : 'imprimir';
     }
     return merged;
   } catch {
-    return { ...IMPRESION_DEFAULT, modos: { ...IMPRESION_DEFAULT.modos } };
+    return {
+      ...IMPRESION_DEFAULT,
+      modos: { ...IMPRESION_DEFAULT.modos },
+      ventaPorMonto: { ...IMPRESION_DEFAULT.ventaPorMonto },
+    };
   }
 }
 
@@ -187,6 +209,42 @@ export function guardarConfigImpresion(cfg) {
 export function impresionHabilitada(tipoDoc) {
   const cfg = leerConfigImpresion();
   return cfg.modos?.[tipoDoc] !== false;
+}
+
+/**
+ * Decide si imprimir el ticket de venta según config y monto.
+ * @returns {{ accion: 'omitir'|'imprimir'|'preguntar', copias: number }}
+ */
+export function resolverImpresionVentaPorMonto(total, cfgInput) {
+  const cfg = cfgInput || leerConfigImpresion();
+  const copiasBase = Math.max(1, Math.min(5, Number(cfg.copias) || 1));
+
+  if (!cfg.autoVenta || cfg.modos?.venta === false) {
+    return { accion: 'omitir', copias: copiasBase };
+  }
+
+  const totalN = Number(total) || 0;
+  const reglas = { ...IMPRESION_DEFAULT.ventaPorMonto, ...(cfg.ventaPorMonto || {}) };
+
+  let copias = copiasBase;
+  const umbralExtra = Number(reglas.umbralCopiasExtra);
+  if (Number.isFinite(umbralExtra) && umbralExtra > 0 && totalN >= umbralExtra) {
+    copias = Math.max(1, Math.min(5, Number(reglas.copiasAltoMonto) || copiasBase));
+  }
+
+  if (!reglas.activo) {
+    return { accion: 'imprimir', copias };
+  }
+
+  const min = Math.max(0, Number(reglas.umbralMinimo) || 0);
+  if (totalN < min) {
+    if (reglas.debajoDelUmbral === 'preguntar') {
+      return { accion: 'preguntar', copias: copiasBase };
+    }
+    return { accion: 'omitir', copias: copiasBase };
+  }
+
+  return { accion: 'imprimir', copias };
 }
 
 export function perifericoImpresoraActiva() {

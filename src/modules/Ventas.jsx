@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { etiquetaMetodoPago, leerMetodosPago, leerConfigImpresion } from '../lib/posConfig.js';
+import { etiquetaMetodoPago, leerMetodosPago, resolverImpresionVentaPorMonto } from '../lib/posConfig.js';
 import { imprimirVenta } from '../lib/impresion.js';
 import { productoEnVenta, productoEsFavorito } from '../lib/productoForm.js';
 import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from '../lib/departamentos.js';
@@ -234,8 +234,15 @@ export default function Ventas({
       moneda: monedaPago,
     };
     setUltimaVenta(ticket);
-    if (leerConfigImpresion().autoVenta) {
-      const pr = await imprimirVenta(ticket);
+    const decision = resolverImpresionVentaPorMonto(totalMXN);
+    let debeImprimir = decision.accion === 'imprimir';
+    if (decision.accion === 'preguntar') {
+      debeImprimir = confirm(
+        `Venta de $${Number(totalMXN).toFixed(2)} MXN (menor al mínimo configurado).\n\n¿Imprimir ticket?`,
+      );
+    }
+    if (debeImprimir) {
+      const pr = await imprimirVenta(ticket, { copias: decision.copias });
       if (!pr.ok) console.warn(pr.error);
     }
     setCarrito([]);

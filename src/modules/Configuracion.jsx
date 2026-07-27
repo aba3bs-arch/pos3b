@@ -2393,6 +2393,125 @@ export default function Configuracion({
           <input type="checkbox" checked={configImpresion.autoCorte} onChange={(e) => setConfigImpresion({ ...configImpresion, autoCorte: e.target.checked })} />
           Imprimir al guardar corte de caja
         </label>
+
+        <div
+          style={{
+            marginTop: '0.85rem',
+            padding: '0.75rem 0.85rem',
+            borderRadius: 10,
+            border: '1px solid var(--border)',
+            background: 'rgba(59, 105, 181, 0.05)',
+          }}
+        >
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }} className="muted">
+            <input
+              type="checkbox"
+              checked={Boolean(configImpresion.ventaPorMonto?.activo)}
+              disabled={!configImpresion.autoVenta}
+              onChange={(e) =>
+                setConfigImpresion({
+                  ...configImpresion,
+                  ventaPorMonto: {
+                    ...(configImpresion.ventaPorMonto || {}),
+                    activo: e.target.checked,
+                  },
+                })
+              }
+            />
+            Imprimir ticket de venta según el monto
+          </label>
+          <p className="muted" style={{ margin: '0.35rem 0 0.65rem', fontSize: '0.8rem' }}>
+            Decide si se imprime (y cuántas copias) según el total cobrado. Requiere “imprimir automáticamente al cobrar”.
+          </p>
+          {configImpresion.ventaPorMonto?.activo && configImpresion.autoVenta && (
+            <div className="grid-2" style={{ gap: '0.65rem' }}>
+              <label className="muted">
+                Monto mínimo para imprimir (MXN)
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  className="input"
+                  style={{ marginTop: '0.35rem' }}
+                  value={configImpresion.ventaPorMonto?.umbralMinimo ?? 0}
+                  onChange={(e) =>
+                    setConfigImpresion({
+                      ...configImpresion,
+                      ventaPorMonto: {
+                        ...(configImpresion.ventaPorMonto || {}),
+                        umbralMinimo: Math.max(0, parseFloat(e.target.value) || 0),
+                      },
+                    })
+                  }
+                />
+              </label>
+              <label className="muted">
+                Si la venta es menor al mínimo
+                <select
+                  className="select"
+                  style={{ marginTop: '0.35rem' }}
+                  value={configImpresion.ventaPorMonto?.debajoDelUmbral || 'no_imprimir'}
+                  onChange={(e) =>
+                    setConfigImpresion({
+                      ...configImpresion,
+                      ventaPorMonto: {
+                        ...(configImpresion.ventaPorMonto || {}),
+                        debajoDelUmbral: e.target.value,
+                      },
+                    })
+                  }
+                >
+                  <option value="no_imprimir">No imprimir</option>
+                  <option value="preguntar">Preguntar</option>
+                </select>
+              </label>
+              <label className="muted">
+                A partir de este monto, más copias (opcional)
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  className="input"
+                  style={{ marginTop: '0.35rem' }}
+                  placeholder="Vacío = desactivado"
+                  value={configImpresion.ventaPorMonto?.umbralCopiasExtra ?? ''}
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    setConfigImpresion({
+                      ...configImpresion,
+                      ventaPorMonto: {
+                        ...(configImpresion.ventaPorMonto || {}),
+                        umbralCopiasExtra: raw === '' ? null : Math.max(0, parseFloat(raw) || 0),
+                      },
+                    });
+                  }}
+                />
+              </label>
+              <label className="muted">
+                Copias en ventas de alto monto
+                <input
+                  type="number"
+                  min={1}
+                  max={5}
+                  className="input"
+                  style={{ marginTop: '0.35rem' }}
+                  disabled={configImpresion.ventaPorMonto?.umbralCopiasExtra == null || configImpresion.ventaPorMonto?.umbralCopiasExtra === ''}
+                  value={configImpresion.ventaPorMonto?.copiasAltoMonto ?? 2}
+                  onChange={(e) =>
+                    setConfigImpresion({
+                      ...configImpresion,
+                      ventaPorMonto: {
+                        ...(configImpresion.ventaPorMonto || {}),
+                        copiasAltoMonto: Math.max(1, Math.min(5, parseInt(e.target.value, 10) || 2)),
+                      },
+                    })
+                  }
+                />
+              </label>
+            </div>
+          )}
+        </div>
+
         <div className="table-wrap" style={{ marginTop: '0.85rem' }}>
           <table className="data">
             <thead>
