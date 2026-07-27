@@ -774,11 +774,11 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                     >
                       <ProductoThumb producto={p} size={48} className="prod-lista-thumb" />
                       <div className="prod-lista-meta">
-                        <div className="prod-lista-codigo">
-                          <span className="muted">PZA</span> {p.id}
-                        </div>
+                        <div className="prod-lista-codigo">{p.id}</div>
                         <div className="prod-lista-nombre">{p.nombre}</div>
-                        <div className="prod-lista-stock">{Number(p.stock) || 0}</div>
+                        <div className="prod-lista-stock">
+                          <span className="muted">PZA</span> {Number(p.stock) || 0}
+                        </div>
                       </div>
                       <div className="prod-lista-precio">${Number(p.precio || 0).toFixed(2)}</div>
                     </button>
