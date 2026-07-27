@@ -11,7 +11,7 @@ import { normalizarCodigoTienda } from '../constants/sucursales.js';
 import { guardarMovimientoLocal } from '../lib/inventarioMovimientos.js';
 import { sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
-import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
+import { productoCoincideBusqueda, productoPorCodigoExacto } from '../lib/buscarProductoTexto.js';
 
 function addToCart(carrito, producto) {
   const i = carrito.findIndex((c) => c.id === producto.id);
@@ -271,7 +271,7 @@ export default function Ventas({
   const procesarCodigoCamara = (codigo) => {
     const c = String(codigo || '').trim();
     if (!c) return;
-    const exacto = inventario.find((p) => productoEnVenta(p) && String(p.id) === c);
+    const exacto = productoPorCodigoExacto(enVenta, c);
     if (exacto) {
       // El beep ya lo emite EscanerCamara al leer el código.
       agregarAlCarrito(exacto, false);
@@ -292,7 +292,18 @@ export default function Ventas({
             placeholder="Escanee código o busque por nombre…"
             tituloCamara="Escanear producto"
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && filtrados.length === 1) {
+              if (e.key !== 'Enter') return;
+              const q = (busqueda || '').trim();
+              if (!q) return;
+              const exacto = productoPorCodigoExacto(enVenta, q);
+              if (exacto) {
+                e.preventDefault();
+                agregarAlCarrito(exacto, true);
+                setBusqueda('');
+                return;
+              }
+              if (filtrados.length === 1) {
+                e.preventDefault();
                 agregarAlCarrito(filtrados[0], true);
                 setBusqueda('');
               }
