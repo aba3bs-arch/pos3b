@@ -60,6 +60,7 @@ const FILTROS_VACIOS = {
   existencia: 'todo',
   disponible: 'todo',
   departamento: '',
+  proveedor: '',
 };
 
 const TITULOS_VISTA = {
@@ -82,6 +83,9 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const [q, setQ] = useState('');
   const [proveedores, setProveedores] = useState([]);
   const [vinculos, setVinculos] = useState([]);
+  /** Map proveedor_id → Set(producto_id) para filtrar el catálogo. */
+  const [productosPorProveedor, setProductosPorProveedor] = useState(() => new Map());
+  const [idsConProveedor, setIdsConProveedor] = useState(() => new Set());
   const [nuevoProvId, setNuevoProvId] = useState('');
   const [nuevoSkuProv, setNuevoSkuProv] = useState('');
   const [mostrarNuevoProv, setMostrarNuevoProv] = useState(false);
@@ -132,6 +136,32 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     })();
   }, [supabase]);
 
+  const cargarMapaProveedores = async () => {
+    if (!supabase) return;
+    const { data, error } = await supabase.from('proveedor_producto').select('proveedor_id, producto_id');
+    if (error) {
+      setProductosPorProveedor(new Map());
+      setIdsConProveedor(new Set());
+      return;
+    }
+    const map = new Map();
+    const todos = new Set();
+    for (const row of data || []) {
+      const prov = String(row.proveedor_id ?? '').trim();
+      const prod = String(row.producto_id ?? '').trim();
+      if (!prov || !prod) continue;
+      if (!map.has(prov)) map.set(prov, new Set());
+      map.get(prov).add(prod);
+      todos.add(prod);
+    }
+    setProductosPorProveedor(map);
+    setIdsConProveedor(todos);
+  };
+
+  useEffect(() => {
+    void cargarMapaProveedores();
+  }, [supabase]);
+
   const rows = useMemo(() => {
     const t = q.trim();
     let list = inventario || [];
@@ -141,6 +171,12 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     if (filtros.departamento) {
       list = list.filter((p) => String(p.cat || '').toUpperCase() === filtros.departamento.toUpperCase());
     }
+    if (filtros.proveedor === '__ninguno__') {
+      list = list.filter((p) => !idsConProveedor.has(String(p.id)));
+    } else if (filtros.proveedor) {
+      const ids = productosPorProveedor.get(String(filtros.proveedor));
+      list = list.filter((p) => ids?.has(String(p.id)));
+    }
     if (filtros.favoritos === 'si') list = list.filter((p) => Boolean(p.en_favoritos) || p.cat === 'FAVORITOS');
     if (filtros.favoritos === 'no') list = list.filter((p) => !p.en_favoritos && p.cat !== 'FAVORITOS');
     if (filtros.existencia === 'si') list = list.filter((p) => Number(p.stock) > 0);
@@ -149,7 +185,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     if (filtros.disponible === 'si') list = list.filter((p) => p.en_venta !== false);
     if (filtros.disponible === 'no') list = list.filter((p) => p.en_venta === false);
     return list;
-  }, [inventario, q, filtros]);
+  }, [inventario, q, filtros, productosPorProveedor, idsConProveedor]);
 
   const productoSeleccionado = useMemo(() => {
     if (!productoSelId) return rows[0] || inventario?.[0] || null;
@@ -169,6 +205,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     if (filtros.existencia !== 'todo') n += 1;
     if (filtros.disponible !== 'todo') n += 1;
     if (filtros.departamento) n += 1;
+    if (filtros.proveedor) n += 1;
     return n;
   }, [filtros]);
 
@@ -251,12 +288,14 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     ]);
     if (error) return alert(error.message);
     loadVinculos(productoSeleccionado.id);
+    void cargarMapaProveedores();
   };
 
   const quitarVinculo = async (vinculoId) => {
     if (!supabase) return;
     await supabase.from('proveedor_producto').delete().eq('id', vinculoId);
     if (productoSeleccionado?.id) loadVinculos(productoSeleccionado.id);
+    void cargarMapaProveedores();
   };
 
   const guardar = async () => {
@@ -750,6 +789,23 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                     {departamentos.map((d) => (
                       <option key={d} value={d}>
                         {etiquetaDepartamento(d)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="muted" style={{ display: 'block', marginTop: '0.5rem' }}>
+                  Proveedor
+                  <select
+                    className="select"
+                    style={{ marginTop: '0.35rem' }}
+                    value={filtrosDraft.proveedor}
+                    onChange={(e) => setFiltrosDraft({ ...filtrosDraft, proveedor: e.target.value })}
+                  >
+                    <option value="">Todos</option>
+                    <option value="__ninguno__">Sin proveedor vinculado</option>
+                    {proveedores.map((pr) => (
+                      <option key={pr.id} value={String(pr.id)}>
+                        {pr.nombre}
                       </option>
                     ))}
                   </select>
