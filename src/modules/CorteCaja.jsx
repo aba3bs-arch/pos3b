@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   etiquetaGrupoPago,
   guardarCorte,
+  corregirCorte,
   leerCortesLocales,
   corteYaRegistrado,
   armarCorroboracion,
@@ -19,6 +20,7 @@ import {
   usuarioAutorizadoCorte,
   leerToleranciaTurnos,
 } from '../lib/turnos.js';
+import { normalizarRol } from '../lib/roles.js';
 import { EVENTO_EXTENSION_SESION, minutosRestantesExtension } from '../lib/extensionSesionTurno.js';
 import {
   cargarDiaCaja,
@@ -71,6 +73,7 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
   const [ventasOtrasTiendas, setVentasOtrasTiendas] = useState(null);
   const [ventasDiaSinTurno, setVentasDiaSinTurno] = useState(0);
   const [corteExistente, setCorteExistente] = useState(null);
+  const [modoCorregir, setModoCorregir] = useState(false);
   const [bloqueoCorte, setBloqueoCorte] = useState('');
 
   const resumen = useMemo(() => resumirMovimientosCaja(ventas, cancelaciones), [ventas, cancelaciones]);
@@ -195,47 +198,87 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
   useEffect(() => {
     if (!supabase || !turnoActivo) {
       setCorteExistente(null);
+      setModoCorregir(false);
       return;
     }
     let cancelled = false;
     (async () => {
       const r = await corteYaRegistrado(supabase, { sucursal, fecha, turnoId: turnoActivo.id });
-      if (!cancelled) setCorteExistente(r.existe ? r : null);
+      if (cancelled) return;
+      if (r.existe) {
+        setCorteExistente(r);
+      } else {
+        setCorteExistente(null);
+        setModoCorregir(false);
+      }
     })();
     return () => {
       cancelled = true;
     };
   }, [supabase, sucursal, fecha, turnoActivo?.id, ventas.length]);
 
+  const puedeCorregirCorte = useMemo(() => {
+    const rol = normalizarRol(user?.rol);
+    if (['Administrador', 'Gerente', 'Supervisor'].includes(rol)) return true;
+    // Cajero: puede corregir si aún puede operar el turno (o si es quien lo registró).
+    if (!bloqueoCorte) return true;
+    const autor = String(corteExistente?.corte?.usuario || '').trim().toLowerCase();
+    const yo = String(user?.nombre || '').trim().toLowerCase();
+    return Boolean(autor && yo && autor === yo);
+  }, [user, bloqueoCorte, corteExistente]);
+
+  const entrarModoCorregir = () => {
+    if (!corteExistente?.existe) return;
+    if (!puedeCorregirCorte) {
+      alert('No tienes permiso para corregir este corte. Pide a un gerente o administrador.');
+      return;
+    }
+    const c = corteExistente.corte || {};
+    const contado = c.efectivo_contado ?? c.efectivoContado;
+    setEfectivoContado(contado == null || contado === '' ? '' : String(contado));
+    setNotas(String(c.notas || ''));
+    const corr = c.corroboracion && typeof c.corroboracion === 'object' ? c.corroboracion : {};
+    setCorroboracionContada({
+      tarjeta: corr.tarjeta?.contado != null ? String(corr.tarjeta.contado) : '',
+      transferencia: corr.transferencia?.contado != null ? String(corr.transferencia.contado) : '',
+      qr: corr.qr?.contado != null ? String(corr.qr.contado) : '',
+    });
+    setModoCorregir(true);
+    setPestana('corte');
+    setMsg('Modo corrección: ajusta efectivo/corroboración/notas y guarda la corrección.');
+  };
+
+  const armarPayloadCorte = (contado) => ({
+    fecha,
+    sucursal,
+    usuario: user?.nombre || '—',
+    turno_id: turnoActivo?.id,
+    turno_nombre: nombreTurnoLegible(turnoActivo) || null,
+    hora: new Date().toISOString(),
+    tickets: resumen.ticketsBruto,
+    cancelaciones: resumen.cancelaciones,
+    totalVentas: resumen.total,
+    totalBruto: resumen.totalBruto,
+    totalCancelaciones: resumen.totalCancelaciones,
+    efectivoEsperado: resumen.efectivoEsperado,
+    efectivoContado: contado,
+    diferencia: contado - resumen.efectivoEsperado,
+    electronico: resumen.electronico,
+    grupos: resumen.grupos,
+    detalleMetodos: resumen.detalleMetodos,
+    corroboracion,
+    notas: notas.trim(),
+  });
+
   const guardarCorteHandler = async () => {
     if (bloqueoCorte) return alert(bloqueoCorte);
-    if (corteExistente?.existe) return alert('Ya se registró el corte de este turno. Solo uno por turno.');
+    if (corteExistente?.existe) return alert('Ya se registró el corte de este turno. Usa «Corregir corte» para actualizarlo.');
     const contado = parseFloat(efectivoContado);
     if (Number.isNaN(contado)) {
       alert('Indica cuánto efectivo contaste en caja.');
       return;
     }
-    const corte = {
-      fecha,
-      sucursal,
-      usuario: user?.nombre || '—',
-      turno_id: turnoActivo?.id,
-      turno_nombre: nombreTurnoLegible(turnoActivo) || null,
-      hora: new Date().toISOString(),
-      tickets: resumen.ticketsBruto,
-      cancelaciones: resumen.cancelaciones,
-      totalVentas: resumen.total,
-      totalBruto: resumen.totalBruto,
-      totalCancelaciones: resumen.totalCancelaciones,
-      efectivoEsperado: resumen.efectivoEsperado,
-      efectivoContado: contado,
-      diferencia: contado - resumen.efectivoEsperado,
-      electronico: resumen.electronico,
-      grupos: resumen.grupos,
-      detalleMetodos: resumen.detalleMetodos,
-      corroboracion,
-      notas: notas.trim(),
-    };
+    const corte = armarPayloadCorte(contado);
     const r = await guardarCorte(supabase, corte, user?.id);
     if (!r.ok) {
       alert(r.error);
@@ -243,11 +286,65 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
     }
     setHistorial(r.local);
     setMsg(r.id ? 'Corte guardado en la nube y en este equipo.' : 'Corte guardado en este equipo.');
-    setCorteExistente({ existe: true, corte: { ...corte, id: r.id }, origen: r.id ? 'nube' : 'local' });
+    setCorteExistente({ existe: true, corte: { ...corte, id: r.id, efectivo_contado: contado }, origen: r.id ? 'nube' : 'local' });
     setNotas('');
     if (leerConfigImpresion().autoCorte) {
       await imprimirCorteDesdeResumen(contado);
     }
+  };
+
+  const corregirCorteHandler = async () => {
+    if (!corteExistente?.existe) return;
+    if (!puedeCorregirCorte) {
+      return alert('No tienes permiso para corregir este corte. Pide a un gerente o administrador.');
+    }
+    const contado = parseFloat(efectivoContado);
+    if (Number.isNaN(contado)) {
+      alert('Indica cuánto efectivo contaste en caja.');
+      return;
+    }
+    const prevNotas = String(corteExistente.corte?.notas || '').trim();
+    const stamp = new Date().toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+    const lineaCorr = `Corregido por ${user?.nombre || '—'} · ${stamp}`;
+    const baseNotas = (notas.trim() || prevNotas).replace(/\n?Corregido por .+$/gm, '').trim();
+    const notasConStamp = `${baseNotas}${baseNotas ? '\n' : ''}${lineaCorr}`;
+
+    if (
+      !confirm(
+        `¿Corregir el corte de ${nombreTurnoLegible(turnoActivo)} (${fecha})?\n\nEfectivo contado: $${contado.toFixed(2)}\nDiferencia: $${(contado - resumen.efectivoEsperado).toFixed(2)}`,
+      )
+    ) {
+      return;
+    }
+
+    const corte = {
+      ...armarPayloadCorte(contado),
+      id: corteExistente.corte?.id,
+      notas: notasConStamp,
+    };
+    const r = await corregirCorte(supabase, corte, user?.id, corteExistente.corte?.id);
+    if (!r.ok) {
+      alert(r.error);
+      return;
+    }
+    setHistorial(r.local || leerCortesLocales());
+    setModoCorregir(false);
+    setNotas(corte.notas);
+    setCorteExistente({
+      existe: true,
+      origen: r.id && String(r.id).includes('-') ? 'nube' : corteExistente.origen,
+      corte: {
+        ...corteExistente.corte,
+        ...corte,
+        id: r.id || corteExistente.corte?.id,
+        efectivo_contado: contado,
+        diferencia: contado - resumen.efectivoEsperado,
+        notas: corte.notas,
+        corroboracion,
+        usuario: user?.nombre || corteExistente.corte?.usuario,
+      },
+    });
+    setMsg('Corte corregido y guardado.');
   };
 
   const ejecutarCancelacion = async () => {
@@ -464,14 +561,47 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
         </div>
       )}
       {corteExistente?.existe && (
-        <div className="card" style={{ borderColor: 'rgba(59,105,181,0.4)', background: 'rgba(59,105,181,0.06)' }}>
-          <strong style={{ color: 'var(--brand-blue)' }}>Corte de turno ya registrado</strong>
+        <div
+          className="card"
+          style={{
+            borderColor: modoCorregir ? 'rgba(225,153,41,0.55)' : 'rgba(59,105,181,0.4)',
+            background: modoCorregir ? 'rgba(225,153,41,0.1)' : 'rgba(59,105,181,0.06)',
+          }}
+        >
+          <strong style={{ color: modoCorregir ? 'var(--brand-gold-dark)' : 'var(--brand-blue)' }}>
+            {modoCorregir ? 'Corrigiendo corte actual' : 'Corte de turno ya registrado'}
+          </strong>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.9rem' }}>
             {nombreTurnoLegible(turnoActivo)} · {fecha} · {corteExistente.corte?.usuario || '—'}
             {corteExistente.corte?.created_at && ` · ${fmtHora(corteExistente.corte.created_at)}`}
             {' '}
-            ({corteExistente.origen}). Por seguridad solo se permite <strong>un corte por turno</strong>.
+            ({corteExistente.origen}).
+            {corteExistente.corte?.efectivo_contado != null && (
+              <>
+                {' '}
+                Efectivo contado: <strong>${Number(corteExistente.corte.efectivo_contado).toFixed(2)}</strong>
+                {corteExistente.corte?.diferencia != null && (
+                  <> · diferencia <strong>${Number(corteExistente.corte.diferencia).toFixed(2)}</strong></>
+                )}
+              </>
+            )}
           </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.65rem' }}>
+            {!modoCorregir ? (
+              <button type="button" className="btn btn-gold" onClick={entrarModoCorregir} disabled={!puedeCorregirCorte}>
+                Corregir corte actual
+              </button>
+            ) : (
+              <button type="button" className="btn btn-ghost" onClick={() => setModoCorregir(false)}>
+                Cancelar corrección
+              </button>
+            )}
+          </div>
+          {!puedeCorregirCorte && (
+            <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
+              Solo el autor del corte (en su ventana) o un gerente/administrador pueden corregirlo.
+            </p>
+          )}
         </div>
       )}
       {avisoSinVentas}
@@ -545,13 +675,34 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
               <textarea className="input" style={{ marginTop: '0.35rem', minHeight: '64px' }} value={notas} onChange={(e) => setNotas(e.target.value)} />
             </label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
-              <button type="button" className="btn btn-success" onClick={guardarCorteHandler} disabled={Boolean(bloqueoCorte || corteExistente?.existe)}>
-                Guardar corte
-              </button>
+              {!corteExistente?.existe ? (
+                <button type="button" className="btn btn-success" onClick={guardarCorteHandler} disabled={Boolean(bloqueoCorte)}>
+                  Guardar corte
+                </button>
+              ) : modoCorregir ? (
+                <button
+                  type="button"
+                  className="btn btn-success"
+                  onClick={corregirCorteHandler}
+                  disabled={Boolean(bloqueoCorte && !puedeCorregirCorte)}
+                >
+                  Guardar corrección
+                </button>
+              ) : (
+                <button type="button" className="btn btn-gold" onClick={entrarModoCorregir} disabled={!puedeCorregirCorte}>
+                  Corregir corte actual
+                </button>
+              )}
               <button type="button" className="btn btn-ghost" onClick={imprimirResumen}>
                 Imprimir
               </button>
             </div>
+            {modoCorregir && (
+              <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.82rem' }}>
+                Se actualizarán efectivo contado, diferencia, corroboración y totales del sistema con las ventas actuales
+                del turno. Quedará una nota de quién corrigió y cuándo.
+              </p>
+            )}
           </div>
           </div>
 

@@ -202,6 +202,23 @@ export function guardarCorteLocal(corte) {
   return next;
 }
 
+/** Actualiza un corte ya guardado en localStorage (por id). */
+export function actualizarCorteLocal(corte) {
+  const prev = leerCortesLocales();
+  const id = String(corte?.id || '');
+  if (!id) return guardarCorteLocal(corte);
+  let found = false;
+  const next = prev.map((c) => {
+    if (String(c.id) !== id && String(c.cloudId || '') !== id) return c;
+    found = true;
+    return { ...c, ...corte, id: c.id || corte.id, cloudId: c.cloudId || corte.cloudId || null };
+  });
+  if (!found) next.unshift({ ...corte, id: corte.id || `corte_${Date.now()}` });
+  const trimmed = next.slice(0, 120);
+  localStorage.setItem(LS_CORTES, JSON.stringify(trimmed));
+  return trimmed;
+}
+
 export function filtrarCortesLocales(cortes, opts = {}) {
   const { desde, hasta, sucursal, usuario, corteId, tipoDiferencia } = opts;
   let list = [...(cortes || [])];
@@ -234,13 +251,37 @@ export async function corteYaRegistrado(supabase, { sucursal, fecha, turnoId }) 
   const locales = leerCortesLocales().filter(
     (c) => String(c.sucursal || c.sucursal_id) === String(sucursal) && String(c.fecha).slice(0, 10) === String(fecha).slice(0, 10) && String(c.turno_id) === String(turnoId),
   );
-  if (locales.length) return { existe: true, corte: locales[0], origen: 'local' };
+  if (locales.length) {
+    const c = locales[0];
+    const cloudId = c.cloudId && String(c.cloudId).includes('-') ? c.cloudId : null;
+    const id = cloudId || c.id;
+    return {
+      existe: true,
+      corte: {
+        id,
+        usuario: c.usuario,
+        created_at: c.hora || c.created_at,
+        turno_nombre: c.turno_nombre,
+        efectivo_contado: c.efectivoContado ?? c.efectivo_contado,
+        diferencia: c.diferencia,
+        notas: c.notas || '',
+        corroboracion: c.corroboracion || {},
+        total_ventas: c.totalVentas ?? c.total_ventas,
+        tickets: c.tickets,
+        efectivo_esperado: c.efectivoEsperado ?? c.efectivo_esperado,
+        electronico: c.electronico,
+      },
+      origen: cloudId ? 'nube' : 'local',
+    };
+  }
 
   if (!supabase) return { existe: false };
 
   const { data, error } = await supabase
     .from('cortes_caja')
-    .select('id,usuario,created_at,turno_nombre,efectivo_contado,diferencia')
+    .select(
+      'id,usuario,created_at,turno_nombre,efectivo_contado,diferencia,notas,corroboracion,total_ventas,tickets,efectivo_esperado,electronico,grupos,detalle_metodos',
+    )
     .eq('sucursal_id', sucursal)
     .eq('fecha', String(fecha).slice(0, 10))
     .eq('turno_id', turnoId)
@@ -256,20 +297,8 @@ export async function corteYaRegistrado(supabase, { sucursal, fecha, turnoId }) 
   return { existe: false };
 }
 
-export async function guardarCorte(supabase, corte, usuarioId = null) {
-  const dup = await corteYaRegistrado(supabase, {
-    sucursal: corte.sucursal,
-    fecha: corte.fecha,
-    turnoId: corte.turno_id,
-  });
-  if (dup.existe) {
-    return {
-      ok: false,
-      error: `Ya existe un corte para ${corte.turno_nombre || corte.turno_id} en esta tienda y fecha (${dup.origen}).`,
-    };
-  }
-
-  const row = {
+function rowCorteDesdePayload(corte, usuarioId = null) {
+  return {
     sucursal_id: corte.sucursal,
     usuario: corte.usuario,
     usuario_id: usuarioId || null,
@@ -287,6 +316,22 @@ export async function guardarCorte(supabase, corte, usuarioId = null) {
     corroboracion: corte.corroboracion || {},
     notas: corte.notas || '',
   };
+}
+
+export async function guardarCorte(supabase, corte, usuarioId = null) {
+  const dup = await corteYaRegistrado(supabase, {
+    sucursal: corte.sucursal,
+    fecha: corte.fecha,
+    turnoId: corte.turno_id,
+  });
+  if (dup.existe) {
+    return {
+      ok: false,
+      error: `Ya existe un corte para ${corte.turno_nombre || corte.turno_id} en esta tienda y fecha (${dup.origen}). Usa «Corregir corte» para actualizarlo.`,
+    };
+  }
+
+  const row = rowCorteDesdePayload(corte, usuarioId);
   let cloudId = null;
   if (supabase) {
     const { data, error } = await supabase.from('cortes_caja').insert([row]).select('id').single();
@@ -303,6 +348,57 @@ export async function guardarCorte(supabase, corte, usuarioId = null) {
   }
   const local = guardarCorteLocal({ ...corte, id: cloudId || corte.id || `corte_${Date.now()}`, cloudId });
   return { ok: true, id: cloudId, local };
+}
+
+/**
+ * Corrige un corte ya registrado (mismo id / mismo turno+fecha).
+ * Actualiza montos de arqueo, corroboración, totales del sistema y notas.
+ */
+export async function corregirCorte(supabase, corte, usuarioId = null, corteId = null) {
+  const id = corteId || corte?.id;
+  if (!id) {
+    return { ok: false, error: 'No hay corte existente para corregir.' };
+  }
+
+  const row = rowCorteDesdePayload(corte, usuarioId);
+  // No cambiar sucursal/fecha/turno al corregir: solo montos y notas.
+  const patch = {
+    usuario: row.usuario,
+    usuario_id: row.usuario_id,
+    total_ventas: row.total_ventas,
+    tickets: row.tickets,
+    efectivo_esperado: row.efectivo_esperado,
+    efectivo_contado: row.efectivo_contado,
+    diferencia: row.diferencia,
+    electronico: row.electronico,
+    grupos: row.grupos,
+    detalle_metodos: row.detalle_metodos,
+    corroboracion: row.corroboracion,
+    notas: row.notas,
+  };
+
+  if (supabase && String(id).includes('-')) {
+    const { error } = await supabase.from('cortes_caja').update(patch).eq('id', id);
+    if (error) {
+      // Fallback si falta columna corroboracion
+      if (String(error.message).includes('corroboracion')) {
+        const { corroboracion: _c, ...sinCorr } = patch;
+        const r2 = await supabase.from('cortes_caja').update(sinCorr).eq('id', id);
+        if (r2.error) return { ok: false, error: r2.error.message };
+      } else {
+        return { ok: false, error: error.message };
+      }
+    }
+  }
+
+  const local = actualizarCorteLocal({
+    ...corte,
+    id,
+    cloudId: String(id).includes('-') ? id : corte.cloudId || null,
+    hora: new Date().toISOString(),
+    corregido_at: new Date().toISOString(),
+  });
+  return { ok: true, id, local, corregido: true };
 }
 
 export async function consultarCortes(supabase, opts = {}) {
