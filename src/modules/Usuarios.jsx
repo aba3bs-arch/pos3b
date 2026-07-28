@@ -522,8 +522,9 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
           Catálogo: <strong>Empleados por tienda</strong> (máx. {MAX_EMPLEADOS_POR_TIENDA} activos por sucursal) e{' '}
           <strong>Indirectos / MAIN</strong> (aparecen en todas las sucursales y en cortes Virtual, Abarrotes y Garage).
-          El rol <strong>Administrador</strong> no se ancla a dispositivo. Cajero/Repartidor pueden anclar hasta{' '}
-          <strong>2 dispositivos</strong> (ej. dos celulares de la misma tienda) con el mismo PIN.
+          El rol <strong>Administrador</strong> no se ancla a dispositivo. El <strong>Cajero</strong> puede anclar hasta{' '}
+          <strong>2 dispositivos</strong>. <strong>Repartidor, Técnico y Auditor</strong> solo 1 dispositivo; un 2.º requiere
+          autorización de administrador al entrar en una tienda fijada.
           {esPersonalizado
             ? ' Con horario personalizado, asigna turnos por día en Configuración → Turnos.'
             : ' Asigna un turno fijo para el corte de caja.'}

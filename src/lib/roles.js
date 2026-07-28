@@ -158,6 +158,7 @@ const ACCESO_POR_ROL = {
     'Corte Virtual',
     'Corte Abarrotes',
     'Corte Garage',
+    'Productos',
     'Vales y Préstamos',
     'Checador',
     'Ayuda',
@@ -371,7 +372,7 @@ export function puedeGestionarInventarioMultitienda(rol) {
 export function descripcionRol(rol) {
   const r = normalizarRol(rol);
   const textos = {
-    Cajero: 'Mostrador: ventas, cortes, vales y reporte de incidencias',
+    Cajero: 'Mostrador: ventas, cortes, vales, ingreso de inventario, traspasos y etiquetas',
     Repartidor: 'Ruta, recolecciones e incidencias en todas las tiendas desde central MAIN',
     Auditor: 'Consultas, reportes, inventario e incidencias en todas las tiendas desde central MAIN',
     Supervisor: 'Operación de tienda sin configuración ni usuarios',

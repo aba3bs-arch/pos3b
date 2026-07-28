@@ -13,7 +13,12 @@ import {
 } from '../lib/importarCatalogo.js';
 import { vaciarInventario, OPCIONES_VACIADO } from '../lib/borrarInventario.js';
 import { mensajeErrorColumnasProducto, productoDesdeDb, productoParaGuardar, productoVacio } from '../lib/productoForm.js';
-import { puedeCrearProveedor, puedeEliminarProductosCatalogo, puedeGestionarInventarioMultitienda } from '../lib/roles.js';
+import {
+  normalizarRol,
+  puedeCrearProveedor,
+  puedeEliminarProductosCatalogo,
+  puedeGestionarInventarioMultitienda,
+} from '../lib/roles.js';
 import FormularioProducto from '../components/FormularioProducto.jsx';
 import MenuPuntos from '../components/MenuPuntos.jsx';
 import Icon from '../components/Icon.jsx';
@@ -121,6 +126,9 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const puedeAltaProveedor = puedeCrearProveedor(user?.rol);
   const puedeVaciarInventario = puedeGestionarInventarioMultitienda(user?.rol);
   const puedeEliminarCatalogo = puedeEliminarProductosCatalogo(user?.rol);
+  /** Cajero: solo ingreso de inventario, traspasos e imprimir etiquetas (menú ⋮). */
+  const esCajero = normalizarRol(user?.rol) === 'Cajero';
+  const puedeGestionCatalogo = !esCajero;
   const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : 'MAIN';
   const enCentral = esAlmacenCentral(sucursal);
 
@@ -129,6 +137,12 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   useEffect(() => {
     if (vista === 'eliminar' && !puedeEliminarCatalogo) setVista('lista');
   }, [vista, puedeEliminarCatalogo]);
+
+  useEffect(() => {
+    if (!esCajero) return;
+    const vistasCajero = new Set(['lista', 'ajustes', 'traspaso', 'etiquetas']);
+    if (!vistasCajero.has(vista)) setVista('lista');
+  }, [esCajero, vista]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -530,32 +544,46 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     cargarDatos();
   };
 
-  const menuItems = [
-    { id: 'alta', label: 'Nuevo producto', icon: 'plus', onClick: () => { setForm(empty); setEsEdicionProducto(false); setVista('alta'); } },
-    { id: 'ajustes', label: 'Ajuste de inventario', icon: 'refresh', onClick: () => setModalAjusteOpen(true) },
-    { id: 'traspaso', label: 'Traspasos', icon: 'truck', onClick: () => setVista('traspaso') },
-    { id: 'mover', label: 'Mover productos (proveedor / depto)', icon: 'refresh', onClick: () => setVista('mover') },
-    { id: 'etiquetas', label: 'Imprimir etiquetas', icon: 'print', onClick: () => { setEtiquetasSel(new Set()); setVista('etiquetas'); } },
-    { id: 'importexport', label: 'Importar archivo .xls', icon: 'download', onClick: () => setVista('importexport') },
-    { id: 'exportar', label: 'Exportar productos', icon: 'download', onClick: () => exportarCatalogoCsv(inventario) },
-    {
-      id: 'fotos',
-      label: sincronizandoFotos
-        ? `Jalar fotos… ${progresoFotos ? `${progresoFotos.actual}/${progresoFotos.total}` : ''}`
-        : `Jalar fotos de internet${sinFotoCount ? ` (${sinFotoCount})` : ''}`,
-      icon: 'camera',
-      onClick: () => {
-        if (!sincronizandoFotos) jalarFotosInternet();
-      },
-    },
-    ...(puedeVaciarInventario
-      ? [{ id: 'vaciarinventario', label: 'Vaciar inventario', icon: 'trash', onClick: () => setVista('vaciarinventario') }]
-      : []),
-    { id: 'precios', label: 'Administrador de precios', icon: 'dollar', onClick: () => { initPreciosDraft(); setVista('precios'); } },
-    ...(puedeEliminarCatalogo
-      ? [{ id: 'eliminar', label: 'Eliminar productos', icon: 'trash', onClick: () => { setSeleccionEliminar(new Set()); setVista('eliminar'); } }]
-      : []),
-  ];
+  const menuItems = esCajero
+    ? [
+        { id: 'ajustes', label: 'Ingreso de inventario', icon: 'refresh', onClick: () => setModalAjusteOpen(true) },
+        { id: 'traspaso', label: 'Traspasos', icon: 'truck', onClick: () => setVista('traspaso') },
+        {
+          id: 'etiquetas',
+          label: 'Imprimir etiquetas',
+          icon: 'print',
+          onClick: () => {
+            setEtiquetasSel(new Set());
+            setVista('etiquetas');
+          },
+        },
+      ]
+    : [
+        { id: 'alta', label: 'Nuevo producto', icon: 'plus', onClick: () => { setForm(empty); setEsEdicionProducto(false); setVista('alta'); } },
+        { id: 'ajustes', label: 'Ajuste de inventario', icon: 'refresh', onClick: () => setModalAjusteOpen(true) },
+        { id: 'traspaso', label: 'Traspasos', icon: 'truck', onClick: () => setVista('traspaso') },
+        { id: 'mover', label: 'Mover productos (proveedor / depto)', icon: 'refresh', onClick: () => setVista('mover') },
+        { id: 'etiquetas', label: 'Imprimir etiquetas', icon: 'print', onClick: () => { setEtiquetasSel(new Set()); setVista('etiquetas'); } },
+        { id: 'importexport', label: 'Importar archivo .xls', icon: 'download', onClick: () => setVista('importexport') },
+        { id: 'exportar', label: 'Exportar productos', icon: 'download', onClick: () => exportarCatalogoCsv(inventario) },
+        {
+          id: 'fotos',
+          label: sincronizandoFotos
+            ? `Jalar fotos… ${progresoFotos ? `${progresoFotos.actual}/${progresoFotos.total}` : ''}`
+            : `Jalar fotos de internet${sinFotoCount ? ` (${sinFotoCount})` : ''}`,
+          icon: 'camera',
+          onClick: () => {
+            if (!sincronizandoFotos) jalarFotosInternet();
+          },
+        },
+        ...(puedeVaciarInventario
+          ? [{ id: 'vaciarinventario', label: 'Vaciar inventario', icon: 'trash', onClick: () => setVista('vaciarinventario') }]
+          : []),
+        { id: 'precios', label: 'Administrador de precios', icon: 'dollar', onClick: () => { initPreciosDraft(); setVista('precios'); } },
+        ...(puedeEliminarCatalogo
+          ? [{ id: 'eliminar', label: 'Eliminar productos', icon: 'trash', onClick: () => { setSeleccionEliminar(new Set()); setVista('eliminar'); } }]
+          : []),
+      ];
 
   const tablaProductos = (opts = {}) => {
     const { selectable, onSelect, selected, onRowClick, showActions = true } = opts;
@@ -634,7 +662,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
               Volver al catálogo
             </button>
           )}
-          {vista === 'lista' && productoSeleccionado && (
+          {vista === 'lista' && productoSeleccionado && puedeGestionCatalogo && (
             <button type="button" className="btn btn-ghost" onClick={() => editar(productoSeleccionado)} title="Editar producto">
               <Icon name="settings" size={16} />
               Editar
@@ -713,6 +741,8 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                   setVista('alta');
                 }}
                 title="Nuevo producto"
+                style={puedeGestionCatalogo ? undefined : { display: 'none' }}
+                disabled={!puedeGestionCatalogo}
               >
                 <Icon name="plus" size={20} />
               </button>
@@ -892,7 +922,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           <section className="prod-detalle-panel card">
             <div className="prod-detalle-panel-head">
               <strong>Detalles del producto</strong>
-              {productoSeleccionado && (
+              {productoSeleccionado && puedeGestionCatalogo && (
                 <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem' }} onClick={() => editar(productoSeleccionado)}>
                   <Icon name="settings" size={16} />
                 </button>
@@ -905,11 +935,11 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                 sucursal={sucursal}
                 proveedores={proveedores}
                 vinculos={vinculos}
-                onEditar={editar}
-                onToggleFavorito={toggleFavorito}
-                onVincularProveedor={vincularProveedor}
-                onQuitarVinculo={quitarVinculo}
-                onFotoActualizada={(row) => fusionarProducto?.(row)}
+                onEditar={puedeGestionCatalogo ? editar : undefined}
+                onToggleFavorito={puedeGestionCatalogo ? toggleFavorito : undefined}
+                onVincularProveedor={puedeGestionCatalogo ? vincularProveedor : undefined}
+                onQuitarVinculo={puedeGestionCatalogo ? quitarVinculo : undefined}
+                onFotoActualizada={puedeGestionCatalogo ? (row) => fusionarProducto?.(row) : undefined}
               />
             </div>
           </section>

@@ -35,9 +35,11 @@ export default function PantallaLogin({
   cubreDatosListos = false,
   cubreTurnoHabilitado,
   pendienteAutorizacionTurno,
+  pendienteAutorizacionDispositivo,
   pinAdminAutorizacion,
   onPinAdminChange,
   onAutorizarTurno,
+  onAutorizarDispositivo,
   onCancelarAutorizacion,
   autorizandoTurno,
 }) {
@@ -94,8 +96,9 @@ export default function PantallaLogin({
               Fijar tienda en este equipo
             </button>
             <p className="muted login-hint">
-              En la PC de caja, al fijar una <strong>tienda de venta</strong> y entrar con PIN de cajero o repartidor, ese PIN
-              quedará ligado a esta computadora. <strong>Central (MAIN)</strong> no se fija: es el panel admin y permite elegir cualquier sucursal. El administrador tampoco se ancla a dispositivo.
+              En la PC de caja, al fijar una <strong>tienda de venta</strong> y entrar con PIN de cajero, repartidor, técnico o auditor, ese PIN
+              quedará ligado a esta computadora. El <strong>cajero</strong> puede anclar hasta 2 equipos; repartidor, técnico y auditor solo 1
+              (o un 2.º con autorización de administrador). <strong>Central (MAIN)</strong> no se fija: es el panel admin. El administrador no se ancla a dispositivo.
             </p>
           </>
         )}
@@ -171,7 +174,7 @@ export default function PantallaLogin({
               key={`login-pin-${pinFieldKey}`}
               value={pin}
               onChange={onPinChange}
-              onKeyDown={(e) => e.key === 'Enter' && puedeIngresarPin && !pendienteAutorizacionTurno && onLogin()}
+              onKeyDown={(e) => e.key === 'Enter' && puedeIngresarPin && !pendienteAutorizacionTurno && !pendienteAutorizacionDispositivo && onLogin()}
               placeholder="PIN"
               autoFocus={false}
               disabled={!puedeIngresarPin}
@@ -183,7 +186,7 @@ export default function PantallaLogin({
               type="button"
               className="btn btn-primary login-btn-block login-btn-enter"
               onClick={onLogin}
-              disabled={!puedeIngresarPin || Boolean(pendienteAutorizacionTurno)}
+              disabled={!puedeIngresarPin || Boolean(pendienteAutorizacionTurno) || Boolean(pendienteAutorizacionDispositivo)}
             >
               <BtnLabel icon="logIn">Entrar</BtnLabel>
             </button>
@@ -273,6 +276,40 @@ export default function PantallaLogin({
             <div className="login-auth-actions">
               <button type="button" className="btn btn-gold" onClick={onAutorizarTurno} disabled={autorizandoTurno}>
                 {autorizandoTurno ? 'Verificando…' : 'Autorizar entrada'}
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={onCancelarAutorizacion} disabled={autorizandoTurno}>
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!pendienteCubreTurno && !pendienteAutorizacionTurno && pendienteAutorizacionDispositivo && (
+          <div className="login-auth-turno">
+            <strong>Segundo dispositivo</strong>
+            <p className="muted">{pendienteAutorizacionDispositivo.error}</p>
+            <p>
+              Empleado: <strong>{pendienteAutorizacionDispositivo.user.nombre}</strong>
+            </p>
+            <p className="muted login-hint-sm">
+              Un <strong>administrador</strong> puede autorizar anclar este equipo como segundo dispositivo en{' '}
+              {etiquetaTienda(sucursal)}.
+            </p>
+            <label className="muted login-field">
+              PIN del administrador
+              <InputPin
+                value={pinAdminAutorizacion}
+                onChange={onPinAdminChange}
+                onKeyDown={(e) => e.key === 'Enter' && !autorizandoTurno && onAutorizarDispositivo()}
+                placeholder="PIN admin"
+                autoFocus
+                autoComplete="off"
+                name="autorizacion-dispositivo-admin"
+              />
+            </label>
+            <div className="login-auth-actions">
+              <button type="button" className="btn btn-gold" onClick={onAutorizarDispositivo} disabled={autorizandoTurno}>
+                {autorizandoTurno ? 'Verificando…' : 'Autorizar dispositivo'}
               </button>
               <button type="button" className="btn btn-ghost" onClick={onCancelarAutorizacion} disabled={autorizandoTurno}>
                 Cancelar

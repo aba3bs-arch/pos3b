@@ -123,6 +123,7 @@ function App() {
   const [pin, setPin] = useState('');
   const [loginPinKey, setLoginPinKey] = useState(0);
   const [pendienteAutorizacionTurno, setPendienteAutorizacionTurno] = useState(null);
+  const [pendienteAutorizacionDispositivo, setPendienteAutorizacionDispositivo] = useState(null);
   const [pinAdminAutorizacion, setPinAdminAutorizacion] = useState('');
   const [avisoExtensionTurno, setAvisoExtensionTurno] = useState(null);
   const [autorizandoTurno, setAutorizandoTurno] = useState(false);
@@ -459,9 +460,17 @@ function App() {
   }, [irAModulo]);
 
   const completarLogin = useCallback(
-    async (data, { ajustarSucursal, autorizacionAdmin = false, cubreTurno = false } = {}) => {
+    async (data, { ajustarSucursal, autorizacionAdmin = false, autorizacionAdminDispositivo = false, cubreTurno = false } = {}) => {
       const terminalFijada = Boolean(CAJA_FISICA_FIJA_ENV || tiendaFijadaParaAcceso);
-      const vinculo = evaluarVinculoDispositivo(data, { terminalFijada });
+      const vinculo = evaluarVinculoDispositivo(data, {
+        terminalFijada,
+        autorizacionAdminDispositivo,
+      });
+      if (vinculo.requiereAutorizacionAdminDispositivo) {
+        setPendienteAutorizacionDispositivo({ user: data, ajustarSucursal, error: vinculo.error });
+        setPin('');
+        return false;
+      }
       if (!vinculo.ok) {
         alert(vinculo.error);
         setPin('');
@@ -485,7 +494,9 @@ function App() {
         if (tiendaFijadaParaAcceso) bloquearTiendaEnEsteEquipo(ajustarSucursal);
       }
       if (vinculo.vincular && data.id && !esAdministradorSinAnclaje(data.rol)) {
-        const resVinculo = await vincularDispositivoUsuario(supabase, data.id, vinculo.deviceId, data);
+        const resVinculo = await vincularDispositivoUsuario(supabase, data.id, vinculo.deviceId, data, {
+          autorizacionAdminDispositivo,
+        });
         if (!resVinculo.ok) {
           alert(resVinculo.error);
           setPin('');
@@ -499,6 +510,7 @@ function App() {
       setPin('');
       setAvisoExtensionTurno(null);
       setPendienteAutorizacionTurno(null);
+      setPendienteAutorizacionDispositivo(null);
       setPinAdminAutorizacion('');
       setPendienteCubreTurno(false);
       setNombreCubre('');
@@ -509,7 +521,11 @@ function App() {
         usuario_id: data.id || null,
         nombre: data.nombre,
         sucursal: sucursalLogin,
-        evento: cubreTurno ? 'CUBRE_TURNO' : autorizacionAdmin ? 'ENTRADA_AUTORIZADA' : 'ENTRADA',
+        evento: cubreTurno
+          ? 'CUBRE_TURNO'
+          : autorizacionAdmin || autorizacionAdminDispositivo
+            ? 'ENTRADA_AUTORIZADA'
+            : 'ENTRADA',
         turno_id: turnoActual()?.id || null,
       };
       if (cubreTurno && data.telefono) loginRow.telefono = data.telefono;
@@ -543,6 +559,7 @@ function App() {
     if (esPinCubreTurno(p, pinCubreRemoto)) {
       setPendienteCubreTurno(true);
       setPendienteAutorizacionTurno(null);
+      setPendienteAutorizacionDispositivo(null);
       setPin('');
       return;
     }
@@ -561,6 +578,7 @@ function App() {
       const accesoTurno = usuarioAutorizadoLogin(data, new Date(), null, sucursal);
       if (!accesoTurno.ok) {
         setPendienteAutorizacionTurno({ user: data, error: accesoTurno.error, ajustarSucursal });
+        setPendienteAutorizacionDispositivo(null);
         setPin('');
         return;
       }
@@ -616,6 +634,20 @@ function App() {
     });
   };
 
+  const manejarAutorizacionAdminDispositivo = async () => {
+    if (!pendienteAutorizacionDispositivo?.user || !supabase) return;
+    const p = pinAdminAutorizacion.trim();
+    if (!p) return alert('Indica el PIN del administrador.');
+    setAutorizandoTurno(true);
+    const auth = await verificarPinAdministradorGlobal(supabase, p);
+    setAutorizandoTurno(false);
+    if (!auth.ok) return alert(auth.error);
+    await completarLogin(pendienteAutorizacionDispositivo.user, {
+      ajustarSucursal: pendienteAutorizacionDispositivo.ajustarSucursal,
+      autorizacionAdminDispositivo: true,
+    });
+  };
+
   const forzarCierreSesionPorTurno = useCallback(() => {
     if (user?.id && sucursal) limpiarExtensionSesionTurno(user.id, sucursal);
     setAvisoExtensionTurno(null);
@@ -650,6 +682,7 @@ function App() {
     setNombreCubre('');
     setTelefonoCubre('');
     setPendienteAutorizacionTurno(null);
+    setPendienteAutorizacionDispositivo(null);
     setPinAdminAutorizacion('');
     setEnviandoCubre(false);
     setAutorizandoTurno(false);
@@ -749,6 +782,7 @@ function App() {
           setNombreCubre('');
           setTelefonoCubre('');
           setPendienteAutorizacionTurno(null);
+          setPendienteAutorizacionDispositivo(null);
           setPinAdminAutorizacion('');
           setLoginPinKey((n) => n + 1);
         }}
@@ -793,11 +827,14 @@ function App() {
         cubreDatosListos={cubreDatosListos}
         cubreTurnoHabilitado={cubreTurnoHabilitado}
         pendienteAutorizacionTurno={pendienteAutorizacionTurno}
+        pendienteAutorizacionDispositivo={pendienteAutorizacionDispositivo}
         pinAdminAutorizacion={pinAdminAutorizacion}
         onPinAdminChange={(e) => setPinAdminAutorizacion(e.target.value)}
         onAutorizarTurno={manejarAutorizacionAdminTurno}
+        onAutorizarDispositivo={manejarAutorizacionAdminDispositivo}
         onCancelarAutorizacion={() => {
           setPendienteAutorizacionTurno(null);
+          setPendienteAutorizacionDispositivo(null);
           setPinAdminAutorizacion('');
           setPin('');
           setLoginPinKey((n) => n + 1);

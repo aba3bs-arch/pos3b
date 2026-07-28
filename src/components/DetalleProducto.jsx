@@ -90,7 +90,7 @@ export default function DetalleProducto({
       <div className="prod-detalle-header">
         <div className="prod-detalle-foto-wrap">
           <ProductoThumb producto={producto} size={110} className="prod-detalle-foto" />
-          {sinFoto && (
+          {sinFoto && onFotoActualizada && (
             <>
               <input
                 ref={camaraRef}
@@ -128,20 +128,26 @@ export default function DetalleProducto({
             {producto.descripcion ? ` · ${producto.descripcion}` : ''}
           </div>
         </div>
-        <div className="prod-detalle-acciones">
-          <button
-            type="button"
-            className="btn btn-ghost"
-            style={{ padding: '0.4rem', color: favorito ? 'var(--brand-gold)' : undefined }}
-            title={favorito ? 'Quitar de favoritos' : 'Marcar favorito'}
-            onClick={() => onToggleFavorito?.(producto)}
-          >
-            <Icon name="check" size={18} />
-          </button>
-          <button type="button" className="btn btn-ghost" style={{ padding: '0.4rem' }} title="Editar producto" onClick={() => onEditar?.(producto)}>
-            <Icon name="settings" size={18} />
-          </button>
-        </div>
+        {(onToggleFavorito || onEditar) && (
+          <div className="prod-detalle-acciones">
+            {onToggleFavorito && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ padding: '0.4rem', color: favorito ? 'var(--brand-gold)' : undefined }}
+                title={favorito ? 'Quitar de favoritos' : 'Marcar favorito'}
+                onClick={() => onToggleFavorito(producto)}
+              >
+                <Icon name="check" size={18} />
+              </button>
+            )}
+            {onEditar && (
+              <button type="button" className="btn btn-ghost" style={{ padding: '0.4rem' }} title="Editar producto" onClick={() => onEditar(producto)}>
+                <Icon name="settings" size={18} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="prod-detalle-tabs">
@@ -178,37 +184,46 @@ export default function DetalleProducto({
                         {v.proveedores?.nombre || v.proveedor_id}
                         {v.sku_proveedor ? <small className="muted"> · SKU {v.sku_proveedor}</small> : null}
                       </span>
-                      <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--brand-red)' }} onClick={() => onQuitarVinculo?.(v.id)}>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ padding: '0.2rem 0.4rem', color: 'var(--brand-red)', display: onQuitarVinculo ? undefined : 'none' }}
+                        onClick={() => onQuitarVinculo?.(v.id)}
+                      >
                         Quitar
                       </button>
                     </li>
                   ))}
                 </ul>
               )}
-              <div className="grid-2" style={{ gap: '0.5rem' }}>
-                <select className="select" value={nuevoProvId} onChange={(e) => setNuevoProvId(e.target.value)}>
-                  <option value="">— Proveedor —</option>
-                  {proveedores.map((pr) => (
-                    <option key={pr.id} value={pr.id}>
-                      {pr.nombre}
-                    </option>
-                  ))}
-                </select>
-                <input className="input" placeholder="SKU proveedor" value={nuevoSkuProv} onChange={(e) => setNuevoSkuProv(e.target.value)} />
-              </div>
-              <button
-                type="button"
-                className="btn btn-primary"
-                style={{ marginTop: '0.5rem' }}
-                onClick={() => {
-                  if (!nuevoProvId) return alert('Elige proveedor.');
-                  onVincularProveedor?.(nuevoProvId, nuevoSkuProv);
-                  setNuevoProvId('');
-                  setNuevoSkuProv('');
-                }}
-              >
-                Vincular proveedor
-              </button>
+              {onVincularProveedor && (
+                <>
+                  <div className="grid-2" style={{ gap: '0.5rem' }}>
+                    <select className="select" value={nuevoProvId} onChange={(e) => setNuevoProvId(e.target.value)}>
+                      <option value="">— Proveedor —</option>
+                      {proveedores.map((pr) => (
+                        <option key={pr.id} value={pr.id}>
+                          {pr.nombre}
+                        </option>
+                      ))}
+                    </select>
+                    <input className="input" placeholder="SKU proveedor" value={nuevoSkuProv} onChange={(e) => setNuevoSkuProv(e.target.value)} />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ marginTop: '0.5rem' }}
+                    onClick={() => {
+                      if (!nuevoProvId) return alert('Elige proveedor.');
+                      onVincularProveedor(nuevoProvId, nuevoSkuProv);
+                      setNuevoProvId('');
+                      setNuevoSkuProv('');
+                    }}
+                  >
+                    Vincular proveedor
+                  </button>
+                </>
+              )}
             </div>
           )}
 
@@ -229,10 +244,12 @@ export default function DetalleProducto({
             </p>
           </div>
 
-          <button type="button" className="btn btn-primary" style={{ marginTop: '1rem' }} onClick={() => onEditar?.(producto)}>
-            <Icon name="settings" size={16} />
-            Editar producto
-          </button>
+          {onEditar && (
+            <button type="button" className="btn btn-primary" style={{ marginTop: '1rem' }} onClick={() => onEditar(producto)}>
+              <Icon name="settings" size={16} />
+              Editar producto
+            </button>
+          )}
         </div>
       )}
 

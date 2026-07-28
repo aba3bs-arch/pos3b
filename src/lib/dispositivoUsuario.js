@@ -4,7 +4,7 @@ import { sucursalFijaPorEntorno, tiendaBloqueadaEnEsteEquipo } from '../constant
 
 const LS_DISPOSITIVO = 'pos3b_dispositivo_id';
 
-/** Máximo de equipos anclados por PIN de cajero/repartidor (ej. 2 celulares de tienda). */
+/** Máximo absoluto de equipos anclados (cajero, o 2.º con autorización admin). */
 export const MAX_DISPOSITIVOS_POR_USUARIO = 2;
 
 export const AVISO_FALTA_DISPOSITIVO =
@@ -26,11 +26,33 @@ export function obtenerIdDispositivoLocal() {
   }
 }
 
-/** Cajeros y repartidores quedan ligados al equipo de tienda fijada.
- * Administradores (y el resto de roles) NO se anclan a ningún dispositivo. */
+/**
+ * Roles que quedan ligados al equipo de tienda fijada.
+ * Administrador (y Supervisor/Gerente) NO se anclan.
+ */
 export function rolExigeDispositivoUnico(rol) {
   const r = normalizarRol(rol);
-  return r === 'Cajero' || r === 'Repartidor';
+  return r === 'Cajero' || r === 'Repartidor' || r === 'Técnico' || r === 'Auditor';
+}
+
+/** Repartidor / Técnico / Auditor: 1 equipo; el 2.º solo con PIN de administrador. */
+export function rolRequiereAdminParaDispositivoExtra(rol) {
+  const r = normalizarRol(rol);
+  return r === 'Repartidor' || r === 'Técnico' || r === 'Auditor';
+}
+
+/**
+ * Cupo de dispositivos por rol.
+ * @param {string} rol
+ * @param {{ autorizacionAdminExtra?: boolean }} [opts]
+ */
+export function maxDispositivosPermitidos(rol, opts = {}) {
+  const r = normalizarRol(rol);
+  if (r === 'Cajero') return MAX_DISPOSITIVOS_POR_USUARIO;
+  if (rolRequiereAdminParaDispositivoExtra(r)) {
+    return opts.autorizacionAdminExtra ? MAX_DISPOSITIVOS_POR_USUARIO : 1;
+  }
+  return 1;
 }
 
 export function esTerminalTiendaFijada() {
@@ -52,10 +74,17 @@ export function dispositivosVinculadosUsuario(user) {
 }
 
 /**
- * @returns {{ ok: boolean, error?: string, vincular?: boolean, deviceId?: string, aviso?: string, sinAnclaje?: boolean }}
+ * @returns {{
+ *   ok: boolean,
+ *   error?: string,
+ *   vincular?: boolean,
+ *   deviceId?: string,
+ *   aviso?: string,
+ *   sinAnclaje?: boolean,
+ *   requiereAutorizacionAdminDispositivo?: boolean,
+ * }}
  */
 export function evaluarVinculoDispositivo(user, opts = {}) {
-  // Administrador y roles que no son cajero/repartidor: acceso desde cualquier PC o celular.
   if (!user || esUsuarioCubreTurno(user) || !rolExigeDispositivoUnico(user.rol)) {
     return { ok: true, sinAnclaje: true };
   }
@@ -63,25 +92,43 @@ export function evaluarVinculoDispositivo(user, opts = {}) {
   const deviceId = obtenerIdDispositivoLocal();
   const terminalFijada = opts.terminalFijada ?? esTerminalTiendaFijada();
   const slots = dispositivosVinculadosUsuario(user);
+  const autorizacionAdminExtra = Boolean(opts.autorizacionAdminDispositivo);
+  const max = maxDispositivosPermitidos(user.rol, { autorizacionAdminExtra });
 
   if (slots.includes(deviceId)) return { ok: true, deviceId };
 
-  // Sin equipos aún: en terminal fijada se ancla el primero; fuera de caja no obliga.
   if (slots.length === 0) {
     if (!terminalFijada) return { ok: true, deviceId };
     return { ok: true, vincular: true, deviceId };
   }
 
-  // Ya tiene 1 equipo: en otra terminal de tienda fijada se permite el 2.º (mismo PIN, 2 celulares).
-  if (terminalFijada && slots.length < MAX_DISPOSITIVOS_POR_USUARIO) {
+  if (terminalFijada && slots.length < max) {
     return { ok: true, vincular: true, deviceId };
   }
 
-  if (terminalFijada && slots.length >= MAX_DISPOSITIVOS_POR_USUARIO) {
+  // Ya tiene 1 equipo y el rol exige admin para el 2.º
+  if (
+    terminalFijada &&
+    rolRequiereAdminParaDispositivoExtra(user.rol) &&
+    slots.length === 1 &&
+    !autorizacionAdminExtra
+  ) {
     return {
       ok: false,
+      requiereAutorizacionAdminDispositivo: true,
       error:
-        'Este PIN ya está vinculado a 2 dispositivos (máximo por cajero). Pide al administrador que libere el equipo en Usuarios si cambió de celular.',
+        'Este PIN ya está vinculado a un dispositivo. Para anclar otro equipo se requiere autorización del administrador.',
+      deviceId,
+    };
+  }
+
+  if (terminalFijada && slots.length >= max) {
+    const esCajero = normalizarRol(user.rol) === 'Cajero';
+    return {
+      ok: false,
+      error: esCajero
+        ? 'Este PIN ya está vinculado a 2 dispositivos (máximo por cajero). Pide al administrador que libere el equipo en Usuarios si cambió de celular.'
+        : 'Este PIN ya tiene el máximo de dispositivos anclados. Pide al administrador que libere el equipo en Usuarios si cambió de celular.',
       deviceId,
     };
   }
@@ -95,14 +142,14 @@ export function evaluarVinculoDispositivo(user, opts = {}) {
 }
 
 /** Ancla el dispositivo en el primer slot libre (dispositivo_id o dispositivo_id_2). */
-export async function vincularDispositivoUsuario(supabase, userId, deviceId, userRow = null) {
+export async function vincularDispositivoUsuario(supabase, userId, deviceId, userRow = null, opts = {}) {
   if (!supabase || !userId || !deviceId) return { ok: false, error: 'Datos incompletos.' };
 
   let row = userRow;
   if (!row) {
     const { data, error } = await supabase
       .from('usuarios')
-      .select('dispositivo_id, dispositivo_id_2')
+      .select('dispositivo_id, dispositivo_id_2, rol')
       .eq('id', userId)
       .maybeSingle();
     if (error) {
@@ -116,15 +163,27 @@ export async function vincularDispositivoUsuario(supabase, userId, deviceId, use
   const d2 = String(row?.dispositivo_id_2 || '').trim();
   if (d1 === deviceId || d2 === deviceId) return { ok: true, slot: d1 === deviceId ? 1 : 2 };
 
+  const max =
+    opts.maxDispositivos ??
+    maxDispositivosPermitidos(row?.rol || opts.rol, {
+      autorizacionAdminExtra: Boolean(opts.autorizacionAdminDispositivo),
+    });
+
   const ahora = new Date().toISOString();
   let patch;
   let slot;
   if (!d1) {
     patch = { dispositivo_id: deviceId, dispositivo_vinculado_at: ahora };
     slot = 1;
-  } else if (!d2) {
+  } else if (!d2 && max >= 2) {
     patch = { dispositivo_id_2: deviceId, dispositivo_vinculado_at: ahora };
     slot = 2;
+  } else if (d1 && max < 2) {
+    return {
+      ok: false,
+      error:
+        'Este PIN solo puede tener 1 dispositivo. Pide autorización de administrador para anclar otro, o libera el equipo en Usuarios.',
+    };
   } else {
     return {
       ok: false,
@@ -135,7 +194,6 @@ export async function vincularDispositivoUsuario(supabase, userId, deviceId, use
   const { error } = await supabase.from('usuarios').update(patch).eq('id', userId);
   if (!error) return { ok: true, slot, ...patch };
   if (faltaColumnaDispositivo(error)) {
-    // Columna 2 aún no existe: solo primer slot
     if (slot === 2) {
       return {
         ok: false,

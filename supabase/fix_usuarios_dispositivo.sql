@@ -1,8 +1,8 @@
 -- =============================================================================
--- POS 3B — Hasta 2 dispositivos por cajero/repartidor (mismo PIN en 2 celulares)
+-- POS 3B — Dispositivos por usuario
+-- Cajero: hasta 2. Repartidor / Técnico / Auditor: 1 (2.º con autorización admin).
 -- Seguro re-ejecutar.
 -- =============================================================================
-
 alter table public.usuarios add column if not exists dispositivo_id text;
 alter table public.usuarios add column if not exists dispositivo_id_2 text;
 alter table public.usuarios add column if not exists dispositivo_vinculado_at timestamptz;
