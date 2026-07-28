@@ -289,7 +289,16 @@ export default function AjusteInventario({
 
   const agregarLineaMasiva = () => {
     if (!productoMasivoId) return alert('Elige un producto para agregar.');
-    if (lineasMasivas.some((l) => l.productoId === productoMasivoId)) return alert('Ese producto ya está en la lista.');
+    if (lineasMasivas.some((l) => l.productoId === productoMasivoId)) {
+      setLineasMasivas((prev) =>
+        prev.map((l) =>
+          l.productoId === productoMasivoId
+            ? { ...l, cantidad: String(Math.max(1, (parseInt(l.cantidad, 10) || 0) + 1)) }
+            : l,
+        ),
+      );
+      return;
+    }
     setLineasMasivas([...lineasMasivas, { productoId: productoMasivoId, cantidad: '1' }]);
     setProductoMasivoId('');
     setBusquedaMasiva('');
@@ -314,9 +323,15 @@ export default function AjusteInventario({
       return;
     }
     if (lineasMasivas.some((l) => l.productoId === producto.id)) {
+      setLineasMasivas((prev) =>
+        prev.map((l) =>
+          l.productoId === producto.id
+            ? { ...l, cantidad: String(Math.max(1, (parseInt(l.cantidad, 10) || 0) + 1)) }
+            : l,
+        ),
+      );
       setProductoMasivoId(producto.id);
       setBusquedaMasiva('');
-      alert('Ese producto ya está en la lista.');
       return;
     }
     setLineasMasivas([...lineasMasivas, { productoId: producto.id, cantidad: '1' }]);
@@ -517,7 +532,8 @@ export default function AjusteInventario({
         {modo === 'masivo' && (
           <p className="muted" style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
             Agrega varios productos con la cantidad a <strong>SUMAR</strong> al stock actual
-            (ej. hay 10 e ingresas 12 → queda 22). No reemplaza la existencia.
+            (ej. hay 10 e ingresas 12 → queda 22). Si vuelves a escanear el mismo, suma +1. No reemplaza la
+            existencia.
             La lista se guarda sola en este equipo si se interrumpe la captura.
           </p>
         )}
