@@ -228,8 +228,12 @@ export async function cargarDiaCaja(supabase, { sucursal, fecha, turno = null })
   sinFecha = r.sinFecha;
   if (r.aviso) aviso = r.aviso;
 
-  // Turno nocturno: la ventana ya es del turno; filtrar por turno solo si hay id/nombre, con fallback por hora.
-  const ventas = turno ? filtrarVentasPorTurno(ventasRaw, turno) : ventasRaw;
+  // Turno nocturno: la ventana ini–fin YA es el turno completo (cruza medianoche).
+  // No re-filtrar por hora/turno_id: evita ocultar ventas reales (p. ej. mal etiquetadas
+  // o vistas después de la gracia de entrega).
+  // Turno diurno: la consulta es el día calendario; sí hay que filtrar por turno.
+  const ventas =
+    !turno || modo === 'turno_nocturno' ? ventasRaw : filtrarVentasPorTurno(ventasRaw, turno);
   const cancel = await cargarCancelacionesDelDia(supabase, { sucursal: suc, fecha, turno });
   let ventasOtrasTiendas = null;
   if (supabase && (!ventas || ventas.length === 0)) {

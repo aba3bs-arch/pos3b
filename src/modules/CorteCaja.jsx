@@ -149,6 +149,14 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
     () => turnosDisponiblesParaCorte(turnos, new Date(), null, { user, sucursal }),
     [turnos, user, sucursal],
   );
+  /** Todos los turnos configurados (para consultar nocturno aunque ya pasó la gracia). */
+  const opcionesTurnoConsulta = useMemo(() => {
+    const disponibles = new Map(opcionesCorte.map((o) => [String(o.turno.id), o.motivo]));
+    return (turnos || []).map((t) => ({
+      turno: t,
+      motivo: disponibles.get(String(t.id)) || 'consulta',
+    }));
+  }, [turnos, opcionesCorte]);
   const minsExt = minutosRestantesExtension(user, sucursal);
 
   useEffect(() => {
@@ -310,7 +318,14 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
   const barraFecha = (
     <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-end' }}>
-        <SelectorCalendario label="Fecha" value={fecha} onChange={setFecha} />
+        <SelectorCalendario
+          label="Fecha"
+          value={fecha}
+          onChange={(ymd) => {
+            setTurnoManual(true);
+            setFecha(ymd);
+          }}
+        />
         <button type="button" className="btn btn-primary" onClick={cargar} disabled={loading}>
           {loading ? 'Actualizando…' : 'Actualizar día'}
         </button>
@@ -358,9 +373,10 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
         )}
         {!ventasOtrasTiendas && ventasDiaSinTurno === 0 && (
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
-            Si acabas de vender, confirma que la tienda de la caja coincida. En turno nocturno (19:00–07:00) las ventas
-            de la noche van con la fecha del día en que empezó el turno (ej. ventas a las 20:00 del 20 van en el 20, no en el 21).
-            También puedes revisar en <strong>Consultas → Ventas</strong> con «Todas las tiendas».
+            Si vendiste en nocturno: elige <strong>Turno nocturno</strong> arriba y la fecha del día en que empezó
+            (ej. venta a las 20:00 del 27 → fecha 27, no 28). El inventario baja aunque mires el turno equivocado;
+            el ticket y la tarjeta solo aparecen en el turno/fecha correctos. También revisa{' '}
+            <strong>Consultas → Ventas</strong>.
           </p>
         )}
       </div>
@@ -382,40 +398,43 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
             </>
           )}
         </p>
-        {opcionesCorte.length > 1 && (
+        {opcionesTurnoConsulta.length > 0 && (
           <div style={{ marginTop: '0.65rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
             <label className="muted" style={{ fontSize: '0.85rem' }}>
-              Turno a cortar
+              Turno a consultar / cortar
               <select
                 className="select"
-                style={{ marginLeft: '0.4rem', minWidth: 220 }}
+                style={{ marginLeft: '0.4rem', minWidth: 260 }}
                 value={turnoActivo?.id || ''}
                 onChange={(e) => {
                   const id = e.target.value;
-                  const hit = opcionesCorte.find((o) => String(o.turno.id) === String(id));
+                  const hit = opcionesTurnoConsulta.find((o) => String(o.turno.id) === String(id));
                   if (!hit) return;
                   setTurnoManual(true);
                   setTurnoActivo(hit.turno);
                   setFecha(fechaCorteSugerida(hit.turno));
                 }}
               >
-                {opcionesCorte.map((o) => (
+                {opcionesTurnoConsulta.map((o) => (
                   <option key={o.turno.id} value={o.turno.id}>
                     {nombreTurnoLegible(o.turno)} ({o.turno.hora_inicio}–{o.turno.hora_fin})
-                    {o.motivo === 'entrega' ? ' · se entrega' : ' · en curso'}
+                    {o.motivo === 'entrega' ? ' · se entrega' : o.motivo === 'actual' ? ' · en curso' : ' · consulta'}
                   </option>
                 ))}
               </select>
             </label>
             <span className="muted" style={{ fontSize: '0.78rem' }}>
-              Tras la salida hay {leerToleranciaTurnos().minutos_despues_fin} min para cortar el turno que se entrega
-              {minsExt > 0 ? ` · extensión activa (${minsExt} min)` : ''}.
+              Tras la salida hay {leerToleranciaTurnos().minutos_despues_fin} min para que el cajero corte el turno
+              {minsExt > 0 ? ` · extensión activa (${minsExt} min)` : ''}. Fuera de esa ventana, un gerente/admin puede
+              consultar y cortar el nocturno eligiendo el turno aquí.
             </span>
           </div>
         )}
-        {opcionesCorte.some((o) => o.motivo === 'entrega') && opcionesCorte.length === 1 && (
+        {opcionesCorte.some((o) => o.motivo === 'entrega') && (
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', color: 'var(--brand-gold)' }}>
-            Estás en la ventana de entrega: puedes cortar <strong>{nombreTurnoLegible(opcionesCorte[0].turno)}</strong> aunque ya empezó el siguiente.
+            Estás en la ventana de entrega: puedes cortar{' '}
+            <strong>{nombreTurnoLegible(opcionesCorte.find((o) => o.motivo === 'entrega')?.turno)}</strong> aunque ya
+            empezó el siguiente.
           </p>
         )}
       </div>
