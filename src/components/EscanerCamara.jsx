@@ -2,10 +2,11 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import Icon from './Icon.jsx';
 import { camaraEscaneoDisponible, FORMATOS_BARRAS } from '../lib/escanerCamara.js';
 import { prepararAudioPos, sonidoEscaneoProducto } from '../lib/sonidosPos.js';
+import './EscanerCamara.css';
 
 /**
- * Modal de escaneo con cámara trasera (móvil / tablet).
- * onCodigo(texto) se dispara una vez por apertura al leer un código.
+ * Modal de escaneo a pantalla completa (cámara trasera).
+ * En iPhone/Safari el video llena la pantalla; no graba, solo lee el código.
  */
 export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'Escanear código' }) {
   const reactId = useId().replace(/:/g, '');
@@ -23,6 +24,9 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
     setIniciando(true);
 
     let activo = true;
+    // Evita que iOS haga scroll/zoom detrás del modal
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
 
     (async () => {
       try {
@@ -41,27 +45,33 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
         };
         const formatsToSupport = FORMATOS_BARRAS.map((f) => mapa[f]).filter(Boolean);
 
-        const scanner = new Html5Qrcode(containerId, { verbose: false });
+        const scanner = new Html5Qrcode(containerId, {
+          verbose: false,
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+        });
         scannerRef.current = scanner;
 
+        const vw = Math.max(window.innerWidth || 360, 320);
+        const vh = Math.max(window.innerHeight || 640, 480);
+
         await scanner.start(
-          { facingMode: 'environment' },
+          { facingMode: { ideal: 'environment' } },
           {
-            fps: 12,
-            qrbox: (w, h) => {
-              const ancho = Math.min(w * 0.92, 320);
-              const alto = Math.min(h * 0.35, 160);
-              return { width: ancho, height: alto };
+            fps: 15,
+            qrbox: (viewW, viewH) => {
+              const w = Math.floor(Math.min(viewW, vw) * 0.92);
+              const h = Math.floor(Math.min(Math.max(viewH * 0.28, 140), 240));
+              return { width: Math.max(220, w), height: Math.max(120, h) };
             },
             formatsToSupport,
-            aspectRatio: 1.777778,
+            aspectRatio: vw / Math.max(vh * 0.72, 1),
+            disableFlip: false,
           },
           (decoded) => {
             if (leidoRef.current) return;
             leidoRef.current = true;
             const texto = String(decoded || '').trim();
             if (!texto) return;
-            // Misma confirmación audible que el lector USB (móvil / tablet).
             sonidoEscaneoProducto();
             onCodigo?.(texto);
             scanner
@@ -71,12 +81,33 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
           },
           () => {},
         );
+
+        // Forzar video a pantalla completa (html5-qrcode pone tamaños fijos pequeños)
+        requestAnimationFrame(() => {
+          const root = document.getElementById(containerId);
+          if (!root) return;
+          root.querySelectorAll('video, canvas').forEach((el) => {
+            el.style.width = '100%';
+            el.style.height = '100%';
+            el.style.objectFit = 'cover';
+            el.style.maxWidth = '100%';
+            el.removeAttribute('width');
+            el.removeAttribute('height');
+          });
+          const video = root.querySelector('video');
+          if (video) {
+            video.setAttribute('playsinline', 'true');
+            video.setAttribute('webkit-playsinline', 'true');
+            video.muted = true;
+          }
+        });
       } catch (e) {
         if (activo) {
+          const msg = String(e?.message || e || '');
           setError(
-            e?.message?.includes('NotAllowed')
-              ? 'Permiso de cámara denegado. Actívalo en ajustes del navegador.'
-              : e?.message || 'No se pudo abrir la cámara.',
+            /NotAllowed|Permission|denied/i.test(msg)
+              ? 'Permiso de cámara denegado. En iPhone: Ajustes → Safari → Cámara → Permitir, y recarga con HTTPS.'
+              : msg || 'No se pudo abrir la cámara.',
           );
         }
       } finally {
@@ -86,6 +117,7 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
 
     return () => {
       activo = false;
+      document.body.style.overflow = prevOverflow;
       const scanner = scannerRef.current;
       scannerRef.current = null;
       if (scanner?.isScanning) {
@@ -102,46 +134,24 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
   if (!abierto) return null;
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 10000,
-        background: 'rgba(15, 23, 42, 0.92)',
-        display: 'flex',
-        flexDirection: 'column',
-        padding: '1rem',
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-        <h3 style={{ margin: 0, color: '#fff', fontSize: '1.1rem' }}>{titulo}</h3>
-        <button type="button" className="btn btn-ghost" onClick={onCerrar} style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.35)' }}>
+    <div className="escaner-overlay" role="dialog" aria-modal="true">
+      <div className="escaner-top">
+        <div>
+          <h3 className="escaner-titulo">{titulo}</h3>
+          <p className="escaner-hint">Vista previa en vivo · no graba video · al leer el código se cierra solo</p>
+        </div>
+        <button type="button" className="btn btn-ghost escaner-cerrar" onClick={onCerrar}>
           Cerrar
         </button>
       </div>
-      <p style={{ margin: '0 0 0.75rem', color: 'rgba(255,255,255,0.8)', fontSize: '0.85rem' }}>
-        Apunta al código de barras del producto. Al leerlo se busca en el catálogo (celular o tablet con HTTPS).
-      </p>
-      {error ? (
-        <div className="card" style={{ color: 'var(--brand-red)', marginBottom: '0.75rem' }}>
-          {error}
-        </div>
-      ) : null}
-      {iniciando && !error ? (
-        <p style={{ color: '#fff', textAlign: 'center', margin: '0.5rem 0' }}>Iniciando cámara…</p>
-      ) : null}
-      <div
-        id={containerId}
-        style={{
-          flex: 1,
-          minHeight: 240,
-          borderRadius: 12,
-          overflow: 'hidden',
-          background: '#000',
-        }}
-      />
+
+      {error ? <div className="escaner-error">{error}</div> : null}
+      {iniciando && !error ? <p className="escaner-loading">Abriendo cámara a pantalla completa…</p> : null}
+
+      <div className="escaner-stage">
+        <div id={containerId} className="escaner-video-host" />
+        <div className="escaner-frame" aria-hidden />
+      </div>
     </div>
   );
 }
@@ -157,11 +167,10 @@ export function BotonEscanerCamara({ onCodigo, titulo, label = 'Escanear', class
         className={className}
         style={style}
         onClick={() => {
-          // Gesto de usuario: habilita beep al escanear en iOS/Android.
           prepararAudioPos();
           setAbierto(true);
         }}
-        title="Escanear con cámara"
+        title="Escanear con cámara (pantalla completa)"
       >
         <Icon name="camera" size={18} />
         <span>{label}</span>

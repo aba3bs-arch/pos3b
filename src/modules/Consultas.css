@@ -352,3 +352,109 @@
     font-size: 0.82rem;
   }
 }
+
+.consultas-back {
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.consultas-prod-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.consultas-inv-detalle {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.consultas-inv-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.consultas-inv-fecha {
+  margin-left: auto;
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.consultas-inv-total {
+  text-align: right;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid #eef2f7;
+  font-weight: 700;
+  color: #1e5bb8;
+}
+
+.consultas-saldos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.85rem 1rem 1.25rem;
+}
+
+.consultas-saldo-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  background: #fff;
+  border: 1px solid #eef2f7;
+  border-radius: 12px;
+}
+
+.consultas-saldo-nombre {
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.consultas-saldo-moneda {
+  margin-top: 0.25rem;
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+.consultas-saldo-right {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+
+.consultas-saldo-monto {
+  font-weight: 700;
+  color: #1e5bb8;
+  font-size: 1.05rem;
+}
+
+.consultas-link {
+  border: none;
+  background: transparent;
+  color: #1e5bb8;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.consultas-ok {
+  color: #16a34a;
+  font-size: 1.15rem;
+  font-weight: 800;
+}

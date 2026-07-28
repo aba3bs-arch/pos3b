@@ -11,6 +11,8 @@ import {
   folioNumerico,
   inicialesNombre,
 } from '../lib/consultasUi.js';
+import { leerTurnos, nombreTurnoLegible } from '../lib/turnos.js';
+import ProductoThumb from '../components/ProductoThumb.jsx';
 import './Consultas.css';
 
 const NAV = [
@@ -87,7 +89,16 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     return map;
   }, [inventario]);
 
-  const titulo = TITULOS[seccion] || 'Consultas';
+  const productoPorId = useMemo(() => {
+    const map = new Map();
+    for (const p of inventario || []) map.set(String(p.id), p);
+    return map;
+  }, [inventario]);
+
+  const enDetalleInv = seccion === 'inventarios' && sel && Array.isArray(sel.lineas);
+  const tituloBarra = enDetalleInv
+    ? `${sel.titulo || 'Movimiento'} - ${sel.folio}`
+    : TITULOS[seccion] || 'Consultas';
   const esLista =
     seccion === 'ventas' ||
     seccion === 'cfdi_ventas' ||
@@ -229,16 +240,17 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   }, [cortes, qNorm]);
 
   const saldosDesdeCortes = useMemo(() => {
-    // Agrupa último corte por sucursal+usuario como proxy de “saldo de caja”.
     const map = new Map();
     for (const c of cortesFiltrados) {
-      const key = `${c.sucursal || c.sucursal_id || ''}|${c.usuario || ''}`;
+      const turnoKey = c.turno_nombre || c.turno_id || c.usuario || 'Caja';
+      const key = `${c.sucursal || c.sucursal_id || ''}|${turnoKey}`;
       const prev = map.get(key);
       const t = new Date(c.created_at || c.fecha || 0).getTime();
       if (!prev || t > prev._t) {
         map.set(key, {
           ...c,
           _t: t,
+          nombreCaja: turnoKey,
           saldo: Number(c.efectivoContado ?? c.efectivo_contado ?? 0),
         });
       }
@@ -246,20 +258,46 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     return [...map.values()].sort((a, b) => b._t - a._t);
   }, [cortesFiltrados]);
 
+  const turnosSinMovimiento = useMemo(() => {
+    const cfg = leerTurnos();
+    const vistos = new Set(saldosDesdeCortes.map((s) => String(s.turno_id || s.nombreCaja || '').toLowerCase()));
+    return cfg
+      .filter((t) => !vistos.has(String(t.id || '').toLowerCase()) && !vistos.has(String(nombreTurnoLegible(t) || '').toLowerCase()))
+      .map((t) => ({ id: t.id, nombre: nombreTurnoLegible(t) || t.id }));
+  }, [saldosDesdeCortes]);
+
   const placeholderBusqueda =
     seccion === 'ventas' || seccion === 'cfdi_ventas'
       ? 'Buscar… Folio, Cliente, Producto'
       : seccion === 'compras'
         ? 'Buscar… Folio, Proveedor, Producto'
-        : seccion === 'inventarios'
-          ? 'Buscar'
-          : 'Buscar…';
+        : seccion === 'cajas_cortes'
+          ? 'Buscar folio o monto'
+          : seccion === 'inventarios'
+            ? 'Buscar'
+            : 'Buscar…';
 
   const irA = (id) => {
     setSeccion(id);
     setQ('');
     setSel(null);
   };
+
+  const lineasDetalleInv = useMemo(() => {
+    if (!enDetalleInv) return [];
+    return (sel.lineas || []).map((m) => {
+      const prod = productoPorId.get(String(m.producto_id));
+      const precio = Number(m.precio) || Number(prod?.precio) || 0;
+      const qty = Math.abs(Number(m.cantidad) || 0);
+      const existencia = m.stock_antes != null ? Number(m.stock_antes) : 0;
+      const contado = m.stock_despues != null ? Number(m.stock_despues) : qty;
+      const difValor =
+        m.subtotal != null && Number(m.subtotal)
+          ? Math.abs(Number(m.subtotal))
+          : Math.abs(contado - existencia) * precio || qty * precio;
+      return { ...m, prod, precio, existencia, contado, difValor };
+    });
+  }, [enDetalleInv, sel, productoPorId]);
 
   return (
     <div className="consultas-shell">
@@ -281,7 +319,23 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
       <section className="consultas-main">
         <div className="consultas-topbar">
-          <span>{titulo}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+            {(enDetalleInv || seccion === 'cajas_cortes' || seccion === 'cajas_saldos' || seccion === 'cfdi_ventas') && (
+              <button
+                type="button"
+                className="consultas-back"
+                title="Volver"
+                onClick={() => {
+                  if (enDetalleInv) setSel(null);
+                  else if (seccion.startsWith('cajas_')) irA('cajas');
+                  else if (seccion.startsWith('cfdi_')) irA('cfdi');
+                }}
+              >
+                ←
+              </button>
+            )}
+            <span>{tituloBarra}</span>
+          </div>
           <span className="muted-top">{user?.nombre || ''}</span>
         </div>
 
@@ -304,7 +358,58 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
           </div>
         )}
 
-        {esLista && (
+        {enDetalleInv && (
+          <div className="consultas-inv-detalle">
+            <div className="consultas-inv-meta">
+              <Avatar nombre={sel.usuario} />
+              <div>
+                <div className="muted" style={{ fontSize: '0.82rem' }}>
+                  Almacén: <strong style={{ color: '#334155' }}>{etiquetaTienda(sel.sucursal || filtroSucursal || sucursal) || 'Default'}</strong>
+                </div>
+              </div>
+              <div className="consultas-inv-fecha">{fmtFechaCorta(sel.created_at)}</div>
+            </div>
+            <div className="consultas-body">
+              <table className="consultas-table">
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>Lote</th>
+                    <th>Precio</th>
+                    <th>Existencia</th>
+                    <th>Diferencia</th>
+                    <th>Contado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lineasDetalleInv.map((m) => (
+                    <tr key={m.id}>
+                      <td>
+                        <div className="consultas-prod-cell">
+                          <ProductoThumb producto={m.prod || { id: m.producto_id, nombre: m.producto_nombre }} size={40} />
+                          <div>
+                            <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>{m.producto_id}</div>
+                            <div style={{ fontWeight: 600 }}>{m.producto_nombre || m.producto_id}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="muted">—</td>
+                      <td>{fmtMonto(m.precio)}</td>
+                      <td>{m.existencia}</td>
+                      <td style={{ color: '#1e5bb8', fontWeight: 600 }}>{fmtMonto(m.difValor)}</td>
+                      <td style={{ fontWeight: 700 }}>{m.contado}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="consultas-inv-total">
+              Total ({lineasDetalleInv.length}) {fmtMonto(sel.total)}
+            </div>
+          </div>
+        )}
+
+        {esLista && !enDetalleInv && (
           <>
             <div className="consultas-toolbar">
               <div className="consultas-search">
@@ -314,14 +419,18 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
               <button type="button" className="consultas-icon-btn" title="Actualizar" onClick={() => void refrescar()} disabled={loading}>
                 ↻
               </button>
-              <label className="consultas-chip" title="Desde">
-                📅
-                <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
-              </label>
-              <label className="consultas-chip" title="Hasta">
-                →
-                <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
-              </label>
+              {seccion !== 'cajas_saldos' && (
+                <>
+                  <label className="consultas-chip" title="Desde">
+                    📅
+                    <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+                  </label>
+                  <label className="consultas-chip" title="Hasta">
+                    →
+                    <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+                  </label>
+                </>
+              )}
             </div>
 
             <div className="consultas-filters-row">
@@ -437,25 +546,22 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                       </tr>
                     </thead>
                     <tbody>
-                      {docsFiltrados.map((d) => {
-                        const selected = sel?.id === d.id;
-                        return (
-                          <tr key={d.id} className={selected ? 'selected' : ''} onClick={() => setSel(selected ? null : d)}>
-                            <td>
-                              <div className="consultas-folio">
-                                {fmtFechaCorta(d.created_at)}
-                                <small style={{ color: '#334155', fontWeight: 600 }}>{d.label}</small>
-                              </div>
-                            </td>
-                            <td>
-                              <Avatar nombre={d.usuario} />
-                            </td>
-                            <td>{moneyCell(d.difNeg > 0 ? -d.difNeg : 0)}</td>
-                            <td>{moneyCell(d.difPos)}</td>
-                            <td>{moneyCell(d.total)}</td>
-                          </tr>
-                        );
-                      })}
+                      {docsFiltrados.map((d) => (
+                        <tr key={d.id} onClick={() => setSel(d)}>
+                          <td>
+                            <div className="consultas-folio">
+                              {fmtFechaCorta(d.created_at)}
+                              <small style={{ color: '#334155', fontWeight: 600 }}>{d.label}</small>
+                            </div>
+                          </td>
+                          <td>
+                            <Avatar nombre={d.usuario} />
+                          </td>
+                          <td>{moneyCell(d.difNeg > 0 ? -d.difNeg : 0)}</td>
+                          <td>{moneyCell(d.difPos)}</td>
+                          <td>{moneyCell(d.total)}</td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 )
@@ -468,34 +574,36 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                   <table className="consultas-table">
                     <thead>
                       <tr>
-                        <th>Fecha</th>
+                        <th>Caja de cobro</th>
+                        <th>Folio</th>
+                        <th>Moneda</th>
                         <th>Usuario</th>
-                        <th>Sucursal</th>
-                        <th>Ventas</th>
-                        <th>Contado</th>
-                        <th>Diferencia</th>
+                        <th>Resultado</th>
                       </tr>
                     </thead>
                     <tbody>
                       {cortesFiltrados.map((c) => {
                         const id = c.id || `${c.fecha}_${c.usuario}`;
-                        const selected = sel?.id === id;
-                        const dif = Number(c.diferencia) || 0;
+                        const folio = folioNumerico(c.id || id, 3);
+                        const ok = Math.abs(Number(c.diferencia) || 0) < 0.01;
                         return (
-                          <tr key={id} className={selected ? 'selected' : ''} onClick={() => setSel(selected ? null : { ...c, id })}>
+                          <tr key={id} onClick={() => setSel({ ...c, id })}>
                             <td>
                               <div className="consultas-folio">
-                                {String(c.fecha || '').slice(0, 10)}
-                                <small>{c.turno_nombre || c.turno_id || '—'}</small>
+                                {fmtFechaCorta(c.created_at || c.fecha)}
+                                <small>{c.turno_nombre || c.turno_id || etiquetaTienda(c.sucursal || c.sucursal_id)}</small>
                               </div>
                             </td>
+                            <td style={{ fontWeight: 700 }}>{folio}</td>
+                            <td title="Peso mexicano">🇲🇽</td>
                             <td>
                               <Avatar nombre={c.usuario} />
                             </td>
-                            <td>{etiquetaTienda(c.sucursal || c.sucursal_id)}</td>
-                            <td>{fmtMonto(c.totalVentas ?? c.total_ventas)}</td>
-                            <td>{fmtMonto(c.efectivoContado ?? c.efectivo_contado)}</td>
-                            <td>{moneyCell(dif)}</td>
+                            <td>
+                              <span className="consultas-ok" title={ok ? 'Cuadre OK' : `Dif. ${fmtMonto(c.diferencia)}`}>
+                                {ok ? '✓' : '!'}
+                              </span>
+                            </td>
                           </tr>
                         );
                       })}
@@ -505,34 +613,43 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
               )}
 
               {seccion === 'cajas_saldos' && (
-                saldosDesdeCortes.length === 0 ? (
-                  <EmptyState texto="Sin saldos. Se toman del último corte de cada caja en el periodo." />
+                saldosDesdeCortes.length === 0 && turnosSinMovimiento.length === 0 ? (
+                  <EmptyState texto="Sin saldos en el periodo." />
                 ) : (
-                  <table className="consultas-table">
-                    <thead>
-                      <tr>
-                        <th>Caja / Usuario</th>
-                        <th>Sucursal</th>
-                        <th>Último corte</th>
-                        <th>Saldo (efectivo contado)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {saldosDesdeCortes.map((c) => (
-                        <tr key={`${c.sucursal || c.sucursal_id}|${c.usuario}`}>
-                          <td>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem' }}>
-                              <Avatar nombre={c.usuario} />
-                              <span>{c.usuario || '—'}</span>
-                            </div>
-                          </td>
-                          <td>{etiquetaTienda(c.sucursal || c.sucursal_id)}</td>
-                          <td>{fmtFechaCorta(c.created_at || c.fecha)}</td>
-                          <td>{fmtMonto(c.saldo)} MXN</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <div className="consultas-saldos">
+                    {saldosDesdeCortes.map((c) => (
+                      <div key={`${c.sucursal || c.sucursal_id}|${c.nombreCaja}`} className="consultas-saldo-card">
+                        <div>
+                          <div className="consultas-saldo-nombre">{c.nombreCaja}</div>
+                          <div className="consultas-saldo-moneda">🇲🇽 Peso mexicano-MXN</div>
+                        </div>
+                        <div className="consultas-saldo-right">
+                          <button
+                            type="button"
+                            className="consultas-link"
+                            onClick={() => {
+                              setSeccion('cajas_cortes');
+                              setSel({ ...c, id: c.id });
+                            }}
+                          >
+                            Ver detalle
+                          </button>
+                          <div className="consultas-saldo-monto">{fmtMonto(c.saldo)}</div>
+                        </div>
+                      </div>
+                    ))}
+                    {turnosSinMovimiento.map((t) => (
+                      <div key={t.id} className="consultas-saldo-card">
+                        <div>
+                          <div className="consultas-saldo-nombre">{t.nombre}</div>
+                          <div className="consultas-saldo-moneda">🇲🇽 Peso mexicano-MXN</div>
+                        </div>
+                        <div className="muted" style={{ fontSize: '0.85rem' }}>
+                          Sin movimiento
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )
               )}
             </div>
@@ -566,34 +683,6 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
               </div>
             )}
 
-            {sel && seccion === 'inventarios' && Array.isArray(sel.lineas) && (
-              <div className="consultas-detail">
-                <h4>{sel.label}</h4>
-                <table className="consultas-table">
-                  <thead>
-                    <tr>
-                      <th>Producto</th>
-                      <th>Cant.</th>
-                      <th>Stock</th>
-                      <th>Motivo</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sel.lineas.map((m) => (
-                      <tr key={m.id}>
-                        <td>{m.producto_nombre || m.producto_id}</td>
-                        <td>{m.cantidad}</td>
-                        <td style={{ fontSize: '0.8rem' }}>
-                          {m.stock_antes != null ? `${m.stock_antes} → ${m.stock_despues}` : '—'}
-                        </td>
-                        <td style={{ fontSize: '0.8rem' }}>{m.motivo || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-
             {sel && seccion === 'compras' && (
               <div className="consultas-detail">
                 <h4>Compra {folioNumerico(sel.id, 5)}</h4>
@@ -615,6 +704,22 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+
+            {sel && seccion === 'cajas_cortes' && (
+              <div className="consultas-detail">
+                <h4>
+                  Corte {folioNumerico(sel.id, 3)} · {sel.turno_nombre || sel.turno_id || '—'}
+                </h4>
+                <div className="grid-2" style={{ gap: '0.5rem', fontSize: '0.9rem' }}>
+                  <div>Usuario: <strong>{sel.usuario || '—'}</strong></div>
+                  <div>Sucursal: <strong>{etiquetaTienda(sel.sucursal || sel.sucursal_id)}</strong></div>
+                  <div>Ventas: <strong>{fmtMonto(sel.totalVentas ?? sel.total_ventas)}</strong></div>
+                  <div>Contado: <strong>{fmtMonto(sel.efectivoContado ?? sel.efectivo_contado)}</strong></div>
+                  <div>Esperado: <strong>{fmtMonto(sel.efectivoEsperado ?? sel.efectivo_esperado)}</strong></div>
+                  <div>Diferencia: {moneyCell(sel.diferencia)}</div>
+                </div>
               </div>
             )}
           </>

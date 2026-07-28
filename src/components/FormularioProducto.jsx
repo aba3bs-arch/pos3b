@@ -103,11 +103,11 @@ export default function FormularioProducto({
               </span>
             )}
           </div>
-          <input ref={fotoRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={aplicarFoto} />
+          <input ref={fotoRef} type="file" accept="image/jpeg,image/png,image/webp,image/*" style={{ display: 'none' }} onChange={aplicarFoto} />
           <input
             ref={camaraRef}
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp,image/*"
             capture="environment"
             style={{ display: 'none' }}
             onChange={aplicarFoto}

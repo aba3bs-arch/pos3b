@@ -95,7 +95,7 @@ export default function DetalleProducto({
               <input
                 ref={camaraRef}
                 type="file"
-                accept="image/*"
+                accept="image/jpeg,image/png,image/webp,image/*"
                 capture="environment"
                 style={{ display: 'none' }}
                 onChange={tomarFoto}
