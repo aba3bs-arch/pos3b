@@ -43,6 +43,21 @@ function resetCobro(setters) {
   setters.setRefPago('');
 }
 
+/** Valor especial: el cliente paga el total sin cambio. */
+const PAGO_EXACTO = 'exacto';
+
+function montoRecibidoEfectivo(pagoCon, totalMXN, monedaPago, tipoCambio) {
+  if (pagoCon === PAGO_EXACTO) {
+    if (monedaPago === 'USD') {
+      const tc = Number(tipoCambio) || 1;
+      return tc > 0 ? totalMXN / tc : totalMXN;
+    }
+    return totalMXN;
+  }
+  const n = parseFloat(pagoCon);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export default function Ventas({
   supabase,
   user,
@@ -131,7 +146,8 @@ export default function Ventas({
   const esEfectivo = metodoActual?.tipo === 'efectivo';
 
   const cambioMXN = useMemo(() => {
-    const montoRecibido = parseFloat(pagoCon) || 0;
+    if (pagoCon === PAGO_EXACTO) return 0;
+    const montoRecibido = montoRecibidoEfectivo(pagoCon, totalMXN, monedaPago, tipoCambio);
     if (monedaPago === 'USD') return montoRecibido * tipoCambio - totalMXN;
     return montoRecibido - totalMXN;
   }, [pagoCon, monedaPago, totalMXN, tipoCambio]);
@@ -150,6 +166,7 @@ export default function Ventas({
     if (!acceso.ok) return alert(acceso.error);
     const turno = turnoActual();
     if (!metodoActual) return alert('No hay métodos de pago activos. Configúralos en Configuración.');
+    if (esEfectivo && !pagoCon) return alert('Selecciona la denominación o Monto exacto.');
     if (esEfectivo && cambioMXN < 0) return alert('Monto insuficiente');
     const articulos = carrito.map((c) => ({
       id: c.id,
@@ -219,7 +236,9 @@ export default function Ventas({
     }
     alert(
       esEfectivo
-        ? `Venta exitosa (${textoMetodoPago}). Cambio: $${cambioMXN.toFixed(2)} MXN`
+        ? pagoCon === PAGO_EXACTO
+          ? `Venta exitosa (${textoMetodoPago}). Pago exacto · sin cambio`
+          : `Venta exitosa (${textoMetodoPago}). Cambio: $${cambioMXN.toFixed(2)} MXN`
         : `Venta registrada · ${textoMetodoPago}`,
     );
     const ticket = {
@@ -229,7 +248,7 @@ export default function Ventas({
       total: totalMXN,
       metodo_pago: textoMetodoPago,
       esEfectivo,
-      recibido: parseFloat(pagoCon) || totalMXN,
+      recibido: esEfectivo ? montoRecibidoEfectivo(pagoCon, totalMXN, monedaPago, tipoCambio) : totalMXN,
       cambio: esEfectivo ? cambioMXN : null,
       moneda: monedaPago,
     };
@@ -501,15 +520,25 @@ export default function Ventas({
                   <option value="MXN">Pesos (MXN)</option>
                   <option value="USD">Dólares (USD)</option>
                 </select>
-                <select value={pagoCon} onChange={(e) => setPagoCon(e.target.value)} className="select" style={{ marginBottom: '0.5rem' }}>
-                  <option value="">Seleccione denominación…</option>
+                <button
+                  type="button"
+                  className={pagoCon === PAGO_EXACTO ? 'btn btn-primary' : 'btn btn-ghost'}
+                  style={{ width: '100%', marginBottom: '0.5rem', fontWeight: 700 }}
+                  onClick={() => setPagoCon(PAGO_EXACTO)}
+                >
+                  Monto exacto · ${totalMXN.toFixed(2)} MXN
+                </button>
+                <select value={pagoCon === PAGO_EXACTO ? '' : pagoCon} onChange={(e) => setPagoCon(e.target.value)} className="select" style={{ marginBottom: '0.5rem' }}>
+                  <option value="">{pagoCon === PAGO_EXACTO ? 'Exacto seleccionado' : 'O pagar con billete…'}</option>
                   {(monedaPago === 'MXN' ? [20, 50, 100, 200, 500, 1000] : [1, 5, 10, 20, 50, 100]).map((d) => (
                     <option key={d} value={d}>
                       ${d} {monedaPago === 'MXN' ? 'MXN' : 'USD'}
                     </option>
                   ))}
                 </select>
-                <div style={{ color: 'var(--brand-green)', fontWeight: 700, marginBottom: '0.5rem' }}>Cambio: ${cambioMXN.toFixed(2)} MXN</div>
+                <div style={{ color: 'var(--brand-green)', fontWeight: 700, marginBottom: '0.5rem' }}>
+                  {pagoCon === PAGO_EXACTO ? 'Cambio: $0.00 MXN (exacto)' : `Cambio: $${cambioMXN.toFixed(2)} MXN`}
+                </div>
               </>
             ) : (
               <>
