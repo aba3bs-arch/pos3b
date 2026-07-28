@@ -1,12 +1,16 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import Icon from './Icon.jsx';
-import { camaraEscaneoDisponible, FORMATOS_BARRAS } from '../lib/escanerCamara.js';
+import {
+  camaraEscaneoDisponible,
+  FORMATOS_BARRAS,
+  decodificarCodigoDesdeArchivo,
+} from '../lib/escanerCamara.js';
+import { detectarMobile } from '../lib/notificacionesDispositivo.js';
 import { prepararAudioPos, sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 import './EscanerCamara.css';
 
 /**
- * Modal de escaneo a pantalla completa (cámara trasera).
- * En iPhone/Safari el video llena la pantalla; no graba, solo lee el código.
+ * Modal de escaneo en vivo (fallback). Preferimos la cámara nativa del iPhone (open wide).
  */
 export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'Escanear código' }) {
   const reactId = useId().replace(/:/g, '');
@@ -24,7 +28,6 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
     setIniciando(true);
 
     let activo = true;
-    // Evita que iOS haga scroll/zoom detrás del modal
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
@@ -71,7 +74,6 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
           leidoRef.current = true;
           const texto = String(decoded || '').trim();
           if (!texto) return;
-          sonidoEscaneoProducto();
           onCodigo?.(texto);
           scanner
             .stop()
@@ -99,7 +101,6 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
         }
         if (!arrancada) throw ultimoError || new Error('No se pudo abrir la cámara.');
 
-        // Forzar video a pantalla completa (html5-qrcode pone tamaños fijos pequeños)
         requestAnimationFrame(() => {
           const root = document.getElementById(containerId);
           if (!root) return;
@@ -165,7 +166,7 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
       </div>
 
       {error ? <div className="escaner-error">{error}</div> : null}
-      {iniciando && !error ? <p className="escaner-loading">Abriendo cámara a pantalla completa…</p> : null}
+      {iniciando && !error ? <p className="escaner-loading">Abriendo cámara…</p> : null}
 
       <div className="escaner-stage">
         <div id={containerId} className="escaner-video-host" />
@@ -175,32 +176,115 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
   );
 }
 
+/**
+ * En móvil: abre la cámara nativa del sistema (open wide / Camera app), toma foto y lee el código.
+ * No usa el modal en vivo del POS. “En vivo” queda como respaldo.
+ */
 export function BotonEscanerCamara({ onCodigo, titulo, label = 'Escanear', className = 'btn btn-camera', style }) {
-  const [abierto, setAbierto] = useState(false);
+  const [vivo, setVivo] = useState(false);
+  const [leyendo, setLeyendo] = useState(false);
+  const [aviso, setAviso] = useState('');
+  const inputRef = useRef(null);
+  const preferirNativa = detectarMobile();
+
   if (!camaraEscaneoDisponible()) return null;
+
+  const entregar = (codigo) => {
+    const c = String(codigo || '').trim();
+    if (!c) return;
+    sonidoEscaneoProducto();
+    onCodigo?.(c);
+  };
+
+  const abrirNativa = () => {
+    prepararAudioPos();
+    setAviso('');
+    inputRef.current?.click();
+  };
+
+  const onFoto = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setLeyendo(true);
+    setAviso('');
+    const r = await decodificarCodigoDesdeArchivo(file);
+    setLeyendo(false);
+    if (!r.ok) {
+      setAviso(r.error || 'No se leyó el código.');
+      return;
+    }
+    entregar(r.codigo);
+  };
 
   return (
     <>
-      <button
-        type="button"
-        className={className}
-        style={style}
-        onClick={() => {
-          prepararAudioPos();
-          setAbierto(true);
-        }}
-        title="Escanear con cámara (pantalla completa)"
-      >
-        <Icon name="camera" size={18} />
-        <span>{label}</span>
-      </button>
+      <div className="escaner-btn-wrap" style={style}>
+        <button
+          type="button"
+          className={className}
+          disabled={leyendo}
+          onClick={() => {
+            if (preferirNativa) abrirNativa();
+            else {
+              prepararAudioPos();
+              setVivo(true);
+            }
+          }}
+          title={
+            preferirNativa
+              ? 'Abrir cámara del iPhone (foto) y leer el código'
+              : 'Escanear con cámara en vivo'
+          }
+        >
+          <Icon name="camera" size={18} />
+          <span>{leyendo ? 'Leyendo…' : label}</span>
+        </button>
+        {preferirNativa && (
+          <button
+            type="button"
+            className="btn btn-ghost escaner-vivo-btn"
+            disabled={leyendo}
+            onClick={() => {
+              prepararAudioPos();
+              setAviso('');
+              setVivo(true);
+            }}
+            title="Escanear en vivo dentro del POS"
+          >
+            En vivo
+          </button>
+        )}
+      </div>
+
+      {/* Cámara nativa del sistema (open wide): captura foto, no stream del POS */}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/*"
+        capture="environment"
+        className="escaner-file-input"
+        aria-hidden
+        tabIndex={-1}
+        onChange={(e) => void onFoto(e)}
+      />
+
+      {aviso ? (
+        <div className="escaner-aviso-inline" role="status">
+          {aviso}
+          <button type="button" className="btn btn-ghost" style={{ marginLeft: '0.35rem' }} onClick={() => setVivo(true)}>
+            Probar en vivo
+          </button>
+        </div>
+      ) : null}
+
       <EscanerCamara
-        abierto={abierto}
+        abierto={vivo}
         titulo={titulo}
-        onCerrar={() => setAbierto(false)}
+        onCerrar={() => setVivo(false)}
         onCodigo={(codigo) => {
-          setAbierto(false);
-          onCodigo?.(codigo);
+          setVivo(false);
+          entregar(codigo);
         }}
       />
     </>
