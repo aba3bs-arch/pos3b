@@ -1066,8 +1066,8 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
                       </td>
                       <td style={{ fontSize: '0.82rem' }}>{c.turno_nombre || c.turno_id || '—'}</td>
                       <td>{c.usuario}</td>
-                      <td>${Number(c.totalVentas ?? c.total_ventas ?? c.total || 0).toFixed(2)}</td>
-                      <td>${Number(c.efectivoContado ?? c.efectivo_contado || 0).toFixed(2)}</td>
+                        <td>${Number(c.totalVentas ?? c.total_ventas ?? c.total ?? 0).toFixed(2)}</td>
+                        <td>${Number(c.efectivoContado ?? c.efectivo_contado ?? 0).toFixed(2)}</td>
                       <td
                         style={{
                           color: Number(c.diferencia) < 0 ? 'var(--brand-red)' : 'var(--brand-green)',
