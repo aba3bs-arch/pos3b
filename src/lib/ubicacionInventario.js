@@ -211,7 +211,7 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
     usuario: usuario || '—',
     sucursal: sucursalActiva || sucursalOrigen || '',
     created_at: new Date().toISOString(),
-  });
+  }, supabase);
 
   return {
     ok: true,

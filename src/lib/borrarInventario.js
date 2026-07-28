@@ -90,7 +90,7 @@ export async function vaciarInventario(supabase, opts) {
         usuario: usuario || '—',
         sucursal: sucursal || '',
         created_at: new Date().toISOString(),
-      });
+      }, supabase);
     }
     aplicados += 1;
   }

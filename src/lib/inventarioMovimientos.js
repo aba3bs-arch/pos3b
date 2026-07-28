@@ -5,15 +5,28 @@ import {
   stockEnUbicacion,
   ubicacionEntradaDefault,
 } from './inventarioMultitienda.js';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 
 const LS_MOVIMIENTOS = 'pos3b_movimientos_inventario';
+const MAX_LOCAL = 800;
 
 export const TIPOS_MOVIMIENTO = [
   { id: 'entrada', label: 'Entrada', signo: 1, desc: 'En MAIN suma al CEDIS central; en tienda suma al piso de venta.' },
   { id: 'retiro', label: 'Retiro', signo: -1, desc: 'Resta del piso de venta (merma, uso interno, etc.). En MAIN puede restar del CEDIS central.' },
   { id: 'traspaso', label: 'Traspaso', signo: 0, desc: 'Distribuye desde el almacén central o mueve entre pisos de tiendas.' },
 ];
+
+export const AVISO_FALTA_MOVIMIENTOS_SQL =
+  'Falta la tabla movimientos_inventario. En Supabase → SQL Editor ejecuta: supabase/fix_movimientos_inventario.sql';
+
+function faltaTablaMovimientos(error) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  return (
+    error?.code === '42P01' ||
+    (msg.includes('movimientos_inventario') &&
+      (msg.includes('does not exist') || msg.includes('could not find') || msg.includes('schema cache')))
+  );
+}
 
 export function leerMovimientosLocal() {
   try {
@@ -25,11 +38,126 @@ export function leerMovimientosLocal() {
   }
 }
 
-export function guardarMovimientoLocal(row) {
+function toCloudPayload(row) {
+  const suc = normalizarCodigoTienda(row.sucursal || row.sucursal_id || row.sucursal_operacion || '') || 'MAIN';
+  return {
+    tipo: row.tipo || 'retiro',
+    modo: row.modo || null,
+    producto_id: row.producto_id != null ? String(row.producto_id) : null,
+    producto_nombre: row.producto_nombre || null,
+    producto_destino_id: row.producto_destino_id != null ? String(row.producto_destino_id) : null,
+    producto_destino_nombre: row.producto_destino_nombre || null,
+    cantidad: Number(row.cantidad) || 0,
+    stock_antes: row.stock_antes != null ? Number(row.stock_antes) : null,
+    stock_despues: row.stock_despues != null ? Number(row.stock_despues) : null,
+    stock_dest_antes: row.stock_dest_antes != null ? Number(row.stock_dest_antes) : null,
+    stock_dest_despues: row.stock_dest_despues != null ? Number(row.stock_dest_despues) : null,
+    precio_antes: row.precio_antes != null ? Number(row.precio_antes) : null,
+    precio_despues: row.precio_despues != null ? Number(row.precio_despues) : null,
+    ubicacion: row.ubicacion || null,
+    departamento: row.departamento || null,
+    motivo: row.motivo || null,
+    usuario: row.usuario || null,
+    sucursal_id: suc,
+    meta: {
+      folio: row.folio || null,
+      subtipo: row.subtipo || null,
+      traspaso_origen: row.traspaso_origen || null,
+      traspaso_destino: row.traspaso_destino || null,
+      sucursal_origen: row.sucursal_origen || null,
+      sucursal_destino: row.sucursal_destino || null,
+      ubicacion_origen: row.ubicacion_origen || null,
+      ubicacion_destino: row.ubicacion_destino || null,
+      origen_local_id: row.id || null,
+    },
+    created_at: row.created_at || new Date().toISOString(),
+  };
+}
+
+async function syncMovimientoNube(supabase, row) {
+  if (!supabase || !row) return { ok: false };
+  const payload = toCloudPayload(row);
+  const { data, error } = await supabase.from('movimientos_inventario').insert([payload]).select('id').single();
+  if (error) {
+    if (faltaTablaMovimientos(error)) return { ok: false, aviso: AVISO_FALTA_MOVIMIENTOS_SQL };
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, id: data?.id };
+}
+
+/**
+ * Guarda en este equipo. Si pasas `supabase`, también intenta subir a la nube
+ * (fire-and-forget) para que Consultas vea el movimiento en otras cajas.
+ */
+export function guardarMovimientoLocal(row, supabase = null) {
   const prev = leerMovimientosLocal();
-  const next = [{ ...row, id: row.id || `mov_${Date.now()}` }, ...prev].slice(0, 200);
-  localStorage.setItem(LS_MOVIMIENTOS, JSON.stringify(next));
+  const saved = {
+    ...row,
+    id: row.id || `mov_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    created_at: row.created_at || new Date().toISOString(),
+  };
+  const next = [saved, ...prev].slice(0, MAX_LOCAL);
+  try {
+    localStorage.setItem(LS_MOVIMIENTOS, JSON.stringify(next));
+  } catch {
+    /* ignore */
+  }
+  if (supabase) {
+    void syncMovimientoNube(supabase, saved).then((r) => {
+      if (r?.id) {
+        try {
+          const cur = leerMovimientosLocal().map((m) =>
+            String(m.id) === String(saved.id) ? { ...m, cloudId: r.id } : m,
+          );
+          localStorage.setItem(LS_MOVIMIENTOS, JSON.stringify(cur));
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+  }
   return next;
+}
+
+/** Guarda local + nube (espera confirmación de nube). */
+export async function registrarMovimientoInventario(supabase, row) {
+  const next = guardarMovimientoLocal(row, null);
+  const saved = next[0];
+  const sync = await syncMovimientoNube(supabase, saved);
+  if (sync.ok && sync.id) {
+    try {
+      const cur = leerMovimientosLocal().map((m) =>
+        String(m.id) === String(saved.id) ? { ...m, cloudId: sync.id } : m,
+      );
+      localStorage.setItem(LS_MOVIMIENTOS, JSON.stringify(cur));
+    } catch {
+      /* ignore */
+    }
+  }
+  return { log: next, cloudId: sync.id || null, aviso: sync.aviso || null, error: sync.error || null };
+}
+
+export async function registrarCambioPrecio(supabase, opts) {
+  const precioAntes = Number(opts?.precio_antes);
+  const precioDespues = Number(opts?.precio_despues);
+  if (!Number.isFinite(precioAntes) || !Number.isFinite(precioDespues) || precioAntes === precioDespues) {
+    return { ok: true, skipped: true };
+  }
+  const row = {
+    tipo: 'cambio_precio',
+    modo: 'precio',
+    producto_id: opts.producto_id,
+    producto_nombre: opts.producto_nombre || opts.nombre || '',
+    cantidad: 0,
+    precio_antes: precioAntes,
+    precio_despues: precioDespues,
+    motivo: opts.motivo || `Cambio de precio $${precioAntes.toFixed(2)} → $${precioDespues.toFixed(2)}`,
+    usuario: opts.usuario || '—',
+    sucursal: opts.sucursal || '',
+    created_at: new Date().toISOString(),
+  };
+  const r = await registrarMovimientoInventario(supabase, row);
+  return { ok: true, ...r };
 }
 
 function ubicacionMovimiento(tipo, sucursalOperacion) {
@@ -107,7 +235,7 @@ export async function aplicarMovimientoInventario(supabase, opts) {
       usuario: usuario || '—',
       sucursal: tienda || '',
       created_at: new Date().toISOString(),
-    });
+    }, supabase);
     return {
       ok: true,
       mensaje: `Traspaso: ${qty} uds. de "${productoOrigen.nombre}" → "${productoDestino.nombre}".`,
@@ -144,7 +272,7 @@ export async function aplicarMovimientoInventario(supabase, opts) {
     usuario: usuario || '—',
     sucursal: tienda || '',
     created_at: new Date().toISOString(),
-  });
+  }, supabase);
 
   const verbo = tipo === 'entrada' ? `Entrada a ${donde}` : `Retiro de ${donde}`;
   return {

@@ -12,12 +12,14 @@ import {
   buscarProductos,
   etiquetaTipoMovimiento,
   listarMovimientosInventario,
+  cargarReporteMovimientosInventario,
   timelineProducto,
   ventasConProducto,
   PRESETS_FECHA_PRODUCTO,
   rangoDesdePreset,
 } from '../lib/consultasInventario.js';
 import { inventarioParaSucursal } from '../lib/inventarioMultitienda.js';
+import { registrarCambioPrecio } from '../lib/inventarioMovimientos.js';
 
 function fmtFecha(iso) {
   if (!iso) return '—';
@@ -36,8 +38,12 @@ function badgeTipo(tipo, modo) {
     retiro: { bg: 'rgba(211,47,47,0.12)', c: 'var(--brand-red)' },
     traspaso: { bg: 'rgba(59,105,181,0.12)', c: 'var(--brand-blue)' },
     venta: { bg: 'rgba(225,153,41,0.2)', c: '#b45309' },
+    cambio_precio: { bg: 'rgba(124,58,237,0.12)', c: '#6d28d9' },
+    cancelacion: { bg: 'rgba(34,197,94,0.15)', c: 'var(--brand-green)' },
+    ajuste: { bg: 'rgba(59,105,181,0.12)', c: 'var(--brand-blue)' },
   };
-  const s = colors[tipo] || { bg: 'var(--surface)', c: 'var(--muted)' };
+  const key = tipo === 'entrada' && modo === 'cancelacion' ? 'cancelacion' : tipo;
+  const s = colors[key] || { bg: 'var(--surface)', c: 'var(--muted)' };
   const label = etiquetaTipoMovimiento(tipo, modo);
   return (
     <span className="badge" style={{ background: s.bg, color: s.c, fontSize: '0.72rem' }}>
@@ -46,7 +52,7 @@ function badgeTipo(tipo, modo) {
   );
 }
 
-export default function Consultas({ supabase, inventario, sucursal, sucursalesLista, cargarDatos }) {
+export default function Consultas({ supabase, inventario, sucursal, sucursalesLista, cargarDatos, user }) {
   const [pestana, setPestana] = useState('ventas');
   const [desde, setDesde] = useState(() => new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10));
   const [hasta, setHasta] = useState(() => new Date().toISOString().slice(0, 10));
@@ -67,7 +73,10 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const [tipoMovInv, setTipoMovInv] = useState('');
   const [skuMovInv, setSkuMovInv] = useState('');
   const [movimientosInv, setMovimientosInv] = useState([]);
+  const [resumenMovInv, setResumenMovInv] = useState(null);
+  const [avisoMovInv, setAvisoMovInv] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingMov, setLoadingMov] = useState(false);
   const [avisoCortes, setAvisoCortes] = useState('');
   const [presetFechaProducto, setPresetFechaProducto] = useState('7d');
   const [desdeProducto, setDesdeProducto] = useState(() => rangoDesdePreset('7d').desde);
@@ -158,41 +167,51 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     if (corteId && data?.length === 1) setCorteDetalle(data[0]);
   }, [supabase, desde, hasta, filtroSucursal, cajero, corteId, tipoDiferencia]);
 
-  const refrescarMovimientosInv = useCallback(() => {
-    let list = listarMovimientosInventario({
+  const refrescarMovimientosInv = useCallback(async () => {
+    setLoadingMov(true);
+    setAvisoMovInv('');
+    const r = await cargarReporteMovimientosInventario(supabase, {
       desde,
       hasta,
-      productoId: skuMovInv.trim() || null,
+      productoId: null,
       tipo: tipoMovInv || null,
       sucursal: filtroSucursal || null,
+      q: skuMovInv.trim() || '',
     });
+    let list = r.data || [];
     if (filtroEventoInv !== 'todos') {
       list = list.filter((m) => {
-        const e = {
-          tipo: m.tipo,
-          modo: m.modo,
-          stock_antes: m.stock_antes,
-          stock_despues: m.stock_despues,
-        };
-        if (filtroEventoInv === 'existencia') return e.stock_antes != null || e.stock_despues != null;
-        if (filtroEventoInv === 'entradas') return e.tipo === 'entrada';
-        if (filtroEventoInv === 'salidas') return e.tipo === 'retiro';
-        if (filtroEventoInv === 'ajustes') return e.tipo === 'traspaso' || e.modo === 'masivo' || e.modo === 'vaciado_inventario';
+        if (filtroEventoInv === 'existencia') return m.stock_antes != null || m.stock_despues != null;
+        if (filtroEventoInv === 'entradas') return m.tipo === 'entrada' || m.modo === 'cancelacion';
+        if (filtroEventoInv === 'salidas') return m.tipo === 'retiro' || m.tipo === 'venta' || m.modo === 'venta';
+        if (filtroEventoInv === 'ajustes') {
+          return (
+            m.tipo === 'traspaso' ||
+            m.modo === 'masivo' ||
+            m.modo === 'conteo_departamento' ||
+            m.modo === 'vaciado_inventario'
+          );
+        }
+        if (filtroEventoInv === 'precios') return m.tipo === 'cambio_precio';
+        if (filtroEventoInv === 'cancelaciones') return m.modo === 'cancelacion' || m.tipo === 'cancelacion';
         if (filtroEventoInv === 'negativo') {
-          const a = Number(e.stock_antes);
-          const d = Number(e.stock_despues);
+          const a = Number(m.stock_antes);
+          const d = Number(m.stock_despues);
           return (Number.isFinite(a) && a < 0) || (Number.isFinite(d) && d < 0);
         }
         return true;
       });
     }
     setMovimientosInv(list);
-  }, [desde, hasta, skuMovInv, tipoMovInv, filtroSucursal, filtroEventoInv]);
+    setResumenMovInv(r.resumen || null);
+    if (r.avisos?.length) setAvisoMovInv(r.avisos.join(' · '));
+    setLoadingMov(false);
+  }, [supabase, desde, hasta, skuMovInv, tipoMovInv, filtroSucursal, filtroEventoInv]);
 
   useEffect(() => {
     if (pestana === 'ventas') buscarVentas();
     if (pestana === 'cortes') buscarCortes();
-    if (pestana === 'inventario') refrescarMovimientosInv();
+    if (pestana === 'inventario') void refrescarMovimientosInv();
   }, [pestana, supabase]);
 
   useEffect(() => {
@@ -290,11 +309,23 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     if (!supabase || !formProducto) return;
     if (!formProducto.id || !formProducto.nombre) return alert('Código y nombre son obligatorios.');
     const productoDb = inventario.find((p) => p.id === formProducto.id);
+    const precioAntes = Number(productoDb?.precio);
+    const precioDespues = Number(formProducto.precio);
     const payload = productoParaGuardar(formProducto, { productoDb, sucursal: tiendaConsulta });
     const { error } = await supabase.from('productos').upsert([payload]);
     if (error) {
       const aviso = mensajeErrorColumnasProducto(error);
       return alert(aviso || error.message);
+    }
+    if (Number.isFinite(precioAntes) && Number.isFinite(precioDespues) && precioAntes !== precioDespues) {
+      await registrarCambioPrecio(supabase, {
+        producto_id: formProducto.id,
+        producto_nombre: formProducto.nombre,
+        precio_antes: precioAntes,
+        precio_despues: precioDespues,
+        usuario: user?.nombre || '—',
+        sucursal: tiendaConsulta,
+      });
     }
     alert('Producto actualizado.');
     setEditando(false);
@@ -398,9 +429,11 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
       {pestana === 'inventario' && (
         <>
           <div className="card" style={{ borderTop: '4px solid var(--brand-green)' }}>
-            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Ajustes, entradas, retiros y traspasos</h3>
+            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Movimientos de inventario</h3>
             <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-              Movimientos registrados en <strong>Ajuste de inventario</strong> (Productos). Se guardan en este equipo.
+              Reporte de <strong>ingresos, retiros, traspasos, ajustes/conteos, cancelaciones, ventas</strong> y{' '}
+              <strong>cambios de precio</strong>. Incluye datos de la nube y reconstrucción desde ventas/cancelaciones
+              (para que 3B5 y otras tiendas se vean aunque el movimiento se hizo en otra caja).
             </p>
             {filtrosFecha}
             <div className="grid-2" style={{ marginTop: '0.75rem' }}>
@@ -453,12 +486,37 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                 ))}
               </div>
             </div>
-            <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={refrescarMovimientosInv}>
-              Buscar movimientos
+            <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={() => void refrescarMovimientosInv()} disabled={loadingMov}>
+              {loadingMov ? 'Buscando…' : 'Buscar movimientos'}
             </button>
+            {avisoMovInv && (
+              <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.82rem', color: 'var(--brand-gold-dark)' }}>
+                {avisoMovInv}
+              </p>
+            )}
           </div>
+          {resumenMovInv && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '0.5rem' }}>
+              {[
+                ['Total', resumenMovInv.total],
+                ['Entradas', resumenMovInv.entradas],
+                ['Salidas', resumenMovInv.salidas],
+                ['Traspasos', resumenMovInv.traspasos],
+                ['Ajustes', resumenMovInv.ajustes],
+                ['Cancelaciones', resumenMovInv.cancelaciones],
+                ['Precios', resumenMovInv.precios],
+              ].map(([label, n]) => (
+                <div key={label} className="card" style={{ padding: '0.65rem 0.75rem' }}>
+                  <div className="muted" style={{ fontSize: '0.7rem', textTransform: 'uppercase' }}>{label}</div>
+                  <div style={{ fontWeight: 800, color: 'var(--brand-blue)' }}>{n}</div>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="card">
-            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Resultados ({movimientosInv.length})</h3>
+            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>
+              Resultados ({movimientosInv.length}){loadingMov ? ' · cargando…' : ''}
+            </h3>
             <div className="table-wrap" style={{ maxHeight: '520px' }}>
               <table className="data">
                 <thead>
@@ -467,7 +525,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                     <th>Tipo</th>
                     <th>Producto</th>
                     <th>Cant.</th>
-                    <th>Stock</th>
+                    <th>Stock / Precio</th>
+                    <th>Sucursal</th>
                     <th>Usuario</th>
                     <th>Motivo</th>
                   </tr>
@@ -475,8 +534,10 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                 <tbody>
                   {movimientosInv.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="muted">
-                        Sin movimientos en el rango. Regístralos en Productos → Ajuste de inventario.
+                      <td colSpan={8} className="muted">
+                        {loadingMov
+                          ? 'Cargando movimientos…'
+                          : 'Sin movimientos en el rango. Elige sucursal (ej. 3B5), amplía fechas y pulsa Buscar. Las ventas y cancelaciones de la nube sí deben aparecer aquí.'}
                       </td>
                     </tr>
                   ) : (
@@ -492,9 +553,17 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                             </span>
                           )}
                         </td>
-                        <td>{m.cantidad}</td>
+                        <td>{m.tipo === 'cambio_precio' ? '—' : m.cantidad}</td>
                         <td style={{ fontSize: '0.8rem' }}>
-                          {m.stock_antes != null ? `${m.stock_antes} → ${m.stock_despues}` : '—'}
+                          {m.tipo === 'cambio_precio' ? (
+                            <>
+                              ${Number(m.precio_antes || 0).toFixed(2)} → ${Number(m.precio_despues || 0).toFixed(2)}
+                            </>
+                          ) : m.stock_antes != null ? (
+                            `${m.stock_antes} → ${m.stock_despues}`
+                          ) : (
+                            '—'
+                          )}
                           {m.stock_dest_despues != null && (
                             <span className="muted" style={{ display: 'block' }}>
                               dest: {m.stock_dest_antes} → {m.stock_dest_despues}
@@ -502,10 +571,16 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                           )}
                         </td>
                         <td className="muted" style={{ fontSize: '0.8rem' }}>
+                          {m.sucursal ? etiquetaTienda(m.sucursal) : '—'}
+                        </td>
+                        <td className="muted" style={{ fontSize: '0.8rem' }}>
                           {m.usuario}
                         </td>
                         <td className="muted" style={{ fontSize: '0.78rem' }}>
                           {m.motivo || '—'}
+                          {m.origen && m.origen !== 'nube' && m.origen !== 'local' && (
+                            <span className="badge" style={{ marginLeft: '0.25rem' }}>{m.origen}</span>
+                          )}
                           {m.modo === 'masivo' && <span className="badge" style={{ marginLeft: '0.25rem' }}>masivo</span>}
                         </td>
                       </tr>

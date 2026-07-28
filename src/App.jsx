@@ -1063,7 +1063,7 @@ function App() {
             />
           )}
           {vista === 'Consultas' && (
-            <Consultas supabase={supabase} inventario={inventario} sucursal={sucursal} sucursalesLista={listaSucursales} cargarDatos={cargarDatos} />
+            <Consultas supabase={supabase} inventario={inventario} sucursal={sucursal} sucursalesLista={listaSucursales} cargarDatos={cargarDatos} user={user} />
           )}
           {vista === 'Estadisticas' && <Estadisticas supabase={supabase} />}
           {vista === 'Resumen operativo' && <ResumenOperativo supabase={supabase} inventarioCompleto={inventario} />}

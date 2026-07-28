@@ -330,7 +330,7 @@ export async function registrarCancelacion(supabase, opts) {
         usuario: user?.nombre || '—',
         sucursal: tiendaVenta,
         created_at: localRow.created_at,
-      });
+      }, supabase);
     }
     if (erroresStock.length) {
       return {

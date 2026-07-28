@@ -168,7 +168,7 @@ export async function aplicarConteoDepartamento(supabase, opts) {
       usuario: usuario || '—',
       sucursal: sucursal || '',
       created_at: new Date().toISOString(),
-    });
+    }, supabase);
 
     producto.stock = l.contadaNum;
     aplicadas.push(l);

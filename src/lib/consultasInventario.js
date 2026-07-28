@@ -1,5 +1,9 @@
-import { leerMovimientosLocal } from './inventarioMovimientos.js';
+import { leerMovimientosLocal, AVISO_FALTA_MOVIMIENTOS_SQL } from './inventarioMovimientos.js';
 import { filtrarProductosPorTexto } from './buscarProductoTexto.js';
+import { normalizarCodigoTienda } from '../constants/sucursales.js';
+import { consultarVentas } from './ventasQuery.js';
+import { leerAjustesInventario } from './conteoDepartamento.js';
+import { inicioDia, finDia } from './corteCaja.js';
 
 export const FILTROS_EVENTO_PRODUCTO = [
   { id: 'todos', label: 'Todos' },
@@ -7,6 +11,8 @@ export const FILTROS_EVENTO_PRODUCTO = [
   { id: 'entradas', label: 'Entradas' },
   { id: 'salidas', label: 'Salidas' },
   { id: 'ajustes', label: 'Ajustes' },
+  { id: 'precios', label: 'Cambios de precio' },
+  { id: 'cancelaciones', label: 'Cancelaciones' },
   { id: 'negativo', label: 'Stock negativo' },
 ];
 
@@ -15,17 +21,28 @@ export const FILTROS_TIPO_MOVIMIENTO = [
   { id: 'entrada', label: 'Ingreso de inventario' },
   { id: 'retiro', label: 'Retiro de inventario' },
   { id: 'traspaso', label: 'Traspaso' },
+  { id: 'venta', label: 'Salida por venta' },
+  { id: 'cancelacion', label: 'Cancelación (regreso)' },
+  { id: 'cambio_precio', label: 'Cambio de precio' },
+  { id: 'ajuste', label: 'Ajuste / conteo' },
 ];
 
 export function etiquetaTipoMovimiento(tipo, modo) {
-  if (tipo === 'entrada') return modo === 'cancelacion' ? 'Entrada (cancelación)' : 'Entrada';
+  if (tipo === 'cambio_precio') return 'Cambio de precio';
+  if (tipo === 'cancelacion' || (tipo === 'entrada' && modo === 'cancelacion')) return 'Entrada (cancelación)';
+  if (tipo === 'entrada') {
+    if (modo === 'conteo_departamento') return 'Ajuste (+ conteo)';
+    return 'Entrada';
+  }
   if (tipo === 'retiro') {
     if (modo === 'venta') return 'Salida (venta)';
     if (modo === 'vaciado_inventario') return 'Vaciado inventario';
+    if (modo === 'conteo_departamento') return 'Ajuste (− conteo)';
     return 'Retiro';
   }
   if (tipo === 'traspaso') return 'Traspaso';
   if (tipo === 'venta') return 'Venta';
+  if (tipo === 'ajuste') return 'Ajuste';
   return tipo || '—';
 }
 
@@ -60,10 +77,280 @@ export function listarMovimientosInventario(opts = {}) {
       (m) => String(m.producto_id) === pid || String(m.producto_destino_id) === pid,
     );
   }
-  if (tipo) list = list.filter((m) => m.tipo === tipo);
-  if (sucursal) list = list.filter((m) => !m.sucursal || m.sucursal === sucursal);
+  if (tipo) list = list.filter((m) => coincideTipoFiltro(m, tipo));
+  if (sucursal) {
+    const suc = normalizarCodigoTienda(sucursal);
+    list = list.filter((m) => !m.sucursal || normalizarCodigoTienda(m.sucursal) === suc);
+  }
   list = list.filter((m) => enRango(m.created_at, desde, hasta));
   return list;
+}
+
+function coincideTipoFiltro(m, tipo) {
+  if (!tipo) return true;
+  if (tipo === 'cancelacion') return m.modo === 'cancelacion' || m.tipo === 'cancelacion';
+  if (tipo === 'venta') return m.modo === 'venta' || m.tipo === 'venta';
+  if (tipo === 'ajuste') {
+    return (
+      m.modo === 'conteo_departamento' ||
+      m.modo === 'masivo' ||
+      m.modo === 'departamento' ||
+      m.modo === 'vaciado_inventario' ||
+      m.tipo === 'ajuste'
+    );
+  }
+  if (tipo === 'cambio_precio') return m.tipo === 'cambio_precio';
+  return m.tipo === tipo;
+}
+
+function fromCloudRow(r) {
+  const meta = r.meta && typeof r.meta === 'object' ? r.meta : {};
+  return {
+    id: r.id,
+    cloudId: r.id,
+    tipo: r.tipo,
+    modo: r.modo,
+    producto_id: r.producto_id,
+    producto_nombre: r.producto_nombre,
+    producto_destino_id: r.producto_destino_id,
+    producto_destino_nombre: r.producto_destino_nombre,
+    cantidad: Number(r.cantidad) || 0,
+    stock_antes: r.stock_antes,
+    stock_despues: r.stock_despues,
+    stock_dest_antes: r.stock_dest_antes,
+    stock_dest_despues: r.stock_dest_despues,
+    precio_antes: r.precio_antes,
+    precio_despues: r.precio_despues,
+    ubicacion: r.ubicacion,
+    departamento: r.departamento,
+    motivo: r.motivo,
+    usuario: r.usuario,
+    sucursal: r.sucursal_id,
+    folio: meta.folio || null,
+    created_at: r.created_at,
+    origen: 'nube',
+  };
+}
+
+function movimientosDesdeVentas(ventas) {
+  const out = [];
+  for (const v of ventas || []) {
+    const suc = v.sucursal_id || '';
+    for (const a of v.articulos || []) {
+      const qty = Number(a.qty ?? a.cantidad ?? 1) || 1;
+      out.push({
+        id: `venta_${v.id}_${a.id}`,
+        tipo: 'retiro',
+        modo: 'venta',
+        producto_id: a.id,
+        producto_nombre: a.nombre || a.id,
+        cantidad: qty,
+        stock_antes: null,
+        stock_despues: null,
+        motivo: `Venta · ${v.metodo_pago || ''} · ticket ${String(v.id).slice(0, 8)}`.trim(),
+        usuario: v.vendedor || '—',
+        sucursal: suc,
+        created_at: v.created_at,
+        origen: 'ventas',
+      });
+    }
+  }
+  return out;
+}
+
+function movimientosDesdeCancelaciones(cancelaciones) {
+  const out = [];
+  for (const c of cancelaciones || []) {
+    const suc = c.sucursal_id || c.sucursal || '';
+    for (const a of c.articulos || []) {
+      const qty = Number(a.qty ?? a.cantidad ?? 1) || 1;
+      out.push({
+        id: `cancel_${c.id}_${a.id}`,
+        tipo: 'entrada',
+        modo: 'cancelacion',
+        producto_id: a.id,
+        producto_nombre: a.nombre || a.id,
+        cantidad: qty,
+        stock_antes: null,
+        stock_despues: null,
+        motivo: `Cancelación${c.motivo ? ` · ${c.motivo}` : ''}`.trim(),
+        usuario: c.usuario || '—',
+        sucursal: suc,
+        created_at: c.created_at || c.hora,
+        origen: 'cancelaciones',
+      });
+    }
+  }
+  return out;
+}
+
+function movimientosDesdeAjustesLocales() {
+  const out = [];
+  for (const aj of leerAjustesInventario()) {
+    const created = aj.created_at || aj.hora;
+    const suc = aj.sucursal || '';
+    for (const l of aj.lineas || []) {
+      const dif = Number(l.diferencia);
+      if (!dif) continue;
+      out.push({
+        id: `ajuste_${aj.folio || aj.id}_${l.productoId || l.codigo}`,
+        tipo: dif > 0 ? 'entrada' : 'retiro',
+        modo: 'conteo_departamento',
+        folio: aj.folio,
+        departamento: aj.departamento,
+        producto_id: l.productoId || l.codigo,
+        producto_nombre: l.nombre,
+        cantidad: Math.abs(dif),
+        stock_antes: l.existencia,
+        stock_despues: l.contadaNum,
+        motivo: `Conteo físico ${aj.departamento || ''} · ${aj.folio || ''}`.trim(),
+        usuario: aj.usuario || '—',
+        sucursal: suc,
+        created_at: created,
+        origen: 'ajustes_local',
+      });
+    }
+  }
+  return out;
+}
+
+function dedupeMovimientos(list) {
+  const seen = new Set();
+  const out = [];
+  for (const m of list) {
+    const suc = normalizarCodigoTienda(m.sucursal || '') || '';
+    const pid = String(m.producto_id || '');
+    const t = new Date(m.created_at || 0).getTime();
+    const bucket = Math.floor(t / 120000); // 2 min
+    const key =
+      m.cloudId ||
+      (m.origen === 'nube' ? m.id : null) ||
+      `${m.tipo}|${m.modo || ''}|${pid}|${suc}|${Number(m.cantidad) || 0}|${bucket}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(m);
+  }
+  return out;
+}
+
+/**
+ * Reporte unificado de movimientos de inventario para Consultas.
+ * Combina: nube + local + ventas + cancelaciones + ajustes de conteo.
+ */
+export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
+  const {
+    desde = null,
+    hasta = null,
+    productoId = null,
+    tipo = null,
+    sucursal = null,
+    q = '',
+  } = opts;
+
+  const suc = sucursal ? normalizarCodigoTienda(sucursal) : null;
+  const ini = desde ? inicioDia(desde) : null;
+  const fin = hasta ? finDia(hasta) : null;
+  const avisos = [];
+
+  let nube = [];
+  if (supabase) {
+    let query = supabase
+      .from('movimientos_inventario')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(3000);
+    if (suc) query = query.eq('sucursal_id', suc);
+    if (ini) query = query.gte('created_at', ini.toISOString());
+    if (fin) query = query.lte('created_at', fin.toISOString());
+    if (productoId) query = query.or(`producto_id.eq.${productoId},producto_destino_id.eq.${productoId}`);
+    const { data, error } = await query;
+    if (error) {
+      if (String(error.message || '').toLowerCase().includes('movimientos_inventario')) {
+        avisos.push(AVISO_FALTA_MOVIMIENTOS_SQL);
+      } else {
+        avisos.push(error.message);
+      }
+    } else {
+      nube = (data || []).map(fromCloudRow);
+    }
+  }
+
+  const locales = listarMovimientosInventario({
+    desde,
+    hasta,
+    productoId,
+    sucursal: suc,
+  }).map((m) => ({ ...m, origen: m.origen || 'local' }));
+
+  let ventasDeriv = [];
+  let cancelDeriv = [];
+  if (supabase && ini && fin) {
+    const { data: ventas } = await consultarVentas(supabase, {
+      columns: 'id,total,metodo_pago,vendedor,sucursal_id,articulos,created_at',
+      desde: ini,
+      hasta: fin,
+      sucursal: suc,
+      limit: 3000,
+      orderAsc: false,
+    });
+    ventasDeriv = movimientosDesdeVentas(ventas);
+
+    let cq = supabase
+      .from('cancelaciones')
+      .select('id,sucursal_id,usuario,articulos,motivo,created_at,total')
+      .gte('created_at', ini.toISOString())
+      .lte('created_at', fin.toISOString())
+      .order('created_at', { ascending: false })
+      .limit(2000);
+    if (suc) cq = cq.eq('sucursal_id', suc);
+    const { data: canc } = await cq;
+    cancelDeriv = movimientosDesdeCancelaciones(canc || []);
+  }
+
+  const ajustesDeriv = movimientosDesdeAjustesLocales().filter((m) => {
+    if (suc && normalizarCodigoTienda(m.sucursal) !== suc) return false;
+    if (productoId && String(m.producto_id) !== String(productoId)) return false;
+    return enRango(m.created_at, desde, hasta);
+  });
+
+  let merged = dedupeMovimientos([
+    ...nube,
+    ...locales,
+    ...ventasDeriv,
+    ...cancelDeriv,
+    ...ajustesDeriv,
+  ]);
+
+  if (tipo) merged = merged.filter((m) => coincideTipoFiltro(m, tipo));
+  if (productoId) {
+    const pid = String(productoId);
+    merged = merged.filter(
+      (m) => String(m.producto_id) === pid || String(m.producto_destino_id) === pid,
+    );
+  }
+  const texto = String(q || '').trim().toLowerCase();
+  if (texto) {
+    merged = merged.filter((m) => {
+      const blob = `${m.producto_id || ''} ${m.producto_nombre || ''} ${m.producto_destino_nombre || ''} ${m.motivo || ''} ${m.usuario || ''}`.toLowerCase();
+      return blob.includes(texto);
+    });
+  }
+
+  merged.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+  return {
+    data: merged,
+    avisos,
+    resumen: {
+      total: merged.length,
+      entradas: merged.filter((m) => m.tipo === 'entrada' || m.modo === 'cancelacion').length,
+      salidas: merged.filter((m) => m.tipo === 'retiro' || m.tipo === 'venta' || m.modo === 'venta').length,
+      traspasos: merged.filter((m) => m.tipo === 'traspaso').length,
+      ajustes: merged.filter((m) => m.modo === 'conteo_departamento' || m.modo === 'masivo' || m.modo === 'vaciado_inventario').length,
+      precios: merged.filter((m) => m.tipo === 'cambio_precio').length,
+      cancelaciones: merged.filter((m) => m.modo === 'cancelacion').length,
+    },
+  };
 }
 
 export function ventasConProducto(ventas, productoId) {

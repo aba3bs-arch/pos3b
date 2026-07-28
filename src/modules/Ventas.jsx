@@ -233,7 +233,7 @@ export default function Ventas({
         usuario: user.nombre,
         sucursal,
         created_at: vendidoEn,
-      });
+      }, supabase);
     }
     alert(
       esEfectivo

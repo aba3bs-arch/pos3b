@@ -12,6 +12,7 @@ import {
   parsearTextoPegado,
 } from '../lib/importarCatalogo.js';
 import { vaciarInventario, OPCIONES_VACIADO } from '../lib/borrarInventario.js';
+import { registrarCambioPrecio } from '../lib/inventarioMovimientos.js';
 import { mensajeErrorColumnasProducto, productoDesdeDb, productoParaGuardar, productoVacio } from '../lib/productoForm.js';
 import {
   normalizarRol,
@@ -404,11 +405,22 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     if (!confirm(`¿Actualizar precio de ${cambios.length} producto(s)?`)) return;
     setGuardandoPrecios(true);
     for (const [id, precio] of cambios) {
-      const { error } = await supabase.from('productos').update({ precio: Number(precio) || 0 }).eq('id', id);
+      const p = inventario.find((x) => x.id === id);
+      const precioAntes = Number(p?.precio) || 0;
+      const precioDespues = Number(precio) || 0;
+      const { error } = await supabase.from('productos').update({ precio: precioDespues }).eq('id', id);
       if (error) {
         setGuardandoPrecios(false);
         return alert(error.message);
       }
+      await registrarCambioPrecio(supabase, {
+        producto_id: id,
+        producto_nombre: p?.nombre || id,
+        precio_antes: precioAntes,
+        precio_despues: precioDespues,
+        usuario: user?.nombre || '—',
+        sucursal,
+      });
     }
     setGuardandoPrecios(false);
     cargarDatos();
