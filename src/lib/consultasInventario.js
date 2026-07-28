@@ -179,6 +179,7 @@ function movimientosDesdeCancelaciones(cancelaciones) {
     const suc = c.sucursal_id || c.sucursal || '';
     for (const a of artsOf(c)) {
       const qty = Number(a.qty ?? a.cantidad ?? 1) || 1;
+      const precio = Number(a.precio) || 0;
       out.push({
         id: `cancel_${c.id}_${a.id}`,
         tipo: 'entrada',
@@ -188,6 +189,8 @@ function movimientosDesdeCancelaciones(cancelaciones) {
         cantidad: qty,
         stock_antes: null,
         stock_despues: null,
+        precio,
+        subtotal: precio * qty,
         motivo: `Cancelación${c.motivo ? ` · ${c.motivo}` : ''}`.trim(),
         usuario: c.usuario || '—',
         sucursal: suc,
@@ -223,12 +226,17 @@ function itemsCompra(row) {
           id: p.id,
           nombre: p.nombre,
           qty: Number(p.qty ?? p.qty_pedido ?? p.qty_recibido) || 0,
+          costo: Number(p.costo ?? p.costo_est) || 0,
         }))
         .filter((p) => p.qty > 0);
     }
     return [];
   }
-  return items;
+  return items.map((p) => ({
+    ...p,
+    qty: Number(p.qty ?? p.cantidad ?? p.qty_recibido) || 0,
+    costo: Number(p.costo ?? p.costo_est) || 0,
+  }));
 }
 
 /** Recepciones de compra → entradas de inventario (aunque falte movimientos_inventario). */
@@ -251,6 +259,8 @@ function movimientosDesdeCompras(compras) {
         cantidad: qty,
         stock_antes: null,
         stock_despues: null,
+        precio: Number(a.costo ?? a.costo_est) || 0,
+        subtotal: qty * (Number(a.costo ?? a.costo_est) || 0),
         motivo: `Compra/recepción · ${c.notas || c.id || ''}`.trim(),
         usuario: c.usuario || c.vendedor || '—',
         sucursal: suc,

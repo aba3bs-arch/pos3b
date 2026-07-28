@@ -1,0 +1,354 @@
+/* Consultas — layout estilo SoftRestaurant */
+
+.consultas-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 0;
+  min-height: min(72vh, 820px);
+  background: #f4f6f9;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.consultas-side {
+  background: #f8fafc;
+  border-right: 1px solid #e8edf3;
+  padding: 0.75rem 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.consultas-side-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.7rem 0.85rem;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #334155;
+  font-weight: 600;
+  font-size: 0.92rem;
+  cursor: pointer;
+}
+
+.consultas-side-btn:hover {
+  background: #eef2f7;
+}
+
+.consultas-side-btn.active {
+  background: #e8f1ff;
+  color: #1d4ed8;
+}
+
+.consultas-side-ico {
+  width: 1.15rem;
+  text-align: center;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+.consultas-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #fff;
+}
+
+.consultas-topbar {
+  background: #1e5bb8;
+  color: #fff;
+  padding: 0.7rem 1rem;
+  font-weight: 700;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.consultas-topbar .muted-top {
+  font-weight: 500;
+  opacity: 0.85;
+  font-size: 0.82rem;
+}
+
+.consultas-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #eef2f7;
+  background: #fff;
+}
+
+.consultas-search {
+  flex: 1 1 220px;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+  min-width: 160px;
+}
+
+.consultas-search input {
+  border: none;
+  background: transparent;
+  outline: none;
+  width: 100%;
+  font-size: 0.9rem;
+  color: #334155;
+}
+
+.consultas-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.4rem 0.65rem;
+  font-size: 0.82rem;
+  color: #475569;
+  cursor: pointer;
+}
+
+.consultas-chip input[type='date'] {
+  border: none;
+  background: transparent;
+  font-size: 0.8rem;
+  color: #334155;
+}
+
+.consultas-icon-btn {
+  width: 2.2rem;
+  height: 2.2rem;
+  border-radius: 50%;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #475569;
+}
+
+.consultas-icon-btn:hover {
+  background: #f1f5f9;
+}
+
+.consultas-body {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+}
+
+.consultas-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.consultas-table thead th {
+  text-align: left;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #64748b;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #eef2f7;
+  background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.consultas-table tbody td {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+  font-size: 0.9rem;
+  color: #1e293b;
+}
+
+.consultas-table tbody tr {
+  cursor: pointer;
+}
+
+.consultas-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.consultas-table tbody tr.selected {
+  background: #eff6ff;
+}
+
+.consultas-folio {
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.2;
+}
+
+.consultas-folio small {
+  display: block;
+  font-weight: 500;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  margin-top: 0.15rem;
+}
+
+.consultas-avatar {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.consultas-avatars {
+  display: inline-flex;
+  align-items: center;
+}
+
+.consultas-avatars .consultas-avatar + .consultas-avatar {
+  margin-left: -0.35rem;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.consultas-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  min-height: 320px;
+  color: #64748b;
+  padding: 2rem;
+}
+
+.consultas-empty-ico {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  background: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #1e5bb8;
+  font-size: 2rem;
+}
+
+.consultas-submenu {
+  padding: 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.consultas-submenu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.95rem 1rem;
+  border: none;
+  background: #fff;
+  border-radius: 10px;
+  text-align: left;
+  font-weight: 600;
+  color: #334155;
+  cursor: pointer;
+  border: 1px solid #eef2f7;
+}
+
+.consultas-submenu button:hover {
+  background: #f8fafc;
+}
+
+.consultas-money-pos {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.consultas-money-neg {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.consultas-money-zero {
+  color: #64748b;
+}
+
+.consultas-detail {
+  border-top: 1px solid #eef2f7;
+  background: #f8fafc;
+  padding: 0.85rem 1rem 1.1rem;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.consultas-detail h4 {
+  margin: 0 0 0.5rem;
+  color: #1e5bb8;
+  font-size: 0.95rem;
+}
+
+.consultas-filters-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0 1rem 0.65rem;
+  align-items: center;
+}
+
+.consultas-filters-row select {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.82rem;
+  background: #fff;
+  color: #334155;
+}
+
+.consultas-aviso {
+  margin: 0 1rem 0.65rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(225, 153, 41, 0.12);
+  border: 1px solid rgba(180, 120, 20, 0.28);
+  color: #92400e;
+  font-size: 0.8rem;
+}
+
+@media (max-width: 900px) {
+  .consultas-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .consultas-side {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: none;
+    border-bottom: 1px solid #e8edf3;
+  }
+
+  .consultas-side-btn {
+    flex: 1 1 auto;
+    min-width: 120px;
+    justify-content: center;
+    padding: 0.55rem 0.6rem;
+    font-size: 0.82rem;
+  }
+}
