@@ -311,6 +311,15 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     }
   };
 
+  // Al cambiar periodo/sucursal en inventario, vuelve a consultar solo.
+  useEffect(() => {
+    if (pestana !== 'inventario') return undefined;
+    const t = setTimeout(() => {
+      void refrescarMovimientosInv();
+    }, 200);
+    return () => clearTimeout(t);
+  }, [pestana, desde, hasta, filtroSucursal, tipoMovInv, filtroEventoInv, refrescarMovimientosInv]);
+
   const cortesParaSelect = useMemo(() => {
     return cortes.map((c) => ({
       id: c.id,
@@ -595,11 +604,19 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
       {pestana === 'inventario' && (
         <>
           <div className="card" style={{ borderTop: '4px solid var(--brand-green)' }}>
-            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Movimientos de inventario</h3>
+            <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
+              Movimientos de inventario
+              <span className="badge" style={{ marginLeft: '0.5rem', background: 'rgba(46,125,50,0.15)', color: 'var(--brand-green)' }}>
+                v2 nube + ventas
+              </span>
+            </h3>
             <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-              Reporte de <strong>ingresos, retiros, traspasos, ajustes/conteos, cancelaciones, ventas</strong> y{' '}
-              <strong>cambios de precio</strong>. En MAIN elige <strong>Todas</strong> o <strong>3B5</strong>, periodo amplio y
-              pulsa Buscar. Abajo verás un resumen de fuentes (ventas/cancelaciones/nube).
+              Aquí debes ver <strong>ingresos, retiros, traspasos, ajustes/conteos, salidas por venta y cancelaciones</strong>.
+              Si el título sigue diciendo «Ajustes, entradas… se guardan en este equipo», recarga con <strong>Ctrl+F5</strong> (o reinstala el POS);
+              estás en una versión vieja en caché.
+            </p>
+            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.82rem' }}>
+              En MAIN usa sucursal <strong>Todas</strong> o <strong>3B5</strong> · periodo amplio · la búsqueda se actualiza sola.
             </p>
             {filtrosFecha}
             <div className="grid-2" style={{ marginTop: '0.75rem' }}>
@@ -703,7 +720,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                       <td colSpan={8} className="muted">
                         {loadingMov
                           ? 'Cargando movimientos…'
-                          : 'Sin movimientos en el rango. Elige sucursal (ej. 3B5), amplía fechas y pulsa Buscar. Las ventas y cancelaciones de la nube sí deben aparecer aquí.'}
+                          : 'Sin filas aún. Comprueba: 1) título con badge «v2 nube + ventas» (si no, Ctrl+F5); 2) sucursal Todas o 3B5; 3) periodo con ventas reales. Las salidas por venta y cancelaciones deben salir aunque no exista la tabla SQL.'}
                       </td>
                     </tr>
                   ) : (
