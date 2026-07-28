@@ -5,6 +5,7 @@ import {
   corregirCorte,
   leerCortesLocales,
   corteYaRegistrado,
+  consultarCortes,
   armarCorroboracion,
   RUBROS_CORROBORACION,
   fechaCorteSugerida,
@@ -37,6 +38,41 @@ import SelectorCalendario from '../components/SelectorCalendario.jsx';
 function fmtHora(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('es-MX', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' });
+}
+
+/** Arma payload de impresión desde un corte ya guardado (local o nube). */
+function datosImpresionCorteGuardado(c) {
+  if (!c) return null;
+  const contado = c.efectivoContado ?? c.efectivo_contado;
+  const esperado = c.efectivoEsperado ?? c.efectivo_esperado;
+  const total = c.totalVentas ?? c.total_ventas ?? c.total;
+  const dif =
+    c.diferencia != null
+      ? Number(c.diferencia)
+      : contado != null && esperado != null
+        ? Number(contado) - Number(esperado)
+        : null;
+  return {
+    fecha: c.fecha,
+    sucursal: c.sucursal || c.sucursal_id,
+    usuario: c.usuario,
+    turno: c.turno_nombre || c.turno || null,
+    tickets: c.tickets ?? 0,
+    cancelaciones: c.cancelaciones ?? 0,
+    totalBruto: c.totalBruto ?? total,
+    totalCancelaciones: c.totalCancelaciones ?? 0,
+    total: Number(total) || 0,
+    detalleMetodos: Array.isArray(c.detalleMetodos)
+      ? c.detalleMetodos
+      : Array.isArray(c.detalle_metodos)
+        ? c.detalle_metodos
+        : [],
+    efectivoEsperado: Number(esperado) || 0,
+    efectivoContado: contado == null || contado === '' ? null : Number(contado),
+    diferencia: dif,
+    corroboracion: c.corroboracion && typeof c.corroboracion === 'object' ? c.corroboracion : {},
+    notas: c.notas || '',
+  };
 }
 
 export default function CorteCaja({ supabase, sucursal, user, inventario, inventarioCompleto, cargarDatos }) {
@@ -400,7 +436,68 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
     void imprimirCorteDesdeResumen();
   };
 
-  const historialFiltrado = historial.filter((c) => c.fecha === fecha && (!sucursal || c.sucursal === sucursal)).slice(0, 8);
+  const imprimirCorteGuardado = async (corteGuardado) => {
+    const datos = datosImpresionCorteGuardado(corteGuardado);
+    if (!datos) return alert('No hay datos del corte para imprimir.');
+    const r = await imprimirCorte(datos);
+    if (!r.ok) alert(r.error);
+  };
+
+  const imprimirCorteActualGuardado = () => {
+    if (!corteExistente?.existe) {
+      return void imprimirCorteDesdeResumen();
+    }
+    void imprimirCorteGuardado({
+      ...corteExistente.corte,
+      fecha,
+      sucursal,
+      turno_nombre: corteExistente.corte?.turno_nombre || nombreTurnoLegible(turnoActivo),
+      efectivoContado: corteExistente.corte?.efectivo_contado ?? corteExistente.corte?.efectivoContado,
+      efectivoEsperado: corteExistente.corte?.efectivo_esperado ?? corteExistente.corte?.efectivoEsperado ?? resumen.efectivoEsperado,
+      totalVentas: corteExistente.corte?.total_ventas ?? corteExistente.corte?.totalVentas ?? resumen.total,
+      detalleMetodos: corteExistente.corte?.detalle_metodos ?? corteExistente.corte?.detalleMetodos ?? resumen.detalleMetodos,
+      tickets: corteExistente.corte?.tickets ?? resumen.ticketsBruto,
+      cancelaciones: resumen.cancelaciones,
+      totalBruto: resumen.totalBruto,
+      totalCancelaciones: resumen.totalCancelaciones,
+      corroboracion: corteExistente.corte?.corroboracion || corroboracion,
+      notas: corteExistente.corte?.notas || notas,
+    });
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const locales = leerCortesLocales();
+      if (!supabase) {
+        if (!cancelled) setHistorial(locales);
+        return;
+      }
+      const r = await consultarCortes(supabase, {
+        sucursal,
+        desde: fecha,
+        hasta: fecha,
+        limit: 50,
+      });
+      if (cancelled) return;
+      const nube = r.data || [];
+      // Une nube + local sin duplicar por id
+      const byId = new Map();
+      for (const c of [...nube, ...locales]) {
+        const key = String(c.id || c.cloudId || `${c.fecha}_${c.turno_id}_${c.usuario}_${c.hora || c.created_at}`);
+        if (!byId.has(key)) byId.set(key, c);
+      }
+      setHistorial([...byId.values()]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, sucursal, fecha, corteExistente?.corte?.id, msg]);
+
+  const historialFiltrado = historial
+    .filter((c) => String(c.fecha || '').slice(0, 10) === String(fecha).slice(0, 10) && (!sucursal || String(c.sucursal || c.sucursal_id || '') === String(sucursal)))
+    .sort((a, b) => new Date(b.hora || b.created_at || 0) - new Date(a.hora || a.created_at || 0))
+    .slice(0, 20);
 
   const kpi = (label, value, sub, color) => (
     <div className="card" style={{ border: '1px solid var(--border)', padding: '0.85rem' }}>
@@ -596,6 +693,9 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
                 Cancelar corrección
               </button>
             )}
+            <button type="button" className="btn btn-primary" onClick={imprimirCorteActualGuardado}>
+              Imprimir corte
+            </button>
           </div>
           {!puedeCorregirCorte && (
             <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
@@ -693,10 +793,15 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
                   Corregir corte actual
                 </button>
               )}
-              <button type="button" className="btn btn-ghost" onClick={imprimirResumen}>
-                Imprimir
+              <button type="button" className="btn btn-ghost" onClick={corteExistente?.existe ? imprimirCorteActualGuardado : imprimirResumen}>
+                {corteExistente?.existe ? 'Imprimir corte' : 'Imprimir preview'}
               </button>
             </div>
+            {corteExistente?.existe && !modoCorregir && (
+              <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.82rem' }}>
+                Puedes reimprimir el corte guardado cuando lo necesites (también desde la lista de abajo).
+              </p>
+            )}
             {modoCorregir && (
               <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.82rem' }}>
                 Se actualizarán efectivo contado, diferencia, corroboración y totales del sistema con las ventas actuales
@@ -925,32 +1030,65 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
         </div>
       )}
 
-      {historialFiltrado.length > 0 && pestana === 'corte' && (
+      {(historialFiltrado.length > 0 || corteExistente?.existe) && pestana === 'corte' && (
         <div className="card">
-          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Cortes guardados (este equipo)</h3>
+          <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>Cortes guardados</h3>
+          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+            Reimprime un corte de esta fecha cuando lo necesites más tarde.
+          </p>
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
                   <th>Hora</th>
+                  <th>Turno</th>
                   <th>Usuario</th>
                   <th>Neto sistema</th>
                   <th>Contado</th>
                   <th>Dif.</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
-                {historialFiltrado.map((c) => (
-                  <tr key={c.id}>
-                    <td>{c.hora ? new Date(c.hora).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                    <td>{c.usuario}</td>
-                    <td>${Number(c.totalVentas ?? c.total).toFixed(2)}</td>
-                    <td>${Number(c.efectivoContado).toFixed(2)}</td>
-                    <td style={{ color: Number(c.diferencia) < 0 ? 'var(--brand-red)' : 'var(--brand-green)', fontWeight: 700 }}>
-                      ${Number(c.diferencia).toFixed(2)}
+                {historialFiltrado.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="muted">
+                      Sin cortes listados aún para esta fecha.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  historialFiltrado.map((c) => (
+                    <tr key={c.id || `${c.fecha}_${c.turno_id}_${c.hora || c.created_at}`}>
+                      <td>
+                        {c.hora || c.created_at
+                          ? new Date(c.hora || c.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+                          : '—'}
+                      </td>
+                      <td style={{ fontSize: '0.82rem' }}>{c.turno_nombre || c.turno_id || '—'}</td>
+                      <td>{c.usuario}</td>
+                      <td>${Number(c.totalVentas ?? c.total_ventas ?? c.total || 0).toFixed(2)}</td>
+                      <td>${Number(c.efectivoContado ?? c.efectivo_contado || 0).toFixed(2)}</td>
+                      <td
+                        style={{
+                          color: Number(c.diferencia) < 0 ? 'var(--brand-red)' : 'var(--brand-green)',
+                          fontWeight: 700,
+                        }}
+                      >
+                        ${Number(c.diferencia || 0).toFixed(2)}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ padding: '0.25rem 0.5rem', fontSize: '0.78rem' }}
+                          onClick={() => void imprimirCorteGuardado(c)}
+                        >
+                          Imprimir
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
