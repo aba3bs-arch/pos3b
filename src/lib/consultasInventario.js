@@ -31,6 +31,7 @@ export function etiquetaTipoMovimiento(tipo, modo) {
   if (tipo === 'cambio_precio') return 'Cambio de precio';
   if (tipo === 'cancelacion' || (tipo === 'entrada' && modo === 'cancelacion')) return 'Entrada (cancelación)';
   if (tipo === 'entrada') {
+    if (modo === 'compra') return 'Entrada (compra)';
     if (modo === 'conteo_departamento') return 'Ajuste (+ conteo)';
     return 'Entrada';
   }
@@ -150,6 +151,7 @@ function movimientosDesdeVentas(ventas) {
     const suc = v.sucursal_id || '';
     for (const a of artsOf(v)) {
       const qty = Number(a.qty ?? a.cantidad ?? 1) || 1;
+      const precio = Number(a.precio) || 0;
       out.push({
         id: `venta_${v.id}_${a.id}`,
         tipo: 'retiro',
@@ -159,6 +161,7 @@ function movimientosDesdeVentas(ventas) {
         cantidad: qty,
         stock_antes: null,
         stock_despues: null,
+        subtotal: precio * qty,
         motivo: `Venta · ${v.metodo_pago || ''} · ticket ${String(v.id).slice(0, 8)}`.trim(),
         usuario: v.vendedor || '—',
         sucursal: suc,
@@ -190,6 +193,69 @@ function movimientosDesdeCancelaciones(cancelaciones) {
         sucursal: suc,
         created_at: c.created_at || c.hora,
         origen: 'cancelaciones',
+      });
+    }
+  }
+  return out;
+}
+
+function itemsCompra(row) {
+  let items = row?.items;
+  if (typeof items === 'string') {
+    try {
+      items = JSON.parse(items);
+    } catch {
+      items = [];
+    }
+  }
+  if (!Array.isArray(items) || !items.length) {
+    let pedido = row?.items_pedido;
+    if (typeof pedido === 'string') {
+      try {
+        pedido = JSON.parse(pedido);
+      } catch {
+        pedido = [];
+      }
+    }
+    if (Array.isArray(pedido)) {
+      return pedido
+        .map((p) => ({
+          id: p.id,
+          nombre: p.nombre,
+          qty: Number(p.qty ?? p.qty_pedido ?? p.qty_recibido) || 0,
+        }))
+        .filter((p) => p.qty > 0);
+    }
+    return [];
+  }
+  return items;
+}
+
+/** Recepciones de compra → entradas de inventario (aunque falte movimientos_inventario). */
+function movimientosDesdeCompras(compras) {
+  const out = [];
+  for (const c of compras || []) {
+    const estado = String(c.estado || '').toLowerCase();
+    if (estado && estado !== 'recibida' && estado !== 'recibido' && estado !== 'cerrada') continue;
+    const suc = c.sucursal_id || c.sucursal || '';
+    const created = c.created_at || c.fecha;
+    for (const a of itemsCompra(c)) {
+      const qty = Number(a.qty ?? a.cantidad ?? a.qty_recibido) || 0;
+      if (qty <= 0) continue;
+      out.push({
+        id: `compra_${c.id}_${a.id}`,
+        tipo: 'entrada',
+        modo: 'compra',
+        producto_id: a.id,
+        producto_nombre: a.nombre || a.id,
+        cantidad: qty,
+        stock_antes: null,
+        stock_despues: null,
+        motivo: `Compra/recepción · ${c.notas || c.id || ''}`.trim(),
+        usuario: c.usuario || c.vendedor || '—',
+        sucursal: suc,
+        created_at: created,
+        origen: 'compras',
       });
     }
   }
@@ -274,7 +340,8 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
       })()
     : null;
   const avisos = [];
-  const stats = { nube: 0, local: 0, ventas: 0, cancelaciones: 0, ajustes: 0 };
+  const stats = { nube: 0, local: 0, ventas: 0, cancelaciones: 0, compras: 0, ajustes: 0 };
+  let faltaTablaNube = false;
 
   try {
     let nube = [];
@@ -295,6 +362,7 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
       if (error) {
         const msg = String(error.message || '');
         if (/movimientos_inventario|schema cache|does not exist|could not find/i.test(msg)) {
+          faltaTablaNube = true;
           avisos.push(AVISO_FALTA_MOVIMIENTOS_SQL);
         } else {
           avisos.push(`Nube: ${msg}`);
@@ -315,6 +383,7 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
 
     let ventasDeriv = [];
     let cancelDeriv = [];
+    let comprasDeriv = [];
     if (supabase && ini && fin) {
       const ventasRes = await consultarVentas(supabase, {
         columns: 'id,total,metodo_pago,vendedor,sucursal_id,articulos,created_at',
@@ -350,8 +419,32 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
       } catch (e) {
         avisos.push(`Cancelaciones: ${e?.message || e}`);
       }
+
+      try {
+        let pq = supabase
+          .from('compras')
+          .select('id,sucursal_id,sucursal,estado,items,items_pedido,notas,created_at,fecha,total')
+          .gte('created_at', ini.toISOString())
+          .lte('created_at', fin.toISOString())
+          .order('created_at', { ascending: false })
+          .limit(1000);
+        if (suc) pq = pq.eq('sucursal_id', suc);
+        const { data: comps, error: eComp } = await pq;
+        if (eComp) {
+          if (!/compras|does not exist|schema cache/i.test(String(eComp.message || ''))) {
+            avisos.push(`Compras: ${eComp.message}`);
+          }
+        } else {
+          comprasDeriv = movimientosDesdeCompras(comps || []);
+          stats.compras = comprasDeriv.length;
+        }
+      } catch (e) {
+        avisos.push(`Compras: ${e?.message || e}`);
+      }
     } else if (!supabase) {
       avisos.push('Sin conexión a Supabase: solo se muestran movimientos locales de este equipo.');
+    } else if (!ini || !fin) {
+      avisos.push('Selecciona un periodo (desde/hasta) para cargar ventas, cancelaciones y compras.');
     }
 
     const ajustesDeriv = movimientosDesdeAjustesLocales().filter((m) => {
@@ -366,6 +459,7 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
       ...locales,
       ...ventasDeriv,
       ...cancelDeriv,
+      ...comprasDeriv,
       ...ajustesDeriv,
     ]);
 
@@ -387,13 +481,19 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
     merged.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
     avisos.unshift(
-      `Fuentes: nube ${stats.nube} · local ${stats.local} · ventas ${stats.ventas} · cancel. ${stats.cancelaciones} · ajustes ${stats.ajustes} → ${merged.length} fila(s)`,
+      `Fuentes: nube ${stats.nube} · local ${stats.local} · ventas ${stats.ventas} · cancel. ${stats.cancelaciones} · compras ${stats.compras} · ajustes ${stats.ajustes} → ${merged.length} fila(s)`,
     );
+    if (faltaTablaNube && (stats.ventas > 0 || stats.cancelaciones > 0 || stats.compras > 0)) {
+      avisos.push(
+        'Mientras falta la tabla SQL, igual deben verse salidas por venta, cancelaciones y entradas por compra. Traspasos/ajustes/precios de otras cajas requieren ejecutar el SQL.',
+      );
+    }
 
     return {
       data: merged,
       avisos,
       stats,
+      faltaTablaNube,
       resumen: {
         total: merged.length,
         entradas: merged.filter((m) => m.tipo === 'entrada' || m.modo === 'cancelacion').length,
@@ -402,6 +502,7 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
         ajustes: merged.filter((m) => m.modo === 'conteo_departamento' || m.modo === 'masivo' || m.modo === 'vaciado_inventario').length,
         precios: merged.filter((m) => m.tipo === 'cambio_precio').length,
         cancelaciones: merged.filter((m) => m.modo === 'cancelacion').length,
+        compras: merged.filter((m) => m.modo === 'compra').length,
       },
     };
   } catch (e) {
@@ -409,7 +510,8 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
       data: [],
       avisos: [`Error al cargar movimientos: ${e?.message || e}`],
       stats,
-      resumen: { total: 0, entradas: 0, salidas: 0, traspasos: 0, ajustes: 0, precios: 0, cancelaciones: 0 },
+      faltaTablaNube: false,
+      resumen: { total: 0, entradas: 0, salidas: 0, traspasos: 0, ajustes: 0, precios: 0, cancelaciones: 0, compras: 0 },
     };
   }
 }

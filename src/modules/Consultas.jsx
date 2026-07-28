@@ -11,7 +11,6 @@ import {
   FILTROS_TIPO_MOVIMIENTO,
   buscarProductos,
   etiquetaTipoMovimiento,
-  listarMovimientosInventario,
   cargarReporteMovimientosInventario,
   agruparVentasConsulta,
   timelineProducto,
@@ -74,11 +73,13 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const [editando, setEditando] = useState(false);
   const [formProducto, setFormProducto] = useState(null);
   const [ventasProducto, setVentasProducto] = useState([]);
+  const [movsProducto, setMovsProducto] = useState([]);
   const [tipoMovInv, setTipoMovInv] = useState('');
   const [skuMovInv, setSkuMovInv] = useState('');
   const [movimientosInv, setMovimientosInv] = useState([]);
   const [resumenMovInv, setResumenMovInv] = useState(null);
   const [avisoMovInv, setAvisoMovInv] = useState('');
+  const [faltaTablaMov, setFaltaTablaMov] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingMov, setLoadingMov] = useState(false);
   const [avisoCortes, setAvisoCortes] = useState('');
@@ -180,25 +181,35 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const cargarVentasProducto = useCallback(async () => {
     if (!supabase || !productoActivo?.id) {
       setVentasProducto([]);
+      setMovsProducto([]);
       return;
     }
     const ini = new Date(desdeProducto);
     ini.setHours(0, 0, 0, 0);
     const fin = new Date(hastaProducto);
     fin.setHours(23, 59, 59, 999);
-    const { data, error } = await consultarVentas(supabase, {
-      columns: '*',
-      desde: ini,
-      hasta: fin,
-      sucursal: filtroSucursal || null,
-      limit: 800,
-    });
-    if (error) {
-      console.warn(error);
+    const [ventasRes, movRes] = await Promise.all([
+      consultarVentas(supabase, {
+        columns: '*',
+        desde: ini,
+        hasta: fin,
+        sucursal: filtroSucursal || null,
+        limit: 800,
+      }),
+      cargarReporteMovimientosInventario(supabase, {
+        desde: desdeProducto,
+        hasta: hastaProducto,
+        productoId: productoActivo.id,
+        sucursal: filtroSucursal || null,
+      }),
+    ]);
+    if (ventasRes.error) {
+      console.warn(ventasRes.error);
       setVentasProducto([]);
-      return;
+    } else {
+      setVentasProducto(ventasRes.data || []);
     }
-    setVentasProducto(data || []);
+    setMovsProducto(movRes?.data || []);
   }, [supabase, productoActivo?.id, desdeProducto, hastaProducto, filtroSucursal]);
 
   const buscarCortes = useCallback(async () => {
@@ -257,10 +268,12 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
       }
       setMovimientosInv(list);
       setResumenMovInv(r.resumen || null);
+      setFaltaTablaMov(Boolean(r.faltaTablaNube));
       setAvisoMovInv((r.avisos || []).join(' · '));
     } catch (e) {
       setMovimientosInv([]);
       setResumenMovInv(null);
+      setFaltaTablaMov(false);
       setAvisoMovInv(`Error: ${e?.message || e}`);
     } finally {
       setLoadingMov(false);
@@ -345,20 +358,14 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
   const timelineSinFiltro = useMemo(() => {
     if (!productoActivo) return [];
-    const movs = listarMovimientosInventario({ desde: desdeProducto, hasta: hastaProducto, productoId: productoActivo.id, sucursal: filtroSucursal || null });
-    return timelineProducto(productoActivo.id, ventasProducto, movs, 'todos');
-  }, [productoActivo, ventasProducto, desdeProducto, hastaProducto, filtroSucursal]);
+    return timelineProducto(productoActivo.id, ventasProducto, movsProducto, 'todos');
+  }, [productoActivo, ventasProducto, movsProducto]);
 
   const timeline = useMemo(() => {
     if (!productoActivo) return [];
     if (filtroEventoProducto === 'todos') return timelineSinFiltro;
-    return timelineProducto(
-      productoActivo.id,
-      ventasProducto,
-      listarMovimientosInventario({ desde: desdeProducto, hasta: hastaProducto, productoId: productoActivo.id, sucursal: filtroSucursal || null }),
-      filtroEventoProducto,
-    );
-  }, [productoActivo, ventasProducto, desdeProducto, hastaProducto, filtroSucursal, filtroEventoProducto, timelineSinFiltro]);
+    return timelineProducto(productoActivo.id, ventasProducto, movsProducto, filtroEventoProducto);
+  }, [productoActivo, ventasProducto, movsProducto, filtroEventoProducto, timelineSinFiltro]);
 
   const totalesProducto = useMemo(() => {
     const vendido = historialVentasProducto.reduce((a, v) => a + Number(v.cantidad || 0), 0);
@@ -607,17 +614,32 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
             <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
               Movimientos de inventario
               <span className="badge" style={{ marginLeft: '0.5rem', background: 'rgba(46,125,50,0.15)', color: 'var(--brand-green)' }}>
-                v2 nube + ventas
+                v3 ventas+compras+nube
               </span>
             </h3>
             <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-              Aquí debes ver <strong>ingresos, retiros, traspasos, ajustes/conteos, salidas por venta y cancelaciones</strong>.
-              Si el título sigue diciendo «Ajustes, entradas… se guardan en este equipo», recarga con <strong>Ctrl+F5</strong> (o reinstala el POS);
-              estás en una versión vieja en caché.
+              Aquí deben verse <strong>salidas por venta, cancelaciones, entradas por compra, ingresos/ajustes/traspasos y cambios de precio</strong>.
+              Si el badge no dice «v3», recarga con <strong>Ctrl+F5</strong> (o reinstala el POS): estás en una versión vieja.
             </p>
             <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.82rem' }}>
-              En MAIN usa sucursal <strong>Todas</strong> o <strong>3B5</strong> · periodo amplio · la búsqueda se actualiza sola.
+              En MAIN usa sucursal <strong>Todas</strong> o <strong>3B5</strong> · periodo amplio · tipo «Todos los tipos».
             </p>
+            {faltaTablaMov && (
+              <div
+                style={{
+                  marginTop: '0.75rem',
+                  padding: '0.75rem 0.9rem',
+                  borderRadius: 8,
+                  background: 'rgba(225,153,41,0.15)',
+                  border: '1px solid rgba(180,120,20,0.35)',
+                  fontSize: '0.85rem',
+                }}
+              >
+                <strong>Falta crear la tabla en Supabase.</strong> Sin ella no se guardan traspasos/ajustes/precios entre cajas.
+                En Supabase → SQL Editor ejecuta el archivo <code>supabase/fix_movimientos_inventario.sql</code> y espera ~30 s.
+                Mientras tanto igual deben aparecer ventas, cancelaciones y compras.
+              </div>
+            )}
             {filtrosFecha}
             <div className="grid-2" style={{ marginTop: '0.75rem' }}>
               <label className="muted">
@@ -684,6 +706,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                 ['Total', resumenMovInv.total],
                 ['Entradas', resumenMovInv.entradas],
                 ['Salidas', resumenMovInv.salidas],
+                ['Compras', resumenMovInv.compras ?? 0],
                 ['Traspasos', resumenMovInv.traspasos],
                 ['Ajustes', resumenMovInv.ajustes],
                 ['Cancelaciones', resumenMovInv.cancelaciones],
@@ -720,7 +743,9 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                       <td colSpan={8} className="muted">
                         {loadingMov
                           ? 'Cargando movimientos…'
-                          : 'Sin filas aún. Comprueba: 1) título con badge «v2 nube + ventas» (si no, Ctrl+F5); 2) sucursal Todas o 3B5; 3) periodo con ventas reales. Las salidas por venta y cancelaciones deben salir aunque no exista la tabla SQL.'}
+                          : faltaTablaMov
+                            ? 'Sin filas con estos filtros. Prueba sucursal 3B5 o Todas, periodo «Últimos 7 días» y tipo «Todos». Si Ventas sí tiene tickets y aquí sigue en 0, haz Ctrl+F5.'
+                            : 'Sin filas con estos filtros. Comprueba sucursal/periodo/tipo. Badge debe decir «v3 ventas+compras+nube».'}
                       </td>
                     </tr>
                   ) : (

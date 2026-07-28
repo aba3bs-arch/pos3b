@@ -1,14 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { consultarVentas } from '../lib/ventasQuery.js';
 import { etiquetaDepartamento } from '../lib/departamentos.js';
 import {
   FILTROS_EVENTO_PRODUCTO,
-  PRESETS_FECHA_PRODUCTO,
   etiquetaTipoMovimiento,
-  listarMovimientosInventario,
+  cargarReporteMovimientosInventario,
   rangoDesdePreset,
   timelineProducto,
-  ventasConProducto,
 } from '../lib/consultasInventario.js';
 import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
 
@@ -23,6 +20,7 @@ function badgeTipo(tipo, modo) {
     retiro: { bg: 'rgba(211,47,47,0.12)', c: 'var(--brand-red)' },
     traspaso: { bg: 'rgba(59,105,181,0.12)', c: 'var(--brand-blue)' },
     venta: { bg: 'rgba(225,153,41,0.2)', c: '#b45309' },
+    cambio_precio: { bg: 'rgba(124,58,237,0.12)', c: '#6d28d9' },
   };
   const s = colors[tipo] || { bg: 'var(--surface)', c: 'var(--muted)' };
   return (
@@ -37,7 +35,8 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
   const [desde, setDesde] = useState(() => rangoDesdePreset('7d').desde);
   const [hasta, setHasta] = useState(() => rangoDesdePreset('7d').hasta);
   const [filtroEvento, setFiltroEvento] = useState('todos');
-  const [ventasProducto, setVentasProducto] = useState([]);
+  const [movimientos, setMovimientos] = useState([]);
+  const [aviso, setAviso] = useState('');
   const [cargando, setCargando] = useState(false);
 
   const cambiarPreset = (preset) => {
@@ -51,60 +50,58 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
     }
   };
 
-  const cargarVentas = useCallback(async () => {
-    if (!supabase || !producto?.id) {
-      setVentasProducto([]);
+  const cargar = useCallback(async () => {
+    if (!producto?.id) {
+      setMovimientos([]);
       return;
     }
     setCargando(true);
-    const ini = new Date(desde);
-    ini.setHours(0, 0, 0, 0);
-    const fin = new Date(hasta);
-    fin.setHours(23, 59, 59, 999);
-    const { data, error } = await consultarVentas(supabase, {
-      columns: '*',
-      desde: ini,
-      hasta: fin,
-      sucursal: sucursal || null,
-      limit: 800,
-    });
-    setCargando(false);
-    if (error) {
-      console.warn(error);
-      setVentasProducto([]);
-      return;
+    setAviso('');
+    try {
+      const r = await cargarReporteMovimientosInventario(supabase, {
+        desde,
+        hasta,
+        productoId: producto.id,
+        sucursal: sucursal || null,
+      });
+      setMovimientos(r.data || []);
+      setAviso((r.avisos || []).join(' · '));
+    } catch (e) {
+      setMovimientos([]);
+      setAviso(`Error: ${e?.message || e}`);
+    } finally {
+      setCargando(false);
     }
-    setVentasProducto(data || []);
   }, [supabase, producto?.id, desde, hasta, sucursal]);
 
   useEffect(() => {
-    cargarVentas();
-  }, [cargarVentas]);
+    void cargar();
+  }, [cargar]);
 
-  const historialVentas = useMemo(() => ventasConProducto(ventasProducto, producto?.id), [ventasProducto, producto?.id]);
+  const historialVentas = useMemo(
+    () =>
+      (movimientos || [])
+        .filter((m) => m.modo === 'venta' || m.origen === 'ventas' || m.tipo === 'venta')
+        .map((m) => ({
+          id: m.id,
+          created_at: m.created_at,
+          cantidad: m.cantidad,
+          subtotal: Number(m.subtotal) || 0,
+          usuario: m.usuario,
+          motivo: m.motivo,
+        })),
+    [movimientos],
+  );
 
   const timelineSinFiltro = useMemo(() => {
     if (!producto?.id) return [];
-    const movs = listarMovimientosInventario({
-      desde,
-      hasta,
-      productoId: producto.id,
-      sucursal: sucursal || null,
-    });
-    return timelineProducto(producto.id, ventasProducto, movs, 'todos');
-  }, [producto?.id, ventasProducto, desde, hasta, sucursal]);
+    return timelineProducto(producto.id, [], movimientos, 'todos');
+  }, [producto?.id, movimientos]);
 
   const timeline = useMemo(() => {
     if (!producto?.id) return [];
-    if (filtroEvento === 'todos') return timelineSinFiltro;
-    const movs = listarMovimientosInventario({
-      desde,
-      hasta,
-      productoId: producto.id,
-      sucursal: sucursal || null,
-    });
-    return timelineProducto(producto.id, ventasProducto, movs, filtroEvento);
-  }, [producto?.id, ventasProducto, desde, hasta, sucursal, filtroEvento, timelineSinFiltro]);
+    return timelineProducto(producto.id, [], movimientos, filtroEvento);
+  }, [producto?.id, movimientos, filtroEvento]);
 
   const totales = useMemo(() => {
     const vendido = historialVentas.reduce((a, v) => a + Number(v.cantidad || 0), 0);
@@ -156,9 +153,14 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
           onDesdeChange={setDesde}
           onHastaChange={setHasta}
         />
-        <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={cargarVentas} disabled={cargando}>
+        <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={() => void cargar()} disabled={cargando}>
           {cargando ? 'Actualizando…' : 'Actualizar historial'}
         </button>
+        {aviso && (
+          <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem', color: 'var(--brand-gold-dark)' }}>
+            {aviso}
+          </p>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.75rem' }}>
@@ -205,7 +207,7 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
                   <tr key={v.id}>
                     <td style={{ fontSize: '0.82rem' }}>{fmtFecha(v.created_at)}</td>
                     <td>{v.cantidad}</td>
-                    <td>${Number(v.subtotal).toFixed(2)}</td>
+                    <td>{v.subtotal ? `$${Number(v.subtotal).toFixed(2)}` : '—'}</td>
                     <td>{v.usuario}</td>
                     <td style={{ fontSize: '0.8rem' }}>{v.motivo}</td>
                   </tr>
@@ -249,7 +251,7 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
               {timeline.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="muted">
-                    Sin movimientos en el rango. Las ventas y ajustes se registran al cobrar o en Ajuste de inventario.
+                    Sin movimientos en el rango. Incluye ventas, compras, cancelaciones y ajustes sincronizados.
                   </td>
                 </tr>
               ) : (

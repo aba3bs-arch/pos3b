@@ -16,6 +16,7 @@ import { enRangoYmd, parseYmd, toYmd } from '../lib/fechas.js';
 import { ALMACEN_CENTRAL, aplicarDeltaStock } from '../lib/inventarioMultitienda.js';
 import { productoIdsDesdeProveedor } from '../lib/proveedorCatalogo.js';
 import { cargarTodosLosProductos } from '../lib/cargarCatalogoProductos.js';
+import { guardarMovimientoLocal } from '../lib/inventarioMovimientos.js';
 
 function totalPedido(lines) {
   return lines.reduce((a, l) => a + (Number(l.costo_est) || 0) * (Number(l.qty_pedido) || 0), 0);
@@ -34,7 +35,7 @@ function alertSqlCompras(error) {
   return false;
 }
 
-export default function Compras({ supabase, sucursal, inventario, cargarDatos, onNavigate }) {
+export default function Compras({ supabase, sucursal, inventario, cargarDatos, onNavigate, user }) {
   const [pestana, setPestana] = useState('herramienta');
   const [proveedores, setProveedores] = useState([]);
   const [historial, setHistorial] = useState([]);
@@ -410,6 +411,23 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
         if (calc.ok) {
           await supabase.from('productos').update(calc.patch).eq('id', prod.id);
           Object.assign(prod, calc.patch);
+          guardarMovimientoLocal(
+            {
+              tipo: 'entrada',
+              modo: 'compra',
+              producto_id: prod.id,
+              producto_nombre: prod.nombre || l.nombre,
+              cantidad: l.qty,
+              stock_antes: calc.antes,
+              stock_despues: calc.despues,
+              ubicacion: 'cedis',
+              motivo: `Compra/recepción · ${compraActiva.id}${compraActiva.notas ? ` · ${compraActiva.notas}` : ''}`,
+              usuario: user?.nombre || '—',
+              sucursal: sucursal || ALMACEN_CENTRAL,
+              created_at: new Date().toISOString(),
+            },
+            supabase,
+          );
         }
       }
     }
