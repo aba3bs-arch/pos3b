@@ -96,7 +96,12 @@ export function fechaCorteSugerida(turno = null, now = new Date()) {
     const hour = Number(parts.find((p) => p.type === 'hour')?.value || 0);
     const minute = Number(parts.find((p) => p.type === 'minute')?.value || 0);
     const nowMin = hour * 60 + minute;
-    if (nowMin < minutosHora(turno.hora_fin)) return addDaysYmd(hoy, -1);
+    const iniMin = minutosHora(turno.hora_inicio);
+    // En turnos nocturnos (cruzan medianoche), el corte corresponde al día
+    // en que INICIA el turno:
+    // - noche activa (>= inicio): hoy
+    // - madrugada o día (< inicio): ayer
+    if (nowMin < iniMin) return addDaysYmd(hoy, -1);
   } catch {
     /* ignore */
   }
