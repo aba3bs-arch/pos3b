@@ -1,6 +1,6 @@
 import { clasificarPago, rangoConsultaCorte, resumirVentas } from './corteCaja.js';
 import { consultarVentas } from './ventasQuery.js';
-import { filtrarVentasPorTurno } from './turnos.js';
+import { filtrarVentasPorTurno, leerTurnos, nombreTurnoLegible, turnoActual } from './turnos.js';
 import { aplicarDeltaStock } from './inventarioMultitienda.js';
 import { guardarMovimientoLocal } from './inventarioMovimientos.js';
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
@@ -261,6 +261,49 @@ export async function cargarDiaCaja(supabase, { sucursal, fecha, turno = null })
     aviso: cancel.aviso || aviso || null,
     ventasOtrasTiendas,
   };
+}
+
+export async function cargarSaldosCajaEnCurso(supabase, { sucursal, fecha = null } = {}) {
+  const ymd = String(fecha || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  const turnos = leerTurnos();
+  const suc = sucursal ? normalizarCodigoTienda(sucursal) : null;
+  const out = [];
+  let aviso = null;
+
+  for (const t of turnos) {
+    const dia = await cargarDiaCaja(supabase, { sucursal: suc, fecha: ymd, turno: t });
+    if (dia.aviso && !aviso) aviso = dia.aviso;
+    if (dia.error && !aviso) aviso = dia.error;
+    const resumen = resumirMovimientosCaja(dia.ventas || [], dia.cancelaciones || []);
+    const tickets = Number(resumen.ticketsBruto) || 0;
+    const total = Number(resumen.total) || 0;
+    out.push({
+      id: `saldo_${suc || 'ALL'}_${t.id}`,
+      turno_id: t.id,
+      nombreCaja: nombreTurnoLegible(t) || t.id,
+      sucursal: suc,
+      fecha: ymd,
+      tickets,
+      saldo: total,
+      efectivo: Number(resumen.efectivoEsperado) || 0,
+      electronico: Number(resumen.electronico) || 0,
+      sinMovimiento: tickets === 0 && Math.abs(total) < 0.01,
+      ventas: dia.ventas || [],
+      cancelaciones: dia.cancelaciones || [],
+      resumen,
+    });
+  }
+
+  const actual = turnoActual(turnos);
+  if (actual) {
+    out.sort((a, b) => {
+      if (String(a.turno_id) === String(actual.id)) return -1;
+      if (String(b.turno_id) === String(actual.id)) return 1;
+      return 0;
+    });
+  }
+
+  return { data: out, aviso, fecha: ymd };
 }
 
 export async function registrarCancelacion(supabase, opts) {

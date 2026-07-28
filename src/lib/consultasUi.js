@@ -77,12 +77,14 @@ function valorMovimiento(m, precioPorId) {
 }
 
 function tituloDocumentoInv(m) {
+  if (m.modo === 'venta' || m.origen === 'ventas' || m.tipo === 'venta') return 'Salida por venta';
   if (m.modo === 'compra' || m.origen === 'compras') return 'Ingreso de inventario';
   if (m.tipo === 'entrada' && (m.modo === 'masivo' || m.modo === 'libre' || !m.modo)) return 'Ingreso de inventario';
   if (m.modo === 'conteo_departamento' || m.modo === 'vaciado_inventario' || m.tipo === 'ajuste') return 'Ajuste inventario';
   if (m.tipo === 'traspaso' || m.modo === 'ubicacion') return 'Traspaso de inventario';
   if (m.modo === 'cancelacion') return 'Cancelación (regreso)';
   if (m.tipo === 'cambio_precio') return 'Cambio de precio';
+  if (m.tipo === 'retiro' && m.modo === 'venta') return 'Salida por venta';
   if (m.tipo === 'retiro') return 'Retiro de inventario';
   if (m.tipo === 'entrada') return 'Ingreso de inventario';
   return 'Movimiento de inventario';
@@ -90,22 +92,25 @@ function tituloDocumentoInv(m) {
 
 /**
  * Agrupa líneas de movimiento en documentos estilo SoftRestaurant
- * (Ingreso/Ajuste con folio, diferencia +/- y total).
+ * (Ingreso/Ajuste/Venta/Cancelación con folio, diferencia +/- y total).
+ * Incluye TODOS los movimientos de inventario del POS.
  */
 export function agruparDocumentosInventario(movimientos, opts = {}) {
   const { precioPorId = new Map() } = opts;
   const map = new Map();
 
   for (const m of movimientos || []) {
-    // Las ventas se ven en la pestaña Ventas, no como docs de inventario.
-    if (m.modo === 'venta' || m.origen === 'ventas' || m.tipo === 'venta') continue;
-
+    const esVenta = m.modo === 'venta' || m.origen === 'ventas' || m.tipo === 'venta';
     const folio =
       m.folio ||
       m.meta?.folio ||
-      (m.origen === 'compras' || m.modo === 'compra'
-        ? folioNumerico(String(m.id).replace(/^compra_/, '').split('_')[0], 5)
-        : folioNumerico(m.cloudId || m.id, 5));
+      (esVenta
+        ? folioNumerico(String(m.id).replace(/^venta_/, '').split('_')[0], 5)
+        : m.origen === 'compras' || m.modo === 'compra'
+          ? folioNumerico(String(m.id).replace(/^compra_/, '').split('_')[0], 5)
+          : m.origen === 'cancelaciones' || m.modo === 'cancelacion'
+            ? folioNumerico(String(m.id).replace(/^cancel_/, '').split('_')[0], 5)
+            : folioNumerico(m.cloudId || m.id, 5));
 
     const titulo = tituloDocumentoInv(m);
     const usuario = m.usuario || '—';
@@ -114,9 +119,13 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
     const key =
       m.folio || m.meta?.folio
         ? `folio:${m.folio || m.meta.folio}`
-        : m.origen === 'compras' || m.modo === 'compra'
-          ? `compra:${String(m.id).replace(/^compra_/, '').split('_')[0]}`
-          : `${titulo}|${usuario}|${bucket}|${m.sucursal || ''}`;
+        : esVenta
+          ? `venta:${String(m.id).replace(/^venta_/, '').split('_')[0]}`
+          : m.origen === 'compras' || m.modo === 'compra'
+            ? `compra:${String(m.id).replace(/^compra_/, '').split('_')[0]}`
+            : m.origen === 'cancelaciones' || m.modo === 'cancelacion'
+              ? `cancel:${String(m.id).replace(/^cancel_/, '').split('_')[0]}`
+              : `${titulo}|${usuario}|${bucket}|${m.sucursal || ''}`;
 
     if (!map.has(key)) {
       map.set(key, {
@@ -141,6 +150,7 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
       m.origen === 'compras' ||
       (m.tipo === 'traspaso' && Number(m.stock_despues) > Number(m.stock_antes));
     const esSalida =
+      esVenta ||
       m.tipo === 'retiro' ||
       (m.tipo === 'traspaso' && Number(m.stock_despues) < Number(m.stock_antes)) ||
       (m.modo === 'conteo_departamento' && Number(m.stock_despues) < Number(m.stock_antes));
