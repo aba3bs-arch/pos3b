@@ -12,6 +12,7 @@ import { guardarMovimientoLocal } from '../lib/inventarioMovimientos.js';
 import { sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
 import { productoCoincideBusqueda, productoPorCodigoExacto, pareceCodigoProducto } from '../lib/buscarProductoTexto.js';
+import { registrarRemocionCarrito } from '../lib/proyeccionFaltante.js';
 
 function addToCart(carrito, producto) {
   const i = carrito.findIndex((c) => c.id === producto.id);
@@ -270,11 +271,36 @@ export default function Ventas({
   };
 
   const setQty = (id, qty) => {
+    const prev = carrito.find((row) => row.id === id);
+    const nextQty = Math.max(1, qty);
+    if (prev && nextQty < Number(prev.qty || 1)) {
+      const delta = Number(prev.qty || 1) - nextQty;
+      void registrarRemocionCarrito(supabase, {
+        sucursal,
+        user,
+        producto_id: prev.id,
+        nombre: prev.nombre,
+        precio: prev.precio,
+        qty: delta,
+      });
+    }
     setCarrito((c) =>
       c
-        .map((row) => (row.id === id ? { ...row, qty: Math.max(1, qty) } : row))
+        .map((row) => (row.id === id ? { ...row, qty: nextQty } : row))
         .filter((row) => row.qty > 0),
     );
+  };
+
+  const quitarDelCarrito = (it) => {
+    void registrarRemocionCarrito(supabase, {
+      sucursal,
+      user,
+      producto_id: it.id,
+      nombre: it.nombre,
+      precio: it.precio,
+      qty: it.qty || 1,
+    });
+    setCarrito((c) => c.filter((x) => x.id !== it.id));
   };
 
   const elegirMetodo = (id) => {
@@ -471,7 +497,7 @@ export default function Ventas({
               <ProductoThumb producto={it} size={40} />
               <div className="ventas-carrito-info">
                 <span className="ventas-carrito-nombre">{it.nombre}</span>
-                <button type="button" className="btn btn-ghost ventas-carrito-quitar" onClick={() => setCarrito((c) => c.filter((x) => x.id !== it.id))}>
+                <button type="button" className="btn btn-ghost ventas-carrito-quitar" onClick={() => quitarDelCarrito(it)}>
                   Quitar
                 </button>
               </div>

@@ -411,6 +411,7 @@ Plantillas 12×12, rotación, asignación masiva — ver sección 5.`,
 | \`fix_usuarios_rol_check.sql\` | Roles Auditor, Gerente, etc. |
 | \`fix_usuarios_sucursal.sql\` | sucursal_id en usuarios |
 | \`fix_cancelaciones.sql\` | Cancelaciones en corte |
+| \`fix_proyeccion_faltante.sql\` | Remociones de carrito + consultas de precio (proyección faltante) |
 | \`migracion_completa.sql\` | Instalación desde cero |
 
 **Procedimiento:** SQL Editor → pegar script → Run → esperar 30 s → Ctrl+F5.

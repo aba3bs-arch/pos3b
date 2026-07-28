@@ -496,6 +496,83 @@ table.data th {
   animation: punto-verde-parpadeo 1.2s ease-in-out infinite;
 }
 
+@keyframes proyeccion-confianza-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+}
+
+.proyeccion-confianza {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  animation: proyeccion-confianza-pulse 1.15s ease-in-out infinite;
+}
+
+.proyeccion-confianza--verde {
+  background: var(--brand-green);
+  box-shadow: 0 0 0 3px rgba(46, 125, 50, 0.22);
+}
+
+.proyeccion-confianza--naranja {
+  background: var(--brand-gold);
+  box-shadow: 0 0 0 3px rgba(225, 153, 41, 0.28);
+}
+
+.proyeccion-confianza--rojo {
+  background: var(--brand-red);
+  box-shadow: 0 0 0 3px rgba(255, 49, 49, 0.25);
+}
+
+.proyeccion-faltante-monto--verde {
+  color: var(--brand-green);
+}
+
+.proyeccion-faltante-monto--naranja {
+  color: var(--brand-gold-dark);
+}
+
+.proyeccion-faltante-monto--rojo {
+  color: var(--brand-red);
+  animation: proyeccion-confianza-pulse 1.4s ease-in-out infinite;
+}
+
+.proyeccion-urgencia-badge {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
+
+.proyeccion-urgencia-badge--verde {
+  color: var(--brand-green);
+  background: rgba(46, 125, 50, 0.12);
+  border: 1px solid rgba(46, 125, 50, 0.35);
+}
+
+.proyeccion-urgencia-badge--naranja {
+  color: var(--brand-gold-dark);
+  background: rgba(225, 153, 41, 0.14);
+  border: 1px solid rgba(225, 153, 41, 0.4);
+}
+
+.proyeccion-urgencia-badge--rojo {
+  color: var(--brand-red-dark);
+  background: rgba(255, 49, 49, 0.12);
+  border: 1px solid rgba(255, 49, 49, 0.4);
+  animation: proyeccion-confianza-pulse 1.2s ease-in-out infinite;
+}
+
 .anuncio-pos-backdrop {
   position: fixed;
   inset: 0;

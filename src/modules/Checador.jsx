@@ -26,6 +26,7 @@ import {
   esPinCubreTurno,
   validarDatosCubreTurno,
 } from '../lib/cubreTurno.js';
+import { registrarConsultaPrecio } from '../lib/proyeccionFaltante.js';
 
 function inicioDiaLocal() {
   const d = new Date();
@@ -187,6 +188,26 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     if (!t) return null;
     return inventario.find((p) => String(p.id) === t || String(p.id).toLowerCase() === t.toLowerCase()) || null;
   }, [codigo, inventario]);
+
+  useEffect(() => {
+    if (pestana !== 'precios' || !producto || !sucursal) return undefined;
+    let cancelado = false;
+    const t = setTimeout(() => {
+      if (cancelado) return;
+      void registrarConsultaPrecio(supabase, {
+        sucursal,
+        user,
+        producto_id: producto.id,
+        nombre: producto.nombre,
+        precio: producto.precio,
+        stock: producto.stock,
+      });
+    }, 400);
+    return () => {
+      cancelado = true;
+      clearTimeout(t);
+    };
+  }, [pestana, producto?.id, sucursal, supabase, user]);
 
   const similares = useMemo(() => {
     const t = codigo.trim().toLowerCase();

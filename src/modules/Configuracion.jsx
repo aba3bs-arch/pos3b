@@ -1,6 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { SUCURSALES_BASE, etiquetaTienda, listarSucursalesParaUI, listarSucursalesOperativas } from '../constants/sucursales.js';
 import {
+  DIAS_INVENTARIO,
+  asignarDiaInventarioSucursal,
+  listarCalendarioInventarioUI,
+  quitarDiaInventarioOverride,
+} from '../lib/calendarioInventario.js';
+import {
   CONEXIONES_PERIFERICO,
   TIPOS_PERIFERICO,
   ANCHOS_PAPEL,
@@ -152,6 +158,8 @@ export default function Configuracion({
   const [negocio, setNegocio] = useState('');
   const [ticketFooter, setTicketFooter] = useState('');
   const [nuevaTienda, setNuevaTienda] = useState('');
+  const [diaNuevaTienda, setDiaNuevaTienda] = useState(1);
+  const [calendarioInvTick, setCalendarioInvTick] = useState(0);
   const [audioCfg, setAudioCfg] = useState(() => leerConfigAudio());
   const [privilegios, setPrivilegios] = useState(() => leerPrivilegios());
   const [privModo, setPrivModo] = useState('rol');
@@ -595,8 +603,14 @@ export default function Configuracion({
     if (typeof onAgregarSucursal !== 'function') return;
     const r = onAgregarSucursal(nuevaTienda);
     if (r.ok) {
+      const cal = asignarDiaInventarioSucursal(r.codigo, diaNuevaTienda);
       setNuevaTienda('');
-      alert(`Tienda "${r.codigo}" agregada y seleccionada.`);
+      setCalendarioInvTick((n) => n + 1);
+      if (cal.ok) {
+        alert(`Tienda "${r.codigo}" agregada. Inventario semanal: ${DIAS_INVENTARIO.find((d) => d.id === diaNuevaTienda)?.label || ''}.`);
+      } else {
+        alert(`Tienda "${r.codigo}" agregada. Asigna su día de inventario abajo.`);
+      }
     } else alert(r.error);
   };
 
@@ -604,8 +618,11 @@ export default function Configuracion({
     if (typeof onQuitarSucursalExtra !== 'function') return;
     if (!confirm(`¿Quitar "${cod}" de la lista de este navegador?`)) return;
     const r = onQuitarSucursalExtra(cod);
-    if (r.ok) alert('Tienda quitada de la lista.');
-    else alert(r.error);
+    if (r.ok) {
+      quitarDiaInventarioOverride(cod);
+      setCalendarioInvTick((n) => n + 1);
+      alert('Tienda quitada de la lista.');
+    } else alert(r.error);
   };
 
   const guardarMetodos = (lista) => {
@@ -1617,6 +1634,21 @@ export default function Configuracion({
               maxLength={32}
             />
           </label>
+          <label className="muted" style={{ flex: '0 1 160px' }}>
+            Día de inventario
+            <select
+              className="select"
+              style={{ marginTop: '0.35rem', width: '100%' }}
+              value={diaNuevaTienda}
+              onChange={(e) => setDiaNuevaTienda(Number(e.target.value))}
+            >
+              {DIAS_INVENTARIO.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <button type="button" className="btn btn-primary" onClick={agregar}>
             Agregar tienda
           </button>
@@ -1647,6 +1679,70 @@ export default function Configuracion({
             </table>
           </div>
         )}
+      </div>
+
+      <div className="card" style={{ borderTop: '4px solid var(--brand-red)' }}>
+        <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Calendario de inventarios semanales</h3>
+        <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+          Cada sucursal tiene un día fijo. La proyección de faltante en Inicio acumula desde ese día hasta el próximo inventario.
+          Base: 3B5 lun · 3B2 mar · FUSION jue · 3B6/3B7 vie · 3B9/3B10 sáb. Puedes cambiar el día o asignar una tienda nueva.
+        </p>
+        <div className="table-wrap" style={{ marginTop: '0.75rem' }}>
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Sucursal</th>
+                <th>Día de inventario</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {listarCalendarioInventarioUI().map((row) => (
+                <tr key={`${row.codigo}-${calendarioInvTick}`}>
+                  <td>
+                    {etiquetaTienda(row.codigo)}
+                    {!row.esBase && <span className="muted" style={{ marginLeft: '0.35rem', fontSize: '0.75rem' }}>(extra)</span>}
+                  </td>
+                  <td>
+                    <select
+                      className="select"
+                      value={row.dia == null ? '' : row.dia}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === '') return;
+                        const r = asignarDiaInventarioSucursal(row.codigo, Number(v));
+                        if (!r.ok) alert(r.error);
+                        else setCalendarioInvTick((n) => n + 1);
+                      }}
+                    >
+                      {row.dia == null && <option value="">Sin día…</option>}
+                      {DIAS_INVENTARIO.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td>
+                    {!row.esBase && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ padding: '0.25rem 0.45rem', fontSize: '0.75rem' }}
+                        onClick={() => {
+                          quitarDiaInventarioOverride(row.codigo);
+                          setCalendarioInvTick((n) => n + 1);
+                        }}
+                      >
+                        Quitar día
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {esAdmin && (

@@ -17,6 +17,8 @@ const LS_PURGA_KEYS = [
   'pos3b_movimientos_inventario',
   'pos3b_ajustes_inventario',
   'pos3b_cancelaciones',
+  'pos3b_carrito_remociones',
+  'pos3b_consultas_precio',
   'pos3b_folio_ajuste_seq',
   'pos3b_cont_virtual_egresos',
   'pos3b_cont_virtual_notas',
