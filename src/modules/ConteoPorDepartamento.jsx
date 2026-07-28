@@ -77,8 +77,8 @@ export default function ConteoPorDepartamento({
   }, [departamentoInicial, borradorInicial]);
 
   const lineas = useMemo(
-    () => productosDept.map((p) => construirLineaConteo(p, conteos[p.id] ?? '')),
-    [productosDept, conteos],
+    () => productosDept.map((p) => construirLineaConteo(p, conteos[p.id] ?? '', sucursal)),
+    [productosDept, conteos, sucursal],
   );
 
   const resumen = useMemo(() => resumirConteoDepartamento(lineas), [lineas]);
@@ -194,7 +194,7 @@ export default function ConteoPorDepartamento({
     const nextConteos = { ...conteos, [pid]: contadaFinal };
     setConteos(nextConteos);
 
-    const lineasNext = productosDept.map((p) => construirLineaConteo(p, nextConteos[p.id] ?? ''));
+    const lineasNext = productosDept.map((p) => construirLineaConteo(p, nextConteos[p.id] ?? '', sucursal));
     const nextIdx = lineasNext.findIndex((l, i) => i > indiceActual && l.contadaNum == null);
     if (nextIdx >= 0) {
       setIndiceActual(nextIdx);
@@ -230,8 +230,9 @@ export default function ConteoPorDepartamento({
     const lineasFinales = lineas.map((l) => {
       if (l.contadaNum != null) return l;
       return construirLineaConteo(
-        productosDept.find((p) => p.id === l.productoId),
+        productosDept.find((p) => String(p.id) === String(l.productoId)),
         String(l.existencia),
+        sucursal,
       );
     });
     const r = await aplicarConteoDepartamento(supabase, {

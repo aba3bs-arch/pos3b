@@ -335,7 +335,7 @@ export default function AjusteInventario({
   const aplicarMasivo = async () => {
     const validas = lineasMasivas.filter((l) => l.productoId && Number(l.cantidad) > 0);
     if (!validas.length) return alert('Agrega al menos un producto con cantidad.');
-    if (!confirm(`¿Registrar entrada de ${validas.length} producto(s)?`)) return;
+    if (!confirm(`¿SUMAR entrada de ${validas.length} producto(s) al stock actual?\n(Ej. 10 + 12 = 22)`)) return;
     setAplicando(true);
     const r = await aplicarEntradasMasivas(supabase, {
       lineas: validas,
@@ -516,7 +516,8 @@ export default function AjusteInventario({
         )}
         {modo === 'masivo' && (
           <p className="muted" style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
-            Agrega varios productos con sus cantidades y aplica todas las entradas en un solo paso (recepción de mercancía, conteo, etc.).
+            Agrega varios productos con la cantidad a <strong>SUMAR</strong> al stock actual
+            (ej. hay 10 e ingresas 12 → queda 22). No reemplaza la existencia.
             La lista se guarda sola en este equipo si se interrumpe la captura.
           </p>
         )}

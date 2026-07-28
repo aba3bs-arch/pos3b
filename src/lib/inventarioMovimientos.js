@@ -160,14 +160,21 @@ export async function registrarCambioPrecio(supabase, opts) {
   return { ok: true, ...r };
 }
 
-function ubicacionMovimiento(tipo, sucursalOperacion) {
-  if (tipo === 'entrada') return ubicacionEntradaDefault(sucursalOperacion);
-  if (esAlmacenCentral(sucursalOperacion) && tipo === 'retiro') return 'cedis';
+function ubicacionMovimiento(tipo, sucursalOperacion, modo = '') {
+  // Ingresos/retiros de ajuste van al PISO de la tienda activa (10+12=22 en piso).
+  // CEDIS solo con compras/recepción (modo compra) o traspasos explícitos.
+  if (tipo === 'entrada') {
+    if (modo === 'compra' || modo === 'recepcion') return ubicacionEntradaDefault(sucursalOperacion);
+    return 'piso';
+  }
+  if (esAlmacenCentral(sucursalOperacion) && tipo === 'retiro' && (modo === 'compra' || modo === 'cedis')) {
+    return 'cedis';
+  }
   return 'piso';
 }
 
-function etiquetaUbicacionMovimiento(tipo, sucursalOperacion) {
-  const u = ubicacionMovimiento(tipo, sucursalOperacion);
+function etiquetaUbicacionMovimiento(tipo, sucursalOperacion, modo = '') {
+  const u = ubicacionMovimiento(tipo, sucursalOperacion, modo);
   if (u === 'cedis') return etiquetaCedisEmpresa();
   return esAlmacenCentral(sucursalOperacion) ? 'piso de venta · MAIN' : 'piso de venta';
 }
@@ -243,7 +250,7 @@ export async function aplicarMovimientoInventario(supabase, opts) {
     };
   }
 
-  const ubicacion = ubicacionMovimiento(tipo, tienda);
+  const ubicacion = ubicacionMovimiento(tipo, tienda, modo);
   const signo = tipo === 'entrada' ? 1 : -1;
   const calc = aplicarDeltaStock(productoDb, tienda, ubicacion, signo * qty, tienda);
   if (!calc.ok) return calc;
@@ -256,7 +263,7 @@ export async function aplicarMovimientoInventario(supabase, opts) {
     return { ok: false, error: error.message };
   }
 
-  const donde = etiquetaUbicacionMovimiento(tipo, tienda);
+  const donde = etiquetaUbicacionMovimiento(tipo, tienda, modo);
   const log = guardarMovimientoLocal({
     tipo,
     modo,
@@ -277,7 +284,7 @@ export async function aplicarMovimientoInventario(supabase, opts) {
   const verbo = tipo === 'entrada' ? `Entrada a ${donde}` : `Retiro de ${donde}`;
   return {
     ok: true,
-    mensaje: `${verbo} (${etiquetaTienda(tienda)}): ${qty} uds. en "${productoOrigen.nombre}". Stock: ${calc.antes} → ${calc.despues}.`,
+    mensaje: `${verbo} (${etiquetaTienda(tienda)}): ${tipo === 'entrada' ? '+' : '−'}${qty} uds. en "${productoOrigen.nombre}". Stock: ${calc.antes} → ${calc.despues} (se ${tipo === 'entrada' ? 'suma' : 'resta'}, no se reemplaza).`,
     log,
     patch: calc.patch,
   };
@@ -295,10 +302,12 @@ export async function aplicarEntradasMasivas(supabase, opts) {
   let log = leerMovimientosLocal();
   let aplicados = 0;
   const errores = [];
-  const productosVivos = new Map(catalogo.map((p) => [p.id, { ...p }]));
+  const productosVivos = new Map(catalogo.map((p) => [String(p.id), { ...p }]));
 
   for (const { productoId, cantidad } of lista) {
-    let productoOrigen = productosVivos.get(productoId) || (inventario || []).find((p) => p.id === productoId);
+    let productoOrigen =
+      productosVivos.get(String(productoId)) ||
+      (inventario || []).find((p) => String(p.id) === String(productoId));
     if (!productoOrigen) {
       errores.push(`${productoId}: no encontrado`);
       continue;
@@ -313,7 +322,7 @@ export async function aplicarEntradasMasivas(supabase, opts) {
       sucursalOperacion: tienda,
       modo: 'masivo',
       departamento: productoOrigen.cat,
-      inventarioCompleto: catalogo,
+      inventarioCompleto: [...productosVivos.values()],
     });
     if (!r.ok) {
       errores.push(`${productoOrigen.nombre}: ${r.error}`);
@@ -322,7 +331,7 @@ export async function aplicarEntradasMasivas(supabase, opts) {
     aplicados += 1;
     log = r.log || log;
     productoOrigen = { ...productoOrigen, ...r.patch };
-    productosVivos.set(productoId, productoOrigen);
+    productosVivos.set(String(productoId), productoOrigen);
   }
 
   if (!aplicados) return { ok: false, error: errores.join('\n') || 'No se aplicó ninguna entrada.' };
@@ -334,6 +343,6 @@ export async function aplicarEntradasMasivas(supabase, opts) {
     mensaje:
       errores.length > 0
         ? `Entrada masiva: ${aplicados} producto(s) OK. ${errores.length} con error.`
-        : `Entrada masiva aplicada: ${aplicados} producto(s) en ${etiquetaTienda(tienda)}.`,
+        : `Entrada masiva aplicada: ${aplicados} producto(s) en ${etiquetaTienda(tienda)} (cantidades SUMADAS al stock).`,
   };
 }

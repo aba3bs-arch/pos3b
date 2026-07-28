@@ -13,8 +13,16 @@ export function productosEnDepartamento(inventario, departamento) {
     .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));
 }
 
-export function construirLineaConteo(producto, contadaRaw = '') {
-  const existencia = Math.max(0, Number(producto?.stock) || 0);
+/**
+ * @param {object} producto
+ * @param {string|number} contadaRaw cantidad CONTADA (existencia final), no “a sumar”
+ * @param {string} [sucursal] tienda para leer stock de piso
+ */
+export function construirLineaConteo(producto, contadaRaw = '', sucursal = '') {
+  const suc = sucursal || producto?._sucursalVista || '';
+  const existencia = suc
+    ? Math.max(0, stockEnUbicacion(producto, suc, 'piso', suc))
+    : Math.max(0, Number(producto?.stock) || 0);
   const raw = contadaRaw === null || contadaRaw === undefined ? '' : String(contadaRaw);
   const contadaNum = raw.trim() === '' ? null : Math.max(0, Math.floor(Number(raw)));
   const diferencia = contadaNum == null ? null : contadaNum - existencia;
@@ -120,13 +128,18 @@ function guardarAjusteInventario(ajuste) {
   return next;
 }
 
-/** Aplica conteo: stock = cantidad contada; genera folio y registra movimientos. */
+/** Aplica conteo: stock = cantidad contada (existencia final); genera folio y movimientos. */
 export async function aplicarConteoDepartamento(supabase, opts) {
-  const { lineas, inventario, departamento, usuario, sucursal } = opts;
+  const { lineas, inventario, departamento, usuario, sucursal, permitirPendientes = false } = opts;
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
 
+  const contadas = (lineas || []).filter((l) => l.contadaNum != null);
+  if (!contadas.length) {
+    return { ok: false, error: 'No hay productos contados para aplicar.' };
+  }
+
   const resumen = resumirConteoDepartamento(lineas);
-  if (!resumen.listoParaAplicar) {
+  if (!permitirPendientes && !resumen.listoParaAplicar) {
     return { ok: false, error: `Faltan ${resumen.skusPendientes} producto(s) por contar.` };
   }
 
@@ -135,52 +148,62 @@ export async function aplicarConteoDepartamento(supabase, opts) {
   let log = leerMovimientosLocal();
   const aplicadas = [];
   const errores = [];
+  const suc = sucursal || '';
 
-  for (const l of lineas) {
-    if (l.contadaNum == null) continue;
-    const producto = (inventario || []).find((p) => p.id === l.productoId);
+  for (const l of contadas) {
+    const producto = (inventario || []).find((p) => String(p.id) === String(l.productoId));
     if (!producto) {
-      errores.push(`${l.codigo}: no encontrado`);
+      errores.push(`${l.codigo}: no encontrado en catálogo (¿recarga Productos?)`);
       continue;
     }
-    if (l.diferencia === 0) continue;
+
+    const existenciaReal = suc
+      ? stockEnUbicacion(producto, suc, 'piso', suc)
+      : Math.max(0, Number(producto.stock) || 0);
+    const contada = Math.max(0, Math.floor(Number(l.contadaNum)));
+    const diferencia = contada - existenciaReal;
+    if (diferencia === 0) continue;
 
     const { error } = await supabase
       .from('productos')
-      .update(buildPatchStock(producto, sucursal, 'piso', l.contadaNum, sucursal))
-      .eq('id', l.productoId);
+      .update(buildPatchStock(producto, suc || 'MAIN', 'piso', contada, suc || 'MAIN'))
+      .eq('id', producto.id);
     if (error) {
       errores.push(`${l.nombre}: ${error.message}`);
       continue;
     }
 
-    log = guardarMovimientoLocal({
-      tipo: l.diferencia > 0 ? 'entrada' : 'retiro',
-      modo: 'conteo_departamento',
-      folio,
-      departamento,
-      producto_id: l.productoId,
-      producto_nombre: l.nombre,
-      cantidad: Math.abs(l.diferencia),
-      stock_antes: l.existencia,
-      stock_despues: l.contadaNum,
-      motivo,
-      usuario: usuario || '—',
-      sucursal: sucursal || '',
-      created_at: new Date().toISOString(),
-    }, supabase);
+    log = guardarMovimientoLocal(
+      {
+        tipo: diferencia > 0 ? 'entrada' : 'retiro',
+        modo: 'conteo_departamento',
+        folio,
+        departamento,
+        producto_id: producto.id,
+        producto_nombre: l.nombre || producto.nombre,
+        cantidad: Math.abs(diferencia),
+        stock_antes: existenciaReal,
+        stock_despues: contada,
+        motivo,
+        usuario: usuario || '—',
+        sucursal: suc,
+        created_at: new Date().toISOString(),
+      },
+      supabase,
+    );
 
-    producto.stock = l.contadaNum;
-    aplicadas.push(l);
+    // Mantener mapa local vivo para siguientes líneas del mismo lote
+    Object.assign(producto, buildPatchStock(producto, suc || 'MAIN', 'piso', contada, suc || 'MAIN'));
+    aplicadas.push({ ...l, existencia: existenciaReal, contadaNum: contada, diferencia });
   }
 
   const ajuste = {
     folio,
     departamento,
-    sucursal: sucursal || '',
+    sucursal: suc,
     usuario: usuario || '—',
     resumen,
-    lineas: lineas.map((l) => ({
+    lineas: contadas.map((l) => ({
       codigo: l.codigo,
       nombre: l.nombre,
       existencia: l.existencia,
@@ -210,9 +233,9 @@ export async function aplicarConteoDepartamento(supabase, opts) {
     log,
     mensaje:
       errores.length > 0
-        ? `Ajuste ${folio} parcial: ${aplicadas.length} línea(s). ${errores.length} error(es).`
-        : resumen.hayDiferencias
+        ? `Ajuste ${folio} parcial: ${aplicadas.length} línea(s). ${errores.length} error(es):\n${errores.join('\n')}`
+        : aplicadas.length > 0
           ? `Ajuste ${folio} aplicado: ${aplicadas.length} movimiento(s).`
-          : `Conteo ${folio} cerrado sin diferencias.`,
+          : `Conteo ${folio} cerrado sin diferencias (existencias ya coincidían).`,
   };
 }

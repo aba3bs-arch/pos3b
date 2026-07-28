@@ -136,7 +136,10 @@ export default function AjusteLibre({
 
   const productosMap = useMemo(() => {
     const m = new Map();
-    for (const p of inventario || []) m.set(p.id, p);
+    for (const p of inventario || []) {
+      m.set(p.id, p);
+      m.set(String(p.id), p);
+    }
     return m;
   }, [inventario]);
 
@@ -144,12 +147,12 @@ export default function AjusteLibre({
     () =>
       ordenIds
         .map((id) => {
-          const p = productosMap.get(id);
+          const p = productosMap.get(id) || productosMap.get(String(id));
           if (!p) return null;
-          return { ...construirLineaConteo(p, conteos[id] ?? ''), producto: p };
+          return { ...construirLineaConteo(p, conteos[id] ?? conteos[String(id)] ?? '', sucursal), producto: p };
         })
         .filter(Boolean),
-    [ordenIds, productosMap, conteos],
+    [ordenIds, productosMap, conteos, sucursal],
   );
 
   const resumen = useMemo(() => resumirConteoDepartamento(lineas), [lineas]);
@@ -217,15 +220,18 @@ export default function AjusteLibre({
 
   const agregarProducto = (producto, opts = {}) => {
     if (!producto?.id || folioAplicado) return;
-    const yaEsta = ordenIds.includes(producto.id);
+    const pid = producto.id;
+    const yaEsta = ordenIds.some((id) => String(id) === String(pid));
     if (!yaEsta) {
-      setOrdenIds((prev) => (prefs.agregarAlInicio ? [producto.id, ...prev] : [...prev, producto.id]));
+      setOrdenIds((prev) => (prefs.agregarAlInicio ? [pid, ...prev] : [...prev, pid]));
     }
+    const existencia = Number(producto.stock) || 0;
     if (opts.abrirCantidad !== false && (prefs.solicitarCantidad || opts.forzarCantidad)) {
       setModalCantidad(producto);
-      setCantidadModal(String(conteos[producto.id] ?? (Number(producto.stock) || 0)));
-    } else if (!yaEsta && conteos[producto.id] == null) {
-      setConteos((prev) => ({ ...prev, [producto.id]: '' }));
+      setCantidadModal(String(conteos[pid] ?? conteos[String(pid)] ?? existencia));
+    } else if (!yaEsta && conteos[pid] == null && conteos[String(pid)] == null) {
+      // Sin modal: deja contado = existencia actual (dif 0) para poder aplicar
+      setConteos((prev) => ({ ...prev, [pid]: String(existencia) }));
     }
     setMostrarAgregar(false);
     setBusquedaCatalogo('');
@@ -281,20 +287,28 @@ export default function AjusteLibre({
   const aplicarAjuste = async () => {
     if (!lineas.length) return alert('Agrega productos a la lista de ajuste.');
     const pendientes = lineas.filter((l) => l.contadaNum == null);
+    const contadas = lineas.filter((l) => l.contadaNum != null);
+    if (!contadas.length) {
+      return alert('Indica la cantidad contada en al menos un producto (toca la fila → cantidad).');
+    }
     if (pendientes.length) {
-      return alert(`Aún faltan ${pendientes.length} producto(s) por contar.`);
+      const seguir = confirm(
+        `Hay ${pendientes.length} producto(s) sin contar.\n\n¿Aplicar solo los ${contadas.length} ya contados?`,
+      );
+      if (!seguir) return;
     }
     const msg = resumen.hayDiferencias
-      ? `¿Aplicar ajuste?\n\nSin diferencia: ${resumen.skusOk}\nPositiva: ${resumen.skusSobrante} (${fmtMxn(resumen.valorSobrante)})\nNegativa: ${resumen.skusFaltante} (${fmtMxn(resumen.valorFaltante)})`
-      : '¿Cerrar ajuste sin diferencias?';
+      ? `¿Aplicar ajuste (conteo físico)?\n\nEsto PONE la existencia = cantidad contada (no suma).\nEjemplo: hay 10 y cuentas 12 → queda 12.\nPara SUMAR piezas usa «Ingreso de inventario».\n\nSin diferencia: ${resumen.skusOk}\nPositiva: ${resumen.skusSobrante} (${fmtMxn(resumen.valorSobrante)})\nNegativa: ${resumen.skusFaltante} (${fmtMxn(resumen.valorFaltante)})`
+      : '¿Cerrar ajuste sin diferencias?\n(Las existencias ya coinciden con lo contado.)';
     if (!confirm(msg)) return;
     setAplicando(true);
     const r = await aplicarConteoDepartamento(supabase, {
-      lineas,
+      lineas: pendientes.length ? contadas : lineas,
       inventario,
       departamento: 'LIBRE',
       usuario: user?.nombre,
       sucursal,
+      permitirPendientes: pendientes.length > 0,
     });
     setAplicando(false);
     if (!r.ok) return alert(r.error);
@@ -697,11 +711,14 @@ export default function AjusteLibre({
             type="button"
             className="btn btn-primary"
             style={{ width: '100%' }}
-            disabled={aplicando || resumen.skusPendientes > 0}
+            disabled={aplicando || lineas.every((l) => l.contadaNum == null)}
             onClick={aplicarAjuste}
           >
             {aplicando ? 'Aplicando…' : 'APLICAR AJUSTE'}
           </button>
+          <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.78rem', textAlign: 'center' }}>
+            Libre/Normal = conteo físico (existencia final). Para sumar piezas (10+12=22) usa Ingreso de inventario.
+          </p>
         </footer>
       )}
 
@@ -727,7 +744,10 @@ export default function AjusteLibre({
                 </div>
               </div>
               <label className="muted" style={{ display: 'block', marginTop: '1rem' }}>
-                Cantidad
+                Cantidad contada (existencia final)
+                <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.35rem' }}>
+                  No suma: si hay 10 y pones 12, queda en 12. Para sumar usa Ingreso.
+                </div>
                 <div className="ajuste-libre-stepper">
                   <button type="button" onClick={() => setCantidadModal(String(Math.max(0, (parseInt(cantidadModal, 10) || 0) - 1)))}>
                     −
