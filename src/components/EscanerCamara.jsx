@@ -54,33 +54,50 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
         const vw = Math.max(window.innerWidth || 360, 320);
         const vh = Math.max(window.innerHeight || 640, 480);
 
-        await scanner.start(
-          { facingMode: { ideal: 'environment' } },
-          {
-            fps: 15,
-            qrbox: (viewW, viewH) => {
-              const w = Math.floor(Math.min(viewW, vw) * 0.92);
-              const h = Math.floor(Math.min(Math.max(viewH * 0.28, 140), 240));
-              return { width: Math.max(220, w), height: Math.max(120, h) };
-            },
-            formatsToSupport,
-            aspectRatio: vw / Math.max(vh * 0.72, 1),
-            disableFlip: false,
+        const configCam = {
+          fps: 15,
+          qrbox: (viewW, viewH) => {
+            const w = Math.floor(Math.min(viewW, vw) * 0.92);
+            const h = Math.floor(Math.min(Math.max(viewH * 0.28, 140), 240));
+            return { width: Math.max(220, w), height: Math.max(120, h) };
           },
-          (decoded) => {
-            if (leidoRef.current) return;
-            leidoRef.current = true;
-            const texto = String(decoded || '').trim();
-            if (!texto) return;
-            sonidoEscaneoProducto();
-            onCodigo?.(texto);
-            scanner
-              .stop()
-              .catch(() => {})
-              .finally(() => onCerrar?.());
-          },
-          () => {},
-        );
+          formatsToSupport,
+          aspectRatio: vw / Math.max(vh * 0.72, 1),
+          disableFlip: false,
+        };
+
+        const onScan = (decoded) => {
+          if (leidoRef.current) return;
+          leidoRef.current = true;
+          const texto = String(decoded || '').trim();
+          if (!texto) return;
+          sonidoEscaneoProducto();
+          onCodigo?.(texto);
+          scanner
+            .stop()
+            .catch(() => {})
+            .finally(() => onCerrar?.());
+        };
+
+        // html5-qrcode solo acepta string o { exact }; { ideal } rompe en iPhone.
+        const camaras = ['environment', 'user'];
+        let arrancada = false;
+        let ultimoError = null;
+        for (const facing of camaras) {
+          try {
+            await scanner.start({ facingMode: facing }, configCam, onScan, () => {});
+            arrancada = true;
+            break;
+          } catch (err) {
+            ultimoError = err;
+            try {
+              if (scanner.isScanning) await scanner.stop();
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+        if (!arrancada) throw ultimoError || new Error('No se pudo abrir la cámara.');
 
         // Forzar video a pantalla completa (html5-qrcode pone tamaños fijos pequeños)
         requestAnimationFrame(() => {
@@ -107,7 +124,9 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
           setError(
             /NotAllowed|Permission|denied/i.test(msg)
               ? 'Permiso de cámara denegado. En iPhone: Ajustes → Safari → Cámara → Permitir, y recarga con HTTPS.'
-              : msg || 'No se pudo abrir la cámara.',
+              : /facingMode/i.test(msg)
+                ? 'No se pudo iniciar la cámara. Recarga la página e inténtalo de nuevo.'
+                : msg || 'No se pudo abrir la cámara.',
           );
         }
       } finally {
