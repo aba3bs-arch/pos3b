@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { consultarVentas } from '../lib/ventasQuery.js';
 import { consultarCortes, etiquetaGrupoPago } from '../lib/corteCaja.js';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
 import { etiquetaDepartamento, listarDepartamentos } from '../lib/departamentos.js';
 import { mensajeErrorColumnasProducto, productoDesdeDb, productoParaGuardar } from '../lib/productoForm.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
@@ -13,6 +13,7 @@ import {
   etiquetaTipoMovimiento,
   listarMovimientosInventario,
   cargarReporteMovimientosInventario,
+  agruparVentasConsulta,
   timelineProducto,
   ventasConProducto,
   PRESETS_FECHA_PRODUCTO,
@@ -20,6 +21,7 @@ import {
 } from '../lib/consultasInventario.js';
 import { inventarioParaSucursal } from '../lib/inventarioMultitienda.js';
 import { registrarCambioPrecio } from '../lib/inventarioMovimientos.js';
+import { leerTurnos, nombreTurnoLegible } from '../lib/turnos.js';
 
 function fmtFecha(iso) {
   if (!iso) return '—';
@@ -56,8 +58,10 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const [pestana, setPestana] = useState('ventas');
   const [desde, setDesde] = useState(() => new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10));
   const [hasta, setHasta] = useState(() => new Date().toISOString().slice(0, 10));
-  const [filtroSucursal, setFiltroSucursal] = useState(sucursal || '');
+  const [filtroSucursal, setFiltroSucursal] = useState(() => (esAlmacenCentral(sucursal) ? '' : sucursal || ''));
   const [vendedor, setVendedor] = useState('');
+  const [filtroTurnoVentas, setFiltroTurnoVentas] = useState('');
+  const [grupoVentaDetalle, setGrupoVentaDetalle] = useState(null);
   const [cajero, setCajero] = useState('');
   const [tipoDiferencia, setTipoDiferencia] = useState('');
   const [corteId, setCorteId] = useState('');
@@ -101,19 +105,37 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const buscarVentas = useCallback(async () => {
     if (!supabase) return;
     setLoading(true);
-    const ini = new Date(desde);
-    ini.setHours(0, 0, 0, 0);
-    const fin = new Date(hasta);
-    fin.setHours(23, 59, 59, 999);
+    setGrupoVentaDetalle(null);
+    const ini = new Date(`${String(desde).slice(0, 10)}T00:00:00`);
+    const fin = new Date(`${String(hasta).slice(0, 10)}T23:59:59.999`);
     const { data, error, aviso } = await consultarVentas(supabase, {
-      columns: '*',
+      columns: 'id,total,metodo_pago,vendedor,sucursal_id,articulos,created_at,turno_id,turno_nombre',
       desde: ini,
       hasta: fin,
       sucursal: filtroSucursal || null,
-      limit: 500,
+      limit: 2000,
     });
     setLoading(false);
     if (error) {
+      // Reintento sin columnas de turno
+      if (String(error).includes('turno')) {
+        const r2 = await consultarVentas(supabase, {
+          columns: 'id,total,metodo_pago,vendedor,sucursal_id,articulos,created_at',
+          desde: ini,
+          hasta: fin,
+          sucursal: filtroSucursal || null,
+          limit: 2000,
+        });
+        if (r2.error) {
+          alert(r2.error);
+          setVentas([]);
+          return;
+        }
+        let list = r2.data || [];
+        if (vendedor) list = list.filter((x) => String(x.vendedor || '').toLowerCase().includes(vendedor.toLowerCase()));
+        setVentas(list);
+        return list;
+      }
       alert(error);
       setVentas([]);
       return;
@@ -124,6 +146,36 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     setVentas(list);
     return list;
   }, [supabase, desde, hasta, filtroSucursal, vendedor]);
+
+  const gruposVentas = useMemo(
+    () => agruparVentasConsulta(ventas, { turnoFiltro: filtroTurnoVentas }),
+    [ventas, filtroTurnoVentas],
+  );
+
+  const totalesVentasAgrupadas = useMemo(
+    () =>
+      gruposVentas.reduce(
+        (a, g) => ({ tickets: a.tickets + g.tickets, total: a.total + g.total }),
+        { tickets: 0, total: 0 },
+      ),
+    [gruposVentas],
+  );
+
+  const turnosFiltroOpts = useMemo(() => {
+    const fromCfg = leerTurnos().map((t) => ({ id: t.id, label: nombreTurnoLegible(t) }));
+    const fromData = new Map();
+    for (const v of ventas) {
+      const id = v.turno_id || v.turno_nombre;
+      if (!id) continue;
+      const label = v.turno_nombre || v.turno_id;
+      fromData.set(String(id), label);
+    }
+    const merged = [...fromCfg];
+    for (const [id, label] of fromData) {
+      if (!merged.some((t) => String(t.id) === String(id))) merged.push({ id, label });
+    }
+    return merged;
+  }, [ventas]);
 
   const cargarVentasProducto = useCallback(async () => {
     if (!supabase || !productoActivo?.id) {
@@ -170,51 +222,59 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const refrescarMovimientosInv = useCallback(async () => {
     setLoadingMov(true);
     setAvisoMovInv('');
-    const r = await cargarReporteMovimientosInventario(supabase, {
-      desde,
-      hasta,
-      productoId: null,
-      tipo: tipoMovInv || null,
-      sucursal: filtroSucursal || null,
-      q: skuMovInv.trim() || '',
-    });
-    let list = r.data || [];
-    if (filtroEventoInv !== 'todos') {
-      list = list.filter((m) => {
-        if (filtroEventoInv === 'existencia') return m.stock_antes != null || m.stock_despues != null;
-        if (filtroEventoInv === 'entradas') return m.tipo === 'entrada' || m.modo === 'cancelacion';
-        if (filtroEventoInv === 'salidas') return m.tipo === 'retiro' || m.tipo === 'venta' || m.modo === 'venta';
-        if (filtroEventoInv === 'ajustes') {
-          return (
-            m.tipo === 'traspaso' ||
-            m.modo === 'masivo' ||
-            m.modo === 'conteo_departamento' ||
-            m.modo === 'vaciado_inventario'
-          );
-        }
-        if (filtroEventoInv === 'precios') return m.tipo === 'cambio_precio';
-        if (filtroEventoInv === 'cancelaciones') return m.modo === 'cancelacion' || m.tipo === 'cancelacion';
-        if (filtroEventoInv === 'negativo') {
-          const a = Number(m.stock_antes);
-          const d = Number(m.stock_despues);
-          return (Number.isFinite(a) && a < 0) || (Number.isFinite(d) && d < 0);
-        }
-        return true;
+    try {
+      const r = await cargarReporteMovimientosInventario(supabase, {
+        desde,
+        hasta,
+        productoId: null,
+        tipo: tipoMovInv || null,
+        sucursal: filtroSucursal || null,
+        q: skuMovInv.trim() || '',
       });
+      let list = r.data || [];
+      if (filtroEventoInv !== 'todos') {
+        list = list.filter((m) => {
+          if (filtroEventoInv === 'existencia') return m.stock_antes != null || m.stock_despues != null;
+          if (filtroEventoInv === 'entradas') return m.tipo === 'entrada' || m.modo === 'cancelacion';
+          if (filtroEventoInv === 'salidas') return m.tipo === 'retiro' || m.tipo === 'venta' || m.modo === 'venta';
+          if (filtroEventoInv === 'ajustes') {
+            return (
+              m.tipo === 'traspaso' ||
+              m.modo === 'masivo' ||
+              m.modo === 'conteo_departamento' ||
+              m.modo === 'vaciado_inventario'
+            );
+          }
+          if (filtroEventoInv === 'precios') return m.tipo === 'cambio_precio';
+          if (filtroEventoInv === 'cancelaciones') return m.modo === 'cancelacion' || m.tipo === 'cancelacion';
+          if (filtroEventoInv === 'negativo') {
+            const a = Number(m.stock_antes);
+            const d = Number(m.stock_despues);
+            return (Number.isFinite(a) && a < 0) || (Number.isFinite(d) && d < 0);
+          }
+          return true;
+        });
+      }
+      setMovimientosInv(list);
+      setResumenMovInv(r.resumen || null);
+      setAvisoMovInv((r.avisos || []).join(' · '));
+    } catch (e) {
+      setMovimientosInv([]);
+      setResumenMovInv(null);
+      setAvisoMovInv(`Error: ${e?.message || e}`);
+    } finally {
+      setLoadingMov(false);
     }
-    setMovimientosInv(list);
-    setResumenMovInv(r.resumen || null);
-    if (r.avisos?.length) setAvisoMovInv(r.avisos.join(' · '));
-    setLoadingMov(false);
   }, [supabase, desde, hasta, skuMovInv, tipoMovInv, filtroSucursal, filtroEventoInv]);
 
   useEffect(() => {
-    if (pestana === 'ventas') buscarVentas();
-    if (pestana === 'cortes') buscarCortes();
+    if (pestana === 'ventas') void buscarVentas();
+    if (pestana === 'cortes') void buscarCortes();
     if (pestana === 'inventario') void refrescarMovimientosInv();
   }, [pestana, supabase]);
 
   useEffect(() => {
+    if (esAlmacenCentral(sucursal)) return;
     if (sucursal && !filtroSucursal) setFiltroSucursal(sucursal);
   }, [sucursal]);
 
@@ -366,6 +426,10 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
         <>
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Filtros de ventas</h3>
+            <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+              Periodo: día, semana, mes, últimos 6 meses o rango. Luego agrupa por fecha + turno (como los cortes) y usa{' '}
+              <strong>Ver</strong> para el desglose de tickets.
+            </p>
             {filtrosFecha}
             <div className="grid-2" style={{ marginTop: '0.75rem' }}>
               <label className="muted">
@@ -380,47 +444,149 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                 </select>
               </label>
               <label className="muted">
+                Turno
+                <select className="select" style={{ marginTop: '0.35rem' }} value={filtroTurnoVentas} onChange={(e) => setFiltroTurnoVentas(e.target.value)}>
+                  <option value="">Todos los turnos</option>
+                  {turnosFiltroOpts.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="muted">
                 Vendedor (opcional)
                 <input className="input" style={{ marginTop: '0.35rem' }} value={vendedor} onChange={(e) => setVendedor(e.target.value)} placeholder="Nombre parcial" />
               </label>
             </div>
-            <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={buscarVentas} disabled={loading}>
+            <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={() => void buscarVentas()} disabled={loading}>
               {loading ? 'Buscando…' : 'Aplicar filtros'}
             </button>
           </div>
-          <div className="card">
-            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Ventas ({ventas.length})</h3>
-            <div className="table-wrap">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>Fecha</th>
-                    <th>Vendedor</th>
-                    <th>Sucursal</th>
-                    <th>Total</th>
-                    <th>Pago</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ventas.length === 0 ? (
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.75rem' }}>
+            <div className="card" style={{ padding: '0.75rem' }}>
+              <div className="muted" style={{ fontSize: '0.75rem' }}>Grupos</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--brand-blue)' }}>{gruposVentas.length}</div>
+            </div>
+            <div className="card" style={{ padding: '0.75rem' }}>
+              <div className="muted" style={{ fontSize: '0.75rem' }}>Tickets</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 800 }}>{totalesVentasAgrupadas.tickets}</div>
+            </div>
+            <div className="card" style={{ padding: '0.75rem' }}>
+              <div className="muted" style={{ fontSize: '0.75rem' }}>Total ventas</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--brand-red)' }}>
+                ${totalesVentasAgrupadas.total.toFixed(2)}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid-2">
+            <div className="card">
+              <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>
+                Ventas agrupadas ({gruposVentas.length})
+              </h3>
+              <div className="table-wrap" style={{ maxHeight: '480px' }}>
+                <table className="data">
+                  <thead>
                     <tr>
-                      <td colSpan={5} className="muted">
-                        Sin resultados en el rango.
-                      </td>
+                      <th>Fecha</th>
+                      <th>Turno</th>
+                      <th>Tienda</th>
+                      <th>Tickets</th>
+                      <th>Total</th>
+                      <th>Promedio</th>
+                      <th />
                     </tr>
-                  ) : (
-                    ventas.map((v) => (
-                      <tr key={v.id}>
-                        <td>{fmtFecha(v.created_at)}</td>
-                        <td>{v.vendedor}</td>
-                        <td>{v.sucursal_id}</td>
-                        <td>${Number(v.total).toFixed(2)}</td>
-                        <td>{v.metodo_pago}</td>
+                  </thead>
+                  <tbody>
+                    {gruposVentas.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="muted">
+                          {loading ? 'Cargando…' : 'Sin ventas en el rango. Elige sucursal (ej. 3B5) y periodo, luego Aplicar filtros.'}
+                        </td>
                       </tr>
-                    ))
+                    ) : (
+                      gruposVentas.map((g) => (
+                        <tr key={g.id} style={grupoVentaDetalle?.id === g.id ? { background: 'rgba(59,105,181,0.08)' } : undefined}>
+                          <td>{g.fecha}</td>
+                          <td>{g.turno_nombre}</td>
+                          <td>{etiquetaTienda(g.sucursal)}</td>
+                          <td>{g.tickets}</td>
+                          <td style={{ fontWeight: 700 }}>${g.total.toFixed(2)}</td>
+                          <td>${g.ticketPromedio.toFixed(2)}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ fontSize: '0.75rem', padding: '0.25rem 0.45rem' }}
+                              onClick={() => setGrupoVentaDetalle(g)}
+                            >
+                              Ver
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="card" style={{ borderTop: grupoVentaDetalle ? '4px solid var(--brand-green)' : undefined }}>
+              <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Desglose de ventas</h3>
+              {!grupoVentaDetalle ? (
+                <p className="muted">Selecciona un grupo y pulsa <strong>Ver</strong> para ver los tickets del turno/día.</p>
+              ) : (
+                <>
+                  <p className="muted" style={{ marginTop: 0, fontSize: '0.9rem' }}>
+                    {grupoVentaDetalle.fecha} · {grupoVentaDetalle.turno_nombre} · {etiquetaTienda(grupoVentaDetalle.sucursal)} ·{' '}
+                    {grupoVentaDetalle.tickets} ticket(s) · <strong>${grupoVentaDetalle.total.toFixed(2)}</strong>
+                  </p>
+                  {grupoVentaDetalle.vendedores?.length > 0 && (
+                    <p className="muted" style={{ fontSize: '0.82rem' }}>
+                      Vendedor(es): {grupoVentaDetalle.vendedores.join(', ')}
+                    </p>
                   )}
-                </tbody>
-              </table>
+                  {grupoVentaDetalle.detalleMetodos?.length > 0 && (
+                    <ul style={{ margin: '0.5rem 0 0.75rem', paddingLeft: '1.1rem', fontSize: '0.85rem' }}>
+                      {grupoVentaDetalle.detalleMetodos.map((d) => (
+                        <li key={d.metodo}>
+                          {d.metodo}: <strong>${Number(d.monto).toFixed(2)}</strong>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="table-wrap" style={{ maxHeight: '360px' }}>
+                    <table className="data">
+                      <thead>
+                        <tr>
+                          <th>Hora</th>
+                          <th>Vendedor</th>
+                          <th>Pago</th>
+                          <th>Artículos</th>
+                          <th>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {grupoVentaDetalle.ventas.map((v) => (
+                          <tr key={v.id}>
+                            <td style={{ fontSize: '0.8rem' }}>{fmtFecha(v.created_at)}</td>
+                            <td>{v.vendedor}</td>
+                            <td style={{ fontSize: '0.8rem' }}>{v.metodo_pago}</td>
+                            <td style={{ fontSize: '0.78rem' }}>
+                              {(Array.isArray(v.articulos) ? v.articulos : [])
+                                .map((a) => `${a.nombre || a.id} ×${a.qty ?? 1}`)
+                                .join(', ') || '—'}
+                            </td>
+                            <td style={{ fontWeight: 700 }}>${Number(v.total).toFixed(2)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </>
@@ -432,8 +598,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Movimientos de inventario</h3>
             <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
               Reporte de <strong>ingresos, retiros, traspasos, ajustes/conteos, cancelaciones, ventas</strong> y{' '}
-              <strong>cambios de precio</strong>. Incluye datos de la nube y reconstrucción desde ventas/cancelaciones
-              (para que 3B5 y otras tiendas se vean aunque el movimiento se hizo en otra caja).
+              <strong>cambios de precio</strong>. En MAIN elige <strong>Todas</strong> o <strong>3B5</strong>, periodo amplio y
+              pulsa Buscar. Abajo verás un resumen de fuentes (ventas/cancelaciones/nube).
             </p>
             {filtrosFecha}
             <div className="grid-2" style={{ marginTop: '0.75rem' }}>

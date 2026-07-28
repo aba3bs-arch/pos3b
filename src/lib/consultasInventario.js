@@ -132,11 +132,23 @@ function fromCloudRow(r) {
   };
 }
 
+function artsOf(row) {
+  let a = row?.articulos;
+  if (typeof a === 'string') {
+    try {
+      a = JSON.parse(a);
+    } catch {
+      a = [];
+    }
+  }
+  return Array.isArray(a) ? a : [];
+}
+
 function movimientosDesdeVentas(ventas) {
   const out = [];
   for (const v of ventas || []) {
     const suc = v.sucursal_id || '';
-    for (const a of v.articulos || []) {
+    for (const a of artsOf(v)) {
       const qty = Number(a.qty ?? a.cantidad ?? 1) || 1;
       out.push({
         id: `venta_${v.id}_${a.id}`,
@@ -162,7 +174,7 @@ function movimientosDesdeCancelaciones(cancelaciones) {
   const out = [];
   for (const c of cancelaciones || []) {
     const suc = c.sucursal_id || c.sucursal || '';
-    for (const a of c.articulos || []) {
+    for (const a of artsOf(c)) {
       const qty = Number(a.qty ?? a.cantidad ?? 1) || 1;
       out.push({
         id: `cancel_${c.id}_${a.id}`,
@@ -248,109 +260,218 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
   } = opts;
 
   const suc = sucursal ? normalizarCodigoTienda(sucursal) : null;
-  const ini = desde ? inicioDia(desde) : null;
-  const fin = hasta ? finDia(hasta) : null;
+  // Misma ventana que la pestaña Ventas (medianoche local del equipo) para no “perder” tickets.
+  const ini = desde
+    ? (() => {
+        const d = new Date(`${String(desde).slice(0, 10)}T00:00:00`);
+        return Number.isNaN(d.getTime()) ? inicioDia(desde) : d;
+      })()
+    : null;
+  const fin = hasta
+    ? (() => {
+        const d = new Date(`${String(hasta).slice(0, 10)}T23:59:59.999`);
+        return Number.isNaN(d.getTime()) ? finDia(hasta) : d;
+      })()
+    : null;
   const avisos = [];
+  const stats = { nube: 0, local: 0, ventas: 0, cancelaciones: 0, ajustes: 0 };
 
-  let nube = [];
-  if (supabase) {
-    let query = supabase
-      .from('movimientos_inventario')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(3000);
-    if (suc) query = query.eq('sucursal_id', suc);
-    if (ini) query = query.gte('created_at', ini.toISOString());
-    if (fin) query = query.lte('created_at', fin.toISOString());
-    if (productoId) query = query.or(`producto_id.eq.${productoId},producto_destino_id.eq.${productoId}`);
-    const { data, error } = await query;
-    if (error) {
-      if (String(error.message || '').toLowerCase().includes('movimientos_inventario')) {
-        avisos.push(AVISO_FALTA_MOVIMIENTOS_SQL);
-      } else {
-        avisos.push(error.message);
+  try {
+    let nube = [];
+    if (supabase) {
+      let query = supabase
+        .from('movimientos_inventario')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(3000);
+      if (suc) query = query.eq('sucursal_id', suc);
+      if (ini) query = query.gte('created_at', ini.toISOString());
+      if (fin) query = query.lte('created_at', fin.toISOString());
+      if (productoId) {
+        const pid = String(productoId).replace(/[,.()]/g, '');
+        query = query.or(`producto_id.eq.${pid},producto_destino_id.eq.${pid}`);
       }
-    } else {
-      nube = (data || []).map(fromCloudRow);
+      const { data, error } = await query;
+      if (error) {
+        const msg = String(error.message || '');
+        if (/movimientos_inventario|schema cache|does not exist|could not find/i.test(msg)) {
+          avisos.push(AVISO_FALTA_MOVIMIENTOS_SQL);
+        } else {
+          avisos.push(`Nube: ${msg}`);
+        }
+      } else {
+        nube = (data || []).map(fromCloudRow);
+        stats.nube = nube.length;
+      }
     }
-  }
 
-  const locales = listarMovimientosInventario({
-    desde,
-    hasta,
-    productoId,
-    sucursal: suc,
-  }).map((m) => ({ ...m, origen: m.origen || 'local' }));
-
-  let ventasDeriv = [];
-  let cancelDeriv = [];
-  if (supabase && ini && fin) {
-    const { data: ventas } = await consultarVentas(supabase, {
-      columns: 'id,total,metodo_pago,vendedor,sucursal_id,articulos,created_at',
-      desde: ini,
-      hasta: fin,
+    const locales = listarMovimientosInventario({
+      desde,
+      hasta,
+      productoId,
       sucursal: suc,
-      limit: 3000,
-      orderAsc: false,
+    }).map((m) => ({ ...m, origen: m.origen || 'local' }));
+    stats.local = locales.length;
+
+    let ventasDeriv = [];
+    let cancelDeriv = [];
+    if (supabase && ini && fin) {
+      const ventasRes = await consultarVentas(supabase, {
+        columns: 'id,total,metodo_pago,vendedor,sucursal_id,articulos,created_at',
+        desde: ini,
+        hasta: fin,
+        sucursal: suc,
+        limit: 3000,
+        orderAsc: false,
+      });
+      if (ventasRes.error) avisos.push(`Ventas: ${ventasRes.error}`);
+      if (ventasRes.aviso) avisos.push(ventasRes.aviso);
+      ventasDeriv = movimientosDesdeVentas(ventasRes.data || []);
+      stats.ventas = ventasDeriv.length;
+
+      try {
+        let cq = supabase
+          .from('cancelaciones')
+          .select('id,sucursal_id,usuario,articulos,motivo,created_at,total')
+          .gte('created_at', ini.toISOString())
+          .lte('created_at', fin.toISOString())
+          .order('created_at', { ascending: false })
+          .limit(2000);
+        if (suc) cq = cq.eq('sucursal_id', suc);
+        const { data: canc, error: eCanc } = await cq;
+        if (eCanc) {
+          if (!/cancelaciones|does not exist|schema cache/i.test(String(eCanc.message || ''))) {
+            avisos.push(`Cancelaciones: ${eCanc.message}`);
+          }
+        } else {
+          cancelDeriv = movimientosDesdeCancelaciones(canc || []);
+          stats.cancelaciones = cancelDeriv.length;
+        }
+      } catch (e) {
+        avisos.push(`Cancelaciones: ${e?.message || e}`);
+      }
+    } else if (!supabase) {
+      avisos.push('Sin conexión a Supabase: solo se muestran movimientos locales de este equipo.');
+    }
+
+    const ajustesDeriv = movimientosDesdeAjustesLocales().filter((m) => {
+      if (suc && normalizarCodigoTienda(m.sucursal) !== suc) return false;
+      if (productoId && String(m.producto_id) !== String(productoId)) return false;
+      return enRango(m.created_at, desde, hasta);
     });
-    ventasDeriv = movimientosDesdeVentas(ventas);
+    stats.ajustes = ajustesDeriv.length;
 
-    let cq = supabase
-      .from('cancelaciones')
-      .select('id,sucursal_id,usuario,articulos,motivo,created_at,total')
-      .gte('created_at', ini.toISOString())
-      .lte('created_at', fin.toISOString())
-      .order('created_at', { ascending: false })
-      .limit(2000);
-    if (suc) cq = cq.eq('sucursal_id', suc);
-    const { data: canc } = await cq;
-    cancelDeriv = movimientosDesdeCancelaciones(canc || []);
-  }
+    let merged = dedupeMovimientos([
+      ...nube,
+      ...locales,
+      ...ventasDeriv,
+      ...cancelDeriv,
+      ...ajustesDeriv,
+    ]);
 
-  const ajustesDeriv = movimientosDesdeAjustesLocales().filter((m) => {
-    if (suc && normalizarCodigoTienda(m.sucursal) !== suc) return false;
-    if (productoId && String(m.producto_id) !== String(productoId)) return false;
-    return enRango(m.created_at, desde, hasta);
-  });
+    if (tipo) merged = merged.filter((m) => coincideTipoFiltro(m, tipo));
+    if (productoId) {
+      const pid = String(productoId);
+      merged = merged.filter(
+        (m) => String(m.producto_id) === pid || String(m.producto_destino_id) === pid,
+      );
+    }
+    const texto = String(q || '').trim().toLowerCase();
+    if (texto) {
+      merged = merged.filter((m) => {
+        const blob = `${m.producto_id || ''} ${m.producto_nombre || ''} ${m.producto_destino_nombre || ''} ${m.motivo || ''} ${m.usuario || ''}`.toLowerCase();
+        return blob.includes(texto) || String(m.producto_id || '') === texto;
+      });
+    }
 
-  let merged = dedupeMovimientos([
-    ...nube,
-    ...locales,
-    ...ventasDeriv,
-    ...cancelDeriv,
-    ...ajustesDeriv,
-  ]);
+    merged.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
-  if (tipo) merged = merged.filter((m) => coincideTipoFiltro(m, tipo));
-  if (productoId) {
-    const pid = String(productoId);
-    merged = merged.filter(
-      (m) => String(m.producto_id) === pid || String(m.producto_destino_id) === pid,
+    avisos.unshift(
+      `Fuentes: nube ${stats.nube} · local ${stats.local} · ventas ${stats.ventas} · cancel. ${stats.cancelaciones} · ajustes ${stats.ajustes} → ${merged.length} fila(s)`,
     );
-  }
-  const texto = String(q || '').trim().toLowerCase();
-  if (texto) {
-    merged = merged.filter((m) => {
-      const blob = `${m.producto_id || ''} ${m.producto_nombre || ''} ${m.producto_destino_nombre || ''} ${m.motivo || ''} ${m.usuario || ''}`.toLowerCase();
-      return blob.includes(texto);
-    });
-  }
 
-  merged.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    return {
+      data: merged,
+      avisos,
+      stats,
+      resumen: {
+        total: merged.length,
+        entradas: merged.filter((m) => m.tipo === 'entrada' || m.modo === 'cancelacion').length,
+        salidas: merged.filter((m) => m.tipo === 'retiro' || m.tipo === 'venta' || m.modo === 'venta').length,
+        traspasos: merged.filter((m) => m.tipo === 'traspaso').length,
+        ajustes: merged.filter((m) => m.modo === 'conteo_departamento' || m.modo === 'masivo' || m.modo === 'vaciado_inventario').length,
+        precios: merged.filter((m) => m.tipo === 'cambio_precio').length,
+        cancelaciones: merged.filter((m) => m.modo === 'cancelacion').length,
+      },
+    };
+  } catch (e) {
+    return {
+      data: [],
+      avisos: [`Error al cargar movimientos: ${e?.message || e}`],
+      stats,
+      resumen: { total: 0, entradas: 0, salidas: 0, traspasos: 0, ajustes: 0, precios: 0, cancelaciones: 0 },
+    };
+  }
+}
 
-  return {
-    data: merged,
-    avisos,
-    resumen: {
-      total: merged.length,
-      entradas: merged.filter((m) => m.tipo === 'entrada' || m.modo === 'cancelacion').length,
-      salidas: merged.filter((m) => m.tipo === 'retiro' || m.tipo === 'venta' || m.modo === 'venta').length,
-      traspasos: merged.filter((m) => m.tipo === 'traspaso').length,
-      ajustes: merged.filter((m) => m.modo === 'conteo_departamento' || m.modo === 'masivo' || m.modo === 'vaciado_inventario').length,
-      precios: merged.filter((m) => m.tipo === 'cambio_precio').length,
-      cancelaciones: merged.filter((m) => m.modo === 'cancelacion').length,
-    },
+/** Agrupa ventas como los cortes: fecha + turno + sucursal. */
+export function agruparVentasConsulta(ventas, { turnoFiltro = '' } = {}) {
+  const ymdLocal = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso).slice(0, 10);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
   };
+  const map = new Map();
+  for (const v of ventas || []) {
+    const fecha = ymdLocal(v.created_at);
+    const turnoId = v.turno_id ? String(v.turno_id) : '';
+    const turnoNombre = v.turno_nombre || turnoId || 'Sin turno';
+    if (turnoFiltro) {
+      const tf = String(turnoFiltro).toLowerCase();
+      const blob = `${turnoId} ${turnoNombre}`.toLowerCase();
+      if (!blob.includes(tf) && turnoId !== turnoFiltro) continue;
+    }
+    const suc = normalizarCodigoTienda(v.sucursal_id) || '—';
+    const key = `${fecha}|${suc}|${turnoId || turnoNombre}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        id: key,
+        fecha,
+        sucursal: suc,
+        turno_id: turnoId || null,
+        turno_nombre: turnoNombre,
+        tickets: 0,
+        total: 0,
+        vendedores: new Set(),
+        metodos: {},
+        ventas: [],
+      });
+    }
+    const g = map.get(key);
+    g.tickets += 1;
+    g.total += Number(v.total) || 0;
+    if (v.vendedor) g.vendedores.add(v.vendedor);
+    const mp = String(v.metodo_pago || 'Sin método');
+    g.metodos[mp] = (g.metodos[mp] || 0) + (Number(v.total) || 0);
+    g.ventas.push(v);
+  }
+  return [...map.values()]
+    .map((g) => ({
+      ...g,
+      vendedores: [...g.vendedores],
+      detalleMetodos: Object.entries(g.metodos)
+        .map(([metodo, monto]) => ({ metodo, monto }))
+        .sort((a, b) => b.monto - a.monto),
+      ticketPromedio: g.tickets ? g.total / g.tickets : 0,
+    }))
+    .sort((a, b) => {
+      if (a.fecha !== b.fecha) return String(b.fecha).localeCompare(String(a.fecha));
+      return String(a.turno_nombre).localeCompare(String(b.turno_nombre), 'es');
+    });
 }
 
 export function ventasConProducto(ventas, productoId) {
@@ -473,7 +594,8 @@ export function buscarProductos(inventario, q) {
 }
 
 export const PRESETS_FECHA_PRODUCTO = [
-  { id: 'hoy', label: 'Hoy' },
+  { id: 'hoy', label: 'Día (hoy)' },
+  { id: 'semana', label: 'Semana actual' },
   { id: '7d', label: 'Últimos 7 días' },
   { id: 'mes', label: 'Mes actual' },
   { id: 'mes_ant', label: 'Mes anterior' },
@@ -522,6 +644,13 @@ export function rangoDesdePreset(preset) {
   const hoy = new Date();
   const hasta = toYmd(hoy);
   if (preset === 'hoy') return { desde: hasta, hasta };
+  if (preset === 'semana') {
+    const day = hoy.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    const ini = new Date(hoy);
+    ini.setDate(hoy.getDate() + diff);
+    return { desde: toYmd(ini), hasta };
+  }
   if (preset === '7d') return { desde: toYmd(new Date(hoy.getTime() - 7 * 864e5)), hasta };
   if (preset === 'mes') return { desde: toYmd(new Date(hoy.getFullYear(), hoy.getMonth(), 1)), hasta };
   if (preset === 'mes_ant') {
