@@ -1,16 +1,12 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import Icon from './Icon.jsx';
-import {
-  camaraEscaneoDisponible,
-  FORMATOS_BARRAS,
-  decodificarCodigoDesdeArchivo,
-} from '../lib/escanerCamara.js';
-import { detectarMobile } from '../lib/notificacionesDispositivo.js';
+import { camaraEscaneoDisponible, FORMATOS_BARRAS } from '../lib/escanerCamara.js';
 import { prepararAudioPos, sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 import './EscanerCamara.css';
 
 /**
- * Modal de escaneo en vivo (fallback). Preferimos la cámara nativa del iPhone (open wide).
+ * Escáner en vivo: abre la cámara, lee el código y se cierra.
+ * No toma fotos ni graba video.
  */
 export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'Escanear código' }) {
   const reactId = useId().replace(/:/g, '');
@@ -58,14 +54,14 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
         const vh = Math.max(window.innerHeight || 640, 480);
 
         const configCam = {
-          fps: 15,
+          fps: 12,
           qrbox: (viewW, viewH) => {
-            const w = Math.floor(Math.min(viewW, vw) * 0.92);
-            const h = Math.floor(Math.min(Math.max(viewH * 0.28, 140), 240));
-            return { width: Math.max(220, w), height: Math.max(120, h) };
+            const w = Math.floor(Math.min(viewW, vw) * 0.9);
+            const h = Math.floor(Math.min(Math.max(viewH * 0.26, 120), 220));
+            return { width: Math.max(200, w), height: Math.max(110, h) };
           },
           formatsToSupport,
-          aspectRatio: vw / Math.max(vh * 0.72, 1),
+          aspectRatio: vw / Math.max(vh * 0.75, 1),
           disableFlip: false,
         };
 
@@ -74,6 +70,7 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
           leidoRef.current = true;
           const texto = String(decoded || '').trim();
           if (!texto) return;
+          sonidoEscaneoProducto();
           onCodigo?.(texto);
           scanner
             .stop()
@@ -81,11 +78,10 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
             .finally(() => onCerrar?.());
         };
 
-        // html5-qrcode solo acepta string o { exact }; { ideal } rompe en iPhone.
-        const camaras = ['environment', 'user'];
+        // Solo string / { exact }. { ideal } falla en iPhone.
         let arrancada = false;
         let ultimoError = null;
-        for (const facing of camaras) {
+        for (const facing of ['environment', 'user']) {
           try {
             await scanner.start({ facingMode: facing }, configCam, onScan, () => {});
             arrancada = true;
@@ -124,10 +120,8 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
           const msg = String(e?.message || e || '');
           setError(
             /NotAllowed|Permission|denied/i.test(msg)
-              ? 'Permiso de cámara denegado. En iPhone: Ajustes → Safari → Cámara → Permitir, y recarga con HTTPS.'
-              : /facingMode/i.test(msg)
-                ? 'No se pudo iniciar la cámara. Recarga la página e inténtalo de nuevo.'
-                : msg || 'No se pudo abrir la cámara.',
+              ? 'Permiso de cámara denegado. En iPhone: Ajustes → Safari → Cámara → Permitir (HTTPS).'
+              : msg || 'No se pudo abrir la cámara.',
           );
         }
       } finally {
@@ -158,7 +152,7 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
       <div className="escaner-top">
         <div>
           <h3 className="escaner-titulo">{titulo}</h3>
-          <p className="escaner-hint">Vista previa en vivo · no graba video · al leer el código se cierra solo</p>
+          <p className="escaner-hint">Apunta al código · escaneo en vivo · no toma fotos</p>
         </div>
         <button type="button" className="btn btn-ghost escaner-cerrar" onClick={onCerrar}>
           Cerrar
@@ -176,115 +170,32 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
   );
 }
 
-/**
- * En móvil: abre la cámara nativa del sistema (open wide / Camera app), toma foto y lee el código.
- * No usa el modal en vivo del POS. “En vivo” queda como respaldo.
- */
 export function BotonEscanerCamara({ onCodigo, titulo, label = 'Escanear', className = 'btn btn-camera', style }) {
-  const [vivo, setVivo] = useState(false);
-  const [leyendo, setLeyendo] = useState(false);
-  const [aviso, setAviso] = useState('');
-  const inputRef = useRef(null);
-  const preferirNativa = detectarMobile();
-
+  const [abierto, setAbierto] = useState(false);
   if (!camaraEscaneoDisponible()) return null;
-
-  const entregar = (codigo) => {
-    const c = String(codigo || '').trim();
-    if (!c) return;
-    sonidoEscaneoProducto();
-    onCodigo?.(c);
-  };
-
-  const abrirNativa = () => {
-    prepararAudioPos();
-    setAviso('');
-    inputRef.current?.click();
-  };
-
-  const onFoto = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file) return;
-    setLeyendo(true);
-    setAviso('');
-    const r = await decodificarCodigoDesdeArchivo(file);
-    setLeyendo(false);
-    if (!r.ok) {
-      setAviso(r.error || 'No se leyó el código.');
-      return;
-    }
-    entregar(r.codigo);
-  };
 
   return (
     <>
-      <div className="escaner-btn-wrap" style={style}>
-        <button
-          type="button"
-          className={className}
-          disabled={leyendo}
-          onClick={() => {
-            if (preferirNativa) abrirNativa();
-            else {
-              prepararAudioPos();
-              setVivo(true);
-            }
-          }}
-          title={
-            preferirNativa
-              ? 'Abrir cámara del iPhone (foto) y leer el código'
-              : 'Escanear con cámara en vivo'
-          }
-        >
-          <Icon name="camera" size={18} />
-          <span>{leyendo ? 'Leyendo…' : label}</span>
-        </button>
-        {preferirNativa && (
-          <button
-            type="button"
-            className="btn btn-ghost escaner-vivo-btn"
-            disabled={leyendo}
-            onClick={() => {
-              prepararAudioPos();
-              setAviso('');
-              setVivo(true);
-            }}
-            title="Escanear en vivo dentro del POS"
-          >
-            En vivo
-          </button>
-        )}
-      </div>
-
-      {/* Cámara nativa del sistema (open wide): captura foto, no stream del POS */}
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp,image/*"
-        capture="environment"
-        className="escaner-file-input"
-        aria-hidden
-        tabIndex={-1}
-        onChange={(e) => void onFoto(e)}
-      />
-
-      {aviso ? (
-        <div className="escaner-aviso-inline" role="status">
-          {aviso}
-          <button type="button" className="btn btn-ghost" style={{ marginLeft: '0.35rem' }} onClick={() => setVivo(true)}>
-            Probar en vivo
-          </button>
-        </div>
-      ) : null}
-
+      <button
+        type="button"
+        className={className}
+        style={style}
+        onClick={() => {
+          prepararAudioPos();
+          setAbierto(true);
+        }}
+        title="Escanear con cámara (en vivo)"
+      >
+        <Icon name="camera" size={18} />
+        <span>{label}</span>
+      </button>
       <EscanerCamara
-        abierto={vivo}
+        abierto={abierto}
         titulo={titulo}
-        onCerrar={() => setVivo(false)}
+        onCerrar={() => setAbierto(false)}
         onCodigo={(codigo) => {
-          setVivo(false);
-          entregar(codigo);
+          setAbierto(false);
+          onCodigo?.(codigo);
         }}
       />
     </>
