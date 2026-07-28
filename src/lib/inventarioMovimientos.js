@@ -12,7 +12,7 @@ const MAX_LOCAL = 800;
 
 export const TIPOS_MOVIMIENTO = [
   { id: 'entrada', label: 'Entrada', signo: 1, desc: 'En MAIN suma al CEDIS central; en tienda suma al piso de venta.' },
-  { id: 'retiro', label: 'Retiro', signo: -1, desc: 'Resta del piso de venta (merma, uso interno, etc.). En MAIN puede restar del CEDIS central.' },
+  { id: 'retiro', label: 'Retiro', signo: -1, desc: 'En MAIN resta del CEDIS; en tienda resta del piso de venta.' },
   { id: 'traspaso', label: 'Traspaso', signo: 0, desc: 'Distribuye desde el almacén central o mueve entre pisos de tiendas.' },
 ];
 
@@ -161,14 +161,12 @@ export async function registrarCambioPrecio(supabase, opts) {
 }
 
 function ubicacionMovimiento(tipo, sucursalOperacion, modo = '') {
-  // Ingresos/retiros de ajuste van al PISO de la tienda activa (10+12=22 en piso).
-  // CEDIS solo con compras/recepción (modo compra) o traspasos explícitos.
-  if (tipo === 'entrada') {
-    if (modo === 'compra' || modo === 'recepcion') return ubicacionEntradaDefault(sucursalOperacion);
-    return 'piso';
-  }
-  if (esAlmacenCentral(sucursalOperacion) && tipo === 'retiro' && (modo === 'compra' || modo === 'cedis')) {
-    return 'cedis';
+  // MAIN → CEDIS (almacén central); tiendas → piso de venta.
+  // Así al aplicar desde iPhone en MAIN se actualiza la columna CEDIS (no solo piso MAIN).
+  if (modo === 'piso') return 'piso';
+  if (modo === 'cedis') return 'cedis';
+  if (tipo === 'entrada' || tipo === 'retiro') {
+    return ubicacionEntradaDefault(sucursalOperacion);
   }
   return 'piso';
 }

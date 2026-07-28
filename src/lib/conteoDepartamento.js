@@ -1,10 +1,29 @@
 import { costoUnitarioInventario } from './valorInventario.js';
 import { guardarMovimientoLocal, leerMovimientosLocal } from './inventarioMovimientos.js';
-import { buildPatchStock, stockEnUbicacion } from './inventarioMultitienda.js';
+import {
+  buildPatchStock,
+  stockEnUbicacion,
+  ubicacionEntradaDefault,
+  esAlmacenCentral,
+  etiquetaCedisEmpresa,
+} from './inventarioMultitienda.js';
 import { round2 } from './productoForm.js';
 
 const LS_FOLIO_SEQ = 'pos3b_folio_ajuste_seq';
 const LS_AJUSTES = 'pos3b_ajustes_inventario';
+
+/** En MAIN el conteo/ingreso opera sobre CEDIS; en tiendas, sobre piso de venta. */
+export function ubicacionConteo(sucursal) {
+  return ubicacionEntradaDefault(sucursal);
+}
+
+export function etiquetaUbicacionConteo(sucursal) {
+  return ubicacionConteo(sucursal) === 'cedis'
+    ? etiquetaCedisEmpresa()
+    : esAlmacenCentral(sucursal)
+      ? 'piso de venta · MAIN'
+      : 'piso de venta';
+}
 
 export function productosEnDepartamento(inventario, departamento) {
   const dept = String(departamento || 'GENERAL').toUpperCase();
@@ -16,12 +35,13 @@ export function productosEnDepartamento(inventario, departamento) {
 /**
  * @param {object} producto
  * @param {string|number} contadaRaw cantidad CONTADA (existencia final), no “a sumar”
- * @param {string} [sucursal] tienda para leer stock de piso
+ * @param {string} [sucursal] tienda activa (MAIN → CEDIS; tienda → piso)
  */
 export function construirLineaConteo(producto, contadaRaw = '', sucursal = '') {
   const suc = sucursal || producto?._sucursalVista || '';
+  const ubi = ubicacionConteo(suc);
   const existencia = suc
-    ? Math.max(0, stockEnUbicacion(producto, suc, 'piso', suc))
+    ? Math.max(0, stockEnUbicacion(producto, suc, ubi, suc))
     : Math.max(0, Number(producto?.stock) || 0);
   const raw = contadaRaw === null || contadaRaw === undefined ? '' : String(contadaRaw);
   const contadaNum = raw.trim() === '' ? null : Math.max(0, Math.floor(Number(raw)));
@@ -157,8 +177,9 @@ export async function aplicarConteoDepartamento(supabase, opts) {
       continue;
     }
 
+    const ubi = ubicacionConteo(suc);
     const existenciaReal = suc
-      ? stockEnUbicacion(producto, suc, 'piso', suc)
+      ? stockEnUbicacion(producto, suc, ubi, suc)
       : Math.max(0, Number(producto.stock) || 0);
     const contada = Math.max(0, Math.floor(Number(l.contadaNum)));
     const diferencia = contada - existenciaReal;
@@ -166,7 +187,7 @@ export async function aplicarConteoDepartamento(supabase, opts) {
 
     const { error } = await supabase
       .from('productos')
-      .update(buildPatchStock(producto, suc || 'MAIN', 'piso', contada, suc || 'MAIN'))
+      .update(buildPatchStock(producto, suc || 'MAIN', ubi, contada, suc || 'MAIN'))
       .eq('id', producto.id);
     if (error) {
       errores.push(`${l.nombre}: ${error.message}`);
@@ -184,16 +205,17 @@ export async function aplicarConteoDepartamento(supabase, opts) {
         cantidad: Math.abs(diferencia),
         stock_antes: existenciaReal,
         stock_despues: contada,
-        motivo,
+        motivo: `${motivo} · ${etiquetaUbicacionConteo(suc)}`,
         usuario: usuario || '—',
         sucursal: suc,
+        ubicacion: ubi,
         created_at: new Date().toISOString(),
       },
       supabase,
     );
 
     // Mantener mapa local vivo para siguientes líneas del mismo lote
-    Object.assign(producto, buildPatchStock(producto, suc || 'MAIN', 'piso', contada, suc || 'MAIN'));
+    Object.assign(producto, buildPatchStock(producto, suc || 'MAIN', ubi, contada, suc || 'MAIN'));
     aplicadas.push({ ...l, existencia: existenciaReal, contadaNum: contada, diferencia });
   }
 
@@ -233,9 +255,9 @@ export async function aplicarConteoDepartamento(supabase, opts) {
     log,
     mensaje:
       errores.length > 0
-        ? `Ajuste ${folio} parcial: ${aplicadas.length} línea(s). ${errores.length} error(es):\n${errores.join('\n')}`
+        ? `Ajuste ${folio} parcial: ${aplicadas.length} línea(s) en ${etiquetaUbicacionConteo(suc)}. ${errores.length} error(es):\n${errores.join('\n')}`
         : aplicadas.length > 0
-          ? `Ajuste ${folio} aplicado: ${aplicadas.length} movimiento(s).`
-          : `Conteo ${folio} cerrado sin diferencias (existencias ya coincidían).`,
+          ? `Ajuste ${folio} aplicado: ${aplicadas.length} movimiento(s) en ${etiquetaUbicacionConteo(suc)}.`
+          : `Conteo ${folio} cerrado sin diferencias en ${etiquetaUbicacionConteo(suc)}.`,
   };
 }

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { construirLineaConteo, aplicarConteoDepartamento, resumirConteoDepartamento } from '../lib/conteoDepartamento.js';
+import { construirLineaConteo, aplicarConteoDepartamento, resumirConteoDepartamento, etiquetaUbicacionConteo } from '../lib/conteoDepartamento.js';
+import { stockEnUbicacion, ubicacionEntradaDefault } from '../lib/inventarioMultitienda.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from '../lib/departamentos.js';
 import { fmtMxn } from '../lib/valorInventario.js';
@@ -225,7 +226,8 @@ export default function AjusteLibre({
     if (!yaEsta) {
       setOrdenIds((prev) => (prefs.agregarAlInicio ? [pid, ...prev] : [...prev, pid]));
     }
-    const existencia = Number(producto.stock) || 0;
+    const ubi = ubicacionEntradaDefault(sucursal);
+    const existencia = Math.max(0, stockEnUbicacion(producto, sucursal, ubi, sucursal));
     if (opts.abrirCantidad !== false && (prefs.solicitarCantidad || opts.forzarCantidad)) {
       setModalCantidad(producto);
       setCantidadModal(String(conteos[pid] ?? conteos[String(pid)] ?? existencia));
@@ -717,7 +719,8 @@ export default function AjusteLibre({
             {aplicando ? 'Aplicando…' : 'APLICAR AJUSTE'}
           </button>
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.78rem', textAlign: 'center' }}>
-            Libre/Normal = conteo físico (existencia final). Para sumar piezas (10+12=22) usa Ingreso de inventario.
+            Aplica sobre {etiquetaUbicacionConteo(sucursal)}. Libre/Normal = existencia final. Para sumar piezas
+            (10+12=22) usa Ingreso de inventario.
           </p>
         </footer>
       )}
