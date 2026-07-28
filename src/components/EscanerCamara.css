@@ -165,9 +165,54 @@
   border-radius: 0 0 0 6px;
 }
 
-.escaner-corner.br {
-  bottom: 0;
+.escaner-overlay--mobile .escaner-titulo {
+  font-size: 1.05rem;
+}
+
+.escaner-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.escaner-torch.on {
+  background: rgba(225, 153, 41, 0.25) !important;
+  border-color: rgba(225, 153, 41, 0.8) !important;
+  color: #fde68a !important;
+}
+
+.escaner-video-nativo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+  display: none;
+  z-index: 1;
+}
+
+.escaner-video-nativo.visible {
+  display: block;
+}
+
+.escaner-video-host.hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.escaner-mobile-tip {
+  position: absolute;
+  left: 0;
   right: 0;
-  border-width: 0 3px 3px 0;
-  border-radius: 0 0 6px 0;
+  bottom: calc(1rem + env(safe-area-inset-bottom, 0));
+  z-index: 3;
+  margin: 0;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.82rem;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  padding: 0 1rem;
 }
