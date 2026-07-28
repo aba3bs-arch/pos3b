@@ -4,9 +4,35 @@ import { camaraEscaneoDisponible, FORMATOS_BARRAS } from '../lib/escanerCamara.j
 import { prepararAudioPos, sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 import './EscanerCamara.css';
 
+/** Intenta enfoque continuo / mejor resolución tras abrir el stream. */
+async function mejorarEnfoqueCamara(rootEl) {
+  const video = rootEl?.querySelector?.('video');
+  const stream = video?.srcObject;
+  const track = stream?.getVideoTracks?.()?.[0];
+  if (!track?.applyConstraints) return;
+
+  const intents = [
+    {
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
+      advanced: [{ focusMode: 'continuous' }, { focusDistance: 0 }],
+    },
+    { advanced: [{ focusMode: 'continuous' }] },
+    { advanced: [{ focusMode: 'auto' }] },
+  ];
+  for (const c of intents) {
+    try {
+      await track.applyConstraints(c);
+      return;
+    } catch {
+      /* siguiente intento */
+    }
+  }
+}
+
 /**
- * Escáner en vivo: abre la cámara, lee el código y se cierra.
- * No toma fotos ni graba video.
+ * Escáner en vivo a pantalla completa.
+ * Lee en toda el área (no solo un recuadro central) para códigos en cualquier posición/ángulo.
  */
 export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'Escanear código' }) {
   const reactId = useId().replace(/:/g, '');
@@ -50,19 +76,12 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
         });
         scannerRef.current = scanner;
 
-        const vw = Math.max(window.innerWidth || 360, 320);
-        const vh = Math.max(window.innerHeight || 640, 480);
-
+        // Sin qrbox = lee TODA la imagen (cualquier zona / ángulo en pantalla).
         const configCam = {
-          fps: 12,
-          qrbox: (viewW, viewH) => {
-            const w = Math.floor(Math.min(viewW, vw) * 0.9);
-            const h = Math.floor(Math.min(Math.max(viewH * 0.26, 120), 220));
-            return { width: Math.max(200, w), height: Math.max(110, h) };
-          },
+          fps: 20,
           formatsToSupport,
-          aspectRatio: vw / Math.max(vh * 0.75, 1),
           disableFlip: false,
+          rememberLastUsedCamera: true,
         };
 
         const onScan = (decoded) => {
@@ -78,12 +97,22 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
             .finally(() => onCerrar?.());
         };
 
-        // Solo string / { exact }. { ideal } falla en iPhone.
+        // Constraints: cámara trasera + buena resolución (sin { ideal } en facingMode).
+        const constraintsList = [
+          {
+            facingMode: 'environment',
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+          { facingMode: 'environment' },
+          { facingMode: 'user' },
+        ];
+
         let arrancada = false;
         let ultimoError = null;
-        for (const facing of ['environment', 'user']) {
+        for (const constraints of constraintsList) {
           try {
-            await scanner.start({ facingMode: facing }, configCam, onScan, () => {});
+            await scanner.start(constraints, configCam, onScan, () => {});
             arrancada = true;
             break;
           } catch (err) {
@@ -114,6 +143,13 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
             video.setAttribute('webkit-playsinline', 'true');
             video.muted = true;
           }
+          // Quitar sombreado del lib si aparece
+          root.querySelectorAll('#qr-shaded-region').forEach((el) => {
+            el.style.border = 'none';
+            el.style.boxShadow = 'none';
+            el.style.outline = 'none';
+          });
+          void mejorarEnfoqueCamara(root);
         });
       } catch (e) {
         if (activo) {
@@ -152,7 +188,9 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
       <div className="escaner-top">
         <div>
           <h3 className="escaner-titulo">{titulo}</h3>
-          <p className="escaner-hint">Apunta al código · escaneo en vivo · no toma fotos</p>
+          <p className="escaner-hint">
+            Muestra el código en cualquier parte de la pantalla · no hace falta centrarlo · no toma fotos
+          </p>
         </div>
         <button type="button" className="btn btn-ghost escaner-cerrar" onClick={onCerrar}>
           Cerrar
@@ -164,7 +202,12 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
 
       <div className="escaner-stage">
         <div id={containerId} className="escaner-video-host" />
-        <div className="escaner-frame" aria-hidden />
+        <div className="escaner-guia" aria-hidden>
+          <span className="escaner-corner tl" />
+          <span className="escaner-corner tr" />
+          <span className="escaner-corner bl" />
+          <span className="escaner-corner br" />
+        </div>
       </div>
     </div>
   );
