@@ -8,6 +8,7 @@ import {
   timelineProducto,
 } from '../lib/consultasInventario.js';
 import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
+import { esAlmacenCentral } from '../lib/inventarioMultitienda.js';
 
 function fmtFecha(iso) {
   if (!iso) return '—';
@@ -125,7 +126,8 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
             <div>
               <strong style={{ fontSize: '1.15rem', color: 'var(--brand-blue)' }}>{producto.nombre}</strong>
               <div className="muted" style={{ marginTop: '0.25rem', fontSize: '0.85rem' }}>
-                Código {producto.id} · {etiquetaDepartamento(producto.cat)} · IVA {Number(producto.impuesto ?? 8)}% · Ganancia {Number(producto.ganancia_pct ?? 30)}%
+                Código {producto.id} · {etiquetaDepartamento(producto.cat)} · IVA {Number(producto.impuesto ?? 8)}%
+                {esAlmacenCentral(sucursal) ? ` · Ganancia ${Number(producto.ganancia_pct ?? 30)}%` : ''}
               </div>
               <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--brand-red)', marginTop: '0.5rem' }}>
                 ${Math.round(Number(producto.precio) || 0)}

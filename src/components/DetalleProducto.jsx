@@ -240,7 +240,8 @@ export default function DetalleProducto({
               </div>
             </div>
             <p className="muted" style={{ fontSize: '0.8rem', margin: '0.5rem 0 0' }}>
-              IVA {impuesto}% · Ganancia {Number(producto.ganancia_pct ?? 0).toFixed(1)}%
+              IVA {impuesto}%
+              {enCentral ? ` · Ganancia ${Number(producto.ganancia_pct ?? 0).toFixed(1)}%` : ''}
             </p>
           </div>
 

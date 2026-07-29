@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { consultarVentas } from '../lib/ventasQuery.js';
 import Icon, { BtnLabel } from '../components/Icon.jsx';
 import { iconoDeModulo } from '../lib/moduloIcons.js';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
 import { fmtMxn, resumirValorInventario } from '../lib/valorInventario.js';
 import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
 import { hayAnuncioActivo, EVENTO_ANUNCIOS } from '../lib/anunciosPos.js';
@@ -28,7 +28,8 @@ export default function Inicio({
   puedeModulo,
 }) {
   const puede = typeof puedeModulo === 'function' ? puedeModulo : () => true;
-  const puedeVerInventario = puede('Productos');
+  // Valorización (inventario en tienda, costo compra, margen): solo MAIN.
+  const puedeVerInventario = puede('Productos') && esAlmacenCentral(sucursal);
   const esAdminPrincipal = esAdministradorPrincipal(user);
   const [panelAnuncios, setPanelAnuncios] = useState(false);
   const [panelPurge, setPanelPurge] = useState(false);
