@@ -738,6 +738,15 @@ export const PRESETS_FECHA_PRODUCTO = [
   { id: 'rango', label: 'Rango de fechas' },
 ];
 
+/** Presets de periodo para Consultas → Inventarios. */
+export const PRESETS_CONSULTAS_INVENTARIO = [
+  { id: 'hoy', label: 'Día' },
+  { id: 'semana', label: 'Semana' },
+  { id: 'mes', label: 'Mes' },
+  { id: '6m', label: 'Últimos 6 meses' },
+  { id: 'rango', label: 'Rango de fechas' },
+];
+
 export const FILTROS_HISTORIAL_TIPO = [
   { id: '', label: 'Todos los tipos' },
   { id: 'ingreso', label: 'Ingreso' },

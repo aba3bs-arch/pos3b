@@ -3,13 +3,15 @@ import { consultarVentas } from '../lib/ventasQuery.js';
 import { consultarCortes } from '../lib/corteCaja.js';
 import { cargarSaldosCajaEnCurso } from '../lib/movimientosCaja.js';
 import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
-import { cargarReporteMovimientosInventario } from '../lib/consultasInventario.js';
+import { cargarReporteMovimientosInventario, PRESETS_CONSULTAS_INVENTARIO, rangoDesdePreset } from '../lib/consultasInventario.js';
 import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from '../lib/departamentos.js';
 import { esAlmacenCentral as esCentralInv, stockEnUbicacion, ubicacionEntradaDefault } from '../lib/inventarioMultitienda.js';
 import {
   agruparDocumentosInventario,
   agruparVentaPorArticulo,
+  coincideOperacionInventario,
   colorAvatar,
+  FILTROS_OPERACION_INVENTARIO,
   fmtFechaCorta,
   fmtMonto,
   folioNumerico,
@@ -86,11 +88,13 @@ function moneyCell(n, { allowNegColor = true } = {}) {
 
 export default function Consultas({ supabase, inventario, sucursal, sucursalesLista, user }) {
   const [seccion, setSeccion] = useState('ventas');
-  const [desde, setDesde] = useState(() => haceDiasYmd(7));
-  const [hasta, setHasta] = useState(() => hoyYmd());
+  const [presetInv, setPresetInv] = useState('semana');
+  const [desde, setDesde] = useState(() => rangoDesdePreset('semana')?.desde || haceDiasYmd(7));
+  const [hasta, setHasta] = useState(() => rangoDesdePreset('semana')?.hasta || hoyYmd());
   const [q, setQ] = useState('');
   const [filtroSucursal, setFiltroSucursal] = useState(() => (esAlmacenCentral(sucursal) ? '' : sucursal || ''));
   const [filtroDepto, setFiltroDepto] = useState('');
+  const [filtroOperacionInv, setFiltroOperacionInv] = useState('');
   const [loading, setLoading] = useState(false);
   const [aviso, setAviso] = useState('');
 
@@ -334,13 +338,39 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   }, [compras, qNorm]);
 
   const docsFiltrados = useMemo(() => {
-    if (!qNorm) return docsInv;
-    return docsInv.filter((d) =>
-      `${d.label} ${d.usuario} ${d.folio} ${d.titulo} ${d.ruta || ''} ${d.traspaso_origen || ''} ${d.traspaso_destino || ''}`
+    return (docsInv || []).filter((d) => {
+      if (!coincideOperacionInventario(d, filtroOperacionInv)) return false;
+      if (!qNorm) return true;
+      return `${d.label} ${d.usuario} ${d.folio} ${d.titulo} ${d.ruta || ''} ${d.traspaso_origen || ''} ${d.traspaso_destino || ''}`
         .toLowerCase()
-        .includes(qNorm),
-    );
-  }, [docsInv, qNorm]);
+        .includes(qNorm);
+    });
+  }, [docsInv, qNorm, filtroOperacionInv]);
+
+  const aplicarPresetInv = useCallback((preset) => {
+    setPresetInv(preset);
+    if (preset === 'rango') return;
+    const r = rangoDesdePreset(preset);
+    if (r?.desde && r?.hasta) {
+      setDesde(r.desde);
+      setHasta(r.hasta);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (seccion !== 'inventarios') return;
+    if (presetInv === 'rango') return;
+    const r = rangoDesdePreset(presetInv);
+    if (r?.desde && r?.hasta && (r.desde !== desde || r.hasta !== hasta)) {
+      setDesde(r.desde);
+      setHasta(r.hasta);
+    }
+  }, [seccion]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (seccion !== 'inventarios' || !sel) return;
+    if (!docsFiltrados.some((d) => d.id === sel.id)) setSel(null);
+  }, [filtroOperacionInv, docsFiltrados, seccion, sel]);
 
   const idxDocInv = useMemo(() => {
     if (!sel || seccion !== 'inventarios') return -1;
@@ -627,17 +657,52 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
               <button type="button" className="consultas-icon-btn" title="Actualizar" onClick={() => void refrescar()} disabled={loading}>
                 ↻
               </button>
-              {seccion !== 'cajas_saldos' && (
+              {seccion === 'inventarios' ? (
                 <>
-                  <label className="consultas-chip" title="Desde">
-                    📅
-                    <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+                  <label className="consultas-chip" title="Periodo">
+                    Periodo
+                    <select
+                      value={presetInv}
+                      onChange={(e) => aplicarPresetInv(e.target.value)}
+                      style={{ border: 'none', background: 'transparent', fontWeight: 600, color: '#334155', maxWidth: '9.5rem' }}
+                    >
+                      {PRESETS_CONSULTAS_INVENTARIO.map((pr) => (
+                        <option key={pr.id} value={pr.id}>
+                          {pr.label}
+                        </option>
+                      ))}
+                    </select>
                   </label>
-                  <label className="consultas-chip" title="Hasta">
-                    →
-                    <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
-                  </label>
+                  {presetInv === 'rango' ? (
+                    <>
+                      <label className="consultas-chip" title="Desde">
+                        📅
+                        <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+                      </label>
+                      <label className="consultas-chip" title="Hasta">
+                        →
+                        <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+                      </label>
+                    </>
+                  ) : (
+                    <span className="consultas-chip consultas-chip--muted" title="Rango activo">
+                      {desde === hasta ? desde : `${desde} → ${hasta}`}
+                    </span>
+                  )}
                 </>
+              ) : (
+                seccion !== 'cajas_saldos' && (
+                  <>
+                    <label className="consultas-chip" title="Desde">
+                      📅
+                      <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+                    </label>
+                    <label className="consultas-chip" title="Hasta">
+                      →
+                      <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+                    </label>
+                  </>
+                )
               )}
               {seccion === 'cajas_saldos' && (
                 <span className="consultas-chip" title="Venta al momento">
@@ -655,6 +720,15 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                   </option>
                 ))}
               </select>
+              {seccion === 'inventarios' && (
+                <select value={filtroOperacionInv} onChange={(e) => setFiltroOperacionInv(e.target.value)}>
+                  {FILTROS_OPERACION_INVENTARIO.map((f) => (
+                    <option key={f.id || 'todas'} value={f.id}>
+                      {f.label}
+                    </option>
+                  ))}
+                </select>
+              )}
               {seccion === 'ventas_articulo' && (
                 <select value={filtroDepto} onChange={(e) => setFiltroDepto(e.target.value)}>
                   <option value="">Todos los departamentos</option>

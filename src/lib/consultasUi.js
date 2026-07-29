@@ -175,6 +175,32 @@ function tituloDocumentoInv(m) {
   return 'Movimiento de inventario';
 }
 
+/** Ids de operación para filtro en Consultas → Inventarios. */
+export const FILTROS_OPERACION_INVENTARIO = [
+  { id: '', label: 'Todas las operaciones' },
+  { id: 'ingreso', label: 'Ingreso' },
+  { id: 'retiro', label: 'Retiro' },
+  { id: 'ajuste', label: 'Ajuste de inventario' },
+  { id: 'traspaso', label: 'Traspaso' },
+  { id: 'cancelacion', label: 'Cancelación' },
+];
+
+export function operacionIdDocumentoInv(tituloOrDoc) {
+  const titulo = typeof tituloOrDoc === 'string' ? tituloOrDoc : tituloOrDoc?.titulo || tituloOrDoc?.operacionLabel || '';
+  if (titulo === 'Ingreso de inventario') return 'ingreso';
+  if (titulo === 'Retiro de inventario') return 'retiro';
+  if (titulo === 'Ajuste de inventario') return 'ajuste';
+  if (titulo === 'Traspaso de inventario') return 'traspaso';
+  if (titulo === 'Cancelación') return 'cancelacion';
+  return 'otro';
+}
+
+export function coincideOperacionInventario(doc, filtro) {
+  if (!filtro) return true;
+  const id = doc?.operacion || operacionIdDocumentoInv(doc);
+  return id === filtro;
+}
+
 function esMovimientoVenta(m) {
   return (
     m?.modo === 'venta' ||
@@ -231,6 +257,7 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
       map.set(key, {
         id: key,
         titulo,
+        operacion: operacionIdDocumentoInv(titulo),
         folio,
         usuario,
         created_at: m.created_at,
