@@ -1320,7 +1320,101 @@ export async function listarGastosActivosParaLiquidacion(supabase, repartidorId)
   }
   const { data, error } = await q;
   if (error) throw error;
-  return (data || []).filter((g) => !String(g.foto_url || '').includes('| LIQ_APLICADA'));
+  return (data || []).filter((g) => !gastoYaAplicadoEnLiquidacion(g));
+}
+
+/** ¿El gasto ya se descontó en una liquidación/liberación previa? */
+export function gastoYaAplicadoEnLiquidacion(g) {
+  const bit = String(g?.foto_url || '');
+  return bit.includes('| LIQ_APLICADA') || Boolean(g?.aplicado_liquidacion_at);
+}
+
+/**
+ * Solo gastos que AÚN afectan el neto a liberar (todas las rutas / recolectores).
+ * No incluye históricos ya absorbidos por liquidaciones anteriores.
+ */
+export async function listarGastosActivosGlobales(supabase) {
+  if (!supabase) return [];
+  const { data: reps, error } = await supabase.from('repartidores').select('id').eq('activo', true);
+  if (error) {
+    // Fallback: repartidores con tránsito o gastos
+    const { data: rows } = await supabase
+      .from('transito_efectivo')
+      .select('repartidor_id')
+      .eq('tipo_movimiento', 'Gasto')
+      .eq('estatus', 'Liquidado')
+      .limit(500);
+    const ids = [...new Set((rows || []).map((r) => r.repartidor_id).filter(Boolean))];
+    const all = [];
+    for (const rid of ids) {
+      const activos = await listarGastosActivosParaLiquidacion(supabase, rid);
+      all.push(...activos);
+    }
+    return all;
+  }
+  const all = [];
+  for (const r of reps || []) {
+    const activos = await listarGastosActivosParaLiquidacion(supabase, r.id);
+    all.push(...activos);
+  }
+  return all;
+}
+
+/**
+ * Sella gastos viejos que ya no deben restar (aceptados antes de la última liquidación
+ * pero sin marca LIQ_APLICADA). Idempotente.
+ */
+export async function sellarGastosHuerfanosPrevios(supabase, { adminNombre = 'Sistema' } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.', count: 0 };
+  const { data: reps } = await supabase.from('repartidores').select('id');
+  let count = 0;
+  for (const r of reps || []) {
+    const rid = r.id;
+    const { data: lastRows } = await supabase
+      .from('transito_efectivo')
+      .select('fecha_liquidacion')
+      .eq('repartidor_id', rid)
+      .eq('estatus', 'Liquidado')
+      .neq('tipo_movimiento', 'Gasto')
+      .not('fecha_liquidacion', 'is', null)
+      .order('fecha_liquidacion', { ascending: false })
+      .limit(1);
+    const lastLiq = lastRows?.[0]?.fecha_liquidacion;
+    if (!lastLiq) continue;
+
+    const { data: gastos } = await supabase
+      .from('transito_efectivo')
+      .select('id, foto_url, descripcion_gasto, fecha_liquidacion')
+      .eq('repartidor_id', rid)
+      .eq('tipo_movimiento', 'Gasto')
+      .eq('estatus', 'Liquidado')
+      .lte('fecha_liquidacion', lastLiq);
+
+    const huerfanos = (gastos || []).filter((g) => !gastoYaAplicadoEnLiquidacion(g));
+    if (!huerfanos.length) continue;
+    const res = await marcarGastosAplicadosEnLiquidacion(supabase, {
+      gastos: huerfanos,
+      fechaLiquidacion: lastLiq,
+      adminNombre: `${adminNombre} · sello histórico`,
+    });
+    if (!res.ok) return { ok: false, error: res.error, count };
+    count += res.count || 0;
+  }
+  return { ok: true, count };
+}
+
+/** Orígenes de gasto del recolector (cuenta de efectivo, no “oficina genérica”). */
+export const ORIGENES_GASTO_RECOLECTOR = [
+  { id: 'Cuenta FJBB', label: 'Cuenta FJBB' },
+  { id: 'Cuenta AMR', label: 'Cuenta AMR' },
+];
+
+export function etiquetaOrigenGasto(raw) {
+  const s = String(raw || '').trim();
+  if (!s || /^oficina$/i.test(s)) return 'Cuenta FJBB';
+  if (/^cuenta\s*fjbb$/i.test(s) || /^fjbb$/i.test(s) || /^francisco$/i.test(s)) return 'Cuenta FJBB';
+  if (/^cuenta\s*amr$/i.test(s) || /^amr$/i.test(s) || /^andr[eé]s$/i.test(s)) return 'Cuenta AMR';
+  return s;
 }
 
 /** Marca gastos como ya descontados en una liquidación (no vuelven a restar). */
@@ -1358,7 +1452,7 @@ export async function registrarGastoRecolector(supabase, { repartidorId, monto, 
   }
   const rep = (await listarRepartidoresTodos(supabase)).find((r) => r.id === repartidorId);
   const datos = {
-    sucursal_origen: tienda || 'Oficina',
+    sucursal_origen: etiquetaOrigenGasto(tienda) || 'Cuenta FJBB',
     repartidor_id: repartidorId,
     cajero_nombre: adminNombre || 'Contabilidad',
     monto: m,
@@ -1459,6 +1553,43 @@ export async function liberarEfectivoRepartidor(supabase, {
   });
   const montoTotal = netos.totalARecolectar;
   if (!(montoTotal > 0)) {
+    // Si los gastos aceptados comen toda la mercancía, igual hay que sellarlos
+    // para que no sigan restando en la siguiente liberación.
+    if (gastosActivos.length) {
+      const cerrados = await marcarGastosAplicadosEnLiquidacion(supabase, {
+        gastos: gastosActivos,
+        adminNombre: adminNombre || 'Contabilidad',
+      });
+      if (!cerrados.ok) return { ok: false, error: cerrados.error };
+      // Si solo hay servicios, aún se puede liberar ese tramo.
+      if (netos.netoServicios > 0 && cSrv) {
+        const soloSrv = movimientosServicios(movs);
+        if (soloSrv.length) {
+          return liquidarMovimientos(supabase, {
+            ids: soloSrv.map((m) => m.id),
+            adminNombre: adminNombre || 'Contabilidad',
+            repartidorNombre: rep?.nombre || '',
+            acreditaciones: [
+              {
+                cuentaRtId: cSrv,
+                monto: netos.netoServicios,
+                movimientoIds: soloSrv.map((m) => m.id),
+                notas: `Servicios · ${rep?.nombre || 'recolector'}`,
+              },
+            ],
+          });
+        }
+      }
+      return {
+        ok: true,
+        count: 0,
+        montoTotal: 0,
+        bruto,
+        totalGastos,
+        gastosCerrados: cerrados.count || 0,
+        aviso: `Gastos sellados (${fmtMonto(totalGastos)}). No quedó neto de mercancía para acreditar.`,
+      };
+    }
     const resumen = resumenTotalesPorTipo(movs);
     return {
       ok: false,

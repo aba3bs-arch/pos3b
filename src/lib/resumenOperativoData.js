@@ -140,7 +140,7 @@ export function resumirIncidencias(incidencias) {
 export function agruparGastosRtPorTienda(rows) {
   const map = {};
   for (const g of rows || []) {
-    const raw = g.sucursal_origen || 'Oficina';
+    const raw = g.sucursal_origen || 'Cuenta FJBB';
     const t = listarSucursalesOperativas().find((s) => etiquetaTienda(s) === raw || s === raw) || raw;
     map[t] = (map[t] || 0) + (Number(g.monto) || 0);
   }

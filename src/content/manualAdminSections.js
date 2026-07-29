@@ -1,5 +1,5 @@
 /** Contenido del manual del administrador — Ayuda → Manual administrador */
-export const MANUAL_ADMIN_VERSION = '2.0 · POS CONTROL 3B';
+export const MANUAL_ADMIN_VERSION = '2.1 · POS CONTROL 3B';
 
 export const MANUAL_ADMIN_SECCIONES = [
   {
@@ -497,5 +497,45 @@ La PC de caja puede seguir en local; ambos usan el mismo Supabase.`,
 - Exportar inventario CSV (Reportes)
 - Revisar usuarios activos y PINs
 - Backup: exportar catálogo desde Productos`,
+  },
+  {
+    id: 'rt-gastos-recolecciones',
+    title: '18. Contabilidad RT: gastos y liberar efectivo',
+    keywords: [
+      'rt',
+      'francisco',
+      'andres',
+      'fjbb',
+      'amr',
+      'gasto',
+      'recoleccion',
+      'liberar',
+      'liquidacion',
+      'transito',
+      'panel rt',
+    ],
+    body: `Manual detallado también en \`docs/MANUAL_RT_GASTOS_RECOLECCIONES.md\`.
+
+### Cuentas RT
+
+- **Francisco** ↔ origen de gasto **Cuenta FJBB**
+- **Andrés** ↔ origen de gasto **Cuenta AMR**
+
+Saldo disponible = liquidaciones + transferencias recibidas − transferencias enviadas − gastos registrados **desde la cuenta RT**.
+
+### Ciclo del gasto del recolector
+
+1. Contabilidad → Panel RT → **Gastos**: autorizar monto, descripción y **origen** (Cuenta FJBB / Cuenta AMR o tienda).
+2. Recolector acepta con PIN en Recolecciones → Gastos.
+3. El gasto **no baja** al hacer pickup en tienda.
+4. Al **liberar** o liquidar en oficina se descuenta del neto y se sella (\`LIQ_APLICADA\`). Ya no vuelve a restar.
+
+### Neto en tránsito (Cuentas RT)
+
+Solo restan **gastos activos** (después de la última liquidación, sin sello). Gastos viejos no deben generar neto negativo “fantasma”.
+
+### Liberar
+
+Panel RT → Gastos / liberar → elegir recolector y cuentas RT para mercancía y servicios → **Liberar neto**.`,
   },
 ];

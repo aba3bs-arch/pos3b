@@ -24,7 +24,7 @@ import {
   hoyClaveNogales,
   inicioMesClaveNogales,
   liberarEfectivoRepartidor,
-  listarGastosLiquidadosRecolector,
+  listarGastosActivosGlobales,
   listarGastosPendientesRecolector,
   listarMovimientosRecoleccionContabilidad,
   listarMovimientosTransitoAdmin,
@@ -35,6 +35,9 @@ import {
   listarTodoEnTransito,
   registrarGastoRecolector,
   cancelarGastoPendiente,
+  sellarGastosHuerfanosPrevios,
+  ORIGENES_GASTO_RECOLECTOR,
+  etiquetaOrigenGasto,
   resumenPorTiendaConCatalogo,
   reporteGeneralPorTienda,
   reporteRecoleccionTiendaFecha,
@@ -93,7 +96,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
   const [gastoMonto, setGastoMonto] = useState('');
   const [gastoModoMonto, setGastoModoMonto] = useState('fijo');
   const [gastoDesc, setGastoDesc] = useState('');
-  const [gastoTienda, setGastoTienda] = useState('');
+  const [gastoTienda, setGastoTienda] = useState('Cuenta FJBB');
   const [saldoRep, setSaldoRep] = useState(null);
   const [gastosPendientes, setGastosPendientes] = useState([]);
   const [cuentaRtLiberarMerc, setCuentaRtLiberarMerc] = useState(() => resolverCuentaRtPorNombre(user?.nombre) || 'francisco');
@@ -198,7 +201,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
           cuentaId: filtroCuentaRt || undefined,
         }),
         listarTodoEnTransito(supabase),
-        listarGastosLiquidadosRecolector(supabase),
+        listarGastosActivosGlobales(supabase),
       ]);
       if (saldoRes.error) setError(saldoRes.error);
       else {
@@ -208,13 +211,24 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
       if (movRes.error) setError(movRes.error);
       else setMovsRt(movRes.data || []);
       setTransitoRt(transito || []);
-      setGastosRt(gastos || []);
+      // Sella gastos viejos sin marca LIQ_APLICADA (ya absorbidos por liquidaciones previas).
+      try {
+        const sello = await sellarGastosHuerfanosPrevios(supabase, { adminNombre: user?.nombre || 'Sistema' });
+        if (sello.ok && sello.count > 0) {
+          const gastosFresh = await listarGastosActivosGlobales(supabase);
+          setGastosRt(gastosFresh || []);
+        } else {
+          setGastosRt(gastos || []);
+        }
+      } catch {
+        setGastosRt(gastos || []);
+      }
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, [supabase, presetRt, filtroCuentaRt]);
+  }, [supabase, presetRt, filtroCuentaRt, user?.nombre]);
 
   useEffect(() => {
     if ((tab === 'gastos' || tab === 'tienda' || tab === 'eliminar') && supabase) {
@@ -398,13 +412,14 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
       monto,
       descripcion: gastoDesc,
       adminNombre,
-      tienda: gastoTienda || undefined,
+      tienda: gastoTienda || 'Cuenta FJBB',
     });
     setGuardando(false);
     if (!res.ok) return alert(res.error);
-    alert(`✅ Gasto autorizado para ${res.recolector || 'recolector'}. El recolector debe aceptarlo con su PIN en Recolecciones → Gastos.`);
+    alert(`✅ Gasto autorizado (${etiquetaOrigenGasto(gastoTienda)}) para ${res.recolector || 'recolector'}. El recolector debe aceptarlo con su PIN en Recolecciones → Gastos.`);
     setGastoMonto('');
     setGastoDesc('');
+    setGastoTienda('Cuenta FJBB');
     if (gastoRep) {
       saldoEnTransitoRepartidor(supabase, gastoRep).then(setSaldoRep);
       listarGastosPendientesRecolector(supabase, gastoRep).then(setGastosPendientes);
@@ -994,12 +1009,16 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
               <input className="input" style={{ marginTop: '0.35rem' }} value={gastoDesc} onChange={(e) => setGastoDesc(e.target.value)} placeholder="Ej. Gasolina ruta norte" />
             </label>
             <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
-              Tienda (opcional)
+              Origen del gasto (cuenta)
               <select className="select" style={{ marginTop: '0.35rem' }} value={gastoTienda} onChange={(e) => setGastoTienda(e.target.value)}>
-                <option value="">Oficina</option>
+                {ORIGENES_GASTO_RECOLECTOR.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
                 {tiendas.map((t) => (
                   <option key={t.codigo} value={t.nombre}>
-                    {t.etiqueta}
+                    Tienda · {t.etiqueta}
                   </option>
                 ))}
               </select>
@@ -1081,15 +1100,15 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
               Este dinero sigue con el recolector o pendiente de sellar. <strong>No suma</strong> al saldo de Francisco/Andrés hasta liquidarlo en{' '}
               <strong>Liquidación recolecciones</strong> o <strong>Gastos / liberar</strong>.
             </p>
-            <p style={{ margin: '0.75rem 0 0', fontSize: '1.35rem', fontWeight: 700, color: 'var(--brand-gold-dark)' }}>
+            <p style={{ margin: '0.75rem 0 0', fontSize: '1.35rem', fontWeight: 700, color: netoTransitoRt < 0 ? 'var(--brand-red)' : 'var(--brand-gold-dark)' }}>
               {fmtMonto(netoTransitoRt)}
               <span className="muted" style={{ fontSize: '0.85rem', fontWeight: 400, marginLeft: '0.5rem' }}>
-                neto · {transitoRt.length} recolección(es) · {gastosRt.length} gasto(s)
+                neto · {transitoRt.length} recolección(es) · {gastosRt.length} gasto(s) activo(s)
               </span>
             </p>
             <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.82rem' }}>
               Recolectado {fmtMonto(totalTransitoRt)}
-              {totalGastosRt > 0 ? ` − gastos ${fmtMonto(totalGastosRt)}` : ''}
+              {totalGastosRt > 0 ? ` − gastos activos ${fmtMonto(totalGastosRt)}` : ' · sin gastos activos pendientes'}
             </p>
             {movimientosTransitoRt.length > 0 ? (
               <>
