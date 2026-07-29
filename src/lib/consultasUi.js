@@ -83,12 +83,15 @@ export function agruparVentaPorArticulo(ventas = [], opts = {}) {
       const importe = Number(a.importe ?? a.subtotal);
       const lineImp = Number.isFinite(importe) && importe !== 0 ? importe : precio * piezas;
       const cat = productoPorId.get(id);
-      const nombre =
-        a.nombre || a.descripcion || cat?.nombre || id;
+      const nombre = a.nombre || a.descripcion || cat?.nombre || id;
+      const departamento = String(a.cat || a.departamento || cat?.cat || 'GENERAL')
+        .trim()
+        .toUpperCase() || 'GENERAL';
       if (!map.has(id)) {
         map.set(id, {
           id,
           nombre,
+          departamento,
           piezas: 0,
           importe: 0,
           tickets: 0,
@@ -103,6 +106,7 @@ export function agruparVentaPorArticulo(ventas = [], opts = {}) {
         vistosEnTicket.add(id);
       }
       if (cat?.nombre && (!row.nombre || row.nombre === id)) row.nombre = cat.nombre;
+      if (cat?.cat) row.departamento = String(cat.cat).trim().toUpperCase() || row.departamento;
     }
   }
 

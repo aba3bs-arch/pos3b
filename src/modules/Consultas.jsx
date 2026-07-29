@@ -4,6 +4,7 @@ import { consultarCortes } from '../lib/corteCaja.js';
 import { cargarSaldosCajaEnCurso } from '../lib/movimientosCaja.js';
 import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
 import { cargarReporteMovimientosInventario } from '../lib/consultasInventario.js';
+import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from '../lib/departamentos.js';
 import {
   agruparDocumentosInventario,
   agruparVentaPorArticulo,
@@ -88,6 +89,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const [hasta, setHasta] = useState(() => hoyYmd());
   const [q, setQ] = useState('');
   const [filtroSucursal, setFiltroSucursal] = useState(() => (esAlmacenCentral(sucursal) ? '' : sucursal || ''));
+  const [filtroDepto, setFiltroDepto] = useState('');
   const [loading, setLoading] = useState(false);
   const [aviso, setAviso] = useState('');
 
@@ -268,17 +270,30 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     });
   }, [ventas, qNorm]);
 
+  const departamentos = useMemo(() => listarDepartamentos(inventario), [inventario]);
+
   const reporteArticulo = useMemo(
     () => agruparVentaPorArticulo(ventas, { productoPorId }),
     [ventas, productoPorId],
   );
 
   const articulosFiltrados = useMemo(() => {
-    if (!qNorm) return reporteArticulo.filas;
-    return reporteArticulo.filas.filter((r) =>
-      `${r.id} ${r.nombre}`.toLowerCase().includes(qNorm),
-    );
-  }, [reporteArticulo.filas, qNorm]);
+    const depto = filtroDepto ? normalizarDepartamento(filtroDepto) : '';
+    return reporteArticulo.filas.filter((r) => {
+      if (depto && normalizarDepartamento(r.departamento) !== depto) return false;
+      if (!qNorm) return true;
+      return `${r.id} ${r.nombre} ${r.departamento}`.toLowerCase().includes(qNorm);
+    });
+  }, [reporteArticulo.filas, qNorm, filtroDepto]);
+
+  /** % sobre el total filtrado (no sobre todo el periodo). */
+  const articulosConPct = useMemo(() => {
+    const totalImp = articulosFiltrados.reduce((s, r) => s + r.importe, 0) || 1;
+    return articulosFiltrados.map((r) => ({
+      ...r,
+      pct: Math.round((r.importe / totalImp) * 10000) / 100,
+    }));
+  }, [articulosFiltrados]);
 
   const totalesArticuloFiltrado = useMemo(() => {
     const piezas = articulosFiltrados.reduce((s, r) => s + r.piezas, 0);
@@ -376,6 +391,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     setSel(null);
     setSelSaldo(null);
     setQ('');
+    if (!String(id).startsWith('ventas_')) setFiltroDepto('');
     setSeccion(id);
   };
 
@@ -621,6 +637,16 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                   </option>
                 ))}
               </select>
+              {seccion === 'ventas_articulo' && (
+                <select value={filtroDepto} onChange={(e) => setFiltroDepto(e.target.value)}>
+                  <option value="">Todos los departamentos</option>
+                  {departamentos.map((d) => (
+                    <option key={d} value={d}>
+                      {etiquetaDepartamento(d)}
+                    </option>
+                  ))}
+                </select>
+              )}
               {loading && <span className="muted" style={{ fontSize: '0.8rem' }}>Cargando…</span>}
             </div>
 
@@ -671,8 +697,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
               )}
 
               {seccion === 'ventas_articulo' && (
-                articulosFiltrados.length === 0 ? (
-                  <EmptyState texto="Sin ventas de artículos en el rango." />
+                articulosConPct.length === 0 ? (
+                  <EmptyState texto="Sin ventas de artículos en el rango (o en ese departamento)." />
                 ) : (
                   <>
                     <div
@@ -710,6 +736,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                         <tr>
                           <th>Código</th>
                           <th>Descripción</th>
+                          <th>Depto.</th>
                           <th style={{ textAlign: 'right' }}>Piezas</th>
                           <th style={{ textAlign: 'right' }}>P. prom.</th>
                           <th style={{ textAlign: 'right' }}>Importe</th>
@@ -718,7 +745,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                         </tr>
                       </thead>
                       <tbody>
-                        {articulosFiltrados.map((r) => (
+                        {articulosConPct.map((r) => (
                           <tr key={r.id}>
                             <td>
                               <div className="consultas-prod-cell">
@@ -727,6 +754,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                               </div>
                             </td>
                             <td style={{ fontWeight: 600 }}>{r.nombre}</td>
+                            <td className="muted">{etiquetaDepartamento(r.departamento)}</td>
                             <td style={{ textAlign: 'right', fontWeight: 700 }}>{r.piezas}</td>
                             <td style={{ textAlign: 'right' }}>{fmtMonto(r.precioPromedio)}</td>
                             <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtMonto(r.importe)}</td>
@@ -741,8 +769,9 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                       </tbody>
                       <tfoot>
                         <tr>
-                          <td colSpan={2} style={{ fontWeight: 700 }}>
-                            Total ({totalesArticuloFiltrado.skus} SKU)
+                          <td colSpan={3} style={{ fontWeight: 700 }}>
+                            Total ({totalesArticuloFiltrado.skus} SKU
+                            {filtroDepto ? ` · ${etiquetaDepartamento(filtroDepto)}` : ''})
                           </td>
                           <td style={{ textAlign: 'right', fontWeight: 800 }}>{totalesArticuloFiltrado.piezas}</td>
                           <td />
