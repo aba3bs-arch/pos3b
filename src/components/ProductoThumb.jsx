@@ -53,7 +53,8 @@ export default function ProductoThumb({
   const fill = size === '100%' || size === 'full';
   const px = fill ? undefined : Number(size) || 48;
   const codigo = producto?.id != null && producto.id !== '' ? String(producto.id) : '';
-  const teorico = Number(producto?.stock) || 0;
+  const teoricoRaw = Number(producto?.stock);
+  const teorico = Number.isFinite(teoricoRaw) ? Math.floor(teoricoRaw) : 0;
 
   return (
     <div
@@ -85,7 +86,11 @@ export default function ProductoThumb({
           ) : null}
           <span
             className={`producto-thumb-ref producto-thumb-ref--teorico${teorico <= 0 ? ' is-bajo' : ''}`}
-            title="Inventario teórico"
+            title={
+              teorico < 0
+                ? `Inventario teórico negativo (${teorico}): se vendió sin existencias en esta tienda`
+                : 'Inventario teórico de esta tienda'
+            }
           >
             {teorico}
           </span>

@@ -135,7 +135,10 @@ export function productoParaVistaTienda(producto, sucursal, sucursalContext) {
   const map = asegurarMapaStock(producto, sucursalContext || sucursal);
   const suc = normalizarCodigoTienda(sucursal);
   const cedisEmpresa = Math.max(0, Number(map[ALMACEN_CENTRAL]?.cedis) || 0);
-  const pisoTienda = Math.max(0, Number(map[suc]?.piso) || 0);
+  // No enmascarar negativos: si la tienda quedó en -N por ventas sin existencias,
+  // el badge debe mostrar -N (rojo), no un 0 falso.
+  const pisoRaw = map[suc]?.piso;
+  const pisoTienda = Number.isFinite(Number(pisoRaw)) ? Math.floor(Number(pisoRaw)) : 0;
   return {
     ...producto,
     stock_sucursales: map,
