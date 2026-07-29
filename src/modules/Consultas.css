@@ -439,12 +439,30 @@
   gap: 0.75rem;
   padding: 0.85rem 1rem;
   border-bottom: 1px solid #eef2f7;
+  flex-wrap: wrap;
 }
 
 .consultas-inv-fecha {
-  margin-left: auto;
   color: #64748b;
   font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.consultas-pager--light {
+  background: #eef2f7;
+  margin-left: auto;
+}
+
+.consultas-pager--light .consultas-pager-btn {
+  color: #1e5bb8;
+}
+
+.consultas-pager--light .consultas-pager-btn:hover:not(:disabled) {
+  background: rgba(30, 91, 184, 0.12);
+}
+
+.consultas-pager--light .consultas-pager-pos {
+  color: #475569;
 }
 
 .consultas-inv-total {
