@@ -3,7 +3,7 @@ import Icon from './Icon.jsx';
 import HistorialProducto from './HistorialProducto.jsx';
 import ProductoThumb from './ProductoThumb.jsx';
 import { etiquetaDepartamento } from '../lib/departamentos.js';
-import { esAlmacenCentral, etiquetaCedisEmpresa } from '../lib/inventarioMultitienda.js';
+import { esAlmacenCentral, etiquetaCedisEmpresa, etiquetaStockLista } from '../lib/inventarioMultitienda.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { tieneFoto } from '../lib/fotosCatalogo.js';
 import { leerImagenProductoComoDataUrl } from '../lib/imagenProducto.js';
@@ -55,7 +55,8 @@ export default function DetalleProducto({
   const impuesto = Number(producto.impuesto ?? 8);
   const precioSin = Number(producto.precio_venta_sin ?? (precioCon / (1 + impuesto / 100)));
   const favorito = Boolean(producto.en_favoritos) || producto.cat === 'FAVORITOS';
-  const stock = Number(producto.stock) || 0;
+  const stockVista = etiquetaStockLista(producto, sucursal);
+  const stock = stockVista.primario;
   const sinFoto = !tieneFoto(producto);
 
   const copiarCodigo = async () => {
@@ -161,7 +162,9 @@ export default function DetalleProducto({
         </button>
         <button type="button" className={tab === 'stock' ? 'activo' : ''} onClick={() => setTab('stock')}>
           <Icon name="package" size={16} />
-          {stock} PZA
+          {enCentral
+            ? `${stockVista.primario} ${stockVista.etiquetaPrimario}`
+            : `${stockVista.primario} PZA`}
         </button>
       </div>
 
@@ -263,16 +266,19 @@ export default function DetalleProducto({
       {tab === 'stock' && (
         <div className="prod-detalle-body">
           <div className="prod-stock-cards">
-            <div className="prod-stock-card">
-              <span className="muted">Piso ({tiendaLabel})</span>
-              <strong>{stock}</strong>
-            </div>
             {enCentral && (
-              <div className="prod-stock-card">
+              <div className="prod-stock-card" style={{ borderColor: 'var(--brand-gold)' }}>
                 <span className="muted">{etiquetaCedisEmpresa()}</span>
                 <strong>{producto.stock_cedis ?? 0}</strong>
+                <small className="muted" style={{ display: 'block', marginTop: '0.25rem', fontSize: '0.72rem' }}>
+                  Aquí cae el ingreso de inventario en MAIN
+                </small>
               </div>
             )}
+            <div className="prod-stock-card">
+              <span className="muted">Piso ({tiendaLabel})</span>
+              <strong>{Number.isFinite(Number(producto.stock)) ? Math.floor(Number(producto.stock)) : 0}</strong>
+            </div>
             <div className="prod-stock-card">
               <span className="muted">Mínimo</span>
               <strong>{producto.stock_minimo ?? 0}</strong>

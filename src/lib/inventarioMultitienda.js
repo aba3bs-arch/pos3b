@@ -214,6 +214,18 @@ export function aplicarDeltaStock(producto, sucursal, ubicacion, delta, sucursal
   };
 }
 
+/** Texto corto de existencia para listas (Main muestra CEDIS + piso). */
+export function etiquetaStockLista(producto, sucursal) {
+  const pisoRaw = Number(producto?.stock);
+  const piso = Number.isFinite(pisoRaw) ? Math.floor(pisoRaw) : 0;
+  if (esAlmacenCentral(sucursal)) {
+    const cedisRaw = Number(producto?.stock_cedis);
+    const cedis = Number.isFinite(cedisRaw) ? Math.floor(cedisRaw) : 0;
+    return { primario: cedis, etiquetaPrimario: 'CEDIS', secundario: piso, etiquetaSecundario: 'Piso' };
+  }
+  return { primario: piso, etiquetaPrimario: 'PZA', secundario: null, etiquetaSecundario: null };
+}
+
 /** Ubicación por defecto para entradas: CEDIS central en MAIN, piso en tiendas. */
 export function ubicacionEntradaDefault(sucursal) {
   return esAlmacenCentral(sucursal) ? 'cedis' : 'piso';
@@ -225,7 +237,8 @@ export function resumenStockProducto(producto, sucursales, sucursalContext) {
   return (sucursales || listarSucursales()).map((s) => ({
     sucursal: s,
     etiqueta: esAlmacenCentral(s) ? etiquetaAlmacenCentral() : etiquetaTienda(s),
-    cedis: esAlmacenCentral(s) ? Math.max(0, Number(map[s]?.cedis) || 0) : 0,
-    piso: Math.max(0, Number(map[s]?.piso) || 0),
+    cedis: esAlmacenCentral(s) ? Math.floor(Number(map[s]?.cedis) || 0) : 0,
+    // No enmascarar negativos: ventas sin existencia deben verse.
+    piso: Number.isFinite(Number(map[s]?.piso)) ? Math.floor(Number(map[s].piso)) : 0,
   }));
 }

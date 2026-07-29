@@ -33,7 +33,7 @@ import AjusteInventario from './AjusteInventario.jsx';
 import Preinventario from './Preinventario.jsx';
 import HistorialProducto from '../components/HistorialProducto.jsx';
 import { etiquetaTienda } from '../constants/sucursales.js';
-import { esAlmacenCentral, etiquetaCedisEmpresa } from '../lib/inventarioMultitienda.js';
+import { esAlmacenCentral, etiquetaCedisEmpresa, etiquetaStockLista } from '../lib/inventarioMultitienda.js';
 import { sincronizarFotosCatalogo, tieneFoto } from '../lib/fotosCatalogo.js';
 import { productoCoincideBusqueda, productoPorCodigoExacto } from '../lib/buscarProductoTexto.js';
 
@@ -955,6 +955,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
               ) : (
                 rows.map((p) => {
                   const activo = productoSeleccionado?.id === p.id;
+                  const stockVista = etiquetaStockLista(p, sucursal);
                   return (
                     <button
                       key={p.id}
@@ -967,7 +968,16 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                         <div className="prod-lista-codigo">{p.id}</div>
                         <div className="prod-lista-nombre">{p.nombre}</div>
                         <div className="prod-lista-stock">
-                          <span className="muted">PZA</span> {Number(p.stock) || 0}
+                          {enCentral ? (
+                            <>
+                              <span className="muted">{stockVista.etiquetaPrimario}</span> {stockVista.primario}
+                              <span className="muted"> · {stockVista.etiquetaSecundario}</span> {stockVista.secundario}
+                            </>
+                          ) : (
+                            <>
+                              <span className="muted">{stockVista.etiquetaPrimario}</span> {stockVista.primario}
+                            </>
+                          )}
                         </div>
                       </div>
                       <div className="prod-lista-precio">${Number(p.precio || 0).toFixed(2)}</div>

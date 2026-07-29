@@ -14,17 +14,20 @@ import { guardarMovimientoLocal, leerMovimientosLocal } from './inventarioMovimi
 const LS_FOLIO_TRP = 'pos3b_folio_traspaso_seq';
 
 function generarFolioTraspaso() {
-  const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const PREFIX = 'trp';
   let seq = 1;
   try {
     const raw = localStorage.getItem(LS_FOLIO_TRP);
     const o = raw ? JSON.parse(raw) : {};
-    if (o.ymd === ymd) seq = (Number(o.seq) || 0) + 1;
-    localStorage.setItem(LS_FOLIO_TRP, JSON.stringify({ ymd, seq }));
+    // Soporta formato nuevo { seq } y el viejo { ymd, seq }.
+    seq = Math.max(1, (Number(o.seq) || 0) + 1);
+    localStorage.setItem(LS_FOLIO_TRP, JSON.stringify({ seq }));
   } catch {
     seq = Math.floor(Math.random() * 9000) + 1;
   }
-  return `TRP-${ymd}-${String(seq).padStart(4, '0')}`;
+  // trp-0001 … trp-9999; desde 10000 ya no rellena a 4 dígitos.
+  const ancho = seq <= 9999 ? 4 : String(seq).length;
+  return `${PREFIX}-${String(seq).padStart(ancho, '0')}`;
 }
 
 export function stockEnUbicacion(producto, sucursal, ubicacion, sucursalContext) {

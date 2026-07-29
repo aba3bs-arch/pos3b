@@ -280,9 +280,13 @@ export async function aplicarMovimientoInventario(supabase, opts) {
   }, supabase);
 
   const verbo = tipo === 'entrada' ? `Entrada a ${donde}` : `Retiro de ${donde}`;
+  const avisoMain =
+    tipo === 'entrada' && esAlmacenCentral(tienda) && ubicacion === 'cedis'
+      ? ' En Productos (MAIN) revisa la columna CEDIS: el piso de MAIN puede seguir en 0 hasta que hagas traspaso a tienda.'
+      : '';
   return {
     ok: true,
-    mensaje: `${verbo} (${etiquetaTienda(tienda)}): ${tipo === 'entrada' ? '+' : '−'}${qty} uds. en "${productoOrigen.nombre}". Stock: ${calc.antes} → ${calc.despues} (se ${tipo === 'entrada' ? 'suma' : 'resta'}, no se reemplaza).`,
+    mensaje: `${verbo} (${etiquetaTienda(tienda)}): ${tipo === 'entrada' ? '+' : '−'}${qty} uds. en "${productoOrigen.nombre}". Stock: ${calc.antes} → ${calc.despues} (se ${tipo === 'entrada' ? 'suma' : 'resta'}, no se reemplaza).${avisoMain}`,
     log,
     patch: calc.patch,
   };
