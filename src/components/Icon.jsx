@@ -113,6 +113,7 @@ const ICONS = {
   circle: ['M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0-18 0'],
   dollar: ['M12 2v20', 'M17 7.5a4 4 0 0 0-4-4h-1a3 3 0 0 0 0 6h2a3 3 0 0 1 0 6h-1a4 4 0 0 1-4-4'],
   alert: ['M12 9v4', 'M12 17h.01', 'M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h16a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z'],
+  lock: ['M7 11V7a5 5 0 0 1 10 0v4', 'M5 11h14v10H5z'],
 };
 
 export default function Icon({ name, size = 18, strokeWidth = 2, className = '', style, title }) {

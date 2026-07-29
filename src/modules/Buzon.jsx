@@ -10,7 +10,11 @@ import {
 import {
   actualizarIncidencia,
   PRIORIDADES_INCIDENCIA,
+  buscarIncidenciaDuplicadaAbierta,
+  claveIncidenciaDuplicada,
   crearIncidencia,
+  depurarIncidenciasDuplicadas,
+  eliminarIncidencia,
   esResponsableIncidencia,
   etiquetaCategoriaIncidencia,
   etiquetaEstadoIncidencia,
@@ -228,6 +232,28 @@ export default function Buzon({
     [incidenciasFiltradas],
   );
 
+  /** Bloqueo local: mismo título/categoría/subcategoría/responsable abierto en esta tienda. */
+  const incidenciaDuplicadaForm = useMemo(() => {
+    const titulo = String(formInc.titulo || '').trim();
+    const responsable = String(formInc.responsable || '').trim();
+    if (!titulo || !responsable) return null;
+    const clave = claveIncidenciaDuplicada({
+      ...formInc,
+      sucursal_id: sucursal,
+      titulo,
+      responsable,
+    });
+    return (
+      incidencias.find(
+        (inc) =>
+          (inc.estado === 'abierta' || inc.estado === 'en_revision') &&
+          claveIncidenciaDuplicada(inc) === clave,
+      ) || null
+    );
+  }, [formInc, incidencias, sucursal]);
+
+  const enviarBloqueado = Boolean(incidenciaDuplicadaForm);
+
   const mostrarColumnaGestion = useMemo(
     () =>
       puedeResolver ||
@@ -370,16 +396,31 @@ export default function Buzon({
   const enviarIncidencia = async (e) => {
     e.preventDefault();
     setMsg('');
+    if (enviarBloqueado) {
+      setMsg(
+        `Ya existe un reporte abierto igual («${incidenciaDuplicadaForm.titulo}»). No se puede enviar de nuevo hasta que se resuelva o cierre.`,
+      );
+      return;
+    }
     const momento = new Date();
     const { fechaTxt, horaTxt } = fechaHoraIncidencia(momento);
-    const res = await crearIncidencia(supabase, {
+    const payload = {
       ...formInc,
       sucursal_id: sucursal,
       reportado_por: user?.nombre,
       etiqueta_tienda: nombreTienda,
       fecha_reporte: fechaTxt,
       hora_reporte: horaTxt,
-    });
+    };
+    const dupRemoto = await buscarIncidenciaDuplicadaAbierta(supabase, payload);
+    if (dupRemoto.duplicada) {
+      setMsg(
+        `Ya existe un reporte abierto igual («${dupRemoto.duplicada.titulo}»). No se puede enviar de nuevo hasta que se resuelva o cierre.`,
+      );
+      recargar();
+      return;
+    }
+    const res = await crearIncidencia(supabase, payload);
     if (!res.ok) {
       setMsg(res.error || 'Error al reportar.');
       return;
@@ -388,6 +429,38 @@ export default function Buzon({
     setFormInc({ titulo: '', descripcion: '', categoria: 'operacion', subcategoria: '', prioridad: 'normal', responsable: '' });
     recargar();
     setPestana('incidencias');
+  };
+
+  const borrarIncidencia = async (inc) => {
+    if (!esAdmin) return;
+    if (!confirm(`¿Borrar la incidencia «${inc.titulo}»? Esta acción no se puede deshacer.`)) return;
+    const res = await eliminarIncidencia(supabase, inc.id);
+    if (!res.ok) setMsg(res.error || 'No se pudo borrar.');
+    else {
+      setMsg('Incidencia borrada.');
+      recargar();
+    }
+  };
+
+  const depurarDuplicados = async () => {
+    if (!esAdmin) return;
+    if (
+      !confirm(
+        '¿Depurar incidencias duplicadas abiertas? Se conservará la más antigua de cada grupo y se borrarán el resto (todas las tiendas).',
+      )
+    ) {
+      return;
+    }
+    const res = await depurarIncidenciasDuplicadas(supabase, { limit: 500 });
+    if (!res.ok) setMsg(res.error || 'No se pudo depurar.');
+    else {
+      setMsg(
+        res.eliminadas > 0
+          ? `Depuración lista: ${res.eliminadas} duplicado(s) en ${res.grupos} grupo(s).`
+          : 'No había incidencias duplicadas abiertas.',
+      );
+      recargar();
+    }
   };
 
   const cambiarEstadoInc = async (inc, estado) => {
@@ -720,8 +793,34 @@ export default function Buzon({
                   </select>
                 </label>
               </div>
-              <button type="submit" className="btn btn-primary" style={{ justifySelf: 'start' }}>
-                <BtnLabel icon="alert">Enviar reporte</BtnLabel>
+              {enviarBloqueado && (
+                <p
+                  className="muted"
+                  style={{
+                    margin: 0,
+                    padding: '0.55rem 0.7rem',
+                    borderRadius: 8,
+                    background: 'rgba(185, 28, 28, 0.08)',
+                    border: '1px solid rgba(185, 28, 28, 0.25)',
+                    color: 'var(--danger, #b91c1c)',
+                    fontSize: '0.88rem',
+                  }}
+                >
+                  Ya existe un reporte abierto igual («{incidenciaDuplicadaForm.titulo}»,{' '}
+                  {etiquetaEstadoIncidencia(incidenciaDuplicadaForm.estado)}). No puedes enviar otro hasta que se
+                  resuelva o cierre.
+                </p>
+              )}
+              <button
+                type="submit"
+                className="btn btn-primary"
+                style={{ justifySelf: 'start' }}
+                disabled={enviarBloqueado}
+                title={enviarBloqueado ? 'Reporte duplicado: envío bloqueado' : undefined}
+              >
+                <BtnLabel icon={enviarBloqueado ? 'lock' : 'alert'}>
+                  {enviarBloqueado ? 'Envío bloqueado' : 'Enviar reporte'}
+                </BtnLabel>
               </button>
             </form>
           </div>
@@ -739,12 +838,19 @@ export default function Buzon({
               className=""
               style={{ marginBottom: '0.75rem' }}
             />
-            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)' }}>
-              Incidencias {veTodasTiendas ? '· todas las tiendas' : ''}
-              {incidenciasAbiertas.length > 0 && (
-                <span className="badge" style={{ marginLeft: '0.5rem', background: 'var(--danger)', color: '#fff' }}>
-                  {incidenciasAbiertas.length} abiertas
-                </span>
+            <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <span>
+                Incidencias {veTodasTiendas ? '· todas las tiendas' : ''}
+                {incidenciasAbiertas.length > 0 && (
+                  <span className="badge" style={{ marginLeft: '0.5rem', background: 'var(--danger)', color: '#fff' }}>
+                    {incidenciasAbiertas.length} abiertas
+                  </span>
+                )}
+              </span>
+              {esAdmin && (
+                <button type="button" className="btn btn-ghost btn-sm" onClick={depurarDuplicados} title="Conserva la más antigua de cada grupo duplicado">
+                  <BtnLabel icon="trash">Depurar duplicados</BtnLabel>
+                </button>
               )}
             </h3>
             {incidenciasFiltradas.length === 0 ? (
@@ -799,85 +905,98 @@ export default function Buzon({
                         <td>{inc.reportado_por || '—'}</td>
                         {mostrarColumnaGestion && (
                           <td>
-                            {(puedeResolverIncidencia(user, inc, rol, user?.id) ||
-                              puedeRedirigirIncidenciaPrivilegio(user, inc, rol, user?.id, { esAdmin })) ? (
-                              inc.estado === 'abierta' || inc.estado === 'en_revision' ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 200 }}>
-                                {puedeResolverIncidencia(user, inc, rol, user?.id) && (
-                                  resolviendo === inc.id ? (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                      <textarea
-                                        className="input"
-                                        rows={2}
-                                        placeholder="Notas de resolución…"
-                                        value={resolucionTxt}
-                                        onChange={(e) => setResolucionTxt(e.target.value)}
-                                      />
-                                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                        {inc.estado === 'abierta' && (
-                                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => cambiarEstadoInc(inc, 'en_revision')}>
-                                            En revisión
-                                          </button>
-                                        )}
-                                        <button type="button" className="btn btn-primary btn-sm" onClick={() => cambiarEstadoInc(inc, 'resuelta')}>
-                                          Resolver
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 200 }}>
+                              {(puedeResolverIncidencia(user, inc, rol, user?.id) ||
+                                puedeRedirigirIncidenciaPrivilegio(user, inc, rol, user?.id, { esAdmin })) ? (
+                                inc.estado === 'abierta' || inc.estado === 'en_revision' ? (
+                                  <>
+                                    {puedeResolverIncidencia(user, inc, rol, user?.id) && (
+                                      resolviendo === inc.id ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                          <textarea
+                                            className="input"
+                                            rows={2}
+                                            placeholder="Notas de resolución…"
+                                            value={resolucionTxt}
+                                            onChange={(e) => setResolucionTxt(e.target.value)}
+                                          />
+                                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                            {inc.estado === 'abierta' && (
+                                              <button type="button" className="btn btn-ghost btn-sm" onClick={() => cambiarEstadoInc(inc, 'en_revision')}>
+                                                En revisión
+                                              </button>
+                                            )}
+                                            <button type="button" className="btn btn-primary btn-sm" onClick={() => cambiarEstadoInc(inc, 'resuelta')}>
+                                              Resolver
+                                            </button>
+                                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setResolviendo(null); setResolucionTxt(''); }}>
+                                              Cancelar
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <button type="button" className="btn btn-gold btn-sm" onClick={() => setResolviendo(inc.id)}>
+                                          Atender
                                         </button>
-                                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setResolviendo(null); setResolucionTxt(''); }}>
-                                          Cancelar
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <button type="button" className="btn btn-gold btn-sm" onClick={() => setResolviendo(inc.id)}>
-                                      Atender
-                                    </button>
-                                  )
-                                )}
-                                {puedeRedirigirIncidenciaPrivilegio(user, inc, rol, user?.id, { esAdmin }) && (
-                                  redirigiendo === inc.id ? (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                      <select
-                                        className="select"
-                                        value={nuevoResponsable}
-                                        onChange={(e) => setNuevoResponsable(e.target.value)}
-                                      >
-                                        <option value="">Nuevo responsable…</option>
-                                        {RESPONSABLES_INCIDENCIA.filter((n) => n !== inc.responsable).map((nombre) => (
-                                          <option key={nombre} value={nombre}>
-                                            {nombre}
-                                          </option>
-                                        ))}
-                                      </select>
-                                      <input
-                                        className="input"
-                                        placeholder="Nota opcional…"
-                                        value={notaRedir}
-                                        onChange={(e) => setNotaRedir(e.target.value)}
-                                      />
-                                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                        <button type="button" className="btn btn-primary btn-sm" onClick={() => confirmarRedireccion(inc)}>
+                                      )
+                                    )}
+                                    {puedeRedirigirIncidenciaPrivilegio(user, inc, rol, user?.id, { esAdmin }) && (
+                                      redirigiendo === inc.id ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                          <select
+                                            className="select"
+                                            value={nuevoResponsable}
+                                            onChange={(e) => setNuevoResponsable(e.target.value)}
+                                          >
+                                            <option value="">Nuevo responsable…</option>
+                                            {RESPONSABLES_INCIDENCIA.filter((n) => n !== inc.responsable).map((nombre) => (
+                                              <option key={nombre} value={nombre}>
+                                                {nombre}
+                                              </option>
+                                            ))}
+                                          </select>
+                                          <input
+                                            className="input"
+                                            placeholder="Nota opcional…"
+                                            value={notaRedir}
+                                            onChange={(e) => setNotaRedir(e.target.value)}
+                                          />
+                                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                            <button type="button" className="btn btn-primary btn-sm" onClick={() => confirmarRedireccion(inc)}>
+                                              Redirigir
+                                            </button>
+                                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setRedirigiendo(null); setNuevoResponsable(''); setNotaRedir(''); }}>
+                                              Cancelar
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setRedirigiendo(inc.id)}>
                                           Redirigir
                                         </button>
-                                        <button type="button" className="btn btn-ghost btn-sm" onClick={() => { setRedirigiendo(null); setNuevoResponsable(''); setNotaRedir(''); }}>
-                                          Cancelar
-                                        </button>
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => setRedirigiendo(inc.id)}>
-                                      Redirigir
-                                    </button>
-                                  )
-                                )}
-                              </div>
-                            ) : (
-                              <span className="muted" style={{ fontSize: '0.82rem' }}>
-                                {inc.atendida_por ? `Por ${inc.atendida_por}` : '—'}
-                              </span>
-                            )
-                            ) : (
-                              <span className="muted">—</span>
-                            )}
+                                      )
+                                    )}
+                                  </>
+                                ) : (
+                                  <span className="muted" style={{ fontSize: '0.82rem' }}>
+                                    {inc.atendida_por ? `Por ${inc.atendida_por}` : '—'}
+                                  </span>
+                                )
+                              ) : !esAdmin ? (
+                                <span className="muted">—</span>
+                              ) : null}
+                              {esAdmin && (
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost btn-sm"
+                                  style={{ color: 'var(--danger, #b91c1c)', alignSelf: 'start' }}
+                                  onClick={() => borrarIncidencia(inc)}
+                                  title="Borrar incidencia (solo admin)"
+                                >
+                                  <BtnLabel icon="trash">Borrar</BtnLabel>
+                                </button>
+                              )}
+                            </div>
                           </td>
                         )}
                       </tr>

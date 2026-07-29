@@ -115,6 +115,19 @@ export async function crearIncidencia(supabase, row) {
   if (!String(row.titulo || '').trim()) return { ok: false, error: 'Indica un título.' };
   if (!String(row.responsable || '').trim()) return { ok: false, error: 'Selecciona a quién dirigir el reporte (Responsable).' };
 
+  const dup = await buscarIncidenciaDuplicadaAbierta(supabase, row);
+  if (dup.duplicada) {
+    return {
+      ok: false,
+      duplicada: true,
+      incidencia: dup.duplicada,
+      error:
+        `Ya existe un reporte abierto igual en ${dup.duplicada.sucursal_id || 'esta tienda'}: «${dup.duplicada.titulo}» ` +
+        `(${etiquetaEstadoIncidencia(dup.duplicada.estado)} · ${dup.duplicada.responsable || 'sin responsable'}). ` +
+        'No se puede enviar de nuevo hasta que se resuelva o cierre.',
+    };
+  }
+
   const payload = {
     sucursal_id: row.sucursal_id || 'MAIN',
     titulo: String(row.titulo).trim(),
@@ -153,6 +166,99 @@ export async function crearIncidencia(supabase, row) {
   emitirRefreshNotificaciones();
 
   return { ok: true, incidencia: data };
+}
+
+/** Clave para detectar reportes duplicados abiertos. */
+export function claveIncidenciaDuplicada(row) {
+  const titulo = String(row?.titulo || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+  const suc = String(row?.sucursal_id || '').trim().toUpperCase();
+  const cat = String(row?.categoria || '').trim().toLowerCase();
+  const sub = String(row?.subcategoria || '').trim().toLowerCase();
+  const resp = String(row?.responsable || '').trim().toLowerCase();
+  return `${suc}|${titulo}|${cat}|${sub}|${resp}`;
+}
+
+const ESTADOS_ABIERTOS = new Set(['abierta', 'en_revision']);
+
+/** Busca incidencia abierta equivalente (misma tienda, título, categoría, responsable). */
+export async function buscarIncidenciaDuplicadaAbierta(supabase, row) {
+  if (!supabase) return { duplicada: null };
+  const suc = row.sucursal_id || 'MAIN';
+  const titulo = String(row.titulo || '').trim();
+  if (!titulo) return { duplicada: null };
+
+  const { data, error } = await supabase
+    .from('pos_incidencias')
+    .select('*')
+    .eq('sucursal_id', suc)
+    .in('estado', ['abierta', 'en_revision'])
+    .order('created_at', { ascending: true })
+    .limit(80);
+  if (error && faltaTabla(error)) return { duplicada: null, aviso: AVISO_FALTA_INCIDENCIAS };
+  if (error) return { duplicada: null, error: error.message };
+
+  const clave = claveIncidenciaDuplicada({ ...row, sucursal_id: suc, titulo });
+  const hit = (data || []).find((inc) => claveIncidenciaDuplicada(inc) === clave);
+  return { duplicada: hit || null };
+}
+
+/** Elimina una incidencia (solo admin en UI). */
+export async function eliminarIncidencia(supabase, id) {
+  if (!supabase || !id) return { ok: false, error: 'Incidencia inválida.' };
+  const { error } = await supabase.from('pos_incidencias').delete().eq('id', id);
+  if (error && faltaTabla(error)) return { ok: false, error: AVISO_FALTA_INCIDENCIAS };
+  if (error) return { ok: false, error: error.message };
+  try {
+    await marcarNotificacionAtendida(supabase, 'pos_incidencias', id, 'admin');
+  } catch {
+    /* ignore */
+  }
+  emitirRefreshNotificaciones();
+  return { ok: true };
+}
+
+/**
+ * Deja una sola incidencia abierta por clave duplicada (conserva la más antigua).
+ */
+export async function depurarIncidenciasDuplicadas(supabase, opts = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.', eliminadas: 0, grupos: 0 };
+  const { sucursal = null, limit = 500 } = opts;
+  let q = supabase
+    .from('pos_incidencias')
+    .select('*')
+    .in('estado', ['abierta', 'en_revision'])
+    .order('created_at', { ascending: true })
+    .limit(limit);
+  if (sucursal) q = q.eq('sucursal_id', sucursal);
+  const { data, error } = await q;
+  if (error && faltaTabla(error)) return { ok: false, error: AVISO_FALTA_INCIDENCIAS, eliminadas: 0, grupos: 0 };
+  if (error) return { ok: false, error: error.message, eliminadas: 0, grupos: 0 };
+
+  const grupos = new Map();
+  for (const inc of data || []) {
+    if (!ESTADOS_ABIERTOS.has(inc.estado)) continue;
+    const k = claveIncidenciaDuplicada(inc);
+    if (!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k).push(inc);
+  }
+
+  let eliminadas = 0;
+  let gruposDup = 0;
+  for (const lista of grupos.values()) {
+    if (lista.length < 2) continue;
+    gruposDup += 1;
+    for (const inc of lista.slice(1)) {
+      const r = await eliminarIncidencia(supabase, inc.id);
+      if (r.ok) eliminadas += 1;
+    }
+  }
+
+  return { ok: true, eliminadas, grupos: gruposDup };
 }
 
 export async function redirigirIncidencia(supabase, id, nuevoResponsable, { por, nota } = {}) {
