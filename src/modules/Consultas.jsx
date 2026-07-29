@@ -5,6 +5,7 @@ import { cargarSaldosCajaEnCurso } from '../lib/movimientosCaja.js';
 import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
 import { cargarReporteMovimientosInventario } from '../lib/consultasInventario.js';
 import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from '../lib/departamentos.js';
+import { esAlmacenCentral as esCentralInv, stockEnUbicacion, ubicacionEntradaDefault } from '../lib/inventarioMultitienda.js';
 import {
   agruparDocumentosInventario,
   agruparVentaPorArticulo,
@@ -286,14 +287,31 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     });
   }, [reporteArticulo.filas, qNorm, filtroDepto]);
 
-  /** % sobre el total filtrado (no sobre todo el periodo). */
+  /** % sobre el total filtrado (no sobre todo el periodo) + existencia actual en tienda. */
   const articulosConPct = useMemo(() => {
     const totalImp = articulosFiltrados.reduce((s, r) => s + r.importe, 0) || 1;
-    return articulosFiltrados.map((r) => ({
-      ...r,
-      pct: Math.round((r.importe / totalImp) * 10000) / 100,
-    }));
-  }, [articulosFiltrados]);
+    const tiendaStock = filtroSucursal || sucursal || 'MAIN';
+    const ubi = ubicacionEntradaDefault(tiendaStock);
+    return articulosFiltrados.map((r) => {
+      const prod = productoPorId.get(String(r.id));
+      let existencia = 0;
+      if (prod) {
+        existencia = Math.max(0, stockEnUbicacion(prod, tiendaStock, ubi, tiendaStock));
+        // Si no hay mapa multitienda y la vista ya trae stock de piso local:
+        if (!existencia && prod.stock != null && (!filtroSucursal || filtroSucursal === sucursal)) {
+          existencia = Math.max(0, Number(prod.stock) || 0);
+        }
+        if (esCentralInv(tiendaStock) && ubi === 'cedis' && !existencia) {
+          existencia = Math.max(0, Number(prod.stock_cedis) || 0);
+        }
+      }
+      return {
+        ...r,
+        pct: Math.round((r.importe / totalImp) * 10000) / 100,
+        existencia,
+      };
+    });
+  }, [articulosFiltrados, productoPorId, filtroSucursal, sucursal]);
 
   const totalesArticuloFiltrado = useMemo(() => {
     const piezas = articulosFiltrados.reduce((s, r) => s + r.piezas, 0);
@@ -738,6 +756,9 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                           <th>Descripción</th>
                           <th>Depto.</th>
                           <th style={{ textAlign: 'right' }}>Piezas</th>
+                          <th style={{ textAlign: 'right' }} title="Stock actual en la tienda filtrada">
+                            Existencia
+                          </th>
                           <th style={{ textAlign: 'right' }}>P. prom.</th>
                           <th style={{ textAlign: 'right' }}>Importe</th>
                           <th style={{ textAlign: 'right' }}>%</th>
@@ -756,6 +777,15 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                             <td style={{ fontWeight: 600 }}>{r.nombre}</td>
                             <td className="muted">{etiquetaDepartamento(r.departamento)}</td>
                             <td style={{ textAlign: 'right', fontWeight: 700 }}>{r.piezas}</td>
+                            <td
+                              style={{
+                                textAlign: 'right',
+                                fontWeight: 700,
+                                color: r.existencia <= 0 ? 'var(--brand-red, #c0392b)' : undefined,
+                              }}
+                            >
+                              {r.existencia}
+                            </td>
                             <td style={{ textAlign: 'right' }}>{fmtMonto(r.precioPromedio)}</td>
                             <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtMonto(r.importe)}</td>
                             <td style={{ textAlign: 'right' }} className="muted">
@@ -774,6 +804,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                             {filtroDepto ? ` · ${etiquetaDepartamento(filtroDepto)}` : ''})
                           </td>
                           <td style={{ textAlign: 'right', fontWeight: 800 }}>{totalesArticuloFiltrado.piezas}</td>
+                          <td />
                           <td />
                           <td style={{ textAlign: 'right', fontWeight: 800 }}>{fmtMonto(totalesArticuloFiltrado.importe)}</td>
                           <td style={{ textAlign: 'right' }}>100%</td>
