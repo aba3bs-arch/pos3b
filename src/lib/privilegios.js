@@ -1,8 +1,9 @@
-/** IDs de módulo válidos (debe coincidir con roles.js MODULOS_ORDEN). */
+/** IDs de módulo válidos (menú + submódulos de Contabilidad; alinear con roles.js MODULOS_ORDEN). */
 export const MODULOS_IDS = [
   'Inicio',
   'Incidencias',
   'Ventas',
+  'Escáner caja',
   'Corte de caja',
   'Recolecciones',
   'Liquidación recolecciones',
@@ -17,6 +18,7 @@ export const MODULOS_IDS = [
   'Usuarios',
   'Consultas',
   'Estadisticas',
+  'Resumen operativo',
   'Reportes',
   'Vales y Préstamos',
   'Nómina',
