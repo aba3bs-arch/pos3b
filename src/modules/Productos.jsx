@@ -116,6 +116,8 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const [preciosDraft, setPreciosDraft] = useState({});
   const [guardandoPrecios, setGuardandoPrecios] = useState(false);
   const [preciosQ, setPreciosQ] = useState('');
+  const [preciosDepto, setPreciosDepto] = useState('');
+  const [preciosProveedor, setPreciosProveedor] = useState('');
   const preciosBuscarRef = useRef(null);
   const preciosFilaRefs = useRef(new Map());
   const [seleccionEliminar, setSeleccionEliminar] = useState(() => new Set());
@@ -211,9 +213,21 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
 
   const rowsPrecios = useMemo(() => {
     const t = preciosQ.trim();
-    if (!t) return inventario || [];
-    return (inventario || []).filter((p) => productoCoincideBusqueda(p, t));
-  }, [inventario, preciosQ]);
+    let list = inventario || [];
+    if (t) list = list.filter((p) => productoCoincideBusqueda(p, t));
+    if (preciosDepto) {
+      list = list.filter((p) => String(p.cat || '').toUpperCase() === preciosDepto.toUpperCase());
+    }
+    if (preciosProveedor === '__ninguno__') {
+      list = list.filter((p) => !idsConProveedor.has(String(p.id)));
+    } else if (preciosProveedor) {
+      const ids = productosPorProveedor.get(String(preciosProveedor));
+      list = list.filter((p) => ids?.has(String(p.id)));
+    }
+    return list;
+  }, [inventario, preciosQ, preciosDepto, preciosProveedor, productosPorProveedor, idsConProveedor]);
+
+  const preciosFiltrosActivos = Boolean(preciosQ.trim() || preciosDepto || preciosProveedor);
 
   useEffect(() => {
     if (vista !== 'precios') return;
@@ -422,6 +436,8 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     for (const p of inventario) d[p.id] = String(Number(p.precio || 0).toFixed(2));
     setPreciosDraft(d);
     setPreciosQ('');
+    setPreciosDepto('');
+    setPreciosProveedor('');
   };
 
   const guardarPrecios = async () => {
@@ -1398,6 +1414,8 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                   const c = String(codigo || '').trim();
                   const exacto = productoPorCodigoExacto(inventario, c);
                   if (exacto) {
+                    setPreciosDepto('');
+                    setPreciosProveedor('');
                     setPreciosQ(String(exacto.id));
                     enfocarProductoPrecios(exacto.id);
                     return;
@@ -1412,9 +1430,46 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                 inputStyle={{ flex: 1, minWidth: 0 }}
               />
             </div>
-            {preciosQ.trim() ? (
-              <button type="button" className="btn btn-ghost" onClick={() => setPreciosQ('')}>
-                Limpiar
+            <select
+              className="select"
+              style={{ flex: '0 1 180px', minWidth: 140 }}
+              value={preciosDepto}
+              onChange={(e) => setPreciosDepto(e.target.value)}
+              title="Filtrar por departamento"
+            >
+              <option value="">Todos los departamentos</option>
+              {departamentos.map((d) => (
+                <option key={d} value={d}>
+                  {etiquetaDepartamento(d)}
+                </option>
+              ))}
+            </select>
+            <select
+              className="select"
+              style={{ flex: '0 1 180px', minWidth: 140 }}
+              value={preciosProveedor}
+              onChange={(e) => setPreciosProveedor(e.target.value)}
+              title="Filtrar por proveedor"
+            >
+              <option value="">Todos los proveedores</option>
+              <option value="__ninguno__">Sin proveedor</option>
+              {proveedores.map((pr) => (
+                <option key={pr.id} value={String(pr.id)}>
+                  {pr.nombre || pr.id}
+                </option>
+              ))}
+            </select>
+            {preciosFiltrosActivos ? (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setPreciosQ('');
+                  setPreciosDepto('');
+                  setPreciosProveedor('');
+                }}
+              >
+                Limpiar filtros
               </button>
             ) : null}
             <span className="muted" style={{ fontSize: '0.82rem' }}>
@@ -1435,7 +1490,8 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                 {rowsPrecios.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>
-                      Sin productos con «{preciosQ.trim()}»
+                      Sin productos con los filtros actuales
+                      {preciosQ.trim() ? ` («${preciosQ.trim()}»)` : ''}
                     </td>
                   </tr>
                 ) : (
