@@ -1,4 +1,4 @@
-import { clasificarPago, rangoConsultaCorte, resumirVentas } from './corteCaja.js';
+import { clasificarPago, rangoConsultaCorte, resumirVentas, fechaCorteSugerida, corteYaRegistrado } from './corteCaja.js';
 import { consultarVentas } from './ventasQuery.js';
 import { filtrarVentasPorTurno, leerTurnos, nombreTurnoLegible, turnoActual } from './turnos.js';
 import { aplicarDeltaStock } from './inventarioMultitienda.js';
@@ -263,22 +263,39 @@ export async function cargarDiaCaja(supabase, { sucursal, fecha, turno = null })
   };
 }
 
+/**
+ * Saldos de caja = venta acumulada del turno al momento.
+ * Se muestra mientras el corte de ese turno/fecha/tienda NO esté cerrado.
+ * Al cerrar el corte, el saldo deja de estar “en curso”.
+ */
 export async function cargarSaldosCajaEnCurso(supabase, { sucursal, fecha = null } = {}) {
-  const ymd = String(fecha || new Date().toISOString().slice(0, 10)).slice(0, 10);
   const turnos = leerTurnos();
   const suc = sucursal ? normalizarCodigoTienda(sucursal) : null;
   const out = [];
   let aviso = null;
+  const ahora = new Date();
 
   for (const t of turnos) {
+    // Fecha operativa del turno (nocturno usa el día en que inició).
+    const ymd = fecha ? String(fecha).slice(0, 10) : fechaCorteSugerida(t, ahora);
     const dia = await cargarDiaCaja(supabase, { sucursal: suc, fecha: ymd, turno: t });
     if (dia.aviso && !aviso) aviso = dia.aviso;
     if (dia.error && !aviso) aviso = dia.error;
+
     const resumen = resumirMovimientosCaja(dia.ventas || [], dia.cancelaciones || []);
     const tickets = Number(resumen.ticketsBruto) || 0;
     const total = Number(resumen.total) || 0;
+
+    let corteCerrado = false;
+    let corteInfo = null;
+    if (suc && t.id) {
+      const dup = await corteYaRegistrado(supabase, { sucursal: suc, fecha: ymd, turnoId: t.id });
+      corteCerrado = Boolean(dup?.existe);
+      corteInfo = dup?.corte || null;
+    }
+
     out.push({
-      id: `saldo_${suc || 'ALL'}_${t.id}`,
+      id: `saldo_${suc || 'ALL'}_${t.id}_${ymd}`,
       turno_id: t.id,
       nombreCaja: nombreTurnoLegible(t) || t.id,
       sucursal: suc,
@@ -288,22 +305,28 @@ export async function cargarSaldosCajaEnCurso(supabase, { sucursal, fecha = null
       efectivo: Number(resumen.efectivoEsperado) || 0,
       electronico: Number(resumen.electronico) || 0,
       sinMovimiento: tickets === 0 && Math.abs(total) < 0.01,
+      enCurso: !corteCerrado,
+      corteCerrado,
+      corte: corteInfo,
       ventas: dia.ventas || [],
       cancelaciones: dia.cancelaciones || [],
       resumen,
+      actualizadoAt: ahora.toISOString(),
     });
   }
 
-  const actual = turnoActual(turnos);
-  if (actual) {
-    out.sort((a, b) => {
+  const actual = turnoActual(turnos, ahora);
+  out.sort((a, b) => {
+    // Primero en curso; dentro de ellos, el turno actual arriba.
+    if (a.enCurso !== b.enCurso) return a.enCurso ? -1 : 1;
+    if (actual) {
       if (String(a.turno_id) === String(actual.id)) return -1;
       if (String(b.turno_id) === String(actual.id)) return 1;
-      return 0;
-    });
-  }
+    }
+    return 0;
+  });
 
-  return { data: out, aviso, fecha: ymd };
+  return { data: out, aviso, fecha: fechaCorteSugerida(actual || turnos[0], ahora) };
 }
 
 export async function registrarCancelacion(supabase, opts) {

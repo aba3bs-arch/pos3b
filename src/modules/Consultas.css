@@ -533,9 +533,37 @@
   border-radius: 12px;
 }
 
+.consultas-saldo-card--cerrado {
+  opacity: 0.72;
+  background: #f8fafc;
+}
+
 .consultas-saldo-nombre {
   font-weight: 700;
   color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.consultas-saldo-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.consultas-saldo-badge.en-curso {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.consultas-saldo-badge.cerrado {
+  background: #e2e8f0;
+  color: #475569;
 }
 
 .consultas-saldo-moneda {

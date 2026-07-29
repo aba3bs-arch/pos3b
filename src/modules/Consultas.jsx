@@ -185,13 +185,15 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   }, [supabase, desde, hasta, filtroSucursal]);
 
   const buscarSaldos = useCallback(async () => {
-    // Saldo = ventas en curso del día (turno), no el último corte cerrado.
-    const fechaSaldo = hasta || hoyYmd();
+    // Venta al momento del turno (hasta que se cierre el corte). Sin fecha fija del filtro.
     const tienda = filtroSucursal || (esAlmacenCentral(sucursal) ? null : sucursal) || null;
-    const r = await cargarSaldosCajaEnCurso(supabase, { sucursal: tienda, fecha: fechaSaldo });
+    if (!tienda) {
+      setAviso('Elige una sucursal para ver el saldo de caja en curso (hasta el cierre de corte).');
+    }
+    const r = await cargarSaldosCajaEnCurso(supabase, { sucursal: tienda, fecha: null });
     if (r.aviso) setAviso(r.aviso);
     return r.data || [];
-  }, [supabase, hasta, filtroSucursal, sucursal]);
+  }, [supabase, filtroSucursal, sucursal]);
 
   const refrescar = useCallback(async () => {
     if (!esLista) return;
@@ -226,6 +228,24 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   useEffect(() => {
     void refrescar();
   }, [seccion, desde, hasta, filtroSucursal]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Saldos: refresco automático para ver la venta al momento.
+  useEffect(() => {
+    if (seccion !== 'cajas_saldos') return undefined;
+    const id = window.setInterval(() => {
+      void buscarSaldos()
+        .then((data) => {
+          setSaldos(data || []);
+          setSelSaldo((prev) => {
+            if (!prev) return null;
+            const next = (data || []).find((s) => s.id === prev.id);
+            return next && next.enCurso && !next.sinMovimiento ? next : null;
+          });
+        })
+        .catch(() => {});
+    }, 15000);
+    return () => window.clearInterval(id);
+  }, [seccion, buscarSaldos]);
 
   useEffect(() => {
     if (esAlmacenCentral(sucursal)) return;
@@ -529,10 +549,9 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                 </>
               )}
               {seccion === 'cajas_saldos' && (
-                <label className="consultas-chip" title="Día del saldo">
-                  📅
-                  <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
-                </label>
+                <span className="consultas-chip" title="Venta al momento">
+                  🔴 En vivo
+                </span>
               )}
             </div>
 
@@ -726,21 +745,44 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                 ) : (
                   <div className="consultas-saldos">
                     <p className="muted" style={{ margin: '0 0 0.35rem', fontSize: '0.8rem' }}>
-                      Saldo = ventas netas del turno en curso ({hasta || hoyYmd()}). Actualiza al cobrar.
+                      Venta acumulada al momento. Se actualiza sola cada 15 s. El saldo sigue visible hasta que
+                      cierres el corte de ese turno (luego pasa a Cortes de caja).
                     </p>
                     {saldosFiltrados.map((s) => (
-                      <div key={s.id} className="consultas-saldo-card">
+                      <div
+                        key={s.id}
+                        className={`consultas-saldo-card${s.corteCerrado ? ' consultas-saldo-card--cerrado' : ''}`}
+                      >
                         <div>
-                          <div className="consultas-saldo-nombre">{s.nombreCaja}</div>
+                          <div className="consultas-saldo-nombre">
+                            {s.nombreCaja}
+                            {s.enCurso ? (
+                              <span className="consultas-saldo-badge en-curso">En curso</span>
+                            ) : (
+                              <span className="consultas-saldo-badge cerrado">Corte cerrado</span>
+                            )}
+                          </div>
                           <div className="consultas-saldo-moneda">
                             🇲🇽 Peso mexicano-MXN
-                            {!s.sinMovimiento && (
-                              <span className="muted"> · {s.tickets} ticket(s) · efectivo {fmtMonto(s.efectivo)}</span>
-                            )}
+                            <span className="muted">
+                              {' '}
+                              · {s.fecha}
+                              {!s.sinMovimiento && ` · ${s.tickets} ticket(s) · efectivo ${fmtMonto(s.efectivo)}`}
+                            </span>
                           </div>
                         </div>
                         <div className="consultas-saldo-right">
-                          {s.sinMovimiento ? (
+                          {s.corteCerrado ? (
+                            <>
+                              <div className="muted" style={{ fontSize: '0.8rem', textAlign: 'right' }}>
+                                Cerrado
+                                {s.corte?.usuario ? ` · ${s.corte.usuario}` : ''}
+                              </div>
+                              <div className="consultas-saldo-monto">
+                                {fmtMonto(s.corte?.total_ventas ?? s.saldo)}
+                              </div>
+                            </>
+                          ) : s.sinMovimiento ? (
                             <div className="muted" style={{ fontSize: '0.85rem' }}>
                               Sin movimiento
                             </div>
@@ -854,14 +896,14 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
               </div>
             )}
 
-            {selSaldo && seccion === 'cajas_saldos' && !selSaldo.sinMovimiento && (
+            {selSaldo && seccion === 'cajas_saldos' && selSaldo.enCurso && !selSaldo.sinMovimiento && (
               <div className="consultas-detail">
                 <h4>
-                  {selSaldo.nombreCaja} · ventas en curso ({selSaldo.fecha})
+                  {selSaldo.nombreCaja} · venta al momento ({selSaldo.fecha})
                 </h4>
                 <div className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>
                   Total neto {fmtMonto(selSaldo.saldo)} · Efectivo {fmtMonto(selSaldo.efectivo)} · Electrónico{' '}
-                  {fmtMonto(selSaldo.electronico)}
+                  {fmtMonto(selSaldo.electronico)} · visible hasta cerrar el corte
                 </div>
                 <table className="consultas-table">
                   <thead>
