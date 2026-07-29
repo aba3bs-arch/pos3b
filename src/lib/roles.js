@@ -121,6 +121,7 @@ export const MODULOS_ORDEN = [
   'Inicio',
   'Incidencias',
   'Ventas',
+  'Escáner caja',
   'Corte de caja',
   'Recolecciones',
   'Corte Virtual',
@@ -153,6 +154,7 @@ const ACCESO_POR_ROL = {
     'Inicio',
     'Incidencias',
     'Ventas',
+    'Escáner caja',
     'Corte de caja',
     'Recolecciones',
     'Corte Virtual',
@@ -185,6 +187,7 @@ const ACCESO_POR_ROL = {
     'Inicio',
     'Incidencias',
     'Ventas',
+    'Escáner caja',
     'Corte de caja',
     'Recolecciones',
     'Corte Virtual',
@@ -205,6 +208,7 @@ const ACCESO_POR_ROL = {
     'Inicio',
     'Incidencias',
     'Ventas',
+    'Escáner caja',
     'Corte de caja',
     'Recolecciones',
     'Corte Virtual',
@@ -372,7 +376,7 @@ export function puedeGestionarInventarioMultitienda(rol) {
 export function descripcionRol(rol) {
   const r = normalizarRol(rol);
   const textos = {
-    Cajero: 'Mostrador: ventas, cortes, vales, ingreso de inventario, traspasos y etiquetas',
+    Cajero: 'Mostrador: ventas, escáner móvil, cortes, vales, ingreso, traspasos, preinventario y etiquetas',
     Repartidor: 'Ruta, recolecciones e incidencias en todas las tiendas desde central MAIN',
     Auditor: 'Consultas, reportes, inventario e incidencias en todas las tiendas desde central MAIN',
     Supervisor: 'Operación de tienda sin configuración ni usuarios',

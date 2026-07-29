@@ -238,6 +238,29 @@ export function htmlAjusteInventario(data) {
   </body></html>`;
 }
 
+export function htmlPreinventario(data) {
+  const cfg = leerConfigImpresion();
+  const lineas = data.lineas || [];
+  const r = data.resumen || {};
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Preinventario</title><style>${estilosImpresion(cfg.ancho)}</style></head><body>
+    ${cabeceraDoc('PREINVENTARIO (NO AFECTA TEÓRICO)', { sucursal: data.sucursal, usuario: data.usuario, folio: data.folio })}
+    ${data.nombre ? `<div class="bold">${esc(data.nombre)}</div>` : ''}
+    ${data.departamento ? `<div class="muted">Departamento: ${esc(data.departamento)}</div>` : ''}
+    <div class="sep"></div>
+    <div>Contados: ${r.contados || 0}/${r.productos || 0}</div>
+    <div>Faltante: <strong>${r.faltante || 0}</strong> · Sobrante: <strong>${r.sobrante || 0}</strong></div>
+    <div class="sep"></div>
+    ${htmlTablaLineas(lineas, [
+      { label: 'Cód.', key: 'id' },
+      { label: 'Producto', key: 'nombre' },
+      { label: 'Teór.', key: 'teorico', align: 'right' },
+      { label: 'Cont.', key: 'contado', align: 'right', fmt: (row) => (row.contado == null ? '—' : row.contado) },
+      { label: 'Dif.', key: 'diferencia', align: 'right', fmt: (row) => (row.diferencia == null ? '—' : row.diferencia > 0 ? `+${row.diferencia}` : String(row.diferencia)) },
+    ])}
+    ${pieDoc('Solo control interno. No modifica el inventario teórico del sistema.')}
+  </body></html>`;
+}
+
 export function htmlReporte(data) {
   const cfg = leerConfigImpresion();
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Reporte</title><style>${estilosImpresion(cfg.ancho === '58mm' ? 'carta' : cfg.ancho)}</style></head><body>
@@ -299,6 +322,7 @@ const GENERADORES = {
   inventario: htmlInventario,
   movimiento_inventario: htmlMovimientoInventario,
   ajuste_inventario: htmlAjusteInventario,
+  preinventario: htmlPreinventario,
   reporte: htmlReporte,
   corte: htmlCorteCaja,
 };
@@ -463,6 +487,10 @@ export function imprimirMovimientoInventario(datos) {
 
 export function imprimirAjusteInventario(datos) {
   return imprimirDocumento('ajuste_inventario', datos, { forzar: true });
+}
+
+export function imprimirPreinventario(datos) {
+  return imprimirDocumento('preinventario', datos, { forzar: true, titulo: 'Preinventario' });
 }
 
 export function imprimirReporte(datos) {

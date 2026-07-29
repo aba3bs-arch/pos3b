@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { etiquetaMetodoPago, leerMetodosPago, resolverImpresionVentaPorMonto } from '../lib/posConfig.js';
 import { imprimirVenta } from '../lib/impresion.js';
 import { productoEnVenta, productoEsFavorito } from '../lib/productoForm.js';
@@ -14,6 +14,7 @@ import ProductoThumb from '../components/ProductoThumb.jsx';
 import DetalleProducto from '../components/DetalleProducto.jsx';
 import { productoCoincideBusqueda, productoPorCodigoExacto, pareceCodigoProducto } from '../lib/buscarProductoTexto.js';
 import { registrarRemocionCarrito } from '../lib/proyeccionFaltante.js';
+import { suscribirEscanerRemoto } from '../lib/escanerRemoto.js';
 
 function addToCart(carrito, producto) {
   const i = carrito.findIndex((c) => c.id === producto.id);
@@ -81,6 +82,36 @@ export default function Ventas({
   const [deptoActivo, setDeptoActivo] = useState('favoritos');
   const [qDepto, setQDepto] = useState('');
   const [detalleProducto, setDetalleProducto] = useState(null);
+  const [avisoEscanerRemoto, setAvisoEscanerRemoto] = useState('');
+  const inventarioRef = useRef(inventario);
+
+  useEffect(() => {
+    inventarioRef.current = inventario;
+  }, [inventario]);
+
+  useEffect(() => {
+    if (!supabase || !user?.id) return undefined;
+    return suscribirEscanerRemoto(supabase, {
+      sucursal,
+      userId: user.id,
+      onCodigo: (codigo) => {
+        const prod = productoPorCodigoExacto(inventarioRef.current, codigo);
+        if (!prod) {
+          setAvisoEscanerRemoto(`Escáner móvil: no se encontró ${codigo}`);
+          return;
+        }
+        setCarrito((c) => addToCart(c, prod));
+        sonidoEscaneoProducto();
+        setAvisoEscanerRemoto(`Escáner móvil: + ${prod.nombre}`);
+      },
+    });
+  }, [supabase, sucursal, user?.id]);
+
+  useEffect(() => {
+    if (!avisoEscanerRemoto) return undefined;
+    const t = setTimeout(() => setAvisoEscanerRemoto(''), 3500);
+    return () => clearTimeout(t);
+  }, [avisoEscanerRemoto]);
 
   useEffect(() => {
     if (mostrarCobro) {
@@ -340,6 +371,23 @@ export default function Ventas({
 
   return (
     <div className="ventas-layout">
+      {avisoEscanerRemoto && (
+        <div
+          className="card"
+          style={{
+            flex: '1 1 100%',
+            width: '100%',
+            margin: 0,
+            padding: '0.55rem 0.75rem',
+            background: 'rgba(46, 125, 50, 0.1)',
+            border: '1px solid rgba(46, 125, 50, 0.35)',
+            color: '#1b5e20',
+            fontWeight: 600,
+          }}
+        >
+          {avisoEscanerRemoto}
+        </div>
+      )}
       <div className="ventas-catalogo">
         <div className="ventas-scan-bar">
           <CampoCodigo
@@ -481,7 +529,7 @@ export default function Ventas({
                   </button>
                   <button
                     type="button"
-                    className="producto-thumb-detalle-btn"
+                    className="producto-thumb-detalle-corner"
                     title="Ver detalle"
                     aria-label={`Detalle de ${p.nombre}`}
                     onClick={(e) => {
@@ -490,7 +538,7 @@ export default function Ventas({
                       setDetalleProducto(p);
                     }}
                   >
-                    <Icon name="eye" size={14} />
+                    <span className="producto-thumb-detalle-tri" aria-hidden />
                   </button>
                 </div>
               ))}

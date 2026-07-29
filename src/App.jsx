@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase, supabaseConfigured } from './lib/supabase.js';
 import Inicio from './modules/Inicio.jsx';
 import Ventas from './modules/Ventas.jsx';
+import EscanerMovil from './modules/EscanerMovil.jsx';
 import Productos from './modules/Productos.jsx';
 import Compras from './modules/Compras.jsx';
 import Checador from './modules/Checador.jsx';
@@ -1015,6 +1016,15 @@ function App() {
               cargarDatos={cargarDatos}
               busqueda={busqueda}
               setBusqueda={setBusqueda}
+            />
+          )}
+          {vista === 'Escáner caja' && (
+            <EscanerMovil
+              supabase={supabase}
+              user={user}
+              sucursal={sucursal}
+              inventario={inventarioTienda}
+              onVolver={() => irAModulo('Ventas')}
             />
           )}
           {vista === 'Corte de caja' && (

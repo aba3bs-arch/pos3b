@@ -30,6 +30,7 @@ import ProductoThumb from '../components/ProductoThumb.jsx';
 import MoverProductosLote from '../components/MoverProductosLote.jsx';
 import { imprimirEtiquetasEstante } from '../lib/impresion.js';
 import AjusteInventario from './AjusteInventario.jsx';
+import Preinventario from './Preinventario.jsx';
 import HistorialProducto from '../components/HistorialProducto.jsx';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { esAlmacenCentral, etiquetaCedisEmpresa } from '../lib/inventarioMultitienda.js';
@@ -76,6 +77,7 @@ const TITULOS_VISTA = {
   editar: 'Editar producto',
   ajustes: 'Ajuste de inventario',
   traspaso: 'Traspasos',
+  preinventario: 'Preinventario',
   mover: 'Mover productos',
   etiquetas: 'Etiquetas de estante',
   importexport: 'Importar / Exportar',
@@ -141,7 +143,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
 
   useEffect(() => {
     if (!esCajero) return;
-    const vistasCajero = new Set(['lista', 'ajustes', 'traspaso', 'etiquetas']);
+    const vistasCajero = new Set(['lista', 'ajustes', 'traspaso', 'etiquetas', 'preinventario']);
     if (!vistasCajero.has(vista)) setVista('lista');
   }, [esCajero, vista]);
 
@@ -560,6 +562,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     ? [
         { id: 'ajustes', label: 'Ingreso de inventario', icon: 'refresh', onClick: () => setModalAjusteOpen(true) },
         { id: 'traspaso', label: 'Traspasos', icon: 'truck', onClick: () => setVista('traspaso') },
+        { id: 'preinventario', label: 'Preinventario', icon: 'package', onClick: () => setVista('preinventario') },
         {
           id: 'etiquetas',
           label: 'Imprimir etiquetas',
@@ -574,6 +577,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
         { id: 'alta', label: 'Nuevo producto', icon: 'plus', onClick: () => { setForm(empty); setEsEdicionProducto(false); setVista('alta'); } },
         { id: 'ajustes', label: 'Ajuste de inventario', icon: 'refresh', onClick: () => setModalAjusteOpen(true) },
         { id: 'traspaso', label: 'Traspasos', icon: 'truck', onClick: () => setVista('traspaso') },
+        { id: 'preinventario', label: 'Preinventario', icon: 'package', onClick: () => setVista('preinventario') },
         { id: 'mover', label: 'Mover productos (proveedor / depto)', icon: 'refresh', onClick: () => setVista('mover') },
         { id: 'etiquetas', label: 'Imprimir etiquetas', icon: 'print', onClick: () => { setEtiquetasSel(new Set()); setVista('etiquetas'); } },
         { id: 'importexport', label: 'Importar archivo .xls', icon: 'download', onClick: () => setVista('importexport') },
@@ -1070,6 +1074,18 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
 
       {vista === 'traspaso' && (
         <AjusteInventario supabase={supabase} inventario={inventario} inventarioCompleto={inventarioCompleto || inventario} cargarDatos={cargarDatos} user={user} sucursal={sucursal} modoInicial="traspaso" />
+      )}
+
+      {vista === 'preinventario' && (
+        <div className="card">
+          <Preinventario
+            supabase={supabase}
+            inventario={inventario}
+            user={user}
+            sucursal={sucursal}
+            onVolver={irLista}
+          />
+        </div>
       )}
 
       {vista === 'mover' && (

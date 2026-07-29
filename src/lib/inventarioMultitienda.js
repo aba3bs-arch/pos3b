@@ -21,21 +21,51 @@ export function sucursalParaUbicacion(sucursal, ubicacion) {
   return normalizarCodigoTienda(sucursal);
 }
 
+/** Normaliza una entrada de sucursal (objeto, número plano o formas legacy). */
+export function normalizarEntradaStockSucursal(raw) {
+  if (raw == null) return { cedis: 0, piso: 0 };
+  if (typeof raw === 'number' || typeof raw === 'string') {
+    return { cedis: 0, piso: Math.floor(Number(raw) || 0) };
+  }
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    const piso = Math.floor(Number(raw.piso ?? raw.stock ?? raw.cantidad ?? raw.existencia) || 0);
+    const cedis = Math.floor(Number(raw.cedis) || 0);
+    return { cedis, piso };
+  }
+  return { cedis: 0, piso: 0 };
+}
+
 export function parseStockSucursales(producto) {
   const raw = producto?.stock_sucursales;
   if (!raw) return {};
-  if (typeof raw === 'object' && !Array.isArray(raw)) return { ...raw };
-  try {
-    const p = JSON.parse(raw);
-    return p && typeof p === 'object' ? { ...p } : {};
-  } catch {
-    return {};
+  let obj = null;
+  if (typeof raw === 'object' && !Array.isArray(raw)) obj = { ...raw };
+  else {
+    try {
+      const p = JSON.parse(raw);
+      obj = p && typeof p === 'object' && !Array.isArray(p) ? { ...p } : null;
+    } catch {
+      return {};
+    }
   }
+  if (!obj) return {};
+  const out = {};
+  for (const [k, v] of Object.entries(obj)) {
+    const suc = normalizarCodigoTienda(k) || String(k || '').trim().toUpperCase();
+    if (!suc) continue;
+    out[suc] = normalizarEntradaStockSucursal(v);
+  }
+  return out;
 }
 
 /** Consolida CEDIS de sucursales en MAIN (migración / datos legacy). */
 export function normalizarMapaStockCedisUnico(map) {
-  const m = { ...map };
+  const m = {};
+  for (const [k, v] of Object.entries(map || {})) {
+    const suc = normalizarCodigoTienda(k) || String(k || '').trim().toUpperCase();
+    if (!suc) continue;
+    m[suc] = normalizarEntradaStockSucursal(v);
+  }
   let cedisCentral = Math.floor(Number(m[ALMACEN_CENTRAL]?.cedis) || 0);
 
   for (const s of Object.keys(m)) {
@@ -57,15 +87,20 @@ export function normalizarMapaStockCedisUnico(map) {
 /** Migra columnas legacy a stock_sucursales si el mapa está vacío. */
 export function asegurarMapaStock(producto, sucursalContext = 'MAIN') {
   const existente = parseStockSucursales(producto);
+  const ctx = normalizarCodigoTienda(sucursalContext) || ALMACEN_CENTRAL;
+  const cedisLegacy = Number(producto?.stock_cedis) || 0;
+  const pisoLegacy = Math.floor(Number(producto?.stock) || 0);
+
   if (Object.keys(existente).length > 0) {
-    return normalizarMapaStockCedisUnico(existente);
+    const map = normalizarMapaStockCedisUnico(existente);
+    // Tienda activa sin clave en el mapa: sembrar desde stock legado (evita ceros falsos tipo Smoking).
+    if (ctx && !map[ctx] && pisoLegacy > 0) {
+      map[ctx] = { cedis: 0, piso: pisoLegacy };
+    }
+    return map;
   }
 
   const map = {};
-  const cedisLegacy = Number(producto?.stock_cedis) || 0;
-  const pisoLegacy = Number(producto?.stock) || 0;
-  const ctx = normalizarCodigoTienda(sucursalContext) || ALMACEN_CENTRAL;
-
   map[ALMACEN_CENTRAL] = { cedis: cedisLegacy, piso: 0 };
 
   if (pisoLegacy > 0) {

@@ -3072,32 +3072,38 @@ table.data th {
   padding: 0.2rem 0.4rem;
 }
 
-.producto-thumb-detalle-btn {
+/* Esquina triangular sutil para abrir detalle (sin ícono de ojo). */
+.producto-thumb-detalle-corner {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: 0;
+  right: 0;
   z-index: 2;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: none;
-  border-radius: 999px;
-  background: rgba(30, 91, 184, 0.95);
-  color: #fff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  background: transparent;
   cursor: pointer;
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.35);
 }
 
-.producto-thumb-detalle-btn:hover {
-  background: #1e5bb8;
-  transform: scale(1.06);
+.producto-thumb-detalle-tri {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 0 22px 22px 0;
+  border-color: transparent rgba(45, 45, 45, 0.42) transparent transparent;
+  transition: border-color 0.12s ease;
 }
 
-.producto-thumb-detalle-btn:active {
-  transform: scale(0.96);
+.producto-thumb-detalle-corner:hover .producto-thumb-detalle-tri {
+  border-color: transparent rgba(25, 25, 25, 0.62) transparent transparent;
+}
+
+.producto-thumb-detalle-corner:active .producto-thumb-detalle-tri {
+  border-color: transparent rgba(15, 15, 15, 0.75) transparent transparent;
 }
 
 .ventas-favorito-card {
@@ -3106,9 +3112,9 @@ table.data th {
   flex-direction: column;
 }
 
-.ventas-favorito-card .producto-thumb-detalle-btn {
-  top: 10px;
-  right: 10px;
+.ventas-favorito-card .producto-thumb-detalle-corner {
+  top: 6px;
+  right: 6px;
 }
 
 .ventas-resultado-item {
