@@ -115,6 +115,9 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const [tickDepartamentos, setTickDepartamentos] = useState(0);
   const [preciosDraft, setPreciosDraft] = useState({});
   const [guardandoPrecios, setGuardandoPrecios] = useState(false);
+  const [preciosQ, setPreciosQ] = useState('');
+  const preciosBuscarRef = useRef(null);
+  const preciosFilaRefs = useRef(new Map());
   const [seleccionEliminar, setSeleccionEliminar] = useState(() => new Set());
   const [etiquetasSel, setEtiquetasSel] = useState(() => new Set());
   const [productoSelId, setProductoSelId] = useState(null);
@@ -205,6 +208,29 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     if (filtros.disponible === 'no') list = list.filter((p) => p.en_venta === false);
     return list;
   }, [inventario, q, filtros, productosPorProveedor, idsConProveedor]);
+
+  const rowsPrecios = useMemo(() => {
+    const t = preciosQ.trim();
+    if (!t) return inventario || [];
+    return (inventario || []).filter((p) => productoCoincideBusqueda(p, t));
+  }, [inventario, preciosQ]);
+
+  useEffect(() => {
+    if (vista !== 'precios') return;
+    const t = window.setTimeout(() => preciosBuscarRef.current?.focus?.(), 80);
+    return () => window.clearTimeout(t);
+  }, [vista]);
+
+  const enfocarProductoPrecios = (productoId) => {
+    const id = String(productoId || '');
+    window.requestAnimationFrame(() => {
+      const el = preciosFilaRefs.current.get(id);
+      el?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+      const input = el?.querySelector?.('input[type="number"]');
+      input?.focus?.();
+      input?.select?.();
+    });
+  };
 
   const productoSeleccionado = useMemo(() => {
     if (!productoSelId) return rows[0] || inventario?.[0] || null;
@@ -395,6 +421,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     const d = {};
     for (const p of inventario) d[p.id] = String(Number(p.precio || 0).toFixed(2));
     setPreciosDraft(d);
+    setPreciosQ('');
   };
 
   const guardarPrecios = async () => {
@@ -1360,6 +1387,40 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           <p className="muted" style={{ marginTop: 0 }}>
             Edita precios de venta para todo el catálogo (aplican en todas las tiendas) y guarda los cambios.
           </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flex: '1 1 240px', minWidth: 0 }}>
+              <Icon name="search" size={16} />
+              <CampoCodigo
+                inputRef={preciosBuscarRef}
+                value={preciosQ}
+                onChange={(e) => setPreciosQ(e.target.value)}
+                onEscanear={(codigo) => {
+                  const c = String(codigo || '').trim();
+                  const exacto = productoPorCodigoExacto(inventario, c);
+                  if (exacto) {
+                    setPreciosQ(String(exacto.id));
+                    enfocarProductoPrecios(exacto.id);
+                    return;
+                  }
+                  setPreciosQ(c);
+                  alert(`No se encontró el producto con código ${c} en el catálogo.`);
+                }}
+                beepAlEnter
+                autoFocus
+                placeholder="Buscar por nombre, código o escanear…"
+                tituloCamara="Buscar producto para precio"
+                inputStyle={{ flex: 1, minWidth: 0 }}
+              />
+            </div>
+            {preciosQ.trim() ? (
+              <button type="button" className="btn btn-ghost" onClick={() => setPreciosQ('')}>
+                Limpiar
+              </button>
+            ) : null}
+            <span className="muted" style={{ fontSize: '0.82rem' }}>
+              {rowsPrecios.length} producto{rowsPrecios.length === 1 ? '' : 's'}
+            </span>
+          </div>
           <div className="table-wrap" style={{ maxHeight: '480px' }}>
             <table className="data">
               <thead>
@@ -1371,24 +1432,38 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                 </tr>
               </thead>
               <tbody>
-                {rows.map((p) => (
-                  <tr key={p.id}>
-                    <td>{p.id}</td>
-                    <td>{p.nombre}</td>
-                    <td>${Number(p.precio).toFixed(2)}</td>
-                    <td>
-                      <input
-                        className="input"
-                        type="number"
-                        step="0.01"
-                        min={0}
-                        style={{ width: '7rem', padding: '0.35rem' }}
-                        value={preciosDraft[p.id] ?? ''}
-                        onChange={(e) => setPreciosDraft({ ...preciosDraft, [p.id]: e.target.value })}
-                      />
+                {rowsPrecios.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>
+                      Sin productos con «{preciosQ.trim()}»
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  rowsPrecios.map((p) => (
+                    <tr
+                      key={p.id}
+                      ref={(el) => {
+                        if (el) preciosFilaRefs.current.set(String(p.id), el);
+                        else preciosFilaRefs.current.delete(String(p.id));
+                      }}
+                    >
+                      <td>{p.id}</td>
+                      <td>{p.nombre}</td>
+                      <td>${Number(p.precio).toFixed(2)}</td>
+                      <td>
+                        <input
+                          className="input"
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          style={{ width: '7rem', padding: '0.35rem' }}
+                          value={preciosDraft[p.id] ?? ''}
+                          onChange={(e) => setPreciosDraft({ ...preciosDraft, [p.id]: e.target.value })}
+                        />
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
