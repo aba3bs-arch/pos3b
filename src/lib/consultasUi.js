@@ -49,6 +49,86 @@ export function fmtFechaCorta(iso) {
   });
 }
 
+function articulosDeVentaNorm(venta) {
+  let a = venta?.articulos;
+  if (typeof a === 'string') {
+    try {
+      a = JSON.parse(a);
+    } catch {
+      a = [];
+    }
+  }
+  return Array.isArray(a) ? a : [];
+}
+
+/**
+ * Consolida ventas del periodo por artículo (código).
+ * @returns {{ filas: Array, totalPiezas: number, totalImporte: number, tickets: number }}
+ */
+export function agruparVentaPorArticulo(ventas = [], opts = {}) {
+  const { productoPorId = new Map() } = opts;
+  const map = new Map();
+  let ticketsConArts = 0;
+
+  for (const v of ventas || []) {
+    const arts = articulosDeVentaNorm(v);
+    if (!arts.length) continue;
+    ticketsConArts += 1;
+    const vistosEnTicket = new Set();
+    for (const a of arts) {
+      const id = String(a.id ?? a.codigo ?? a.producto_id ?? '').trim();
+      if (!id) continue;
+      const piezas = Number(a.qty ?? a.cantidad ?? 1) || 1;
+      const precio = Number(a.precio) || 0;
+      const importe = Number(a.importe ?? a.subtotal);
+      const lineImp = Number.isFinite(importe) && importe !== 0 ? importe : precio * piezas;
+      const cat = productoPorId.get(id);
+      const nombre =
+        a.nombre || a.descripcion || cat?.nombre || id;
+      if (!map.has(id)) {
+        map.set(id, {
+          id,
+          nombre,
+          piezas: 0,
+          importe: 0,
+          tickets: 0,
+          precioPromedio: 0,
+        });
+      }
+      const row = map.get(id);
+      row.piezas += piezas;
+      row.importe += lineImp;
+      if (!vistosEnTicket.has(id)) {
+        row.tickets += 1;
+        vistosEnTicket.add(id);
+      }
+      if (cat?.nombre && (!row.nombre || row.nombre === id)) row.nombre = cat.nombre;
+    }
+  }
+
+  const filas = [...map.values()]
+    .map((r) => ({
+      ...r,
+      piezas: Math.round(r.piezas * 1000) / 1000,
+      importe: Math.round(r.importe * 100) / 100,
+      precioPromedio: r.piezas > 0 ? Math.round((r.importe / r.piezas) * 100) / 100 : 0,
+    }))
+    .sort((a, b) => b.importe - a.importe || b.piezas - a.piezas);
+
+  const totalPiezas = filas.reduce((s, r) => s + r.piezas, 0);
+  const totalImporte = filas.reduce((s, r) => s + r.importe, 0);
+  return {
+    filas: filas.map((r) => ({
+      ...r,
+      pct: totalImporte > 0 ? Math.round((r.importe / totalImporte) * 10000) / 100 : 0,
+    })),
+    totalPiezas: Math.round(totalPiezas * 1000) / 1000,
+    totalImporte: Math.round(totalImporte * 100) / 100,
+    tickets: ticketsConArts,
+    skus: filas.length,
+  };
+}
+
 export function fmtRangoFechas(desde, hasta) {
   const a = String(desde || '').slice(0, 10);
   const b = String(hasta || '').slice(0, 10);

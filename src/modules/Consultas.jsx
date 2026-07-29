@@ -6,6 +6,7 @@ import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
 import { cargarReporteMovimientosInventario } from '../lib/consultasInventario.js';
 import {
   agruparDocumentosInventario,
+  agruparVentaPorArticulo,
   colorAvatar,
   fmtFechaCorta,
   fmtMonto,
@@ -25,6 +26,8 @@ const NAV = [
 
 const TITULOS = {
   ventas: 'Ventas',
+  ventas_tickets: 'Ventas · Tickets',
+  ventas_articulo: 'Ventas · Por artículo',
   cfdi: 'CFDI',
   cfdi_ventas: 'CFDI · Ventas',
   compras: 'Compras',
@@ -115,7 +118,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     ? `${sel.titulo || 'Movimiento'} - ${sel.folio}`
     : TITULOS[seccion] || 'Consultas';
   const esLista =
-    seccion === 'ventas' ||
+    seccion === 'ventas_tickets' ||
+    seccion === 'ventas_articulo' ||
     seccion === 'cfdi_ventas' ||
     seccion === 'compras' ||
     seccion === 'inventarios' ||
@@ -202,7 +206,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     setSel(null);
     setSelSaldo(null);
     try {
-      if (seccion === 'ventas' || seccion === 'cfdi_ventas') {
+      if (seccion === 'ventas_tickets' || seccion === 'ventas_articulo' || seccion === 'cfdi_ventas') {
         setVentas(await buscarVentas());
       } else if (seccion === 'compras') {
         setCompras(await buscarCompras());
@@ -258,11 +262,33 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     if (!qNorm) return ventas;
     return ventas.filter((v) => {
       const folio = folioNumerico(v.id, 5);
-      const arts = Array.isArray(v.articulos) ? v.articulos.map((a) => `${a.id} ${a.nombre}`).join(' ') : '';
+      const arts = articulosDeVenta(v).map((a) => `${a.id} ${a.nombre}`).join(' ');
       const blob = `${folio} ${v.id} ${v.vendedor || ''} ${arts} ${v.metodo_pago || ''}`.toLowerCase();
       return blob.includes(qNorm);
     });
   }, [ventas, qNorm]);
+
+  const reporteArticulo = useMemo(
+    () => agruparVentaPorArticulo(ventas, { productoPorId }),
+    [ventas, productoPorId],
+  );
+
+  const articulosFiltrados = useMemo(() => {
+    if (!qNorm) return reporteArticulo.filas;
+    return reporteArticulo.filas.filter((r) =>
+      `${r.id} ${r.nombre}`.toLowerCase().includes(qNorm),
+    );
+  }, [reporteArticulo.filas, qNorm]);
+
+  const totalesArticuloFiltrado = useMemo(() => {
+    const piezas = articulosFiltrados.reduce((s, r) => s + r.piezas, 0);
+    const importe = articulosFiltrados.reduce((s, r) => s + r.importe, 0);
+    return {
+      piezas: Math.round(piezas * 1000) / 1000,
+      importe: Math.round(importe * 100) / 100,
+      skus: articulosFiltrados.length,
+    };
+  }, [articulosFiltrados]);
 
   const comprasFiltradas = useMemo(() => {
     if (!qNorm) return compras;
@@ -332,20 +358,25 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   }, [enDetalleInv, irDocInv]);
 
   const placeholderBusqueda =
-    seccion === 'ventas' || seccion === 'cfdi_ventas'
+    seccion === 'ventas_tickets' || seccion === 'cfdi_ventas'
       ? 'Buscar… Folio, Cliente, Producto'
-      : seccion === 'compras'
-        ? 'Buscar… Folio, Proveedor, Producto'
-        : seccion === 'cajas_cortes'
-          ? 'Buscar folio o monto'
-          : seccion === 'inventarios'
-            ? 'Buscar'
-            : 'Buscar…';
+      : seccion === 'ventas_articulo'
+        ? 'Buscar… Código o nombre de artículo'
+        : seccion === 'compras'
+          ? 'Buscar… Folio, Proveedor, Producto'
+          : seccion === 'cajas_cortes'
+            ? 'Buscar… Usuario, turno, sucursal'
+            : seccion === 'cajas_saldos'
+              ? 'Buscar caja o turno'
+              : seccion === 'inventarios'
+                ? 'Buscar folio o monto'
+                : 'Buscar…';
 
   const irA = (id) => {
-    setSeccion(id);
-    setQ('');
     setSel(null);
+    setSelSaldo(null);
+    setQ('');
+    setSeccion(id);
   };
 
   const lineasDetalleInv = useMemo(() => {
@@ -385,7 +416,12 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
       <section className="consultas-main">
         <div className="consultas-topbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0 }}>
-            {(enDetalleInv || seccion === 'cajas_cortes' || seccion === 'cajas_saldos' || seccion === 'cfdi_ventas') && (
+            {(enDetalleInv ||
+              seccion === 'cajas_cortes' ||
+              seccion === 'cajas_saldos' ||
+              seccion === 'cfdi_ventas' ||
+              seccion === 'ventas_tickets' ||
+              seccion === 'ventas_articulo') && (
               <button
                 type="button"
                 className="consultas-back"
@@ -394,6 +430,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                   if (enDetalleInv) setSel(null);
                   else if (seccion.startsWith('cajas_')) irA('cajas');
                   else if (seccion.startsWith('cfdi_')) irA('cfdi');
+                  else if (seccion.startsWith('ventas_')) irA('ventas');
                 }}
               >
                 ←
@@ -430,6 +467,17 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
             <span className="muted-top">{user?.nombre || ''}</span>
           </div>
         </div>
+
+        {seccion === 'ventas' && (
+          <div className="consultas-submenu">
+            <button type="button" onClick={() => irA('ventas_tickets')}>
+              Tickets <span>›</span>
+            </button>
+            <button type="button" onClick={() => irA('ventas_articulo')}>
+              Venta por artículo <span>›</span>
+            </button>
+          </div>
+        )}
 
         {seccion === 'cfdi' && (
           <div className="consultas-submenu">
@@ -579,7 +627,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
             {aviso && <div className="consultas-aviso">{aviso}</div>}
 
             <div className="consultas-body">
-              {(seccion === 'ventas' || seccion === 'cfdi_ventas') && (
+              {(seccion === 'ventas_tickets' || seccion === 'cfdi_ventas') && (
                 ventasFiltradas.length === 0 ? (
                   <EmptyState />
                 ) : (
@@ -619,6 +667,92 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                       })}
                     </tbody>
                   </table>
+                )
+              )}
+
+              {seccion === 'ventas_articulo' && (
+                articulosFiltrados.length === 0 ? (
+                  <EmptyState texto="Sin ventas de artículos en el rango." />
+                ) : (
+                  <>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                        gap: '0.5rem',
+                        marginBottom: '0.75rem',
+                      }}
+                    >
+                      {[
+                        { label: 'Artículos', value: String(totalesArticuloFiltrado.skus) },
+                        { label: 'Piezas', value: String(totalesArticuloFiltrado.piezas) },
+                        { label: 'Importe', value: fmtMonto(totalesArticuloFiltrado.importe) },
+                        { label: 'Tickets', value: String(reporteArticulo.tickets) },
+                      ].map((k) => (
+                        <div
+                          key={k.label}
+                          style={{
+                            padding: '0.5rem 0.65rem',
+                            borderRadius: 8,
+                            background: 'var(--surface, #f8fafc)',
+                            border: '1px solid var(--border, #e2e8f0)',
+                          }}
+                        >
+                          <div className="muted" style={{ fontSize: '0.72rem' }}>
+                            {k.label}
+                          </div>
+                          <strong style={{ fontSize: '1rem', color: 'var(--brand-blue, #1e5bb8)' }}>{k.value}</strong>
+                        </div>
+                      ))}
+                    </div>
+                    <table className="consultas-table">
+                      <thead>
+                        <tr>
+                          <th>Código</th>
+                          <th>Descripción</th>
+                          <th style={{ textAlign: 'right' }}>Piezas</th>
+                          <th style={{ textAlign: 'right' }}>P. prom.</th>
+                          <th style={{ textAlign: 'right' }}>Importe</th>
+                          <th style={{ textAlign: 'right' }}>%</th>
+                          <th style={{ textAlign: 'right' }}>Tickets</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {articulosFiltrados.map((r) => (
+                          <tr key={r.id}>
+                            <td>
+                              <div className="consultas-prod-cell">
+                                <ProductoThumb producto={productoPorId.get(r.id) || { id: r.id, nombre: r.nombre }} size={36} />
+                                <span style={{ fontWeight: 600 }}>{r.id}</span>
+                              </div>
+                            </td>
+                            <td style={{ fontWeight: 600 }}>{r.nombre}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 700 }}>{r.piezas}</td>
+                            <td style={{ textAlign: 'right' }}>{fmtMonto(r.precioPromedio)}</td>
+                            <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtMonto(r.importe)}</td>
+                            <td style={{ textAlign: 'right' }} className="muted">
+                              {r.pct.toFixed(1)}%
+                            </td>
+                            <td style={{ textAlign: 'right' }} className="muted">
+                              {r.tickets}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr>
+                          <td colSpan={2} style={{ fontWeight: 700 }}>
+                            Total ({totalesArticuloFiltrado.skus} SKU)
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 800 }}>{totalesArticuloFiltrado.piezas}</td>
+                          <td />
+                          <td style={{ textAlign: 'right', fontWeight: 800 }}>{fmtMonto(totalesArticuloFiltrado.importe)}</td>
+                          <td style={{ textAlign: 'right' }}>100%</td>
+                          <td />
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </>
                 )
               )}
 
@@ -815,7 +949,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
               )}
             </div>
 
-            {sel && (seccion === 'ventas' || seccion === 'cfdi_ventas') && (
+            {sel && (seccion === 'ventas_tickets' || seccion === 'cfdi_ventas') && (
               <div className="consultas-detail">
                 <h4>Ticket {folioNumerico(sel.id, 5)}</h4>
                 {articulosDeVenta(sel).length === 0 ? (
