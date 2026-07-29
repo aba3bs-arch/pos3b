@@ -2,6 +2,7 @@ import { etiquetaTienda, listarSucursales, normalizarCodigoTienda } from '../con
 import { leerAjustesInventario } from './conteoDepartamento.js';
 import { bucketKey, etiquetaBucket, COLORES_TIENDA } from './estadisticasData.js';
 import { toYmd } from './fechas.js';
+import { costoUnitarioInventario } from './valorInventario.js';
 
 /** Filtros rápidos del reporte de inventario. */
 export const PRESETS_REPORTE_INVENTARIO = [
@@ -88,8 +89,14 @@ function inventarioOperativoDeAjuste(ajuste) {
     valor += existencia * costo;
   }
   if (valor > 0) return Math.round(valor * 100) / 100;
-  // Fallback: piezas de existencia (sin valorizar)
   return Number(ajuste?.resumen?.piezasExistencia) || 0;
+}
+
+function etiquetaDeptoAjuste(raw) {
+  const d = String(raw || '').trim();
+  if (!d) return '—';
+  if (/^libre$/i.test(d)) return 'Ajuste libre';
+  return d;
 }
 
 /** Una fila de reporte a partir de un ajuste guardado. */
@@ -104,7 +111,7 @@ export function filaDesdeAjuste(ajuste) {
     folio: ajuste?.folio || '—',
     sucursal: suc,
     tienda: etiquetaTienda(suc),
-    departamento: ajuste?.departamento || '—',
+    departamento: etiquetaDeptoAjuste(ajuste?.departamento),
     auditor: ajuste?.usuario || '—',
     created_at: iso,
     fecha: fmtFecha(iso),
@@ -113,27 +120,185 @@ export function filaDesdeAjuste(ajuste) {
     merma,
     pctMerma: Math.round(pctMerma * 100) / 100,
     piezasFaltantes: Number(ajuste?.resumen?.piezasFaltantes) || 0,
+    origen: ajuste?.origen || 'local',
   };
 }
 
+function folioDesdeMovimiento(m) {
+  const meta = m?.meta && typeof m.meta === 'object' ? m.meta : {};
+  if (meta.folio) return String(meta.folio);
+  const mot = String(m?.motivo || '');
+  const hit = mot.match(/AJU-\d{8}-\d+/i);
+  return hit ? hit[0].toUpperCase() : null;
+}
+
+function mapaCostoPorProducto(inventario) {
+  const map = new Map();
+  for (const p of inventario || []) {
+    map.set(String(p.id), costoUnitarioInventario(p));
+  }
+  return map;
+}
+
+/** Agrupa movimientos nube de conteo en “ajustes” por folio. */
+export function ajustesDesdeMovimientosConteo(movimientos, { inventario = [] } = {}) {
+  const costos = mapaCostoPorProducto(inventario);
+  const map = new Map();
+
+  for (const m of movimientos || []) {
+    const modo = String(m.modo || '');
+    if (modo !== 'conteo_departamento' && modo !== 'conteo' && modo !== 'libre') continue;
+    const folio = folioDesdeMovimiento(m) || `SIN-FOLIO-${m.id}`;
+    const suc = normalizarCodigoTienda(m.sucursal_id || m.sucursal) || '—';
+    if (!map.has(folio)) {
+      map.set(folio, {
+        id: `nube_${folio}`,
+        folio,
+        departamento: m.departamento || '—',
+        sucursal: suc,
+        usuario: m.usuario || '—',
+        created_at: m.created_at,
+        origen: 'nube',
+        lineas: [],
+        resumen: {
+          valorFaltante: 0,
+          valorSobrante: 0,
+          piezasFaltantes: 0,
+          piezasSobrantes: 0,
+          piezasExistencia: 0,
+        },
+      });
+    }
+    const aj = map.get(folio);
+    if (new Date(m.created_at || 0) > new Date(aj.created_at || 0)) {
+      aj.created_at = m.created_at;
+      if (m.usuario) aj.usuario = m.usuario;
+    }
+    if (m.departamento && (!aj.departamento || aj.departamento === '—')) {
+      aj.departamento = m.departamento;
+    }
+    if (suc && suc !== '—' && (aj.sucursal === '—' || !aj.sucursal)) aj.sucursal = suc;
+
+    const antes = Number(m.stock_antes);
+    const despues = Number(m.stock_despues);
+    const existencia = Number.isFinite(antes) ? Math.max(0, antes) : 0;
+    const contada = Number.isFinite(despues) ? Math.max(0, despues) : existencia;
+    const diferencia = Number.isFinite(antes) && Number.isFinite(despues) ? despues - antes : 0;
+    const costo = costos.get(String(m.producto_id)) || 0;
+
+    aj.lineas.push({
+      codigo: m.producto_id,
+      nombre: m.producto_nombre,
+      existencia,
+      contada,
+      diferencia,
+      costoUnitario: costo,
+      valorDiferencia: Math.abs(diferencia) * costo,
+    });
+    aj.resumen.piezasExistencia += existencia;
+    if (diferencia < 0) {
+      aj.resumen.piezasFaltantes += Math.abs(diferencia);
+      aj.resumen.valorFaltante += Math.abs(diferencia) * costo;
+    } else if (diferencia > 0) {
+      aj.resumen.piezasSobrantes += diferencia;
+      aj.resumen.valorSobrante += diferencia * costo;
+    }
+  }
+
+  return [...map.values()].map((aj) => ({
+    ...aj,
+    resumen: {
+      ...aj.resumen,
+      valorFaltante: Math.round(aj.resumen.valorFaltante * 100) / 100,
+      valorSobrante: Math.round(aj.resumen.valorSobrante * 100) / 100,
+    },
+  }));
+}
+
+async function listarMovimientosConteoNube(supabase, { desdeYmd, hastaYmd } = {}) {
+  if (!supabase) return { data: [], error: null };
+  const ini = new Date(`${desdeYmd}T00:00:00`);
+  const fin = new Date(`${hastaYmd}T23:59:59.999`);
+  const iniIso = new Date(ini.getTime() - 12 * 3600e3).toISOString();
+  const finIso = new Date(fin.getTime() + 12 * 3600e3).toISOString();
+  const { data, error } = await supabase
+    .from('movimientos_inventario')
+    .select(
+      'id,tipo,modo,producto_id,producto_nombre,cantidad,stock_antes,stock_despues,departamento,motivo,usuario,sucursal_id,meta,created_at',
+    )
+    .eq('modo', 'conteo_departamento')
+    .gte('created_at', iniIso)
+    .lte('created_at', finIso)
+    .order('created_at', { ascending: false })
+    .limit(5000);
+  if (error) return { data: [], error: error.message };
+  return {
+    data: (data || []).filter((m) => enRangoIso(m.created_at, desdeYmd, hastaYmd)),
+    error: null,
+  };
+}
+
+function mergeAjustesPorFolio(locales, nube) {
+  const map = new Map();
+  for (const a of nube || []) {
+    const key = String(a.folio || a.id);
+    map.set(key, a);
+  }
+  for (const a of locales || []) {
+    const key = String(a.folio || a.id);
+    map.set(key, { ...a, origen: a.origen || 'local' });
+  }
+  return [...map.values()];
+}
+
 /**
- * Filas del reporte filtradas por periodo y opcionalmente tienda.
- * @param {{ preset?: string, desde?: string, hasta?: string, sucursal?: string|null }} opts
+ * Filas del reporte filtradas por periodo y opcionalmente tienda (solo local).
+ * Preferir {@link cargarFilasReporteInventarioAsync} cuando haya Supabase.
  */
 export function cargarFilasReporteInventario(opts = {}) {
   const { preset = 'mes', desde, hasta, sucursal = '' } = opts;
   const rango = rangoReporteInventario(preset, desde, hasta);
   const sucFiltro = sucursal ? normalizarCodigoTienda(sucursal) : '';
-  const ajustes = leerAjustesInventario();
+  const locales = leerAjustesInventario().filter((a) => enRangoIso(a.created_at, rango.desde, rango.hasta));
   const filas = [];
-  for (const a of ajustes) {
-    if (!enRangoIso(a.created_at, rango.desde, rango.hasta)) continue;
+  for (const a of locales) {
     const sid = normalizarCodigoTienda(a.sucursal);
     if (sucFiltro && sid !== sucFiltro) continue;
     filas.push(filaDesdeAjuste(a));
   }
   filas.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
-  return { filas, rango };
+  return { filas, rango, aviso: null };
+}
+
+/**
+ * Igual que el sync, pero también lee conteos desde movimientos_inventario (nube).
+ */
+export async function cargarFilasReporteInventarioAsync(opts = {}) {
+  const { supabase = null, inventario = [], preset = 'mes', desde, hasta, sucursal = '' } = opts;
+  const rango = rangoReporteInventario(preset, desde, hasta);
+  const sucFiltro = sucursal ? normalizarCodigoTienda(sucursal) : '';
+  const locales = leerAjustesInventario().filter((a) => enRangoIso(a.created_at, rango.desde, rango.hasta));
+
+  let aviso = null;
+  let nubeAjustes = [];
+  if (supabase) {
+    const { data, error } = await listarMovimientosConteoNube(supabase, {
+      desdeYmd: rango.desde,
+      hastaYmd: rango.hasta,
+    });
+    if (error) aviso = `Nube: ${error}`;
+    else nubeAjustes = ajustesDesdeMovimientosConteo(data, { inventario });
+  }
+
+  const ajustes = mergeAjustesPorFolio(locales, nubeAjustes);
+  const filas = [];
+  for (const a of ajustes) {
+    const sid = normalizarCodigoTienda(a.sucursal);
+    if (sucFiltro && sid !== sucFiltro) continue;
+    filas.push(filaDesdeAjuste(a));
+  }
+  filas.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+  return { filas, rango, aviso };
 }
 
 export function totalesReporteInventario(filas = []) {
@@ -214,5 +379,6 @@ export function columnasCsvInventario() {
     { label: 'merma', value: (r) => r.merma },
     { label: 'pct_merma', value: (r) => r.pctMerma },
     { label: 'piezas_faltantes', value: (r) => r.piezasFaltantes },
+    { label: 'origen', value: (r) => r.origen || '' },
   ];
 }

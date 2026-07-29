@@ -1,11 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import FiltroPeriodo from './FiltroPeriodo.jsx';
 import { BtnLabel } from './Icon.jsx';
 import { imprimirReporte } from '../lib/impresion.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import {
   PRESETS_REPORTE_INVENTARIO,
-  cargarFilasReporteInventario,
+  cargarFilasReporteInventarioAsync,
   columnasCsvInventario,
   fmtMxnReporte,
   fmtPctReporte,
@@ -41,26 +41,58 @@ function maxMerma(serie) {
 
 /**
  * Reporte de conteos/ajustes de inventario: tabla + Pareto semanal de merma.
+ * Combina ajustes locales + movimientos de conteo en la nube.
  */
-export default function ReporteInventario({ sucursal }) {
+export default function ReporteInventario({ supabase, inventario, sucursal }) {
   const [abierto, setAbierto] = useState(false);
   const [preset, setPreset] = useState('mes');
   const [desde, setDesde] = useState(() => new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10));
   const [hasta, setHasta] = useState(() => new Date().toISOString().slice(0, 10));
   const [tienda, setTienda] = useState('');
+  const [filas, setFilas] = useState([]);
+  const [rango, setRango] = useState({ desde: '', hasta: '' });
+  const [aviso, setAviso] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const tiendas = useMemo(() => tiendasParaFiltroInventario(sucursal), [sucursal, abierto]);
+  const tiendas = useMemo(() => {
+    const base = tiendasParaFiltroInventario(sucursal);
+    const set = new Set(base);
+    for (const f of filas) {
+      if (f.sucursal) set.add(f.sucursal);
+    }
+    return [...set].sort();
+  }, [sucursal, abierto, filas]);
 
-  const { filas, rango } = useMemo(
-    () =>
-      cargarFilasReporteInventario({
-        preset,
-        desde,
-        hasta,
-        sucursal: tienda,
-      }),
-    [preset, desde, hasta, tienda, abierto],
-  );
+  useEffect(() => {
+    if (!abierto) return undefined;
+    let cancel = false;
+    setLoading(true);
+    cargarFilasReporteInventarioAsync({
+      supabase,
+      inventario,
+      preset,
+      desde,
+      hasta,
+      sucursal: tienda,
+    })
+      .then((r) => {
+        if (cancel) return;
+        setFilas(r.filas || []);
+        setRango(r.rango || { desde: '', hasta: '' });
+        setAviso(r.aviso || '');
+      })
+      .catch((e) => {
+        if (cancel) return;
+        setFilas([]);
+        setAviso(e?.message || String(e));
+      })
+      .finally(() => {
+        if (!cancel) setLoading(false);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [abierto, supabase, inventario, preset, desde, hasta, tienda]);
 
   const totales = useMemo(() => totalesReporteInventario(filas), [filas]);
   const { pareto, cronologico } = useMemo(() => paretoMermaPorSemana(filas), [filas]);
@@ -114,7 +146,7 @@ export default function ReporteInventario({ sucursal }) {
       <div className="card">
         <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>Inventario (auditoría)</h3>
         <p className="muted" style={{ marginTop: 0 }}>
-          Conteos aplicados por tienda: merma, inventario operativo y comportamiento semanal.
+          Conteos aplicados (ajuste libre / por departamento) por tienda: merma, inventario operativo y comportamiento semanal.
         </p>
         <button type="button" className="btn btn-primary" onClick={() => setAbierto(true)}>
           <BtnLabel icon="chart">Reporte de inventario</BtnLabel>
@@ -129,7 +161,8 @@ export default function ReporteInventario({ sucursal }) {
         <div>
           <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Reporte de inventario</h3>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-            Datos de conteos aplicados en este equipo. Merma = faltante valorizado a costo.
+            Conteos de este equipo y de la nube. Merma = faltante valorizado a costo.
+            {loading ? ' Cargando…' : ''}
           </p>
         </div>
         <button type="button" className="btn btn-ghost" onClick={() => setAbierto(false)}>
@@ -161,14 +194,20 @@ export default function ReporteInventario({ sucursal }) {
           </select>
         </label>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-          <button type="button" className="btn btn-gold" onClick={exportCsv} disabled={!filas.length}>
+          <button type="button" className="btn btn-gold" onClick={exportCsv} disabled={!filas.length || loading}>
             <BtnLabel icon="download">CSV</BtnLabel>
           </button>
-          <button type="button" className="btn btn-ghost" onClick={imprimir} disabled={!filas.length}>
+          <button type="button" className="btn btn-ghost" onClick={imprimir} disabled={!filas.length || loading}>
             <BtnLabel icon="print">Imprimir</BtnLabel>
           </button>
         </div>
       </div>
+
+      {aviso ? (
+        <p className="muted" style={{ margin: 0, fontSize: '0.85rem', color: 'var(--brand-red, #b45309)' }}>
+          {aviso}
+        </p>
+      ) : null}
 
       <div
         style={{
@@ -258,7 +297,7 @@ export default function ReporteInventario({ sucursal }) {
         </div>
       </div>
 
-      {!filas.length ? (
+      {!filas.length && !loading ? (
         <p className="muted">
           No hay conteos aplicados en este periodo. Se generan al <strong>Aplicar ajuste</strong> en conteo por departamento o ajuste libre.
         </p>
@@ -272,6 +311,7 @@ export default function ReporteInventario({ sucursal }) {
                 <th>Hora</th>
                 <th>Auditor</th>
                 <th>Depto.</th>
+                <th>Folio</th>
                 <th style={{ textAlign: 'right' }}>Inv. operativo</th>
                 <th style={{ textAlign: 'right' }}>Merma</th>
                 <th style={{ textAlign: 'right' }}>% merma</th>
@@ -287,6 +327,9 @@ export default function ReporteInventario({ sucursal }) {
                   <td className="muted">{f.hora}</td>
                   <td>{f.auditor}</td>
                   <td className="muted">{f.departamento}</td>
+                  <td className="muted" style={{ fontSize: '0.75rem' }}>
+                    {f.folio}
+                  </td>
                   <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtMxnReporte(f.inventarioOperativo)}</td>
                   <td style={{ textAlign: 'right', color: f.merma > 0 ? 'var(--brand-red, #c0392b)' : undefined }}>
                     {fmtMxnReporte(f.merma)}
