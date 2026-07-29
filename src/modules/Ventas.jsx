@@ -11,6 +11,7 @@ import { normalizarCodigoTienda } from '../constants/sucursales.js';
 import { guardarMovimientoLocal } from '../lib/inventarioMovimientos.js';
 import { sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
+import DetalleProducto from '../components/DetalleProducto.jsx';
 import { productoCoincideBusqueda, productoPorCodigoExacto, pareceCodigoProducto } from '../lib/buscarProductoTexto.js';
 import { registrarRemocionCarrito } from '../lib/proyeccionFaltante.js';
 
@@ -79,6 +80,7 @@ export default function Ventas({
   const [ultimaVenta, setUltimaVenta] = useState(null);
   const [deptoActivo, setDeptoActivo] = useState('favoritos');
   const [qDepto, setQDepto] = useState('');
+  const [detalleProducto, setDetalleProducto] = useState(null);
 
   useEffect(() => {
     if (mostrarCobro) {
@@ -463,25 +465,87 @@ export default function Ventas({
           ) : (
             <div className="ventas-favoritos-grid">
               {productosCatalogo.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setCarrito((c) => addToCart(c, p))}
-                  className="ventas-favorito-btn"
-                  title={`${p.nombre} · ${p.id}`}
-                >
-                  <ProductoThumb producto={p} size="full" className="ventas-favorito-thumb" referencias />
-                  <div className="ventas-favorito-precio">${Number(p.precio).toFixed(2)}</div>
-                  <div className="ventas-favorito-nombre">{p.nombre}</div>
-                  {deptoActivo === 'todos' && (
-                    <div className="ventas-favorito-depto">{etiquetaDepartamento(p.cat)}</div>
-                  )}
-                </button>
+                <div key={p.id} className="ventas-favorito-card">
+                  <button
+                    type="button"
+                    onClick={() => setCarrito((c) => addToCart(c, p))}
+                    className="ventas-favorito-btn"
+                    title={`${p.nombre} · ${p.id}`}
+                  >
+                    <ProductoThumb producto={p} size="full" className="ventas-favorito-thumb" referencias />
+                    <div className="ventas-favorito-precio">${Number(p.precio).toFixed(2)}</div>
+                    <div className="ventas-favorito-nombre">{p.nombre}</div>
+                    {deptoActivo === 'todos' && (
+                      <div className="ventas-favorito-depto">{etiquetaDepartamento(p.cat)}</div>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="producto-thumb-detalle-btn"
+                    title="Ver detalle"
+                    aria-label={`Detalle de ${p.nombre}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setDetalleProducto(p);
+                    }}
+                  >
+                    <Icon name="eye" size={14} />
+                  </button>
+                </div>
               ))}
             </div>
           )}
         </section>
       </div>
+
+      {detalleProducto && (
+        <div
+          className="prod-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setDetalleProducto(null)}
+        >
+          <div
+            className="card"
+            style={{
+              width: 'min(520px, 96vw)',
+              maxHeight: '90vh',
+              overflow: 'auto',
+              margin: '1rem auto',
+              padding: 0,
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="prod-modal-header" style={{ padding: '0.75rem 1rem' }}>
+              <button
+                type="button"
+                className="prod-modal-close"
+                aria-label="Cerrar"
+                onClick={() => setDetalleProducto(null)}
+              >
+                <Icon name="x" size={18} />
+              </button>
+              <h2 style={{ margin: 0, fontSize: '1.05rem' }}>Detalle del producto</h2>
+              <span style={{ width: 36 }} />
+            </header>
+            <div style={{ padding: '0 0.75rem 1rem' }}>
+              <DetalleProducto producto={detalleProducto} supabase={supabase} sucursal={sucursal} />
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ width: '100%', marginTop: '0.75rem' }}
+                onClick={() => {
+                  setCarrito((c) => addToCart(c, detalleProducto));
+                  setDetalleProducto(null);
+                }}
+              >
+                <BtnLabel icon="cart">Agregar al ticket</BtnLabel>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <aside className="card ventas-ticket">
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Ticket</h3>

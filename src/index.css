@@ -3025,40 +3025,90 @@ table.data th {
   align-self: stretch;
 }
 
-/* Referencias: código + inventario teórico sobre la imagen */
+/* Referencias: código + inventario teórico sobre la imagen (alto contraste) */
 .producto-thumb-ref {
   position: absolute;
   z-index: 1;
   max-width: calc(100% - 6px);
-  padding: 0.12rem 0.28rem;
-  background: transparent;
-  color: #9ca3af;
+  padding: 0.18rem 0.38rem;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #0f172a;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
   font-size: 0.62rem;
-  font-weight: 700;
+  font-weight: 800;
   line-height: 1.2;
   letter-spacing: 0.01em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
-  text-shadow: 0 0 2px rgba(255, 255, 255, 0.85), 0 1px 2px rgba(255, 255, 255, 0.6);
+  text-shadow: none;
 }
 
 .producto-thumb-ref--codigo {
   top: 4px;
   left: 4px;
+  color: #1e5bb8;
 }
 
 .producto-thumb-ref--teorico {
   bottom: 4px;
   right: 4px;
+  color: #0f172a;
   font-variant-numeric: tabular-nums;
+}
+
+.producto-thumb-ref--teorico.is-bajo {
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.95);
+  border-color: rgba(185, 28, 28, 0.25);
 }
 
 .producto-thumb--fill .producto-thumb-ref,
 .ventas-favorito-thumb .producto-thumb-ref {
-  font-size: 0.68rem;
-  padding: 0.15rem 0.32rem;
+  font-size: 0.7rem;
+  padding: 0.2rem 0.4rem;
+}
+
+.producto-thumb-detalle-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(30, 91, 184, 0.95);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.35);
+}
+
+.producto-thumb-detalle-btn:hover {
+  background: #1e5bb8;
+  transform: scale(1.06);
+}
+
+.producto-thumb-detalle-btn:active {
+  transform: scale(0.96);
+}
+
+.ventas-favorito-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.ventas-favorito-card .producto-thumb-detalle-btn {
+  top: 10px;
+  right: 10px;
 }
 
 .ventas-resultado-item {

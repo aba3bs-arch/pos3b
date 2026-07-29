@@ -83,7 +83,10 @@ export default function ProductoThumb({
               {codigo}
             </span>
           ) : null}
-          <span className="producto-thumb-ref producto-thumb-ref--teorico" title="Inventario teórico">
+          <span
+            className={`producto-thumb-ref producto-thumb-ref--teorico${teorico <= 0 ? ' is-bajo' : ''}`}
+            title="Inventario teórico"
+          >
             {teorico}
           </span>
         </>
