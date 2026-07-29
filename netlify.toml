@@ -28,6 +28,13 @@
     Pragma = "no-cache"
 
 [[headers]]
+  for = "/version.json"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+    Pragma = "no-cache"
+    Content-Type = "application/json; charset=utf-8"
+
+[[headers]]
   for = "/"
   [headers.values]
     Cache-Control = "no-cache, no-store, must-revalidate"

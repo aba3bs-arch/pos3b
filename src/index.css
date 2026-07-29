@@ -601,6 +601,52 @@ table.data th {
   animation: anuncio-titulo-parpadeo 1.4s ease-in-out infinite;
 }
 
+.app-update-backdrop {
+  z-index: 13000;
+}
+
+.app-update-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #92400e;
+  background: rgba(225, 153, 41, 0.18);
+  border: 1px solid rgba(180, 120, 20, 0.35);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+}
+
+.app-update-changes {
+  margin-top: 0.85rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 10px;
+  background: var(--surface, #f8fafc);
+  border: 1px solid var(--border, rgba(0, 0, 0, 0.08));
+  max-height: min(40vh, 280px);
+  overflow-y: auto;
+}
+
+.app-update-changes-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--brand-blue);
+  margin-bottom: 0.35rem;
+}
+
+.app-update-changes ul {
+  margin: 0;
+  padding-left: 1.15rem;
+}
+
+.app-update-changes li {
+  margin: 0.25rem 0;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  color: #334155;
+}
+
 /* —— Selector de calendario —— */
 .cal-picker-wrap {
   position: relative;
