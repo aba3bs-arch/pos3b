@@ -243,8 +243,26 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
   const docsFiltrados = useMemo(() => {
     if (!qNorm) return docsInv;
-    return docsInv.filter((d) => `${d.label} ${d.usuario} ${d.folio}`.toLowerCase().includes(qNorm));
+    return docsInv.filter((d) => `${d.label} ${d.usuario} ${d.folio} ${d.titulo}`.toLowerCase().includes(qNorm));
   }, [docsInv, qNorm]);
+
+  const idxDocInv = useMemo(() => {
+    if (!sel || seccion !== 'inventarios') return -1;
+    return docsFiltrados.findIndex((d) => d.id === sel.id);
+  }, [sel, docsFiltrados, seccion]);
+
+  const hayDocAnterior = idxDocInv > 0;
+  const hayDocSiguiente = idxDocInv >= 0 && idxDocInv < docsFiltrados.length - 1;
+
+  const irDocInv = useCallback(
+    (dir) => {
+      if (idxDocInv < 0) return;
+      const next = idxDocInv + dir;
+      if (next < 0 || next >= docsFiltrados.length) return;
+      setSel(docsFiltrados[next]);
+    },
+    [idxDocInv, docsFiltrados],
+  );
 
   const cortesFiltrados = useMemo(() => {
     if (!qNorm) return cortes;
@@ -258,6 +276,23 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     if (!qNorm) return saldos;
     return saldos.filter((s) => `${s.nombreCaja} ${s.turno_id}`.toLowerCase().includes(qNorm));
   }, [saldos, qNorm]);
+
+  useEffect(() => {
+    if (!enDetalleInv) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        irDocInv(-1);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        irDocInv(1);
+      } else if (e.key === 'Escape') {
+        setSel(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [enDetalleInv, irDocInv]);
 
   const placeholderBusqueda =
     seccion === 'ventas' || seccion === 'cfdi_ventas'
@@ -312,7 +347,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
       <section className="consultas-main">
         <div className="consultas-topbar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0 }}>
             {(enDetalleInv || seccion === 'cajas_cortes' || seccion === 'cajas_saldos' || seccion === 'cfdi_ventas') && (
               <button
                 type="button"
@@ -327,9 +362,36 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                 ←
               </button>
             )}
-            <span>{tituloBarra}</span>
+            <span className="consultas-topbar-title">{tituloBarra}</span>
           </div>
-          <span className="muted-top">{user?.nombre || ''}</span>
+          <div className="consultas-topbar-right">
+            {enDetalleInv && docsFiltrados.length > 0 && (
+              <div className="consultas-pager" role="navigation" aria-label="Navegar operaciones">
+                <button
+                  type="button"
+                  className="consultas-pager-btn"
+                  title="Operación anterior (←)"
+                  disabled={!hayDocAnterior}
+                  onClick={() => irDocInv(-1)}
+                >
+                  ‹
+                </button>
+                <span className="consultas-pager-pos">
+                  {idxDocInv + 1} / {docsFiltrados.length}
+                </span>
+                <button
+                  type="button"
+                  className="consultas-pager-btn"
+                  title="Operación siguiente (→)"
+                  disabled={!hayDocSiguiente}
+                  onClick={() => irDocInv(1)}
+                >
+                  ›
+                </button>
+              </div>
+            )}
+            <span className="muted-top">{user?.nombre || ''}</span>
+          </div>
         </div>
 
         {seccion === 'cfdi' && (
@@ -355,12 +417,41 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
           <div className="consultas-inv-detalle">
             <div className="consultas-inv-meta">
               <Avatar nombre={sel.usuario} />
-              <div>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="muted" style={{ fontSize: '0.82rem' }}>
-                  Almacén: <strong style={{ color: '#334155' }}>{etiquetaTienda(sel.sucursal || filtroSucursal || sucursal) || 'Default'}</strong>
+                  Almacén:{' '}
+                  <strong style={{ color: '#334155' }}>
+                    {etiquetaTienda(sel.sucursal || filtroSucursal || sucursal) || 'Default'}
+                  </strong>
+                </div>
+                <div className="muted" style={{ fontSize: '0.75rem', marginTop: '0.15rem' }}>
+                  {sel.titulo} · Folio {sel.folio} · {sel.usuario || '—'}
                 </div>
               </div>
               <div className="consultas-inv-fecha">{fmtFechaCorta(sel.created_at)}</div>
+              <div className="consultas-pager consultas-pager--light" role="navigation" aria-label="Navegar operaciones">
+                <button
+                  type="button"
+                  className="consultas-pager-btn"
+                  title="Anterior"
+                  disabled={!hayDocAnterior}
+                  onClick={() => irDocInv(-1)}
+                >
+                  ‹
+                </button>
+                <span className="consultas-pager-pos">
+                  {idxDocInv + 1}/{docsFiltrados.length}
+                </span>
+                <button
+                  type="button"
+                  className="consultas-pager-btn"
+                  title="Siguiente"
+                  disabled={!hayDocSiguiente}
+                  onClick={() => irDocInv(1)}
+                >
+                  ›
+                </button>
+              </div>
             </div>
             <div className="consultas-body">
               <table className="consultas-table">
@@ -532,11 +623,11 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
               {seccion === 'inventarios' && (
                 docsFiltrados.length === 0 ? (
-                  <EmptyState texto="Sin movimientos de inventario en el rango (ventas, ingresos, ajustes, compras, cancelaciones, traspasos)." />
+                  <EmptyState texto="Sin operaciones en el rango (ingresos, egresos, ajustes, retiros, traspasos, cancelaciones)." />
                 ) : (
                   <>
                     <p className="muted" style={{ margin: '0 0 0.35rem', fontSize: '0.8rem' }}>
-                      Incluye ventas, cancelaciones, compras, ingresos, retiros, ajustes, traspasos y cambios de precio.
+                      Verifica por ticket: ingresos, egresos por venta, ajustes, retiros, traspasos y cancelaciones. Abre uno y usa ‹ › para pasar al siguiente.
                     </p>
                     <table className="consultas-table">
                       <thead>

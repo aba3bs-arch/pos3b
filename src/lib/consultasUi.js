@@ -77,14 +77,17 @@ function valorMovimiento(m, precioPorId) {
 }
 
 function tituloDocumentoInv(m) {
-  if (m.modo === 'venta' || m.origen === 'ventas' || m.tipo === 'venta') return 'Salida por venta';
+  // Consultas · Inventarios: verificar operaciones por ticket
+  if (m.modo === 'venta' || m.origen === 'ventas' || m.tipo === 'venta') return 'Egreso por venta';
   if (m.modo === 'compra' || m.origen === 'compras') return 'Ingreso de inventario';
   if (m.tipo === 'entrada' && (m.modo === 'masivo' || m.modo === 'libre' || !m.modo)) return 'Ingreso de inventario';
-  if (m.modo === 'conteo_departamento' || m.modo === 'vaciado_inventario' || m.tipo === 'ajuste') return 'Ajuste inventario';
+  if (m.modo === 'conteo_departamento' || m.modo === 'vaciado_inventario' || m.tipo === 'ajuste') {
+    return 'Ajuste de inventario';
+  }
   if (m.tipo === 'traspaso' || m.modo === 'ubicacion') return 'Traspaso de inventario';
-  if (m.modo === 'cancelacion') return 'Cancelación (regreso)';
+  if (m.modo === 'cancelacion' || m.origen === 'cancelaciones') return 'Cancelación';
   if (m.tipo === 'cambio_precio') return 'Cambio de precio';
-  if (m.tipo === 'retiro' && m.modo === 'venta') return 'Salida por venta';
+  if (m.tipo === 'retiro' && m.modo === 'venta') return 'Egreso por venta';
   if (m.tipo === 'retiro') return 'Retiro de inventario';
   if (m.tipo === 'entrada') return 'Ingreso de inventario';
   return 'Movimiento de inventario';
