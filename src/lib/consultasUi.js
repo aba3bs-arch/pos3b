@@ -112,9 +112,10 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
     const esVenta = esMovimientoVenta(m);
     if (esVenta && !incluirVentas) continue;
 
+    const esTraspaso = m.tipo === 'traspaso' || m.modo === 'ubicacion';
+    const folioRaw = m.folio || m.meta?.folio || null;
     const folio =
-      m.folio ||
-      m.meta?.folio ||
+      folioRaw ||
       (esVenta
         ? folioNumerico(String(m.id).replace(/^venta_/, '').split('_')[0], 5)
         : m.origen === 'compras' || m.modo === 'compra'
@@ -127,16 +128,20 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
     const usuario = m.usuario || '—';
     const t = new Date(m.created_at || 0).getTime();
     const bucket = Math.floor(t / 180000); // 3 min
+    const rutaOrigen = m.traspaso_origen || m.meta?.traspaso_origen || null;
+    const rutaDestino = m.traspaso_destino || m.meta?.traspaso_destino || null;
     const key =
-      m.folio || m.meta?.folio
-        ? `folio:${m.folio || m.meta.folio}`
-        : esVenta
-          ? `venta:${String(m.id).replace(/^venta_/, '').split('_')[0]}`
-          : m.origen === 'compras' || m.modo === 'compra'
-            ? `compra:${String(m.id).replace(/^compra_/, '').split('_')[0]}`
-            : m.origen === 'cancelaciones' || m.modo === 'cancelacion'
-              ? `cancel:${String(m.id).replace(/^cancel_/, '').split('_')[0]}`
-              : `${titulo}|${usuario}|${bucket}|${m.sucursal || ''}`;
+      folioRaw
+        ? `folio:${folioRaw}`
+        : esTraspaso
+          ? `trp:${usuario}|${bucket}|${m.sucursal_origen || m.meta?.sucursal_origen || ''}|${m.sucursal_destino || m.meta?.sucursal_destino || ''}|${m.ubicacion_origen || ''}|${m.ubicacion_destino || ''}|${m.subtipo || ''}`
+          : esVenta
+            ? `venta:${String(m.id).replace(/^venta_/, '').split('_')[0]}`
+            : m.origen === 'compras' || m.modo === 'compra'
+              ? `compra:${String(m.id).replace(/^compra_/, '').split('_')[0]}`
+              : m.origen === 'cancelaciones' || m.modo === 'cancelacion'
+                ? `cancel:${String(m.id).replace(/^cancel_/, '').split('_')[0]}`
+                : `${titulo}|${usuario}|${bucket}|${m.sucursal || ''}`;
 
     if (!map.has(key)) {
       map.set(key, {
@@ -146,6 +151,11 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
         usuario,
         created_at: m.created_at,
         sucursal: m.sucursal,
+        esTraspaso,
+        traspaso_origen: rutaOrigen,
+        traspaso_destino: rutaDestino,
+        sucursal_origen: m.sucursal_origen || m.meta?.sucursal_origen || null,
+        sucursal_destino: m.sucursal_destino || m.meta?.sucursal_destino || null,
         difNeg: 0,
         difPos: 0,
         lineas: [],
@@ -153,6 +163,8 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
     }
     const doc = map.get(key);
     if (new Date(m.created_at || 0) > new Date(doc.created_at || 0)) doc.created_at = m.created_at;
+    if (!doc.traspaso_origen && rutaOrigen) doc.traspaso_origen = rutaOrigen;
+    if (!doc.traspaso_destino && rutaDestino) doc.traspaso_destino = rutaDestino;
     const valor = valorMovimiento(m, precioPorId);
     const esEntrada =
       m.tipo === 'entrada' ||
@@ -181,12 +193,17 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
   return [...map.values()]
     .map((d) => {
       const total = d.difPos - d.difNeg;
+      const ruta =
+        d.esTraspaso && d.traspaso_origen && d.traspaso_destino
+          ? `${d.traspaso_origen} → ${d.traspaso_destino}`
+          : null;
       return {
         ...d,
+        ruta,
         difNeg: Math.round(d.difNeg * 100) / 100,
         difPos: Math.round(d.difPos * 100) / 100,
         total: Math.round(total * 100) / 100,
-        label: `${d.titulo} - ${d.folio}`,
+        label: ruta ? `${d.titulo} - ${d.folio} · ${ruta}` : `${d.titulo} - ${d.folio}`,
       };
     })
     .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));

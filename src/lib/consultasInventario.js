@@ -69,6 +69,24 @@ function enRango(iso, desde, hasta) {
   return true;
 }
 
+function movimientoTocaSucursal(m, suc) {
+  if (!suc) return true;
+  const s = normalizarCodigoTienda(suc);
+  const candidatos = [
+    m.sucursal,
+    m.sucursal_id,
+    m.sucursal_origen,
+    m.sucursal_destino,
+    m.meta?.sucursal_origen,
+    m.meta?.sucursal_destino,
+  ]
+    .filter(Boolean)
+    .map((c) => normalizarCodigoTienda(c));
+  // Sin sucursal en el movimiento: no ocultar (histórico / datos incompletos).
+  if (!candidatos.length) return true;
+  return candidatos.includes(s);
+}
+
 export function listarMovimientosInventario(opts = {}) {
   const { desde, hasta, productoId, tipo, sucursal } = opts;
   let list = leerMovimientosLocal();
@@ -79,10 +97,7 @@ export function listarMovimientosInventario(opts = {}) {
     );
   }
   if (tipo) list = list.filter((m) => coincideTipoFiltro(m, tipo));
-  if (sucursal) {
-    const suc = normalizarCodigoTienda(sucursal);
-    list = list.filter((m) => !m.sucursal || normalizarCodigoTienda(m.sucursal) === suc);
-  }
+  if (sucursal) list = list.filter((m) => movimientoTocaSucursal(m, sucursal));
   list = list.filter((m) => enRango(m.created_at, desde, hasta));
   return list;
 }
@@ -128,6 +143,14 @@ function fromCloudRow(r) {
     usuario: r.usuario,
     sucursal: r.sucursal_id,
     folio: meta.folio || null,
+    subtipo: meta.subtipo || null,
+    traspaso_origen: meta.traspaso_origen || null,
+    traspaso_destino: meta.traspaso_destino || null,
+    sucursal_origen: meta.sucursal_origen || null,
+    sucursal_destino: meta.sucursal_destino || null,
+    ubicacion_origen: meta.ubicacion_origen || null,
+    ubicacion_destino: meta.ubicacion_destino || null,
+    meta,
     created_at: r.created_at,
     origen: 'nube',
   };
@@ -310,10 +333,13 @@ function dedupeMovimientos(list) {
     const pid = String(m.producto_id || '');
     const t = new Date(m.created_at || 0).getTime();
     const bucket = Math.floor(t / 120000); // 2 min
+    const folio = m.folio || m.meta?.folio || '';
     const key =
       m.cloudId ||
       (m.origen === 'nube' ? m.id : null) ||
-      `${m.tipo}|${m.modo || ''}|${pid}|${suc}|${Number(m.cantidad) || 0}|${bucket}`;
+      (m.tipo === 'traspaso'
+        ? `trp|${folio}|${pid}|${m.sucursal_origen || ''}|${m.sucursal_destino || ''}|${Number(m.cantidad) || 0}|${bucket}`
+        : `${m.tipo}|${m.modo || ''}|${pid}|${suc}|${Number(m.cantidad) || 0}|${bucket}`);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(m);
@@ -361,13 +387,9 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
         .select('*')
         .order('created_at', { ascending: false })
         .limit(3000);
-      if (suc) query = query.eq('sucursal_id', suc);
+      // Filtro de sucursal en cliente (incluye traspasos origen/destino en meta).
       if (ini) query = query.gte('created_at', ini.toISOString());
       if (fin) query = query.lte('created_at', fin.toISOString());
-      if (productoId) {
-        const pid = String(productoId).replace(/[,.()]/g, '');
-        query = query.or(`producto_id.eq.${pid},producto_destino_id.eq.${pid}`);
-      }
       const { data, error } = await query;
       if (error) {
         const msg = String(error.message || '');
@@ -379,6 +401,7 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
         }
       } else {
         nube = (data || []).map(fromCloudRow);
+        if (suc) nube = nube.filter((m) => movimientoTocaSucursal(m, suc));
         stats.nube = nube.length;
       }
     }
@@ -458,7 +481,7 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
     }
 
     const ajustesDeriv = movimientosDesdeAjustesLocales().filter((m) => {
-      if (suc && normalizarCodigoTienda(m.sucursal) !== suc) return false;
+      if (suc && !movimientoTocaSucursal(m, suc)) return false;
       if (productoId && String(m.producto_id) !== String(productoId)) return false;
       return enRango(m.created_at, desde, hasta);
     });
@@ -483,7 +506,7 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
     const texto = String(q || '').trim().toLowerCase();
     if (texto) {
       merged = merged.filter((m) => {
-        const blob = `${m.producto_id || ''} ${m.producto_nombre || ''} ${m.producto_destino_nombre || ''} ${m.motivo || ''} ${m.usuario || ''}`.toLowerCase();
+        const blob = `${m.producto_id || ''} ${m.producto_nombre || ''} ${m.producto_destino_nombre || ''} ${m.motivo || ''} ${m.usuario || ''} ${m.folio || ''} ${m.traspaso_origen || ''} ${m.traspaso_destino || ''}`.toLowerCase();
         return blob.includes(texto) || String(m.producto_id || '') === texto;
       });
     }

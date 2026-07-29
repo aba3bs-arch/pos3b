@@ -11,6 +11,22 @@ import {
 } from './inventarioMultitienda.js';
 import { guardarMovimientoLocal, leerMovimientosLocal } from './inventarioMovimientos.js';
 
+const LS_FOLIO_TRP = 'pos3b_folio_traspaso_seq';
+
+function generarFolioTraspaso() {
+  const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  let seq = 1;
+  try {
+    const raw = localStorage.getItem(LS_FOLIO_TRP);
+    const o = raw ? JSON.parse(raw) : {};
+    if (o.ymd === ymd) seq = (Number(o.seq) || 0) + 1;
+    localStorage.setItem(LS_FOLIO_TRP, JSON.stringify({ ymd, seq }));
+  } catch {
+    seq = Math.floor(Math.random() * 9000) + 1;
+  }
+  return `TRP-${ymd}-${String(seq).padStart(4, '0')}`;
+}
+
 export function stockEnUbicacion(producto, sucursal, ubicacion, sucursalContext) {
   return stockEnUbicacionMt(producto, sucursal, ubicacion, sucursalContext || sucursal);
 }
@@ -158,6 +174,7 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
     motivo,
     usuario,
     sucursalActiva,
+    folio = null,
   } = opts;
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
   if (!producto?.id) return { ok: false, error: 'Producto no válido.' };
@@ -189,11 +206,13 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
 
   const origenTxt = `${etiquetaUbicacion(ruta.ubicacionOrigen, ruta.sucursalOrigen)} · ${etiquetaSucursal(ruta.sucursalOrigen)}`;
   const destTxt = `${etiquetaUbicacion(ruta.ubicacionDestino, ruta.sucursalDestino)} · ${etiquetaSucursal(ruta.sucursalDestino)}`;
+  const folioTrp = folio || generarFolioTraspaso();
 
   const log = guardarMovimientoLocal({
     tipo: 'traspaso',
     modo: 'ubicacion',
     subtipo,
+    folio: folioTrp,
     traspaso_origen: origenTxt,
     traspaso_destino: destTxt,
     sucursal_origen: ruta.sucursalOrigen,
@@ -207,7 +226,7 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
     stock_despues: calc.stockOrigenDespues,
     stock_dest_antes: calc.stockDestAntes,
     stock_dest_despues: calc.stockDestDespues,
-    motivo: motivo?.trim() || '',
+    motivo: motivo?.trim() || `Traspaso ${folioTrp}`,
     usuario: usuario || '—',
     sucursal: sucursalActiva || sucursalOrigen || '',
     created_at: new Date().toISOString(),
@@ -216,7 +235,8 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
   return {
     ok: true,
     log,
-    mensaje: `Traspaso: ${qty} uds. de "${producto.nombre}" (${origenTxt} → ${destTxt}).`,
+    folio: folioTrp,
+    mensaje: `Traspaso ${folioTrp}: ${qty} uds. de "${producto.nombre}" (${origenTxt} → ${destTxt}).`,
     patch: calc.patch,
   };
 }
@@ -226,6 +246,7 @@ export async function aplicarTraspasosMasivos(supabase, opts) {
   const lista = (lineas || []).filter((l) => l?.productoId && Number(l.cantidad) > 0);
   if (!lista.length) return { ok: false, error: 'Agrega al menos un producto con cantidad.' };
 
+  const folio = generarFolioTraspaso();
   let log = leerMovimientosLocal();
   let aplicados = 0;
   const errores = [];
@@ -246,6 +267,7 @@ export async function aplicarTraspasosMasivos(supabase, opts) {
       motivo,
       usuario,
       sucursalActiva,
+      folio,
     });
     if (!r.ok) {
       errores.push(`${producto.nombre}: ${r.error}`);
@@ -262,11 +284,12 @@ export async function aplicarTraspasosMasivos(supabase, opts) {
     ok: true,
     aplicados,
     errores,
+    folio,
     log,
     mensaje:
       errores.length > 0
-        ? `Traspaso: ${aplicados} producto(s) OK. ${errores.length} con error.`
-        : `Traspaso aplicado: ${aplicados} producto(s).`,
+        ? `Traspaso ${folio}: ${aplicados} producto(s) OK. ${errores.length} con error.`
+        : `Traspaso ${folio} aplicado: ${aplicados} producto(s).`,
   };
 }
 

@@ -276,7 +276,11 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
   const docsFiltrados = useMemo(() => {
     if (!qNorm) return docsInv;
-    return docsInv.filter((d) => `${d.label} ${d.usuario} ${d.folio} ${d.titulo}`.toLowerCase().includes(qNorm));
+    return docsInv.filter((d) =>
+      `${d.label} ${d.usuario} ${d.folio} ${d.titulo} ${d.ruta || ''} ${d.traspaso_origen || ''} ${d.traspaso_destino || ''}`
+        .toLowerCase()
+        .includes(qNorm),
+    );
   }, [docsInv, qNorm]);
 
   const idxDocInv = useMemo(() => {
@@ -460,6 +464,11 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                 <div className="muted" style={{ fontSize: '0.75rem', marginTop: '0.15rem' }}>
                   {sel.titulo} · Folio {sel.folio} · {sel.usuario || '—'}
                 </div>
+                {sel.esTraspaso && (sel.ruta || (sel.traspaso_origen && sel.traspaso_destino)) && (
+                  <div style={{ fontSize: '0.8rem', marginTop: '0.35rem', color: '#1e5bb8', fontWeight: 600 }}>
+                    {sel.ruta || `${sel.traspaso_origen} → ${sel.traspaso_destino}`}
+                  </div>
+                )}
               </div>
               <div className="consultas-inv-fecha">{fmtFechaCorta(sel.created_at)}</div>
               <div className="consultas-pager consultas-pager--light" role="navigation" aria-label="Navegar operaciones">
