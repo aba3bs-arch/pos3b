@@ -120,7 +120,9 @@ export function productoDesdeDb(p) {
     id: p.id || '',
     nombre: p.nombre || '',
     descripcion: p.descripcion || '',
-    foto_url: p.foto_url || '',
+    // Algunos registros guardan la imagen en `foto` en vez de `foto_url`.
+    // ProductoThumb ya intenta ambos, pero aquí normalizamos a foto_url para el flujo de catálogo/favoritos.
+    foto_url: p.foto_url || p.foto || '',
     cat: p.cat || 'GENERAL',
     clave_sat: p.clave_sat || '',
     impuesto,
