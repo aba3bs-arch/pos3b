@@ -400,7 +400,10 @@ export function sumaLecturaGarage(estado) {
  * Garage:
  * venta actual = M1…M7 + PIN1 + PIN2 + DSCH
  * venta neta = venta actual − gastos
- * saldo caja = venta neta − recolección
+ * saldo caja = venta neta − recolección − recolección anterior
+ *
+ * Si el recolector retira efectivo pero NO puede poner las máquinas en ceros,
+ * esa recolección se arrastra en `recoleccion_anterior` hasta el reinicio real.
  */
 export function calcularGarage(estado, gastos = []) {
   const gastosTotal = totalGastos(gastos);
@@ -409,7 +412,9 @@ export function calcularGarage(estado, gastos = []) {
   const subtotalCalc = round2(venta - gastosTotal);
   const subtotal = valorManual(estado, 'subtotal_manual', subtotalCalc);
   const recoleccion = round2(estado.recoleccion);
-  const cajaActualCalc = round2(subtotal - recoleccion);
+  const recoleccionAnterior = round2(estado.recoleccion_anterior);
+  const recoleccionTotal = round2(recoleccion + recoleccionAnterior);
+  const cajaActualCalc = round2(subtotal - recoleccionTotal);
   const cajaActual = valorManual(estado, 'caja_actual_manual', cajaActualCalc);
   return {
     venta,
@@ -418,7 +423,48 @@ export function calcularGarage(estado, gastos = []) {
     ventaNeta: subtotal,
     totalLectura: ventaCalc,
     lecturaAnterior: 0,
+    recoleccion,
+    recoleccionAnterior,
+    recoleccionTotal,
     cajaActual,
+  };
+}
+
+/**
+ * Tras cerrar corte garage.
+ * - Máquinas reiniciadas a ceros → limpia recolección y recolección anterior.
+ * - Sin reinicio → la recolección del turno se suma a `recoleccion_anterior`
+ *   (sigue restando en cortes siguientes mientras las máquinas acumulan).
+ */
+export function prepararTrasCierreGarage(estado, _calc, opts = {}) {
+  const maquinasReiniciadas = opts.maquinasReiniciadas === true;
+  const rec = round2(estado?.recoleccion);
+  const ant = round2(estado?.recoleccion_anterior);
+  return {
+    ...estado,
+    maquinas: maquinasGarageDefault(),
+    pin1: 0,
+    pin2: 0,
+    dsch: 0,
+    recoleccion: 0,
+    recoleccion_anterior: maquinasReiniciadas ? 0 : round2(ant + rec),
+    comentarios: '',
+  };
+}
+
+/** Pasa la recolección del turno a “recolección anterior” (sin cerrar ni reiniciar máquinas). */
+export function pasarRecoleccionAAnteriorGarage(estado) {
+  const rec = round2(estado?.recoleccion);
+  const ant = round2(estado?.recoleccion_anterior);
+  if (!(rec > 0)) return { ok: false, error: 'Indica un monto en Recolección primero.', estado };
+  return {
+    ok: true,
+    estado: {
+      ...estado,
+      recoleccion: 0,
+      recoleccion_anterior: round2(ant + rec),
+    },
+    montoPasado: rec,
   };
 }
 
@@ -466,6 +512,8 @@ export const ESTADO_GARAGE_DEFAULT = {
   pin2: 0,
   dsch: 0,
   recoleccion: 0,
+  /** Recolecciones hechas sin reiniciar máquinas; se arrastra hasta ceros. */
+  recoleccion_anterior: 0,
   comentarios: '',
 };
 

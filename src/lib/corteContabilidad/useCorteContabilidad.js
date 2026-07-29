@@ -140,6 +140,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         ('moneda_inicial' in filtrado ||
           'recoleccion' in filtrado ||
           'recoleccion_turno' in filtrado ||
+          'recoleccion_anterior' in filtrado ||
           'precoleccion' in filtrado ||
           '_precoleccion_editada' in filtrado) &&
         !perm.recoleccion &&

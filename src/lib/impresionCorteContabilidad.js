@@ -106,6 +106,7 @@ function filasResumenModulo(data) {
     filas.push(['Recolección', fmt(e.recoleccion)]);
   } else if (mod === 'garage') {
     filas.push(['Venta actual', fmt(data.venta)]);
+    if (e.recoleccion_anterior) filas.push(['Recolección anterior', fmt(e.recoleccion_anterior)]);
     filas.push(['Recolección', fmt(e.recoleccion)]);
   }
 

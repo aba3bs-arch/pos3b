@@ -5,23 +5,22 @@ import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursal
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
 import CampoCorte, { InputCorteInline } from '../../components/corteContabilidad/CampoCorte.jsx';
 import ResumenOperacionCorte from '../../components/corteContabilidad/ResumenOperacionCorte.jsx';
-import { calcularGarage, CLAVES_LECTURA_GARAGE, maquinasGarageDefault } from '../../lib/corteContabilidad/calc.js';
+import {
+  calcularGarage,
+  CLAVES_LECTURA_GARAGE,
+  maquinasGarageDefault,
+  prepararTrasCierreGarage,
+  pasarRecoleccionAAnteriorGarage,
+  round2,
+} from '../../lib/corteContabilidad/calc.js';
 import { datosImpresionCorteActual, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 
 const COLOR = '#7f8c8d';
 
 export default function CorteGarage({ supabase, sucursal, user }) {
-  const prepararTrasCierre = useCallback((estado) => {
-    return {
-      ...estado,
-      maquinas: maquinasGarageDefault(),
-      pin1: 0,
-      pin2: 0,
-      dsch: 0,
-      recoleccion: 0,
-      comentarios: '',
-    };
+  const prepararTrasCierre = useCallback((estado, calc, detalleExtra) => {
+    return prepararTrasCierreGarage(estado, calc, detalleExtra);
   }, []);
 
   const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte, eliminarCierreHistorial, recargar } =
@@ -37,6 +36,8 @@ export default function CorteGarage({ supabase, sucursal, user }) {
   const maquinasBase = maquinasGarageDefault();
   const maquinas = { ...maquinasBase, ...(estado.maquinas || {}) };
   const puedeEditar = !perm.soloLectura;
+  const montoRec = round2(estado.recoleccion);
+  const montoAnt = round2(estado.recoleccion_anterior);
 
   const setMaquina = (key, val) => {
     const next = { ...maquinasBase };
@@ -46,14 +47,48 @@ export default function CorteGarage({ supabase, sucursal, user }) {
   };
 
   const confirmarCierre = () => {
-    const msg =
-      `¿Cerrar corte garage?\n\n` +
-      `Folio: ${folio}\n` +
-      `Venta actual: ${fmtCorte(calc.venta)}\n` +
-      `Gastos: ${fmtCorte(calc.gastosTotal)}\n` +
-      `Venta neta: ${fmtCorte(calc.ventaNeta)}\n` +
-      `Saldo en caja: ${fmtCorte(calc.cajaActual)}`;
-    if (confirm(msg)) cerrarCorte();
+    if (
+      !confirm(
+        `¿Cerrar corte garage?\n\n` +
+          `Folio: ${folio}\n` +
+          `Venta actual: ${fmtCorte(calc.venta)}\n` +
+          `Gastos: ${fmtCorte(calc.gastosTotal)}\n` +
+          `Venta neta: ${fmtCorte(calc.ventaNeta)}\n` +
+          `Recolección: ${fmtCorte(calc.recoleccion)}\n` +
+          `Recolección anterior: ${fmtCorte(calc.recoleccionAnterior)}\n` +
+          `Saldo en caja: ${fmtCorte(calc.cajaActual)}`,
+      )
+    ) {
+      return;
+    }
+    const reinicio = confirm(
+      `¿Las máquinas se reiniciaron a CEROS?\n\n` +
+        `• Aceptar = sí → se limpia la recolección anterior\n` +
+        `• Cancelar = no → la recolección de este turno pasa a “recolección anterior”\n` +
+        `  (las máquinas siguen acumulando y el siguiente corte no se descuadra)`,
+    );
+    cerrarCorte({ maquinasReiniciadas: reinicio });
+  };
+
+  const pasarAAnterior = () => {
+    if (!perm.recoleccion) {
+      return alert('Solo administrador o recolector autorizado puede pasar la recolección a anterior.');
+    }
+    const r = pasarRecoleccionAAnteriorGarage(estado);
+    if (!r.ok) return alert(r.error);
+    if (
+      !confirm(
+        `¿Pasar ${fmtCorte(r.montoPasado)} a recolección anterior?\n\n` +
+          `Úsalo cuando el recolector retira efectivo pero las máquinas siguen trabajando (sin ponerlas en ceros).\n` +
+          `Así el corte de los cajeros no se descuadra.`,
+      )
+    ) {
+      return;
+    }
+    patchEstado({
+      recoleccion: r.estado.recoleccion,
+      recoleccion_anterior: r.estado.recoleccion_anterior,
+    });
   };
 
   const cajaNegativa = calc.cajaActual < -0.001;
@@ -170,19 +205,37 @@ export default function CorteGarage({ supabase, sucursal, user }) {
 
           <div data-corte-form="garage-resumen" style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
             <CampoCorte
+              label="Recolección anterior"
+              value={estado.recoleccion_anterior ?? ''}
+              editable={perm.recoleccion || perm.editarTodo}
+              hint="Retiros hechos sin reiniciar máquinas. Se arrastra hasta que las máquinas queden en ceros."
+              onChange={(v) => patchEstado({ recoleccion_anterior: v })}
+            />
+            <CampoCorte
               label="Recolección"
               value={estado.recoleccion ?? ''}
               editable={perm.recoleccion}
-              hint={perm.recoleccion ? 'Efectivo retirado del turno' : 'Solo administrador o usuarios autorizados'}
+              hint={perm.recoleccion ? 'Efectivo retirado en este turno' : 'Solo administrador o usuarios autorizados'}
               onChange={(v) => patchEstado({ recoleccion: v })}
             />
+            {perm.recoleccion && montoRec > 0 && (
+              <button type="button" className="btn btn-ghost" style={{ alignSelf: 'flex-start' }} onClick={pasarAAnterior}>
+                Pasar a recolección anterior
+              </button>
+            )}
+            {montoAnt > 0 && (
+              <p className="muted" style={{ fontSize: '0.75rem', margin: 0 }}>
+                Hay {fmtCorte(montoAnt)} pendiente de cuadre hasta reiniciar máquinas a ceros.
+              </p>
+            )}
           </div>
 
           <div style={{ textAlign: 'center', marginTop: '0.75rem' }}>
             <div style={{ fontWeight: 700 }}>Saldo en caja</div>
             <div style={{ fontSize: '2rem', fontWeight: 800, color: cajaNegativa ? 'var(--danger)' : '#16a085' }}>{fmtCorte(calc.cajaActual)}</div>
             <p className="muted" style={{ fontSize: '0.75rem', margin: '0.35rem 0 0' }}>
-              Venta neta − recolección
+              Venta neta − recolección − recolección anterior
+              {calc.recoleccionTotal > 0 ? ` (${fmtCorte(calc.recoleccionTotal)})` : ''}
             </p>
             {cajaNegativa && <div style={{ color: 'var(--danger)', fontWeight: 700, fontSize: '0.85rem' }}>CAJA GARAGE EN NEGATIVO</div>}
           </div>
