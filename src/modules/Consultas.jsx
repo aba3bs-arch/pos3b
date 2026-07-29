@@ -59,6 +59,19 @@ function EmptyState({ texto }) {
   );
 }
 
+/** Normaliza articulos de una venta (array o JSON string). */
+function articulosDeVenta(venta) {
+  let a = venta?.articulos;
+  if (typeof a === 'string') {
+    try {
+      a = JSON.parse(a);
+    } catch {
+      a = [];
+    }
+  }
+  return Array.isArray(a) ? a : [];
+}
+
 function moneyCell(n, { allowNegColor = true } = {}) {
   const v = Number(n) || 0;
   if (Math.abs(v) < 0.005) return <span className="consultas-money-zero">{fmtMonto(0)}</span>;
@@ -156,7 +169,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     } else if (r.avisos?.length) {
       setAviso(r.avisos[0] || '');
     }
-    return agruparDocumentosInventario(r.data || [], { precioPorId });
+    return agruparDocumentosInventario(r.data || [], { precioPorId, incluirVentas: false });
   }, [supabase, desde, hasta, filtroSucursal, precioPorId]);
 
   const buscarCortes = useCallback(async () => {
@@ -623,11 +636,11 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
               {seccion === 'inventarios' && (
                 docsFiltrados.length === 0 ? (
-                  <EmptyState texto="Sin operaciones en el rango (ingresos, egresos, ajustes, retiros, traspasos, cancelaciones)." />
+                  <EmptyState texto="Sin operaciones en el rango (ingresos, ajustes, retiros, traspasos, cancelaciones)." />
                 ) : (
                   <>
                     <p className="muted" style={{ margin: '0 0 0.35rem', fontSize: '0.8rem' }}>
-                      Verifica por ticket: ingresos, egresos por venta, ajustes, retiros, traspasos y cancelaciones. Abre uno y usa ‹ › para pasar al siguiente.
+                      Verifica por ticket: ingresos, ajustes, retiros, traspasos y cancelaciones. (Las ventas se consultan en Ventas.) Abre uno y usa ‹ › para navegar.
                     </p>
                     <table className="consultas-table">
                       <thead>
@@ -751,31 +764,52 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
               )}
             </div>
 
-            {sel && (seccion === 'ventas' || seccion === 'cfdi_ventas') && Array.isArray(sel.articulos) && (
+            {sel && (seccion === 'ventas' || seccion === 'cfdi_ventas') && (
               <div className="consultas-detail">
-                <h4>Detalle ticket {folioNumerico(sel.id, 5)}</h4>
-                <table className="consultas-table">
-                  <thead>
-                    <tr>
-                      <th>Producto</th>
-                      <th>Cant.</th>
-                      <th>Precio</th>
-                      <th>Importe</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sel.articulos.map((a, i) => (
-                      <tr key={`${a.id}_${i}`}>
-                        <td>{a.nombre || a.id}</td>
-                        <td>{a.qty ?? a.cantidad ?? 1}</td>
-                        <td>{fmtMonto(a.precio)}</td>
-                        <td>{fmtMonto((Number(a.precio) || 0) * (Number(a.qty ?? a.cantidad) || 1))}</td>
+                <h4>Ticket {folioNumerico(sel.id, 5)}</h4>
+                {articulosDeVenta(sel).length === 0 ? (
+                  <p className="muted" style={{ margin: 0 }}>
+                    Este ticket no tiene detalle de productos.
+                  </p>
+                ) : (
+                  <table className="consultas-table">
+                    <thead>
+                      <tr>
+                        <th>Piezas</th>
+                        <th>Descripción</th>
+                        <th>Precio</th>
+                        <th>Importe</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="muted" style={{ marginTop: '0.5rem', fontSize: '0.82rem' }}>
-                  {sel.metodo_pago || '—'} · {etiquetaTienda(sel.sucursal_id)} · {sel.vendedor || '—'}
+                    </thead>
+                    <tbody>
+                      {articulosDeVenta(sel).map((a, i) => {
+                        const piezas = Number(a.qty ?? a.cantidad ?? 1) || 1;
+                        const precio = Number(a.precio) || 0;
+                        const importe = Number(a.importe ?? a.subtotal) || precio * piezas;
+                        return (
+                          <tr key={`${a.id || a.codigo || 'art'}_${i}`}>
+                            <td style={{ fontWeight: 700 }}>{piezas}</td>
+                            <td>
+                              <div style={{ fontWeight: 600 }}>{a.nombre || a.descripcion || a.id || '—'}</div>
+                              {(a.id || a.codigo) && (
+                                <div className="muted" style={{ fontSize: '0.75rem' }}>
+                                  {a.id || a.codigo}
+                                </div>
+                              )}
+                            </td>
+                            <td>{fmtMonto(precio)}</td>
+                            <td style={{ fontWeight: 600 }}>{fmtMonto(importe)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+                <div className="consultas-detail-foot">
+                  <span>
+                    {sel.metodo_pago || '—'} · {etiquetaTienda(sel.sucursal_id)} · {sel.vendedor || '—'}
+                  </span>
+                  <strong>Total {fmtMonto(sel.total)}</strong>
                 </div>
               </div>
             )}

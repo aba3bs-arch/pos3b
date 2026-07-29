@@ -77,8 +77,7 @@ function valorMovimiento(m, precioPorId) {
 }
 
 function tituloDocumentoInv(m) {
-  // Consultas · Inventarios: verificar operaciones por ticket
-  if (m.modo === 'venta' || m.origen === 'ventas' || m.tipo === 'venta') return 'Egreso por venta';
+  // Consultas · Inventarios: operaciones de almacén (sin egresos por venta)
   if (m.modo === 'compra' || m.origen === 'compras') return 'Ingreso de inventario';
   if (m.tipo === 'entrada' && (m.modo === 'masivo' || m.modo === 'libre' || !m.modo)) return 'Ingreso de inventario';
   if (m.modo === 'conteo_departamento' || m.modo === 'vaciado_inventario' || m.tipo === 'ajuste') {
@@ -87,23 +86,32 @@ function tituloDocumentoInv(m) {
   if (m.tipo === 'traspaso' || m.modo === 'ubicacion') return 'Traspaso de inventario';
   if (m.modo === 'cancelacion' || m.origen === 'cancelaciones') return 'Cancelación';
   if (m.tipo === 'cambio_precio') return 'Cambio de precio';
-  if (m.tipo === 'retiro' && m.modo === 'venta') return 'Egreso por venta';
   if (m.tipo === 'retiro') return 'Retiro de inventario';
   if (m.tipo === 'entrada') return 'Ingreso de inventario';
   return 'Movimiento de inventario';
 }
 
+function esMovimientoVenta(m) {
+  return (
+    m?.modo === 'venta' ||
+    m?.origen === 'ventas' ||
+    m?.tipo === 'venta' ||
+    (m?.tipo === 'retiro' && m?.modo === 'venta')
+  );
+}
+
 /**
- * Agrupa líneas de movimiento en documentos estilo SoftRestaurant
- * (Ingreso/Ajuste/Venta/Cancelación con folio, diferencia +/- y total).
- * Incluye TODOS los movimientos de inventario del POS.
+ * Agrupa líneas de movimiento en documentos estilo SoftRestaurant.
+ * Por defecto NO incluye egresos por venta (van en la pestaña Ventas).
  */
 export function agruparDocumentosInventario(movimientos, opts = {}) {
-  const { precioPorId = new Map() } = opts;
+  const { precioPorId = new Map(), incluirVentas = false } = opts;
   const map = new Map();
 
   for (const m of movimientos || []) {
-    const esVenta = m.modo === 'venta' || m.origen === 'ventas' || m.tipo === 'venta';
+    const esVenta = esMovimientoVenta(m);
+    if (esVenta && !incluirVentas) continue;
+
     const folio =
       m.folio ||
       m.meta?.folio ||

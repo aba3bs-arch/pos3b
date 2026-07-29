@@ -350,12 +350,28 @@
   border-top: 1px solid #eef2f7;
   background: #f8fafc;
   padding: 0.85rem 1rem 1.1rem;
-  max-height: 280px;
+  max-height: 360px;
   overflow: auto;
 }
 
 .consultas-detail h4 {
   margin: 0 0 0.5rem;
+  color: #1e5bb8;
+  font-size: 0.95rem;
+}
+
+.consultas-detail-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.65rem;
+  font-size: 0.82rem;
+  color: #64748b;
+  flex-wrap: wrap;
+}
+
+.consultas-detail-foot strong {
   color: #1e5bb8;
   font-size: 0.95rem;
 }
