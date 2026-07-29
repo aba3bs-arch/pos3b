@@ -356,15 +356,80 @@ export function paretoMermaPorSemana(filas = []) {
   return { pareto, cronologico };
 }
 
-export function tiendasParaFiltroInventario(sucursalActual) {
-  const set = new Set(listarSucursales());
+export function tiendasParaFiltroInventario(sucursalActual, sucursalesLista = null) {
+  const set = new Set();
+  const catalogo = Array.isArray(sucursalesLista) && sucursalesLista.length
+    ? sucursalesLista
+    : listarSucursales();
+  for (const s of catalogo) {
+    const n = normalizarCodigoTienda(s);
+    if (n) set.add(n);
+  }
   const cur = normalizarCodigoTienda(sucursalActual);
   if (cur) set.add(cur);
   for (const a of leerAjustesInventario()) {
     const s = normalizarCodigoTienda(a.sucursal);
     if (s) set.add(s);
   }
-  return [...set].sort();
+  // Orden: operativas numéricas / código, MAIN al final.
+  return [...set].sort((a, b) => {
+    if (a === 'MAIN') return 1;
+    if (b === 'MAIN') return -1;
+    return a.localeCompare(b, 'es', { numeric: true });
+  });
+}
+
+/** Una fila por tienda del catálogo (incluye ceros si no hubo conteo). */
+export function resumenPorTiendaReporte(filas = [], tiendasCatalogo = []) {
+  const map = new Map();
+  for (const s of tiendasCatalogo || []) {
+    const suc = normalizarCodigoTienda(s);
+    if (!suc) continue;
+    map.set(suc, {
+      sucursal: suc,
+      tienda: etiquetaTienda(suc),
+      conteos: 0,
+      merma: 0,
+      inventarioOperativo: 0,
+      piezasFaltantes: 0,
+    });
+  }
+  for (const f of filas || []) {
+    const suc = normalizarCodigoTienda(f.sucursal);
+    if (!suc || suc === '—') continue;
+    if (!map.has(suc)) {
+      map.set(suc, {
+        sucursal: suc,
+        tienda: etiquetaTienda(suc),
+        conteos: 0,
+        merma: 0,
+        inventarioOperativo: 0,
+        piezasFaltantes: 0,
+      });
+    }
+    const row = map.get(suc);
+    row.conteos += 1;
+    row.merma += Number(f.merma) || 0;
+    row.inventarioOperativo += Number(f.inventarioOperativo) || 0;
+    row.piezasFaltantes += Number(f.piezasFaltantes) || 0;
+  }
+  return [...map.values()]
+    .map((r) => ({
+      ...r,
+      merma: Math.round(r.merma * 100) / 100,
+      inventarioOperativo: Math.round(r.inventarioOperativo * 100) / 100,
+      pctMerma:
+        r.inventarioOperativo > 0
+          ? Math.round((r.merma / r.inventarioOperativo) * 10000) / 100
+          : r.merma > 0
+            ? 100
+            : 0,
+    }))
+    .sort((a, b) => {
+      if (a.sucursal === 'MAIN') return 1;
+      if (b.sucursal === 'MAIN') return -1;
+      return a.sucursal.localeCompare(b.sucursal, 'es', { numeric: true });
+    });
 }
 
 export function columnasCsvInventario() {

@@ -10,6 +10,7 @@ import {
   fmtMxnReporte,
   fmtPctReporte,
   paretoMermaPorSemana,
+  resumenPorTiendaReporte,
   tiendasParaFiltroInventario,
   totalesReporteInventario,
 } from '../lib/reporteInventario.js';
@@ -43,7 +44,7 @@ function maxMerma(serie) {
  * Reporte de conteos/ajustes de inventario: tabla + Pareto semanal de merma.
  * Combina ajustes locales + movimientos de conteo en la nube.
  */
-export default function ReporteInventario({ supabase, inventario, sucursal }) {
+export default function ReporteInventario({ supabase, inventario, sucursal, sucursalesLista }) {
   const [abierto, setAbierto] = useState(false);
   const [preset, setPreset] = useState('mes');
   const [desde, setDesde] = useState(() => new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10));
@@ -55,13 +56,19 @@ export default function ReporteInventario({ supabase, inventario, sucursal }) {
   const [loading, setLoading] = useState(false);
 
   const tiendas = useMemo(() => {
-    const base = tiendasParaFiltroInventario(sucursal);
+    const base = tiendasParaFiltroInventario(sucursal, sucursalesLista);
     const set = new Set(base);
     for (const f of filas) {
-      if (f.sucursal) set.add(f.sucursal);
+      if (f.sucursal && f.sucursal !== '—') set.add(f.sucursal);
     }
-    return [...set].sort();
-  }, [sucursal, abierto, filas]);
+    return [...set].sort((a, b) => {
+      if (a === 'MAIN') return 1;
+      if (b === 'MAIN') return -1;
+      return a.localeCompare(b, 'es', { numeric: true });
+    });
+  }, [sucursal, sucursalesLista, abierto, filas]);
+
+  const resumenTiendas = useMemo(() => resumenPorTiendaReporte(filas, tiendas), [filas, tiendas]);
 
   useEffect(() => {
     if (!abierto) return undefined;
@@ -237,6 +244,47 @@ export default function ReporteInventario({ supabase, inventario, sucursal }) {
             <strong style={{ fontSize: '1.05rem', color: 'var(--brand-blue)' }}>{k.value}</strong>
           </div>
         ))}
+      </div>
+
+      <div>
+        <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Todas las tiendas</h4>
+        <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.8rem' }}>
+          Resumen del periodo (incluye tiendas sin conteo en cero). Filtro de tienda arriba para ver el detalle de una sola.
+        </p>
+        <div className="table-wrap table-wrap-sticky-head">
+          <table className="data" style={{ fontSize: '0.82rem' }}>
+            <thead>
+              <tr>
+                <th>Tienda</th>
+                <th style={{ textAlign: 'right' }}>Conteos</th>
+                <th style={{ textAlign: 'right' }}>Inv. operativo</th>
+                <th style={{ textAlign: 'right' }}>Merma</th>
+                <th style={{ textAlign: 'right' }}>% merma</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resumenTiendas.map((t) => (
+                <tr
+                  key={t.sucursal}
+                  style={{ opacity: t.conteos ? 1 : 0.55, cursor: 'pointer' }}
+                  onClick={() => setTienda((prev) => (prev === t.sucursal ? '' : t.sucursal))}
+                  title={tienda === t.sucursal ? 'Quitar filtro' : `Filtrar ${t.sucursal}`}
+                >
+                  <td style={{ fontWeight: tienda === t.sucursal ? 700 : 500 }}>
+                    {t.tienda}
+                    {tienda === t.sucursal ? ' ·' : ''}
+                  </td>
+                  <td style={{ textAlign: 'right' }}>{t.conteos}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtMxnReporte(t.inventarioOperativo)}</td>
+                  <td style={{ textAlign: 'right', color: t.merma > 0 ? 'var(--brand-red, #c0392b)' : undefined }}>
+                    {fmtMxnReporte(t.merma)}
+                  </td>
+                  <td style={{ textAlign: 'right' }}>{fmtPctReporte(t.pctMerma)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="grid-2" style={{ gap: '1rem' }}>

@@ -1077,7 +1077,14 @@ function App() {
           )}
           {vista === 'Estadisticas' && <Estadisticas supabase={supabase} />}
           {vista === 'Resumen operativo' && <ResumenOperativo supabase={supabase} inventarioCompleto={inventario} />}
-          {vista === 'Reportes' && <Reportes supabase={supabase} inventario={inventarioTienda} sucursal={sucursal} />}
+          {vista === 'Reportes' && (
+            <Reportes
+              supabase={supabase}
+              inventario={inventarioTienda}
+              sucursal={sucursal}
+              sucursalesLista={listaSucursales}
+            />
+          )}
           {vista === 'Nómina' && (
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
