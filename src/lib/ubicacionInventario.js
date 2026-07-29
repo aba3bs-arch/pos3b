@@ -66,7 +66,13 @@ export const SUBTIPOS_TRASPASO = [
 
 export function subtiposTraspasoParaSucursal(sucursal) {
   const central = esAlmacenCentral(sucursal);
-  return SUBTIPOS_TRASPASO.filter((s) => !s.soloCentral || central);
+  // Solo MAIN→sucursal o sucursal→sucursal (sin CEDIS↔piso ni retorno a MAIN).
+  return SUBTIPOS_TRASPASO.filter((s) => {
+    if (s.id === 'cedis_piso' || s.id === 'piso_cedis') return false;
+    if (s.id === 'central_tienda') return central;
+    if (s.id === 'tienda_tienda') return !central;
+    return false;
+  });
 }
 
 /** ¿El producto ya usa inventario por sucursal? */

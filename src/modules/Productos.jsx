@@ -30,6 +30,7 @@ import ProductoThumb from '../components/ProductoThumb.jsx';
 import MoverProductosLote from '../components/MoverProductosLote.jsx';
 import { imprimirEtiquetasEstante } from '../lib/impresion.js';
 import AjusteInventario from './AjusteInventario.jsx';
+import Traspasos from './Traspasos.jsx';
 import Preinventario from './Preinventario.jsx';
 import HistorialProducto from '../components/HistorialProducto.jsx';
 import { etiquetaTienda } from '../constants/sucursales.js';
@@ -1126,7 +1127,15 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
       )}
 
       {vista === 'traspaso' && (
-        <AjusteInventario supabase={supabase} inventario={inventario} inventarioCompleto={inventarioCompleto || inventario} cargarDatos={cargarDatos} user={user} sucursal={sucursal} modoInicial="traspaso" />
+        <Traspasos
+          supabase={supabase}
+          inventario={inventario}
+          inventarioCompleto={inventarioCompleto || inventario}
+          cargarDatos={cargarDatos}
+          user={user}
+          sucursal={sucursal}
+          onVolver={irLista}
+        />
       )}
 
       {vista === 'preinventario' && (

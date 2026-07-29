@@ -147,7 +147,7 @@ export default function AjusteInventario({
 
   useEffect(() => {
     if (!subtiposDisponibles.some((s) => s.id === subtipoTraspaso)) {
-      setSubtipoTraspaso(subtiposDisponibles[0]?.id || 'piso_cedis');
+      setSubtipoTraspaso(subtiposDisponibles[0]?.id || (esAlmacenCentral(sucursalOp) ? 'central_tienda' : 'tienda_tienda'));
     }
   }, [subtiposDisponibles, subtipoTraspaso]);
 
@@ -681,7 +681,11 @@ export default function AjusteInventario({
         </div>
       ) : modo === 'traspaso' ? (
         <div className="card">
-          <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Traspaso de mercancía</h4>
+          <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Traspaso rápido (ajuste)</h4>
+          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+            Solo MAIN→sucursal o sucursal→sucursal (aplica al instante). Para el flujo enviar/recibir/solicitar usa el menú{' '}
+            <strong>Traspasos</strong>.
+          </p>
           <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
             Tienda de operación:{' '}
             <span className="badge">{esAlmacenCentral(sucursalOp) ? etiquetaAlmacenCentral() : etiquetaTienda(sucursalOp)}</span>

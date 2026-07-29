@@ -1,20 +1,20 @@
 {
   "version": "1.1.0",
-  "buildId": "743a917",
+  "buildId": "0fbd590",
   "branch": "main",
-  "builtAt": "2026-07-29T19:58:45.503Z",
+  "builtAt": "2026-07-29T23:17:10.244Z",
   "title": "Actualización disponible",
   "summary": "Hay una nueva versión del POS. Actualiza para recibir correcciones y mejoras.",
   "changes": [
+    "Inventario: en MAIN mostrar CEDIS al buscar productos; folios trp-0001",
+    "Docs: guiones de video para cobrar y corte de caja",
+    "Avisar actualizaciones pendientes con lista de cambios",
     "Administrador de precios: filtrar por departamento y proveedor",
     "Administrador de precios: buscar por nombre, codigo o escanner",
     "Reporte inventario: mostrar todas las tiendas en resumen y filtro",
     "Reportes inventario: cargar conteos desde la nube",
     "Consultas Inventarios: filtro por operacion y periodo",
     "Fix neto RT (gastos activos), origen FJBB/AMR y sellado de gastos",
-    "Favoritos: mostrar stock negativo real en vez de cero falso",
-    "Favoritos: normaliza foto_url desde foto",
-    "Favoritos triangle, preinventario, escanner movil y fix stock",
-    "Incidencias: bloquear reportes duplicados y borrar/depurar solo admin"
+    "Favoritos: mostrar stock negativo real en vez de cero falso"
   ]
 }
