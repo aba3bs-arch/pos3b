@@ -455,9 +455,15 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
         m.subtotal != null && Number(m.subtotal)
           ? Math.abs(Number(m.subtotal))
           : Math.abs(contado - existencia) * precio || qty * precio;
-      return { ...m, prod, precio, existencia, contado, difValor };
+      return { ...m, prod, precio, qty, existencia, contado, difValor };
     });
   }, [enDetalleInv, sel, productoPorId]);
+
+  const esDetalleTraspaso = Boolean(enDetalleInv && sel?.esTraspaso);
+  const piezasDetalleInv = useMemo(
+    () => lineasDetalleInv.reduce((s, m) => s + (Math.abs(Number(m.qty) || 0)), 0),
+    [lineasDetalleInv],
+  );
 
   return (
     <div className="consultas-shell">
@@ -568,10 +574,26 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
               <Avatar nombre={sel.usuario} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="muted" style={{ fontSize: '0.82rem' }}>
-                  Almacén:{' '}
+                  {esDetalleTraspaso && sel.faseTraspaso === 'recepcion' ? 'Destino' : esDetalleTraspaso && sel.faseTraspaso === 'salida' ? 'Origen' : 'Almacén'}
+                  :{' '}
                   <strong style={{ color: '#334155' }}>
                     {etiquetaTienda(sel.sucursal || filtroSucursal || sucursal) || 'Default'}
                   </strong>
+                  {sel.faseLabel ? (
+                    <span
+                      style={{
+                        marginLeft: '0.5rem',
+                        padding: '0.12rem 0.45rem',
+                        borderRadius: 999,
+                        fontSize: '0.72rem',
+                        fontWeight: 800,
+                        background: sel.faseTraspaso === 'recepcion' ? 'rgba(46,125,50,0.12)' : 'rgba(59,102,181,0.12)',
+                        color: sel.faseTraspaso === 'recepcion' ? 'var(--brand-green)' : 'var(--brand-blue)',
+                      }}
+                    >
+                      {sel.faseLabel}
+                    </span>
+                  ) : null}
                 </div>
                 <div className="muted" style={{ fontSize: '0.75rem', marginTop: '0.15rem' }}>
                   {sel.titulo} · Folio {sel.folio} · {sel.usuario || '—'}
@@ -612,11 +634,23 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                 <thead>
                   <tr>
                     <th>Producto</th>
-                    <th>Lote</th>
-                    <th>Precio</th>
-                    <th>Existencia</th>
-                    <th>Diferencia</th>
-                    <th>Contado</th>
+                    {esDetalleTraspaso ? (
+                      <>
+                        <th>Piezas</th>
+                        <th>Precio</th>
+                        <th>Stock antes</th>
+                        <th>Stock después</th>
+                        <th>Valor</th>
+                      </>
+                    ) : (
+                      <>
+                        <th>Lote</th>
+                        <th>Precio</th>
+                        <th>Existencia</th>
+                        <th>Diferencia</th>
+                        <th>Contado</th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -631,18 +665,32 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                           </div>
                         </div>
                       </td>
-                      <td className="muted">—</td>
-                      <td>{fmtMonto(m.precio)}</td>
-                      <td>{m.existencia}</td>
-                      <td style={{ color: '#1e5bb8', fontWeight: 600 }}>{fmtMonto(m.difValor)}</td>
-                      <td style={{ fontWeight: 700 }}>{m.contado}</td>
+                      {esDetalleTraspaso ? (
+                        <>
+                          <td style={{ fontWeight: 800, color: 'var(--brand-green)' }}>{m.qty}</td>
+                          <td>{fmtMonto(m.precio)}</td>
+                          <td>{m.existencia}</td>
+                          <td style={{ fontWeight: 700 }}>{m.contado}</td>
+                          <td style={{ color: '#1e5bb8', fontWeight: 600 }}>{fmtMonto(m.difValor)}</td>
+                        </>
+                      ) : (
+                        <>
+                          <td className="muted">—</td>
+                          <td>{fmtMonto(m.precio)}</td>
+                          <td>{m.existencia}</td>
+                          <td style={{ color: '#1e5bb8', fontWeight: 600 }}>{fmtMonto(m.difValor)}</td>
+                          <td style={{ fontWeight: 700 }}>{m.contado}</td>
+                        </>
+                      )}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             <div className="consultas-inv-total">
-              Total ({lineasDetalleInv.length}) {fmtMonto(sel.total)}
+              {esDetalleTraspaso
+                ? `Total (${lineasDetalleInv.length} producto${lineasDetalleInv.length === 1 ? '' : 's'} · ${piezasDetalleInv} pza) ${fmtMonto(sel.total)}`
+                : `Total (${lineasDetalleInv.length}) ${fmtMonto(sel.total)}`}
             </div>
           </div>
         )}

@@ -167,12 +167,36 @@ function tituloDocumentoInv(m) {
   if (m.modo === 'conteo_departamento' || m.modo === 'vaciado_inventario' || m.tipo === 'ajuste') {
     return 'Ajuste de inventario';
   }
-  if (m.tipo === 'traspaso' || m.modo === 'ubicacion') return 'Traspaso de inventario';
+  if (m.tipo === 'traspaso' || m.modo === 'ubicacion') {
+    const fase = faseTraspasoMovimiento(m);
+    if (fase === 'recepcion') return 'Recepción de traspaso';
+    if (fase === 'salida') return 'Envío de traspaso';
+    return 'Traspaso de inventario';
+  }
   if (m.modo === 'cancelacion' || m.origen === 'cancelaciones') return 'Cancelación';
   if (m.tipo === 'cambio_precio') return 'Cambio de precio';
   if (m.tipo === 'retiro') return 'Retiro de inventario';
   if (m.tipo === 'entrada') return 'Ingreso de inventario';
   return 'Movimiento de inventario';
+}
+
+/** Envía / recibe del mismo folio trp-XXXX se muestran como documentos aparte. */
+export function faseTraspasoMovimiento(m) {
+  if (!(m?.tipo === 'traspaso' || m?.modo === 'ubicacion')) return null;
+  const motivo = String(m.motivo || '').toLowerCase();
+  if (motivo.includes('recep')) return 'recepcion';
+  if (motivo.includes('salida') || motivo.includes('envío') || motivo.includes('envio') || motivo.includes('despach')) {
+    return 'salida';
+  }
+  const antes = Number(m.stock_antes);
+  const despues = Number(m.stock_despues);
+  if (Number.isFinite(antes) && Number.isFinite(despues)) {
+    if (despues > antes) return 'recepcion';
+    if (despues < antes) return 'salida';
+  }
+  // Traspaso inmediato viejo (origen+destino en la misma línea).
+  if (m.stock_dest_antes != null || m.stock_dest_despues != null) return 'completo';
+  return 'traspaso';
 }
 
 /** Ids de operación para filtro en Consultas → Inventarios. */
@@ -190,7 +214,13 @@ export function operacionIdDocumentoInv(tituloOrDoc) {
   if (titulo === 'Ingreso de inventario') return 'ingreso';
   if (titulo === 'Retiro de inventario') return 'retiro';
   if (titulo === 'Ajuste de inventario') return 'ajuste';
-  if (titulo === 'Traspaso de inventario') return 'traspaso';
+  if (
+    titulo === 'Traspaso de inventario' ||
+    titulo === 'Envío de traspaso' ||
+    titulo === 'Recepción de traspaso'
+  ) {
+    return 'traspaso';
+  }
   if (titulo === 'Cancelación') return 'cancelacion';
   return 'otro';
 }
@@ -240,18 +270,22 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
     const bucket = Math.floor(t / 180000); // 3 min
     const rutaOrigen = m.traspaso_origen || m.meta?.traspaso_origen || null;
     const rutaDestino = m.traspaso_destino || m.meta?.traspaso_destino || null;
+    const faseTrp = esTraspaso ? faseTraspasoMovimiento(m) : null;
+    // Mismo folio: envío y recepción van en documentos distintos.
     const key =
-      folioRaw
-        ? `folio:${folioRaw}`
-        : esTraspaso
-          ? `trp:${usuario}|${bucket}|${m.sucursal_origen || m.meta?.sucursal_origen || ''}|${m.sucursal_destino || m.meta?.sucursal_destino || ''}|${m.ubicacion_origen || ''}|${m.ubicacion_destino || ''}|${m.subtipo || ''}`
-          : esVenta
-            ? `venta:${String(m.id).replace(/^venta_/, '').split('_')[0]}`
-            : m.origen === 'compras' || m.modo === 'compra'
-              ? `compra:${String(m.id).replace(/^compra_/, '').split('_')[0]}`
-              : m.origen === 'cancelaciones' || m.modo === 'cancelacion'
-                ? `cancel:${String(m.id).replace(/^cancel_/, '').split('_')[0]}`
-                : `${titulo}|${usuario}|${bucket}|${m.sucursal || ''}`;
+      folioRaw && esTraspaso
+        ? `folio:${folioRaw}:${faseTrp || 'traspaso'}`
+        : folioRaw
+          ? `folio:${folioRaw}`
+          : esTraspaso
+            ? `trp:${faseTrp || 'x'}:${usuario}|${bucket}|${m.sucursal_origen || m.meta?.sucursal_origen || ''}|${m.sucursal_destino || m.meta?.sucursal_destino || ''}|${m.ubicacion_origen || ''}|${m.ubicacion_destino || ''}|${m.subtipo || ''}`
+            : esVenta
+              ? `venta:${String(m.id).replace(/^venta_/, '').split('_')[0]}`
+              : m.origen === 'compras' || m.modo === 'compra'
+                ? `compra:${String(m.id).replace(/^compra_/, '').split('_')[0]}`
+                : m.origen === 'cancelaciones' || m.modo === 'cancelacion'
+                  ? `cancel:${String(m.id).replace(/^cancel_/, '').split('_')[0]}`
+                  : `${titulo}|${usuario}|${bucket}|${m.sucursal || ''}`;
 
     if (!map.has(key)) {
       map.set(key, {
@@ -263,6 +297,7 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
         created_at: m.created_at,
         sucursal: m.sucursal,
         esTraspaso,
+        faseTraspaso: faseTrp,
         traspaso_origen: rutaOrigen,
         traspaso_destino: rutaDestino,
         sucursal_origen: m.sucursal_origen || m.meta?.sucursal_origen || null,
@@ -308,13 +343,22 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
         d.esTraspaso && d.traspaso_origen && d.traspaso_destino
           ? `${d.traspaso_origen} → ${d.traspaso_destino}`
           : null;
+      const faseLabel =
+        d.faseTraspaso === 'recepcion'
+          ? 'Recepción'
+          : d.faseTraspaso === 'salida'
+            ? 'Envío'
+            : null;
       return {
         ...d,
         ruta,
+        faseLabel,
         difNeg: Math.round(d.difNeg * 100) / 100,
         difPos: Math.round(d.difPos * 100) / 100,
         total: Math.round(total * 100) / 100,
-        label: ruta ? `${d.titulo} - ${d.folio} · ${ruta}` : `${d.titulo} - ${d.folio}`,
+        label: ruta
+          ? `${d.titulo} - ${d.folio}${faseLabel ? ` · ${faseLabel}` : ''} · ${ruta}`
+          : `${d.titulo} - ${d.folio}`,
       };
     })
     .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
