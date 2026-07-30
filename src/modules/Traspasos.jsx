@@ -32,11 +32,27 @@ function monetario(n) {
   return `$${Number(n || 0).toFixed(2)}`;
 }
 
+/** Productos distintos + piezas totales de un traspaso/solicitud. */
+function resumenPiezas(lineas) {
+  const arr = Array.isArray(lineas) ? lineas : [];
+  let piezas = 0;
+  for (const l of arr) {
+    piezas += Math.max(0, Math.floor(Number(l.cantidad) || 0));
+  }
+  return { productos: arr.length, piezas };
+}
+
+function textoResumenLineas(lineas) {
+  const { productos, piezas } = resumenPiezas(lineas);
+  if (!productos) return 'Sin productos';
+  return `${productos} producto${productos === 1 ? '' : 's'} · ${piezas} pieza${piezas === 1 ? '' : 's'}`;
+}
+
 function EmptyFolder({ texto }) {
   return (
     <div className="trp-empty">
       <div className="trp-empty-circle" aria-hidden>
-        <Icon name="file" size={48} style={{ color: 'var(--brand-blue)' }} />
+        <Icon name="package" size={36} style={{ color: 'var(--brand-blue)' }} />
       </div>
       <p className="muted">{texto}</p>
     </div>
@@ -211,13 +227,16 @@ export default function Traspasos({
 
   const totales = useMemo(() => {
     const productos = lineas.length;
+    let piezas = 0;
     let costo = 0;
     let precio = 0;
     for (const l of lineas) {
-      costo += (Number(l.costo) || 0) * (Number(l.cantidad) || 0);
-      precio += (Number(l.precio) || 0) * (Number(l.cantidad) || 0);
+      const q = Math.max(0, Math.floor(Number(l.cantidad) || 0));
+      piezas += q;
+      costo += (Number(l.costo) || 0) * q;
+      precio += (Number(l.precio) || 0) * q;
     }
-    return { productos, costo, precio };
+    return { productos, piezas, costo, precio };
   }, [lineas]);
 
   const confirmarDestino = () => {
@@ -238,7 +257,14 @@ export default function Traspasos({
 
   const enviar = async () => {
     if (!lineas.length) return alert('Agrega productos.');
-    if (!window.confirm(`¿Enviar ${lineas.length} producto(s) a ${etiquetaOrigenTraspaso(destinoId)}?`)) return;
+    const { piezas } = resumenPiezas(lineas);
+    if (
+      !window.confirm(
+        `¿Enviar ${lineas.length} producto(s) / ${piezas} pieza(s) a ${etiquetaOrigenTraspaso(destinoId)}?`,
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     const r = await enviarTraspaso(supabase, {
       origenId: sucursalOp,
@@ -262,7 +288,14 @@ export default function Traspasos({
   const solicitar = async () => {
     if (!lineas.length) return alert('Agrega productos a la solicitud.');
     if (!origenSolicitudId) return alert('Elige de quién pides el traspaso.');
-    if (!window.confirm(`¿Solicitar traspaso desde ${etiquetaOrigenTraspaso(origenSolicitudId)}?`)) return;
+    const { piezas } = resumenPiezas(lineas);
+    if (
+      !window.confirm(
+        `¿Solicitar ${lineas.length} producto(s) / ${piezas} pieza(s) desde ${etiquetaOrigenTraspaso(origenSolicitudId)}?`,
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     const r = await crearSolicitudTraspaso(supabase, {
       origenId: origenSolicitudId,
@@ -281,7 +314,14 @@ export default function Traspasos({
   };
 
   const confirmarRecibo = async (doc) => {
-    if (!window.confirm(`¿Confirmar recepción del traspaso ${doc.folio}? El stock entrará a piso de esta tienda.`)) return;
+    const { piezas, productos } = resumenPiezas(doc.lineas);
+    if (
+      !window.confirm(
+        `¿Confirmar recepción de ${doc.folio}?\n${productos} producto(s) · ${piezas} pieza(s) entrarán al piso de esta tienda.`,
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     const r = await recibirTraspaso(supabase, {
       traspasoId: doc.id,
@@ -402,11 +442,11 @@ export default function Traspasos({
             </div>
           )}
 
-          <div className="trp-table-wrap">
+          <div className="trp-table-wrap trp-table-desktop">
             <table className="trp-table">
               <thead>
                 <tr>
-                  <th>Cant.</th>
+                  <th>Piezas</th>
                   <th>Producto</th>
                   <th>Ext. origen</th>
                   <th>Ext. destino</th>
@@ -470,26 +510,84 @@ export default function Traspasos({
             </table>
             {!lineas.length && <p className="muted" style={{ padding: '1rem' }}>Escanea o busca para agregar productos.</p>}
           </div>
+
+          <div className="trp-cards-mobile">
+            {!lineas.length && <p className="muted" style={{ padding: '0.75rem 0' }}>Escanea o busca para agregar productos.</p>}
+            {lineas.map((l) => {
+              const prod = catalogo.find((p) => String(p.id) === String(l.producto_id));
+              const so = prod ? stockOrigenDisponible(prod, origenId) : '—';
+              const sd = prod ? stockDestinoDisponible(prod, destId) : '—';
+              return (
+                <article key={l.producto_id} className="trp-card-linea">
+                  <div className="trp-card-linea-top">
+                    {prod && <ProductoThumb producto={prod} size={40} />}
+                    <div className="trp-card-linea-info">
+                      <strong>{l.nombre}</strong>
+                      <span className="muted">{l.producto_id}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      aria-label="Quitar"
+                      onClick={() => setLineas((prev) => prev.filter((x) => x.producto_id !== l.producto_id))}
+                    >
+                      <Icon name="trash" size={16} />
+                    </button>
+                  </div>
+                  <div className="trp-card-linea-grid">
+                    <label>
+                      Piezas
+                      <input
+                        className="input trp-qty"
+                        type="number"
+                        min={1}
+                        value={l.cantidad}
+                        onChange={(e) => {
+                          const v = Math.max(1, Math.floor(Number(e.target.value) || 1));
+                          setLineas((prev) => prev.map((x) => (x.producto_id === l.producto_id ? { ...x, cantidad: v } : x)));
+                        }}
+                      />
+                    </label>
+                    <div>
+                      <span className="muted">Origen</span>
+                      <strong>{so}</strong>
+                    </div>
+                    <div>
+                      <span className="muted">Destino</span>
+                      <strong>{sd}</strong>
+                    </div>
+                    <div>
+                      <span className="muted">Total</span>
+                      <strong>{monetario(l.precio * l.cantidad)}</strong>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
         </div>
         <footer className="trp-footer trp-footer-bar">
           <div className="trp-totals">
             <span>
-              Productos totales: <strong>{totales.productos}</strong>
+              Productos: <strong>{totales.productos}</strong>
+            </span>
+            <span className="trp-totales-piezas">
+              Piezas: <strong>{totales.piezas}</strong>
             </span>
             <span>
-              Total de costos: <strong>{monetario(totales.costo)}</strong>
+              Costos: <strong>{monetario(totales.costo)}</strong>
             </span>
             <span>
-              Total de precios: <strong>{monetario(totales.precio)}</strong>
+              Precios: <strong>{monetario(totales.precio)}</strong>
             </span>
           </div>
           {esSol ? (
             <button type="button" className="trp-btn-green" disabled={busy || !lineas.length} onClick={solicitar}>
-              {busy ? 'Enviando…' : 'SOLICITAR TRASPASO'}
+              {busy ? 'Enviando…' : `SOLICITAR · ${totales.piezas} pza`}
             </button>
           ) : (
             <button type="button" className="trp-btn-green" disabled={busy || !lineas.length} onClick={enviar}>
-              {busy ? 'Enviando…' : 'ENVIAR PRODUCTOS'}
+              {busy ? 'Enviando…' : `ENVIAR · ${totales.piezas} pza`}
             </button>
           )}
         </footer>
@@ -499,24 +597,28 @@ export default function Traspasos({
 
   if (detalleRecibir) {
     const doc = detalleRecibir;
+    const res = resumenPiezas(doc.lineas);
     return (
       <div className="trp-shell trp-shell-wide">
         <header className="trp-header">
           <button type="button" className="trp-icon-btn" onClick={() => setDetalleRecibir(null)} aria-label="Volver">
             <Icon name="x" size={22} />
           </button>
-          <h2>Recibir traspaso {doc.folio}</h2>
+          <h2>Recibir {doc.folio}</h2>
           <span style={{ width: 40 }} />
         </header>
         <div className="trp-body">
-          <p className="muted">
+          <p className="muted" style={{ marginTop: 0 }}>
             De <strong>{etiquetaOrigenTraspaso(doc.origen_id)}</strong> → {etiquetaOrigenTraspaso(doc.destino_id)}
           </p>
-          <div className="trp-table-wrap">
+          <p className="trp-resumen-chip">
+            {res.productos} producto{res.productos === 1 ? '' : 's'} · <strong>{res.piezas} pieza{res.piezas === 1 ? '' : 's'}</strong>
+          </p>
+          <div className="trp-table-wrap trp-table-desktop">
             <table className="trp-table">
               <thead>
                 <tr>
-                  <th>Cant.</th>
+                  <th>Piezas</th>
                   <th>Producto</th>
                   <th>Precio</th>
                   <th>Costo</th>
@@ -525,7 +627,7 @@ export default function Traspasos({
               <tbody>
                 {(doc.lineas || []).map((l) => (
                   <tr key={l.producto_id}>
-                    <td>{l.cantidad}</td>
+                    <td><strong>{l.cantidad}</strong></td>
                     <td>{l.nombre || l.producto_id}</td>
                     <td>{monetario(l.precio)}</td>
                     <td>{monetario(l.costo)}</td>
@@ -534,10 +636,33 @@ export default function Traspasos({
               </tbody>
             </table>
           </div>
+          <div className="trp-cards-mobile">
+            {(doc.lineas || []).map((l) => (
+              <article key={l.producto_id} className="trp-card-linea">
+                <div className="trp-card-linea-top">
+                  <div className="trp-card-linea-info">
+                    <strong>{l.nombre || l.producto_id}</strong>
+                    <span className="muted">{l.producto_id}</span>
+                  </div>
+                  <span className="trp-piezas-badge">{l.cantidad} pza</span>
+                </div>
+                <div className="trp-card-linea-grid trp-card-linea-grid-2">
+                  <div>
+                    <span className="muted">Precio</span>
+                    <strong>{monetario(l.precio)}</strong>
+                  </div>
+                  <div>
+                    <span className="muted">Costo</span>
+                    <strong>{monetario(l.costo)}</strong>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
         </div>
         <footer className="trp-footer">
           <button type="button" className="trp-btn-green" disabled={busy} onClick={() => confirmarRecibo(doc)}>
-            {busy ? 'Recibiendo…' : 'ACEPTAR RECEPCIÓN'} <Icon name="check" size={18} />
+            {busy ? 'Recibiendo…' : `ACEPTAR · ${res.piezas} pza`} <Icon name="check" size={18} />
           </button>
         </footer>
       </div>
@@ -613,12 +738,12 @@ export default function Traspasos({
                   {solicitudesAtender.map((s) => (
                     <li key={s.id}>
                       <button type="button" className="trp-list-item" onClick={() => atenderSolicitud(s)}>
-                        <div>
+                        <div className="trp-list-item-body">
                           <strong>{s.folio}</strong>
-                          <div className="muted">
-                            Pide {etiquetaOrigenTraspaso(s.destino_id)} · {(s.lineas || []).length} producto(s)
-                          </div>
+                          <div className="muted">Pide {etiquetaOrigenTraspaso(s.destino_id)}</div>
+                          <div className="trp-list-meta">{textoResumenLineas(s.lineas)}</div>
                         </div>
+                        <span className="trp-piezas-badge">{resumenPiezas(s.lineas).piezas} pza</span>
                         <Icon name="chevronRight" size={18} />
                       </button>
                     </li>
@@ -645,12 +770,12 @@ export default function Traspasos({
                   {pendientesRecibir.map((t) => (
                     <li key={t.id}>
                       <button type="button" className="trp-list-item" onClick={() => setDetalleRecibir(t)}>
-                        <div>
+                        <div className="trp-list-item-body">
                           <strong>{t.folio}</strong>
-                          <div className="muted">
-                            De {etiquetaOrigenTraspaso(t.origen_id)} · {(t.lineas || []).length} producto(s)
-                          </div>
+                          <div className="muted">De {etiquetaOrigenTraspaso(t.origen_id)}</div>
+                          <div className="trp-list-meta">{textoResumenLineas(t.lineas)}</div>
                         </div>
+                        <span className="trp-piezas-badge">{resumenPiezas(t.lineas).piezas} pza</span>
                         <Icon name="chevronRight" size={18} />
                       </button>
                     </li>
@@ -676,12 +801,14 @@ export default function Traspasos({
                 <ul className="trp-list">
                   {misSolicitudes.map((s) => (
                     <li key={s.id} className="trp-list-item static">
-                      <div>
+                      <div className="trp-list-item-body">
                         <strong>{s.folio}</strong>
                         <div className="muted">
                           A {etiquetaOrigenTraspaso(s.origen_id)} · {s.estado}
                         </div>
+                        <div className="trp-list-meta">{textoResumenLineas(s.lineas)}</div>
                       </div>
+                      <span className="trp-piezas-badge">{resumenPiezas(s.lineas).piezas} pza</span>
                     </li>
                   ))}
                 </ul>
