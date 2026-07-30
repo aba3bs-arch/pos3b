@@ -311,6 +311,68 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       return alert('Solo el administrador o recolector con privilegio puede registrar recolección.');
     }
 
+    if (modulo === 'garage') {
+      const calcRec =
+        opts.montoRecoleccion != null
+          ? round2(opts.montoRecoleccion)
+          : round2(estado.recoleccion);
+      if (!(calcRec > 0)) {
+        return alert('Indique el monto de recolección.');
+      }
+      const maquinasEnCero = opts.maquinasEnCero === true;
+      const tipo = maquinasEnCero ? 'recoleccion' : 'recoleccion_temporal';
+      const antAntes = round2(estado.recoleccion_anterior);
+      const antTras = maquinasEnCero ? 0 : round2(antAntes + calcRec);
+      const folioRec = `REC-${folio || 'G'}`;
+      const payload = {
+        sucursal_id: sucursal || 'MAIN',
+        modulo,
+        folio: folioRec,
+        turno: 'RECOLECCION',
+        usuario_id: user?.id || null,
+        usuario_nombre: user?.nombre || null,
+        caja_actual: calc.cajaActual ?? 0,
+        ventas: calc.venta ?? 0,
+        detalle: {
+          ...estado,
+          gastos,
+          gastos_total: calc.gastosTotal,
+          subtotal: calc.subtotal,
+          venta_neta: calc.ventaNeta,
+          venta: calc.venta,
+          recoleccion: calcRec,
+          recoleccion_anterior: antAntes,
+          recoleccion_anterior_tras: antTras,
+          maquinas_en_cero: maquinasEnCero,
+          tipo_cierre: tipo,
+          comentarios: estado.comentarios || '',
+        },
+      };
+      const res = await registrarCierreCorte(supabase, payload);
+      if (!res.ok) return { ok: false, error: res.error || AVISO_FALTA_CORTES };
+
+      const prep = prepararTrasRecoleccion || ((e) => e);
+      const nuevoEstado = prep(estado, calc, {
+        maquinasEnCero,
+        montoRecoleccion: calcRec,
+      });
+      await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
+      setEstado(nuevoEstado);
+      const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
+      setHistorial(hist.data || []);
+      return {
+        ok: true,
+        folio: folioRec,
+        recoleccion: calcRec,
+        temporal: !maquinasEnCero,
+        maquinasEnCero,
+        recoleccionAnteriorTras: antTras,
+        estadoImpresion: payload.detalle,
+        gastosImpresion: gastos,
+        calcImpresion: { ...calc },
+      };
+    }
+
     if (modulo === 'virtual') {
       const calcRec =
         opts.montoRecoleccion != null

@@ -48,7 +48,9 @@ export default function CorteHistorialImpresion({ historial, modulo, columnasExt
                     style={{ padding: '0.2rem 0.45rem', fontSize: '0.75rem' }}
                     onClick={() => imprimirHistorial(h)}
                   >
-                    Imprimir
+                    {h?.detalle?.tipo_cierre === 'recoleccion' || h?.detalle?.tipo_cierre === 'recoleccion_temporal'
+                      ? 'Reimprimir'
+                      : 'Imprimir'}
                   </button>
                   {puedeEliminar && onEliminar && (
                     <button

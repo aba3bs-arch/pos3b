@@ -10,10 +10,16 @@ import {
   CLAVES_LECTURA_GARAGE,
   maquinasGarageDefault,
   prepararTrasCierreGarage,
-  pasarRecoleccionAAnteriorGarage,
+  prepararTrasRecoleccionGarage,
   round2,
 } from '../../lib/corteContabilidad/calc.js';
-import { datosImpresionCorteActual, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
+import { etiquetaTipoCierre } from '../../lib/corteContabilidad/permisos.js';
+import {
+  datosImpresionCorteActual,
+  datosImpresionRecoleccionGarage,
+  imprimirCorteContabilidad,
+  imprimirRecoleccionGarage,
+} from '../../lib/impresionCorteContabilidad.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 
 const COLOR = '#7f8c8d';
@@ -23,15 +29,38 @@ export default function CorteGarage({ supabase, sucursal, user }) {
     return prepararTrasCierreGarage(estado, calc, detalleExtra);
   }, []);
 
-  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte, eliminarCierreHistorial, recargar } =
-    useCorteContabilidad({
-      supabase,
-      sucursal,
-      modulo: 'garage',
-      user,
-      calcFn: calcularGarage,
-      prepararTrasCierre,
-    });
+  const prepararTrasRecoleccion = useCallback((estado, calc, opts) => {
+    return prepararTrasRecoleccionGarage(estado, calc, opts);
+  }, []);
+
+  const {
+    estado,
+    patchEstado,
+    gastos,
+    agregarGasto,
+    quitarGasto,
+    editarGasto,
+    calc,
+    folio,
+    turno,
+    perm,
+    aviso,
+    cargando,
+    historial,
+    empleados,
+    cerrarCorte,
+    registrarRecoleccion,
+    eliminarCierreHistorial,
+    recargar,
+  } = useCorteContabilidad({
+    supabase,
+    sucursal,
+    modulo: 'garage',
+    user,
+    calcFn: calcularGarage,
+    prepararTrasCierre,
+    prepararTrasRecoleccion,
+  });
 
   const maquinasBase = maquinasGarageDefault();
   const maquinas = { ...maquinasBase, ...(estado.maquinas || {}) };
@@ -56,39 +85,62 @@ export default function CorteGarage({ supabase, sucursal, user }) {
           `Venta neta: ${fmtCorte(calc.ventaNeta)}\n` +
           `Recolección: ${fmtCorte(calc.recoleccion)}\n` +
           `Recolección anterior: ${fmtCorte(calc.recoleccionAnterior)}\n` +
-          `Saldo en caja: ${fmtCorte(calc.cajaActual)}`,
+          `Saldo en caja: ${fmtCorte(calc.cajaActual)}\n\n` +
+          `La recolección anterior se conserva en el siguiente turno.\n` +
+          `Para recolectar efectivo usa «Generar recolección».`,
       )
     ) {
       return;
     }
-    const reinicio = confirm(
-      `¿Las máquinas se reiniciaron a CEROS?\n\n` +
-        `• Aceptar = sí → se limpia la recolección anterior\n` +
-        `• Cancelar = no → la recolección de este turno pasa a “recolección anterior”\n` +
-        `  (las máquinas siguen acumulando y el siguiente corte no se descuadra)`,
-    );
-    cerrarCorte({ maquinasReiniciadas: reinicio });
+    cerrarCorte();
   };
 
-  const pasarAAnterior = () => {
+  const generarRecoleccion = async () => {
     if (!perm.recoleccion) {
-      return alert('Solo administrador o recolector autorizado puede pasar la recolección a anterior.');
+      return alert('Solo administrador o recolector autorizado puede generar la recolección.');
     }
-    const r = pasarRecoleccionAAnteriorGarage(estado);
-    if (!r.ok) return alert(r.error);
-    if (
-      !confirm(
-        `¿Pasar ${fmtCorte(r.montoPasado)} a recolección anterior?\n\n` +
-          `Úsalo cuando el recolector retira efectivo pero las máquinas siguen trabajando (sin ponerlas en ceros).\n` +
-          `Así el corte de los cajeros no se descuadra.`,
-      )
-    ) {
+    if (!(montoRec > 0)) {
+      return alert('Indica primero el monto en el campo Recolección.');
+    }
+
+    const maquinasEnCero = confirm(
+      `¿Las máquinas y la dispensadora de chamoy y salsa quedaron en cero?\n\n` +
+        `Monto a recolectar: ${fmtCorte(montoRec)}\n\n` +
+        `• Aceptar = SÍ → ticket de recolección y archivo definitivo (se limpia recolección anterior).\n` +
+        `• Cancelar = NO → el monto pasa a recolección anterior, lecturas en cero y archivo temporal.`,
+    );
+
+    const res = await registrarRecoleccion({
+      montoRecoleccion: montoRec,
+      maquinasEnCero,
+    });
+    if (!res?.ok) {
+      if (res?.error) alert(res.error);
       return;
     }
-    patchEstado({
-      recoleccion: r.estado.recoleccion,
-      recoleccion_anterior: r.estado.recoleccion_anterior,
-    });
+
+    imprimirRecoleccionGarage(
+      datosImpresionRecoleccionGarage({
+        sucursal,
+        folio: res.folio,
+        user,
+        estado: res.estadoImpresion,
+        gastos: res.gastosImpresion,
+        calc: res.calcImpresion,
+        recoleccion: res.recoleccion,
+        temporal: res.temporal,
+      }),
+    );
+
+    alert(
+      res.temporal
+        ? `Recolección temporal ${res.folio}: ${fmtCorte(res.recoleccion)}.\n` +
+            `Queda en recolección anterior: ${fmtCorte(res.recoleccionAnteriorTras)}.\n` +
+            `Lecturas de máquinas en cero. Puedes reimprimir desde el historial.`
+        : `Recolección ${res.folio}: ${fmtCorte(res.recoleccion)}.\n` +
+            `Máquinas y dispensadora en ceros. Recolección anterior limpia.\n` +
+            `Puedes reimprimir desde el historial.`,
+    );
   };
 
   const cajaNegativa = calc.cajaActual < -0.001;
@@ -208,24 +260,32 @@ export default function CorteGarage({ supabase, sucursal, user }) {
               label="Recolección anterior"
               value={estado.recoleccion_anterior ?? ''}
               editable={perm.recoleccion || perm.editarTodo}
-              hint="Retiros hechos sin reiniciar máquinas. Se arrastra hasta que las máquinas queden en ceros."
+              hint="Se conserva al cerrar corte. Solo se limpia con una recolección definitiva (máquinas en ceros)."
               onChange={(v) => patchEstado({ recoleccion_anterior: v })}
             />
-            <CampoCorte
-              label="Recolección"
-              value={estado.recoleccion ?? ''}
-              editable={perm.recoleccion}
-              hint={perm.recoleccion ? 'Efectivo retirado en este turno' : 'Solo administrador o usuarios autorizados'}
-              onChange={(v) => patchEstado({ recoleccion: v })}
-            />
-            {perm.recoleccion && montoRec > 0 && (
-              <button type="button" className="btn btn-ghost" style={{ alignSelf: 'flex-start' }} onClick={pasarAAnterior}>
-                Pasar a recolección anterior
-              </button>
-            )}
+            <div>
+              <CampoCorte
+                label="Recolección"
+                value={estado.recoleccion ?? ''}
+                editable={perm.recoleccion}
+                hint={perm.recoleccion ? 'Efectivo retirado · usa el botón para generar el archivo' : 'Solo administrador o usuarios autorizados'}
+                onChange={(v) => patchEstado({ recoleccion: v })}
+              />
+              {perm.recoleccion && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ marginTop: '0.45rem', width: '100%' }}
+                  disabled={cargando || !(montoRec > 0)}
+                  onClick={generarRecoleccion}
+                >
+                  Generar recolección
+                </button>
+              )}
+            </div>
             {montoAnt > 0 && (
               <p className="muted" style={{ fontSize: '0.75rem', margin: 0 }}>
-                Hay {fmtCorte(montoAnt)} pendiente de cuadre hasta reiniciar máquinas a ceros.
+                Hay {fmtCorte(montoAnt)} en recolección anterior (pendiente de cuadre hasta máquinas en ceros).
               </p>
             )}
           </div>
@@ -259,6 +319,13 @@ export default function CorteGarage({ supabase, sucursal, user }) {
         modulo="garage"
         puedeEliminar={perm.editarTodo}
         onEliminar={eliminarCierreHistorial}
+        columnasExtra={[
+          {
+            key: 'tipo',
+            label: 'Tipo',
+            render: (h) => etiquetaTipoCierre(h?.detalle),
+          },
+        ]}
       />
     </div>
   );

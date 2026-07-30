@@ -70,6 +70,7 @@ export function datosImpresionDesdeHistorial(h, modulo) {
     turno: h.turno,
     usuario_nombre: h.usuario_nombre,
     tipo_cierre: d.tipo_cierre || 'cierre',
+    temporal: d.tipo_cierre === 'recoleccion_temporal',
     fecha: h.created_at,
     venta: h.ventas ?? d.venta ?? 0,
     subtotal: d.subtotal,
@@ -79,6 +80,7 @@ export function datosImpresionDesdeHistorial(h, modulo) {
     estado: d,
     comentarios: d.comentarios || '',
     recoleccion: d.recoleccion ?? d.recoleccion_turno ?? 0,
+    recoleccion_anterior_tras: d.recoleccion_anterior_tras,
     es_borrador: false,
   };
 }
@@ -346,10 +348,116 @@ export function imprimirRecoleccionVirtual(data) {
   return abrirVentanaImpresion(htmlRecoleccionVirtual(data), 'Recolección Virtual');
 }
 
+/** Ticket de recolección Garage (definitiva o temporal). */
+export function htmlRecoleccionGarage(data) {
+  const logo = leerLogoUrl();
+  const negocio = leerNombreNegocio();
+  const fecha = data.fecha ? new Date(data.fecha).toLocaleString('es-MX') : new Date().toLocaleString('es-MX');
+  const e = data.estado || {};
+  const temporal = data.tipo_cierre === 'recoleccion_temporal' || data.temporal;
+  const rec = round2(data.recoleccion ?? e.recoleccion ?? 0);
+  const antAntes = round2(e.recoleccion_anterior);
+  const antTras = round2(
+    data.recoleccion_anterior_tras ?? e.recoleccion_anterior_tras ?? (temporal ? antAntes + rec : 0),
+  );
+  const venta = round2(data.venta ?? e.venta ?? 0);
+  const gastos = round2(data.gastos_total ?? 0);
+  const bannerBg = temporal ? '#b9770e' : '#7f8c8d';
+  const titulo = temporal ? 'RECOLECCIÓN TEMPORAL' : 'RECOLECCIÓN';
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${esc(titulo)} Garage</title><style>
+    body{font-family:Arial,sans-serif;font-size:12px;margin:12px;max-width:420px;color:#111}
+    img.logo{max-width:70%;max-height:64px;display:block;margin:0 auto 8px}
+    h1{font-size:16px;margin:0 0 4px;text-align:center}
+    .sub{text-align:center;color:#555;font-size:11px;margin-bottom:10px}
+    .banner{background:${bannerBg};color:#fff;text-align:center;font-weight:800;padding:8px;margin:8px 0;border-radius:4px}
+    table{width:100%;border-collapse:collapse}
+    td{padding:5px 4px;vertical-align:top;border-bottom:1px solid #eee}
+    td.r{text-align:right;white-space:nowrap}
+    .sep{border-top:1px dashed #333;margin:10px 0}
+    .muted{color:#666;font-size:10px}
+    .rec{font-weight:800}
+    @media print{body{margin:0;padding:8px}}
+  </style></head><body>
+    <img class="logo" src="${esc(logo)}" alt=""/>
+    <h1>${esc(negocio)}</h1>
+    <div class="sub">TICKET DE RECOLECCIÓN · GARAGE</div>
+    <div class="banner">${esc(titulo)}</div>
+    <table>
+      <tr><td>Tienda</td><td class="r"><strong>${esc(etiquetaTienda(data.sucursal))}</strong></td></tr>
+      <tr><td>Folio</td><td class="r"><strong>${esc(data.folio || '—')}</strong></td></tr>
+      <tr><td>Fecha</td><td class="r">${esc(fecha)}</td></tr>
+      <tr><td>Recolector</td><td class="r">${esc(data.usuario_nombre || '—')}</td></tr>
+    </table>
+    <div class="sep"></div>
+    <table>
+      <tr><td>Venta actual (lectura)</td><td class="r">${fmt(venta)}</td></tr>
+      <tr><td>Gastos turno</td><td class="r">${fmt(gastos)}</td></tr>
+      <tr><td class="rec">Monto recolectado</td><td class="r rec">${fmt(rec)}</td></tr>
+      <tr><td>Recolección anterior (antes)</td><td class="r">${fmt(antAntes)}</td></tr>
+      <tr><td>Recolección anterior (queda)</td><td class="r">${fmt(antTras)}</td></tr>
+      <tr><td>Máquinas / DSCH en ceros</td><td class="r"><strong>${temporal ? 'NO' : 'SÍ'}</strong></td></tr>
+    </table>
+    <div class="sep"></div>
+    <p class="muted">${
+      temporal
+        ? 'Temporal: el monto pasa a recolección anterior y las lecturas quedan en cero. El corte sigue abierto.'
+        : 'Definitiva: máquinas y dispensadora en ceros. Recolección anterior limpia.'
+    }</p>
+    ${data.comentarios ? `<p class="muted"><strong>Comentarios:</strong> ${esc(data.comentarios)}</p>` : ''}
+  </body></html>`;
+}
+
+export function datosImpresionRecoleccionGarage({
+  sucursal,
+  folio,
+  user,
+  estado,
+  gastos,
+  calc,
+  recoleccion,
+  temporal = false,
+  fecha,
+}) {
+  return {
+    modulo: 'garage',
+    sucursal,
+    folio,
+    usuario_nombre: user?.nombre || null,
+    tipo_cierre: temporal ? 'recoleccion_temporal' : 'recoleccion',
+    temporal: Boolean(temporal),
+    fecha: fecha || new Date().toISOString(),
+    venta: calc?.venta ?? 0,
+    subtotal: calc?.subtotal ?? 0,
+    caja_actual: calc?.cajaActual ?? 0,
+    gastos_total: calc?.gastosTotal ?? 0,
+    gastos: gastos || [],
+    estado: estado || {},
+    comentarios: estado?.comentarios || '',
+    recoleccion: recoleccion ?? 0,
+    recoleccion_anterior_tras: estado?.recoleccion_anterior_tras,
+    es_borrador: false,
+  };
+}
+
+export function imprimirRecoleccionGarage(data) {
+  const titulo =
+    data.tipo_cierre === 'recoleccion_temporal' || data.temporal
+      ? 'Recolección temporal Garage'
+      : 'Recolección Garage';
+  return abrirVentanaImpresion(htmlRecoleccionGarage(data), titulo);
+}
+
 export function imprimirCorteContabilidad(data) {
   const mod = ETIQUETA_AREA[data.modulo] || data.modulo || 'Corte';
   if (data.tipo_cierre === 'recoleccion' && data.modulo === 'virtual') {
     return imprimirRecoleccionVirtual(data);
+  }
+  if (
+    data.modulo === 'garage' &&
+    (data.tipo_cierre === 'recoleccion' || data.tipo_cierre === 'recoleccion_temporal')
+  ) {
+    return imprimirRecoleccionGarage(data);
   }
   return abrirVentanaImpresion(htmlCorteContabilidad(data), `Corte ${mod}`);
 }
