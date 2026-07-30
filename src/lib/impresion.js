@@ -469,12 +469,12 @@ export function exportarVentaPDF(datos) {
   return entregarTicketVenta(datos, 'pdf');
 }
 
-export function imprimirPedidoCompra(datos) {
-  return imprimirDocumento('pedido_compra', datos);
+export function imprimirPedidoCompra(datos, opts = {}) {
+  return imprimirDocumento('pedido_compra', datos, { forzar: true, ...opts });
 }
 
-export function imprimirRecepcionCompra(datos) {
-  return imprimirDocumento('recepcion_compra', datos);
+export function imprimirRecepcionCompra(datos, opts = {}) {
+  return imprimirDocumento('recepcion_compra', datos, { forzar: true, ...opts });
 }
 
 export function imprimirInventario(datos) {

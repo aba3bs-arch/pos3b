@@ -3062,10 +3062,11 @@ table.data th {
 .producto-thumb--fill,
 .ventas-favorito-thumb.producto-thumb {
   width: 100% !important;
-  height: 0 !important;
+  height: auto !important;
   min-width: 0 !important;
   min-height: 0 !important;
-  padding-bottom: 100%;
+  aspect-ratio: 1 / 1;
+  padding-bottom: 0;
   border-radius: 10px;
   font-size: 1.35rem;
   align-self: stretch;
@@ -3114,8 +3115,14 @@ table.data th {
 
 .producto-thumb--fill .producto-thumb-ref,
 .ventas-favorito-thumb .producto-thumb-ref {
-  font-size: 0.7rem;
-  padding: 0.2rem 0.4rem;
+  font-size: 0.72rem;
+  padding: 0.22rem 0.42rem;
+  z-index: 3;
+}
+
+/* En favoritos el triángulo de detalle no debe tapar código/stock */
+.ventas-favorito-card .producto-thumb-ref--codigo {
+  max-width: calc(100% - 28px);
 }
 
 /* Esquina triangular sutil para abrir detalle (sin ícono de ojo). */

@@ -146,13 +146,19 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
 
   const loadPedidosPendientes = async () => {
     if (!supabase) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('compras')
       .select('*, proveedores(nombre)')
       .eq('estado', 'pedido')
       .order('created_at', { ascending: false })
       .limit(50);
+    if (error) {
+      setPedidosPendientes([]);
+      if (!alertSqlCompras(error)) setErr(error.message);
+      return;
+    }
     setPedidosPendientes(data || []);
+    setErr('');
   };
 
   useEffect(() => {
@@ -260,7 +266,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
   const proveedorNombre = useMemo(() => proveedores.find((p) => p.id === proveedorId)?.nombre || '', [proveedores, proveedorId]);
 
   const pedidosDelProveedor = useMemo(
-    () => pedidosPendientes.filter((p) => p.proveedor_id === proveedorId),
+    () => pedidosPendientes.filter((p) => String(p.proveedor_id || '') === String(proveedorId || '')),
     [pedidosPendientes, proveedorId],
   );
 
@@ -344,18 +350,27 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
       if (!alertSqlCompras(error)) alert(error.message);
       return;
     }
-    alert('Pedido registrado. Cuando llegue la mercancía, ábrelo en recepción para anotar lo recibido.');
-    setCompraActiva(data);
-    setModoRecepcion(true);
-    await imprimirPedidoCompra({
-      sucursal,
-      usuario: null,
-      proveedor: data.proveedores?.nombre || proveedorNombre,
-      folio: data.id,
-      notas: notasPedido,
-      items: items_pedido,
-      total,
-    });
+    await imprimirPedidoCompra(
+      {
+        sucursal,
+        usuario: user?.nombre || null,
+        proveedor: data.proveedores?.nombre || proveedorNombre,
+        folio: data.id,
+        notas: notasPedido,
+        items: items_pedido,
+        total,
+      },
+      { forzar: true },
+    );
+    alert(
+      `Pedido guardado como pendiente de recepción (${items_pedido.length} producto(s)).\n` +
+        'Cuando llegue la mercancía, elígelo en «Pedido pendiente» o en Historial → Recibir.',
+    );
+    setHerramientaAbierta(false);
+    setCompraActiva(null);
+    setModoRecepcion(false);
+    setLineas([]);
+    setNotasPedido('');
     await loadProveedoresYHistorial();
     await loadPedidosPendientes();
   };
@@ -511,7 +526,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                   style={{ marginTop: '0.35rem' }}
                   value={compraActiva?.id || ''}
                   onChange={(e) => {
-                    const c = pedidosDelProveedor.find((x) => x.id === e.target.value);
+                    const c = pedidosDelProveedor.find((x) => String(x.id) === String(e.target.value));
                     if (c) abrirHerramientaRecepcion(c);
                   }}
                   disabled={!proveedorId || herramientaAbierta}
@@ -519,10 +534,18 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                   <option value="">— Nuevo pedido —</option>
                   {pedidosDelProveedor.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.created_at ? new Date(c.created_at).toLocaleDateString('es-MX') : '—'} · ${Number(c.total || 0).toFixed(2)}
+                      {c.created_at ? new Date(c.created_at).toLocaleDateString('es-MX') : '—'} · $
+                      {Number(c.total || 0).toFixed(2)} · {(c.items_pedido || []).length} prod.
                     </option>
                   ))}
                 </select>
+                {proveedorId && !herramientaAbierta && (
+                  <span className="muted" style={{ display: 'block', marginTop: '0.35rem', fontSize: '0.8rem' }}>
+                    {pedidosDelProveedor.length
+                      ? `${pedidosDelProveedor.length} pedido(s) pendiente(s) de recepción`
+                      : 'Sin pedidos pendientes para este proveedor'}
+                  </span>
+                )}
               </label>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
@@ -734,7 +757,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                       })
                     }
                   >
-                    Imprimir borrador
+                    Imprimir pedido
                   </button>
                 </>
               )}
@@ -743,6 +766,32 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                 <>
                   <button type="button" className="btn btn-success" style={{ marginTop: '0.75rem' }} onClick={recibirMercancia}>
                     Recibir mercancía
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ marginTop: '0.75rem', marginLeft: '0.5rem' }}
+                    onClick={() =>
+                      imprimirPedidoCompra({
+                        sucursal,
+                        proveedor: compraActiva?.proveedores?.nombre || proveedorNombre,
+                        folio: compraActiva?.id,
+                        notas: compraActiva?.notas || notasPedido,
+                        items: (compraActiva?.items_pedido || lineas.filter((l) => Number(l.qty_pedido) > 0)).map((l) => ({
+                          id: l.id,
+                          nombre: l.nombre,
+                          qty_pedido: l.qty_pedido,
+                          costo_est: l.costo_est,
+                        })),
+                        total: totalPedido(
+                          (compraActiva?.items_pedido || []).length
+                            ? compraActiva.items_pedido
+                            : lineas.filter((l) => Number(l.qty_pedido) > 0),
+                        ),
+                      })
+                    }
+                  >
+                    Imprimir pedido
                   </button>
                   <button
                     type="button"
@@ -811,11 +860,59 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                       <td>${Number(c.total || 0).toFixed(2)}</td>
                       <td>{c.notas}</td>
                       <td>
-                        {c.estado === 'pedido' && (
-                          <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={() => { setProveedorId(c.proveedor_id); setPestana('herramienta'); abrirHerramientaRecepcion(c); }}>
-                            Recibir
-                          </button>
-                        )}
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                          {c.estado === 'pedido' && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ fontSize: '0.8rem' }}
+                              onClick={() => {
+                                setProveedorId(c.proveedor_id);
+                                setPestana('herramienta');
+                                abrirHerramientaRecepcion(c);
+                              }}
+                            >
+                              Recibir
+                            </button>
+                          )}
+                          {(c.estado === 'pedido' || (Array.isArray(c.items_pedido) && c.items_pedido.length > 0)) && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ fontSize: '0.8rem' }}
+                              onClick={() =>
+                                imprimirPedidoCompra({
+                                  sucursal: c.sucursal_id || sucursal,
+                                  proveedor: c.proveedores?.nombre || '—',
+                                  folio: c.id,
+                                  notas: c.notas,
+                                  items: c.items_pedido || [],
+                                  total: totalPedido(c.items_pedido || []),
+                                })
+                              }
+                            >
+                              Imprimir pedido
+                            </button>
+                          )}
+                          {c.estado === 'recibida' && Array.isArray(c.items) && c.items.length > 0 && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ fontSize: '0.8rem' }}
+                              onClick={() =>
+                                imprimirRecepcionCompra({
+                                  sucursal: c.sucursal_id || sucursal,
+                                  proveedor: c.proveedores?.nombre || '—',
+                                  folio: c.id,
+                                  items: c.items,
+                                  total: Number(c.total) || 0,
+                                })
+                              }
+                            >
+                              Imprimir recepción
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))

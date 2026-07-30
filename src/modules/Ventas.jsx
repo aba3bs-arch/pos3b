@@ -525,7 +525,13 @@ export default function Ventas({
                     className="ventas-favorito-btn"
                     title={`${p.nombre} · ${p.id}`}
                   >
-                    <ProductoThumb producto={p} size="full" className="ventas-favorito-thumb" referencias sucursal={sucursal} />
+                    <ProductoThumb
+                      producto={p}
+                      size="full"
+                      className="ventas-favorito-thumb"
+                      referencias={deptoActivo === 'favoritos'}
+                      sucursal={sucursal}
+                    />
                     <div className="ventas-favorito-precio">${Number(p.precio).toFixed(2)}</div>
                     <div className="ventas-favorito-nombre">{p.nombre}</div>
                     {deptoActivo === 'todos' && (
