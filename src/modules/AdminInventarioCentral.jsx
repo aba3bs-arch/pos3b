@@ -17,6 +17,7 @@ export default function AdminInventarioCentral({
   supabase,
   inventario,
   cargarDatos,
+  fusionarProducto,
   user,
   sucursalesLista,
 }) {
@@ -79,6 +80,7 @@ export default function AdminInventarioCentral({
             inventario={inventarioOp}
             inventarioCompleto={inventario}
             cargarDatos={cargarDatos}
+            fusionarProducto={typeof fusionarProducto === 'function' ? fusionarProducto : undefined}
             user={user}
             sucursal={tiendaOp}
             sucursalOperacion={tiendaOp}

@@ -90,7 +90,7 @@ export default function DetalleProducto({
     <div className="prod-detalle">
       <div className="prod-detalle-header">
         <div className="prod-detalle-foto-wrap">
-          <ProductoThumb producto={producto} size={110} className="prod-detalle-foto" />
+          <ProductoThumb producto={producto} size={110} className="prod-detalle-foto" sucursal={sucursal} />
           {sinFoto && onFotoActualizada && (
             <>
               <input

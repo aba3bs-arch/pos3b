@@ -246,7 +246,7 @@ function App() {
     if (!row?.id) return;
     setInventario((prev) => {
       const list = Array.isArray(prev) ? [...prev] : [];
-      const i = list.findIndex((p) => p.id === row.id);
+      const i = list.findIndex((p) => String(p.id) === String(row.id));
       if (i >= 0) list[i] = { ...list[i], ...row };
       else list.push(row);
       return list;
@@ -1163,7 +1163,7 @@ function App() {
           )}
           {vista === 'Ayuda' && <Ayuda user={user} />}
         </div>
-        <ActualizacionPendienteOverlay />
+        {rolNorm === 'Administrador' ? <ActualizacionPendienteOverlay /> : null}
         <AnuncioPosOverlay supabase={supabase} onIrVentas={() => irAModulo('Ventas')} />
         <ModalExtensionTurno
           open={Boolean(avisoExtensionTurno)}

@@ -81,9 +81,14 @@ export default function Ventas({
   const [ultimaVenta, setUltimaVenta] = useState(null);
   const [deptoActivo, setDeptoActivo] = useState('favoritos');
   const [qDepto, setQDepto] = useState('');
-  const [detalleProducto, setDetalleProducto] = useState(null);
+  const [detalleProductoId, setDetalleProductoId] = useState(null);
   const [avisoEscanerRemoto, setAvisoEscanerRemoto] = useState('');
   const inventarioRef = useRef(inventario);
+
+  const detalleProducto = useMemo(() => {
+    if (!detalleProductoId) return null;
+    return (inventario || []).find((p) => String(p.id) === String(detalleProductoId)) || null;
+  }, [inventario, detalleProductoId]);
 
   useEffect(() => {
     inventarioRef.current = inventario;
@@ -520,7 +525,7 @@ export default function Ventas({
                     className="ventas-favorito-btn"
                     title={`${p.nombre} · ${p.id}`}
                   >
-                    <ProductoThumb producto={p} size="full" className="ventas-favorito-thumb" referencias />
+                    <ProductoThumb producto={p} size="full" className="ventas-favorito-thumb" referencias sucursal={sucursal} />
                     <div className="ventas-favorito-precio">${Number(p.precio).toFixed(2)}</div>
                     <div className="ventas-favorito-nombre">{p.nombre}</div>
                     {deptoActivo === 'todos' && (
@@ -535,7 +540,7 @@ export default function Ventas({
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      setDetalleProducto(p);
+                      setDetalleProductoId(p.id);
                     }}
                   >
                     <span className="producto-thumb-detalle-tri" aria-hidden />
@@ -552,7 +557,7 @@ export default function Ventas({
           className="prod-modal-backdrop"
           role="dialog"
           aria-modal="true"
-          onClick={() => setDetalleProducto(null)}
+          onClick={() => setDetalleProductoId(null)}
         >
           <div
             className="card"
@@ -570,7 +575,7 @@ export default function Ventas({
                 type="button"
                 className="prod-modal-close"
                 aria-label="Cerrar"
-                onClick={() => setDetalleProducto(null)}
+                onClick={() => setDetalleProductoId(null)}
               >
                 <Icon name="x" size={18} />
               </button>
@@ -585,7 +590,7 @@ export default function Ventas({
                 style={{ width: '100%', marginTop: '0.75rem' }}
                 onClick={() => {
                   setCarrito((c) => addToCart(c, detalleProducto));
-                  setDetalleProducto(null);
+                  setDetalleProductoId(null);
                 }}
               >
                 <BtnLabel icon="cart">Agregar al ticket</BtnLabel>

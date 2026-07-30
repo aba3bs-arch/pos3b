@@ -97,6 +97,16 @@ export function asegurarMapaStock(producto, sucursalContext = 'MAIN') {
     if (ctx && !map[ctx] && pisoLegacy > 0) {
       map[ctx] = { cedis: 0, piso: pisoLegacy };
     }
+    // Si el mapa trae CEDIS en 0 pero la columna legacy stock_cedis tiene unidades, reparar.
+    const cedisMapa = Math.floor(Number(map[ALMACEN_CENTRAL]?.cedis) || 0);
+    if (cedisLegacy > cedisMapa) {
+      if (!map[ALMACEN_CENTRAL]) map[ALMACEN_CENTRAL] = { cedis: 0, piso: 0 };
+      map[ALMACEN_CENTRAL] = {
+        ...map[ALMACEN_CENTRAL],
+        cedis: cedisLegacy,
+        piso: Math.floor(Number(map[ALMACEN_CENTRAL]?.piso) || 0),
+      };
+    }
     return map;
   }
 

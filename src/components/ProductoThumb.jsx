@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { etiquetaStockLista, esAlmacenCentral } from '../lib/inventarioMultitienda.js';
 
 function inicialesDeNombre(nombre) {
   const parts = String(nombre || '')
@@ -39,6 +40,8 @@ export default function ProductoThumb({
   style,
   /** Muestra código e inventario teórico como referencia sobre la imagen */
   referencias = false,
+  /** Sucursal activa: en MAIN el teórico es CEDIS; en tienda es piso. */
+  sucursal = null,
 }) {
   const src = urlFotoProducto(producto);
   const [roto, setRoto] = useState(false);
@@ -53,8 +56,13 @@ export default function ProductoThumb({
   const fill = size === '100%' || size === 'full';
   const px = fill ? undefined : Number(size) || 48;
   const codigo = producto?.id != null && producto.id !== '' ? String(producto.id) : '';
-  const teoricoRaw = Number(producto?.stock);
-  const teorico = Number.isFinite(teoricoRaw) ? Math.floor(teoricoRaw) : 0;
+
+  const sucVista = sucursal || producto?._sucursalVista || 'MAIN';
+  const stockVista = etiquetaStockLista(producto, sucVista);
+  const teorico = Number.isFinite(Number(stockVista.primario)) ? Math.floor(Number(stockVista.primario)) : 0;
+  const teoricoLabel = esAlmacenCentral(sucVista)
+    ? stockVista.etiquetaPrimario || 'CEDIS'
+    : stockVista.etiquetaPrimario || 'PZA';
 
   return (
     <div
@@ -88,8 +96,8 @@ export default function ProductoThumb({
             className={`producto-thumb-ref producto-thumb-ref--teorico${teorico <= 0 ? ' is-bajo' : ''}`}
             title={
               teorico < 0
-                ? `Inventario teórico negativo (${teorico}): se vendió sin existencias en esta tienda`
-                : 'Inventario teórico de esta tienda'
+                ? `Inventario teórico negativo (${teorico}): se vendió sin existencias`
+                : `Inventario teórico · ${teoricoLabel}`
             }
           >
             {teorico}

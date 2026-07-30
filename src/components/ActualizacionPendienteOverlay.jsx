@@ -67,12 +67,12 @@ export default function ActualizacionPendienteOverlay() {
   return (
     <div className="anuncio-pos-backdrop app-update-backdrop" role="dialog" aria-modal="true" aria-labelledby="app-update-titulo">
       <div className="anuncio-pos-modal card app-update-modal" style={{ maxWidth: 'min(94vw, 560px)' }}>
-        <div className="app-update-badge">Actualización pendiente</div>
+        <div className="app-update-badge">Actualización · solo administrador</div>
         <h2 id="app-update-titulo" style={{ margin: '0.5rem 0 0', color: 'var(--brand-blue)' }}>
           {remota.title || 'Hay una nueva versión del POS'}
         </h2>
         <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.9rem' }}>
-          {remota.summary || 'Actualiza esta caja para mantenerte al día con correcciones y mejoras.'}
+          {remota.summary || 'Como administrador puedes aprobar actualizar esta caja ahora, o posponer el aviso.'}
         </p>
         <p className="muted" style={{ margin: '0.45rem 0 0', fontSize: '0.78rem' }}>
           Versión {remota.version || '—'}
@@ -97,10 +97,10 @@ export default function ActualizacionPendienteOverlay() {
               ? 'Actualizando…'
               : info.motivo === 'changelog_pendiente' && info.actual === remota.buildId
                 ? 'Entendido'
-                : 'Aceptar y actualizar'}
+                : 'Aprobar y actualizar'}
           </button>
           <button type="button" className="btn btn-ghost" onClick={masTarde} disabled={aplicando}>
-            Más tarde
+            No enviar ahora
           </button>
         </div>
       </div>

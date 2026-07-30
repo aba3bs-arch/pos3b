@@ -427,6 +427,8 @@ export async function aplicarEntradasMasivas(supabase, opts) {
       cantidad,
       stock_antes: r.stock_antes,
       stock_despues: r.stock_despues,
+      producto: r.producto || null,
+      patch: r.patch || null,
     });
     log = r.log || log;
     if (r.producto) productosVivos.set(String(productoId), r.producto);

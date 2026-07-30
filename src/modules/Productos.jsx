@@ -204,13 +204,23 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     }
     if (filtros.favoritos === 'si') list = list.filter((p) => Boolean(p.en_favoritos) || p.cat === 'FAVORITOS');
     if (filtros.favoritos === 'no') list = list.filter((p) => !p.en_favoritos && p.cat !== 'FAVORITOS');
-    if (filtros.existencia === 'si') list = list.filter((p) => Number(p.stock) > 0);
-    if (filtros.existencia === 'no') list = list.filter((p) => Number(p.stock) === 0);
+    if (filtros.existencia === 'si') {
+      list = list.filter((p) => {
+        if (enCentral) return Number(p.stock_cedis) > 0 || Number(p.stock) > 0;
+        return Number(p.stock) > 0;
+      });
+    }
+    if (filtros.existencia === 'no') {
+      list = list.filter((p) => {
+        if (enCentral) return Number(p.stock_cedis) <= 0 && Number(p.stock) <= 0;
+        return Number(p.stock) === 0;
+      });
+    }
     if (filtros.existencia === 'negativa') list = list.filter((p) => Number(p.stock) < 0);
     if (filtros.disponible === 'si') list = list.filter((p) => p.en_venta !== false);
     if (filtros.disponible === 'no') list = list.filter((p) => p.en_venta === false);
     return list;
-  }, [inventario, q, filtros, productosPorProveedor, idsConProveedor]);
+  }, [inventario, q, filtros, productosPorProveedor, idsConProveedor, enCentral]);
 
   const rowsPrecios = useMemo(() => {
     const t = preciosQ.trim();
@@ -964,7 +974,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                       className={`prod-lista-item ${activo ? 'activo' : ''}`}
                       onClick={() => seleccionarProducto(p)}
                     >
-                      <ProductoThumb producto={p} size={48} className="prod-lista-thumb" />
+                      <ProductoThumb producto={p} size={48} className="prod-lista-thumb" referencias sucursal={sucursal} />
                       <div className="prod-lista-meta">
                         <div className="prod-lista-codigo">{p.id}</div>
                         <div className="prod-lista-nombre">{p.nombre}</div>
@@ -1109,6 +1119,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           inventario={inventario}
           inventarioCompleto={inventarioCompleto || inventario}
           cargarDatos={cargarDatos}
+          fusionarProducto={fusionarProducto}
           user={user}
           sucursal={sucursal}
           modoInicial={ajusteConfig.modo || 'libre'}

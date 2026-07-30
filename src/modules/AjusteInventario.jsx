@@ -47,6 +47,7 @@ export default function AjusteInventario({
   inventario,
   inventarioCompleto,
   cargarDatos,
+  fusionarProducto,
   user,
   sucursal,
   sucursalOperacion,
@@ -301,6 +302,8 @@ export default function AjusteInventario({
     }
     alert(r.mensaje);
     setHistorial(r.log || leerMovimientosLocal());
+    if (r.producto) fusionarProducto?.(r.producto);
+    else if (r.patch && productoOrigen?.id) fusionarProducto?.({ ...productoOrigen, ...r.patch });
     setCantidad('');
     setMotivo('');
     setProductoId('');
@@ -428,6 +431,15 @@ export default function AjusteInventario({
     }
     alert(r.mensaje + (r.errores?.length ? `\n\nErrores:\n${r.errores.join('\n')}` : ''));
     setHistorial(r.log || leerMovimientosLocal());
+    for (const d of r.detalle || []) {
+      if (d.producto) fusionarProducto?.(d.producto);
+      else if (d.patch && d.productoId) {
+        const base =
+          (catalogoCompleto || []).find((p) => String(p.id) === String(d.productoId)) ||
+          (inventario || []).find((p) => String(p.id) === String(d.productoId));
+        if (base) fusionarProducto?.({ ...base, ...d.patch });
+      }
+    }
     eliminarAjusteEnEspera(idAutoBorrador('masivo', sucursalOp));
     setAvisoMasivoRecuperado(false);
     const lineasPrint = validas.map((l) => {
@@ -1080,8 +1092,20 @@ export default function AjusteInventario({
           {productoOrigen && (
             <div style={{ marginTop: '0.75rem', padding: '0.75rem', borderRadius: '10px', background: 'var(--surface)', fontSize: '0.9rem' }}>
               <strong>{productoOrigen.nombre}</strong>
-              <span className="muted"> · Código {productoOrigen.id} · Piso: </span>
-              <strong>{productoOrigen.stock}</strong>
+              <span className="muted"> · Código {productoOrigen.id} · </span>
+              {enCentral ? (
+                <>
+                  <span className="muted">{etiquetaCedisEmpresa()}: </span>
+                  <strong>{productoOrigen.stock_cedis ?? 0}</strong>
+                  <span className="muted"> · Piso: </span>
+                  <strong>{productoOrigen.stock ?? 0}</strong>
+                </>
+              ) : (
+                <>
+                  <span className="muted">Piso: </span>
+                  <strong>{productoOrigen.stock ?? 0}</strong>
+                </>
+              )}
             </div>
           )}
           <button type="button" className="btn btn-success" style={{ marginTop: '0.75rem' }} onClick={aplicar} disabled={aplicando}>
