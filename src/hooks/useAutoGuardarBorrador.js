@@ -3,8 +3,9 @@ import { useEffect, useRef } from 'react';
 /**
  * Guarda un borrador al cambiar datos y al salir de la pestaña (llamada, app switch, etc.).
  * `getDraft` debe devolver el objeto a persistir o null si no hay nada que guardar.
+ * Pasa `deps` (p. ej. líneas) para reprogramar el guardado cuando cambian.
  */
-export function useAutoGuardarBorrador(getDraft, guardarFn, { enabled = true, debounceMs = 400 } = {}) {
+export function useAutoGuardarBorrador(getDraft, guardarFn, { enabled = true, debounceMs = 400, deps = [] } = {}) {
   const getDraftRef = useRef(getDraft);
   const guardarRef = useRef(guardarFn);
   getDraftRef.current = getDraft;
@@ -48,5 +49,6 @@ export function useAutoGuardarBorrador(getDraft, guardarFn, { enabled = true, de
       window.removeEventListener('beforeunload', onHide);
       document.removeEventListener('visibilitychange', onVis);
     };
-  }, [enabled, debounceMs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps viene del caller
+  }, [enabled, debounceMs, ...deps]);
 }

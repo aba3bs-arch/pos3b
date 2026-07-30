@@ -10,6 +10,31 @@ import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.
 const LS_MOVIMIENTOS = 'pos3b_movimientos_inventario';
 const MAX_LOCAL = 800;
 
+/**
+ * Cantidad de inventario: solo enteros ≥ 1.
+ * Rechaza vacíos, decimales truncados a 0, y valores no numéricos.
+ */
+export function parseCantidadInventario(raw) {
+  if (raw == null) return null;
+  const s = String(raw).trim().replace(/,/g, '');
+  if (!s) return null;
+  if (!/^\d+$/.test(s)) return null;
+  const n = Number(s);
+  if (!Number.isSafeInteger(n) || n < 1) return null;
+  return n;
+}
+
+/** Lee el producto fresco de la nube antes de mover stock (evita mapas viejos). */
+export async function leerProductoInventarioFresco(supabase, productoId) {
+  if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
+  const id = String(productoId || '').trim();
+  if (!id) return { ok: false, error: 'Sin id de producto.' };
+  const { data, error } = await supabase.from('productos').select('*').eq('id', id).maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!data) return { ok: false, error: `Producto ${id} no existe en la nube.` };
+  return { ok: true, producto: data };
+}
+
 export const TIPOS_MOVIMIENTO = [
   { id: 'entrada', label: 'Entrada', signo: 1, desc: 'En MAIN suma al CEDIS central; en tienda suma al piso de venta.' },
   { id: 'retiro', label: 'Retiro', signo: -1, desc: 'En MAIN resta del CEDIS; en tienda resta del piso de venta.' },
@@ -192,22 +217,33 @@ export async function aplicarMovimientoInventario(supabase, opts) {
     inventarioCompleto,
   } = opts;
   const tienda = sucursalOperacion || sucursal;
-  const qty = Math.floor(Number(cantidad));
+  const qty = parseCantidadInventario(cantidad);
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
   if (!productoOrigen?.id) return { ok: false, error: 'Selecciona un producto.' };
-  if (!qty || qty < 1) return { ok: false, error: 'La cantidad debe ser al menos 1.' };
+  if (!qty) {
+    return {
+      ok: false,
+      error: `Cantidad inválida («${cantidad}»). Debe ser un número entero de piezas ≥ 1 (ej. 12).`,
+    };
+  }
 
-  const catalogo = inventarioCompleto || [productoOrigen];
-  const productoDb = catalogo.find((p) => p.id === productoOrigen.id) || productoOrigen;
+  // Siempre stock fresco de la nube: el catálogo en memoria puede estar desfasado.
+  const frescoOrigen = await leerProductoInventarioFresco(supabase, productoOrigen.id);
+  if (!frescoOrigen.ok) return frescoOrigen;
+  const productoDb = frescoOrigen.producto;
 
   if (tipo === 'traspaso') {
     if (!productoDestino?.id) return { ok: false, error: 'Selecciona el producto destino del traspaso.' };
-    if (productoDestino.id === productoOrigen.id) return { ok: false, error: 'Origen y destino deben ser productos distintos.' };
+    if (String(productoDestino.id) === String(productoOrigen.id)) {
+      return { ok: false, error: 'Origen y destino deben ser productos distintos.' };
+    }
     const stockOrigen = stockEnUbicacion(productoDb, tienda, 'piso', tienda);
     if (stockOrigen < qty) {
       return { ok: false, error: `Stock insuficiente en origen (hay ${stockOrigen}, pides ${qty}).` };
     }
-    const productoDestDb = catalogo.find((p) => p.id === productoDestino.id) || productoDestino;
+    const frescoDest = await leerProductoInventarioFresco(supabase, productoDestino.id);
+    if (!frescoDest.ok) return frescoDest;
+    const productoDestDb = frescoDest.producto;
     const stockDest = stockEnUbicacion(productoDestDb, tienda, 'piso', tienda);
     const calcO = aplicarDeltaStock(productoDb, tienda, 'piso', -qty, tienda);
     if (!calcO.ok) return calcO;
@@ -219,32 +255,47 @@ export async function aplicarMovimientoInventario(supabase, opts) {
     if (e1) return { ok: false, error: e1.message };
     const { error: e2 } = await supabase.from('productos').update(calcD.patch).eq('id', productoDestino.id);
     if (e2) {
-      await supabase.from('productos').update({ stock_sucursales: productoDb.stock_sucursales, stock: productoDb.stock, stock_cedis: productoDb.stock_cedis }).eq('id', productoOrigen.id);
+      await supabase
+        .from('productos')
+        .update({
+          stock_sucursales: productoDb.stock_sucursales,
+          stock: productoDb.stock,
+          stock_cedis: productoDb.stock_cedis,
+        })
+        .eq('id', productoOrigen.id);
       return { ok: false, error: `Error en destino: ${e2.message}. Se revirtió el origen.` };
     }
 
-    const log = guardarMovimientoLocal({
-      tipo,
-      modo,
-      departamento: departamento || productoOrigen.cat,
-      producto_id: productoOrigen.id,
-      producto_nombre: productoOrigen.nombre,
-      producto_destino_id: productoDestino.id,
-      producto_destino_nombre: productoDestino.nombre,
+    const log = guardarMovimientoLocal(
+      {
+        tipo,
+        modo,
+        departamento: departamento || productoOrigen.cat || productoDb.cat,
+        producto_id: productoOrigen.id,
+        producto_nombre: productoOrigen.nombre || productoDb.nombre,
+        producto_destino_id: productoDestino.id,
+        producto_destino_nombre: productoDestino.nombre || productoDestDb.nombre,
+        cantidad: qty,
+        stock_antes: stockOrigen,
+        stock_despues: calcO.despues,
+        stock_dest_antes: stockDest,
+        stock_dest_despues: calcD.despues,
+        motivo: motivo?.trim() || '',
+        usuario: usuario || '—',
+        sucursal: tienda || '',
+        created_at: new Date().toISOString(),
+      },
+      supabase,
+    );
+    return {
+      ok: true,
+      mensaje: `Traspaso: ${qty} uds. de "${productoOrigen.nombre || productoDb.nombre}" → "${productoDestino.nombre || productoDestDb.nombre}".`,
+      log,
       cantidad: qty,
       stock_antes: stockOrigen,
       stock_despues: calcO.despues,
-      stock_dest_antes: stockDest,
-      stock_dest_despues: calcD.despues,
-      motivo: motivo?.trim() || '',
-      usuario: usuario || '—',
-      sucursal: tienda || '',
-      created_at: new Date().toISOString(),
-    }, supabase);
-    return {
-      ok: true,
-      mensaje: `Traspaso: ${qty} uds. de "${productoOrigen.nombre}" → "${productoDestino.nombre}".`,
-      log,
+      patch: calcO.patch,
+      producto: { ...productoDb, ...calcO.patch },
     };
   }
 
@@ -261,23 +312,43 @@ export async function aplicarMovimientoInventario(supabase, opts) {
     return { ok: false, error: error.message };
   }
 
+  // Verificar que la nube quedó con exactamente el stock calculado.
+  const verif = await leerProductoInventarioFresco(supabase, productoOrigen.id);
+  if (verif.ok) {
+    const real = stockEnUbicacion(verif.producto, tienda, ubicacion, tienda);
+    if (real !== calc.despues) {
+      return {
+        ok: false,
+        error:
+          `Fallo de verificación en "${productoOrigen.nombre || productoDb.nombre}": ` +
+          `se intentó dejar ${calc.despues} piezas y la nube tiene ${real}. Revisa conexión o vuelve a intentar.`,
+        cantidad: qty,
+        stock_antes: calc.antes,
+        stock_despues: real,
+      };
+    }
+  }
+
   const donde = etiquetaUbicacionMovimiento(tipo, tienda, modo);
-  const log = guardarMovimientoLocal({
-    tipo,
-    modo,
-    departamento: departamento || productoOrigen.cat,
-    producto_id: productoOrigen.id,
-    producto_nombre: productoOrigen.nombre,
-    cantidad: qty,
-    stock_antes: calc.antes,
-    stock_despues: calc.despues,
-    ubicacion,
-    sucursal_operacion: tienda,
-    motivo: motivo?.trim() || '',
-    usuario: usuario || '—',
-    sucursal: tienda || '',
-    created_at: new Date().toISOString(),
-  }, supabase);
+  const log = guardarMovimientoLocal(
+    {
+      tipo,
+      modo,
+      departamento: departamento || productoOrigen.cat || productoDb.cat,
+      producto_id: productoOrigen.id,
+      producto_nombre: productoOrigen.nombre || productoDb.nombre,
+      cantidad: qty,
+      stock_antes: calc.antes,
+      stock_despues: calc.despues,
+      ubicacion,
+      sucursal_operacion: tienda,
+      motivo: motivo?.trim() || '',
+      usuario: usuario || '—',
+      sucursal: tienda || '',
+      created_at: new Date().toISOString(),
+    },
+    supabase,
+  );
 
   const verbo = tipo === 'entrada' ? `Entrada a ${donde}` : `Retiro de ${donde}`;
   const avisoMain =
@@ -286,9 +357,14 @@ export async function aplicarMovimientoInventario(supabase, opts) {
       : '';
   return {
     ok: true,
-    mensaje: `${verbo} (${etiquetaTienda(tienda)}): ${tipo === 'entrada' ? '+' : '−'}${qty} uds. en "${productoOrigen.nombre}". Stock: ${calc.antes} → ${calc.despues} (se ${tipo === 'entrada' ? 'suma' : 'resta'}, no se reemplaza).${avisoMain}`,
+    mensaje: `${verbo} (${etiquetaTienda(tienda)}): ${tipo === 'entrada' ? '+' : '−'}${qty} uds. en "${productoOrigen.nombre || productoDb.nombre}". Stock: ${calc.antes} → ${calc.despues} (se ${tipo === 'entrada' ? 'suma' : 'resta'}, no se reemplaza).${avisoMain}`,
     log,
     patch: calc.patch,
+    cantidad: qty,
+    stock_antes: calc.antes,
+    stock_despues: calc.despues,
+    ubicacion,
+    producto: verif.ok ? verif.producto : { ...productoDb, ...calc.patch },
   };
 }
 
@@ -296,14 +372,28 @@ export async function aplicarMovimientoInventario(supabase, opts) {
 export async function aplicarEntradasMasivas(supabase, opts) {
   const { lineas, inventario, inventarioCompleto, motivo, usuario, sucursal, sucursalOperacion } = opts;
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
-  const lista = (lineas || []).filter((l) => l?.productoId && Number(l.cantidad) > 0);
+
+  const lista = [];
+  for (const l of lineas || []) {
+    if (!l?.productoId) continue;
+    const qty = parseCantidadInventario(l.cantidad);
+    if (!qty) {
+      return {
+        ok: false,
+        error: `Cantidad inválida en producto ${l.productoId} («${l.cantidad}»). Corrige a un entero ≥ 1.`,
+      };
+    }
+    lista.push({ productoId: String(l.productoId), cantidad: qty });
+  }
   if (!lista.length) return { ok: false, error: 'Agrega al menos un producto con cantidad.' };
 
   const catalogo = inventarioCompleto || inventario || [];
   const tienda = sucursalOperacion || sucursal;
   let log = leerMovimientosLocal();
   let aplicados = 0;
+  let piezas = 0;
   const errores = [];
+  const detalle = [];
   const productosVivos = new Map(catalogo.map((p) => [String(p.id), { ...p }]));
 
   for (const { productoId, cantidad } of lista) {
@@ -324,27 +414,41 @@ export async function aplicarEntradasMasivas(supabase, opts) {
       sucursalOperacion: tienda,
       modo: 'masivo',
       departamento: productoOrigen.cat,
-      inventarioCompleto: [...productosVivos.values()],
     });
     if (!r.ok) {
       errores.push(`${productoOrigen.nombre}: ${r.error}`);
       continue;
     }
     aplicados += 1;
+    piezas += cantidad;
+    detalle.push({
+      productoId,
+      nombre: productoOrigen.nombre,
+      cantidad,
+      stock_antes: r.stock_antes,
+      stock_despues: r.stock_despues,
+    });
     log = r.log || log;
-    productoOrigen = { ...productoOrigen, ...r.patch };
-    productosVivos.set(String(productoId), productoOrigen);
+    if (r.producto) productosVivos.set(String(productoId), r.producto);
+    else if (r.patch) productosVivos.set(String(productoId), { ...productoOrigen, ...r.patch });
   }
 
   if (!aplicados) return { ok: false, error: errores.join('\n') || 'No se aplicó ninguna entrada.' };
+
+  const lineasTxt = detalle
+    .map((d) => `• ${d.nombre}: +${d.cantidad} (${d.stock_antes} → ${d.stock_despues})`)
+    .join('\n');
   return {
     ok: true,
     aplicados,
+    piezas,
+    detalle,
     errores,
     log,
     mensaje:
-      errores.length > 0
-        ? `Entrada masiva: ${aplicados} producto(s) OK. ${errores.length} con error.`
-        : `Entrada masiva aplicada: ${aplicados} producto(s) en ${etiquetaTienda(tienda)} (cantidades SUMADAS al stock).`,
+      (errores.length > 0
+        ? `Entrada masiva: ${aplicados} producto(s) / ${piezas} pieza(s) OK. ${errores.length} con error.\n`
+        : `Entrada masiva OK en ${etiquetaTienda(tienda)}: ${aplicados} producto(s), ${piezas} pieza(s) SUMADAS al stock.\n`) +
+      lineasTxt,
   };
 }

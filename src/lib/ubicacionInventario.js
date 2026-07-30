@@ -9,7 +9,7 @@ import {
   stockEnUbicacion as stockEnUbicacionMt,
   sucursalParaUbicacion,
 } from './inventarioMultitienda.js';
-import { guardarMovimientoLocal, leerMovimientosLocal } from './inventarioMovimientos.js';
+import { guardarMovimientoLocal, leerMovimientosLocal, parseCantidadInventario, leerProductoInventarioFresco } from './inventarioMovimientos.js';
 
 const LS_FOLIO_TRP = 'pos3b_folio_traspaso_seq';
 
@@ -188,8 +188,8 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
   if (!producto?.id) return { ok: false, error: 'Producto no válido.' };
 
-  const qty = Math.floor(Number(cantidad));
-  if (!qty || qty < 1) return { ok: false, error: 'La cantidad debe ser al menos 1.' };
+  const qty = parseCantidadInventario(cantidad);
+  if (!qty) return { ok: false, error: `Cantidad inválida («${cantidad}»). Debe ser un entero ≥ 1.` };
 
   const ruta = resolverTraspaso(subtipo, sucursalOrigen, sucursalDestino);
   if (!ruta) {
@@ -199,7 +199,11 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
     return { ok: false, error: 'Selecciona una tienda destino distinta a la origen.' };
   }
 
-  const calc = patchTraspasoUbicacion(producto, { ...ruta, cantidad: qty, sucursalActiva });
+  const fresco = await leerProductoInventarioFresco(supabase, producto.id);
+  if (!fresco.ok) return fresco;
+  const productoDb = fresco.producto;
+
+  const calc = patchTraspasoUbicacion(productoDb, { ...ruta, cantidad: qty, sucursalActiva });
   if (!calc.ok) return calc;
 
   const { error } = await supabase.from('productos').update(calc.patch).eq('id', producto.id);
@@ -211,6 +215,18 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
       };
     }
     return { ok: false, error: error.message };
+  }
+
+  const verif = await leerProductoInventarioFresco(supabase, producto.id);
+  if (verif.ok) {
+    const realOrigen = stockEnUbicacionMt(verif.producto, ruta.sucursalOrigen, ruta.ubicacionOrigen, sucursalActiva);
+    if (realOrigen !== calc.stockOrigenDespues) {
+      return {
+        ok: false,
+        error:
+          `Verificación falló en traspaso de "${producto.nombre}": origen debía quedar en ${calc.stockOrigenDespues} y tiene ${realOrigen}.`,
+      };
+    }
   }
 
   const origenTxt = `${etiquetaUbicacion(ruta.ubicacionOrigen, ruta.sucursalOrigen)} · ${etiquetaSucursal(ruta.sucursalOrigen)}`;
@@ -229,7 +245,7 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
     ubicacion_origen: ruta.ubicacionOrigen,
     ubicacion_destino: ruta.ubicacionDestino,
     producto_id: producto.id,
-    producto_nombre: producto.nombre,
+    producto_nombre: producto.nombre || productoDb.nombre,
     cantidad: qty,
     stock_antes: calc.stockOrigenAntes,
     stock_despues: calc.stockOrigenDespues,
@@ -245,24 +261,33 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
     ok: true,
     log,
     folio: folioTrp,
-    mensaje: `Traspaso ${folioTrp}: ${qty} uds. de "${producto.nombre}" (${origenTxt} → ${destTxt}).`,
+    mensaje: `Traspaso ${folioTrp}: ${qty} uds. de "${producto.nombre || productoDb.nombre}" (${origenTxt} → ${destTxt}).`,
     patch: calc.patch,
+    producto: verif.ok ? verif.producto : { ...productoDb, ...calc.patch },
   };
 }
 
 export async function aplicarTraspasosMasivos(supabase, opts) {
   const { lineas, inventario, subtipo, sucursalOrigen, sucursalDestino, motivo, usuario, sucursalActiva } = opts;
-  const lista = (lineas || []).filter((l) => l?.productoId && Number(l.cantidad) > 0);
+  const lista = [];
+  for (const l of lineas || []) {
+    if (!l?.productoId) continue;
+    const qty = parseCantidadInventario(l.cantidad);
+    if (!qty) {
+      return { ok: false, error: `Cantidad inválida en ${l.productoId} («${l.cantidad}»).` };
+    }
+    lista.push({ productoId: String(l.productoId), cantidad: qty });
+  }
   if (!lista.length) return { ok: false, error: 'Agrega al menos un producto con cantidad.' };
 
   const folio = generarFolioTraspaso();
   let log = leerMovimientosLocal();
   let aplicados = 0;
   const errores = [];
-  const productosVivos = new Map((inventario || []).map((p) => [p.id, { ...p }]));
+  const productosVivos = new Map((inventario || []).map((p) => [String(p.id), { ...p }]));
 
   for (const { productoId, cantidad } of lista) {
-    let producto = productosVivos.get(productoId);
+    let producto = productosVivos.get(String(productoId));
     if (!producto) {
       errores.push(`${productoId}: no encontrado`);
       continue;
@@ -284,8 +309,8 @@ export async function aplicarTraspasosMasivos(supabase, opts) {
     }
     aplicados += 1;
     log = r.log || log;
-    producto = { ...producto, ...r.patch };
-    productosVivos.set(productoId, producto);
+    if (r.producto) productosVivos.set(String(productoId), r.producto);
+    else productosVivos.set(String(productoId), { ...producto, ...r.patch });
   }
 
   if (!aplicados) return { ok: false, error: errores.join('\n') || 'No se aplicó ningún traspaso.' };

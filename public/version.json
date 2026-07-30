@@ -1,11 +1,13 @@
 {
   "version": "1.1.0",
-  "buildId": "0fbd590",
+  "buildId": "c185fa1",
   "branch": "main",
-  "builtAt": "2026-07-29T23:17:10.244Z",
+  "builtAt": "2026-07-30T01:35:29.538Z",
   "title": "Actualización disponible",
   "summary": "Hay una nueva versión del POS. Actualiza para recibir correcciones y mejoras.",
   "changes": [
+    "Fix: permitir marcar Escáner caja (y Resumen operativo) en privilegios",
+    "Traspasos: hub enviar/recibir/solicitar solo MAIN→sucursal o sucursal→sucursal",
     "Inventario: en MAIN mostrar CEDIS al buscar productos; folios trp-0001",
     "Docs: guiones de video para cobrar y corte de caja",
     "Avisar actualizaciones pendientes con lista de cambios",
@@ -13,8 +15,6 @@
     "Administrador de precios: buscar por nombre, codigo o escanner",
     "Reporte inventario: mostrar todas las tiendas en resumen y filtro",
     "Reportes inventario: cargar conteos desde la nube",
-    "Consultas Inventarios: filtro por operacion y periodo",
-    "Fix neto RT (gastos activos), origen FJBB/AMR y sellado de gastos",
-    "Favoritos: mostrar stock negativo real en vez de cero falso"
+    "Consultas Inventarios: filtro por operacion y periodo"
   ]
 }

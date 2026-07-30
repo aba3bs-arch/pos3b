@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { aplicarEntradasMasivas, aplicarMovimientoInventario, leerMovimientosLocal, TIPOS_MOVIMIENTO } from '../lib/inventarioMovimientos.js';
+import { aplicarEntradasMasivas, aplicarMovimientoInventario, leerMovimientosLocal, TIPOS_MOVIMIENTO, parseCantidadInventario } from '../lib/inventarioMovimientos.js';
 import {
   SUBTIPOS_TRASPASO,
   aplicarTraspasosMasivos,
@@ -66,7 +66,7 @@ export default function AjusteInventario({
   const [modo, setModo] = useState(modoInicial);
   const [tipo, setTipo] = useState(tipoInicial || 'entrada');
   const [productoId, setProductoId] = useState('');
-  const [cantidad, setCantidad] = useState('1');
+  const [cantidad, setCantidad] = useState('');
   const [motivo, setMotivo] = useState('');
   const [busqueda, setBusqueda] = useState('');
   const [historial, setHistorial] = useState(() => leerMovimientosLocal());
@@ -81,6 +81,9 @@ export default function AjusteInventario({
   );
   const [busquedaMasiva, setBusquedaMasiva] = useState('');
   const [productoMasivoId, setProductoMasivoId] = useState('');
+  const [modalIngreso, setModalIngreso] = useState(null); // { producto, sumarA }
+  const [modalIngresoQty, setModalIngresoQty] = useState('');
+  const modalIngresoRef = useRef(null);
   const [codigoEscaneo, setCodigoEscaneo] = useState('');
   const [subtipoTraspaso, setSubtipoTraspaso] = useState(() => (esAlmacenCentral(sucursalOperacion || sucursal) ? 'central_tienda' : 'tienda_tienda'));
   const [sucursalDestinoTraspaso, setSucursalDestinoTraspaso] = useState('');
@@ -103,6 +106,15 @@ export default function AjusteInventario({
     if (modo === 'libre') scanInputRef.current?.focus();
   }, [modo]);
 
+  useEffect(() => {
+    if (!modalIngreso) return undefined;
+    const t = setTimeout(() => {
+      modalIngresoRef.current?.focus();
+      modalIngresoRef.current?.select?.();
+    }, 40);
+    return () => clearTimeout(t);
+  }, [modalIngreso]);
+
   useAutoGuardarBorrador(
     () => {
       if (modo !== 'masivo') return null;
@@ -118,7 +130,7 @@ export default function AjusteInventario({
       };
     },
     (draft) => guardarAjusteEnEspera(draft),
-    { enabled: modo === 'masivo' },
+    { enabled: modo === 'masivo', deps: [lineasMasivas, sucursalOp, user?.nombre] },
   );
 
   const productosFiltrados = useMemo(() => {
@@ -259,17 +271,27 @@ export default function AjusteInventario({
   };
 
   const aplicar = async () => {
+    const qty = parseCantidadInventario(cantidad);
+    if (!qty) {
+      alert('Cantidad inválida. Debe ser un entero ≥ 1 (ej. 12).');
+      cantidadInputRef.current?.focus();
+      return;
+    }
+    if (!productoOrigen) {
+      alert('Selecciona un producto.');
+      return;
+    }
     setAplicando(true);
     const r = await aplicarMovimientoInventario(supabase, {
       tipo,
       productoOrigen,
-      cantidad,
+      cantidad: qty,
       motivo,
       usuario: user?.nombre,
       sucursal: sucursalOp,
       sucursalOperacion: sucursalOp,
       inventarioCompleto: catalogoCompleto,
-      modo: 'libre',
+      modo: 'movimiento',
       departamento: null,
     });
     setAplicando(false);
@@ -279,7 +301,7 @@ export default function AjusteInventario({
     }
     alert(r.mensaje);
     setHistorial(r.log || leerMovimientosLocal());
-    setCantidad('1');
+    setCantidad('');
     setMotivo('');
     setProductoId('');
     setCodigoEscaneo('');
@@ -287,21 +309,46 @@ export default function AjusteInventario({
     if (modo === 'libre') scanInputRef.current?.focus();
   };
 
-  const agregarLineaMasiva = () => {
-    if (!productoMasivoId) return alert('Elige un producto para agregar.');
-    if (lineasMasivas.some((l) => l.productoId === productoMasivoId)) {
-      setLineasMasivas((prev) =>
-        prev.map((l) =>
-          l.productoId === productoMasivoId
-            ? { ...l, cantidad: String(Math.max(1, (parseInt(l.cantidad, 10) || 0) + 1)) }
-            : l,
-        ),
-      );
+  const abrirModalCantidadIngreso = (producto, sumarA = 0) => {
+    if (!producto?.id) return;
+    setModalIngreso({ producto, sumarA: Math.max(0, Math.floor(Number(sumarA) || 0)) });
+    setModalIngresoQty('');
+  };
+
+  const confirmarModalIngreso = () => {
+    if (!modalIngreso?.producto?.id) return;
+    const qty = parseCantidadInventario(modalIngresoQty);
+    if (!qty) {
+      alert('Escribe cuántas piezas entran (número entero ≥ 1). Ejemplo: 12');
+      modalIngresoRef.current?.focus();
       return;
     }
-    setLineasMasivas([...lineasMasivas, { productoId: productoMasivoId, cantidad: '1' }]);
+    const pid = String(modalIngreso.producto.id);
+    const sumarA = modalIngreso.sumarA || 0;
+    const total = sumarA > 0 ? sumarA + qty : qty;
+    setLineasMasivas((prev) => {
+      const i = prev.findIndex((l) => String(l.productoId) === pid);
+      if (i >= 0) {
+        const next = [...prev];
+        next[i] = { ...next[i], productoId: pid, cantidad: String(total) };
+        return next;
+      }
+      return [...prev, { productoId: pid, cantidad: String(total) }];
+    });
+    setModalIngreso(null);
+    setModalIngresoQty('');
     setProductoMasivoId('');
     setBusquedaMasiva('');
+  };
+
+  const agregarLineaMasiva = () => {
+    if (!productoMasivoId) return alert('Elige un producto para agregar.');
+    const producto =
+      (catalogoCompleto || []).find((p) => String(p.id) === String(productoMasivoId)) ||
+      (inventario || []).find((p) => String(p.id) === String(productoMasivoId));
+    if (!producto) return alert('Producto no encontrado en el catálogo.');
+    const ya = lineasMasivas.find((l) => String(l.productoId) === String(producto.id));
+    abrirModalCantidadIngreso(producto, ya ? parseCantidadInventario(ya.cantidad) || 0 : 0);
   };
 
   const procesarEscaneoMasivo = (raw) => {
@@ -322,35 +369,48 @@ export default function AjusteInventario({
       alert(`No está en el catálogo: ${codigo}`);
       return;
     }
-    if (lineasMasivas.some((l) => l.productoId === producto.id)) {
-      setLineasMasivas((prev) =>
-        prev.map((l) =>
-          l.productoId === producto.id
-            ? { ...l, cantidad: String(Math.max(1, (parseInt(l.cantidad, 10) || 0) + 1)) }
-            : l,
-        ),
-      );
-      setProductoMasivoId(producto.id);
-      setBusquedaMasiva('');
-      return;
-    }
-    setLineasMasivas([...lineasMasivas, { productoId: producto.id, cantidad: '1' }]);
-    setProductoMasivoId('');
-    setBusquedaMasiva('');
+    const ya = lineasMasivas.find((l) => String(l.productoId) === String(producto.id));
+    abrirModalCantidadIngreso(producto, ya ? parseCantidadInventario(ya.cantidad) || 0 : 0);
   };
 
   const actualizarCantidadMasiva = (productoId, cantidad) => {
-    setLineasMasivas(lineasMasivas.map((l) => (l.productoId === productoId ? { ...l, cantidad } : l)));
+    const pid = String(productoId);
+    setLineasMasivas((prev) => prev.map((l) => (String(l.productoId) === pid ? { ...l, cantidad } : l)));
   };
 
   const quitarLineaMasiva = (productoId) => {
-    setLineasMasivas(lineasMasivas.filter((l) => l.productoId !== productoId));
+    const pid = String(productoId);
+    setLineasMasivas((prev) => prev.filter((l) => String(l.productoId) !== pid));
   };
 
   const aplicarMasivo = async () => {
-    const validas = lineasMasivas.filter((l) => l.productoId && Number(l.cantidad) > 0);
+    const invalidas = lineasMasivas.filter((l) => l.productoId && !parseCantidadInventario(l.cantidad));
+    if (invalidas.length) {
+      return alert('Hay líneas con cantidad inválida. Cada cantidad debe ser un entero ≥ 1 (ej. 12).');
+    }
+    const validas = lineasMasivas
+      .map((l) => ({ productoId: String(l.productoId), cantidad: parseCantidadInventario(l.cantidad) }))
+      .filter((l) => l.productoId && l.cantidad);
     if (!validas.length) return alert('Agrega al menos un producto con cantidad.');
-    if (!confirm(`¿SUMAR entrada de ${validas.length} producto(s) al stock actual?\n(Ej. 10 + 12 = 22)`)) return;
+
+    const totalPiezas = validas.reduce((s, l) => s + l.cantidad, 0);
+    const resumen = validas
+      .map((l) => {
+        const p =
+          (inventario || []).find((x) => String(x.id) === String(l.productoId)) ||
+          (catalogoCompleto || []).find((x) => String(x.id) === String(l.productoId));
+        const stock = enCentral ? Number(p?.stock_cedis) || 0 : Number(p?.stock) || 0;
+        return `• ${p?.nombre || l.productoId}: +${l.cantidad} (${stock} → ${stock + l.cantidad})`;
+      })
+      .join('\n');
+
+    if (
+      !confirm(
+        `¿SUMAR estas piezas al stock actual?\n\n${resumen}\n\nTotal: +${totalPiezas} pieza(s) en ${validas.length} producto(s).\n(Ejemplo: si había 0 y sumas 12, debe quedar 12.)`,
+      )
+    ) {
+      return;
+    }
     setAplicando(true);
     const r = await aplicarEntradasMasivas(supabase, {
       lineas: validas,
@@ -371,7 +431,7 @@ export default function AjusteInventario({
     eliminarAjusteEnEspera(idAutoBorrador('masivo', sucursalOp));
     setAvisoMasivoRecuperado(false);
     const lineasPrint = validas.map((l) => {
-      const p = inventario.find((x) => x.id === l.productoId);
+      const p = (inventario || []).find((x) => String(x.id) === String(l.productoId));
       return { id: l.productoId, nombre: p?.nombre || l.productoId, cantidad: l.cantidad, tipo: 'entrada' };
     });
     await imprimirMovimientoInventario({
@@ -531,10 +591,9 @@ export default function AjusteInventario({
         )}
         {modo === 'masivo' && (
           <p className="muted" style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
-            Agrega varios productos con la cantidad a <strong>SUMAR</strong> al stock actual
-            (ej. hay 10 e ingresas 12 → queda 22). Si vuelves a escanear el mismo, suma +1. No reemplaza la
-            existencia.
-            La lista se guarda sola en este equipo si se interrumpe la captura.
+            Al agregar o escanear un producto <strong>debes indicar cuántas piezas</strong> (ej. 12). Se{' '}
+            <strong>SUMAN</strong> al stock actual (0 + 12 = 12; 10 + 12 = 22). No reemplazan la existencia.
+            En MAIN el ingreso va a <strong>CEDIS</strong>; en tienda, al piso.
           </p>
         )}
         {modo === 'masivo' && avisoMasivoRecuperado && lineasMasivas.length > 0 && (
@@ -575,6 +634,67 @@ export default function AjusteInventario({
         />
       ) : modo === 'masivo' ? (
         <div className="card">
+          {modalIngreso && (
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Cantidad a ingresar"
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 80,
+                background: 'rgba(15, 23, 42, 0.45)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '1rem',
+              }}
+              onClick={() => setModalIngreso(null)}
+            >
+              <div
+                className="card"
+                style={{ width: 'min(420px, 100%)', margin: 0, boxShadow: '0 16px 40px rgba(0,0,0,0.25)' }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>¿Cuántas piezas entran?</h4>
+                <p style={{ margin: '0 0 0.75rem', fontWeight: 600 }}>{modalIngreso.producto?.nombre}</p>
+                {modalIngreso.sumarA > 0 && (
+                  <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+                    Ya en la lista: {modalIngreso.sumarA}. Lo que escribas se <strong>suma</strong> a ese total.
+                  </p>
+                )}
+                <label className="muted" style={{ display: 'block' }}>
+                  Cantidad (piezas)
+                  <input
+                    ref={modalIngresoRef}
+                    className="input"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    style={{ marginTop: '0.35rem', fontSize: '1.35rem', fontWeight: 700, padding: '0.75rem' }}
+                    value={modalIngresoQty}
+                    placeholder="Ej. 12"
+                    onChange={(e) => setModalIngresoQty(e.target.value.replace(/[^\d]/g, ''))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        confirmarModalIngreso();
+                      }
+                      if (e.key === 'Escape') setModalIngreso(null);
+                    }}
+                  />
+                </label>
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                  <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setModalIngreso(null)}>
+                    Cancelar
+                  </button>
+                  <button type="button" className="btn btn-success" style={{ flex: 1 }} onClick={confirmarModalIngreso}>
+                    Aceptar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
           <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Productos a ingresar</h4>
           <div className="grid-2">
             <label className="muted" style={{ gridColumn: '1 / -1' }}>
@@ -636,8 +756,10 @@ export default function AjusteInventario({
                   </tr>
                 ) : (
                   lineasMasivas.map((l) => {
-                    const p = inventario.find((x) => x.id === l.productoId);
-                    const qty = parseInt(l.cantidad, 10) || 0;
+                    const p =
+                      (inventario || []).find((x) => String(x.id) === String(l.productoId)) ||
+                      (catalogoCompleto || []).find((x) => String(x.id) === String(l.productoId));
+                    const qty = parseCantidadInventario(l.cantidad) || 0;
                     const stock = enCentral ? Number(p?.stock_cedis) || 0 : Number(p?.stock) || 0;
                     return (
                       <tr key={l.productoId}>
@@ -647,14 +769,20 @@ export default function AjusteInventario({
                         <td>
                           <input
                             className="input"
-                            type="number"
-                            min={1}
-                            style={{ width: '5rem', padding: '0.35rem 0.5rem' }}
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            style={{ width: '6.5rem', padding: '0.45rem 0.55rem', fontSize: '1.1rem', fontWeight: 700 }}
                             value={l.cantidad}
-                            onChange={(e) => actualizarCantidadMasiva(l.productoId, e.target.value)}
+                            onChange={(e) => actualizarCantidadMasiva(l.productoId, e.target.value.replace(/[^\d]/g, ''))}
+                            onBlur={() => {
+                              const n = parseCantidadInventario(l.cantidad);
+                              if (n) actualizarCantidadMasiva(l.productoId, String(n));
+                            }}
+                            aria-label={`Cantidad de ${p?.nombre || l.productoId}`}
                           />
                         </td>
-                        <td>{qty > 0 ? stock + qty : '—'}</td>
+                        <td style={{ fontWeight: 700 }}>{qty > 0 ? stock + qty : '—'}</td>
                         <td>
                           <button type="button" className="btn btn-danger" style={{ padding: '0.25rem 0.45rem', fontSize: '0.75rem' }} onClick={() => quitarLineaMasiva(l.productoId)}>
                             Quitar
@@ -668,9 +796,11 @@ export default function AjusteInventario({
             </table>
           </div>
 
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
             <button type="button" className="btn btn-success" onClick={aplicarMasivo} disabled={aplicando || lineasMasivas.length === 0}>
-              {aplicando ? 'Aplicando…' : `Aplicar ${lineasMasivas.length} entrada(s)`}
+              {aplicando
+                ? 'Aplicando…'
+                : `Aplicar +${lineasMasivas.reduce((s, l) => s + (parseCantidadInventario(l.cantidad) || 0), 0)} pieza(s)`}
             </button>
             {lineasMasivas.length > 0 && (
               <button type="button" className="btn btn-ghost" onClick={() => setLineasMasivas([])}>
@@ -930,7 +1060,17 @@ export default function AjusteInventario({
             </label>
             <label className="muted">
               Cantidad (unidades)
-              <input ref={cantidadInputRef} className="input" type="number" min={1} style={{ marginTop: '0.35rem' }} value={cantidad} onChange={(e) => setCantidad(e.target.value)} />
+              <input
+                ref={cantidadInputRef}
+                className="input"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                style={{ marginTop: '0.35rem', fontSize: '1.15rem', fontWeight: 700 }}
+                value={cantidad}
+                placeholder="Ej. 12"
+                onChange={(e) => setCantidad(e.target.value.replace(/[^\d]/g, ''))}
+              />
             </label>
             <label className="muted" style={{ gridColumn: '1 / -1' }}>
               Motivo / referencia (opcional)
