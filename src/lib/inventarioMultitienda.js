@@ -93,11 +93,10 @@ export function asegurarMapaStock(producto, sucursalContext = 'MAIN') {
 
   if (Object.keys(existente).length > 0) {
     const map = normalizarMapaStockCedisUnico(existente);
-    // Tienda activa sin clave en el mapa: sembrar desde stock legado (evita ceros falsos tipo Smoking).
-    if (ctx && !map[ctx] && pisoLegacy > 0) {
-      map[ctx] = { cedis: 0, piso: pisoLegacy };
-    }
-    // Si el mapa trae CEDIS en 0 pero la columna legacy stock_cedis tiene unidades, reparar.
+    // NO sembrar piso de la tienda activa desde `stock` legado:
+    // esa columna es global (última caja que escribió) y inventa existencias falsas
+    // (ej. Smoking en 3B5 mostraba 6 sin tener clave 3B5 en el mapa).
+    // Tienda sin clave en el mapa = 0 piezas reales en esa sucursal.
     const cedisMapa = Math.floor(Number(map[ALMACEN_CENTRAL]?.cedis) || 0);
     if (cedisLegacy > cedisMapa) {
       if (!map[ALMACEN_CENTRAL]) map[ALMACEN_CENTRAL] = { cedis: 0, piso: 0 };

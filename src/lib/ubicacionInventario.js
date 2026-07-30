@@ -206,7 +206,11 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
   const calc = patchTraspasoUbicacion(productoDb, { ...ruta, cantidad: qty, sucursalActiva });
   if (!calc.ok) return calc;
 
-  const { error } = await supabase.from('productos').update(calc.patch).eq('id', producto.id);
+  const { data: rowsUpd, error } = await supabase
+    .from('productos')
+    .update(calc.patch)
+    .eq('id', producto.id)
+    .select('id');
   if (error) {
     if (String(error.message).includes('stock_cedis') || String(error.message).includes('stock_sucursales')) {
       return {
@@ -216,15 +220,28 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
     }
     return { ok: false, error: error.message };
   }
+  if (!rowsUpd?.length) {
+    return { ok: false, error: `No se actualizó stock de ${producto.id} (0 filas). Revisa permisos o id.` };
+  }
 
   const verif = await leerProductoInventarioFresco(supabase, producto.id);
   if (verif.ok) {
     const realOrigen = stockEnUbicacionMt(verif.producto, ruta.sucursalOrigen, ruta.ubicacionOrigen, sucursalActiva);
-    if (realOrigen !== calc.stockOrigenDespues) {
+    const realDest = stockEnUbicacionMt(verif.producto, ruta.sucursalDestino, ruta.ubicacionDestino, sucursalActiva);
+    if (realOrigen !== calc.stockOrigenDespues || realDest !== calc.stockDestDespues) {
+      await supabase
+        .from('productos')
+        .update({
+          stock_sucursales: productoDb.stock_sucursales,
+          stock: productoDb.stock,
+          stock_cedis: productoDb.stock_cedis,
+        })
+        .eq('id', producto.id);
       return {
         ok: false,
         error:
-          `Verificación falló en traspaso de "${producto.nombre}": origen debía quedar en ${calc.stockOrigenDespues} y tiene ${realOrigen}.`,
+          `Verificación falló en traspaso de "${producto.nombre}": ` +
+          `origen ${realOrigen}/${calc.stockOrigenDespues}, destino ${realDest}/${calc.stockDestDespues}. Se revirtió.`,
       };
     }
   }

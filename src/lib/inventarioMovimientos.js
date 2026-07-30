@@ -304,12 +304,22 @@ export async function aplicarMovimientoInventario(supabase, opts) {
   const calc = aplicarDeltaStock(productoDb, tienda, ubicacion, signo * qty, tienda);
   if (!calc.ok) return calc;
 
-  const { error } = await supabase.from('productos').update(calc.patch).eq('id', productoOrigen.id);
+  const { data: rowsUpd, error } = await supabase
+    .from('productos')
+    .update(calc.patch)
+    .eq('id', productoOrigen.id)
+    .select('id');
   if (error) {
     if (String(error.message).includes('stock_sucursales') || String(error.message).includes('stock_cedis')) {
       return { ok: false, error: 'Faltan columnas de inventario. Ejecuta supabase/fix_stock_ubicaciones.sql en Supabase.' };
     }
     return { ok: false, error: error.message };
+  }
+  if (!rowsUpd?.length) {
+    return {
+      ok: false,
+      error: `No se actualizó stock de ${productoOrigen.id} (0 filas). Revisa permisos RLS o id.`,
+    };
   }
 
   // Verificar que la nube quedó con exactamente el stock calculado.
@@ -317,11 +327,19 @@ export async function aplicarMovimientoInventario(supabase, opts) {
   if (verif.ok) {
     const real = stockEnUbicacion(verif.producto, tienda, ubicacion, tienda);
     if (real !== calc.despues) {
+      await supabase
+        .from('productos')
+        .update({
+          stock_sucursales: productoDb.stock_sucursales,
+          stock: productoDb.stock,
+          stock_cedis: productoDb.stock_cedis,
+        })
+        .eq('id', productoOrigen.id);
       return {
         ok: false,
         error:
           `Fallo de verificación en "${productoOrigen.nombre || productoDb.nombre}": ` +
-          `se intentó dejar ${calc.despues} piezas y la nube tiene ${real}. Revisa conexión o vuelve a intentar.`,
+          `se intentó dejar ${calc.despues} piezas y la nube tiene ${real}. Se revirtió el cambio.`,
         cantidad: qty,
         stock_antes: calc.antes,
         stock_despues: real,

@@ -5,15 +5,12 @@
  * Flujo: enviar (descuenta origen) → recibir (suma destino) · solicitar.
  */
 import {
-  ALMACEN_CENTRAL,
+  aplicarDeltaStock,
   esAlmacenCentral,
   stockEnUbicacion,
-  asegurarMapaStock,
-  normalizarMapaStockCedisUnico,
-  sucursalParaUbicacion,
 } from './inventarioMultitienda.js';
 import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
-import { guardarMovimientoLocal } from './inventarioMovimientos.js';
+import { guardarMovimientoLocal, leerProductoInventarioFresco } from './inventarioMovimientos.js';
 
 const LS = 'pos3b_inventario_traspasos';
 const LS_FOLIO = 'pos3b_folio_traspaso_seq';
@@ -96,24 +93,55 @@ function stockVistaProducto(producto, sucursal, ubicacion) {
   return stockEnUbicacion(producto, sucursal, ubicacion, sucursal);
 }
 
-function patchDeltaUbicacion(producto, sucursal, ubicacion, delta, sucursalActiva) {
-  const ctx = sucursalActiva || sucursal;
-  const antes = stockEnUbicacion(producto, sucursal, ubicacion, ctx);
-  const qty = Math.floor(Number(delta));
-  const despues = antes + qty;
-  if (despues < 0) {
-    return { ok: false, error: `Stock insuficiente (hay ${antes}, pides ${Math.abs(qty)}).`, antes };
+/**
+ * Aplica delta de stock con producto fresco de la nube + verificación post-escritura.
+ * Evita mapas en memoria desfasados y actualizaciones de 0 filas silenciosas.
+ */
+async function aplicarDeltaProductoVerificado(supabase, opts) {
+  const { productoId, sucursal, ubicacion, delta, sucursalActiva } = opts;
+  if (!supabase) return { ok: false, error: 'Sin conexión a Supabase para actualizar stock.' };
+  const fresco = await leerProductoInventarioFresco(supabase, productoId);
+  if (!fresco.ok) return fresco;
+  const prod = fresco.producto;
+  const calc = aplicarDeltaStock(prod, sucursal, ubicacion, delta, sucursalActiva || sucursal);
+  if (!calc.ok) return calc;
+
+  const { data: rows, error } = await supabase
+    .from('productos')
+    .update(calc.patch)
+    .eq('id', productoId)
+    .select('id');
+  if (error) return { ok: false, error: error.message };
+  if (!rows?.length) {
+    return { ok: false, error: `No se actualizó stock de ${productoId} (0 filas). Revisa permisos o id.` };
   }
-  const map = { ...asegurarMapaStock(producto, ctx) };
-  const sucStock = sucursalParaUbicacion(sucursal, ubicacion);
-  if (!map[sucStock]) map[sucStock] = { cedis: 0, piso: 0 };
-  map[sucStock][ubicacion] = despues;
-  const normalized = normalizarMapaStockCedisUnico(map);
-  const patch = { stock_sucursales: normalized };
-  const act = normalizarCodigoTienda(sucursalActiva);
-  if (act && normalized[act]) patch.stock = normalized[act].piso;
-  patch.stock_cedis = Math.max(0, Number(normalized[ALMACEN_CENTRAL]?.cedis) || 0);
-  return { ok: true, patch, antes, despues };
+
+  const verif = await leerProductoInventarioFresco(supabase, productoId);
+  if (verif.ok) {
+    const real = stockEnUbicacion(verif.producto, sucursal, ubicacion, sucursalActiva || sucursal);
+    if (real !== calc.despues) {
+      // Revertir al estado previo fresco
+      await supabase
+        .from('productos')
+        .update({
+          stock_sucursales: prod.stock_sucursales,
+          stock: prod.stock,
+          stock_cedis: prod.stock_cedis,
+        })
+        .eq('id', productoId);
+      return {
+        ok: false,
+        error: `Verificación falló en ${productoId}: se esperaba ${calc.despues} y la nube tiene ${real}.`,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    calc,
+    productoAntes: prod,
+    producto: verif.ok ? verif.producto : { ...prod, ...calc.patch },
+  };
 }
 
 async function upsertTraspaso(supabase, row, { requireCloud = false } = {}) {
@@ -248,40 +276,34 @@ export async function enviarTraspaso(supabase, opts = {}) {
     }))
     .filter((l) => l.producto_id && l.cantidad > 0);
   if (!items.length) return { ok: false, error: 'Agrega al menos un producto.' };
+  if (!supabase) return { ok: false, error: 'Sin conexión a Supabase para actualizar stock.' };
 
-  // Descontar stock en origen (guardar patches por si hay que revertir)
-  const vivos = new Map((inventario || []).map((p) => [String(p.id), { ...p }]));
   const descuentos = [];
   for (const item of items) {
-    const prod = vivos.get(item.producto_id);
-    if (!prod) return { ok: false, error: `Producto ${item.producto_id} no encontrado.` };
-    const calc = patchDeltaUbicacion(
-      prod,
-      ruta.origen_id,
-      ruta.ubicacion_origen,
-      -item.cantidad,
-      ruta.origen_id,
-    );
-    if (!calc.ok) {
-      return {
-        ok: false,
-        error: `${item.nombre || item.producto_id}: ${calc.error}`,
-      };
+    const r = await aplicarDeltaProductoVerificado(supabase, {
+      productoId: item.producto_id,
+      sucursal: ruta.origen_id,
+      ubicacion: ruta.ubicacion_origen,
+      delta: -item.cantidad,
+      sucursalActiva: ruta.origen_id,
+    });
+    if (!r.ok) {
+      for (const d of descuentos) {
+        await supabase.from('productos').update(d.revertPatch).eq('id', d.producto_id);
+      }
+      return { ok: false, error: `${item.nombre || item.producto_id}: ${r.error}` };
     }
-    if (!supabase) return { ok: false, error: 'Sin conexión a Supabase para actualizar stock.' };
-    const { error } = await supabase.from('productos').update(calc.patch).eq('id', item.producto_id);
-    if (error) return { ok: false, error: error.message };
     descuentos.push({
       producto_id: item.producto_id,
       revertPatch: {
-        stock_sucursales: prod.stock_sucursales,
-        stock: prod.stock,
-        stock_cedis: prod.stock_cedis,
+        stock_sucursales: r.productoAntes.stock_sucursales,
+        stock: r.productoAntes.stock,
+        stock_cedis: r.productoAntes.stock_cedis,
       },
     });
-    vivos.set(item.producto_id, { ...prod, ...calc.patch });
-    item.stock_origen_antes = calc.antes;
-    item.stock_origen_despues = calc.despues;
+    item.stock_origen_antes = r.calc.antes;
+    item.stock_origen_despues = r.calc.despues;
+    item._productoActualizado = r.producto;
   }
 
   const folio = generarFolioTrp();
@@ -299,13 +321,13 @@ export async function enviarTraspaso(supabase, opts = {}) {
     usuario_envia: usuario || null,
     usuario_recibe: null,
     solicitud_id: solicitudId || null,
-    lineas: items,
+    lineas: items.map(({ _productoActualizado, ...rest }) => rest),
     created_at: new Date().toISOString(),
     enviado_at: new Date().toISOString(),
     recibido_at: null,
   };
 
-  // Obligatorio en nube: si solo queda local, 3B5 (u otra caja) nunca podrá recibir.
+  // Obligatorio en nube: si solo queda local, el destino nunca podrá recibir.
   const saved = await upsertTraspaso(supabase, row, { requireCloud: true });
   if (!saved.ok) {
     for (const d of descuentos) {
@@ -358,66 +380,107 @@ export async function enviarTraspaso(supabase, opts = {}) {
     ok: true,
     traspaso: saved.data,
     aviso: saved.aviso,
-    mensaje: `Traspaso ${folio} enviado a ${etiquetaOrigenTraspaso(ruta.destino_id)}. Pendiente de recibir.`,
+    mensaje: `Traspaso ${folio} enviado a ${etiquetaOrigenTraspaso(ruta.destino_id)}. Pendiente de recibir en destino (ahí se suman las piezas).`,
+    productosActualizados: items.map((i) => i._productoActualizado).filter(Boolean),
   };
 }
 
 export async function recibirTraspaso(supabase, opts = {}) {
-  const { traspasoId, usuario, inventario = [] } = opts;
+  const { traspasoId, usuario } = opts;
   if (!traspasoId) return { ok: false, error: 'Sin traspaso.' };
+  if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
 
   let doc = null;
-  if (supabase) {
-    const { data, error } = await supabase.from('inventario_traspasos').select('*').eq('id', traspasoId).maybeSingle();
-    if (!error) doc = data;
-    else if (!faltaTabla(error)) return { ok: false, error: error.message };
-  }
+  const { data, error } = await supabase.from('inventario_traspasos').select('*').eq('id', traspasoId).maybeSingle();
+  if (error && !faltaTabla(error)) return { ok: false, error: error.message };
+  if (!error) doc = data;
   if (!doc) doc = leerLocal().find((t) => t.id === traspasoId) || null;
   if (!doc) return { ok: false, error: 'Traspaso no encontrado.' };
   if (doc.estado !== 'enviado') return { ok: false, error: `No se puede recibir (estado: ${doc.estado}).` };
 
-  const vivos = new Map((inventario || []).map((p) => [String(p.id), { ...p }]));
   const lineas = Array.isArray(doc.lineas) ? doc.lineas : [];
+  if (!lineas.length) return { ok: false, error: 'El traspaso no tiene líneas de productos.' };
+
+  const productosActualizados = [];
+  const lineasOut = [];
+  const aplicados = [];
+
+  const revertirAplicados = async () => {
+    for (const a of aplicados) {
+      await supabase.from('productos').update(a.revertPatch).eq('id', a.producto_id);
+    }
+  };
 
   for (const item of lineas) {
-    let prod = vivos.get(String(item.producto_id));
-    if (!prod && supabase) {
-      const { data } = await supabase.from('productos').select('*').eq('id', item.producto_id).maybeSingle();
-      prod = data;
-    }
-    if (!prod) return { ok: false, error: `Producto ${item.producto_id} no encontrado al recibir.` };
-    const calc = patchDeltaUbicacion(
-      prod,
-      doc.destino_id,
-      doc.ubicacion_destino || 'piso',
-      item.cantidad,
-      doc.destino_id,
-    );
-    if (!calc.ok) return { ok: false, error: `${item.nombre}: ${calc.error}` };
-    if (!supabase) return { ok: false, error: 'Sin conexión a Supabase para actualizar stock.' };
-    const { error } = await supabase.from('productos').update(calc.patch).eq('id', item.producto_id);
-    if (error) return { ok: false, error: error.message };
-    vivos.set(String(item.producto_id), { ...prod, ...calc.patch });
-    item.stock_destino_antes = calc.antes;
-    item.stock_destino_despues = calc.despues;
+    const pid = String(item.producto_id || '');
+    const qty = Math.floor(Number(item.cantidad) || 0);
+    if (!pid || qty < 1) continue;
 
+    const r = await aplicarDeltaProductoVerificado(supabase, {
+      productoId: pid,
+      sucursal: doc.destino_id,
+      ubicacion: doc.ubicacion_destino || 'piso',
+      delta: qty,
+      sucursalActiva: doc.destino_id,
+    });
+    if (!r.ok) {
+      await revertirAplicados();
+      return { ok: false, error: `${item.nombre || pid}: ${r.error}` };
+    }
+
+    aplicados.push({
+      producto_id: pid,
+      revertPatch: {
+        stock_sucursales: r.productoAntes.stock_sucursales,
+        stock: r.productoAntes.stock,
+        stock_cedis: r.productoAntes.stock_cedis,
+      },
+    });
+
+    const linea = {
+      ...item,
+      producto_id: pid,
+      cantidad: qty,
+      stock_destino_antes: r.calc.antes,
+      stock_destino_despues: r.calc.despues,
+    };
+    lineasOut.push(linea);
+    productosActualizados.push(r.producto);
+  }
+
+  if (!lineasOut.length) return { ok: false, error: 'Ninguna línea válida para recibir.' };
+
+  const updated = {
+    ...doc,
+    lineas: lineasOut,
+    estado: 'recibido',
+    usuario_recibe: usuario || null,
+    recibido_at: new Date().toISOString(),
+  };
+  const saved = await upsertTraspaso(supabase, updated, { requireCloud: true });
+  if (!saved.ok) {
+    await revertirAplicados();
+    return saved;
+  }
+
+  for (const linea of lineasOut) {
     guardarMovimientoLocal(
       {
         tipo: 'traspaso',
         modo: 'ubicacion',
         folio: doc.folio,
-        producto_id: item.producto_id,
-        producto_nombre: item.nombre,
-        cantidad: item.cantidad,
-        stock_antes: calc.antes,
-        stock_despues: calc.despues,
+        producto_id: linea.producto_id,
+        producto_nombre: linea.nombre,
+        cantidad: linea.cantidad,
+        stock_antes: linea.stock_destino_antes,
+        stock_despues: linea.stock_destino_despues,
         motivo: `Traspaso recepción ${doc.folio} ← ${etiquetaOrigenTraspaso(doc.origen_id)}`,
         usuario: usuario || '—',
         sucursal: doc.destino_id,
         sucursal_origen: doc.origen_id,
         sucursal_destino: doc.destino_id,
         ubicacion_origen: doc.ubicacion_origen,
-        ubicacion_destino: doc.ubicacion_destino,
+        ubicacion_destino: doc.ubicacion_destino || 'piso',
         traspaso_origen: etiquetaOrigenTraspaso(doc.origen_id),
         traspaso_destino: etiquetaOrigenTraspaso(doc.destino_id),
         created_at: new Date().toISOString(),
@@ -426,20 +489,15 @@ export async function recibirTraspaso(supabase, opts = {}) {
     );
   }
 
-  const updated = {
-    ...doc,
-    lineas,
-    estado: 'recibido',
-    usuario_recibe: usuario || null,
-    recibido_at: new Date().toISOString(),
-  };
-  const saved = await upsertTraspaso(supabase, updated, { requireCloud: true });
-  if (!saved.ok) return saved;
+  const piezas = lineasOut.reduce((s, l) => s + (Number(l.cantidad) || 0), 0);
   return {
     ok: true,
     traspaso: saved.data,
-    mensaje: `Traspaso ${doc.folio} recibido en ${etiquetaOrigenTraspaso(doc.destino_id)}.`,
-    productosActualizados: [...vivos.values()],
+    mensaje:
+      `Traspaso ${doc.folio} recibido en ${etiquetaOrigenTraspaso(doc.destino_id)}: ` +
+      `+${piezas} pieza(s) al piso. ` +
+      lineasOut.map((l) => `${l.nombre || l.producto_id}: ${l.stock_destino_antes} → ${l.stock_destino_despues}`).join('; '),
+    productosActualizados,
   };
 }
 

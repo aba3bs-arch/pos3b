@@ -608,7 +608,8 @@ export default function AjusteLibre({
                       <span>
                         <strong>{p.nombre}</strong>
                         <small className="muted">
-                          {p.id} · Existencia {Number(p.stock) || 0}
+                          {p.id} · Existencia{' '}
+                          {Math.max(0, stockEnUbicacion(p, sucursal, ubicacionEntradaDefault(sucursal), sucursal))}
                         </small>
                       </span>
                       <span className="ajuste-libre-agregar-precio">${Number(p.precio || 0).toFixed(2)}</span>
@@ -756,10 +757,14 @@ export default function AjusteLibre({
                   <strong>{modalCantidad.nombre}</strong>
                   <div className="muted" style={{ fontSize: '0.85rem', marginTop: '0.2rem' }}>
                     ${Number(modalCantidad.precio || 0).toFixed(2)} · Existencia{' '}
-                    {Math.max(
-                      0,
-                      stockEnUbicacion(modalCantidad, sucursal, ubicacionEntradaDefault(sucursal), sucursal),
-                    )}
+                    {(() => {
+                      const live =
+                        (inventario || []).find((p) => String(p.id) === String(modalCantidad.id)) || modalCantidad;
+                      return Math.max(
+                        0,
+                        stockEnUbicacion(live, sucursal, ubicacionEntradaDefault(sucursal), sucursal),
+                      );
+                    })()}
                     {modalModo === 'sumar'
                       ? ` · Ya contado ${Math.max(0, Math.floor(Number(conteos[modalCantidad.id]) || 0))}`
                       : ''}
