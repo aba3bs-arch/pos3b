@@ -1143,6 +1143,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           inventario={inventario}
           inventarioCompleto={inventarioCompleto || inventario}
           cargarDatos={cargarDatos}
+          fusionarProducto={fusionarProducto}
           user={user}
           sucursal={sucursal}
           onVolver={irLista}

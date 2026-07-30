@@ -116,11 +116,21 @@ function patchDeltaUbicacion(producto, sucursal, ubicacion, delta, sucursalActiv
   return { ok: true, patch, antes, despues };
 }
 
-async function upsertTraspaso(supabase, row) {
+async function upsertTraspaso(supabase, row, { requireCloud = false } = {}) {
   if (supabase) {
     const { data, error } = await supabase.from('inventario_traspasos').upsert(row).select('*').single();
     if (!error) return { ok: true, data, fuente: 'nube' };
     if (!faltaTabla(error)) return { ok: false, error: error.message };
+    if (requireCloud) {
+      return {
+        ok: false,
+        error:
+          'No se pudo guardar el traspaso en la nube. Ejecuta supabase/fix_inventario_traspasos.sql en Supabase. ' +
+          'Sin esa tabla la tienda destino NO verá el envío y el stock no se sumará al recibir.',
+      };
+    }
+  } else if (requireCloud) {
+    return { ok: false, error: 'Sin conexión a Supabase. El traspaso no se puede sincronizar entre tiendas.' };
   }
   const list = leerLocal();
   const i = list.findIndex((t) => t.id === row.id);
@@ -212,7 +222,7 @@ export async function crearSolicitudTraspaso(supabase, opts = {}) {
     enviado_at: null,
     recibido_at: null,
   };
-  return upsertTraspaso(supabase, row);
+  return upsertTraspaso(supabase, row, { requireCloud: true });
 }
 
 export async function enviarTraspaso(supabase, opts = {}) {
@@ -239,8 +249,9 @@ export async function enviarTraspaso(supabase, opts = {}) {
     .filter((l) => l.producto_id && l.cantidad > 0);
   if (!items.length) return { ok: false, error: 'Agrega al menos un producto.' };
 
-  // Descontar stock en origen
+  // Descontar stock en origen (guardar patches por si hay que revertir)
   const vivos = new Map((inventario || []).map((p) => [String(p.id), { ...p }]));
+  const descuentos = [];
   for (const item of items) {
     const prod = vivos.get(item.producto_id);
     if (!prod) return { ok: false, error: `Producto ${item.producto_id} no encontrado.` };
@@ -260,6 +271,14 @@ export async function enviarTraspaso(supabase, opts = {}) {
     if (!supabase) return { ok: false, error: 'Sin conexión a Supabase para actualizar stock.' };
     const { error } = await supabase.from('productos').update(calc.patch).eq('id', item.producto_id);
     if (error) return { ok: false, error: error.message };
+    descuentos.push({
+      producto_id: item.producto_id,
+      revertPatch: {
+        stock_sucursales: prod.stock_sucursales,
+        stock: prod.stock,
+        stock_cedis: prod.stock_cedis,
+      },
+    });
     vivos.set(item.producto_id, { ...prod, ...calc.patch });
     item.stock_origen_antes = calc.antes;
     item.stock_origen_despues = calc.despues;
@@ -286,8 +305,14 @@ export async function enviarTraspaso(supabase, opts = {}) {
     recibido_at: null,
   };
 
-  const saved = await upsertTraspaso(supabase, row);
-  if (!saved.ok) return saved;
+  // Obligatorio en nube: si solo queda local, 3B5 (u otra caja) nunca podrá recibir.
+  const saved = await upsertTraspaso(supabase, row, { requireCloud: true });
+  if (!saved.ok) {
+    for (const d of descuentos) {
+      await supabase.from('productos').update(d.revertPatch).eq('id', d.producto_id);
+    }
+    return saved;
+  }
 
   // Cerrar solicitud origen si aplica
   if (solicitudId && supabase) {
@@ -408,12 +433,13 @@ export async function recibirTraspaso(supabase, opts = {}) {
     usuario_recibe: usuario || null,
     recibido_at: new Date().toISOString(),
   };
-  const saved = await upsertTraspaso(supabase, updated);
+  const saved = await upsertTraspaso(supabase, updated, { requireCloud: true });
   if (!saved.ok) return saved;
   return {
     ok: true,
     traspaso: saved.data,
     mensaje: `Traspaso ${doc.folio} recibido en ${etiquetaOrigenTraspaso(doc.destino_id)}.`,
+    productosActualizados: [...vivos.values()],
   };
 }
 

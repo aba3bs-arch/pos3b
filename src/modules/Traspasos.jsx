@@ -68,6 +68,7 @@ export default function Traspasos({
   inventario = [],
   inventarioCompleto,
   cargarDatos,
+  fusionarProducto,
   user,
   sucursal,
   onVolver,
@@ -332,6 +333,9 @@ export default function Traspasos({
     if (!r.ok) return alert(r.error || 'Error al recibir');
     alert(r.mensaje || 'Recibido.');
     setDetalleRecibir(null);
+    for (const p of r.productosActualizados || []) {
+      fusionarProducto?.(p);
+    }
     await cargarDatos?.();
     await reload();
   };
