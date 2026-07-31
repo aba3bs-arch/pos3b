@@ -855,6 +855,50 @@ table.data th {
   z-index: 20;
 }
 
+/* Menú como cajón: se desliza a la izquierda al elegir un módulo (móvil y escritorio). */
+.app-sidebar.app-sidebar--drawer {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: min(88vw, 280px);
+  height: 100dvh;
+  max-height: 100vh;
+  z-index: 100;
+  transform: translateX(-105%);
+  transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+  box-shadow: 8px 0 32px rgba(0, 0, 0, 0.18);
+  pointer-events: none;
+}
+
+.app-sidebar.app-sidebar--drawer.app-sidebar--open {
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+.app-sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: rgba(15, 20, 28, 0.45);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  cursor: pointer;
+  animation: backdrop-enter 0.22s ease both;
+}
+
+.app-sidebar-close {
+  position: absolute !important;
+  top: 0.5rem;
+  right: 0.5rem;
+  padding: 0.45rem !important;
+  min-width: 44px;
+  min-height: 44px;
+}
+
 .app-sidebar-brand {
   position: relative;
   padding: 1rem 1.25rem;
@@ -938,6 +982,72 @@ table.data th {
   }
 }
 
+/* Hub de subcomandos (Contabilidad / Configuración) */
+.subcmd-hub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+  gap: 0.75rem;
+}
+
+.subcmd-hub-btn {
+  position: relative;
+  text-align: left;
+  padding: 1rem;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.12s;
+  overflow: visible;
+}
+
+.subcmd-hub-btn:hover {
+  border-color: rgba(59, 105, 181, 0.45);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.1);
+  transform: translateY(-1px);
+  z-index: 2;
+}
+
+.subcmd-hub-btn-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.subcmd-hub-desc {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.subcmd-hub-tooltip {
+  display: none;
+  position: absolute;
+  left: 0.5rem;
+  right: 0.5rem;
+  top: calc(100% - 0.25rem);
+  z-index: 5;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  background: #0f172a;
+  color: #f8fafc;
+  font-size: 0.78rem;
+  font-weight: 500;
+  line-height: 1.4;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.28);
+  pointer-events: none;
+}
+
+.subcmd-hub-btn:hover .subcmd-hub-tooltip,
+.subcmd-hub-btn:focus-visible .subcmd-hub-tooltip {
+  display: block;
+}
+
+@media (hover: none) {
+  .subcmd-hub-tooltip {
+    display: none !important;
+  }
+}
+
 .login-card {
   animation: login-card-enter 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
@@ -948,6 +1058,11 @@ table.data th {
   gap: 0.75rem;
   width: 100%;
   min-width: 0;
+}
+
+.app-header-menu {
+  display: inline-flex;
+  flex-shrink: 0;
 }
 
 .app-header-title {
@@ -1390,20 +1505,6 @@ table.data th {
   min-height: 44px;
 }
 
-.app-sidebar-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
-  border: none;
-  padding: 0;
-  margin: 0;
-  background: rgba(15, 20, 28, 0.52);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
-  animation: backdrop-enter 0.25s ease both;
-  cursor: pointer;
-}
-
 /* ── Barra inferior móvil ── */
 .mobile-bottom-nav {
   position: fixed;
@@ -1694,10 +1795,6 @@ table.data th {
     justify-content: flex-end;
   }
 
-  .app-sidebar-close {
-    display: none;
-  }
-
   .app-header-menu {
     display: inline-flex;
   }
@@ -1707,6 +1804,7 @@ table.data th {
   .app-page-enter,
   .login-card,
   .app-sidebar-backdrop,
+  .app-sidebar.app-sidebar--drawer,
   .app-shell--mobile .app-sidebar {
     animation: none !important;
     transition: none !important;
@@ -3233,11 +3331,18 @@ table.data th {
   font-size: 0.9rem;
 }
 
-/* Favoritos en Ventas con imagen */
+/* Favoritos en Ventas con imagen — solo esta zona hace scroll */
 .ventas-favoritos-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   gap: 0.75rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  align-content: start;
+  padding-right: 0.15rem;
 }
 
 .ventas-favorito-btn {
@@ -3285,29 +3390,43 @@ table.data th {
 /* Layout Ventas + menú por departamento */
 .ventas-layout {
   display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  height: calc(100dvh - 10.5rem);
+  max-height: calc(100dvh - 10.5rem);
+  min-height: 420px;
+  overflow: hidden;
+}
+
+.ventas-layout-main {
+  display: flex;
   gap: 1.25rem;
-  flex-wrap: wrap;
   align-items: stretch;
-  min-height: min(70vh, 760px);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .ventas-catalogo {
-  flex: 1 1 360px;
+  flex: 1 1 0;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 0.85rem;
+  overflow: hidden;
 }
 
 .ventas-scan-bar {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 2;
+  flex: 0 0 auto;
 }
 
 .ventas-resultados-card {
   margin: 0;
   padding: 0.85rem 1rem;
+  flex: 0 0 auto;
 }
 
 .ventas-resultados-lista {
@@ -3333,7 +3452,9 @@ table.data th {
   gap: 0.85rem;
   padding: 1rem 1.1rem 1.15rem;
   border-top: 4px solid var(--brand-blue);
+  flex: 1 1 auto;
   min-height: 0;
+  overflow: hidden;
 }
 
 .ventas-deptos-head {
@@ -3478,10 +3599,12 @@ table.data th {
   align-items: center;
   justify-content: center;
   gap: 0.65rem;
+  flex: 1 1 auto;
   min-height: 180px;
   color: var(--muted);
   text-align: center;
   padding: 1.5rem 1rem;
+  overflow-y: auto;
 }
 
 .ventas-deptos-vacio .icon {
@@ -3509,29 +3632,58 @@ table.data th {
 }
 
 .ventas-ticket {
-  width: 100%;
+  width: 340px;
   max-width: 340px;
-  flex: 0 0 auto;
+  flex: 0 0 340px;
   display: flex;
   flex-direction: column;
   border-top: 4px solid var(--brand-gold);
   align-self: stretch;
-  max-height: min(78vh, 820px);
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .ventas-ticket-lineas {
-  flex: 1;
+  flex: 1 1 auto;
   overflow-y: auto;
-  min-height: 120px;
+  min-height: 80px;
 }
 
 @media (max-width: 900px) {
   .ventas-layout {
+    height: auto;
+    max-height: none;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .ventas-layout-main {
+    flex-direction: column;
+    overflow: visible;
     min-height: 0;
   }
 
+  .ventas-catalogo {
+    overflow: visible;
+  }
+
+  .ventas-deptos {
+    overflow: visible;
+    flex: none;
+  }
+
+  .ventas-favoritos-grid {
+    flex: none;
+    max-height: min(55vh, 520px);
+  }
+
   .ventas-ticket {
+    width: 100%;
     max-width: none;
+    flex: none;
+    height: auto;
     max-height: none;
   }
 

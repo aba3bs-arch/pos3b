@@ -393,6 +393,7 @@ export default function Ventas({
           {avisoEscanerRemoto}
         </div>
       )}
+      <div className="ventas-layout-main">
       <div className="ventas-catalogo">
         <div className="ventas-scan-bar">
           <CampoCodigo
@@ -727,6 +728,7 @@ export default function Ventas({
           </button>
         )}
       </aside>
+      </div>
     </div>
   );
 }
