@@ -1,20 +1,15 @@
 {
   "version": "1.1.0",
-  "buildId": "a8713a8",
+  "buildId": "681873f",
   "branch": "main",
-  "builtAt": "2026-07-31T22:38:56.381Z",
+  "builtAt": "2026-07-31T22:40:00.000Z",
   "title": "Actualización disponible",
-  "summary": "Hay una nueva versión del POS. Actualiza para recibir correcciones y mejoras.",
+  "summary": "Préstamos a empleados: ahora puedes editar, eliminar, abonar y liquidar. El cargo va al área Virtual o Abarrotes que elijas.",
   "changes": [
-    "feat: préstamos empleados con editar, eliminar, abonar y liquidar (cargo al área Virtual/Abarrotes)",
-    "feat: desglose de gastos al expandir monto de recolección en IE Virtual",
-    "fix: Garage - gastos/faltantes persisten hasta recolección con máquinas en cero; solo entonces a IE",
-    "fix: recibo corte Virtual con tienda, folio, turno, tipo, fecha y cajero",
-    "fix: listar préstamos empleados en todas las tiendas y botones recibo/abono/liquidar",
-    "feat: aprobar abono/descuento/liquidación en préstamos y restaurar proyección en Inicio",
-    "fix: escaneo en carrito Ventas y cámara solo ícono en móvil",
-    "fix: escaneo en carrito Ventas y botón cámara solo ícono",
-    "feat: menú deslizable al navegar y Configuración tipo hub con ayuda al hover",
-    "fix: carrito fijo en Ventas y scroll solo en favoritos/catálogo"
+    "Préstamos empleados: Editar, Eliminar, Abonar y Liquidar",
+    "El préstamo se carga al área seleccionada (Virtual / Abarrotes / Garage)",
+    "IE Virtual: al tocar el monto de una recolección ves sus gastos",
+    "Corte Garage: gastos y faltantes persisten hasta recolección con máquinas en cero",
+    "Recibo Corte Virtual con tienda, folio, turno, tipo, fecha y cajero"
   ]
 }
