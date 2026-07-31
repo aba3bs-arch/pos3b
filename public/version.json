@@ -1,8 +1,8 @@
 {
   "version": "1.1.0",
-  "buildId": "release-20260731b",
+  "buildId": "46e7fb8",
   "branch": "main",
-  "builtAt": "2026-07-31T22:50:00.000Z",
+  "builtAt": "2026-07-31T22:48:09.891Z",
   "title": "Actualización disponible",
   "summary": "Préstamos empleados (editar/eliminar/abonar/liquidar), desglose de gastos en IE y Corte Garage con gastos persistentes. Pulsa Actualizar.",
   "changes": [
@@ -10,6 +10,11 @@
     "Cargo del préstamo al área Virtual / Abarrotes / Garage",
     "IE Virtual: desglose de gastos al tocar el monto de una recolección",
     "Corte Garage: gastos persistentes hasta recolección con máquinas en cero",
-    "Aviso de actualización visible para todos con botón Actualizar"
+    "Aviso de actualización visible para todos con botón Actualizar",
+    "fix: aviso de actualización para todos con botón Actualizar y notas de release",
+    "chore: aviso de actualización con cambios de préstamos empleados",
+    "chore: version.json con aviso de actualización (préstamos empleados)",
+    "feat: préstamos empleados con editar, eliminar, abonar y liquidar (cargo al área Virtual/Abarrotes)",
+    "feat: desglose de gastos al expandir monto de recolección en IE Virtual"
   ]
 }
