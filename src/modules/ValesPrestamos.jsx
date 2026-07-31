@@ -10,6 +10,8 @@ import {
   abonarPrestamo,
   descontarPrestamo,
   liquidarPrestamo,
+  editarPrestamo,
+  eliminarPrestamo,
   prestamoTieneSolicitudPendiente,
   cargarPrestamoEmpleadoACorte,
   cargarValeACorte,
@@ -108,6 +110,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     notas: '',
     fecha: hoyISO(),
     areaCorte: 'virtual',
+  });
+  const [editPrestamo, setEditPrestamo] = useState(null);
+  const [editForm, setEditForm] = useState({
+    area_corte: 'virtual',
+    cuota_semanal: '',
+    notas: '',
+    monto_original: '',
   });
   const [categoriasTick, setCategoriasTick] = useState(0);
   const [nuevoTipoVale, setNuevoTipoVale] = useState({ label: '', descuentaNomina: false });
@@ -555,6 +564,56 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     const res = await rechazarMovimientoPrestamo(supabase, p, { nombre: user?.nombre, motivo: motivo.trim() });
     if (!res.ok) return alert(res.error);
     alert(res.mensaje);
+    recargarTodo();
+  };
+
+  const abrirEditarPrestamo = (p) => {
+    if (!esAdmin && !puedeAprobarVales) return alert('Solo administrador o gerente puede editar.');
+    setEditPrestamo(p);
+    setEditForm({
+      area_corte: p.area_corte || 'virtual',
+      cuota_semanal: p.cuota_semanal != null ? String(p.cuota_semanal) : '',
+      notas: p.notas || '',
+      monto_original: String(p.monto_original ?? ''),
+    });
+  };
+
+  const guardarEdicionPrestamo = async () => {
+    if (!editPrestamo) return;
+    const res = await editarPrestamo(
+      supabase,
+      editPrestamo,
+      {
+        area_corte: editForm.area_corte,
+        cuota_semanal: editForm.cuota_semanal,
+        notas: editForm.notas,
+        monto_original: editForm.monto_original,
+      },
+      { nombre: user?.nombre },
+    );
+    if (!res.ok) return alert(res.error);
+    alert(res.mensaje);
+    setEditPrestamo(null);
+    recargarTodo();
+  };
+
+  const eliminarPrestamoEmp = async (p) => {
+    if (!esAdmin) return alert('Solo el administrador puede eliminar préstamos.');
+    const msg =
+      p.estado === 'activo' || p.cargado_corte
+        ? `¿Cancelar préstamo de ${p.nombre_empleado}?\nSaldo ${fmt(p.saldo)}. Área: ${ETIQUETA_AREA[p.area_corte] || p.area_corte || '—'}.\nSe marcará como cancelado.`
+        : `¿Eliminar préstamo pendiente de ${p.nombre_empleado} por ${fmt(p.monto_original)}?`;
+    if (!confirm(msg)) return;
+    let motivo = null;
+    if (p.estado === 'activo' || p.cargado_corte) {
+      const raw = prompt('Motivo (opcional):');
+      if (raw === null) return;
+      motivo = raw.trim() || null;
+    }
+    const res = await eliminarPrestamo(supabase, p, { nombre: user?.nombre, motivo });
+    if (!res.ok) return alert(res.error);
+    alert(res.mensaje);
+    if (editPrestamo?.id === p.id) setEditPrestamo(null);
     recargarTodo();
   };
 
@@ -1094,8 +1153,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem' }}>Préstamo a empleado</h3>
             <p className="muted" style={{ fontSize: '0.85rem' }}>
-              Notifica al admin. Al aprobarse se carga al <strong>corte del área</strong> que elijas (Virtual, Abarrotes o Garage).
-              Cuota semanal mín. ${CUOTA_SEMANAL_MINIMA} en nómina.
+              El préstamo queda con <strong>cargo al área</strong> que elijas (Virtual o Abarrotes; también Garage).
+              Al aprobarse se carga a ese corte. Cuota semanal mín. ${CUOTA_SEMANAL_MINIMA} en nómina.
             </p>
             <div className="grid-2">
               <select className="select" value={prestEmpForm.usuarioId} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, usuarioId: e.target.value })}>
@@ -1104,7 +1163,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               </select>
               <input className="input" type="number" placeholder="Monto" value={prestEmpForm.monto} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, monto: e.target.value })} />
               <select className="select" value={prestEmpForm.areaCorte} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, areaCorte: e.target.value })}>
-                {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>Corte: {ETIQUETA_AREA[a]}</option>)}
+                {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>Cargo a corte: {ETIQUETA_AREA[a]}</option>)}
               </select>
               <input className="input" placeholder="Notas" value={prestEmpForm.notas} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, notas: e.target.value })} />
             </div>
@@ -1116,12 +1175,51 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               Se cargará al corte de <strong>{ETIQUETA_AREA[prestEmpForm.areaCorte]}</strong>.
             </p>
           </div>
+
+          {editPrestamo && (
+            <div className="card" style={{ borderLeft: '4px solid var(--brand-blue)' }}>
+              <h3 style={{ margin: '0 0 0.5rem' }}>Editar préstamo · {editPrestamo.nombre_empleado}</h3>
+              <p className="muted" style={{ fontSize: '0.82rem', marginTop: 0 }}>
+                Área de cargo: Virtual o Abarrotes (o Garage). Si ya está en corte, el área no se puede cambiar.
+              </p>
+              <div className="grid-2">
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
+                  Área de cargo
+                  <select className="select" value={editForm.area_corte} onChange={(e) => setEditForm({ ...editForm, area_corte: e.target.value })} disabled={Boolean(editPrestamo.cargado_corte)}>
+                    {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>{ETIQUETA_AREA[a]}</option>)}
+                  </select>
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
+                  Cuota semanal
+                  <input className="input" type="number" value={editForm.cuota_semanal} onChange={(e) => setEditForm({ ...editForm, cuota_semanal: e.target.value })} />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
+                  Monto original {(Number(editPrestamo.abono) || 0) > 0 ? '(bloqueado: ya hay abonos)' : ''}
+                  <input
+                    className="input"
+                    type="number"
+                    value={editForm.monto_original}
+                    disabled={(Number(editPrestamo.abono) || 0) > 0}
+                    onChange={(e) => setEditForm({ ...editForm, monto_original: e.target.value })}
+                  />
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
+                  Notas
+                  <input className="input" value={editForm.notas} onChange={(e) => setEditForm({ ...editForm, notas: e.target.value })} />
+                </label>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
+                <button type="button" className="btn btn-primary" onClick={guardarEdicionPrestamo}>Guardar cambios</button>
+                <button type="button" className="btn btn-ghost" onClick={() => setEditPrestamo(null)}>Cancelar</button>
+              </div>
+            </div>
+          )}
+
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem' }}>Préstamos</h3>
             <p className="muted" style={{ fontSize: '0.82rem', marginTop: 0 }}>
-              {vePendientesTodasTiendas
-                ? 'Admin: se listan préstamos de todas las tiendas. Aprueba los pendientes aquí o en Pendientes; luego Imprimir recibo / Abonar / Liquidar.'
-                : 'Al aprobarse el préstamo puedes imprimir el recibo y registrar abonos o liquidación.'}
+              Acciones: <strong>Editar</strong>, <strong>Eliminar</strong>, <strong>Abonar</strong> y <strong>Liquidar</strong>.
+              El cargo es al área indicada (Virtual / Abarrotes / Garage).
             </p>
             <div className="table-wrap">
               <table className="data">
@@ -1134,7 +1232,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     <th>Abonado</th>
                     <th>Saldo</th>
                     <th>Cuota/sem</th>
-                    <th>Área</th>
+                    <th>Área cargo</th>
                     <th>En corte</th>
                     <th />
                   </tr>
@@ -1152,6 +1250,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   ) : (
                     prestamosEmp.map((p) => {
                       const activo = p.estado === 'activo' && Number(p.saldo) > 0;
+                      const puedeEditar = (esAdmin || puedeAprobarVales) && !['liquidado', 'rechazado', 'cancelado'].includes(p.estado);
                       const movPend = prestamoTieneSolicitudPendiente(p);
                       const tipoPend = p.solicitud_tipo === 'descuento'
                         ? 'descuento'
@@ -1159,7 +1258,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                           ? 'liquidación'
                           : 'abono';
                       return (
-                        <tr key={p.id}>
+                        <tr key={p.id} style={editPrestamo?.id === p.id ? { background: 'rgba(30, 100, 180, 0.08)' } : undefined}>
                           {vePendientesTodasTiendas && (
                             <td><strong>{etiquetaTienda(p.sucursal_id)}</strong></td>
                           )}
@@ -1193,6 +1292,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                                   </button>
                                 )}
                               </>
+                            )}
+                            {puedeEditar && (
+                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => abrirEditarPrestamo(p)}>Editar</button>
+                            )}
+                            {esAdmin && !['liquidado', 'cancelado'].includes(p.estado) && (
+                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => eliminarPrestamoEmp(p)}>Eliminar</button>
                             )}
                             {prestamoPuedeImprimir(p) && (
                               <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => imprimirPrestamoSi(p)}>Imprimir recibo</button>

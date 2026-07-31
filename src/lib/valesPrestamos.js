@@ -9,6 +9,7 @@ import {
   esSocioAprobadorPrestamo,
   normalizarAreaCorte,
   MONTO_PRESTAMO_REQUIERE_SOCIO,
+  CUOTA_SEMANAL_MINIMA,
 } from './contabilidadConstants.js';
 import { esCategoriaValeConocida } from './valesCategorias.js';
 import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
@@ -558,6 +559,123 @@ export async function liquidarPrestamo(supabase, prestamo) {
   const saldo = Number(prestamo?.saldo) || 0;
   if (!(saldo > 0)) return { ok: false, error: 'No hay saldo por liquidar.' };
   return abonarPrestamo(supabase, prestamo, saldo);
+}
+
+/**
+ * Edita un préstamo a empleado (área de corte, cuota, notas, monto si aún no hay abonos).
+ * El cargo al corte usa area_corte (virtual / abarrotes / garage).
+ */
+export async function editarPrestamo(supabase, prestamo, patch = {}, { nombre } = {}) {
+  if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  const est = String(prestamo.estado || '');
+  if (['liquidado', 'rechazado', 'cancelado'].includes(est)) {
+    return { ok: false, error: 'No se puede editar un préstamo liquidado, rechazado o cancelado.' };
+  }
+
+  const upd = {};
+  if (patch.area_corte != null && patch.area_corte !== '') {
+    const area = normalizarAreaCorte(patch.area_corte, prestamo.area_corte || 'virtual');
+    upd.area_corte = area;
+  }
+  if (patch.cuota_semanal != null && patch.cuota_semanal !== '') {
+    const c = Math.max(0, Number(patch.cuota_semanal) || 0);
+    if (c > 0 && c < CUOTA_SEMANAL_MINIMA) {
+      return { ok: false, error: `La cuota semanal mínima es $${CUOTA_SEMANAL_MINIMA}.` };
+    }
+    upd.cuota_semanal = c;
+  }
+  if (patch.notas !== undefined) {
+    upd.notas = String(patch.notas || '').trim() || null;
+  }
+  if (patch.nombre_empleado != null && String(patch.nombre_empleado).trim()) {
+    upd.nombre_empleado = String(patch.nombre_empleado).trim();
+  }
+
+  const abonado = Number(prestamo.abono) || 0;
+  const puedeCambiarMonto = abonado <= 0.001 && ['pendiente_admin', 'pendiente_socio', 'activo'].includes(est);
+  if (patch.monto_original != null && patch.monto_original !== '' && puedeCambiarMonto) {
+    const monto = Number(patch.monto_original);
+    if (!(monto > 0)) return { ok: false, error: 'Monto inválido.' };
+    upd.monto_original = monto;
+    upd.saldo = monto;
+    upd.abono = 0;
+    upd.requiere_aprobacion_socio = prestamoRequiereSocio(monto);
+  } else if (patch.monto_original != null && patch.monto_original !== '' && !puedeCambiarMonto) {
+    return { ok: false, error: 'No se puede cambiar el monto si ya hay abonos.' };
+  }
+
+  if (prestamo.cargado_corte && upd.area_corte && upd.area_corte !== prestamo.area_corte) {
+    return {
+      ok: false,
+      error: `Ya está cargado al corte de ${prestamo.area_corte}. No se puede cambiar el área.`,
+    };
+  }
+
+  if (!Object.keys(upd).length) return { ok: false, error: 'Nada que actualizar.' };
+
+  upd.actualizado_por = nombre || null;
+  upd.actualizado_at = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from('prestamos')
+    .update(upd)
+    .eq('id', prestamo.id)
+    .select('*')
+    .single();
+  if (error) {
+    // Columnas opcionales de auditoría: reintentar sin ellas
+    if (String(error.message || '').toLowerCase().includes('actualizado_')) {
+      delete upd.actualizado_por;
+      delete upd.actualizado_at;
+      const retry = await supabase.from('prestamos').update(upd).eq('id', prestamo.id).select('*').single();
+      if (retry.error) return { ok: false, error: retry.error.message };
+      return { ok: true, prestamo: retry.data, mensaje: 'Préstamo actualizado.' };
+    }
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, prestamo: data, mensaje: 'Préstamo actualizado.' };
+}
+
+/** Elimina / cancela un préstamo a empleado. */
+export async function eliminarPrestamo(supabase, prestamo, { nombre, motivo } = {}) {
+  if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  const est = String(prestamo.estado || '');
+  if (est === 'liquidado') return { ok: false, error: 'No se puede eliminar un préstamo ya liquidado.' };
+
+  // Pendiente sin cargar a corte: borrar fila
+  if (['pendiente_admin', 'pendiente_socio', 'rechazado'].includes(est) && !prestamo.cargado_corte) {
+    const { error } = await supabase.from('prestamos').delete().eq('id', prestamo.id);
+    if (error) return { ok: false, error: error.message };
+    await marcarNotificacionAtendida(supabase, 'prestamos', prestamo.id, nombre);
+    return { ok: true, eliminado: true, mensaje: 'Préstamo eliminado.' };
+  }
+
+  // Activo o ya cargado: cancelar (conserva historial)
+  const { data, error } = await supabase
+    .from('prestamos')
+    .update({
+      estado: 'cancelado',
+      saldo: 0,
+      solicitud_tipo: null,
+      solicitud_monto: 0,
+      solicitud_por: null,
+      solicitud_at: null,
+      solicitud_notas: null,
+      motivo_rechazo: motivo || `Cancelado por ${nombre || 'admin'}`,
+      rechazado_por: nombre || null,
+    })
+    .eq('id', prestamo.id)
+    .select('*')
+    .single();
+  if (error) return { ok: false, error: error.message };
+  await marcarNotificacionAtendida(supabase, 'prestamos', prestamo.id, nombre);
+  return {
+    ok: true,
+    prestamo: data,
+    mensaje: prestamo.cargado_corte
+      ? 'Préstamo cancelado. Si ya estaba en corte, revisa el corte del área manualmente.'
+      : 'Préstamo cancelado.',
+  };
 }
 
 function faltaColumnaSolicitud(error) {
