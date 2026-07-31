@@ -107,6 +107,8 @@ import { puedeRecibirNotificacionesDispositivo } from '../lib/notificacionesDisp
 import { sincronizarPrivilegiosDesdeNube } from '../lib/privilegiosSync.js';
 import { cargarPinsCubreTurnoDesdeNube, AVISO_SIN_TABLA_PIN_CUBRE } from '../lib/cubreTurnoSync.js';
 import BrandLogo from '../components/BrandLogo.jsx';
+import SubcomandosHub from '../components/SubcomandosHub.jsx';
+import Icon from '../components/Icon.jsx';
 import SelectorTemaInterfaz from '../components/SelectorTemaInterfaz.jsx';
 import PanelCatalogoIncidencias from '../components/PanelCatalogoIncidencias.jsx';
 import PanelNotificacionesAlertas from '../components/PanelNotificacionesAlertas.jsx';
@@ -182,6 +184,7 @@ export default function Configuracion({
   const [ventanaRec, setVentanaRec] = useState(() => leerVentanaRecoleccion());
   const [ventanaTiendas, setVentanaTiendas] = useState(() => listarSucursalesOperativas());
   const [ventanaGuardando, setVentanaGuardando] = useState(false);
+  const [panelCfg, setPanelCfg] = useState(null);
   const esAdmin = puedeGestionarUsuarios(user?.rol);
   const puedePrivilegios = puedeGestionarPrivilegios(user?.rol);
   const recibeAlertas = puedeRecibirNotificacionesDispositivo(user?.rol);
@@ -748,9 +751,177 @@ export default function Configuracion({
     if (!r.ok) alert(r.error);
   };
 
+  if (!panelCfg) {
+    const seccionesCfg = [
+      puedeInventarioGlobal && {
+        id: 'inventario',
+        label: 'Inventario multitienda',
+        desc: 'Stock y ajustes entre sucursales',
+        ayuda: 'Administra inventario central: existencias, ajustes y movimientos entre todas las tiendas.',
+        icon: 'package',
+        color: '#8b5cf6',
+      },
+      {
+        id: 'operacion',
+        label: 'Operación',
+        desc: 'Tipo de cambio, recolección y tienda',
+        ayuda: 'Configura tipo de cambio USD→MXN, ventana de recolección y la tienda activa de esta caja.',
+        icon: 'settings',
+        color: 'var(--brand-blue)',
+      },
+      {
+        id: 'sonidos',
+        label: 'Sonidos del sistema',
+        desc: 'Menú y escaneo',
+        ayuda: 'Activa o desactiva sonidos al pasar el mouse en el menú y al escanear productos en Ventas.',
+        icon: 'smartphone',
+        color: '#0ea5e9',
+      },
+      recibeAlertas && {
+        id: 'notificaciones',
+        label: 'Notificaciones y alertas',
+        desc: 'Avisos en este dispositivo',
+        ayuda: 'Suscripción a notificaciones push y preferencias de alertas para este rol/dispositivo.',
+        icon: 'alert',
+        color: '#dc2626',
+      },
+      esAdmin && {
+        id: 'roles',
+        label: 'Roles personalizados',
+        desc: 'Crear roles adicionales',
+        ayuda: 'Crea roles nuevos copiando permisos de un rol existente; luego asígnalos en Usuarios o ajusta módulos.',
+        icon: 'users',
+        color: 'var(--brand-blue)',
+      },
+      puedePrivilegios && {
+        id: 'privilegios',
+        label: 'Privilegios por rol o usuario',
+        desc: 'Módulos visibles y acciones',
+        ayuda: 'Define qué módulos ve cada rol o empleado. Al guardar se sincroniza en la nube para todas las cajas.',
+        icon: 'userCog',
+        color: 'var(--brand-gold)',
+      },
+      esAdmin && {
+        id: 'incidencias',
+        label: 'Catálogo de incidencias',
+        desc: 'Tipos y catálogo',
+        ayuda: 'Administra el catálogo de tipos de incidencia usados en el módulo Incidencias.',
+        icon: 'file',
+        color: '#dc2626',
+      },
+      esAdmin && {
+        id: 'vales',
+        label: 'Vales y préstamos — tiendas',
+        desc: 'Tiendas autorizadas a generar vales',
+        ayuda: 'Marca qué sucursales pueden generar vales desde el módulo Vales y Préstamos.',
+        icon: 'dollar',
+        color: '#b45309',
+      },
+      {
+        id: 'tiendas',
+        label: 'Catálogo de tiendas',
+        desc: 'Alta y baja de sucursales',
+        ayuda: 'Agrega o quita tiendas del catálogo operativo y asigna día de inventario semanal.',
+        icon: 'building',
+        color: 'var(--brand-gold)',
+      },
+      {
+        id: 'calendario',
+        label: 'Calendario de inventarios',
+        desc: 'Día semanal por tienda',
+        ayuda: 'Define o ajusta el día de inventario semanal de cada sucursal.',
+        icon: 'chart',
+        color: 'var(--brand-red)',
+      },
+      esAdmin && {
+        id: 'pin_cubre',
+        label: 'PIN de cubre turno',
+        desc: 'PIN por tienda para cubre',
+        ayuda: 'Configura el PIN de cubre turno por sucursal (sincronizado en la nube).',
+        icon: 'lock',
+        color: 'var(--brand-gold)',
+      },
+      {
+        id: 'turnos',
+        label: 'Turnos de caja',
+        desc: 'Horarios, tolerancia y asignación',
+        ayuda: 'Define turnos, tolerancia de entrada, rotaciones y asignación de turno a empleados.',
+        icon: 'register',
+        color: 'var(--brand-blue)',
+      },
+      {
+        id: 'metodos_pago',
+        label: 'Métodos de pago',
+        desc: 'Formas de cobro en Ventas',
+        ayuda: 'Activa, desactiva o agrega métodos de pago disponibles en el cobro de Ventas.',
+        icon: 'cart',
+        color: 'var(--brand-blue)',
+      },
+      {
+        id: 'perifericos',
+        label: 'Periféricos',
+        desc: 'Escáneres, impresoras y terminales',
+        ayuda: 'Conecta y administra escáneres HID, impresoras térmicas y otros periféricos plug and play.',
+        icon: 'scan',
+        color: 'var(--brand-green)',
+      },
+      {
+        id: 'impresion',
+        label: 'Impresión de documentos',
+        desc: 'Ancho, impresora y modos',
+        ayuda: 'Configura ancho de papel, impresora predeterminada y qué documentos se imprimen.',
+        icon: 'print',
+        color: 'var(--brand-blue)',
+      },
+      {
+        id: 'caratula',
+        label: 'Carátula e interfaz',
+        desc: 'Tema de login y menú',
+        ayuda: 'Elige la apariencia del login y del menú principal (se guarda en este navegador).',
+        icon: 'eye',
+        color: 'var(--brand-gold)',
+      },
+      {
+        id: 'marca',
+        label: 'Marca, logo y ticket',
+        desc: 'Nombre, logo y pie de ticket',
+        ayuda: 'Personaliza nombre del negocio, logo y texto al pie del ticket de venta.',
+        icon: 'camera',
+        color: 'var(--brand-red)',
+      },
+      {
+        id: 'integracion',
+        label: 'Integración',
+        desc: 'Variables y scripts Supabase',
+        ayuda: 'Referencia de variables de entorno y scripts SQL necesarios para sincronización.',
+        icon: 'link',
+        color: '#64748b',
+      },
+    ].filter(Boolean);
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div>
+          <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>Configuración</h2>
+          <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
+            Elige un subcomando. Solo se muestra el panel que selecciones.
+          </p>
+        </div>
+        <SubcomandosHub
+          items={seccionesCfg}
+          onSelect={(id) => setPanelCfg(id)}
+          color="var(--brand-blue)"
+        />
+      </div>
+    );
+  }
+
   return (
-    <div style={{ maxWidth: puedeInventarioGlobal ? '100%' : '720px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      {puedeInventarioGlobal && (
+    <div style={{ maxWidth: panelCfg === 'inventario' || panelCfg === 'privilegios' || panelCfg === 'turnos' ? '100%' : '720px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <button type="button" className="btn btn-ghost" style={{ alignSelf: 'flex-start', padding: '0.35rem 0.65rem', fontSize: '0.85rem' }} onClick={() => setPanelCfg(null)}>
+        ← Volver a Configuración
+      </button>
+      {panelCfg === 'inventario' && puedeInventarioGlobal && (
         <AdminInventarioCentral
           supabase={supabase}
           inventario={inventario || []}
@@ -759,6 +930,7 @@ export default function Configuracion({
           sucursalesLista={sucursalesLista}
         />
       )}
+      {panelCfg === 'operacion' && (
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Operación</h3>
         <label className="muted">
@@ -1109,7 +1281,9 @@ export default function Configuracion({
           )}
         </div>
       </div>
+      )}
 
+      {panelCfg === 'sonidos' && (
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Sonidos del sistema</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
@@ -1127,10 +1301,11 @@ export default function Configuracion({
           Guardar sonidos
         </button>
       </div>
+      )}
 
-      {recibeAlertas && <PanelNotificacionesAlertas supabase={supabase} user={user} />}
+      {panelCfg === 'notificaciones' && recibeAlertas && <PanelNotificacionesAlertas supabase={supabase} user={user} />}
 
-      {esAdmin && (
+      {panelCfg === 'roles' && esAdmin && (
         <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Roles personalizados</h3>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
@@ -1226,9 +1401,9 @@ export default function Configuracion({
         </div>
       )}
 
-      {esAdmin && <PanelCatalogoIncidencias supabase={supabase} />}
+      {panelCfg === 'incidencias' && esAdmin && <PanelCatalogoIncidencias supabase={supabase} />}
 
-      {puedePrivilegios && (
+      {panelCfg === 'privilegios' && puedePrivilegios && (
         <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Privilegios por rol o usuario</h3>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
@@ -1580,7 +1755,7 @@ export default function Configuracion({
         </div>
       )}
 
-      {esAdmin && (
+      {panelCfg === 'vales' && esAdmin && (
         <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
           <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Vales y préstamos — tiendas autorizadas</h3>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
@@ -1617,6 +1792,7 @@ export default function Configuracion({
         </div>
       )}
 
+      {panelCfg === 'tiendas' && (
       <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Catálogo de tiendas</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
@@ -1680,7 +1856,9 @@ export default function Configuracion({
           </div>
         )}
       </div>
+      )}
 
+      {panelCfg === 'calendario' && (
       <div className="card" style={{ borderTop: '4px solid var(--brand-red)' }}>
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Calendario de inventarios semanales</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
@@ -1744,8 +1922,9 @@ export default function Configuracion({
           </table>
         </div>
       </div>
+      )}
 
-      {esAdmin && (
+      {panelCfg === 'pin_cubre' && esAdmin && (
         <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
           <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>PIN de cubre turno</h3>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
@@ -1888,6 +2067,7 @@ export default function Configuracion({
         </div>
       )}
 
+      {panelCfg === 'turnos' && (
       <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Turnos de caja</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
@@ -2310,7 +2490,9 @@ export default function Configuracion({
           </>
         )}
       </div>
+      )}
 
+      {panelCfg === 'metodos_pago' && (
       <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Métodos de pago</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
@@ -2350,7 +2532,9 @@ export default function Configuracion({
           <button type="button" className="btn btn-primary" onClick={agregarMetodoPago}>Agregar método</button>
         </div>
       </div>
+      )}
 
+      {panelCfg === 'perifericos' && (
       <div className="card" style={{ borderTop: '4px solid var(--brand-green)' }}>
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Periféricos plug and play</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
@@ -2452,7 +2636,9 @@ export default function Configuracion({
           </div>
         )}
       </div>
+      )}
 
+      {panelCfg === 'impresion' && (
       <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Impresión de documentos</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
@@ -2635,7 +2821,9 @@ export default function Configuracion({
           <button type="button" className="btn btn-primary" onClick={probarImpresion}>Imprimir ticket de prueba</button>
         </div>
       </div>
+      )}
 
+      {panelCfg === 'caratula' && (
       <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Carátula e interfaz</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
@@ -2643,7 +2831,9 @@ export default function Configuracion({
         </p>
         <SelectorTemaInterfaz />
       </div>
+      )}
 
+      {panelCfg === 'marca' && (
       <div className="card" style={{ borderTop: '4px solid var(--brand-red)' }}>
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Marca, logo y ticket</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
@@ -2690,7 +2880,9 @@ export default function Configuracion({
           Logo por defecto: <code>{LOGO_DEFAULT}</code>
         </p>
       </div>
+      )}
 
+      {panelCfg === 'integracion' && (
       <div className="card">
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Integración</h3>
         <ul className="muted" style={{ margin: 0, paddingLeft: '1.1rem' }}>
@@ -2708,6 +2900,7 @@ export default function Configuracion({
           </li>
         </ul>
       </div>
+      )}
     </div>
   );
 }
