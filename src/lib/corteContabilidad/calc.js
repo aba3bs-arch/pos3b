@@ -452,8 +452,8 @@ export function prepararTrasCierreGarage(estado, _calc, _opts = {}) {
 
 /**
  * Tras generar recolección garage.
- * - Máquinas en ceros (sí) → limpia recolección y anterior; archivo definitivo.
- * - No en ceros → monto pasa a recolección anterior; lecturas a cero; archivo temporal.
+ * - Máquinas en ceros (sí) → limpia recolección, anterior, gastos (vía store) y comentarios; archivo definitivo → IE.
+ * - No en ceros → monto pasa a recolección anterior; lecturas a cero; gastos siguen abiertos; sin IE.
  */
 export function prepararTrasRecoleccionGarage(estado, _calc, opts = {}) {
   const maquinasEnCero = opts.maquinasEnCero === true;
@@ -467,6 +467,7 @@ export function prepararTrasRecoleccionGarage(estado, _calc, opts = {}) {
     dsch: 0,
     recoleccion: 0,
     recoleccion_anterior: maquinasEnCero ? 0 : round2(ant + monto),
+    comentarios: maquinasEnCero ? '' : (estado?.comentarios || ''),
   };
 }
 

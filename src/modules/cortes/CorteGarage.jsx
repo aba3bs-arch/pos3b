@@ -86,8 +86,8 @@ export default function CorteGarage({ supabase, sucursal, user }) {
           `Recolección: ${fmtCorte(calc.recoleccion)}\n` +
           `Recolección anterior: ${fmtCorte(calc.recoleccionAnterior)}\n` +
           `Saldo en caja: ${fmtCorte(calc.cajaActual)}\n\n` +
-          `La recolección anterior se conserva en el siguiente turno.\n` +
-          `Para recolectar efectivo usa «Generar recolección».`,
+          `Gastos y faltantes se conservan para el siguiente turno.\n` +
+          `Solo van a IE (y quedan en cero) al generar recolección con máquinas en cero.`,
       )
     ) {
       return;
@@ -105,9 +105,10 @@ export default function CorteGarage({ supabase, sucursal, user }) {
 
     const maquinasEnCero = confirm(
       `¿Las máquinas y la dispensadora de chamoy y salsa quedaron en cero?\n\n` +
-        `Monto a recolectar: ${fmtCorte(montoRec)}\n\n` +
-        `• Aceptar = SÍ → ticket de recolección y archivo definitivo (se limpia recolección anterior).\n` +
-        `• Cancelar = NO → el monto pasa a recolección anterior, lecturas en cero y archivo temporal.`,
+        `Monto a recolectar: ${fmtCorte(montoRec)}\n` +
+        `Gastos/faltantes acumulados: ${fmtCorte(calc.gastosTotal)}\n\n` +
+        `• Aceptar = SÍ → recolección definitiva: gastos en cero y escala a Contabilidad/IE.\n` +
+        `• Cancelar = NO → temporal: el monto pasa a recolección anterior; gastos siguen; NO va a IE.`,
     );
 
     const res = await registrarRecoleccion({
@@ -136,10 +137,12 @@ export default function CorteGarage({ supabase, sucursal, user }) {
       res.temporal
         ? `Recolección temporal ${res.folio}: ${fmtCorte(res.recoleccion)}.\n` +
             `Queda en recolección anterior: ${fmtCorte(res.recoleccionAnteriorTras)}.\n` +
-            `Lecturas de máquinas en cero. Puedes reimprimir desde el historial.`
+            `Lecturas en cero. Gastos/faltantes siguen abiertos. No va a IE.`
         : `Recolección ${res.folio}: ${fmtCorte(res.recoleccion)}.\n` +
-            `Máquinas y dispensadora en ceros. Recolección anterior limpia.\n` +
-            `Puedes reimprimir desde el historial.`,
+            `Máquinas en ceros. Gastos/faltantes en cero.\n` +
+            (res.pendienteIe
+              ? 'Transferencia a IE pendiente de aprobación (ABB/FJBB/JLBB).'
+              : 'Recolección registrada en Contabilidad/IE.'),
     );
   };
 
@@ -229,7 +232,7 @@ export default function CorteGarage({ supabase, sucursal, user }) {
           habilitado={perm.gastos}
           puedeCatalogo={perm.editarTodo}
           puedeEditarGastos={perm.editarTodo}
-          notaNomina="Gastos sin aprobación. CUBRE TURNO → IE Virtual/Garage (nómina). Consumo/recargas/anticipos/faltante descuentan al empleado. Vales y préstamos requieren admin."
+          notaNomina="Gastos y faltantes se acumulan entre turnos hasta la recolección con máquinas en cero (entonces van a IE). CUBRE TURNO → nómina. Vales y préstamos requieren admin."
         />
 
         <div className="card">

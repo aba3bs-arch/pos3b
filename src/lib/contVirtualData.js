@@ -149,7 +149,16 @@ function tipoCierre(row) {
 
 function esCierreTurno(row) {
   const t = tipoCierre(row);
-  return t !== 'recoleccion' && t !== 'actualizacion';
+  // Excluye recolección definitiva y temporal (no son cierres de cajero).
+  return !t.startsWith('recoleccion') && t !== 'actualizacion';
+}
+
+/** Recolección definitiva aprobable para IE (Garage: solo con máquinas en cero). */
+function esRecoleccionParaIe(row) {
+  if (tipoCierre(row) !== 'recoleccion') return false;
+  const mod = String(row?.modulo || '').toLowerCase();
+  if (mod === 'garage' && row?.detalle?.maquinas_en_cero === false) return false;
+  return true;
 }
 
 /**
@@ -220,7 +229,7 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     return String(c.modulo || '').toLowerCase() === cuentaFiltro;
   });
   const cierres = todosCierres.filter((c) => esCierreTurno(c));
-  const recoleccionesTodas = todosCierres.filter((c) => tipoCierre(c) === 'recoleccion');
+  const recoleccionesTodas = todosCierres.filter((c) => esRecoleccionParaIe(c));
   const recolecciones = recoleccionesTodas.filter((c) => recoleccionAprobadaParaIe(c));
   const idsGastosLiberados = idsGastosLiberadosPorRecolecciones(recoleccionesTodas);
   const gastosRaw = gastosRes.data || [];
@@ -468,7 +477,7 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
 
   const todosCierres = cierresRes.data || [];
   const cierres = todosCierres.filter((c) => esCierreTurno(c));
-  const recoleccionesTodas = todosCierres.filter((c) => tipoCierre(c) === 'recoleccion');
+  const recoleccionesTodas = todosCierres.filter((c) => esRecoleccionParaIe(c));
   const recolecciones = recoleccionesTodas.filter((c) => recoleccionAprobadaParaIe(c));
   const idsGastosLiberados = idsGastosLiberadosPorRecolecciones(recoleccionesTodas);
   const gastos = [...(gastosRes.data || []), ...legacyFrancisco].filter((g) => {

@@ -272,9 +272,13 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const res = await registrarCierreCorte(supabase, payload);
     if (!res.ok) return alert(res.error || AVISO_FALTA_CORTES);
 
-    // Gastos del corte quedan en historial del cierre / nómina; el nuevo corte arranca en $0.
-    const idsGastos = (gastos || []).map((g) => g.id).filter(Boolean);
-    const limpia = await limpiarGastosTurno(supabase, sucursal, modulo, idsGastos);
+    // Virtual/Abarrotes: gastos del turno se cierran al cortar (siguiente turno en $0).
+    // Garage: gastos y faltantes persisten turno a turno hasta recolección con máquinas en cero.
+    let limpia = { ok: true };
+    if (modulo !== 'garage') {
+      const idsGastos = (gastos || []).map((g) => g.id).filter(Boolean);
+      limpia = await limpiarGastosTurno(supabase, sucursal, modulo, idsGastos);
+    }
     const nuevoEstado = prepararTrasCierre(estado, calc, detalleExtra);
     // Nueva sesión abierta: turno actual (cuando arranca el siguiente corte).
     if (modulo === 'virtual') {
@@ -295,7 +299,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
     setHistorial(hist.data || []);
 
-    if (!limpia.ok || quedan.length > 0) {
+    if (modulo !== 'garage' && (!limpia.ok || quedan.length > 0)) {
       alert(
         `Corte cerrado, pero los gastos no se reiniciaron bien.\n` +
           `${limpia.error || `Quedan ${quedan.length} gasto(s) abiertos.`}\n` +
@@ -304,7 +308,12 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       return { ok: false, error: limpia.error };
     }
 
-    if (modulo !== 'virtual') {
+    if (modulo === 'garage') {
+      alert(
+        'Corte cerrado. Gastos y faltantes se conservan para el siguiente turno.\n' +
+          'Solo se ponen en cero (y pasan a IE) al generar recolección con máquinas en cero.',
+      );
+    } else if (modulo !== 'virtual') {
       alert('Corte cerrado y guardado en historial contabilidad.');
     }
 
@@ -336,6 +345,41 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       const antAntes = round2(estado.recoleccion_anterior);
       const antTras = maquinasEnCero ? 0 : round2(antAntes + calcRec);
       const folioRec = `REC-${folio || 'G'}`;
+      // Gastos abiertos del periodo (persisten entre cierres); no sumar historial o se duplican.
+      const gastosAbiertos = gastos || [];
+      const gastosIds = gastosAbiertos.map((g) => g.id).filter(Boolean);
+      const gastosTotal = round2(calc.gastosTotal);
+      const estadoAprob = maquinasEnCero
+        ? estadoAprobacionRecoleccionInicial(user?.nombre)
+        : null;
+
+      const extrasBase = {
+        ...estado,
+        gastos: gastosAbiertos,
+        gastos_ids: gastosIds,
+        gastos_total: gastosTotal,
+        subtotal: calc.subtotal,
+        venta_neta: calc.ventaNeta,
+        venta: calc.venta,
+        recoleccion: calcRec,
+        recoleccion_anterior: antAntes,
+        recoleccion_anterior_tras: antTras,
+        maquinas_en_cero: maquinasEnCero,
+        tipo_cierre: tipo,
+        comentarios: estado.comentarios || '',
+      };
+
+      const detalle = maquinasEnCero
+        ? detalleRecoleccionParaIe({
+            efectivo: calcRec,
+            gastosTotal,
+            extras: {
+              ...extrasBase,
+              estado_aprobacion: estadoAprob,
+            },
+          })
+        : extrasBase;
+
       const payload = {
         sucursal_id: sucursal || 'MAIN',
         modulo,
@@ -345,23 +389,27 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         usuario_nombre: user?.nombre || null,
         caja_actual: calc.cajaActual ?? 0,
         ventas: calc.venta ?? 0,
-        detalle: {
-          ...estado,
-          gastos,
-          gastos_total: calc.gastosTotal,
-          subtotal: calc.subtotal,
-          venta_neta: calc.ventaNeta,
-          venta: calc.venta,
-          recoleccion: calcRec,
-          recoleccion_anterior: antAntes,
-          recoleccion_anterior_tras: antTras,
-          maquinas_en_cero: maquinasEnCero,
-          tipo_cierre: tipo,
-          comentarios: estado.comentarios || '',
-        },
+        detalle,
       };
       const res = await registrarCierreCorte(supabase, payload);
       if (!res.ok) return { ok: false, error: res.error || AVISO_FALTA_CORTES };
+
+      // Solo recolección definitiva (máquinas en cero) escala a Contabilidad / IE.
+      if (maquinasEnCero) {
+        if (estadoAprob === 'aprobado' && res.data) {
+          try {
+            const { liberarGastosCorteAIeTrasRecoleccion } = await import('../contVirtualEgresos.js');
+            await liberarGastosCorteAIeTrasRecoleccion(supabase, res.data);
+          } catch {
+            /* no bloquear */
+          }
+        } else if (estadoAprob === 'pendiente_admin' && res.data) {
+          await notificarRecoleccionPendienteIe(supabase, res.data);
+        }
+        await limpiarGastosTurno(supabase, sucursal, modulo, gastosIds);
+        const gas = await listarGastosTurno(supabase, sucursal, modulo);
+        setGastos(gas.data || []);
+      }
 
       const prep = prepararTrasRecoleccion || ((e) => e);
       const nuevoEstado = prep(estado, calc, {
@@ -379,8 +427,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         temporal: !maquinasEnCero,
         maquinasEnCero,
         recoleccionAnteriorTras: antTras,
-        estadoImpresion: payload.detalle,
-        gastosImpresion: gastos,
+        pendienteIe: maquinasEnCero && estadoAprob === 'pendiente_admin',
+        estadoImpresion: detalle,
+        gastosImpresion: gastosAbiertos,
         calcImpresion: { ...calc },
       };
     }
