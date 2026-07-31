@@ -19,6 +19,9 @@ export default function CampoCodigo({
   onEscanear,
   /** Si true, Enter (lector USB/Bluetooth) dispara beep + onEscanear. */
   beepAlEnter = false,
+  /** Botón cámara: solo ícono (por defecto). */
+  camaraSoloIcono = true,
+  labelCamara = 'Escanear con cámara',
   children,
   type = 'text',
 }) {
@@ -58,7 +61,8 @@ export default function CampoCodigo({
       />
       <BotonEscanerCamara
         titulo={tituloCamara}
-        label="Cámara"
+        label={labelCamara}
+        soloIcono={camaraSoloIcono}
         onCodigo={(codigo) => {
           // El beep ya lo emite EscanerCamara al leer el código.
           const c = String(codigo || '').trim();

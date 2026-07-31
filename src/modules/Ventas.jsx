@@ -395,66 +395,6 @@ export default function Ventas({
       )}
       <div className="ventas-layout-main">
       <div className="ventas-catalogo">
-        <div className="ventas-scan-bar">
-          <CampoCodigo
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            onEscanear={procesarCodigoCamara}
-            placeholder="Escanea con Cámara o busca por nombre…"
-            tituloCamara="Escanear producto del catálogo"
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter') return;
-              const q = (busqueda || '').trim();
-              if (!q) return;
-              const exacto = productoPorCodigoExacto(enVenta, q);
-              if (exacto) {
-                e.preventDefault();
-                agregarAlCarrito(exacto, true);
-                setBusqueda('');
-                return;
-              }
-              if (filtrados.length === 1) {
-                e.preventDefault();
-                agregarAlCarrito(filtrados[0], true);
-                setBusqueda('');
-              }
-            }}
-            inputStyle={{ padding: '1rem 1.1rem', fontSize: '1.05rem' }}
-          />
-        </div>
-
-        {filtrados.length > 0 && (
-          <div className="card ventas-resultados-card">
-            <div className="ventas-seccion-head">
-              <span>Resultados de búsqueda</span>
-              <span className="muted">{filtrados.length}</span>
-            </div>
-            <div className="ventas-resultados-lista">
-              {filtrados.slice(0, 40).map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => {
-                    setCarrito((c) => addToCart(c, p));
-                    setBusqueda('');
-                  }}
-                  className="ventas-resultado-item"
-                >
-                  <ProductoThumb producto={p} size={40} />
-                  <span className="ventas-resultado-meta">
-                    <strong>{p.nombre}</strong>
-                    <span className="muted">
-                      {' '}
-                      · {p.id} · {etiquetaDepartamento(p.cat)}
-                    </span>
-                  </span>
-                  <span className="ventas-resultado-precio">${Number(p.precio).toFixed(2)}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-
         <section className="ventas-deptos card">
           <div className="ventas-deptos-head">
             <div>
@@ -608,7 +548,65 @@ export default function Ventas({
       )}
 
       <aside className="card ventas-ticket">
-        <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Ticket</h3>
+        <div className="ventas-ticket-scan">
+          <CampoCodigo
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            onEscanear={procesarCodigoCamara}
+            placeholder="Escanear o buscar…"
+            tituloCamara="Escanear producto"
+            labelCamara="Abrir cámara"
+            camaraSoloIcono
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              const q = (busqueda || '').trim();
+              if (!q) return;
+              const exacto = productoPorCodigoExacto(enVenta, q);
+              if (exacto) {
+                e.preventDefault();
+                agregarAlCarrito(exacto, true);
+                setBusqueda('');
+                return;
+              }
+              if (filtrados.length === 1) {
+                e.preventDefault();
+                agregarAlCarrito(filtrados[0], true);
+                setBusqueda('');
+              }
+            }}
+            inputStyle={{ padding: '0.65rem 0.75rem', fontSize: '0.95rem' }}
+          />
+          {filtrados.length > 0 && (
+            <div className="ventas-resultados-card ventas-resultados-card--ticket">
+              <div className="ventas-seccion-head">
+                <span>Resultados</span>
+                <span className="muted">{filtrados.length}</span>
+              </div>
+              <div className="ventas-resultados-lista">
+                {filtrados.slice(0, 40).map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      setCarrito((c) => addToCart(c, p));
+                      setBusqueda('');
+                    }}
+                    className="ventas-resultado-item"
+                  >
+                    <ProductoThumb producto={p} size={36} />
+                    <span className="ventas-resultado-meta">
+                      <strong>{p.nombre}</strong>
+                      <span className="muted"> · {p.id}</span>
+                    </span>
+                    <span className="ventas-resultado-precio">${Number(p.precio).toFixed(2)}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <h3 style={{ margin: '0.65rem 0 0.5rem', color: 'var(--brand-blue)' }}>Ticket</h3>
         {ultimaVenta && (
           <button type="button" className="btn btn-ghost" style={{ marginBottom: '0.5rem', fontSize: '0.8rem', padding: '0.35rem 0.5rem' }} onClick={reimprimirUltima}>
             Reimprimir último ticket

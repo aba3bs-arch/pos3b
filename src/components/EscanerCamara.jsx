@@ -433,7 +433,15 @@ export default function EscanerCamara({ abierto, onCerrar, onCodigo, titulo = 'E
   );
 }
 
-export function BotonEscanerCamara({ onCodigo, titulo, label = 'Escanear', className = 'btn btn-camera', style }) {
+export function BotonEscanerCamara({
+  onCodigo,
+  titulo,
+  label = 'Escanear',
+  /** Solo ícono (recomendado en móvil / barras compactas). */
+  soloIcono = true,
+  className = 'btn btn-camera',
+  style,
+}) {
   const [abierto, setAbierto] = useState(false);
   if (!camaraEscaneoDisponible()) return null;
 
@@ -441,16 +449,17 @@ export function BotonEscanerCamara({ onCodigo, titulo, label = 'Escanear', class
     <>
       <button
         type="button"
-        className={className}
+        className={`${className}${soloIcono ? ' btn-camera--icon' : ''}`}
         style={style}
         onClick={() => {
           prepararAudioPos();
           setAbierto(true);
         }}
-        title="Escanear con cámara (en vivo)"
+        title={label}
+        aria-label={label}
       >
-        <Icon name="camera" size={18} />
-        <span>{label}</span>
+        <Icon name="camera" size={soloIcono ? 20 : 18} />
+        {!soloIcono ? <span>{label}</span> : null}
       </button>
       <EscanerCamara
         abierto={abierto}
