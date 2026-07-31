@@ -241,12 +241,17 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     // Queda a nombre del turno donde se hicieron los registros (sesión abierta),
     // aunque se cierre ya entrado el siguiente turno.
     const turnoCierre = estado.turno_sesion || snapshotTurno() || turnoActual();
+    const turnoTexto = nombreTurnoLegible(turnoCierre);
+    const folioCierre = modulo === 'abarrotes' ? estado.folio || folio : folio;
+    const gastosCierre = [...(gastos || [])];
+    const calcCierre = { ...calc };
+    const estadoCierre = { ...estado };
 
     const payload = {
       sucursal_id: sucursal || 'MAIN',
       modulo,
-      folio: modulo === 'abarrotes' ? estado.folio || folio : folio,
-      turno: turnoCierre,
+      folio: folioCierre,
+      turno: turnoTexto,
       usuario_id: user?.id || null,
       usuario_nombre: user?.nombre || null,
       caja_actual: calc.cajaActual ?? 0,
@@ -296,14 +301,21 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
           `${limpia.error || `Quedan ${quedan.length} gasto(s) abiertos.`}\n` +
           `Recargue o cierre de nuevo; si persiste, revise conexión a Supabase.`,
       );
-      return;
+      return { ok: false, error: limpia.error };
     }
 
-    alert(
-      modulo === 'virtual'
-        ? 'Corte cerrado. Gastos en $0 para el nuevo corte. Esta venta no va a IE; solo la recolección.'
-        : 'Corte cerrado y guardado en historial contabilidad.',
-    );
+    if (modulo !== 'virtual') {
+      alert('Corte cerrado y guardado en historial contabilidad.');
+    }
+
+    return {
+      ok: true,
+      folio: folioCierre,
+      turno: turnoTexto,
+      estadoImpresion: { ...estadoCierre, ...detalleExtra, tipo_cierre: 'cierre' },
+      gastosImpresion: gastosCierre,
+      calcImpresion: calcCierre,
+    };
   };
 
   const registrarRecoleccion = async (opts = {}) => {

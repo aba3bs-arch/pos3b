@@ -93,7 +93,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
   const miInyectada = Boolean(calc.monedaInyectada);
   const pendientesLocales = (gastos || []).filter((g) => (g.estado_aprobacion || 'aprobado') === 'pendiente_admin').length;
 
-  const confirmarCierre = () => {
+  const confirmarCierre = async () => {
     if (!perm.guardar) return alert('Sin permiso para cerrar corte.');
     if (!confirm(
       `¿Cerrar corte virtual?\n\n` +
@@ -107,7 +107,22 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         `Siguiente corte: MI = MF · caja chica = actual.\n` +
         `Este cierre no va a IE. Gastos quedan en cero para el siguiente corte.`,
     )) return;
-    cerrarCorte();
+    const res = await cerrarCorte();
+    if (!res?.ok) return;
+    imprimirCorteContabilidad(
+      datosImpresionCorteActual({
+        modulo: 'virtual',
+        sucursal,
+        folio: res.folio,
+        turno: res.turno,
+        user,
+        estado: res.estadoImpresion,
+        gastos: res.gastosImpresion,
+        calc: res.calcImpresion,
+        tipo_cierre: 'cierre',
+      }),
+    );
+    alert('Corte cerrado. Gastos en $0 para el nuevo corte. Esta venta no va a IE; solo la recolección.');
   };
 
   const confirmarRecoleccion = async () => {
@@ -143,6 +158,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
       datosImpresionRecoleccionVirtual({
         sucursal,
         folio: res.folio,
+        turno: 'RECOLECCION',
         user,
         estado: res.estadoImpresion,
         gastos: res.gastosImpresion,

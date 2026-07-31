@@ -4,6 +4,7 @@ import { ETIQUETA_AREA } from './contabilidadConstants.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { etiquetaTipoCierre } from './corteContabilidad/permisos.js';
 import { gastoDescuentaNomina } from './corteContabilidad/catalogoGastos.js';
+import { nombreTurnoLegible } from './turnos.js';
 
 function esc(s) {
   return String(s ?? '')
@@ -18,6 +19,45 @@ function fmt(n) {
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/** Turno legible para ticket (acepta string u objeto sesión). */
+export function formatoTurnoRecibo(turno) {
+  if (turno == null || turno === '') return '—';
+  if (typeof turno === 'string') {
+    const t = turno.trim();
+    if (!t || t === '[object Object]') return '—';
+    if (/^recoleccion$/i.test(t)) return 'Recolección';
+    try {
+      if (t.startsWith('{')) {
+        const obj = JSON.parse(t);
+        return nombreTurnoLegible(obj) || t;
+      }
+    } catch {
+      /* texto plano */
+    }
+    return nombreTurnoLegible(t) || t;
+  }
+  return nombreTurnoLegible(turno) || '—';
+}
+
+function etiquetaTipoRecibo(data) {
+  if (data?.es_borrador) return 'BORRADOR (turno abierto)';
+  return etiquetaTipoCierre({ tipo_cierre: data?.tipo_cierre });
+}
+
+/** Encabezado obligatorio: tienda, folio, turno, tipo, fecha, cajero. */
+function htmlEncabezadoCorte(data, { fecha } = {}) {
+  const fechaTxt = fecha
+    || (data.fecha ? new Date(data.fecha).toLocaleString('es-MX') : new Date().toLocaleString('es-MX'));
+  return `<table>
+      <tr><td>Tienda</td><td class="r"><strong>${esc(etiquetaTienda(data.sucursal))}</strong></td></tr>
+      <tr><td>Folio</td><td class="r"><strong>${esc(data.folio || '—')}</strong></td></tr>
+      <tr><td>Turno</td><td class="r">${esc(formatoTurnoRecibo(data.turno))}</td></tr>
+      <tr><td>Tipo</td><td class="r">${esc(etiquetaTipoRecibo(data))}</td></tr>
+      <tr><td>Fecha</td><td class="r">${esc(fechaTxt)}</td></tr>
+      <tr><td>Cajero</td><td class="r">${esc(data.usuario_nombre || '—')}</td></tr>
+    </table>`;
 }
 
 export function resumenGastosPorCategoria(gastos = [], modulo = '') {
@@ -44,7 +84,7 @@ export function datosImpresionCorteActual({ modulo, sucursal, folio, turno, user
     modulo,
     sucursal,
     folio,
-    turno,
+    turno: formatoTurnoRecibo(turno),
     usuario_nombre: user?.nombre || null,
     tipo_cierre,
     fecha: new Date().toISOString(),
@@ -67,7 +107,7 @@ export function datosImpresionDesdeHistorial(h, modulo) {
     modulo,
     sucursal: h.sucursal_id,
     folio: h.folio,
-    turno: h.turno,
+    turno: formatoTurnoRecibo(h.turno || d.turno_sesion),
     usuario_nombre: h.usuario_nombre,
     tipo_cierre: d.tipo_cierre || 'cierre',
     temporal: d.tipo_cierre === 'recoleccion_temporal',
@@ -165,7 +205,6 @@ export function htmlCorteContabilidad(data) {
   const negocio = leerNombreNegocio();
   const modLabel = ETIQUETA_AREA[data.modulo] || data.modulo;
   const fecha = data.fecha ? new Date(data.fecha).toLocaleString('es-MX') : new Date().toLocaleString('es-MX');
-  const tipo = data.es_borrador ? 'BORRADOR (turno abierto)' : etiquetaTipoCierre({ tipo_cierre: data.tipo_cierre });
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Corte ${esc(modLabel)}</title><style>
     body{font-family:Arial,sans-serif;font-size:12px;margin:12px;max-width:420px;color:#111}
@@ -187,14 +226,7 @@ export function htmlCorteContabilidad(data) {
     <h1>${esc(negocio)}</h1>
     <div class="sub">CORTE ${esc(modLabel).toUpperCase()}</div>
     ${data.es_borrador ? '<div class="borrador">Vista previa — turno no cerrado</div>' : ''}
-    <table>
-      <tr><td>Tienda</td><td class="r"><strong>${esc(etiquetaTienda(data.sucursal))}</strong></td></tr>
-      <tr><td>Folio</td><td class="r"><strong>${esc(data.folio || '—')}</strong></td></tr>
-      <tr><td>Turno</td><td class="r">${esc(data.turno || '—')}</td></tr>
-      <tr><td>Tipo</td><td class="r">${esc(tipo)}</td></tr>
-      <tr><td>Fecha</td><td class="r">${esc(fecha)}</td></tr>
-      <tr><td>Cajero</td><td class="r">${esc(data.usuario_nombre || '—')}</td></tr>
-    </table>
+    ${htmlEncabezadoCorte(data, { fecha })}
     <div class="sep"></div>
     <strong>Resumen</strong>
     <table>${filasResumenModulo(data)}</table>
@@ -291,12 +323,7 @@ export function htmlRecoleccionVirtual(data) {
     <h1>${esc(negocio)}</h1>
     <div class="sub">TICKET DE RECOLECCIÓN · VIRTUAL</div>
     <div class="banner">RECOLECCIÓN</div>
-    <table>
-      <tr><td>Tienda</td><td class="r"><strong>${esc(etiquetaTienda(data.sucursal))}</strong></td></tr>
-      <tr><td>Folio</td><td class="r"><strong>${esc(data.folio || '—')}</strong></td></tr>
-      <tr><td>Fecha</td><td class="r">${esc(fecha)}</td></tr>
-      <tr><td>Recolector</td><td class="r">${esc(data.usuario_nombre || '—')}</td></tr>
-    </table>
+    ${htmlEncabezadoCorte({ ...data, tipo_cierre: data.tipo_cierre || 'recoleccion' }, { fecha })}
     <div class="sep"></div>
     <table>
       <tr><td class="op">Moneda tope (ref)</td><td class="r op">${fmt(miOp)}</td></tr>
@@ -324,11 +351,12 @@ export function htmlRecoleccionVirtual(data) {
   </body></html>`;
 }
 
-export function datosImpresionRecoleccionVirtual({ sucursal, folio, user, estado, gastos, calc, recoleccion, fecha }) {
+export function datosImpresionRecoleccionVirtual({ sucursal, folio, turno, user, estado, gastos, calc, recoleccion, fecha }) {
   return {
     modulo: 'virtual',
     sucursal,
     folio,
+    turno: formatoTurnoRecibo(turno || 'RECOLECCION'),
     usuario_nombre: user?.nombre || null,
     tipo_cierre: 'recoleccion',
     fecha: fecha || new Date().toISOString(),
@@ -383,12 +411,11 @@ export function htmlRecoleccionGarage(data) {
     <h1>${esc(negocio)}</h1>
     <div class="sub">TICKET DE RECOLECCIÓN · GARAGE</div>
     <div class="banner">${esc(titulo)}</div>
-    <table>
-      <tr><td>Tienda</td><td class="r"><strong>${esc(etiquetaTienda(data.sucursal))}</strong></td></tr>
-      <tr><td>Folio</td><td class="r"><strong>${esc(data.folio || '—')}</strong></td></tr>
-      <tr><td>Fecha</td><td class="r">${esc(fecha)}</td></tr>
-      <tr><td>Recolector</td><td class="r">${esc(data.usuario_nombre || '—')}</td></tr>
-    </table>
+    ${htmlEncabezadoCorte({
+      ...data,
+      turno: data.turno || 'RECOLECCION',
+      tipo_cierre: data.tipo_cierre || (temporal ? 'recoleccion_temporal' : 'recoleccion'),
+    }, { fecha })}
     <div class="sep"></div>
     <table>
       <tr><td>Venta actual (lectura)</td><td class="r">${fmt(venta)}</td></tr>
