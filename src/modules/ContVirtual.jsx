@@ -159,6 +159,7 @@ function SummaryBar({
 }) {
   const [abierto, setAbierto] = useState(false);
   const [tiendaAbierta, setTiendaAbierta] = useState(null);
+  const [recAbierta, setRecAbierta] = useState(null);
   const desglose = ingresosPorTienda.filter((t) => (Number(t.ingresos) || 0) > 0);
   const tieneDesglose = desglose.length > 0;
 
@@ -172,7 +173,10 @@ function SummaryBar({
               className={`cv-summary-ingreso-btn${abierto ? ' open' : ''}`}
               onClick={() => {
                 setAbierto((v) => {
-                  if (v) setTiendaAbierta(null);
+                  if (v) {
+                    setTiendaAbierta(null);
+                    setRecAbierta(null);
+                  }
                   return !v;
                 });
               }}
@@ -208,7 +212,10 @@ function SummaryBar({
                 <button
                   type="button"
                   className={`cv-summary-desglose-row btn${expandida ? ' open' : ''}`}
-                  onClick={() => setTiendaAbierta((prev) => (prev === t.id ? null : t.id))}
+                  onClick={() => {
+                    setTiendaAbierta((prev) => (prev === t.id ? null : t.id));
+                    setRecAbierta(null);
+                  }}
                   aria-expanded={expandida}
                   disabled={!recs.length}
                 >
@@ -220,12 +227,55 @@ function SummaryBar({
                 </button>
                 {expandida && recs.length > 0 && (
                   <div className="cv-summary-recs">
-                    {recs.map((r) => (
-                      <div key={r.id} className="cv-summary-rec-row">
-                        <span className="fecha">{fmtFechaCorta(r.fecha)}</span>
-                        <span className="amt">{fmt(r.monto)}</span>
-                      </div>
-                    ))}
+                    {recs.map((r) => {
+                      const recOpen = recAbierta === r.id;
+                      const gastosRec = r.gastos || [];
+                      const tieneGastos = gastosRec.length > 0 || (Number(r.gastos_total) || 0) > 0;
+                      return (
+                        <div key={r.id} className="cv-summary-rec-block">
+                          <button
+                            type="button"
+                            className={`cv-summary-rec-row btn${recOpen ? ' open' : ''}`}
+                            onClick={() => setRecAbierta((prev) => (prev === r.id ? null : r.id))}
+                            aria-expanded={recOpen}
+                            title={tieneGastos ? 'Ver gastos de esta recolección' : 'Sin gastos embebidos'}
+                          >
+                            <span className="fecha">
+                              {fmtFechaCorta(r.fecha)}
+                              {r.folio ? ` · ${r.folio}` : ''}
+                              {r.cuenta ? ` · ${r.cuenta}` : ''}
+                            </span>
+                            <span className="amt">
+                              {fmt(r.monto)}
+                              <span className="chev" aria-hidden>▾</span>
+                            </span>
+                          </button>
+                          {recOpen && (
+                            <div className="cv-summary-rec-gastos">
+                              <div className="cv-summary-rec-gastos-hd">
+                                Efectivo {fmt(r.efectivo)} · Gastos {fmt(r.gastos_total)}
+                              </div>
+                              {gastosRec.length === 0 ? (
+                                <div className="cv-summary-rec-gasto-row muted">
+                                  Sin detalle de gastos en esta recolección.
+                                </div>
+                              ) : (
+                                gastosRec.map((g) => (
+                                  <div key={g.id} className="cv-summary-rec-gasto-row">
+                                    <span>
+                                      {[g.categoria, g.subcategoria].filter(Boolean).join(' · ')}
+                                      {g.empleado ? ` · ${g.empleado}` : ''}
+                                      {g.comentario ? ` · ${g.comentario}` : ''}
+                                    </span>
+                                    <span className="amt-g">{fmt(g.monto)}</span>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -546,6 +596,11 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
         id: it.id || `${id}-${it.fecha}-${map[id].recolecciones.length}`,
         fecha: String(it.fecha || '').slice(0, 10),
         monto: Math.round(monto * 100) / 100,
+        folio: it.folio || '',
+        cuenta: it.cuenta || '',
+        efectivo: Number(it.efectivo) || 0,
+        gastos_total: Number(it.gastos_total) || 0,
+        gastos: Array.isArray(it.gastos) ? it.gastos : [],
       });
     }
 

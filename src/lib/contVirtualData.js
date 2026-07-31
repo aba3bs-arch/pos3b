@@ -143,6 +143,51 @@ function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+/** Lista de gastos embebidos en una recolección (para desglose en IE). */
+export function gastosDeRecoleccionDetalle(detalle = {}) {
+  const list = Array.isArray(detalle?.gastos) ? detalle.gastos : [];
+  return list
+    .map((g, i) => ({
+      id: g.id != null ? String(g.id) : `g-${i}`,
+      categoria: String(g.categoria || '').trim() || '—',
+      subcategoria: String(g.subcategoria || '').trim(),
+      comentario: String(g.comentario || '').trim(),
+      empleado: String(g.usuario_nombre || g.solicitado_por || '').trim(),
+      monto: round2(g.monto),
+    }))
+    .filter((g) => g.monto > 0 || g.categoria !== '—');
+}
+
+function itemIngresoRecoleccion(r, { desde, etiquetaCuentaFn } = {}) {
+  const detalle = r.detalle || {};
+  const monto = montoRecoleccionParaContabilidad(detalle);
+  const efectivo = round2(Number(detalle.recoleccion ?? detalle.recoleccion_turno) || 0);
+  const gastosEmb = round2(Number(detalle.gastos_total) || 0);
+  const gastos = gastosDeRecoleccionDetalle(detalle);
+  const t = r.sucursal_id || 'MAIN';
+  const mod = String(r.modulo || 'virtual').toLowerCase();
+  const cuentaLbl = typeof etiquetaCuentaFn === 'function'
+    ? etiquetaCuentaFn(mod)
+    : (mod === 'garage' ? 'Garage' : mod === 'abarrotes' ? 'Abarrotes' : 'Virtual');
+  const f = String(r.created_at || '').slice(0, 10);
+  return {
+    id: `rec-${r.id}`,
+    cierre_id: r.id,
+    folio: r.folio || '',
+    fecha: f || desde,
+    monto: round2(monto),
+    efectivo,
+    gastos_total: gastosEmb,
+    gastos,
+    comentario: `Recolección ${cuentaLbl} · ${etiquetaTienda(t)} · ${r.folio || ''}${
+      gastosEmb > 0 ? ` · bruto (efectivo ${efectivo.toFixed(2)} + gastos ${gastosEmb.toFixed(2)})` : ''
+    }`.trim(),
+    cuenta: mod === 'garage' ? 'garage' : mod === 'abarrotes' ? 'abarrotes' : 'virtual',
+    tienda: t,
+    tipo_mov: 'recoleccion',
+  };
+}
+
 function tipoCierre(row) {
   return String(row?.detalle?.tipo_cierre || row?.turno || '').toLowerCase();
 }
@@ -276,31 +321,17 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     const t = r.sucursal_id || 'MAIN';
     if (sucursal && t !== sucursal) continue;
     const mod = String(r.modulo || 'virtual').toLowerCase() === 'garage' ? 'garage' : 'virtual';
-    // Bruto: efectivo + gastos. Los gastos se descuentan una sola vez como egresos en IE.
-    const monto = montoRecoleccionParaContabilidad(r.detalle || {});
-    if (!(monto > 0)) continue;
-    const efectivo = round2(Number(r.detalle?.recoleccion ?? r.detalle?.recoleccion_turno) || 0);
-    const gastosEmb = round2(Number(r.detalle?.gastos_total) || 0);
-    recoleccionTotal = round2(recoleccionTotal + monto);
-    ingresosTotal = round2(ingresosTotal + monto);
-    porCuenta[mod].ingresos = round2(porCuenta[mod].ingresos + monto);
-    porCuenta[mod].recolecciones = round2(porCuenta[mod].recolecciones + monto);
+    const item = itemIngresoRecoleccion(r, { desde, etiquetaCuentaFn: etiquetaCuenta });
+    if (!(item.monto > 0)) continue;
+    recoleccionTotal = round2(recoleccionTotal + item.monto);
+    ingresosTotal = round2(ingresosTotal + item.monto);
+    porCuenta[mod].ingresos = round2(porCuenta[mod].ingresos + item.monto);
+    porCuenta[mod].recolecciones = round2(porCuenta[mod].recolecciones + item.monto);
     if (ingresosPorTienda[t]) {
-      ingresosPorTienda[t].recolecciones = round2((ingresosPorTienda[t].recolecciones || 0) + monto);
-      ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + monto);
+      ingresosPorTienda[t].recolecciones = round2((ingresosPorTienda[t].recolecciones || 0) + item.monto);
+      ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + item.monto);
     }
-    const f = String(r.created_at || '').slice(0, 10);
-    ingresosItems.push({
-      id: `rec-${r.id}`,
-      fecha: f || desde,
-      monto: round2(monto),
-      comentario: `Recolección ${etiquetaCuenta(mod)} · ${etiquetaTienda(t)} · ${r.folio || ''}${
-        gastosEmb > 0 ? ` · bruto (efectivo ${efectivo.toFixed(2)} + gastos ${gastosEmb.toFixed(2)})` : ''
-      }`.trim(),
-      cuenta: mod,
-      tienda: t,
-      tipo_mov: 'recoleccion',
-    });
+    ingresosItems.push(item);
   }
 
   const ingresosPorDia = ingresosItems.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
@@ -514,31 +545,21 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
   for (const r of recolecciones) {
     const t = r.sucursal_id || 'MAIN';
     if (sucursal && t !== sucursal) continue;
-    // Bruto: efectivo + gastos. Los gastos se descuentan una sola vez como egresos en IE Abarrotes.
-    const monto = montoRecoleccionParaContabilidad(r.detalle || {});
-    if (!(monto > 0)) continue;
-    const efectivo = round2(Number(r.detalle?.recoleccion ?? r.detalle?.recoleccion_turno) || 0);
-    const gastosEmb = round2(Number(r.detalle?.gastos_total) || 0);
-    recoleccionTotal = round2(recoleccionTotal + monto);
-    ingresosTotal = round2(ingresosTotal + monto);
-    porCuenta.abarrotes.ingresos = round2(porCuenta.abarrotes.ingresos + monto);
-    porCuenta.abarrotes.recolecciones = round2(porCuenta.abarrotes.recolecciones + monto);
-    if (ingresosPorTienda[t]) {
-      ingresosPorTienda[t].recolecciones = round2((ingresosPorTienda[t].recolecciones || 0) + monto);
-      ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + monto);
-    }
-    const f = String(r.created_at || '').slice(0, 10);
-    ingresosItems.push({
-      id: `rec-${r.id}`,
-      fecha: f || desde,
-      monto: round2(monto),
-      comentario: `Recolección Abarrotes · ${etiquetaTienda(t)} · ${r.folio || ''}${
-        gastosEmb > 0 ? ` · bruto (efectivo ${efectivo.toFixed(2)} + gastos ${gastosEmb.toFixed(2)})` : ''
-      }`.trim(),
-      cuenta: 'abarrotes',
-      tienda: t,
-      tipo_mov: 'recoleccion',
+    const item = itemIngresoRecoleccion(r, {
+      desde,
+      etiquetaCuentaFn: () => 'Abarrotes',
     });
+    item.cuenta = 'abarrotes';
+    if (!(item.monto > 0)) continue;
+    recoleccionTotal = round2(recoleccionTotal + item.monto);
+    ingresosTotal = round2(ingresosTotal + item.monto);
+    porCuenta.abarrotes.ingresos = round2(porCuenta.abarrotes.ingresos + item.monto);
+    porCuenta.abarrotes.recolecciones = round2(porCuenta.abarrotes.recolecciones + item.monto);
+    if (ingresosPorTienda[t]) {
+      ingresosPorTienda[t].recolecciones = round2((ingresosPorTienda[t].recolecciones || 0) + item.monto);
+      ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + item.monto);
+    }
+    ingresosItems.push(item);
   }
 
   const ingresosPorDia = ingresosItems.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));

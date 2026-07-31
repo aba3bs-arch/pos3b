@@ -282,6 +282,10 @@
   animation: cv-desglose-in 0.12s ease;
 }
 
+.cv-summary-rec-block:first-child .cv-summary-rec-row {
+  border-top: none;
+}
+
 .cv-summary-rec-row {
   display: flex;
   justify-content: space-between;
@@ -293,8 +297,18 @@
   border-top: 1px solid rgba(51, 51, 60, 0.25);
 }
 
-.cv-summary-rec-row:first-child {
-  border-top: none;
+.cv-summary-rec-row.btn {
+  width: 100%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.cv-summary-rec-row.btn:hover {
+  color: var(--cv-text, #eee);
 }
 
 .cv-summary-rec-row .fecha {
@@ -305,6 +319,52 @@
   color: var(--cv-ingreso);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.cv-summary-rec-row .chev {
+  display: inline-block;
+  font-size: 0.65rem;
+  transition: transform 0.12s ease;
+  opacity: 0.7;
+}
+
+.cv-summary-rec-row.open .chev {
+  transform: rotate(180deg);
+}
+
+.cv-summary-rec-gastos {
+  padding: 0.15rem 0 0.35rem 0.65rem;
+  border-left: 2px solid rgba(120, 160, 120, 0.35);
+  margin: 0 0 0.25rem 0.15rem;
+}
+
+.cv-summary-rec-gastos-hd {
+  font-size: 0.68rem;
+  color: var(--cv-muted);
+  margin-bottom: 0.2rem;
+}
+
+.cv-summary-rec-gasto-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+  padding: 0.12rem 0;
+  color: var(--cv-muted);
+}
+
+.cv-summary-rec-gasto-row .amt-g {
+  color: var(--cv-gasto);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cv-summary-rec-gasto-row.muted {
+  font-style: italic;
+  opacity: 0.8;
 }
 
 .cv-empty {
