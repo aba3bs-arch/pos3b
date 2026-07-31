@@ -29,7 +29,9 @@ export default function Inicio({
 }) {
   const puede = typeof puedeModulo === 'function' ? puedeModulo : () => true;
   // Valorización (inventario en tienda, costo compra, margen): solo MAIN.
-  const puedeVerInventario = puede('Productos') && esAlmacenCentral(sucursal);
+  const puedeVerValorizacion = puede('Productos') && esAlmacenCentral(sucursal);
+  // Proyección de faltante (carrito / cancelaciones / checador): en cada sucursal operativa.
+  const puedeVerProyeccion = puede('Productos') && !esAlmacenCentral(sucursal);
   const esAdminPrincipal = esAdministradorPrincipal(user);
   const [panelAnuncios, setPanelAnuncios] = useState(false);
   const [panelPurge, setPanelPurge] = useState(false);
@@ -105,7 +107,7 @@ export default function Inicio({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {puedeVerInventario && (
+      {puedeVerValorizacion && (
       <div
         className="card"
         style={{
@@ -156,7 +158,7 @@ export default function Inicio({
       </div>
       )}
 
-      {puedeVerInventario && (
+      {puedeVerProyeccion && (
         <PanelProyeccionFaltante
           supabase={supabase}
           sucursal={sucursal}
@@ -261,7 +263,7 @@ export default function Inicio({
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
-        {puedeVerInventario && kpi('Total inventario', fmtMxn(valorInv.valorTotal), `${valorInv.unidades} uds. a precio venta`, () => onNavigate('Productos'), 'package')}
+        {puedeVerValorizacion && kpi('Total inventario', fmtMxn(valorInv.valorTotal), `${valorInv.unidades} uds. a precio venta`, () => onNavigate('Productos'), 'package')}
         {kpi('Ventas hoy', ventasHoy.length.toString(), `$${totalHoy.toFixed(2)} MXN acumulado`, puede('Ventas') ? () => onNavigate('Ventas') : undefined, 'cart')}
         {kpi('Ticket promedio', `$${ticketProm.toFixed(2)}`, 'MXN por venta', puede('Estadisticas') ? () => onNavigate('Estadisticas') : undefined, 'dollar')}
         {kpi('Alertas stock', String(lowStock.length), 'SKU con menos de 5 uds.', puede('Productos') ? () => onNavigate('Productos') : undefined, 'alert')}

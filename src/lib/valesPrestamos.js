@@ -503,18 +503,161 @@ export async function abonarPrestamo(supabase, prestamo, montoAbono) {
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
   if (prestamo.estado !== 'activo') return { ok: false, error: 'El préstamo no está activo.' };
   const abono = Math.max(0, Number(montoAbono) || 0);
+  if (!(abono > 0)) return { ok: false, error: 'Monto de abono inválido.' };
   const saldoAntes = Number(prestamo.saldo) || 0;
-  const saldo = Math.max(0, saldoAntes - abono);
+  if (abono > saldoAntes + 0.001) return { ok: false, error: 'El abono no puede superar el saldo.' };
+  const saldo = Math.max(0, Math.round((saldoAntes - abono) * 100) / 100);
   const { error } = await supabase
     .from('prestamos')
     .update({
       saldo,
       abono: (Number(prestamo.abono) || 0) + abono,
       estado: saldo <= 0 ? 'liquidado' : 'activo',
+      solicitud_tipo: null,
+      solicitud_monto: 0,
+      solicitud_por: null,
+      solicitud_at: null,
+      solicitud_notas: null,
     })
     .eq('id', prestamo.id);
   if (error) return { ok: false, error: error.message };
-  return { ok: true, saldo };
+  return { ok: true, saldo, liquidado: saldo <= 0 };
+}
+
+/** Descuento al saldo (condonación parcial). No suma al campo abono. */
+export async function descontarPrestamo(supabase, prestamo, montoDescuento) {
+  if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  if (prestamo.estado !== 'activo') return { ok: false, error: 'El préstamo no está activo.' };
+  const desc = Math.max(0, Number(montoDescuento) || 0);
+  if (!(desc > 0)) return { ok: false, error: 'Monto de descuento inválido.' };
+  const saldoAntes = Number(prestamo.saldo) || 0;
+  if (desc > saldoAntes + 0.001) return { ok: false, error: 'El descuento no puede superar el saldo.' };
+  const saldo = Math.max(0, Math.round((saldoAntes - desc) * 100) / 100);
+  const { error } = await supabase
+    .from('prestamos')
+    .update({
+      saldo,
+      estado: saldo <= 0 ? 'liquidado' : 'activo',
+      solicitud_tipo: null,
+      solicitud_monto: 0,
+      solicitud_por: null,
+      solicitud_at: null,
+      solicitud_notas: null,
+    })
+    .eq('id', prestamo.id);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, saldo, liquidado: saldo <= 0 };
+}
+
+export async function liquidarPrestamo(supabase, prestamo) {
+  const saldo = Number(prestamo?.saldo) || 0;
+  if (!(saldo > 0)) return { ok: false, error: 'No hay saldo por liquidar.' };
+  return abonarPrestamo(supabase, prestamo, saldo);
+}
+
+function faltaColumnaSolicitud(error) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  return msg.includes('solicitud_tipo') || msg.includes('solicitud_monto') || (msg.includes('column') && msg.includes('solicitud'));
+}
+
+export const AVISO_FALTA_SOLICITUDES_PRESTAMO =
+  'Faltan columnas de solicitud en préstamos. En Supabase → SQL Editor ejecuta: supabase/fix_prestamos_solicitudes_movimiento.sql';
+
+/**
+ * Solicita abono / descuento / liquidación. Queda pendiente hasta que el admin apruebe.
+ * tipo: 'abono' | 'descuento' | 'liquidacion'
+ */
+export async function solicitarMovimientoPrestamo(supabase, prestamo, { tipo, monto, nombre, notas } = {}) {
+  if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  if (prestamo.estado !== 'activo') return { ok: false, error: 'Solo en préstamos activos.' };
+  if (prestamo.solicitud_tipo) {
+    return { ok: false, error: `Ya hay una solicitud pendiente (${prestamo.solicitud_tipo}). Apruébala o recházala primero.` };
+  }
+  const t = String(tipo || '').toLowerCase();
+  if (!['abono', 'descuento', 'liquidacion'].includes(t)) {
+    return { ok: false, error: 'Tipo inválido (abono, descuento o liquidacion).' };
+  }
+  const saldo = Number(prestamo.saldo) || 0;
+  let m = Math.max(0, Number(monto) || 0);
+  if (t === 'liquidacion') m = saldo;
+  if (!(m > 0)) return { ok: false, error: 'Indica un monto válido.' };
+  if (m > saldo + 0.001) return { ok: false, error: 'El monto no puede superar el saldo.' };
+
+  const patch = {
+    solicitud_tipo: t,
+    solicitud_monto: m,
+    solicitud_por: nombre || null,
+    solicitud_at: new Date().toISOString(),
+    solicitud_notas: String(notas || '').trim() || null,
+  };
+  const { data, error } = await supabase.from('prestamos').update(patch).eq('id', prestamo.id).select('*').single();
+  if (error) {
+    if (faltaColumnaSolicitud(error)) return { ok: false, error: AVISO_FALTA_SOLICITUDES_PRESTAMO };
+    return { ok: false, error: error.message };
+  }
+
+  await crearNotificacion(supabase, {
+    sucursal_id: prestamo.sucursal_id || 'MAIN',
+    tipo: TIPOS_NOTIF.PRESTAMO_ADMIN,
+    ref_tabla: 'prestamos',
+    ref_id: prestamo.id,
+    titulo: `Solicitud ${t} · ${prestamo.nombre_empleado || 'empleado'}`,
+    mensaje: `$${m.toFixed(2)} · saldo actual $${saldo.toFixed(2)}${notas ? ` · ${notas}` : ''}`,
+  });
+
+  return {
+    ok: true,
+    prestamo: data,
+    mensaje: `Solicitud de ${t} por $${m.toFixed(2)} enviada. El administrador debe aprobarla.`,
+  };
+}
+
+export async function aprobarMovimientoPrestamo(supabase, prestamo, { nombre } = {}) {
+  if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  const tipo = String(prestamo.solicitud_tipo || '').toLowerCase();
+  const monto = Number(prestamo.solicitud_monto) || 0;
+  if (!tipo) return { ok: false, error: 'No hay solicitud pendiente en este préstamo.' };
+
+  let r;
+  if (tipo === 'descuento') r = await descontarPrestamo(supabase, prestamo, monto);
+  else if (tipo === 'liquidacion') r = await liquidarPrestamo(supabase, prestamo);
+  else r = await abonarPrestamo(supabase, prestamo, monto);
+
+  if (!r.ok) return r;
+  await marcarNotificacionAtendida(supabase, 'prestamos', prestamo.id, nombre);
+  const { data } = await supabase.from('prestamos').select('*').eq('id', prestamo.id).maybeSingle();
+  return {
+    ok: true,
+    prestamo: data,
+    mensaje: `${tipo} de $${monto.toFixed(2)} aprobado${r.liquidado ? ' · préstamo liquidado' : ''}.`,
+  };
+}
+
+export async function rechazarMovimientoPrestamo(supabase, prestamo, { nombre, motivo } = {}) {
+  if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  if (!prestamo.solicitud_tipo) return { ok: false, error: 'No hay solicitud pendiente.' };
+  const { data, error } = await supabase
+    .from('prestamos')
+    .update({
+      solicitud_tipo: null,
+      solicitud_monto: 0,
+      solicitud_por: null,
+      solicitud_at: null,
+      solicitud_notas: motivo ? `Rechazado: ${motivo}` : null,
+    })
+    .eq('id', prestamo.id)
+    .select('*')
+    .single();
+  if (error) {
+    if (faltaColumnaSolicitud(error)) return { ok: false, error: AVISO_FALTA_SOLICITUDES_PRESTAMO };
+    return { ok: false, error: error.message };
+  }
+  await marcarNotificacionAtendida(supabase, 'prestamos', prestamo.id, nombre);
+  return { ok: true, prestamo: data, mensaje: 'Solicitud rechazada.' };
+}
+
+export function prestamoTieneSolicitudPendiente(p) {
+  return Boolean(p?.solicitud_tipo);
 }
 
 export async function listarPrestamosInterarea(supabase, opts = {}) {

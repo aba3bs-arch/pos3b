@@ -4,6 +4,13 @@ import {
   aprobarPrestamoAdmin,
   aprobarPrestamoSocio,
   aprobarVale,
+  aprobarMovimientoPrestamo,
+  rechazarMovimientoPrestamo,
+  solicitarMovimientoPrestamo,
+  abonarPrestamo,
+  descontarPrestamo,
+  liquidarPrestamo,
+  prestamoTieneSolicitudPendiente,
   cargarPrestamoEmpleadoACorte,
   cargarValeACorte,
   listarPrestamos,
@@ -132,6 +139,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const prestamosPendientesAdmin = useMemo(() => {
     const fuente = vePendientesTodasTiendas ? prestamosPendAll : prestamosEmp;
     return (fuente || []).filter((p) => p.estado === 'pendiente_admin');
+  }, [prestamosEmp, prestamosPendAll, vePendientesTodasTiendas]);
+  const prestamosMovPendientes = useMemo(() => {
+    const fuente = vePendientesTodasTiendas ? prestamosPendAll : prestamosEmp;
+    return (fuente || []).filter((p) => p.estado === 'activo' && prestamoTieneSolicitudPendiente(p));
   }, [prestamosEmp, prestamosPendAll, vePendientesTodasTiendas]);
   const prestamosPendientesSocio = useMemo(() => {
     const fuente = esSocio ? (prestamosPendAll.length ? prestamosPendAll : prestamosEmp) : prestamosEmp;
@@ -476,6 +487,66 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     recargarTodo();
   };
 
+  const pedirMovimientoPrestamo = async (p, tipo) => {
+    if (p.estado !== 'activo') return alert('Solo en préstamos activos.');
+    if (prestamoTieneSolicitudPendiente(p)) {
+      return alert(`Ya hay solicitud pendiente de ${p.solicitud_tipo}. El admin debe aprobarla o rechazarla.`);
+    }
+    const saldo = Number(p.saldo) || 0;
+    if (!(saldo > 0)) return alert('Sin saldo.');
+    let monto = saldo;
+    if (tipo === 'abono' || tipo === 'descuento') {
+      const raw = prompt(
+        `${tipo === 'abono' ? 'Abono' : 'Descuento'} a ${p.nombre_empleado}\nSaldo: $${saldo.toFixed(2)}\n\nMonto:`,
+        tipo === 'abono' ? String(Math.min(saldo, Number(p.cuota_semanal) || saldo)) : String(saldo),
+      );
+      if (raw === null) return;
+      monto = parseFloat(String(raw).replace(',', '.'));
+      if (!(monto > 0) || monto > saldo + 0.001) return alert('Monto inválido.');
+    } else if (!confirm(`¿Solicitar liquidación de ${p.nombre_empleado} por $${saldo.toFixed(2)}?`)) {
+      return;
+    }
+
+    if (esAdmin) {
+      // Admin aplica directo
+      let r;
+      if (tipo === 'descuento') r = await descontarPrestamo(supabase, p, monto);
+      else if (tipo === 'liquidacion') r = await liquidarPrestamo(supabase, p);
+      else r = await abonarPrestamo(supabase, p, monto);
+      if (!r.ok) return alert(r.error);
+      alert(`${tipo} aplicado${r.liquidado ? ' · préstamo liquidado' : ''}.`);
+      recargarTodo();
+      return;
+    }
+
+    const res = await solicitarMovimientoPrestamo(supabase, p, {
+      tipo,
+      monto,
+      nombre: user?.nombre,
+    });
+    if (!res.ok) return alert(res.error);
+    alert(res.mensaje);
+    recargarTodo();
+  };
+
+  const aprobarMovPrestamo = async (p) => {
+    if (!esAdmin && !puedeAprobarVales) return alert('Solo administrador.');
+    const res = await aprobarMovimientoPrestamo(supabase, p, { nombre: user?.nombre });
+    if (!res.ok) return alert(res.error);
+    alert(res.mensaje);
+    recargarTodo();
+  };
+
+  const rechazarMovPrestamo = async (p) => {
+    if (!esAdmin && !puedeAprobarVales) return alert('Solo administrador.');
+    const motivo = prompt('Motivo del rechazo (opcional):');
+    if (motivo === null) return;
+    const res = await rechazarMovimientoPrestamo(supabase, p, { nombre: user?.nombre, motivo: motivo.trim() });
+    if (!res.ok) return alert(res.error);
+    alert(res.mensaje);
+    recargarTodo();
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       {retornoModulo && onRegresarCorte && (
@@ -566,7 +637,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             {p === 'prestamos_emp' && 'Préstamos empleados'}
             {p === 'tipos' && 'Tipos de vale'}
             {p === 'gasolina' && 'Gasolina / asistencia'}
-            {p === 'pendientes' && `Pendientes (${valesPendientes.length + prestamosPendientesAdmin.length + (esSocio ? prestamosPendientesSocio.length : 0)})`}
+            {p === 'pendientes' && `Pendientes (${valesPendientes.length + prestamosPendientesAdmin.length + prestamosMovPendientes.length + (esSocio ? prestamosPendientesSocio.length : 0)})`}
           </button>
         ))}
       </div>
@@ -641,7 +712,41 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               ))}
             </>
           )}
-          {valesPendientes.length === 0 && prestamosPendientesAdmin.length === 0 && (!esSocio || prestamosPendientesSocio.length === 0) && (
+          {(esAdmin || puedeAprobarVales) && prestamosMovPendientes.length > 0 && (
+            <>
+              <h4 style={{ margin: '0.75rem 0 0.5rem' }}>Abonos / descuentos / liquidaciones — préstamos</h4>
+              {prestamosMovPendientes.map((p) => {
+                const tipoLabel = p.solicitud_tipo === 'descuento'
+                  ? 'Descuento'
+                  : p.solicitud_tipo === 'liquidacion'
+                    ? 'Liquidación'
+                    : 'Abono';
+                return (
+                  <div key={`mov-${p.id}`} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.5rem', padding: '0.5rem', background: 'var(--surface)', borderRadius: 8 }}>
+                    <span>
+                      {vePendientesTodasTiendas && (
+                        <strong style={{ marginRight: '0.35rem' }}>{etiquetaTienda(p.sucursal_id)}</strong>
+                      )}
+                      <strong>{tipoLabel}</strong>
+                      {' · '}
+                      {p.nombre_empleado}
+                      {' · '}
+                      {fmt(p.solicitud_monto)}
+                      {p.solicitud_por ? ` · pidió ${p.solicitud_por}` : ''}
+                      {' · saldo '}
+                      {fmt(p.saldo)}
+                    </span>
+                    <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => aprobarMovPrestamo(p)}>Aprobar</button>
+                    <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem', color: 'var(--danger)' }} onClick={() => rechazarMovPrestamo(p)}>Rechazar</button>
+                  </div>
+                );
+              })}
+            </>
+          )}
+          {valesPendientes.length === 0
+            && prestamosPendientesAdmin.length === 0
+            && (!esSocio || prestamosPendientesSocio.length === 0)
+            && (((!esAdmin && !puedeAprobarVales) || prestamosMovPendientes.length === 0)) && (
             <div>
               <p className="muted" style={{ marginBottom: '0.5rem' }}>No hay vales ni préstamos pendientes de aprobación.</p>
               <p className="muted" style={{ fontSize: '0.85rem', margin: 0 }}>
@@ -1008,23 +1113,60 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   <tr><th>Estado</th><th>Empleado</th><th>Monto</th><th>Saldo</th><th>Cuota/sem</th><th>Área</th><th>En corte</th><th /></tr>
                 </thead>
                 <tbody>
-                  {prestamosEmp.map((p) => (
-                    <tr key={p.id}>
-                      <td>{etiquetaEstadoPrestamo(p)}</td>
-                      <td>{p.nombre_empleado}</td>
-                      <td>{fmt(p.monto_original)}</td>
-                      <td style={{ fontWeight: 700 }}>{fmt(p.saldo)}</td>
-                      <td>{p.cuota_semanal ? fmt(p.cuota_semanal) : '—'}</td>
-                      <td className="muted">{ETIQUETA_AREA[p.area_corte] || p.area_corte || '—'}</td>
-                      <td className="muted">{p.cargado_corte ? 'Sí' : 'No'}</td>
-                      <td>
-                        {prestamoPuedeImprimir(p) && <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => imprimirPrestamoSi(p)}>Imprimir</button>}
-                        {esAdmin && prestamoPuedeImprimir(p) && !p.cargado_corte && (
-                          <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => cargarPrestamoManual(p)}>→ Corte</button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {prestamosEmp.map((p) => {
+                    const activo = p.estado === 'activo' && Number(p.saldo) > 0;
+                    const movPend = prestamoTieneSolicitudPendiente(p);
+                    const tipoPend = p.solicitud_tipo === 'descuento'
+                      ? 'descuento'
+                      : p.solicitud_tipo === 'liquidacion'
+                        ? 'liquidación'
+                        : 'abono';
+                    return (
+                      <tr key={p.id}>
+                        <td>
+                          {etiquetaEstadoPrestamo(p)}
+                          {movPend && (
+                            <div className="muted" style={{ fontSize: '0.75rem', color: 'var(--warning, #c47f00)' }}>
+                              Solicitud {tipoPend} {fmt(p.solicitud_monto)} pendiente
+                            </div>
+                          )}
+                        </td>
+                        <td>{p.nombre_empleado}</td>
+                        <td>{fmt(p.monto_original)}</td>
+                        <td style={{ fontWeight: 700 }}>{fmt(p.saldo)}</td>
+                        <td>{p.cuota_semanal ? fmt(p.cuota_semanal) : '—'}</td>
+                        <td className="muted">{ETIQUETA_AREA[p.area_corte] || p.area_corte || '—'}</td>
+                        <td className="muted">{p.cargado_corte ? 'Sí' : 'No'}</td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          {prestamoPuedeImprimir(p) && (
+                            <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => imprimirPrestamoSi(p)}>Imprimir</button>
+                          )}
+                          {esAdmin && prestamoPuedeImprimir(p) && !p.cargado_corte && (
+                            <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => cargarPrestamoManual(p)}>→ Corte</button>
+                          )}
+                          {activo && !movPend && (
+                            <>
+                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => pedirMovimientoPrestamo(p, 'abono')}>
+                                {esAdmin ? 'Abonar' : 'Solicitar abono'}
+                              </button>
+                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => pedirMovimientoPrestamo(p, 'descuento')}>
+                                {esAdmin ? 'Descontar' : 'Solicitar descuento'}
+                              </button>
+                              <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }} onClick={() => pedirMovimientoPrestamo(p, 'liquidacion')}>
+                                {esAdmin ? 'Liquidar' : 'Solicitar liquidar'}
+                              </button>
+                            </>
+                          )}
+                          {movPend && (esAdmin || puedeAprobarVales) && (
+                            <>
+                              <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }} onClick={() => aprobarMovPrestamo(p)}>Aprobar {tipoPend}</button>
+                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => rechazarMovPrestamo(p)}>Rechazar</button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
