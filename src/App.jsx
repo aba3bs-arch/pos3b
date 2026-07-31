@@ -145,9 +145,7 @@ function App() {
     // Limpia locks antiguos a MAIN.
     return Boolean(codigoTiendaBloqueadaLocal());
   });
-  const [sidebarOpen, setSidebarOpen] = useState(() =>
-    typeof window !== 'undefined' ? !window.matchMedia('(max-width: 768px)').matches : true,
-  );
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [tipoCambio, setTipoCambioRaw] = useState(() => leerTipoCambio());
   const [tickPrivilegios, setTickPrivilegios] = useState(0);
   const [tickCubreTurno, setTickCubreTurno] = useState(0);
@@ -449,9 +447,7 @@ function App() {
         if (opts.retorno) setValesRetornoModulo(opts.retorno);
       }
       setVista(m);
-      if (typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches) {
-        setSidebarOpen(false);
-      }
+      setSidebarOpen(false);
     },
     [user],
   );
@@ -858,7 +854,7 @@ function App() {
 
   return (
     <div className={`app-shell${mobile ? ' app-shell--mobile' : ''}`}>
-      {mobile && sidebarOpen && (
+      {sidebarOpen && (
         <button
           type="button"
           className="app-sidebar-backdrop"
@@ -866,17 +862,17 @@ function App() {
           onClick={() => setSidebarOpen(false)}
         />
       )}
-      {sidebarOpen && (
-        <aside className={`app-sidebar${mobile ? ' app-sidebar--drawer app-sidebar--open' : ''}`}>
+      <aside
+        className={`app-sidebar app-sidebar--drawer${sidebarOpen ? ' app-sidebar--open' : ''}`}
+        aria-hidden={!sidebarOpen}
+      >
           <div className="app-sidebar-brand">
             <BrandLogo alt="" maxHeight={56} style={{ marginBottom: '0.35rem' }} />
             <div className="app-sidebar-title">{brandTitle}</div>
             <div className="brand-credit">By: A.Marrero</div>
-            {mobile && (
-              <button type="button" className="app-sidebar-close btn btn-ghost" onClick={() => setSidebarOpen(false)} aria-label="Cerrar">
-                <Icon name="x" size={20} />
-              </button>
-            )}
+            <button type="button" className="app-sidebar-close btn btn-ghost" onClick={() => setSidebarOpen(false)} aria-label="Cerrar">
+              <Icon name="x" size={20} />
+            </button>
           </div>
           <AppSidebarNav
             modulosNav={modulosNav}
@@ -884,10 +880,9 @@ function App() {
             subContabilidad={subContabilidad}
             contabilidadActiva={contabilidadActiva}
             onNavigate={irAModulo}
-            onItemClick={mobile ? () => setSidebarOpen(false) : undefined}
+            onItemClick={() => setSidebarOpen(false)}
           />
-        </aside>
-      )}
+      </aside>
 
       <main className="app-main">
         <header className="app-header">

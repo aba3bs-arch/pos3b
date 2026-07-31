@@ -4,23 +4,45 @@ import { colorDeModulo, iconoDeModulo } from '../lib/moduloIcons.js';
 import { SUBMODULOS_CONTABILIDAD } from '../lib/roles.js';
 
 const DESCRIPCIONES = {
-  Nómina: 'Periodos, sueldos, asistencia y recibos',
-  'Panel RT': 'Reportes, servicios, recolectores y gastos',
-  'Liquidación recolecciones': 'Sellar efectivo en tránsito por tienda y día',
-  'IE VIRTUAL': 'Antonio · ingresos y egresos Virtual + Garage',
-  'IE ABARROTES': 'Francisco · ingresos y egresos de Abarrotes',
-  'Auto Fin': 'Antonio · vehículos y préstamos con enganche y cuotas',
+  Nómina: {
+    desc: 'Periodos, sueldos, asistencia y recibos',
+    ayuda: 'Arma periodos de nómina, registra asistencia, calcula sueldos y genera recibos por empleado.',
+  },
+  'Panel RT': {
+    desc: 'Reportes, servicios, recolectores y gastos',
+    ayuda: 'Centro operativo RT: reportes de tienda, servicios, recolectores y autorización de gastos.',
+  },
+  'Liquidación recolecciones': {
+    desc: 'Sellar efectivo en tránsito por tienda y día',
+    ayuda: 'Cierra y sella el efectivo recolectado por tienda/día para liquidarlo en contabilidad.',
+  },
+  'IE VIRTUAL': {
+    desc: 'Antonio · ingresos y egresos Virtual + Garage',
+    ayuda: 'Ingresos y egresos de Virtual y Garage (cuenta Antonio). Incluye liberar recolecciones a IE.',
+  },
+  'IE ABARROTES': {
+    desc: 'Francisco · ingresos y egresos de Abarrotes',
+    ayuda: 'Ingresos y egresos del área de Abarrotes (cuenta Francisco).',
+  },
+  'Auto Fin': {
+    desc: 'Antonio · vehículos y préstamos con enganche y cuotas',
+    ayuda: 'Control de vehículos financiados: enganche, cuotas e historial de pagos.',
+  },
 };
 
 /** Hub de Contabilidad: solo botones; cada submódulo abre su pantalla. */
 export default function Contabilidad({ submodulosVisibles, onNavigate }) {
-  const items = (submodulosVisibles || []).map((id) => ({
-    id,
-    label: id,
-    desc: DESCRIPCIONES[id] || '',
-    icon: iconoDeModulo(id),
-    color: colorDeModulo(id),
-  }));
+  const items = (submodulosVisibles || []).map((id) => {
+    const meta = DESCRIPCIONES[id] || {};
+    return {
+      id,
+      label: id,
+      desc: meta.desc || '',
+      ayuda: meta.ayuda || meta.desc || '',
+      icon: iconoDeModulo(id),
+      color: colorDeModulo(id),
+    };
+  });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>

@@ -108,7 +108,6 @@ import { sincronizarPrivilegiosDesdeNube } from '../lib/privilegiosSync.js';
 import { cargarPinsCubreTurnoDesdeNube, AVISO_SIN_TABLA_PIN_CUBRE } from '../lib/cubreTurnoSync.js';
 import BrandLogo from '../components/BrandLogo.jsx';
 import SubcomandosHub from '../components/SubcomandosHub.jsx';
-import Icon from '../components/Icon.jsx';
 import SelectorTemaInterfaz from '../components/SelectorTemaInterfaz.jsx';
 import PanelCatalogoIncidencias from '../components/PanelCatalogoIncidencias.jsx';
 import PanelNotificacionesAlertas from '../components/PanelNotificacionesAlertas.jsx';
