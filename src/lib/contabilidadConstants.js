@@ -197,7 +197,8 @@ export function valePuedeCancelar(vale) {
 
 export function prestamoPuedeImprimir(p) {
   if (!p) return false;
-  return ESTADOS_PRESTAMO_ACTIVO.has(p.estado);
+  // Recibo disponible cuando ya está autorizado (activo) o liquidado.
+  return p.estado === 'activo' || p.estado === 'liquidado';
 }
 
 export function etiquetaEstadoVale(v) {

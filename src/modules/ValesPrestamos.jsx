@@ -168,11 +168,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const recargarTodo = useCallback(async () => {
     if (!supabase) return;
+    // Admin/gerente: ver préstamos de todas las tiendas en la tabla (antes solo salían en Pendientes).
     const [vRes, paRes, psRes, peRes, nRes, vPendRes, pePendRes] = await Promise.all([
       listarVales(supabase, { sucursal, tipo: 'indirecto' }),
       listarPrestamosInterarea(supabase, { sucursal }),
       listarPrestamosSucursales(supabase, { sucursal }),
-      listarPrestamos(supabase, { sucursal, incluirPendientes: true }),
+      listarPrestamos(supabase, {
+        sucursal: vePendientesTodasTiendas ? undefined : sucursal,
+        incluirHistorial: true,
+        limit: vePendientesTodasTiendas ? 250 : 200,
+      }),
       listarNotificacionesPendientes(supabase, {
         sucursal: vePendientesTodasTiendas || esSocio ? undefined : sucursal,
         todasTiendas: vePendientesTodasTiendas || esSocio,
@@ -182,11 +187,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         ? listarVales(supabase, { tipo: 'indirecto', estadoAprobacion: 'pendiente_admin', limit: 150 })
         : Promise.resolve({ data: [] }),
       vePendientesTodasTiendas || esSocio
-        ? listarPrestamos(supabase, { incluirPendientes: true, limit: 150 })
+        ? listarPrestamos(supabase, { incluirHistorial: true, limit: 250 })
         : Promise.resolve({ data: [] }),
     ]);
     if (vRes.aviso) setAviso(vRes.aviso);
     else if (psRes.aviso) setAviso(psRes.aviso);
+    else if (peRes.aviso) setAviso(peRes.aviso);
+    else if (peRes.error) setAviso(peRes.error);
     else if (vRes.error) setAviso(vRes.error);
     else setAviso('');
     setVales(vRes.data || []);
@@ -420,7 +427,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   };
 
   const aprobarPAdmin = async (id) => {
-    const p = prestamosEmp.find((x) => x.id === id);
+    const p = prestamosEmp.find((x) => x.id === id) || prestamosPendAll.find((x) => x.id === id);
     const res = await aprobarPrestamoAdmin(supabase, id, {
       nombreAprobador: user?.nombre,
       cargarCorte: true,
@@ -428,13 +435,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     });
     if (!res.ok) return alert(res.error);
     alert(res.mensaje);
-    if (!res.pendienteSocio && res.prestamo && confirm('¿Imprimir ticket de préstamo?')) imprimirPrestamo(res.prestamo);
+    if (!res.pendienteSocio && res.prestamo && confirm('¿Imprimir recibo de préstamo?')) imprimirPrestamo(res.prestamo);
     recargarTodo();
   };
 
   const aprobarPSocio = async (id) => {
     if (!pinSocio.trim()) return alert('Ingresa tu PIN (Antonio, Francisco o José Luis).');
-    const p = prestamosEmp.find((x) => x.id === id);
+    const p = prestamosEmp.find((x) => x.id === id) || prestamosPendAll.find((x) => x.id === id);
     const res = await aprobarPrestamoSocio(supabase, id, {
       pin: pinSocio.trim(),
       sucursal,
@@ -444,7 +451,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     if (!res.ok) return alert(res.error);
     setPinSocio('');
     alert(res.mensaje);
-    if (confirm('¿Imprimir ticket?')) imprimirPrestamo(res.prestamo);
+    if (confirm('¿Imprimir recibo?')) imprimirPrestamo(res.prestamo);
     recargarTodo();
   };
 
@@ -514,7 +521,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       else if (tipo === 'liquidacion') r = await liquidarPrestamo(supabase, p);
       else r = await abonarPrestamo(supabase, p, monto);
       if (!r.ok) return alert(r.error);
-      alert(`${tipo} aplicado${r.liquidado ? ' · préstamo liquidado' : ''}.`);
+      alert(`${tipo} aplicado${r.liquidado ? ' · préstamo liquidado' : ''}. Saldo: $${(r.saldo ?? 0).toFixed(2)}`);
+      if (confirm('¿Imprimir recibo actualizado?')) {
+        const { data } = await supabase.from('prestamos').select('*').eq('id', p.id).maybeSingle();
+        if (data) imprimirPrestamo(data);
+      }
       recargarTodo();
       return;
     }
@@ -1107,66 +1118,114 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           </div>
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem' }}>Préstamos</h3>
+            <p className="muted" style={{ fontSize: '0.82rem', marginTop: 0 }}>
+              {vePendientesTodasTiendas
+                ? 'Admin: se listan préstamos de todas las tiendas. Aprueba los pendientes aquí o en Pendientes; luego Imprimir recibo / Abonar / Liquidar.'
+                : 'Al aprobarse el préstamo puedes imprimir el recibo y registrar abonos o liquidación.'}
+            </p>
             <div className="table-wrap">
               <table className="data">
                 <thead>
-                  <tr><th>Estado</th><th>Empleado</th><th>Monto</th><th>Saldo</th><th>Cuota/sem</th><th>Área</th><th>En corte</th><th /></tr>
+                  <tr>
+                    {vePendientesTodasTiendas && <th>Tienda</th>}
+                    <th>Estado</th>
+                    <th>Empleado</th>
+                    <th>Monto</th>
+                    <th>Abonado</th>
+                    <th>Saldo</th>
+                    <th>Cuota/sem</th>
+                    <th>Área</th>
+                    <th>En corte</th>
+                    <th />
+                  </tr>
                 </thead>
                 <tbody>
-                  {prestamosEmp.map((p) => {
-                    const activo = p.estado === 'activo' && Number(p.saldo) > 0;
-                    const movPend = prestamoTieneSolicitudPendiente(p);
-                    const tipoPend = p.solicitud_tipo === 'descuento'
-                      ? 'descuento'
-                      : p.solicitud_tipo === 'liquidacion'
-                        ? 'liquidación'
-                        : 'abono';
-                    return (
-                      <tr key={p.id}>
-                        <td>
-                          {etiquetaEstadoPrestamo(p)}
-                          {movPend && (
-                            <div className="muted" style={{ fontSize: '0.75rem', color: 'var(--warning, #c47f00)' }}>
-                              Solicitud {tipoPend} {fmt(p.solicitud_monto)} pendiente
-                            </div>
+                  {prestamosEmp.length === 0 ? (
+                    <tr>
+                      <td colSpan={vePendientesTodasTiendas ? 10 : 9} className="muted">
+                        No hay préstamos registrados{vePendientesTodasTiendas ? '' : ' en esta sucursal'}.
+                        {prestamosPendientesAdmin.length > 0 && (
+                          <> Hay {prestamosPendientesAdmin.length} pendiente(s) en la pestaña Pendientes.</>
+                        )}
+                      </td>
+                    </tr>
+                  ) : (
+                    prestamosEmp.map((p) => {
+                      const activo = p.estado === 'activo' && Number(p.saldo) > 0;
+                      const movPend = prestamoTieneSolicitudPendiente(p);
+                      const tipoPend = p.solicitud_tipo === 'descuento'
+                        ? 'descuento'
+                        : p.solicitud_tipo === 'liquidacion'
+                          ? 'liquidación'
+                          : 'abono';
+                      return (
+                        <tr key={p.id}>
+                          {vePendientesTodasTiendas && (
+                            <td><strong>{etiquetaTienda(p.sucursal_id)}</strong></td>
                           )}
-                        </td>
-                        <td>{p.nombre_empleado}</td>
-                        <td>{fmt(p.monto_original)}</td>
-                        <td style={{ fontWeight: 700 }}>{fmt(p.saldo)}</td>
-                        <td>{p.cuota_semanal ? fmt(p.cuota_semanal) : '—'}</td>
-                        <td className="muted">{ETIQUETA_AREA[p.area_corte] || p.area_corte || '—'}</td>
-                        <td className="muted">{p.cargado_corte ? 'Sí' : 'No'}</td>
-                        <td style={{ whiteSpace: 'nowrap' }}>
-                          {prestamoPuedeImprimir(p) && (
-                            <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => imprimirPrestamoSi(p)}>Imprimir</button>
-                          )}
-                          {esAdmin && prestamoPuedeImprimir(p) && !p.cargado_corte && (
-                            <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => cargarPrestamoManual(p)}>→ Corte</button>
-                          )}
-                          {activo && !movPend && (
-                            <>
-                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => pedirMovimientoPrestamo(p, 'abono')}>
-                                {esAdmin ? 'Abonar' : 'Solicitar abono'}
-                              </button>
-                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => pedirMovimientoPrestamo(p, 'descuento')}>
-                                {esAdmin ? 'Descontar' : 'Solicitar descuento'}
-                              </button>
-                              <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }} onClick={() => pedirMovimientoPrestamo(p, 'liquidacion')}>
-                                {esAdmin ? 'Liquidar' : 'Solicitar liquidar'}
-                              </button>
-                            </>
-                          )}
-                          {movPend && (esAdmin || puedeAprobarVales) && (
-                            <>
-                              <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }} onClick={() => aprobarMovPrestamo(p)}>Aprobar {tipoPend}</button>
-                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => rechazarMovPrestamo(p)}>Rechazar</button>
-                            </>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                          <td>
+                            {etiquetaEstadoPrestamo(p)}
+                            {movPend && (
+                              <div className="muted" style={{ fontSize: '0.75rem', color: 'var(--warning, #c47f00)' }}>
+                                Solicitud {tipoPend} {fmt(p.solicitud_monto)} pendiente
+                              </div>
+                            )}
+                          </td>
+                          <td>{p.nombre_empleado}</td>
+                          <td>{fmt(p.monto_original)}</td>
+                          <td className="muted">{fmt(p.abono)}</td>
+                          <td style={{ fontWeight: 700 }}>{fmt(p.saldo)}</td>
+                          <td>{p.cuota_semanal ? fmt(p.cuota_semanal) : '—'}</td>
+                          <td className="muted">{ETIQUETA_AREA[p.area_corte] || p.area_corte || '—'}</td>
+                          <td className="muted">{p.cargado_corte ? 'Sí' : 'No'}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            {puedeAprobarVales && p.estado === 'pendiente_admin' && (
+                              <>
+                                <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }} onClick={() => aprobarPAdmin(p.id)}>Aprobar</button>
+                                {esAdmin && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-ghost"
+                                    style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }}
+                                    onClick={() => rechazarPrestamo(supabase, p.id, { nombre: user?.nombre }).then((r) => { if (!r.ok) alert(r.error); else recargarTodo(); })}
+                                  >
+                                    Rechazar
+                                  </button>
+                                )}
+                              </>
+                            )}
+                            {prestamoPuedeImprimir(p) && (
+                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => imprimirPrestamoSi(p)}>Imprimir recibo</button>
+                            )}
+                            {esAdmin && prestamoPuedeImprimir(p) && !p.cargado_corte && (
+                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => cargarPrestamoManual(p)}>→ Corte</button>
+                            )}
+                            {activo && !movPend && (
+                              <>
+                                <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => pedirMovimientoPrestamo(p, 'abono')}>
+                                  {esAdmin ? 'Abonar' : 'Solicitar abono'}
+                                </button>
+                                {esAdmin && (
+                                  <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => pedirMovimientoPrestamo(p, 'descuento')}>
+                                    Descontar
+                                  </button>
+                                )}
+                                <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }} onClick={() => pedirMovimientoPrestamo(p, 'liquidacion')}>
+                                  {esAdmin ? 'Liquidar' : 'Solicitar liquidar'}
+                                </button>
+                              </>
+                            )}
+                            {movPend && (esAdmin || puedeAprobarVales) && (
+                              <>
+                                <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }} onClick={() => aprobarMovPrestamo(p)}>Aprobar {tipoPend}</button>
+                                <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => rechazarMovPrestamo(p)}>Rechazar</button>
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>

@@ -310,11 +310,16 @@ export async function cancelarVale(supabase, valeId, { nombre, motivo } = {}) {
 
 export async function listarPrestamos(supabase, opts = {}) {
   if (!supabase) return { data: [], error: null };
-  const { sucursal, soloActivos, incluirPendientes, limit = 200 } = opts;
+  const { sucursal, soloActivos, incluirPendientes, incluirHistorial, limit = 200 } = opts;
   let q = supabase.from('prestamos').select('*').order('created_at', { ascending: false }).limit(limit);
-  if (sucursal) q = q.eq('sucursal_id', sucursal);
+  if (sucursal) q = q.eq('sucursal_id', String(sucursal).toUpperCase());
   if (soloActivos && !incluirPendientes) q = q.eq('estado', 'activo');
-  if (incluirPendientes) q = q.in('estado', ['pendiente_admin', 'pendiente_socio', 'activo']);
+  else if (incluirHistorial) {
+    // Activos, pendientes y liquidados (control de pagos). Excluye rechazados.
+    q = q.in('estado', ['pendiente_admin', 'pendiente_socio', 'activo', 'liquidado']);
+  } else if (incluirPendientes) {
+    q = q.in('estado', ['pendiente_admin', 'pendiente_socio', 'activo', 'liquidado']);
+  }
   const { data, error } = await q;
   if (error && faltaTablaPrestamos(error)) return { data: [], error: null, aviso: AVISO_FALTA_CONTABILIDAD };
   return { data: data || [], error: error?.message || null };
