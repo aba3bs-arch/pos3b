@@ -1,20 +1,20 @@
 {
   "version": "1.1.0",
-  "buildId": "ea47ce5",
+  "buildId": "a8713a8",
   "branch": "main",
-  "builtAt": "2026-07-30T20:09:47.992Z",
+  "builtAt": "2026-07-31T22:38:56.381Z",
   "title": "Actualización disponible",
   "summary": "Hay una nueva versión del POS. Actualiza para recibir correcciones y mejoras.",
   "changes": [
-    "Traspasos: mostrar piezas y layout móvil con tarjetas legibles",
-    "Inventario: ingreso obligado con piezas exactas y verificación en nube",
-    "Fix: permitir marcar Escáner caja (y Resumen operativo) en privilegios",
-    "Traspasos: hub enviar/recibir/solicitar solo MAIN→sucursal o sucursal→sucursal",
-    "Inventario: en MAIN mostrar CEDIS al buscar productos; folios trp-0001",
-    "Docs: guiones de video para cobrar y corte de caja",
-    "Avisar actualizaciones pendientes con lista de cambios",
-    "Administrador de precios: filtrar por departamento y proveedor",
-    "Administrador de precios: buscar por nombre, codigo o escanner",
-    "Reporte inventario: mostrar todas las tiendas en resumen y filtro"
+    "feat: préstamos empleados con editar, eliminar, abonar y liquidar (cargo al área Virtual/Abarrotes)",
+    "feat: desglose de gastos al expandir monto de recolección en IE Virtual",
+    "fix: Garage - gastos/faltantes persisten hasta recolección con máquinas en cero; solo entonces a IE",
+    "fix: recibo corte Virtual con tienda, folio, turno, tipo, fecha y cajero",
+    "fix: listar préstamos empleados en todas las tiendas y botones recibo/abono/liquidar",
+    "feat: aprobar abono/descuento/liquidación en préstamos y restaurar proyección en Inicio",
+    "fix: escaneo en carrito Ventas y cámara solo ícono en móvil",
+    "fix: escaneo en carrito Ventas y botón cámara solo ícono",
+    "feat: menú deslizable al navegar y Configuración tipo hub con ayuda al hover",
+    "fix: carrito fijo en Ventas y scroll solo en favoritos/catálogo"
   ]
 }
