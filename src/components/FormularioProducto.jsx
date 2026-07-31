@@ -8,7 +8,7 @@ import {
   actualizarCampoProducto,
   productoVacio,
 } from '../lib/productoForm.js';
-import { BtnLabel } from '../components/Icon.jsx';
+import Icon, { BtnLabel } from './Icon.jsx';
 import CampoCodigo from './CampoCodigo.jsx';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { esAlmacenCentral, etiquetaCedisEmpresa } from '../lib/inventarioMultitienda.js';
@@ -81,27 +81,38 @@ export default function FormularioProducto({
 
       <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <div style={{ flex: '0 0 140px', textAlign: 'center' }}>
-          <div
-            style={{
-              width: '140px',
-              height: '140px',
-              borderRadius: '12px',
-              border: '2px dashed var(--border)',
-              background: 'var(--surface)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              overflow: 'hidden',
-              margin: '0 auto',
-            }}
-          >
-            {form.foto_url ? (
-              <img src={form.foto_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            ) : (
-              <span className="muted" style={{ fontSize: '0.75rem', padding: '0.5rem' }}>
-                Sin foto
-              </span>
-            )}
+          <div className="prod-form-foto-wrap" style={{ width: 140, margin: '0 auto' }}>
+            <div
+              style={{
+                width: '140px',
+                height: '140px',
+                borderRadius: '12px',
+                border: '2px dashed var(--border)',
+                background: 'var(--surface)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden',
+              }}
+            >
+              {form.foto_url ? (
+                <img src={form.foto_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              ) : (
+                <span className="muted" style={{ fontSize: '0.75rem', padding: '0.5rem' }}>
+                  Sin foto
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              className="btn btn-camera btn-camera--icon prod-form-foto-cam"
+              disabled={procesandoFoto}
+              onClick={() => camaraRef.current?.click()}
+              title={procesandoFoto ? 'Procesando…' : 'Tomar foto'}
+              aria-label={procesandoFoto ? 'Procesando foto' : 'Tomar foto del producto'}
+            >
+              <Icon name="camera" size={18} />
+            </button>
           </div>
           <input ref={fotoRef} type="file" accept="image/jpeg,image/png,image/webp,image/*" style={{ display: 'none' }} onChange={aplicarFoto} />
           <input
@@ -112,37 +123,15 @@ export default function FormularioProducto({
             style={{ display: 'none' }}
             onChange={aplicarFoto}
           />
-          {sinFoto ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              style={{ marginTop: '0.5rem', fontSize: '0.8rem', width: '100%' }}
-              disabled={procesandoFoto}
-              onClick={() => camaraRef.current?.click()}
-            >
-              <BtnLabel icon="camera">{procesandoFoto ? 'Procesando…' : 'Tomar foto'}</BtnLabel>
-            </button>
-          ) : null}
           <button
             type="button"
             className="btn btn-ghost"
-            style={{ marginTop: sinFoto ? '0.35rem' : '0.5rem', fontSize: '0.8rem', width: '100%' }}
+            style={{ marginTop: '0.5rem', fontSize: '0.8rem', width: '100%' }}
             disabled={procesandoFoto}
             onClick={() => fotoRef.current?.click()}
           >
             {sinFoto ? 'Subir foto' : 'Cambiar foto'}
           </button>
-          {!sinFoto && (
-            <button
-              type="button"
-              className="btn btn-ghost"
-              style={{ marginTop: '0.35rem', fontSize: '0.75rem', width: '100%' }}
-              disabled={procesandoFoto}
-              onClick={() => camaraRef.current?.click()}
-            >
-              <BtnLabel icon="camera">Tomar otra</BtnLabel>
-            </button>
-          )}
           {!sinFoto && (
             <button type="button" className="btn btn-ghost" style={{ marginTop: '0.35rem', fontSize: '0.75rem', width: '100%' }} onClick={() => setCampoSimple('foto_url', '')}>
               Quitar foto

@@ -103,13 +103,13 @@ export default function DetalleProducto({
               />
               <button
                 type="button"
-                className="btn btn-primary prod-detalle-tomar-foto"
+                className="btn btn-camera btn-camera--icon prod-detalle-tomar-foto"
                 disabled={guardandoFoto}
                 onClick={() => camaraRef.current?.click()}
-                title="Tomar foto con el dispositivo"
+                title={guardandoFoto ? 'Guardando foto…' : 'Tomar foto'}
+                aria-label={guardandoFoto ? 'Guardando foto' : 'Tomar foto del producto'}
               >
-                <Icon name="camera" size={14} />
-                {guardandoFoto ? 'Guardando…' : 'Tomar foto'}
+                <Icon name="camera" size={16} />
               </button>
             </>
           )}

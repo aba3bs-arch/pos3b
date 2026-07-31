@@ -458,7 +458,7 @@ export function BotonEscanerCamara({
         title={label}
         aria-label={label}
       >
-        <Icon name="camera" size={soloIcono ? 20 : 18} />
+        <Icon name="camera" size={soloIcono ? 22 : 18} />
         {!soloIcono ? <span>{label}</span> : null}
       </button>
       <EscanerCamara

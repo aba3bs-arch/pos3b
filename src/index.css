@@ -97,27 +97,28 @@ textarea {
 }
 
 .btn-camera {
-  background: linear-gradient(180deg, var(--brand-olive) 0%, #8f8a32 100%);
-  color: #1a1a1a;
-  box-shadow: 0 4px 14px rgba(181, 176, 62, 0.45);
+  background: linear-gradient(180deg, #3b69b5 0%, #2d4f8c 100%);
+  color: #fff;
+  box-shadow: 0 3px 12px rgba(45, 79, 140, 0.35);
   white-space: nowrap;
 }
 
 .btn-camera .icon {
-  color: #2d4f8c;
+  color: #fff;
 }
 
 .btn-camera--icon {
   flex: 0 0 auto;
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
+  width: 42px;
+  min-width: 42px;
+  height: 42px;
   padding: 0;
-  border-radius: 10px;
+  border-radius: 11px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
 .btn-camera--icon .icon {
@@ -126,7 +127,7 @@ textarea {
 
 .campo-codigo-row {
   display: flex;
-  gap: 0.45rem;
+  gap: 0.4rem;
   flex-wrap: nowrap;
   align-items: stretch;
   width: 100%;
@@ -2706,21 +2707,51 @@ table.data th {
 }
 
 .prod-detalle-foto-wrap {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 0.4rem;
   width: 110px;
+  flex-shrink: 0;
 }
 
 .prod-detalle-tomar-foto {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  z-index: 2;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.3rem;
-  width: 100%;
-  padding: 0.35rem 0.4rem;
-  font-size: 0.72rem;
+  gap: 0;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.28);
+}
+
+.prod-detalle-tomar-foto .icon {
+  margin: 0;
+}
+
+.prod-detalle-tomar-foto-label {
+  display: none;
+}
+
+.prod-form-foto-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.prod-form-foto-cam {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  z-index: 2;
 }
 
 .prod-detalle-foto img {
@@ -3672,6 +3703,17 @@ table.data th {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
+  padding-bottom: 0.55rem;
+  margin-bottom: 0.15rem;
+  border-bottom: 1px dashed var(--border);
+}
+
+.ventas-ticket-scan-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .ventas-resultados-card--ticket {
@@ -3683,6 +3725,18 @@ table.data th {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  animation: ventas-resultados-in 0.2s ease both;
+}
+
+@keyframes ventas-resultados-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .ventas-resultados-card--ticket .ventas-resultados-lista {
@@ -3787,6 +3841,43 @@ table.data th {
     z-index: 6;
     padding: 0.75rem 0.85rem;
     box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    border-radius: 14px;
+  }
+
+  .ventas-ticket .btn-camera--icon {
+    width: 46px;
+    min-width: 46px;
+    height: 46px;
+    border-radius: 12px;
+  }
+
+  .ventas-favorito-card {
+    animation: ventas-fav-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .ventas-favorito-card:nth-child(2) { animation-delay: 0.03s; }
+  .ventas-favorito-card:nth-child(3) { animation-delay: 0.06s; }
+  .ventas-favorito-card:nth-child(4) { animation-delay: 0.09s; }
+  .ventas-favorito-card:nth-child(5) { animation-delay: 0.12s; }
+  .ventas-favorito-card:nth-child(6) { animation-delay: 0.15s; }
+
+  @keyframes ventas-fav-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .ventas-favorito-btn:active {
+    transform: scale(0.94);
+  }
+
+  .ventas-depto-tab:active {
+    transform: scale(0.96);
   }
 
   .ventas-ticket-lineas {

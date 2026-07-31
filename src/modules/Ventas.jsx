@@ -549,11 +549,12 @@ export default function Ventas({
 
       <aside className="card ventas-ticket">
         <div className="ventas-ticket-scan">
+          <div className="ventas-ticket-scan-label">Escanear · buscar</div>
           <CampoCodigo
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
             onEscanear={procesarCodigoCamara}
-            placeholder="Escanear o buscar…"
+            placeholder="Código o nombre…"
             tituloCamara="Escanear producto"
             labelCamara="Abrir cámara"
             camaraSoloIcono
@@ -574,7 +575,7 @@ export default function Ventas({
                 setBusqueda('');
               }
             }}
-            inputStyle={{ padding: '0.65rem 0.75rem', fontSize: '0.95rem' }}
+            inputStyle={{ padding: '0.7rem 0.8rem', fontSize: '1rem' }}
           />
           {filtrados.length > 0 && (
             <div className="ventas-resultados-card ventas-resultados-card--ticket">
@@ -606,7 +607,7 @@ export default function Ventas({
           )}
         </div>
 
-        <h3 style={{ margin: '0.65rem 0 0.5rem', color: 'var(--brand-blue)' }}>Ticket</h3>
+        <h3 style={{ margin: '0.35rem 0 0.5rem', color: 'var(--brand-blue)' }}>Ticket</h3>
         {ultimaVenta && (
           <button type="button" className="btn btn-ghost" style={{ marginBottom: '0.5rem', fontSize: '0.8rem', padding: '0.35rem 0.5rem' }} onClick={reimprimirUltima}>
             Reimprimir último ticket
