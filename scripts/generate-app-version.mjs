@@ -40,21 +40,33 @@ export function generarVersionApp({ maxCambios = 10 } = {}) {
   const buildId = sh('git rev-parse --short HEAD') || `local-${Date.now().toString(36)}`;
   const branch = sh('git rev-parse --abbrev-ref HEAD') || '';
   const rawLog = sh(`git log -${Math.max(3, maxCambios)} --pretty=format:%s`);
-  const changes = rawLog
+  const fromGit = rawLog
     .split(/\r?\n/)
     .map(limpiarMensaje)
     .filter(Boolean)
-    // Evitar ruido típico de merge/chore interno
     .filter((m) => !/^merge\b/i.test(m))
     .slice(0, maxCambios);
+
+  let notes = null;
+  try {
+    notes = JSON.parse(readFileSync(join(root, 'public', 'release-notes.json'), 'utf8'));
+  } catch {
+    notes = null;
+  }
+  const fromNotes = Array.isArray(notes?.changes)
+    ? notes.changes.map(limpiarMensaje).filter(Boolean)
+    : [];
+  const changes = [...fromNotes, ...fromGit.filter((m) => !fromNotes.includes(m))].slice(0, maxCambios);
 
   const meta = {
     version,
     buildId,
     branch: branch || null,
     builtAt: new Date().toISOString(),
-    title: 'Actualización disponible',
-    summary: 'Hay una nueva versión del POS. Actualiza para recibir correcciones y mejoras.',
+    title: String(notes?.title || 'Actualización disponible').trim(),
+    summary: String(
+      notes?.summary || 'Hay una nueva versión del POS. Actualiza para recibir correcciones y mejoras.',
+    ).trim(),
     changes,
   };
 

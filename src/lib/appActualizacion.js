@@ -63,9 +63,7 @@ function urlVersionJson() {
  * @returns {Promise<{ pendiente: boolean, remota?: object, actual?: string, motivo?: string }>}
  */
 export async function checarActualizacionApp() {
-  if (import.meta.env.DEV) {
-    return { pendiente: false, motivo: 'dev' };
-  }
+  // En dev también avisamos si hay version.json distinto (útil en preview).
   if (estaPospuesta()) {
     return { pendiente: false, motivo: 'pospuesta' };
   }
@@ -83,12 +81,14 @@ export async function checarActualizacionApp() {
   const remotoId = String(remota?.buildId || '').trim();
   if (!remotoId) return { pendiente: false, motivo: 'sin_build', actual, remota };
 
-  // Esta pestaña/caja aún corre un build anterior al desplegado.
+  // Build anterior o sin VITE_APP_BUILD (caché / portable viejo).
   if (actual && remotoId !== actual) {
     return { pendiente: true, remota, actual, motivo: 'build_desfasado' };
   }
+  if (!actual && remotoId) {
+    return { pendiente: true, remota, actual: '', motivo: 'build_desconocido' };
+  }
 
-  // Primera carga tras deploy: el JS ya es nuevo pero aún no “aceptaron” ver el aviso.
   const aceptado = leerBuildAceptado();
   if (remotoId && remotoId !== aceptado) {
     return { pendiente: true, remota, actual: actual || remotoId, motivo: 'changelog_pendiente' };

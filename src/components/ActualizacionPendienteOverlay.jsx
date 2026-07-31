@@ -67,7 +67,7 @@ export default function ActualizacionPendienteOverlay() {
   return (
     <div className="anuncio-pos-backdrop app-update-backdrop" role="dialog" aria-modal="true" aria-labelledby="app-update-titulo">
       <div className="anuncio-pos-modal card app-update-modal" style={{ maxWidth: 'min(94vw, 560px)' }}>
-        <div className="app-update-badge">Actualización · solo administrador</div>
+        <div className="app-update-badge">Actualización</div>
         <h2 id="app-update-titulo" style={{ margin: '0.5rem 0 0', color: 'var(--brand-blue)' }}>
           {remota.title || 'Hay una nueva versión del POS'}
         </h2>

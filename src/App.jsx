@@ -93,6 +93,7 @@ import { EVENTO_CACHE_LIMPIADO } from './lib/limpiarCache.js';
 import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesContabilidad.jsx';
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
 import ActualizacionPendienteOverlay from './components/ActualizacionPendienteOverlay.jsx';
+import ReleaseAvisoOverlay from './components/ReleaseAvisoOverlay.jsx';
 import SelectorSucursal from './components/SelectorSucursal.jsx';
 import { usePresenciaSucursales } from './hooks/usePresenciaSucursales.js';
 import { instalarSeleccionCamposCantidad } from './lib/seleccionarCamposCantidad.js';
@@ -1158,7 +1159,8 @@ function App() {
           )}
           {vista === 'Ayuda' && <Ayuda user={user} />}
         </div>
-        {rolNorm === 'Administrador' ? <ActualizacionPendienteOverlay /> : null}
+        {user ? <ReleaseAvisoOverlay user={user} /> : null}
+        {user ? <ActualizacionPendienteOverlay /> : null}
         <AnuncioPosOverlay supabase={supabase} onIrVentas={() => irAModulo('Ventas')} />
         <ModalExtensionTurno
           open={Boolean(avisoExtensionTurno)}
