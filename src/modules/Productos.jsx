@@ -18,6 +18,7 @@ import {
   puedeCrearProveedor,
   puedeEliminarProductosCatalogo,
   puedeGestionarInventarioMultitienda,
+  puedeConsolidarVentasInventario,
   puedeEditarCatalogoProductos,
   puedeAjustarInventario,
   puedeTraspasarInventario,
@@ -139,6 +140,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const fileImportRef = useRef(null);
   const puedeAltaProveedor = puedeCrearProveedor(user?.rol);
   const puedeVaciarInventario = puedeGestionarInventarioMultitienda(user?.rol);
+  const puedeConsolidar = puedeConsolidarVentasInventario(user?.rol);
   const puedeEliminarCatalogo = puedeEliminarProductosCatalogo(user?.rol);
   /** Cajero: consulta de catálogo + ingreso/ajuste, traspasos y preinventario (sin editar productos). */
   const esCajero = esRolMostradorRestringido(user?.rol);
@@ -680,7 +682,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
         ...(puedeGestionCatalogo
           ? [{ id: 'precios', label: 'Administrador de precios', icon: 'dollar', onClick: () => { initPreciosDraft(); setVista('precios'); } }]
           : []),
-        ...(puedeGestionarInventarioMultitienda(user?.rol)
+        ...(puedeConsolidar
           ? [{ id: 'consolidar', label: 'Consolidar ventas vs piso', icon: 'refresh', onClick: () => setVista('consolidar') }]
           : []),
         ...(puedeEliminarCatalogo
@@ -1469,7 +1471,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
         />
       )}
 
-      {vista === 'consolidar' && puedeGestionarInventarioMultitienda(user?.rol) && (
+      {vista === 'consolidar' && puedeConsolidar && (
         <ConsolidarVentasInventario
           supabase={supabase}
           inventario={inventario}

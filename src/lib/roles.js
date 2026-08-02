@@ -169,7 +169,7 @@ const ACCESO_POR_ROL = {
     'Checador',
     'Ayuda',
   ],
-  Repartidor: ['Inicio', 'Incidencias', 'Recolecciones', 'Checador', 'Ayuda'],
+  Repartidor: ['Inicio', 'Incidencias', 'Recolecciones', 'Productos', 'Ayuda'],
   Auditor: [
     'Inicio',
     'Incidencias',
@@ -272,13 +272,28 @@ export function normalizarIdModulo(moduloId) {
   return moduloId;
 }
 
+/** Asegura Productos y quita módulos prohibidos aunque haya lista personalizada. */
+function listaModulosEfectiva(rol, userId = null) {
+  const r = normalizarRol(rol);
+  let permitidos = modulosPermitidosDesde(leerPrivilegios(), r, userId, ACCESO_POR_ROL[r] || ACCESO_POR_ROL.Cajero);
+  if (esRolRepartidor(rol)) {
+    const set = new Set(permitidos);
+    set.add('Productos');
+    for (const m of MODULOS_BLOQUEADOS_REPARTIDOR) set.delete(m);
+    permitidos = [...set];
+  }
+  return permitidos;
+}
+
 export function puedeVerModulo(rol, moduloId, userId = null) {
   const m = normalizarIdModulo(moduloId);
   const r = normalizarRol(rol);
   if (r === 'Administrador') return true;
   // Cajero (y roles con plantilla Cajero): bloqueo duro aunque alguien les asigne privilegios.
   if (esRolMostradorRestringido(rol) && MODULOS_BLOQUEADOS_MOSTRADOR.has(m)) return false;
-  const permitidos = modulosPermitidosDesde(leerPrivilegios(), r, userId, ACCESO_POR_ROL[r] || ACCESO_POR_ROL.Cajero);
+  // Repartidor: bloqueo duro de módulos de caja/oficina (aunque haya privilegios personalizados).
+  if (esRolRepartidor(rol) && MODULOS_BLOQUEADOS_REPARTIDOR.has(m)) return false;
+  const permitidos = listaModulosEfectiva(rol, userId);
   return permitidos.includes(m);
 }
 
@@ -308,10 +323,11 @@ export function modulosParaSidebar(rol, userId = null) {
   const r = normalizarRol(rol);
   if (r === 'Administrador') return filtrar(MODULOS_ORDEN);
 
-  const permitidos = modulosPermitidosDesde(leerPrivilegios(), r, userId, ACCESO_POR_ROL[r] || ACCESO_POR_ROL.Cajero);
+  const permitidos = listaModulosEfectiva(rol, userId);
   return filtrar(
     MODULOS_ORDEN.filter((m) => {
       if (esRolMostradorRestringido(rol) && MODULOS_BLOQUEADOS_MOSTRADOR.has(m)) return false;
+      if (esRolRepartidor(rol) && MODULOS_BLOQUEADOS_REPARTIDOR.has(m)) return false;
       return permitidos.includes(m);
     }),
   );
@@ -354,9 +370,10 @@ export function puedeCrearProveedor(rol) {
   return normalizarRol(rol) === 'Administrador';
 }
 
-/** Eliminar productos del catálogo global: solo administrador. */
+/** Eliminar productos del catálogo global: administrador y repartidor. */
 export function puedeEliminarProductosCatalogo(rol) {
-  return normalizarRol(rol) === 'Administrador';
+  const r = rolSistemaEfectivo(rol);
+  return r === 'Administrador' || r === 'Repartidor';
 }
 
 /** Roles de central MAIN que pueden elegir cualquier tienda en la sesión. */
@@ -380,6 +397,10 @@ export function esRolMostradorRestringido(rol) {
   return rolSistemaEfectivo(rol) === 'Cajero';
 }
 
+export function esRolRepartidor(rol) {
+  return rolSistemaEfectivo(rol) === 'Repartidor';
+}
+
 /** Módulos que el cajero nunca puede abrir (bloqueo duro). */
 export const MODULOS_BLOQUEADOS_MOSTRADOR = new Set([
   'Clientes',
@@ -395,18 +416,29 @@ export const MODULOS_BLOQUEADOS_MOSTRADOR = new Set([
   'Auto Fin',
 ]);
 
-/** Consultar productos / historial: sí. Crear, editar, borrar, precios: no. */
+/** Módulos que el repartidor nunca puede abrir (bloqueo duro). */
+export const MODULOS_BLOQUEADOS_REPARTIDOR = new Set([
+  'Ventas',
+  'Escáner caja',
+  'Corte de caja',
+  'Checador',
+  'Usuarios',
+  'Configuracion',
+  ...SUBMODULOS_CONTABILIDAD,
+]);
+
+/** Consultar productos / historial: sí. Crear, editar, borrar, precios: no (cajero/técnico). */
 export function puedeEditarCatalogoProductos(rol) {
   if (esRolMostradorRestringido(rol)) return false;
   const r = rolSistemaEfectivo(rol);
-  return r !== 'Repartidor' && r !== 'Técnico';
+  return r !== 'Técnico';
 }
 
-/** Entradas, retiros y conteos de ajuste (no vaciado ni consolidación). */
+/** Entradas, retiros y conteos de ajuste (no vaciado). */
 export function puedeAjustarInventario(rol) {
   if (esRolMostradorRestringido(rol)) return true;
   const r = rolSistemaEfectivo(rol);
-  return ['Administrador', 'Gerente', 'Supervisor', 'Auditor'].includes(r);
+  return ['Administrador', 'Gerente', 'Supervisor', 'Auditor', 'Repartidor'].includes(r);
 }
 
 /** Traspasos entre tiendas / CEDIS. */
@@ -430,16 +462,23 @@ export function puedeCambiarTiendaLibremente(rol) {
   return nom.includes('contabilidad') || nom.includes('administraci');
 }
 
+/** Vaciar inventario / operaciones multitienda sensibles: solo Admin o Gerente. */
 export function puedeGestionarInventarioMultitienda(rol) {
   const r = rolSistemaEfectivo(rol);
   return r === 'Administrador' || r === 'Gerente';
+}
+
+/** Consolidar ventas vs piso: Admin, Gerente y Repartidor (no vaciar). */
+export function puedeConsolidarVentasInventario(rol) {
+  const r = rolSistemaEfectivo(rol);
+  return r === 'Administrador' || r === 'Gerente' || r === 'Repartidor';
 }
 
 export function descripcionRol(rol) {
   const r = normalizarRol(rol);
   const textos = {
     Cajero: 'Mostrador: ventas, cortes, checador, compras, proveedores, consultas, reportes, ingreso/ajuste de inventario, traspasos y preinventario; catálogo solo consulta',
-    Repartidor: 'Ruta / recolector: recolecciones e incidencias en todas las tiendas desde central MAIN (el bloqueo duro de cajero no aplica)',
+    Repartidor: 'Ruta / recolector: recolecciones, incidencias y productos (todo excepto vaciar inventario); sin ventas, caja, checador, contabilidad, configuración ni usuarios',
     Auditor: 'Consultas, reportes, inventario e incidencias en todas las tiendas desde central MAIN',
     Supervisor: 'Operación de tienda sin configuración ni usuarios',
     Gerente: 'Operación, configuración y gestión de incidencias en todas las tiendas',
