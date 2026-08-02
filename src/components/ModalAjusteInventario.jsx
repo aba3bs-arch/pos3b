@@ -112,7 +112,7 @@ export default function ModalAjusteInventario({
       return;
     }
     if (id === 'retiro') {
-      onElegir?.({ accion: 'retiro', modo: 'movimiento', tipo: 'retiro' });
+      onElegir?.({ accion: 'retiro', modo: 'masivo', tipo: 'retiro' });
       resetYCerrar();
       return;
     }
@@ -125,8 +125,9 @@ export default function ModalAjusteInventario({
   const abrirEspera = (draft) => {
     const tipo = draft?.tipo || 'departamento';
     const modo =
-      tipo === 'libre' ? 'libre' : tipo === 'masivo' ? 'masivo' : 'departamento';
-    onElegir?.({ accion: 'espera', modo, borrador: draft });
+      tipo === 'libre' ? 'libre' : tipo === 'masivo' || tipo === 'masivo-retiro' ? 'masivo' : 'departamento';
+    const tipoMov = tipo === 'masivo-retiro' ? 'retiro' : 'entrada';
+    onElegir?.({ accion: 'espera', modo, tipo: tipoMov, borrador: draft });
     resetYCerrar();
   };
 
@@ -237,7 +238,7 @@ export default function ModalAjusteInventario({
                                 <strong>{d.titulo || d.departamento || 'Ajuste'}</strong>
                                 <small>
                                   {fmtFecha(d.savedAt)} ·{' '}
-                                  {d.tipo === 'masivo'
+                                  {d.tipo === 'masivo' || d.tipo === 'masivo-retiro'
                                     ? `${(d.lineasMasivas || []).length} línea(s)`
                                     : d.tipo === 'libre'
                                       ? `${(d.ordenIds || []).length || Object.keys(d.conteos || {}).length} producto(s)`

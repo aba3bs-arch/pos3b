@@ -35,9 +35,17 @@ import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 
 const TIPOS_MOV = TIPOS_MOVIMIENTO.filter((t) => t.id === 'entrada' || t.id === 'retiro');
 
-function lineasMasivasIniciales(modoInicial, sucursalOp, borradorInicial) {
+function claveBorradorMasivo(tipoMov) {
+  return tipoMov === 'retiro' ? 'masivo-retiro' : 'masivo';
+}
+
+function lineasMasivasIniciales(modoInicial, sucursalOp, borradorInicial, tipoMov = 'entrada') {
   if (modoInicial !== 'masivo') return [];
-  const base = borradorInicial?.tipo === 'masivo' ? borradorInicial : leerBorradorAuto('masivo', sucursalOp);
+  const clave = claveBorradorMasivo(tipoMov);
+  const base =
+    borradorInicial?.tipo === 'masivo' || borradorInicial?.tipo === clave
+      ? borradorInicial
+      : leerBorradorAuto(clave, sucursalOp);
   if (borradorTieneDatos(base) && Array.isArray(base.lineasMasivas)) return base.lineasMasivas.map((l) => ({ ...l }));
   return [];
 }
@@ -76,15 +84,20 @@ export default function AjusteInventario({
   const [histDesde, setHistDesde] = useState('');
   const [histHasta, setHistHasta] = useState('');
   const [aplicando, setAplicando] = useState(false);
-  const [lineasMasivas, setLineasMasivas] = useState(() => lineasMasivasIniciales(modoInicial, sucursalOp, borradorInicial));
-  const [avisoMasivoRecuperado, setAvisoMasivoRecuperado] = useState(
-    () => modoInicial === 'masivo' && !borradorInicial && borradorTieneDatos(leerBorradorAuto('masivo', sucursalOp)),
+  const [lineasMasivas, setLineasMasivas] = useState(() =>
+    lineasMasivasIniciales(modoInicial, sucursalOp, borradorInicial, tipoInicial || 'entrada'),
   );
+  const [avisoMasivoRecuperado, setAvisoMasivoRecuperado] = useState(() => {
+    if (modoInicial !== 'masivo' || borradorInicial) return false;
+    return borradorTieneDatos(leerBorradorAuto(claveBorradorMasivo(tipoInicial || 'entrada'), sucursalOp));
+  });
   const [busquedaMasiva, setBusquedaMasiva] = useState('');
   const [productoMasivoId, setProductoMasivoId] = useState('');
   const [modalIngreso, setModalIngreso] = useState(null); // { producto, sumarA }
   const [modalIngresoQty, setModalIngresoQty] = useState('');
   const modalIngresoRef = useRef(null);
+  const esRetiroMasivo = modo === 'masivo' && tipo === 'retiro';
+  const esIngresoMasivo = modo === 'masivo' && tipo !== 'retiro';
   const [codigoEscaneo, setCodigoEscaneo] = useState('');
   const [subtipoTraspaso, setSubtipoTraspaso] = useState(() => (esAlmacenCentral(sucursalOperacion || sucursal) ? 'central_tienda' : 'tienda_tienda'));
   const [sucursalDestinoTraspaso, setSucursalDestinoTraspaso] = useState('');
@@ -120,10 +133,11 @@ export default function AjusteInventario({
     () => {
       if (modo !== 'masivo') return null;
       if (!lineasMasivas.length) return null;
+      const clave = claveBorradorMasivo(tipo);
       return {
-        id: idAutoBorrador('masivo', sucursalOp),
-        tipo: 'masivo',
-        titulo: 'Entrada masiva',
+        id: idAutoBorrador(clave, sucursalOp),
+        tipo: clave,
+        titulo: tipo === 'retiro' ? 'Retiro de inventario' : 'Ingreso de inventarios',
         lineasMasivas,
         sucursal: sucursalOp,
         usuario: user?.nombre,
@@ -131,7 +145,7 @@ export default function AjusteInventario({
       };
     },
     (draft) => guardarAjusteEnEspera(draft),
-    { enabled: modo === 'masivo', deps: [lineasMasivas, sucursalOp, user?.nombre] },
+    { enabled: modo === 'masivo', deps: [lineasMasivas, sucursalOp, user?.nombre, tipo] },
   );
 
   const productosFiltrados = useMemo(() => {
@@ -387,6 +401,9 @@ export default function AjusteInventario({
   };
 
   const aplicarMasivo = async () => {
+    const tipoMov = tipo === 'retiro' ? 'retiro' : 'entrada';
+    const signo = tipoMov === 'entrada' ? 1 : -1;
+    const signoTxt = tipoMov === 'entrada' ? '+' : '−';
     const invalidas = lineasMasivas.filter((l) => l.productoId && !parseCantidadInventario(l.cantidad));
     if (invalidas.length) {
       return alert('Hay líneas con cantidad inválida. Cada cantidad debe ser un entero ≥ 1 (ej. 12).');
@@ -403,13 +420,15 @@ export default function AjusteInventario({
           (inventario || []).find((x) => String(x.id) === String(l.productoId)) ||
           (catalogoCompleto || []).find((x) => String(x.id) === String(l.productoId));
         const stock = enCentral ? Number(p?.stock_cedis) || 0 : Number(p?.stock) || 0;
-        return `• ${p?.nombre || l.productoId}: +${l.cantidad} (${stock} → ${stock + l.cantidad})`;
+        return `• ${p?.nombre || l.productoId}: ${signoTxt}${l.cantidad} (${stock} → ${stock + signo * l.cantidad})`;
       })
       .join('\n');
 
     if (
       !confirm(
-        `¿SUMAR estas piezas al stock actual?\n\n${resumen}\n\nTotal: +${totalPiezas} pieza(s) en ${validas.length} producto(s).\n(Ejemplo: si había 0 y sumas 12, debe quedar 12.)`,
+        tipoMov === 'entrada'
+          ? `¿SUMAR estas piezas al stock actual?\n\n${resumen}\n\nTotal: +${totalPiezas} pieza(s) en ${validas.length} producto(s).\n(Ejemplo: si había 0 y sumas 12, debe quedar 12.)`
+          : `¿RESTAR estas piezas del stock actual?\n\n${resumen}\n\nTotal: −${totalPiezas} pieza(s) en ${validas.length} producto(s).\n(Ejemplo: si había 12 y restas 3, debe quedar 9.)`,
       )
     ) {
       return;
@@ -423,6 +442,7 @@ export default function AjusteInventario({
       usuario: user?.nombre,
       sucursal: sucursalOp,
       sucursalOperacion: sucursalOp,
+      tipo: tipoMov,
     });
     setAplicando(false);
     if (!r.ok) {
@@ -440,14 +460,14 @@ export default function AjusteInventario({
         if (base) fusionarProducto?.({ ...base, ...d.patch });
       }
     }
-    eliminarAjusteEnEspera(idAutoBorrador('masivo', sucursalOp));
+    eliminarAjusteEnEspera(idAutoBorrador(claveBorradorMasivo(tipoMov), sucursalOp));
     setAvisoMasivoRecuperado(false);
     const lineasPrint = validas.map((l) => {
       const p = (inventario || []).find((x) => String(x.id) === String(l.productoId));
-      return { id: l.productoId, nombre: p?.nombre || l.productoId, cantidad: l.cantidad, tipo: 'entrada' };
+      return { id: l.productoId, nombre: p?.nombre || l.productoId, cantidad: l.cantidad, tipo: tipoMov };
     });
     await imprimirMovimientoInventario({
-      titulo: 'ENTRADA MÚLTIPLE DE INVENTARIO',
+      titulo: tipoMov === 'entrada' ? 'INGRESO DE INVENTARIOS' : 'RETIRO DE INVENTARIO',
       sucursal: sucursalOp,
       usuario: user?.nombre,
       motivo,
@@ -543,9 +563,19 @@ export default function AjusteInventario({
       <div className="card" style={{ borderTop: embebido ? undefined : '4px solid var(--brand-gold)' }}>
         {!embebido && (
           <>
-            <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Ajuste de inventario</h3>
+            <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>
+              {esIngresoMasivo
+                ? 'Ingreso de inventarios'
+                : esRetiroMasivo
+                  ? 'Retiro de inventario'
+                  : 'Ajuste de inventario'}
+            </h3>
             <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-              Registra entradas, retiros o traspasos. En MAIN las entradas van al CEDIS central; en tiendas al piso de venta. Los movimientos quedan en el historial de este equipo.
+              {esIngresoMasivo
+                ? 'Suma piezas al stock actual. En MAIN el ingreso va al CEDIS central; en tiendas al piso de venta.'
+                : esRetiroMasivo
+                  ? 'Resta piezas del stock actual. En MAIN el retiro sale del CEDIS central; en tiendas del piso de venta.'
+                  : 'Registra entradas, retiros o traspasos. En MAIN las entradas van al CEDIS central; en tiendas al piso de venta. Los movimientos quedan en el historial de este equipo.'}
             </p>
           </>
         )}
@@ -604,8 +634,17 @@ export default function AjusteInventario({
         {modo === 'masivo' && (
           <p className="muted" style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
             Al agregar o escanear un producto <strong>debes indicar cuántas piezas</strong> (ej. 12). Se{' '}
-            <strong>SUMAN</strong> al stock actual (0 + 12 = 12; 10 + 12 = 22). No reemplazan la existencia.
-            En MAIN el ingreso va a <strong>CEDIS</strong>; en tienda, al piso.
+            {esRetiroMasivo ? (
+              <>
+                <strong>RESTAN</strong> del stock actual (12 − 3 = 9). No reemplazan la existencia.
+                En MAIN el retiro sale de <strong>CEDIS</strong>; en tienda, del piso.
+              </>
+            ) : (
+              <>
+                <strong>SUMAN</strong> al stock actual (0 + 12 = 12; 10 + 12 = 22). No reemplazan la existencia.
+                En MAIN el ingreso va a <strong>CEDIS</strong>; en tienda, al piso.
+              </>
+            )}
           </p>
         )}
         {modo === 'masivo' && avisoMasivoRecuperado && lineasMasivas.length > 0 && (
@@ -619,7 +658,7 @@ export default function AjusteInventario({
               fontSize: '0.85rem',
             }}
           >
-            Se recuperó la entrada masiva ({lineasMasivas.length} línea(s)).
+            Se recuperó {esRetiroMasivo ? 'el retiro' : 'el ingreso'} ({lineasMasivas.length} línea(s)).
             <button type="button" className="btn btn-ghost" style={{ marginLeft: '0.5rem', padding: '0.2rem 0.45rem', fontSize: '0.8rem' }} onClick={() => setAvisoMasivoRecuperado(false)}>
               Entendido
             </button>
@@ -650,7 +689,7 @@ export default function AjusteInventario({
             <div
               role="dialog"
               aria-modal="true"
-              aria-label="Cantidad a ingresar"
+              aria-label={esRetiroMasivo ? 'Cantidad a retirar' : 'Cantidad a ingresar'}
               style={{
                 position: 'fixed',
                 inset: 0,
@@ -668,7 +707,9 @@ export default function AjusteInventario({
                 style={{ width: 'min(420px, 100%)', margin: 0, boxShadow: '0 16px 40px rgba(0,0,0,0.25)' }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>¿Cuántas piezas entran?</h4>
+                <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
+                  {esRetiroMasivo ? '¿Cuántas piezas salen?' : '¿Cuántas piezas entran?'}
+                </h4>
                 <p style={{ margin: '0 0 0.75rem', fontWeight: 600 }}>{modalIngreso.producto?.nombre}</p>
                 {modalIngreso.sumarA > 0 && (
                   <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
@@ -707,7 +748,9 @@ export default function AjusteInventario({
               </div>
             </div>
           )}
-          <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Productos a ingresar</h4>
+          <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>
+            {esRetiroMasivo ? 'Productos a retirar' : 'Productos a ingresar'}
+          </h4>
           <div className="grid-2">
             <label className="muted" style={{ gridColumn: '1 / -1' }}>
               Buscar producto
@@ -720,7 +763,7 @@ export default function AjusteInventario({
                     onEscanear={procesarEscaneoMasivo}
                     beepAlEnter
                     placeholder="Nombre o código… usa Cámara"
-                    tituloCamara="Escanear producto a ingresar"
+                    tituloCamara={esRetiroMasivo ? 'Escanear producto a retirar' : 'Escanear producto a ingresar'}
                   />
                 </div>
               </label>
@@ -763,7 +806,7 @@ export default function AjusteInventario({
                 {lineasMasivas.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="muted">
-                      Sin productos. Busca y agrega los que vas a recibir.
+                      Sin productos. Busca y agrega los que vas a {esRetiroMasivo ? 'retirar' : 'recibir'}.
                     </td>
                   </tr>
                 ) : (
@@ -773,6 +816,7 @@ export default function AjusteInventario({
                       (catalogoCompleto || []).find((x) => String(x.id) === String(l.productoId));
                     const qty = parseCantidadInventario(l.cantidad) || 0;
                     const stock = enCentral ? Number(p?.stock_cedis) || 0 : Number(p?.stock) || 0;
+                    const quedaria = qty > 0 ? stock + (esRetiroMasivo ? -qty : qty) : null;
                     return (
                       <tr key={l.productoId}>
                         <td>{l.productoId}</td>
@@ -794,7 +838,9 @@ export default function AjusteInventario({
                             aria-label={`Cantidad de ${p?.nombre || l.productoId}`}
                           />
                         </td>
-                        <td style={{ fontWeight: 700 }}>{qty > 0 ? stock + qty : '—'}</td>
+                        <td style={{ fontWeight: 700, color: quedaria != null && quedaria < 0 ? 'var(--brand-red)' : undefined }}>
+                          {quedaria != null ? quedaria : '—'}
+                        </td>
                         <td>
                           <button type="button" className="btn btn-danger" style={{ padding: '0.25rem 0.45rem', fontSize: '0.75rem' }} onClick={() => quitarLineaMasiva(l.productoId)}>
                             Quitar
@@ -812,7 +858,7 @@ export default function AjusteInventario({
             <button type="button" className="btn btn-success" onClick={aplicarMasivo} disabled={aplicando || lineasMasivas.length === 0}>
               {aplicando
                 ? 'Aplicando…'
-                : `Aplicar +${lineasMasivas.reduce((s, l) => s + (parseCantidadInventario(l.cantidad) || 0), 0)} pieza(s)`}
+                : `Aplicar ${esRetiroMasivo ? '−' : '+'}${lineasMasivas.reduce((s, l) => s + (parseCantidadInventario(l.cantidad) || 0), 0)} pieza(s)`}
             </button>
             {lineasMasivas.length > 0 && (
               <button type="button" className="btn btn-ghost" onClick={() => setLineasMasivas([])}>

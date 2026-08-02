@@ -476,10 +476,23 @@ export async function aplicarMovimientoInventario(supabase, opts) {
   };
 }
 
-/** Varias entradas de inventario en un solo paso (recepción / conteo). */
+/** Varias entradas o retiros de inventario en un solo paso (recepción / salida). */
 export async function aplicarEntradasMasivas(supabase, opts) {
-  const { lineas, inventario, inventarioCompleto, motivo, usuario, sucursal, sucursalOperacion } = opts;
+  const {
+    lineas,
+    inventario,
+    inventarioCompleto,
+    motivo,
+    usuario,
+    sucursal,
+    sucursalOperacion,
+    tipo: tipoMov = 'entrada',
+  } = opts;
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
+  const tipo = tipoMov === 'retiro' ? 'retiro' : 'entrada';
+  const signoTxt = tipo === 'entrada' ? '+' : '−';
+  const verbo = tipo === 'entrada' ? 'SUMADAS' : 'RESTADAS';
+  const etiquetaOk = tipo === 'entrada' ? 'Entrada masiva' : 'Retiro masivo';
 
   const lista = [];
   for (const l of lineas || []) {
@@ -513,7 +526,7 @@ export async function aplicarEntradasMasivas(supabase, opts) {
       continue;
     }
     const r = await aplicarMovimientoInventario(supabase, {
-      tipo: 'entrada',
+      tipo,
       productoOrigen,
       cantidad,
       motivo,
@@ -543,10 +556,12 @@ export async function aplicarEntradasMasivas(supabase, opts) {
     else if (r.patch) productosVivos.set(String(productoId), { ...productoOrigen, ...r.patch });
   }
 
-  if (!aplicados) return { ok: false, error: errores.join('\n') || 'No se aplicó ninguna entrada.' };
+  if (!aplicados) {
+    return { ok: false, error: errores.join('\n') || `No se aplicó ningún ${tipo === 'entrada' ? 'ingreso' : 'retiro'}.` };
+  }
 
   const lineasTxt = detalle
-    .map((d) => `• ${d.nombre}: +${d.cantidad} (${d.stock_antes} → ${d.stock_despues})`)
+    .map((d) => `• ${d.nombre}: ${signoTxt}${d.cantidad} (${d.stock_antes} → ${d.stock_despues})`)
     .join('\n');
   return {
     ok: true,
@@ -557,8 +572,8 @@ export async function aplicarEntradasMasivas(supabase, opts) {
     log,
     mensaje:
       (errores.length > 0
-        ? `Entrada masiva: ${aplicados} producto(s) / ${piezas} pieza(s) OK. ${errores.length} con error.\n`
-        : `Entrada masiva OK en ${etiquetaTienda(tienda)}: ${aplicados} producto(s), ${piezas} pieza(s) SUMADAS al stock.\n`) +
+        ? `${etiquetaOk}: ${aplicados} producto(s) / ${piezas} pieza(s) OK. ${errores.length} con error.\n`
+        : `${etiquetaOk} OK en ${etiquetaTienda(tienda)}: ${aplicados} producto(s), ${piezas} pieza(s) ${verbo} al stock.\n`) +
       lineasTxt,
   };
 }

@@ -754,7 +754,15 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     <div className={vista === 'lista' ? 'prod-page' : undefined} style={vista === 'lista' ? undefined : { display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div className="productos-toolbar">
         <div>
-          <h2>{TITULOS_VISTA[vista] || 'Productos'}</h2>
+          <h2>
+            {vista === 'ajustes'
+              ? ajusteConfig.modo === 'masivo' && ajusteConfig.tipo === 'retiro'
+                ? 'Retiro de inventario'
+                : ajusteConfig.modo === 'masivo'
+                  ? 'Ingreso de inventarios'
+                  : 'Ajuste de inventario'
+              : TITULOS_VISTA[vista] || 'Productos'}
+          </h2>
           {vista === 'lista' && (
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
               {inventario.length} producto(s) · piso en <strong>{tiendaLabel}</strong>
