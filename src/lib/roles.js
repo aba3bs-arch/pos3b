@@ -161,6 +161,10 @@ const ACCESO_POR_ROL = {
     'Corte Abarrotes',
     'Corte Garage',
     'Productos',
+    'Compras',
+    'Proveedores',
+    'Consultas',
+    'Reportes',
     'Vales y Préstamos',
     'Checador',
     'Ayuda',
@@ -376,14 +380,10 @@ export function esRolMostradorRestringido(rol) {
 
 /** Módulos que el cajero nunca puede abrir (bloqueo duro). */
 export const MODULOS_BLOQUEADOS_MOSTRADOR = new Set([
-  'Compras',
-  'Proveedores',
   'Clientes',
   'Usuarios',
-  'Consultas',
   'Estadisticas',
   'Resumen operativo',
-  'Reportes',
   'Configuracion',
   'Nómina',
   'Panel RT',
@@ -400,7 +400,7 @@ export function puedeEditarCatalogoProductos(rol) {
   return r !== 'Repartidor' && r !== 'Técnico';
 }
 
-/** Entradas, retiros, conteos, vaciados, consolidación. */
+/** Entradas, retiros, conteos libres, vaciados, consolidación (no incluye traspaso/preinventario). */
 export function puedeAjustarInventario(rol) {
   if (esRolMostradorRestringido(rol)) return false;
   const r = rolSistemaEfectivo(rol);
@@ -409,11 +409,13 @@ export function puedeAjustarInventario(rol) {
 
 /** Traspasos entre tiendas / CEDIS. */
 export function puedeTraspasarInventario(rol) {
+  if (esRolMostradorRestringido(rol)) return true;
   return puedeAjustarInventario(rol);
 }
 
-/** Preinventario / conteos que alteran existencias. */
+/** Preinventario / conteos de existencias. */
 export function puedeHacerPreinventario(rol) {
+  if (esRolMostradorRestringido(rol)) return true;
   return puedeAjustarInventario(rol);
 }
 
@@ -434,7 +436,7 @@ export function puedeGestionarInventarioMultitienda(rol) {
 export function descripcionRol(rol) {
   const r = normalizarRol(rol);
   const textos = {
-    Cajero: 'Mostrador: ventas, escáner, corte de su turno, checador y consulta de productos (sin editar ni ajustar inventario)',
+    Cajero: 'Mostrador: ventas, cortes, checador, compras, proveedores, consultas, reportes, traspasos y preinventario; productos solo consulta',
     Repartidor: 'Ruta, recolecciones e incidencias en todas las tiendas desde central MAIN',
     Auditor: 'Consultas, reportes, inventario e incidencias en todas las tiendas desde central MAIN',
     Supervisor: 'Operación de tienda sin configuración ni usuarios',

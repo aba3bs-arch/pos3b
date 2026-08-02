@@ -140,7 +140,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const puedeAltaProveedor = puedeCrearProveedor(user?.rol);
   const puedeVaciarInventario = puedeGestionarInventarioMultitienda(user?.rol);
   const puedeEliminarCatalogo = puedeEliminarProductosCatalogo(user?.rol);
-  /** Cajero: solo consulta de catálogo (sin editar, ajustar ni traspasar). */
+  /** Cajero: consulta de catálogo + traspasos y preinventario (sin editar productos). */
   const esCajero = esRolMostradorRestringido(user?.rol);
   const puedeGestionCatalogo = puedeEditarCatalogoProductos(user?.rol);
   const puedeAjustes = puedeAjustarInventario(user?.rol);
@@ -157,8 +157,8 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
 
   useEffect(() => {
     if (!esCajero) return;
-    // Cajero: únicamente lista / historial de consulta.
-    if (vista !== 'lista' && vista !== 'historial') setVista('lista');
+    const vistasCajero = new Set(['lista', 'historial', 'traspaso', 'preinventario']);
+    if (!vistasCajero.has(vista)) setVista('lista');
   }, [esCajero, vista]);
 
   useEffect(() => {
@@ -623,7 +623,14 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   };
 
   const menuItems = esCajero
-    ? []
+    ? [
+        ...(puedeTraspasos
+          ? [{ id: 'traspaso', label: 'Traspasos', icon: 'truck', onClick: () => setVista('traspaso') }]
+          : []),
+        ...(puedePreinventario
+          ? [{ id: 'preinventario', label: 'Preinventario', icon: 'package', onClick: () => setVista('preinventario') }]
+          : []),
+      ]
     : [
         ...(puedeGestionCatalogo
           ? [{ id: 'alta', label: 'Nuevo producto', icon: 'plus', onClick: () => { setForm(empty); setEsEdicionProducto(false); setVista('alta'); } }]
@@ -759,7 +766,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           {menuItems.length > 0 && <MenuPuntos items={menuItems} />}
           {esCajero && (
             <span className="muted" style={{ fontSize: '0.8rem' }}>
-              Solo consulta
+              Productos: solo consulta
             </span>
           )}
         </div>
