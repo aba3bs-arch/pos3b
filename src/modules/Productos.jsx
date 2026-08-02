@@ -15,7 +15,6 @@ import { vaciarInventario, OPCIONES_VACIADO } from '../lib/borrarInventario.js';
 import { registrarCambioPrecio } from '../lib/inventarioMovimientos.js';
 import { mensajeErrorColumnasProducto, productoDesdeDb, productoParaGuardar, productoVacio } from '../lib/productoForm.js';
 import {
-  normalizarRol,
   puedeCrearProveedor,
   puedeEliminarProductosCatalogo,
   puedeGestionarInventarioMultitienda,
