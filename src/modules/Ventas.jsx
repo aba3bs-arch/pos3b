@@ -77,6 +77,8 @@ export default function Ventas({
   const [monedaPago, setMonedaPago] = useState('MXN');
   const [formaPago, setFormaPago] = useState('efectivo');
   const [mostrarCobro, setMostrarCobro] = useState(false);
+  const [resultadoVenta, setResultadoVenta] = useState(null);
+  const [finalizando, setFinalizando] = useState(false);
   const [metodosPago, setMetodosPago] = useState(() => leerMetodosPago());
   const [ultimaVenta, setUltimaVenta] = useState(null);
   const [deptoActivo, setDeptoActivo] = useState('favoritos');
@@ -200,7 +202,7 @@ export default function Ventas({
   }, [metodoActual, monedaPago, refPago]);
 
   const finalizarVenta = async () => {
-    if (!supabase || !user) return;
+    if (!supabase || !user || finalizando) return;
     const acceso = usuarioAutorizadoLogin(user, new Date(), null, sucursal);
     if (!acceso.ok) return alert(acceso.error);
     const turno = turnoActual();
@@ -232,6 +234,7 @@ export default function Ventas({
         despues: calc.despues,
       });
     }
+    setFinalizando(true);
     const { error } = await supabase.from('ventas').insert([
       {
         vendedor: user.nombre,
@@ -245,10 +248,16 @@ export default function Ventas({
       },
     ]);
     if (error) {
+      setFinalizando(false);
       alert(error.message);
       return;
     }
     const vendidoEn = new Date().toISOString();
+    const totalVenta = totalMXN;
+    const cambioVenta = esEfectivo ? cambioMXN : null;
+    const metodoVenta = textoMetodoPago;
+    const recibidoVenta = esEfectivo ? montoRecibidoEfectivo(pagoCon, totalMXN, monedaPago, tipoCambio) : totalMXN;
+    const pagoExacto = esEfectivo && pagoCon === PAGO_EXACTO;
     for (const d of deltas) {
       const { error: e2 } = await supabase.from('productos').update(d.patch).eq('id', d.id);
       if (e2) {
@@ -256,6 +265,17 @@ export default function Ventas({
         cargarDatos();
         setCarrito([]);
         resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago });
+        setResultadoVenta({
+          total: totalVenta,
+          cambio: cambioVenta,
+          metodo: metodoVenta,
+          esEfectivo,
+          pagoExacto,
+          moneda: monedaPago,
+          recibido: recibidoVenta,
+          avisoStock: true,
+        });
+        setFinalizando(false);
         return;
       }
       guardarMovimientoLocal({
@@ -267,36 +287,29 @@ export default function Ventas({
         stock_antes: d.antes,
         stock_despues: d.despues,
         ubicacion: 'piso',
-        motivo: `Venta · ${textoMetodoPago}`,
+        motivo: `Venta · ${metodoVenta}`,
         usuario: user.nombre,
         sucursal,
         created_at: vendidoEn,
       }, supabase);
     }
-    alert(
-      esEfectivo
-        ? pagoCon === PAGO_EXACTO
-          ? `Venta exitosa (${textoMetodoPago}). Pago exacto · sin cambio`
-          : `Venta exitosa (${textoMetodoPago}). Cambio: $${cambioMXN.toFixed(2)} MXN`
-        : `Venta registrada · ${textoMetodoPago}`,
-    );
     const ticket = {
       sucursal,
       vendedor: user.nombre,
       articulos,
-      total: totalMXN,
-      metodo_pago: textoMetodoPago,
+      total: totalVenta,
+      metodo_pago: metodoVenta,
       esEfectivo,
-      recibido: esEfectivo ? montoRecibidoEfectivo(pagoCon, totalMXN, monedaPago, tipoCambio) : totalMXN,
-      cambio: esEfectivo ? cambioMXN : null,
+      recibido: recibidoVenta,
+      cambio: cambioVenta,
       moneda: monedaPago,
     };
     setUltimaVenta(ticket);
-    const decision = resolverImpresionVentaPorMonto(totalMXN);
+    const decision = resolverImpresionVentaPorMonto(totalVenta);
     let debeImprimir = decision.accion === 'imprimir';
     if (decision.accion === 'preguntar') {
       debeImprimir = confirm(
-        `Venta de $${Number(totalMXN).toFixed(2)} MXN (menor al mínimo configurado).\n\n¿Imprimir ticket?`,
+        `Venta de $${Number(totalVenta).toFixed(2)} MXN (menor al mínimo configurado).\n\n¿Imprimir ticket?`,
       );
     }
     if (debeImprimir) {
@@ -305,6 +318,16 @@ export default function Ventas({
     }
     setCarrito([]);
     resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago });
+    setResultadoVenta({
+      total: totalVenta,
+      cambio: cambioVenta,
+      metodo: metodoVenta,
+      esEfectivo,
+      pagoExacto,
+      moneda: monedaPago,
+      recibido: recibidoVenta,
+    });
+    setFinalizando(false);
     cargarDatos();
   };
 
@@ -639,95 +662,193 @@ export default function Ventas({
         <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--brand-blue)', borderTop: '2px solid var(--brand-blue)', paddingTop: '0.75rem', marginTop: '0.5rem' }}>
           TOTAL ${totalMXN.toFixed(2)} MXN
         </div>
-        {mostrarCobro ? (
-          <div style={{ background: 'var(--surface)', padding: '0.85rem', borderRadius: '12px', marginTop: '0.75rem' }}>
-            <label className="muted" style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
-              Forma de pago
-            </label>
-            {metodosPago.length === 0 ? (
-              <p className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
-                Activa al menos un método en <strong>Configuración → Métodos de pago</strong>.
-              </p>
-            ) : (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.75rem' }}>
-                {metodosPago.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    className={formaPago === m.id ? 'btn btn-primary' : 'btn btn-ghost'}
-                    style={{ flex: '1 1 calc(50% - 0.4rem)', minWidth: '100px', fontSize: '0.85rem', padding: '0.45rem 0.5rem' }}
-                    onClick={() => elegirMetodo(m.id)}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-            )}
-            {esEfectivo ? (
-              <>
-                <select value={monedaPago} onChange={(e) => setMonedaPago(e.target.value)} className="select" style={{ marginBottom: '0.5rem' }}>
-                  <option value="MXN">Pesos (MXN)</option>
-                  <option value="USD">Dólares (USD)</option>
-                </select>
-                <button
-                  type="button"
-                  className={pagoCon === PAGO_EXACTO ? 'btn btn-primary' : 'btn btn-ghost'}
-                  style={{ width: '100%', marginBottom: '0.5rem', fontWeight: 700 }}
-                  onClick={() => setPagoCon(PAGO_EXACTO)}
-                >
-                  Monto exacto · ${totalMXN.toFixed(2)} MXN
-                </button>
-                <select value={pagoCon === PAGO_EXACTO ? '' : pagoCon} onChange={(e) => setPagoCon(e.target.value)} className="select" style={{ marginBottom: '0.5rem' }}>
-                  <option value="">{pagoCon === PAGO_EXACTO ? 'Exacto seleccionado' : 'O pagar con billete…'}</option>
-                  {(monedaPago === 'MXN' ? [20, 50, 100, 200, 500, 1000] : [1, 5, 10, 20, 50, 100]).map((d) => (
-                    <option key={d} value={d}>
-                      ${d} {monedaPago === 'MXN' ? 'MXN' : 'USD'}
-                    </option>
-                  ))}
-                </select>
-                <div style={{ color: 'var(--brand-green)', fontWeight: 700, marginBottom: '0.5rem' }}>
-                  {pagoCon === PAGO_EXACTO ? 'Cambio: $0.00 MXN (exacto)' : `Cambio: $${cambioMXN.toFixed(2)} MXN`}
-                </div>
-              </>
-            ) : (
-              <>
-                <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.9rem' }}>
-                  Cobro exacto · <strong>{metodoActual?.label}</strong> · ${totalMXN.toFixed(2)} MXN
-                </p>
-                {metodoActual && (
-                  <label className="muted" style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem' }}>
-                    Referencia / folio (opcional)
-                    <input
-                      className="input"
-                      style={{ marginTop: '0.35rem' }}
-                      value={refPago}
-                      onChange={(e) => setRefPago(e.target.value)}
-                      placeholder="Últimos dígitos, SPEI, autorización…"
-                      maxLength={64}
-                    />
-                  </label>
-                )}
-              </>
-            )}
-            <button type="button" className="btn btn-success" style={{ width: '100%' }} onClick={finalizarVenta} disabled={!metodosPago.length}>
-              <BtnLabel icon="check">Finalizar venta</BtnLabel>
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              style={{ width: '100%', marginTop: '0.35rem' }}
-              onClick={() => resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago })}
-            >
-              Volver
-            </button>
-          </div>
-        ) : (
-          <button type="button" className="btn btn-success" style={{ width: '100%', padding: '1rem', marginTop: '0.75rem', fontSize: '1.1rem' }} onClick={() => setMostrarCobro(true)} disabled={!carrito.length}>
-            <BtnLabel icon="cart" iconSize={22}>Cobrar</BtnLabel>
-          </button>
-        )}
+        <button
+          type="button"
+          className="btn btn-success"
+          style={{ width: '100%', padding: '1rem', marginTop: '0.75rem', fontSize: '1.1rem' }}
+          onClick={() => setMostrarCobro(true)}
+          disabled={!carrito.length}
+        >
+          <BtnLabel icon="cart" iconSize={22}>Cobrar</BtnLabel>
+        </button>
       </aside>
       </div>
+
+      {mostrarCobro && (
+        <div
+          className="prod-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ventas-cobro-titulo"
+          onClick={() => !finalizando && resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago })}
+        >
+          <div className="ventas-cobro-modal" onClick={(e) => e.stopPropagation()}>
+            <header className="prod-modal-header">
+              <button
+                type="button"
+                className="prod-modal-close"
+                aria-label="Cerrar"
+                disabled={finalizando}
+                onClick={() => resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago })}
+              >
+                <Icon name="x" size={18} />
+              </button>
+              <h2 id="ventas-cobro-titulo" style={{ margin: 0, fontSize: '1.1rem' }}>Cobrar venta</h2>
+              <span style={{ width: 36 }} />
+            </header>
+            <div className="ventas-cobro-body">
+              <div className="ventas-cobro-total">
+                TOTAL <strong>${totalMXN.toFixed(2)}</strong> MXN
+              </div>
+              <label className="muted" style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
+                Forma de pago
+              </label>
+              {metodosPago.length === 0 ? (
+                <p className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+                  Activa al menos un método en <strong>Configuración → Métodos de pago</strong>.
+                </p>
+              ) : (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.75rem' }}>
+                  {metodosPago.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      className={formaPago === m.id ? 'btn btn-primary' : 'btn btn-ghost'}
+                      style={{ flex: '1 1 calc(50% - 0.4rem)', minWidth: '100px', fontSize: '0.85rem', padding: '0.45rem 0.5rem' }}
+                      onClick={() => elegirMetodo(m.id)}
+                      disabled={finalizando}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {esEfectivo ? (
+                <>
+                  <select
+                    value={monedaPago}
+                    onChange={(e) => setMonedaPago(e.target.value)}
+                    className="select"
+                    style={{ marginBottom: '0.5rem' }}
+                    disabled={finalizando}
+                  >
+                    <option value="MXN">Pesos (MXN)</option>
+                    <option value="USD">Dólares (USD)</option>
+                  </select>
+                  <button
+                    type="button"
+                    className={pagoCon === PAGO_EXACTO ? 'btn btn-primary' : 'btn btn-ghost'}
+                    style={{ width: '100%', marginBottom: '0.5rem', fontWeight: 700 }}
+                    onClick={() => setPagoCon(PAGO_EXACTO)}
+                    disabled={finalizando}
+                  >
+                    Monto exacto · ${totalMXN.toFixed(2)} MXN
+                  </button>
+                  <select
+                    value={pagoCon === PAGO_EXACTO ? '' : pagoCon}
+                    onChange={(e) => setPagoCon(e.target.value)}
+                    className="select"
+                    style={{ marginBottom: '0.5rem' }}
+                    disabled={finalizando}
+                  >
+                    <option value="">{pagoCon === PAGO_EXACTO ? 'Exacto seleccionado' : 'O pagar con billete…'}</option>
+                    {(monedaPago === 'MXN' ? [20, 50, 100, 200, 500, 1000] : [1, 5, 10, 20, 50, 100]).map((d) => (
+                      <option key={d} value={d}>
+                        ${d} {monedaPago === 'MXN' ? 'MXN' : 'USD'}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="ventas-cobro-cambio-previo">
+                    {pagoCon === PAGO_EXACTO ? 'Cambio: $0.00 MXN (exacto)' : `Cambio: $${cambioMXN.toFixed(2)} MXN`}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.9rem' }}>
+                    Cobro exacto · <strong>{metodoActual?.label}</strong> · ${totalMXN.toFixed(2)} MXN
+                  </p>
+                  {metodoActual && (
+                    <label className="muted" style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem' }}>
+                      Referencia / folio (opcional)
+                      <input
+                        className="input"
+                        style={{ marginTop: '0.35rem' }}
+                        value={refPago}
+                        onChange={(e) => setRefPago(e.target.value)}
+                        placeholder="Últimos dígitos, SPEI, autorización…"
+                        maxLength={64}
+                        disabled={finalizando}
+                      />
+                    </label>
+                  )}
+                </>
+              )}
+              <button
+                type="button"
+                className="btn btn-success"
+                style={{ width: '100%', padding: '0.85rem', fontSize: '1.05rem' }}
+                onClick={finalizarVenta}
+                disabled={!metodosPago.length || finalizando}
+              >
+                <BtnLabel icon="check">{finalizando ? 'Registrando…' : 'Finalizar venta'}</BtnLabel>
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ width: '100%', marginTop: '0.35rem' }}
+                disabled={finalizando}
+                onClick={() => resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago })}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {resultadoVenta && (
+        <div
+          className="prod-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ventas-cambio-titulo"
+          onClick={() => setResultadoVenta(null)}
+        >
+          <div className="ventas-cambio-modal" onClick={(e) => e.stopPropagation()}>
+            <h3 id="ventas-cambio-titulo">Venta registrada</h3>
+            <p className="muted ventas-cambio-metodo">{resultadoVenta.metodo}</p>
+            <div className="ventas-cambio-total">Total ${Number(resultadoVenta.total).toFixed(2)} MXN</div>
+            {resultadoVenta.esEfectivo ? (
+              <div className="ventas-cambio-monto">
+                {resultadoVenta.pagoExacto || Number(resultadoVenta.cambio) === 0 ? (
+                  <>
+                    <span className="muted">Cambio</span>
+                    <strong>$0.00</strong>
+                  </>
+                ) : (
+                  <>
+                    <span className="muted">Cambio</span>
+                    <strong>${Number(resultadoVenta.cambio).toFixed(2)}</strong>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="ventas-cambio-monto ventas-cambio-monto--ok">
+                <span className="muted">Cobro</span>
+                <strong>Exacto</strong>
+              </div>
+            )}
+            {resultadoVenta.avisoStock && (
+              <p className="muted" style={{ fontSize: '0.8rem', margin: '0.5rem 0 0' }}>
+                Revisa inventario: hubo un aviso al actualizar stock.
+              </p>
+            )}
+            <button type="button" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={() => setResultadoVenta(null)}>
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

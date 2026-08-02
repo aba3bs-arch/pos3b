@@ -233,7 +233,6 @@ export default function FormularioProducto({
         </div>
       </div>
 
-      {enCentral && (
       <div style={{ marginTop: '1.25rem', padding: '1rem', borderRadius: '12px', background: 'var(--surface)', border: '1px solid var(--border)' }}>
         <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)', fontSize: '0.95rem' }}>Precio de compra</h4>
         <div className="grid-2">
@@ -263,19 +262,15 @@ export default function FormularioProducto({
           </label>
         </div>
       </div>
-      )}
 
       <div style={{ marginTop: '0.75rem', padding: '1rem', borderRadius: '12px', background: 'rgba(59,105,181,0.06)', border: '1px solid rgba(59,105,181,0.2)' }}>
         <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)', fontSize: '0.95rem' }}>
           Precio de venta
-          {enCentral && (
-            <span className="muted" style={{ display: 'block', fontSize: '0.78rem', fontWeight: 400, marginTop: '0.2rem' }}>
-              Margen {GANANCIA_DEFAULT}% + IVA {IVA_DEFAULT}% · precio al consumidor en pesos enteros
-            </span>
-          )}
+          <span className="muted" style={{ display: 'block', fontSize: '0.78rem', fontWeight: 400, marginTop: '0.2rem' }}>
+            Margen {GANANCIA_DEFAULT}% + IVA {Number(form.impuesto ?? IVA_DEFAULT)}% · precio al consumidor en pesos enteros
+          </span>
         </h4>
         <div className="grid-2">
-          {enCentral && (
           <label className="muted">
             Ganancia (%)
             <input
@@ -287,7 +282,6 @@ export default function FormularioProducto({
               onChange={(e) => setCampo('ganancia_pct', parseFloat(e.target.value) || 0)}
             />
           </label>
-          )}
           <label className="muted">
             Sin impuestos (MXN)
             <input
