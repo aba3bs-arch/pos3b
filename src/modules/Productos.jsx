@@ -140,7 +140,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const puedeAltaProveedor = puedeCrearProveedor(user?.rol);
   const puedeVaciarInventario = puedeGestionarInventarioMultitienda(user?.rol);
   const puedeEliminarCatalogo = puedeEliminarProductosCatalogo(user?.rol);
-  /** Cajero: consulta de catálogo + traspasos y preinventario (sin editar productos). */
+  /** Cajero: consulta de catálogo + ingreso/ajuste, traspasos y preinventario (sin editar productos). */
   const esCajero = esRolMostradorRestringido(user?.rol);
   const puedeGestionCatalogo = puedeEditarCatalogoProductos(user?.rol);
   const puedeAjustes = puedeAjustarInventario(user?.rol);
@@ -157,7 +157,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
 
   useEffect(() => {
     if (!esCajero) return;
-    const vistasCajero = new Set(['lista', 'historial', 'traspaso', 'preinventario']);
+    const vistasCajero = new Set(['lista', 'historial', 'ajustes', 'traspaso', 'preinventario']);
     if (!vistasCajero.has(vista)) setVista('lista');
   }, [esCajero, vista]);
 
@@ -624,6 +624,9 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
 
   const menuItems = esCajero
     ? [
+        ...(puedeAjustes
+          ? [{ id: 'ajustes', label: 'Ajuste de inventario', icon: 'refresh', onClick: () => setModalAjusteOpen(true) }]
+          : []),
         ...(puedeTraspasos
           ? [{ id: 'traspaso', label: 'Traspasos', icon: 'truck', onClick: () => setVista('traspaso') }]
           : []),
@@ -766,7 +769,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           {menuItems.length > 0 && <MenuPuntos items={menuItems} />}
           {esCajero && (
             <span className="muted" style={{ fontSize: '0.8rem' }}>
-              Productos: solo consulta
+              Catálogo solo consulta · sí a ingreso, traspasos y preinventario
             </span>
           )}
         </div>

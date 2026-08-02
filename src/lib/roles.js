@@ -371,7 +371,7 @@ function rolSistemaEfectivo(rol) {
 }
 
 /**
- * Roles de mostrador: no pueden alterar catálogo, inventario, compras ni configuración
+ * Roles de mostrador: no pueden alterar catálogo, vaciar inventario, consolidar ni configuración
  * (aunque tengan privilegios personalizados ampliados).
  */
 export function esRolMostradorRestringido(rol) {
@@ -400,9 +400,9 @@ export function puedeEditarCatalogoProductos(rol) {
   return r !== 'Repartidor' && r !== 'Técnico';
 }
 
-/** Entradas, retiros, conteos libres, vaciados, consolidación (no incluye traspaso/preinventario). */
+/** Entradas, retiros y conteos de ajuste (no vaciado ni consolidación). */
 export function puedeAjustarInventario(rol) {
-  if (esRolMostradorRestringido(rol)) return false;
+  if (esRolMostradorRestringido(rol)) return true;
   const r = rolSistemaEfectivo(rol);
   return ['Administrador', 'Gerente', 'Supervisor', 'Auditor'].includes(r);
 }
@@ -436,7 +436,7 @@ export function puedeGestionarInventarioMultitienda(rol) {
 export function descripcionRol(rol) {
   const r = normalizarRol(rol);
   const textos = {
-    Cajero: 'Mostrador: ventas, cortes, checador, compras, proveedores, consultas, reportes, traspasos y preinventario; productos solo consulta',
+    Cajero: 'Mostrador: ventas, cortes, checador, compras, proveedores, consultas, reportes, ingreso/ajuste de inventario, traspasos y preinventario; catálogo solo consulta',
     Repartidor: 'Ruta, recolecciones e incidencias en todas las tiendas desde central MAIN',
     Auditor: 'Consultas, reportes, inventario e incidencias en todas las tiendas desde central MAIN',
     Supervisor: 'Operación de tienda sin configuración ni usuarios',
