@@ -35,9 +35,66 @@ export async function leerProductoInventarioFresco(supabase, productoId) {
   return { ok: true, producto: data };
 }
 
+function faltaRpcDeltaStock(error) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  return (
+    msg.includes('aplicar_delta_stock_piso') ||
+    msg.includes('could not find the function') ||
+    msg.includes('schema cache') ||
+    error?.code === 'PGRST202' ||
+    error?.code === '42883'
+  );
+}
+
 /**
- * Descuenta stock de piso por una venta (lee fresco de la nube y confirma el update).
- * Evita el fallo silencioso de update con 0 filas y el mapa viejo del catálogo en memoria.
+ * Aplica delta al piso de UNA sucursal de forma atómica (RPC en Postgres).
+ * Evita que otra caja con mapa viejo reescriba todo stock_sucursales.
+ */
+export async function aplicarDeltaPisoAtomico(supabase, { productoId, sucursal, delta } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
+  const id = String(productoId || '').trim();
+  const tienda = normalizarCodigoTienda(sucursal);
+  const d = Math.floor(Number(delta) || 0);
+  if (!id || !tienda || d === 0) return { ok: false, error: 'Datos de delta incompletos.' };
+
+  const { data, error } = await supabase.rpc('aplicar_delta_stock_piso', {
+    p_producto_id: id,
+    p_sucursal: tienda,
+    p_delta: d,
+  });
+  if (error) {
+    if (faltaRpcDeltaStock(error)) {
+      return {
+        ok: false,
+        faltaRpc: true,
+        error:
+          'Falta la función atómica de stock. Ejecuta supabase/fix_stock_delta_atomico.sql en Supabase.',
+      };
+    }
+    return { ok: false, error: error.message };
+  }
+  const row = data && typeof data === 'object' ? data : {};
+  return {
+    ok: true,
+    antes: Number(row.antes) || 0,
+    despues: Number(row.despues) || 0,
+    patch: {
+      stock_sucursales: row.stock_sucursales,
+      stock: row.stock != null ? Number(row.stock) : Number(row.despues) || 0,
+      stock_cedis: row.stock_cedis != null ? Number(row.stock_cedis) : undefined,
+    },
+    producto: {
+      id,
+      stock_sucursales: row.stock_sucursales,
+      stock: row.stock,
+      stock_cedis: row.stock_cedis,
+    },
+  };
+}
+
+/**
+ * Descuenta stock de piso por una venta.
+ * Prefiere RPC atómica; si no existe, usa lectura fresca + update con reintento seguro.
  */
 export async function descontarStockPorVenta(supabase, { productoId, qty, sucursal, intentos = 2 } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
@@ -46,7 +103,12 @@ export async function descontarStockPorVenta(supabase, { productoId, qty, sucurs
   const tienda = normalizarCodigoTienda(sucursal);
   if (!id || !tienda || need <= 0) return { ok: false, error: 'Datos de descuento incompletos.' };
 
-  let ultimoError = 'No se pudo descontar stock.';
+  const atom = await aplicarDeltaPisoAtomico(supabase, { productoId: id, sucursal: tienda, delta: -need });
+  if (atom.ok) return atom;
+  if (!atom.faltaRpc) return atom;
+
+  // Fallback sin RPC (misma lógica, más vulnerable a carreras entre cajas).
+  let ultimoError = atom.error || 'No se pudo descontar stock.';
   for (let i = 0; i < Math.max(1, intentos); i += 1) {
     const fresco = await leerProductoInventarioFresco(supabase, id);
     if (!fresco.ok) return fresco;
@@ -69,28 +131,28 @@ export async function descontarStockPorVenta(supabase, { productoId, qty, sucurs
       return { ok: false, error: error.message };
     }
     if (!rowsUpd?.length) {
-      // 0 filas: a veces id no coincide o RLS bloquea sin error explícito.
       ultimoError = `No se actualizó stock de ${id} (0 filas). Revisa id del producto o permisos RLS.`;
       continue;
     }
 
-    // Confirmamos que el piso de esta tienda bajó (o quedó en el valor calculado).
-    // Si otra caja vendió al mismo tiempo, el stock puede ser < calc.despues: igual OK.
     const verif = await leerProductoInventarioFresco(supabase, id);
     if (verif.ok) {
       const real = stockEnUbicacion(verif.producto, tienda, 'piso', tienda);
+      // Éxito si bajó respecto al “antes” (otra caja pudo vender al mismo tiempo).
+      if (real <= calc.despues || real < calc.antes) {
+        return {
+          ok: true,
+          antes: calc.antes,
+          despues: real,
+          patch: calc.patch,
+          producto: verif.producto,
+          aviso: atom.faltaRpc ? atom.error : null,
+        };
+      }
       if (real === calc.antes) {
-        // El update “pasó” pero el mapa no refleja el descuento → reintentar.
         ultimoError = `El stock de ${id} no bajó tras el update (sigue en ${real}). Reintentando…`;
         continue;
       }
-      return {
-        ok: true,
-        antes: calc.antes,
-        despues: real,
-        patch: calc.patch,
-        producto: verif.producto,
-      };
     }
 
     return {
@@ -99,9 +161,37 @@ export async function descontarStockPorVenta(supabase, { productoId, qty, sucurs
       despues: calc.despues,
       patch: calc.patch,
       producto: rowsUpd[0] ? { ...productoDb, ...rowsUpd[0] } : { ...productoDb, ...calc.patch },
+      aviso: atom.faltaRpc ? atom.error : null,
     };
   }
   return { ok: false, error: ultimoError };
+}
+
+/**
+ * Devuelve piezas al piso (cancelación de venta). Atómico si hay RPC.
+ */
+export async function devolverStockPorCancelacion(supabase, { productoId, qty, sucursal } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
+  const id = String(productoId || '').trim();
+  const need = Math.max(0, Math.floor(Number(qty) || 0));
+  const tienda = normalizarCodigoTienda(sucursal);
+  if (!id || !tienda || need <= 0) return { ok: false, error: 'Datos de devolución incompletos.' };
+
+  const atom = await aplicarDeltaPisoAtomico(supabase, { productoId: id, sucursal: tienda, delta: need });
+  if (atom.ok || !atom.faltaRpc) return atom;
+
+  const fresco = await leerProductoInventarioFresco(supabase, id);
+  if (!fresco.ok) return fresco;
+  const calc = aplicarDeltaStock(fresco.producto, tienda, 'piso', need, tienda, { permitirNegativo: true });
+  if (!calc.ok) return calc;
+  const { data: rowsUpd, error } = await supabase
+    .from('productos')
+    .update(calc.patch)
+    .eq('id', id)
+    .select('id');
+  if (error) return { ok: false, error: error.message };
+  if (!rowsUpd?.length) return { ok: false, error: `No se actualizó stock de ${id} (0 filas).` };
+  return { ok: true, antes: calc.antes, despues: calc.despues, patch: calc.patch, aviso: atom.error };
 }
 
 export const TIPOS_MOVIMIENTO = [

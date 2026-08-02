@@ -1,8 +1,7 @@
 import { clasificarPago, rangoConsultaCorte, resumirVentas, fechaCorteSugerida, corteYaRegistrado } from './corteCaja.js';
 import { consultarVentas } from './ventasQuery.js';
 import { filtrarVentasPorTurno, leerTurnos, nombreTurnoLegible, turnoActual } from './turnos.js';
-import { aplicarDeltaStock } from './inventarioMultitienda.js';
-import { guardarMovimientoLocal } from './inventarioMovimientos.js';
+import { devolverStockPorCancelacion, guardarMovimientoLocal } from './inventarioMovimientos.js';
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
 
 const LS_CANCELACIONES = 'pos3b_cancelaciones';
@@ -364,37 +363,31 @@ export async function registrarCancelacion(supabase, opts) {
   const localRow = { ...payload, id: cloudId || `cancel_${Date.now()}`, created_at: new Date().toISOString() };
   guardarCancelacionLocal(localRow);
 
-  if (supabase && inventario) {
-    const tienda = tiendaVenta;
+  if (supabase) {
+    const tienda = normalizarCodigoTienda(tiendaVenta) || tiendaVenta;
     const erroresStock = [];
     for (const l of arts) {
-      const prod = inventario.find((p) => String(p.id) === String(l.id));
-      if (!prod) {
-        erroresStock.push(`${l.nombre || l.id}: no encontrado en catálogo`);
-        continue;
-      }
-      const calc = aplicarDeltaStock(prod, tienda, 'piso', Number(l.qtyCancelar), tienda);
-      if (!calc.ok) {
-        erroresStock.push(`${prod.nombre}: ${calc.error}`);
-        continue;
-      }
-      const { error: eStock } = await supabase.from('productos').update(calc.patch).eq('id', prod.id);
-      if (eStock) {
-        erroresStock.push(`${prod.nombre}: ${eStock.message}`);
+      const r = await devolverStockPorCancelacion(supabase, {
+        productoId: l.id,
+        qty: Number(l.qtyCancelar),
+        sucursal: tienda,
+      });
+      if (!r.ok) {
+        erroresStock.push(`${l.nombre || l.id}: ${r.error}`);
         continue;
       }
       guardarMovimientoLocal({
         tipo: 'entrada',
         modo: 'cancelacion',
-        producto_id: prod.id,
-        producto_nombre: prod.nombre,
+        producto_id: l.id,
+        producto_nombre: l.nombre || l.id,
         cantidad: Number(l.qtyCancelar),
-        stock_antes: calc.antes,
-        stock_despues: calc.despues,
+        stock_antes: r.antes,
+        stock_despues: r.despues,
         ubicacion: 'piso',
         motivo: `Cancelación ticket #${venta.id}${motivo ? ` · ${motivo.trim()}` : ''}`,
         usuario: user?.nombre || '—',
-        sucursal: tiendaVenta,
+        sucursal: tienda,
         created_at: localRow.created_at,
       }, supabase);
     }
