@@ -596,6 +596,69 @@ table.data th {
   animation: proyeccion-confianza-pulse 1.2s ease-in-out infinite;
 }
 
+.proyeccion-detalle-listas {
+  margin-top: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.proyeccion-detalle-turno {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface, #f8fafc);
+  overflow: hidden;
+}
+
+.proyeccion-detalle-turno-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.78rem;
+  background: rgba(59, 105, 181, 0.08);
+  border-bottom: 1px solid var(--border);
+}
+
+.proyeccion-detalle-ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.proyeccion-detalle-ul li {
+  border-bottom: 1px solid var(--border);
+}
+
+.proyeccion-detalle-ul li:last-child {
+  border-bottom: none;
+}
+
+.proyeccion-detalle-linea {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.8rem;
+}
+
+.proyeccion-detalle-montos {
+  text-align: right;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.75rem;
+}
+
+.proyeccion-detalle-montos strong {
+  color: var(--brand-blue-dark);
+  font-size: 0.85rem;
+}
+
 .anuncio-pos-backdrop {
   position: fixed;
   inset: 0;

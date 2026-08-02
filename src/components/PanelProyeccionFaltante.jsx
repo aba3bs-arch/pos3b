@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Icon from './Icon.jsx';
 import { EVENTO_CALENDARIO_INVENTARIO } from '../lib/calendarioInventario.js';
-import { cargarProyeccionFaltante } from '../lib/proyeccionFaltante.js';
+import { agruparEventosPorTurno, cargarProyeccionFaltante } from '../lib/proyeccionFaltante.js';
 import { fmtMxn } from '../lib/valorInventario.js';
 import { esAlmacenCentral } from '../constants/sucursales.js';
+import { EVENTO_TURNOS, leerTurnos } from '../lib/turnos.js';
 
 function claseConfianza(color) {
   if (color === 'verde') return 'proyeccion-confianza proyeccion-confianza--verde';
@@ -17,10 +18,100 @@ function bordeUrgencia(color) {
   return 'var(--brand-green)';
 }
 
+function fmtHora(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('es-MX', {
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '—';
+  }
+}
+
+function itemsDeSenal(data, senalId) {
+  if (!data) return [];
+  if (senalId === 'carrito') return data.remociones || [];
+  if (senalId === 'cancelacion') return data.lineasCancelacion || [];
+  if (senalId === 'precio') return data.consultasPrecio || [];
+  return [];
+}
+
+function ListaPorTurno({ items, vacioLabel, tickTurnos = 0 }) {
+  const { grupos, sinTurno } = useMemo(() => {
+    void tickTurnos;
+    return agruparEventosPorTurno(items, leerTurnos());
+  }, [items, tickTurnos]);
+
+  if (!items?.length) {
+    return <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>{vacioLabel}</p>;
+  }
+
+  const bloques = [
+    ...grupos.map((g) => ({
+      key: g.turnoId,
+      titulo: g.turnoNombre,
+      monto: g.monto,
+      items: g.items,
+    })),
+  ];
+  if (sinTurno.length) {
+    bloques.push({
+      key: 'sin-turno',
+      titulo: 'Sin turno asignado',
+      monto: sinTurno.reduce((a, r) => a + (Number(r.monto) || 0), 0),
+      items: sinTurno,
+    });
+  }
+
+  return (
+    <div className="proyeccion-detalle-listas">
+      {bloques.map((b) => (
+        <div key={b.key} className="proyeccion-detalle-turno">
+          <div className="proyeccion-detalle-turno-head">
+            <strong>{b.titulo}</strong>
+            <span className="muted">
+              {b.items.length} · {fmtMxn(b.monto)}
+            </span>
+          </div>
+          <ul className="proyeccion-detalle-ul">
+            {b.items.map((it) => (
+              <li key={it.id || `${it.producto_id}-${it.created_at}-${it.nombre}`}>
+                <div className="proyeccion-detalle-linea">
+                  <div>
+                    <strong>{it.nombre || it.producto_id || 'Artículo'}</strong>
+                    <div className="muted" style={{ fontSize: '0.72rem' }}>
+                      {fmtHora(it.created_at)}
+                      {it.producto_id ? ` · ${it.producto_id}` : ''}
+                      {it.usuario ? ` · ${it.usuario}` : ''}
+                      {it.motivo ? ` · ${it.motivo}` : ''}
+                    </div>
+                  </div>
+                  <div className="proyeccion-detalle-montos">
+                    <span>
+                      {Number(it.qty) || 1} × {fmtMxn(it.precio)}
+                    </span>
+                    <strong>{fmtMxn(it.monto)}</strong>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function PanelProyeccionFaltante({ supabase, sucursal, inventario, onNavigateConfig }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [abierto, setAbierto] = useState(true);
+  const [detalleId, setDetalleId] = useState(null);
+  const [tickTurnos, setTickTurnos] = useState(0);
 
   const cargar = useCallback(async () => {
     if (esAlmacenCentral(sucursal)) {
@@ -47,6 +138,12 @@ export default function PanelProyeccionFaltante({ supabase, sucursal, inventario
       clearInterval(id);
     };
   }, [cargar]);
+
+  useEffect(() => {
+    const sync = () => setTickTurnos((n) => n + 1);
+    window.addEventListener(EVENTO_TURNOS, sync);
+    return () => window.removeEventListener(EVENTO_TURNOS, sync);
+  }, []);
 
   if (esAlmacenCentral(sucursal)) return null;
 
@@ -80,6 +177,10 @@ export default function PanelProyeccionFaltante({ supabase, sucursal, inventario
 
   const urg = data.urgencia;
   const ciclo = data.ciclo;
+
+  const toggleDetalle = (id) => {
+    setDetalleId((cur) => (cur === id ? null : id));
+  };
 
   return (
     <div
@@ -142,30 +243,62 @@ export default function PanelProyeccionFaltante({ supabase, sucursal, inventario
             Si no haces bien el proceso de venta, este monto <strong>sigue creciendo</strong> hasta el próximo inventario.
             Usa el desglose para verificar en el conteo qué tan confiable es el método.
           </p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.65rem' }}>
-            {data.desglose.map((s) => (
-              <div
-                key={s.id}
-                style={{
-                  padding: '0.75rem 0.85rem',
-                  borderRadius: '10px',
-                  border: '1px solid var(--border)',
-                  background: 'rgba(255,255,255,0.92)',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.35rem' }}>
-                  <span className={claseConfianza(s.color)} />
-                  <strong style={{ fontSize: '0.88rem' }}>{s.titulo}</strong>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '0.65rem' }}>
+            {data.desglose.map((s) => {
+              const items = itemsDeSenal(data, s.id);
+              const abiertoDetalle = detalleId === s.id;
+              const labelBtn =
+                s.id === 'carrito'
+                  ? 'Artículos quitados'
+                  : s.id === 'cancelacion'
+                    ? 'Cancelaciones'
+                    : 'Checador de precio';
+              return (
+                <div
+                  key={s.id}
+                  style={{
+                    padding: '0.75rem 0.85rem',
+                    borderRadius: '10px',
+                    border: '1px solid var(--border)',
+                    background: 'rgba(255,255,255,0.92)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.35rem' }}>
+                    <span className={claseConfianza(s.color)} />
+                    <strong style={{ fontSize: '0.88rem' }}>{s.titulo}</strong>
+                  </div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 750 }}>{fmtMxn(s.monto)}</div>
+                  <div className="muted" style={{ fontSize: '0.78rem', marginTop: '0.2rem' }}>
+                    {s.eventos} evento(s) · confianza {s.confianzaPct}% · aporta {fmtMxn(s.montoPonderado)}
+                  </div>
+                  <div className="muted" style={{ fontSize: '0.72rem', marginTop: '0.35rem', lineHeight: 1.35 }}>
+                    {s.detalle}
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ marginTop: '0.55rem', width: '100%', fontSize: '0.8rem', padding: '0.4rem 0.5rem' }}
+                    onClick={() => toggleDetalle(s.id)}
+                  >
+                    {abiertoDetalle ? `Ocultar ${labelBtn.toLowerCase()}` : `Ver ${labelBtn.toLowerCase()} por turno`}
+                    {items.length ? ` (${items.length})` : ''}
+                  </button>
+                  {abiertoDetalle && (
+                    <ListaPorTurno
+                      items={items}
+                      tickTurnos={tickTurnos}
+                      vacioLabel={
+                        s.id === 'carrito'
+                          ? 'No hay artículos quitados del carrito en este ciclo.'
+                          : s.id === 'cancelacion'
+                            ? 'No hay cancelaciones en este ciclo.'
+                            : 'No hay consultas de precio en este ciclo.'
+                      }
+                    />
+                  )}
                 </div>
-                <div style={{ fontSize: '1.2rem', fontWeight: 750 }}>{fmtMxn(s.monto)}</div>
-                <div className="muted" style={{ fontSize: '0.78rem', marginTop: '0.2rem' }}>
-                  {s.eventos} evento(s) · confianza {s.confianzaPct}% · aporta {fmtMxn(s.montoPonderado)}
-                </div>
-                <div className="muted" style={{ fontSize: '0.72rem', marginTop: '0.35rem', lineHeight: 1.35 }}>
-                  {s.detalle}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div className="muted" style={{ marginTop: '0.75rem', fontSize: '0.78rem' }}>
             Observación bruta (sin peso): {fmtMxn(data.montoBruto)} ({data.pctBruto.toFixed(2)}% del inventario)

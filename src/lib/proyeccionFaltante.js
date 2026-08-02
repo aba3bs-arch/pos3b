@@ -2,6 +2,7 @@ import { normalizarCodigoTienda } from '../constants/sucursales.js';
 import { cicloInventarioSucursal } from './calendarioInventario.js';
 import { dateFromNogales } from './corteCaja.js';
 import { resumirValorInventario } from './valorInventario.js';
+import { horaEnTurno, leerTurnos, nombreTurnoLegible, turnoActual } from './turnos.js';
 
 const LS_REMOCIONES = 'pos3b_carrito_remociones';
 const LS_CONSULTAS = 'pos3b_consultas_precio';
@@ -84,6 +85,103 @@ function filtrarDesde(rows, desdeIso, suc) {
   });
 }
 
+function metaTurnoActual() {
+  const t = turnoActual();
+  if (!t) return { turno_id: null, turno_nombre: null };
+  return { turno_id: t.id || null, turno_nombre: nombreTurnoLegible(t) || null };
+}
+
+/** Normaliza cancelaciones a líneas de artículo para el detalle. */
+export function lineasDesdeCancelacion(c) {
+  const arts = Array.isArray(c?.articulos) ? c.articulos : [];
+  if (!arts.length) {
+    const monto = Number(c?.total) || Number(c?.monto) || 0;
+    return [
+      {
+        id: `${c?.id || 'cancel'}_linea`,
+        created_at: c?.created_at,
+        sucursal_id: c?.sucursal_id,
+        usuario: c?.usuario || '—',
+        producto_id: null,
+        nombre: c?.motivo ? `Cancelación · ${c.motivo}` : 'Cancelación',
+        precio: monto,
+        qty: 1,
+        monto,
+        motivo: c?.motivo || '',
+        turno_id: c?.turno_id || null,
+        turno_nombre: c?.turno_nombre || null,
+        origen_evento: 'cancelacion',
+      },
+    ];
+  }
+  return arts.map((a, i) => {
+    const qty = Number(a.qty) || 0;
+    const precio = Number(a.precio) || 0;
+    return {
+      id: `${c?.id || 'cancel'}_${a.id || i}`,
+      created_at: c?.created_at,
+      sucursal_id: c?.sucursal_id,
+      usuario: c?.usuario || '—',
+      producto_id: a.id != null ? String(a.id) : null,
+      nombre: a.nombre || a.id || 'Artículo',
+      precio,
+      qty,
+      monto: Math.round(precio * qty * 100) / 100,
+      motivo: c?.motivo || '',
+      turno_id: c?.turno_id || null,
+      turno_nombre: c?.turno_nombre || null,
+      origen_evento: 'cancelacion',
+    };
+  });
+}
+
+/**
+ * Agrupa eventos por turno de caja (usa turno_id si existe; si no, la hora del evento).
+ */
+export function agruparEventosPorTurno(eventos, turnos = null) {
+  const list = turnos || leerTurnos();
+  const map = new Map();
+  for (const t of list) {
+    map.set(String(t.id), {
+      turnoId: String(t.id),
+      turnoNombre: nombreTurnoLegible(t),
+      items: [],
+      monto: 0,
+    });
+  }
+  const sinTurno = [];
+
+  for (const ev of eventos || []) {
+    let key = ev?.turno_id != null ? String(ev.turno_id) : '';
+    if (!key || !map.has(key)) {
+      const when = ev?.created_at ? new Date(ev.created_at) : null;
+      if (when && !Number.isNaN(when.getTime())) {
+        const match = list.find((t) => horaEnTurno(t, when));
+        key = match ? String(match.id) : '';
+      } else {
+        key = '';
+      }
+    }
+    if (key && map.has(key)) {
+      const g = map.get(key);
+      g.items.push(ev);
+      g.monto += Number(ev.monto) || 0;
+    } else {
+      sinTurno.push(ev);
+    }
+  }
+
+  const grupos = [...map.values()]
+    .map((g) => ({
+      ...g,
+      monto: Math.round(g.monto * 100) / 100,
+      items: [...g.items].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))),
+    }))
+    .filter((g) => g.items.length > 0);
+
+  return { grupos, sinTurno };
+}
+
 /**
  * Registra artículo(s) quitados del carrito de venta.
  * Fire-and-forget seguro: no bloquea la UI de cobro.
@@ -94,6 +192,7 @@ export async function registrarRemocionCarrito(supabase, opts) {
   const precio = Number(opts?.precio) || 0;
   if (!suc || qty <= 0) return { ok: false, error: 'Datos incompletos.' };
 
+  const turnoMeta = metaTurnoActual();
   const payload = {
     sucursal_id: suc,
     usuario: opts?.usuario || opts?.user?.nombre || '—',
@@ -118,6 +217,7 @@ export async function registrarRemocionCarrito(supabase, opts) {
 
   const localRow = {
     ...payload,
+    ...turnoMeta,
     id: cloudId || `rem_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     created_at: new Date().toISOString(),
     origen: cloudId ? 'nube' : 'local',
@@ -143,6 +243,7 @@ export async function registrarConsultaPrecio(supabase, opts) {
     return { ok: true, dedup: true };
   }
 
+  const turnoMeta = metaTurnoActual();
   const payload = {
     sucursal_id: suc,
     usuario: opts?.usuario || opts?.user?.nombre || '—',
@@ -168,6 +269,7 @@ export async function registrarConsultaPrecio(supabase, opts) {
 
   const localRow = {
     ...payload,
+    ...turnoMeta,
     id: cloudId || `prc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     created_at: new Date().toISOString(),
     origen: cloudId ? 'nube' : 'local',
@@ -180,14 +282,13 @@ async function cargarTablaDesde(supabase, table, suc, desdeIso) {
   const locales = filtrarDesde(leerLs(table === 'carrito_remociones' ? LS_REMOCIONES : LS_CONSULTAS), desdeIso, suc);
   if (!supabase) return { data: locales, soloLocal: true };
 
-  let q = supabase
+  const { data, error } = await supabase
     .from(table)
     .select('*')
     .eq('sucursal_id', suc)
     .gte('created_at', desdeIso)
     .order('created_at', { ascending: true })
     .limit(5000);
-  const { data, error } = await q;
   if (error) {
     if (faltaTabla(error, table)) {
       return { data: locales, soloLocal: true, aviso: AVISO_SQL };
@@ -195,8 +296,20 @@ async function cargarTablaDesde(supabase, table, suc, desdeIso) {
     return { data: locales, error: error.message, soloLocal: true };
   }
   const nube = data || [];
-  if (nube.length === 0 && locales.length > 0) return { data: locales, soloLocal: true };
-  return { data: nube.length ? nube : locales, soloLocal: nube.length === 0 };
+  const porIdLocal = new Map(locales.map((r) => [String(r.id), r]));
+  const fusion = nube.map((r) => {
+    const loc = porIdLocal.get(String(r.id));
+    if (!loc) return r;
+    return {
+      ...r,
+      turno_id: r.turno_id || loc.turno_id || null,
+      turno_nombre: r.turno_nombre || loc.turno_nombre || null,
+    };
+  });
+  if (fusion.length === 0 && locales.length > 0) return { data: locales, soloLocal: true };
+  const idsNube = new Set(fusion.map((r) => String(r.id)));
+  const extraLocal = locales.filter((r) => !idsNube.has(String(r.id)));
+  return { data: [...fusion, ...extraLocal], soloLocal: nube.length === 0 };
 }
 
 async function cargarCancelacionesDesde(supabase, suc, desdeIso) {
@@ -222,7 +335,9 @@ async function cargarCancelacionesDesde(supabase, suc, desdeIso) {
     monto: Number(c.total) || 0,
   }));
   if (nube.length === 0 && locales.length > 0) return { data: locales, soloLocal: true };
-  return { data: nube.length ? nube : locales, soloLocal: nube.length === 0 };
+  const idsNube = new Set(nube.map((r) => String(r.id)));
+  const extraLocal = locales.filter((r) => !idsNube.has(String(r.id)));
+  return { data: [...nube, ...extraLocal], soloLocal: nube.length === 0 };
 }
 
 function nivelUrgencia(pct) {
@@ -230,6 +345,10 @@ function nivelUrgencia(pct) {
   if (p >= 3) return { id: 'alta', label: 'Riesgo alto de faltante', color: 'rojo' };
   if (p >= 1) return { id: 'media', label: 'Riesgo medio — revisa el proceso de venta', color: 'naranja' };
   return { id: 'baja', label: 'Riesgo controlado por ahora', color: 'verde' };
+}
+
+function ordenarDesc(rows) {
+  return [...(rows || [])].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
 }
 
 /**
@@ -254,28 +373,33 @@ export async function cargarProyeccionFaltante(supabase, { sucursal, inventario 
     cargarCancelacionesDesde(supabase, suc, desdeIso),
   ]);
 
-  const montoCarrito = sumarMontos(rem.data);
-  const montoPrecio = sumarMontos(cons.data);
-  const montoCancel = sumarMontos(canc.data);
+  const remociones = ordenarDesc(rem.data);
+  const consultasPrecio = ordenarDesc(cons.data);
+  const cancelaciones = ordenarDesc(canc.data);
+  const lineasCancelacion = cancelaciones.flatMap(lineasDesdeCancelacion);
+
+  const montoCarrito = sumarMontos(remociones);
+  const montoPrecio = sumarMontos(consultasPrecio);
+  const montoCancel = sumarMontos(cancelaciones);
 
   const desglose = [
     {
       ...SENALES_PROYECCION.carrito,
       monto: montoCarrito,
       montoPonderado: montoCarrito * SENALES_PROYECCION.carrito.peso,
-      eventos: (rem.data || []).length,
+      eventos: remociones.length,
     },
     {
       ...SENALES_PROYECCION.cancelacion,
       monto: montoCancel,
       montoPonderado: montoCancel * SENALES_PROYECCION.cancelacion.peso,
-      eventos: (canc.data || []).length,
+      eventos: cancelaciones.length,
     },
     {
       ...SENALES_PROYECCION.precio,
       monto: montoPrecio,
       montoPonderado: montoPrecio * SENALES_PROYECCION.precio.peso,
-      eventos: (cons.data || []).length,
+      eventos: consultasPrecio.length,
     },
   ];
 
@@ -295,6 +419,10 @@ export async function cargarProyeccionFaltante(supabase, { sucursal, inventario 
     ciclo,
     desdeIso,
     desglose,
+    remociones,
+    consultasPrecio,
+    cancelaciones,
+    lineasCancelacion,
     montoBruto,
     montoProyectado,
     pctProyectado,
