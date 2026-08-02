@@ -19,6 +19,11 @@ import {
   puedeCrearProveedor,
   puedeEliminarProductosCatalogo,
   puedeGestionarInventarioMultitienda,
+  puedeEditarCatalogoProductos,
+  puedeAjustarInventario,
+  puedeTraspasarInventario,
+  puedeHacerPreinventario,
+  esRolMostradorRestringido,
 } from '../lib/roles.js';
 import FormularioProducto from '../components/FormularioProducto.jsx';
 import MenuPuntos from '../components/MenuPuntos.jsx';
@@ -33,6 +38,7 @@ import AjusteInventario from './AjusteInventario.jsx';
 import Traspasos from './Traspasos.jsx';
 import Preinventario from './Preinventario.jsx';
 import HistorialProducto from '../components/HistorialProducto.jsx';
+import ConsolidarVentasInventario from '../components/ConsolidarVentasInventario.jsx';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { esAlmacenCentral, etiquetaCedisEmpresa, etiquetaStockLista } from '../lib/inventarioMultitienda.js';
 import { sincronizarFotosCatalogo, tieneFoto } from '../lib/fotosCatalogo.js';
@@ -135,9 +141,12 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const puedeAltaProveedor = puedeCrearProveedor(user?.rol);
   const puedeVaciarInventario = puedeGestionarInventarioMultitienda(user?.rol);
   const puedeEliminarCatalogo = puedeEliminarProductosCatalogo(user?.rol);
-  /** Cajero: solo ingreso de inventario, traspasos e imprimir etiquetas (menú ⋮). */
-  const esCajero = normalizarRol(user?.rol) === 'Cajero';
-  const puedeGestionCatalogo = !esCajero;
+  /** Cajero: solo consulta de catálogo (sin editar, ajustar ni traspasar). */
+  const esCajero = esRolMostradorRestringido(user?.rol);
+  const puedeGestionCatalogo = puedeEditarCatalogoProductos(user?.rol);
+  const puedeAjustes = puedeAjustarInventario(user?.rol);
+  const puedeTraspasos = puedeTraspasarInventario(user?.rol);
+  const puedePreinventario = puedeHacerPreinventario(user?.rol);
   const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : 'MAIN';
   const enCentral = esAlmacenCentral(sucursal);
 
@@ -149,8 +158,8 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
 
   useEffect(() => {
     if (!esCajero) return;
-    const vistasCajero = new Set(['lista', 'ajustes', 'traspaso', 'etiquetas', 'preinventario']);
-    if (!vistasCajero.has(vista)) setVista('lista');
+    // Cajero: únicamente lista / historial de consulta.
+    if (vista !== 'lista' && vista !== 'historial') setVista('lista');
   }, [esCajero, vista]);
 
   useEffect(() => {
@@ -369,6 +378,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   };
 
   const guardar = async () => {
+    if (!puedeGestionCatalogo) return alert('Tu rol no puede crear ni editar productos.');
     if (!supabase) return;
     const productoDb = (inventarioCompleto || inventario).find((p) => p.id === form.id);
     const payload = productoParaGuardar(form, { productoDb, sucursal });
@@ -452,6 +462,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   };
 
   const guardarPrecios = async () => {
+    if (!puedeGestionCatalogo) return alert('Tu rol no puede cambiar precios.');
     if (!supabase) return;
     const cambios = Object.entries(preciosDraft).filter(([id, v]) => {
       const p = inventario.find((x) => x.id === id);
@@ -613,43 +624,49 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   };
 
   const menuItems = esCajero
-    ? [
-        { id: 'ajustes', label: 'Ingreso de inventario', icon: 'refresh', onClick: () => setModalAjusteOpen(true) },
-        { id: 'traspaso', label: 'Traspasos', icon: 'truck', onClick: () => setVista('traspaso') },
-        { id: 'preinventario', label: 'Preinventario', icon: 'package', onClick: () => setVista('preinventario') },
-        {
-          id: 'etiquetas',
-          label: 'Imprimir etiquetas',
-          icon: 'print',
-          onClick: () => {
-            setEtiquetasSel(new Set());
-            setVista('etiquetas');
-          },
-        },
-      ]
+    ? []
     : [
-        { id: 'alta', label: 'Nuevo producto', icon: 'plus', onClick: () => { setForm(empty); setEsEdicionProducto(false); setVista('alta'); } },
-        { id: 'ajustes', label: 'Ajuste de inventario', icon: 'refresh', onClick: () => setModalAjusteOpen(true) },
-        { id: 'traspaso', label: 'Traspasos', icon: 'truck', onClick: () => setVista('traspaso') },
-        { id: 'preinventario', label: 'Preinventario', icon: 'package', onClick: () => setVista('preinventario') },
-        { id: 'mover', label: 'Mover productos (proveedor / depto)', icon: 'refresh', onClick: () => setVista('mover') },
+        ...(puedeGestionCatalogo
+          ? [{ id: 'alta', label: 'Nuevo producto', icon: 'plus', onClick: () => { setForm(empty); setEsEdicionProducto(false); setVista('alta'); } }]
+          : []),
+        ...(puedeAjustes
+          ? [{ id: 'ajustes', label: 'Ajuste de inventario', icon: 'refresh', onClick: () => setModalAjusteOpen(true) }]
+          : []),
+        ...(puedeTraspasos
+          ? [{ id: 'traspaso', label: 'Traspasos', icon: 'truck', onClick: () => setVista('traspaso') }]
+          : []),
+        ...(puedePreinventario
+          ? [{ id: 'preinventario', label: 'Preinventario', icon: 'package', onClick: () => setVista('preinventario') }]
+          : []),
+        ...(puedeGestionCatalogo
+          ? [{ id: 'mover', label: 'Mover productos (proveedor / depto)', icon: 'refresh', onClick: () => setVista('mover') }]
+          : []),
         { id: 'etiquetas', label: 'Imprimir etiquetas', icon: 'print', onClick: () => { setEtiquetasSel(new Set()); setVista('etiquetas'); } },
-        { id: 'importexport', label: 'Importar archivo .xls', icon: 'download', onClick: () => setVista('importexport') },
-        { id: 'exportar', label: 'Exportar productos', icon: 'download', onClick: () => exportarCatalogoCsv(inventario) },
-        {
-          id: 'fotos',
-          label: sincronizandoFotos
-            ? `Jalar fotos… ${progresoFotos ? `${progresoFotos.actual}/${progresoFotos.total}` : ''}`
-            : `Jalar fotos de internet${sinFotoCount ? ` (${sinFotoCount})` : ''}`,
-          icon: 'camera',
-          onClick: () => {
-            if (!sincronizandoFotos) jalarFotosInternet();
-          },
-        },
+        ...(puedeGestionCatalogo
+          ? [
+              { id: 'importexport', label: 'Importar archivo .xls', icon: 'download', onClick: () => setVista('importexport') },
+              { id: 'exportar', label: 'Exportar productos', icon: 'download', onClick: () => exportarCatalogoCsv(inventario) },
+              {
+                id: 'fotos',
+                label: sincronizandoFotos
+                  ? `Jalar fotos… ${progresoFotos ? `${progresoFotos.actual}/${progresoFotos.total}` : ''}`
+                  : `Jalar fotos de internet${sinFotoCount ? ` (${sinFotoCount})` : ''}`,
+                icon: 'camera',
+                onClick: () => {
+                  if (!sincronizandoFotos) jalarFotosInternet();
+                },
+              },
+            ]
+          : []),
         ...(puedeVaciarInventario
           ? [{ id: 'vaciarinventario', label: 'Vaciar inventario', icon: 'trash', onClick: () => setVista('vaciarinventario') }]
           : []),
-        { id: 'precios', label: 'Administrador de precios', icon: 'dollar', onClick: () => { initPreciosDraft(); setVista('precios'); } },
+        ...(puedeGestionCatalogo
+          ? [{ id: 'precios', label: 'Administrador de precios', icon: 'dollar', onClick: () => { initPreciosDraft(); setVista('precios'); } }]
+          : []),
+        ...(puedeGestionarInventarioMultitienda(user?.rol)
+          ? [{ id: 'consolidar', label: 'Consolidar ventas vs piso', icon: 'refresh', onClick: () => setVista('consolidar') }]
+          : []),
         ...(puedeEliminarCatalogo
           ? [{ id: 'eliminar', label: 'Eliminar productos', icon: 'trash', onClick: () => { setSeleccionEliminar(new Set()); setVista('eliminar'); } }]
           : []),
@@ -699,9 +716,11 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                       <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => verHistorial(p)}>
                         Historial
                       </button>
-                      <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => editar(p)}>
-                        Editar
-                      </button>
+                      {puedeGestionCatalogo && (
+                        <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => editar(p)}>
+                          Editar
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>
@@ -738,7 +757,12 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
               Editar
             </button>
           )}
-          <MenuPuntos items={menuItems} />
+          {menuItems.length > 0 && <MenuPuntos items={menuItems} />}
+          {esCajero && (
+            <span className="muted" style={{ fontSize: '0.8rem' }}>
+              Solo consulta
+            </span>
+          )}
         </div>
       </div>
 
@@ -1027,7 +1051,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
       )}
 
       <ModalAjusteInventario
-        open={modalAjusteOpen}
+        open={modalAjusteOpen && puedeAjustes}
         onClose={() => setModalAjusteOpen(false)}
         inventario={inventario}
         sucursal={sucursal}
@@ -1035,7 +1059,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
         onBorrarInventario={puedeVaciarInventario ? () => setVista('vaciarinventario') : undefined}
       />
 
-      {(vista === 'alta' || vista === 'editar') && (
+      {(vista === 'alta' || vista === 'editar') && puedeGestionCatalogo && (
         <>
           <FormularioProducto
             form={form}
@@ -1112,7 +1136,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
         </>
       )}
 
-      {vista === 'ajustes' && (
+      {vista === 'ajustes' && puedeAjustes && (
         <AjusteInventario
           key={`ajuste-${ajusteConfig.modo}-${ajusteConfig.tipo}-${ajusteConfig.departamento || ''}-${ajusteConfig.borrador?.id || ''}`}
           supabase={supabase}
@@ -1137,7 +1161,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
         />
       )}
 
-      {vista === 'traspaso' && (
+      {vista === 'traspaso' && puedeTraspasos && (
         <Traspasos
           supabase={supabase}
           inventario={inventario}
@@ -1150,7 +1174,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
         />
       )}
 
-      {vista === 'preinventario' && (
+      {vista === 'preinventario' && puedePreinventario && (
         <div className="card">
           <Preinventario
             supabase={supabase}
@@ -1426,6 +1450,18 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
             setProductoHistorial(null);
             setVista('lista');
           }}
+        />
+      )}
+
+      {vista === 'consolidar' && puedeGestionarInventarioMultitienda(user?.rol) && (
+        <ConsolidarVentasInventario
+          supabase={supabase}
+          inventario={inventario}
+          inventarioCompleto={inventarioCompleto || inventario}
+          sucursal={sucursal}
+          user={user}
+          cargarDatos={cargarDatos}
+          onVolver={irLista}
         />
       )}
 

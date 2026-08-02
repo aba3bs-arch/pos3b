@@ -271,6 +271,8 @@ export function puedeVerModulo(rol, moduloId, userId = null) {
   const m = normalizarIdModulo(moduloId);
   const r = normalizarRol(rol);
   if (r === 'Administrador') return true;
+  // Cajero (y roles con plantilla Cajero): bloqueo duro aunque alguien les asigne privilegios.
+  if (esRolMostradorRestringido(rol) && MODULOS_BLOQUEADOS_MOSTRADOR.has(m)) return false;
   const permitidos = modulosPermitidosDesde(leerPrivilegios(), r, userId, ACCESO_POR_ROL[r] || ACCESO_POR_ROL.Cajero);
   return permitidos.includes(m);
 }
@@ -302,7 +304,12 @@ export function modulosParaSidebar(rol, userId = null) {
   if (r === 'Administrador') return filtrar(MODULOS_ORDEN);
 
   const permitidos = modulosPermitidosDesde(leerPrivilegios(), r, userId, ACCESO_POR_ROL[r] || ACCESO_POR_ROL.Cajero);
-  return filtrar(MODULOS_ORDEN.filter((m) => permitidos.includes(m)));
+  return filtrar(
+    MODULOS_ORDEN.filter((m) => {
+      if (esRolMostradorRestringido(rol) && MODULOS_BLOQUEADOS_MOSTRADOR.has(m)) return false;
+      return permitidos.includes(m);
+    }),
+  );
 }
 
 export function submodulosContabilidadVisibles(rol, userId = null) {
@@ -359,6 +366,57 @@ function rolSistemaEfectivo(rol) {
   return r;
 }
 
+/**
+ * Roles de mostrador: no pueden alterar catálogo, inventario, compras ni configuración
+ * (aunque tengan privilegios personalizados ampliados).
+ */
+export function esRolMostradorRestringido(rol) {
+  return rolSistemaEfectivo(rol) === 'Cajero';
+}
+
+/** Módulos que el cajero nunca puede abrir (bloqueo duro). */
+export const MODULOS_BLOQUEADOS_MOSTRADOR = new Set([
+  'Compras',
+  'Proveedores',
+  'Clientes',
+  'Usuarios',
+  'Consultas',
+  'Estadisticas',
+  'Resumen operativo',
+  'Reportes',
+  'Configuracion',
+  'Nómina',
+  'Panel RT',
+  'Liquidación recolecciones',
+  'IE VIRTUAL',
+  'IE ABARROTES',
+  'Auto Fin',
+]);
+
+/** Consultar productos / historial: sí. Crear, editar, borrar, precios: no. */
+export function puedeEditarCatalogoProductos(rol) {
+  if (esRolMostradorRestringido(rol)) return false;
+  const r = rolSistemaEfectivo(rol);
+  return r !== 'Repartidor' && r !== 'Técnico';
+}
+
+/** Entradas, retiros, conteos, vaciados, consolidación. */
+export function puedeAjustarInventario(rol) {
+  if (esRolMostradorRestringido(rol)) return false;
+  const r = rolSistemaEfectivo(rol);
+  return ['Administrador', 'Gerente', 'Supervisor', 'Auditor'].includes(r);
+}
+
+/** Traspasos entre tiendas / CEDIS. */
+export function puedeTraspasarInventario(rol) {
+  return puedeAjustarInventario(rol);
+}
+
+/** Preinventario / conteos que alteran existencias. */
+export function puedeHacerPreinventario(rol) {
+  return puedeAjustarInventario(rol);
+}
+
 /** Administrador, gerente y personal de central pueden cambiar tienda (incl. móvil). */
 export function puedeCambiarTiendaLibremente(rol) {
   const r = rolSistemaEfectivo(rol);
@@ -369,14 +427,14 @@ export function puedeCambiarTiendaLibremente(rol) {
 }
 
 export function puedeGestionarInventarioMultitienda(rol) {
-  const r = normalizarRol(rol);
+  const r = rolSistemaEfectivo(rol);
   return r === 'Administrador' || r === 'Gerente';
 }
 
 export function descripcionRol(rol) {
   const r = normalizarRol(rol);
   const textos = {
-    Cajero: 'Mostrador: ventas, escáner móvil, cortes, vales, ingreso, traspasos, preinventario y etiquetas',
+    Cajero: 'Mostrador: ventas, escáner, corte de su turno, checador y consulta de productos (sin editar ni ajustar inventario)',
     Repartidor: 'Ruta, recolecciones e incidencias en todas las tiendas desde central MAIN',
     Auditor: 'Consultas, reportes, inventario e incidencias en todas las tiendas desde central MAIN',
     Supervisor: 'Operación de tienda sin configuración ni usuarios',

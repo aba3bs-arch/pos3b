@@ -6,9 +6,8 @@ import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } fro
 import Icon, { BtnLabel } from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import { turnoActual, usuarioAutorizadoLogin, nombreTurnoLegible } from '../lib/turnos.js';
-import { aplicarDeltaStock } from '../lib/inventarioMultitienda.js';
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
-import { guardarMovimientoLocal } from '../lib/inventarioMovimientos.js';
+import { descontarStockPorVenta, guardarMovimientoLocal } from '../lib/inventarioMovimientos.js';
 import { sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
 import DetalleProducto from '../components/DetalleProducto.jsx';
@@ -219,21 +218,6 @@ export default function Ventas({
       const p = inventario.find((x) => x.id === c.id);
       if (!p) return alert(`Producto no disponible en catálogo: ${c.nombre || c.id}`);
     }
-    const deltas = [];
-    for (const c of carrito) {
-      const p = inventario.find((x) => x.id === c.id);
-      const need = c.qty || 1;
-      const calc = aplicarDeltaStock(p, sucursal, 'piso', -need, sucursal, { permitirNegativo: true });
-      if (!calc.ok) return alert(`No se puede completar la venta: ${calc.error}`);
-      deltas.push({
-        id: c.id,
-        nombre: c.nombre,
-        need,
-        patch: calc.patch,
-        antes: calc.antes,
-        despues: calc.despues,
-      });
-    }
     setFinalizando(true);
     const { error } = await supabase.from('ventas').insert([
       {
@@ -258,43 +242,44 @@ export default function Ventas({
     const metodoVenta = textoMetodoPago;
     const recibidoVenta = esEfectivo ? montoRecibidoEfectivo(pagoCon, totalMXN, monedaPago, tipoCambio) : totalMXN;
     const pagoExacto = esEfectivo && pagoCon === PAGO_EXACTO;
-    for (const d of deltas) {
-      const { error: e2 } = await supabase.from('productos').update(d.patch).eq('id', d.id);
-      if (e2) {
-        alert(`Venta guardada pero no se pudo actualizar stock (${d.id}): ${e2.message}. Revisa inventario.`);
-        cargarDatos();
-        setCarrito([]);
-        resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago });
-        setResultadoVenta({
-          total: totalVenta,
-          cambio: cambioVenta,
-          metodo: metodoVenta,
-          esEfectivo,
-          pagoExacto,
-          moneda: monedaPago,
-          recibido: recibidoVenta,
-          avisoStock: true,
-        });
-        setFinalizando(false);
-        return;
+    const tiendaVenta = normalizarCodigoTienda(sucursal) || sucursal;
+    const erroresStock = [];
+    for (const c of carrito) {
+      const need = c.qty || 1;
+      const r = await descontarStockPorVenta(supabase, {
+        productoId: c.id,
+        qty: need,
+        sucursal: tiendaVenta,
+      });
+      if (!r.ok) {
+        erroresStock.push(`${c.nombre || c.id}: ${r.error}`);
+        continue;
       }
       guardarMovimientoLocal({
         tipo: 'retiro',
         modo: 'venta',
-        producto_id: d.id,
-        producto_nombre: d.nombre,
-        cantidad: d.need,
-        stock_antes: d.antes,
-        stock_despues: d.despues,
+        producto_id: c.id,
+        producto_nombre: c.nombre,
+        cantidad: need,
+        stock_antes: r.antes,
+        stock_despues: r.despues,
         ubicacion: 'piso',
         motivo: `Venta · ${metodoVenta}`,
         usuario: user.nombre,
-        sucursal,
+        sucursal: tiendaVenta,
         created_at: vendidoEn,
       }, supabase);
     }
+    if (erroresStock.length) {
+      alert(
+        `Venta guardada, pero no se pudo descontar stock de ${erroresStock.length} producto(s):\n\n` +
+          `${erroresStock.slice(0, 8).join('\n')}` +
+          (erroresStock.length > 8 ? `\n…y ${erroresStock.length - 8} más` : '') +
+          `\n\nRevisa inventario o ejecuta supabase/fix_stock_ubicaciones.sql si falta la columna.`,
+      );
+    }
     const ticket = {
-      sucursal,
+      sucursal: tiendaVenta,
       vendedor: user.nombre,
       articulos,
       total: totalVenta,
@@ -326,6 +311,7 @@ export default function Ventas({
       pagoExacto,
       moneda: monedaPago,
       recibido: recibidoVenta,
+      avisoStock: erroresStock.length > 0,
     });
     setFinalizando(false);
     cargarDatos();

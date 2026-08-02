@@ -35,6 +35,75 @@ export async function leerProductoInventarioFresco(supabase, productoId) {
   return { ok: true, producto: data };
 }
 
+/**
+ * Descuenta stock de piso por una venta (lee fresco de la nube y confirma el update).
+ * Evita el fallo silencioso de update con 0 filas y el mapa viejo del catálogo en memoria.
+ */
+export async function descontarStockPorVenta(supabase, { productoId, qty, sucursal, intentos = 2 } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
+  const id = String(productoId || '').trim();
+  const need = Math.max(0, Math.floor(Number(qty) || 0));
+  const tienda = normalizarCodigoTienda(sucursal);
+  if (!id || !tienda || need <= 0) return { ok: false, error: 'Datos de descuento incompletos.' };
+
+  let ultimoError = 'No se pudo descontar stock.';
+  for (let i = 0; i < Math.max(1, intentos); i += 1) {
+    const fresco = await leerProductoInventarioFresco(supabase, id);
+    if (!fresco.ok) return fresco;
+    const productoDb = fresco.producto;
+    const calc = aplicarDeltaStock(productoDb, tienda, 'piso', -need, tienda, { permitirNegativo: true });
+    if (!calc.ok) return calc;
+
+    const { data: rowsUpd, error } = await supabase
+      .from('productos')
+      .update(calc.patch)
+      .eq('id', id)
+      .select('id, stock, stock_cedis, stock_sucursales');
+    if (error) {
+      if (String(error.message).includes('stock_sucursales') || String(error.message).includes('stock_cedis')) {
+        return {
+          ok: false,
+          error: 'Faltan columnas de inventario. Ejecuta supabase/fix_stock_ubicaciones.sql en Supabase.',
+        };
+      }
+      return { ok: false, error: error.message };
+    }
+    if (!rowsUpd?.length) {
+      // 0 filas: a veces id no coincide o RLS bloquea sin error explícito.
+      ultimoError = `No se actualizó stock de ${id} (0 filas). Revisa id del producto o permisos RLS.`;
+      continue;
+    }
+
+    // Confirmamos que el piso de esta tienda bajó (o quedó en el valor calculado).
+    // Si otra caja vendió al mismo tiempo, el stock puede ser < calc.despues: igual OK.
+    const verif = await leerProductoInventarioFresco(supabase, id);
+    if (verif.ok) {
+      const real = stockEnUbicacion(verif.producto, tienda, 'piso', tienda);
+      if (real === calc.antes) {
+        // El update “pasó” pero el mapa no refleja el descuento → reintentar.
+        ultimoError = `El stock de ${id} no bajó tras el update (sigue en ${real}). Reintentando…`;
+        continue;
+      }
+      return {
+        ok: true,
+        antes: calc.antes,
+        despues: real,
+        patch: calc.patch,
+        producto: verif.producto,
+      };
+    }
+
+    return {
+      ok: true,
+      antes: calc.antes,
+      despues: calc.despues,
+      patch: calc.patch,
+      producto: rowsUpd[0] ? { ...productoDb, ...rowsUpd[0] } : { ...productoDb, ...calc.patch },
+    };
+  }
+  return { ok: false, error: ultimoError };
+}
+
 export const TIPOS_MOVIMIENTO = [
   { id: 'entrada', label: 'Entrada', signo: 1, desc: 'En MAIN suma al CEDIS central; en tienda suma al piso de venta.' },
   { id: 'retiro', label: 'Retiro', signo: -1, desc: 'En MAIN resta del CEDIS; en tienda resta del piso de venta.' },

@@ -80,7 +80,7 @@ const SECCIONES = [
     body: (
       <>
         <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
-          <li><strong>Cajero:</strong> ventas, corte de su turno, checador.</li>
+          <li><strong>Cajero:</strong> ventas, corte de su turno, checador; consulta de productos sin editar ni ajustar inventario.</li>
           <li><strong>Supervisor / Gerente:</strong> operación completa; gerente también configura.</li>
           <li><strong>Administrador:</strong> usuarios, proveedores y acceso total.</li>
           <li><strong>Auditor:</strong> consultas e inventario sin ventas en mostrador.</li>
