@@ -341,6 +341,10 @@ export async function limpiarGastosTurno(supabase, sucursal, modulo, idsOpcional
 /**
  * Cierra gastos huérfanos: siguen abiertos pero ya están en el detalle de un cierre.
  * Corrige turnos donde limpiarGastosTurno falló o se ignoró el error.
+ *
+ * Garage: gastos/faltantes se snapshottean en cierres y recolecciones temporales a propósito
+ * (persisten hasta máquinas en cero). Solo una recolección definitiva (`tipo_cierre === 'recoleccion'`)
+ * debe poder marcarlos como huérfanos.
  */
 export async function cerrarGastosHuerfanosTrasCierre(supabase, sucursal, modulo) {
   const sid = sucursal || 'MAIN';
@@ -365,6 +369,11 @@ export async function cerrarGastosHuerfanosTrasCierre(supabase, sucursal, modulo
 
   const idsEnCierres = new Set();
   for (const c of cierres || []) {
+    if (modulo === 'garage') {
+      const tipo = String(c?.detalle?.tipo_cierre || '').toLowerCase();
+      // Solo recolección definitiva cierra el periodo; cierre / temporal dejan gastos abiertos.
+      if (tipo !== 'recoleccion') continue;
+    }
     const lista = c?.detalle?.gastos;
     if (!Array.isArray(lista)) continue;
     for (const g of lista) {
