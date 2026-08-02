@@ -12,7 +12,7 @@ import {
   parsearTextoPegado,
 } from '../lib/importarCatalogo.js';
 import { vaciarInventario, OPCIONES_VACIADO } from '../lib/borrarInventario.js';
-import { registrarCambioPrecio } from '../lib/inventarioMovimientos.js';
+import { registrarCambioPrecio, leerProductoInventarioFresco } from '../lib/inventarioMovimientos.js';
 import { mensajeErrorColumnasProducto, productoDesdeDb, productoParaGuardar, productoVacio } from '../lib/productoForm.js';
 import {
   puedeCrearProveedor,
@@ -352,6 +352,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   };
 
   const toggleFavorito = async (p) => {
+    if (!puedeGestionCatalogo) return alert('Tu rol no puede editar productos.');
     if (!supabase || !p?.id) return;
     const next = !Boolean(p.en_favoritos);
     const { error } = await supabase.from('productos').update({ en_favoritos: next }).eq('id', p.id);
@@ -379,7 +380,11 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const guardar = async () => {
     if (!puedeGestionCatalogo) return alert('Tu rol no puede crear ni editar productos.');
     if (!supabase) return;
-    const productoDb = (inventarioCompleto || inventario).find((p) => p.id === form.id);
+    let productoDb = (inventarioCompleto || inventario).find((p) => p.id === form.id);
+    if (form.id?.trim()) {
+      const fresco = await leerProductoInventarioFresco(supabase, form.id.trim());
+      if (fresco.ok) productoDb = fresco.producto;
+    }
     const payload = productoParaGuardar(form, { productoDb, sucursal });
     if (!payload.id || !payload.nombre) return alert('Código y nombre son obligatorios');
     const { data: saved, error } = await supabase.from('productos').upsert([payload]).select('*').single();
@@ -537,6 +542,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   };
 
   const confirmarImport = async () => {
+    if (!puedeGestionCatalogo) return alert('Tu rol no puede importar el catálogo.');
     if (!importFilas.length) return alert('No hay filas para importar.');
     const filas = importFilasFiltradas;
     if (!filas.length) return alert('No hay productos con los proveedores seleccionados.');
@@ -583,6 +589,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
       alcance: alcanceVaciado,
       usuario: user?.nombre,
       motivo: motivoVaciado,
+      rol: user?.rol,
     });
     setVaciando(false);
     if (!r.ok) return alert(r.error);
@@ -1195,7 +1202,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
         </div>
       )}
 
-      {vista === 'mover' && (
+      {vista === 'mover' && puedeGestionCatalogo && (
         <MoverProductosLote
           supabase={supabase}
           inventario={inventarioCompleto || inventario}
@@ -1233,7 +1240,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
         </div>
       )}
 
-      {vista === 'importexport' && (
+      {vista === 'importexport' && puedeGestionCatalogo && (
         <div className="card">
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
             <strong>Paso 1:</strong> Elige archivo · <strong>Paso 2:</strong> Revisa proveedores · <strong>Paso 3:</strong> Confirma.

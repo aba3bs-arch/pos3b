@@ -9,7 +9,7 @@ import {
   stockEnUbicacion as stockEnUbicacionMt,
   sucursalParaUbicacion,
 } from './inventarioMultitienda.js';
-import { guardarMovimientoLocal, leerMovimientosLocal, parseCantidadInventario, leerProductoInventarioFresco } from './inventarioMovimientos.js';
+import { guardarMovimientoLocal, leerMovimientosLocal, parseCantidadInventario, leerProductoInventarioFresco, aplicarDeltaStockAtomico } from './inventarioMovimientos.js';
 
 const LS_FOLIO_TRP = 'pos3b_folio_traspaso_seq';
 
@@ -203,47 +203,36 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
   if (!fresco.ok) return fresco;
   const productoDb = fresco.producto;
 
-  const calc = patchTraspasoUbicacion(productoDb, { ...ruta, cantidad: qty, sucursalActiva });
-  if (!calc.ok) return calc;
-
-  const { data: rowsUpd, error } = await supabase
-    .from('productos')
-    .update(calc.patch)
-    .eq('id', producto.id)
-    .select('id');
-  if (error) {
-    if (String(error.message).includes('stock_cedis') || String(error.message).includes('stock_sucursales')) {
-      return {
-        ok: false,
-        error: 'Faltan columnas de ubicación en Supabase. Ejecuta supabase/fix_stock_ubicaciones.sql en el SQL Editor.',
-      };
-    }
-    return { ok: false, error: error.message };
-  }
-  if (!rowsUpd?.length) {
-    return { ok: false, error: `No se actualizó stock de ${producto.id} (0 filas). Revisa permisos o id.` };
+  const stockO = stockEnUbicacionMt(productoDb, ruta.sucursalOrigen, ruta.ubicacionOrigen, sucursalActiva);
+  if (stockO < qty) {
+    return {
+      ok: false,
+      error: `Stock insuficiente en ${etiquetaUbicacion(ruta.ubicacionOrigen, ruta.sucursalOrigen)} (hay ${stockO}, pides ${qty}).`,
+    };
   }
 
-  const verif = await leerProductoInventarioFresco(supabase, producto.id);
-  if (verif.ok) {
-    const realOrigen = stockEnUbicacionMt(verif.producto, ruta.sucursalOrigen, ruta.ubicacionOrigen, sucursalActiva);
-    const realDest = stockEnUbicacionMt(verif.producto, ruta.sucursalDestino, ruta.ubicacionDestino, sucursalActiva);
-    if (realOrigen !== calc.stockOrigenDespues || realDest !== calc.stockDestDespues) {
-      await supabase
-        .from('productos')
-        .update({
-          stock_sucursales: productoDb.stock_sucursales,
-          stock: productoDb.stock,
-          stock_cedis: productoDb.stock_cedis,
-        })
-        .eq('id', producto.id);
-      return {
-        ok: false,
-        error:
-          `Verificación falló en traspaso de "${producto.nombre}": ` +
-          `origen ${realOrigen}/${calc.stockOrigenDespues}, destino ${realDest}/${calc.stockDestDespues}. Se revirtió.`,
-      };
-    }
+  const rO = await aplicarDeltaStockAtomico(supabase, {
+    productoId: producto.id,
+    sucursal: ruta.sucursalOrigen,
+    ubicacion: ruta.ubicacionOrigen,
+    delta: -qty,
+  });
+  if (!rO.ok) return rO;
+
+  const rD = await aplicarDeltaStockAtomico(supabase, {
+    productoId: producto.id,
+    sucursal: ruta.sucursalDestino,
+    ubicacion: ruta.ubicacionDestino,
+    delta: qty,
+  });
+  if (!rD.ok) {
+    await aplicarDeltaStockAtomico(supabase, {
+      productoId: producto.id,
+      sucursal: ruta.sucursalOrigen,
+      ubicacion: ruta.ubicacionOrigen,
+      delta: qty,
+    });
+    return { ok: false, error: `Error en destino: ${rD.error}. Se revirtió el origen.` };
   }
 
   const origenTxt = `${etiquetaUbicacion(ruta.ubicacionOrigen, ruta.sucursalOrigen)} · ${etiquetaSucursal(ruta.sucursalOrigen)}`;
@@ -264,10 +253,10 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
     producto_id: producto.id,
     producto_nombre: producto.nombre || productoDb.nombre,
     cantidad: qty,
-    stock_antes: calc.stockOrigenAntes,
-    stock_despues: calc.stockOrigenDespues,
-    stock_dest_antes: calc.stockDestAntes,
-    stock_dest_despues: calc.stockDestDespues,
+    stock_antes: rO.antes,
+    stock_despues: rO.despues,
+    stock_dest_antes: rD.antes,
+    stock_dest_despues: rD.despues,
     motivo: motivo?.trim() || `Traspaso ${folioTrp}`,
     usuario: usuario || '—',
     sucursal: sucursalActiva || sucursalOrigen || '',
@@ -279,8 +268,8 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
     log,
     folio: folioTrp,
     mensaje: `Traspaso ${folioTrp}: ${qty} uds. de "${producto.nombre || productoDb.nombre}" (${origenTxt} → ${destTxt}).`,
-    patch: calc.patch,
-    producto: verif.ok ? verif.producto : { ...productoDb, ...calc.patch },
+    patch: rD.patch,
+    producto: { ...productoDb, ...rD.patch },
   };
 }
 

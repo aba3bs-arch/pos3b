@@ -6,7 +6,8 @@ import {
   esAlmacenCentral,
   stockEnUbicacion,
 } from './inventarioMultitienda.js';
-import { guardarMovimientoLocal, leerMovimientosLocal } from './inventarioMovimientos.js';
+import { guardarMovimientoLocal, leerMovimientosLocal, leerProductoInventarioFresco } from './inventarioMovimientos.js';
+import { puedeGestionarInventarioMultitienda } from './roles.js';
 
 /**
  * Vacía inventario de productos.
@@ -21,9 +22,13 @@ export async function vaciarInventario(supabase, opts) {
     productoIds = null,
     usuario,
     motivo,
+    rol,
   } = opts;
 
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
+  if (!puedeGestionarInventarioMultitienda(rol)) {
+    return { ok: false, error: 'Solo Gerente o Administrador pueden vaciar inventario.' };
+  }
   const lista = (inventarioCompleto || []).filter((p) => {
     if (!productoIds?.length) return true;
     return productoIds.includes(p.id);
@@ -34,7 +39,13 @@ export async function vaciarInventario(supabase, opts) {
   let aplicados = 0;
   const errores = [];
 
-  for (const producto of lista) {
+  for (const prodMem of lista) {
+    const fresco = await leerProductoInventarioFresco(supabase, prodMem.id);
+    if (!fresco.ok) {
+      errores.push(`${prodMem.nombre || prodMem.id}: ${fresco.error}`);
+      continue;
+    }
+    const producto = fresco.producto;
     let patch;
     const movimientos = [];
 
@@ -66,7 +77,9 @@ export async function vaciarInventario(supabase, opts) {
       } else {
         const pisoAntes = stockEnUbicacion(producto, sucursal, 'piso', sucursal);
         patch = buildPatchStock(producto, sucursal, 'piso', 0, sucursal);
-        if (pisoAntes > 0) movimientos.push({ ubicacion: 'piso', qty: pisoAntes, antes: pisoAntes, despues: 0 });
+        if (pisoAntes > 0) {
+          movimientos.push({ ubicacion: 'piso', qty: pisoAntes, antes: pisoAntes, despues: 0 });
+        }
       }
     }
 

@@ -5,12 +5,11 @@
  * Flujo: enviar (descuenta origen) → recibir (suma destino) · solicitar.
  */
 import {
-  aplicarDeltaStock,
   esAlmacenCentral,
   stockEnUbicacion,
 } from './inventarioMultitienda.js';
 import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
-import { guardarMovimientoLocal, leerProductoInventarioFresco } from './inventarioMovimientos.js';
+import { guardarMovimientoLocal, aplicarDeltaStockAtomico } from './inventarioMovimientos.js';
 
 const LS = 'pos3b_inventario_traspasos';
 const LS_FOLIO = 'pos3b_folio_traspaso_seq';
@@ -94,54 +93,39 @@ function stockVistaProducto(producto, sucursal, ubicacion) {
 }
 
 /**
- * Aplica delta de stock con producto fresco de la nube + verificación post-escritura.
- * Evita mapas en memoria desfasados y actualizaciones de 0 filas silenciosas.
+ * Aplica delta de stock con RPC atómica (no reescribe el JSON completo).
  */
 async function aplicarDeltaProductoVerificado(supabase, opts) {
-  const { productoId, sucursal, ubicacion, delta, sucursalActiva } = opts;
+  const { productoId, sucursal, ubicacion, delta } = opts;
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase para actualizar stock.' };
-  const fresco = await leerProductoInventarioFresco(supabase, productoId);
-  if (!fresco.ok) return fresco;
-  const prod = fresco.producto;
-  const calc = aplicarDeltaStock(prod, sucursal, ubicacion, delta, sucursalActiva || sucursal);
-  if (!calc.ok) return calc;
-
-  const { data: rows, error } = await supabase
-    .from('productos')
-    .update(calc.patch)
-    .eq('id', productoId)
-    .select('id');
-  if (error) return { ok: false, error: error.message };
-  if (!rows?.length) {
-    return { ok: false, error: `No se actualizó stock de ${productoId} (0 filas). Revisa permisos o id.` };
-  }
-
-  const verif = await leerProductoInventarioFresco(supabase, productoId);
-  if (verif.ok) {
-    const real = stockEnUbicacion(verif.producto, sucursal, ubicacion, sucursalActiva || sucursal);
-    if (real !== calc.despues) {
-      // Revertir al estado previo fresco
-      await supabase
-        .from('productos')
-        .update({
-          stock_sucursales: prod.stock_sucursales,
-          stock: prod.stock,
-          stock_cedis: prod.stock_cedis,
-        })
-        .eq('id', productoId);
-      return {
-        ok: false,
-        error: `Verificación falló en ${productoId}: se esperaba ${calc.despues} y la nube tiene ${real}.`,
-      };
-    }
-  }
-
+  const d = Math.floor(Number(delta) || 0);
+  const r = await aplicarDeltaStockAtomico(supabase, {
+    productoId,
+    sucursal,
+    ubicacion: ubicacion || 'piso',
+    delta: d,
+  });
+  if (!r.ok) return r;
   return {
     ok: true,
-    calc,
-    productoAntes: prod,
-    producto: verif.ok ? verif.producto : { ...prod, ...calc.patch },
+    calc: { antes: r.antes, despues: r.despues, patch: r.patch },
+    producto: r.producto || { id: productoId, ...r.patch },
+    // Compensación segura: delta inverso (no reescribir mapa viejo).
+    revertDelta: -d,
+    revertSucursal: sucursal,
+    revertUbicacion: ubicacion || 'piso',
   };
+}
+
+async function revertirDeltasAtomicos(supabase, items) {
+  for (const d of items || []) {
+    await aplicarDeltaStockAtomico(supabase, {
+      productoId: d.producto_id,
+      sucursal: d.revertSucursal,
+      ubicacion: d.revertUbicacion,
+      delta: d.revertDelta,
+    });
+  }
 }
 
 async function upsertTraspaso(supabase, row, { requireCloud = false } = {}) {
@@ -288,18 +272,14 @@ export async function enviarTraspaso(supabase, opts = {}) {
       sucursalActiva: ruta.origen_id,
     });
     if (!r.ok) {
-      for (const d of descuentos) {
-        await supabase.from('productos').update(d.revertPatch).eq('id', d.producto_id);
-      }
+      await revertirDeltasAtomicos(supabase, descuentos);
       return { ok: false, error: `${item.nombre || item.producto_id}: ${r.error}` };
     }
     descuentos.push({
       producto_id: item.producto_id,
-      revertPatch: {
-        stock_sucursales: r.productoAntes.stock_sucursales,
-        stock: r.productoAntes.stock,
-        stock_cedis: r.productoAntes.stock_cedis,
-      },
+      revertDelta: r.revertDelta,
+      revertSucursal: r.revertSucursal,
+      revertUbicacion: r.revertUbicacion,
     });
     item.stock_origen_antes = r.calc.antes;
     item.stock_origen_despues = r.calc.despues;
@@ -330,9 +310,7 @@ export async function enviarTraspaso(supabase, opts = {}) {
   // Obligatorio en nube: si solo queda local, el destino nunca podrá recibir.
   const saved = await upsertTraspaso(supabase, row, { requireCloud: true });
   if (!saved.ok) {
-    for (const d of descuentos) {
-      await supabase.from('productos').update(d.revertPatch).eq('id', d.producto_id);
-    }
+    await revertirDeltasAtomicos(supabase, descuentos);
     return saved;
   }
 
@@ -406,9 +384,7 @@ export async function recibirTraspaso(supabase, opts = {}) {
   const aplicados = [];
 
   const revertirAplicados = async () => {
-    for (const a of aplicados) {
-      await supabase.from('productos').update(a.revertPatch).eq('id', a.producto_id);
-    }
+    await revertirDeltasAtomicos(supabase, aplicados);
   };
 
   for (const item of lineas) {
@@ -421,7 +397,6 @@ export async function recibirTraspaso(supabase, opts = {}) {
       sucursal: doc.destino_id,
       ubicacion: doc.ubicacion_destino || 'piso',
       delta: qty,
-      sucursalActiva: doc.destino_id,
     });
     if (!r.ok) {
       await revertirAplicados();
@@ -430,11 +405,9 @@ export async function recibirTraspaso(supabase, opts = {}) {
 
     aplicados.push({
       producto_id: pid,
-      revertPatch: {
-        stock_sucursales: r.productoAntes.stock_sucursales,
-        stock: r.productoAntes.stock,
-        stock_cedis: r.productoAntes.stock_cedis,
-      },
+      revertDelta: r.revertDelta,
+      revertSucursal: r.revertSucursal,
+      revertUbicacion: r.revertUbicacion,
     });
 
     const linea = {

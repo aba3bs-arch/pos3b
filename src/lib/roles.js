@@ -245,6 +245,7 @@ const ALIAS_ROL = {
   cajero: 'Cajero',
   auditor: 'Auditor',
   repartidor: 'Repartidor',
+  recolector: 'Repartidor',
   supervisor: 'Supervisor',
   gerente: 'Gerente',
   tecnico: 'Técnico',
@@ -371,8 +372,9 @@ function rolSistemaEfectivo(rol) {
 }
 
 /**
- * Roles de mostrador: no pueden alterar catálogo, vaciar inventario, consolidar ni configuración
- * (aunque tengan privilegios personalizados ampliados).
+ * Roles de mostrador (solo Cajero): no pueden alterar catálogo, vaciar inventario,
+ * consolidar ni abrir módulos de administración/contabilidad.
+ * Repartidor / Recolector NO entran aquí.
  */
 export function esRolMostradorRestringido(rol) {
   return rolSistemaEfectivo(rol) === 'Cajero';
@@ -437,7 +439,7 @@ export function descripcionRol(rol) {
   const r = normalizarRol(rol);
   const textos = {
     Cajero: 'Mostrador: ventas, cortes, checador, compras, proveedores, consultas, reportes, ingreso/ajuste de inventario, traspasos y preinventario; catálogo solo consulta',
-    Repartidor: 'Ruta, recolecciones e incidencias en todas las tiendas desde central MAIN',
+    Repartidor: 'Ruta / recolector: recolecciones e incidencias en todas las tiendas desde central MAIN (el bloqueo duro de cajero no aplica)',
     Auditor: 'Consultas, reportes, inventario e incidencias en todas las tiendas desde central MAIN',
     Supervisor: 'Operación de tienda sin configuración ni usuarios',
     Gerente: 'Operación, configuración y gestión de incidencias en todas las tiendas',

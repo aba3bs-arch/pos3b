@@ -1,13 +1,18 @@
 import { costoUnitarioInventario } from './valorInventario.js';
-import { guardarMovimientoLocal, leerMovimientosLocal } from './inventarioMovimientos.js';
 import {
-  buildPatchStock,
+  guardarMovimientoLocal,
+  leerMovimientosLocal,
+  leerProductoInventarioFresco,
+  aplicarSetStockAtomico,
+} from './inventarioMovimientos.js';
+import {
   stockEnUbicacion,
   ubicacionEntradaDefault,
   esAlmacenCentral,
   etiquetaCedisEmpresa,
 } from './inventarioMultitienda.js';
 import { round2 } from './productoForm.js';
+import { normalizarCodigoTienda } from '../constants/sucursales.js';
 
 const LS_FOLIO_SEQ = 'pos3b_folio_ajuste_seq';
 const LS_AJUSTES = 'pos3b_ajustes_inventario';
@@ -171,26 +176,28 @@ export async function aplicarConteoDepartamento(supabase, opts) {
   const suc = sucursal || '';
 
   for (const l of contadas) {
-    const producto = (inventario || []).find((p) => String(p.id) === String(l.productoId));
-    if (!producto) {
-      errores.push(`${l.codigo}: no encontrado en catálogo (¿recarga Productos?)`);
+    const fresco = await leerProductoInventarioFresco(supabase, l.productoId);
+    if (!fresco.ok) {
+      errores.push(`${l.codigo || l.productoId}: ${fresco.error}`);
       continue;
     }
+    const producto = fresco.producto;
 
     const ubi = ubicacionConteo(suc);
-    const existenciaReal = suc
-      ? stockEnUbicacion(producto, suc, ubi, suc)
-      : Math.max(0, Number(producto.stock) || 0);
+    const tienda = normalizarCodigoTienda(suc) || 'MAIN';
+    const existenciaReal = stockEnUbicacion(producto, tienda, ubi, tienda);
     const contada = Math.max(0, Math.floor(Number(l.contadaNum)));
     const diferencia = contada - existenciaReal;
     if (diferencia === 0) continue;
 
-    const { error } = await supabase
-      .from('productos')
-      .update(buildPatchStock(producto, suc || 'MAIN', ubi, contada, suc || 'MAIN'))
-      .eq('id', producto.id);
-    if (error) {
-      errores.push(`${l.nombre}: ${error.message}`);
+    const setR = await aplicarSetStockAtomico(supabase, {
+      productoId: producto.id,
+      sucursal: tienda,
+      ubicacion: ubi,
+      valor: contada,
+    });
+    if (!setR.ok) {
+      errores.push(`${l.nombre || producto.nombre}: ${setR.error}`);
       continue;
     }
 
@@ -203,8 +210,8 @@ export async function aplicarConteoDepartamento(supabase, opts) {
         producto_id: producto.id,
         producto_nombre: l.nombre || producto.nombre,
         cantidad: Math.abs(diferencia),
-        stock_antes: existenciaReal,
-        stock_despues: contada,
+        stock_antes: setR.antes,
+        stock_despues: setR.despues,
         motivo: `${motivo} · ${etiquetaUbicacionConteo(suc)}`,
         usuario: usuario || '—',
         sucursal: suc,
@@ -214,9 +221,7 @@ export async function aplicarConteoDepartamento(supabase, opts) {
       supabase,
     );
 
-    // Mantener mapa local vivo para siguientes líneas del mismo lote
-    Object.assign(producto, buildPatchStock(producto, suc || 'MAIN', ubi, contada, suc || 'MAIN'));
-    aplicadas.push({ ...l, existencia: existenciaReal, contadaNum: contada, diferencia });
+    aplicadas.push({ ...l, existencia: setR.antes, contadaNum: contada, diferencia });
   }
 
   const ajuste = {

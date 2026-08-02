@@ -76,14 +76,16 @@ export function permisosCorteContabilidad(rol, userId = null) {
   };
 }
 
-/** Solo administrador o quien tenga el privilegio de recolección marcado. */
+/** Solo administrador, repartidor/recolector, o quien tenga el privilegio marcado. */
 export function puedeRecoleccionCortes(rol, userId = null) {
-  if (normalizarRol(rol) === 'Administrador') return true;
+  const r = normalizarRol(rol);
+  if (r === 'Administrador') return true;
+  // Repartidor (= Recolector) siempre puede recolectar; no depende de quitar privilegios al cajero.
+  if (r === 'Repartidor') return true;
   const p = leerPrivilegios();
   const acc = p.acciones?.recoleccion_cortes || {};
   const uid = userId != null ? String(userId) : '';
   if (uid && acc.porUsuario?.[uid]) return true;
-  const r = normalizarRol(rol);
   if (acc.porRol?.[r]) return true;
   return false;
 }
