@@ -10,6 +10,7 @@ import {
 } from '../lib/proveedorCatalogo.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
+import MatrizEntregasProveedores from '../components/MatrizEntregasProveedores.jsx';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 
 const empty = { nombre: '', contacto: '', telefono: '', email: '', notas: '' };
@@ -271,6 +272,8 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <MatrizEntregasProveedores supabase={supabase} proveedores={rows} />
+
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>{editId ? 'Editar proveedor' : 'Nuevo proveedor'}</h3>
         {!puedeAlta && !editId && (
