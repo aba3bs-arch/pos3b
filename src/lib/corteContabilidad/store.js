@@ -9,6 +9,7 @@ import {
   marcarNotificacionAtendida,
 } from '../contabilidadNotificaciones.js';
 import { etiquetaTienda } from '../../constants/sucursales.js';
+import { registrarEntregaDesdeGastoAbarrotes } from '../proveedorEntregas.js';
 
 export const AVISO_FALTA_CORTES =
   'Faltan tablas de cortes contabilidad. En Supabase → SQL Editor ejecuta: supabase/fix_cortes_contabilidad.sql';
@@ -145,6 +146,19 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
   }
   const { data, error } = await supabase.from('cortes_contabilidad_gastos').insert([row]).select('*').single();
   if (error) return { ok: false, error: error.message };
+  // Matriz de entregas: si es gasto PROVEEDORES en Abarrotes, anota día + nombre.
+  if (String(modulo || '').toLowerCase() === 'abarrotes') {
+    try {
+      await registrarEntregaDesdeGastoAbarrotes(supabase, {
+        sucursalId: row.sucursal_id,
+        categoria: row.categoria,
+        subcategoria: row.subcategoria,
+        fecha: data?.created_at || new Date(),
+      });
+    } catch {
+      /* no bloquea el corte */
+    }
+  }
   // Gastos aplican en corte sin aprobación. A IE solo con recolección aprobada
   // (omitirIe = nunca van a IE: inversión oficina, envío MAIN, etc.).
   return { ok: true, data, omitirIe: Boolean(omitirIe) };
