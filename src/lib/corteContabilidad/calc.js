@@ -515,7 +515,7 @@ export const ESTADO_ABARROTES_DEFAULT = {
   tarjeta: 0,
   faltante: 0,
   recoleccion: 0,
-  folio: 'AB-001',
+  folio: '',
   comentarios: '',
 };
 

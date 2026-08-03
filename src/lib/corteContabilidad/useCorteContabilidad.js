@@ -24,7 +24,7 @@ import {
   listarCierresCorte,
   peekFolio,
   registrarCierreCorte,
-  siguienteFolio,
+  folioTrasCierre,
   actualizarDetalleCierre,
   eliminarCierreCorte,
   notificarRecoleccionPendienteIe,
@@ -182,13 +182,16 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     setGastos(nextGastos);
     setHistorial(histRes.data || []);
     setEmpleados(empleadosParaCorte(empRes.data || [], sucursal, modulo, user?.rol));
-    if (!nextEstado?.folio && modulo !== 'abarrotes') {
+    if (nextEstado?.folio) {
+      setFolio(nextEstado.folio);
+    } else {
       const f = await peekFolio(supabase, sucursal, modulo);
       setFolio(f);
-    } else if (modulo === 'abarrotes') {
-      setFolio(nextEstado?.folio || 'AB-001');
-    } else {
-      setFolio(nextEstado?.folio || '');
+      if (modulo === 'abarrotes' && f) {
+        nextEstado = { ...nextEstado, folio: f };
+        setEstado(nextEstado);
+        await guardarEstadoCorte(supabase, sucursal, modulo, nextEstado);
+      }
     }
     setCargando(false);
   }, [supabase, sucursal, modulo, user?.rol]);
@@ -284,11 +287,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     if (modulo === 'virtual') {
       nuevoEstado.turno_sesion = snapshotTurno() || turnoActual();
     }
-    if (modulo !== 'abarrotes') {
-      const nuevoFolio = await siguienteFolio(supabase, sucursal, modulo);
-      setFolio(nuevoFolio);
-      nuevoEstado.folio = nuevoFolio;
-    }
+    const nuevoFolio = await folioTrasCierre(supabase, sucursal, modulo, folioCierre);
+    setFolio(nuevoFolio);
+    nuevoEstado.folio = nuevoFolio;
     await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
     setEstado(nuevoEstado);
 

@@ -436,6 +436,38 @@ export async function siguienteFolio(supabase, sucursal, modulo) {
   return `${prefijo}-${String(ultimo).padStart(3, '0')}`;
 }
 
+/** Marca el folio recién usado y devuelve el siguiente (peek). */
+export async function folioTrasCierre(supabase, sucursal, modulo, folioUsado) {
+  const prefijo = PREFIJOS[modulo] || 'X';
+  const nUsado = Number(String(folioUsado || '').replace(/\D/g, '')) || 0;
+  const sid = sucursal || 'MAIN';
+
+  if (!supabase) {
+    const key = lsKey(sucursal, modulo, 'folio');
+    const actual = Number(localStorage.getItem(key)) || 0;
+    const ultimo = Math.max(actual, nUsado);
+    localStorage.setItem(key, String(ultimo));
+    const next = ultimo + 1;
+    if (modulo === 'abarrotes') return `AB-${String(next).padStart(3, '0')}`;
+    return `${prefijo}-${String(next).padStart(3, '0')}`;
+  }
+
+  const { data: row } = await supabase
+    .from('cortes_contabilidad_folios')
+    .select('ultimo')
+    .eq('sucursal_id', sid)
+    .eq('modulo', modulo)
+    .maybeSingle();
+  const ultimo = Math.max(Number(row?.ultimo) || 0, nUsado);
+  await supabase.from('cortes_contabilidad_folios').upsert(
+    { sucursal_id: sid, modulo, ultimo, prefijo },
+    { onConflict: 'sucursal_id,modulo' },
+  );
+  const next = ultimo + 1;
+  if (modulo === 'abarrotes') return `AB-${String(next).padStart(3, '0')}`;
+  return `${prefijo}-${String(next).padStart(3, '0')}`;
+}
+
 export async function registrarCierreCorte(supabase, payload) {
   if (!supabase) {
     const key = lsKey(payload.sucursal_id, payload.modulo, 'historial');
