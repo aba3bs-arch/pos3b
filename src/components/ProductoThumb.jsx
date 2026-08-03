@@ -42,6 +42,8 @@ export default function ProductoThumb({
   referencias = false,
   /** Sucursal activa: en MAIN el teórico es CEDIS; en tienda es piso. */
   sucursal = null,
+  /** false = no mostrar negativos (cajero/repartidor). Default true. */
+  verNegativos = true,
 }) {
   const src = urlFotoProducto(producto);
   const [roto, setRoto] = useState(false);
@@ -58,7 +60,7 @@ export default function ProductoThumb({
   const codigo = producto?.id != null && producto.id !== '' ? String(producto.id) : '';
 
   const sucVista = sucursal || producto?._sucursalVista || 'MAIN';
-  const stockVista = etiquetaStockLista(producto, sucVista);
+  const stockVista = etiquetaStockLista(producto, sucVista, { verNegativos });
   const teorico = Number.isFinite(Number(stockVista.primario)) ? Math.floor(Number(stockVista.primario)) : 0;
   const teoricoLabel = esAlmacenCentral(sucVista)
     ? stockVista.etiquetaPrimario || 'CEDIS'
@@ -93,7 +95,7 @@ export default function ProductoThumb({
             </span>
           ) : null}
           <span
-            className={`producto-thumb-ref producto-thumb-ref--teorico${teorico <= 0 ? ' is-bajo' : ''}`}
+            className={`producto-thumb-ref producto-thumb-ref--teorico${teorico <= 0 ? ' is-bajo' : ''}${teorico < 0 ? ' is-negativo' : ''}`}
             title={
               teorico < 0
                 ? `Inventario teórico negativo (${teorico}): se vendió sin existencias`

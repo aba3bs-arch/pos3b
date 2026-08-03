@@ -25,6 +25,7 @@ import {
   puedeTraspasarInventario,
   puedeHacerPreinventario,
   esRolMostradorRestringido,
+  puedeVerStockNegativo,
 } from '../lib/roles.js';
 import FormularioProducto from '../components/FormularioProducto.jsx';
 import MenuPuntos from '../components/MenuPuntos.jsx';
@@ -41,7 +42,7 @@ import Preinventario from './Preinventario.jsx';
 import HistorialProducto from '../components/HistorialProducto.jsx';
 import ConsolidarVentasInventario from '../components/ConsolidarVentasInventario.jsx';
 import { etiquetaTienda } from '../constants/sucursales.js';
-import { esAlmacenCentral, etiquetaCedisEmpresa, etiquetaStockLista } from '../lib/inventarioMultitienda.js';
+import { esAlmacenCentral, etiquetaCedisEmpresa, etiquetaStockLista, stockVisible } from '../lib/inventarioMultitienda.js';
 import { fmtMxn, resumirValorInventario } from '../lib/valorInventario.js';
 import { sincronizarFotosCatalogo, tieneFoto } from '../lib/fotosCatalogo.js';
 import { productoCoincideBusqueda, productoPorCodigoExacto } from '../lib/buscarProductoTexto.js';
@@ -150,8 +151,21 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const puedeAjustes = puedeAjustarInventario(user?.rol);
   const puedeTraspasos = puedeTraspasarInventario(user?.rol);
   const puedePreinventario = puedeHacerPreinventario(user?.rol);
+  const verNegativos = puedeVerStockNegativo(user?.rol);
   const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : 'MAIN';
   const enCentral = esAlmacenCentral(sucursal);
+  const chipsExistencia = useMemo(
+    () => (verNegativos ? FILTROS_CHIP.existencia : FILTROS_CHIP.existencia.filter((c) => c.id !== 'negativa')),
+    [verNegativos],
+  );
+  const negativosCount = useMemo(() => {
+    if (!verNegativos) return 0;
+    return (inventario || []).filter((p) => {
+      if (Number(p.stock) < 0) return true;
+      if (enCentral && Number(p.stock_cedis) < 0) return true;
+      return false;
+    }).length;
+  }, [verNegativos, inventario, enCentral]);
   const resumenInv = useMemo(
     () => (consolaCentral ? resumirValorInventario(inventario) : null),
     [consolaCentral, inventario],
@@ -168,6 +182,14 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     const vistasCajero = new Set(['lista', 'historial', 'ajustes', 'traspaso', 'preinventario']);
     if (!vistasCajero.has(vista)) setVista('lista');
   }, [esCajero, vista]);
+
+  useEffect(() => {
+    if (verNegativos) return;
+    if (filtros.existencia === 'negativa' || filtrosDraft.existencia === 'negativa') {
+      setFiltros((f) => ({ ...f, existencia: 'todo' }));
+      setFiltrosDraft((f) => ({ ...f, existencia: 'todo' }));
+    }
+  }, [verNegativos, filtros.existencia, filtrosDraft.existencia]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -229,14 +251,25 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     if (filtros.existencia === 'no') {
       list = list.filter((p) => {
         if (enCentral) return Number(p.stock_cedis) <= 0 && Number(p.stock) <= 0;
+        // Cajero/repartidor: negativo se ve como 0 → entra en “sin existencia”
+        if (!verNegativos) return Number(p.stock) <= 0;
         return Number(p.stock) === 0;
       });
     }
-    if (filtros.existencia === 'negativa') list = list.filter((p) => Number(p.stock) < 0);
+    if (filtros.existencia === 'negativa') {
+      if (!verNegativos) list = [];
+      else {
+        list = list.filter((p) => {
+          if (Number(p.stock) < 0) return true;
+          if (enCentral && Number(p.stock_cedis) < 0) return true;
+          return false;
+        });
+      }
+    }
     if (filtros.disponible === 'si') list = list.filter((p) => p.en_venta !== false);
     if (filtros.disponible === 'no') list = list.filter((p) => p.en_venta === false);
     return list;
-  }, [inventario, q, filtros, productosPorProveedor, idsConProveedor, enCentral]);
+  }, [inventario, q, filtros, productosPorProveedor, idsConProveedor, enCentral, verNegativos]);
 
   const rowsPrecios = useMemo(() => {
     const t = preciosQ.trim();
@@ -720,6 +753,23 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
         ...(puedeConsolidar
           ? [{ id: 'consolidar', label: 'Consolidar ventas vs piso', icon: 'refresh', onClick: () => setVista('consolidar') }]
           : []),
+        ...(verNegativos
+          ? [
+              {
+                id: 'negativos',
+                label: negativosCount > 0 ? `Inventario negativo (${negativosCount})` : 'Inventario negativo',
+                icon: 'package',
+                onClick: () => {
+                  const next = { ...FILTROS_VACIOS, existencia: 'negativa' };
+                  setFiltros(next);
+                  setFiltrosDraft(next);
+                  setQ('');
+                  setMostrarFiltros(false);
+                  setVista('lista');
+                },
+              },
+            ]
+          : []),
         ...(puedeEliminarCatalogo
           ? [{ id: 'eliminar', label: 'Eliminar productos', icon: 'trash', onClick: () => { setSeleccionEliminar(new Set()); setVista('eliminar'); } }]
           : []),
@@ -768,8 +818,14 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                   </td>
                   <td>{p.nombre}</td>
                   <td>${Math.round(Number(p.precio) || 0)}</td>
-                  <td>{p.stock}</td>
-                  {enCentral && <td>{p.stock_cedis ?? 0}</td>}
+                  <td style={verNegativos && Number(p.stock) < 0 ? { color: 'var(--brand-red)', fontWeight: 700 } : undefined}>
+                    {stockVisible(p.stock, verNegativos)}
+                  </td>
+                  {enCentral && (
+                    <td style={verNegativos && Number(p.stock_cedis) < 0 ? { color: 'var(--brand-red)', fontWeight: 700 } : undefined}>
+                      {stockVisible(p.stock_cedis, verNegativos)}
+                    </td>
+                  )}
                   <td>{etiquetaDepartamento(p.cat)}</td>
                   {showActions && (
                     <td style={{ whiteSpace: 'nowrap' }}>
@@ -832,6 +888,28 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
             <button type="button" className="btn btn-ghost" onClick={() => editar(productoSeleccionado)} title="Editar producto">
               <Icon name="settings" size={16} />
               Editar
+            </button>
+          )}
+          {vista === 'lista' && verNegativos && (
+            <button
+              type="button"
+              className={filtros.existencia === 'negativa' ? 'btn btn-primary' : 'btn btn-ghost'}
+              title="Solo productos con inventario teórico negativo"
+              onClick={() => {
+                if (filtros.existencia === 'negativa') {
+                  setFiltros(FILTROS_VACIOS);
+                  setFiltrosDraft(FILTROS_VACIOS);
+                  return;
+                }
+                const next = { ...FILTROS_VACIOS, existencia: 'negativa' };
+                setFiltros(next);
+                setFiltrosDraft(next);
+                setQ('');
+                setMostrarFiltros(false);
+              }}
+              style={negativosCount > 0 && filtros.existencia !== 'negativa' ? { borderColor: 'var(--brand-red)', color: 'var(--brand-red)' } : undefined}
+            >
+              Negativos{negativosCount > 0 ? ` (${negativosCount})` : ''}
             </button>
           )}
           {menuItems.length > 0 && <MenuPuntos items={menuItems} />}
@@ -975,7 +1053,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                     <div className="prod-filtro-grupo">
                       <span className="muted">Existencia</span>
                       <div className="prod-chips">
-                        {FILTROS_CHIP.existencia.map((c) => (
+                        {chipsExistencia.map((c) => (
                           <button
                             key={c.id}
                             type="button"
@@ -983,6 +1061,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                             onClick={() => setFiltrosDraft({ ...filtrosDraft, existencia: c.id })}
                           >
                             {c.label}
+                            {c.id === 'negativa' && negativosCount > 0 ? ` (${negativosCount})` : ''}
                           </button>
                         ))}
                       </div>
@@ -1067,7 +1146,8 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
               ) : (
                 rows.map((p) => {
                   const activo = productoSeleccionado?.id === p.id;
-                  const stockVista = etiquetaStockLista(p, sucursal);
+                  const stockVista = etiquetaStockLista(p, sucursal, { verNegativos });
+                  const stockNeg = verNegativos && (Number(p.stock) < 0 || (enCentral && Number(p.stock_cedis) < 0));
                   return (
                     <button
                       key={p.id}
@@ -1075,11 +1155,11 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                       className={`prod-lista-item ${activo ? 'activo' : ''}`}
                       onClick={() => seleccionarProducto(p)}
                     >
-                      <ProductoThumb producto={p} size={48} className="prod-lista-thumb" sucursal={sucursal} />
+                      <ProductoThumb producto={p} size={48} className="prod-lista-thumb" sucursal={sucursal} verNegativos={verNegativos} />
                       <div className="prod-lista-meta">
                         <div className="prod-lista-codigo">{p.id}</div>
                         <div className="prod-lista-nombre">{p.nombre}</div>
-                        <div className="prod-lista-stock">
+                        <div className="prod-lista-stock" style={stockNeg ? { color: 'var(--brand-red)', fontWeight: 700 } : undefined}>
                           {enCentral ? (
                             <>
                               <span className="muted">{stockVista.etiquetaPrimario}</span> {stockVista.primario}
@@ -1116,6 +1196,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                 sucursal={sucursal}
                 proveedores={proveedores}
                 vinculos={vinculos}
+                verNegativos={verNegativos}
                 onEditar={puedeGestionCatalogo ? editar : undefined}
                 onToggleFavorito={puedeGestionCatalogo ? toggleFavorito : undefined}
                 onVincularProveedor={puedeGestionCatalogo ? vincularProveedor : undefined}
@@ -1523,6 +1604,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           supabase={supabase}
           producto={productoHistorial}
           sucursal={sucursal}
+          verNegativos={verNegativos}
           onVolver={() => {
             setProductoHistorial(null);
             setVista('lista');

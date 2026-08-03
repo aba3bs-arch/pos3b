@@ -3,7 +3,7 @@ import Icon from './Icon.jsx';
 import HistorialProducto from './HistorialProducto.jsx';
 import ProductoThumb from './ProductoThumb.jsx';
 import { etiquetaDepartamento } from '../lib/departamentos.js';
-import { esAlmacenCentral, etiquetaCedisEmpresa, etiquetaStockLista } from '../lib/inventarioMultitienda.js';
+import { esAlmacenCentral, etiquetaCedisEmpresa, etiquetaStockLista, stockVisible } from '../lib/inventarioMultitienda.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { tieneFoto } from '../lib/fotosCatalogo.js';
 import { leerImagenProductoComoDataUrl } from '../lib/imagenProducto.js';
@@ -23,6 +23,8 @@ export default function DetalleProducto({
   onVincularProveedor,
   onQuitarVinculo,
   onFotoActualizada,
+  /** false = no mostrar negativos (cajero/repartidor). */
+  verNegativos = true,
 }) {
   const [tab, setTab] = useState('detalles');
   const [proveedoresOpen, setProveedoresOpen] = useState(false);
@@ -55,7 +57,7 @@ export default function DetalleProducto({
   const impuesto = Number(producto.impuesto ?? 8);
   const precioSin = Number(producto.precio_venta_sin ?? (precioCon / (1 + impuesto / 100)));
   const favorito = Boolean(producto.en_favoritos) || producto.cat === 'FAVORITOS';
-  const stockVista = etiquetaStockLista(producto, sucursal);
+  const stockVista = etiquetaStockLista(producto, sucursal, { verNegativos });
   const stock = stockVista.primario;
   const sinFoto = !tieneFoto(producto);
 
@@ -90,7 +92,7 @@ export default function DetalleProducto({
     <div className="prod-detalle">
       <div className="prod-detalle-header">
         <div className="prod-detalle-foto-wrap">
-          <ProductoThumb producto={producto} size={110} className="prod-detalle-foto" sucursal={sucursal} />
+          <ProductoThumb producto={producto} size={110} className="prod-detalle-foto" sucursal={sucursal} verNegativos={verNegativos} />
           {sinFoto && onFotoActualizada && (
             <>
               <input
@@ -259,7 +261,7 @@ export default function DetalleProducto({
 
       {tab === 'historial' && (
         <div className="prod-detalle-body prod-detalle-historial">
-          <HistorialProducto supabase={supabase} producto={producto} sucursal={sucursal} embebido />
+          <HistorialProducto supabase={supabase} producto={producto} sucursal={sucursal} embebido verNegativos={verNegativos} />
         </div>
       )}
 
@@ -269,7 +271,7 @@ export default function DetalleProducto({
             {enCentral && (
               <div className="prod-stock-card" style={{ borderColor: 'var(--brand-gold)' }}>
                 <span className="muted">{etiquetaCedisEmpresa()}</span>
-                <strong>{producto.stock_cedis ?? 0}</strong>
+                <strong>{stockVisible(producto.stock_cedis, verNegativos)}</strong>
                 <small className="muted" style={{ display: 'block', marginTop: '0.25rem', fontSize: '0.72rem' }}>
                   Aquí cae el ingreso de inventario en MAIN
                 </small>
@@ -277,7 +279,14 @@ export default function DetalleProducto({
             )}
             <div className="prod-stock-card">
               <span className="muted">Piso ({tiendaLabel})</span>
-              <strong>{Number.isFinite(Number(producto.stock)) ? Math.floor(Number(producto.stock)) : 0}</strong>
+              <strong style={verNegativos && Number(producto.stock) < 0 ? { color: 'var(--brand-red)' } : undefined}>
+                {stockVisible(producto.stock, verNegativos)}
+              </strong>
+              {verNegativos && Number(producto.stock) < 0 && (
+                <small className="muted" style={{ display: 'block', marginTop: '0.25rem', fontSize: '0.72rem', color: 'var(--brand-red)' }}>
+                  Negativo: se vendió sin existencias
+                </small>
+              )}
             </div>
             <div className="prod-stock-card">
               <span className="muted">Mínimo</span>

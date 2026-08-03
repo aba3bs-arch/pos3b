@@ -14,6 +14,7 @@ import DetalleProducto from '../components/DetalleProducto.jsx';
 import { productoCoincideBusqueda, productoPorCodigoExacto, pareceCodigoProducto } from '../lib/buscarProductoTexto.js';
 import { registrarRemocionCarrito } from '../lib/proyeccionFaltante.js';
 import { suscribirEscanerRemoto } from '../lib/escanerRemoto.js';
+import { puedeVerStockNegativo } from '../lib/roles.js';
 
 function addToCart(carrito, producto) {
   const i = carrito.findIndex((c) => c.id === producto.id);
@@ -70,6 +71,7 @@ export default function Ventas({
   busqueda,
   setBusqueda,
 }) {
+  const verNegativos = puedeVerStockNegativo(user?.rol);
   const [carrito, setCarrito] = useState([]);
   const [pagoCon, setPagoCon] = useState('');
   const [refPago, setRefPago] = useState('');
@@ -481,6 +483,7 @@ export default function Ventas({
                       className="ventas-favorito-thumb"
                       referencias={deptoActivo === 'favoritos'}
                       sucursal={sucursal}
+                      verNegativos={verNegativos}
                     />
                     <div className="ventas-favorito-precio">${Number(p.precio).toFixed(2)}</div>
                     <div className="ventas-favorito-nombre">{p.nombre}</div>
@@ -539,7 +542,7 @@ export default function Ventas({
               <span style={{ width: 36 }} />
             </header>
             <div style={{ padding: '0 0.75rem 1rem' }}>
-              <DetalleProducto producto={detalleProducto} supabase={supabase} sucursal={sucursal} />
+              <DetalleProducto producto={detalleProducto} supabase={supabase} sucursal={sucursal} verNegativos={verNegativos} />
               <button
                 type="button"
                 className="btn btn-primary"

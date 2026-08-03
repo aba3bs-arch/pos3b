@@ -11,7 +11,8 @@ import {
 import { imprimirMovimientoInventario } from '../lib/impresion.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { listarSucursales, etiquetaTienda } from '../constants/sucursales.js';
-import { esAlmacenCentral, etiquetaAlmacenCentral, etiquetaCedisEmpresa } from '../lib/inventarioMultitienda.js';
+import { esAlmacenCentral, etiquetaAlmacenCentral, etiquetaCedisEmpresa, stockVisible } from '../lib/inventarioMultitienda.js';
+import { puedeVerStockNegativo } from '../lib/roles.js';
 import Icon from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import ConteoPorDepartamento from './ConteoPorDepartamento.jsx';
@@ -71,6 +72,7 @@ export default function AjusteInventario({
 }) {
   const sucursalOp = sucursalOperacion || sucursal;
   const enCentral = esAlmacenCentral(sucursalOp);
+  const verNegativos = puedeVerStockNegativo(user?.rol);
   const catalogoCompleto = inventarioCompleto || inventario;
   const [modo, setModo] = useState(modoInicial);
   const [tipo, setTipo] = useState(tipoInicial || 'entrada');
@@ -419,8 +421,10 @@ export default function AjusteInventario({
         const p =
           (inventario || []).find((x) => String(x.id) === String(l.productoId)) ||
           (catalogoCompleto || []).find((x) => String(x.id) === String(l.productoId));
-        const stock = enCentral ? Number(p?.stock_cedis) || 0 : Number(p?.stock) || 0;
-        return `• ${p?.nombre || l.productoId}: ${signoTxt}${l.cantidad} (${stock} → ${stock + signo * l.cantidad})`;
+        const stockReal = enCentral ? Number(p?.stock_cedis) || 0 : Number(p?.stock) || 0;
+        const stock = stockVisible(stockReal, verNegativos);
+        const despues = stockVisible(stockReal + signo * l.cantidad, verNegativos);
+        return `• ${p?.nombre || l.productoId}: ${signoTxt}${l.cantidad} (${stock} → ${despues})`;
       })
       .join('\n');
 
@@ -774,7 +778,8 @@ export default function AjusteInventario({
                 <option value="">— Elegir —</option>
                 {productosBusquedaMasiva.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.nombre} · Piso {p.stock}{enCentral ? ` · ${etiquetaCedisEmpresa()} ${p.stock_cedis ?? 0}` : ''} · {p.cat}
+                    {p.nombre} · Piso {stockVisible(p.stock, verNegativos)}
+                    {enCentral ? ` · ${etiquetaCedisEmpresa()} ${stockVisible(p.stock_cedis, verNegativos)}` : ''} · {p.cat}
                   </option>
                 ))}
               </select>
@@ -815,8 +820,10 @@ export default function AjusteInventario({
                       (inventario || []).find((x) => String(x.id) === String(l.productoId)) ||
                       (catalogoCompleto || []).find((x) => String(x.id) === String(l.productoId));
                     const qty = parseCantidadInventario(l.cantidad) || 0;
-                    const stock = enCentral ? Number(p?.stock_cedis) || 0 : Number(p?.stock) || 0;
-                    const quedaria = qty > 0 ? stock + (esRetiroMasivo ? -qty : qty) : null;
+                    const stockReal = enCentral ? Number(p?.stock_cedis) || 0 : Number(p?.stock) || 0;
+                    const stock = stockVisible(stockReal, verNegativos);
+                    const quedariaReal = qty > 0 ? stockReal + (esRetiroMasivo ? -qty : qty) : null;
+                    const quedaria = quedariaReal == null ? null : stockVisible(quedariaReal, verNegativos);
                     return (
                       <tr key={l.productoId}>
                         <td>{l.productoId}</td>
@@ -1110,8 +1117,8 @@ export default function AjusteInventario({
                 <option value="">— Elegir —</option>
                 {productosFiltrados.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.nombre} · Piso {p.stock}
-                    {enCentral ? ` · ${etiquetaCedisEmpresa()} ${p.stock_cedis ?? 0}` : ''} · {p.cat}
+                    {p.nombre} · Piso {stockVisible(p.stock, verNegativos)}
+                    {enCentral ? ` · ${etiquetaCedisEmpresa()} ${stockVisible(p.stock_cedis, verNegativos)}` : ''} · {p.cat}
                   </option>
                 ))}
               </select>

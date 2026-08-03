@@ -468,6 +468,15 @@ export function puedeGestionarInventarioMultitienda(rol) {
   return r === 'Administrador' || r === 'Gerente';
 }
 
+/**
+ * Ver inventario teórico negativo (ventas sin existencia).
+ * Solo Administrador: cajero/repartidor y demás roles ven 0 en pantalla.
+ * El descuento real en BD sigue pudiendo ir a negativo.
+ */
+export function puedeVerStockNegativo(rol) {
+  return rolSistemaEfectivo(rol) === 'Administrador';
+}
+
 /** Consolidar ventas vs piso: Admin, Gerente y Repartidor (no vaciar). */
 export function puedeConsolidarVentasInventario(rol) {
   const r = rolSistemaEfectivo(rol);

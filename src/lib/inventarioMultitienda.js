@@ -223,13 +223,22 @@ export function aplicarDeltaStock(producto, sucursal, ubicacion, delta, sucursal
   };
 }
 
-/** Texto corto de existencia para listas (Main muestra CEDIS + piso). */
-export function etiquetaStockLista(producto, sucursal) {
-  const pisoRaw = Number(producto?.stock);
-  const piso = Number.isFinite(pisoRaw) ? Math.floor(pisoRaw) : 0;
+/** Entero de stock; si no se permiten negativos en UI, muestra 0. */
+export function stockVisible(valor, verNegativos = true) {
+  const n = Number.isFinite(Number(valor)) ? Math.floor(Number(valor)) : 0;
+  if (!verNegativos && n < 0) return 0;
+  return n;
+}
+
+/**
+ * Texto corto de existencia para listas (Main muestra CEDIS + piso).
+ * @param {{ verNegativos?: boolean }} [opts] — false oculta negativos (cajero/repartidor).
+ */
+export function etiquetaStockLista(producto, sucursal, opts = {}) {
+  const verNegativos = opts.verNegativos !== false;
+  const piso = stockVisible(producto?.stock, verNegativos);
   if (esAlmacenCentral(sucursal)) {
-    const cedisRaw = Number(producto?.stock_cedis);
-    const cedis = Number.isFinite(cedisRaw) ? Math.floor(cedisRaw) : 0;
+    const cedis = stockVisible(producto?.stock_cedis, verNegativos);
     return { primario: cedis, etiquetaPrimario: 'CEDIS', secundario: piso, etiquetaSecundario: 'Piso' };
   }
   return { primario: piso, etiquetaPrimario: 'PZA', secundario: null, etiquetaSecundario: null };

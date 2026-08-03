@@ -8,7 +8,7 @@ import {
   timelineProducto,
 } from '../lib/consultasInventario.js';
 import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
-import { esAlmacenCentral } from '../lib/inventarioMultitienda.js';
+import { esAlmacenCentral, stockVisible } from '../lib/inventarioMultitienda.js';
 
 function fmtFecha(iso) {
   if (!iso) return '—';
@@ -31,7 +31,7 @@ function badgeTipo(tipo, modo) {
   );
 }
 
-export default function HistorialProducto({ supabase, producto, sucursal, onVolver, embebido = false }) {
+export default function HistorialProducto({ supabase, producto, sucursal, onVolver, embebido = false, verNegativos = true }) {
   const [presetFecha, setPresetFecha] = useState('7d');
   const [desde, setDesde] = useState(() => rangoDesdePreset('7d').desde);
   const [hasta, setHasta] = useState(() => rangoDesdePreset('7d').hasta);
@@ -133,7 +133,15 @@ export default function HistorialProducto({ supabase, producto, sucursal, onVolv
                 ${Math.round(Number(producto.precio) || 0)}
               </div>
               <div style={{ marginTop: '0.35rem' }}>
-                Existencia: <strong>{producto.stock}</strong> piso · <strong>{producto.stock_cedis ?? 0}</strong> CEDIS
+                Existencia:{' '}
+                <strong style={verNegativos && Number(producto.stock) < 0 ? { color: 'var(--brand-red)' } : undefined}>
+                  {stockVisible(producto.stock, verNegativos)}
+                </strong>{' '}
+                piso ·{' '}
+                <strong style={verNegativos && Number(producto.stock_cedis) < 0 ? { color: 'var(--brand-red)' } : undefined}>
+                  {stockVisible(producto.stock_cedis, verNegativos)}
+                </strong>{' '}
+                CEDIS
               </div>
             </div>
             {onVolver && (
