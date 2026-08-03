@@ -423,7 +423,10 @@ export default function AjusteInventario({
           (catalogoCompleto || []).find((x) => String(x.id) === String(l.productoId));
         const stockReal = enCentral ? Number(p?.stock_cedis) || 0 : Number(p?.stock) || 0;
         const stock = stockVisible(stockReal, verNegativos);
-        const despues = stockVisible(stockReal + signo * l.cantidad, verNegativos);
+        // Entrada con teórico negativo: no absorber faltante (−1 + 100 → 100).
+        const despuesReal =
+          tipoMov === 'entrada' && stockReal < 0 ? l.cantidad : stockReal + signo * l.cantidad;
+        const despues = stockVisible(despuesReal, verNegativos);
         return `• ${p?.nombre || l.productoId}: ${signoTxt}${l.cantidad} (${stock} → ${despues})`;
       })
       .join('\n');
@@ -822,7 +825,11 @@ export default function AjusteInventario({
                     const qty = parseCantidadInventario(l.cantidad) || 0;
                     const stockReal = enCentral ? Number(p?.stock_cedis) || 0 : Number(p?.stock) || 0;
                     const stock = stockVisible(stockReal, verNegativos);
-                    const quedariaReal = qty > 0 ? stockReal + (esRetiroMasivo ? -qty : qty) : null;
+                    let quedariaReal = null;
+                    if (qty > 0) {
+                      if (esRetiroMasivo) quedariaReal = stockReal - qty;
+                      else quedariaReal = stockReal < 0 ? qty : stockReal + qty;
+                    }
                     const quedaria = quedariaReal == null ? null : stockVisible(quedariaReal, verNegativos);
                     return (
                       <tr key={l.productoId}>

@@ -2,6 +2,7 @@ import {
   esAlmacenCentral,
   etiquetaCedisEmpresa,
   stockEnUbicacion,
+  stockEnUbicacionReal,
   ubicacionEntradaDefault,
 } from './inventarioMultitienda.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
@@ -431,11 +432,22 @@ export async function aplicarMovimientoInventario(supabase, opts) {
 
   const ubicacion = ubicacionMovimiento(tipo, tienda, modo);
   const signo = tipo === 'entrada' ? 1 : -1;
+  // Entrada con teórico negativo: no absorber el faltante (−1 + 100 → 100, no 99).
+  // La mercancía que entra parte de 0; el negativo queda saldado al ingresar.
+  let delta = signo * qty;
+  let notaNegativo = '';
+  if (tipo === 'entrada') {
+    const antesReal = stockEnUbicacionReal(productoDb, tienda, ubicacion, tienda);
+    if (antesReal < 0) {
+      delta = qty - antesReal; // ej. −1 → delta 101 → queda 100
+      notaNegativo = ` (teórico ${antesReal} saldado; ingreso completo ${qty})`;
+    }
+  }
   const atom = await aplicarDeltaStockAtomico(supabase, {
     productoId: productoOrigen.id,
     sucursal: tienda,
     ubicacion,
-    delta: signo * qty,
+    delta,
   });
   if (!atom.ok) return atom;
 
@@ -466,7 +478,7 @@ export async function aplicarMovimientoInventario(supabase, opts) {
       : '';
   return {
     ok: true,
-    mensaje: `${tipo === 'entrada' ? 'Entrada' : 'Retiro'} (${etiquetaTienda(tienda)}): ${tipo === 'entrada' ? '+' : '−'}${qty} uds. en "${productoOrigen.nombre || productoDb.nombre}" · ${donde}. Stock: ${atom.antes} → ${atom.despues}.${avisoMain}`,
+    mensaje: `${tipo === 'entrada' ? 'Entrada' : 'Retiro'} (${etiquetaTienda(tienda)}): ${tipo === 'entrada' ? '+' : '−'}${qty} uds. en "${productoOrigen.nombre || productoDb.nombre}" · ${donde}. Stock: ${atom.antes} → ${atom.despues}.${avisoMain}${notaNegativo}`,
     log,
     cantidad: qty,
     stock_antes: atom.antes,
