@@ -1,3 +1,5 @@
+import { codigosDeProducto, productoTieneCodigo } from './buscarProductoTexto.js';
+
 function normalizarCodigoBusqueda(v) {
   let s = String(v ?? '').trim();
   if (!s) return '';
@@ -19,7 +21,17 @@ function codigoSinCeros(v) {
   return n || '0';
 }
 
-/** Busca producto por código de barras exacto o, si hay un solo match por nombre, lo devuelve. */
+function codigoCoincideProducto(p, codigo, lower, codigoDigits) {
+  for (const raw of codigosDeProducto(p)) {
+    const id = String(raw || '').trim();
+    if (!id) continue;
+    if (id === codigo || id.toLowerCase() === lower) return true;
+    if (/^\d+$/.test(id) && /^\d+$/.test(codigo) && codigoSinCeros(id) === codigoDigits) return true;
+  }
+  return false;
+}
+
+/** Busca producto por código de barras (principal o alterno) o, si hay un solo match por nombre, lo devuelve. */
 export function buscarProductoInventario(inventario, codigoRaw) {
   const codigo = normalizarCodigoBusqueda(codigoRaw);
   if (!codigo) return { producto: null, ambiguo: false, candidatos: [] };
@@ -28,21 +40,21 @@ export function buscarProductoInventario(inventario, codigoRaw) {
   const lower = codigo.toLowerCase();
   const codigoDigits = codigoSinCeros(codigo);
 
-  const exact = list.find((p) => {
-    const id = String(p.id || '').trim();
-    if (!id) return false;
-    if (id === codigo || id.toLowerCase() === lower) return true;
-    if (/^\d+$/.test(id) && /^\d+$/.test(codigo) && codigoSinCeros(id) === codigoDigits) return true;
-    return false;
-  });
+  const exact = list.find((p) => codigoCoincideProducto(p, codigo, lower, codigoDigits));
   if (exact) return { producto: exact, ambiguo: false, candidatos: [exact] };
 
+  // Compat: algunos flujos llaman con match exacto vía helper central.
+  const porExactoAlt = list.find((p) => productoTieneCodigo(p, codigo));
+  if (porExactoAlt) return { producto: porExactoAlt, ambiguo: false, candidatos: [porExactoAlt] };
+
   const porIdParcial = list.filter((p) => {
-    const id = String(p.id || '');
-    if (!id) return false;
-    if (id.includes(codigo) || id.toLowerCase().includes(lower)) return true;
-    if (/^\d+$/.test(id) && /^\d+$/.test(codigo)) {
-      return codigoSinCeros(id).includes(codigoDigits) || codigoDigits.includes(codigoSinCeros(id));
+    for (const raw of codigosDeProducto(p)) {
+      const id = String(raw || '');
+      if (!id) continue;
+      if (id.includes(codigo) || id.toLowerCase().includes(lower)) return true;
+      if (/^\d+$/.test(id) && /^\d+$/.test(codigo)) {
+        if (codigoSinCeros(id).includes(codigoDigits) || codigoDigits.includes(codigoSinCeros(id))) return true;
+      }
     }
     return false;
   });

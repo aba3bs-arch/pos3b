@@ -14,6 +14,7 @@ import {
 import { vaciarInventario, OPCIONES_VACIADO } from '../lib/borrarInventario.js';
 import { registrarCambioPrecio, leerProductoInventarioFresco } from '../lib/inventarioMovimientos.js';
 import { mensajeErrorColumnasProducto, productoDesdeDb, productoParaGuardar, productoVacio } from '../lib/productoForm.js';
+import { codigoOcupadoPorOtro, normalizarCodigosAlt } from '../lib/buscarProductoTexto.js';
 import {
   puedeCrearProveedor,
   puedeEliminarProductosCatalogo,
@@ -389,7 +390,36 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     }
     const payload = productoParaGuardar(form, { productoDb, sucursal });
     if (!payload.id || !payload.nombre) return alert('Código y nombre son obligatorios');
-    const { data: saved, error } = await supabase.from('productos').upsert([payload]).select('*').single();
+    const catalogo = inventarioCompleto || inventario || [];
+    for (const alt of normalizarCodigosAlt(payload.codigos_alt)) {
+      const choque = codigoOcupadoPorOtro(catalogo, alt, payload.id);
+      if (choque.ocupado) {
+        return alert(
+          `El código alterno «${alt}» ya pertenece a «${choque.producto?.nombre || choque.producto?.id}»` +
+            (choque.como === 'id' ? ' (código principal).' : ' (código alterno).'),
+        );
+      }
+    }
+    const choqueId = codigoOcupadoPorOtro(catalogo, payload.id, esEdicionProducto ? payload.id : null);
+    if (!esEdicionProducto && choqueId.ocupado) {
+      return alert(
+        `El código «${payload.id}» ya está en «${choqueId.producto?.nombre || choqueId.producto?.id}».`,
+      );
+    }
+    let { data: saved, error } = await supabase.from('productos').upsert([payload]).select('*').single();
+    if (error && String(error.message || '').includes('codigos_alt')) {
+      const { codigos_alt: _omit, ...sinAlt } = payload;
+      const retry = await supabase.from('productos').upsert([sinAlt]).select('*').single();
+      if (!retry.error) {
+        alert(
+          'Guardado sin códigos alternos: falta la columna en Supabase.\nEjecuta: supabase/fix_productos_codigos_alt.sql',
+        );
+        saved = retry.data;
+        error = null;
+      } else {
+        error = retry.error;
+      }
+    }
     if (error) {
       const aviso = mensajeErrorColumnasProducto(error);
       return alert(aviso || error.message);
@@ -723,7 +753,14 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                       <input type="checkbox" checked={selected?.has(p.id)} onChange={() => onSelect?.(p.id)} onClick={(e) => e.stopPropagation()} />
                     </td>
                   )}
-                  <td>{p.id}</td>
+                  <td>
+                    <div>{p.id}</div>
+                    {normalizarCodigosAlt(p.codigos_alt).length > 0 && (
+                      <div className="muted" style={{ fontSize: '0.72rem', marginTop: 2 }}>
+                        + {normalizarCodigosAlt(p.codigos_alt).join(' · ')}
+                      </div>
+                    )}
+                  </td>
                   <td>{p.nombre}</td>
                   <td>${Math.round(Number(p.precio) || 0)}</td>
                   <td>{p.stock}</td>

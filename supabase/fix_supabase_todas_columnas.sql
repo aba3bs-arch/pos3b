@@ -40,6 +40,7 @@ alter table public.productos add column if not exists en_favoritos boolean defau
 alter table public.productos add column if not exists created_at timestamptz default now();
 alter table public.productos add column if not exists stock_cedis integer default 0;
 alter table public.productos add column if not exists stock_sucursales jsonb default '{}'::jsonb;
+alter table public.productos add column if not exists codigos_alt text[] not null default '{}';
 
 update public.productos set stock_cedis = 0 where stock_cedis is null;
 update public.productos set stock_sucursales = '{}'::jsonb where stock_sucursales is null;

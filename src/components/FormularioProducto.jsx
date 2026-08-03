@@ -8,6 +8,7 @@ import {
   actualizarCampoProducto,
   productoVacio,
 } from '../lib/productoForm.js';
+import { normalizarCodigosAlt } from '../lib/buscarProductoTexto.js';
 import Icon, { BtnLabel } from './Icon.jsx';
 import CampoCodigo from './CampoCodigo.jsx';
 import { etiquetaTienda } from '../constants/sucursales.js';
@@ -30,6 +31,8 @@ export default function FormularioProducto({
   const camaraRef = useRef(null);
   const [nuevoDepto, setNuevoDepto] = useState('');
   const [procesandoFoto, setProcesandoFoto] = useState(false);
+  const [codigoAltDraft, setCodigoAltDraft] = useState('');
+  const codigosAlt = normalizarCodigosAlt(form.codigos_alt);
 
   const setCampo = (campo, valor) => {
     setForm((prev) => actualizarCampoProducto(prev, campo, valor));
@@ -37,6 +40,30 @@ export default function FormularioProducto({
 
   const setCampoSimple = (campo, valor) => {
     setForm((prev) => ({ ...prev, [campo]: valor }));
+  };
+
+  const agregarCodigoAlterno = (raw) => {
+    const codigo = String(raw || codigoAltDraft || '').trim();
+    if (!codigo) return;
+    const idKey = String(form.id || '').trim().toLowerCase();
+    if (idKey && codigo.toLowerCase() === idKey) {
+      return alert('Ese código ya es el principal del producto.');
+    }
+    const ya = normalizarCodigosAlt(form.codigos_alt);
+    if (ya.some((c) => c.toLowerCase() === codigo.toLowerCase())) {
+      setCodigoAltDraft('');
+      return;
+    }
+    setCampoSimple('codigos_alt', [...ya, codigo]);
+    setCodigoAltDraft('');
+  };
+
+  const quitarCodigoAlterno = (codigo) => {
+    const key = String(codigo || '').toLowerCase();
+    setCampoSimple(
+      'codigos_alt',
+      normalizarCodigosAlt(form.codigos_alt).filter((c) => c.toLowerCase() !== key),
+    );
   };
 
   const aplicarFoto = async (e) => {
@@ -141,7 +168,7 @@ export default function FormularioProducto({
 
         <div style={{ flex: '1 1 320px', minWidth: 0 }} className="grid-2">
           <label>
-            <span className="muted">Código de barras / código</span>
+            <span className="muted">Código de barras / código (principal)</span>
             {esEdicion ? (
               <input
                 className="input"
@@ -170,6 +197,59 @@ export default function FormularioProducto({
             <span className="muted">Nombre del producto</span>
             <input className="input" style={{ marginTop: '0.35rem' }} value={form.nombre} onChange={(e) => setCampoSimple('nombre', e.target.value)} />
           </label>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <span className="muted">Códigos alternos (mismo artículo, otro código)</span>
+            <p className="muted" style={{ margin: '0.25rem 0 0.5rem', fontSize: '0.78rem' }}>
+              Si la compañía saca el mismo producto con código provisional o nuevo, agrégalo aquí: en ventas e
+              inventario abrirá este producto (no hay que duplicarlo).
+            </p>
+            {codigosAlt.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.5rem' }}>
+                {codigosAlt.map((c) => (
+                  <span
+                    key={c}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      padding: '0.25rem 0.45rem',
+                      borderRadius: 8,
+                      background: 'rgba(59,105,181,0.1)',
+                      border: '1px solid rgba(59,105,181,0.35)',
+                      fontSize: '0.85rem',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {c}
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ padding: '0.1rem 0.25rem', color: 'var(--brand-red)' }}
+                      title="Quitar código alterno"
+                      onClick={() => quitarCodigoAlterno(c)}
+                    >
+                      <Icon name="x" size={14} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              <div style={{ flex: '1 1 220px' }}>
+                <CampoCodigo
+                  value={codigoAltDraft}
+                  onChange={(e) => setCodigoAltDraft(e.target.value)}
+                  onEscanear={(codigo) => agregarCodigoAlterno(codigo)}
+                  beepAlEnter
+                  placeholder="Escanear o escribir código alterno…"
+                  tituloCamara="Escanear código alterno"
+                />
+              </div>
+              <button type="button" className="btn btn-primary" onClick={() => agregarCodigoAlterno()}>
+                Agregar código
+              </button>
+            </div>
+          </div>
           <label style={{ gridColumn: '1 / -1' }}>
             <span className="muted">Descripción</span>
             <textarea

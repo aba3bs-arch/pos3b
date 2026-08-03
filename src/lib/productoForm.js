@@ -1,4 +1,5 @@
 import { buildPatchStock, buildPatchStockTienda, esAlmacenCentral } from './inventarioMultitienda.js';
+import { normalizarCodigosAlt } from './buscarProductoTexto.js';
 
 export const IVA_DEFAULT = 8;
 export const GANANCIA_DEFAULT = 30;
@@ -93,6 +94,7 @@ export function productoVacio() {
     stock_minimo: 6,
     en_venta: true,
     en_favoritos: false,
+    codigos_alt: [],
   };
 }
 
@@ -138,6 +140,7 @@ export function productoDesdeDb(p) {
     stock_minimo: p.stock_minimo != null ? Number(p.stock_minimo) : 6,
     en_venta: p.en_venta !== false,
     en_favoritos: Boolean(p.en_favoritos) || p.cat === 'FAVORITOS',
+    codigos_alt: normalizarCodigosAlt(p.codigos_alt),
   };
 }
 
@@ -198,8 +201,11 @@ export function productoParaGuardar(form, opts = {}) {
   const compraSin = round2(form.precio_compra_sin);
   const stockPiso = Math.max(0, parseInt(String(form.stock), 10) || 0);
   const stockCedis = Math.max(0, parseInt(String(form.stock_cedis), 10) || 0);
+  const id = String(form.id || '').trim();
+  const idKey = id.toLowerCase();
+  const codigosAlt = normalizarCodigosAlt(form.codigos_alt).filter((c) => c.toLowerCase() !== idKey);
   const base = {
-    id: String(form.id || '').trim(),
+    id,
     nombre: String(form.nombre || '').trim(),
     descripcion: String(form.descripcion || '').trim() || null,
     foto_url: form.foto_url?.trim() || null,
@@ -215,6 +221,7 @@ export function productoParaGuardar(form, opts = {}) {
     stock_minimo: Math.max(0, parseInt(String(form.stock_minimo), 10) || 0),
     en_venta: form.en_venta !== false,
     en_favoritos: Boolean(form.en_favoritos),
+    codigos_alt: codigosAlt,
   };
   if (sucursal) {
     const origen = productoDb || { ...form, stock_sucursales: form.stock_sucursales };
@@ -236,6 +243,9 @@ export function productoEsFavorito(p) {
 
 export function mensajeErrorColumnasProducto(error) {
   const msg = String(error?.message || error || '');
+  if (msg.includes('codigos_alt')) {
+    return 'Falta la columna codigos_alt. Ejecuta en Supabase: supabase/fix_productos_codigos_alt.sql';
+  }
   if (msg.includes('null value in column "costo"')) {
     return 'La columna costo en productos requiere valor. Actualiza la app (Ctrl+F5) o ejecuta supabase/fix_supabase_todas_columnas.sql en Supabase.';
   }
@@ -243,7 +253,7 @@ export function mensajeErrorColumnasProducto(error) {
     return 'Faltan columnas en productos. Ejecuta en Supabase: supabase/fix_supabase_todas_columnas.sql';
   }
   if (msg.includes('column') && msg.includes('does not exist') && msg.includes('productos')) {
-    return 'Faltan columnas en productos. Ejecuta en Supabase: supabase/fix_supabase_todas_columnas.sql';
+    return 'Faltan columnas en productos. Ejecuta en Supabase: supabase/fix_supabase_todas_columnas.sql (o fix_productos_codigos_alt.sql).';
   }
   return null;
 }
