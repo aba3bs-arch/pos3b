@@ -42,6 +42,7 @@ import HistorialProducto from '../components/HistorialProducto.jsx';
 import ConsolidarVentasInventario from '../components/ConsolidarVentasInventario.jsx';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { esAlmacenCentral, etiquetaCedisEmpresa, etiquetaStockLista } from '../lib/inventarioMultitienda.js';
+import { fmtMxn, resumirValorInventario } from '../lib/valorInventario.js';
 import { sincronizarFotosCatalogo, tieneFoto } from '../lib/fotosCatalogo.js';
 import { productoCoincideBusqueda, productoPorCodigoExacto } from '../lib/buscarProductoTexto.js';
 
@@ -95,7 +96,7 @@ const TITULOS_VISTA = {
   eliminar: 'Eliminar productos',
 };
 
-export default function Productos({ supabase, inventario, inventarioCompleto, cargarDatos, fusionarProducto, user, sucursal }) {
+export default function Productos({ supabase, inventario, inventarioCompleto, cargarDatos, fusionarProducto, user, sucursal, consolaCentral = false }) {
   const [vista, setVista] = useState('lista');
   const [form, setForm] = useState(empty);
   const [q, setQ] = useState('');
@@ -151,6 +152,10 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const puedePreinventario = puedeHacerPreinventario(user?.rol);
   const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : 'MAIN';
   const enCentral = esAlmacenCentral(sucursal);
+  const resumenInv = useMemo(
+    () => (consolaCentral ? resumirValorInventario(inventario) : null),
+    [consolaCentral, inventario],
+  );
 
   const departamentos = useMemo(() => listarDepartamentos(inventario), [inventario, tickDepartamentos]);
 
@@ -804,6 +809,15 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
               {inventario.length} producto(s) · piso en <strong>{tiendaLabel}</strong>
               {enCentral && ' · CEDIS central en MAIN'}
+              {consolaCentral && resumenInv && (
+                <>
+                  {' · '}
+                  <strong>{resumenInv.unidades.toLocaleString('es-MX')}</strong> u · {fmtMxn(resumenInv.valorVenta)}
+                  {resumenInv.skusConStock > 0 && (
+                    <span className="muted"> ({resumenInv.skusConStock} con stock)</span>
+                  )}
+                </>
+              )}
             </p>
           )}
         </div>

@@ -980,6 +980,7 @@ function App() {
               onNavigate={irAModulo}
               onIrIncidencias={irAIncidencias}
               puedeModulo={(m) => puedeVerModulo(user?.rol, m, user?.id)}
+              consolaCentral={!CAJA_FISICA_FIJA_ENV}
             />
           )}
           {vista === 'Incidencias' && (
@@ -1048,6 +1049,7 @@ function App() {
               fusionarProducto={fusionarProductoEnCatalogo}
               user={user}
               sucursal={sucursal}
+              consolaCentral={!CAJA_FISICA_FIJA_ENV}
             />
           )}
           {vista === 'Compras' && (

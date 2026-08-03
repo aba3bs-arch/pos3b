@@ -26,10 +26,14 @@ export default function Inicio({
   onNavigate,
   onIrIncidencias,
   puedeModulo,
+  /** true = app central (MAIN); false = caja de sucursal. */
+  consolaCentral = false,
 }) {
   const puede = typeof puedeModulo === 'function' ? puedeModulo : () => true;
-  // Valorización (inventario en tienda, costo compra, margen): solo MAIN.
-  const puedeVerValorizacion = puede('Productos') && esAlmacenCentral(sucursal);
+  // Valorización de inventario: solo en consola central (MAIN).
+  // Al cambiar de sucursal en el selector, muestra el total de ESA tienda.
+  // En cajas de sucursal no se muestra.
+  const puedeVerValorizacion = puede('Productos') && consolaCentral;
   // Proyección de faltante (carrito / cancelaciones / checador): en cada sucursal operativa.
   const puedeVerProyeccion = puede('Productos') && !esAlmacenCentral(sucursal);
   const esAdminPrincipal = esAdministradorPrincipal(user);
@@ -121,6 +125,12 @@ export default function Inicio({
             <div className="muted" style={{ fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               <Icon name="package" size={16} />
               Inventario en tienda · <span className="badge">{nombreTienda}</span>
+              {!esAlmacenCentral(sucursal) && (
+                <span className="muted" style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>
+                  {' '}
+                  (vista desde MAIN)
+                </span>
+              )}
             </div>
             <div style={{ fontSize: 'clamp(2rem, 5vw, 2.75rem)', fontWeight: 800, color: 'var(--brand-blue)', lineHeight: 1.1, marginTop: '0.5rem' }}>
               {fmtMxn(valorInv.valorTotal)}
