@@ -2083,10 +2083,12 @@ export default function Configuracion({
         </p>
 
         <div style={{ marginTop: '1rem', padding: '0.85rem', borderRadius: '10px', background: 'rgba(59,105,181,0.06)', border: '1px solid rgba(59,105,181,0.25)' }}>
-          <strong style={{ color: 'var(--brand-blue)' }}>Tolerancia de entrada</strong>
+          <strong style={{ color: 'var(--brand-blue)' }}>Tolerancia de entrada (login)</strong>
           <p className="muted" style={{ margin: '0.35rem 0 0.75rem', fontSize: '0.82rem' }}>
-            Permite que el cajero entre unos minutos <strong>antes</strong> de su hora oficial o vuelva a entrar si cerró la app <strong>después</strong> de la salida (sin abrir el turno a otra persona).
-            Si aun así no puede entrar, un <strong>administrador</strong> puede autorizar con su PIN en la pantalla de login (válido 8 h en esa tienda).
+            Solo afecta cuándo puede <strong>entrar al POS</strong>: unos minutos antes de la entrada o después de la salida.
+            La <strong>entrega de turno / corte</strong> ya no se cierra por este reloj: el turno saliente queda pendiente
+            hasta que se registre el corte (el cajero entrante o un gerente pueden cerrarlo aunque el relevo llegue tarde).
+            Si el cajero no puede entrar, un <strong>administrador</strong> autoriza con PIN en el login (válido 8 h en esa tienda).
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-end' }}>
             <label className="muted">

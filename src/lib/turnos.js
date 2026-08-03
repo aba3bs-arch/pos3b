@@ -505,33 +505,35 @@ function minutosAhoraNogales(date = new Date()) {
   }
 }
 
-function enRangoMinutos(now, ini, fin) {
-  if (ini === fin) return true;
-  if (ini < fin) return now >= ini && now < fin;
-  return now >= ini || now < fin;
-}
-
 /**
- * Turno que ya terminó oficialmente pero aún está en gracia
- * (minutos_despues_fin) — el que se está entregando.
- * Con opts.user/sucursal y extensión de sesión activa, mantiene el turno asignado
- * del saliente aunque ya haya pasado la gracia fija.
+ * Turno que ya terminó oficialmente y queda pendiente de entrega/corte.
+ * No depende del reloj de gracia: permanece disponible durante todo el turno
+ * siguiente (hasta que se registre el corte). Con extensión de sesión activa,
+ * prioriza el turno asignado del saliente.
  */
-export function turnoEnEntrega(turnos = null, date = new Date(), tolerancia = null, opts = {}) {
+export function turnoAnteriorTerminado(turnos = null, date = new Date()) {
   const list = turnos || leerTurnos();
-  const tol = tolerancia || leerToleranciaTurnos();
+  if (!list.length) return null;
+  const actual = turnoActual(list, date);
   const now = minutosAhoraNogales(date);
-
-  if (tol.minutos_despues_fin) {
-    for (const t of list) {
-      if (horaEnTurno(t, date)) continue;
-      const fin = minutosDesdeMedianoche(t.hora_fin);
-      const vFin = (fin + tol.minutos_despues_fin) % (24 * 60);
-      // Solo la franja DESPUÉS del cierre oficial (gracia), no la llegada temprana.
-      if (!enRangoMinutos(now, fin, vFin)) continue;
-      if (horaEnVentanaLogin(t, date, tol)) return t;
+  const DAY = 24 * 60;
+  let best = null;
+  let bestDist = Infinity;
+  for (const t of list) {
+    if (actual && String(t.id) === String(actual.id)) continue;
+    if (horaEnTurno(t, date)) continue;
+    const fin = minutosDesdeMedianoche(t.hora_fin);
+    const dist = (now - fin + DAY) % DAY;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = t;
     }
   }
+  return best;
+}
+
+export function turnoEnEntrega(turnos = null, date = new Date(), _tolerancia = null, opts = {}) {
+  const list = turnos || leerTurnos();
 
   const user = opts.user;
   const sucursal = opts.sucursal;
@@ -543,10 +545,11 @@ export function turnoEnEntrega(turnos = null, date = new Date(), tolerancia = nu
       if (t && !horaEnTurno(t, date)) return t;
     }
   }
-  return null;
+
+  return turnoAnteriorTerminado(list, date);
 }
 
-/** Turnos que se pueden cortar ahora: el en curso y, si hay gracia/extensión, el que se entrega. */
+/** Turnos que se pueden cortar ahora: el pendiente de entrega y el en curso. */
 export function turnosDisponiblesParaCorte(turnos = null, date = new Date(), tolerancia = null, opts = {}) {
   const list = turnos || leerTurnos();
   const actual = turnoActual(list, date);
@@ -822,9 +825,9 @@ export function usuarioAutorizadoChecador(user, date = new Date(), turnos = null
 }
 
 /**
- * Cajero corta su turno en curso o el que se entrega (gracia post-cierre).
+ * Cajero corta su turno en curso o el pendiente de entrega (abierto hasta el corte).
+ * El cajero del turno entrante también puede cortar el saliente (relevo tarde).
  * Gerente/Admin/Supervisor pueden cortar cualquiera.
- * Con autorización admin fuera de horario, puede cortar su turno asignado si está disponible.
  */
 export function usuarioAutorizadoCorte(user, turno, date = new Date(), opts = {}) {
   if (!turno) return { ok: false, error: 'No hay turno configurado para esta hora.' };
@@ -836,18 +839,17 @@ export function usuarioAutorizadoCorte(user, turno, date = new Date(), opts = {}
   const disponibles = turnosDisponiblesParaCorte(list, date, null, { user, sucursal });
   const enLista = disponibles.some((d) => String(d.turno.id) === String(turno.id));
   const entrega = disponibles.find((d) => d.motivo === 'entrega')?.turno;
+  const actual = disponibles.find((d) => d.motivo === 'actual')?.turno || turnoActual(list, date);
   const enEntrega = Boolean(entrega && String(entrega.id) === String(turno.id));
 
   if (!enLista) {
-    const tol = leerToleranciaTurnos();
     return {
       ok: false,
       error:
-        `Ese turno ya no se puede cortar. Durante ${tol.minutos_despues_fin} min después de la salida ` +
-        `aún puedes cortar el turno que se entrega` +
-        (entrega ? ` (${nombreTurnoLegible(entrega)})` : '') +
-        `. Si necesitas más tiempo, al expirar la ventana el sistema te preguntará; ` +
-        `si el relevo llegó tarde, un administrador o gerente puede hacer el corte.`,
+        `Ese turno no está disponible para cortar ahora.` +
+        (entrega
+          ? ` Puedes cortar el pendiente de entrega (${nombreTurnoLegible(entrega)}) o el turno en curso.`
+          : ' Elige el turno en curso o pide a un gerente/admin.'),
     };
   }
 
@@ -882,16 +884,24 @@ export function usuarioAutorizadoCorte(user, turno, date = new Date(), opts = {}
     };
   }
   if (esTurnoAmbos(asignado)) return { ok: true, enEntrega };
-  if (String(asignado) !== String(turno.id)) {
-    return {
-      ok: false,
-      error: `Estás cortando ${nombreTurnoLegible(turno)}. Hoy te corresponde ${etiquetaTurno(asignado, list)}. ` +
-        (enEntrega
-          ? 'Si entregas este turno, usa el usuario del turno saliente o pide a un gerente/admin.'
-          : 'Un gerente o administrador puede hacer el corte del turno que se entrega.'),
-    };
+
+  // Dueño del turno a cortar.
+  if (String(asignado) === String(turno.id)) {
+    return { ok: true, enEntrega };
   }
-  return { ok: true, enEntrega };
+
+  // Relevo: cajero del turno en curso puede cortar el turno pendiente de entrega.
+  if (enEntrega && actual && String(asignado) === String(actual.id)) {
+    return { ok: true, enEntrega: true, corteRelevo: true };
+  }
+
+  return {
+    ok: false,
+    error: `Estás cortando ${nombreTurnoLegible(turno)}. Hoy te corresponde ${etiquetaTurno(asignado, list)}. ` +
+      (enEntrega
+        ? 'Si el relevo llegó, usa el usuario del turno entrante; si no, pide a un gerente/admin.'
+        : 'Un gerente o administrador puede hacer el corte.'),
+  };
 }
 
 export function nuevoIdTurno(nombre) {

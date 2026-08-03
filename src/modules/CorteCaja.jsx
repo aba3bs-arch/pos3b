@@ -19,7 +19,6 @@ import {
   turnoIdParaUsuario,
   turnosDisponiblesParaCorte,
   usuarioAutorizadoCorte,
-  leerToleranciaTurnos,
 } from '../lib/turnos.js';
 import { normalizarRol } from '../lib/roles.js';
 import { EVENTO_EXTENSION_SESION, minutosRestantesExtension } from '../lib/extensionSesionTurno.js';
@@ -80,9 +79,19 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
   const [turnoActivo, setTurnoActivo] = useState(() => {
     const list = leerTurnos();
     const entrega = turnoEnEntrega(list, new Date(), null, { user, sucursal });
+    const actual = turnoActual(list);
     const asignado = turnoIdParaUsuario(user);
-    if (entrega && String(asignado) === String(entrega.id)) return entrega;
-    return turnoActual(list);
+    // Prioriza el pendiente de entrega (saliente o relevo entrante).
+    const rol = normalizarRol(user?.rol);
+    if (
+      entrega &&
+      (String(asignado) === String(entrega.id) ||
+        String(asignado) === String(actual?.id) ||
+        ['Administrador', 'Gerente', 'Supervisor'].includes(rol))
+    ) {
+      return entrega;
+    }
+    return actual;
   });
   const [fecha, setFecha] = useState(() => fechaCorteSugerida(turnoActivo));
   const [turnoManual, setTurnoManual] = useState(false);
@@ -204,9 +213,16 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
       setTurnos(t);
       if (!turnoManual) {
         const entrega = turnoEnEntrega(t, new Date(), null, { user, sucursal });
+        const actual = turnoActual(t);
         const asignado = turnoIdParaUsuario(user);
+        const rol = normalizarRol(user?.rol);
         const sugerido =
-          entrega && String(asignado) === String(entrega.id) ? entrega : turnoActual(t);
+          entrega &&
+          (String(asignado) === String(entrega.id) ||
+            String(asignado) === String(actual?.id) ||
+            ['Administrador', 'Gerente', 'Supervisor'].includes(rol))
+            ? entrega
+            : actual;
         setTurnoActivo(sugerido);
         setFecha(fechaCorteSugerida(sugerido));
       }
@@ -618,17 +634,17 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
               </select>
             </label>
             <span className="muted" style={{ fontSize: '0.78rem' }}>
-              Tras la salida hay {leerToleranciaTurnos().minutos_despues_fin} min para que el cajero corte el turno
-              {minsExt > 0 ? ` · extensión activa (${minsExt} min)` : ''}. Fuera de esa ventana, un gerente/admin puede
-              consultar y cortar el nocturno eligiendo el turno aquí.
+              El turno saliente queda pendiente de entrega hasta que se registre su corte
+              {minsExt > 0 ? ` · extensión de sesión activa (${minsExt} min)` : ''}. El cajero entrante (o un
+              gerente/admin) puede cerrarlo aunque el relevo llegue tarde.
             </span>
           </div>
         )}
         {opcionesCorte.some((o) => o.motivo === 'entrega') && (
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', color: 'var(--brand-gold)' }}>
-            Estás en la ventana de entrega: puedes cortar{' '}
-            <strong>{nombreTurnoLegible(opcionesCorte.find((o) => o.motivo === 'entrega')?.turno)}</strong> aunque ya
-            empezó el siguiente.
+            Turno saliente disponible:{' '}
+            <strong>{nombreTurnoLegible(opcionesCorte.find((o) => o.motivo === 'entrega')?.turno)}</strong>
+            {' · '}si aún no tiene corte, ciérralo primero (también puede hacerlo el cajero entrante).
           </p>
         )}
       </div>
@@ -651,9 +667,9 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
           <strong style={{ color: 'var(--brand-red)' }}>Corte no permitido</strong>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.9rem' }}>{bloqueoCorte}</p>
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
-            Si el relevo llegó tarde: 1) el saliente corta en los {leerToleranciaTurnos().minutos_despues_fin} min de gracia
-            (y puede pedir +30 min al expirar); 2) un <strong>gerente/admin</strong> hace el corte a nombre del turno anterior;
-            o 3) admin autoriza la entrada con PIN en el login (8 h).
+            Si el relevo llegó tarde: el cajero del <strong>turno entrante</strong> puede cortar el saliente (elige
+            «se entrega» arriba), o un <strong>gerente/admin</strong> lo hace. El saliente también puede cortar si
+            aún está dentro de su ventana de login.
           </p>
         </div>
       )}
