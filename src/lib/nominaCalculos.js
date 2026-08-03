@@ -4,9 +4,11 @@ import { round2 } from './nominaGastos.js';
 
 export const DIAS_SEMANA_NOMINA = 7;
 
-/** Días trabajados con decimales (ej. 5.5). Redondea a 2 decimales; no fuerza enteros. */
+/** Días trabajados con decimales (ej. 5.5 o 5,5). Redondea a 2 decimales; no fuerza enteros. */
 export function normalizarDiasNomina(dias) {
-  const n = Number(dias);
+  if (dias === '' || dias == null) return 0;
+  const raw = String(dias).trim().replace(',', '.');
+  const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.round(n * 100) / 100;
 }
@@ -91,11 +93,12 @@ export function pagoNominaLinea(linea) {
 /** Recalcula sueldo bruto, faltas y pago según la fórmula. */
 export function recalcularLineaNomina(linea) {
   const l = { ...linea };
-  // Conserva el valor en edición (string "5.") y normaliza solo si ya es número usable.
+  // Conserva el valor en edición (string "5." / "5,") y normaliza solo si ya es número usable.
   if (l.dias_trabajados !== '' && l.dias_trabajados != null) {
     const raw = String(l.dias_trabajados).trim();
-    if (raw !== '' && !raw.endsWith('.') && Number.isFinite(Number(raw))) {
-      l.dias_trabajados = normalizarDiasNomina(raw);
+    if (raw !== '' && !/[.,]$/.test(raw)) {
+      const n = Number(raw.replace(',', '.'));
+      if (Number.isFinite(n)) l.dias_trabajados = normalizarDiasNomina(raw);
     }
   }
   if (l.es_indirecto) {

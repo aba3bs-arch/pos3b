@@ -235,14 +235,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         if (l.usuario_id) guardarSueldoDefault(l.usuario_id, l.sueldo_tarifa);
       }
 
-      if (campo === 'dias_trabajados' && !l.es_indirecto) {
-        const d = Number(valor);
-        if (Number.isFinite(d)) l.cortes_periodo = d;
-      }
-      if (campo === 'dias_trabajados' && l.es_indirecto) {
-        const d = Number(valor);
-        if (Number.isFinite(d)) l.vales_gasolina = d;
-      }
+      // cortes/vales siguen siendo referencia entera; los medios días van solo en dias_trabajados.
 
       next[idx] = recalcularLineaNomina(l);
       return next;
@@ -502,19 +495,8 @@ export default function Nomina({ supabase, sucursal, user }) {
           )}
         </td>
         <td title={l.es_indirecto ? `Vales: ${l.vales_gasolina}` : `Asistencias: ${l.asistencias_periodo ?? 0} · Retardos: ${l.retardos_periodo ?? 0} · Cortes ref: ${l.cortes_periodo}`}>
-          {historial || autoBloqueado ? (
-            <>
-              <strong>{l.dias_trabajados ?? '—'}</strong>
-              {!historial && (
-                <span className="muted" style={{ fontSize: '0.62rem', display: 'block' }}>
-                  {l.es_indirecto
-                    ? `auto: ${l.vales_gasolina}`
-                    : (l.asistencias_periodo || 0) > 0
-                      ? `asist ${l.asistencias_periodo}${l.retardos_periodo ? ` · ret ${l.retardos_periodo}` : ''}`
-                      : `cortes: ${l.cortes_periodo}`}
-                </span>
-              )}
-            </>
+          {historial ? (
+            <strong>{l.dias_trabajados ?? '—'}</strong>
           ) : (
             <>
               <input
@@ -524,7 +506,7 @@ export default function Nomina({ supabase, sucursal, user }) {
                 step="0.5"
                 inputMode="decimal"
                 style={{ width: '58px' }}
-                title="Puedes usar decimales (ej. 5.5 medio día)"
+                title="Acepta medios días (ej. 5.5 o 5,5)"
                 value={l.dias_trabajados}
                 onChange={(e) => actualizarLinea(i, 'dias_trabajados', e.target.value)}
               />
@@ -704,8 +686,8 @@ export default function Nomina({ supabase, sucursal, user }) {
               Consolidada de <strong>todas las sucursales</strong>. Semana sábado–viernes.
               <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros − arrastre.</strong>
               {modoManual
-                ? ' Modo Manual: puedes editar todos los campos a mano.'
-                : ' Modo Automático: días desde el reloj checador (tarde cuenta; desde el 5º retardo ese día no se paga). Consumos y gastos de empleados de TODAS las tiendas (cortes Virtual / Abarrotes / Garage + vales consumo) se consolidan en la columna Consumos.'}
+                ? ' Modo Manual: puedes editar todos los campos a mano. Días aceptan medios (ej. 5.5).'
+                : ' Modo Automático: días desde el reloj checador (puedes ajustar a mano con medios días, ej. 5.5). Tarde cuenta; desde el 5º retardo ese día no se paga. Consumos de TODAS las tiendas se consolidan en Consumos.'}
             </p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.45rem' }}>
