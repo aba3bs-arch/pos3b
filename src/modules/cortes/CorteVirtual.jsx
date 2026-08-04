@@ -66,6 +66,8 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     cerrarCorte,
     registrarRecoleccion,
     eliminarCierreHistorial,
+    editarGastoEnCierre,
+    eliminarGastoEnCierre,
     recargar,
   } = useCorteContabilidad({
     supabase,
@@ -339,6 +341,14 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         abierto={mostrarDesglose}
         onCerrar={() => setMostrarDesglose(false)}
         historial={historial}
+        puedeEditarGastos={puedeEditarCorteCampo(perm, 'gastos')}
+        onEditarGastoActual={(id, patch) => editarGasto(id, patch)}
+        onEliminarGastoActual={(id) => {
+          if (!confirm('¿Eliminar este gasto del corte abierto?')) return;
+          quitarGasto(id);
+        }}
+        onEditarGastoCierre={editarGastoEnCierre}
+        onEliminarGastoCierre={eliminarGastoEnCierre}
         corteActual={{
           folio,
           turno,

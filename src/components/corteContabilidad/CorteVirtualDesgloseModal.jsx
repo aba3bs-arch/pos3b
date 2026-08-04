@@ -4,6 +4,7 @@ import { fmtCorte } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 import { round2 } from '../../lib/corteContabilidad/calc.js';
 
 const ACCENT = '#6c3483';
+const btnSm = { padding: '0.15rem 0.4rem', fontSize: '0.72rem' };
 
 function esRecoleccion(h) {
   return h?.detalle?.tipo_cierre === 'recoleccion';
@@ -18,13 +19,18 @@ function ts(h) {
  * Solo el periodo desde la recolección anterior:
  * - resumen de esa recolección
  * - cierres posteriores (hasta ahora) + corte abierto
- * Click en Gastos → detalle del turno.
+ * Click en Gastos → detalle del turno (con editar/eliminar si hay permiso).
  */
 export default function CorteVirtualDesgloseModal({
   abierto,
   onCerrar,
   historial = [],
   corteActual = null,
+  puedeEditarGastos = false,
+  onEditarGastoActual,
+  onEliminarGastoActual,
+  onEditarGastoCierre,
+  onEliminarGastoCierre,
 }) {
   const [expandidoId, setExpandidoId] = useState(null);
 
@@ -90,6 +96,7 @@ export default function CorteVirtualDesgloseModal({
             <h3 style={{ margin: 0, color: ACCENT }}>Desglose desde recolección anterior</h3>
             <p className="muted" style={{ margin: '0.3rem 0 0', fontSize: '0.82rem' }}>
               Solo el periodo actual · toca <strong>Gastos</strong> para ver el detalle del turno
+              {puedeEditarGastos ? ' · puedes editar o eliminar montos' : ''}
             </p>
           </div>
           <button type="button" className="btn btn-ghost" onClick={onCerrar}>
@@ -186,6 +193,9 @@ export default function CorteVirtualDesgloseModal({
                           gastos={corteActual.listaGastos || []}
                           cajeroFallback={corteActual.usuario || ''}
                           titulo={`Gastos del corte abierto · ${corteActual.folio || ''}`}
+                          puedeEditar={puedeEditarGastos}
+                          onEditar={onEditarGastoActual}
+                          onEliminar={onEliminarGastoActual}
                         />
                       </td>
                     </tr>
@@ -249,6 +259,9 @@ export default function CorteVirtualDesgloseModal({
                             gastos={listaGastos}
                             cajeroFallback={h.usuario_nombre || ''}
                             titulo={`Gastos · ${h.folio || tipo} · ${h.usuario_nombre || ''}`}
+                            puedeEditar={puedeEditarGastos}
+                            onEditar={(gastoKey, patch) => onEditarGastoCierre?.(h.id, gastoKey, patch)}
+                            onEliminar={(gastoKey) => onEliminarGastoCierre?.(h.id, gastoKey)}
                           />
                         </td>
                       </tr>
@@ -297,13 +310,43 @@ function BotonGastos({ monto, activo, onClick, disabled }) {
   );
 }
 
-function DetalleGastosTurno({ gastos = [], titulo, cajeroFallback = '' }) {
+function DetalleGastosTurno({
+  gastos = [],
+  titulo,
+  cajeroFallback = '',
+  puedeEditar = false,
+  onEditar,
+  onEliminar,
+}) {
+  const [editando, setEditando] = useState(null); // gasto key
+  const [draft, setDraft] = useState({ monto: '', comentario: '' });
+
   if (!gastos.length) {
     return <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>Sin detalle de gastos guardado en este cierre.</p>;
   }
 
   const total = round2(gastos.reduce((a, g) => a + (Number(g.monto) || 0), 0));
   const cajeroDef = String(cajeroFallback || '').trim();
+
+  const keyDe = (g, idx) => (g.id != null && g.id !== '' ? String(g.id) : `idx-${idx}`);
+
+  const abrirEditar = (g, idx) => {
+    const key = keyDe(g, idx);
+    setEditando(key);
+    setDraft({
+      monto: g.monto != null ? String(g.monto) : '',
+      comentario: g.comentario || '',
+    });
+  };
+
+  const guardarEditar = (g, idx) => {
+    const key = keyDe(g, idx);
+    onEditar?.(key, {
+      monto: draft.monto,
+      comentario: draft.comentario,
+    });
+    setEditando(null);
+  };
 
   return (
     <div>
@@ -317,30 +360,87 @@ function DetalleGastosTurno({ gastos = [], titulo, cajeroFallback = '' }) {
             <th>Empleado / Cajero</th>
             <th>Nota</th>
             <th style={{ textAlign: 'right' }}>Monto</th>
+            {puedeEditar && <th style={{ width: 140 }} />}
           </tr>
         </thead>
         <tbody>
           {gastos.map((g, idx) => {
+            const key = keyDe(g, idx);
             const hora = g.created_at
               ? new Date(g.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
               : '—';
-            // Nómina → empleado asignado; si no, quién capturó / cajero del cierre.
             const emp =
               String(g.usuario_nombre || g.solicitado_por || cajeroDef || '').trim() || '—';
+            const enEdicion = editando === key;
             return (
-              <tr key={g.id || `${g.categoria}-${idx}`}>
+              <tr key={key}>
                 <td style={{ whiteSpace: 'nowrap' }}>{hora}</td>
                 <td>{g.categoria || '—'}</td>
                 <td className="muted">{g.subcategoria || '—'}</td>
                 <td style={{ fontWeight: 700 }}>{emp}</td>
-                <td className="muted">{g.comentario || '—'}</td>
-                <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtCorte(g.monto)}</td>
+                <td className="muted">
+                  {enEdicion ? (
+                    <input
+                      className="input"
+                      style={{ width: '100%', minWidth: 100, fontSize: '0.8rem' }}
+                      value={draft.comentario}
+                      onChange={(e) => setDraft((d) => ({ ...d, comentario: e.target.value }))}
+                      placeholder="Nota"
+                    />
+                  ) : (
+                    g.comentario || '—'
+                  )}
+                </td>
+                <td style={{ textAlign: 'right', fontWeight: 700 }}>
+                  {enEdicion ? (
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      style={{ width: 90, fontWeight: 700, textAlign: 'right' }}
+                      value={draft.monto}
+                      onChange={(e) => setDraft((d) => ({ ...d, monto: e.target.value }))}
+                    />
+                  ) : (
+                    fmtCorte(g.monto)
+                  )}
+                </td>
+                {puedeEditar && (
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    {enEdicion ? (
+                      <>
+                        <button type="button" className="btn btn-primary" style={btnSm} onClick={() => guardarEditar(g, idx)}>
+                          Guardar
+                        </button>{' '}
+                        <button type="button" className="btn btn-ghost" style={btnSm} onClick={() => setEditando(null)}>
+                          Cancelar
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" className="btn btn-ghost" style={btnSm} onClick={() => abrirEditar(g, idx)}>
+                          Editar
+                        </button>{' '}
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ ...btnSm, color: 'var(--danger)' }}
+                          onClick={() => onEliminar?.(key)}
+                        >
+                          Eliminar
+                        </button>
+                      </>
+                    )}
+                  </td>
+                )}
               </tr>
             );
           })}
           <tr>
             <td colSpan={5} style={{ textAlign: 'right', fontWeight: 800 }}>Total</td>
             <td style={{ textAlign: 'right', fontWeight: 800, color: ACCENT }}>{fmtCorte(total)}</td>
+            {puedeEditar && <td />}
           </tr>
         </tbody>
       </table>

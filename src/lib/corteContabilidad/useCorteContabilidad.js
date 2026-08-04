@@ -649,6 +649,87 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     setHistorial(hist.data || []);
   };
 
+  const claveGastoDetalle = (g, i) =>
+    g?.id != null && g.id !== '' ? String(g.id) : `idx-${i}`;
+
+  /** Edita un gasto ya guardado en el detalle de un cierre (desglose / historial). */
+  const editarGastoEnCierre = async (cierreId, gastoKey, patch) => {
+    if (!puedeEditarCorteCampo(perm, 'gastos')) return;
+    if (!cierreId || gastoKey == null) return;
+    const cierre = (historial || []).find((h) => String(h.id) === String(cierreId));
+    if (!cierre) return alert('Cierre no encontrado.');
+    const d = cierre.detalle || {};
+    const lista = Array.isArray(d.gastos) ? [...d.gastos] : [];
+    const idx = lista.findIndex((g, i) => claveGastoDetalle(g, i) === String(gastoKey));
+    if (idx < 0) return alert('Gasto no encontrado en el cierre.');
+
+    const actual = { ...lista[idx] };
+    if (patch.monto != null) actual.monto = Number(patch.monto) || 0;
+    if (patch.categoria != null) actual.categoria = String(patch.categoria).trim().toUpperCase();
+    if (patch.subcategoria != null) actual.subcategoria = String(patch.subcategoria).trim().toUpperCase();
+    if (patch.comentario != null) actual.comentario = String(patch.comentario).trim().toUpperCase();
+    lista[idx] = actual;
+
+    const gastosTotal = round2(lista.reduce((a, g) => a + (Number(g.monto) || 0), 0));
+    const venta = Number(cierre.ventas) || Number(d.venta) || 0;
+    const subtotal = d.subtotal_manual !== '' && d.subtotal_manual != null
+      ? Number(d.subtotal_manual) || 0
+      : round2(venta - gastosTotal);
+
+    if (actual.id && !String(actual.id).startsWith('local-')) {
+      const resG = await actualizarGastoTurno(supabase, actual.id, patch, sucursal, modulo);
+      if (!resG.ok) return alert(resG.error || 'No se pudo actualizar el gasto.');
+    }
+
+    const res = await actualizarDetalleCierre(
+      supabase,
+      cierreId,
+      { gastos: lista, gastos_total: gastosTotal, subtotal },
+      sucursal,
+      modulo,
+    );
+    if (!res.ok) return alert(res.error || 'No se pudo actualizar el cierre.');
+    const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
+    setHistorial(hist.data || []);
+  };
+
+  /** Elimina un gasto del detalle de un cierre (desglose / historial). */
+  const eliminarGastoEnCierre = async (cierreId, gastoKey) => {
+    if (!puedeEditarCorteCampo(perm, 'gastos')) return;
+    if (!cierreId || gastoKey == null) return;
+    if (!confirm('¿Eliminar este gasto del cierre?')) return;
+    const cierre = (historial || []).find((h) => String(h.id) === String(cierreId));
+    if (!cierre) return alert('Cierre no encontrado.');
+    const d = cierre.detalle || {};
+    const listaPrev = Array.isArray(d.gastos) ? d.gastos : [];
+    const idx = listaPrev.findIndex((g, i) => claveGastoDetalle(g, i) === String(gastoKey));
+    if (idx < 0) return alert('Gasto no encontrado en el cierre.');
+    const quitado = listaPrev[idx];
+    const lista = listaPrev.filter((_, i) => i !== idx);
+
+    const gastosTotal = round2(lista.reduce((a, g) => a + (Number(g.monto) || 0), 0));
+    const venta = Number(cierre.ventas) || Number(d.venta) || 0;
+    const subtotal = d.subtotal_manual !== '' && d.subtotal_manual != null
+      ? Number(d.subtotal_manual) || 0
+      : round2(venta - gastosTotal);
+
+    if (quitado?.id && !String(quitado.id).startsWith('local-')) {
+      const resG = await eliminarGastoTurno(supabase, quitado.id, sucursal, modulo);
+      if (!resG.ok) return alert(resG.error || 'No se pudo eliminar el gasto.');
+    }
+
+    const res = await actualizarDetalleCierre(
+      supabase,
+      cierreId,
+      { gastos: lista, gastos_total: gastosTotal, subtotal },
+      sucursal,
+      modulo,
+    );
+    if (!res.ok) return alert(res.error || 'No se pudo actualizar el cierre.');
+    const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
+    setHistorial(hist.data || []);
+  };
+
   return {
     estado,
     patchEstado: patchEstadoPermitido,
@@ -668,6 +749,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     cerrarCorte,
     registrarRecoleccion,
     eliminarCierreHistorial,
+    editarGastoEnCierre,
+    eliminarGastoEnCierre,
     recargar: cargar,
   };
 }
