@@ -99,6 +99,129 @@ function etiquetaDeptoAjuste(raw) {
   return d;
 }
 
+/** Una fila de detalle por producto dentro de un conteo aplicado. */
+export function lineaProductoReporte(ajuste, linea, preciosMap = new Map()) {
+  const teorico = Math.max(0, Number(linea.existencia) || 0);
+  const contadoRaw = linea.contada ?? linea.contadaNum;
+  const contado =
+    contadoRaw != null && contadoRaw !== '' && !Number.isNaN(Number(contadoRaw))
+      ? Math.max(0, Number(contadoRaw))
+      : null;
+  const diferencia =
+    linea.diferencia != null && linea.diferencia !== '' && !Number.isNaN(Number(linea.diferencia))
+      ? Number(linea.diferencia)
+      : contado != null
+        ? contado - teorico
+        : null;
+  const codigo = String(linea.codigo || linea.productoId || '—');
+  const precio =
+    Number(linea.precioVenta) ||
+    preciosMap.get(codigo) ||
+    (diferencia && diferencia !== 0 && linea.valorDiferencia
+      ? Number(linea.valorDiferencia) / Math.abs(diferencia)
+      : 0);
+  const valorTeorico = Math.round(teorico * precio * 100) / 100;
+  let valorDiferencia = Number(linea.valorDiferencia) || 0;
+  if (!valorDiferencia && diferencia != null && diferencia !== 0) {
+    valorDiferencia = Math.round(Math.abs(diferencia) * precio * 100) / 100;
+  }
+  const pctMerma =
+    diferencia != null && diferencia < 0 && valorTeorico > 0
+      ? Math.round((valorDiferencia / valorTeorico) * 10000) / 100
+      : 0;
+
+  const suc = normalizarCodigoTienda(ajuste.sucursal) || '—';
+  return {
+    id: `${ajuste.folio || ajuste.id}_${codigo}`,
+    codigo,
+    nombre: linea.nombre || '—',
+    teorico,
+    contado,
+    diferencia,
+    pctMerma,
+    valorDiferencia,
+    valorTeorico,
+    folio: ajuste.folio || '—',
+    sucursal: suc,
+    tienda: etiquetaTienda(suc),
+    departamento: etiquetaDeptoAjuste(ajuste.departamento),
+    fecha: fmtFecha(ajuste.created_at),
+    hora: fmtHora(ajuste.created_at),
+    created_at: ajuste.created_at,
+    auditor: ajuste.usuario || '—',
+  };
+}
+
+/** Aplana líneas de producto con diferencia distinta de cero. */
+export function lineasProductoDesdeAjustes(ajustes, { inventario = [], sucFiltro = '' } = {}) {
+  const precios = mapaPrecioPorProducto(inventario);
+  const out = [];
+  for (const a of ajustes || []) {
+    const sid = normalizarCodigoTienda(a.sucursal);
+    if (sucFiltro && sid !== sucFiltro) continue;
+    for (const l of a.lineas || []) {
+      const row = lineaProductoReporte(a, l, precios);
+      if (row.diferencia == null || row.diferencia === 0) continue;
+      out.push(row);
+    }
+  }
+  out.sort(
+    (a, b) =>
+      String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+      String(a.codigo).localeCompare(String(b.codigo), 'es'),
+  );
+  return out;
+}
+
+export function totalesLineasProducto(lineas = []) {
+  let valorTeorico = 0;
+  let valorFaltante = 0;
+  let valorSobrante = 0;
+  let negativos = 0;
+  let positivos = 0;
+  for (const l of lineas) {
+    valorTeorico += Number(l.valorTeorico) || 0;
+    if (Number(l.diferencia) < 0) {
+      valorFaltante += Number(l.valorDiferencia) || 0;
+      negativos += 1;
+    } else if (Number(l.diferencia) > 0) {
+      valorSobrante += Number(l.valorDiferencia) || 0;
+      positivos += 1;
+    }
+  }
+  const pctMerma = valorTeorico > 0 ? (valorFaltante / valorTeorico) * 100 : valorFaltante > 0 ? 100 : 0;
+  return {
+    articulos: lineas.length,
+    negativos,
+    positivos,
+    valorTeorico: Math.round(valorTeorico * 100) / 100,
+    valorFaltante: Math.round(valorFaltante * 100) / 100,
+    valorSobrante: Math.round(valorSobrante * 100) / 100,
+    pctMerma: Math.round(pctMerma * 100) / 100,
+  };
+}
+
+export function columnasImprimirProductoInventario() {
+  return [
+    { label: 'Código', key: 'codigo' },
+    { label: 'Producto', key: 'nombre' },
+    { label: 'Inv. teórico', key: 'teorico', align: 'right' },
+    { label: 'Contado', key: 'contado', align: 'right', fmt: (r) => (r.contado == null ? '—' : r.contado) },
+    {
+      label: 'Diferencia',
+      key: 'diferencia',
+      align: 'right',
+      fmt: (r) => (r.diferencia > 0 ? `+${r.diferencia}` : String(r.diferencia)),
+    },
+    {
+      label: '% merma',
+      key: 'pctMerma',
+      align: 'right',
+      fmt: (r) => (Number(r.diferencia) < 0 ? fmtPctReporte(r.pctMerma) : '—'),
+    },
+  ];
+}
+
 /** Una fila de reporte a partir de un ajuste guardado. */
 export function filaDesdeAjuste(ajuste) {
   const merma = Number(ajuste?.resumen?.valorFaltante) || 0;
@@ -237,7 +360,7 @@ async function listarMovimientosConteoNube(supabase, { desdeYmd, hastaYmd } = {}
     .select(
       'id,tipo,modo,producto_id,producto_nombre,cantidad,stock_antes,stock_despues,departamento,motivo,usuario,sucursal_id,meta,created_at',
     )
-    .eq('modo', 'conteo_departamento')
+    .in('modo', ['conteo_departamento', 'libre', 'conteo'])
     .gte('created_at', iniIso)
     .lte('created_at', finIso)
     .order('created_at', { ascending: false })
@@ -267,18 +390,12 @@ function mergeAjustesPorFolio(locales, nube) {
  * Preferir {@link cargarFilasReporteInventarioAsync} cuando haya Supabase.
  */
 export function cargarFilasReporteInventario(opts = {}) {
-  const { preset = 'mes', desde, hasta, sucursal = '' } = opts;
+  const { preset = 'mes', desde, hasta, sucursal = '', inventario = [] } = opts;
   const rango = rangoReporteInventario(preset, desde, hasta);
   const sucFiltro = sucursal ? normalizarCodigoTienda(sucursal) : '';
   const locales = leerAjustesInventario().filter((a) => enRangoIso(a.created_at, rango.desde, rango.hasta));
-  const filas = [];
-  for (const a of locales) {
-    const sid = normalizarCodigoTienda(a.sucursal);
-    if (sucFiltro && sid !== sucFiltro) continue;
-    filas.push(filaDesdeAjuste(a));
-  }
-  filas.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
-  return { filas, rango, aviso: null };
+  const lineasProducto = lineasProductoDesdeAjustes(locales, { inventario, sucFiltro });
+  return { lineasProducto, rango, aviso: null };
 }
 
 /**
@@ -302,14 +419,8 @@ export async function cargarFilasReporteInventarioAsync(opts = {}) {
   }
 
   const ajustes = mergeAjustesPorFolio(locales, nubeAjustes);
-  const filas = [];
-  for (const a of ajustes) {
-    const sid = normalizarCodigoTienda(a.sucursal);
-    if (sucFiltro && sid !== sucFiltro) continue;
-    filas.push(filaDesdeAjuste(a));
-  }
-  filas.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
-  return { filas, rango, aviso };
+  const lineasProducto = lineasProductoDesdeAjustes(ajustes, { inventario, sucFiltro });
+  return { lineasProducto, rango, aviso };
 }
 
 export function totalesReporteInventario(filas = []) {
@@ -445,16 +556,16 @@ export function resumenPorTiendaReporte(filas = [], tiendasCatalogo = []) {
 
 export function columnasCsvInventario() {
   return [
-    { label: 'folio', value: (r) => r.folio },
+    { label: 'codigo', value: (r) => r.codigo },
+    { label: 'producto', value: (r) => r.nombre },
+    { label: 'inv_teorico', value: (r) => r.teorico },
+    { label: 'contado', value: (r) => r.contado ?? '' },
+    { label: 'diferencia', value: (r) => r.diferencia },
+    { label: 'pct_merma', value: (r) => (Number(r.diferencia) < 0 ? r.pctMerma : '') },
+    { label: 'valor_diferencia', value: (r) => r.valorDiferencia },
     { label: 'tienda', value: (r) => r.sucursal },
+    { label: 'folio', value: (r) => r.folio },
     { label: 'fecha', value: (r) => r.fecha },
-    { label: 'hora', value: (r) => r.hora },
-    { label: 'auditor', value: (r) => r.auditor },
     { label: 'departamento', value: (r) => r.departamento },
-    { label: 'inventario_operativo', value: (r) => r.inventarioOperativo },
-    { label: 'merma', value: (r) => r.merma },
-    { label: 'pct_merma', value: (r) => r.pctMerma },
-    { label: 'piezas_faltantes', value: (r) => r.piezasFaltantes },
-    { label: 'origen', value: (r) => r.origen || '' },
   ];
 }
