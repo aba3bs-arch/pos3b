@@ -25,11 +25,35 @@ function linea(cols) {
 /** Medidas en mm para que el navegador no escale el ticket al doble. */
 export function medidasPapel(ancho = '80mm') {
   const map = {
-    '58mm': { page: '58mm', body: '52mm', font: '8px', ventana: 230, margen: '1.5mm' },
-    '80mm': { page: '80mm', body: '72mm', font: '9px', ventana: 310, margen: '2mm' },
-    carta: { page: 'A4', body: '100%', font: '11px', ventana: 720, margen: '8mm' },
+    '58mm': { page: '58mm', body: '52mm', font: '11px', ventana: 230, margen: '1.5mm' },
+    '80mm': { page: '80mm', body: '72mm', font: '12px', ventana: 310, margen: '2mm' },
+    carta: { page: 'A4', body: '100%', font: '13px', ventana: 720, margen: '8mm' },
   };
   return map[ancho] || map['80mm'];
+}
+
+/**
+ * CSS común: tickets POS en negrita y máxima legibilidad (térmica / PDF).
+ * Úsalo en cualquier HTML de impresión del sistema.
+ */
+export function cssTicketPosLegible() {
+  return `
+    body, body *:not(#pdf-bar):not(#pdf-bar *) {
+      color: #000 !important;
+      font-weight: 800 !important;
+      -webkit-font-smoothing: none;
+      text-rendering: geometricPrecision;
+    }
+    .muted, .sub, .tag {
+      color: #000 !important;
+      font-weight: 800 !important;
+      opacity: 1 !important;
+    }
+    .sep { border-top: 2px solid #000 !important; }
+    strong, b, .bold, .total-line, h1, h2, th {
+      font-weight: 900 !important;
+    }
+  `;
 }
 
 export function estilosImpresion(ancho) {
@@ -40,33 +64,37 @@ export function estilosImpresion(ancho) {
     html { width: ${m.body}; margin: 0 auto; }
     * { box-sizing: border-box; }
     body {
-      font-family: 'Consolas', 'Courier New', monospace;
+      font-family: Arial, Helvetica, 'Segoe UI', sans-serif;
       font-size: ${m.font};
-      line-height: 1.22;
-      color: #111;
+      line-height: 1.35;
+      letter-spacing: 0.01em;
+      color: #000;
+      font-weight: 800;
       margin: 0 auto;
       padding: ${m.margen};
       width: ${m.body};
       max-width: ${m.body};
     }
     .center { text-align: center; }
-    .bold { font-weight: 700; }
-    .muted { color: #444; font-size: 0.92em; }
-    .sep { border-top: 1px dashed #333; margin: 5px 0; }
+    .bold { font-weight: 900; }
+    .muted { color: #000; font-size: 0.95em; font-weight: 800; }
+    .sep { border-top: 2px solid #000; margin: 6px 0; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    td { padding: 1px 0; vertical-align: top; word-wrap: break-word; }
+    th { font-weight: 900; padding: 2px 0; text-align: left; border-bottom: 1.5px solid #000; }
+    td { padding: 2px 0; vertical-align: top; word-wrap: break-word; font-weight: 800; }
     td.r { text-align: right; white-space: nowrap; }
-    h1 { font-size: 1.05em; margin: 0 0 2px; font-weight: 700; }
-    h2 { font-size: 0.95em; margin: 0 0 4px; font-weight: 600; }
-    img.logo { max-width: 62%; max-height: 44px; display: block; margin: 0 auto 4px; }
-    .total-line { font-weight: 700; text-align: right; margin-top: 4px; }
-    #pdf-bar { position: sticky; top: 0; z-index: 9; background: #1a5276; color: #fff; padding: 8px; text-align: center; font-family: system-ui, sans-serif; font-size: 13px; }
+    h1 { font-size: 1.2em; margin: 0 0 3px; font-weight: 900; letter-spacing: 0.02em; }
+    h2 { font-size: 1.05em; margin: 0 0 5px; font-weight: 900; }
+    img.logo { max-width: 62%; max-height: 48px; display: block; margin: 0 auto 4px; }
+    .total-line { font-weight: 900; text-align: right; margin-top: 6px; font-size: 1.15em; }
+    #pdf-bar { position: sticky; top: 0; z-index: 9; background: #1a5276; color: #fff; padding: 8px; text-align: center; font-family: system-ui, sans-serif; font-size: 13px; font-weight: 700; }
     #pdf-bar button { background: #fff; color: #1a5276; border: none; padding: 6px 14px; border-radius: 6px; font-weight: 700; cursor: pointer; margin: 0 4px; }
     @media print {
       html, body { width: ${m.body}; max-width: ${m.body}; margin: 0 auto; padding: ${m.margen}; }
       body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       #pdf-bar { display: none !important; }
     }
+    ${cssTicketPosLegible()}
   `;
 }
 
@@ -527,19 +555,26 @@ function htmlEtiquetasEstante(productos, meta = {}) {
   const ancho = cfg.ancho === '58mm' ? '58mm' : '80mm';
   const items = (productos || []).map(
     (p) => `
-    <div class="etiqueta" style="border:1px dashed #999;padding:8px;margin:6px;display:inline-block;width:calc(50% - 12px);min-width:140px;vertical-align:top;page-break-inside:avoid">
-      <div style="font-size:0.75rem;color:#666">${esc(meta.sucursal ? etiquetaTienda(meta.sucursal) : '')}</div>
-      <div style="font-weight:800;font-size:0.95rem;line-height:1.2;margin:4px 0">${esc(p.nombre)}</div>
-      <div style="font-size:1.35rem;font-weight:800;color:#2d4f8c">${fmtMoney(p.precio)}</div>
-      <div style="font-family:monospace;font-size:0.85rem;margin-top:4px">${esc(p.id)}</div>
-      <div style="font-size:0.8rem;margin-top:2px">Stock piso: ${p.stock ?? 0}</div>
+    <div class="etiqueta" style="border:2px solid #000;padding:8px;margin:6px;display:inline-block;width:calc(50% - 12px);min-width:140px;vertical-align:top;page-break-inside:avoid">
+      <div style="font-size:0.8rem;font-weight:800">${esc(meta.sucursal ? etiquetaTienda(meta.sucursal) : '')}</div>
+      <div style="font-weight:900;font-size:1.05rem;line-height:1.25;margin:4px 0">${esc(p.nombre)}</div>
+      <div style="font-size:1.45rem;font-weight:900">${fmtMoney(p.precio)}</div>
+      <div style="font-family:monospace;font-size:0.95rem;margin-top:4px;font-weight:800">${esc(p.id)}</div>
+      <div style="font-size:0.9rem;margin-top:2px;font-weight:800">Stock piso: ${p.stock ?? 0}</div>
     </div>`,
   );
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Etiquetas</title>
-    <style>body{font-family:system-ui,sans-serif;margin:12px} @media print{.etiqueta{border-color:#ccc}}</style></head>
+    <style>
+      body{font-family:Arial,Helvetica,sans-serif;margin:12px;color:#000;font-weight:800}
+      body,body *{color:#000!important;font-weight:800!important}
+      h3{font-weight:900;font-size:1.15rem}
+      .etiqueta{border:2px solid #000!important}
+      @media print{.etiqueta{border-color:#000}}
+      ${cssTicketPosLegible()}
+    </style></head>
     <body>
     <h3 style="margin:0 0 8px">Etiquetas de estante</h3>
-    <div class="muted" style="font-size:0.85rem;margin-bottom:12px">${items.length} producto(s) · ${fmtFecha()}</div>
+    <div class="muted" style="font-size:0.9rem;margin-bottom:12px">${items.length} producto(s) · ${fmtFecha()}</div>
     ${items.join('') || '<p>Sin productos.</p>'}
     </body></html>`;
 }

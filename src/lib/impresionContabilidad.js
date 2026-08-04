@@ -21,10 +21,11 @@ function fmtPagoImp(n) {
 }
 
 function estilos() {
-  return `body{font-family:Arial,sans-serif;font-size:12px;margin:16px;max-width:720px}
-  h1{font-size:16px;margin:0 0 8px} table{width:100%;border-collapse:collapse;margin-top:8px}
-  th,td{border:1px solid #ccc;padding:4px 6px;text-align:left} th{background:#f0f0f0}
-  .r{text-align:right} .muted{color:#666;font-size:11px}`;
+  return `body{font-family:Arial,Helvetica,sans-serif;font-size:13px;margin:16px;max-width:720px;color:#000;font-weight:800;line-height:1.35}
+  body,body *{color:#000!important;font-weight:800!important}
+  h1{font-size:18px;margin:0 0 8px;font-weight:900} table{width:100%;border-collapse:collapse;margin-top:8px}
+  th,td{border:1.5px solid #000;padding:5px 7px;text-align:left} th{background:#eee;font-weight:900}
+  .r{text-align:right} .muted{color:#000;font-size:12px;font-weight:800}`;
 }
 
 /** Fecha corta para ticket térmico (evita saltos de línea largos). */

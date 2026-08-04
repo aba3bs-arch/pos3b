@@ -1,10 +1,32 @@
-import { abrirVentanaImpresion } from './impresion.js';
+import { abrirVentanaImpresion, cssTicketPosLegible } from './impresion.js';
 import { leerNombreNegocio, leerLogoUrl } from './branding.js';
 import { ETIQUETA_AREA } from './contabilidadConstants.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { etiquetaTipoCierre } from './corteContabilidad/permisos.js';
 import { gastoDescuentaNomina } from './corteContabilidad/catalogoGastos.js';
 import { nombreTurnoLegible } from './turnos.js';
+
+function estilosCortePos() {
+  return `
+    body{font-family:Arial,Helvetica,sans-serif;font-size:13px;margin:12px;max-width:420px;color:#000;font-weight:800;line-height:1.35}
+    img.logo{max-width:70%;max-height:64px;display:block;margin:0 auto 8px}
+    h1{font-size:18px;margin:0 0 4px;text-align:center;font-weight:900}
+    .sub{text-align:center;color:#000;font-size:12px;margin-bottom:10px;font-weight:800}
+    table{width:100%;border-collapse:collapse}
+    td{padding:4px 2px;vertical-align:top;font-weight:800}
+    td.r{text-align:right;white-space:nowrap}
+    .sep{border-top:2px solid #000;margin:10px 0}
+    .cat-block{margin:8px 0;padding:6px 0;border-top:1.5px solid #000}
+    .cat-head{margin-bottom:4px;font-size:13px;font-weight:900}
+    .tag{font-size:10px;background:#e8f4fc;color:#000;padding:1px 4px;border-radius:3px;font-weight:800}
+    .muted{color:#000;font-size:11px;font-weight:800}
+    .borrador{background:#fff3cd;border:2px solid #000;padding:6px;border-radius:4px;text-align:center;font-weight:900;margin-bottom:8px}
+    .banner{color:#fff;text-align:center;font-weight:900;padding:8px;margin:8px 0;border-radius:4px}
+    .rec,.op{font-weight:900}
+    @media print{body{margin:0;padding:8px}}
+    ${cssTicketPosLegible()}
+  `;
+}
 
 function esc(s) {
   return String(s ?? '')
@@ -207,20 +229,7 @@ export function htmlCorteContabilidad(data) {
   const fecha = data.fecha ? new Date(data.fecha).toLocaleString('es-MX') : new Date().toLocaleString('es-MX');
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Corte ${esc(modLabel)}</title><style>
-    body{font-family:Arial,sans-serif;font-size:12px;margin:12px;max-width:420px;color:#111}
-    img.logo{max-width:70%;max-height:64px;display:block;margin:0 auto 8px}
-    h1{font-size:16px;margin:0 0 4px;text-align:center}
-    .sub{text-align:center;color:#555;font-size:11px;margin-bottom:10px}
-    table{width:100%;border-collapse:collapse}
-    td{padding:3px 2px;vertical-align:top}
-    td.r{text-align:right;white-space:nowrap}
-    .sep{border-top:1px dashed #333;margin:10px 0}
-    .cat-block{margin:8px 0;padding:6px 0;border-top:1px solid #ddd}
-    .cat-head{margin-bottom:4px;font-size:12px}
-    .tag{font-size:9px;background:#e8f4fc;color:#1a5276;padding:1px 4px;border-radius:3px}
-    .muted{color:#666;font-size:10px}
-    .borrador{background:#fff3cd;border:1px solid #f0ad4e;padding:6px;border-radius:4px;text-align:center;font-weight:700;margin-bottom:8px}
-    @media print{body{margin:0;padding:8px}}
+    ${estilosCortePos()}
   </style></head><body>
     <img class="logo" src="${esc(logo)}" alt=""/>
     <h1>${esc(negocio)}</h1>
@@ -303,21 +312,9 @@ export function htmlRecoleccionVirtual(data) {
   const miSiguiente = mf > 0 || e.moneda_final_editada ? mf : mi;
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recolección Virtual</title><style>
-    body{font-family:Arial,sans-serif;font-size:12px;margin:12px;max-width:420px;color:#111}
-    img.logo{max-width:70%;max-height:64px;display:block;margin:0 auto 8px}
-    h1{font-size:16px;margin:0 0 4px;text-align:center}
-    .sub{text-align:center;color:#555;font-size:11px;margin-bottom:10px}
-    .banner{background:#6c3483;color:#fff;text-align:center;font-weight:800;padding:8px;margin:8px 0;border-radius:4px}
-    table{width:100%;border-collapse:collapse}
-    td{padding:5px 4px;vertical-align:top;border-bottom:1px solid #eee}
-    td.r{text-align:right;white-space:nowrap}
-    .sep{border-top:1px dashed #333;margin:10px 0}
-    .cat-block{margin:8px 0;padding:6px 0;border-top:1px solid #ddd}
-    .cat-head{margin-bottom:4px;font-size:12px}
-    .muted{color:#666;font-size:10px}
-    .rec{font-weight:800}
-    .op{color:#6c3483;font-weight:800}
-    @media print{body{margin:0;padding:8px}}
+    ${estilosCortePos()}
+    .banner{background:#6c3483}
+    td{border-bottom:1px solid #ccc}
   </style></head><body>
     <img class="logo" src="${esc(logo)}" alt=""/>
     <h1>${esc(negocio)}</h1>
@@ -394,18 +391,9 @@ export function htmlRecoleccionGarage(data) {
   const titulo = temporal ? 'RECOLECCIÓN TEMPORAL' : 'RECOLECCIÓN';
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>${esc(titulo)} Garage</title><style>
-    body{font-family:Arial,sans-serif;font-size:12px;margin:12px;max-width:420px;color:#111}
-    img.logo{max-width:70%;max-height:64px;display:block;margin:0 auto 8px}
-    h1{font-size:16px;margin:0 0 4px;text-align:center}
-    .sub{text-align:center;color:#555;font-size:11px;margin-bottom:10px}
-    .banner{background:${bannerBg};color:#fff;text-align:center;font-weight:800;padding:8px;margin:8px 0;border-radius:4px}
-    table{width:100%;border-collapse:collapse}
-    td{padding:5px 4px;vertical-align:top;border-bottom:1px solid #eee}
-    td.r{text-align:right;white-space:nowrap}
-    .sep{border-top:1px dashed #333;margin:10px 0}
-    .muted{color:#666;font-size:10px}
-    .rec{font-weight:800}
-    @media print{body{margin:0;padding:8px}}
+    ${estilosCortePos()}
+    .banner{background:${bannerBg}}
+    td{border-bottom:1px solid #ccc}
   </style></head><body>
     <img class="logo" src="${esc(logo)}" alt=""/>
     <h1>${esc(negocio)}</h1>

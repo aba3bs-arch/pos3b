@@ -291,9 +291,12 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
     const t = reporteTienda.totales;
     const win = window.open('', '_blank');
     if (!win) return alert('Permite ventanas emergentes.');
-    win.document.write(`<!DOCTYPE html><html><body style="font-family:system-ui;padding:1rem;font-size:12px">
+    win.document.write(`<!DOCTYPE html><html><head><style>
+      body,body *{font-family:Arial,Helvetica,sans-serif;color:#000!important;font-weight:800!important;font-size:13px;line-height:1.35}
+      h2{font-size:18px;font-weight:900} th{font-weight:900;border:1.5px solid #000} td{border:1.5px solid #000;padding:6px}
+      </style></head><body style="padding:1rem">
       <h2>Reporte por tienda</h2><p>${fmtFechaClave(desde)} — ${fmtFechaClave(hasta)}</p>
-      <table border="1" cellpadding="6" cellspacing="0" width="100%"><thead><tr><th>Tienda</th><th>Mov.</th><th>Recolección</th><th>Servicios</th><th>Crédito</th><th>Tránsito</th><th>Liquidado</th><th>Por cobrar</th><th>Total</th></tr></thead>
+      <table cellpadding="6" cellspacing="0" width="100%"><thead><tr><th>Tienda</th><th>Mov.</th><th>Recolección</th><th>Servicios</th><th>Crédito</th><th>Tránsito</th><th>Liquidado</th><th>Por cobrar</th><th>Total</th></tr></thead>
       <tbody>${filas}<tr><td><b>TOTAL</b></td><td>${t.count}</td><td>${fmtMonto(t.recoleccion)}</td><td>${fmtMonto(t.servicios)}</td><td>${fmtMonto(t.credito)}</td><td>${fmtMonto(t.enTransito)}</td><td>${fmtMonto(t.liquidado)}</td><td>${fmtMonto(t.porCobrar)}</td><td>${fmtMonto(t.total)}</td></tr></tbody></table>
       <script>window.print()</script></body></html>`);
     win.document.close();

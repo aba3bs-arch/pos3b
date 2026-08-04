@@ -197,9 +197,10 @@ export default function PanelLiquidacionRecolecciones({ supabase, user, embedded
     const win = window.open('', '_blank', 'width=900,height=700');
     if (!win) return alert('Permite ventanas emergentes para imprimir.');
     win.document.write(`<!DOCTYPE html><html><head><title>Reporte recolección</title>
-      <style>body{font-family:system-ui,sans-serif;padding:1.5rem;font-size:13px}
-      table{border-collapse:collapse;width:100%;margin-top:1rem} th,td{border:1px solid #ccc;padding:6px 8px}
-      th{background:#f0f0f0} h1{font-size:1.1rem;margin:0} .muted{color:#666;font-size:12px}</style></head><body>
+      <style>body,body *{font-family:Arial,Helvetica,sans-serif;padding:0;color:#000!important;font-weight:800!important;font-size:13px;line-height:1.35}
+      body{padding:1.5rem} table{border-collapse:collapse;width:100%;margin-top:1rem}
+      th,td{border:1.5px solid #000;padding:6px 8px} th{background:#eee;font-weight:900}
+      h1{font-size:1.2rem;margin:0;font-weight:900} .muted{color:#000;font-size:12px;font-weight:800}</style></head><body>
       <h1>Reporte de recolección en tránsito</h1>
       <p class="muted">Recolector: ${rep} · ${esHistorial ? 'Liquidaciones' : 'Fecha sellado'}: ${fechaLiquidacion} · Total: ${fmtMonto(reporte.granTotal)}</p>
       <table><thead><tr><th>Tienda</th>${headDias}<th>Total tienda</th></tr></thead>

@@ -183,7 +183,8 @@ export async function enviarTextoSerial(texto) {
   try {
     const encoder = new TextEncoder();
     const writer = puertoSerialActivo.writable.getWriter();
-    const init = new Uint8Array([0x1b, 0x40]);
+    // ESC @ init · ESC E 1 negrita · ESC G 1 doble golpe (más legible en térmica)
+    const init = new Uint8Array([0x1b, 0x40, 0x1b, 0x45, 0x01, 0x1b, 0x47, 0x01]);
     await writer.write(init);
     await writer.write(encoder.encode(String(texto || '')));
     const cut = new Uint8Array([0x1d, 0x56, 0x00]);
