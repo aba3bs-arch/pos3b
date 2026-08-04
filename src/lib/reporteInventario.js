@@ -140,9 +140,18 @@ function mapaCostoPorProducto(inventario) {
   return map;
 }
 
+function mapaPrecioPorProducto(inventario) {
+  const map = new Map();
+  for (const p of inventario || []) {
+    map.set(String(p.id), Number(p.precio) || 0);
+  }
+  return map;
+}
+
 /** Agrupa movimientos nube de conteo en “ajustes” por folio. */
 export function ajustesDesdeMovimientosConteo(movimientos, { inventario = [] } = {}) {
   const costos = mapaCostoPorProducto(inventario);
+  const precios = mapaPrecioPorProducto(inventario);
   const map = new Map();
 
   for (const m of movimientos || []) {
@@ -185,6 +194,7 @@ export function ajustesDesdeMovimientosConteo(movimientos, { inventario = [] } =
     const contada = Number.isFinite(despues) ? Math.max(0, despues) : existencia;
     const diferencia = Number.isFinite(antes) && Number.isFinite(despues) ? despues - antes : 0;
     const costo = costos.get(String(m.producto_id)) || 0;
+    const precio = precios.get(String(m.producto_id)) || 0;
 
     aj.lineas.push({
       codigo: m.producto_id,
@@ -193,15 +203,16 @@ export function ajustesDesdeMovimientosConteo(movimientos, { inventario = [] } =
       contada,
       diferencia,
       costoUnitario: costo,
-      valorDiferencia: Math.abs(diferencia) * costo,
+      precioVenta: precio,
+      valorDiferencia: Math.abs(diferencia) * precio,
     });
     aj.resumen.piezasExistencia += existencia;
     if (diferencia < 0) {
       aj.resumen.piezasFaltantes += Math.abs(diferencia);
-      aj.resumen.valorFaltante += Math.abs(diferencia) * costo;
+      aj.resumen.valorFaltante += Math.abs(diferencia) * precio;
     } else if (diferencia > 0) {
       aj.resumen.piezasSobrantes += diferencia;
-      aj.resumen.valorSobrante += diferencia * costo;
+      aj.resumen.valorSobrante += diferencia * precio;
     }
   }
 

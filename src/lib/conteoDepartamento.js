@@ -58,6 +58,7 @@ export function construirLineaConteo(producto, contadaRaw = '', sucursal = '') {
     else estado = 'faltante';
   }
   const costoUnitario = costoUnitarioInventario(producto);
+  const precioVenta = Number(producto?.precio) || 0;
   return {
     productoId: producto.id,
     codigo: producto.id,
@@ -67,8 +68,8 @@ export function construirLineaConteo(producto, contadaRaw = '', sucursal = '') {
     contadaNum,
     diferencia,
     costoUnitario,
-    precioVenta: Number(producto?.precio) || 0,
-    valorDiferencia: contadaNum == null || diferencia === 0 ? 0 : round2(Math.abs(diferencia) * costoUnitario),
+    precioVenta,
+    valorDiferencia: contadaNum == null || diferencia === 0 ? 0 : round2(Math.abs(diferencia) * precioVenta),
     estado,
   };
 }
@@ -97,11 +98,11 @@ export function resumirConteoDepartamento(lineas = []) {
     } else if (l.diferencia < 0) {
       skusFaltante += 1;
       piezasFaltantes += Math.abs(l.diferencia);
-      valorFaltante += Math.abs(l.diferencia) * l.costoUnitario;
+      valorFaltante += Math.abs(l.diferencia) * (Number(l.precioVenta) || 0);
     } else {
       skusSobrante += 1;
       piezasSobrantes += l.diferencia;
-      valorSobrante += l.diferencia * l.costoUnitario;
+      valorSobrante += l.diferencia * (Number(l.precioVenta) || 0);
     }
   }
 
