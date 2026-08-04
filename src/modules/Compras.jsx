@@ -13,10 +13,9 @@ import CampoCodigo from '../components/CampoCodigo.jsx';
 import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
 import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import { enRangoYmd, parseYmd, toYmd } from '../lib/fechas.js';
-import { ALMACEN_CENTRAL, aplicarDeltaStock } from '../lib/inventarioMultitienda.js';
 import { productoIdsDesdeProveedor } from '../lib/proveedorCatalogo.js';
-import { cargarTodosLosProductos } from '../lib/cargarCatalogoProductos.js';
-import { guardarMovimientoLocal } from '../lib/inventarioMovimientos.js';
+import { aplicarMovimientoInventario } from '../lib/inventarioMovimientos.js';
+import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 
 function totalPedido(lines) {
   return lines.reduce((a, l) => a + (Number(l.costo_est) || 0) * (Number(l.qty_pedido) || 0), 0);
@@ -296,7 +295,14 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
   const escanearRecepcion = (raw) => {
     const c = String(raw ?? codigoRecepcion).trim();
     if (!c) return;
-    const linea = lineas.find((l) => String(l.id) === c);
+    const enPedido = lineas.find((l) => String(l.id) === c);
+    if (enPedido) {
+      setLinea(enPedido.id, { qty_recibido: (Number(enPedido.qty_recibido) || 0) + 1 });
+      setCodigoRecepcion('');
+      return;
+    }
+    const { producto } = buscarProductoInventario(inventario, c);
+    const linea = producto ? lineas.find((l) => String(l.id) === String(producto.id)) : null;
     if (!linea) {
       alert(`Producto no está en este pedido: ${c}`);
       setCodigoRecepcion('');
@@ -395,6 +401,37 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     const totalTicket = parseFloat(String(ticketRaw).replace(',', '.'));
     if (Number.isNaN(totalTicket) || totalTicket < 0) return alert('Total del ticket no válido.');
 
+    const errores = [];
+    let aplicados = 0;
+    const motivoBase = `Compra/recepción · ${compraActiva.id}${compraActiva.notas ? ` · ${compraActiva.notas}` : ''}`;
+
+    for (const l of items) {
+      const r = await aplicarMovimientoInventario(supabase, {
+        tipo: 'entrada',
+        modo: 'compra',
+        productoOrigen: { id: l.id, nombre: l.nombre },
+        cantidad: l.qty,
+        motivo: motivoBase,
+        usuario: user?.nombre || '—',
+        sucursal,
+        sucursalOperacion: sucursal,
+      });
+      if (!r.ok) {
+        errores.push(`${l.nombre || l.id}: ${r.error}`);
+        if (r.faltaRpc) {
+          alert(r.error);
+          return;
+        }
+        continue;
+      }
+      aplicados += 1;
+    }
+
+    if (!aplicados) {
+      alert(`No se pudo actualizar inventario:\n${errores.join('\n') || 'Sin productos aplicables.'}`);
+      return;
+    }
+
     const { error } = await supabase
       .from('compras')
       .update({
@@ -409,45 +446,10 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
       return;
     }
 
-    const { data: productosDb, error: eProd, ok } = await (async () => {
-      const r = await cargarTodosLosProductos(supabase);
-      if (!r.ok) return { data: null, error: r.error, ok: false };
-      return { data: r.data, error: null, ok: true };
-    })();
-    if (!ok) {
-      alert(`Compra cerrada pero no se pudo actualizar inventario: ${eProd?.message || eProd}`);
-      return;
-    }
-    const byId = new Map((productosDb || []).map((p) => [p.id, p]));
-    for (const l of items) {
-      const prod = byId.get(l.id);
-      if (prod && l.qty > 0) {
-        const calc = aplicarDeltaStock(prod, ALMACEN_CENTRAL, 'cedis', l.qty, sucursal);
-        if (calc.ok) {
-          await supabase.from('productos').update(calc.patch).eq('id', prod.id);
-          Object.assign(prod, calc.patch);
-          guardarMovimientoLocal(
-            {
-              tipo: 'entrada',
-              modo: 'compra',
-              producto_id: prod.id,
-              producto_nombre: prod.nombre || l.nombre,
-              cantidad: l.qty,
-              stock_antes: calc.antes,
-              stock_despues: calc.despues,
-              ubicacion: 'cedis',
-              motivo: `Compra/recepción · ${compraActiva.id}${compraActiva.notas ? ` · ${compraActiva.notas}` : ''}`,
-              usuario: user?.nombre || '—',
-              sucursal: sucursal || ALMACEN_CENTRAL,
-              created_at: new Date().toISOString(),
-            },
-            supabase,
-          );
-        }
-      }
-    }
-
-    alert(`Mercancía recibida. Ticket: $${totalTicket.toFixed(2)} MXN. Inventario actualizado.`);
+    const msgExtra = errores.length
+      ? `\n\nAdvertencia: ${errores.length} línea(s) no entraron al inventario:\n${errores.join('\n')}`
+      : '';
+    alert(`Mercancía recibida. Ticket: $${totalTicket.toFixed(2)} MXN. Inventario actualizado (${aplicados} producto(s)).${msgExtra}`);
     await imprimirRecepcionCompra({
       sucursal,
       proveedor: compraActiva.proveedores?.nombre || proveedorNombre,
@@ -583,8 +585,8 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                   </h3>
                   <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
                     {modoRecepcion
-                      ? 'Columna Pedido = lo ordenado. Columna Recepción = lo que entregó el proveedor.'
-                      : 'En Pedido: Enter acepta la cantidad sugerida, o teclea la cantidad deseada.'}
+                      ? 'Columna Pedido = lo ordenado. Columna Recepción = lo que entregó el proveedor. Al pulsar «Recibir mercancía» se suma al inventario (CEDIS en MAIN, piso en tiendas).'
+                      : 'En Pedido: Enter acepta la cantidad sugerida, o teclea la cantidad deseada. El pedido no modifica inventario hasta recibir la mercancía.'}
                   </p>
                 </div>
                 <div style={{ fontWeight: 800, color: 'var(--brand-blue)', textAlign: 'right' }}>
