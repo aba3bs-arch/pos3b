@@ -238,6 +238,7 @@ export async function aplicarConteoDepartamento(supabase, opts) {
       contada: l.contadaNum,
       diferencia: l.diferencia,
       costoUnitario: l.costoUnitario,
+      precioVenta: l.precioVenta,
       valorDiferencia: l.valorDiferencia,
       estado: l.estado,
     })),
@@ -246,6 +247,36 @@ export async function aplicarConteoDepartamento(supabase, opts) {
     created_at: new Date().toISOString(),
   };
   guardarAjusteInventario(ajuste);
+
+  guardarMovimientoLocal(
+    {
+      tipo: 'conteo_snapshot',
+      modo: 'conteo_snapshot',
+      folio,
+      departamento,
+      producto_id: null,
+      producto_nombre: `Snapshot conteo ${departamento}`,
+      cantidad: 0,
+      motivo: `${motivo} · snapshot completo`,
+      usuario: usuario || '—',
+      sucursal: suc,
+      ubicacion: ubicacionConteo(suc),
+      meta: {
+        folio,
+        ajuste_snapshot: {
+          folio,
+          departamento,
+          sucursal: suc,
+          usuario: usuario || '—',
+          resumen,
+          lineas: ajuste.lineas,
+          created_at: ajuste.created_at,
+        },
+      },
+      created_at: ajuste.created_at,
+    },
+    supabase,
+  );
 
   if (errores.length && !aplicadas.length) {
     return { ok: false, error: errores.join('\n') };

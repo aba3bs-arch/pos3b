@@ -11,9 +11,11 @@ import {
   columnasCsvInventario,
   columnasImprimirProductoInventario,
   departamentosEnReporte,
+  enriquecerTotalesConReferencia,
   fmtMxnReporte,
   fmtPctReporte,
   foliosDesdeAjustes,
+  referenciaInventarioReporte,
   tiendasParaFiltroInventario,
   totalesLineasProducto,
 } from '../lib/reporteInventario.js';
@@ -101,7 +103,7 @@ function TablaLineas({ lineas, mostrarTienda }) {
 /**
  * Reporte de conteos aplicados por departamento, con todos los artículos contados y no. de ajuste.
  */
-export default function ReporteInventario({ supabase, inventario, sucursal, sucursalesLista }) {
+export default function ReporteInventario({ supabase, inventario, inventarioCompleto, sucursal, sucursalesLista }) {
   const [abierto, setAbierto] = useState(false);
   const [preset, setPreset] = useState('mes');
   const [desde, setDesde] = useState(() => new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10));
@@ -113,7 +115,10 @@ export default function ReporteInventario({ supabase, inventario, sucursal, sucu
   const [ajustes, setAjustes] = useState([]);
   const [rango, setRango] = useState({ desde: '', hasta: '' });
   const [aviso, setAviso] = useState('');
+  const [referencia, setReferencia] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  const catalogo = inventarioCompleto?.length ? inventarioCompleto : inventario;
 
   const tiendas = useMemo(() => {
     const base = tiendasParaFiltroInventario(sucursal, sucursalesLista);
@@ -140,10 +145,12 @@ export default function ReporteInventario({ supabase, inventario, sucursal, sucu
     cargarFilasReporteInventarioAsync({
       supabase,
       inventario,
+      inventarioCompleto: catalogo,
       preset,
       desde,
       hasta,
       sucursal: tienda,
+      sucursalActual: sucursal,
       departamento,
     })
       .then((r) => {
@@ -152,12 +159,14 @@ export default function ReporteInventario({ supabase, inventario, sucursal, sucu
         setAjustes(r.ajustes || []);
         setRango(r.rango || { desde: '', hasta: '' });
         setAviso(r.aviso || '');
+        setReferencia(r.referencia || null);
       })
       .catch((e) => {
         if (cancel) return;
         setLineasProducto([]);
         setAjustes([]);
         setAviso(e?.message || String(e));
+        setReferencia(null);
       })
       .finally(() => {
         if (!cancel) setLoading(false);
@@ -165,7 +174,7 @@ export default function ReporteInventario({ supabase, inventario, sucursal, sucu
     return () => {
       cancel = true;
     };
-  }, [abierto, supabase, inventario, preset, desde, hasta, tienda, departamento]);
+  }, [abierto, supabase, inventario, catalogo, preset, desde, hasta, tienda, departamento]);
 
   const lineasVisibles = useMemo(() => {
     if (filtroDif === 'negativos') {
@@ -178,7 +187,10 @@ export default function ReporteInventario({ supabase, inventario, sucursal, sucu
   }, [lineasProducto, filtroDif]);
 
   const grupos = useMemo(() => agruparReportePorDepartamento(lineasVisibles), [lineasVisibles]);
-  const totales = useMemo(() => totalesLineasProducto(lineasVisibles), [lineasVisibles]);
+  const totales = useMemo(
+    () => enriquecerTotalesConReferencia(totalesLineasProducto(lineasVisibles), referencia),
+    [lineasVisibles, referencia],
+  );
   const foliosAjuste = useMemo(() => foliosDesdeAjustes(ajustes), [ajustes]);
 
   const exportCsv = () => {
@@ -189,7 +201,11 @@ export default function ReporteInventario({ supabase, inventario, sucursal, sucu
   };
 
   const imprimirLineas = async (rows, subtitulo) => {
-    const t = totalesLineasProducto(rows);
+    const t = enriquecerTotalesConReferencia(
+      totalesLineasProducto(rows),
+      referencia || referenciaInventarioReporte(catalogo, tienda || sucursal, departamento),
+    );
+    const ref = t.referencia;
     await imprimirReporte({
       sucursal: tienda || sucursal,
       titulo: 'REPORTE DE INVENTARIO POR DEPARTAMENTO',
@@ -199,15 +215,22 @@ export default function ReporteInventario({ supabase, inventario, sucursal, sucu
           titulo: 'Resumen',
           lineas: [
             `Ajustes: ${foliosDesdeAjustes(ajustes).join(', ') || '—'}`,
-            `Artículos contados: ${t.articulos}`,
-            `Faltante (negativo): ${fmtMxnReporte(t.valorFaltante)}`,
-            `Sobrante (positivo): ${fmtMxnReporte(t.valorSobrante)}`,
-            `% merma: ${fmtPctReporte(t.pctMerma)}`,
-          ],
+            `Artículos contados (únicos): ${t.articulos}`,
+            ref?.valorSistema
+              ? `Inv. sistema tienda: ${fmtMxnReporte(ref.valorSistema)} · Cobertura conteo: ${fmtPctReporte(ref.pctCoberturaValor ?? 0)}`
+              : null,
+            `Inv. teórico contado: ${fmtMxnReporte(t.valorTeoricoContado)}`,
+            `Faltante: ${fmtMxnReporte(t.valorFaltante)} (${t.piezasFaltantes.toLocaleString('es-MX')} pzas)`,
+            `Sobrante: ${fmtMxnReporte(t.valorSobrante)} (${t.piezasSobrantes.toLocaleString('es-MX')} pzas)`,
+            `% merma (solo sobre lo contado): ${fmtPctReporte(t.pctMerma)}`,
+          ].filter(Boolean),
         },
         ...agruparReportePorDepartamento(rows).map((g) => ({
           titulo: g.departamento,
-          lineas: [`Ajustes: ${g.folios.join(', ') || '—'} · ${g.totales.articulos} artículo(s)`],
+          lineas: [
+            `Ajustes: ${g.folios.join(', ') || '—'} · ${g.totales.articulos} artículo(s)`,
+            `Faltante: ${fmtMxnReporte(g.totales.valorFaltante)} (${g.totales.piezasFaltantes} pzas) · Sobrante: ${fmtMxnReporte(g.totales.valorSobrante)} (${g.totales.piezasSobrantes} pzas)`,
+          ],
         })),
       ],
       tabla: {
@@ -252,7 +275,8 @@ export default function ReporteInventario({ supabase, inventario, sucursal, sucu
         <div>
           <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Reporte de inventario por departamento</h3>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-            Todos los artículos contados al aplicar ajuste (libre o por departamento), agrupados por departamento.
+            Faltante y sobrante se reportan por separado (no se netean). Inv. sistema = valor total en tienda;
+            inv. teórico contado = solo SKUs ya contados.
             {loading ? ' Cargando…' : ''}
           </p>
         </div>
@@ -346,12 +370,40 @@ export default function ReporteInventario({ supabase, inventario, sucursal, sucu
         }}
       >
         {[
+          ...(totales.referencia?.valorSistema
+            ? [
+                {
+                  label: `Inv. sistema${tienda ? ` · ${etiquetaTienda(tienda)}` : ''}`,
+                  value: fmtMxnReporte(totales.referencia.valorSistema),
+                  hint: `${totales.referencia.piezasSistema?.toLocaleString('es-MX') || 0} pzas · ${totales.referencia.skusConStock || 0} SKUs`,
+                },
+                {
+                  label: 'Cobertura conteo',
+                  value: fmtPctReporte(totales.referencia.pctCoberturaValor ?? 0),
+                  hint: 'Valor contado / inv. sistema',
+                },
+              ]
+            : []),
           { label: 'Ajustes', value: String(ajustes.length) },
-          { label: 'Artículos', value: String(totales.articulos) },
-          { label: 'Inv. teórico', value: fmtMxnReporte(totales.valorTeorico) },
-          { label: 'Faltante', value: fmtMxnReporte(totales.valorFaltante), color: 'var(--brand-red, #c0392b)' },
-          { label: 'Sobrante', value: fmtMxnReporte(totales.valorSobrante), color: 'var(--brand-gold-dark)' },
-          { label: '% merma', value: fmtPctReporte(totales.pctMerma) },
+          { label: 'SKUs contados', value: String(totales.articulos) },
+          {
+            label: 'Inv. teórico contado',
+            value: fmtMxnReporte(totales.valorTeoricoContado),
+            hint: 'Solo artículos ya contados',
+          },
+          {
+            label: 'Faltante',
+            value: fmtMxnReporte(totales.valorFaltante),
+            sub: `${totales.piezasFaltantes.toLocaleString('es-MX')} pzas`,
+            color: 'var(--brand-red, #c0392b)',
+          },
+          {
+            label: 'Sobrante',
+            value: fmtMxnReporte(totales.valorSobrante),
+            sub: `${totales.piezasSobrantes.toLocaleString('es-MX')} pzas`,
+            color: 'var(--brand-gold-dark)',
+          },
+          { label: '% merma (contado)', value: fmtPctReporte(totales.pctMerma) },
         ].map((k) => (
           <div
             key={k.label}
@@ -366,6 +418,16 @@ export default function ReporteInventario({ supabase, inventario, sucursal, sucu
               {k.label}
             </div>
             <strong style={{ fontSize: '1.05rem', color: k.color || 'var(--brand-blue)' }}>{k.value}</strong>
+            {k.sub ? (
+              <div className="muted" style={{ fontSize: '0.72rem', marginTop: '0.15rem' }}>
+                {k.sub}
+              </div>
+            ) : null}
+            {k.hint ? (
+              <div className="muted" style={{ fontSize: '0.68rem', marginTop: '0.1rem' }}>
+                {k.hint}
+              </div>
+            ) : null}
           </div>
         ))}
       </div>
@@ -396,8 +458,10 @@ export default function ReporteInventario({ supabase, inventario, sucursal, sucu
             >
               <h4 style={{ margin: 0, color: 'var(--brand-blue)' }}>{g.departamento}</h4>
               <span className="muted" style={{ fontSize: '0.8rem' }}>
-                {g.folios.length} ajuste(s) · {g.totales.articulos} artículo(s) · Faltante{' '}
-                {fmtMxnReporte(g.totales.valorFaltante)} · % merma {fmtPctReporte(g.totales.pctMerma)}
+                {g.folios.length} ajuste(s) · {g.totales.articulos} SKU(s) · Faltante{' '}
+                {fmtMxnReporte(g.totales.valorFaltante)} ({g.totales.piezasFaltantes} pzas) · Sobrante{' '}
+                {fmtMxnReporte(g.totales.valorSobrante)} ({g.totales.piezasSobrantes} pzas) · % merma{' '}
+                {fmtPctReporte(g.totales.pctMerma)}
               </span>
             </div>
             <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.78rem' }}>

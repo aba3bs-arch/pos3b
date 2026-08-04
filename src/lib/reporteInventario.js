@@ -3,7 +3,8 @@ import { leerAjustesInventario } from './conteoDepartamento.js';
 import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from './departamentos.js';
 import { bucketKey, etiquetaBucket, COLORES_TIENDA } from './estadisticasData.js';
 import { toYmd } from './fechas.js';
-import { costoUnitarioInventario } from './valorInventario.js';
+import { inventarioParaSucursal } from './inventarioMultitienda.js';
+import { costoUnitarioInventario, resumirValorInventario } from './valorInventario.js';
 
 /** Filtros rápidos del reporte de inventario. */
 export const PRESETS_REPORTE_INVENTARIO = [
@@ -168,6 +169,7 @@ export function lineaProductoReporte(ajuste, linea, preciosMap = new Map(), dept
     pctMerma,
     valorDiferencia,
     valorTeorico,
+    precioVenta: precio,
     folio: numeroAjuste,
     numeroAjuste,
     departamentoKey,
@@ -196,14 +198,28 @@ export function lineasProductoDesdeAjustes(ajustes, { inventario = [], sucFiltro
       out.push(row);
     }
   }
-  out.sort(
+  return deduplicarLineasConteo(out);
+}
+
+/**
+ * Un SKU por tienda: conserva el conteo más reciente (evita duplicar al recontar).
+ */
+export function deduplicarLineasConteo(lineas = []) {
+  const map = new Map();
+  for (const l of lineas) {
+    const key = `${normalizarCodigoTienda(l.sucursal) || '—'}_${String(l.codigo)}`;
+    const prev = map.get(key);
+    if (!prev || String(l.created_at || '').localeCompare(String(prev.created_at || '')) > 0) {
+      map.set(key, l);
+    }
+  }
+  return [...map.values()].sort(
     (a, b) =>
       a.departamentoKey.localeCompare(b.departamentoKey, 'es') ||
       String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
       String(a.numeroAjuste).localeCompare(String(b.numeroAjuste)) ||
       String(a.codigo).localeCompare(String(b.codigo), 'es'),
   );
-  return out;
 }
 
 /** Agrupa líneas del reporte por departamento con totales y folios. */
@@ -239,22 +255,38 @@ export function foliosDesdeAjustes(ajustes = []) {
 }
 
 export function totalesLineasProducto(lineas = []) {
-  let valorTeorico = 0;
+  let valorTeoricoContado = 0;
+  let valorContado = 0;
   let valorFaltante = 0;
   let valorSobrante = 0;
+  let piezasTeoricas = 0;
+  let piezasContadas = 0;
+  let piezasFaltantes = 0;
+  let piezasSobrantes = 0;
   let negativos = 0;
   let positivos = 0;
   for (const l of lineas) {
-    valorTeorico += Number(l.valorTeorico) || 0;
-    if (Number(l.diferencia) < 0) {
+    const teorico = Number(l.teorico) || 0;
+    const contado = l.contado != null ? Number(l.contado) : null;
+    const dif = Number(l.diferencia);
+    valorTeoricoContado += Number(l.valorTeorico) || 0;
+    if (contado != null) {
+      piezasTeoricas += teorico;
+      piezasContadas += contado;
+      valorContado += contado * (Number(l.precioVenta) || (teorico > 0 ? (Number(l.valorTeorico) || 0) / teorico : 0));
+    }
+    if (dif < 0) {
       valorFaltante += Number(l.valorDiferencia) || 0;
+      piezasFaltantes += Math.abs(dif);
       negativos += 1;
-    } else if (Number(l.diferencia) > 0) {
+    } else if (dif > 0) {
       valorSobrante += Number(l.valorDiferencia) || 0;
+      piezasSobrantes += dif;
       positivos += 1;
     }
   }
-  const pctMerma = valorTeorico > 0 ? (valorFaltante / valorTeorico) * 100 : valorFaltante > 0 ? 100 : 0;
+  const pctMerma =
+    valorTeoricoContado > 0 ? (valorFaltante / valorTeoricoContado) * 100 : valorFaltante > 0 ? 100 : 0;
   const folios = new Set(lineas.map((l) => l.numeroAjuste).filter((f) => f && f !== '—'));
   return {
     articulos: lineas.length,
@@ -262,10 +294,66 @@ export function totalesLineasProducto(lineas = []) {
     positivos,
     sinDiferencia: lineas.length - negativos - positivos,
     ajustes: folios.size,
-    valorTeorico: Math.round(valorTeorico * 100) / 100,
+    /** Suma teórica solo de SKUs ya contados (no es el inventario total de tienda). */
+    valorTeoricoContado: Math.round(valorTeoricoContado * 100) / 100,
+    /** Alias legacy usado en CSV/impresión. */
+    valorTeorico: Math.round(valorTeoricoContado * 100) / 100,
+    valorContado: Math.round(valorContado * 100) / 100,
     valorFaltante: Math.round(valorFaltante * 100) / 100,
     valorSobrante: Math.round(valorSobrante * 100) / 100,
+    piezasTeoricas,
+    piezasContadas,
+    piezasFaltantes,
+    piezasSobrantes,
     pctMerma: Math.round(pctMerma * 100) / 100,
+  };
+}
+
+/** Valor de inventario en sistema para la tienda filtrada (referencia vs lo contado). */
+export function referenciaInventarioReporte(inventarioCompleto = [], sucursal = '', deptFiltro = '') {
+  const suc = normalizarCodigoTienda(sucursal);
+  if (!suc || !Array.isArray(inventarioCompleto) || !inventarioCompleto.length) {
+    return {
+      sucursal: suc || '',
+      valorSistema: 0,
+      piezasSistema: 0,
+      skusConStock: 0,
+      pctCoberturaValor: null,
+      pctCoberturaSkus: null,
+    };
+  }
+  let items = inventarioParaSucursal(inventarioCompleto, suc);
+  if (deptFiltro) {
+    const dept = normalizarDepartamento(deptFiltro);
+    items = items.filter((p) => normalizarDepartamento(p.cat) === dept);
+  }
+  const res = resumirValorInventario(items);
+  return {
+    sucursal: suc,
+    valorSistema: res.valorVenta,
+    piezasSistema: res.unidades,
+    skusConStock: res.skusConStock,
+    skusSinPrecio: res.skusSinPrecio,
+    pctCoberturaValor: null,
+    pctCoberturaSkus: null,
+  };
+}
+
+export function enriquecerTotalesConReferencia(totales, referencia) {
+  if (!referencia?.valorSistema) return { ...totales, referencia };
+  const pctCoberturaValor =
+    referencia.valorSistema > 0
+      ? Math.round((totales.valorTeoricoContado / referencia.valorSistema) * 10000) / 100
+      : null;
+  const pctCoberturaSkus =
+    referencia.skusConStock > 0 ? Math.round((totales.articulos / referencia.skusConStock) * 10000) / 100 : null;
+  return {
+    ...totales,
+    referencia: {
+      ...referencia,
+      pctCoberturaValor,
+      pctCoberturaSkus,
+    },
   };
 }
 
@@ -340,16 +428,46 @@ function mapaCostoPorProducto(inventario) {
   return map;
 }
 
-/** Agrupa movimientos nube de conteo en “ajustes” por folio. */
-export function ajustesDesdeMovimientosConteo(movimientos, { inventario = [] } = {}) {
+/** Reconstruye ajustes completos desde snapshots en nube (incluye líneas sin diferencia). */
+export function ajustesDesdeSnapshotsConteo(movimientos = []) {
+  const map = new Map();
+  for (const m of movimientos || []) {
+    if (String(m.modo || '') !== 'conteo_snapshot') continue;
+    const meta = m?.meta && typeof m.meta === 'object' ? m.meta : {};
+    const snap = meta.ajuste_snapshot || meta.snapshot;
+    if (!snap?.lineas?.length) continue;
+    const folio = String(meta.folio || snap.folio || folioDesdeMovimiento(m) || `SIN-FOLIO-${m.id}`);
+    const suc = normalizarCodigoTienda(snap.sucursal || m.sucursal_id || m.sucursal) || '—';
+    const created = snap.created_at || m.created_at;
+    const prev = map.get(folio);
+    if (prev && String(prev.created_at || '') >= String(created || '')) continue;
+    map.set(folio, {
+      id: `snap_${folio}`,
+      folio,
+      departamento: snap.departamento || m.departamento || '—',
+      sucursal: suc,
+      usuario: snap.usuario || m.usuario || '—',
+      created_at: created,
+      origen: 'nube_snapshot',
+      lineas: snap.lineas,
+      resumen: snap.resumen || {},
+    });
+  }
+  return [...map.values()];
+}
+
+/** Agrupa movimientos nube de conteo en “ajustes” por folio (solo líneas con diferencia). */
+export function ajustesDesdeMovimientosConteo(movimientos, { inventario = [], excluirFolios = new Set() } = {}) {
   const costos = mapaCostoPorProducto(inventario);
   const precios = mapaPrecioPorProducto(inventario);
   const map = new Map();
 
   for (const m of movimientos || []) {
     const modo = String(m.modo || '');
+    if (modo === 'conteo_snapshot') continue;
     if (modo !== 'conteo_departamento' && modo !== 'conteo' && modo !== 'libre') continue;
     const folio = folioDesdeMovimiento(m) || `SIN-FOLIO-${m.id}`;
+    if (excluirFolios.has(folio)) continue;
     const suc = normalizarCodigoTienda(m.sucursal_id || m.sucursal) || '—';
     if (!map.has(folio)) {
       map.set(folio, {
@@ -429,7 +547,7 @@ async function listarMovimientosConteoNube(supabase, { desdeYmd, hastaYmd } = {}
     .select(
       'id,tipo,modo,producto_id,producto_nombre,cantidad,stock_antes,stock_despues,departamento,motivo,usuario,sucursal_id,meta,created_at',
     )
-    .in('modo', ['conteo_departamento', 'libre', 'conteo'])
+    .in('modo', ['conteo_departamento', 'libre', 'conteo', 'conteo_snapshot'])
     .gte('created_at', iniIso)
     .lte('created_at', finIso)
     .order('created_at', { ascending: false })
@@ -466,25 +584,49 @@ function filtrarAjustes(ajustes, sucFiltro) {
 }
 
 export function cargarFilasReporteInventario(opts = {}) {
-  const { preset = 'mes', desde, hasta, sucursal = '', inventario = [], departamento = '' } = opts;
+  const {
+    preset = 'mes',
+    desde,
+    hasta,
+    sucursal = '',
+    inventario = [],
+    inventarioCompleto = [],
+    departamento = '',
+    sucursalActual = '',
+  } = opts;
   const rango = rangoReporteInventario(preset, desde, hasta);
   const sucFiltro = sucursal ? normalizarCodigoTienda(sucursal) : '';
   const deptFiltro = departamento ? normalizarDepartamento(departamento) : '';
+  const catalogo = inventarioCompleto?.length ? inventarioCompleto : inventario;
   const locales = leerAjustesInventario().filter((a) => enRangoIso(a.created_at, rango.desde, rango.hasta));
   const ajustes = filtrarAjustes(locales, sucFiltro);
-  const lineasProducto = lineasProductoDesdeAjustes(locales, { inventario, sucFiltro, deptFiltro });
-  return { lineasProducto, ajustes, rango, aviso: null };
+  const lineasProducto = lineasProductoDesdeAjustes(locales, { inventario: catalogo, sucFiltro, deptFiltro });
+  const sucRef = sucFiltro || normalizarCodigoTienda(sucursalActual) || '';
+  const referencia = referenciaInventarioReporte(catalogo, sucRef, deptFiltro);
+  return { lineasProducto, ajustes, rango, aviso: null, referencia };
 }
 
 /**
  * Igual que el sync, pero también lee conteos desde movimientos_inventario (nube).
  */
 export async function cargarFilasReporteInventarioAsync(opts = {}) {
-  const { supabase = null, inventario = [], preset = 'mes', desde, hasta, sucursal = '', departamento = '' } = opts;
+  const {
+    supabase = null,
+    inventario = [],
+    inventarioCompleto = [],
+    preset = 'mes',
+    desde,
+    hasta,
+    sucursal = '',
+    sucursalActual = '',
+    departamento = '',
+  } = opts;
   const rango = rangoReporteInventario(preset, desde, hasta);
   const sucFiltro = sucursal ? normalizarCodigoTienda(sucursal) : '';
   const deptFiltro = departamento ? normalizarDepartamento(departamento) : '';
+  const catalogo = inventarioCompleto?.length ? inventarioCompleto : inventario;
   const locales = leerAjustesInventario().filter((a) => enRangoIso(a.created_at, rango.desde, rango.hasta));
+  const sucRef = sucFiltro || normalizarCodigoTienda(sucursalActual) || '';
 
   let aviso = null;
   let nubeAjustes = [];
@@ -494,17 +636,32 @@ export async function cargarFilasReporteInventarioAsync(opts = {}) {
       hastaYmd: rango.hasta,
     });
     if (error) aviso = `Nube: ${error}`;
-    else nubeAjustes = ajustesDesdeMovimientosConteo(data, { inventario });
+    else {
+      const snapshots = ajustesDesdeSnapshotsConteo(data);
+      const foliosSnapshot = new Set(snapshots.map((a) => a.folio));
+      const parciales = ajustesDesdeMovimientosConteo(data, {
+        inventario: catalogo,
+        excluirFolios: foliosSnapshot,
+      });
+      nubeAjustes = [...snapshots, ...parciales];
+      const soloParciales = parciales.filter((a) => !foliosSnapshot.has(a.folio));
+      if (soloParciales.length && !snapshots.length) {
+        aviso =
+          (aviso ? `${aviso} · ` : '') +
+          'Conteos en nube sin snapshot completo: solo artículos con diferencia. Los totales pueden ser menores al conteo real.';
+      }
+    }
   }
 
   const merged = mergeAjustesPorFolio(locales, nubeAjustes);
   const ajustes = filtrarAjustes(merged, sucFiltro);
   const lineasProducto = lineasProductoDesdeAjustes(merged, {
-    inventario,
+    inventario: catalogo,
     sucFiltro,
     deptFiltro,
   });
-  return { lineasProducto, ajustes, rango, aviso };
+  const referencia = referenciaInventarioReporte(catalogo, sucRef, deptFiltro);
+  return { lineasProducto, ajustes, rango, aviso, referencia };
 }
 
 export function totalesReporteInventario(filas = []) {
@@ -648,6 +805,8 @@ export function columnasCsvInventario() {
     { label: 'contado', value: (r) => r.contado ?? '' },
     { label: 'diferencia', value: (r) => r.diferencia ?? '' },
     { label: 'pct_merma', value: (r) => (Number(r.diferencia) < 0 ? r.pctMerma : '') },
+    { label: 'valor_faltante', value: (r) => (Number(r.diferencia) < 0 ? r.valorDiferencia : '') },
+    { label: 'valor_sobrante', value: (r) => (Number(r.diferencia) > 0 ? r.valorDiferencia : '') },
     { label: 'valor_diferencia', value: (r) => r.valorDiferencia },
     { label: 'tienda', value: (r) => r.sucursal },
     { label: 'fecha', value: (r) => r.fecha },

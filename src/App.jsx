@@ -1080,6 +1080,7 @@ function App() {
             <Reportes
               supabase={supabase}
               inventario={inventarioTienda}
+              inventarioCompleto={inventario}
               sucursal={sucursal}
               sucursalesLista={listaSucursales}
             />
