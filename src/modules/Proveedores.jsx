@@ -12,8 +12,9 @@ import { etiquetaTienda } from '../constants/sucursales.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import MatrizEntregasProveedores from '../components/MatrizEntregasProveedores.jsx';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
+import { MODOS_COMPRA_PROVEEDOR, normalizarModoCompraProveedor } from '../lib/comprasProveedor.js';
 
-const empty = { nombre: '', contacto: '', telefono: '', email: '', notas: '' };
+const empty = { nombre: '', contacto: '', telefono: '', email: '', notas: '', modo_compra: 'pedido' };
 const emptyCatalogo = {
   nombre: '',
   presentacion: '',
@@ -88,12 +89,30 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
   const guardar = async () => {
     if (!supabase) return;
     if (!form.nombre.trim()) return alert('Nombre obligatorio');
+    const payload = {
+      ...form,
+      modo_compra: normalizarModoCompraProveedor(form.modo_compra),
+    };
     if (editId) {
-      const { error } = await supabase.from('proveedores').update(form).eq('id', editId);
+      let { error } = await supabase.from('proveedores').update(payload).eq('id', editId);
+      if (error && String(error.message || '').includes('modo_compra')) {
+        const { modo_compra, ...sinModo } = payload;
+        ({ error } = await supabase.from('proveedores').update(sinModo).eq('id', editId));
+        if (!error) {
+          alert('Proveedor guardado. Para recordar el tipo de entrega, ejecuta supabase/fix_proveedor_modo_compra.sql');
+        }
+      }
       if (error) return alert(error.message);
     } else {
       if (!puedeAlta) return alert('Solo el administrador puede dar de alta proveedores.');
-      const { error } = await supabase.from('proveedores').insert([form]);
+      let { error } = await supabase.from('proveedores').insert([payload]);
+      if (error && String(error.message || '').includes('modo_compra')) {
+        const { modo_compra, ...sinModo } = payload;
+        ({ error } = await supabase.from('proveedores').insert([sinModo]));
+        if (!error) {
+          alert('Proveedor guardado. Para tipo de entrega, ejecuta supabase/fix_proveedor_modo_compra.sql');
+        }
+      }
       if (error) {
         if (error.message.includes('relation') || error.code === '42P01') {
           return alert('Ejecuta supabase/schema.sql para crear la tabla proveedores.');
@@ -114,6 +133,7 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
       telefono: r.telefono || '',
       email: r.email || '',
       notas: r.notas || '',
+      modo_compra: normalizarModoCompraProveedor(r.modo_compra),
     });
   };
 
@@ -288,6 +308,24 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
               <input className="input" placeholder="Contacto" value={form.contacto} onChange={(e) => setForm({ ...form, contacto: e.target.value })} />
               <input className="input" placeholder="Teléfono" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} />
               <input className="input" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+              <label className="muted" style={{ gridColumn: '1 / -1' }}>
+                Tipo de compra
+                <select
+                  className="select"
+                  style={{ marginTop: '0.35rem' }}
+                  value={normalizarModoCompraProveedor(form.modo_compra)}
+                  onChange={(e) => setForm({ ...form, modo_compra: e.target.value })}
+                >
+                  {MODOS_COMPRA_PROVEEDOR.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+                <span style={{ display: 'block', marginTop: '0.25rem', fontSize: '0.78rem' }}>
+                  {MODOS_COMPRA_PROVEEDOR.find((m) => m.id === normalizarModoCompraProveedor(form.modo_compra))?.hint}
+                </span>
+              </label>
               <textarea
                 className="input"
                 placeholder="Notas (pagos, días de entrega…)"

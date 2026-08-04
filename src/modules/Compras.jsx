@@ -16,6 +16,36 @@ import { enRangoYmd, parseYmd, toYmd } from '../lib/fechas.js';
 import { productoIdsDesdeProveedor } from '../lib/proveedorCatalogo.js';
 import { aplicarMovimientoInventario } from '../lib/inventarioMovimientos.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
+import {
+  MODOS_COMPRA_PROVEEDOR,
+  etiquetaModoCompraProveedor,
+  normalizarModoCompraProveedor,
+  proveedorUsaEntregaDirecta,
+} from '../lib/comprasProveedor.js';
+
+async function aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, user }) {
+  const errores = [];
+  let aplicados = 0;
+  for (const l of items) {
+    const r = await aplicarMovimientoInventario(supabase, {
+      tipo: 'entrada',
+      modo: 'compra',
+      productoOrigen: { id: l.id, nombre: l.nombre },
+      cantidad: l.qty,
+      motivo: motivoBase,
+      usuario: user?.nombre || '—',
+      sucursal,
+      sucursalOperacion: sucursal,
+    });
+    if (!r.ok) {
+      errores.push(`${l.nombre || l.id}: ${r.error}`);
+      if (r.faltaRpc) return { aplicados, errores, faltaRpc: true, error: r.error };
+      continue;
+    }
+    aplicados += 1;
+  }
+  return { aplicados, errores, faltaRpc: false };
+}
 
 function totalPedido(lines) {
   return lines.reduce((a, l) => a + (Number(l.costo_est) || 0) * (Number(l.qty_pedido) || 0), 0);
@@ -45,6 +75,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
   const [herramientaAbierta, setHerramientaAbierta] = useState(false);
   const [compraActiva, setCompraActiva] = useState(null);
   const [modoRecepcion, setModoRecepcion] = useState(false);
+  const [modoEntregaDirecta, setModoEntregaDirecta] = useState(false);
 
   const [umbralCatalogo, setUmbralCatalogo] = useState(8);
   const [verTodoInventario, setVerTodoInventario] = useState(false);
@@ -258,11 +289,14 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
 
   const lineasVisibles = useMemo(() => {
     if (verTodoInventario) return lineas;
+    if (modoEntregaDirecta) return lineas.filter((l) => l.sugerido > 0 || Number(l.qty_pedido) > 0);
     if (modoRecepcion) return lineas.filter((l) => Number(l.qty_pedido) > 0 || Number(l.qty_recibido) > 0);
     return lineas.filter((l) => l.sugerido > 0 || Number(l.qty_pedido) > 0);
-  }, [lineas, verTodoInventario, modoRecepcion]);
+  }, [lineas, verTodoInventario, modoRecepcion, modoEntregaDirecta]);
 
   const proveedorNombre = useMemo(() => proveedores.find((p) => p.id === proveedorId)?.nombre || '', [proveedores, proveedorId]);
+  const proveedorSeleccionado = useMemo(() => proveedores.find((p) => p.id === proveedorId) || null, [proveedores, proveedorId]);
+  const proveedorEsDirecta = useMemo(() => proveedorUsaEntregaDirecta(proveedorSeleccionado), [proveedorSeleccionado]);
 
   const pedidosDelProveedor = useMemo(
     () => pedidosPendientes.filter((p) => String(p.proveedor_id || '') === String(proveedorId || '')),
@@ -276,6 +310,19 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     }
     setCompraActiva(null);
     setModoRecepcion(false);
+    setModoEntregaDirecta(false);
+    setHerramientaAbierta(true);
+    setNotasPedido('');
+  };
+
+  const abrirEntregaDirecta = () => {
+    if (!proveedorId) return alert('Selecciona primero un proveedor.');
+    if (!vinculoProductoIds.length) {
+      return alert('Este proveedor no tiene productos vinculados. Regístralos en Proveedores → catálogo.');
+    }
+    setCompraActiva(null);
+    setModoRecepcion(false);
+    setModoEntregaDirecta(true);
     setHerramientaAbierta(true);
     setNotasPedido('');
   };
@@ -285,6 +332,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     setProveedorId(compra.proveedor_id || proveedorId);
     setCompraActiva(compra);
     setModoRecepcion(true);
+    setModoEntregaDirecta(false);
     setHerramientaAbierta(true);
   };
 
@@ -295,20 +343,23 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
   const escanearRecepcion = (raw) => {
     const c = String(raw ?? codigoRecepcion).trim();
     if (!c) return;
-    const enPedido = lineas.find((l) => String(l.id) === c);
-    if (enPedido) {
-      setLinea(enPedido.id, { qty_recibido: (Number(enPedido.qty_recibido) || 0) + 1 });
-      setCodigoRecepcion('');
-      return;
-    }
-    const { producto } = buscarProductoInventario(inventario, c);
-    const linea = producto ? lineas.find((l) => String(l.id) === String(producto.id)) : null;
+    const resolverLinea = () => {
+      const enPedido = lineas.find((l) => String(l.id) === c);
+      if (enPedido) return enPedido;
+      const { producto } = buscarProductoInventario(inventario, c);
+      return producto ? lineas.find((l) => String(l.id) === String(producto.id)) : null;
+    };
+    const linea = resolverLinea();
     if (!linea) {
-      alert(`Producto no está en este pedido: ${c}`);
+      alert(`Producto no está en la lista: ${c}`);
       setCodigoRecepcion('');
       return;
     }
-    setLinea(linea.id, { qty_recibido: (Number(linea.qty_recibido) || 0) + 1 });
+    if (modoEntregaDirecta) {
+      setLinea(linea.id, { qty_pedido: (Number(linea.qty_pedido) || 0) + 1 });
+    } else {
+      setLinea(linea.id, { qty_recibido: (Number(linea.qty_recibido) || 0) + 1 });
+    }
     setCodigoRecepcion('');
   };
 
@@ -375,6 +426,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     setHerramientaAbierta(false);
     setCompraActiva(null);
     setModoRecepcion(false);
+    setModoEntregaDirecta(false);
     setLineas([]);
     setNotasPedido('');
     await loadProveedoresYHistorial();
@@ -405,27 +457,13 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     let aplicados = 0;
     const motivoBase = `Compra/recepción · ${compraActiva.id}${compraActiva.notas ? ` · ${compraActiva.notas}` : ''}`;
 
-    for (const l of items) {
-      const r = await aplicarMovimientoInventario(supabase, {
-        tipo: 'entrada',
-        modo: 'compra',
-        productoOrigen: { id: l.id, nombre: l.nombre },
-        cantidad: l.qty,
-        motivo: motivoBase,
-        usuario: user?.nombre || '—',
-        sucursal,
-        sucursalOperacion: sucursal,
-      });
-      if (!r.ok) {
-        errores.push(`${l.nombre || l.id}: ${r.error}`);
-        if (r.faltaRpc) {
-          alert(r.error);
-          return;
-        }
-        continue;
-      }
-      aplicados += 1;
+    const inv = await aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, user });
+    if (inv.faltaRpc) {
+      alert(inv.error);
+      return;
     }
+    aplicados = inv.aplicados;
+    errores.push(...inv.errores);
 
     if (!aplicados) {
       alert(`No se pudo actualizar inventario:\n${errores.join('\n') || 'Sin productos aplicables.'}`);
@@ -460,7 +498,89 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     setHerramientaAbierta(false);
     setCompraActiva(null);
     setModoRecepcion(false);
+    setModoEntregaDirecta(false);
     setLineas([]);
+    cargarDatos();
+    loadProveedoresYHistorial();
+    loadPedidosPendientes();
+  };
+
+  const registrarEntregaDirecta = async () => {
+    if (!supabase || !proveedorId) return;
+    const items = lineas
+      .filter((l) => Number(l.qty_pedido) > 0)
+      .map((l) => ({
+        id: l.id,
+        nombre: l.nombre,
+        costo: Number(l.costo_est) || 0,
+        qty: Number(l.qty_pedido),
+      }));
+    if (!items.length) return alert('Captura las cantidades entregadas en la columna Cantidad.');
+    const calculado = items.reduce((a, l) => a + l.costo * l.qty, 0);
+    const ticketRaw = prompt(
+      `Entrega directa · Total calculado: $${calculado.toFixed(2)} MXN\n\n¿Total del ticket / nota del proveedor?`,
+      calculado.toFixed(2),
+    );
+    if (ticketRaw === null) return;
+    const totalTicket = parseFloat(String(ticketRaw).replace(',', '.'));
+    if (Number.isNaN(totalTicket) || totalTicket < 0) return alert('Total no válido.');
+
+    const notas = `Entrega directa · ${notasPedido || proveedorNombre}`.trim();
+    const invPreview = await aplicarInventarioCompra(supabase, items, notas, { sucursal, user });
+    if (invPreview.faltaRpc) {
+      alert(invPreview.error);
+      return;
+    }
+    if (!invPreview.aplicados) {
+      alert(`No se pudo actualizar inventario:\n${invPreview.errores.join('\n') || 'Sin productos aplicables.'}`);
+      return;
+    }
+
+    const items_pedido = items.map((l) => ({
+      id: l.id,
+      nombre: l.nombre,
+      stock_teorico: lineas.find((x) => x.id === l.id)?.teorico ?? 0,
+      qty_pedido: l.qty,
+      costo_est: l.costo,
+    }));
+
+    const { data, error } = await supabase
+      .from('compras')
+      .insert([
+        {
+          proveedor_id: proveedorId,
+          sucursal_id: sucursal,
+          total: totalTicket,
+          notas,
+          estado: 'recibida',
+          items_pedido,
+          items,
+        },
+      ])
+      .select('*, proveedores(nombre)')
+      .single();
+    if (error) {
+      if (!alertSqlCompras(error)) alert(error.message);
+      return;
+    }
+
+    const msgExtra = invPreview.errores.length
+      ? `\n\nAdvertencia: ${invPreview.errores.length} línea(s) no entraron:\n${invPreview.errores.join('\n')}`
+      : '';
+    alert(
+      `Entrega directa registrada. Inventario actualizado (${invPreview.aplicados} producto(s)). Ticket: $${totalTicket.toFixed(2)} MXN.${msgExtra}`,
+    );
+    await imprimirRecepcionCompra({
+      sucursal,
+      proveedor: data.proveedores?.nombre || proveedorNombre,
+      folio: data.id,
+      items,
+      total: totalTicket,
+    });
+    setHerramientaAbierta(false);
+    setModoEntregaDirecta(false);
+    setLineas([]);
+    setNotasPedido('');
     cargarDatos();
     loadProveedoresYHistorial();
     loadPedidosPendientes();
@@ -471,6 +591,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     setHerramientaAbierta(false);
     setCompraActiva(null);
     setModoRecepcion(false);
+    setModoEntregaDirecta(false);
     setLineas([]);
   };
 
@@ -496,8 +617,14 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
           <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
             <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Proveedor</h3>
             <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-              Selecciona el proveedor antes de abrir la herramienta. La tabla incluye pedido y recepción en un solo flujo.
+              <strong>Pedido + recepción:</strong> mayorista (pedido pendiente, inventario al recibir).
+              <strong style={{ marginLeft: '0.35rem' }}>Entrega directa:</strong> preventa / repartidor (inventario al registrar la entrega).
             </p>
+            {proveedorId && proveedorEsDirecta && !herramientaAbierta && (
+              <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', color: 'var(--brand-blue)' }}>
+                Este proveedor está configurado como <strong>entrega directa</strong>.
+              </p>
+            )}
             <div className="grid-2" style={{ marginTop: '0.75rem' }}>
               <label className="muted">
                 Proveedor
@@ -510,8 +637,9 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                     setHerramientaAbierta(false);
                     setCompraActiva(null);
                     setModoRecepcion(false);
+                    setModoEntregaDirecta(false);
                   }}
-                  disabled={herramientaAbierta && modoRecepcion}
+                  disabled={herramientaAbierta && (modoRecepcion || modoEntregaDirecta)}
                 >
                   <option value="">— Elige proveedor —</option>
                   {proveedores.map((pr) => (
@@ -552,9 +680,19 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
               {!herramientaAbierta ? (
-                <button type="button" className="btn btn-primary" disabled={!proveedorId} onClick={abrirHerramientaNueva}>
-                  Abrir herramienta de compra
-                </button>
+                <>
+                  <button type="button" className="btn btn-primary" disabled={!proveedorId} onClick={abrirHerramientaNueva}>
+                    Pedido (recepción después)
+                  </button>
+                  <button
+                    type="button"
+                    className={proveedorEsDirecta ? 'btn btn-success' : 'btn btn-gold'}
+                    disabled={!proveedorId}
+                    onClick={abrirEntregaDirecta}
+                  >
+                    Entrega directa a inventario
+                  </button>
+                </>
               ) : (
                 <button type="button" className="btn btn-ghost" onClick={cerrarHerramienta}>
                   Cerrar herramienta
@@ -581,16 +719,24 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '0.75rem' }}>
                 <div>
                   <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>
-                    {modoRecepcion ? 'Recepción de mercancía' : 'Nuevo pedido'} · {proveedorNombre}
+                    {modoEntregaDirecta
+                      ? 'Entrega directa'
+                      : modoRecepcion
+                        ? 'Recepción de mercancía'
+                        : 'Nuevo pedido'}{' '}
+                    · {proveedorNombre}
                   </h3>
                   <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-                    {modoRecepcion
-                      ? 'Columna Pedido = lo ordenado. Columna Recepción = lo que entregó el proveedor. Al pulsar «Recibir mercancía» se suma al inventario (CEDIS en MAIN, piso en tiendas).'
-                      : 'En Pedido: Enter acepta la cantidad sugerida, o teclea la cantidad deseada. El pedido no modifica inventario hasta recibir la mercancía.'}
+                    {modoEntregaDirecta
+                      ? 'Preventa / repartidor: captura lo entregado y entra directo al inventario (CEDIS en MAIN, piso en tiendas).'
+                      : modoRecepcion
+                        ? 'Columna Pedido = lo ordenado. Columna Recepción = lo entregado. «Recibir mercancía» suma al inventario.'
+                        : 'En Pedido: Enter acepta la sugerida. El inventario no cambia hasta recibir la mercancía.'}
                   </p>
                 </div>
                 <div style={{ fontWeight: 800, color: 'var(--brand-blue)', textAlign: 'right' }}>
-                  {!modoRecepcion && <>Pedido: ${totalPedido(lineas).toFixed(2)}</>}
+                  {modoEntregaDirecta && <>Entrega: ${totalPedido(lineas).toFixed(2)}</>}
+                  {!modoRecepcion && !modoEntregaDirecta && <>Pedido: ${totalPedido(lineas).toFixed(2)}</>}
                   {modoRecepcion && <>Recibido: ${totalRecibidoCalc(lineas).toFixed(2)}</>}
                 </div>
               </div>
@@ -631,15 +777,19 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                 </label>
               </div>
 
-              {modoRecepcion && (
+              {(modoRecepcion || modoEntregaDirecta) && (
                 <div style={{ marginBottom: '0.75rem' }}>
                   <CampoCodigo
                     value={codigoRecepcion}
                     onChange={(e) => setCodigoRecepcion(e.target.value)}
                     onEscanear={escanearRecepcion}
                     onKeyDown={(e) => e.key === 'Enter' && escanearRecepcion()}
-                    placeholder="Escanear código para sumar +1 en recepción…"
-                    tituloCamara="Recepción de mercancía"
+                    placeholder={
+                      modoEntregaDirecta
+                        ? 'Escanear código para sumar +1 a cantidad entregada…'
+                        : 'Escanear código para sumar +1 en recepción…'
+                    }
+                    tituloCamara={modoEntregaDirecta ? 'Entrega directa' : 'Recepción de mercancía'}
                   />
                 </div>
               )}
@@ -659,15 +809,15 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                             {etiquetaDiaCorto(d)}
                           </th>
                         ))}
-                      <th>Pedido</th>
-                      <th>Recepción</th>
+                      <th>{modoEntregaDirecta ? 'Cantidad entregada' : 'Pedido'}</th>
+                      {!modoEntregaDirecta ? <th>Recepción</th> : null}
                       <th>Costo</th>
                     </tr>
                   </thead>
                   <tbody>
                     {lineasVisibles.length === 0 ? (
                       <tr>
-                        <td colSpan={7 + (verDetalleVentas ? diasDetalle.length : 0)} className="muted">
+                        <td colSpan={7 + (verDetalleVentas ? diasDetalle.length : 0) + (modoEntregaDirecta ? 0 : 1)} className="muted">
                           Sin productos. Regístralos desde Proveedores → catálogo, o activa “Ver todo el catálogo”.
                         </td>
                       </tr>
@@ -699,21 +849,30 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                               disabled={modoRecepcion}
                               onChange={(e) => setLinea(l.id, { qty_pedido: Math.max(0, parseInt(e.target.value, 10) || 0) })}
                               onKeyDown={(e) => onPedidoKeyDown(e, l, idx)}
-                              title={modoRecepcion ? 'Pedido ya registrado' : 'Enter = cantidad sugerida'}
+                              title={
+                                modoRecepcion
+                                  ? 'Pedido ya registrado'
+                                  : modoEntregaDirecta
+                                    ? 'Piezas entregadas (entra al inventario al registrar)'
+                                    : 'Enter = cantidad sugerida'
+                              }
+                              style={modoEntregaDirecta ? { background: '#f0fdf4' } : undefined}
                             />
                           </td>
-                          <td>
-                            <input
-                              type="number"
-                              min={0}
-                              className="input"
-                              style={{ width: '72px', padding: '0.35rem', background: modoRecepcion ? '#f0fdf4' : undefined }}
-                              value={l.qty_recibido}
-                              disabled={!modoRecepcion}
-                              onChange={(e) => setLinea(l.id, { qty_recibido: Math.max(0, parseInt(e.target.value, 10) || 0) })}
-                              title={modoRecepcion ? 'Cantidad recibida del proveedor' : 'Disponible al recibir mercancía'}
-                            />
-                          </td>
+                          {!modoEntregaDirecta ? (
+                            <td>
+                              <input
+                                type="number"
+                                min={0}
+                                className="input"
+                                style={{ width: '72px', padding: '0.35rem', background: modoRecepcion ? '#f0fdf4' : undefined }}
+                                value={l.qty_recibido}
+                                disabled={!modoRecepcion}
+                                onChange={(e) => setLinea(l.id, { qty_recibido: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                                title={modoRecepcion ? 'Cantidad recibida del proveedor' : 'Disponible al recibir mercancía'}
+                              />
+                            </td>
+                          ) : null}
                           <td>
                             <input
                               type="number"
@@ -731,7 +890,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                 </table>
               </div>
 
-              {!modoRecepcion && (
+              {!modoRecepcion && !modoEntregaDirecta && (
                 <>
                   <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
                     Notas al proveedor
@@ -760,6 +919,35 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                     }
                   >
                     Imprimir pedido
+                  </button>
+                </>
+              )}
+
+              {modoEntregaDirecta && (
+                <>
+                  <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
+                    Notas de la entrega
+                    <textarea className="input" style={{ marginTop: '0.35rem', minHeight: '56px' }} value={notasPedido} onChange={(e) => setNotasPedido(e.target.value)} />
+                  </label>
+                  <button type="button" className="btn btn-success" style={{ marginTop: '0.75rem' }} onClick={registrarEntregaDirecta}>
+                    Registrar entrega e inventario
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ marginTop: '0.75rem', marginLeft: '0.5rem' }}
+                    onClick={() =>
+                      imprimirRecepcionCompra({
+                        sucursal,
+                        proveedor: proveedorNombre,
+                        items: lineas
+                          .filter((l) => Number(l.qty_pedido) > 0)
+                          .map((l) => ({ id: l.id, nombre: l.nombre, qty: l.qty_pedido, costo: l.costo_est })),
+                        total: totalPedido(lineas),
+                      })
+                    }
+                  >
+                    Imprimir entrega
                   </button>
                 </>
               )}
