@@ -1,5 +1,6 @@
 import { etiquetaTienda, listarSucursales, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { leerAjustesInventario } from './conteoDepartamento.js';
+import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from './departamentos.js';
 import { bucketKey, etiquetaBucket, COLORES_TIENDA } from './estadisticasData.js';
 import { toYmd } from './fechas.js';
 import { costoUnitarioInventario } from './valorInventario.js';
@@ -99,8 +100,32 @@ function etiquetaDeptoAjuste(raw) {
   return d;
 }
 
+function mapaPrecioPorProducto(inventario) {
+  const map = new Map();
+  for (const p of inventario || []) {
+    map.set(String(p.id), Number(p.precio) || 0);
+  }
+  return map;
+}
+
+function mapaDepartamentoPorProducto(inventario) {
+  const map = new Map();
+  for (const p of inventario || []) {
+    map.set(String(p.id), normalizarDepartamento(p.cat || 'GENERAL'));
+  }
+  return map;
+}
+
+function departamentoLineaReporte(ajuste, codigo, deptMap = new Map()) {
+  const deptAjuste = String(ajuste?.departamento || '').trim();
+  const esLibre = /^libre$/i.test(deptAjuste) || /^ajuste libre$/i.test(deptAjuste);
+  const deptProducto = deptMap.get(String(codigo)) || 'GENERAL';
+  const key = esLibre ? deptProducto : normalizarDepartamento(deptAjuste) || deptProducto || 'GENERAL';
+  return { departamentoKey: key, departamento: etiquetaDepartamento(key) };
+}
+
 /** Una fila de detalle por producto dentro de un conteo aplicado. */
-export function lineaProductoReporte(ajuste, linea, preciosMap = new Map()) {
+export function lineaProductoReporte(ajuste, linea, preciosMap = new Map(), deptMap = new Map()) {
   const teorico = Math.max(0, Number(linea.existencia) || 0);
   const contadoRaw = linea.contada ?? linea.contadaNum;
   const contado =
@@ -131,8 +156,10 @@ export function lineaProductoReporte(ajuste, linea, preciosMap = new Map()) {
       : 0;
 
   const suc = normalizarCodigoTienda(ajuste.sucursal) || '—';
+  const { departamentoKey, departamento } = departamentoLineaReporte(ajuste, codigo, deptMap);
+  const numeroAjuste = ajuste.folio || '—';
   return {
-    id: `${ajuste.folio || ajuste.id}_${codigo}`,
+    id: `${numeroAjuste}_${codigo}`,
     codigo,
     nombre: linea.nombre || '—',
     teorico,
@@ -141,10 +168,12 @@ export function lineaProductoReporte(ajuste, linea, preciosMap = new Map()) {
     pctMerma,
     valorDiferencia,
     valorTeorico,
-    folio: ajuste.folio || '—',
+    folio: numeroAjuste,
+    numeroAjuste,
+    departamentoKey,
+    departamento,
     sucursal: suc,
     tienda: etiquetaTienda(suc),
-    departamento: etiquetaDeptoAjuste(ajuste.departamento),
     fecha: fmtFecha(ajuste.created_at),
     hora: fmtHora(ajuste.created_at),
     created_at: ajuste.created_at,
@@ -152,25 +181,61 @@ export function lineaProductoReporte(ajuste, linea, preciosMap = new Map()) {
   };
 }
 
-/** Aplana líneas de producto con diferencia distinta de cero. */
-export function lineasProductoDesdeAjustes(ajustes, { inventario = [], sucFiltro = '' } = {}) {
+/** Todas las líneas contadas de los ajustes (incluye diferencia cero). */
+export function lineasProductoDesdeAjustes(ajustes, { inventario = [], sucFiltro = '', deptFiltro = '' } = {}) {
   const precios = mapaPrecioPorProducto(inventario);
+  const deptos = mapaDepartamentoPorProducto(inventario);
   const out = [];
   for (const a of ajustes || []) {
     const sid = normalizarCodigoTienda(a.sucursal);
     if (sucFiltro && sid !== sucFiltro) continue;
     for (const l of a.lineas || []) {
-      const row = lineaProductoReporte(a, l, precios);
-      if (row.diferencia == null || row.diferencia === 0) continue;
+      const row = lineaProductoReporte(a, l, precios, deptos);
+      if (row.contado == null && !row.nombre) continue;
+      if (deptFiltro && row.departamentoKey !== deptFiltro) continue;
       out.push(row);
     }
   }
   out.sort(
     (a, b) =>
+      a.departamentoKey.localeCompare(b.departamentoKey, 'es') ||
       String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+      String(a.numeroAjuste).localeCompare(String(b.numeroAjuste)) ||
       String(a.codigo).localeCompare(String(b.codigo), 'es'),
   );
   return out;
+}
+
+/** Agrupa líneas del reporte por departamento con totales y folios. */
+export function agruparReportePorDepartamento(lineas = []) {
+  const map = new Map();
+  for (const l of lineas) {
+    const key = l.departamentoKey || 'GENERAL';
+    if (!map.has(key)) {
+      map.set(key, {
+        departamentoKey: key,
+        departamento: l.departamento || etiquetaDepartamento(key),
+        lineas: [],
+        folios: new Set(),
+      });
+    }
+    const g = map.get(key);
+    g.lineas.push(l);
+    if (l.numeroAjuste && l.numeroAjuste !== '—') g.folios.add(l.numeroAjuste);
+  }
+  return [...map.values()]
+    .map((g) => ({
+      departamentoKey: g.departamentoKey,
+      departamento: g.departamento,
+      lineas: g.lineas,
+      folios: [...g.folios].sort(),
+      totales: totalesLineasProducto(g.lineas),
+    }))
+    .sort((a, b) => a.departamento.localeCompare(b.departamento, 'es'));
+}
+
+export function foliosDesdeAjustes(ajustes = []) {
+  return [...new Set(ajustes.map((a) => a.folio).filter(Boolean))].sort();
 }
 
 export function totalesLineasProducto(lineas = []) {
@@ -190,10 +255,13 @@ export function totalesLineasProducto(lineas = []) {
     }
   }
   const pctMerma = valorTeorico > 0 ? (valorFaltante / valorTeorico) * 100 : valorFaltante > 0 ? 100 : 0;
+  const folios = new Set(lineas.map((l) => l.numeroAjuste).filter((f) => f && f !== '—'));
   return {
     articulos: lineas.length,
     negativos,
     positivos,
+    sinDiferencia: lineas.length - negativos - positivos,
+    ajustes: folios.size,
     valorTeorico: Math.round(valorTeorico * 100) / 100,
     valorFaltante: Math.round(valorFaltante * 100) / 100,
     valorSobrante: Math.round(valorSobrante * 100) / 100,
@@ -201,8 +269,9 @@ export function totalesLineasProducto(lineas = []) {
   };
 }
 
-export function columnasImprimirProductoInventario() {
-  return [
+export function columnasImprimirProductoInventario({ incluirDepartamento = false } = {}) {
+  const cols = [
+    { label: 'No. ajuste', key: 'numeroAjuste' },
     { label: 'Código', key: 'codigo' },
     { label: 'Producto', key: 'nombre' },
     { label: 'Inv. teórico', key: 'teorico', align: 'right' },
@@ -211,7 +280,11 @@ export function columnasImprimirProductoInventario() {
       label: 'Diferencia',
       key: 'diferencia',
       align: 'right',
-      fmt: (r) => (r.diferencia > 0 ? `+${r.diferencia}` : String(r.diferencia)),
+      fmt: (r) => {
+        if (r.diferencia == null) return '—';
+        if (r.diferencia === 0) return '0';
+        return r.diferencia > 0 ? `+${r.diferencia}` : String(r.diferencia);
+      },
     },
     {
       label: '% merma',
@@ -220,6 +293,10 @@ export function columnasImprimirProductoInventario() {
       fmt: (r) => (Number(r.diferencia) < 0 ? fmtPctReporte(r.pctMerma) : '—'),
     },
   ];
+  if (incluirDepartamento) {
+    cols.splice(1, 0, { label: 'Departamento', key: 'departamento' });
+  }
+  return cols;
 }
 
 /** Una fila de reporte a partir de un ajuste guardado. */
@@ -259,14 +336,6 @@ function mapaCostoPorProducto(inventario) {
   const map = new Map();
   for (const p of inventario || []) {
     map.set(String(p.id), costoUnitarioInventario(p));
-  }
-  return map;
-}
-
-function mapaPrecioPorProducto(inventario) {
-  const map = new Map();
-  for (const p of inventario || []) {
-    map.set(String(p.id), Number(p.precio) || 0);
   }
   return map;
 }
@@ -389,22 +458,32 @@ function mergeAjustesPorFolio(locales, nube) {
  * Filas del reporte filtradas por periodo y opcionalmente tienda (solo local).
  * Preferir {@link cargarFilasReporteInventarioAsync} cuando haya Supabase.
  */
+function filtrarAjustes(ajustes, sucFiltro) {
+  return (ajustes || []).filter((a) => {
+    if (!sucFiltro) return true;
+    return normalizarCodigoTienda(a.sucursal) === sucFiltro;
+  });
+}
+
 export function cargarFilasReporteInventario(opts = {}) {
-  const { preset = 'mes', desde, hasta, sucursal = '', inventario = [] } = opts;
+  const { preset = 'mes', desde, hasta, sucursal = '', inventario = [], departamento = '' } = opts;
   const rango = rangoReporteInventario(preset, desde, hasta);
   const sucFiltro = sucursal ? normalizarCodigoTienda(sucursal) : '';
+  const deptFiltro = departamento ? normalizarDepartamento(departamento) : '';
   const locales = leerAjustesInventario().filter((a) => enRangoIso(a.created_at, rango.desde, rango.hasta));
-  const lineasProducto = lineasProductoDesdeAjustes(locales, { inventario, sucFiltro });
-  return { lineasProducto, rango, aviso: null };
+  const ajustes = filtrarAjustes(locales, sucFiltro);
+  const lineasProducto = lineasProductoDesdeAjustes(locales, { inventario, sucFiltro, deptFiltro });
+  return { lineasProducto, ajustes, rango, aviso: null };
 }
 
 /**
  * Igual que el sync, pero también lee conteos desde movimientos_inventario (nube).
  */
 export async function cargarFilasReporteInventarioAsync(opts = {}) {
-  const { supabase = null, inventario = [], preset = 'mes', desde, hasta, sucursal = '' } = opts;
+  const { supabase = null, inventario = [], preset = 'mes', desde, hasta, sucursal = '', departamento = '' } = opts;
   const rango = rangoReporteInventario(preset, desde, hasta);
   const sucFiltro = sucursal ? normalizarCodigoTienda(sucursal) : '';
+  const deptFiltro = departamento ? normalizarDepartamento(departamento) : '';
   const locales = leerAjustesInventario().filter((a) => enRangoIso(a.created_at, rango.desde, rango.hasta));
 
   let aviso = null;
@@ -418,9 +497,14 @@ export async function cargarFilasReporteInventarioAsync(opts = {}) {
     else nubeAjustes = ajustesDesdeMovimientosConteo(data, { inventario });
   }
 
-  const ajustes = mergeAjustesPorFolio(locales, nubeAjustes);
-  const lineasProducto = lineasProductoDesdeAjustes(ajustes, { inventario, sucFiltro });
-  return { lineasProducto, rango, aviso };
+  const merged = mergeAjustesPorFolio(locales, nubeAjustes);
+  const ajustes = filtrarAjustes(merged, sucFiltro);
+  const lineasProducto = lineasProductoDesdeAjustes(merged, {
+    inventario,
+    sucFiltro,
+    deptFiltro,
+  });
+  return { lineasProducto, ajustes, rango, aviso };
 }
 
 export function totalesReporteInventario(filas = []) {
@@ -556,16 +640,24 @@ export function resumenPorTiendaReporte(filas = [], tiendasCatalogo = []) {
 
 export function columnasCsvInventario() {
   return [
+    { label: 'no_ajuste', value: (r) => r.numeroAjuste },
+    { label: 'departamento', value: (r) => r.departamento },
     { label: 'codigo', value: (r) => r.codigo },
     { label: 'producto', value: (r) => r.nombre },
     { label: 'inv_teorico', value: (r) => r.teorico },
     { label: 'contado', value: (r) => r.contado ?? '' },
-    { label: 'diferencia', value: (r) => r.diferencia },
+    { label: 'diferencia', value: (r) => r.diferencia ?? '' },
     { label: 'pct_merma', value: (r) => (Number(r.diferencia) < 0 ? r.pctMerma : '') },
     { label: 'valor_diferencia', value: (r) => r.valorDiferencia },
     { label: 'tienda', value: (r) => r.sucursal },
-    { label: 'folio', value: (r) => r.folio },
     { label: 'fecha', value: (r) => r.fecha },
-    { label: 'departamento', value: (r) => r.departamento },
   ];
+}
+
+export function departamentosEnReporte(inventario = [], lineas = []) {
+  const set = new Set(listarDepartamentos(inventario));
+  for (const l of lineas) {
+    if (l.departamentoKey) set.add(l.departamentoKey);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'es'));
 }
