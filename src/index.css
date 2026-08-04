@@ -4413,7 +4413,7 @@ table.data th {
 
 .ajuste-libre-item-nums {
   display: grid;
-  grid-template-columns: repeat(3, minmax(48px, auto));
+  grid-template-columns: repeat(4, minmax(44px, auto));
   gap: 0.45rem;
   text-align: center;
 }

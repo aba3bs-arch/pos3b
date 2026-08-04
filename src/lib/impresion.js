@@ -261,6 +261,7 @@ export function htmlAjusteInventario(data) {
       { label: 'Exist.', key: 'existencia', align: 'right' },
       { label: 'Contada', key: 'contada', align: 'right' },
       { label: 'Dif.', key: 'diferencia', align: 'right', fmt: (row) => (row.diferencia > 0 ? `+${row.diferencia}` : String(row.diferencia)) },
+      { label: 'Valor dif.', key: 'valorDiferencia', align: 'right', fmt: (row) => (row.valorDiferencia > 0 ? fmtMoney(row.valorDiferencia) : '—') },
     ]) : '<div class="muted">Sin diferencias en productos contados.</div>'}
     ${pieDoc('Documento de ajuste físico por departamento.')}
   </body></html>`;

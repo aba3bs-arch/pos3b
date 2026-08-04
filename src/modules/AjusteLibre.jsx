@@ -693,6 +693,10 @@ export default function AjusteLibre({
                       {l.contadaNum == null ? '—' : l.diferencia === 0 ? '0' : l.diferencia > 0 ? `+${l.diferencia}` : l.diferencia}
                     </strong>
                   </div>
+                  <div>
+                    <span className="muted">Valor dif.</span>
+                    <strong>{l.valorDiferencia > 0 ? fmtMxn(l.valorDiferencia) : '—'}</strong>
+                  </div>
                 </div>
                 <button
                   type="button"

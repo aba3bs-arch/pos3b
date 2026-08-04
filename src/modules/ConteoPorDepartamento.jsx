@@ -487,6 +487,12 @@ export default function ConteoPorDepartamento({
                             : `${articuloActual.diferencia} faltante`}
                     </div>
                   </div>
+                  <div>
+                    <div className="muted" style={{ fontSize: '0.7rem', textTransform: 'uppercase' }}>Valor dif.</div>
+                    <div style={{ fontSize: '1.15rem', fontWeight: 700, marginTop: '0.35rem' }}>
+                      {articuloActual.valorDiferencia > 0 ? fmtMxn(articuloActual.valorDiferencia) : '—'}
+                    </div>
+                  </div>
                 </div>
                 <p className="muted" style={{ margin: '0.75rem 0 0', fontSize: '0.78rem' }}>
                   Si dejas vacío y pulsas Siguiente, se asume que coincide con existencia ({articuloActual.existencia}).
