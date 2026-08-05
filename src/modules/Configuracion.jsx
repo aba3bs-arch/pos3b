@@ -34,6 +34,10 @@ import {
   persistirTipoCambio,
   leerTiendasValesPermitidas,
   guardarTiendasValesPermitidas,
+  leerConfigVenta,
+  guardarConfigVenta,
+  MODOS_EXISTENCIA_VENTA,
+  EVENTO_CONFIG_VENTA,
 } from '../lib/posConfig.js';
 import {
   EVENTO_PERIFERICOS,
@@ -299,6 +303,7 @@ export default function Configuracion({
     notas: '',
   });
   const [configImpresion, setConfigImpresion] = useState(() => leerConfigImpresion());
+  const [configVenta, setConfigVenta] = useState(() => leerConfigVenta());
   const [conectandoPnP, setConectandoPnP] = useState(false);
   const [serialActivo, setSerialActivo] = useState(() => puertoSerialConectado());
   const [logoUrlCustom, setLogoUrlCustom] = useState('');
@@ -325,16 +330,20 @@ export default function Configuracion({
     setMetodosPago(leerMetodosPagoTodos());
     setPerifericos(leerPerifericos());
     setConfigImpresion(leerConfigImpresion());
+    setConfigVenta(leerConfigVenta());
     const onBrand = () => syncBrandingForm();
     const onPeriph = () => {
       setPerifericos(leerPerifericos());
       setSerialActivo(puertoSerialConectado());
     };
+    const onVentaCfg = () => setConfigVenta(leerConfigVenta());
     window.addEventListener(EVENTO_BRANDING, onBrand);
     window.addEventListener(EVENTO_PERIFERICOS, onPeriph);
+    window.addEventListener(EVENTO_CONFIG_VENTA, onVentaCfg);
     return () => {
       window.removeEventListener(EVENTO_BRANDING, onBrand);
       window.removeEventListener(EVENTO_PERIFERICOS, onPeriph);
+      window.removeEventListener(EVENTO_CONFIG_VENTA, onVentaCfg);
     };
   }, []);
 
@@ -855,6 +864,14 @@ export default function Configuracion({
         ayuda: 'Activa, desactiva o agrega métodos de pago disponibles en el cobro de Ventas.',
         icon: 'cart',
         color: 'var(--brand-blue)',
+      },
+      {
+        id: 'venta_existencia',
+        label: 'Existencia en ventas',
+        desc: 'Bloqueo por falta de stock',
+        ayuda: 'Define si se puede vender sin piezas en piso y si el administrador puede confirmar al cobrar.',
+        icon: 'package',
+        color: 'var(--brand-gold)',
       },
       {
         id: 'perifericos',
@@ -2532,6 +2549,38 @@ export default function Configuracion({
           </label>
           <button type="button" className="btn btn-primary" onClick={agregarMetodoPago}>Agregar método</button>
         </div>
+      </div>
+      )}
+
+      {panelCfg === 'venta_existencia' && (
+      <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
+        <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Existencia en ventas</h3>
+        <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+          Controla si el POS permite cobrar cuando no hay piezas suficientes en <strong>piso de la tienda</strong>.
+          El stock se valida al agregar al carrito y de nuevo al cobrar (lectura fresca de la nube).
+        </p>
+        <label className="muted" style={{ display: 'block', marginTop: '0.85rem', maxWidth: 520 }}>
+          Política de existencia
+          <select
+            className="select"
+            style={{ marginTop: '0.35rem' }}
+            value={configVenta.existencia || 'bloquear'}
+            onChange={(e) => {
+              const next = { ...configVenta, existencia: e.target.value };
+              setConfigVenta(next);
+              guardarConfigVenta(next);
+            }}
+          >
+            {MODOS_EXISTENCIA_VENTA.map((m) => (
+              <option key={m.id} value={m.id}>{m.label}</option>
+            ))}
+          </select>
+        </label>
+        <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
+          <strong>Bloquear</strong> (recomendado): nadie vende sin existencia; el inventario se descuenta antes de guardar el ticket.
+          <br />
+          <strong>Aviso administrador</strong>: el cajero no puede exceder existencia; el administrador puede confirmar al cobrar y el inventario puede quedar negativo.
+        </p>
       </div>
       )}
 
