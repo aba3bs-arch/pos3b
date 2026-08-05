@@ -373,7 +373,10 @@ export default function ReporteInventario({
             `Inv. teórico contado: ${fmtMxnReporte(t.valorTeoricoContado)} · Inv. contado: ${fmtMxnReporte(t.valorContado)}`,
             `Faltante: ${fmtMxnReporte(t.valorFaltante)} (${t.piezasFaltantes.toLocaleString('es-MX')} pzas)`,
             `Sobrante: ${fmtMxnReporte(t.valorSobrante)} (${t.piezasSobrantes.toLocaleString('es-MX')} pzas)`,
-            `% merma (solo sobre lo contado): ${fmtPctReporte(t.pctMerma)}`,
+            `% merma (contado): ${fmtPctReporte(t.pctMerma)}`,
+            t.pctMermaTotal != null
+              ? `% merma total (faltante / inv. sistema): ${fmtPctReporte(t.pctMermaTotal)}`
+              : null,
           ].filter(Boolean),
         },
         ...agruparReportePorDepartamento(rows).map((g) => ({
@@ -426,8 +429,7 @@ export default function ReporteInventario({
         <div>
           <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Reporte de inventario por departamento</h3>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-            Faltante y sobrante se reportan por separado (no se netean). Inv. sistema = valor total en tienda;
-            inv. teórico contado = solo SKUs ya contados.
+            Faltante y sobrante se reportan por separado (no se netean). % merma total = faltante ÷ inv. sistema.
             {puedeEditar ? ' Puedes corregir la cantidad contada por línea con Editar.' : ''}
             {loading ? ' Cargando…' : ''}
           </p>
@@ -571,7 +573,17 @@ export default function ReporteInventario({
             sub: `${totalesGenerales.piezasSobrantes.toLocaleString('es-MX')} pzas · ${totalesGenerales.positivos} SKU(s)`,
             color: 'var(--brand-gold-dark)',
           },
-          { label: '% merma (contado)', value: fmtPctReporte(totalesGenerales.pctMerma) },
+          { label: '% merma (contado)', value: fmtPctReporte(totalesGenerales.pctMerma), hint: 'Faltante / inv. teórico contado' },
+          ...(totalesGenerales.pctMermaTotal != null
+            ? [
+                {
+                  label: '% merma total',
+                  value: fmtPctReporte(totalesGenerales.pctMermaTotal),
+                  hint: `${fmtMxnReporte(totalesGenerales.valorFaltante)} faltante / ${fmtMxnReporte(totalesGenerales.referencia?.valorSistema ?? 0)} inv. sistema`,
+                  color: 'var(--brand-red, #c0392b)',
+                },
+              ]
+            : []),
         ].map((k) => (
           <div
             key={k.label}

@@ -410,7 +410,7 @@ export function referenciaInventarioReporte(inventarioCompleto = [], sucursal = 
 }
 
 export function enriquecerTotalesConReferencia(totales, referencia) {
-  if (!referencia?.valorSistema) return { ...totales, referencia };
+  if (!referencia?.valorSistema) return { ...totales, referencia, pctMermaTotal: null };
   const pctCoberturaValor =
     referencia.valorSistema > 0
       ? Math.round((totales.valorTeoricoContado / referencia.valorSistema) * 10000) / 100
@@ -419,12 +419,28 @@ export function enriquecerTotalesConReferencia(totales, referencia) {
     referencia.skusConStock > 0
       ? Math.round(((totales.skusUnicos ?? totales.articulos) / referencia.skusConStock) * 10000) / 100
       : null;
+  const pctMermaTotal =
+    referencia.valorSistema > 0
+      ? Math.round((totales.valorFaltante / referencia.valorSistema) * 10000) / 100
+      : totales.valorFaltante > 0
+        ? 100
+        : 0;
+  const pctMermaPiezasTotal =
+    referencia.piezasSistema > 0
+      ? Math.round((totales.piezasFaltantes / referencia.piezasSistema) * 10000) / 100
+      : totales.piezasFaltantes > 0
+        ? 100
+        : 0;
   return {
     ...totales,
+    pctMermaTotal,
+    pctMermaPiezasTotal,
     referencia: {
       ...referencia,
       pctCoberturaValor,
       pctCoberturaSkus,
+      pctMermaTotal,
+      pctMermaPiezasTotal,
     },
   };
 }
