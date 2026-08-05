@@ -232,6 +232,7 @@ export default function ReporteInventario({
   const [rango, setRango] = useState({ desde: '', hasta: '' });
   const [aviso, setAviso] = useState('');
   const [referencia, setReferencia] = useState(null);
+  const [sucursalReferencia, setSucursalReferencia] = useState('');
   const [loading, setLoading] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const [lineaEdit, setLineaEdit] = useState(null);
@@ -281,6 +282,7 @@ export default function ReporteInventario({
         setRango(r.rango || { desde: '', hasta: '' });
         setAviso(r.aviso || '');
         setReferencia(r.referencia || null);
+        setSucursalReferencia(r.sucursalReferencia || '');
       })
       .catch((e) => {
         if (cancel) return;
@@ -288,6 +290,7 @@ export default function ReporteInventario({
         setAjustes([]);
         setAviso(e?.message || String(e));
         setReferencia(null);
+        setSucursalReferencia('');
       })
       .finally(() => {
         if (!cancel) setLoading(false);
@@ -354,7 +357,12 @@ export default function ReporteInventario({
   const imprimirLineas = async (rows, subtitulo) => {
     const t = enriquecerTotalesConReferencia(
       totalesLineasProducto(rows),
-      referencia || referenciaInventarioReporte(catalogo, tienda || sucursal, departamento),
+      referencia ||
+        referenciaInventarioReporte(
+          catalogo,
+          sucursalReferencia || tienda || sucursal,
+          departamento,
+        ),
     );
     const ref = t.referencia;
     await imprimirReporte({
@@ -373,10 +381,10 @@ export default function ReporteInventario({
             `Inv. teórico contado: ${fmtMxnReporte(t.valorTeoricoContado)} · Inv. contado: ${fmtMxnReporte(t.valorContado)}`,
             `Faltante: ${fmtMxnReporte(t.valorFaltante)} (${t.piezasFaltantes.toLocaleString('es-MX')} pzas)`,
             `Sobrante: ${fmtMxnReporte(t.valorSobrante)} (${t.piezasSobrantes.toLocaleString('es-MX')} pzas)`,
-            `% merma (contado): ${fmtPctReporte(t.pctMerma)}`,
-            t.pctMermaTotal != null
-              ? `% merma total (faltante / inv. sistema): ${fmtPctReporte(t.pctMermaTotal)}`
+            ref?.valorSistema
+              ? `Inventario total: ${fmtMxnReporte(ref.valorSistema)} · Merma: ${fmtMxnReporte(t.valorFaltante)} · % merma total: ${fmtPctReporte(t.pctMermaTotal ?? 0)}`
               : null,
+            `% merma (contado): ${fmtPctReporte(t.pctMerma)}`,
           ].filter(Boolean),
         },
         ...agruparReportePorDepartamento(rows).map((g) => ({
@@ -525,6 +533,84 @@ export default function ReporteInventario({
 
       <div
         style={{
+          padding: '0.85rem 1rem',
+          borderRadius: 12,
+          border: '2px solid var(--brand-blue)',
+          background: 'color-mix(in srgb, var(--brand-blue) 6%, var(--surface))',
+        }}
+      >
+        <div style={{ fontWeight: 700, color: 'var(--brand-blue)', marginBottom: '0.5rem' }}>
+          Merma vs inventario total
+          {sucursalReferencia ? (
+            <span className="muted" style={{ fontWeight: 500, fontSize: '0.82rem' }}>
+              {' '}
+              · {etiquetaTienda(sucursalReferencia)}
+            </span>
+          ) : null}
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+            gap: '0.65rem',
+          }}
+        >
+          <div>
+            <div className="muted" style={{ fontSize: '0.75rem' }}>
+              Inventario total (sistema)
+            </div>
+            <strong style={{ fontSize: '1.1rem' }}>
+              {totalesGenerales.referencia?.valorSistema
+                ? fmtMxnReporte(totalesGenerales.referencia.valorSistema)
+                : '—'}
+            </strong>
+            {totalesGenerales.referencia?.piezasSistema != null ? (
+              <div className="muted" style={{ fontSize: '0.72rem' }}>
+                {totalesGenerales.referencia.piezasSistema.toLocaleString('es-MX')} pzas
+              </div>
+            ) : null}
+          </div>
+          <div>
+            <div className="muted" style={{ fontSize: '0.75rem' }}>
+              Merma (faltante)
+            </div>
+            <strong style={{ fontSize: '1.1rem', color: 'var(--brand-red, #c0392b)' }}>
+              {fmtMxnReporte(totalesGenerales.valorFaltante)}
+            </strong>
+            <div className="muted" style={{ fontSize: '0.72rem' }}>
+              {totalesGenerales.piezasFaltantes.toLocaleString('es-MX')} pzas
+            </div>
+          </div>
+          <div>
+            <div className="muted" style={{ fontSize: '0.75rem' }}>
+              % merma total
+            </div>
+            <strong style={{ fontSize: '1.25rem', color: 'var(--brand-red, #c0392b)' }}>
+              {totalesGenerales.referencia?.valorSistema
+                ? fmtPctReporte(totalesGenerales.pctMermaTotal ?? 0)
+                : totalesGenerales.valorFaltante > 0
+                  ? '—'
+                  : fmtPctReporte(0)}
+            </strong>
+            <div className="muted" style={{ fontSize: '0.72rem' }}>
+              merma ÷ inventario total
+            </div>
+          </div>
+        </div>
+        {!totalesGenerales.referencia?.valorSistema ? (
+          <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.78rem' }}>
+            Elige la tienda en el filtro (ej. 3B5) para calcular el % sobre el inventario total de esa sucursal.
+          </p>
+        ) : (
+          <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.78rem' }}>
+            {fmtMxnReporte(totalesGenerales.valorFaltante)} ÷ {fmtMxnReporte(totalesGenerales.referencia.valorSistema)} ={' '}
+            {fmtPctReporte(totalesGenerales.pctMermaTotal ?? 0)}
+          </p>
+        )}
+      </div>
+
+      <div
+        style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
           gap: '0.65rem',
@@ -574,16 +660,6 @@ export default function ReporteInventario({
             color: 'var(--brand-gold-dark)',
           },
           { label: '% merma (contado)', value: fmtPctReporte(totalesGenerales.pctMerma), hint: 'Faltante / inv. teórico contado' },
-          ...(totalesGenerales.pctMermaTotal != null
-            ? [
-                {
-                  label: '% merma total',
-                  value: fmtPctReporte(totalesGenerales.pctMermaTotal),
-                  hint: `${fmtMxnReporte(totalesGenerales.valorFaltante)} faltante / ${fmtMxnReporte(totalesGenerales.referencia?.valorSistema ?? 0)} inv. sistema`,
-                  color: 'var(--brand-red, #c0392b)',
-                },
-              ]
-            : []),
         ].map((k) => (
           <div
             key={k.label}

@@ -409,28 +409,67 @@ export function referenciaInventarioReporte(inventarioCompleto = [], sucursal = 
   };
 }
 
+/** Tienda cuyo inventario sistema usar como referencia (filtro, líneas o sesión). */
+export function inferirSucursalReferenciaReporte(sucFiltro, sucursalActual, lineas = []) {
+  const filtro = normalizarCodigoTienda(sucFiltro);
+  if (filtro) return filtro;
+
+  const counts = new Map();
+  for (const l of lineas || []) {
+    const s = normalizarCodigoTienda(l.sucursal);
+    if (!s || s === '—') continue;
+    counts.set(s, (counts.get(s) || 0) + 1);
+  }
+  if (counts.size === 1) return [...counts.keys()][0];
+  if (counts.size > 1) {
+    let best = '';
+    let max = 0;
+    for (const [s, n] of counts) {
+      if (n > max) {
+        max = n;
+        best = s;
+      }
+    }
+    return best;
+  }
+  return normalizarCodigoTienda(sucursalActual) || '';
+}
+
 export function enriquecerTotalesConReferencia(totales, referencia) {
-  if (!referencia?.valorSistema) return { ...totales, referencia, pctMermaTotal: null };
-  const pctCoberturaValor =
-    referencia.valorSistema > 0
-      ? Math.round((totales.valorTeoricoContado / referencia.valorSistema) * 10000) / 100
-      : null;
+  const valorSistema = Number(referencia?.valorSistema) || 0;
+  const piezasSistema = Number(referencia?.piezasSistema) || 0;
+  const valorFaltante = Number(totales.valorFaltante) || 0;
+  const piezasFaltantes = Number(totales.piezasFaltantes) || 0;
+
+  const pctMermaTotal =
+    valorSistema > 0
+      ? Math.round((valorFaltante / valorSistema) * 10000) / 100
+      : valorFaltante > 0
+        ? null
+        : 0;
+  const pctMermaPiezasTotal =
+    piezasSistema > 0
+      ? Math.round((piezasFaltantes / piezasSistema) * 10000) / 100
+      : piezasFaltantes > 0
+        ? null
+        : 0;
+
+  if (!valorSistema) {
+    return {
+      ...totales,
+      pctMermaTotal,
+      pctMermaPiezasTotal,
+      referencia: referencia
+        ? { ...referencia, pctMermaTotal, pctMermaPiezasTotal, pctCoberturaValor: null, pctCoberturaSkus: null }
+        : null,
+    };
+  }
+
+  const pctCoberturaValor = Math.round((totales.valorTeoricoContado / valorSistema) * 10000) / 100;
   const pctCoberturaSkus =
     referencia.skusConStock > 0
       ? Math.round(((totales.skusUnicos ?? totales.articulos) / referencia.skusConStock) * 10000) / 100
       : null;
-  const pctMermaTotal =
-    referencia.valorSistema > 0
-      ? Math.round((totales.valorFaltante / referencia.valorSistema) * 10000) / 100
-      : totales.valorFaltante > 0
-        ? 100
-        : 0;
-  const pctMermaPiezasTotal =
-    referencia.piezasSistema > 0
-      ? Math.round((totales.piezasFaltantes / referencia.piezasSistema) * 10000) / 100
-      : totales.piezasFaltantes > 0
-        ? 100
-        : 0;
   return {
     ...totales,
     pctMermaTotal,
@@ -692,9 +731,9 @@ export function cargarFilasReporteInventario(opts = {}) {
     lineasProductoDesdeAjustes(locales, { inventario: catalogo, sucFiltro, deptFiltro }),
     catalogo,
   );
-  const sucRef = sucFiltro || normalizarCodigoTienda(sucursalActual) || '';
+  const sucRef = inferirSucursalReferenciaReporte(sucFiltro, sucursalActual, lineasProducto);
   const referencia = referenciaInventarioReporte(catalogo, sucRef, deptFiltro);
-  return { lineasProducto, ajustes, rango, aviso: null, referencia };
+  return { lineasProducto, ajustes, rango, aviso: null, referencia, sucursalReferencia: sucRef };
 }
 
 /**
@@ -717,7 +756,6 @@ export async function cargarFilasReporteInventarioAsync(opts = {}) {
   const deptFiltro = departamento ? normalizarDepartamento(departamento) : '';
   const catalogo = inventarioCompleto?.length ? inventarioCompleto : inventario;
   const locales = leerAjustesInventario().filter((a) => enRangoIso(a.created_at, rango.desde, rango.hasta));
-  const sucRef = sucFiltro || normalizarCodigoTienda(sucursalActual) || '';
 
   let aviso = null;
   let nubeAjustes = [];
@@ -754,8 +792,9 @@ export async function cargarFilasReporteInventarioAsync(opts = {}) {
     }),
     catalogo,
   );
+  const sucRef = inferirSucursalReferenciaReporte(sucFiltro, sucursalActual, lineasProducto);
   const referencia = referenciaInventarioReporte(catalogo, sucRef, deptFiltro);
-  return { lineasProducto, ajustes, rango, aviso, referencia };
+  return { lineasProducto, ajustes, rango, aviso, referencia, sucursalReferencia: sucRef };
 }
 
 export function totalesReporteInventario(filas = []) {
