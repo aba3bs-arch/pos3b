@@ -189,40 +189,70 @@ export async function aplicarConteoDepartamento(supabase, opts) {
     const existenciaReal = stockEnUbicacion(producto, tienda, ubi, tienda);
     const contada = Math.max(0, Math.floor(Number(l.contadaNum)));
     const diferencia = contada - existenciaReal;
-    if (diferencia === 0) continue;
+    const ts = new Date().toISOString();
 
-    const setR = await aplicarSetStockAtomico(supabase, {
-      productoId: producto.id,
-      sucursal: tienda,
-      ubicacion: ubi,
-      valor: contada,
-    });
-    if (!setR.ok) {
-      errores.push(`${l.nombre || producto.nombre}: ${setR.error}`);
-      continue;
+    if (diferencia !== 0) {
+      const setR = await aplicarSetStockAtomico(supabase, {
+        productoId: producto.id,
+        sucursal: tienda,
+        ubicacion: ubi,
+        valor: contada,
+      });
+      if (!setR.ok) {
+        errores.push(`${l.nombre || producto.nombre}: ${setR.error}`);
+        continue;
+      }
+
+      log = guardarMovimientoLocal(
+        {
+          tipo: diferencia > 0 ? 'entrada' : 'retiro',
+          modo: 'conteo_departamento',
+          folio,
+          departamento,
+          producto_id: producto.id,
+          producto_nombre: l.nombre || producto.nombre,
+          cantidad: Math.abs(diferencia),
+          stock_antes: setR.antes,
+          stock_despues: setR.despues,
+          motivo: `${motivo} · ${etiquetaUbicacionConteo(suc)}`,
+          usuario: usuario || '—',
+          sucursal: suc,
+          ubicacion: ubi,
+          created_at: ts,
+        },
+        supabase,
+      );
+    } else {
+      log = guardarMovimientoLocal(
+        {
+          tipo: 'conteo_registro',
+          modo: 'conteo_departamento',
+          folio,
+          departamento,
+          producto_id: producto.id,
+          producto_nombre: l.nombre || producto.nombre,
+          cantidad: 0,
+          stock_antes: existenciaReal,
+          stock_despues: contada,
+          motivo: `${motivo} · sin diferencia · ${etiquetaUbicacionConteo(suc)}`,
+          usuario: usuario || '—',
+          sucursal: suc,
+          ubicacion: ubi,
+          created_at: ts,
+        },
+        supabase,
+      );
     }
 
-    log = guardarMovimientoLocal(
-      {
-        tipo: diferencia > 0 ? 'entrada' : 'retiro',
-        modo: 'conteo_departamento',
-        folio,
-        departamento,
-        producto_id: producto.id,
-        producto_nombre: l.nombre || producto.nombre,
-        cantidad: Math.abs(diferencia),
-        stock_antes: setR.antes,
-        stock_despues: setR.despues,
-        motivo: `${motivo} · ${etiquetaUbicacionConteo(suc)}`,
-        usuario: usuario || '—',
-        sucursal: suc,
-        ubicacion: ubi,
-        created_at: new Date().toISOString(),
-      },
-      supabase,
-    );
-
-    aplicadas.push({ ...l, existencia: setR.antes, contadaNum: contada, diferencia });
+    aplicadas.push({
+      ...l,
+      existencia: existenciaReal,
+      contadaNum: contada,
+      diferencia,
+      precioVenta: l.precioVenta,
+      valorDiferencia:
+        diferencia === 0 ? 0 : round2(Math.abs(diferencia) * (Number(l.precioVenta) || 0)),
+    });
   }
 
   const ajuste = {
@@ -230,8 +260,8 @@ export async function aplicarConteoDepartamento(supabase, opts) {
     departamento,
     sucursal: suc,
     usuario: usuario || '—',
-    resumen,
-    lineas: contadas.map((l) => ({
+    resumen: resumirConteoDepartamento(aplicadas),
+    lineas: aplicadas.map((l) => ({
       codigo: l.codigo,
       nombre: l.nombre,
       existencia: l.existencia,
@@ -240,9 +270,9 @@ export async function aplicarConteoDepartamento(supabase, opts) {
       costoUnitario: l.costoUnitario,
       precioVenta: l.precioVenta,
       valorDiferencia: l.valorDiferencia,
-      estado: l.estado,
+      estado: l.diferencia === 0 ? 'ok' : l.diferencia < 0 ? 'faltante' : 'sobrante',
     })),
-    movimientos: aplicadas.length,
+    movimientos: aplicadas.filter((l) => l.diferencia !== 0).length,
     errores,
     created_at: new Date().toISOString(),
   };
@@ -268,7 +298,7 @@ export async function aplicarConteoDepartamento(supabase, opts) {
           departamento,
           sucursal: suc,
           usuario: usuario || '—',
-          resumen,
+          resumen: ajuste.resumen,
           lineas: ajuste.lineas,
           created_at: ajuste.created_at,
         },
@@ -286,15 +316,15 @@ export async function aplicarConteoDepartamento(supabase, opts) {
     ok: true,
     folio,
     ajuste,
-    resumen,
-    movimientos: aplicadas.length,
+    resumen: ajuste.resumen,
+    movimientos: ajuste.movimientos,
     errores,
     log,
     mensaje:
       errores.length > 0
-        ? `Ajuste ${folio} parcial: ${aplicadas.length} línea(s) en ${etiquetaUbicacionConteo(suc)}. ${errores.length} error(es):\n${errores.join('\n')}`
-        : aplicadas.length > 0
-          ? `Ajuste ${folio} aplicado: ${aplicadas.length} movimiento(s) en ${etiquetaUbicacionConteo(suc)}.`
-          : `Conteo ${folio} cerrado sin diferencias en ${etiquetaUbicacionConteo(suc)}.`,
+        ? `Ajuste ${folio} parcial: ${ajuste.lineas.length} contado(s), ${ajuste.movimientos} movimiento(s) en ${etiquetaUbicacionConteo(suc)}. ${errores.length} error(es):\n${errores.join('\n')}`
+        : ajuste.lineas.length > 0
+          ? `Conteo ${folio} aplicado: ${ajuste.lineas.length} artículo(s) registrado(s)${ajuste.movimientos > 0 ? `, ${ajuste.movimientos} ajuste(s) de stock` : ''} en ${etiquetaUbicacionConteo(suc)}.`
+          : `Conteo ${folio} sin artículos en ${etiquetaUbicacionConteo(suc)}.`,
   };
 }

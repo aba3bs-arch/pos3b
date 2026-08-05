@@ -184,7 +184,10 @@ export function lineaProductoReporte(ajuste, linea, preciosMap = new Map(), dept
 }
 
 /** Todas las líneas contadas de los ajustes (incluye diferencia cero). */
-export function lineasProductoDesdeAjustes(ajustes, { inventario = [], sucFiltro = '', deptFiltro = '' } = {}) {
+export function lineasProductoDesdeAjustes(
+  ajustes,
+  { inventario = [], sucFiltro = '', deptFiltro = '', deduplicar = false } = {},
+) {
   const precios = mapaPrecioPorProducto(inventario);
   const deptos = mapaDepartamentoPorProducto(inventario);
   const out = [];
@@ -198,7 +201,14 @@ export function lineasProductoDesdeAjustes(ajustes, { inventario = [], sucFiltro
       out.push(row);
     }
   }
-  return deduplicarLineasConteo(out);
+  out.sort(
+    (a, b) =>
+      a.departamentoKey.localeCompare(b.departamentoKey, 'es') ||
+      String(b.created_at || '').localeCompare(String(a.created_at || '')) ||
+      String(a.numeroAjuste).localeCompare(String(b.numeroAjuste)) ||
+      String(a.codigo).localeCompare(String(b.codigo), 'es'),
+  );
+  return deduplicar ? deduplicarLineasConteo(out) : out;
 }
 
 /**
@@ -288,8 +298,10 @@ export function totalesLineasProducto(lineas = []) {
   const pctMerma =
     valorTeoricoContado > 0 ? (valorFaltante / valorTeoricoContado) * 100 : valorFaltante > 0 ? 100 : 0;
   const folios = new Set(lineas.map((l) => l.numeroAjuste).filter((f) => f && f !== '—'));
+  const skusUnicos = deduplicarLineasConteo(lineas).length;
   return {
     articulos: lineas.length,
+    skusUnicos,
     negativos,
     positivos,
     sinDiferencia: lineas.length - negativos - positivos,
@@ -346,7 +358,9 @@ export function enriquecerTotalesConReferencia(totales, referencia) {
       ? Math.round((totales.valorTeoricoContado / referencia.valorSistema) * 10000) / 100
       : null;
   const pctCoberturaSkus =
-    referencia.skusConStock > 0 ? Math.round((totales.articulos / referencia.skusConStock) * 10000) / 100 : null;
+    referencia.skusConStock > 0
+      ? Math.round(((totales.skusUnicos ?? totales.articulos) / referencia.skusConStock) * 10000) / 100
+      : null;
   return {
     ...totales,
     referencia: {
@@ -514,7 +528,7 @@ export function ajustesDesdeMovimientosConteo(movimientos, { inventario = [], ex
       diferencia,
       costoUnitario: costo,
       precioVenta: precio,
-      valorDiferencia: Math.abs(diferencia) * precio,
+      valorDiferencia: diferencia === 0 ? 0 : Math.abs(diferencia) * precio,
     });
     aj.resumen.piezasExistencia += existencia;
     if (diferencia < 0) {

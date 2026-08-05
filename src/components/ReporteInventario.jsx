@@ -187,9 +187,13 @@ export default function ReporteInventario({ supabase, inventario, inventarioComp
   }, [lineasProducto, filtroDif]);
 
   const grupos = useMemo(() => agruparReportePorDepartamento(lineasVisibles), [lineasVisibles]);
-  const totales = useMemo(
-    () => enriquecerTotalesConReferencia(totalesLineasProducto(lineasVisibles), referencia),
-    [lineasVisibles, referencia],
+  const totalesGenerales = useMemo(
+    () => enriquecerTotalesConReferencia(totalesLineasProducto(lineasProducto), referencia),
+    [lineasProducto, referencia],
+  );
+  const totalesVista = useMemo(
+    () => totalesLineasProducto(lineasVisibles),
+    [lineasVisibles],
   );
   const foliosAjuste = useMemo(() => foliosDesdeAjustes(ajustes), [ajustes]);
 
@@ -205,7 +209,6 @@ export default function ReporteInventario({ supabase, inventario, inventarioComp
       totalesLineasProducto(rows),
       referencia || referenciaInventarioReporte(catalogo, tienda || sucursal, departamento),
     );
-    const ref = t.referencia;
     await imprimirReporte({
       sucursal: tienda || sucursal,
       titulo: 'REPORTE DE INVENTARIO POR DEPARTAMENTO',
@@ -215,11 +218,11 @@ export default function ReporteInventario({ supabase, inventario, inventarioComp
           titulo: 'Resumen',
           lineas: [
             `Ajustes: ${foliosDesdeAjustes(ajustes).join(', ') || '—'}`,
-            `Artículos contados (únicos): ${t.articulos}`,
+            `Artículos contados: ${t.articulos} (${t.sinDiferencia} sin dif.) · SKUs únicos: ${t.skusUnicos ?? t.articulos}`,
             ref?.valorSistema
-              ? `Inv. sistema tienda: ${fmtMxnReporte(ref.valorSistema)} · Cobertura conteo: ${fmtPctReporte(ref.pctCoberturaValor ?? 0)}`
+              ? `Inv. sistema tienda: ${fmtMxnReporte(ref.valorSistema)} · Cobertura: ${fmtPctReporte(ref.pctCoberturaValor ?? 0)}`
               : null,
-            `Inv. teórico contado: ${fmtMxnReporte(t.valorTeoricoContado)}`,
+            `Inv. teórico contado: ${fmtMxnReporte(t.valorTeoricoContado)} · Inv. contado: ${fmtMxnReporte(t.valorContado)}`,
             `Faltante: ${fmtMxnReporte(t.valorFaltante)} (${t.piezasFaltantes.toLocaleString('es-MX')} pzas)`,
             `Sobrante: ${fmtMxnReporte(t.valorSobrante)} (${t.piezasSobrantes.toLocaleString('es-MX')} pzas)`,
             `% merma (solo sobre lo contado): ${fmtPctReporte(t.pctMerma)}`,
@@ -252,7 +255,7 @@ export default function ReporteInventario({ supabase, inventario, inventarioComp
       'Solo diferencias positivas',
     );
 
-  const imprimirTodos = () => imprimirLineas(lineasVisibles, null);
+  const imprimirTodos = () => imprimirLineas(lineasProducto, 'Todos los artículos contados');
 
   if (!abierto) {
     return (
@@ -345,13 +348,13 @@ export default function ReporteInventario({ supabase, inventario, inventarioComp
         <button type="button" className="btn btn-gold" onClick={exportCsv} disabled={!lineasVisibles.length || loading}>
           <BtnLabel icon="download">CSV</BtnLabel>
         </button>
-        <button type="button" className="btn btn-ghost" onClick={imprimirNegativos} disabled={!totales.negativos || loading}>
+        <button type="button" className="btn btn-ghost" onClick={imprimirNegativos} disabled={!totalesGenerales.negativos || loading}>
           <BtnLabel icon="print">Imprimir negativos</BtnLabel>
         </button>
-        <button type="button" className="btn btn-ghost" onClick={imprimirPositivos} disabled={!totales.positivos || loading}>
+        <button type="button" className="btn btn-ghost" onClick={imprimirPositivos} disabled={!totalesGenerales.positivos || loading}>
           <BtnLabel icon="print">Imprimir positivos</BtnLabel>
         </button>
-        <button type="button" className="btn btn-ghost" onClick={imprimirTodos} disabled={!lineasVisibles.length || loading}>
+        <button type="button" className="btn btn-ghost" onClick={imprimirTodos} disabled={!lineasProducto.length || loading}>
           <BtnLabel icon="print">Imprimir vista actual</BtnLabel>
         </button>
       </div>
@@ -359,6 +362,13 @@ export default function ReporteInventario({ supabase, inventario, inventarioComp
       {aviso ? (
         <p className="muted" style={{ margin: 0, fontSize: '0.85rem', color: 'var(--brand-red, #b45309)' }}>
           {aviso}
+        </p>
+      ) : null}
+
+      {filtroDif !== 'todos' ? (
+        <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>
+          Vista filtrada: {totalesVista.articulos} línea(s). Los totales de arriba incluyen{' '}
+          <strong>todos</strong> los artículos contados ({totalesGenerales.articulos}), con y sin diferencia.
         </p>
       ) : null}
 
@@ -370,40 +380,49 @@ export default function ReporteInventario({ supabase, inventario, inventarioComp
         }}
       >
         {[
-          ...(totales.referencia?.valorSistema
+          ...(totalesGenerales.referencia?.valorSistema
             ? [
                 {
                   label: `Inv. sistema${tienda ? ` · ${etiquetaTienda(tienda)}` : ''}`,
-                  value: fmtMxnReporte(totales.referencia.valorSistema),
-                  hint: `${totales.referencia.piezasSistema?.toLocaleString('es-MX') || 0} pzas · ${totales.referencia.skusConStock || 0} SKUs`,
+                  value: fmtMxnReporte(totalesGenerales.referencia.valorSistema),
+                  hint: `${totalesGenerales.referencia.piezasSistema?.toLocaleString('es-MX') || 0} pzas · ${totalesGenerales.referencia.skusConStock || 0} SKUs`,
                 },
                 {
                   label: 'Cobertura conteo',
-                  value: fmtPctReporte(totales.referencia.pctCoberturaValor ?? 0),
-                  hint: 'Valor contado / inv. sistema',
+                  value: fmtPctReporte(totalesGenerales.referencia.pctCoberturaValor ?? 0),
+                  hint: 'Valor teórico contado / inv. sistema',
                 },
               ]
             : []),
           { label: 'Ajustes', value: String(ajustes.length) },
-          { label: 'SKUs contados', value: String(totales.articulos) },
+          {
+            label: 'Artículos contados',
+            value: String(totalesGenerales.articulos),
+            hint: `${totalesGenerales.sinDiferencia} sin dif. · ${totalesGenerales.skusUnicos ?? totalesGenerales.articulos} SKUs únicos`,
+          },
           {
             label: 'Inv. teórico contado',
-            value: fmtMxnReporte(totales.valorTeoricoContado),
-            hint: 'Solo artículos ya contados',
+            value: fmtMxnReporte(totalesGenerales.valorTeoricoContado),
+            hint: `${totalesGenerales.piezasTeoricas.toLocaleString('es-MX')} pzas teóricas`,
+          },
+          {
+            label: 'Inv. contado',
+            value: fmtMxnReporte(totalesGenerales.valorContado),
+            hint: `${totalesGenerales.piezasContadas.toLocaleString('es-MX')} pzas contadas`,
           },
           {
             label: 'Faltante',
-            value: fmtMxnReporte(totales.valorFaltante),
-            sub: `${totales.piezasFaltantes.toLocaleString('es-MX')} pzas`,
+            value: fmtMxnReporte(totalesGenerales.valorFaltante),
+            sub: `${totalesGenerales.piezasFaltantes.toLocaleString('es-MX')} pzas · ${totalesGenerales.negativos} SKU(s)`,
             color: 'var(--brand-red, #c0392b)',
           },
           {
             label: 'Sobrante',
-            value: fmtMxnReporte(totales.valorSobrante),
-            sub: `${totales.piezasSobrantes.toLocaleString('es-MX')} pzas`,
+            value: fmtMxnReporte(totalesGenerales.valorSobrante),
+            sub: `${totalesGenerales.piezasSobrantes.toLocaleString('es-MX')} pzas · ${totalesGenerales.positivos} SKU(s)`,
             color: 'var(--brand-gold-dark)',
           },
-          { label: '% merma (contado)', value: fmtPctReporte(totales.pctMerma) },
+          { label: '% merma (contado)', value: fmtPctReporte(totalesGenerales.pctMerma) },
         ].map((k) => (
           <div
             key={k.label}
