@@ -955,7 +955,13 @@ export default function Buzon({
                         <td>{fmtHoraIncidencia(inc.created_at)}</td>
                         <td>{etiquetaTienda(inc.sucursal_id)}</td>
                         <td>
-                          <strong>{etiquetaBuzon(inc.area) !== 'Todos' ? etiquetaBuzon(inc.area) : (['virtual', 'abarrotes', 'garage'].includes(String(inc.categoria || '').toLowerCase()) ? etiquetaBuzon(inc.categoria) : '—')}</strong>
+                          <strong>
+                            {inc.area
+                              ? etiquetaBuzon(inc.area)
+                              : ['virtual', 'abarrotes', 'garage'].includes(String(inc.categoria || '').toLowerCase())
+                                ? etiquetaBuzon(inc.categoria)
+                                : '—'}
+                          </strong>
                         </td>
                         <td>
                           <strong>{inc.titulo}</strong>
