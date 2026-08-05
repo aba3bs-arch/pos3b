@@ -10,6 +10,7 @@ import {
   cargarFilasReporteInventarioAsync,
   columnasCsvInventario,
   columnasImprimirProductoInventario,
+  corregirLineaReporteInventario,
   departamentosEnReporte,
   enriquecerTotalesConReferencia,
   fmtMxnReporte,
@@ -19,6 +20,7 @@ import {
   tiendasParaFiltroInventario,
   totalesLineasProducto,
 } from '../lib/reporteInventario.js';
+import { puedeAjustarInventario } from '../lib/roles.js';
 
 function toCsv(rows, columns) {
   const esc = (v) => {
@@ -48,7 +50,99 @@ function fmtDiferencia(n) {
   return d > 0 ? `+${d}` : String(d);
 }
 
-function TablaLineas({ lineas, mostrarTienda }) {
+function ModalCorregirLinea({ linea, onCerrar, onGuardar, guardando, error }) {
+  const [contada, setContada] = useState(linea?.contado != null ? String(linea.contado) : '');
+  const [nota, setNota] = useState('');
+
+  if (!linea) return null;
+
+  return (
+    <div
+      className="prod-modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-corregir-linea-titulo"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !guardando) onCerrar();
+      }}
+    >
+      <div className="card" style={{ width: 'min(94vw, 420px)', padding: '1rem' }}>
+        <h3 id="modal-corregir-linea-titulo" style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>
+          Corregir conteo
+        </h3>
+        <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+          {linea.nombre} · <span style={{ fontFamily: 'ui-monospace, monospace' }}>{linea.codigo}</span>
+        </p>
+        <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.8rem' }}>
+          Ajuste {linea.numeroAjuste} · {linea.departamento}
+          {linea.corregido ? ' · ya corregido antes' : ''}
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.75rem', fontSize: '0.82rem' }}>
+          <div>
+            <span className="muted">Inv. al conteo</span>
+            <div>
+              <strong>{linea.teorico}</strong>
+            </div>
+          </div>
+          <div>
+            <span className="muted">Contado registrado</span>
+            <div>
+              <strong>{linea.contado ?? '—'}</strong>
+            </div>
+          </div>
+        </div>
+        <label className="muted" style={{ display: 'block', marginBottom: '0.75rem' }}>
+          Nueva cantidad contada
+          <input
+            className="input"
+            type="number"
+            min={0}
+            step={1}
+            inputMode="numeric"
+            style={{ marginTop: '0.35rem', width: '100%' }}
+            value={contada}
+            onChange={(e) => setContada(e.target.value)}
+            disabled={guardando}
+            autoFocus
+          />
+        </label>
+        <label className="muted" style={{ display: 'block', marginBottom: '0.75rem' }}>
+          Nota (opcional)
+          <input
+            className="input"
+            type="text"
+            style={{ marginTop: '0.35rem', width: '100%' }}
+            value={nota}
+            onChange={(e) => setNota(e.target.value)}
+            disabled={guardando}
+            placeholder="Motivo de la corrección"
+          />
+        </label>
+        <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.78rem' }}>
+          Se ajustará el stock al valor contado según inventario actual en sistema.
+        </p>
+        {error ? (
+          <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: 'var(--brand-red, #c0392b)' }}>{error}</p>
+        ) : null}
+        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+          <button type="button" className="btn btn-ghost" onClick={onCerrar} disabled={guardando}>
+            Cancelar
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={guardando}
+            onClick={() => onGuardar({ contada, nota })}
+          >
+            {guardando ? 'Guardando…' : 'Aplicar corrección'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TablaLineas({ lineas, mostrarTienda, puedeEditar, onEditar }) {
   return (
     <div className="table-wrap table-wrap-sticky-head">
       <table className="data" style={{ fontSize: '0.82rem' }}>
@@ -61,6 +155,7 @@ function TablaLineas({ lineas, mostrarTienda }) {
             <th style={{ textAlign: 'right' }}>Contado</th>
             <th style={{ textAlign: 'right' }}>Diferencia</th>
             <th style={{ textAlign: 'right' }}>% merma</th>
+            {puedeEditar ? <th style={{ width: 72 }} /> : null}
             {mostrarTienda ? <th>Tienda</th> : null}
           </tr>
         </thead>
@@ -71,7 +166,7 @@ function TablaLineas({ lineas, mostrarTienda }) {
                 {f.numeroAjuste}
               </td>
               <td style={{ fontFamily: 'ui-monospace, monospace', fontSize: '0.78rem' }}>{f.codigo}</td>
-              <td>{f.nombre}</td>
+              <td>{f.nombre}{f.corregido ? <span className="muted" style={{ fontSize: '0.72rem' }}> · corregido</span> : null}</td>
               <td style={{ textAlign: 'right' }}>{f.teorico}</td>
               <td style={{ textAlign: 'right' }}>{f.contado ?? '—'}</td>
               <td
@@ -91,6 +186,19 @@ function TablaLineas({ lineas, mostrarTienda }) {
               <td style={{ textAlign: 'right' }}>
                 {Number(f.diferencia) < 0 ? fmtPctReporte(f.pctMerma) : '—'}
               </td>
+              {puedeEditar ? (
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ fontSize: '0.72rem', padding: '0.2rem 0.45rem' }}
+                    onClick={() => onEditar(f)}
+                    title="Corregir cantidad contada"
+                  >
+                    Editar
+                  </button>
+                </td>
+              ) : null}
               {mostrarTienda ? <td className="muted">{f.tienda}</td> : null}
             </tr>
           ))}
@@ -103,7 +211,15 @@ function TablaLineas({ lineas, mostrarTienda }) {
 /**
  * Reporte de conteos aplicados por departamento, con todos los artículos contados y no. de ajuste.
  */
-export default function ReporteInventario({ supabase, inventario, inventarioCompleto, sucursal, sucursalesLista }) {
+export default function ReporteInventario({
+  supabase,
+  inventario,
+  inventarioCompleto,
+  sucursal,
+  sucursalesLista,
+  user,
+  cargarDatos,
+}) {
   const [abierto, setAbierto] = useState(false);
   const [preset, setPreset] = useState('mes');
   const [desde, setDesde] = useState(() => new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10));
@@ -117,7 +233,12 @@ export default function ReporteInventario({ supabase, inventario, inventarioComp
   const [aviso, setAviso] = useState('');
   const [referencia, setReferencia] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [lineaEdit, setLineaEdit] = useState(null);
+  const [guardandoCorreccion, setGuardandoCorreccion] = useState(false);
+  const [errorCorreccion, setErrorCorreccion] = useState('');
 
+  const puedeEditar = Boolean(supabase && puedeAjustarInventario(user?.rol));
   const catalogo = inventarioCompleto?.length ? inventarioCompleto : inventario;
 
   const tiendas = useMemo(() => {
@@ -174,7 +295,7 @@ export default function ReporteInventario({ supabase, inventario, inventarioComp
     return () => {
       cancel = true;
     };
-  }, [abierto, supabase, inventario, catalogo, preset, desde, hasta, tienda, departamento]);
+  }, [abierto, supabase, inventario, catalogo, preset, desde, hasta, tienda, departamento, reloadKey]);
 
   const lineasVisibles = useMemo(() => {
     if (filtroDif === 'negativos') {
@@ -197,6 +318,32 @@ export default function ReporteInventario({ supabase, inventario, inventarioComp
   );
   const foliosAjuste = useMemo(() => foliosDesdeAjustes(ajustes), [ajustes]);
 
+  const guardarCorreccion = async ({ contada, nota }) => {
+    if (!lineaEdit || !supabase) return;
+    setGuardandoCorreccion(true);
+    setErrorCorreccion('');
+    try {
+      const r = await corregirLineaReporteInventario(supabase, {
+        linea: lineaEdit,
+        nuevaContada: contada,
+        nota,
+        usuario: user?.nombre || user?.email || user?.id || '—',
+        inventario: catalogo,
+      });
+      if (!r.ok) {
+        setErrorCorreccion(r.error || 'No se pudo aplicar la corrección.');
+        return;
+      }
+      setLineaEdit(null);
+      setReloadKey((n) => n + 1);
+      if (typeof cargarDatos === 'function') await cargarDatos();
+    } catch (e) {
+      setErrorCorreccion(e?.message || String(e));
+    } finally {
+      setGuardandoCorreccion(false);
+    }
+  };
+
   const exportCsv = () => {
     downloadCsv(
       `reporte_inventario_${rango.desde}_${rango.hasta}.csv`,
@@ -209,6 +356,7 @@ export default function ReporteInventario({ supabase, inventario, inventarioComp
       totalesLineasProducto(rows),
       referencia || referenciaInventarioReporte(catalogo, tienda || sucursal, departamento),
     );
+    const ref = t.referencia;
     await imprimirReporte({
       sucursal: tienda || sucursal,
       titulo: 'REPORTE DE INVENTARIO POR DEPARTAMENTO',
@@ -280,6 +428,7 @@ export default function ReporteInventario({ supabase, inventario, inventarioComp
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
             Faltante y sobrante se reportan por separado (no se netean). Inv. sistema = valor total en tienda;
             inv. teórico contado = solo SKUs ya contados.
+            {puedeEditar ? ' Puedes corregir la cantidad contada por línea con Editar.' : ''}
             {loading ? ' Cargando…' : ''}
           </p>
         </div>
@@ -486,10 +635,31 @@ export default function ReporteInventario({ supabase, inventario, inventarioComp
             <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.78rem' }}>
               Ajustes: {g.folios.join(' · ') || '—'}
             </p>
-            <TablaLineas lineas={g.lineas} mostrarTienda={!tienda} />
+            <TablaLineas
+              lineas={g.lineas}
+              mostrarTienda={!tienda}
+              puedeEditar={puedeEditar}
+              onEditar={(f) => {
+                setErrorCorreccion('');
+                setLineaEdit(f);
+              }}
+            />
           </div>
         ))
       )}
+
+      <ModalCorregirLinea
+        linea={lineaEdit}
+        guardando={guardandoCorreccion}
+        error={errorCorreccion}
+        onCerrar={() => {
+          if (!guardandoCorreccion) {
+            setLineaEdit(null);
+            setErrorCorreccion('');
+          }
+        }}
+        onGuardar={guardarCorreccion}
+      />
     </div>
   );
 }

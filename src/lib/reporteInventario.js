@@ -1,5 +1,10 @@
 import { etiquetaTienda, listarSucursales, normalizarCodigoTienda } from '../constants/sucursales.js';
-import { leerAjustesInventario } from './conteoDepartamento.js';
+import {
+  claveCorreccionLinea,
+  corregirLineaConteoInventario,
+  leerAjustesInventario,
+  leerCorreccionesLineasInventario,
+} from './conteoDepartamento.js';
 import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from './departamentos.js';
 import { bucketKey, etiquetaBucket, COLORES_TIENDA } from './estadisticasData.js';
 import { toYmd } from './fechas.js';
@@ -209,6 +214,59 @@ export function lineasProductoDesdeAjustes(
       String(a.codigo).localeCompare(String(b.codigo), 'es'),
   );
   return deduplicar ? deduplicarLineasConteo(out) : out;
+}
+
+/** Aplica correcciones guardadas en este equipo sobre las líneas del reporte. */
+export function aplicarCorreccionesGuardadasALineas(lineas = [], inventario = []) {
+  const map = leerCorreccionesLineasInventario();
+  if (!Object.keys(map).length) return lineas;
+  const precios = mapaPrecioPorProducto(inventario);
+  const deptos = mapaDepartamentoPorProducto(inventario);
+  return lineas.map((l) => {
+    const key = claveCorreccionLinea(l.numeroAjuste, l.sucursal, l.codigo);
+    const c = map[key];
+    if (!c) return l;
+    const ajusteFake = {
+      folio: l.numeroAjuste,
+      sucursal: l.sucursal,
+      departamento: l.departamentoKey,
+      created_at: l.created_at,
+      usuario: c.corregido_por || l.auditor,
+    };
+    return {
+      ...lineaProductoReporte(ajusteFake, c, precios, deptos),
+      corregido: true,
+      corregido_at: c.updated_at,
+      folio_correccion: c.folio_correccion,
+      nota_correccion: c.nota || '',
+    };
+  });
+}
+
+/** Corrige cantidad contada desde el reporte y devuelve la fila actualizada. */
+export async function corregirLineaReporteInventario(supabase, opts = {}) {
+  const { linea, nuevaContada, usuario, nota, inventario = [] } = opts;
+  const r = await corregirLineaConteoInventario(supabase, { linea, nuevaContada, usuario, nota, sucursal: linea?.sucursal });
+  if (!r.ok) return r;
+  const precios = mapaPrecioPorProducto(inventario);
+  const deptos = mapaDepartamentoPorProducto(inventario);
+  const ajusteFake = {
+    folio: linea.numeroAjuste,
+    sucursal: r.sucursal,
+    departamento: r.departamento,
+    created_at: r.created_at,
+    usuario: usuario || '—',
+  };
+  return {
+    ...r,
+    linea: {
+      ...lineaProductoReporte(ajusteFake, r.lineaPatch, precios, deptos),
+      corregido: true,
+      corregido_at: new Date().toISOString(),
+      folio_correccion: r.folio,
+      nota_correccion: nota || '',
+    },
+  };
 }
 
 /**
@@ -614,7 +672,10 @@ export function cargarFilasReporteInventario(opts = {}) {
   const catalogo = inventarioCompleto?.length ? inventarioCompleto : inventario;
   const locales = leerAjustesInventario().filter((a) => enRangoIso(a.created_at, rango.desde, rango.hasta));
   const ajustes = filtrarAjustes(locales, sucFiltro);
-  const lineasProducto = lineasProductoDesdeAjustes(locales, { inventario: catalogo, sucFiltro, deptFiltro });
+  const lineasProducto = aplicarCorreccionesGuardadasALineas(
+    lineasProductoDesdeAjustes(locales, { inventario: catalogo, sucFiltro, deptFiltro }),
+    catalogo,
+  );
   const sucRef = sucFiltro || normalizarCodigoTienda(sucursalActual) || '';
   const referencia = referenciaInventarioReporte(catalogo, sucRef, deptFiltro);
   return { lineasProducto, ajustes, rango, aviso: null, referencia };
@@ -669,11 +730,14 @@ export async function cargarFilasReporteInventarioAsync(opts = {}) {
 
   const merged = mergeAjustesPorFolio(locales, nubeAjustes);
   const ajustes = filtrarAjustes(merged, sucFiltro);
-  const lineasProducto = lineasProductoDesdeAjustes(merged, {
-    inventario: catalogo,
-    sucFiltro,
-    deptFiltro,
-  });
+  const lineasProducto = aplicarCorreccionesGuardadasALineas(
+    lineasProductoDesdeAjustes(merged, {
+      inventario: catalogo,
+      sucFiltro,
+      deptFiltro,
+    }),
+    catalogo,
+  );
   const referencia = referenciaInventarioReporte(catalogo, sucRef, deptFiltro);
   return { lineasProducto, ajustes, rango, aviso, referencia };
 }

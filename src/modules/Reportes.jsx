@@ -27,7 +27,7 @@ function download(name, text) {
   URL.revokeObjectURL(url);
 }
 
-export default function Reportes({ supabase, inventario, inventarioCompleto, sucursal, sucursalesLista }) {
+export default function Reportes({ supabase, inventario, inventarioCompleto, sucursal, sucursalesLista, user, cargarDatos }) {
   const [desde, setDesde] = useState(() => new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10));
   const [hasta, setHasta] = useState(() => new Date().toISOString().slice(0, 10));
 
@@ -154,6 +154,8 @@ export default function Reportes({ supabase, inventario, inventarioCompleto, suc
         inventarioCompleto={inventarioCompleto}
         sucursal={sucursal}
         sucursalesLista={sucursalesLista}
+        user={user}
+        cargarDatos={cargarDatos}
       />
 
       <ReporteGastosDetalle supabase={supabase} sucursal={sucursal} />

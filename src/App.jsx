@@ -1083,6 +1083,8 @@ function App() {
               inventarioCompleto={inventario}
               sucursal={sucursal}
               sucursalesLista={listaSucursales}
+              user={user}
+              cargarDatos={cargarDatos}
             />
           )}
           {vista === 'Nómina' && (

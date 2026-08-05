@@ -16,6 +16,55 @@ import { normalizarCodigoTienda } from '../constants/sucursales.js';
 
 const LS_FOLIO_SEQ = 'pos3b_folio_ajuste_seq';
 const LS_AJUSTES = 'pos3b_ajustes_inventario';
+const LS_CORRECCIONES_LINEAS = 'pos3b_correcciones_lineas_inventario';
+
+export function claveCorreccionLinea(folio, sucursal, codigo) {
+  return `${String(folio || '')}|${normalizarCodigoTienda(sucursal) || '—'}|${String(codigo)}`;
+}
+
+export function leerCorreccionesLineasInventario() {
+  try {
+    const raw = localStorage.getItem(LS_CORRECCIONES_LINEAS);
+    const o = raw ? JSON.parse(raw) : {};
+    return o && typeof o === 'object' ? o : {};
+  } catch {
+    return {};
+  }
+}
+
+export function guardarCorreccionLineaInventario(entry) {
+  const map = leerCorreccionesLineasInventario();
+  const key = claveCorreccionLinea(entry.folio, entry.sucursal, entry.codigo);
+  map[key] = { ...entry, updated_at: new Date().toISOString() };
+  localStorage.setItem(LS_CORRECCIONES_LINEAS, JSON.stringify(map));
+  return map[key];
+}
+
+function lineasParaResumenDesdeAjuste(lineas) {
+  return (lineas || []).map((l) => ({
+    existencia: Number(l.existencia) || 0,
+    contadaNum:
+      l.contada != null && l.contada !== '' && !Number.isNaN(Number(l.contada)) ? Number(l.contada) : l.contadaNum,
+    diferencia: l.diferencia != null && l.diferencia !== '' ? Number(l.diferencia) : null,
+    precioVenta: Number(l.precioVenta) || 0,
+  }));
+}
+
+/** Actualiza una línea dentro del ajuste guardado en este equipo (si existe). */
+export function actualizarLineaAjusteLocal(folio, codigo, patch) {
+  const list = leerAjustesInventario();
+  const idx = list.findIndex((a) => String(a.folio) === String(folio));
+  if (idx < 0) return false;
+  const aj = { ...list[idx], lineas: [...(list[idx].lineas || [])] };
+  const j = aj.lineas.findIndex((l) => String(l.codigo) === String(codigo));
+  if (j < 0) return false;
+  aj.lineas[j] = { ...aj.lineas[j], ...patch };
+  aj.resumen = resumirConteoDepartamento(lineasParaResumenDesdeAjuste(aj.lineas));
+  aj.ultima_correccion_at = new Date().toISOString();
+  list[idx] = aj;
+  localStorage.setItem(LS_AJUSTES, JSON.stringify(list));
+  return true;
+}
 
 /** En MAIN el conteo/ingreso opera sobre CEDIS; en tiendas, sobre piso de venta. */
 export function ubicacionConteo(sucursal) {
@@ -326,5 +375,110 @@ export async function aplicarConteoDepartamento(supabase, opts) {
         : ajuste.lineas.length > 0
           ? `Conteo ${folio} aplicado: ${ajuste.lineas.length} artículo(s) registrado(s)${ajuste.movimientos > 0 ? `, ${ajuste.movimientos} ajuste(s) de stock` : ''} en ${etiquetaUbicacionConteo(suc)}.`
           : `Conteo ${folio} sin artículos en ${etiquetaUbicacionConteo(suc)}.`,
+  };
+}
+
+/**
+ * Corrige la cantidad contada de un SKU desde el reporte: ajusta stock y guarda la corrección.
+ */
+export async function corregirLineaConteoInventario(supabase, opts = {}) {
+  const { linea, nuevaContada, usuario, nota = '' } = opts;
+  if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
+
+  const codigo = String(linea?.codigo || '').trim();
+  const folioOrigen = linea?.numeroAjuste || linea?.folio;
+  const suc = normalizarCodigoTienda(linea?.sucursal || opts.sucursal);
+  if (!codigo || !folioOrigen || folioOrigen === '—') {
+    return { ok: false, error: 'Línea sin folio o código válido.' };
+  }
+
+  const raw = nuevaContada === null || nuevaContada === undefined ? '' : String(nuevaContada).trim();
+  if (raw === '' || Number.isNaN(Number(raw))) {
+    return { ok: false, error: 'Indica la cantidad contada (entero ≥ 0).' };
+  }
+  const contada = Math.max(0, Math.floor(Number(raw)));
+
+  const fresco = await leerProductoInventarioFresco(supabase, codigo);
+  if (!fresco.ok) return { ok: false, error: fresco.error };
+  const producto = fresco.producto;
+
+  const ubi = ubicacionConteo(suc);
+  const tienda = suc || 'MAIN';
+  const existenciaReal = stockEnUbicacion(producto, tienda, ubi, tienda);
+  const diferencia = contada - existenciaReal;
+  const precioVenta = Number(linea.precioVenta) || Number(producto.precio) || 0;
+  const costoUnitario = costoUnitarioInventario(producto);
+  const ts = new Date().toISOString();
+  const motivoBase = `Corrección conteo ${folioOrigen} · ${linea.nombre || codigo}`;
+
+  if (diferencia !== 0) {
+    const setR = await aplicarSetStockAtomico(supabase, {
+      productoId: producto.id,
+      sucursal: tienda,
+      ubicacion: ubi,
+      valor: contada,
+    });
+    if (!setR.ok) return { ok: false, error: setR.error };
+  }
+
+  const folioCor = generarFolioAjuste();
+  guardarMovimientoLocal(
+    {
+      tipo: diferencia !== 0 ? (diferencia > 0 ? 'entrada' : 'retiro') : 'conteo_registro',
+      modo: 'conteo_correccion',
+      folio: folioCor,
+      departamento: linea.departamentoKey || linea.departamento,
+      producto_id: producto.id,
+      producto_nombre: linea.nombre || producto.nombre,
+      cantidad: Math.abs(diferencia),
+      stock_antes: existenciaReal,
+      stock_despues: contada,
+      motivo: nota ? `${motivoBase} · ${nota}` : motivoBase,
+      usuario: usuario || '—',
+      sucursal: suc,
+      ubicacion: ubi,
+      meta: {
+        folio: folioCor,
+        folio_origen: folioOrigen,
+        correccion: true,
+        nota: nota || null,
+      },
+      created_at: ts,
+    },
+    supabase,
+  );
+
+  const lineaPatch = {
+    codigo,
+    nombre: linea.nombre || producto.nombre,
+    existencia: existenciaReal,
+    contada,
+    diferencia,
+    costoUnitario,
+    precioVenta,
+    valorDiferencia: diferencia === 0 ? 0 : round2(Math.abs(diferencia) * precioVenta),
+    estado: diferencia === 0 ? 'ok' : diferencia < 0 ? 'faltante' : 'sobrante',
+  };
+
+  actualizarLineaAjusteLocal(folioOrigen, codigo, lineaPatch);
+  guardarCorreccionLineaInventario({
+    folio: folioOrigen,
+    sucursal: suc,
+    codigo,
+    ...lineaPatch,
+    folio_correccion: folioCor,
+    corregido_por: usuario || '—',
+    nota,
+  });
+
+  return {
+    ok: true,
+    folio: folioCor,
+    folioOrigen,
+    lineaPatch,
+    sucursal: suc,
+    departamento: linea.departamentoKey || linea.departamento,
+    created_at: linea.created_at,
+    mensaje: `Corrección ${folioCor}: ${linea.nombre || codigo} → ${contada} pzas (${diferencia > 0 ? '+' : ''}${diferencia}).`,
   };
 }
