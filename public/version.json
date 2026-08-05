@@ -1,8 +1,8 @@
 {
   "version": "1.1.0",
-  "buildId": "717a579",
-  "branch": "cursor/rif-buzones-area-5d4c",
-  "builtAt": "2026-08-05T19:58:21.813Z",
+  "buildId": "343d26d",
+  "branch": "cursor/incidencia-area-buzon-5d4c",
+  "builtAt": "2026-08-05T21:54:12.382Z",
   "title": "Actualización disponible",
   "summary": "Préstamos empleados (editar/eliminar/abonar/liquidar), desglose de gastos en IE y Corte Garage con gastos persistentes. Pulsa Actualizar.",
   "changes": [
@@ -11,10 +11,10 @@
     "IE Virtual: desglose de gastos al tocar el monto de una recolección",
     "Corte Garage: gastos persistentes hasta recolección con máquinas en cero",
     "Aviso de actualización visible para todos con botón Actualizar",
+    "RIF + tres buzones (Virtual, Abarrotes, Garage)",
     "Actualiza version.json tras build",
     "Destaca merma total vs inventario sistema en reporte de inventario",
     "Actualiza version.json tras build",
-    "Muestra % merma total (faltante vs inventario sistema) en reporte",
-    "Actualiza version.json y package-lock tras build local"
+    "Muestra % merma total (faltante vs inventario sistema) en reporte"
   ]
 }

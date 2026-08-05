@@ -107,6 +107,7 @@ export default function Buzon({
   const [formInc, setFormInc] = useState({
     titulo: '',
     descripcion: '',
+    area: '',
     categoria: 'operacion',
     subcategoria: '',
     prioridad: 'normal',
@@ -433,7 +434,15 @@ export default function Buzon({
       return;
     }
     setMsg('Incidencia reportada. El responsable y el administrador fueron notificados.');
-    setFormInc({ titulo: '', descripcion: '', categoria: 'operacion', subcategoria: '', prioridad: 'normal', responsable: '' });
+    setFormInc({
+      titulo: '',
+      descripcion: '',
+      area: '',
+      categoria: 'operacion',
+      subcategoria: '',
+      prioridad: 'normal',
+      responsable: '',
+    });
     recargar();
     setPestana('incidencias');
   };
@@ -756,6 +765,22 @@ export default function Buzon({
                 </div>
               </div>
               <label>
+                <span className="muted" style={{ fontSize: '0.82rem' }}>Área (buzón destino)</span>
+                <select
+                  className="select"
+                  value={formInc.area}
+                  onChange={(e) => setFormInc((f) => ({ ...f, area: e.target.value }))}
+                  required
+                >
+                  <option value="">— Seleccionar área —</option>
+                  {BUZONES_AREA.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
                 <span className="muted" style={{ fontSize: '0.82rem' }}>Título del reporte</span>
                 <input
                   className="input"
@@ -912,6 +937,7 @@ export default function Buzon({
                       <th>Fecha</th>
                       <th>Hora</th>
                       <th>Tienda</th>
+                      <th>Área</th>
                       <th>Título</th>
                       <th>Categoría</th>
                       <th>Subcategoría</th>
@@ -928,6 +954,9 @@ export default function Buzon({
                         <td>{fmtFechaIncidencia(inc.created_at)}</td>
                         <td>{fmtHoraIncidencia(inc.created_at)}</td>
                         <td>{etiquetaTienda(inc.sucursal_id)}</td>
+                        <td>
+                          <strong>{etiquetaBuzon(inc.area) !== 'Todos' ? etiquetaBuzon(inc.area) : (['virtual', 'abarrotes', 'garage'].includes(String(inc.categoria || '').toLowerCase()) ? etiquetaBuzon(inc.categoria) : '—')}</strong>
+                        </td>
                         <td>
                           <strong>{inc.titulo}</strong>
                           {inc.descripcion && (

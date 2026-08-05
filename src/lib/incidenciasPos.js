@@ -128,6 +128,12 @@ export async function crearIncidencia(supabase, row) {
     };
   }
 
+  const AREAS_BUZON = new Set(['virtual', 'abarrotes', 'garage']);
+  const areaSel = String(row.area || '').toLowerCase().trim();
+  if (!AREAS_BUZON.has(areaSel)) {
+    return { ok: false, error: 'Selecciona el área del buzón: Virtual, Abarrotes o Garage.' };
+  }
+
   const payload = {
     sucursal_id: row.sucursal_id || 'MAIN',
     titulo: String(row.titulo).trim(),
@@ -138,21 +144,21 @@ export async function crearIncidencia(supabase, row) {
     estado: 'abierta',
     reportado_por: row.reportado_por || null,
     responsable: String(row.responsable).trim(),
+    area: areaSel,
   };
 
-  const { data, error } = await supabase.from('pos_incidencias').insert([payload]).select('*').single();
+  let { data, error } = await supabase.from('pos_incidencias').insert([payload]).select('*').single();
+  // Columna area aún no migrada: reintentar sin ella (el buzón sigue en la notificación).
+  if (error && /area|schema cache|column/i.test(String(error.message || ''))) {
+    const sinArea = { ...payload };
+    delete sinArea.area;
+    ({ data, error } = await supabase.from('pos_incidencias').insert([sinArea]).select('*').single());
+    if (!error && data) data = { ...data, area: areaSel };
+  }
   if (error && faltaTabla(error)) return { ok: false, error: AVISO_FALTA_INCIDENCIAS };
   if (error) return { ok: false, error: error.message };
 
-  const catArea = String(payload.categoria || '').toLowerCase();
-  const areaBuzon = ['virtual', 'abarrotes', 'garage'].includes(catArea)
-    ? catArea
-    : // Reportes que impliquen abarrotes (mostrador, bodega, inventario operativo) → buzón abarrotes
-      (catArea === 'operacion' || catArea === 'inventario' || /abarrotes|mostrador|bodega/i.test(`${payload.subcategoria || ''} ${payload.titulo || ''}`)
-        ? 'abarrotes'
-        : catArea === 'mantenimiento' || catArea === 'equipo'
-          ? 'garage'
-          : null);
+  const etiquetaArea = { virtual: 'Virtual', abarrotes: 'Abarrotes', garage: 'Garage' }[areaSel] || areaSel;
 
   await crearNotificacion(supabase, {
     sucursal_id: payload.sucursal_id,
@@ -164,6 +170,7 @@ export async function crearIncidencia(supabase, row) {
       row.etiqueta_tienda || payload.sucursal_id,
       row.fecha_reporte,
       row.hora_reporte,
+      `Área: ${etiquetaArea}`,
       `Responsable: ${payload.responsable}`,
       etiquetaCategoriaIncidencia(payload.categoria),
       payload.subcategoria || null,
@@ -172,7 +179,7 @@ export async function crearIncidencia(supabase, row) {
     ]
       .filter(Boolean)
       .join(' · '),
-    area_buzon: areaBuzon,
+    area_buzon: areaSel,
   });
   emitirRefreshNotificaciones();
 

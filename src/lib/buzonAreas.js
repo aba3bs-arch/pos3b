@@ -84,9 +84,13 @@ export function notificacionPerteneceABuzon(notif, areaBuzon, opts = {}) {
 
 export function incidenciaPerteneceABuzon(inc, areaBuzon) {
   if (!areaBuzon || areaBuzon === 'todos') return true;
+  // Campo explícito del reporte (prioridad)
+  const area = String(inc?.area || '').toLowerCase();
+  if (CATS_AREA.has(area)) return area === areaBuzon;
+  // Legado: categoría = área
   const cat = String(inc?.categoria || '').toLowerCase();
   if (CATS_AREA.has(cat)) return cat === areaBuzon;
-  // Incidencias genéricas: visibles en todos; las de área solo en su buzón.
+  // Sin área: no forzar ocultar en un buzón concreto
   return true;
 }
 
