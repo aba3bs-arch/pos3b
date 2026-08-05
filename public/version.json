@@ -1,8 +1,8 @@
 {
   "version": "1.1.0",
-  "buildId": "a1ce4fc",
+  "buildId": "5cdb06a",
   "branch": "cursor/fix-reporte-inventario-confiabilidad-5d4c",
-  "builtAt": "2026-08-05T00:49:46.873Z",
+  "builtAt": "2026-08-05T00:58:28.421Z",
   "title": "Actualización disponible",
   "summary": "Préstamos empleados (editar/eliminar/abonar/liquidar), desglose de gastos en IE y Corte Garage con gastos persistentes. Pulsa Actualizar.",
   "changes": [
@@ -11,10 +11,10 @@
     "IE Virtual: desglose de gastos al tocar el monto de una recolección",
     "Corte Garage: gastos persistentes hasta recolección con máquinas en cero",
     "Aviso de actualización visible para todos con botón Actualizar",
+    "Actualiza version.json tras build",
+    "Muestra % merma total (faltante vs inventario sistema) en reporte",
     "Actualiza version.json y package-lock tras build local",
     "Permite corregir cantidad contada por línea en reporte de inventario",
-    "Incluye artículos sin diferencia en reporte y totales completos",
-    "Documenta SQL de snapshots de conteo (sin tabla nueva)",
-    "Corrige confiabilidad del reporte de inventario por departamento"
+    "Incluye artículos sin diferencia en reporte y totales completos"
   ]
 }
