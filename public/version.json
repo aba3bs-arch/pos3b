@@ -1,8 +1,8 @@
 {
   "version": "1.1.0",
-  "buildId": "46e7fb8",
-  "branch": "main",
-  "builtAt": "2026-07-31T22:48:09.891Z",
+  "buildId": "3670a9e",
+  "branch": "cursor/fix-reporte-inventario-confiabilidad-5d4c",
+  "builtAt": "2026-08-05T00:29:02.648Z",
   "title": "Actualización disponible",
   "summary": "Préstamos empleados (editar/eliminar/abonar/liquidar), desglose de gastos en IE y Corte Garage con gastos persistentes. Pulsa Actualizar.",
   "changes": [
@@ -11,10 +11,10 @@
     "IE Virtual: desglose de gastos al tocar el monto de una recolección",
     "Corte Garage: gastos persistentes hasta recolección con máquinas en cero",
     "Aviso de actualización visible para todos con botón Actualizar",
-    "fix: aviso de actualización para todos con botón Actualizar y notas de release",
-    "chore: aviso de actualización con cambios de préstamos empleados",
-    "chore: version.json con aviso de actualización (préstamos empleados)",
-    "feat: préstamos empleados con editar, eliminar, abonar y liquidar (cargo al área Virtual/Abarrotes)",
-    "feat: desglose de gastos al expandir monto de recolección en IE Virtual"
+    "Incluye artículos sin diferencia en reporte y totales completos",
+    "Documenta SQL de snapshots de conteo (sin tabla nueva)",
+    "Corrige confiabilidad del reporte de inventario por departamento",
+    "Agregar entrega directa a inventario para proveedores preventa/repartidor",
+    "Corregir entrada de inventario en recepcion de compras con movimiento atomico"
   ]
 }
