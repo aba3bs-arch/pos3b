@@ -2,7 +2,7 @@ import React from 'react';
 import Icon from './Icon.jsx';
 import { iconoDeModulo, colorDeModulo } from '../lib/moduloIcons.js';
 import { sonidoMenuNavegacion } from '../lib/sonidosPos.js';
-import { VISTA_HUB_CONTABILIDAD } from '../lib/roles.js';
+import { etiquetaModuloSidebar, VISTA_HUB_CONTABILIDAD } from '../lib/roles.js';
 
 const COLOR_CONTABILIDAD = '#7c3aed';
 
@@ -31,7 +31,7 @@ export default function AppSidebarNav({
           style={{ color: vista === m ? colorDeModulo(m) : 'var(--muted)' }}
         >
           <Icon name={iconoDeModulo(m)} size={20} style={{ color: colorDeModulo(m) }} />
-          <span>{m}</span>
+          <span>{etiquetaModuloSidebar(null, m)}</span>
         </button>
       ))}
       {subContabilidad.length > 0 && (

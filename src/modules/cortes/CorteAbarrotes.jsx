@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
@@ -6,6 +6,7 @@ import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHis
 import { calcularAbarrotes } from '../../lib/corteContabilidad/calc.js';
 import { datosImpresionCorteActual, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
+import { procesarRifsVencidos } from '../../lib/rifs.js';
 
 const COLOR = '#b5a642';
 
@@ -41,6 +42,18 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
       calcFn: calcularAbarrotes,
       prepararTrasCierre,
     });
+
+  useEffect(() => {
+    if (!supabase) return undefined;
+    let cancel = false;
+    (async () => {
+      const r = await procesarRifsVencidos(supabase, { usuarioNombre: user?.nombre || 'sistema' });
+      if (!cancel && r.procesados > 0) recargar();
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [supabase, sucursal, user?.nombre, recargar]);
 
   const confirmarCierre = () => {
     const f = estado.folio || folio;

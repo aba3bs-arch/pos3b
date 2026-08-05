@@ -200,6 +200,7 @@ export async function registrarVale(supabase, row, opts = {}) {
       ref_id: data.id,
       titulo: `Vale pendiente · ${row.nombre_empleado}`,
       mensaje: `${folio} · $${Number(row.monto).toFixed(2)} · ${categoria}${descuentaNomina ? ' · requiere admin' : ' · después de las 9:00'}`,
+      area_buzon: data.area || row.area || 'virtual',
     });
     return {
       ok: true,
@@ -361,6 +362,7 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
         ref_id: retry.data.id,
         titulo: `Préstamo pendiente · ${row.nombre_empleado}`,
         mensaje: `$${monto.toFixed(2)} · corte ${areaCorte}${necesitaSocio ? ' · requiere socio' : ''}`,
+        area_buzon: areaCorte,
       });
       return {
         ok: true,
@@ -380,6 +382,7 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
     ref_id: data.id,
     titulo: `Préstamo pendiente · ${row.nombre_empleado}`,
     mensaje: `$${monto.toFixed(2)} · corte ${areaCorte}${necesitaSocio ? ' · requiere socio' : ''}`,
+    area_buzon: areaCorte,
   });
 
   return {
@@ -813,6 +816,7 @@ export async function registrarPrestamoInterarea(supabase, row) {
     ref_id: data.id,
     titulo: `Préstamo entre áreas · ${origenLbl} → ${destinoLbl}`,
     mensaje: `$${Number(row.monto || 0).toFixed(2)}${row.notas ? ` · ${row.notas}` : ''}`,
+    area_buzon: row.destino || row.gastos_area || 'abarrotes',
   });
   return { ok: true, prestamo: data };
 }

@@ -245,6 +245,20 @@ export async function eliminarGastoTurno(supabase, id, sucursal, modulo) {
     localStorage.setItem(lsKey(sucursal, modulo, 'gastos'), JSON.stringify(next));
     return { ok: true };
   }
+  // Si el gasto venía de un RIF vencido, marcar el RIF (corte se ajusta solo al borrar).
+  try {
+    const { data: gasto } = await supabase
+      .from('cortes_contabilidad_gastos')
+      .select('id,categoria,comentario')
+      .eq('id', id)
+      .maybeSingle();
+    if (gasto && String(gasto.categoria || '').toUpperCase() === 'FONDO_REQUERIDO') {
+      const { marcarGastoRifEliminado } = await import('../rifs.js');
+      await marcarGastoRifEliminado(supabase, id);
+    }
+  } catch {
+    /* ignore */
+  }
   const { error } = await supabase.from('cortes_contabilidad_gastos').delete().eq('id', id);
   if (error) return { ok: false, error: error.message };
   return { ok: true };

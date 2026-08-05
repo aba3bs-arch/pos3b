@@ -20,6 +20,7 @@ function faltaTabla(error) {
 
 export async function crearNotificacion(supabase, row) {
   if (!supabase) return { ok: true, id: null };
+  const areaBuzon = row.area_buzon ? String(row.area_buzon).toLowerCase() : null;
   const payload = {
     sucursal_id: row.sucursal_id || 'MAIN',
     tipo: row.tipo,
@@ -30,7 +31,14 @@ export async function crearNotificacion(supabase, row) {
     estado: 'pendiente',
     leida: false,
   };
-  const { data, error } = await supabase.from('contabilidad_notificaciones').insert([payload]).select('id').single();
+  if (areaBuzon) payload.area_buzon = areaBuzon;
+
+  let { data, error } = await supabase.from('contabilidad_notificaciones').insert([payload]).select('id').single();
+  // Columna area_buzon aún no migrada: reintentar sin ella.
+  if (error && areaBuzon && /area_buzon|schema cache|column/i.test(String(error.message || ''))) {
+    delete payload.area_buzon;
+    ({ data, error } = await supabase.from('contabilidad_notificaciones').insert([payload]).select('id').single());
+  }
   if (error && faltaTabla(error)) return { ok: true, id: null, aviso: AVISO_FALTA_NOTIF };
   if (error) return { ok: false, error: error.message };
   emitirRefreshNotificaciones();
@@ -146,7 +154,11 @@ export const TIPOS_NOTIF = {
   CONSUMO_CORTE: 'consumo_corte_pendiente',
   RECOLECCION_POST_LIQ: 'recoleccion_post_liquidacion',
   RECOLECCION_CORTE_IE: 'recoleccion_corte_pendiente_ie',
+  RECOLECCION_REPARTIDOR: 'recoleccion_repartidor',
   INVERSION_OFICINA: 'inversion_oficina_proveedor',
+  RIF_ABIERTO: 'rif_abierto',
+  RIF_LIQUIDADO: 'rif_liquidado',
+  RIF_VENCIDO: 'rif_vencido',
 };
 
 export function etiquetaTipoNotificacion(tipo) {
@@ -169,8 +181,16 @@ export function etiquetaTipoNotificacion(tipo) {
       return 'Cobro post-liquidación';
     case TIPOS_NOTIF.RECOLECCION_CORTE_IE:
       return 'Recolección a IE pendiente';
+    case TIPOS_NOTIF.RECOLECCION_REPARTIDOR:
+      return 'Recolección (repartidor)';
     case TIPOS_NOTIF.INVERSION_OFICINA:
       return 'Inversión a recuperar';
+    case TIPOS_NOTIF.RIF_ABIERTO:
+      return 'RIF abierto';
+    case TIPOS_NOTIF.RIF_LIQUIDADO:
+      return 'RIF liquidado';
+    case TIPOS_NOTIF.RIF_VENCIDO:
+      return 'RIF vencido → corte';
     default:
       return tipo || 'Notificación';
   }

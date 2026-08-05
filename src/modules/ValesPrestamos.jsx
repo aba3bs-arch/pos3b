@@ -55,7 +55,19 @@ import {
   sincronizarCategoriasValeDesdeNube,
 } from '../lib/valesCategorias.js';
 import { listarNotificacionesPendientes, TIPOS_NOTIF } from '../lib/contabilidadNotificaciones.js';
-import { imprimirPrestamo, imprimirVale } from '../lib/impresionContabilidad.js';
+import { imprimirPrestamo, imprimirRif, imprimirVale } from '../lib/impresionContabilidad.js';
+import {
+  AVISO_FALTA_RIFS,
+  cancelarRif,
+  etiquetaEstadoRif,
+  liquidarRif,
+  listarRifs,
+  procesarRifsVencidos,
+  registrarRif,
+  rifPuedeCancelar,
+  rifPuedeImprimir,
+  rifPuedeLiquidar,
+} from '../lib/rifs.js';
 import { normalizarRol } from '../lib/roles.js';
 import { empleadosVisiblesParaTienda } from '../lib/empleadosVisibles.js';
 import { tiendaPuedeGenerarVales } from '../lib/posConfig.js';
@@ -79,9 +91,18 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const [prestamosArea, setPrestamosArea] = useState([]);
   const [prestamosSuc, setPrestamosSuc] = useState([]);
   const [prestamosEmp, setPrestamosEmp] = useState([]);
+  const [rifs, setRifs] = useState([]);
   const [empleados, setEmpleados] = useState([]);
   const [notifs, setNotifs] = useState([]);
   const [pinSocio, setPinSocio] = useState('');
+  const [rifForm, setRifForm] = useState({
+    sucursal_destino: '',
+    responsable_nombre: '',
+    monto: '',
+    motivo: '',
+    fecha_promesa: hoyISO(),
+    hora_promesa: '18:00',
+  });
 
   const [valeForm, setValeForm] = useState({
     beneficiarioId: '',
@@ -177,8 +198,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const recargarTodo = useCallback(async () => {
     if (!supabase) return;
+    // Vencer RIF cuya hora promesa ya pasó (carga gasto a corte abarrotes).
+    try {
+      await procesarRifsVencidos(supabase, { usuarioNombre: user?.nombre || 'sistema' });
+    } catch {
+      /* ignore */
+    }
     // Admin/gerente: ver préstamos de todas las tiendas en la tabla (antes solo salían en Pendientes).
-    const [vRes, paRes, psRes, peRes, nRes, vPendRes, pePendRes] = await Promise.all([
+    const [vRes, paRes, psRes, peRes, nRes, vPendRes, pePendRes, rifRes] = await Promise.all([
       listarVales(supabase, { sucursal, tipo: 'indirecto' }),
       listarPrestamosInterarea(supabase, { sucursal }),
       listarPrestamosSucursales(supabase, { sucursal }),
@@ -198,8 +225,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       vePendientesTodasTiendas || esSocio
         ? listarPrestamos(supabase, { incluirHistorial: true, limit: 250 })
         : Promise.resolve({ data: [] }),
+      listarRifs(supabase, { sucursal, todasTiendas: vePendientesTodasTiendas, limit: 150 }),
     ]);
     if (vRes.aviso) setAviso(vRes.aviso);
+    else if (rifRes.aviso) setAviso(rifRes.aviso);
     else if (psRes.aviso) setAviso(psRes.aviso);
     else if (peRes.aviso) setAviso(peRes.aviso);
     else if (peRes.error) setAviso(peRes.error);
@@ -209,10 +238,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     setPrestamosArea(paRes.data || []);
     setPrestamosSuc(psRes.data || []);
     setPrestamosEmp(peRes.data || []);
+    setRifs(rifRes.data || []);
     setNotifs(nRes.data || []);
     setValesPendAll(vPendRes.data || []);
     setPrestamosPendAll(pePendRes.data || []);
-  }, [supabase, sucursal, vePendientesTodasTiendas, esSocio]);
+  }, [supabase, sucursal, vePendientesTodasTiendas, esSocio, user?.nombre]);
 
   useEffect(() => {
     recargarTodo();
@@ -492,6 +522,50 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     recargarTodo();
   };
 
+  const guardarRif = async () => {
+    const horaIso = `${rifForm.fecha_promesa}T${rifForm.hora_promesa || '18:00'}:00`;
+    const res = await registrarRif(
+      supabase,
+      {
+        sucursal_origen: sucursal,
+        sucursal_destino: rifForm.sucursal_destino,
+        responsable_nombre: rifForm.responsable_nombre,
+        monto: rifForm.monto,
+        motivo: rifForm.motivo,
+        hora_promesa: horaIso,
+      },
+      { usuarioNombre: user?.nombre, usuarioId: user?.id },
+    );
+    if (!res.ok) return alert(res.error || AVISO_FALTA_RIFS);
+    setRifForm({
+      sucursal_destino: '',
+      responsable_nombre: '',
+      monto: '',
+      motivo: '',
+      fecha_promesa: hoyISO(),
+      hora_promesa: '18:00',
+    });
+    if (confirm('RIF registrado. ¿Imprimir ticket con firma del responsable?')) {
+      imprimirRif(res.rif, { mostrarFirma: true });
+    }
+    recargarTodo();
+  };
+
+  const liquidarR = async (rif) => {
+    if (!confirm(`¿Liquidar ${rif.folio}? Solo la tienda origen / cajero emisor.`)) return;
+    const res = await liquidarRif(supabase, rif.id, { usuarioNombre: user?.nombre });
+    if (!res.ok) return alert(res.error);
+    alert('RIF liquidado.');
+    recargarTodo();
+  };
+
+  const cancelarR = async (rif) => {
+    if (!confirm(`¿Cancelar ${rif.folio}? Si ya estaba en corte, se quita el gasto del turno abierto.`)) return;
+    const res = await cancelarRif(supabase, rif.id, { usuarioNombre: user?.nombre });
+    if (!res.ok) return alert(res.error);
+    recargarTodo();
+  };
+
   const cancelarV = async (v) => {
     if (!esAdmin) return alert('Solo el administrador puede cancelar vales.');
     if (!valePuedeCancelar(v)) return alert('Este vale ya no se puede cancelar.');
@@ -700,9 +774,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       </div>
 
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        {['vales', 'prestamos', 'prestamos_emp', esAdmin && 'tipos', esAdmin && 'gasolina', puedeVerBandejaAprobacion && 'pendientes'].filter(Boolean).map((p) => (
+        {['vales', 'rif', 'prestamos', 'prestamos_emp', esAdmin && 'tipos', esAdmin && 'gasolina', puedeVerBandejaAprobacion && 'pendientes'].filter(Boolean).map((p) => (
           <button key={p} type="button" className={`btn ${pestana === p ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPestana(p)}>
             {p === 'vales' && 'Vales'}
+            {p === 'rif' && `RIF (${rifs.filter((r) => r.estado === 'abierto').length})`}
             {p === 'prestamos' && 'Préstamos área / sucursal'}
             {p === 'prestamos_emp' && 'Préstamos empleados'}
             {p === 'tipos' && 'Tipos de vale'}
@@ -971,6 +1046,151 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                       </td>
                     </tr>
                   ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+
+      {pestana === 'rif' && (
+        <>
+          <div className="card">
+            <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Nuevo RIF (Requisición Interna de Fondos)</h3>
+            <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+              Tienda origen: <strong>{etiquetaTienda(sucursal)}</strong>. Si no se liquida a la hora promesa, se carga solo al
+              <strong> Corte de Abarrotes</strong> como <strong>Fondo requerido</strong>.
+            </p>
+            <div className="grid-2">
+              <label className="muted">
+                Tienda receptora
+                <select
+                  className="select"
+                  style={{ marginTop: '0.35rem' }}
+                  value={rifForm.sucursal_destino}
+                  onChange={(e) => setRifForm({ ...rifForm, sucursal_destino: e.target.value })}
+                >
+                  <option value="">— Selecciona —</option>
+                  {sucursalesDestino.map((s) => (
+                    <option key={s} value={s}>{etiquetaTienda(s)}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="muted">
+                Responsable del RIF
+                <input
+                  className="input"
+                  style={{ marginTop: '0.35rem' }}
+                  value={rifForm.responsable_nombre}
+                  onChange={(e) => setRifForm({ ...rifForm, responsable_nombre: e.target.value })}
+                  placeholder="Nombre quien responde"
+                />
+              </label>
+              <label className="muted">
+                Monto
+                <input
+                  className="input"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  style={{ marginTop: '0.35rem' }}
+                  value={rifForm.monto}
+                  onChange={(e) => setRifForm({ ...rifForm, monto: e.target.value })}
+                />
+              </label>
+              <label className="muted">
+                Fecha promesa
+                <div style={{ marginTop: '0.35rem' }}>
+                  <SelectorCalendario
+                    label=""
+                    value={rifForm.fecha_promesa}
+                    onChange={(f) => setRifForm({ ...rifForm, fecha_promesa: f })}
+                  />
+                </div>
+              </label>
+              <label className="muted">
+                Hora promesa de pago
+                <input
+                  className="input"
+                  type="time"
+                  style={{ marginTop: '0.35rem' }}
+                  value={rifForm.hora_promesa}
+                  onChange={(e) => setRifForm({ ...rifForm, hora_promesa: e.target.value })}
+                />
+              </label>
+              <label className="muted" style={{ gridColumn: '1 / -1' }}>
+                Motivo
+                <input
+                  className="input"
+                  style={{ marginTop: '0.35rem' }}
+                  value={rifForm.motivo}
+                  onChange={(e) => setRifForm({ ...rifForm, motivo: e.target.value })}
+                  placeholder="Opcional"
+                />
+              </label>
+            </div>
+            <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={guardarRif}>
+              Registrar RIF e imprimir
+            </button>
+          </div>
+          <div className="card">
+            <h3 style={{ margin: '0 0 0.75rem' }}>RIF registrados ({rifs.length})</h3>
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Folio</th>
+                    <th>Estado</th>
+                    <th>Origen → Receptora</th>
+                    <th>Responsable</th>
+                    <th>Monto</th>
+                    <th>Promesa</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {rifs.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="muted">Sin RIF. Ejecuta supabase/fix_rifs.sql si falta la tabla.</td>
+                    </tr>
+                  ) : (
+                    rifs.map((r) => (
+                      <tr key={r.id}>
+                        <td>{r.folio}</td>
+                        <td>{etiquetaEstadoRif(r.estado)}</td>
+                        <td className="muted">{etiquetaTienda(r.sucursal_origen)} → {etiquetaTienda(r.sucursal_destino)}</td>
+                        <td>{r.responsable_nombre}</td>
+                        <td style={{ fontWeight: 700 }}>{fmt(r.monto)}</td>
+                        <td className="muted" style={{ fontSize: '0.82rem' }}>
+                          {r.hora_promesa
+                            ? new Date(r.hora_promesa).toLocaleString('es-MX', {
+                                day: '2-digit',
+                                month: 'short',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                            : '—'}
+                        </td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          {rifPuedeImprimir(r) && (
+                            <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => imprimirRif(r, { mostrarFirma: true })}>
+                              Imprimir
+                            </button>
+                          )}
+                          {rifPuedeLiquidar(r) && String(r.sucursal_origen).toUpperCase() === String(sucursal || '').toUpperCase() && (
+                            <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem' }} onClick={() => liquidarR(r)}>
+                              Liquidar
+                            </button>
+                          )}
+                          {esAdmin && rifPuedeCancelar(r) && (
+                            <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => cancelarR(r)}>
+                              Cancelar
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
                   )}
                 </tbody>
               </table>

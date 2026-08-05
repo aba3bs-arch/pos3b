@@ -56,6 +56,12 @@ import { BtnLabel } from '../components/Icon.jsx';
 import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
 import { PRESETS_FECHA_PRODUCTO, rangoDesdePreset } from '../lib/consultasInventario.js';
 import { enRangoYmd, toYmd } from '../lib/fechas.js';
+import {
+  BUZONES_AREA,
+  etiquetaBuzon,
+  incidenciaPerteneceABuzon,
+  notificacionPerteneceABuzon,
+} from '../lib/buzonAreas.js';
 
 const PRESETS_INCIDENCIAS = [{ id: 'todos', label: 'Todas las fechas' }, ...PRESETS_FECHA_PRODUCTO];
 
@@ -91,6 +97,7 @@ export default function Buzon({
   const soloIncidencias = rolSoloPestanaIncidencias(rol, user?.id);
 
   const [pestana, setPestana] = useState(soloIncidencias ? 'incidencias' : pestanaInicial);
+  const [buzonArea, setBuzonArea] = useState('todos');
   const [aviso, setAviso] = useState('');
   const [pendientes, setPendientes] = useState([]);
   const [historial, setHistorial] = useState([]);
@@ -497,15 +504,32 @@ export default function Buzon({
     }
   };
 
+  const pendientesBuzon = useMemo(
+    () => (pendientes || []).filter((n) => notificacionPerteneceABuzon(n, buzonArea)),
+    [pendientes, buzonArea],
+  );
+  const historialBuzon = useMemo(
+    () => (historial || []).filter((n) => notificacionPerteneceABuzon(n, buzonArea)),
+    [historial, buzonArea],
+  );
+  const incidenciasBuzon = useMemo(
+    () => (incidenciasFiltradas || []).filter((i) => incidenciaPerteneceABuzon(i, buzonArea)),
+    [incidenciasFiltradas, buzonArea],
+  );
+  const incidenciasAbiertasBuzon = useMemo(
+    () => incidenciasBuzon.filter((i) => i.estado === 'abierta' || i.estado === 'en_revision'),
+    [incidenciasBuzon],
+  );
+
   const pestanas = soloIncidencias
-    ? [{ id: 'incidencias', label: `Mis reportes (${incidenciasVisibles.length})` }]
+    ? [{ id: 'incidencias', label: `Mis reportes (${incidenciasBuzon.length})` }]
     : [
-        ...(puedeBandejaPendientes ? [{ id: 'pendientes', label: `Pendientes (${pendientes.length})` }] : []),
+        ...(puedeBandejaPendientes ? [{ id: 'pendientes', label: `Pendientes (${pendientesBuzon.length})` }] : []),
         {
           id: 'incidencias',
           label: puedeResolver
-            ? `Por atender (${incidenciasAbiertas.length})`
-            : `Incidencias (${incidencias.length})`,
+            ? `Por atender (${incidenciasAbiertasBuzon.length})`
+            : `Incidencias (${incidenciasBuzon.length})`,
         },
       ];
   if (!soloIncidencias && puedeHistorial) pestanas.push({ id: 'historial', label: 'Historial' });
@@ -513,14 +537,36 @@ export default function Buzon({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
-        <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>Incidencias</h2>
+        <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>
+          Buzón{buzonArea !== 'todos' ? ` · ${etiquetaBuzon(buzonArea)}` : ''}
+        </h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
           {soloIncidencias
             ? `Tienda ${etiquetaTienda(sucursal)} · levanta un reporte para que administración lo atienda`
             : puedeResolver
               ? `Tienda ${etiquetaTienda(sucursal)} · atiende incidencias asignadas${veTodasTiendas ? ' de todas las sucursales' : ''}`
-              : 'Pendientes de todas las tiendas · vales, préstamos e incidencias'}
+              : 'Tres buzones: Virtual, Abarrotes y Garage · vales, préstamos, recolecciones e incidencias'}
         </p>
+      </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+        <button
+          type="button"
+          className={`btn ${buzonArea === 'todos' ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => setBuzonArea('todos')}
+        >
+          Todos
+        </button>
+        {BUZONES_AREA.map((b) => (
+          <button
+            key={b.id}
+            type="button"
+            className={`btn ${buzonArea === b.id ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setBuzonArea(b.id)}
+          >
+            {b.label}
+          </button>
+        ))}
       </div>
 
       {aviso && (
@@ -552,8 +598,11 @@ export default function Buzon({
 
       {!soloIncidencias && pestana === 'pendientes' && (
         <div className="card">
-          {pendientes.length === 0 ? (
-            <p className="muted">Sin notificaciones pendientes.</p>
+          {pendientesBuzon.length === 0 ? (
+            <p className="muted">
+              Sin notificaciones pendientes
+              {buzonArea !== 'todos' ? ` en buzón ${etiquetaBuzon(buzonArea)}` : ''}.
+            </p>
           ) : (
             <div className="table-wrap">
               <table className="data">
@@ -567,7 +616,7 @@ export default function Buzon({
                   </tr>
                 </thead>
                 <tbody>
-                  {pendientes.map((n) => (
+                  {pendientesBuzon.map((n) => (
                     <tr key={n.id}>
                       <td>{fmtFecha(n.created_at)}</td>
                       {veTodasTiendas && <td>{etiquetaTienda(n.sucursal_id)}</td>}
@@ -841,9 +890,9 @@ export default function Buzon({
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
               <span>
                 Incidencias {veTodasTiendas ? '· todas las tiendas' : ''}
-                {incidenciasAbiertas.length > 0 && (
+                {incidenciasAbiertasBuzon.length > 0 && (
                   <span className="badge" style={{ marginLeft: '0.5rem', background: 'var(--danger)', color: '#fff' }}>
-                    {incidenciasAbiertas.length} abiertas
+                    {incidenciasAbiertasBuzon.length} abiertas
                   </span>
                 )}
               </span>
@@ -853,7 +902,7 @@ export default function Buzon({
                 </button>
               )}
             </h3>
-            {incidenciasFiltradas.length === 0 ? (
+            {incidenciasBuzon.length === 0 ? (
               <p className="muted">{soloIncidencias ? 'Aún no has reportado incidencias en este periodo.' : 'No hay incidencias en este periodo.'}</p>
             ) : (
               <div className="table-wrap">
@@ -874,7 +923,7 @@ export default function Buzon({
                     </tr>
                   </thead>
                   <tbody>
-                    {incidenciasFiltradas.map((inc) => (
+                    {incidenciasBuzon.map((inc) => (
                       <tr key={inc.id}>
                         <td>{fmtFechaIncidencia(inc.created_at)}</td>
                         <td>{fmtHoraIncidencia(inc.created_at)}</td>
@@ -1011,7 +1060,7 @@ export default function Buzon({
 
       {pestana === 'historial' && puedeHistorial && (
         <div className="card">
-          {historial.length === 0 ? (
+          {historialBuzon.length === 0 ? (
             <p className="muted">Sin historial reciente.</p>
           ) : (
             <div className="table-wrap">
@@ -1026,7 +1075,7 @@ export default function Buzon({
                   </tr>
                 </thead>
                 <tbody>
-                  {historial.map((n) => (
+                  {historialBuzon.map((n) => (
                     <tr key={n.id}>
                       <td>{fmtFecha(n.created_at)}</td>
                       <td>{etiquetaTienda(n.sucursal_id)}</td>

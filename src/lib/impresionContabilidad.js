@@ -376,6 +376,48 @@ export function imprimirVale(vale, opts) {
   return abrirVentanaImpresion(htmlVale(vale, opts), 'Vale');
 }
 
+export function htmlRif(rif, opts = {}) {
+  const firma = opts.mostrarFirma !== false;
+  const promesa = rif.hora_promesa
+    ? new Date(rif.hora_promesa).toLocaleString('es-MX', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '—';
+  const emitido = rif.emitido_at || rif.created_at
+    ? new Date(rif.emitido_at || rif.created_at).toLocaleString('es-MX', {
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '—';
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>RIF</title><style>${estilos()}
+  .firma{margin-top:48px;border-top:1px solid #333;width:80%;padding-top:6px;font-size:11px}
+  .aviso{margin-top:14px;padding:8px;border:1.5px solid #000;font-size:12px}
+  </style></head><body>
+    <h1>RIF — REQUISICIÓN INTERNA DE FONDOS</h1>
+    <div>Folio: <strong>${esc(rif.folio || '—')}</strong></div>
+    <div>Emitido: ${esc(emitido)}</div>
+    <div>Tienda origen: <strong>${esc(rif.sucursal_origen || '—')}</strong></div>
+    <div>Tienda receptora: <strong>${esc(rif.sucursal_destino || '—')}</strong></div>
+    <div>Responsable: <strong>${esc(rif.responsable_nombre || '—')}</strong></div>
+    <div style="font-size:20px;margin:12px 0"><strong>Monto: ${fmt(rif.monto)}</strong></div>
+    <div>Hora promesa de pago: <strong>${esc(promesa)}</strong></div>
+    <div>Motivo: ${esc(rif.motivo || '—')}</div>
+    <div class="muted">Emitido por: ${esc(rif.emitido_por || '—')}</div>
+    <div class="aviso">Si no se liquida a la hora promesa, se carga automáticamente al <strong>Corte de Abarrotes</strong> como <strong>Fondo requerido</strong> (responsable del RIF).</div>
+    ${firma ? `<div class="firma">Firma del responsable: _________________________________</div>` : ''}
+  </body></html>`;
+}
+
+export function imprimirRif(rif, opts) {
+  return abrirVentanaImpresion(htmlRif(rif, opts), 'RIF');
+}
+
 export function imprimirPrestamo(prestamo) {
   return abrirVentanaImpresion(htmlPrestamo(prestamo), 'Préstamo');
 }

@@ -125,9 +125,10 @@ async function notificarCobroPostLiquidacion(supabase, { repartidorId, tienda, m
       sucursal_id: normalizarCodigoTienda(tienda) || 'MAIN',
       tipo: TIPOS_NOTIF.RECOLECCION_POST_LIQ,
       ref_tabla: 'transito_efectivo',
-      ref_id: String(refId || `post_liq_${repartidorId}_${Date.now()}`),
+      ref_id: refId,
       titulo: 'Cobro después de liquidación',
       mensaje: `${repNombre} registró ${detalle || 'cobro'} en ${tiendaLabel} por ${fmtMonto(monto)} después de haber liquidado.`,
+      area_buzon: 'abarrotes',
     });
   } catch {
     /* no bloquear el cobro si falla el aviso */
@@ -616,14 +617,41 @@ export async function registrarTraspasos(supabase, filas, opts) {
   const { data: inserted, error } = await supabase.from('transito_efectivo').insert(registros).select('id, monto');
   if (error) return { ok: false, error: error.message };
 
+  const total = (inserted || registros).reduce((a, r) => a + Number(r.monto || 0), 0);
+  const nRegs = (inserted || registros).length;
+  const refId = inserted?.[0]?.id;
+
+  // Toda recolección/traspaso del repartidor → buzón Abarrotes
+  if (refId) {
+    try {
+      let repNombre = repartidorId || 'Repartidor';
+      try {
+        const { data: rep } = await supabase.from('repartidores').select('nombre').eq('id', repartidorId).maybeSingle();
+        if (rep?.nombre) repNombre = rep.nombre;
+      } catch {
+        /* ignore */
+      }
+      await crearNotificacion(supabase, {
+        sucursal_id: tienda,
+        tipo: TIPOS_NOTIF.RECOLECCION_REPARTIDOR,
+        ref_tabla: 'transito_efectivo',
+        ref_id: refId,
+        titulo: esEfectivo ? 'Recolección en efectivo' : 'Traspaso / entrega crédito',
+        mensaje: `${repNombre} · ${tienda} · ${nRegs} folio(s) · $${Number(total).toFixed(2)} · cajero ${cajero}`,
+        area_buzon: 'abarrotes',
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
   if (esEfectivo) {
-    const total = (inserted || registros).reduce((a, r) => a + Number(r.monto || 0), 0);
     await notificarCobroPostLiquidacion(supabase, {
       repartidorId,
       tienda,
       monto: total,
-      detalle: `${(inserted || registros).length} traspaso(s) en efectivo`,
-      refId: inserted?.[0]?.id,
+      detalle: `${nRegs} traspaso(s) en efectivo`,
+      refId,
     });
   }
 

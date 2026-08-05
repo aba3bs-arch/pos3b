@@ -315,6 +315,7 @@ export function rolVeBuzonComoIncidencias(rol) {
 }
 
 export function etiquetaModuloSidebar(_rol, moduloId) {
+  if (moduloId === 'Incidencias') return 'Buzón';
   return moduloId;
 }
 

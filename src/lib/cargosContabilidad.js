@@ -59,6 +59,73 @@ export async function quitarValeDeCorteAbierto(supabase, vale) {
   return { ok: true, removidos: ids.length };
 }
 
+/**
+ * Carga un RIF vencido como gasto «Fondo requerido» en corte de abarrotes (tienda origen).
+ * El Admin puede eliminar el gasto en Corte Abarrotes; el total se ajusta solo.
+ */
+export async function cargarRifACorte(supabase, rif, opts = {}) {
+  if (!supabase || !rif?.id) return { ok: false, error: 'RIF inválido.' };
+  if (rif.gasto_id && !rif.gasto_eliminado) return { ok: true, yaCargado: true, gastoId: rif.gasto_id };
+  const suc = rif.sucursal_origen || 'MAIN';
+  const folio = String(rif.folio || '').trim();
+  const payload = {
+    sucursal_id: suc,
+    modulo: 'abarrotes',
+    categoria: 'FONDO_REQUERIDO',
+    subcategoria: 'RIF',
+    comentario: `RIF ${folio} · Resp. ${rif.responsable_nombre || '—'} · → ${rif.sucursal_destino || ''}`.trim().toUpperCase(),
+    monto: Number(rif.monto) || 0,
+    usuario_id: rif.responsable_usuario_id || null,
+    usuario_nombre: rif.responsable_nombre || null,
+    cerrado: false,
+    descontado_nomina: false,
+  };
+  const { data, error: e1 } = await supabase
+    .from('cortes_contabilidad_gastos')
+    .insert([payload])
+    .select('id')
+    .single();
+  if (e1) return { ok: false, error: e1.message };
+  return { ok: true, gastoId: data?.id || null, modulo: 'abarrotes' };
+}
+
+/** Quita gasto de RIF del turno abierto (Admin cancela RIF vencido o limpia corte). */
+export async function quitarRifDeCorteAbierto(supabase, rif) {
+  if (!supabase || !rif) return { ok: true };
+  const folio = String(rif.folio || '').trim();
+  const suc = rif.sucursal_origen || 'MAIN';
+  let ids = [];
+  if (rif.gasto_id) {
+    ids = [rif.gasto_id];
+  } else {
+    let q = supabase
+      .from('cortes_contabilidad_gastos')
+      .select('id')
+      .eq('sucursal_id', suc)
+      .eq('modulo', 'abarrotes')
+      .eq('cerrado', false)
+      .eq('categoria', 'FONDO_REQUERIDO');
+    if (folio) q = q.ilike('comentario', `%RIF ${folio}%`);
+    const { data, error } = await q;
+    if (error) {
+      if (error.code === '42P01') return { ok: true, aviso: 'Sin tabla de gastos de corte.' };
+      return { ok: false, error: error.message };
+    }
+    ids = (data || []).map((g) => g.id);
+  }
+  if (ids.length) {
+    const { error: eDel } = await supabase.from('cortes_contabilidad_gastos').delete().in('id', ids);
+    if (eDel) return { ok: false, error: eDel.message };
+  }
+  if (rif.id) {
+    await supabase
+      .from('rifs')
+      .update({ gasto_eliminado: true, gasto_id: null })
+      .eq('id', rif.id);
+  }
+  return { ok: true, removidos: ids.length };
+}
+
 export async function cargarPrestamoEmpleadoACorte(supabase, prestamo, areaCorte) {
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
   if (prestamo.cargado_corte) return { ok: true, yaCargado: true };

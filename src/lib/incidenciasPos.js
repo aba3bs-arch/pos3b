@@ -144,6 +144,16 @@ export async function crearIncidencia(supabase, row) {
   if (error && faltaTabla(error)) return { ok: false, error: AVISO_FALTA_INCIDENCIAS };
   if (error) return { ok: false, error: error.message };
 
+  const catArea = String(payload.categoria || '').toLowerCase();
+  const areaBuzon = ['virtual', 'abarrotes', 'garage'].includes(catArea)
+    ? catArea
+    : // Reportes que impliquen abarrotes (mostrador, bodega, inventario operativo) → buzón abarrotes
+      (catArea === 'operacion' || catArea === 'inventario' || /abarrotes|mostrador|bodega/i.test(`${payload.subcategoria || ''} ${payload.titulo || ''}`)
+        ? 'abarrotes'
+        : catArea === 'mantenimiento' || catArea === 'equipo'
+          ? 'garage'
+          : null);
+
   await crearNotificacion(supabase, {
     sucursal_id: payload.sucursal_id,
     tipo: TIPOS_NOTIF.INCIDENCIA,
@@ -162,6 +172,7 @@ export async function crearIncidencia(supabase, row) {
     ]
       .filter(Boolean)
       .join(' · '),
+    area_buzon: areaBuzon,
   });
   emitirRefreshNotificaciones();
 
