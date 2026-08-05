@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { etiquetaMetodoPago, leerMetodosPago, resolverImpresionVentaPorMonto, leerConfigVenta, EVENTO_CONFIG_VENTA } from '../lib/posConfig.js';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { etiquetaMetodoPago, leerMetodosPago, resolverImpresionVentaPorMonto } from '../lib/posConfig.js';
 import { imprimirVenta } from '../lib/impresion.js';
 import { productoEnVenta, productoEsFavorito } from '../lib/productoForm.js';
 import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from '../lib/departamentos.js';
@@ -11,11 +11,7 @@ import { guardarMovimientoLocal } from '../lib/inventarioMovimientos.js';
 import {
   AVISO_FALTA_RPC_STOCK,
   descontarStockCarritoVenta,
-  evaluarExistenciaLinea,
-  mensajeProblemasExistencia,
-  qtyEnCarrito,
   revertirDescuentosVenta,
-  validarExistenciaVentaFresca,
 } from '../lib/ventaStock.js';
 import { sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
@@ -96,8 +92,6 @@ export default function Ventas({
   const [detalleProductoId, setDetalleProductoId] = useState(null);
   const [avisoEscanerRemoto, setAvisoEscanerRemoto] = useState('');
   const inventarioRef = useRef(inventario);
-  const carritoRef = useRef(carrito);
-  const [configVenta, setConfigVenta] = useState(() => leerConfigVenta());
 
   const detalleProducto = useMemo(() => {
     if (!detalleProductoId) return null;
@@ -109,16 +103,6 @@ export default function Ventas({
   }, [inventario]);
 
   useEffect(() => {
-    carritoRef.current = carrito;
-  }, [carrito]);
-
-  useEffect(() => {
-    const sync = () => setConfigVenta(leerConfigVenta());
-    window.addEventListener(EVENTO_CONFIG_VENTA, sync);
-    return () => window.removeEventListener(EVENTO_CONFIG_VENTA, sync);
-  }, []);
-
-  useEffect(() => {
     if (!supabase || !user?.id) return undefined;
     return suscribirEscanerRemoto(supabase, {
       sucursal,
@@ -127,18 +111,6 @@ export default function Ventas({
         const prod = productoPorCodigoExacto(inventarioRef.current, codigo);
         if (!prod) {
           setAvisoEscanerRemoto(`Escáner móvil: no se encontró ${codigo}`);
-          return;
-        }
-        const qtyNueva = qtyEnCarrito(carritoRef.current, prod.id) + 1;
-        const r = evaluarExistenciaLinea({
-          producto: prod,
-          sucursal,
-          qtyNecesaria: qtyNueva,
-          config: leerConfigVenta(),
-          rol: user?.rol,
-        });
-        if (!r.ok && !r.puedeOverride) {
-          setAvisoEscanerRemoto(`Escáner móvil: sin existencia · ${prod.nombre}`);
           return;
         }
         setCarrito((c) => addToCart(c, prod));
@@ -255,31 +227,9 @@ export default function Ventas({
     }
 
     const tiendaVenta = normalizarCodigoTienda(sucursal) || sucursal;
-    const existenciaFresca = await validarExistenciaVentaFresca(supabase, {
-      carrito,
-      sucursal: tiendaVenta,
-      config: configVenta,
-      rol: user?.rol,
-    });
-    if (!existenciaFresca.ok && existenciaFresca.error) {
-      return alert(existenciaFresca.error);
-    }
-    if (!existenciaFresca.ok && existenciaFresca.bloqueado) {
-      return alert(
-        `Sin existencia suficiente en piso:\n\n${mensajeProblemasExistencia(existenciaFresca.problemas)}`,
-      );
-    }
-    if (!existenciaFresca.ok && existenciaFresca.requiereConfirmacionAdmin) {
-      const okAdmin = confirm(
-        `Existencia insuficiente (${existenciaFresca.problemas.length} producto(s)):\n\n` +
-          `${mensajeProblemasExistencia(existenciaFresca.problemas)}\n\n` +
-          'Como administrador puedes continuar; el inventario quedará negativo.\n\n¿Cobrar de todas formas?',
-      );
-      if (!okAdmin) return;
-    }
-
     setFinalizando(true);
 
+    // Stock primero (permite 0 → negativo); si falla el ticket, se revierte.
     const descuentoRes = await descontarStockCarritoVenta(supabase, { carrito, sucursal: tiendaVenta });
     if (!descuentoRes.ok) {
       if (descuentoRes.descuentos?.length) {
@@ -376,22 +326,6 @@ export default function Ventas({
   const setQty = (id, qty) => {
     const prev = carrito.find((row) => row.id === id);
     const nextQty = Math.max(1, qty);
-    if (prev && nextQty > Number(prev.qty || 1)) {
-      const p = inventario.find((x) => x.id === id);
-      if (p) {
-        const r = evaluarExistenciaLinea({
-          producto: p,
-          sucursal,
-          qtyNecesaria: nextQty,
-          config: configVenta,
-          rol: user?.rol,
-        });
-        if (!r.ok && !r.puedeOverride) {
-          alert(`Sin existencia suficiente.\n\n${r.msg}`);
-          return;
-        }
-      }
-    }
     if (prev && nextQty < Number(prev.qty || 1)) {
       const delta = Number(prev.qty || 1) - nextQty;
       void registrarRemocionCarrito(supabase, {
@@ -434,29 +368,10 @@ export default function Ventas({
     if (!r.ok) alert(r.error);
   };
 
-  const intentarAgregarAlCarrito = useCallback(
-    (producto, conSonido = false) => {
-      const qtyNueva = qtyEnCarrito(carrito, producto.id) + 1;
-      const p = inventario.find((x) => String(x.id) === String(producto.id)) || producto;
-      const r = evaluarExistenciaLinea({
-        producto: p,
-        sucursal,
-        qtyNecesaria: qtyNueva,
-        config: configVenta,
-        rol: user?.rol,
-      });
-      if (!r.ok && !r.puedeOverride) {
-        alert(`Sin existencia suficiente.\n\n${r.msg}`);
-        return false;
-      }
-      if (conSonido) sonidoEscaneoProducto();
-      setCarrito((car) => addToCart(car, producto));
-      return true;
-    },
-    [carrito, inventario, sucursal, configVenta, user?.rol],
-  );
-
-  const agregarAlCarrito = (producto, conSonido = false) => intentarAgregarAlCarrito(producto, conSonido);
+  const agregarAlCarrito = (producto, conSonido = false) => {
+    if (conSonido) sonidoEscaneoProducto();
+    setCarrito((car) => addToCart(car, producto));
+  };
 
   const procesarCodigoCamara = (codigo) => {
     const c = String(codigo || '').trim();
@@ -562,7 +477,7 @@ export default function Ventas({
                 <div key={p.id} className="ventas-favorito-card">
                   <button
                     type="button"
-                    onClick={() => intentarAgregarAlCarrito(p)}
+                    onClick={() => setCarrito((c) => addToCart(c, p))}
                     className="ventas-favorito-btn"
                     title={`${p.nombre} · ${p.id}`}
                   >
@@ -637,7 +552,7 @@ export default function Ventas({
                 className="btn btn-primary"
                 style={{ width: '100%', marginTop: '0.75rem' }}
                 onClick={() => {
-                  intentarAgregarAlCarrito(detalleProducto);
+                  setCarrito((c) => addToCart(c, detalleProducto));
                   setDetalleProductoId(null);
                 }}
               >
@@ -690,7 +605,7 @@ export default function Ventas({
                     key={p.id}
                     type="button"
                     onClick={() => {
-                      intentarAgregarAlCarrito(p);
+                      setCarrito((c) => addToCart(c, p));
                       setBusqueda('');
                     }}
                     className="ventas-resultado-item"

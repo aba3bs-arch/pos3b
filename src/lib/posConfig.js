@@ -435,34 +435,3 @@ export function guardarAccionPrivilegio(accionId, modo, key, activo) {
   return guardarPrivilegios({ ...p, acciones });
 }
 
-const LS_CONFIG_VENTA = 'pos3b_config_venta';
-export const EVENTO_CONFIG_VENTA = 'pos3b-config-venta-updated';
-
-export const MODOS_EXISTENCIA_VENTA = [
-  { id: 'bloquear', label: 'Bloquear — no vender sin existencia en piso' },
-  { id: 'aviso_admin', label: 'Bloquear cajero; administrador puede confirmar al cobrar' },
-];
-
-const VENTA_DEFAULT = {
-  /** 'bloquear' | 'aviso_admin' */
-  existencia: 'bloquear',
-};
-
-export function leerConfigVenta() {
-  try {
-    const raw = localStorage.getItem(LS_CONFIG_VENTA);
-    if (!raw) return { ...VENTA_DEFAULT };
-    const v = JSON.parse(raw);
-    const existencia = v.existencia === 'aviso_admin' ? 'aviso_admin' : 'bloquear';
-    return { ...VENTA_DEFAULT, ...v, existencia };
-  } catch {
-    return { ...VENTA_DEFAULT };
-  }
-}
-
-export function guardarConfigVenta(cfg) {
-  const existencia = cfg?.existencia === 'aviso_admin' ? 'aviso_admin' : 'bloquear';
-  localStorage.setItem(LS_CONFIG_VENTA, JSON.stringify({ existencia }));
-  window.dispatchEvent(new CustomEvent(EVENTO_CONFIG_VENTA));
-  return { existencia };
-}
