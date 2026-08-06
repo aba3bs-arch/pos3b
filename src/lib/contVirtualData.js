@@ -9,6 +9,8 @@ import { listarCatalogoContVirtual } from './contVirtualCatalogo.js';
 import { montoRecoleccionParaContabilidad } from './corteContabilidad/calc.js';
 import {
   listarEgresosContVirtual,
+  listarIngresosContVirtual,
+  itemIngresoManualDesdeFila,
   listarRefsEgresosEliminadosIe,
   sincronizarGastosCubreTaxiContVirtual,
   sincronizarValesContVirtual,
@@ -253,13 +255,14 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     .limit(1000);
   if (sucursal) qPrestamos = qPrestamos.eq('sucursal_id', sucursal);
 
-  const [cierresRes, gastosRes, prestamosRes, catalogoRes, egresosLibroRes, refsPrestElimRes] = await Promise.all([
+  const [cierresRes, gastosRes, prestamosRes, catalogoRes, egresosLibroRes, refsPrestElimRes, ingresosManualRes] = await Promise.all([
     qCierres,
     qGastos,
     qPrestamos,
     listarCatalogoContVirtual(supabase),
     listarEgresosContVirtual(supabase, { desde, hasta, sucursal }),
     listarRefsEgresosEliminadosIe(supabase, 'prestamos'),
+    listarIngresosContVirtual(supabase, { desde, hasta, sucursal }),
   ]);
 
   if (cierresRes.error && cierresRes.error.code !== '42P01') {
@@ -331,6 +334,32 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
       ingresosPorTienda[t].recolecciones = round2((ingresosPorTienda[t].recolecciones || 0) + item.monto);
       ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + item.monto);
     }
+    ingresosItems.push(item);
+  }
+
+  // Ingresos capturados a mano (Admin) en Virtual / Garage
+  let ingresosManual = ingresosManualRes.data || [];
+  ingresosManual = ingresosManual.filter((e) => {
+    const c = String(e.cuenta || 'virtual').toLowerCase();
+    return c === 'virtual' || c === 'garage';
+  });
+  if (cuentaFiltro) {
+    ingresosManual = ingresosManual.filter((e) => {
+      const c = String(e.cuenta || 'virtual').toLowerCase();
+      return (c === 'garage' ? 'garage' : 'virtual') === cuentaFiltro;
+    });
+  }
+  for (const row of ingresosManual) {
+    const item = itemIngresoManualDesdeFila(row);
+    if (!(item.monto > 0)) continue;
+    const mod = item.cuenta === 'garage' ? 'garage' : 'virtual';
+    const t = item.tienda || 'MAIN';
+    ingresosTotal = round2(ingresosTotal + item.monto);
+    porCuenta[mod].ingresos = round2(porCuenta[mod].ingresos + item.monto);
+    if (!ingresosPorTienda[t]) {
+      ingresosPorTienda[t] = { id: t, label: etiquetaTienda(t), ingresos: 0, cierres: 0, recolecciones: 0 };
+    }
+    ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + item.monto);
     ingresosItems.push(item);
   }
 
@@ -427,7 +456,7 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     pastelCategorias: unificado.pastelCategorias,
     pastelSubcategorias: unificado.pastelSubcategorias,
     catalogo,
-    avisoCatalogo: catalogoRes.aviso || egresosLibroRes.aviso || null,
+    avisoCatalogo: catalogoRes.aviso || egresosLibroRes.aviso || ingresosManualRes.aviso || null,
     cierresCount: cierres.length,
     recoleccionesCount: recolecciones.length,
     cuotasNomina,
@@ -486,7 +515,7 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
   let qPrestamos = supabase.from('prestamos').select('*').order('created_at', { ascending: false }).limit(1000);
   if (sucursal) qPrestamos = qPrestamos.eq('sucursal_id', sucursal);
 
-  const [cierresRes, gastosRes, gastosLegacyRes, prestamosRes, catalogoRes, egresosLibroRes, refsPrestElimRes] = await Promise.all([
+  const [cierresRes, gastosRes, gastosLegacyRes, prestamosRes, catalogoRes, egresosLibroRes, refsPrestElimRes, ingresosManualRes] = await Promise.all([
     qCierres,
     qGastos,
     qGastosRtLegacy,
@@ -494,6 +523,7 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     listarCatalogoContVirtual(supabase),
     listarEgresosContVirtual(supabase, { desde, hasta, sucursal, cuenta: 'abarrotes' }),
     listarRefsEgresosEliminadosIe(supabase, 'prestamos'),
+    listarIngresosContVirtual(supabase, { desde, hasta, sucursal, cuenta: 'abarrotes' }),
   ]);
 
   if (cierresRes.error && cierresRes.error.code !== '42P01') {
@@ -559,6 +589,20 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
       ingresosPorTienda[t].recolecciones = round2((ingresosPorTienda[t].recolecciones || 0) + item.monto);
       ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + item.monto);
     }
+    ingresosItems.push(item);
+  }
+
+  // Ingresos capturados a mano (Admin) en Abarrotes
+  for (const row of ingresosManualRes.data || []) {
+    const item = itemIngresoManualDesdeFila({ ...row, cuenta: 'abarrotes' });
+    if (!(item.monto > 0)) continue;
+    const t = item.tienda || 'MAIN';
+    ingresosTotal = round2(ingresosTotal + item.monto);
+    porCuenta.abarrotes.ingresos = round2(porCuenta.abarrotes.ingresos + item.monto);
+    if (!ingresosPorTienda[t]) {
+      ingresosPorTienda[t] = { id: t, label: etiquetaTienda(t), ingresos: 0, cierres: 0, recolecciones: 0 };
+    }
+    ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + item.monto);
     ingresosItems.push(item);
   }
 
@@ -628,7 +672,7 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     pastelCategorias: unificado.pastelCategorias,
     pastelSubcategorias: unificado.pastelSubcategorias,
     catalogo,
-    avisoCatalogo: catalogoRes.aviso || egresosLibroRes.aviso || null,
+    avisoCatalogo: catalogoRes.aviso || egresosLibroRes.aviso || ingresosManualRes.aviso || null,
     cierresCount: cierres.length,
     recoleccionesCount: recolecciones.length,
     cuotasNomina: [],

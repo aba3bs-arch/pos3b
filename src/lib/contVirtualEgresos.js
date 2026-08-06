@@ -650,3 +650,163 @@ export function unificarEgresosParaPanel({
     refsValeCount: refsVale.size,
   };
 }
+
+const LS_INGRESOS = 'pos3b_cont_virtual_ingresos';
+export const AVISO_FALTA_INGRESOS_IE =
+  'Falta la tabla de ingresos manuales. En Supabase → SQL Editor ejecuta: supabase/fix_cont_virtual_ingresos.sql';
+
+function faltaTablaIngresos(error) {
+  const msg = String(error?.message || '').toLowerCase();
+  return error?.code === '42P01' || msg.includes('cont_virtual_ingresos');
+}
+
+function leerLocalIngresos() {
+  try {
+    const raw = localStorage.getItem(LS_INGRESOS);
+    if (raw) {
+      const j = JSON.parse(raw);
+      if (Array.isArray(j)) return j;
+    }
+  } catch {
+    /* ignore */
+  }
+  return [];
+}
+
+function guardarLocalIngresos(lista) {
+  try {
+    localStorage.setItem(LS_INGRESOS, JSON.stringify(lista.slice(0, 2000)));
+  } catch {
+    /* quota */
+  }
+}
+
+/** Ingreso manual a IE Virtual / IE Abarrotes. */
+export async function registrarIngresoContVirtual(supabase, row) {
+  const monto = round2(row?.monto);
+  if (!(monto > 0)) return { ok: false, error: 'Monto inválido.' };
+  if (!row?.categoria_id) return { ok: false, error: 'Indica categoría / cuenta.' };
+
+  const payload = {
+    sucursal_id: row.sucursal_id || 'MAIN',
+    fecha: String(row.fecha || new Date().toISOString()).slice(0, 10),
+    categoria_id: row.categoria_id,
+    categoria_nombre: row.categoria_nombre || row.categoria_id,
+    subcategoria_id: row.subcategoria_id || null,
+    subcategoria_nombre: row.subcategoria_nombre || null,
+    detalle_id: row.detalle_id || null,
+    detalle_nombre: row.detalle_nombre || null,
+    monto,
+    descripcion: String(row.descripcion || '').trim() || null,
+    fuente: row.fuente || 'manual',
+    ref_tabla: row.ref_tabla || null,
+    ref_id: row.ref_id != null ? String(row.ref_id) : null,
+    usuario_nombre: row.usuario_nombre || null,
+    cuenta: normalizarCuentaIe(row.cuenta || row.area || row.modulo, 'virtual'),
+  };
+
+  if (!supabase) {
+    const lista = leerLocalIngresos();
+    const id = `local-ing-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    lista.unshift({ ...payload, id, created_at: new Date().toISOString() });
+    guardarLocalIngresos(lista);
+    return { ok: true, id, soloLocal: true };
+  }
+
+  const { data, error } = await supabase.from('cont_virtual_ingresos').insert([payload]).select('id').single();
+  if (error) {
+    if (faltaTablaIngresos(error)) {
+      const lista = leerLocalIngresos();
+      const id = `local-ing-${Date.now()}`;
+      lista.unshift({ ...payload, id, created_at: new Date().toISOString() });
+      guardarLocalIngresos(lista);
+      return { ok: true, id, soloLocal: true, aviso: AVISO_FALTA_INGRESOS_IE };
+    }
+    const msg = String(error.message || '').toLowerCase();
+    if (msg.includes('detalle_id') || msg.includes('detalle_nombre')) {
+      const { detalle_id: _d, detalle_nombre: _dn, ...sinDet } = payload;
+      const retry = await supabase.from('cont_virtual_ingresos').insert([sinDet]).select('id').single();
+      if (!retry.error) return { ok: true, id: retry.data?.id };
+      return { ok: false, error: retry.error.message };
+    }
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, id: data?.id };
+}
+
+export async function listarIngresosContVirtual(supabase, { desde, hasta, sucursal, cuenta } = {}) {
+  const esActivo = (e) => String(e?.fuente || '') !== 'eliminado' && round2(e?.monto) > 0;
+
+  if (!supabase) {
+    let lista = leerLocalIngresos().filter((e) => ymdEnRango(e.fecha, desde, hasta));
+    if (sucursal) lista = lista.filter((e) => e.sucursal_id === sucursal);
+    if (cuenta) {
+      const c = normalizarCuentaIe(cuenta);
+      lista = lista.filter((e) => normalizarCuentaIe(e.cuenta) === c);
+    }
+    return { data: lista.filter(esActivo) };
+  }
+
+  let q = supabase.from('cont_virtual_ingresos').select('*').order('fecha', { ascending: false }).limit(3000);
+  if (desde) q = q.gte('fecha', desde);
+  if (hasta) q = q.lte('fecha', hasta);
+  if (sucursal) q = q.eq('sucursal_id', sucursal);
+  if (cuenta) q = q.eq('cuenta', normalizarCuentaIe(cuenta));
+  const { data, error } = await q;
+  if (error && faltaTablaIngresos(error)) {
+    let lista = leerLocalIngresos().filter((e) => ymdEnRango(e.fecha, desde, hasta));
+    if (sucursal) lista = lista.filter((e) => e.sucursal_id === sucursal);
+    if (cuenta) {
+      const c = normalizarCuentaIe(cuenta);
+      lista = lista.filter((e) => normalizarCuentaIe(e.cuenta) === c);
+    }
+    return { data: lista.filter(esActivo), aviso: AVISO_FALTA_INGRESOS_IE };
+  }
+  if (error) return { data: [], error: error.message, aviso: null };
+  return { data: (data || []).filter(esActivo) };
+}
+
+export async function eliminarIngresoContVirtual(supabase, id) {
+  if (!id) return { ok: false, error: 'ID inválido.' };
+  const sid = String(id);
+  if (!supabase || sid.startsWith('local-')) {
+    const next = leerLocalIngresos().filter((e) => String(e.id) !== sid);
+    guardarLocalIngresos(next);
+    return { ok: true };
+  }
+  const { error } = await supabase.from('cont_virtual_ingresos').delete().eq('id', sid);
+  if (error && faltaTablaIngresos(error)) {
+    const next = leerLocalIngresos().filter((e) => String(e.id) !== sid);
+    guardarLocalIngresos(next);
+    return { ok: true, aviso: AVISO_FALTA_INGRESOS_IE };
+  }
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/** Normaliza fila de ingreso manual al shape del panel (ingresosPorDia). */
+export function itemIngresoManualDesdeFila(row) {
+  const cuenta = normalizarCuentaIe(row.cuenta, 'virtual');
+  const cuentaLbl = cuenta === 'garage' ? 'Garage' : cuenta === 'abarrotes' ? 'Abarrotes' : 'Virtual';
+  const partes = [
+    row.categoria_nombre || row.categoria_id,
+    row.subcategoria_nombre || null,
+    row.detalle_nombre || null,
+  ].filter(Boolean);
+  return {
+    id: row.id,
+    fecha: String(row.fecha || '').slice(0, 10),
+    monto: round2(row.monto),
+    comentario: `${partes.join(' · ')}${row.descripcion ? ` · ${row.descripcion}` : ''}`.trim() || 'Ingreso manual',
+    cuenta,
+    cuenta_label: cuentaLbl,
+    tienda: row.sucursal_id || 'MAIN',
+    tipo_mov: 'manual',
+    fuente: row.fuente || 'manual',
+    categoria: row.categoria_nombre || row.categoria_id,
+    subcategoria: row.subcategoria_nombre || null,
+    empleado: row.usuario_nombre || null,
+    manual: true,
+  };
+}
+

@@ -30,7 +30,7 @@ import {
   esCategoriaEmpleado,
 } from '../lib/catalogoEmpleadoGastos.js';
 import { agruparEmpleadosParaSelectCorte, empleadosParaCorte } from '../lib/empleadosVisibles.js';
-import { eliminarEgresoDesdePanelIe, registrarEgresoContVirtual } from '../lib/contVirtualEgresos.js';
+import { eliminarEgresoDesdePanelIe, eliminarIngresoContVirtual, registrarEgresoContVirtual, registrarIngresoContVirtual } from '../lib/contVirtualEgresos.js';
 import {
   AVISO_FALTA_INVERSIONES_OFICINA,
   cancelarInversionOficina,
@@ -375,6 +375,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
   const defsInv = defaultsInversionPorLibro(libro);
   const [manual, setManual] = useState({
+    tipo: 'egreso', // ingreso | egreso
     fecha: hoyYmd(),
     sucursal_id: tiendas[0] || 'MAIN',
     cuenta: esFrancisco ? 'abarrotes' : 'virtual',
@@ -697,12 +698,13 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   }, [masVista, cargarInversiones]);
 
   const guardarManual = async () => {
-    if (!esAdmin) return alert('Solo el administrador puede capturar egresos manuales.');
+    if (!esAdmin) return alert('Solo el administrador puede capturar movimientos manuales.');
     const monto = Number(manual.monto);
     if (!(monto > 0)) return alert('Indica un monto válido.');
-    if (!manual.sucursal_id) return alert('Elige la sucursal del egreso.');
-    if (!manual.categoria_id) return alert('Elige categoría.');
-    const catEmp = esCategoriaEmpleado(catalogo.find((c) => c.id === manual.categoria_id));
+    if (!manual.sucursal_id) return alert('Elige la sucursal.');
+    if (!manual.categoria_id) return alert('Elige categoría / cuenta.');
+    const esIngreso = manual.tipo === 'ingreso';
+    const catEmp = !esIngreso && esCategoriaEmpleado(catalogo.find((c) => c.id === manual.categoria_id));
     if (catEmp && !manual.empleado_id) return alert('Elige el empleado (Main o tienda).');
     const nombres = resolverNombresCatalogo(
       catalogo,
@@ -713,8 +715,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     const emp = catEmp
       ? empleadosParaCorte(usuariosCat, manual.sucursal_id).find((e) => String(e.id) === String(manual.empleado_id))
       : null;
-    setGuardando(true);
-    const res = await registrarEgresoContVirtual(supabase, {
+    const payload = {
       fecha: manual.fecha || hoyYmd(),
       sucursal_id: manual.sucursal_id,
       cuenta: manual.cuenta || (esFrancisco ? 'abarrotes' : 'virtual'),
@@ -728,13 +729,35 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       descripcion: manual.descripcion,
       fuente: 'manual',
       usuario_nombre: emp?.nombre || user?.nombre || 'Administrador',
-    });
+    };
+    setGuardando(true);
+    const res = esIngreso
+      ? await registrarIngresoContVirtual(supabase, payload)
+      : await registrarEgresoContVirtual(supabase, payload);
     setGuardando(false);
     if (!res.ok) return alert(res.error);
     if (res.aviso) alert(res.aviso);
     setManual((m) => ({ ...m, monto: '', descripcion: '', empleado_id: '' }));
     setShowManual(false);
     cargar();
+  };
+
+  const abrirManual = (tipo = 'egreso') => {
+    const catIngreso = (catalogo || []).find((c) => c.id === 'ingresos') || (catalogo || []).find((c) => c.id === 'manual');
+    const firstSub = (catIngreso?.subcategorias || []).find((s) => s.activo !== false);
+    setManual((m) => ({
+      ...m,
+      tipo,
+      fecha: hoyYmd(),
+      cuenta: esFrancisco ? 'abarrotes' : m.cuenta || 'virtual',
+      categoria_id: tipo === 'ingreso' ? (catIngreso?.id || 'manual') : (m.categoria_id || 'manual'),
+      subcategoria_id: tipo === 'ingreso' ? (firstSub?.id || '') : (m.subcategoria_id || 'manual-otros'),
+      detalle_id: '',
+      empleado_id: '',
+      monto: '',
+      descripcion: '',
+    }));
+    setShowManual(true);
   };
 
   const guardarInversion = async () => {
@@ -774,7 +797,17 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   };
 
   const borrarEgreso = async (row) => {
-    if (!esAdmin || row?.tipo === 'ingreso') return;
+    if (!esAdmin) return;
+    if (row?.tipo === 'ingreso') {
+      if (!row.manual && row.tipo_mov !== 'manual' && !String(row.id || '').startsWith('local-ing')) {
+        return; // recolecciones no se borran aquí
+      }
+      if (!confirm(`¿Eliminar este ingreso de ${tituloLibro}?\n\n${row.comentario || ''}\n${fmt(row.monto)}`)) return;
+      const res = await eliminarIngresoContVirtual(supabase, row.id);
+      if (!res.ok) return alert(res.error || 'No se pudo eliminar.');
+      cargar();
+      return;
+    }
     if (!confirm(`¿Eliminar este egreso de ${tituloLibro}?\n\n${row.categoria || ''}${row.subcategoria ? ` · ${row.subcategoria}` : ''}\n${fmt(row.monto)}`)) return;
     const res = await eliminarEgresoDesdePanelIe(supabase, row);
     if (!res.ok) return alert(res.error || 'No se pudo eliminar.');
@@ -1031,8 +1064,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             <span className={`cv-row-amt ${it.tipo === 'ingreso' ? 'ingreso' : 'gasto'}`}>
               {fmt(it.monto)}
             </span>
-            {esAdmin && it.tipo === 'gasto' && (
-              <button type="button" className="cv-row-del" title="Eliminar egreso" onClick={() => borrarEgreso(it)}>✕</button>
+            {esAdmin && (it.tipo === 'gasto' || (it.tipo === 'ingreso' && (it.manual || it.tipo_mov === 'manual'))) && (
+              <button type="button" className="cv-row-del" title={it.tipo === 'ingreso' ? 'Eliminar ingreso' : 'Eliminar egreso'} onClick={() => borrarEgreso(it)}>✕</button>
             )}
           </div>
         ))}
@@ -1494,21 +1527,22 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
         <div className="cv-catalogo">
           <div className="cv-top">
             <button type="button" className="cv-btn ghost" style={{ padding: '0.35rem 0.7rem' }} onClick={() => setMasVista('menu')}>‹ Volver</button>
-            <strong>Categorías</strong>
+            <strong>Cuentas y subcuentas</strong>
             <span />
           </div>
           <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.75rem' }}>
-            Catálogo compartido de IE (Virtual y Abarrotes): <strong>Categoría → Subcategoría → Detalle</strong>.
-            Puedes editar o eliminar los tres niveles. En <strong>Empleado</strong>, abajo ves quién aplica (Main / tienda).
+            Catálogo compartido de IE Virtual e IE Abarrotes: <strong>Cuenta → Subcuenta → Detalle</strong>.
+            Crea, edita o elimina los tres niveles. Sirven para clasificar ingresos y egresos manuales.
+            En <strong>Empleado</strong>, abajo ves quién aplica (Main / tienda).
           </p>
-          {!esAdmin && <p className="cv-error">Solo el administrador puede editar categorías.</p>}
+          {!esAdmin && <p className="cv-error">Solo el administrador puede editar cuentas y subcuentas.</p>}
           {(catalogo || []).map((c) => (
             <div key={c.id} className="cv-cat-card">
               <div className="cv-cat-hd">
                 <strong>{c.nombre}{c.fijo ? ' · sistema' : ''}</strong>
                 {esAdmin && (
                   <span className="cv-cat-actions">
-                    <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => nuevaSubEnCat(c.id, c.nombre)}>+ Sub</button>
+                    <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => nuevaSubEnCat(c.id, c.nombre)}>+ Subcuenta</button>
                     <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarCategoria(c)}>Editar</button>
                     <button type="button" className="cv-row-del" onClick={() => borrarCategoria(c)}>
                       {c.fijo ? 'Desactivar' : 'Eliminar'}
@@ -1618,15 +1652,15 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           ))}
           {esAdmin && (
             <div className="cv-nota-form">
-              <input value={nuevaCat} onChange={(e) => setNuevaCat(e.target.value)} placeholder="Nueva categoría" />
-              <button type="button" className="cv-btn" disabled={guardando || !nuevaCat.trim()} onClick={agregarCategoria}>Agregar categoría</button>
+              <input value={nuevaCat} onChange={(e) => setNuevaCat(e.target.value)} placeholder="Nueva cuenta" />
+              <button type="button" className="cv-btn" disabled={guardando || !nuevaCat.trim()} onClick={agregarCategoria}>Agregar cuenta</button>
               <select value={nuevaSub.categoriaId} onChange={(e) => setNuevaSub({ ...nuevaSub, categoriaId: e.target.value })}>
                 {catalogo.map((c) => (
                   <option key={c.id} value={c.id}>{c.nombre}</option>
                 ))}
               </select>
-              <input value={nuevaSub.nombre} onChange={(e) => setNuevaSub({ ...nuevaSub, nombre: e.target.value })} placeholder="Nueva subcategoría" />
-              <button type="button" className="cv-btn" disabled={guardando || !nuevaSub.nombre.trim()} onClick={agregarSub}>Agregar subcategoría</button>
+              <input value={nuevaSub.nombre} onChange={(e) => setNuevaSub({ ...nuevaSub, nombre: e.target.value })} placeholder="Nueva subcuenta" />
+              <button type="button" className="cv-btn" disabled={guardando || !nuevaSub.nombre.trim()} onClick={agregarSub}>Agregar subcuenta</button>
               <select
                 value={nuevaDet.categoriaId}
                 onChange={(e) => {
@@ -1668,7 +1702,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           </button>
           <button type="button" className="cv-mas-item" onClick={() => setMasVista('catalogo')}>
             <span className="ico">⚙</span>
-            Configuración
+            Cuentas / subcuentas
           </button>
           <button type="button" className="cv-mas-item" onClick={() => { setNav('trans'); setShowFiltro(true); setShowBuscar(true); }}>
             <span className="ico">🖥</span>
@@ -1683,8 +1717,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             Apariencia
           </button>
           <button type="button" className="cv-mas-item" onClick={() => alert(esFrancisco
-            ? 'IE ABARROTES (Francisco): solo ingresos y egresos del departamento Abarrotes. No incluye Virtual ni Garage.'
-            : 'IE VIRTUAL (Antonio): Virtual y Garage. Vales de gasolina/herramienta/accesorios y gastos CUBRE TURNO/TAXIS de Virtual se registran solos. Abarrotes va en IE ABARROTES.')}>
+            ? 'IE ABARROTES (Francisco): ingresos y egresos de Abarrotes.\n\nAdmin: botones ＋I / ＋E en Transacciones para captura manual; Más → Cuentas/subcuentas para el catálogo.'
+            : 'IE VIRTUAL (Antonio): Virtual y Garage. Vales y gastos CUBRE TURNO/TAXIS se registran solos.\n\nAdmin: botones ＋I / ＋E en Transacciones para captura manual; Más → Cuentas/subcuentas para el catálogo. Abarrotes va en IE ABARROTES.')}>
             <span className="ico">?</span>
             Ayuda
           </button>
@@ -1719,7 +1753,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       </div>
 
       {showFab && esAdmin && (
-        <button type="button" className="cv-fab" aria-label="Agregar egreso" onClick={() => setShowManual(true)}>+</button>
+        <div className="cv-fab-group">
+          <button type="button" className="cv-fab ingreso" aria-label="Agregar ingreso" title="Ingreso manual" onClick={() => abrirManual('ingreso')}>＋I</button>
+          <button type="button" className="cv-fab" aria-label="Agregar egreso" title="Egreso manual" onClick={() => abrirManual('egreso')}>＋E</button>
+        </div>
       )}
       {showFabNota && (
         <button type="button" className="cv-fab nota" aria-label="Nueva nota" onClick={() => document.querySelector('.cv-nota-form textarea')?.focus()}>
@@ -1844,7 +1881,17 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       {showManual && (
         <div className="cv-modal-backdrop" onClick={() => setShowManual(false)} role="presentation">
           <div className="cv-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Captura manual">
-            <h3>Nuevo egreso</h3>
+            <h3>{manual.tipo === 'ingreso' ? 'Nuevo ingreso' : 'Nuevo egreso'}</h3>
+            <label>
+              Tipo
+              <select
+                value={manual.tipo}
+                onChange={(e) => abrirManual(e.target.value)}
+              >
+                <option value="ingreso">Ingreso</option>
+                <option value="egreso">Egreso</option>
+              </select>
+            </label>
             <label>
               Fecha
               <input type="date" value={manual.fecha} onChange={(e) => setManual({ ...manual, fecha: e.target.value })} />
@@ -1859,7 +1906,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
               </select>
             </label>
             <label>
-              Cuenta
+              Cuenta IE
               <select value={manual.cuenta} onChange={(e) => setManual({ ...manual, cuenta: e.target.value })}>
                 {esFrancisco ? (
                   <option value="abarrotes">Abarrotes</option>
@@ -1872,7 +1919,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
               </select>
             </label>
             <label>
-              Categoría
+              {manual.tipo === 'ingreso' ? 'Cuenta / categoría' : 'Cuenta / categoría'}
               <select
                 value={manual.categoria_id}
                 onChange={(e) => {
@@ -1888,8 +1935,28 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                   });
                 }}
               >
-                {catalogo.map((c) => (
+                {(manual.tipo === 'ingreso'
+                  ? catalogo
+                  : catalogo.filter((c) => c.id !== 'ingresos')
+                ).map((c) => (
                   <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Subcuenta / subcategoría
+              <select
+                value={manual.subcategoria_id}
+                onChange={(e) => {
+                  const subcategoria_id = e.target.value;
+                  const sub = subsManual.find((s) => s.id === subcategoria_id);
+                  const firstDet = (sub?.detalles || []).find((d) => d.activo !== false);
+                  setManual({ ...manual, subcategoria_id, detalle_id: firstDet?.id || '' });
+                }}
+              >
+                <option value="">— Opcional —</option>
+                {subsManual.map((s) => (
+                  <option key={s.id} value={s.id}>{s.nombre}</option>
                 ))}
               </select>
             </label>
@@ -1919,22 +1986,6 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
               </label>
             )}
             <label>
-              Subcategoría
-              <select
-                value={manual.subcategoria_id}
-                onChange={(e) => {
-                  const subcategoria_id = e.target.value;
-                  const sub = subsManual.find((s) => s.id === subcategoria_id);
-                  const firstDet = (sub?.detalles || []).find((d) => d.activo !== false);
-                  setManual({ ...manual, subcategoria_id, detalle_id: firstDet?.id || '' });
-                }}
-              >
-                {subsManual.map((s) => (
-                  <option key={s.id} value={s.id}>{s.nombre}</option>
-                ))}
-              </select>
-            </label>
-            <label>
               Detalle
               <select
                 value={manual.detalle_id}
@@ -1958,7 +2009,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             <div className="cv-modal-actions">
               <button type="button" className="cv-btn ghost" onClick={() => setShowManual(false)}>Cancelar</button>
               <button type="button" className="cv-btn" disabled={guardando} onClick={guardarManual}>
-                {guardando ? 'Guardando…' : 'Registrar'}
+                {guardando ? 'Guardando…' : (manual.tipo === 'ingreso' ? 'Registrar ingreso' : 'Registrar egreso')}
               </button>
             </div>
           </div>

@@ -982,6 +982,20 @@
 }
 
 /* FAB */
+.cv-fab-group {
+  position: absolute;
+  right: 1rem;
+  bottom: calc(var(--cv-nav-h) + 12px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  z-index: 5;
+}
+
+.cv-fab-group .cv-fab {
+  position: static;
+}
+
 .cv-fab {
   position: absolute;
   right: 1rem;
@@ -992,7 +1006,8 @@
   background: var(--cv-fab);
   color: #fff;
   border: none;
-  font-size: 1.75rem;
+  font-size: 1.1rem;
+  font-weight: 700;
   line-height: 1;
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(232, 93, 76, 0.45);
@@ -1004,6 +1019,12 @@
 
 .cv-fab:hover {
   filter: brightness(1.08);
+}
+
+.cv-fab.ingreso {
+  background: var(--cv-ingreso, #2f9e6b);
+  box-shadow: 0 4px 14px rgba(47, 158, 107, 0.4);
+  font-size: 1rem;
 }
 
 .cv-fab.nota {
