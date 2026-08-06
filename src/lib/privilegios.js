@@ -11,6 +11,7 @@ export const MODULOS_IDS = [
   'Corte Abarrotes',
   'Corte Garage',
   'Productos',
+  'Venta en Ruta',
   'Compras',
   'Checador',
   'Proveedores',

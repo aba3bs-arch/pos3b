@@ -17,6 +17,7 @@ import Nomina from './modules/Nomina.jsx';
 import RecoleccionesTraspasosContabilidad from './modules/RecoleccionesTraspasosContabilidad.jsx';
 import Contabilidad from './modules/Contabilidad.jsx';
 import ContVirtual from './modules/ContVirtual.jsx';
+import VentaEnRuta from './modules/VentaEnRuta.jsx';
 import AutoFin from './modules/AutoFin.jsx';
 import VolverContabilidad from './components/VolverContabilidad.jsx';
 import ValesPrestamos from './modules/ValesPrestamos.jsx';
@@ -1039,6 +1040,9 @@ function App() {
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
               <LiquidacionRecolecciones supabase={supabase} user={user} />
             </>
+          )}
+          {vista === 'Venta en Ruta' && (
+            <VentaEnRuta supabase={supabase} user={user} inventario={inventario} />
           )}
           {vista === 'Productos' && (
             <Productos

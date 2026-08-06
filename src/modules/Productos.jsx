@@ -149,7 +149,8 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const esCajero = esRolMostradorRestringido(user?.rol);
   const puedeGestionCatalogo = puedeEditarCatalogoProductos(user?.rol);
   const puedeAjustes = puedeAjustarInventario(user?.rol);
-  const puedeTraspasos = puedeTraspasarInventario(user?.rol);
+  /** En MAIN/CEDIS el surtido va por Venta en Ruta — se ocultan traspasos en este flujo. */
+  const puedeTraspasos = puedeTraspasarInventario(user?.rol) && !esAlmacenCentral(sucursal);
   const puedePreinventario = puedeHacerPreinventario(user?.rol);
   const verNegativos = puedeVerStockNegativo(user?.rol);
   const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : 'MAIN';
@@ -176,6 +177,10 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   useEffect(() => {
     if (vista === 'eliminar' && !puedeEliminarCatalogo) setVista('lista');
   }, [vista, puedeEliminarCatalogo]);
+
+  useEffect(() => {
+    if (vista === 'traspaso' && !puedeTraspasos) setVista('lista');
+  }, [vista, puedeTraspasos]);
 
   useEffect(() => {
     if (!esCajero) return;
