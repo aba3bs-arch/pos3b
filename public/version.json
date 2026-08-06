@@ -1,8 +1,8 @@
 {
   "version": "1.1.0",
-  "buildId": "f9d2f92",
-  "branch": "cursor/ie-manual-ingresos-cuentas-5d4c",
-  "builtAt": "2026-08-06T07:36:15.794Z",
+  "buildId": "e20d1fb",
+  "branch": "cursor/consultas-tarjeta-inventario-5d4c",
+  "builtAt": "2026-08-06T15:46:14.652Z",
   "title": "Actualización disponible",
   "summary": "Préstamos empleados (editar/eliminar/abonar/liquidar), desglose de gastos en IE y Corte Garage con gastos persistentes. Pulsa Actualizar.",
   "changes": [
@@ -11,10 +11,10 @@
     "IE Virtual: desglose de gastos al tocar el monto de una recolección",
     "Corte Garage: gastos persistentes hasta recolección con máquinas en cero",
     "Aviso de actualización visible para todos con botón Actualizar",
+    "IE Virtual/Abarrotes: ingresos y egresos manuales + cuentas",
     "Limpia visualización de columna Área en lista de incidencias",
     "Incidencias: campo Área obligatorio (Virtual/Abarrotes/Garage)",
     "RIF + tres buzones (Virtual, Abarrotes, Garage)",
-    "Actualiza version.json tras build",
-    "Destaca merma total vs inventario sistema en reporte de inventario"
+    "Actualiza version.json tras build"
   ]
 }

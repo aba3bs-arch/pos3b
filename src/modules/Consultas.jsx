@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { consultarVentas } from '../lib/ventasQuery.js';
-import { consultarCortes } from '../lib/corteCaja.js';
+import { consultarCortes, consultarTarjetasAbarrotes } from '../lib/corteCaja.js';
 import { cargarSaldosCajaEnCurso } from '../lib/movimientosCaja.js';
 import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
 import { cargarReporteMovimientosInventario, PRESETS_CONSULTAS_INVENTARIO, rangoDesdePreset } from '../lib/consultasInventario.js';
@@ -192,7 +192,22 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     });
     if (error) throw new Error(error);
     if (av) setAviso(av);
-    return data || [];
+
+    const tarAb = await consultarTarjetasAbarrotes(supabase, {
+      desde,
+      hasta,
+      sucursal: filtroSucursal || null,
+      limit: 300,
+    });
+    if (tarAb.aviso) setAviso((prev) => (prev ? `${prev} · ${tarAb.aviso}` : tarAb.aviso));
+
+    const pos = (data || []).map((c) => ({ ...c, tipoCaja: c.tipoCaja || 'pos' }));
+    const abarrotes = tarAb.data || [];
+    return [...pos, ...abarrotes].sort((a, b) => {
+      const ta = new Date(a.created_at || a.hora || a.fecha || 0).getTime();
+      const tb = new Date(b.created_at || b.hora || b.fecha || 0).getTime();
+      return tb - ta;
+    });
   }, [supabase, desde, hasta, filtroSucursal]);
 
   const buscarSaldos = useCallback(async () => {
@@ -393,7 +408,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const cortesFiltrados = useMemo(() => {
     if (!qNorm) return cortes;
     return cortes.filter((c) => {
-      const blob = `${c.usuario || ''} ${c.turno_nombre || ''} ${c.sucursal || c.sucursal_id || ''} ${c.fecha || ''}`.toLowerCase();
+      const blob = `${c.usuario || ''} ${c.turno_nombre || ''} ${c.sucursal || c.sucursal_id || ''} ${c.fecha || ''} ${c.tipoCaja || ''} ${c.folio_abarrotes || ''} abarrotes tarjeta`.toLowerCase();
       return blob.includes(qNorm);
     });
   }, [cortes, qNorm]);
@@ -445,23 +460,59 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
   const lineasDetalleInv = useMemo(() => {
     if (!enDetalleInv) return [];
+    const tiendaCtx = filtroSucursal || sucursal || 'MAIN';
     return (sel.lineas || []).map((m) => {
       const prod = productoPorId.get(String(m.producto_id));
       const precio = Number(m.precio) || Number(prod?.precio) || 0;
       const qty = Math.abs(Number(m.cantidad) || 0);
       const existencia = m.stock_antes != null ? Number(m.stock_antes) : 0;
-      const contado = m.stock_despues != null ? Number(m.stock_despues) : qty;
-      const difValor =
-        m.subtotal != null && Number(m.subtotal)
+      const contado =
+        m.stock_despues != null
+          ? Number(m.stock_despues)
+          : m.contada != null
+            ? Number(m.contada)
+            : existencia;
+      const precioTotal =
+        m.subtotal != null && Number.isFinite(Number(m.subtotal)) && Number(m.subtotal) !== 0
           ? Math.abs(Number(m.subtotal))
-          : Math.abs(contado - existencia) * precio || qty * precio;
-      return { ...m, prod, precio, qty, existencia, contado, difValor };
+          : Math.round(qty * precio * 100) / 100 || Math.abs(contado - existencia) * precio;
+      const tiendaMov = m.sucursal_id || m.sucursal || tiendaCtx;
+      const ubi =
+        m.ubicacion ||
+        m.meta?.ubicacion ||
+        (m.ubicacion_destino || m.meta?.ubicacion_destino) ||
+        ubicacionEntradaDefault(tiendaMov);
+      let existenciaActual = 0;
+      if (prod) {
+        existenciaActual = Math.max(0, stockEnUbicacion(prod, tiendaMov, ubi, tiendaMov));
+        if (!existenciaActual && prod.stock != null && (!filtroSucursal || filtroSucursal === sucursal)) {
+          existenciaActual = Math.max(0, Number(prod.stock) || 0);
+        }
+        if (esCentralInv(tiendaMov) && String(ubi).toLowerCase() === 'cedis' && !existenciaActual) {
+          existenciaActual = Math.max(0, Number(prod.stock_cedis) || 0);
+        }
+      }
+      return {
+        ...m,
+        prod,
+        precio,
+        qty,
+        existencia,
+        contado,
+        existenciaActual,
+        precioTotal,
+        difValor: precioTotal,
+      };
     });
-  }, [enDetalleInv, sel, productoPorId]);
+  }, [enDetalleInv, sel, productoPorId, filtroSucursal, sucursal]);
 
   const esDetalleTraspaso = Boolean(enDetalleInv && sel?.esTraspaso);
   const piezasDetalleInv = useMemo(
     () => lineasDetalleInv.reduce((s, m) => s + (Math.abs(Number(m.qty) || 0)), 0),
+    [lineasDetalleInv],
+  );
+  const precioTotalOperacionInv = useMemo(
+    () => lineasDetalleInv.reduce((s, m) => s + (Number(m.precioTotal) || 0), 0),
     [lineasDetalleInv],
   );
 
@@ -634,23 +685,11 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                 <thead>
                   <tr>
                     <th>Producto</th>
-                    {esDetalleTraspaso ? (
-                      <>
-                        <th>Piezas</th>
-                        <th>Precio</th>
-                        <th>Stock antes</th>
-                        <th>Stock después</th>
-                        <th>Valor</th>
-                      </>
-                    ) : (
-                      <>
-                        <th>Lote</th>
-                        <th>Precio</th>
-                        <th>Existencia</th>
-                        <th>Diferencia</th>
-                        <th>Contado</th>
-                      </>
-                    )}
+                    {esDetalleTraspaso && <th>Piezas</th>}
+                    <th>Existencia</th>
+                    <th>Contado</th>
+                    <th>Existencia actual</th>
+                    <th>Precio total</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -662,26 +701,21 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                           <div>
                             <div style={{ fontSize: '0.78rem', color: '#94a3b8' }}>{m.producto_id}</div>
                             <div style={{ fontWeight: 600 }}>{m.producto_nombre || m.producto_id}</div>
+                            {!esDetalleTraspaso && (
+                              <div className="muted" style={{ fontSize: '0.72rem' }}>
+                                {m.qty ? `${m.qty} pza · ` : ''}{fmtMonto(m.precio)} c/u
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
-                      {esDetalleTraspaso ? (
-                        <>
-                          <td style={{ fontWeight: 800, color: 'var(--brand-green)' }}>{m.qty}</td>
-                          <td>{fmtMonto(m.precio)}</td>
-                          <td>{m.existencia}</td>
-                          <td style={{ fontWeight: 700 }}>{m.contado}</td>
-                          <td style={{ color: '#1e5bb8', fontWeight: 600 }}>{fmtMonto(m.difValor)}</td>
-                        </>
-                      ) : (
-                        <>
-                          <td className="muted">—</td>
-                          <td>{fmtMonto(m.precio)}</td>
-                          <td>{m.existencia}</td>
-                          <td style={{ color: '#1e5bb8', fontWeight: 600 }}>{fmtMonto(m.difValor)}</td>
-                          <td style={{ fontWeight: 700 }}>{m.contado}</td>
-                        </>
+                      {esDetalleTraspaso && (
+                        <td style={{ fontWeight: 800, color: 'var(--brand-green)' }}>{m.qty}</td>
                       )}
+                      <td>{m.existencia}</td>
+                      <td style={{ fontWeight: 700 }}>{m.contado}</td>
+                      <td style={{ fontWeight: 700 }}>{m.existenciaActual}</td>
+                      <td style={{ color: '#1e5bb8', fontWeight: 600 }}>{fmtMonto(m.precioTotal)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -689,8 +723,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
             </div>
             <div className="consultas-inv-total">
               {esDetalleTraspaso
-                ? `Total (${lineasDetalleInv.length} producto${lineasDetalleInv.length === 1 ? '' : 's'} · ${piezasDetalleInv} pza) ${fmtMonto(sel.total)}`
-                : `Total (${lineasDetalleInv.length}) ${fmtMonto(sel.total)}`}
+                ? `Total operación (${lineasDetalleInv.length} producto${lineasDetalleInv.length === 1 ? '' : 's'} · ${piezasDetalleInv} pza) ${fmtMonto(precioTotalOperacionInv || sel.total)}`
+                : `Total operación (${lineasDetalleInv.length}) ${fmtMonto(precioTotalOperacionInv || sel.total)}`}
             </div>
           </div>
         )}
@@ -1028,7 +1062,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                       <tr>
                         <th>Caja de cobro</th>
                         <th>Folio</th>
-                        <th>Moneda</th>
+                        <th>Tarjeta</th>
                         <th>Usuario</th>
                         <th>Resultado</th>
                       </tr>
@@ -1036,18 +1070,30 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                     <tbody>
                       {cortesFiltrados.map((c) => {
                         const id = c.id || `${c.fecha}_${c.usuario}`;
-                        const folio = folioNumerico(c.id || id, 3);
-                        const ok = Math.abs(Number(c.diferencia) || 0) < 0.01;
+                        const esAbTarjeta = c.tipoCaja === 'abarrotes_tarjeta';
+                        const folio = esAbTarjeta
+                          ? (c.folio_abarrotes || folioNumerico(c.origenId || c.id, 3))
+                          : folioNumerico(c.id || id, 3);
+                        const tarjetaMonto = esAbTarjeta
+                          ? Number(c.tarjetaAbarrotes) || Number(c.electronico) || 0
+                          : Number(c.grupos?.tarjeta) || 0;
+                        const ok = esAbTarjeta || Math.abs(Number(c.diferencia) || 0) < 0.01;
                         return (
                           <tr key={id} onClick={() => setSel({ ...c, id })}>
                             <td>
                               <div className="consultas-folio">
                                 {fmtFechaCorta(c.created_at || c.fecha)}
-                                <small>{c.turno_nombre || c.turno_id || etiquetaTienda(c.sucursal || c.sucursal_id)}</small>
+                                <small>
+                                  {esAbTarjeta
+                                    ? 'Abarrotes · Pago tarjeta'
+                                    : c.turno_nombre || c.turno_id || etiquetaTienda(c.sucursal || c.sucursal_id)}
+                                </small>
                               </div>
                             </td>
                             <td style={{ fontWeight: 700 }}>{folio}</td>
-                            <td title="Peso mexicano">🇲🇽</td>
+                            <td style={{ fontWeight: 600, color: tarjetaMonto > 0 ? '#1e5bb8' : undefined }}>
+                              {tarjetaMonto > 0 ? fmtMonto(tarjetaMonto) : '—'}
+                            </td>
                             <td>
                               <Avatar nombre={c.usuario} />
                             </td>
@@ -1093,6 +1139,12 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                               {' '}
                               · {s.fecha}
                               {!s.sinMovimiento && ` · ${s.tickets} ticket(s) · efectivo ${fmtMonto(s.efectivo)}`}
+                              {(Number(s.tarjeta) > 0 || Number(s.tarjetaAbarrotes) > 0) && (
+                                <>
+                                  {Number(s.tarjeta) > 0 ? ` · tarjeta POS ${fmtMonto(s.tarjeta)}` : ''}
+                                  {Number(s.tarjetaAbarrotes) > 0 ? ` · tarjeta abarrotes ${fmtMonto(s.tarjetaAbarrotes)}` : ''}
+                                </>
+                              )}
                             </span>
                           </div>
                         </div>
@@ -1207,17 +1259,45 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
             {sel && seccion === 'cajas_cortes' && (
               <div className="consultas-detail">
-                <h4>
-                  Corte {folioNumerico(sel.id, 3)} · {sel.turno_nombre || sel.turno_id || '—'}
-                </h4>
-                <div className="grid-2" style={{ gap: '0.5rem', fontSize: '0.9rem' }}>
-                  <div>Usuario: <strong>{sel.usuario || '—'}</strong></div>
-                  <div>Sucursal: <strong>{etiquetaTienda(sel.sucursal || sel.sucursal_id)}</strong></div>
-                  <div>Ventas: <strong>{fmtMonto(sel.totalVentas ?? sel.total_ventas)}</strong></div>
-                  <div>Contado: <strong>{fmtMonto(sel.efectivoContado ?? sel.efectivo_contado)}</strong></div>
-                  <div>Esperado: <strong>{fmtMonto(sel.efectivoEsperado ?? sel.efectivo_esperado)}</strong></div>
-                  <div>Diferencia: {moneyCell(sel.diferencia)}</div>
-                </div>
+                {sel.tipoCaja === 'abarrotes_tarjeta' ? (
+                  <>
+                    <h4>
+                      Tarjeta Abarrotes · {sel.folio_abarrotes || folioNumerico(sel.origenId || sel.id, 3)}
+                    </h4>
+                    <div className="grid-2" style={{ gap: '0.5rem', fontSize: '0.9rem' }}>
+                      <div>Usuario: <strong>{sel.usuario || '—'}</strong></div>
+                      <div>Sucursal: <strong>{etiquetaTienda(sel.sucursal || sel.sucursal_id)}</strong></div>
+                      <div>Fecha: <strong>{sel.fecha || '—'}</strong></div>
+                      <div>Origen: <strong>Corte Abarrotes</strong></div>
+                      <div>Pago tarjeta: <strong>{fmtMonto(sel.tarjetaAbarrotes ?? sel.electronico)}</strong></div>
+                      {sel.notas ? <div style={{ gridColumn: '1 / -1' }}>Notas: {sel.notas}</div> : null}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <h4>
+                      Corte {folioNumerico(sel.id, 3)} · {sel.turno_nombre || sel.turno_id || '—'}
+                    </h4>
+                    <div className="grid-2" style={{ gap: '0.5rem', fontSize: '0.9rem' }}>
+                      <div>Usuario: <strong>{sel.usuario || '—'}</strong></div>
+                      <div>Sucursal: <strong>{etiquetaTienda(sel.sucursal || sel.sucursal_id)}</strong></div>
+                      <div>Ventas: <strong>{fmtMonto(sel.totalVentas ?? sel.total_ventas)}</strong></div>
+                      <div>Contado: <strong>{fmtMonto(sel.efectivoContado ?? sel.efectivo_contado)}</strong></div>
+                      <div>Esperado: <strong>{fmtMonto(sel.efectivoEsperado ?? sel.efectivo_esperado)}</strong></div>
+                      <div>Diferencia: {moneyCell(sel.diferencia)}</div>
+                      <div>Tarjeta POS: <strong>{fmtMonto(sel.grupos?.tarjeta)}</strong></div>
+                      <div>Electrónico: <strong>{fmtMonto(sel.electronico)}</strong></div>
+                      {sel.corroboracion?.tarjeta && (
+                        <div style={{ gridColumn: '1 / -1' }} className="muted">
+                          Corroboración tarjeta — esperado {fmtMonto(sel.corroboracion.tarjeta.esperado)}
+                          {sel.corroboracion.tarjeta.contado != null
+                            ? ` · contado ${fmtMonto(sel.corroboracion.tarjeta.contado)}`
+                            : ''}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -1227,9 +1307,38 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                   {selSaldo.nombreCaja} · venta al momento ({selSaldo.fecha})
                 </h4>
                 <div className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>
-                  Total neto {fmtMonto(selSaldo.saldo)} · Efectivo {fmtMonto(selSaldo.efectivo)} · Electrónico{' '}
-                  {fmtMonto(selSaldo.electronico)} · visible hasta cerrar el corte
+                  Total neto {fmtMonto(selSaldo.saldo)} · Efectivo {fmtMonto(selSaldo.efectivo)} · Tarjeta POS{' '}
+                  {fmtMonto(selSaldo.tarjeta)} · Electrónico {fmtMonto(selSaldo.electronico)}
+                  {Number(selSaldo.tarjetaAbarrotes) > 0
+                    ? ` · Tarjeta abarrotes ${fmtMonto(selSaldo.tarjetaAbarrotes)}`
+                    : ''}
+                  {' · '}visible hasta cerrar el corte
                 </div>
+                {Number(selSaldo.tarjetaAbarrotes) > 0 && (
+                  <div style={{ marginBottom: '0.65rem' }}>
+                    <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: '0.25rem' }}>
+                      Pagos tarjeta Abarrotes
+                    </div>
+                    <table className="consultas-table">
+                      <thead>
+                        <tr>
+                          <th>Origen</th>
+                          <th>Usuario</th>
+                          <th>Monto</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(selSaldo.tarjetasAbarrotesItems || []).map((t) => (
+                          <tr key={t.id}>
+                            <td>{t.turno_nombre || 'Abarrotes · Tarjeta'}{t.abierto ? ' (abierto)' : ''}</td>
+                            <td>{t.usuario || '—'}</td>
+                            <td style={{ fontWeight: 600 }}>{fmtMonto(t.tarjetaAbarrotes ?? t.electronico)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
                 <table className="consultas-table">
                   <thead>
                     <tr>

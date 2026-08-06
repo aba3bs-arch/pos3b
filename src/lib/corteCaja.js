@@ -471,3 +471,190 @@ export async function cargarVentasDelDia(supabase, { sucursal, fecha }) {
   if (error) return { ventas: [], error, aviso: null };
   return { ventas: data, error: null, aviso: sinFecha ? aviso : null };
 }
+
+function ymdFromIso(iso) {
+  if (!iso) return '';
+  const s = String(iso);
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return '';
+  try {
+    return d.toLocaleDateString('en-CA', { timeZone: TZ_CAJA });
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
+function montoTarjetaAbarrotesDetalle(detalle) {
+  const d = detalle && typeof detalle === 'object' ? detalle : {};
+  return round2(d.tarjeta);
+}
+
+/**
+ * Pagos con tarjeta capturados en Corte Abarrotes (contabilidad),
+ * para reflejarlos en Consultas → Cajas de cobro junto a los cortes POS.
+ */
+export async function consultarTarjetasAbarrotes(supabase, opts = {}) {
+  const { desde, hasta, sucursal, limit = 400 } = opts;
+  const d0 = desde ? String(desde).slice(0, 10) : null;
+  const d1 = hasta ? String(hasta).slice(0, 10) : null;
+  const out = [];
+  let aviso = null;
+
+  const pushCierre = (c, origen = 'nube') => {
+    const tarjeta = montoTarjetaAbarrotesDetalle(c?.detalle);
+    if (!(tarjeta > 0)) return;
+    const tipo = String(c?.detalle?.tipo_cierre || c?.turno || '').toLowerCase();
+    if (tipo.includes('recoleccion')) return;
+    const fecha = ymdFromIso(c.created_at) || ymdFromIso(c.fecha) || '';
+    if (d0 && fecha && fecha < d0) return;
+    if (d1 && fecha && fecha > d1) return;
+    out.push({
+      id: `abarrotes_tarjeta_${c.id}`,
+      origenId: c.id,
+      tipoCaja: 'abarrotes_tarjeta',
+      fecha,
+      sucursal: c.sucursal_id,
+      sucursal_id: c.sucursal_id,
+      usuario: c.usuario_nombre || 'Abarrotes',
+      hora: c.created_at,
+      created_at: c.created_at,
+      totalVentas: tarjeta,
+      tickets: 0,
+      efectivoEsperado: 0,
+      efectivoContado: 0,
+      diferencia: 0,
+      electronico: tarjeta,
+      tarjetaAbarrotes: tarjeta,
+      grupos: { efectivo: 0, tarjeta, transferencia: 0, qr: 0, otros: 0 },
+      detalleMetodos: [{ metodo: 'Tarjeta abarrotes', monto: tarjeta }],
+      corroboracion: {},
+      turno_id: null,
+      turno_nombre: 'Abarrotes · Tarjeta',
+      folio_abarrotes: c.folio || null,
+      notas: c.detalle?.comentarios || '',
+      origen,
+    });
+  };
+
+  if (!supabase) {
+    try {
+      const keys = Object.keys(localStorage).filter((k) => k.startsWith('pos3b_corte_historial_abarrotes_'));
+      for (const key of keys) {
+        const sucKey = key.replace('pos3b_corte_historial_abarrotes_', '');
+        if (sucursal && sucKey !== sucursal) continue;
+        let hist = [];
+        try {
+          hist = JSON.parse(localStorage.getItem(key) || '[]');
+        } catch {
+          hist = [];
+        }
+        for (const c of hist.slice(0, limit)) pushCierre(c, 'local');
+      }
+    } catch {
+      /* ignore */
+    }
+    out.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+    return { data: out, aviso: null, soloLocal: true };
+  }
+
+  let q = supabase
+    .from('cortes_contabilidad_cierres')
+    .select('id,sucursal_id,modulo,folio,turno,usuario_nombre,created_at,detalle,ventas,caja_actual')
+    .eq('modulo', 'abarrotes')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (sucursal) q = q.eq('sucursal_id', sucursal);
+  if (d0) q = q.gte('created_at', `${d0}T00:00:00`);
+  if (d1) q = q.lte('created_at', `${d1}T23:59:59.999`);
+
+  const { data, error } = await q;
+  if (error) {
+    const msg = String(error.message || '');
+    if (error.code === '42P01' || /cortes_contabilidad|does not exist|schema cache/i.test(msg)) {
+      aviso = 'Falta historial de Corte Abarrotes en nube (cortes_contabilidad_cierres).';
+      return { data: out, aviso, soloLocal: true };
+    }
+    return { data: [], error: error.message, aviso: null };
+  }
+  for (const c of data || []) pushCierre(c, 'nube');
+  out.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  return { data: out, aviso, soloLocal: false };
+}
+
+/** Tarjeta abarrotes del día (cierres + corte abierto) para saldos de caja. */
+export async function tarjetaAbarrotesDelDia(supabase, { sucursal, fecha } = {}) {
+  const ymd = fecha ? String(fecha).slice(0, 10) : hoyYmdNogales();
+  const suc = sucursal || null;
+  let total = 0;
+  const items = [];
+
+  const r = await consultarTarjetasAbarrotes(supabase, {
+    desde: ymd,
+    hasta: ymd,
+    sucursal: suc,
+    limit: 80,
+  });
+  for (const row of r.data || []) {
+    total = round2(total + (Number(row.tarjetaAbarrotes) || 0));
+    items.push(row);
+  }
+
+  // Corte abierto (aún no cerrado): también cuenta para el día en curso.
+  if (supabase && suc) {
+    try {
+      const { data } = await supabase
+        .from('cortes_contabilidad_estado')
+        .select('estado,updated_at')
+        .eq('sucursal_id', suc)
+        .eq('modulo', 'abarrotes')
+        .maybeSingle();
+      const tarjetaAbierta = montoTarjetaAbarrotesDetalle(data?.estado);
+      if (tarjetaAbierta > 0) {
+        const ya = items.some((i) => Math.abs(Number(i.tarjetaAbarrotes) - tarjetaAbierta) < 0.01);
+        if (!ya) {
+          total = round2(total + tarjetaAbierta);
+          items.push({
+            id: `abarrotes_tarjeta_abierto_${suc}_${ymd}`,
+            tipoCaja: 'abarrotes_tarjeta',
+            fecha: ymd,
+            sucursal: suc,
+            usuario: 'Abarrotes (abierto)',
+            tarjetaAbarrotes: tarjetaAbierta,
+            electronico: tarjetaAbierta,
+            turno_nombre: 'Abarrotes · Tarjeta (abierto)',
+            created_at: data?.updated_at || new Date().toISOString(),
+            abierto: true,
+          });
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  } else if (suc) {
+    try {
+      const raw = localStorage.getItem(`pos3b_corte_estado_abarrotes_${suc}`);
+      const estado = raw ? JSON.parse(raw) : null;
+      const tarjetaAbierta = montoTarjetaAbarrotesDetalle(estado);
+      if (tarjetaAbierta > 0) {
+        total = round2(total + tarjetaAbierta);
+        items.push({
+          id: `abarrotes_tarjeta_abierto_${suc}_${ymd}`,
+          tipoCaja: 'abarrotes_tarjeta',
+          fecha: ymd,
+          sucursal: suc,
+          usuario: 'Abarrotes (abierto)',
+          tarjetaAbarrotes: tarjetaAbierta,
+          electronico: tarjetaAbierta,
+          turno_nombre: 'Abarrotes · Tarjeta (abierto)',
+          created_at: new Date().toISOString(),
+          abierto: true,
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return { total, items, aviso: r.aviso || null };
+}

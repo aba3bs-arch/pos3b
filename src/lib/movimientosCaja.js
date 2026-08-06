@@ -1,4 +1,4 @@
-import { clasificarPago, rangoConsultaCorte, resumirVentas, fechaCorteSugerida, corteYaRegistrado } from './corteCaja.js';
+import { clasificarPago, rangoConsultaCorte, resumirVentas, fechaCorteSugerida, corteYaRegistrado, tarjetaAbarrotesDelDia } from './corteCaja.js';
 import { consultarVentas } from './ventasQuery.js';
 import { filtrarVentasPorTurno, leerTurnos, nombreTurnoLegible, turnoActual } from './turnos.js';
 import { devolverStockPorCancelacion, guardarMovimientoLocal } from './inventarioMovimientos.js';
@@ -273,6 +273,7 @@ export async function cargarSaldosCajaEnCurso(supabase, { sucursal, fecha = null
   const out = [];
   let aviso = null;
   const ahora = new Date();
+  const cacheTarjetaAb = new Map();
 
   for (const t of turnos) {
     // Fecha operativa del turno (nocturno usa el día en que inició).
@@ -284,6 +285,7 @@ export async function cargarSaldosCajaEnCurso(supabase, { sucursal, fecha = null
     const resumen = resumirMovimientosCaja(dia.ventas || [], dia.cancelaciones || []);
     const tickets = Number(resumen.ticketsBruto) || 0;
     const total = Number(resumen.total) || 0;
+    const tarjetaPos = Number(resumen.grupos?.tarjeta) || 0;
 
     let corteCerrado = false;
     let corteInfo = null;
@@ -303,6 +305,9 @@ export async function cargarSaldosCajaEnCurso(supabase, { sucursal, fecha = null
       saldo: total,
       efectivo: Number(resumen.efectivoEsperado) || 0,
       electronico: Number(resumen.electronico) || 0,
+      tarjeta: tarjetaPos,
+      tarjetaAbarrotes: 0,
+      tarjetasAbarrotesItems: [],
       sinMovimiento: tickets === 0 && Math.abs(total) < 0.01,
       enCurso: !corteCerrado,
       corteCerrado,
@@ -312,6 +317,31 @@ export async function cargarSaldosCajaEnCurso(supabase, { sucursal, fecha = null
       resumen,
       actualizadoAt: ahora.toISOString(),
     });
+  }
+
+  // Tarjeta Corte Abarrotes: una sola vez por fecha/tienda (no se repite en cada turno).
+  if (suc) {
+    const fechas = [...new Set(out.map((s) => s.fecha).filter(Boolean))];
+    for (const ymd of fechas) {
+      if (!cacheTarjetaAb.has(ymd)) {
+        const tarAb = await tarjetaAbarrotesDelDia(supabase, { sucursal: suc, fecha: ymd });
+        cacheTarjetaAb.set(ymd, tarAb);
+        if (tarAb.aviso && !aviso) aviso = tarAb.aviso;
+      }
+      const tarAb = cacheTarjetaAb.get(ymd);
+      const monto = Number(tarAb?.total) || 0;
+      if (!(monto > 0)) continue;
+      const candidatos = out.filter((s) => s.fecha === ymd);
+      const actualTurno = turnoActual(turnos, ahora);
+      let destino =
+        (actualTurno && candidatos.find((s) => s.enCurso && String(s.turno_id) === String(actualTurno.id))) ||
+        candidatos.find((s) => s.enCurso) ||
+        candidatos[0];
+      if (!destino) continue;
+      destino.tarjetaAbarrotes = monto;
+      destino.tarjetasAbarrotesItems = tarAb.items || [];
+      if (destino.sinMovimiento && monto > 0) destino.sinMovimiento = false;
+    }
   }
 
   const actual = turnoActual(turnos, ahora);
