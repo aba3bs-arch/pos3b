@@ -19,6 +19,7 @@ import {
   leerBorradorAuto,
 } from '../lib/ajusteInventarioBorrador.js';
 import { useAutoGuardarBorrador } from '../hooks/useAutoGuardarBorrador.js';
+import { confirmarSiCantidadFueraDeEmpaque } from '../lib/empaqueSoda.js';
 
 function estadoInicialDesdeBorrador(borradorInicial, departamentoInicial, sucursal) {
   let base = borradorInicial;
@@ -191,6 +192,11 @@ export default function ConteoPorDepartamento({
     const pid = articuloActual.productoId;
     const raw = conteos[pid];
     const contadaFinal = raw === undefined || String(raw).trim() === '' ? String(articuloActual.existencia) : String(raw);
+    const contadaNum = Math.max(0, Math.floor(Number(contadaFinal) || 0));
+    if (contadaNum > 0 && !confirmarSiCantidadFueraDeEmpaque(articuloActual, contadaNum)) {
+      contadaInputRef.current?.focus();
+      return;
+    }
     const nextConteos = { ...conteos, [pid]: contadaFinal };
     setConteos(nextConteos);
 

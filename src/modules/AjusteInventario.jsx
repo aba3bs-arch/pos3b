@@ -33,6 +33,7 @@ import {
 } from '../lib/ajusteInventarioBorrador.js';
 import { useAutoGuardarBorrador } from '../hooks/useAutoGuardarBorrador.js';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
+import { confirmarSiCantidadFueraDeEmpaque, validarCantidadEmpaqueSoda } from '../lib/empaqueSoda.js';
 
 const TIPOS_MOV = TIPOS_MOVIMIENTO.filter((t) => t.id === 'entrada' || t.id === 'retiro');
 
@@ -298,6 +299,10 @@ export default function AjusteInventario({
       alert('Selecciona un producto.');
       return;
     }
+    if ((tipo === 'entrada' || tipo === 'retiro') && !confirmarSiCantidadFueraDeEmpaque(productoOrigen, qty)) {
+      cantidadInputRef.current?.focus();
+      return;
+    }
     setAplicando(true);
     const r = await aplicarMovimientoInventario(supabase, {
       tipo,
@@ -339,6 +344,10 @@ export default function AjusteInventario({
     const qty = parseCantidadInventario(modalIngresoQty);
     if (!qty) {
       alert('Escribe cuántas piezas entran (número entero ≥ 1). Ejemplo: 12');
+      modalIngresoRef.current?.focus();
+      return;
+    }
+    if (!confirmarSiCantidadFueraDeEmpaque(modalIngreso.producto, qty)) {
       modalIngresoRef.current?.focus();
       return;
     }
@@ -414,6 +423,23 @@ export default function AjusteInventario({
       .map((l) => ({ productoId: String(l.productoId), cantidad: parseCantidadInventario(l.cantidad) }))
       .filter((l) => l.productoId && l.cantidad);
     if (!validas.length) return alert('Agrega al menos un producto con cantidad.');
+
+    // Pepsi / Coca: avisar si alguna cantidad no cuadra con el paquete.
+    const avisosEmpaque = [];
+    for (const l of validas) {
+      const p =
+        (inventario || []).find((x) => String(x.id) === String(l.productoId)) ||
+        (catalogoCompleto || []).find((x) => String(x.id) === String(l.productoId));
+      if (!p) continue;
+      const v = validarCantidadEmpaqueSoda(p, l.cantidad);
+      if (!v.ok) avisosEmpaque.push(`• ${p.nombre || l.productoId}: ${l.cantidad} (paquete ~${v.empaque || '6/8/12/24'})`);
+    }
+    if (avisosEmpaque.length) {
+      const seguir = confirm(
+        `Cantidades que no coinciden con paquete Pepsi/Coca-Cola:\n\n${avisosEmpaque.join('\n')}\n\n¿Continuar de todos modos?`,
+      );
+      if (!seguir) return;
+    }
 
     const totalPiezas = validas.reduce((s, l) => s + l.cantidad, 0);
     const resumen = validas

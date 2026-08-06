@@ -18,6 +18,7 @@ import {
 } from '../lib/ajusteInventarioBorrador.js';
 import { useAutoGuardarBorrador } from '../hooks/useAutoGuardarBorrador.js';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
+import { confirmarSiCantidadFueraDeEmpaque } from '../lib/empaqueSoda.js';
 
 const FILTROS_VACIOS = {
   diferencia: 'todo',
@@ -277,6 +278,10 @@ export default function AjusteLibre({
     if (!modalCantidad) return;
     const pid = modalCantidad.id;
     const ingresada = Math.max(0, Math.floor(Number(cantidadModal) || 0));
+    if (ingresada > 0 && !confirmarSiCantidadFueraDeEmpaque(modalCantidad, ingresada)) {
+      cantidadRef.current?.focus();
+      return;
+    }
     setConteos((prev) => {
       if (modalModo === 'sumar') {
         const actual = Math.max(0, Math.floor(Number(prev[pid] ?? prev[String(pid)]) || 0));
