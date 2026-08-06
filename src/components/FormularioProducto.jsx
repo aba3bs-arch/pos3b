@@ -387,6 +387,22 @@ export default function FormularioProducto({
             />
           </label>
           <label className="muted">
+            Precio CEDIS Ruta (MXN) — venta en ruta
+            <input
+              className="input"
+              type="number"
+              step="0.01"
+              min={0}
+              style={{ marginTop: '0.35rem', fontWeight: 700, borderColor: '#0f766e' }}
+              value={form.precio_ruta ?? 0}
+              onChange={(e) => setCampoSimple('precio_ruta', parseFloat(e.target.value) || 0)}
+              placeholder="Distinto al precio de sucursal"
+            />
+            <span style={{ display: 'block', fontSize: '0.72rem', marginTop: 2 }}>
+              No uses el precio de mostrador. Si queda en 0, no se podrá cargar/vender en ruta.
+            </span>
+          </label>
+          <label className="muted">
             {tiendaLabel ? `Piso · ${tiendaLabel}` : 'Stock piso (mostrador)'}
             <input className="input" type="number" min={0} style={{ marginTop: '0.35rem' }} value={form.stock} onChange={(e) => setCampoSimple('stock', parseInt(e.target.value, 10) || 0)} />
           </label>

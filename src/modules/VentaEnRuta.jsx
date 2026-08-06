@@ -15,12 +15,14 @@ import {
   listarVentasRuta,
   liquidarCargaRuta,
   moverStockCedisRuta,
+  precioCedisRuta,
   registrarVentaRuta,
   stockProductoCedisRuta,
 } from '../lib/ventaEnRuta.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { confirmarSiCantidadFueraDeEmpaque } from '../lib/empaqueSoda.js';
+import FormularioCobranzaRuta from '../components/FormularioCobranzaRuta.jsx';
 
 const COLOR = '#0f766e';
 
@@ -30,6 +32,7 @@ const SUBS = [
   { id: 'venta', label: 'Venta en ruta', desc: 'Venta directa (efectivo / crédito)', icon: '🧾' },
   { id: 'liquidacion', label: 'Liquidación', desc: 'Cuadre y sobrante de regreso', icon: '🧮' },
   { id: 'clientes', label: 'Clientes de ruta', desc: 'Clientes externos (no propios)', icon: '👥' },
+  { id: 'cobranza', label: 'Cobrar créditos', desc: 'Abonos a crédito por cobrar', icon: '💵' },
   { id: 'consultas', label: 'Consultas', desc: 'Cargas, ventas y liquidaciones', icon: '🔍' },
 ];
 
@@ -119,6 +122,12 @@ export default function VentaEnRuta({ supabase, user, inventario = [] }) {
       )}
       {vista === 'liquidacion' && <VistaLiquidacion supabase={supabase} user={user} setAviso={setAviso} />}
       {vista === 'clientes' && <VistaClientes supabase={supabase} setAviso={setAviso} />}
+      {vista === 'cobranza' && (
+        <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
+          <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Cobrar créditos</h3>
+          <FormularioCobranzaRuta supabase={supabase} user={user} onAviso={setAviso} />
+        </div>
+      )}
       {vista === 'consultas' && <VistaConsultas supabase={supabase} setAviso={setAviso} />}
     </div>
   );
@@ -172,7 +181,8 @@ function VistaAlmacen({ supabase, user, productoPorId, inventario, setAviso, loa
       return {
         ...s,
         nombre: p?.nombre || s.producto_id,
-        precio: Number(p?.precio) || 0,
+        precio: precioCedisRuta(p),
+        precioSucursal: Number(p?.precio) || 0,
       };
     })
     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
@@ -182,6 +192,7 @@ function VistaAlmacen({ supabase, user, productoPorId, inventario, setAviso, loa
       <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>{NOMBRE_ALMACEN_RUTA}</h3>
       <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
         Inicia vacío. Los ingresos aquí no tocan MAIN ni el piso de tiendas.
+        Usa el <strong>precio CEDIS Ruta</strong> del producto (no el de sucursal).
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem', alignItems: 'flex-end' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: '0.8rem' }}>
@@ -215,7 +226,8 @@ function VistaAlmacen({ supabase, user, productoPorId, inventario, setAviso, loa
             <tr>
               <th>Producto</th>
               <th>Existencia</th>
-              <th>P. venta</th>
+              <th>P. ruta</th>
+              <th>P. sucursal</th>
             </tr>
           </thead>
           <tbody>
@@ -226,7 +238,10 @@ function VistaAlmacen({ supabase, user, productoPorId, inventario, setAviso, loa
                   <div className="muted" style={{ fontSize: '0.75rem' }}>{f.producto_id}</div>
                 </td>
                 <td style={{ fontWeight: 700 }}>{fmtQty(f.cantidad)}</td>
-                <td>{fmtMonto(f.precio)}</td>
+                <td style={{ fontWeight: 700, color: f.precio ? COLOR : 'var(--danger)' }}>
+                  {f.precio != null ? fmtMonto(f.precio) : 'Sin precio ruta'}
+                </td>
+                <td className="muted">{fmtMonto(f.precioSucursal)}</td>
               </tr>
             ))}
           </tbody>
@@ -246,6 +261,12 @@ function VistaCarga({ supabase, user, productoPorId, inventario, setAviso }) {
   const agregar = async () => {
     const { producto } = buscarProductoInventario(inventario, codigo);
     if (!producto) return alert('Producto no encontrado.');
+    const precioRuta = precioCedisRuta(producto);
+    if (precioRuta == null) {
+      return alert(
+        `«${producto.nombre || producto.id}» no tiene Precio CEDIS Ruta.\n\nEdítalo en Productos (campo Precio CEDIS Ruta). No se usa el precio de sucursal.`,
+      );
+    }
     const n = Math.floor(Number(qty) || 0);
     if (!(n > 0)) return alert('Cantidad inválida.');
     if (!confirmarSiCantidadFueraDeEmpaque(producto, n)) return;
@@ -255,13 +276,13 @@ function VistaCarga({ supabase, user, productoPorId, inventario, setAviso }) {
       const i = prev.findIndex((l) => String(l.productoId) === String(producto.id));
       if (i >= 0) {
         const next = [...prev];
-        next[i] = { ...next[i], cantidad: next[i].cantidad + n };
+        next[i] = { ...next[i], cantidad: next[i].cantidad + n, precio: precioRuta };
         return next;
       }
       return [...prev, {
         productoId: producto.id,
         nombre: producto.nombre,
-        precio: Number(producto.precio) || 0,
+        precio: precioRuta,
         cantidad: n,
       }];
     });
@@ -378,6 +399,10 @@ function VistaVenta({ supabase, user, productoPorId, setAviso }) {
     const pedidas = (ya?.cantidad || 0) + n;
     if (pedidas > disp) return alert(`En camión solo hay ${disp}.`);
     const p = productoPorId.get(String(prodId));
+    const precioLin = Number(lin.precio) > 0 ? Number(lin.precio) : precioCedisRuta(p);
+    if (precioLin == null || !(precioLin > 0)) {
+      return alert(`«${lin.producto_nombre || lin.producto_id}» sin precio CEDIS Ruta.`);
+    }
     setCart((prev) => {
       if (ya) {
         return prev.map((c) => (String(c.productoId) === String(prodId) ? { ...c, cantidad: c.cantidad + n } : c));
@@ -385,7 +410,7 @@ function VistaVenta({ supabase, user, productoPorId, setAviso }) {
       return [...prev, {
         productoId: lin.producto_id,
         nombre: lin.producto_nombre || p?.nombre || lin.producto_id,
-        precio: Number(lin.precio) || Number(p?.precio) || 0,
+        precio: precioLin,
         cantidad: n,
       }];
     });

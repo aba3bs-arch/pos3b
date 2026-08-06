@@ -4,6 +4,7 @@
  */
 
 import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
+import { precioCedisRuta, registrarCargoCreditoRuta } from './rutaCxc.js';
 
 const LS_STOCK = 'pos3b_cedis_ruta_stock';
 const LS_MOV = 'pos3b_cedis_ruta_mov';
@@ -466,6 +467,24 @@ export async function registrarVentaRuta(supabase, {
     return { ok: true };
   };
 
+  const afterVenta = async (ventaRow) => {
+    if (mp === 'credito') {
+      const cxc = await registrarCargoCreditoRuta(supabase, {
+        clienteTipo: tipoCli,
+        clienteId,
+        clienteNombre: ventaRow.cliente_nombre,
+        monto: total,
+        ventaId: ventaRow.id,
+        cargaId,
+        usuarioNombre: vendedorNombre,
+        notas: `Venta ${ventaRow.folio}`,
+      });
+      if (!cxc.ok) return { ok: false, error: cxc.error || 'No se registró el crédito por cobrar.' };
+      return { ok: true, venta: ventaRow, cxc: cxc.data, aviso: cxc.aviso };
+    }
+    return { ok: true, venta: ventaRow };
+  };
+
   if (!supabase || String(cargaId).startsWith('carga_')) {
     for (const a of arts) {
       const r = await bumpVendida(a.producto_id, a.cantidad);
@@ -474,7 +493,9 @@ export async function registrarVentaRuta(supabase, {
     const ventas = leerLS(LS_VENTAS, []);
     ventas.unshift(venta);
     guardarLS(LS_VENTAS, ventas);
-    return { ok: true, venta, soloLocal: true };
+    const fin = await afterVenta(venta);
+    if (!fin.ok) return fin;
+    return { ...fin, soloLocal: true };
   }
 
   const { data, error } = await supabase
@@ -501,8 +522,10 @@ export async function registrarVentaRuta(supabase, {
     const r = await bumpVendida(a.producto_id, a.cantidad);
     if (!r.ok) return r;
   }
-  return { ok: true, venta: data };
+  return afterVenta(data);
 }
+
+export { precioCedisRuta };
 
 // ─── Liquidación ──────────────────────────────────────────────────
 

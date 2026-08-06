@@ -108,7 +108,16 @@ export function quitarRolPersonalizado(nombre) {
 }
 
 /** Submódulos bajo Contabilidad en el menú lateral. */
-export const SUBMODULOS_CONTABILIDAD = ['Nómina', 'Panel RT', 'Liquidación recolecciones', 'IE VIRTUAL', 'IE ABARROTES', 'Auto Fin'];
+export const SUBMODULOS_CONTABILIDAD = [
+  'Nómina',
+  'Panel RT',
+  'Liquidación recolecciones',
+  'IE VIRTUAL',
+  'IE ABARROTES',
+  'Auto Fin',
+  'Crédito',
+  'Cobranza',
+];
 
 export const VISTA_HUB_CONTABILIDAD = 'Contabilidad';
 
@@ -170,7 +179,7 @@ const ACCESO_POR_ROL = {
     'Checador',
     'Ayuda',
   ],
-  Repartidor: ['Inicio', 'Incidencias', 'Recolecciones', 'Productos', 'Venta en Ruta', 'Ayuda'],
+  Repartidor: ['Inicio', 'Incidencias', 'Recolecciones', 'Productos', 'Venta en Ruta', 'Cobranza', 'Ayuda'],
   Auditor: [
     'Inicio',
     'Incidencias',
@@ -186,6 +195,8 @@ const ACCESO_POR_ROL = {
     'Estadisticas',
     'Reportes',
     'Panel RT',
+    'Crédito',
+    'Cobranza',
     'Vales y Préstamos',
     'Ayuda',
   ],
@@ -236,6 +247,8 @@ const ACCESO_POR_ROL = {
     'IE VIRTUAL',
     'IE ABARROTES',
     'Auto Fin',
+    'Crédito',
+    'Cobranza',
     'Vales y Préstamos',
     'Configuracion',
     'Ayuda',
@@ -419,9 +432,11 @@ export const MODULOS_BLOQUEADOS_MOSTRADOR = new Set([
   'IE VIRTUAL',
   'IE ABARROTES',
   'Auto Fin',
+  'Crédito',
+  'Cobranza',
 ]);
 
-/** Módulos que el repartidor nunca puede abrir (bloqueo duro). */
+/** Módulos que el repartidor nunca puede abrir (bloqueo duro). Cobranza sí: cobro de créditos CEDIS. */
 export const MODULOS_BLOQUEADOS_REPARTIDOR = new Set([
   'Ventas',
   'Escáner caja',
@@ -429,7 +444,7 @@ export const MODULOS_BLOQUEADOS_REPARTIDOR = new Set([
   'Checador',
   'Usuarios',
   'Configuracion',
-  ...SUBMODULOS_CONTABILIDAD,
+  ...SUBMODULOS_CONTABILIDAD.filter((m) => m !== 'Cobranza'),
 ]);
 
 /** Consultar productos / historial: sí. Crear, editar, borrar, precios: no (cajero/técnico). */
@@ -492,7 +507,7 @@ export function descripcionRol(rol) {
   const r = normalizarRol(rol);
   const textos = {
     Cajero: 'Mostrador: ventas, cortes, checador, compras, proveedores, consultas, reportes, ingreso/ajuste de inventario, traspasos y preinventario; catálogo solo consulta',
-    Repartidor: 'Ruta / recolector: recolecciones, Venta en Ruta (CEDIS Ruta), incidencias y productos; sin ventas de caja, checador, contabilidad, configuración ni usuarios',
+    Repartidor: 'Ruta / recolector: recolecciones, Venta en Ruta (CEDIS Ruta), cobranza de créditos, incidencias y productos; sin ventas de caja, checador, configuración ni usuarios',
     Auditor: 'Consultas, reportes, inventario e incidencias en todas las tiendas desde central MAIN',
     Supervisor: 'Operación de tienda sin configuración ni usuarios',
     Gerente: 'Operación, configuración y gestión de incidencias en todas las tiendas',

@@ -18,6 +18,8 @@ import RecoleccionesTraspasosContabilidad from './modules/RecoleccionesTraspasos
 import Contabilidad from './modules/Contabilidad.jsx';
 import ContVirtual from './modules/ContVirtual.jsx';
 import VentaEnRuta from './modules/VentaEnRuta.jsx';
+import CreditoRuta from './modules/CreditoRuta.jsx';
+import CobranzaRuta from './modules/CobranzaRuta.jsx';
 import AutoFin from './modules/AutoFin.jsx';
 import VolverContabilidad from './components/VolverContabilidad.jsx';
 import ValesPrestamos from './modules/ValesPrestamos.jsx';
@@ -430,7 +432,8 @@ function App() {
 
   const irAModulo = useCallback(
     (m, opts = {}) => {
-      if (!puedeVerModulo(user?.rol, m, user?.id)) {
+      const okHubContab = m === VISTA_HUB_CONTABILIDAD && puedeVerSeccionContabilidad(user?.rol, user?.id);
+      if (!okHubContab && !puedeVerModulo(user?.rol, m, user?.id)) {
         if (m === 'Vales y Préstamos') {
           alert(
             'Tu usuario no tiene acceso a «Vales y Préstamos».\n\n' +
@@ -1116,6 +1119,18 @@ function App() {
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
               <AutoFin supabase={supabase} user={user} />
+            </>
+          )}
+          {vista === 'Crédito' && (
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <CreditoRuta supabase={supabase} user={user} />
+            </>
+          )}
+          {vista === 'Cobranza' && (
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <CobranzaRuta supabase={supabase} user={user} />
             </>
           )}
           {vista === 'Vales y Préstamos' && (

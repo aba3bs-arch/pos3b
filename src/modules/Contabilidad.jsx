@@ -28,6 +28,14 @@ const DESCRIPCIONES = {
     desc: 'Antonio · vehículos y préstamos con enganche y cuotas',
     ayuda: 'Control de vehículos financiados: enganche, cuotas e historial de pagos.',
   },
+  Crédito: {
+    desc: 'Cartera por cobrar de Venta en Ruta',
+    ayuda: 'Saldos y movimientos de crédito CEDIS Ruta. La cobranza se registra en el subcomando Cobranza.',
+  },
+  Cobranza: {
+    desc: 'Cobro de créditos de ruta (repartidor CEDIS)',
+    ayuda: 'Formulario para registrar abonos a créditos por cobrar generados en Venta en Ruta.',
+  },
 };
 
 /** Hub de Contabilidad: solo botones; cada submódulo abre su pantalla. */

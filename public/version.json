@@ -1,8 +1,8 @@
 {
   "version": "1.1.0",
-  "buildId": "0461b56",
-  "branch": "cursor/proyecto-venta-en-ruta-5d4c",
-  "builtAt": "2026-08-06T19:13:11.829Z",
+  "buildId": "f7d5879",
+  "branch": "cursor/ruta-precio-credito-cobranza-5d4c",
+  "builtAt": "2026-08-06T19:43:49.671Z",
   "title": "Actualización disponible",
   "summary": "Préstamos empleados (editar/eliminar/abonar/liquidar), desglose de gastos en IE y Corte Garage con gastos persistentes. Pulsa Actualizar.",
   "changes": [
@@ -11,10 +11,10 @@
     "IE Virtual: desglose de gastos al tocar el monto de una recolección",
     "Corte Garage: gastos persistentes hasta recolección con máquinas en cero",
     "Aviso de actualización visible para todos con botón Actualizar",
+    "Venta en Ruta Fase A: CEDIS Ruta aislado de MAIN",
     "docs: proyecto Venta en Ruta (CEDIS) para revisión",
     "Consultas Contado + aviso empaque Pepsi/Coca",
     "Revert \"Consultas inventarios: Contado = piezas de la operación en ingresos\"",
-    "Consultas inventarios: Contado = piezas de la operación en ingresos",
-    "Consultas inventarios: Inv. piso fijo al cierre de operación"
+    "Consultas inventarios: Contado = piezas de la operación en ingresos"
   ]
 }

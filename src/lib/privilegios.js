@@ -27,6 +27,8 @@ export const MODULOS_IDS = [
   'IE VIRTUAL',
   'IE ABARROTES',
   'Auto Fin',
+  'Crédito',
+  'Cobranza',
   'Configuracion',
   'Ayuda',
 ];
