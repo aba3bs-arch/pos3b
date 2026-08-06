@@ -2,6 +2,8 @@
  * Crédito y cobranza de Venta en Ruta (cuentas por cobrar).
  */
 
+import { conImpuesto, impuestoEfectivo } from './productoForm.js';
+
 const LS_CXC = 'pos3b_ruta_cxc_movimientos';
 
 export const AVISO_FALTA_CXC =
@@ -41,10 +43,19 @@ function claveCliente(tipo, id) {
   return `${String(tipo || 'sucursal')}:${String(id || '')}`;
 }
 
-/** Precio para CEDIS Ruta (no usar precio de mostrador si no hay precio_ruta). */
+/**
+ * Precio CEDIS Ruta = precio de compra con impuestos del artículo.
+ * No usa el precio de mostrador (venta). Fallback: compra sin + IVA, luego costo.
+ */
 export function precioCedisRuta(producto) {
-  const r = Number(producto?.precio_ruta);
-  if (Number.isFinite(r) && r > 0) return round2(r);
+  const con = Number(producto?.precio_compra_con);
+  if (Number.isFinite(con) && con > 0) return round2(con);
+  const sin = Number(producto?.precio_compra_sin);
+  if (Number.isFinite(sin) && sin > 0) {
+    return round2(conImpuesto(sin, impuestoEfectivo(producto?.impuesto)));
+  }
+  const costo = Number(producto?.costo);
+  if (Number.isFinite(costo) && costo > 0) return round2(costo);
   return null;
 }
 

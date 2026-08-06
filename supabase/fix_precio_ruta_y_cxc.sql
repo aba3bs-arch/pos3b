@@ -3,12 +3,12 @@
 -- Ejecutar en Supabase → SQL Editor (seguro re-ejecutar)
 -- =============================================================================
 
--- Precio de venta en ruta (distinto al precio de sucursal / caja)
+-- Legado: precio_ruta (la app usa precio_compra_con como precio CEDIS Ruta)
 alter table public.productos
   add column if not exists precio_ruta numeric(12,2) default 0;
 
 comment on column public.productos.precio_ruta is
-  'Precio para Venta en Ruta / CEDIS Ruta (no es el precio de mostrador).';
+  'Legado. CEDIS Ruta toma precio_compra_con; al guardar producto se sincroniza aquí.';
 
 -- Movimientos de crédito por cobrar (cargos de venta a crédito + abonos de cobranza)
 create table if not exists public.ruta_cxc_movimientos (

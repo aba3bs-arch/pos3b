@@ -314,7 +314,10 @@ export default function FormularioProducto({
       </div>
 
       <div style={{ marginTop: '1.25rem', padding: '1rem', borderRadius: '12px', background: 'var(--surface)', border: '1px solid var(--border)' }}>
-        <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)', fontSize: '0.95rem' }}>Precio de compra</h4>
+        <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)', fontSize: '0.95rem' }}>Precio de compra</h4>
+        <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.75rem' }}>
+          El <strong>con impuestos</strong> es el precio de Venta en Ruta / CEDIS (no el de mostrador).
+        </p>
         <div className="grid-2">
           <label className="muted">
             Sin impuestos (MXN)
@@ -329,13 +332,13 @@ export default function FormularioProducto({
             />
           </label>
           <label className="muted">
-            Con impuestos (MXN)
+            Con impuestos (MXN) — CEDIS Ruta
             <input
               className="input"
               type="number"
               step="0.01"
               min={0}
-              style={{ marginTop: '0.35rem' }}
+              style={{ marginTop: '0.35rem', fontWeight: 700, borderColor: '#0f766e' }}
               value={form.precio_compra_con}
               onChange={(e) => setCampo('precio_compra_con', parseFloat(e.target.value) || 0)}
             />
@@ -385,22 +388,6 @@ export default function FormularioProducto({
               value={form.precio_venta_con}
               onChange={(e) => setCampo('precio_venta_con', parseInt(e.target.value, 10) || 0)}
             />
-          </label>
-          <label className="muted">
-            Precio CEDIS Ruta (MXN) — venta en ruta
-            <input
-              className="input"
-              type="number"
-              step="0.01"
-              min={0}
-              style={{ marginTop: '0.35rem', fontWeight: 700, borderColor: '#0f766e' }}
-              value={form.precio_ruta ?? 0}
-              onChange={(e) => setCampoSimple('precio_ruta', parseFloat(e.target.value) || 0)}
-              placeholder="Distinto al precio de sucursal"
-            />
-            <span style={{ display: 'block', fontSize: '0.72rem', marginTop: 2 }}>
-              No uses el precio de mostrador. Si queda en 0, no se podrá cargar/vender en ruta.
-            </span>
           </label>
           <label className="muted">
             {tiendaLabel ? `Piso · ${tiendaLabel}` : 'Stock piso (mostrador)'}

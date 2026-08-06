@@ -88,7 +88,6 @@ export function productoVacio() {
     precio_venta_sin: 0,
     precio_venta_con: 0,
     precio: 0,
-    precio_ruta: 0,
     stock: 0,
     stock_cedis: 0,
     stock_sucursales: null,
@@ -135,7 +134,6 @@ export function productoDesdeDb(p) {
     precio_venta_sin: ventaSin,
     precio_venta_con: ventaCon,
     precio: ventaCon,
-    precio_ruta: Number(p.precio_ruta) > 0 ? Number(p.precio_ruta) : 0,
     stock: Number(p.stock) || 0,
     stock_cedis: Number(p.stock_cedis) || 0,
     stock_sucursales: p.stock_sucursales && typeof p.stock_sucursales === 'object' ? p.stock_sucursales : null,
@@ -220,7 +218,6 @@ export function productoParaGuardar(form, opts = {}) {
     ganancia_pct: round2(form.ganancia_pct),
     precio_venta_sin: ventaSin,
     precio: ventaCon,
-    precio_ruta: Math.max(0, round2(form.precio_ruta)),
     stock_minimo: Math.max(0, parseInt(String(form.stock_minimo), 10) || 0),
     en_venta: form.en_venta !== false,
     en_favoritos: Boolean(form.en_favoritos),
@@ -246,9 +243,6 @@ export function productoEsFavorito(p) {
 
 export function mensajeErrorColumnasProducto(error) {
   const msg = String(error?.message || error || '');
-  if (msg.includes('precio_ruta')) {
-    return 'Falta la columna precio_ruta. Ejecuta en Supabase: supabase/fix_precio_ruta_y_cxc.sql';
-  }
   if (msg.includes('codigos_alt')) {
     return 'Falta la columna codigos_alt. Ejecuta en Supabase: supabase/fix_productos_codigos_alt.sql';
   }

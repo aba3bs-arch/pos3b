@@ -192,7 +192,7 @@ function VistaAlmacen({ supabase, user, productoPorId, inventario, setAviso, loa
       <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>{NOMBRE_ALMACEN_RUTA}</h3>
       <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
         Inicia vacío. Los ingresos aquí no tocan MAIN ni el piso de tiendas.
-        Usa el <strong>precio CEDIS Ruta</strong> del producto (no el de sucursal).
+        Usa el <strong>precio de compra con impuestos</strong> del producto (no el de mostrador).
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem', alignItems: 'flex-end' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: '0.8rem' }}>
@@ -226,7 +226,7 @@ function VistaAlmacen({ supabase, user, productoPorId, inventario, setAviso, loa
             <tr>
               <th>Producto</th>
               <th>Existencia</th>
-              <th>P. ruta</th>
+              <th>P. compra</th>
               <th>P. sucursal</th>
             </tr>
           </thead>
@@ -239,7 +239,7 @@ function VistaAlmacen({ supabase, user, productoPorId, inventario, setAviso, loa
                 </td>
                 <td style={{ fontWeight: 700 }}>{fmtQty(f.cantidad)}</td>
                 <td style={{ fontWeight: 700, color: f.precio ? COLOR : 'var(--danger)' }}>
-                  {f.precio != null ? fmtMonto(f.precio) : 'Sin precio ruta'}
+                  {f.precio != null ? fmtMonto(f.precio) : 'Sin precio compra'}
                 </td>
                 <td className="muted">{fmtMonto(f.precioSucursal)}</td>
               </tr>
@@ -264,7 +264,7 @@ function VistaCarga({ supabase, user, productoPorId, inventario, setAviso }) {
     const precioRuta = precioCedisRuta(producto);
     if (precioRuta == null) {
       return alert(
-        `«${producto.nombre || producto.id}» no tiene Precio CEDIS Ruta.\n\nEdítalo en Productos (campo Precio CEDIS Ruta). No se usa el precio de sucursal.`,
+        `«${producto.nombre || producto.id}» no tiene precio de compra.\n\nEdítalo en Productos (precio de compra con impuestos). Ese es el precio de CEDIS Ruta; no se usa el de mostrador.`,
       );
     }
     const n = Math.floor(Number(qty) || 0);
@@ -401,7 +401,7 @@ function VistaVenta({ supabase, user, productoPorId, setAviso }) {
     const p = productoPorId.get(String(prodId));
     const precioLin = Number(lin.precio) > 0 ? Number(lin.precio) : precioCedisRuta(p);
     if (precioLin == null || !(precioLin > 0)) {
-      return alert(`«${lin.producto_nombre || lin.producto_id}» sin precio CEDIS Ruta.`);
+      return alert(`«${lin.producto_nombre || lin.producto_id}» sin precio de compra (CEDIS Ruta).`);
     }
     setCart((prev) => {
       if (ya) {
