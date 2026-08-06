@@ -460,51 +460,36 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
   const lineasDetalleInv = useMemo(() => {
     if (!enDetalleInv) return [];
-    const opDoc = sel?.operacion || '';
     return (sel.lineas || []).map((m) => {
       const prod = productoPorId.get(String(m.producto_id));
       const precio = Number(m.precio) || Number(prod?.precio) || 0;
       const qty = Math.abs(Number(m.cantidad) || 0);
-      const existenciaRaw = m.stock_antes != null ? Number(m.stock_antes) : 0;
-      const existencia = Number.isFinite(existenciaRaw) ? existenciaRaw : 0;
-      const tipo = String(m.tipo || '').toLowerCase();
-      const modo = String(m.modo || '').toLowerCase();
-      const esAjuste =
-        opDoc === 'ajuste' ||
-        tipo === 'ajuste' ||
-        modo === 'conteo_departamento' ||
-        modo === 'vaciado_inventario';
-
-      // Inv. piso = inventario de piso al cerrar la operación (fijo; no baja con ventas).
+      const existencia = m.stock_antes != null ? Number(m.stock_antes) : 0;
+      const contado =
+        m.stock_despues != null
+          ? Number(m.stock_despues)
+          : m.contada != null
+            ? Number(m.contada)
+            : existencia;
+      // Inv. piso = inventario de piso al cerrar la operación (no el stock vivo; no baja con ventas).
       let invPiso;
       if (m.stock_despues != null && Number.isFinite(Number(m.stock_despues))) {
         invPiso = Number(m.stock_despues);
-      } else if (esAjuste && m.contada != null) {
-        invPiso = Math.max(0, Number(m.contada));
       } else {
-        const signo = tipo === 'retiro' || tipo === 'salida' || tipo === 'venta' ? -1 : 1;
-        // Negativo no aplica: si existencia < 0, el ingreso parte de 0.
-        const base = existencia < 0 ? 0 : existencia;
-        invPiso = esAjuste ? (m.contada != null ? Number(m.contada) : existencia) : base + signo * qty;
+        const tipo = String(m.tipo || '').toLowerCase();
+        const signo =
+          tipo === 'retiro' || tipo === 'salida' || tipo === 'venta'
+            ? -1
+            : tipo === 'ajuste'
+              ? 0
+              : 1;
+        if (tipo === 'ajuste' && m.contada != null) invPiso = Number(m.contada);
+        else invPiso = existencia + signo * qty;
       }
-      if (!(invPiso >= 0)) invPiso = Math.max(0, invPiso);
-
-      // Contado:
-      // - Ajuste/conteo: lo contado en piso (= inv. piso final).
-      // - Ingreso/retiro/traspaso: piezas de la operación (no el stock final).
-      //   Así: Existencia 15 + Contado 8 = Inv. piso 23.
-      const contado = esAjuste
-        ? (m.contada != null && m.contada !== ''
-            ? Math.max(0, Number(m.contada))
-            : m.stock_despues != null
-              ? Number(m.stock_despues)
-              : qty)
-        : qty;
-
       const precioTotal =
         m.subtotal != null && Number.isFinite(Number(m.subtotal)) && Number(m.subtotal) !== 0
           ? Math.abs(Number(m.subtotal))
-          : Math.round(qty * precio * 100) / 100 || Math.abs(Number(invPiso) - Math.max(0, existencia)) * precio;
+          : Math.round(qty * precio * 100) / 100 || Math.abs(contado - existencia) * precio;
       return {
         ...m,
         prod,
