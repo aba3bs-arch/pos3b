@@ -460,7 +460,6 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
   const lineasDetalleInv = useMemo(() => {
     if (!enDetalleInv) return [];
-    const tiendaCtx = filtroSucursal || sucursal || 'MAIN';
     return (sel.lineas || []).map((m) => {
       const prod = productoPorId.get(String(m.producto_id));
       const precio = Number(m.precio) || Number(prod?.precio) || 0;
@@ -472,26 +471,25 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
           : m.contada != null
             ? Number(m.contada)
             : existencia;
+      // Inv. piso = inventario de piso al cerrar la operación (no el stock vivo; no baja con ventas).
+      let invPiso;
+      if (m.stock_despues != null && Number.isFinite(Number(m.stock_despues))) {
+        invPiso = Number(m.stock_despues);
+      } else {
+        const tipo = String(m.tipo || '').toLowerCase();
+        const signo =
+          tipo === 'retiro' || tipo === 'salida' || tipo === 'venta'
+            ? -1
+            : tipo === 'ajuste'
+              ? 0
+              : 1;
+        if (tipo === 'ajuste' && m.contada != null) invPiso = Number(m.contada);
+        else invPiso = existencia + signo * qty;
+      }
       const precioTotal =
         m.subtotal != null && Number.isFinite(Number(m.subtotal)) && Number(m.subtotal) !== 0
           ? Math.abs(Number(m.subtotal))
           : Math.round(qty * precio * 100) / 100 || Math.abs(contado - existencia) * precio;
-      const tiendaMov = m.sucursal_id || m.sucursal || tiendaCtx;
-      const ubi =
-        m.ubicacion ||
-        m.meta?.ubicacion ||
-        (m.ubicacion_destino || m.meta?.ubicacion_destino) ||
-        ubicacionEntradaDefault(tiendaMov);
-      let existenciaActual = 0;
-      if (prod) {
-        existenciaActual = Math.max(0, stockEnUbicacion(prod, tiendaMov, ubi, tiendaMov));
-        if (!existenciaActual && prod.stock != null && (!filtroSucursal || filtroSucursal === sucursal)) {
-          existenciaActual = Math.max(0, Number(prod.stock) || 0);
-        }
-        if (esCentralInv(tiendaMov) && String(ubi).toLowerCase() === 'cedis' && !existenciaActual) {
-          existenciaActual = Math.max(0, Number(prod.stock_cedis) || 0);
-        }
-      }
       return {
         ...m,
         prod,
@@ -499,12 +497,12 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
         qty,
         existencia,
         contado,
-        existenciaActual,
+        invPiso,
         precioTotal,
         difValor: precioTotal,
       };
     });
-  }, [enDetalleInv, sel, productoPorId, filtroSucursal, sucursal]);
+  }, [enDetalleInv, sel, productoPorId]);
 
   const esDetalleTraspaso = Boolean(enDetalleInv && sel?.esTraspaso);
   const piezasDetalleInv = useMemo(
@@ -688,7 +686,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                     {esDetalleTraspaso && <th>Piezas</th>}
                     <th>Existencia</th>
                     <th>Contado</th>
-                    <th>Existencia actual</th>
+                    <th>Inv. piso</th>
                     <th>Precio total</th>
                   </tr>
                 </thead>
@@ -714,7 +712,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                       )}
                       <td>{m.existencia}</td>
                       <td style={{ fontWeight: 700 }}>{m.contado}</td>
-                      <td style={{ fontWeight: 700 }}>{m.existenciaActual}</td>
+                      <td style={{ fontWeight: 700 }}>{m.invPiso}</td>
                       <td style={{ color: '#1e5bb8', fontWeight: 600 }}>{fmtMonto(m.precioTotal)}</td>
                     </tr>
                   ))}
