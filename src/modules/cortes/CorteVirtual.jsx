@@ -62,10 +62,12 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     aviso,
     cargando,
     historial,
+    historialEliminados,
     empleados,
     cerrarCorte,
     registrarRecoleccion,
     eliminarCierreHistorial,
+    restaurarCierreHistorial,
     editarGastoEnCierre,
     eliminarGastoEnCierre,
     recargar,
@@ -494,9 +496,11 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
 
       <CorteHistorialImpresion
         historial={historial}
+        historialEliminados={historialEliminados}
         modulo="virtual"
         puedeEliminar={perm.editarTodo}
         onEliminar={eliminarCierreHistorial}
+        onRestaurar={restaurarCierreHistorial}
         columnasExtra={[
           { key: 'tipo', label: 'Tipo', render: (h) => etiquetaTipoCierre(h.detalle) },
           { key: 'usuario', label: 'Usuario', render: (h) => h.usuario_nombre || '—' },

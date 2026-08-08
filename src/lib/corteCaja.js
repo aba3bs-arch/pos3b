@@ -549,7 +549,7 @@ export async function consultarTarjetasAbarrotes(supabase, opts = {}) {
         } catch {
           hist = [];
         }
-        for (const c of hist.slice(0, limit)) pushCierre(c, 'local');
+        for (const c of hist.filter((h) => !h?.deleted_at).slice(0, limit)) pushCierre(c, 'local');
       }
     } catch {
       /* ignore */
@@ -560,15 +560,28 @@ export async function consultarTarjetasAbarrotes(supabase, opts = {}) {
 
   let q = supabase
     .from('cortes_contabilidad_cierres')
-    .select('id,sucursal_id,modulo,folio,turno,usuario_nombre,created_at,detalle,ventas,caja_actual')
+    .select('id,sucursal_id,modulo,folio,turno,usuario_nombre,created_at,detalle,ventas,caja_actual,deleted_at')
     .eq('modulo', 'abarrotes')
+    .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(limit);
   if (sucursal) q = q.eq('sucursal_id', sucursal);
   if (d0) q = q.gte('created_at', `${d0}T00:00:00`);
   if (d1) q = q.lte('created_at', `${d1}T23:59:59.999`);
 
-  const { data, error } = await q;
+  let { data, error } = await q;
+  if (error && /deleted_at/i.test(String(error.message || '')) && /does not exist|could not find|schema cache|column/i.test(String(error.message || ''))) {
+    let q2 = supabase
+      .from('cortes_contabilidad_cierres')
+      .select('id,sucursal_id,modulo,folio,turno,usuario_nombre,created_at,detalle,ventas,caja_actual')
+      .eq('modulo', 'abarrotes')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (sucursal) q2 = q2.eq('sucursal_id', sucursal);
+    if (d0) q2 = q2.gte('created_at', `${d0}T00:00:00`);
+    if (d1) q2 = q2.lte('created_at', `${d1}T23:59:59.999`);
+    ({ data, error } = await q2);
+  }
   if (error) {
     const msg = String(error.message || '');
     if (error.code === '42P01' || /cortes_contabilidad|does not exist|schema cache/i.test(msg)) {
@@ -577,7 +590,7 @@ export async function consultarTarjetasAbarrotes(supabase, opts = {}) {
     }
     return { data: [], error: error.message, aviso: null };
   }
-  for (const c of data || []) pushCierre(c, 'nube');
+  for (const c of (data || []).filter((row) => !row?.deleted_at)) pushCierre(c, 'nube');
   out.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
   return { data: out, aviso, soloLocal: false };
 }

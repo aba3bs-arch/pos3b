@@ -22,11 +22,13 @@ import {
   limpiarGastosTurno,
   listarGastosTurno,
   listarCierresCorte,
+  listarCierresCorteEliminados,
   peekFolio,
   registrarCierreCorte,
   folioTrasCierre,
   actualizarDetalleCierre,
   eliminarCierreCorte,
+  restaurarCierreCorte,
   notificarRecoleccionPendienteIe,
 } from './store.js';
 import { estadoAprobacionRecoleccionInicial } from '../contabilidadConstants.js';
@@ -61,6 +63,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   const [aviso, setAviso] = useState('');
   const [cargando, setCargando] = useState(true);
   const [historial, setHistorial] = useState([]);
+  const [historialEliminados, setHistorialEliminados] = useState([]);
   const [empleados, setEmpleados] = useState([]);
   const saveTimer = useRef(null);
   const perm = useMemo(
@@ -153,6 +156,19 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     [patchEstado, perm],
   );
 
+  const refrescarHistorial = useCallback(async () => {
+    const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
+    setHistorial(hist.data || []);
+    if (hist.aviso) setAviso(hist.aviso);
+    if (perm.editarTodo) {
+      const pap = await listarCierresCorteEliminados(supabase, sucursal, modulo, 30);
+      setHistorialEliminados(pap.data || []);
+      if (pap.aviso) setAviso(pap.aviso);
+    } else {
+      setHistorialEliminados([]);
+    }
+  }, [supabase, sucursal, modulo, perm.editarTodo]);
+
   const cargar = useCallback(async () => {
     setCargando(true);
     // Si un cierre previo dejó gastos abiertos por error, ciérralos antes de listar.
@@ -168,7 +184,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
             .order('nombre')
         : Promise.resolve({ data: [] }),
     ]);
-    if (estRes.aviso || gasRes.aviso) setAviso(estRes.aviso || gasRes.aviso || '');
+    if (estRes.aviso || gasRes.aviso || histRes.aviso) {
+      setAviso(estRes.aviso || gasRes.aviso || histRes.aviso || '');
+    }
     let nextEstado = estRes.estado || {};
     const nextGastos = gasRes.data || [];
     if (modulo === 'virtual' && !nextEstado.turno_sesion) {
@@ -182,6 +200,13 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     setGastos(nextGastos);
     setHistorial(histRes.data || []);
     setEmpleados(empleadosParaCorte(empRes.data || [], sucursal, modulo, user?.rol));
+    if (perm.editarTodo) {
+      const pap = await listarCierresCorteEliminados(supabase, sucursal, modulo, 30);
+      setHistorialEliminados(pap.data || []);
+      if (pap.aviso) setAviso(pap.aviso);
+    } else {
+      setHistorialEliminados([]);
+    }
     if (nextEstado?.folio) {
       setFolio(nextEstado.folio);
     } else {
@@ -194,7 +219,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       }
     }
     setCargando(false);
-  }, [supabase, sucursal, modulo, user?.rol]);
+  }, [supabase, sucursal, modulo, user?.rol, perm.editarTodo]);
 
   useEffect(() => {
     cargar();
@@ -642,11 +667,32 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   const eliminarCierreHistorial = async (cierreId, meta = {}) => {
     if (!perm.editarTodo) return alert('Solo el administrador puede eliminar cierres del historial.');
     const folio = meta.folio || cierreId;
-    if (!confirm(`¿Eliminar el cierre ${folio} del historial?\n\nEsta acción no se puede deshacer.`)) return;
-    const res = await eliminarCierreCorte(supabase, cierreId, sucursal, modulo);
+    if (
+      !confirm(
+        `¿Mover el cierre ${folio} a la papelera?\n\nPodrás recuperarlo después desde «Cortes eliminados».`,
+      )
+    ) {
+      return;
+    }
+    const res = await eliminarCierreCorte(supabase, cierreId, sucursal, modulo, {
+      deletedBy: user?.nombre || user?.id || null,
+    });
     if (!res.ok) return alert(res.error || 'No se pudo eliminar.');
-    const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
-    setHistorial(hist.data || []);
+    if (res.aviso) setAviso(res.aviso);
+    if (res.definitivo) {
+      alert('El cierre se eliminó de forma definitiva.\n\n' + (res.aviso || ''));
+    }
+    await refrescarHistorial();
+  };
+
+  const restaurarCierreHistorial = async (cierreId, meta = {}) => {
+    if (!perm.editarTodo) return alert('Solo el administrador puede restaurar cierres.');
+    const folio = meta.folio || cierreId;
+    if (!confirm(`¿Restaurar el cierre ${folio} al historial?`)) return;
+    const res = await restaurarCierreCorte(supabase, cierreId, sucursal, modulo);
+    if (!res.ok) return alert(res.error || 'No se pudo restaurar.');
+    if (res.aviso) setAviso(res.aviso);
+    await refrescarHistorial();
   };
 
   const claveGastoDetalle = (g, i) =>
@@ -689,8 +735,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       modulo,
     );
     if (!res.ok) return alert(res.error || 'No se pudo actualizar el cierre.');
-    const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
-    setHistorial(hist.data || []);
+    await refrescarHistorial();
   };
 
   /** Elimina un gasto del detalle de un cierre (desglose / historial). */
@@ -726,8 +771,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       modulo,
     );
     if (!res.ok) return alert(res.error || 'No se pudo actualizar el cierre.');
-    const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
-    setHistorial(hist.data || []);
+    await refrescarHistorial();
   };
 
   return {
@@ -745,10 +789,12 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     aviso,
     cargando,
     historial,
+    historialEliminados,
     empleados,
     cerrarCorte,
     registrarRecoleccion,
     eliminarCierreHistorial,
+    restaurarCierreHistorial,
     editarGastoEnCierre,
     eliminarGastoEnCierre,
     recargar: cargar,

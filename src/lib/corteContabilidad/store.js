@@ -14,6 +14,9 @@ import { registrarEntregaDesdeGastoAbarrotes } from '../proveedorEntregas.js';
 export const AVISO_FALTA_CORTES =
   'Faltan tablas de cortes contabilidad. En Supabase → SQL Editor ejecuta: supabase/fix_cortes_contabilidad.sql';
 
+export const AVISO_FALTA_SOFT_DELETE_CIERRES =
+  'Para recuperar cortes borrados, en Supabase → SQL Editor ejecuta: supabase/fix_cortes_contabilidad_soft_delete.sql';
+
 const PREFIJOS = { virtual: 'V', abarrotes: 'AB', garage: 'G' };
 
 function lsKey(sucursal, modulo, tipo) {
@@ -23,6 +26,14 @@ function lsKey(sucursal, modulo, tipo) {
 function faltaTabla(error, hint) {
   const msg = String(error?.message || error || '').toLowerCase();
   return error?.code === '42P01' || msg.includes(hint) || (msg.includes('schema cache') && msg.includes(hint));
+}
+
+function faltaColumnaDeletedAt(error) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  return (
+    msg.includes('deleted_at') &&
+    (msg.includes('does not exist') || msg.includes('could not find') || msg.includes('schema cache') || msg.includes('column'))
+  );
 }
 
 export async function cargarEstadoCorte(supabase, sucursal, modulo) {
@@ -616,22 +627,68 @@ export async function notificarRecoleccionPendienteIe(supabase, cierre) {
   });
 }
 
+function leerHistorialLocal(sucursal, modulo) {
+  try {
+    const raw = localStorage.getItem(lsKey(sucursal, modulo, 'historial'));
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function guardarHistorialLocal(sucursal, modulo, hist) {
+  localStorage.setItem(lsKey(sucursal, modulo, 'historial'), JSON.stringify(hist || []));
+}
+
+/** Lista cierres activos (no borrados). */
 export async function listarCierresCorte(supabase, sucursal, modulo, limit = 30) {
   if (!supabase) {
-    try {
-      const raw = localStorage.getItem(lsKey(sucursal, modulo, 'historial'));
-      return { data: raw ? JSON.parse(raw).slice(0, limit) : [] };
-    } catch {
-      return { data: [] };
-    }
+    const hist = leerHistorialLocal(sucursal, modulo)
+      .filter((h) => !h?.deleted_at)
+      .slice(0, limit);
+    return { data: hist };
+  }
+  let q = await supabase
+    .from('cortes_contabilidad_cierres')
+    .select('*')
+    .eq('sucursal_id', sucursal || 'MAIN')
+    .eq('modulo', modulo)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (q.error && faltaColumnaDeletedAt(q.error)) {
+    q = await supabase
+      .from('cortes_contabilidad_cierres')
+      .select('*')
+      .eq('sucursal_id', sucursal || 'MAIN')
+      .eq('modulo', modulo)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    return { data: q.data || [], error: q.error?.message || null, aviso: AVISO_FALTA_SOFT_DELETE_CIERRES };
+  }
+  return { data: q.data || [], error: q.error?.message || null };
+}
+
+/** Lista cierres en papelera (soft-delete). */
+export async function listarCierresCorteEliminados(supabase, sucursal, modulo, limit = 30) {
+  if (!supabase) {
+    const hist = leerHistorialLocal(sucursal, modulo)
+      .filter((h) => !!h?.deleted_at)
+      .sort((a, b) => new Date(b.deleted_at || 0) - new Date(a.deleted_at || 0))
+      .slice(0, limit);
+    return { data: hist };
   }
   const { data, error } = await supabase
     .from('cortes_contabilidad_cierres')
     .select('*')
     .eq('sucursal_id', sucursal || 'MAIN')
     .eq('modulo', modulo)
-    .order('created_at', { ascending: false })
+    .not('deleted_at', 'is', null)
+    .order('deleted_at', { ascending: false })
     .limit(limit);
+  if (error && faltaColumnaDeletedAt(error)) {
+    return { data: [], aviso: AVISO_FALTA_SOFT_DELETE_CIERRES };
+  }
   return { data: data || [], error: error?.message || null };
 }
 
@@ -664,24 +721,58 @@ export async function actualizarDetalleCierre(supabase, id, patchDetalle, sucurs
   return { ok: true, detalle };
 }
 
-/** Elimina un cierre del historial (pruebas / corrección admin). */
-export async function eliminarCierreCorte(supabase, id, sucursal, modulo) {
+/**
+ * Mueve un cierre a la papelera (soft-delete).
+ * Si aún no existe la columna deleted_at, hace borrado definitivo y avisa.
+ */
+export async function eliminarCierreCorte(supabase, id, sucursal, modulo, meta = {}) {
   if (!id) return { ok: false, error: 'Cierre inválido.' };
+  const deletedAt = new Date().toISOString();
+  const deletedBy = meta.deletedBy || meta.usuario_nombre || null;
   if (!supabase) {
-    const key = lsKey(sucursal, modulo, 'historial');
-    let hist = [];
-    try {
-      hist = JSON.parse(localStorage.getItem(key) || '[]');
-    } catch {
-      hist = [];
-    }
-    const next = hist.filter((h) => String(h.id) !== String(id));
-    localStorage.setItem(key, JSON.stringify(next));
+    const hist = leerHistorialLocal(sucursal, modulo);
+    const next = hist.map((h) =>
+      String(h.id) === String(id) ? { ...h, deleted_at: deletedAt, deleted_by: deletedBy } : h,
+    );
+    guardarHistorialLocal(sucursal, modulo, next);
     return { ok: true, soloLocal: true };
   }
-  const { error } = await supabase.from('cortes_contabilidad_cierres').delete().eq('id', id);
+  const { error } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .update({ deleted_at: deletedAt, deleted_by: deletedBy })
+    .eq('id', id);
   if (error && faltaTabla(error, 'cortes_contabilidad_cierres')) {
     return { ok: false, error: AVISO_FALTA_CORTES };
+  }
+  if (error && faltaColumnaDeletedAt(error)) {
+    const hard = await supabase.from('cortes_contabilidad_cierres').delete().eq('id', id);
+    if (hard.error) return { ok: false, error: hard.error.message, aviso: AVISO_FALTA_SOFT_DELETE_CIERRES };
+    return { ok: true, definitivo: true, aviso: AVISO_FALTA_SOFT_DELETE_CIERRES };
+  }
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/** Restaura un cierre desde la papelera. */
+export async function restaurarCierreCorte(supabase, id, sucursal, modulo) {
+  if (!id) return { ok: false, error: 'Cierre inválido.' };
+  if (!supabase) {
+    const hist = leerHistorialLocal(sucursal, modulo);
+    const next = hist.map((h) =>
+      String(h.id) === String(id) ? { ...h, deleted_at: null, deleted_by: null } : h,
+    );
+    guardarHistorialLocal(sucursal, modulo, next);
+    return { ok: true, soloLocal: true };
+  }
+  const { error } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .update({ deleted_at: null, deleted_by: null })
+    .eq('id', id);
+  if (error && faltaTabla(error, 'cortes_contabilidad_cierres')) {
+    return { ok: false, error: AVISO_FALTA_CORTES };
+  }
+  if (error && faltaColumnaDeletedAt(error)) {
+    return { ok: false, error: AVISO_FALTA_SOFT_DELETE_CIERRES };
   }
   if (error) return { ok: false, error: error.message };
   return { ok: true };

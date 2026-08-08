@@ -47,10 +47,12 @@ export default function CorteGarage({ supabase, sucursal, user }) {
     aviso,
     cargando,
     historial,
+    historialEliminados,
     empleados,
     cerrarCorte,
     registrarRecoleccion,
     eliminarCierreHistorial,
+    restaurarCierreHistorial,
     recargar,
   } = useCorteContabilidad({
     supabase,
@@ -319,9 +321,11 @@ export default function CorteGarage({ supabase, sucursal, user }) {
 
       <CorteHistorialImpresion
         historial={historial}
+        historialEliminados={historialEliminados}
         modulo="garage"
         puedeEliminar={perm.editarTodo}
         onEliminar={eliminarCierreHistorial}
+        onRestaurar={restaurarCierreHistorial}
         columnasExtra={[
           {
             key: 'tipo',
