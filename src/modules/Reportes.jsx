@@ -158,7 +158,7 @@ export default function Reportes({ supabase, inventario, inventarioCompleto, suc
         cargarDatos={cargarDatos}
       />
 
-      <ReporteGastosDetalle supabase={supabase} sucursal={sucursal} />
+      <ReporteGastosDetalle supabase={supabase} sucursal={sucursal} user={user} />
     </div>
   );
 }
