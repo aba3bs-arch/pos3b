@@ -4,6 +4,7 @@ import CorteInversionesPanel from '../../components/corteContabilidad/CorteInver
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
 import CampoCorte, { InputCorteInline } from '../../components/corteContabilidad/CampoCorte.jsx';
+import CorteConTeclado from '../../components/corteContabilidad/CorteConTeclado.jsx';
 import ResumenOperacionCorte from '../../components/corteContabilidad/ResumenOperacionCorte.jsx';
 import {
   calcularGarage,
@@ -155,6 +156,7 @@ export default function CorteGarage({ supabase, sucursal, user }) {
   };
 
   return (
+    <CorteConTeclado accent={COLOR}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -311,6 +313,8 @@ export default function CorteGarage({ supabase, sucursal, user }) {
               style={{ minHeight: 96, width: '100%', boxSizing: 'border-box' }}
               value={estado.comentarios || ''}
               readOnly={!perm.comentarios}
+              inputMode="none"
+              data-corte-teclado={perm.comentarios ? 'alpha' : undefined}
               onChange={(e) => patchEstado({ comentarios: e.target.value })}
             />
           </div>
@@ -331,5 +335,6 @@ export default function CorteGarage({ supabase, sucursal, user }) {
         ]}
       />
     </div>
+    </CorteConTeclado>
   );
 }

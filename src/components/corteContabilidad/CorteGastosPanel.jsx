@@ -327,7 +327,17 @@ export default function CorteGastosPanel({
                 </option>
               ))}
             </select>
-            <input className="input" type="number" min="0" step="0.01" placeholder="Monto" value={monto} onChange={(e) => setMonto(e.target.value)} />
+            <input
+              className="input corte-campo-editable"
+              type="text"
+              inputMode="none"
+              autoComplete="off"
+              data-corte-teclado="num"
+              placeholder="Monto"
+              value={monto}
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => setMonto(e.target.value)}
+            />
           </div>
           <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
             <input
@@ -335,6 +345,8 @@ export default function CorteGastosPanel({
               placeholder="Comentario (opcional)"
               style={{ flex: 1, minWidth: 140 }}
               value={comentario}
+              inputMode="none"
+              data-corte-teclado="alpha"
               onChange={(e) => setComentario(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && agregar()}
             />
@@ -382,12 +394,14 @@ export default function CorteGastosPanel({
                 <td style={{ fontWeight: 700 }}>
                   {puedeEditarGastos ? (
                     <input
-                      className="input"
-                      type="number"
-                      min="0"
-                      step="0.01"
+                      className="input corte-campo-editable"
+                      type="text"
+                      inputMode="none"
+                      autoComplete="off"
+                      data-corte-teclado="num"
                       style={{ width: '90px', fontWeight: 700 }}
                       value={g.monto}
+                      onFocus={(e) => e.target.select()}
                       onChange={(e) => onEditar?.(g.id, { monto: e.target.value })}
                     />
                   ) : (

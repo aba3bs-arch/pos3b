@@ -1,8 +1,8 @@
 {
   "version": "1.1.0",
-  "buildId": "616c59f",
-  "branch": "cursor/borrar-gastos-reportes-ie-10f6",
-  "builtAt": "2026-08-10T06:31:41.553Z",
+  "buildId": "e391869",
+  "branch": "cursor/teclado-alfanumerico-cortes-915c",
+  "builtAt": "2026-08-10T23:57:08.323Z",
   "title": "Actualización disponible",
   "summary": "Préstamos empleados (editar/eliminar/abonar/liquidar), desglose de gastos en IE y Corte Garage con gastos persistentes. Pulsa Actualizar.",
   "changes": [
@@ -11,10 +11,10 @@
     "IE Virtual: desglose de gastos al tocar el monto de una recolección",
     "Corte Garage: gastos persistentes hasta recolección con máquinas en cero",
     "Aviso de actualización visible para todos con botón Actualizar",
+    "Reportes: borrar gastos y quitarlos de IE Virtual/Abarrotes",
     "CEDIS Ruta usa precio de compra con impuestos",
     "Precio CEDIS Ruta aparte + Crédito/Cobranza en Contabilidad",
     "Venta en Ruta Fase A: CEDIS Ruta aislado de MAIN",
-    "docs: proyecto Venta en Ruta (CEDIS) para revisión",
-    "Consultas Contado + aviso empaque Pepsi/Coca"
+    "docs: proyecto Venta en Ruta (CEDIS) para revisión"
   ]
 }
