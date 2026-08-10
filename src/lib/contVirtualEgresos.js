@@ -286,6 +286,94 @@ async function eliminarEgresosLibroPorRef(supabase, refTabla, refId) {
 }
 
 /**
+ * Quita un gasto de los detalles de recolecciones/cierres (gastos_ids, gastos embebidos)
+ * y recalcula gastos_total + recoleccion_contabilidad para que IE no quede inflado.
+ */
+async function quitarGastoDeCierresDetalle(supabase, gastoId, { sucursal, modulo, monto } = {}) {
+  if (!supabase || !gastoId) return;
+  const gid = String(gastoId);
+  let q = supabase
+    .from('cortes_contabilidad_cierres')
+    .select('id, detalle')
+    .order('created_at', { ascending: false })
+    .limit(120);
+  if (sucursal) q = q.eq('sucursal_id', sucursal);
+  if (modulo) q = q.eq('modulo', modulo);
+  const { data, error } = await q;
+  if (error || !data?.length) return;
+
+  for (const c of data) {
+    const d = c.detalle && typeof c.detalle === 'object' ? c.detalle : {};
+    const idsPrev = Array.isArray(d.gastos_ids) ? d.gastos_ids.map(String) : [];
+    const gastosPrev = Array.isArray(d.gastos) ? d.gastos : [];
+    const enIds = idsPrev.includes(gid);
+    const enEmb = gastosPrev.some((g) => String(g?.id || '') === gid);
+    if (!enIds && !enEmb) continue;
+
+    const nextIds = idsPrev.filter((id) => id !== gid);
+    const nextGastos = gastosPrev.filter((g) => String(g?.id || '') !== gid);
+    let gastosTotal;
+    if (nextGastos.length || gastosPrev.length) {
+      gastosTotal = round2(nextGastos.reduce((a, g) => a + (Number(g.monto) || 0), 0));
+    } else {
+      const prevTotal = Number(d.gastos_total) || 0;
+      gastosTotal = round2(Math.max(0, prevTotal - (Number(monto) || 0)));
+    }
+    const efectivo = round2(d.recoleccion_efectivo ?? d.recoleccion ?? d.recoleccion_turno ?? 0);
+    const detalle = {
+      ...d,
+      gastos: nextGastos,
+      gastos_ids: nextIds,
+      gastos_total: gastosTotal,
+      recoleccion_contabilidad: round2(efectivo + gastosTotal),
+    };
+    await supabase.from('cortes_contabilidad_cierres').update({ detalle }).eq('id', c.id);
+  }
+}
+
+/**
+ * Borra un gasto de corte y lo saca de IE Virtual / IE Abarrotes
+ * (libro soft-delete + deja de aparecer en el unificado + ajusta recolección).
+ */
+export async function eliminarGastoCorteDeIe(supabase, gastoId, meta = {}) {
+  if (!gastoId) return { ok: false, error: 'Gasto inválido.' };
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const gid = String(gastoId);
+
+  let sucursal = meta.sucursal || meta.sucursal_id || meta.tienda_id || null;
+  let modulo = meta.modulo || null;
+  let monto = meta.monto != null ? Number(meta.monto) : null;
+
+  const { data: gasto } = await supabase
+    .from('cortes_contabilidad_gastos')
+    .select('id, sucursal_id, modulo, monto')
+    .eq('id', gid)
+    .maybeSingle();
+  if (gasto) {
+    sucursal = sucursal || gasto.sucursal_id || null;
+    modulo = modulo || gasto.modulo || null;
+    if (monto == null) monto = Number(gasto.monto) || 0;
+  }
+
+  const { error } = await supabase.from('cortes_contabilidad_gastos').delete().eq('id', gid);
+  if (error && gasto) return { ok: false, error: error.message };
+
+  await eliminarEgresosLibroPorRef(supabase, 'cortes_contabilidad_gastos', gid);
+  await quitarGastoDeCierresDetalle(supabase, gid, { sucursal, modulo, monto });
+  return { ok: true };
+}
+
+/** Atajo desde Reportes: borra el gasto y lo quita de IE según el módulo (virtual/garage → IE Virtual, abarrotes → IE Abarrotes). */
+export async function eliminarGastoDesdeReportes(supabase, fila) {
+  if (!fila?.id) return { ok: false, error: 'Gasto inválido.' };
+  return eliminarGastoCorteDeIe(supabase, fila.id, {
+    sucursal: fila.tienda_id || fila.sucursal_id,
+    modulo: fila.modulo,
+    monto: fila.monto,
+  });
+}
+
+/**
  * Elimina cualquier egreso del panel IE VIRTUAL / IE ABARROTES (admin).
  * Cubre: manual, sync libro, gastos de corte y préstamos del unificado.
  */
@@ -297,11 +385,11 @@ export async function eliminarEgresoDesdePanelIe(supabase, row) {
   // Gasto de corte (solo en unificado, id sintético)
   if (id.startsWith('corte-')) {
     const gastoId = id.slice('corte-'.length);
-    if (!supabase) return { ok: false, error: 'Sin conexión.' };
-    const { error } = await supabase.from('cortes_contabilidad_gastos').delete().eq('id', gastoId);
-    if (error) return { ok: false, error: error.message };
-    await eliminarEgresosLibroPorRef(supabase, 'cortes_contabilidad_gastos', gastoId);
-    return { ok: true };
+    return eliminarGastoCorteDeIe(supabase, gastoId, {
+      sucursal: row.tienda || row.sucursal_id,
+      modulo: row.modulo || row.cuenta,
+      monto: row.monto,
+    });
   }
 
   // Préstamo en el unificado
@@ -355,8 +443,11 @@ export async function eliminarEgresoDesdePanelIe(supabase, row) {
     .maybeSingle();
 
   if (libro?.ref_tabla === 'cortes_contabilidad_gastos' && libro.ref_id) {
-    await supabase.from('cortes_contabilidad_gastos').delete().eq('id', libro.ref_id);
-    return marcarEgresoLibroEliminado(supabase, id);
+    return eliminarGastoCorteDeIe(supabase, libro.ref_id, {
+      sucursal: row.tienda || row.sucursal_id,
+      modulo: row.modulo || row.cuenta,
+      monto: row.monto,
+    });
   }
 
   if (libro?.ref_tabla === 'vales' && libro.ref_id) {

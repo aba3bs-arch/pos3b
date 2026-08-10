@@ -14,6 +14,8 @@ import {
   tiendasFiltroGastos,
   totalMontoFilas,
 } from '../lib/reporteGastosDetalle.js';
+import { eliminarGastoDesdeReportes } from '../lib/contVirtualEgresos.js';
+import { puedeGestionarUsuarios } from '../lib/roles.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 
 function toCsv(rows, columns) {
@@ -43,7 +45,13 @@ const VISTAS = [
   { id: 'empleado', label: 'Por empleado' },
 ];
 
-function TablaDetalle({ filas }) {
+function etiquetaIeModulo(modulo) {
+  if (modulo === 'abarrotes') return 'IE Abarrotes';
+  if (modulo === 'virtual' || modulo === 'garage') return 'IE Virtual';
+  return 'IE';
+}
+
+function TablaDetalle({ filas, puedeBorrar = false, borrandoId = null, onBorrar }) {
   if (!filas.length) return <p className="muted">Sin movimientos en el rango.</p>;
   return (
     <div className="table-wrap table-wrap-sticky-head">
@@ -58,6 +66,7 @@ function TablaDetalle({ filas }) {
             <th>Concepto</th>
             <th style={{ textAlign: 'right' }}>Cant.</th>
             <th style={{ textAlign: 'right' }}>Monto</th>
+            {puedeBorrar && <th />}
           </tr>
         </thead>
         <tbody>
@@ -73,15 +82,30 @@ function TablaDetalle({ filas }) {
               <td className="muted">{f.concepto}</td>
               <td style={{ textAlign: 'right' }}>{f.cantidad}</td>
               <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtMonto(f.monto)}</td>
+              {puedeBorrar && (
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ padding: '0.15rem 0.4rem', fontSize: '0.72rem', color: 'var(--danger)' }}
+                    disabled={borrandoId === f.id}
+                    title={`Borrar y quitar de ${etiquetaIeModulo(f.modulo)}`}
+                    onClick={() => onBorrar?.(f)}
+                  >
+                    {borrandoId === f.id ? '…' : 'Borrar'}
+                  </button>
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
         <tfoot>
           <tr>
-            <td colSpan={7} style={{ textAlign: 'right', fontWeight: 700 }}>
+            <td colSpan={puedeBorrar ? 8 : 7} style={{ textAlign: 'right', fontWeight: 700 }}>
               Total ({filas.length} mov.)
             </td>
             <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--brand-blue)' }}>{fmtMonto(totalMontoFilas(filas))}</td>
+            {puedeBorrar && <td />}
           </tr>
         </tfoot>
       </table>
@@ -133,8 +157,9 @@ function TablaAgrupada({ grupos, colGrupo }) {
   );
 }
 
-export default function ReporteGastosDetalle({ supabase, sucursal }) {
+export default function ReporteGastosDetalle({ supabase, sucursal, user }) {
   const tiendas = useMemo(() => tiendasFiltroGastos(), []);
+  const esAdmin = puedeGestionarUsuarios(user?.rol);
   const [desde, setDesde] = useState(() => new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10));
   const [hasta, setHasta] = useState(() => new Date().toISOString().slice(0, 10));
   const [tiendaFiltro, setTiendaFiltro] = useState('');
@@ -142,6 +167,7 @@ export default function ReporteGastosDetalle({ supabase, sucursal }) {
   const [empleadoFiltro, setEmpleadoFiltro] = useState('');
   const [vista, setVista] = useState('detalle');
   const [cargando, setCargando] = useState(false);
+  const [borrandoId, setBorrandoId] = useState(null);
   const [error, setError] = useState('');
   const [filas, setFilas] = useState([]);
 
@@ -169,6 +195,26 @@ export default function ReporteGastosDetalle({ supabase, sucursal }) {
   const total = useMemo(() => totalMontoFilas(filas), [filas]);
   const porTienda = useMemo(() => agruparPorTienda(filas), [filas]);
   const porEmpleado = useMemo(() => agruparPorEmpleado(filas), [filas]);
+
+  const borrarGasto = async (fila) => {
+    if (!esAdmin || !fila?.id) return;
+    const ie = etiquetaIeModulo(fila.modulo);
+    if (
+      !confirm(
+        `¿Borrar este gasto del reporte y quitarlo de ${ie}?\n\n` +
+          `${fila.modulo_label} · ${fila.concepto}\n` +
+          `${fila.nombre} · ${fmtMonto(fila.monto)}\n\n` +
+          `Se elimina del historial de cortes y deja de contar en la recolección de IE.`,
+      )
+    ) {
+      return;
+    }
+    setBorrandoId(fila.id);
+    const res = await eliminarGastoDesdeReportes(supabase, fila);
+    setBorrandoId(null);
+    if (!res.ok) return alert(res.error || 'No se pudo borrar el gasto.');
+    setFilas((prev) => prev.filter((f) => String(f.id) !== String(fila.id)));
+  };
 
   const exportarCsv = () => {
     if (!filas.length) return alert('No hay datos para exportar.');
@@ -216,6 +262,9 @@ export default function ReporteGastosDetalle({ supabase, sucursal }) {
       <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>Gastos por tienda y empleado</h3>
       <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
         Detalle de gastos capturados en cortes (Virtual, Abarrotes, Garage): fecha, empleado, descripción, concepto y monto.
+        {esAdmin
+          ? ' Como administrador puedes borrar un gasto aquí; también se quita de IE Virtual o IE Abarrotes.'
+          : ''}
       </p>
 
       <div className="grid-2" style={{ gap: '0.75rem', marginBottom: '0.75rem' }}>
@@ -279,7 +328,9 @@ export default function ReporteGastosDetalle({ supabase, sucursal }) {
 
       {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{error}</p>}
 
-      {vista === 'detalle' && <TablaDetalle filas={filas} />}
+      {vista === 'detalle' && (
+        <TablaDetalle filas={filas} puedeBorrar={esAdmin} borrandoId={borrandoId} onBorrar={borrarGasto} />
+      )}
       {vista === 'tienda' && <TablaAgrupada grupos={porTienda} colGrupo="Tienda" />}
       {vista === 'empleado' && <TablaAgrupada grupos={porEmpleado} colGrupo="Empleado" />}
 
