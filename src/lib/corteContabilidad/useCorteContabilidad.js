@@ -667,15 +667,21 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   const eliminarCierreHistorial = async (cierreId, meta = {}) => {
     if (!perm.editarTodo) return alert('Solo el administrador puede eliminar cierres del historial.');
     const folio = meta.folio || cierreId;
+    const quien = String(user?.nombre || '').trim() || String(user?.id || 'admin');
     if (
       !confirm(
-        `¿Mover el cierre ${folio} a la papelera?\n\nPodrás recuperarlo después desde «Cortes eliminados».`,
+        `¿Mover el cierre ${folio} a la papelera?\n\n` +
+          `Quedará registrado que lo borró: ${quien}.\n` +
+          `Podrás recuperarlo después desde «Cortes eliminados».`,
       )
     ) {
       return;
     }
+    const rastro = [quien, user?.rol ? String(user.rol) : null, user?.id ? `id:${user.id}` : null]
+      .filter(Boolean)
+      .join(' · ');
     const res = await eliminarCierreCorte(supabase, cierreId, sucursal, modulo, {
-      deletedBy: user?.nombre || user?.id || null,
+      deletedBy: rastro,
     });
     if (!res.ok) return alert(res.error || 'No se pudo eliminar.');
     if (res.aviso) setAviso(res.aviso);

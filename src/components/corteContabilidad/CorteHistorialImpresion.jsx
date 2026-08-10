@@ -88,13 +88,14 @@ export default function CorteHistorialImpresion({
         <div className="card" style={{ marginTop: '0.75rem' }}>
           <h4 style={{ margin: '0 0 0.5rem' }}>Cortes eliminados</h4>
           <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.78rem' }}>
-            Papelera: puedes restaurar un cierre borrado por error.
+            Papelera con rastro de quién borró cada cierre. Puedes restaurarlo.
           </p>
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
                   <th>Borrado</th>
+                  <th>Borrado por</th>
                   <th>Fecha original</th>
                   <th>Folio</th>
                   <th>Ventas</th>
@@ -106,6 +107,7 @@ export default function CorteHistorialImpresion({
                 {historialEliminados.map((h) => (
                   <tr key={h.id}>
                     <td>{h.deleted_at ? new Date(h.deleted_at).toLocaleString() : '—'}</td>
+                    <td title={h.deleted_by || ''}>{h.deleted_by || '—'}</td>
                     <td>{h.created_at ? new Date(h.created_at).toLocaleString() : '—'}</td>
                     <td>{h.folio}</td>
                     <td>{fmtCorte(h.ventas)}</td>
