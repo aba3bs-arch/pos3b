@@ -72,12 +72,14 @@ function turnoParaRetardo(empleado, dateEntrada, turnos) {
  */
 export async function asistenciasPorEmpleado(supabase, { desde, hasta, empleados = [], todasSucursales = true, sucursal }) {
   if (!supabase) return { map: {}, error: null };
+  // Rango local sáb–vie: inicio 00:00 / fin 23:59:59 (sin forzar UTC)
+  const iniTs = `${desde}T00:00:00`;
   const finTs = `${hasta}T23:59:59`;
   let q = supabase
     .from('asistencias')
     .select('id, usuario_id, nombre, sucursal_id, tipo, created_at')
     .eq('tipo', 'ENTRADA')
-    .gte('created_at', desde)
+    .gte('created_at', iniTs)
     .lte('created_at', finTs)
     .order('created_at', { ascending: true });
   if (!todasSucursales && sucursal) q = q.eq('sucursal_id', sucursal);

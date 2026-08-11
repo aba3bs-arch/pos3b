@@ -66,6 +66,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     cerrarCorte,
     registrarRecoleccion,
     eliminarCierreHistorial,
+    editarCierreHistorial,
     editarGastoEnCierre,
     eliminarGastoEnCierre,
     recargar,
@@ -496,7 +497,9 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         historial={historial}
         modulo="virtual"
         puedeEliminar={perm.editarTodo}
+        puedeEditar={perm.editarTodo || perm.guardar}
         onEliminar={eliminarCierreHistorial}
+        onGuardarEdicion={editarCierreHistorial}
         columnasExtra={[
           { key: 'tipo', label: 'Tipo', render: (h) => etiquetaTipoCierre(h.detalle) },
           { key: 'usuario', label: 'Usuario', render: (h) => h.usuario_nombre || '—' },

@@ -4,6 +4,7 @@ import { prepararAudioPos, sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 
 /**
  * Input de código de barras / SKU con botón de cámara (móvil) y beep al confirmar.
+ * En móvil fuerza teclado alfanumérico (no numérico) para poder escribir letras en el código.
  */
 export default function CampoCodigo({
   value,
@@ -24,6 +25,8 @@ export default function CampoCodigo({
   labelCamara = 'Escanear con cámara',
   children,
   type = 'text',
+  /** Override opcional; por defecto text (alfanumérico en iOS/Android). */
+  inputMode = 'text',
 }) {
   const aplicarCodigo = (codigo, { conSonido = true } = {}) => {
     const c = String(codigo || '').trim();
@@ -33,13 +36,21 @@ export default function CampoCodigo({
     else onChange?.({ target: { value: c } });
   };
 
+  // Nunca usar type=number en códigos: en móvil abre teclado solo numérico.
+  const tipoSeguro = type === 'number' || type === 'tel' ? 'text' : type || 'text';
+
   return (
     <div className="campo-codigo-row">
       <input
         ref={inputRef}
-        type={type}
+        type={tipoSeguro}
+        inputMode={inputMode || 'text'}
+        enterKeyHint="search"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
         className={`${className} campo-codigo-input`}
-        style={inputStyle}
+        style={{ fontSize: '16px', ...inputStyle }}
         value={value}
         onChange={onChange}
         onFocus={() => prepararAudioPos()}
@@ -57,7 +68,7 @@ export default function CampoCodigo({
         disabled={disabled}
         autoFocus={autoFocus}
         autoComplete="off"
-        enterKeyHint="done"
+        data-no-select-on-focus="1"
       />
       <BotonEscanerCamara
         titulo={tituloCamara}

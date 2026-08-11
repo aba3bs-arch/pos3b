@@ -115,10 +115,11 @@ export function recalcularLineaNomina(linea) {
 export async function cortesPorEmpleado(supabase, { sucursal, desde, hasta, todasSucursales = true }) {
   if (!supabase) return { map: {}, error: null };
   const finTs = `${hasta}T23:59:59`;
+  const iniTs = `${desde}T00:00:00`;
   let q = supabase
     .from('cortes_contabilidad_cierres')
     .select('usuario_id, usuario_nombre, sucursal_id, created_at')
-    .gte('created_at', desde)
+    .gte('created_at', iniTs)
     .lte('created_at', finTs);
   if (!todasSucursales && sucursal) q = q.eq('sucursal_id', sucursal || 'MAIN');
   const { data, error } = await q;

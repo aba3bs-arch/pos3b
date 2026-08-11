@@ -664,6 +664,64 @@ export async function actualizarDetalleCierre(supabase, id, patchDetalle, sucurs
   return { ok: true, detalle };
 }
 
+/** Actualiza un cierre del historial (corrección admin/gerente). */
+export async function actualizarCierreCorte(supabase, id, patch, sucursal, modulo) {
+  if (!id) return { ok: false, error: 'Cierre inválido.' };
+  const ventas = patch.ventas != null ? Number(patch.ventas) : undefined;
+  const caja = patch.caja_actual != null ? Number(patch.caja_actual) : undefined;
+  const folio = patch.folio != null ? String(patch.folio).trim() : undefined;
+  const comentarios = patch.comentarios != null ? String(patch.comentarios) : undefined;
+
+  if (!supabase) {
+    const key = lsKey(sucursal, modulo, 'historial');
+    let hist = [];
+    try {
+      hist = JSON.parse(localStorage.getItem(key) || '[]');
+    } catch {
+      hist = [];
+    }
+    const next = hist.map((h) => {
+      if (String(h.id) !== String(id)) return h;
+      const detalle = { ...(h.detalle || {}) };
+      if (comentarios !== undefined) detalle.comentarios = comentarios;
+      return {
+        ...h,
+        ...(ventas !== undefined ? { ventas } : {}),
+        ...(caja !== undefined ? { caja_actual: caja } : {}),
+        ...(folio !== undefined ? { folio } : {}),
+        detalle,
+      };
+    });
+    localStorage.setItem(key, JSON.stringify(next));
+    return { ok: true, soloLocal: true, data: next.find((h) => String(h.id) === String(id)) };
+  }
+
+  const { data: row, error: errGet } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (errGet) return { ok: false, error: errGet.message };
+  if (!row) return { ok: false, error: 'Cierre no encontrado.' };
+
+  const detalle = { ...(row.detalle || {}) };
+  if (comentarios !== undefined) detalle.comentarios = comentarios;
+
+  const update = { detalle };
+  if (ventas !== undefined) update.ventas = ventas;
+  if (caja !== undefined) update.caja_actual = caja;
+  if (folio !== undefined) update.folio = folio;
+
+  const { data, error } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .update(update)
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, data };
+}
+
 /** Elimina un cierre del historial (pruebas / corrección admin). */
 export async function eliminarCierreCorte(supabase, id, sucursal, modulo) {
   if (!id) return { ok: false, error: 'Cierre inválido.' };

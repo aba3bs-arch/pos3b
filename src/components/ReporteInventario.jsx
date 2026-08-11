@@ -238,9 +238,41 @@ export default function ReporteInventario({
   const [lineaEdit, setLineaEdit] = useState(null);
   const [guardandoCorreccion, setGuardandoCorreccion] = useState(false);
   const [errorCorreccion, setErrorCorreccion] = useState('');
+  /** Valor físico total capturado a mano (comparación, no altera el sistema). */
+  const [resultadoManual, setResultadoManual] = useState('');
 
   const puedeEditar = Boolean(supabase && puedeAjustarInventario(user?.rol));
   const catalogo = inventarioCompleto?.length ? inventarioCompleto : inventario;
+
+  const claveResultadoManual = useMemo(
+    () => `pos3b_resultado_inv_${tienda || 'TODAS'}_${rango.desde || ''}_${rango.hasta || ''}`,
+    [tienda, rango.desde, rango.hasta],
+  );
+
+  useEffect(() => {
+    if (!abierto || !rango.desde) return;
+    try {
+      const raw = localStorage.getItem(claveResultadoManual);
+      setResultadoManual(raw != null ? String(raw) : '');
+    } catch {
+      setResultadoManual('');
+    }
+  }, [abierto, claveResultadoManual, rango.desde]);
+
+  const guardarResultadoManual = (raw) => {
+    setResultadoManual(raw);
+    try {
+      if (String(raw).trim() === '') localStorage.removeItem(claveResultadoManual);
+      else localStorage.setItem(claveResultadoManual, String(raw).trim());
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const resultadoManualNum = useMemo(() => {
+    const n = Number(String(resultadoManual).replace(/,/g, ''));
+    return Number.isFinite(n) ? n : null;
+  }, [resultadoManual]);
 
   const tiendas = useMemo(() => {
     const base = tiendasParaFiltroInventario(sucursal, sucursalesLista);
@@ -607,6 +639,50 @@ export default function ReporteInventario({
             {fmtPctReporte(totalesGenerales.pctMermaTotal ?? 0)}
           </p>
         )}
+
+        <div
+          style={{
+            marginTop: '0.85rem',
+            paddingTop: '0.75rem',
+            borderTop: '1px dashed var(--border, rgba(0,0,0,0.12))',
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: '0.35rem' }}>Resultado de inventario (manual)</div>
+          <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.8rem' }}>
+            Escribe el total en pesos que obtuviste al contar en físico. Solo sirve para comparar; no cambia el sistema.
+          </p>
+          <label className="muted" style={{ display: 'block', fontSize: '0.85rem', maxWidth: 280 }}>
+            Total contado ($)
+            <input
+              className="input"
+              type="text"
+              inputMode="decimal"
+              placeholder="Ej. 125430.50"
+              style={{ marginTop: '0.35rem', fontSize: '1.05rem' }}
+              value={resultadoManual}
+              onChange={(e) => guardarResultadoManual(e.target.value)}
+            />
+          </label>
+          {resultadoManualNum != null && totalesGenerales.referencia?.valorSistema ? (
+            <p style={{ margin: '0.5rem 0 0', fontSize: '0.88rem' }}>
+              Sistema: <strong>{fmtMxnReporte(totalesGenerales.referencia.valorSistema)}</strong>
+              {' · '}
+              Tu conteo: <strong>{fmtMxnReporte(resultadoManualNum)}</strong>
+              {' · '}
+              Diferencia:{' '}
+              <strong
+                style={{
+                  color:
+                    resultadoManualNum - Number(totalesGenerales.referencia.valorSistema) < 0
+                      ? 'var(--brand-red, #c0392b)'
+                      : 'var(--brand-gold-dark)',
+                }}
+              >
+                {fmtMxnReporte(resultadoManualNum - Number(totalesGenerales.referencia.valorSistema))}
+              </strong>
+            </p>
+          ) : null}
+        </div>
       </div>
 
       <div

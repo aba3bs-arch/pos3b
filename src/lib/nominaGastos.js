@@ -53,6 +53,7 @@ function agruparGastosPorEmpleado(rows, indice) {
  */
 async function valesDescuentoDirecto(supabase, { sucursal, desde, hasta, todasSucursales = true }) {
   if (!supabase) return [];
+  const iniTs = `${desde}T00:00:00`;
   const finTs = `${hasta}T23:59:59`;
   let q = supabase
     .from('vales')
@@ -60,7 +61,7 @@ async function valesDescuentoDirecto(supabase, { sucursal, desde, hasta, todasSu
     .eq('descuenta_nomina', true)
     .eq('estado_aprobacion', 'aprobado')
     .eq('cargado_corte', false)
-    .gte('created_at', desde)
+    .gte('created_at', iniTs)
     .lte('created_at', finTs);
   if (!todasSucursales && sucursal) q = q.eq('sucursal_id', sucursal || 'MAIN');
   const { data, error } = await q;
@@ -84,6 +85,7 @@ async function valesDescuentoDirecto(supabase, { sucursal, desde, hasta, todasSu
 /** Suma gastos de cortes (virtual, abarrotes, garage) por empleado en un periodo — todas las tiendas. */
 export async function gastosDeduccionPorEmpleado(supabase, { sucursal, desde, hasta, empleados = [], todasSucursales = true }) {
   if (!supabase) return { map: {}, error: null };
+  const iniTs = `${desde}T00:00:00`;
   const finTs = `${hasta}T23:59:59`;
   const indice = indiceEmpleados(empleados);
 
@@ -94,7 +96,7 @@ export async function gastosDeduccionPorEmpleado(supabase, { sucursal, desde, ha
     .from('cortes_contabilidad_gastos')
     .select(campos)
     .eq('descontado_nomina', false)
-    .gte('created_at', desde)
+    .gte('created_at', iniTs)
     .lte('created_at', finTs);
 
   if (!todasSucursales && sucursal) q = q.eq('sucursal_id', sucursal || 'MAIN');
@@ -109,7 +111,7 @@ export async function gastosDeduccionPorEmpleado(supabase, { sucursal, desde, ha
       let q2 = supabase
         .from('cortes_contabilidad_gastos')
         .select(campos.replace(', descontado_nomina', ''))
-        .gte('created_at', desde)
+        .gte('created_at', iniTs)
         .lte('created_at', finTs);
       if (!todasSucursales && sucursal) q2 = q2.eq('sucursal_id', sucursal || 'MAIN');
       const { data: d2, error: e2 } = await q2;
@@ -123,6 +125,7 @@ export async function gastosDeduccionPorEmpleado(supabase, { sucursal, desde, ha
 
 export async function marcarGastosDescontadosNomina(supabase, { sucursal, desde, hasta, periodoId, empleados = [], todasSucursales = true }) {
   if (!supabase || !periodoId) return { ok: true };
+  const iniTs = `${desde}T00:00:00`;
   const finTs = `${hasta}T23:59:59`;
   const indice = indiceEmpleados(empleados);
   const claves = new Set(Object.keys(indice.porId));
@@ -131,7 +134,7 @@ export async function marcarGastosDescontadosNomina(supabase, { sucursal, desde,
     .from('cortes_contabilidad_gastos')
     .select('id, usuario_id, usuario_nombre, categoria, subcategoria, modulo, estado_aprobacion')
     .eq('descontado_nomina', false)
-    .gte('created_at', desde)
+    .gte('created_at', iniTs)
     .lte('created_at', finTs);
 
   if (!todasSucursales && sucursal) q = q.eq('sucursal_id', sucursal || 'MAIN');

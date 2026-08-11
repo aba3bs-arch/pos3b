@@ -10,7 +10,7 @@ import {
   totalLineaNomina,
 } from '../lib/nomina.js';
 import { fusionarLineasNomina, otrosDeudasLinea, recalcularLineaNomina, sueldoBrutoLinea, pagoNominaLinea } from '../lib/nominaCalculos.js';
-import { periodoSemanaNomina, etiquetaSemanaNomina } from '../lib/semanaNomina.js';
+import { periodoSemanaNomina, etiquetaSemanaNomina, esSemanaNominaActual } from '../lib/semanaNomina.js';
 import { ETIQUETA_AREA, PAGADORES_NOMINA } from '../lib/contabilidadConstants.js';
 import { imprimirNomina, imprimirReciboNominaIndividual, imprimirTodosRecibosNomina } from '../lib/impresionContabilidad.js';
 import { empleadosParaNominaGlobal } from '../lib/empleadosVisibles.js';
@@ -61,7 +61,7 @@ const COLS = [
 ];
 
 export default function Nomina({ supabase, sucursal, user }) {
-  const semana = useMemo(() => periodoSemanaNomina(), []);
+  const semanaCalendario = periodoSemanaNomina();
   const esAdmin = normalizarRol(user?.rol) === 'Administrador';
   /** Quien puede cerrar nómina también puede borrar duplicadas del historial. */
   const puedeEliminarNomina = Boolean(user);
@@ -72,8 +72,8 @@ export default function Nomina({ supabase, sucursal, user }) {
   const [periodoSel, setPeriodoSel] = useState(null);
   const [lineasHist, setLineasHist] = useState([]);
 
-  const [inicio, setInicio] = useState(semana.inicio);
-  const [fin, setFin] = useState(semana.fin);
+  const [inicio, setInicio] = useState(() => periodoSemanaNomina().inicio);
+  const [fin, setFin] = useState(() => periodoSemanaNomina().fin);
   const [pagadorFiltro, setPagadorFiltro] = useState('');
   const [notasPeriodo, setNotasPeriodo] = useState('');
   const [lineas, setLineas] = useState([]);
@@ -85,6 +85,7 @@ export default function Nomina({ supabase, sucursal, user }) {
 
   const modoManual = modoNomina === 'manual';
   const totalGeneral = useMemo(() => lineas.reduce((a, l) => a + totalLineaNomina(l), 0), [lineas]);
+  const enSemanaCalendario = esSemanaNominaActual(inicio, fin);
 
   const cargarEmpleadosYGastos = useCallback(
     async (opts = {}) => {
@@ -150,18 +151,43 @@ export default function Nomina({ supabase, sucursal, user }) {
   }, [supabase]);
 
   useEffect(() => {
+    if (borradorListo) return;
+    const actual = periodoSemanaNomina();
     const b = leerBorradorNomina();
-    if (b && !borradorListo) {
-      if (b.inicio) setInicio(b.inicio);
-      if (b.fin) setFin(b.fin);
-      if (b.pagadorFiltro != null) setPagadorFiltro(b.pagadorFiltro);
-      if (b.notasPeriodo) setNotasPeriodo(b.notasPeriodo);
-      if (Array.isArray(b.excluidos)) setExcluidos(new Set(b.excluidos));
-      if (b.modo === 'manual' || b.modo === 'automatico') setModoNomina(b.modo);
-      setBorradorListo(true);
-    } else if (!borradorListo) {
-      setBorradorListo(true);
+
+    if (b?.inicio && b?.fin) {
+      const mismoQueCalendario = b.inicio === actual.inicio && b.fin === actual.fin;
+      let usarBorrador = mismoQueCalendario;
+
+      if (!mismoQueCalendario) {
+        // Borrador de otra semana: preguntar; por defecto el calendario manda si cancelan.
+        usarBorrador = window.confirm(
+          `Hay un borrador de nómina del ${b.inicio} al ${b.fin}.\n\n` +
+            `Aceptar = continuar ese borrador\n` +
+            `Cancelar = semana actual del calendario (${actual.inicio} — ${actual.fin})`,
+        );
+      }
+
+      if (usarBorrador) {
+        setInicio(b.inicio);
+        setFin(b.fin);
+        if (b.pagadorFiltro != null) setPagadorFiltro(b.pagadorFiltro);
+        if (b.notasPeriodo) setNotasPeriodo(b.notasPeriodo);
+        if (Array.isArray(b.excluidos)) setExcluidos(new Set(b.excluidos));
+        if (b.modo === 'manual' || b.modo === 'automatico') setModoNomina(b.modo);
+        // Restaurar líneas de inmediato para que el borrador no se pierda antes de la carga.
+        if (Array.isArray(b.lineas) && b.lineas.length) {
+          setLineas(b.lineas);
+        }
+      } else {
+        setInicio(actual.inicio);
+        setFin(actual.fin);
+      }
+    } else {
+      setInicio(actual.inicio);
+      setFin(actual.fin);
     }
+    setBorradorListo(true);
   }, [borradorListo]);
 
   useEffect(() => {
@@ -178,6 +204,8 @@ export default function Nomina({ supabase, sucursal, user }) {
         }
       }
     }
+    // Automático: siempre trae asistencias (reloj) + consumos/recargas/anticipos/faltantes sáb–vie.
+    // Manual: fusiona con borrador; «Recargar todo» fuerza fusionar:false.
     cargarEmpleadosYGastos({
       fusionar: Boolean(lineasBase) || modoNomina === 'manual',
       lineasBase,
@@ -189,10 +217,14 @@ export default function Nomina({ supabase, sucursal, user }) {
 
   useEffect(() => {
     if (!borradorListo) return;
-    // Evitar pisar el borrador guardado con un arreglo vacío antes de terminar la carga inicial.
+    // Nunca pisar un borrador con líneas usando un arreglo vacío (carrera al montar / al cambiar periodo).
     if (lineas.length === 0) {
       const b = leerBorradorNomina();
-      if (b?.lineas?.length && b.inicio === inicio && b.fin === fin) return;
+      if (b?.lineas?.length) {
+        if (b.inicio === inicio && b.fin === fin) return;
+        // Periodo distinto y aún sin datos: no borrar el borrador anterior hasta tener líneas nuevas.
+        return;
+      }
     }
     guardarBorradorNomina({
       inicio,
@@ -210,7 +242,11 @@ export default function Nomina({ supabase, sucursal, user }) {
     if (nuevo === 'automatico') {
       if (
         !confirm(
-          '¿Pasar a modo Automático?\n\nSe recalcularán días desde el reloj checador (retardos: los primeros 4 cuentan; desde el 5º ese día no se paga) y consumos/inventario desde cortes Virtual, Abarrotes y Garage.',
+          '¿Pasar a modo Automático?\n\n' +
+            'Se cargarán del sábado al viernes:\n' +
+            '• Días desde el reloj checador (retardos: los primeros 4 cuentan; desde el 5º ese día no se paga)\n' +
+            '• Consumos, recargas, anticipos y faltantes de empleados directos e indirectos\n' +
+            '• Inventario y préstamos aplicables',
         )
       ) {
         return;
@@ -683,11 +719,11 @@ export default function Nomina({ supabase, sucursal, user }) {
           <div>
             <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Nómina semanal</h3>
             <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', maxWidth: '52rem' }}>
-              Consolidada de <strong>todas las sucursales</strong>. Semana sábado–viernes.
+              Consolidada de <strong>todas las sucursales</strong>. Semana sábado–viernes (calendario local).
               <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros − arrastre.</strong>
               {modoManual
-                ? ' Modo Manual: puedes editar todos los campos a mano. Días aceptan medios (ej. 5.5).'
-                : ' Modo Automático: días desde el reloj checador (puedes ajustar a mano con medios días, ej. 5.5). Tarde cuenta; desde el 5º retardo ese día no se paga. Consumos de TODAS las tiendas se consolidan en Consumos.'}
+                ? ' Modo Manual: edita a mano; usa «Recargar todo» para subir asistencias + consumos/recargas/anticipos/faltantes del periodo.'
+                : ' Modo Automático: días desde el reloj checador (medios días editables). Consumos, recargas, anticipos y faltantes de directos e indirectos se cargan solos (sáb–vie).'}
             </p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.45rem' }}>
@@ -746,7 +782,8 @@ export default function Nomina({ supabase, sucursal, user }) {
           </label>
           <div style={{ display: 'flex', alignItems: 'flex-end' }}>
             <button type="button" className="btn btn-ghost" onClick={usarSemanaActual}>
-              Semana actual ({etiquetaSemanaNomina(semana.inicio, semana.fin)})
+              Semana actual ({etiquetaSemanaNomina(semanaCalendario.inicio, semanaCalendario.fin)})
+              {!enSemanaCalendario ? ' · sync' : ''}
             </button>
           </div>
           <textarea
@@ -818,7 +855,12 @@ export default function Nomina({ supabase, sucursal, user }) {
             onClick={() => {
               if (
                 !confirm(
-                  '¿Recargar todo desde cero?\n\nSe actualizarán días y deducciones automáticas. Los salarios por día guardados se conservan; bonos y “otros” del borrador se pierden.',
+                  '¿Recargar todo desde cero?\n\n' +
+                    'Se cargarán del sábado al viernes:\n' +
+                    '• Asistencias del reloj checador\n' +
+                    '• Consumos, recargas, anticipos y faltantes (directos e indirectos)\n' +
+                    '• Inventario y préstamos\n\n' +
+                    'Los salarios por día guardados se conservan; bonos y “otros” del borrador se pierden.',
                 )
               ) {
                 return;

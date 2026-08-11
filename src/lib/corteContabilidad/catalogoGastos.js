@@ -30,7 +30,7 @@ const DEFAULTS = {
   garage: [],
 };
 
-/** Solo cargos del empleado: categoría EMPLEADO + tipos legacy → nómina. */
+/** Solo cargos del empleado que restan en nómina: consumo, recargas, anticipos, faltante. */
 export const CATEGORIAS_GASTO_NOMINA = [
   'EMPLEADO',
   'CONSUMO',
@@ -41,22 +41,45 @@ export const CATEGORIAS_GASTO_NOMINA = [
   'FALTANTE',
 ];
 
-/** Gastos generados por el empleado (no CubreTurno, Taxi, operativos, etc.). */
-export function gastoDescuentaNomina(_modulo, categoria, subcategoria = '') {
-  const cat = String(categoria || '')
+function textoGastoNorm(s) {
+  return String(s || '')
     .trim()
     .toUpperCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
-  const sub = String(subcategoria || '').trim().toUpperCase();
-  if (cat === 'EMPLEADO' || cat.startsWith('EMPLEADO ')) return true;
-  if (CATEGORIAS_GASTO_NOMINA.includes(cat)) return true;
-  if (cat.includes('CONSUMO') || cat.includes('RECARG') || cat.includes('ANTICIPO') || cat.includes('FALTANTE')) {
-    return true;
+}
+
+/** Subtipos EMPLEADO / legacy que sí van a nómina. */
+function subcuentaEnNomina(sub) {
+  const s = textoGastoNorm(sub);
+  if (!s) return false;
+  return (
+    s.includes('CONSUMO') ||
+    s.includes('RECARG') ||
+    s.includes('ANTICIPO') ||
+    s.includes('FALTANTE')
+  );
+}
+
+/** Gastos generados por el empleado (no CubreTurno, Taxi, Nómina empleado, otros). */
+export function gastoDescuentaNomina(_modulo, categoria, subcategoria = '') {
+  const cat = textoGastoNorm(categoria);
+  const sub = textoGastoNorm(subcategoria);
+
+  // Categorías legacy directas
+  if (cat === 'CONSUMO' || cat.includes('CONSUMO')) return true;
+  if (cat === 'RECARGAS' || cat === 'RECARGA' || cat.includes('RECARG')) return true;
+  if (cat === 'ANTICIPOS' || cat === 'ANTICIPO' || cat.includes('ANTICIPO')) return true;
+  if (cat === 'FALTANTE' || cat.includes('FALTANTE')) return true;
+
+  // Árbol EMPLEADO: solo consumo / recargas / anticipo / faltante
+  if (cat === 'EMPLEADO' || cat.startsWith('EMPLEADO ')) {
+    return subcuentaEnNomina(sub);
   }
-  if (sub.includes('CONSUMO') || sub.includes('RECARG') || sub.includes('ANTICIPO') || sub === 'FALTANTE') {
-    return true;
-  }
+
+  // VALES u otros: mirar subcategoría
+  if (subcuentaEnNomina(sub)) return true;
+
   return false;
 }
 

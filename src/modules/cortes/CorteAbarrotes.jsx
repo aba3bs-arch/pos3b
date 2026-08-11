@@ -33,7 +33,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     caja_actual_manual: '',
   }), []);
 
-  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte, eliminarCierreHistorial, recargar } =
+  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte, eliminarCierreHistorial, editarCierreHistorial, recargar } =
     useCorteContabilidad({
       supabase,
       sucursal,
@@ -206,7 +206,9 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         historial={historial}
         modulo="abarrotes"
         puedeEliminar={perm.editarTodo}
+        puedeEditar={perm.editarTodo || perm.guardar}
         onEliminar={eliminarCierreHistorial}
+        onGuardarEdicion={editarCierreHistorial}
       />
     </div>
   );

@@ -26,10 +26,12 @@ import {
   registrarCierreCorte,
   folioTrasCierre,
   actualizarDetalleCierre,
+  actualizarCierreCorte,
   eliminarCierreCorte,
   notificarRecoleccionPendienteIe,
 } from './store.js';
 import { estadoAprobacionRecoleccionInicial } from '../contabilidadConstants.js';
+import { normalizarRol } from '../roles.js';
 
 function snapshotTurno(date = new Date()) {
   const t = turnoActual(null, date);
@@ -730,6 +732,19 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     setHistorial(hist.data || []);
   };
 
+  /** Corrige ventas/caja/folio/comentarios de un cierre del historial. */
+  const editarCierreHistorial = async (cierreId, patch) => {
+    const r = normalizarRol(user?.rol);
+    if (!(perm.editarTodo || r === 'Gerente' || r === 'Supervisor')) {
+      return { ok: false, error: 'Tu rol no puede editar cortes guardados.' };
+    }
+    const res = await actualizarCierreCorte(supabase, cierreId, patch, sucursal, modulo);
+    if (!res.ok) return res;
+    const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
+    setHistorial(hist.data || []);
+    return { ok: true };
+  };
+
   return {
     estado,
     patchEstado: patchEstadoPermitido,
@@ -749,6 +764,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     cerrarCorte,
     registrarRecoleccion,
     eliminarCierreHistorial,
+    editarCierreHistorial,
     editarGastoEnCierre,
     eliminarGastoEnCierre,
     recargar: cargar,

@@ -6,8 +6,9 @@ const LS_CAT = 'pos3b_cont_virtual_catalogo';
 export const EVENTO_CONT_VIRTUAL_CATALOGO = 'pos3b-cont-virtual-catalogo';
 
 export const AVISO_FALTA_CONT_VIRTUAL =
-  'Ejecuta supabase/fix_cont_virtual.sql y supabase/fix_cont_virtual_detalle.sql en Supabase (categorías IE + detalle).';
+  'Ejecuta supabase/fix_cont_virtual.sql, fix_cont_virtual_detalle.sql y fix_cont_virtual_ingresos.sql en Supabase (categorías IE + detalle + ingresos).';
 
+/** Categorías de EGRESO (sistema). flujo = 'egreso' implícito. */
 export const CATEGORIAS_CONT_VIRTUAL_DEFAULT = [
   {
     id: 'vales',
@@ -123,6 +124,49 @@ export const CATEGORIAS_CONT_VIRTUAL_DEFAULT = [
   },
 ];
 
+/** Categorías de INGRESO (independientes de egresos). mismo formato cat→sub→detalle. */
+export const CATEGORIAS_INGRESOS_CONT_VIRTUAL_DEFAULT = [
+  {
+    id: 'ing-recoleccion',
+    nombre: 'Recolección / caja',
+    orden: 10,
+    activo: true,
+    fijo: true,
+    flujo: 'ingreso',
+    subcategorias: [
+      { id: 'ing-recoleccion-efectivo', nombre: 'Efectivo', orden: 10, activo: true, fijo: true },
+      { id: 'ing-recoleccion-otros', nombre: 'Otros', orden: 20, activo: true, fijo: true },
+    ],
+  },
+  {
+    id: 'ing-ventas',
+    nombre: 'Ventas / otros',
+    orden: 20,
+    activo: true,
+    fijo: true,
+    flujo: 'ingreso',
+    subcategorias: [{ id: 'ing-ventas-varios', nombre: 'Varios', orden: 10, activo: true, fijo: true }],
+  },
+  {
+    id: 'ing-manual',
+    nombre: 'Otros ingresos',
+    orden: 90,
+    activo: true,
+    fijo: true,
+    flujo: 'ingreso',
+    subcategorias: [{ id: 'ing-manual-otros', nombre: 'Otros', orden: 10, activo: true, fijo: true }],
+  },
+];
+
+export function normalizarFlujoCatalogo(flujo) {
+  return String(flujo || 'egreso').toLowerCase() === 'ingreso' ? 'ingreso' : 'egreso';
+}
+
+export function filtrarCatalogoPorFlujo(catalogo, flujo) {
+  const f = normalizarFlujoCatalogo(flujo);
+  return (catalogo || []).filter((c) => normalizarFlujoCatalogo(c.flujo) === f && c.activo !== false);
+}
+
 /** Mapeo categoría de vale → subcategoría Cont Virtual. */
 export const VALE_A_CONT_VIRTUAL = {
   gasolina: { categoriaId: 'vales', subcategoriaId: 'vales-gasolina' },
@@ -187,28 +231,56 @@ function faltaTabla(error) {
   return error?.code === '42P01' || msg.includes('cont_virtual') || (msg.includes('schema cache') && msg.includes('cont_virtual'));
 }
 
+function catalogoDefaultCompleto() {
+  return [
+    ...CATEGORIAS_CONT_VIRTUAL_DEFAULT.map((c) => ({
+      ...c,
+      flujo: 'egreso',
+      subcategorias: (c.subcategorias || []).map((s) => ({ ...s, detalles: s.detalles || [] })),
+    })),
+    ...CATEGORIAS_INGRESOS_CONT_VIRTUAL_DEFAULT.map((c) => ({
+      ...c,
+      flujo: 'ingreso',
+      subcategorias: (c.subcategorias || []).map((s) => ({ ...s, detalles: s.detalles || [] })),
+    })),
+  ];
+}
+
+function asegurarIngresosEnLista(lista) {
+  const out = (lista || []).map((c) => ({
+    ...c,
+    flujo: normalizarFlujoCatalogo(c.flujo || (String(c.id || '').startsWith('ing-') ? 'ingreso' : 'egreso')),
+    subcategorias: (c.subcategorias || []).map((s) => ({
+      ...s,
+      detalles: (s.detalles || []).map((d) => ({ ...d })),
+    })),
+  }));
+  const ids = new Set(out.map((c) => c.id));
+  for (const c of CATEGORIAS_INGRESOS_CONT_VIRTUAL_DEFAULT) {
+    if (!ids.has(c.id)) {
+      out.push({
+        ...c,
+        flujo: 'ingreso',
+        subcategorias: (c.subcategorias || []).map((s) => ({ ...s, detalles: [] })),
+      });
+    }
+  }
+  return out;
+}
+
 function leerLocal() {
   try {
     const raw = localStorage.getItem(LS_CAT);
     if (raw) {
       const j = JSON.parse(raw);
       if (Array.isArray(j) && j.length) {
-        return j.map((c) => ({
-          ...c,
-          subcategorias: (c.subcategorias || []).map((s) => ({
-            ...s,
-            detalles: (s.detalles || []).map((d) => ({ ...d })),
-          })),
-        }));
+        return asegurarIngresosEnLista(j);
       }
     }
   } catch {
     /* ignore */
   }
-  return CATEGORIAS_CONT_VIRTUAL_DEFAULT.map((c) => ({
-    ...c,
-    subcategorias: (c.subcategorias || []).map((s) => ({ ...s, detalles: s.detalles || [] })),
-  }));
+  return catalogoDefaultCompleto();
 }
 
 function guardarLocal(lista) {
@@ -232,6 +304,7 @@ function armarCatalogo(cats, subs, detalles = []) {
       orden: Number(c.orden) || 0,
       activo: c.activo !== false,
       fijo: Boolean(c.fijo),
+      flujo: normalizarFlujoCatalogo(c.flujo || (String(c.id || '').startsWith('ing-') ? 'ingreso' : 'egreso')),
       subcategorias: [],
     };
   }
@@ -317,13 +390,13 @@ export async function listarCatalogoContVirtual(supabase) {
     ]);
     if (!c2.error) {
       const det = d2.error && faltaTabla(d2.error) ? [] : (d2.data || []);
-      const data = armarCatalogo(c2.data, s2.data || [], det);
+      const data = asegurarIngresosEnLista(armarCatalogo(c2.data, s2.data || [], det));
       guardarLocal(data);
       return { data, aviso: d2.error && faltaTabla(d2.error) ? AVISO_FALTA_CONT_VIRTUAL : undefined };
     }
   }
   const det = dRes.error && faltaTabla(dRes.error) ? [] : (dRes.data || []);
-  const data = armarCatalogo(cRes.data, sRes.data || [], det);
+  const data = asegurarIngresosEnLista(armarCatalogo(cRes.data, sRes.data || [], det));
   guardarLocal(data);
   return {
     data,
@@ -332,19 +405,21 @@ export async function listarCatalogoContVirtual(supabase) {
 }
 
 export async function sembrarCatalogoDefault(supabase) {
+  const defaults = catalogoDefaultCompleto();
   if (!supabase) {
-    guardarLocal(CATEGORIAS_CONT_VIRTUAL_DEFAULT);
+    guardarLocal(defaults);
     return { ok: true, soloLocal: true };
   }
-  const cats = CATEGORIAS_CONT_VIRTUAL_DEFAULT.map(({ id, nombre, orden, activo, fijo }) => ({
+  const cats = defaults.map(({ id, nombre, orden, activo, fijo, flujo }) => ({
     id,
     nombre,
     orden,
     activo,
     fijo,
+    flujo: normalizarFlujoCatalogo(flujo),
   }));
   const subs = [];
-  for (const c of CATEGORIAS_CONT_VIRTUAL_DEFAULT) {
+  for (const c of defaults) {
     for (const s of c.subcategorias || []) {
       subs.push({
         id: s.id,
@@ -356,9 +431,13 @@ export async function sembrarCatalogoDefault(supabase) {
       });
     }
   }
-  const { error: e1 } = await supabase.from('cont_virtual_categorias').upsert(cats, { onConflict: 'id' });
+  let { error: e1 } = await supabase.from('cont_virtual_categorias').upsert(cats, { onConflict: 'id' });
+  if (e1 && String(e1.message || '').toLowerCase().includes('flujo')) {
+    const sinFlujo = cats.map(({ flujo: _f, ...rest }) => rest);
+    ({ error: e1 } = await supabase.from('cont_virtual_categorias').upsert(sinFlujo, { onConflict: 'id' }));
+  }
   if (e1 && faltaTabla(e1)) {
-    guardarLocal(CATEGORIAS_CONT_VIRTUAL_DEFAULT);
+    guardarLocal(defaults);
     return { ok: true, soloLocal: true, aviso: AVISO_FALTA_CONT_VIRTUAL };
   }
   if (e1) return { ok: false, error: e1.message };
@@ -367,14 +446,15 @@ export async function sembrarCatalogoDefault(supabase) {
   return { ok: true };
 }
 
-export async function crearCategoriaContVirtual(supabase, { nombre }) {
+export async function crearCategoriaContVirtual(supabase, { nombre, flujo = 'egreso' }) {
   const label = String(nombre || '').trim();
   if (!label) return { ok: false, error: 'Nombre obligatorio.' };
-  const id = slug(label, 'cat');
+  const flujoN = normalizarFlujoCatalogo(flujo);
+  const id = slug(flujoN === 'ingreso' ? `ing-${label}` : label, flujoN === 'ingreso' ? 'ing' : 'cat');
   if (!supabase) {
     const lista = leerLocal();
     if (lista.some((c) => c.id === id)) return { ok: false, error: 'Ya existe esa categoría.' };
-    lista.push({ id, nombre: label, orden: 100, activo: true, fijo: false, subcategorias: [] });
+    lista.push({ id, nombre: label, orden: 100, activo: true, fijo: false, flujo: flujoN, subcategorias: [] });
     guardarLocal(lista);
     return { ok: true, id };
   }
@@ -384,9 +464,28 @@ export async function crearCategoriaContVirtual(supabase, { nombre }) {
     orden: 100,
     activo: true,
     fijo: false,
+    flujo: flujoN,
   });
   if (error) {
     if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CONT_VIRTUAL };
+    const msg = String(error.message || '').toLowerCase();
+    if (msg.includes('flujo')) {
+      const retry = await supabase.from('cont_virtual_categorias').insert({
+        id,
+        nombre: label,
+        orden: 100,
+        activo: true,
+        fijo: false,
+      });
+      if (!retry.error) {
+        return {
+          ok: true,
+          id,
+          aviso: 'Categoría creada. Ejecuta supabase/fix_cont_virtual_ingresos.sql para marcar ingresos/egresos.',
+        };
+      }
+      return { ok: false, error: retry.error.message };
+    }
     return { ok: false, error: error.message };
   }
   return { ok: true, id };
