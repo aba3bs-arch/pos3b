@@ -23,6 +23,7 @@ import {
   eliminarDetalleContVirtual,
   listarCatalogoContVirtual,
   resolverNombresCatalogo,
+  filtrarCatalogoPorFlujo,
   AVISO_FALTA_CONT_VIRTUAL,
 } from '../lib/contVirtualCatalogo.js';
 import {
@@ -30,7 +31,11 @@ import {
   esCategoriaEmpleado,
 } from '../lib/catalogoEmpleadoGastos.js';
 import { agruparEmpleadosParaSelectCorte, empleadosParaCorte } from '../lib/empleadosVisibles.js';
-import { eliminarEgresoDesdePanelIe, eliminarIngresoContVirtual, registrarEgresoContVirtual, registrarIngresoContVirtual } from '../lib/contVirtualEgresos.js';
+import { eliminarEgresoDesdePanelIe, registrarEgresoContVirtual } from '../lib/contVirtualEgresos.js';
+import {
+  registrarIngresoContVirtual,
+  eliminarIngresoContVirtual,
+} from '../lib/contVirtualIngresos.js';
 import {
   AVISO_FALTA_INVERSIONES_OFICINA,
   cancelarInversionOficina,
@@ -357,8 +362,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const [qBusqueda, setQBusqueda] = useState('');
   const [filtroTipoBusq, setFiltroTipoBusq] = useState(''); // '' | ingreso | gasto
   const [showManual, setShowManual] = useState(false);
+  const [manualTipo, setManualTipo] = useState('egreso'); // egreso | ingreso
   const [showInversion, setShowInversion] = useState(false);
   const [masVista, setMasVista] = useState('menu'); // menu | catalogo | inversiones
+  const [catalogoFlujo, setCatalogoFlujo] = useState('egreso'); // egreso | ingreso
 
   const [cargando, setCargando] = useState(false);
   const [datos, setDatos] = useState(null);
@@ -456,6 +463,16 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const catalogoVista = useMemo(
     () => enriquecerCatalogoConEmpleados(catalogo, usuariosCat, catEmpSucursal || sucursalActiva),
     [catalogo, usuariosCat, catEmpSucursal, sucursalActiva],
+  );
+
+  const catalogoFlujoVista = useMemo(
+    () => filtrarCatalogoPorFlujo(catalogo, catalogoFlujo),
+    [catalogo, catalogoFlujo],
+  );
+
+  const catalogoManual = useMemo(
+    () => filtrarCatalogoPorFlujo(catalogo, manualTipo),
+    [catalogo, manualTipo],
   );
 
   const cargar = useCallback(async () => {
@@ -644,9 +661,9 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const calCells = useMemo(() => buildCalendarCells(anio, mes, byFecha), [anio, mes, byFecha]);
 
   const subsManual = useMemo(() => {
-    const cat = catalogo.find((c) => c.id === manual.categoria_id);
+    const cat = catalogoManual.find((c) => c.id === manual.categoria_id);
     return (cat?.subcategorias || []).filter((s) => s.activo !== false);
-  }, [catalogo, manual.categoria_id]);
+  }, [catalogoManual, manual.categoria_id]);
 
   const detsManual = useMemo(() => {
     const sub = subsManual.find((s) => s.id === manual.subcategoria_id);
@@ -662,9 +679,9 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   }, [manualEsEmpleado, usuariosCat, manual.sucursal_id, sucursalActiva]);
 
   const subsParaNuevoDet = useMemo(() => {
-    const cat = catalogo.find((c) => c.id === nuevaDet.categoriaId);
+    const cat = catalogoFlujoVista.find((c) => c.id === nuevaDet.categoriaId);
     return (cat?.subcategorias || []).filter((s) => s.activo !== false);
-  }, [catalogo, nuevaDet.categoriaId]);
+  }, [catalogoFlujoVista, nuevaDet.categoriaId]);
 
   const shiftPeriod = (dir) => {
     if ((nav === 'trans' && transTab === 'mensual') || (nav === 'estad' && estadPreset === 'ano')) {
@@ -698,12 +715,16 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   }, [masVista, cargarInversiones]);
 
   const guardarManual = async () => {
-    if (!esAdmin) return alert('Solo el administrador puede capturar movimientos manuales.');
+    const esIngreso = manualTipo === 'ingreso';
+    if (!esAdmin) {
+      return alert(esIngreso
+        ? 'Solo el administrador puede capturar ingresos manuales.'
+        : 'Solo el administrador puede capturar egresos manuales.');
+    }
     const monto = Number(manual.monto);
     if (!(monto > 0)) return alert('Indica un monto válido.');
-    if (!manual.sucursal_id) return alert('Elige la sucursal.');
-    if (!manual.categoria_id) return alert('Elige categoría / cuenta.');
-    const esIngreso = manual.tipo === 'ingreso';
+    if (!manual.sucursal_id) return alert(esIngreso ? 'Elige la sucursal del ingreso.' : 'Elige la sucursal del egreso.');
+    if (!manual.categoria_id) return alert('Elige categoría.');
     const catEmp = !esIngreso && esCategoriaEmpleado(catalogo.find((c) => c.id === manual.categoria_id));
     if (catEmp && !manual.empleado_id) return alert('Elige el empleado (Main o tienda).');
     const nombres = resolverNombresCatalogo(
@@ -743,16 +764,21 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   };
 
   const abrirManual = (tipo = 'egreso') => {
-    const catIngreso = (catalogo || []).find((c) => c.id === 'ingresos') || (catalogo || []).find((c) => c.id === 'manual');
-    const firstSub = (catIngreso?.subcategorias || []).find((s) => s.activo !== false);
+    setManualTipo(tipo);
+    const cats = filtrarCatalogoPorFlujo(catalogo, tipo);
+    const prefer = tipo === 'ingreso'
+      ? (cats.find((c) => c.id === 'ing-manual') || cats[0])
+      : (cats.find((c) => c.id === 'manual') || cats[0]);
+    const firstSub = (prefer?.subcategorias || []).find((s) => s.activo !== false);
+    const firstDet = (firstSub?.detalles || []).find((d) => d.activo !== false);
     setManual((m) => ({
       ...m,
       tipo,
       fecha: hoyYmd(),
       cuenta: esFrancisco ? 'abarrotes' : m.cuenta || 'virtual',
-      categoria_id: tipo === 'ingreso' ? (catIngreso?.id || 'manual') : (m.categoria_id || 'manual'),
-      subcategoria_id: tipo === 'ingreso' ? (firstSub?.id || '') : (m.subcategoria_id || 'manual-otros'),
-      detalle_id: '',
+      categoria_id: prefer?.id || (tipo === 'ingreso' ? 'ing-manual' : 'manual'),
+      subcategoria_id: firstSub?.id || (tipo === 'ingreso' ? 'ing-manual-otros' : 'manual-otros'),
+      detalle_id: firstDet?.id || '',
       empleado_id: '',
       monto: '',
       descripcion: '',
@@ -826,7 +852,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const agregarCategoria = async () => {
     if (!esAdmin) return;
     setGuardando(true);
-    const res = await crearCategoriaContVirtual(supabase, { nombre: nuevaCat });
+    const res = await crearCategoriaContVirtual(supabase, { nombre: nuevaCat, flujo: catalogoFlujo });
     setGuardando(false);
     if (!res.ok) return alert(res.error);
     setNuevaCat('');
@@ -1523,6 +1549,21 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       const empMain = catEmpVista?.grupos_empleado?.main || [];
       const empTienda = catEmpVista?.grupos_empleado?.tiendaGrupos || [];
 
+      const setFlujoCatalogo = (flujo) => {
+        setCatalogoFlujo(flujo);
+        const cats = filtrarCatalogoPorFlujo(catalogo, flujo);
+        const first = cats[0];
+        const firstSub = (first?.subcategorias || []).find((s) => s.activo !== false);
+        if (first) {
+          setNuevaSub((s) => ({ ...s, categoriaId: first.id }));
+          setNuevaDet((d) => ({
+            ...d,
+            categoriaId: first.id,
+            subcategoriaId: firstSub?.id || '',
+          }));
+        }
+      };
+
       return (
         <div className="cv-catalogo">
           <div className="cv-top">
@@ -1530,13 +1571,17 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             <strong>Cuentas y subcuentas</strong>
             <span />
           </div>
+          <div className="cv-estad-tabs" style={{ marginBottom: '0.75rem' }}>
+            <button type="button" className={catalogoFlujo === 'egreso' ? 'active' : ''} onClick={() => setFlujoCatalogo('egreso')}>Egresos</button>
+            <button type="button" className={catalogoFlujo === 'ingreso' ? 'active' : ''} onClick={() => setFlujoCatalogo('ingreso')}>Ingresos</button>
+          </div>
           <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.75rem' }}>
             Catálogo compartido de IE Virtual e IE Abarrotes: <strong>Cuenta → Subcuenta → Detalle</strong>.
-            Crea, edita o elimina los tres niveles. Sirven para clasificar ingresos y egresos manuales.
-            En <strong>Empleado</strong>, abajo ves quién aplica (Main / tienda).
+            Los <strong>ingresos</strong> son independientes de los <strong>egresos</strong>, con el mismo formato.
+            Crea, edita o elimina los tres niveles. En <strong>Empleado</strong> (egresos), abajo ves quién aplica (Main / tienda).
           </p>
           {!esAdmin && <p className="cv-error">Solo el administrador puede editar cuentas y subcuentas.</p>}
-          {(catalogo || []).map((c) => (
+          {(catalogoFlujoVista || []).map((c) => (
             <div key={c.id} className="cv-cat-card">
               <div className="cv-cat-hd">
                 <strong>{c.nombre}{c.fijo ? ' · sistema' : ''}</strong>
@@ -1655,7 +1700,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
               <input value={nuevaCat} onChange={(e) => setNuevaCat(e.target.value)} placeholder="Nueva cuenta" />
               <button type="button" className="cv-btn" disabled={guardando || !nuevaCat.trim()} onClick={agregarCategoria}>Agregar cuenta</button>
               <select value={nuevaSub.categoriaId} onChange={(e) => setNuevaSub({ ...nuevaSub, categoriaId: e.target.value })}>
-                {catalogo.map((c) => (
+                {catalogoFlujoVista.map((c) => (
                   <option key={c.id} value={c.id}>{c.nombre}</option>
                 ))}
               </select>
@@ -1665,11 +1710,11 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                 value={nuevaDet.categoriaId}
                 onChange={(e) => {
                   const categoriaId = e.target.value;
-                  const firstSub = (catalogo.find((c) => c.id === categoriaId)?.subcategorias || []).find((s) => s.activo !== false);
+                  const firstSub = (catalogoFlujoVista.find((c) => c.id === categoriaId)?.subcategorias || []).find((s) => s.activo !== false);
                   setNuevaDet({ categoriaId, subcategoriaId: firstSub?.id || '', nombre: nuevaDet.nombre });
                 }}
               >
-                {catalogo.map((c) => (
+                {catalogoFlujoVista.map((c) => (
                   <option key={c.id} value={c.id}>{c.nombre}</option>
                 ))}
               </select>
@@ -1881,17 +1926,23 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       {showManual && (
         <div className="cv-modal-backdrop" onClick={() => setShowManual(false)} role="presentation">
           <div className="cv-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Captura manual">
-            <h3>{manual.tipo === 'ingreso' ? 'Nuevo ingreso' : 'Nuevo egreso'}</h3>
-            <label>
-              Tipo
-              <select
-                value={manual.tipo}
-                onChange={(e) => abrirManual(e.target.value)}
+            <h3>{manualTipo === 'ingreso' ? 'Nuevo ingreso' : 'Nuevo egreso'}</h3>
+            <div className="cv-estad-tabs" style={{ marginBottom: '0.75rem' }}>
+              <button
+                type="button"
+                className={manualTipo === 'egreso' ? 'active' : ''}
+                onClick={() => abrirManual('egreso')}
               >
-                <option value="ingreso">Ingreso</option>
-                <option value="egreso">Egreso</option>
-              </select>
-            </label>
+                Egreso
+              </button>
+              <button
+                type="button"
+                className={manualTipo === 'ingreso' ? 'active' : ''}
+                onClick={() => abrirManual('ingreso')}
+              >
+                Ingreso
+              </button>
+            </div>
             <label>
               Fecha
               <input type="date" value={manual.fecha} onChange={(e) => setManual({ ...manual, fecha: e.target.value })} />
@@ -1919,12 +1970,12 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
               </select>
             </label>
             <label>
-              {manual.tipo === 'ingreso' ? 'Cuenta / categoría' : 'Cuenta / categoría'}
+              Categoría
               <select
                 value={manual.categoria_id}
                 onChange={(e) => {
                   const categoria_id = e.target.value;
-                  const firstSub = (catalogo.find((c) => c.id === categoria_id)?.subcategorias || []).find((s) => s.activo !== false);
+                  const firstSub = (catalogoManual.find((c) => c.id === categoria_id)?.subcategorias || []).find((s) => s.activo !== false);
                   const firstDet = (firstSub?.detalles || []).find((d) => d.activo !== false);
                   setManual({
                     ...manual,
@@ -1935,16 +1986,13 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                   });
                 }}
               >
-                {(manual.tipo === 'ingreso'
-                  ? catalogo
-                  : catalogo.filter((c) => c.id !== 'ingresos')
-                ).map((c) => (
+                {catalogoManual.map((c) => (
                   <option key={c.id} value={c.id}>{c.nombre}</option>
                 ))}
               </select>
             </label>
             <label>
-              Subcuenta / subcategoría
+              Subcategoría
               <select
                 value={manual.subcategoria_id}
                 onChange={(e) => {
@@ -1960,7 +2008,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                 ))}
               </select>
             </label>
-            {manualEsEmpleado && (
+            {manualTipo === 'egreso' && manualEsEmpleado && (
               <label>
                 Empleado (Main / tienda)
                 <select
@@ -2009,7 +2057,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             <div className="cv-modal-actions">
               <button type="button" className="cv-btn ghost" onClick={() => setShowManual(false)}>Cancelar</button>
               <button type="button" className="cv-btn" disabled={guardando} onClick={guardarManual}>
-                {guardando ? 'Guardando…' : (manual.tipo === 'ingreso' ? 'Registrar ingreso' : 'Registrar egreso')}
+                {guardando ? 'Guardando…' : (manualTipo === 'ingreso' ? 'Registrar ingreso' : 'Registrar egreso')}
               </button>
             </div>
           </div>
