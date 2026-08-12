@@ -72,8 +72,9 @@ export function gastoDescuentaNomina(_modulo, categoria, subcategoria = '') {
   if (cat === 'ANTICIPOS' || cat === 'ANTICIPO' || cat.includes('ANTICIPO')) return true;
   if (cat === 'FALTANTE' || cat.includes('FALTANTE')) return true;
 
-  // Árbol EMPLEADO: solo consumo / recargas / anticipo / faltante
+  // Árbol EMPLEADO: tipos de nómina; si aún no hay sub, igual se pide empleado en captura.
   if (cat === 'EMPLEADO' || cat.startsWith('EMPLEADO ')) {
+    if (!sub) return true;
     return subcuentaEnNomina(sub);
   }
 
