@@ -1,5 +1,75 @@
 import { etiquetaCategoriaVale, normalizarAreaCorte, valeDescuentaNomina } from './contabilidadConstants.js';
 
+/**
+ * ¿El gasto ligado a un documento sigue en un corte abierto (cerrado=false)?
+ * Si nunca se cargó a corte → eliminable.
+ * Si está en corte cerrado → no eliminable.
+ */
+export async function corteDocumentoEliminable(supabase, opts = {}) {
+  const {
+    cargadoCorte = false,
+    sucursal_id,
+    modulo,
+    comentarioIlike,
+    categoria,
+    gastoId,
+  } = opts;
+  if (!supabase) return { ok: false, error: 'Sin conexión.', eliminable: false };
+  if (!cargadoCorte && !gastoId) {
+    return { ok: true, eliminable: true, motivo: 'sin_corte', idsAbiertos: [], idsCerrados: [] };
+  }
+
+  let idsAbiertos = [];
+  let idsCerrados = [];
+
+  if (gastoId) {
+    const { data, error } = await supabase
+      .from('cortes_contabilidad_gastos')
+      .select('id, cerrado')
+      .eq('id', gastoId)
+      .maybeSingle();
+    if (error && error.code !== '42P01') return { ok: false, error: error.message, eliminable: false };
+    if (data) {
+      if (data.cerrado) idsCerrados.push(data.id);
+      else idsAbiertos.push(data.id);
+    } else {
+      return { ok: true, eliminable: true, motivo: 'gasto_no_encontrado', idsAbiertos: [], idsCerrados: [] };
+    }
+  } else {
+    let q = supabase
+      .from('cortes_contabilidad_gastos')
+      .select('id, cerrado')
+      .eq('sucursal_id', sucursal_id || 'MAIN');
+    if (modulo) q = q.eq('modulo', modulo);
+    if (categoria) q = q.eq('categoria', categoria);
+    if (comentarioIlike) q = q.ilike('comentario', comentarioIlike);
+    const { data, error } = await q;
+    if (error) {
+      if (error.code === '42P01') return { ok: true, eliminable: true, motivo: 'sin_tabla', idsAbiertos: [], idsCerrados: [] };
+      return { ok: false, error: error.message, eliminable: false };
+    }
+    for (const g of data || []) {
+      if (g.cerrado) idsCerrados.push(g.id);
+      else idsAbiertos.push(g.id);
+    }
+  }
+
+  if (idsCerrados.length && !idsAbiertos.length) {
+    return {
+      ok: true,
+      eliminable: false,
+      motivo: 'corte_cerrado',
+      error: 'El documento ya está en un corte cerrado. No se puede eliminar.',
+      idsAbiertos,
+      idsCerrados,
+    };
+  }
+  if (idsAbiertos.length) {
+    return { ok: true, eliminable: true, motivo: 'corte_abierto', idsAbiertos, idsCerrados };
+  }
+  return { ok: true, eliminable: true, motivo: 'sin_gasto', idsAbiertos: [], idsCerrados: [] };
+}
+
 /** Registra un vale aprobado como gasto del turno en el corte del área del beneficiario. */
 export async function cargarValeACorte(supabase, vale) {
   if (!supabase || !vale?.id) return { ok: false, error: 'Vale inválido.' };

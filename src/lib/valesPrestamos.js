@@ -13,7 +13,8 @@ import {
 } from './contabilidadConstants.js';
 import { esCategoriaValeConocida } from './valesCategorias.js';
 import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
-import { cargarValeACorte, cargarPrestamoEmpleadoACorte, quitarValeDeCorteAbierto } from './cargosContabilidad.js';
+import { cargarValeACorte, cargarPrestamoEmpleadoACorte, quitarValeDeCorteAbierto, corteDocumentoEliminable } from './cargosContabilidad.js';
+import { asegurarCamposSinReservadoOPin } from './reservadoAdminPrincipal.js';
 
 export function faltaTablaVales(error) {
   const msg = String(error?.message || error || '').toLowerCase();
@@ -272,6 +273,129 @@ export async function rechazarVale(supabase, valeId, { nombre, motivo } = {}) {
   if (error) return { ok: false, error: error.message };
   await marcarNotificacionAtendida(supabase, 'vales', valeId, nombre);
   return { ok: true, vale: data };
+}
+
+/** Edita un vale (monto, categoría, motivo/notas). Bloquea nombres reservados sin Andrés. */
+export async function editarVale(supabase, vale, patch = {}, { nombre, user, sucursal } = {}) {
+  if (!supabase || !vale?.id) return { ok: false, error: 'Vale inválido.' };
+  const est = vale.estado_aprobacion || 'aprobado';
+  if (est === 'cancelado' || est === 'rechazado') {
+    return { ok: false, error: 'No se puede editar un vale cancelado o rechazado.' };
+  }
+  const authTxt = await asegurarCamposSinReservadoOPin(
+    supabase,
+    [patch.motivo, patch.notas, patch.categoria, patch.nombre_empleado],
+    { user, sucursal },
+  );
+  if (!authTxt.ok) return authTxt;
+
+  const upd = {};
+  if (patch.monto != null && patch.monto !== '') {
+    const m = Number(patch.monto);
+    if (!(m > 0)) return { ok: false, error: 'Monto inválido.' };
+    upd.monto = m;
+  }
+  if (patch.categoria != null && String(patch.categoria).trim()) {
+    const cat = String(patch.categoria).trim().toLowerCase();
+    if (!esCategoriaValeConocida(cat)) return { ok: false, error: 'Tipo de vale no válido.' };
+    upd.categoria = cat;
+  }
+  if (patch.motivo !== undefined) upd.motivo = String(patch.motivo || '').trim() || null;
+  if (patch.notas !== undefined) upd.notas = String(patch.notas || '').trim() || null;
+  if (patch.nombre_empleado != null && String(patch.nombre_empleado).trim()) {
+    upd.nombre_empleado = String(patch.nombre_empleado).trim();
+  }
+  if (!Object.keys(upd).length) return { ok: false, error: 'Sin cambios.' };
+
+  const { data, error } = await supabase.from('vales').update(upd).eq('id', vale.id).select('*').single();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, vale: data, mensaje: 'Vale actualizado.', autorizadoPor: authTxt.autorizadoPor || nombre };
+}
+
+/**
+ * Abona a un vale de consumo (reduce monto). Si está en corte abierto, ajusta el gasto.
+ * Gasolina: marca cobrado al liquidar/abonar total.
+ */
+export async function abonarVale(supabase, vale, montoAbono, { nombre } = {}) {
+  if (!supabase || !vale?.id) return { ok: false, error: 'Vale inválido.' };
+  const est = vale.estado_aprobacion || 'aprobado';
+  if (est !== 'aprobado' && est !== 'pendiente_admin') {
+    return { ok: false, error: 'Solo se abona a vales pendientes o aprobados.' };
+  }
+  const abono = Math.max(0, Number(montoAbono) || 0);
+  if (!(abono > 0)) return { ok: false, error: 'Monto de abono inválido.' };
+  const montoAntes = Number(vale.monto) || 0;
+  if (abono > montoAntes + 0.001) return { ok: false, error: 'El abono no puede superar el monto del vale.' };
+  const monto = Math.max(0, Math.round((montoAntes - abono) * 100) / 100);
+
+  if (vale.categoria === 'gasolina' && monto <= 0.001) {
+    return marcarValeCobrado(supabase, vale.id, true, { nombre });
+  }
+
+  if (vale.cargado_corte) {
+    const check = await corteDocumentoEliminable(supabase, {
+      cargadoCorte: true,
+      sucursal_id: vale.sucursal_id,
+      modulo: normalizarAreaCorte(vale.area, 'virtual'),
+      comentarioIlike: vale.folio ? `%VALE ${vale.folio}%` : undefined,
+      categoria: 'VALES',
+    });
+    if (!check.eliminable) {
+      return { ok: false, error: check.error || 'El vale está en un corte cerrado; no se puede abonar aquí.' };
+    }
+    if (check.idsAbiertos?.length) {
+      if (monto <= 0.001) {
+        await supabase.from('cortes_contabilidad_gastos').delete().in('id', check.idsAbiertos);
+      } else {
+        await supabase.from('cortes_contabilidad_gastos').update({ monto }).in('id', check.idsAbiertos);
+      }
+    }
+  }
+
+  if (monto <= 0.001) {
+    return cancelarVale(supabase, vale.id, { nombre, motivo: `Liquidado por abono (${nombre || 'usuario'})` });
+  }
+
+  const { data, error } = await supabase.from('vales').update({ monto }).eq('id', vale.id).select('*').single();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, vale: data, saldo: monto, liquidado: false };
+}
+
+export async function liquidarVale(supabase, vale, { nombre } = {}) {
+  if (!vale) return { ok: false, error: 'Vale inválido.' };
+  if (vale.categoria === 'gasolina') {
+    return marcarValeCobrado(supabase, vale.id, true, { nombre });
+  }
+  const monto = Number(vale.monto) || 0;
+  if (!(monto > 0)) return cancelarVale(supabase, vale.id, { nombre, motivo: 'Liquidado' });
+  return abonarVale(supabase, vale, monto, { nombre });
+}
+
+/** Elimina vale solo si el corte está abierto (o aún no cargó). */
+export async function eliminarVale(supabase, vale, { nombre, motivo } = {}) {
+  if (!supabase || !vale?.id) return { ok: false, error: 'Vale inválido.' };
+  const check = await corteDocumentoEliminable(supabase, {
+    cargadoCorte: Boolean(vale.cargado_corte),
+    sucursal_id: vale.sucursal_id,
+    modulo: normalizarAreaCorte(vale.area, 'virtual'),
+    comentarioIlike: vale.folio ? `%VALE ${vale.folio}%` : undefined,
+    categoria: 'VALES',
+  });
+  if (!check.ok) return check;
+  if (!check.eliminable) return { ok: false, error: check.error };
+
+  if (check.idsAbiertos?.length) {
+    const { error: eDel } = await supabase.from('cortes_contabilidad_gastos').delete().in('id', check.idsAbiertos);
+    if (eDel) return { ok: false, error: eDel.message };
+  }
+
+  const { error } = await supabase.from('vales').delete().eq('id', vale.id);
+  if (error) {
+    // Fallback: cancelar si RLS/FK impide borrado
+    return cancelarVale(supabase, vale.id, { nombre, motivo: motivo || 'Eliminado' });
+  }
+  await marcarNotificacionAtendida(supabase, 'vales', vale.id, nombre);
+  return { ok: true, eliminado: true, mensaje: 'Vale eliminado.' };
 }
 
 /** Anula un vale (pendiente o aprobado). Solo administrador. Quita el gasto del corte abierto si aplica. */
@@ -639,18 +763,36 @@ export async function editarPrestamo(supabase, prestamo, patch = {}, { nombre } 
   return { ok: true, prestamo: data, mensaje: 'Préstamo actualizado.' };
 }
 
-/** Elimina / cancela un préstamo a empleado. */
+/** Elimina / cancela un préstamo a empleado. Solo si el corte está abierto (o no cargó). */
 export async function eliminarPrestamo(supabase, prestamo, { nombre, motivo } = {}) {
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
   const est = String(prestamo.estado || '');
   if (est === 'liquidado') return { ok: false, error: 'No se puede eliminar un préstamo ya liquidado.' };
 
+  const check = await corteDocumentoEliminable(supabase, {
+    cargadoCorte: Boolean(prestamo.cargado_corte),
+    sucursal_id: prestamo.sucursal_id,
+    modulo: normalizarAreaCorte(prestamo.area_corte, 'virtual'),
+    comentarioIlike: `%PRÉSTAMO ${prestamo.nombre_empleado || ''}%`,
+    categoria: 'PRESTAMOS',
+  });
+  if (!check.ok) return check;
+  if (!check.eliminable) return { ok: false, error: check.error };
+
+  if (check.idsAbiertos?.length) {
+    const { error: eDel } = await supabase.from('cortes_contabilidad_gastos').delete().in('id', check.idsAbiertos);
+    if (eDel) return { ok: false, error: eDel.message };
+  }
+
   // Pendiente sin cargar a corte: borrar fila
-  if (['pendiente_admin', 'pendiente_socio', 'rechazado'].includes(est) && !prestamo.cargado_corte) {
+  if (['pendiente_admin', 'pendiente_socio', 'rechazado'].includes(est) || !prestamo.cargado_corte) {
     const { error } = await supabase.from('prestamos').delete().eq('id', prestamo.id);
-    if (error) return { ok: false, error: error.message };
-    await marcarNotificacionAtendida(supabase, 'prestamos', prestamo.id, nombre);
-    return { ok: true, eliminado: true, mensaje: 'Préstamo eliminado.' };
+    if (error) {
+      // Fallback cancelar
+    } else {
+      await marcarNotificacionAtendida(supabase, 'prestamos', prestamo.id, nombre);
+      return { ok: true, eliminado: true, mensaje: 'Préstamo eliminado.' };
+    }
   }
 
   // Activo o ya cargado: cancelar (conserva historial)
@@ -659,12 +801,13 @@ export async function eliminarPrestamo(supabase, prestamo, { nombre, motivo } = 
     .update({
       estado: 'cancelado',
       saldo: 0,
+      cargado_corte: false,
       solicitud_tipo: null,
       solicitud_monto: 0,
       solicitud_por: null,
       solicitud_at: null,
       solicitud_notas: null,
-      motivo_rechazo: motivo || `Cancelado por ${nombre || 'admin'}`,
+      motivo_rechazo: motivo || `Eliminado por ${nombre || 'usuario'}`,
       rechazado_por: nombre || null,
     })
     .eq('id', prestamo.id)
@@ -675,9 +818,7 @@ export async function eliminarPrestamo(supabase, prestamo, { nombre, motivo } = 
   return {
     ok: true,
     prestamo: data,
-    mensaje: prestamo.cargado_corte
-      ? 'Préstamo cancelado. Si ya estaba en corte, revisa el corte del área manualmente.'
-      : 'Préstamo cancelado.',
+    mensaje: 'Préstamo eliminado/cancelado (corte abierto).',
   };
 }
 
@@ -799,12 +940,30 @@ export async function listarPrestamosInterarea(supabase, opts = {}) {
 export async function registrarPrestamoInterarea(supabase, row) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   if (row.origen === row.destino) return { ok: false, error: 'Origen y destino deben ser distintos.' };
+  const monto = Number(row.monto) || 0;
+  if (!(monto > 0)) return { ok: false, error: 'Monto inválido.' };
   const { data, error } = await supabase
     .from('prestamos_interarea')
-    .insert([{ ...row, estado: 'activo' }])
+    .insert([{
+      ...row,
+      monto,
+      saldo: monto,
+      abono: 0,
+      estado: 'activo',
+    }])
     .select('*')
     .single();
   if (error?.code === '42P01') return { ok: false, error: 'Ejecuta fix_contabilidad_ampliacion.sql' };
+  // Si faltan columnas saldo/abono, reintentar sin ellas
+  if (error && /saldo|abono/i.test(String(error.message || ''))) {
+    const retry = await supabase
+      .from('prestamos_interarea')
+      .insert([{ ...row, monto, estado: 'activo' }])
+      .select('*')
+      .single();
+    if (retry.error) return { ok: false, error: retry.error.message };
+    return { ok: true, prestamo: retry.data };
+  }
   if (error) return { ok: false, error: error.message };
 
   const origenLbl = row.origen || '—';
@@ -819,6 +978,106 @@ export async function registrarPrestamoInterarea(supabase, row) {
     area_buzon: row.destino || row.gastos_area || 'abarrotes',
   });
   return { ok: true, prestamo: data };
+}
+
+function saldoInterarea(p) {
+  if (p?.saldo != null && p.saldo !== '') return Number(p.saldo) || 0;
+  return Number(p?.monto) || 0;
+}
+
+export async function abonarPrestamoInterarea(supabase, prestamo, montoAbono) {
+  if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  if (String(prestamo.estado || 'activo') !== 'activo') {
+    return { ok: false, error: 'El préstamo no está activo.' };
+  }
+  const abono = Math.max(0, Number(montoAbono) || 0);
+  if (!(abono > 0)) return { ok: false, error: 'Monto de abono inválido.' };
+  const saldoAntes = saldoInterarea(prestamo);
+  if (abono > saldoAntes + 0.001) return { ok: false, error: 'El abono no puede superar el saldo.' };
+  const saldo = Math.max(0, Math.round((saldoAntes - abono) * 100) / 100);
+  const abonoTotal = (Number(prestamo.abono) || 0) + abono;
+  const upd = {
+    saldo,
+    abono: abonoTotal,
+    estado: saldo <= 0 ? 'liquidado' : 'activo',
+  };
+  let { data, error } = await supabase.from('prestamos_interarea').update(upd).eq('id', prestamo.id).select('*').single();
+  if (error && /saldo|abono/i.test(String(error.message || ''))) {
+    ({ data, error } = await supabase
+      .from('prestamos_interarea')
+      .update({ monto: saldo, estado: saldo <= 0 ? 'liquidado' : 'activo' })
+      .eq('id', prestamo.id)
+      .select('*')
+      .single());
+  }
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, prestamo: data, saldo, liquidado: saldo <= 0 };
+}
+
+export async function liquidarPrestamoInterarea(supabase, prestamo) {
+  const saldo = saldoInterarea(prestamo);
+  if (!(saldo > 0) && String(prestamo?.estado) === 'liquidado') {
+    return { ok: false, error: 'Ya está liquidado.' };
+  }
+  if (!(saldo > 0)) {
+    const { data, error } = await supabase
+      .from('prestamos_interarea')
+      .update({ estado: 'liquidado', saldo: 0 })
+      .eq('id', prestamo.id)
+      .select('*')
+      .single();
+    if (error && /saldo/i.test(String(error.message || ''))) {
+      const retry = await supabase
+        .from('prestamos_interarea')
+        .update({ estado: 'liquidado' })
+        .eq('id', prestamo.id)
+        .select('*')
+        .single();
+      if (retry.error) return { ok: false, error: retry.error.message };
+      return { ok: true, prestamo: retry.data, liquidado: true };
+    }
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, prestamo: data, liquidado: true };
+  }
+  return abonarPrestamoInterarea(supabase, prestamo, saldo);
+}
+
+export async function editarPrestamoInterarea(supabase, prestamo, patch = {}, { user, sucursal } = {}) {
+  if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  if (['liquidado', 'cancelado'].includes(String(prestamo.estado || ''))) {
+    return { ok: false, error: 'No se puede editar un préstamo liquidado o cancelado.' };
+  }
+  const authTxt = await asegurarCamposSinReservadoOPin(supabase, [patch.notas], { user, sucursal });
+  if (!authTxt.ok) return authTxt;
+  const upd = {};
+  if (patch.notas !== undefined) upd.notas = String(patch.notas || '').trim() || null;
+  if (patch.monto != null && patch.monto !== '' && !(Number(prestamo.abono) > 0)) {
+    const m = Number(patch.monto);
+    if (!(m > 0)) return { ok: false, error: 'Monto inválido.' };
+    upd.monto = m;
+    upd.saldo = m;
+  }
+  if (!Object.keys(upd).length) return { ok: false, error: 'Sin cambios.' };
+  let { data, error } = await supabase.from('prestamos_interarea').update(upd).eq('id', prestamo.id).select('*').single();
+  if (error && /saldo/i.test(String(error.message || ''))) {
+    delete upd.saldo;
+    ({ data, error } = await supabase.from('prestamos_interarea').update(upd).eq('id', prestamo.id).select('*').single());
+  }
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, prestamo: data, mensaje: 'Actualizado.' };
+}
+
+/** Interárea no carga a corte de caja; se puede eliminar si sigue activo. */
+export async function eliminarPrestamoInterarea(supabase, prestamo) {
+  if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  if (String(prestamo.estado) === 'liquidado') {
+    return { ok: false, error: 'No se puede eliminar un préstamo liquidado.' };
+  }
+  // Regla de producto: eliminar solo con “corte abierto”. Interárea no va a corte;
+  // se permite borrar mientras esté activo (equivalente a no cerrado).
+  const { error } = await supabase.from('prestamos_interarea').delete().eq('id', prestamo.id);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, eliminado: true, mensaje: 'Préstamo entre áreas eliminado.' };
 }
 
 export const AVISO_FALTA_PRESTAMOS_SUCURSALES =

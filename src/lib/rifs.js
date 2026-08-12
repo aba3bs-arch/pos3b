@@ -141,19 +141,38 @@ export async function liquidarRif(supabase, id, opts = {}) {
       estado: 'liquidado',
       liquidado_por: opts.usuarioNombre || null,
       liquidado_at: new Date().toISOString(),
+      saldo: 0,
     })
     .eq('id', id)
     .eq('estado', 'abierto')
     .select('*')
     .single();
+  if (error && /saldo/i.test(String(error.message || ''))) {
+    const retry = await supabase
+      .from('rifs')
+      .update({
+        estado: 'liquidado',
+        liquidado_por: opts.usuarioNombre || null,
+        liquidado_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('estado', 'abierto')
+      .select('*')
+      .single();
+    if (retry.error) return { ok: false, error: retry.error.message };
+    return afterLiquidarRif(supabase, rif, retry.data, opts);
+  }
   if (error) return { ok: false, error: error.message };
+  return afterLiquidarRif(supabase, rif, data, opts);
+}
 
+async function afterLiquidarRif(supabase, rif, data, opts) {
   try {
     await crearNotificacion(supabase, {
       sucursal_id: rif.sucursal_origen,
       tipo: TIPOS_NOTIF.RIF_LIQUIDADO,
       ref_tabla: 'rifs',
-      ref_id: id,
+      ref_id: rif.id,
       titulo: `RIF ${rif.folio} liquidado`,
       mensaje: `Liquidó ${opts.usuarioNombre || '—'} · ${etiquetaTienda(rif.sucursal_origen)}`,
       area_buzon: 'abarrotes',
@@ -163,6 +182,97 @@ export async function liquidarRif(supabase, id, opts = {}) {
   }
   emitirRefreshNotificaciones();
   return { ok: true, rif: data };
+}
+
+export async function abonarRif(supabase, rif, montoAbono, opts = {}) {
+  if (!supabase || !rif?.id) return { ok: false, error: 'RIF inválido.' };
+  if (rif.estado !== 'abierto') return { ok: false, error: 'Solo se abona a RIF abiertos.' };
+  const abono = Math.max(0, Number(montoAbono) || 0);
+  if (!(abono > 0)) return { ok: false, error: 'Monto inválido.' };
+  const montoAntes = Number(rif.saldo != null ? rif.saldo : rif.monto) || 0;
+  if (abono > montoAntes + 0.001) return { ok: false, error: 'El abono no puede superar el saldo.' };
+  const saldo = Math.max(0, Math.round((montoAntes - abono) * 100) / 100);
+  if (saldo <= 0.001) return liquidarRif(supabase, rif.id, opts);
+
+  let { data, error } = await supabase
+    .from('rifs')
+    .update({ monto: saldo, saldo })
+    .eq('id', rif.id)
+    .select('*')
+    .single();
+  if (error && /saldo/i.test(String(error.message || ''))) {
+    ({ data, error } = await supabase.from('rifs').update({ monto: saldo }).eq('id', rif.id).select('*').single());
+  }
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, rif: data, saldo };
+}
+
+export async function editarRif(supabase, rif, patch = {}, opts = {}) {
+  if (!supabase || !rif?.id) return { ok: false, error: 'RIF inválido.' };
+  if (!['abierto', 'vencido'].includes(String(rif.estado || ''))) {
+    return { ok: false, error: 'Solo se editan RIF abiertos o vencidos.' };
+  }
+  const { asegurarCamposSinReservadoOPin } = await import('./reservadoAdminPrincipal.js');
+  const authTxt = await asegurarCamposSinReservadoOPin(
+    supabase,
+    [patch.motivo, patch.responsable_nombre],
+    { user: opts.user, sucursal: opts.sucursal },
+  );
+  if (!authTxt.ok) return authTxt;
+
+  const upd = {};
+  if (patch.motivo !== undefined) upd.motivo = String(patch.motivo || '').trim() || null;
+  if (patch.responsable_nombre != null && String(patch.responsable_nombre).trim()) {
+    upd.responsable_nombre = String(patch.responsable_nombre).trim();
+  }
+  if (patch.monto != null && patch.monto !== '' && rif.estado === 'abierto') {
+    const m = Number(patch.monto);
+    if (!(m > 0)) return { ok: false, error: 'Monto inválido.' };
+    upd.monto = m;
+    upd.saldo = m;
+  }
+  if (patch.hora_promesa) {
+    const t = new Date(patch.hora_promesa).getTime();
+    if (!Number.isFinite(t)) return { ok: false, error: 'Hora promesa inválida.' };
+    upd.hora_promesa = new Date(patch.hora_promesa).toISOString();
+  }
+  if (!Object.keys(upd).length) return { ok: false, error: 'Sin cambios.' };
+  let { data, error } = await supabase.from('rifs').update(upd).eq('id', rif.id).select('*').single();
+  if (error && /saldo/i.test(String(error.message || ''))) {
+    delete upd.saldo;
+    ({ data, error } = await supabase.from('rifs').update(upd).eq('id', rif.id).select('*').single());
+  }
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, rif: data, mensaje: 'RIF actualizado.' };
+}
+
+/** Elimina RIF solo si el gasto de corte (si existe) sigue abierto. */
+export async function eliminarRif(supabase, rif, opts = {}) {
+  if (!supabase || !rif?.id) return { ok: false, error: 'RIF inválido.' };
+  if (rif.estado === 'liquidado') return { ok: false, error: 'No se puede eliminar un RIF liquidado.' };
+
+  const { corteDocumentoEliminable } = await import('./cargosContabilidad.js');
+  const check = await corteDocumentoEliminable(supabase, {
+    cargadoCorte: Boolean(rif.gasto_id && !rif.gasto_eliminado) || rif.estado === 'vencido',
+    sucursal_id: rif.sucursal_origen,
+    modulo: 'abarrotes',
+    categoria: 'FONDO_REQUERIDO',
+    comentarioIlike: rif.folio ? `%RIF ${rif.folio}%` : undefined,
+    gastoId: rif.gasto_id || null,
+  });
+  if (!check.ok) return check;
+  if (!check.eliminable) return { ok: false, error: check.error };
+
+  if (check.idsAbiertos?.length) {
+    const { error: eDel } = await supabase.from('cortes_contabilidad_gastos').delete().in('id', check.idsAbiertos);
+    if (eDel) return { ok: false, error: eDel.message };
+  }
+
+  const { error } = await supabase.from('rifs').delete().eq('id', rif.id);
+  if (error) {
+    return cancelarRif(supabase, rif.id, { usuarioNombre: opts.usuarioNombre });
+  }
+  return { ok: true, eliminado: true, mensaje: 'RIF eliminado.' };
 }
 
 export async function cancelarRif(supabase, id, opts = {}) {

@@ -21,9 +21,17 @@ import {
   listarVales,
   rechazarPrestamo,
   cancelarVale,
+  editarVale,
+  abonarVale,
+  liquidarVale,
+  eliminarVale,
   abonarPrestamoSucursal,
   registrarPrestamo,
   registrarPrestamoInterarea,
+  abonarPrestamoInterarea,
+  liquidarPrestamoInterarea,
+  editarPrestamoInterarea,
+  eliminarPrestamoInterarea,
   registrarPrestamoSucursal,
   registrarEnvioMainATienda,
   registrarVale,
@@ -58,7 +66,10 @@ import { listarNotificacionesPendientes, TIPOS_NOTIF } from '../lib/contabilidad
 import { imprimirPrestamo, imprimirRif, imprimirVale } from '../lib/impresionContabilidad.js';
 import {
   AVISO_FALTA_RIFS,
+  abonarRif,
   cancelarRif,
+  editarRif,
+  eliminarRif,
   etiquetaEstadoRif,
   liquidarRif,
   listarRifs,
@@ -69,12 +80,13 @@ import {
   rifPuedeLiquidar,
 } from '../lib/rifs.js';
 import { normalizarRol } from '../lib/roles.js';
-import { empleadosVisiblesParaTienda } from '../lib/empleadosVisibles.js';
+import { empleadosParaPrestamosEmpleado, empleadosVisiblesParaTienda } from '../lib/empleadosVisibles.js';
 import { tiendaPuedeGenerarVales } from '../lib/posConfig.js';
 import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
 import PanelAsistenciaGasolina from '../components/PanelAsistenciaGasolina.jsx';
 import SelectorCalendario from '../components/SelectorCalendario.jsx';
 import InputPin from '../components/InputPin.jsx';
+import { asegurarCamposSinReservadoOPin } from '../lib/reservadoAdminPrincipal.js';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -93,6 +105,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const [prestamosEmp, setPrestamosEmp] = useState([]);
   const [rifs, setRifs] = useState([]);
   const [empleados, setEmpleados] = useState([]);
+  const [empleadosPrestamo, setEmpleadosPrestamo] = useState([]);
   const [notifs, setNotifs] = useState([]);
   const [pinSocio, setPinSocio] = useState('');
   const [rifForm, setRifForm] = useState({
@@ -152,6 +165,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
   /** Admin/gerente aprueban vales; socio solo préstamos >$1,000. */
   const puedeAprobarVales = esAdmin || esGerente;
+  /** Abonar / liquidar / editar en vales, RIF, préstamos e interárea. */
+  const puedeOperarDocs = Boolean(user);
+  /** Eliminar: admin o gerente, y solo con corte abierto (validado en lib). */
+  const puedeEliminarDocs = esAdmin || esGerente;
   const puedeVerBandejaAprobacion = puedeAprobarVales || esSocio;
   const vePendientesTodasTiendas = puedeAprobarVales;
   const requiereAuthAhora = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria);
@@ -253,9 +270,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     });
     supabase
       .from('usuarios')
-      .select('id, nombre, rol, sucursal_id')
+      .select('id, nombre, rol, sucursal_id, tipo_empleado, activo')
       .order('nombre')
-      .then(({ data }) => setEmpleados(empleadosVisiblesParaTienda(data || [], sucursal, user?.rol)));
+      .then(({ data }) => {
+        const raw = data || [];
+        setEmpleados(empleadosVisiblesParaTienda(raw, sucursal, user?.rol));
+        setEmpleadosPrestamo(empleadosParaPrestamosEmpleado(raw, sucursal, user?.rol));
+      });
   }, [recargarTodo, supabase, sucursal, user?.rol]);
 
   useEffect(() => {
@@ -293,6 +314,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     if (!ben) return alert('Selecciona beneficiario.');
     const monto = Number(valeForm.monto);
     if (!(monto > 0)) return alert('Monto inválido.');
+    const authTxt = await asegurarCamposSinReservadoOPin(
+      supabase,
+      [valeForm.motivo, valeForm.categoria],
+      { user, sucursal },
+    );
+    if (!authTxt.ok) return alert(authTxt.error);
     const res = await registrarVale(
       supabase,
       {
@@ -323,11 +350,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const guardarPrestamoEmpleado = async () => {
     if (!supabase) return alert('Sin conexión.');
-    const emp = empleados.find((e) => String(e.id) === String(prestEmpForm.usuarioId));
-    if (!emp) return alert('Selecciona empleado.');
+    const emp = empleadosPrestamo.find((e) => String(e.id) === String(prestEmpForm.usuarioId));
+    if (!emp) return alert('Selecciona un empleado de esta tienda.');
     const monto = Number(prestEmpForm.monto);
     if (!(monto > 0)) return alert('Monto inválido.');
     if (!prestEmpForm.areaCorte) return alert('Selecciona el área de corte (Virtual, Abarrotes o Garage).');
+    const authTxt = await asegurarCamposSinReservadoOPin(supabase, [prestEmpForm.notas], { user, sucursal });
+    if (!authTxt.ok) return alert(authTxt.error);
     const res = await registrarPrestamo(
       supabase,
       {
@@ -356,6 +385,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const crearTipoVale = async () => {
     if (!esAdmin) return alert('Solo el administrador puede crear tipos de vale.');
+    const authTxt = await asegurarCamposSinReservadoOPin(supabase, [nuevoTipoVale.label], { user, sucursal });
+    if (!authTxt.ok) return alert(authTxt.error);
     const res = await crearCategoriaValePermanente(supabase, {
       label: nuevoTipoVale.label,
       descuentaNomina: nuevoTipoVale.descuentaNomina,
@@ -381,13 +412,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     if (prestForm.origen === prestForm.gastos_area) return alert('Origen y destino deben ser distintos.');
     const monto = Number(prestForm.monto);
     if (!(monto > 0)) return alert('Monto inválido.');
+    const notas = prestForm.notas.trim() || `Pago gastos ${ETIQUETA_AREA[prestForm.gastos_area]}`;
+    const authTxt = await asegurarCamposSinReservadoOPin(supabase, [notas], { user, sucursal });
+    if (!authTxt.ok) return alert(authTxt.error);
     const res = await registrarPrestamoInterarea(supabase, {
       sucursal_id: sucursal || 'MAIN',
       origen: prestForm.origen,
       destino: prestForm.gastos_area,
       monto,
       fecha: prestForm.fecha || hoyISO(),
-      notas: prestForm.notas.trim() || `Pago gastos ${ETIQUETA_AREA[prestForm.gastos_area]}`,
+      notas,
       created_by: user?.nombre || null,
     });
     if (!res.ok) return alert(res.error);
@@ -523,6 +557,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   };
 
   const guardarRif = async () => {
+    const authTxt = await asegurarCamposSinReservadoOPin(
+      supabase,
+      [rifForm.motivo, rifForm.responsable_nombre],
+      { user, sucursal },
+    );
+    if (!authTxt.ok) return alert(authTxt.error);
     const horaIso = `${rifForm.fecha_promesa}T${rifForm.hora_promesa || '18:00'}:00`;
     const res = await registrarRif(
       supabase,
@@ -593,12 +633,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       if (raw === null) return;
       monto = parseFloat(String(raw).replace(',', '.'));
       if (!(monto > 0) || monto > saldo + 0.001) return alert('Monto inválido.');
-    } else if (!confirm(`¿Solicitar liquidación de ${p.nombre_empleado} por $${saldo.toFixed(2)}?`)) {
+    } else if (!confirm(`¿Liquidar a ${p.nombre_empleado} por $${saldo.toFixed(2)}?`)) {
       return;
     }
 
-    if (esAdmin) {
-      // Admin aplica directo
+    // Admin/gerente (y operadores): aplican directo. Descuento sigue solo admin.
+    const aplicaDirecto = esAdmin || esGerente || (tipo !== 'descuento' && puedeOperarDocs);
+    if (aplicaDirecto && (tipo !== 'descuento' || esAdmin)) {
       let r;
       if (tipo === 'descuento') r = await descontarPrestamo(supabase, p, monto);
       else if (tipo === 'liquidacion') r = await liquidarPrestamo(supabase, p);
@@ -623,26 +664,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     recargarTodo();
   };
 
-  const aprobarMovPrestamo = async (p) => {
-    if (!esAdmin && !puedeAprobarVales) return alert('Solo administrador.');
-    const res = await aprobarMovimientoPrestamo(supabase, p, { nombre: user?.nombre });
-    if (!res.ok) return alert(res.error);
-    alert(res.mensaje);
-    recargarTodo();
-  };
-
-  const rechazarMovPrestamo = async (p) => {
-    if (!esAdmin && !puedeAprobarVales) return alert('Solo administrador.');
-    const motivo = prompt('Motivo del rechazo (opcional):');
-    if (motivo === null) return;
-    const res = await rechazarMovimientoPrestamo(supabase, p, { nombre: user?.nombre, motivo: motivo.trim() });
-    if (!res.ok) return alert(res.error);
-    alert(res.mensaje);
-    recargarTodo();
-  };
-
   const abrirEditarPrestamo = (p) => {
-    if (!esAdmin && !puedeAprobarVales) return alert('Solo administrador o gerente puede editar.');
+    if (!puedeOperarDocs) return alert('Sin permiso.');
     setEditPrestamo(p);
     setEditForm({
       area_corte: p.area_corte || 'virtual',
@@ -652,8 +675,31 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     });
   };
 
+  const aprobarMovPrestamo = async (p) => {
+    if (!esAdmin && !puedeAprobarVales) return alert('Solo administrador o gerente.');
+    const res = await aprobarMovimientoPrestamo(supabase, p, { nombre: user?.nombre });
+    if (!res.ok) return alert(res.error);
+    alert(res.mensaje);
+    recargarTodo();
+  };
+
+  const rechazarMovPrestamo = async (p) => {
+    if (!esAdmin && !puedeAprobarVales) return alert('Solo administrador o gerente.');
+    const motivo = prompt('Motivo del rechazo (opcional):');
+    if (motivo === null) return;
+    const res = await rechazarMovimientoPrestamo(supabase, p, { nombre: user?.nombre, motivo: motivo.trim() });
+    if (!res.ok) return alert(res.error);
+    alert(res.mensaje);
+    recargarTodo();
+  };
+
   const guardarEdicionPrestamo = async () => {
     if (!editPrestamo) return;
+    const authTxt = await asegurarCamposSinReservadoOPin(supabase, [editForm.notas], {
+      user,
+      sucursal,
+    });
+    if (!authTxt.ok) return alert(authTxt.error);
     const res = await editarPrestamo(
       supabase,
       editPrestamo,
@@ -672,22 +718,152 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   };
 
   const eliminarPrestamoEmp = async (p) => {
-    if (!esAdmin) return alert('Solo el administrador puede eliminar préstamos.');
-    const msg =
-      p.estado === 'activo' || p.cargado_corte
-        ? `¿Cancelar préstamo de ${p.nombre_empleado}?\nSaldo ${fmt(p.saldo)}. Área: ${ETIQUETA_AREA[p.area_corte] || p.area_corte || '—'}.\nSe marcará como cancelado.`
-        : `¿Eliminar préstamo pendiente de ${p.nombre_empleado} por ${fmt(p.monto_original)}?`;
-    if (!confirm(msg)) return;
+    if (!puedeEliminarDocs) return alert('Solo administrador o gerente pueden eliminar.');
+    if (!confirm(`¿Eliminar préstamo de ${p.nombre_empleado}? Solo procede si el corte está abierto.`)) return;
     let motivo = null;
-    if (p.estado === 'activo' || p.cargado_corte) {
-      const raw = prompt('Motivo (opcional):');
-      if (raw === null) return;
-      motivo = raw.trim() || null;
-    }
+    const raw = prompt('Motivo (opcional):');
+    if (raw === null) return;
+    motivo = raw.trim() || null;
     const res = await eliminarPrestamo(supabase, p, { nombre: user?.nombre, motivo });
     if (!res.ok) return alert(res.error);
     alert(res.mensaje);
     if (editPrestamo?.id === p.id) setEditPrestamo(null);
+    recargarTodo();
+  };
+
+  const abonarValeRow = async (v) => {
+    if (!puedeOperarDocs) return;
+    const raw = prompt(`Abonar vale ${v.folio}\nMonto actual: ${fmt(v.monto)}\n\nMonto a abonar:`, String(v.monto));
+    if (raw === null) return;
+    const monto = parseFloat(String(raw).replace(',', '.'));
+    if (!(monto > 0)) return alert('Monto inválido.');
+    const res = await abonarVale(supabase, v, monto, { nombre: user?.nombre });
+    if (!res.ok) return alert(res.error);
+    alert(res.liquidado || res.vale?.estado_aprobacion === 'cancelado' ? 'Vale liquidado.' : `Abono aplicado. Nuevo monto: ${fmt(res.saldo ?? res.vale?.monto)}`);
+    recargarTodo();
+  };
+
+  const liquidarValeRow = async (v) => {
+    if (!puedeOperarDocs) return;
+    if (!confirm(`¿Liquidar vale ${v.folio} por ${fmt(v.monto)}?`)) return;
+    const res = await liquidarVale(supabase, v, { nombre: user?.nombre });
+    if (!res.ok) return alert(res.error);
+    alert('Vale liquidado.');
+    recargarTodo();
+  };
+
+  const editarValeRow = async (v) => {
+    if (!puedeOperarDocs) return;
+    const monto = prompt('Nuevo monto:', String(v.monto));
+    if (monto === null) return;
+    const motivo = prompt('Motivo / notas:', v.motivo || v.notas || '');
+    if (motivo === null) return;
+    const res = await editarVale(
+      supabase,
+      v,
+      { monto, motivo },
+      { nombre: user?.nombre, user, sucursal },
+    );
+    if (!res.ok) return alert(res.error);
+    alert('Vale actualizado.');
+    recargarTodo();
+  };
+
+  const eliminarValeRow = async (v) => {
+    if (!puedeEliminarDocs) return alert('Solo administrador o gerente pueden eliminar.');
+    if (!confirm(`¿Eliminar vale ${v.folio}? Solo si el corte está abierto.`)) return;
+    const res = await eliminarVale(supabase, v, { nombre: user?.nombre });
+    if (!res.ok) return alert(res.error);
+    alert(res.mensaje || 'Vale eliminado.');
+    recargarTodo();
+  };
+
+  const abonarRifRow = async (r) => {
+    if (!puedeOperarDocs) return;
+    const saldo = Number(r.saldo != null ? r.saldo : r.monto) || 0;
+    const raw = prompt(`Abonar RIF ${r.folio}\nSaldo: ${fmt(saldo)}\n\nMonto:`, String(saldo));
+    if (raw === null) return;
+    const monto = parseFloat(String(raw).replace(',', '.'));
+    if (!(monto > 0)) return alert('Monto inválido.');
+    const res = await abonarRif(supabase, r, monto, { usuarioNombre: user?.nombre });
+    if (!res.ok) return alert(res.error);
+    alert(res.rif?.estado === 'liquidado' ? 'RIF liquidado.' : `Abono ok. Saldo: ${fmt(res.saldo ?? res.rif?.monto)}`);
+    recargarTodo();
+  };
+
+  const editarRifRow = async (r) => {
+    if (!puedeOperarDocs) return;
+    const monto = prompt('Monto:', String(r.monto));
+    if (monto === null) return;
+    const motivo = prompt('Motivo:', r.motivo || '');
+    if (motivo === null) return;
+    const responsable = prompt('Responsable:', r.responsable_nombre || '');
+    if (responsable === null) return;
+    const res = await editarRif(
+      supabase,
+      r,
+      { monto, motivo, responsable_nombre: responsable },
+      { user, sucursal, usuarioNombre: user?.nombre },
+    );
+    if (!res.ok) return alert(res.error);
+    alert('RIF actualizado.');
+    recargarTodo();
+  };
+
+  const eliminarRifRow = async (r) => {
+    if (!puedeEliminarDocs) return alert('Solo administrador o gerente pueden eliminar.');
+    if (!confirm(`¿Eliminar ${r.folio}? Solo si el corte está abierto.`)) return;
+    const res = await eliminarRif(supabase, r, { usuarioNombre: user?.nombre });
+    if (!res.ok) return alert(res.error);
+    alert(res.mensaje || 'RIF eliminado.');
+    recargarTodo();
+  };
+
+  const abonarInterarea = async (p) => {
+    if (!puedeOperarDocs) return;
+    const saldo = p.saldo != null ? Number(p.saldo) : Number(p.monto) || 0;
+    const raw = prompt(`Abonar préstamo interárea\nSaldo: ${fmt(saldo)}\n\nMonto:`, String(saldo));
+    if (raw === null) return;
+    const monto = parseFloat(String(raw).replace(',', '.'));
+    if (!(monto > 0)) return alert('Monto inválido.');
+    const res = await abonarPrestamoInterarea(supabase, p, monto);
+    if (!res.ok) return alert(res.error);
+    alert(res.liquidado ? 'Liquidado.' : `Abono ok. Saldo: ${fmt(res.saldo)}`);
+    recargarTodo();
+  };
+
+  const liquidarInterarea = async (p) => {
+    if (!puedeOperarDocs) return;
+    if (!confirm('¿Liquidar este préstamo entre áreas?')) return;
+    const res = await liquidarPrestamoInterarea(supabase, p);
+    if (!res.ok) return alert(res.error);
+    alert('Liquidado.');
+    recargarTodo();
+  };
+
+  const editarInterarea = async (p) => {
+    if (!puedeOperarDocs) return;
+    const notas = prompt('Notas:', p.notas || '');
+    if (notas === null) return;
+    const monto = Number(p.abono) > 0 ? null : prompt('Monto:', String(p.monto));
+    if (monto === null && Number(p.abono) <= 0) return;
+    const res = await editarPrestamoInterarea(
+      supabase,
+      p,
+      { notas, ...(monto != null ? { monto } : {}) },
+      { user, sucursal },
+    );
+    if (!res.ok) return alert(res.error);
+    alert('Actualizado.');
+    recargarTodo();
+  };
+
+  const eliminarInterarea = async (p) => {
+    if (!puedeEliminarDocs) return alert('Solo administrador o gerente pueden eliminar.');
+    if (!confirm('¿Eliminar préstamo entre áreas? (solo si sigue activo / sin liquidar)')) return;
+    const res = await eliminarPrestamoInterarea(supabase, p);
+    if (!res.ok) return alert(res.error);
+    alert(res.mensaje || 'Eliminado.');
     recargarTodo();
   };
 
@@ -1037,6 +1213,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                         {valePuedeImprimir(v) && (
                           <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => imprimirValeSi(v)}>Imprimir</button>
                         )}
+                        {puedeOperarDocs && valePuedeImprimir(v) && (v.estado_aprobacion || 'aprobado') === 'aprobado' && (
+                          <>
+                            <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => abonarValeRow(v)}>Abonar</button>
+                            <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem' }} onClick={() => liquidarValeRow(v)}>Liquidar</button>
+                            <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => editarValeRow(v)}>Editar</button>
+                          </>
+                        )}
+                        {puedeEliminarDocs && (
+                          <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => eliminarValeRow(v)}>Eliminar</button>
+                        )}
                         {esAdmin && valePuedeImprimir(v) && !v.cargado_corte && (
                           <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => cargarValeManual(v)}>→ Corte</button>
                         )}
@@ -1178,10 +1364,17 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                               Imprimir
                             </button>
                           )}
-                          {rifPuedeLiquidar(r) && String(r.sucursal_origen).toUpperCase() === String(sucursal || '').toUpperCase() && (
-                            <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem' }} onClick={() => liquidarR(r)}>
-                              Liquidar
-                            </button>
+                          {puedeOperarDocs && rifPuedeLiquidar(r) && (
+                            <>
+                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => abonarRifRow(r)}>Abonar</button>
+                              <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem' }} onClick={() => liquidarR(r)}>
+                                Liquidar
+                              </button>
+                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => editarRifRow(r)}>Editar</button>
+                            </>
+                          )}
+                          {puedeEliminarDocs && r.estado !== 'liquidado' && (
+                            <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => eliminarRifRow(r)}>Eliminar</button>
                           )}
                           {esAdmin && rifPuedeCancelar(r) && (
                             <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => cancelarR(r)}>
@@ -1219,11 +1412,48 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             </div>
             <div className="table-wrap" style={{ marginTop: '1rem' }}>
               <table className="data">
-                <thead><tr><th>Fecha</th><th>Origen</th><th>Destino</th><th>Monto</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Origen</th>
+                    <th>Destino</th>
+                    <th>Monto</th>
+                    <th>Saldo</th>
+                    <th>Estado</th>
+                    <th />
+                  </tr>
+                </thead>
                 <tbody>
-                  {prestamosArea.map((p) => (
-                    <tr key={p.id}><td>{p.fecha}</td><td>{ETIQUETA_AREA[p.origen]}</td><td>{ETIQUETA_AREA[p.destino]}</td><td>{fmt(p.monto)}</td></tr>
-                  ))}
+                  {prestamosArea.length === 0 ? (
+                    <tr><td colSpan={7} className="muted">Sin préstamos entre áreas.</td></tr>
+                  ) : (
+                    prestamosArea.map((p) => {
+                      const activo = String(p.estado || 'activo') === 'activo';
+                      const saldo = p.saldo != null ? Number(p.saldo) : Number(p.monto) || 0;
+                      return (
+                        <tr key={p.id}>
+                          <td>{p.fecha}</td>
+                          <td>{ETIQUETA_AREA[p.origen]}</td>
+                          <td>{ETIQUETA_AREA[p.destino]}</td>
+                          <td>{fmt(p.monto)}</td>
+                          <td style={{ fontWeight: 700 }}>{fmt(saldo)}</td>
+                          <td className="muted">{p.estado || 'activo'}</td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
+                            {puedeOperarDocs && activo && (
+                              <>
+                                <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => abonarInterarea(p)}>Abonar</button>
+                                <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem' }} onClick={() => liquidarInterarea(p)}>Liquidar</button>
+                                <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => editarInterarea(p)}>Editar</button>
+                              </>
+                            )}
+                            {puedeEliminarDocs && activo && (
+                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => eliminarInterarea(p)}>Eliminar</button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1378,8 +1608,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             </p>
             <div className="grid-2">
               <select className="select" value={prestEmpForm.usuarioId} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, usuarioId: e.target.value })}>
-                <option value="">— Empleado —</option>
-                {empleados.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                <option value="">— Empleado de esta tienda —</option>
+                {empleadosPrestamo.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
               </select>
               <input className="input" type="number" placeholder="Monto" value={prestEmpForm.monto} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, monto: e.target.value })} />
               <select className="select" value={prestEmpForm.areaCorte} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, areaCorte: e.target.value })}>
@@ -1470,7 +1700,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   ) : (
                     prestamosEmp.map((p) => {
                       const activo = p.estado === 'activo' && Number(p.saldo) > 0;
-                      const puedeEditar = (esAdmin || puedeAprobarVales) && !['liquidado', 'rechazado', 'cancelado'].includes(p.estado);
+                      const puedeEditar = puedeOperarDocs && !['liquidado', 'rechazado', 'cancelado'].includes(p.estado);
                       const movPend = prestamoTieneSolicitudPendiente(p);
                       const tipoPend = p.solicitud_tipo === 'descuento'
                         ? 'descuento'
@@ -1516,7 +1746,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                             {puedeEditar && (
                               <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => abrirEditarPrestamo(p)}>Editar</button>
                             )}
-                            {esAdmin && !['liquidado', 'cancelado'].includes(p.estado) && (
+                            {puedeEliminarDocs && !['liquidado', 'cancelado'].includes(p.estado) && (
                               <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => eliminarPrestamoEmp(p)}>Eliminar</button>
                             )}
                             {prestamoPuedeImprimir(p) && (
@@ -1528,7 +1758,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                             {activo && !movPend && (
                               <>
                                 <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => pedirMovimientoPrestamo(p, 'abono')}>
-                                  {esAdmin ? 'Abonar' : 'Solicitar abono'}
+                                  Abonar
                                 </button>
                                 {esAdmin && (
                                   <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => pedirMovimientoPrestamo(p, 'descuento')}>
@@ -1536,7 +1766,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                                   </button>
                                 )}
                                 <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }} onClick={() => pedirMovimientoPrestamo(p, 'liquidacion')}>
-                                  {esAdmin ? 'Liquidar' : 'Solicitar liquidar'}
+                                  Liquidar
                                 </button>
                               </>
                             )}
