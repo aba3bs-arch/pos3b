@@ -347,6 +347,21 @@ export default function ReporteInventario({
     () => enriquecerTotalesConReferencia(totalesLineasProducto(lineasProducto), referencia),
     [lineasProducto, referencia],
   );
+  /** Faltante y % merma a partir del total contado manual vs inventario sistema. */
+  const mermaManual = useMemo(() => {
+    const sistema = Number(totalesGenerales?.referencia?.valorSistema);
+    if (resultadoManualNum == null || !(sistema > 0)) return null;
+    const diferencia = resultadoManualNum - sistema;
+    const faltante = Math.max(0, sistema - resultadoManualNum);
+    const pctMerma = Math.round((faltante / sistema) * 10000) / 100;
+    return {
+      sistema,
+      contado: resultadoManualNum,
+      diferencia,
+      faltante: Math.round(faltante * 100) / 100,
+      pctMerma,
+    };
+  }, [resultadoManualNum, totalesGenerales?.referencia?.valorSistema]);
   const totalesVista = useMemo(
     () => totalesLineasProducto(lineasVisibles),
     [lineasVisibles],
@@ -417,6 +432,9 @@ export default function ReporteInventario({
               ? `Inventario total: ${fmtMxnReporte(ref.valorSistema)} · Merma: ${fmtMxnReporte(t.valorFaltante)} · % merma total: ${fmtPctReporte(t.pctMermaTotal ?? 0)}`
               : null,
             `% merma (contado): ${fmtPctReporte(t.pctMerma)}`,
+            mermaManual
+              ? `Resultado manual: contado ${fmtMxnReporte(mermaManual.contado)} · faltante ${fmtMxnReporte(mermaManual.faltante)} · % merma ${fmtPctReporte(mermaManual.pctMerma)}`
+              : null,
           ].filter(Boolean),
         },
         ...agruparReportePorDepartamento(rows).map((g) => ({
@@ -649,7 +667,8 @@ export default function ReporteInventario({
         >
           <div style={{ fontWeight: 700, marginBottom: '0.35rem' }}>Resultado de inventario (manual)</div>
           <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.8rem' }}>
-            Escribe el total en pesos que obtuviste al contar en físico. Solo sirve para comparar; no cambia el sistema.
+            Escribe el total en pesos que obtuviste al contar en físico. Se calcula faltante y % merma vs inventario
+            sistema. Solo sirve para comparar; no cambia el sistema.
           </p>
           <label className="muted" style={{ display: 'block', fontSize: '0.85rem', maxWidth: 280 }}>
             Total contado ($)
@@ -663,23 +682,40 @@ export default function ReporteInventario({
               onChange={(e) => guardarResultadoManual(e.target.value)}
             />
           </label>
-          {resultadoManualNum != null && totalesGenerales.referencia?.valorSistema ? (
-            <p style={{ margin: '0.5rem 0 0', fontSize: '0.88rem' }}>
-              Sistema: <strong>{fmtMxnReporte(totalesGenerales.referencia.valorSistema)}</strong>
-              {' · '}
-              Tu conteo: <strong>{fmtMxnReporte(resultadoManualNum)}</strong>
-              {' · '}
-              Diferencia:{' '}
-              <strong
-                style={{
-                  color:
-                    resultadoManualNum - Number(totalesGenerales.referencia.valorSistema) < 0
-                      ? 'var(--brand-red, #c0392b)'
-                      : 'var(--brand-gold-dark)',
-                }}
-              >
-                {fmtMxnReporte(resultadoManualNum - Number(totalesGenerales.referencia.valorSistema))}
-              </strong>
+          {mermaManual ? (
+            <div style={{ margin: '0.5rem 0 0', fontSize: '0.88rem' }}>
+              <p style={{ margin: 0 }}>
+                Sistema: <strong>{fmtMxnReporte(mermaManual.sistema)}</strong>
+                {' · '}
+                Tu conteo: <strong>{fmtMxnReporte(mermaManual.contado)}</strong>
+                {' · '}
+                Diferencia:{' '}
+                <strong
+                  style={{
+                    color: mermaManual.diferencia < 0 ? 'var(--brand-red, #c0392b)' : 'var(--brand-gold-dark)',
+                  }}
+                >
+                  {fmtMxnReporte(mermaManual.diferencia)}
+                </strong>
+              </p>
+              <p style={{ margin: '0.4rem 0 0' }}>
+                Faltante:{' '}
+                <strong style={{ color: 'var(--brand-red, #c0392b)' }}>
+                  {fmtMxnReporte(mermaManual.faltante)}
+                </strong>
+                {' · '}
+                % merma:{' '}
+                <strong style={{ color: 'var(--brand-red, #c0392b)', fontSize: '1.05rem' }}>
+                  {fmtPctReporte(mermaManual.pctMerma)}
+                </strong>
+                <span className="muted" style={{ fontSize: '0.75rem', marginLeft: '0.35rem' }}>
+                  (faltante ÷ inventario sistema)
+                </span>
+              </p>
+            </div>
+          ) : resultadoManualNum != null && !totalesGenerales.referencia?.valorSistema ? (
+            <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem' }}>
+              Elige la tienda en el filtro para calcular faltante y % merma sobre el inventario sistema.
             </p>
           ) : null}
         </div>

@@ -27,6 +27,24 @@ export function empleadosVisiblesParaTienda(empleados, sucursalActiva, actorRol 
   });
 }
 
+/**
+ * Préstamos a empleado: la tienda solo ve empleados registrados en esa sucursal
+ * (sin indirectos/MAIN). En MAIN, admin ve todos los de tipo tienda.
+ */
+export function empleadosParaPrestamosEmpleado(empleados, sucursalActiva, actorRol = null) {
+  const lista = (empleados || []).filter((e) => {
+    if (!e || e.activo === false) return false;
+    if (normalizarRol(e.rol) === 'Administrador') return false;
+    return resolverTipoEmpleado(e) === 'tienda';
+  });
+  const suc = normalizarCodigoTienda(sucursalActiva);
+  if (!suc || suc === 'MAIN') {
+    if (puedeGestionarUsuarios(actorRol)) return lista;
+    return [];
+  }
+  return lista.filter((e) => normalizarCodigoTienda(e.sucursal_id) === suc);
+}
+
 /** ¿El empleado está asignado al turno de caja actual (hoy y hora)? */
 export function empleadoEnTurnoActual(user, turno = turnoActual(), date = new Date()) {
   if (!user || !turno) return false;
@@ -154,11 +172,13 @@ export function empleadosParaCorte(empleados, sucursalActiva, _modulo = null, _a
     if (ids.has(id)) return;
     ids.add(id);
     const tipo = resolverTipoEmpleado(e);
+    const quiereIndirecto = Boolean(extra.es_indirecto_corte);
+    const esIndirecto = tipo === 'indirecto' || (quiereIndirecto && tipo !== 'tienda');
     out.push({
       ...e,
-      tipo_empleado: tipo,
-      es_indirecto_corte: tipo === 'indirecto' || Boolean(extra.es_indirecto_corte),
       ...extra,
+      tipo_empleado: tipo,
+      es_indirecto_corte: esIndirecto,
     });
   };
 
@@ -168,11 +188,18 @@ export function empleadosParaCorte(empleados, sucursalActiva, _modulo = null, _a
     const rol = normalizarRol(e.rol);
     const tipo = resolverTipoEmpleado(e);
 
-    if (tipo === 'indirecto' || empSuc === 'MAIN') {
-      if (rol !== 'Administrador') push(e, { es_indirecto_corte: true });
+    // Personal de la sucursal activa (máx. 2 tipo tienda): siempre visible en cortes.
+    if (suc && suc !== 'MAIN' && empSuc === suc && tipo === 'tienda') {
+      push(e, { es_indirecto_corte: false });
+      continue;
     }
-    if (empSuc === suc && tipo === 'tienda') {
-      push(e);
+    // Fallback si falta columna tipo_empleado: mismo código de tienda, no admin.
+    if (suc && suc !== 'MAIN' && empSuc === suc && tipo !== 'indirecto' && rol !== 'Administrador') {
+      push(e, { es_indirecto_corte: false });
+      continue;
+    }
+    if (tipo === 'indirecto' || (empSuc === 'MAIN' && tipo !== 'tienda')) {
+      if (rol !== 'Administrador') push(e, { es_indirecto_corte: true });
       continue;
     }
     if (rol === 'Administrador') push(e, { es_admin_global_corte: true });
@@ -188,11 +215,17 @@ export function agruparEmpleadosParaSelectCorte(empleados) {
   const admins = [];
   for (const e of dedupeEmpleadosPorNombre(empleados || [])) {
     const rol = normalizarRol(e.rol);
+    const tipo = resolverTipoEmpleado(e);
     if (rol === 'Administrador' || e.es_admin_global_corte) {
       admins.push(e);
       continue;
     }
-    if (e.es_indirecto_corte || resolverTipoEmpleado(e) === 'indirecto') {
+    // Tipo tienda gana sobre flags de indirecto (p. ej. homónimo con beneficiario de vales).
+    if (tipo === 'tienda') {
+      tienda.push(e);
+      continue;
+    }
+    if (e.es_indirecto_corte || tipo === 'indirecto') {
       indirectos.push(e);
       continue;
     }
@@ -237,7 +270,8 @@ function scoreEmpleadoDedup(e) {
   const id = String(e?.id || '');
   if (id && !id.startsWith('indirect:')) s += 20;
   s += String(e?.nombre || '').trim().length;
-  if (e?.es_indirecto_corte || resolverTipoEmpleado(e) === 'indirecto') s += 2;
+  if (resolverTipoEmpleado(e) === 'tienda') s += 5;
+  else if (e?.es_indirecto_corte || resolverTipoEmpleado(e) === 'indirecto') s += 2;
   return s;
 }
 
@@ -246,25 +280,30 @@ export function dedupeEmpleadosPorNombre(lista) {
   const out = [];
   for (const e of lista || []) {
     if (!e) continue;
-    const idx = out.findIndex((x) => nombresMismaPersona(x.nombre, e.nombre));
+    const tipoE = resolverTipoEmpleado(e);
+    const idx = out.findIndex((x) => {
+      if (!nombresMismaPersona(x.nombre, e.nombre)) return false;
+      const tipoX = resolverTipoEmpleado(x);
+      // No fusionar empleado de tienda con indirecto/MAIN (pueden compartir nombre corto).
+      if (tipoE === 'tienda' && tipoX !== 'tienda') return false;
+      if (tipoX === 'tienda' && tipoE !== 'tienda') return false;
+      return true;
+    });
     if (idx < 0) {
       out.push(e);
       continue;
     }
     const prev = out[idx];
-    if (scoreEmpleadoDedup(e) > scoreEmpleadoDedup(prev)) {
-      out[idx] = {
-        ...e,
-        es_indirecto_corte: Boolean(prev.es_indirecto_corte || e.es_indirecto_corte),
-        es_admin_global_corte: Boolean(prev.es_admin_global_corte || e.es_admin_global_corte),
-      };
-    } else {
-      out[idx] = {
-        ...prev,
-        es_indirecto_corte: Boolean(prev.es_indirecto_corte || e.es_indirecto_corte),
-        es_admin_global_corte: Boolean(prev.es_admin_global_corte || e.es_admin_global_corte),
-      };
-    }
+    const winner = scoreEmpleadoDedup(e) > scoreEmpleadoDedup(prev) ? e : prev;
+    const tipoW = resolverTipoEmpleado(winner);
+    out[idx] = {
+      ...winner,
+      es_admin_global_corte: Boolean(prev.es_admin_global_corte || e.es_admin_global_corte),
+      es_indirecto_corte: tipoW === 'tienda' ? false : Boolean(
+        prev.es_indirecto_corte || e.es_indirecto_corte || tipoW === 'indirecto',
+      ),
+      tipo_empleado: tipoW,
+    };
   }
   return out;
 }
@@ -276,16 +315,20 @@ function mergeIndirectosTodasLasTiendas(lista, todosUsuarios) {
 
   for (const e of out) {
     if (resolverTipoEmpleado(e) === 'indirecto') e.es_indirecto_corte = true;
+    if (resolverTipoEmpleado(e) === 'tienda') e.es_indirecto_corte = false;
   }
 
   for (const b of BENEFICIARIOS_VALES) {
     const hit = out.find((e) => nombresMismaPersona(e.nombre, b.nombre));
-    if (hit) {
+    if (hit && resolverTipoEmpleado(hit) !== 'tienda') {
       hit.es_indirecto_corte = true;
       continue;
     }
     const match = (todosUsuarios || []).find(
-      (u) => u?.activo !== false && nombresMismaPersona(u.nombre, b.nombre),
+      (u) =>
+        u?.activo !== false
+        && nombresMismaPersona(u.nombre, b.nombre)
+        && resolverTipoEmpleado(u) !== 'tienda',
     );
     if (match) {
       if (!ids.has(String(match.id))) {
@@ -311,6 +354,12 @@ function mergeIndirectosTodasLasTiendas(lista, todosUsuarios) {
   }
 
   out = dedupeEmpleadosPorNombre(out);
+  // Tras dedupe, restaurar flags según tipo real (evita que un merge por nombre los mueva a Main).
+  for (const e of out) {
+    const tipo = resolverTipoEmpleado(e);
+    if (tipo === 'tienda') e.es_indirecto_corte = false;
+    else if (tipo === 'indirecto') e.es_indirecto_corte = true;
+  }
   return out.sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));
 }
 

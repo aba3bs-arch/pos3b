@@ -159,17 +159,24 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     setCargando(true);
     // Si un cierre previo dejó gastos abiertos por error, ciérralos antes de listar.
     await cerrarGastosHuerfanosTrasCierre(supabase, sucursal, modulo);
-    const [estRes, gasRes, histRes, empRes] = await Promise.all([
+    const [estRes, gasRes, histRes, empResRaw] = await Promise.all([
       cargarEstadoCorte(supabase, sucursal, modulo),
       listarGastosTurno(supabase, sucursal, modulo),
       listarCierresCorte(supabase, sucursal, modulo, 15),
       supabase
         ? supabase
             .from('usuarios')
-            .select('id, nombre, rol, sucursal_id, nomina_pagador, turno_id, turno_horario, activo')
+            .select('id, nombre, rol, sucursal_id, tipo_empleado, nomina_pagador, turno_id, turno_horario, activo')
             .order('nombre')
         : Promise.resolve({ data: [] }),
     ]);
+    let empRes = empResRaw;
+    if (supabase && empResRaw?.error && String(empResRaw.error.message || '').includes('tipo_empleado')) {
+      empRes = await supabase
+        .from('usuarios')
+        .select('id, nombre, rol, sucursal_id, nomina_pagador, turno_id, turno_horario, activo')
+        .order('nombre');
+    }
     if (estRes.aviso || gasRes.aviso) setAviso(estRes.aviso || gasRes.aviso || '');
     let nextEstado = estRes.estado || {};
     const nextGastos = gasRes.data || [];
