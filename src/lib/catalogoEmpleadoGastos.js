@@ -6,6 +6,7 @@ import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.
 import {
   agruparEmpleadosCatalogo,
   dedupeEmpleadosPorNombre,
+  enriquecerEmpleadosNominaIndirectos,
   esEmpleadoIndirectoOMain,
   resolverTipoEmpleado,
 } from './empleadosVisibles.js';
@@ -53,11 +54,12 @@ export function plantillaDetallesEmpleado(cat) {
 
 /**
  * Empleados visibles en catálogo Empleado:
- * - MAIN/indirectos: todas las sucursales
+ * - MAIN/indirectos: todas las sucursales (+ placeholders de vales si faltan)
  * - Tienda: solo los de `sucursalActiva` (si MAIN o vacío: todos los de tienda, agrupados)
  */
 export function empleadosParaCatalogoEmpleado(empleados, sucursalActiva) {
-  const { porTienda, indirectos } = agruparEmpleadosCatalogo(empleados, { incluirBajas: false });
+  const enriquecidos = enriquecerEmpleadosNominaIndirectos(empleados || []);
+  const { porTienda, indirectos } = agruparEmpleadosCatalogo(enriquecidos, { incluirBajas: false });
   const suc = normalizarCodigoTienda(sucursalActiva);
   const main = dedupeEmpleadosPorNombre(indirectos);
 

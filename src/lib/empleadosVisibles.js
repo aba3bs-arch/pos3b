@@ -165,6 +165,7 @@ export function empleadosParaCorte(empleados, sucursalActiva, _modulo = null, _a
   const suc = normalizarCodigoTienda(sucursalActiva);
   const ids = new Set();
   const out = [];
+  const enMain = !suc || suc === 'MAIN';
 
   const push = (e, extra = {}) => {
     if (!e || e?.activo === false) return;
@@ -188,13 +189,18 @@ export function empleadosParaCorte(empleados, sucursalActiva, _modulo = null, _a
     const rol = normalizarRol(e.rol);
     const tipo = resolverTipoEmpleado(e);
 
-    // Personal de la sucursal activa (máx. 2 tipo tienda): siempre visible en cortes.
-    if (suc && suc !== 'MAIN' && empSuc === suc && tipo === 'tienda') {
+    // En MAIN: mostrar todos los de tienda (para verlos en catálogo por sucursal).
+    if (enMain && tipo === 'tienda' && rol !== 'Administrador') {
+      push(e, { es_indirecto_corte: false });
+      continue;
+    }
+    // Personal de la sucursal activa (máx. 2 tipo tienda).
+    if (!enMain && empSuc === suc && tipo === 'tienda') {
       push(e, { es_indirecto_corte: false });
       continue;
     }
     // Fallback si falta columna tipo_empleado: mismo código de tienda, no admin.
-    if (suc && suc !== 'MAIN' && empSuc === suc && tipo !== 'indirecto' && rol !== 'Administrador') {
+    if (!enMain && empSuc === suc && tipo !== 'indirecto' && rol !== 'Administrador') {
       push(e, { es_indirecto_corte: false });
       continue;
     }

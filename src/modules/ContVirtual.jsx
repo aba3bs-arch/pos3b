@@ -447,13 +447,20 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       setUsuariosCat([]);
       return;
     }
-    const { data, error } = await supabase.from('usuarios').select('*').order('nombre');
-    if (error) {
+    const intentos = [
+      '*',
+      'id, nombre, rol, sucursal_id, tipo_empleado, activo',
+      'id, nombre, rol, sucursal_id, activo',
+    ];
+    for (const cols of intentos) {
+      const { data, error } = await supabase.from('usuarios').select(cols).order('nombre');
+      if (!error) {
+        setUsuariosCat(data || []);
+        return;
+      }
       console.error(error);
-      setUsuariosCat([]);
-      return;
     }
-    setUsuariosCat(data || []);
+    setUsuariosCat([]);
   }, [supabase]);
 
   useEffect(() => {

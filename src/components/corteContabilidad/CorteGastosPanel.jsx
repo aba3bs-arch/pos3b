@@ -8,9 +8,14 @@ import {
   gastoRequiereEmpleado,
   gastoDescuentaNomina,
 } from '../../lib/corteContabilidad/catalogoGastos.js';
-import { agruparEmpleadosParaSelectCorte } from '../../lib/empleadosVisibles.js';
+import {
+  agruparEmpleadosParaSelectCorte,
+  empleadosParaCatalogoEmpleado,
+  empleadosParaCorte,
+} from '../../lib/empleadosVisibles.js';
 import { esCategoriaEmpleado } from '../../lib/catalogoEmpleadoGastos.js';
-import { etiquetaTienda } from '../../constants/sucursales.js';
+import { etiquetaTienda, normalizarCodigoTienda } from '../../constants/sucursales.js';
+import { asegurarCamposSinReservadoOPin } from '../../lib/reservadoAdminPrincipal.js';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -18,10 +23,15 @@ function fmt(n) {
 
 const btnSm = { fontSize: '0.75rem', padding: '0.25rem 0.5rem' };
 
+function contarReales(lista) {
+  return (lista || []).filter((e) => e && !String(e.id).startsWith('indirect:')).length;
+}
+
 export default function CorteGastosPanel({
   modulo,
   supabase,
   sucursal,
+  user,
   gastos,
   empleados,
   onAgregar,
@@ -39,7 +49,54 @@ export default function CorteGastosPanel({
   const [comentario, setComentario] = useState('');
   const [usuarioId, setUsuarioId] = useState('');
   const [mostrarCat, setMostrarCat] = useState(false);
-  const gruposEmpleados = useMemo(() => agruparEmpleadosParaSelectCorte(empleados), [empleados]);
+  const [usuariosRaw, setUsuariosRaw] = useState([]);
+  const [avisoEmp, setAvisoEmp] = useState('');
+
+  const cargarUsuarios = useCallback(async () => {
+    if (!supabase) {
+      setUsuariosRaw([]);
+      return;
+    }
+    const intentos = [
+      'id, nombre, rol, sucursal_id, tipo_empleado, nomina_pagador, activo',
+      'id, nombre, rol, sucursal_id, tipo_empleado, activo',
+      'id, nombre, rol, sucursal_id, activo',
+      '*',
+    ];
+    let lastErr = null;
+    for (const cols of intentos) {
+      const res = await supabase.from('usuarios').select(cols).order('nombre');
+      if (!res.error) {
+        setUsuariosRaw(res.data || []);
+        setAvisoEmp('');
+        return;
+      }
+      lastErr = res.error;
+    }
+    setUsuariosRaw([]);
+    setAvisoEmp(lastErr?.message || 'No se pudieron cargar empleados desde usuarios.');
+  }, [supabase]);
+
+  useEffect(() => {
+    cargarUsuarios();
+  }, [cargarUsuarios]);
+
+  const empleadosEfectivos = useMemo(() => {
+    const desdeRaw = empleadosParaCorte(usuariosRaw, sucursal, modulo, user?.rol);
+    const desdeProp = empleados || [];
+    return contarReales(desdeRaw) >= contarReales(desdeProp) ? desdeRaw : desdeProp.length ? desdeProp : desdeRaw;
+  }, [usuariosRaw, empleados, sucursal, modulo, user?.rol]);
+
+  const gruposEmpleados = useMemo(
+    () => agruparEmpleadosParaSelectCorte(empleadosEfectivos),
+    [empleadosEfectivos],
+  );
+
+  /** Roster para categoría Empleado: Main + grupos por sucursal (como en IE). */
+  const rosterEmpleado = useMemo(() => {
+    const base = usuariosRaw.length ? usuariosRaw : empleadosEfectivos;
+    return empleadosParaCatalogoEmpleado(base, sucursal);
+  }, [usuariosRaw, empleadosEfectivos, sucursal]);
 
   const cargarCat = useCallback(async () => {
     const res = await listarCatalogoGastos(supabase, sucursal, modulo);
@@ -72,14 +129,20 @@ export default function CorteGastosPanel({
   const subsDeCat = catalogo.find((c) => c.categoria === cat)?.subcategorias || [];
   const requiereEmpleado = gastoRequiereEmpleado(modulo, cat);
 
-  const agregar = () => {
+  const agregar = async () => {
     const m = Number(monto);
     if (!(m > 0)) return alert('Monto inválido.');
     if (!cat.trim()) return alert('Selecciona categoría.');
     if (requiereEmpleado && !usuarioId) {
       return alert('Selecciona el empleado a quien se descontará el consumo en nómina.');
     }
-    const emp = requiereEmpleado ? (empleados || []).find((e) => String(e.id) === String(usuarioId)) : null;
+    const authTxt = await asegurarCamposSinReservadoOPin(
+      supabase,
+      [cat, sub, comentario],
+      { user, sucursal },
+    );
+    if (!authTxt.ok) return alert(authTxt.error);
+    const emp = requiereEmpleado ? (empleadosEfectivos || []).find((e) => String(e.id) === String(usuarioId)) : null;
     const uid = emp?.id != null ? String(emp.id) : '';
     onAgregar?.({
       categoria: cat.trim().toUpperCase(),
@@ -97,6 +160,8 @@ export default function CorteGastosPanel({
   const nuevaCategoria = async () => {
     const nombre = prompt('Nombre de la categoría:');
     if (!nombre?.trim()) return;
+    const authTxt = await asegurarCamposSinReservadoOPin(supabase, [nombre], { user, sucursal });
+    if (!authTxt.ok) return alert(authTxt.error);
     const res = await guardarCategoriaGasto(supabase, sucursal, modulo, nombre, []);
     if (!res.ok) return alert(res.error);
     cargarCat();
@@ -105,6 +170,8 @@ export default function CorteGastosPanel({
   const nuevaSubcategoria = async (categoria) => {
     const nombre = prompt(`Subcategoría para ${categoria}:`);
     if (!nombre?.trim()) return;
+    const authTxt = await asegurarCamposSinReservadoOPin(supabase, [nombre], { user, sucursal });
+    if (!authTxt.ok) return alert(authTxt.error);
     const res = await agregarSubcategoriaGasto(supabase, sucursal, modulo, categoria, nombre);
     if (!res.ok) return alert(res.error);
     cargarCat();
@@ -117,6 +184,8 @@ export default function CorteGastosPanel({
     if (!nombre?.trim()) return;
     const subsTxt = prompt('Subcategorías (separadas por coma):', (row.subcategorias || []).join(', '));
     if (subsTxt == null) return;
+    const authTxt = await asegurarCamposSinReservadoOPin(supabase, [nombre, subsTxt], { user, sucursal });
+    if (!authTxt.ok) return alert(authTxt.error);
     const subs = subsTxt
       .split(',')
       .map((s) => s.trim())
@@ -175,7 +244,8 @@ export default function CorteGastosPanel({
           {catalogo.map((c) => {
             const esEmp = esCategoriaEmpleado(c) || c.es_categoria_empleado;
             if (esEmp) {
-              const g = gruposEmpleados;
+              const main = rosterEmpleado.main || [];
+              const tiendaGrupos = rosterEmpleado.tiendaGrupos || [];
               return (
                 <div
                   key={c.ieId || c.categoria}
@@ -198,24 +268,48 @@ export default function CorteGastosPanel({
                     </button>
                   </div>
                   <p className="muted" style={{ fontSize: '0.72rem', margin: '0 0 0.35rem' }}>
-                    Main en todas las tiendas · tienda solo {etiquetaTienda(sucursal)}. Editar/baja en módulo Empleados.
+                    Main / indirectos en todas las tiendas · empleados de tienda por sucursal (máx. 2). Altas en módulo Empleados.
                   </p>
+                  {avisoEmp ? (
+                    <p style={{ fontSize: '0.75rem', color: 'var(--danger)', margin: '0 0 0.35rem' }}>{avisoEmp}</p>
+                  ) : null}
                   <div style={{ fontSize: '0.8rem', paddingLeft: '0.25rem' }}>
                     <div style={{ fontWeight: 600, marginBottom: '0.2rem' }}>Main / indirectos</div>
-                    {g.indirectos.length
-                      ? g.indirectos.map((e) => (
+                    {main.length
+                      ? main.map((e) => (
                           <div key={e.id} className="muted" style={{ marginBottom: '0.15rem' }}>
                             {e.nombre}
-                            <span style={{ opacity: 0.75 }}> · {(c.subcategorias || []).slice(0, 4).join(', ')}{(c.subcategorias || []).length > 4 ? '…' : ''}</span>
+                            <span style={{ opacity: 0.75 }}>
+                              {' '}
+                              · {(c.subcategorias || []).slice(0, 4).join(', ')}
+                              {(c.subcategorias || []).length > 4 ? '…' : ''}
+                            </span>
                           </div>
                         ))
                       : <div className="muted">Sin empleados Main</div>}
-                    <div style={{ fontWeight: 600, margin: '0.35rem 0 0.2rem' }}>Tienda {etiquetaTienda(sucursal)}</div>
-                    {g.tienda.length
-                      ? g.tienda.map((e) => (
-                          <div key={e.id} className="muted" style={{ marginBottom: '0.15rem' }}>
-                            {e.nombre}
-                            <span style={{ opacity: 0.75 }}> · {(c.subcategorias || []).slice(0, 4).join(', ')}{(c.subcategorias || []).length > 4 ? '…' : ''}</span>
+                    <div style={{ fontWeight: 600, margin: '0.35rem 0 0.2rem' }}>Empleados de tienda</div>
+                    {tiendaGrupos.length
+                      ? tiendaGrupos.map((g) => (
+                          <div key={g.sucursalId} style={{ marginBottom: '0.35rem' }}>
+                            <div className="muted" style={{ fontSize: '0.72rem', fontWeight: 600 }}>
+                              {g.label || etiquetaTienda(g.sucursalId)} · {(g.empleados || []).length}/2
+                            </div>
+                            {(g.empleados || []).length
+                              ? (g.empleados || []).map((e) => (
+                                  <div key={e.id} className="muted" style={{ marginBottom: '0.15rem', paddingLeft: '0.35rem' }}>
+                                    {e.nombre}
+                                    <span style={{ opacity: 0.75 }}>
+                                      {' '}
+                                      · {(c.subcategorias || []).slice(0, 4).join(', ')}
+                                      {(c.subcategorias || []).length > 4 ? '…' : ''}
+                                    </span>
+                                  </div>
+                                ))
+                              : (
+                                <div className="muted" style={{ paddingLeft: '0.35rem' }}>
+                                  Sin empleados de tienda (máx. 2)
+                                </div>
+                              )}
                           </div>
                         ))
                       : <div className="muted">Sin empleados de tienda (máx. 2)</div>}
@@ -279,7 +373,9 @@ export default function CorteGastosPanel({
                   <optgroup label="Empleados de esta tienda">
                     {gruposEmpleados.tienda.map((e) => (
                       <option key={e.id} value={e.id}>
-                        {e.nombre}
+                        {normalizarCodigoTienda(sucursal) === 'MAIN' || !sucursal
+                          ? `${e.nombre} · ${etiquetaTienda(e.sucursal_id)}`
+                          : e.nombre}
                       </option>
                     ))}
                   </optgroup>
@@ -304,6 +400,16 @@ export default function CorteGastosPanel({
                 )}
               </select>
             )}
+            {requiereEmpleado && avisoEmp ? (
+              <p className="muted" style={{ gridColumn: '1 / -1', fontSize: '0.75rem', color: 'var(--danger)', margin: 0 }}>
+                {avisoEmp}
+              </p>
+            ) : null}
+            {requiereEmpleado && !avisoEmp && !gruposEmpleados.tienda.length && !gruposEmpleados.indirectos.length ? (
+              <p className="muted" style={{ gridColumn: '1 / -1', fontSize: '0.75rem', margin: 0 }}>
+                Sin empleados cargados. Revisa módulo Empleados (tipo tienda / indirecto) y la tienda activa del corte.
+              </p>
+            ) : null}
             <select
               className="select"
               value={cat}
