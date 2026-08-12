@@ -167,6 +167,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         gastos: res.gastosImpresion,
         calc: res.calcImpresion,
         recoleccion: res.recoleccion,
+        moneda_inyectar: res.monedaInyectar ?? inyectar,
       }),
     );
     alert(

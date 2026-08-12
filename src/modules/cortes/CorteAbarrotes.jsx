@@ -12,7 +12,7 @@ const COLOR = '#b5a642';
 
 const CAMPOS = [
   { key: 'fondo_fijo', label: 'Fondo fijo (ref)', perm: true },
-  { key: 'caja_anterior', label: 'Caja anterior (+)' },
+  { key: 'caja_anterior', label: 'Caja chica anterior (+)' },
   { key: 'venta', label: 'Venta total (+)' },
   { key: 'tarjeta', label: 'Pago tarjeta (−)' },
   { key: 'faltante', label: 'Faltante (−)', danger: true },
@@ -196,10 +196,21 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         </div>
 
         <div className="card" style={{ textAlign: 'center' }}>
-          <h4 style={{ margin: '0 0 1rem' }}>Caja final</h4>
-          <div className="muted" style={{ fontSize: '0.85rem' }}>Efectivo en caja</div>
-          <div style={{ fontSize: '2.5rem', fontWeight: 800, color: cajaNegativa ? 'var(--danger)' : '#27ae60' }}>{fmtCorte(calc.cajaActual)}</div>
-          <div className="muted" style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>Gastos turno: {fmtCorte(calc.gastosTotal)}</div>
+          <h4 style={{ margin: '0 0 1rem' }}>Caja chica</h4>
+          <div className="muted" style={{ fontSize: '0.85rem' }}>Caja chica anterior</div>
+          <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--brand-blue)' }}>
+            {fmtCorte(estado.caja_anterior)}
+          </div>
+          <div className="muted" style={{ fontSize: '0.85rem', marginTop: '0.85rem' }}>Caja chica actual</div>
+          <div style={{ fontSize: '2.5rem', fontWeight: 800, color: cajaNegativa ? 'var(--danger)' : '#27ae60' }}>
+            {fmtCorte(calc.cajaActual)}
+          </div>
+          <div className="muted" style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>
+            Anterior + subtotal − recolección
+          </div>
+          <div className="muted" style={{ fontSize: '0.8rem', marginTop: '0.35rem' }}>
+            Gastos turno: {fmtCorte(calc.gastosTotal)}
+          </div>
         </div>
       </div>
 

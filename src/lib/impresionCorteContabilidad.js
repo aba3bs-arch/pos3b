@@ -143,6 +143,7 @@ export function datosImpresionDesdeHistorial(h, modulo) {
     comentarios: d.comentarios || '',
     recoleccion: d.recoleccion ?? d.recoleccion_turno ?? 0,
     recoleccion_anterior_tras: d.recoleccion_anterior_tras,
+    moneda_inyectar: d.moneda_inyectar ?? 0,
     es_borrador: false,
   };
 }
@@ -164,6 +165,8 @@ function filasResumenModulo(data) {
       filas.push(['Moneda inyectada (admin)', fmt(e.moneda_inyectada_monto)]);
     }
   } else if (mod === 'abarrotes') {
+    filas.push(['Fondo fijo', fmt(e.fondo_fijo)]);
+    filas.push(['Caja chica anterior', fmt(e.caja_anterior)]);
     filas.push(['Venta total', fmt(e.venta)]);
     filas.push(['Tarjeta', fmt(e.tarjeta)]);
     filas.push(['Faltante', fmt(e.faltante)]);
@@ -309,7 +312,11 @@ export function htmlRecoleccionVirtual(data) {
   const rec = round2(data.recoleccion ?? e.recoleccion ?? 0);
   const subtotal = round2(data.subtotal ?? (venta - gastos));
   const cajaActual = round2(data.caja_actual ?? (cajaAnt + subtotal));
-  const miSiguiente = mf > 0 || e.moneda_final_editada ? mf : mi;
+  const tope = round2(e.moneda_tope ?? e.moneda_inicial);
+  const inyectar = round2(
+    data.moneda_inyectar ?? e.moneda_inyectar ?? Math.max(0, tope - mf),
+  );
+  const miSiguiente = tope > 0 ? tope : (mf > 0 || e.moneda_final_editada ? mf : mi);
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recolección Virtual</title><style>
     ${estilosCortePos()}
@@ -333,6 +340,7 @@ export function htmlRecoleccionVirtual(data) {
       <tr><td>Subtotal</td><td class="r">${fmt(subtotal)}</td></tr>
       <tr><td>Caja chica actual</td><td class="r">${fmt(cajaActual)}</td></tr>
       <tr><td class="rec">Recolección</td><td class="r rec">${fmt(rec)}</td></tr>
+      <tr><td class="op"><strong>Moneda a inyectar</strong></td><td class="r op"><strong>${fmt(inyectar)}</strong></td></tr>
       <tr><td>Próxima MI (portal)</td><td class="r">${fmt(miSiguiente)}</td></tr>
       <tr><td>Caja chica nueva</td><td class="r">${fmt(0)}</td></tr>
     </table>
@@ -344,11 +352,22 @@ export function htmlRecoleccionVirtual(data) {
     </table>
     ${data.comentarios ? `<div class="sep"></div><p class="muted"><strong>Comentarios:</strong> ${esc(data.comentarios)}</p>` : ''}
     <div class="sep"></div>
-    <p class="muted" style="text-align:center">Solo la recolección entra a IE. Inyección de moneda: solo admin en el campo Moneda inicial.</p>
+    <p class="muted" style="text-align:center">Solo la recolección entra a IE. Moneda a inyectar = tope − moneda final.</p>
   </body></html>`;
 }
 
-export function datosImpresionRecoleccionVirtual({ sucursal, folio, turno, user, estado, gastos, calc, recoleccion, fecha }) {
+export function datosImpresionRecoleccionVirtual({
+  sucursal,
+  folio,
+  turno,
+  user,
+  estado,
+  gastos,
+  calc,
+  recoleccion,
+  moneda_inyectar,
+  fecha,
+}) {
   return {
     modulo: 'virtual',
     sucursal,
@@ -365,6 +384,7 @@ export function datosImpresionRecoleccionVirtual({ sucursal, folio, turno, user,
     estado: estado || {},
     comentarios: estado?.comentarios || '',
     recoleccion: recoleccion ?? 0,
+    moneda_inyectar: moneda_inyectar ?? estado?.moneda_inyectar ?? 0,
     es_borrador: false,
   };
 }
