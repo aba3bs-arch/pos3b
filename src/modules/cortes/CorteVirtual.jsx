@@ -468,6 +468,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
             modulo="virtual"
             supabase={supabase}
             sucursal={sucursal}
+            user={user}
             empleados={empleados}
             gastos={gastos}
             onAgregar={agregarGasto}

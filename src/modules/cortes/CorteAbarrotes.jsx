@@ -174,6 +174,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             modulo="abarrotes"
             supabase={supabase}
             sucursal={sucursal}
+            user={user}
             empleados={empleados}
             gastos={gastos}
             onAgregar={agregarGasto}

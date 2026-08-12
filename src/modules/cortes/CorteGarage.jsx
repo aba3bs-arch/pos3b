@@ -225,6 +225,7 @@ export default function CorteGarage({ supabase, sucursal, user }) {
           modulo="garage"
           supabase={supabase}
           sucursal={sucursal}
+          user={user}
           empleados={empleados}
           gastos={gastos}
           onAgregar={agregarGasto}
