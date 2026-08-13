@@ -895,6 +895,11 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
   const editarCategoria = async (cat) => {
     if (!esAdmin || !cat) return;
+    if (esCategoriaEmpleado(cat)) {
+      return alert(
+        'La categoría Empleado no se renombra. Edita solo sus tipos (Consumo, Anticipo…). Los empleados se dan de alta en el módulo Empleados.',
+      );
+    }
     const nombre = prompt('Nuevo nombre de categoría:', cat.nombre);
     if (nombre == null) return;
     if (!String(nombre).trim()) return alert('Nombre obligatorio.');
@@ -925,6 +930,9 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
   const borrarCategoria = async (cat) => {
     if (!esAdmin || !cat) return;
+    if (esCategoriaEmpleado(cat)) {
+      return alert('Empleado es categoría del sistema (cortes / nómina) y no se puede eliminar ni desactivar.');
+    }
     const msg = cat.fijo
       ? `¿Desactivar la categoría del sistema «${cat.nombre}»?\n(No se borra del todo para no romper egresos históricos.)`
       : `¿Eliminar la categoría «${cat.nombre}» y sus subcategorías/detalles?`;
@@ -1585,20 +1593,24 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.75rem' }}>
             Catálogo compartido de IE Virtual e IE Abarrotes: <strong>Cuenta → Subcuenta → Detalle</strong>.
             Los <strong>ingresos</strong> son independientes de los <strong>egresos</strong>, con el mismo formato.
-            Crea, edita o elimina los tres niveles. En <strong>Empleado</strong> (egresos), abajo ves quién aplica (Main / tienda).
+            En <strong>Empleado</strong> (egresos): los tipos son Consumo/Anticipo/…; las personas se eligen al capturar (módulo Empleados). No renombres ni elimines Empleado.
           </p>
           {!esAdmin && <p className="cv-error">Solo el administrador puede editar cuentas y subcuentas.</p>}
           {(catalogoFlujoVista || []).map((c) => (
             <div key={c.id} className="cv-cat-card">
               <div className="cv-cat-hd">
-                <strong>{c.nombre}{c.fijo ? ' · sistema' : ''}</strong>
+                <strong>{c.nombre}{c.fijo ? ' · sistema' : ''}{esCategoriaEmpleado(c) ? ' · nómina cortes' : ''}</strong>
                 {esAdmin && (
                   <span className="cv-cat-actions">
                     <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => nuevaSubEnCat(c.id, c.nombre)}>+ Subcuenta</button>
-                    <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarCategoria(c)}>Editar</button>
-                    <button type="button" className="cv-row-del" onClick={() => borrarCategoria(c)}>
-                      {c.fijo ? 'Desactivar' : 'Eliminar'}
-                    </button>
+                    {!esCategoriaEmpleado(c) && (
+                      <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarCategoria(c)}>Editar</button>
+                    )}
+                    {!esCategoriaEmpleado(c) && (
+                      <button type="button" className="cv-row-del" onClick={() => borrarCategoria(c)}>
+                        {c.fijo ? 'Desactivar' : 'Eliminar'}
+                      </button>
+                    )}
                   </span>
                 )}
               </div>

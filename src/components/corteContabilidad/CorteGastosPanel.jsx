@@ -199,9 +199,19 @@ export default function CorteGastosPanel({
   const editarCategoria = async (categoria) => {
     const row = catalogo.find((c) => c.categoria === categoria);
     if (!row) return;
-    const nombre = prompt('Nuevo nombre de categoría:', row.categoria);
-    if (!nombre?.trim()) return;
-    const subsTxt = prompt('Subcategorías (separadas por coma):', (row.subcategorias || []).join(', '));
+    const esEmp = Boolean(row.es_categoria_empleado || esCategoriaEmpleado(row));
+    let nombre = row.categoria;
+    if (!esEmp) {
+      const nuevo = prompt('Nuevo nombre de categoría:', row.categoria);
+      if (!nuevo?.trim()) return;
+      nombre = nuevo;
+    }
+    const subsTxt = prompt(
+      esEmp
+        ? 'Tipos de EMPLEADO (Consumo, Anticipo…). Separados por coma. No renombres la categoría ni pongas nombres de personas aquí.'
+        : 'Subcategorías (separadas por coma):',
+      (row.subcategorias || []).join(', '),
+    );
     if (subsTxt == null) return;
     const authTxt = await asegurarCamposSinReservadoOPin(supabase, [nombre, subsTxt], { user, sucursal });
     if (!authTxt.ok) return alert(authTxt.error);
@@ -211,11 +221,15 @@ export default function CorteGastosPanel({
       .filter(Boolean);
     const res = await renombrarCategoriaGasto(supabase, sucursal, modulo, categoria, nombre, subs);
     if (!res.ok) return alert(res.error);
-    if (cat === categoria) setCat(nombre.trim().toUpperCase());
+    if (cat === categoria && !esEmp) setCat(nombre.trim().toUpperCase());
     cargarCat();
   };
 
   const borrarCat = async (categoria) => {
+    const row = catalogo.find((c) => c.categoria === categoria);
+    if (row?.es_categoria_empleado || esCategoriaEmpleado(row || { categoria })) {
+      return alert('EMPLEADO no se elimina. Es la categoría de nómina (tienda + indirectos).');
+    }
     if (!confirm(`¿Eliminar categoría ${categoria}?`)) return;
     const res = await eliminarCategoriaGasto(supabase, sucursal, modulo, categoria);
     if (!res.ok) return alert(res.error);
@@ -287,7 +301,8 @@ export default function CorteGastosPanel({
                     </button>
                   </div>
                   <p className="muted" style={{ fontSize: '0.72rem', margin: '0 0 0.35rem' }}>
-                    Main / indirectos en todas las tiendas · empleados de tienda por sucursal (máx. 2). Altas en módulo Empleados.
+                    Al capturar un gasto: elige EMPLEADO → se abre Consumo y el select de persona (tienda + Main/indirectos).
+                    No crees subcategorías con nombres de empleados; las altas van en módulo Empleados.
                   </p>
                   {avisoEmp ? (
                     <p style={{ fontSize: '0.75rem', color: 'var(--danger)', margin: '0 0 0.35rem' }}>{avisoEmp}</p>
