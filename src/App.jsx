@@ -6,6 +6,7 @@ import EscanerMovil from './modules/EscanerMovil.jsx';
 import Productos from './modules/Productos.jsx';
 import Compras from './modules/Compras.jsx';
 import Checador from './modules/Checador.jsx';
+import CheckList from './modules/CheckList.jsx';
 import Proveedores from './modules/Proveedores.jsx';
 import Clientes from './modules/Clientes.jsx';
 import Usuarios from './modules/Usuarios.jsx';
@@ -1064,6 +1065,17 @@ function App() {
           )}
           {vista === 'Checador' && (
             <Checador inventario={inventarioTienda} supabase={supabase} sucursal={sucursal} user={user} sucursalesLista={listaSucursales} />
+          )}
+          {vista === 'Check List' && (
+            <CheckList
+              supabase={supabase}
+              sucursal={sucursal}
+              user={user}
+              onIrIncidencias={() => {
+                setBuzonPestana('incidencias');
+                irAModulo('Incidencias', { pestana: 'incidencias' });
+              }}
+            />
           )}
           {vista === 'Proveedores' && (
             <Proveedores supabase={supabase} inventario={inventario} user={user} sucursal={sucursal} cargarDatos={cargarDatos} />

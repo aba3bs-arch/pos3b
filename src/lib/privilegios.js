@@ -14,6 +14,7 @@ export const MODULOS_IDS = [
   'Venta en Ruta',
   'Compras',
   'Checador',
+  'Check List',
   'Proveedores',
   'Clientes',
   'Usuarios',
