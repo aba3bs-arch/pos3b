@@ -10,7 +10,6 @@ import {
 } from '../../lib/corteContabilidad/catalogoGastos.js';
 import {
   agruparEmpleadosParaSelectCorte,
-  empleadosParaCatalogoEmpleado,
   empleadosParaCorte,
 } from '../../lib/empleadosVisibles.js';
 import { esCategoriaEmpleado } from '../../lib/catalogoEmpleadoGastos.js';
@@ -92,12 +91,6 @@ export default function CorteGastosPanel({
     [empleadosEfectivos],
   );
 
-  /** Roster para categoría Empleado: Main + grupos por sucursal (como en IE). */
-  const rosterEmpleado = useMemo(() => {
-    const base = usuariosRaw.length ? usuariosRaw : empleadosEfectivos;
-    return empleadosParaCatalogoEmpleado(base, sucursal);
-  }, [usuariosRaw, empleadosEfectivos, sucursal]);
-
   const cargarCat = useCallback(async () => {
     const res = await listarCatalogoGastos(supabase, sucursal, modulo);
     const lista = res.data?.length ? res.data : [];
@@ -113,17 +106,13 @@ export default function CorteGastosPanel({
   const esCatEmpleado = Boolean(
     filaCat?.es_categoria_empleado || esCategoriaEmpleado(filaCat || { categoria: cat }),
   );
-  // EMPLEADO (o consumo/faltante legacy): el primer campo es el nombre del empleado.
+  // EMPLEADO + sus subtipos (o legacy): aparece la lista desplegable de empleados.
   const requiereEmpleado = esCatEmpleado || gastoRequiereEmpleado(modulo, cat, sub);
 
   const empSeleccionado = requiereEmpleado
     ? (empleadosEfectivos || []).find((e) => String(e.id) === String(usuarioId))
     : null;
-  const rutaGasto = [
-    empSeleccionado?.nombre || (requiereEmpleado ? 'Empleado' : null),
-    cat || null,
-    sub || null,
-  ]
+  const rutaGasto = [cat || null, sub || null, empSeleccionado?.nombre || null]
     .filter(Boolean)
     .join(' · ');
 
@@ -276,81 +265,6 @@ export default function CorteGastosPanel({
           </button>
           {catalogo.map((c) => {
             const esEmp = esCategoriaEmpleado(c) || c.es_categoria_empleado;
-            if (esEmp) {
-              const main = rosterEmpleado.main || [];
-              const tiendaGrupos = rosterEmpleado.tiendaGrupos || [];
-              return (
-                <div
-                  key={c.ieId || c.categoria}
-                  style={{
-                    marginBottom: '0.5rem',
-                    padding: '0.45rem 0',
-                    borderBottom: '1px solid var(--border)',
-                  }}
-                >
-                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.35rem', marginBottom: '0.35rem' }}>
-                    <strong style={{ fontSize: '0.85rem' }}>{c.categoria}</strong>
-                    <span className="muted" style={{ fontSize: '0.78rem', flex: 1 }}>
-                      Tipos: {(c.subcategorias || []).join(' · ') || '—'}
-                    </span>
-                    <button type="button" className="btn btn-ghost" style={btnSm} onClick={() => nuevaSubcategoria(c.categoria)}>
-                      + Tipo
-                    </button>
-                    <button type="button" className="btn btn-ghost" style={btnSm} onClick={() => editarCategoria(c.categoria)}>
-                      Editar tipos
-                    </button>
-                  </div>
-                  <p className="muted" style={{ fontSize: '0.72rem', margin: '0 0 0.35rem' }}>
-                    Al capturar un gasto: elige EMPLEADO → se abre Consumo y el select de persona (tienda + Main/indirectos).
-                    No crees subcategorías con nombres de empleados; las altas van en módulo Empleados.
-                  </p>
-                  {avisoEmp ? (
-                    <p style={{ fontSize: '0.75rem', color: 'var(--danger)', margin: '0 0 0.35rem' }}>{avisoEmp}</p>
-                  ) : null}
-                  <div style={{ fontSize: '0.8rem', paddingLeft: '0.25rem' }}>
-                    <div style={{ fontWeight: 600, marginBottom: '0.2rem' }}>Main / indirectos</div>
-                    {main.length
-                      ? main.map((e) => (
-                          <div key={e.id} className="muted" style={{ marginBottom: '0.15rem' }}>
-                            {e.nombre}
-                            <span style={{ opacity: 0.75 }}>
-                              {' '}
-                              · {(c.subcategorias || []).slice(0, 4).join(', ')}
-                              {(c.subcategorias || []).length > 4 ? '…' : ''}
-                            </span>
-                          </div>
-                        ))
-                      : <div className="muted">Sin empleados Main</div>}
-                    <div style={{ fontWeight: 600, margin: '0.35rem 0 0.2rem' }}>Empleados de tienda</div>
-                    {tiendaGrupos.length
-                      ? tiendaGrupos.map((g) => (
-                          <div key={g.sucursalId} style={{ marginBottom: '0.35rem' }}>
-                            <div className="muted" style={{ fontSize: '0.72rem', fontWeight: 600 }}>
-                              {g.label || etiquetaTienda(g.sucursalId)} · {(g.empleados || []).length}/2
-                            </div>
-                            {(g.empleados || []).length
-                              ? (g.empleados || []).map((e) => (
-                                  <div key={e.id} className="muted" style={{ marginBottom: '0.15rem', paddingLeft: '0.35rem' }}>
-                                    {e.nombre}
-                                    <span style={{ opacity: 0.75 }}>
-                                      {' '}
-                                      · {(c.subcategorias || []).slice(0, 4).join(', ')}
-                                      {(c.subcategorias || []).length > 4 ? '…' : ''}
-                                    </span>
-                                  </div>
-                                ))
-                              : (
-                                <div className="muted" style={{ paddingLeft: '0.35rem' }}>
-                                  Sin empleados de tienda (máx. 2)
-                                </div>
-                              )}
-                          </div>
-                        ))
-                      : <div className="muted">Sin empleados de tienda (máx. 2)</div>}
-                  </div>
-                </div>
-              );
-            }
             return (
             <div
               key={c.ieId || c.categoria}
@@ -375,16 +289,19 @@ export default function CorteGastosPanel({
               </strong>
               <span className="muted" style={{ fontSize: '0.8rem', flex: 1 }}>
                 {(c.subcategorias || []).length ? c.subcategorias.join(' · ') : 'Sin subcategorías'}
+                {esEmp ? ' · (al capturar: lista desplegable de empleados)' : ''}
               </span>
               <button type="button" className="btn btn-ghost" style={btnSm} onClick={() => nuevaSubcategoria(c.categoria)}>
-                + Sub
+                {esEmp ? '+ Tipo' : '+ Sub'}
               </button>
               <button type="button" className="btn btn-ghost" style={btnSm} onClick={() => editarCategoria(c.categoria)}>
-                Editar
+                {esEmp ? 'Editar tipos' : 'Editar'}
               </button>
-              <button type="button" className="btn btn-ghost" style={{ ...btnSm, color: 'var(--danger)' }} onClick={() => borrarCat(c.categoria)}>
-                Eliminar
-              </button>
+              {!esEmp && (
+                <button type="button" className="btn btn-ghost" style={{ ...btnSm, color: 'var(--danger)' }} onClick={() => borrarCat(c.categoria)}>
+                  Eliminar
+                </button>
+              )}
             </div>
             );
           })}
@@ -399,44 +316,7 @@ export default function CorteGastosPanel({
               Sin categorías de gasto. Pide al administrador que configure el catálogo o usa el botón Catálogo si tienes permiso.
             </p>
           )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.4rem', marginBottom: '0.4rem' }}>
-            {requiereEmpleado && (
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem', fontWeight: 700 }}>
-                <span className="muted">Empleado</span>
-                <select className="select" value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)}>
-                  <option value="">Empleado…</option>
-                  {gruposEmpleados.tienda.length > 0 && (
-                    <optgroup label="Empleados de esta tienda">
-                      {gruposEmpleados.tienda.map((e) => (
-                        <option key={e.id} value={e.id}>
-                          {normalizarCodigoTienda(sucursal) === 'MAIN' || !sucursal
-                            ? `${e.nombre} · ${etiquetaTienda(e.sucursal_id)}`
-                            : e.nombre}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {gruposEmpleados.indirectos.length > 0 && (
-                    <optgroup label="Indirectos / MAIN (todas las sucursales)">
-                      {gruposEmpleados.indirectos.map((e) => (
-                        <option key={e.id} value={e.id}>
-                          {e.nombre}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {gruposEmpleados.admins.length > 0 && (
-                    <optgroup label="Administradores">
-                      {gruposEmpleados.admins.map((e) => (
-                        <option key={e.id} value={e.id}>
-                          {e.nombre}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
-              </label>
-            )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.4rem', marginBottom: '0.4rem' }}>
             <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem', fontWeight: 700 }}>
               <span className="muted">Categoría</span>
               <select
@@ -445,6 +325,7 @@ export default function CorteGastosPanel({
                 onChange={(e) => {
                   setCat(e.target.value);
                   setSub('');
+                  setUsuarioId('');
                 }}
               >
                 <option value="">Categoría</option>
@@ -466,6 +347,43 @@ export default function CorteGastosPanel({
                 ))}
               </select>
             </label>
+            {requiereEmpleado && (
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem', fontWeight: 700, gridColumn: '1 / -1' }}>
+                <span className="muted">Empleado (lista vinculada a {sub || 'esta subcategoría'})</span>
+                <select className="select" value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)}>
+                  <option value="">Elige empleado…</option>
+                  {gruposEmpleados.tienda.length > 0 && (
+                    <optgroup label="Empleados de esta tienda">
+                      {gruposEmpleados.tienda.map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {normalizarCodigoTienda(sucursal) === 'MAIN' || !sucursal
+                            ? `${e.nombre} · ${etiquetaTienda(e.sucursal_id)}`
+                            : e.nombre}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {gruposEmpleados.indirectos.length > 0 && (
+                    <optgroup label="Indirectos / MAIN">
+                      {gruposEmpleados.indirectos.map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {e.nombre}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {gruposEmpleados.admins.length > 0 && (
+                    <optgroup label="Administradores">
+                      {gruposEmpleados.admins.map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {e.nombre}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </label>
+            )}
             <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem', fontWeight: 700 }}>
               <span className="muted">Monto</span>
               <input className="input" type="number" min="0" step="0.01" placeholder="Monto" value={monto} onChange={(e) => setMonto(e.target.value)} />
