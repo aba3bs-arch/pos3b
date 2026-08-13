@@ -2029,7 +2029,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             </label>
             {manualTipo === 'egreso' && manualEsEmpleado && (
               <label>
-                Empleado (Main / tienda)
+                Empleado (lista vinculada a la subcategoría)
                 <select
                   value={manual.empleado_id}
                   onChange={(e) => setManual({ ...manual, empleado_id: e.target.value })}
