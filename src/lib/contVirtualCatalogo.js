@@ -246,6 +246,139 @@ function catalogoDefaultCompleto() {
   ];
 }
 
+/** Plantilla fija de la categoría especial Empleado (tipos de nómina). */
+export function plantillaCategoriaEmpleadoDefault() {
+  const def = CATEGORIAS_CONT_VIRTUAL_DEFAULT.find((c) => c.id === 'empleado');
+  return {
+    ...def,
+    flujo: 'egreso',
+    subcategorias: (def?.subcategorias || []).map((s) => ({ ...s, detalles: s.detalles || [] })),
+  };
+}
+
+function esFilaCategoriaEmpleado(c) {
+  if (!c) return false;
+  const id = String(c.id || '').trim().toLowerCase();
+  const nom = String(c.nombre || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  return id === 'empleado' || nom === 'empleado' || nom.startsWith('empleado ');
+}
+
+/**
+ * En memoria: garantiza categoría `empleado` activa con tipos (Consumo primero).
+ * No borra tipos extra que el admin haya agregado.
+ */
+export function asegurarCategoriaEmpleadoEnLista(lista) {
+  const def = plantillaCategoriaEmpleadoDefault();
+  const out = (lista || []).map((c) => ({
+    ...c,
+    subcategorias: (c.subcategorias || []).map((s) => ({
+      ...s,
+      detalles: (s.detalles || []).map((d) => ({ ...d })),
+    })),
+  }));
+  let idx = out.findIndex((c) => String(c.id || '').toLowerCase() === 'empleado');
+  if (idx < 0) idx = out.findIndex((c) => esFilaCategoriaEmpleado(c));
+
+  if (idx < 0) {
+    out.push({ ...def });
+  } else {
+    const actual = out[idx];
+    const byId = new Map((actual.subcategorias || []).map((s) => [String(s.id), { ...s }]));
+    const defIds = new Set(def.subcategorias.map((s) => s.id));
+    for (const sDef of def.subcategorias) {
+      const prev = byId.get(sDef.id);
+      byId.set(sDef.id, {
+        ...(prev || {}),
+        ...sDef,
+        activo: true,
+        fijo: true,
+        detalles: prev?.detalles || [],
+      });
+    }
+    // Tipos custom (p. ej. nombres de personas mal guardados como sub) van después de la plantilla.
+    for (const [id, s] of byId) {
+      if (!defIds.has(id)) {
+        byId.set(id, { ...s, orden: 1000 + (Number(s.orden) || 0) });
+      }
+    }
+    const mergedSubs = [...byId.values()].sort(
+      (a, b) => (Number(a.orden) || 0) - (Number(b.orden) || 0) || String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'),
+    );
+    out[idx] = {
+      ...actual,
+      id: 'empleado',
+      nombre: def.nombre,
+      orden: def.orden,
+      activo: true,
+      fijo: true,
+      flujo: 'egreso',
+      subcategorias: mergedSubs,
+    };
+  }
+
+  return out.sort((a, b) => (Number(a.orden) || 0) - (Number(b.orden) || 0) || String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));
+}
+
+function empleadoNecesitaReparacion(cats, subs) {
+  const emp = (cats || []).find((c) => String(c.id || '').toLowerCase() === 'empleado')
+    || (cats || []).find((c) => esFilaCategoriaEmpleado(c));
+  if (!emp) return true;
+  if (emp.activo === false) return true;
+  const catId = emp.id;
+  const empSubs = (subs || []).filter((s) => s.categoria_id === catId);
+  const def = plantillaCategoriaEmpleadoDefault();
+  for (const sDef of def.subcategorias) {
+    const row = empSubs.find((s) => s.id === sDef.id);
+    if (!row || row.activo === false) return true;
+  }
+  return false;
+}
+
+/** Reactiva Empleado + tipos fijos en Supabase (o local). */
+export async function repararCategoriaEmpleado(supabase) {
+  const def = plantillaCategoriaEmpleadoDefault();
+  if (!supabase) {
+    const lista = asegurarCategoriaEmpleadoEnLista(leerLocal());
+    guardarLocal(lista);
+    return { ok: true, soloLocal: true };
+  }
+  const catRow = {
+    id: def.id,
+    nombre: def.nombre,
+    orden: def.orden,
+    activo: true,
+    fijo: true,
+    flujo: 'egreso',
+  };
+  let { error: e1 } = await supabase.from('cont_virtual_categorias').upsert(catRow, { onConflict: 'id' });
+  if (e1 && String(e1.message || '').toLowerCase().includes('flujo')) {
+    const { flujo: _f, ...sinFlujo } = catRow;
+    ({ error: e1 } = await supabase.from('cont_virtual_categorias').upsert(sinFlujo, { onConflict: 'id' }));
+  }
+  if (e1 && faltaTabla(e1)) {
+    const lista = asegurarCategoriaEmpleadoEnLista(leerLocal());
+    guardarLocal(lista);
+    return { ok: true, soloLocal: true, aviso: AVISO_FALTA_CONT_VIRTUAL };
+  }
+  if (e1) return { ok: false, error: e1.message };
+
+  const subs = def.subcategorias.map((s) => ({
+    id: s.id,
+    categoria_id: def.id,
+    nombre: s.nombre,
+    orden: s.orden,
+    activo: true,
+    fijo: true,
+  }));
+  const { error: e2 } = await supabase.from('cont_virtual_subcategorias').upsert(subs, { onConflict: 'id' });
+  if (e2) return { ok: false, error: e2.message };
+  return { ok: true };
+}
+
 function asegurarIngresosEnLista(lista) {
   const out = (lista || []).map((c) => ({
     ...c,
@@ -274,13 +407,13 @@ function leerLocal() {
     if (raw) {
       const j = JSON.parse(raw);
       if (Array.isArray(j) && j.length) {
-        return asegurarIngresosEnLista(j);
+        return asegurarCategoriaEmpleadoEnLista(asegurarIngresosEnLista(j));
       }
     }
   } catch {
     /* ignore */
   }
-  return catalogoDefaultCompleto();
+  return asegurarCategoriaEmpleadoEnLista(catalogoDefaultCompleto());
 }
 
 function guardarLocal(lista) {
@@ -365,24 +498,19 @@ export async function listarCatalogoContVirtual(supabase) {
     return again;
   }
   const ids = new Set((cRes.data || []).map((c) => c.id));
-  const tieneCatEmpleado = (cRes.data || []).some((c) => {
-    const id = String(c.id || '').toLowerCase();
-    const nom = String(c.nombre || '')
-      .trim()
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '');
-    return id === 'empleado' || nom === 'empleado' || nom.startsWith('empleado ');
-  });
-  if (
+  const faltaSistema =
     !ids.has('cubre-turno')
     || !ids.has('taxis')
     || !ids.has('recargas')
     || !ids.has('anticipos')
-    || !ids.has('faltante')
-    || !tieneCatEmpleado
-  ) {
-    await sembrarCatalogoDefault(supabase);
+    || !ids.has('faltante');
+  const empRoto = empleadoNecesitaReparacion(cRes.data || [], sRes.data || []);
+
+  if (faltaSistema || empRoto) {
+    if (faltaSistema) await sembrarCatalogoDefault(supabase);
+    else await repararCategoriaEmpleado(supabase);
+    // Si faltaba sistema, el seed ya trae Empleado; si solo Empleado estaba roto, reparar.
+    if (faltaSistema && empRoto) await repararCategoriaEmpleado(supabase);
     const [c2, s2, d2] = await Promise.all([
       supabase.from('cont_virtual_categorias').select('*').order('orden'),
       supabase.from('cont_virtual_subcategorias').select('*').order('orden'),
@@ -390,13 +518,17 @@ export async function listarCatalogoContVirtual(supabase) {
     ]);
     if (!c2.error) {
       const det = d2.error && faltaTabla(d2.error) ? [] : (d2.data || []);
-      const data = asegurarIngresosEnLista(armarCatalogo(c2.data, s2.data || [], det));
+      const data = asegurarCategoriaEmpleadoEnLista(
+        asegurarIngresosEnLista(armarCatalogo(c2.data, s2.data || [], det)),
+      );
       guardarLocal(data);
       return { data, aviso: d2.error && faltaTabla(d2.error) ? AVISO_FALTA_CONT_VIRTUAL : undefined };
     }
   }
   const det = dRes.error && faltaTabla(dRes.error) ? [] : (dRes.data || []);
-  const data = asegurarIngresosEnLista(armarCatalogo(cRes.data, sRes.data || [], det));
+  const data = asegurarCategoriaEmpleadoEnLista(
+    asegurarIngresosEnLista(armarCatalogo(cRes.data, sRes.data || [], det)),
+  );
   guardarLocal(data);
   return {
     data,
@@ -570,6 +702,12 @@ export async function crearDetalleContVirtual(supabase, { subcategoriaId, nombre
 
 export async function editarCategoriaContVirtual(supabase, id, { nombre } = {}) {
   if (!id) return { ok: false, error: 'ID inválido.' };
+  if (String(id).toLowerCase() === 'empleado') {
+    return {
+      ok: false,
+      error: 'La categoría Empleado no se renombra. Solo puedes editar sus tipos (Consumo, Anticipo…).',
+    };
+  }
   const label = String(nombre || '').trim();
   if (!label) return { ok: false, error: 'Nombre obligatorio.' };
   if (!supabase) {
@@ -672,9 +810,15 @@ export async function desactivarSubcategoriaContVirtual(supabase, id) {
   return { ok: true };
 }
 
-/** Elimina categoría. Las del sistema (fijo) solo se desactivan. */
+/** Elimina categoría. Las del sistema (fijo) solo se desactivan. Empleado no se puede quitar. */
 export async function eliminarCategoriaContVirtual(supabase, id) {
   if (!id) return { ok: false, error: 'ID inválido.' };
+  if (String(id).toLowerCase() === 'empleado') {
+    return {
+      ok: false,
+      error: 'La categoría Empleado es del sistema (cortes / nómina) y no se puede eliminar.',
+    };
+  }
   if (!supabase) {
     const lista = leerLocal();
     const cat = lista.find((c) => c.id === id);
@@ -701,6 +845,13 @@ export async function eliminarCategoriaContVirtual(supabase, id) {
 /** Elimina subcategoría. Las del sistema (fijo) solo se desactivan. */
 export async function eliminarSubcategoriaContVirtual(supabase, id) {
   if (!id) return { ok: false, error: 'ID inválido.' };
+  const sid = String(id || '').toLowerCase();
+  if (sid.startsWith('empleado-')) {
+    return {
+      ok: false,
+      error: 'Los tipos de Empleado (Consumo, Anticipo, etc.) son del sistema y no se pueden eliminar.',
+    };
+  }
   if (!supabase) {
     const lista = leerLocal();
     let desactivada = false;

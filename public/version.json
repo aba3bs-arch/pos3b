@@ -1,14 +1,14 @@
 {
-  "version": "1.1.1",
-  "buildId": "3e87f6e",
+  "version": "1.1.2",
+  "buildId": "empleado-gasto",
   "branch": "main",
-  "builtAt": "2026-08-13T10:33:21.000Z",
+  "builtAt": "2026-08-13T15:56:00.000Z",
   "title": "Actualización disponible",
-  "summary": "Nuevo módulo Check List operativo (FA3B-017) para el encargado de turno. Pulsa Actualizar.",
+  "summary": "Gastos EMPLEADO: lista de personas + concepto; en el listado se ve el nombre del empleado (no categorías tipo proveedor/operativos). Pulsa Actualizar.",
   "changes": [
-    "Módulo Check List en el menú (después de Checador)",
-    "38 puntos FA3B-017 por tienda, fecha y turno TD/TN/SUP",
-    "Marca Cumple / No cumple / Reportar con historial",
-    "Check List visible aunque haya privilegios personalizados"
+    "EMPLEADO: Categoría → Empleado (lista) → Concepto (Consumo…)",
+    "Al agregar gasto de empleado no se muestra categoría proveedor/operativos",
+    "Se muestra el nombre del empleado en la tabla y en el ticket",
+    "Repara y protege categoría Empleado del catálogo IE"
   ]
 }
