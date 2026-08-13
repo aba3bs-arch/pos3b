@@ -491,13 +491,18 @@ export default function CorteGastosPanel({
               const hora = g.created_at
                 ? new Date(g.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
                 : '—';
+              const esEmpGasto =
+                esCategoriaEmpleado({ categoria: g.categoria })
+                || gastoDescuentaNomina(modulo, g.categoria, g.subcategoria);
               return (
               <tr key={g.id} style={pendiente ? { background: 'rgba(225,153,41,0.08)' } : rechazado ? { opacity: 0.55 } : undefined}>
                 <td style={{ fontWeight: 700, whiteSpace: 'nowrap', fontSize: '0.8rem' }}>{hora}</td>
-                <td>
-                  {gastoDescuentaNomina(modulo, g.categoria) ? g.usuario_nombre || '—' : <span className="muted">—</span>}
+                <td style={{ fontWeight: esEmpGasto ? 700 : 400 }}>
+                  {esEmpGasto ? (g.usuario_nombre || 'Sin empleado') : <span className="muted">—</span>}
                 </td>
-                <td>{g.categoria}</td>
+                <td>
+                  {esEmpGasto ? <span className="muted">—</span> : g.categoria}
+                </td>
                 <td className="muted">{g.subcategoria || '—'}</td>
                 <td style={{ fontWeight: 700 }}>
                   {puedeEditarGastos ? (

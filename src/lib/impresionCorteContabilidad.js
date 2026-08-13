@@ -193,32 +193,39 @@ function htmlGastosPorCategoria(data) {
 
   return grupos
     .map((g) => {
+      const esEmp =
+        String(g.categoria || '').toUpperCase().startsWith('EMPLEADO') || g.descuentaNomina;
       const items = g.items
         .map((it) => {
           const emp = String(it.usuario_nombre || '').trim();
           const gen = String(it.solicitado_por || '').trim();
-          const quien =
-            emp && gen && emp !== gen
-              ? ` · Emp: ${esc(emp)} · Gen: ${esc(gen)}`
-              : emp
-                ? ` · ${esc(emp)}`
-                : gen
-                  ? ` · Gen: ${esc(gen)}`
-                  : '';
           const com = it.comentario ? ` — ${esc(it.comentario)}` : '';
           const hora = it.created_at
             ? ` · ${esc(new Date(it.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }))}`
             : '';
+          // Empleado: nombre + concepto (sin repetir categoría EMPLEADO / operativos / proveedor).
+          const linea = esEmp
+            ? `${esc(emp || 'Sin empleado')} · ${esc(it.subcategoria || '—')}${com}${hora}`
+            : `${esc(it.subcategoria || '—')}${com}${
+                emp && gen && emp !== gen
+                  ? ` · Emp: ${esc(emp)} · Gen: ${esc(gen)}`
+                  : emp
+                    ? ` · ${esc(emp)}`
+                    : gen
+                      ? ` · Gen: ${esc(gen)}`
+                      : ''
+              }${hora}`;
           return `<tr>
-            <td class="muted" style="padding-left:8px">${esc(it.subcategoria || '—')}${com}${quien}${hora}</td>
+            <td class="muted" style="padding-left:8px">${linea}</td>
             <td class="r">${fmt(it.monto)}</td>
           </tr>`;
         })
         .join('');
+      const titulo = esEmp ? 'EMPLEADOS (nómina)' : g.categoria;
       const badge = g.descuentaNomina ? ' <span class="tag">nómina</span>' : '';
       return `
         <div class="cat-block">
-          <div class="cat-head"><strong>${esc(g.categoria)}</strong>${badge}</div>
+          <div class="cat-head"><strong>${esc(titulo)}</strong>${badge}</div>
           <table>${items}</table>
         </div>`;
     })
@@ -272,7 +279,12 @@ function htmlGastosPorCajero(data) {
     .map(([quien, block]) => {
       const rows = block.items
         .map((it) => {
-          const concepto = [it.categoria, it.subcategoria, it.comentario].filter(Boolean).join(' · ');
+          const catU = String(it.categoria || '').toUpperCase();
+          const esEmp = catU.startsWith('EMPLEADO') || catU.includes('CONSUMO') || catU.includes('ANTICIPO') || catU.includes('FALTANTE') || catU.includes('RECARG');
+          // Empleado: no listar categoría tipo proveedor/operativos; solo concepto.
+          const concepto = esEmp
+            ? [it.subcategoria, it.comentario].filter(Boolean).join(' · ')
+            : [it.categoria, it.subcategoria, it.comentario].filter(Boolean).join(' · ');
           const emp = String(it.usuario_nombre || '').trim() || '—';
           const hora = it.created_at
             ? new Date(it.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
