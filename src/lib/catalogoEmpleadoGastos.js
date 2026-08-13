@@ -24,13 +24,19 @@ export const DETALLES_GASTO_EMPLEADO = [
 
 export function esCategoriaEmpleado(cat) {
   if (!cat) return false;
-  const id = String(cat.id || '').trim().toLowerCase();
+  if (cat.es_categoria_empleado) return true;
+  const id = String(cat.id || cat.ieId || '').trim().toLowerCase();
   const nom = String(cat.nombre || cat.categoria || '')
     .trim()
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
-  return id === 'empleado' || nom === 'empleado' || nom.startsWith('empleado ');
+  return (
+    id === 'empleado'
+    || nom === 'empleado'
+    || nom.startsWith('empleado ')
+    || nom.startsWith('empleado-')
+  );
 }
 
 /** ¿Las subcats actuales son tipos de gasto (legacy) o ya son empleados vivos? */

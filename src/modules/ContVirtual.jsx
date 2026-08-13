@@ -29,8 +29,9 @@ import {
 import {
   enriquecerCatalogoConEmpleados,
   esCategoriaEmpleado,
+  plantillaDetallesEmpleado,
 } from '../lib/catalogoEmpleadoGastos.js';
-import { agruparEmpleadosParaSelectCorte, empleadosParaCorte } from '../lib/empleadosVisibles.js';
+import { empleadosParaCorte } from '../lib/empleadosVisibles.js';
 import { eliminarEgresoDesdePanelIe, registrarEgresoContVirtual } from '../lib/contVirtualEgresos.js';
 import {
   registrarIngresoContVirtual,
@@ -477,9 +478,18 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     [catalogo, catalogoFlujo],
   );
 
-  const catalogoManual = useMemo(
+  const catalogoManualBase = useMemo(
     () => filtrarCatalogoPorFlujo(catalogo, manualTipo),
     [catalogo, manualTipo],
+  );
+  /** En egreso Empleado: subcategorías = personas; detalle = concepto (Consumo…). */
+  const catalogoManual = useMemo(
+    () => enriquecerCatalogoConEmpleados(
+      catalogoManualBase,
+      usuariosCat,
+      manual.sucursal_id || catEmpSucursal || sucursalActiva,
+    ),
+    [catalogoManualBase, usuariosCat, manual.sucursal_id, catEmpSucursal, sucursalActiva],
   );
 
   const cargar = useCallback(async () => {
@@ -672,18 +682,25 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     return (cat?.subcategorias || []).filter((s) => s.activo !== false);
   }, [catalogoManual, manual.categoria_id]);
 
+  const manualEsEmpleado = esCategoriaEmpleado(catalogo.find((c) => c.id === manual.categoria_id));
+
   const detsManual = useMemo(() => {
+    if (manualEsEmpleado) {
+      const catM = catalogoManual.find((c) => c.id === manual.categoria_id);
+      const plantilla = catM?.plantilla_detalles || plantillaDetallesEmpleado(catM);
+      const subViva = subsManual.find((s) => s.id === manual.subcategoria_id);
+      const dets = (subViva?.detalles || []).filter((d) => d.activo !== false);
+      if (dets.length) return dets;
+      return (plantilla || []).map((d, i) => ({
+        id: d.id || `emp-det-${i}`,
+        nombre: d.nombre,
+        activo: true,
+        fijo: true,
+      }));
+    }
     const sub = subsManual.find((s) => s.id === manual.subcategoria_id);
     return (sub?.detalles || []).filter((d) => d.activo !== false);
-  }, [subsManual, manual.subcategoria_id]);
-
-  const manualEsEmpleado = esCategoriaEmpleado(catalogo.find((c) => c.id === manual.categoria_id));
-  const gruposManualEmp = useMemo(() => {
-    if (!manualEsEmpleado) return { tienda: [], indirectos: [], admins: [] };
-    return agruparEmpleadosParaSelectCorte(
-      empleadosParaCorte(usuariosCat, manual.sucursal_id || sucursalActiva),
-    );
-  }, [manualEsEmpleado, usuariosCat, manual.sucursal_id, sucursalActiva]);
+  }, [manualEsEmpleado, catalogoManual, manual.categoria_id, subsManual, manual.subcategoria_id]);
 
   const subsParaNuevoDet = useMemo(() => {
     const cat = catalogoFlujoVista.find((c) => c.id === nuevaDet.categoriaId);
@@ -732,31 +749,63 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     if (!(monto > 0)) return alert('Indica un monto válido.');
     if (!manual.sucursal_id) return alert(esIngreso ? 'Elige la sucursal del ingreso.' : 'Elige la sucursal del egreso.');
     if (!manual.categoria_id) return alert('Elige categoría.');
-    const catEmp = !esIngreso && esCategoriaEmpleado(catalogo.find((c) => c.id === manual.categoria_id));
-    if (catEmp && !manual.empleado_id) return alert('Elige el empleado (Main o tienda).');
+    const catRaw = catalogo.find((c) => c.id === manual.categoria_id);
+    const catEmp = !esIngreso && esCategoriaEmpleado(catRaw);
+    const catVista = catalogoManual.find((c) => c.id === manual.categoria_id);
+    const subViva = (catVista?.subcategorias || []).find((s) => s.id === manual.subcategoria_id);
+    if (catEmp && !(subViva?.es_empleado_vivo || manual.empleado_id)) {
+      return alert('Elige el empleado.');
+    }
+
+    let subcategoria_id = manual.subcategoria_id || null;
+    let detalle_id = manual.detalle_id || null;
+    let empNombre = user?.nombre || 'Administrador';
+
+    let conceptoNom = '';
+    if (catEmp && subViva?.es_empleado_vivo) {
+      conceptoNom = String(
+        detsManual.find((d) => d.id === manual.detalle_id)?.nombre
+        || (subViva.detalles || []).find((d) => d.id === manual.detalle_id)?.nombre
+        || '',
+      ).trim();
+      const dn = conceptoNom.toUpperCase();
+      const tipoHit = (catRaw?.subcategorias || []).find((s) => {
+        const sn = String(s.nombre || '').trim().toUpperCase();
+        if (!sn || !dn) return false;
+        const sn0 = sn.split(/\s+/)[0];
+        const dn0 = dn.split(/\s+/)[0];
+        return sn === dn || sn.includes(dn0) || dn.includes(sn0);
+      });
+      subcategoria_id = tipoHit?.id || null;
+      detalle_id = null;
+      empNombre = subViva.nombre || empNombre;
+    }
+
     const nombres = resolverNombresCatalogo(
       catalogo,
       manual.categoria_id,
-      manual.subcategoria_id,
-      manual.detalle_id || null,
+      subcategoria_id,
+      detalle_id,
     );
-    const emp = catEmp
-      ? empleadosParaCorte(usuariosCat, manual.sucursal_id).find((e) => String(e.id) === String(manual.empleado_id))
-      : null;
+    if (catEmp && subViva?.es_empleado_vivo) {
+      nombres.subcategoria_nombre = conceptoNom || nombres.subcategoria_nombre;
+      nombres.detalle_nombre = null;
+    }
+
     const payload = {
       fecha: manual.fecha || hoyYmd(),
       sucursal_id: manual.sucursal_id,
       cuenta: manual.cuenta || (esFrancisco ? 'abarrotes' : 'virtual'),
       categoria_id: manual.categoria_id,
       categoria_nombre: nombres.categoria_nombre,
-      subcategoria_id: manual.subcategoria_id || null,
+      subcategoria_id,
       subcategoria_nombre: nombres.subcategoria_nombre,
-      detalle_id: manual.detalle_id || null,
+      detalle_id,
       detalle_nombre: nombres.detalle_nombre || null,
       monto,
       descripcion: manual.descripcion,
       fuente: 'manual',
-      usuario_nombre: emp?.nombre || user?.nombre || 'Administrador',
+      usuario_nombre: empNombre,
     };
     setGuardando(true);
     const res = esIngreso
@@ -895,6 +944,11 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
   const editarCategoria = async (cat) => {
     if (!esAdmin || !cat) return;
+    if (esCategoriaEmpleado(cat)) {
+      return alert(
+        'La categoría Empleado no se renombra. Edita solo sus tipos (Consumo, Anticipo…). Los empleados se dan de alta en el módulo Empleados.',
+      );
+    }
     const nombre = prompt('Nuevo nombre de categoría:', cat.nombre);
     if (nombre == null) return;
     if (!String(nombre).trim()) return alert('Nombre obligatorio.');
@@ -925,6 +979,9 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
   const borrarCategoria = async (cat) => {
     if (!esAdmin || !cat) return;
+    if (esCategoriaEmpleado(cat)) {
+      return alert('Empleado es categoría del sistema (cortes / nómina) y no se puede eliminar ni desactivar.');
+    }
     const msg = cat.fijo
       ? `¿Desactivar la categoría del sistema «${cat.nombre}»?\n(No se borra del todo para no romper egresos históricos.)`
       : `¿Eliminar la categoría «${cat.nombre}» y sus subcategorías/detalles?`;
@@ -1585,20 +1642,24 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.75rem' }}>
             Catálogo compartido de IE Virtual e IE Abarrotes: <strong>Cuenta → Subcuenta → Detalle</strong>.
             Los <strong>ingresos</strong> son independientes de los <strong>egresos</strong>, con el mismo formato.
-            Crea, edita o elimina los tres niveles. En <strong>Empleado</strong> (egresos), abajo ves quién aplica (Main / tienda).
+            En <strong>Empleado</strong> (egresos): los tipos son Consumo/Anticipo/…; las personas se eligen al capturar (módulo Empleados). No renombres ni elimines Empleado.
           </p>
           {!esAdmin && <p className="cv-error">Solo el administrador puede editar cuentas y subcuentas.</p>}
           {(catalogoFlujoVista || []).map((c) => (
             <div key={c.id} className="cv-cat-card">
               <div className="cv-cat-hd">
-                <strong>{c.nombre}{c.fijo ? ' · sistema' : ''}</strong>
+                <strong>{c.nombre}{c.fijo ? ' · sistema' : ''}{esCategoriaEmpleado(c) ? ' · nómina cortes' : ''}</strong>
                 {esAdmin && (
                   <span className="cv-cat-actions">
                     <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => nuevaSubEnCat(c.id, c.nombre)}>+ Subcuenta</button>
-                    <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarCategoria(c)}>Editar</button>
-                    <button type="button" className="cv-row-del" onClick={() => borrarCategoria(c)}>
-                      {c.fijo ? 'Desactivar' : 'Eliminar'}
-                    </button>
+                    {!esCategoriaEmpleado(c) && (
+                      <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarCategoria(c)}>Editar</button>
+                    )}
+                    {!esCategoriaEmpleado(c) && (
+                      <button type="button" className="cv-row-del" onClick={() => borrarCategoria(c)}>
+                        {c.fijo ? 'Desactivar' : 'Eliminar'}
+                      </button>
+                    )}
                   </span>
                 )}
               </div>
@@ -1982,8 +2043,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                 value={manual.categoria_id}
                 onChange={(e) => {
                   const categoria_id = e.target.value;
-                  const firstSub = (catalogoManual.find((c) => c.id === categoria_id)?.subcategorias || []).find((s) => s.activo !== false);
-                  const firstDet = (firstSub?.detalles || []).find((d) => d.activo !== false);
+                  const catM = catalogoManual.find((c) => c.id === categoria_id);
+                  const firstSub = (catM?.subcategorias || []).find((s) => s.activo !== false);
+                  const firstDet = (firstSub?.detalles || catM?.plantilla_detalles || []).find((d) => d.activo !== false)
+                    || (catM?.plantilla_detalles || [])[0];
                   setManual({
                     ...manual,
                     categoria_id,
@@ -1999,55 +2062,47 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
               </select>
             </label>
             <label>
-              Subcategoría
+              {manualEsEmpleado ? 'Empleado' : 'Subcategoría'}
               <select
                 value={manual.subcategoria_id}
                 onChange={(e) => {
                   const subcategoria_id = e.target.value;
                   const sub = subsManual.find((s) => s.id === subcategoria_id);
-                  const firstDet = (sub?.detalles || []).find((d) => d.activo !== false);
-                  setManual({ ...manual, subcategoria_id, detalle_id: firstDet?.id || '' });
+                  const firstDet = (sub?.detalles || []).find((d) => d.activo !== false)
+                    || (manualEsEmpleado ? detsManual[0] : null);
+                  setManual({
+                    ...manual,
+                    subcategoria_id,
+                    detalle_id: firstDet?.id || '',
+                    empleado_id: sub?.es_empleado_vivo ? String(sub.usuario_id || '') : '',
+                  });
                 }}
               >
-                <option value="">— Opcional —</option>
+                <option value="">{manualEsEmpleado ? 'Elige empleado…' : '— Opcional —'}</option>
+                {!subsManual.length && manualEsEmpleado && (
+                  <option value="" disabled>Sin empleados en esta sucursal</option>
+                )}
                 {subsManual.map((s) => (
-                  <option key={s.id} value={s.id}>{s.nombre}</option>
+                  <option key={s.id} value={s.id}>
+                    {s.es_empleado_vivo
+                      ? `${s.grupo_empleado === 'main' ? 'Main · ' : 'Tienda · '}${s.nombre}`
+                      : s.nombre}
+                  </option>
                 ))}
               </select>
             </label>
-            {manualTipo === 'egreso' && manualEsEmpleado && (
-              <label>
-                Empleado (Main / tienda)
-                <select
-                  value={manual.empleado_id}
-                  onChange={(e) => setManual({ ...manual, empleado_id: e.target.value })}
-                >
-                  <option value="">Elige empleado…</option>
-                  {gruposManualEmp.tienda.length > 0 && (
-                    <optgroup label="Empleados de esta tienda">
-                      {gruposManualEmp.tienda.map((e) => (
-                        <option key={e.id} value={e.id}>{e.nombre}</option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {gruposManualEmp.indirectos.length > 0 && (
-                    <optgroup label="Indirectos / MAIN">
-                      {gruposManualEmp.indirectos.map((e) => (
-                        <option key={e.id} value={e.id}>{e.nombre}</option>
-                      ))}
-                    </optgroup>
-                  )}
-                </select>
-              </label>
-            )}
             <label>
-              Detalle
+              {manualEsEmpleado ? 'Concepto' : 'Detalle'}
               <select
                 value={manual.detalle_id}
                 onChange={(e) => setManual({ ...manual, detalle_id: e.target.value })}
                 disabled={!detsManual.length}
               >
-                <option value="">{detsManual.length ? '— Sin detalle —' : 'Sin detalles en esta sub'}</option>
+                <option value="">
+                  {manualEsEmpleado
+                    ? (detsManual.length ? 'Concepto…' : 'Sin conceptos')
+                    : (detsManual.length ? '— Sin detalle —' : 'Sin detalles en esta sub')}
+                </option>
                 {detsManual.map((d) => (
                   <option key={d.id} value={d.id}>{d.nombre}</option>
                 ))}

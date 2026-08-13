@@ -6,7 +6,9 @@ import {
   eliminarCategoriaContVirtual,
   eliminarSubcategoriaContVirtual,
   listarCatalogoContVirtual,
+  repararCategoriaEmpleado,
 } from '../contVirtualCatalogo.js';
+import { esCategoriaEmpleado } from '../catalogoEmpleadoGastos.js';
 
 const LS_CAT = 'pos3b_corte_catalogo';
 
@@ -117,6 +119,18 @@ function mapRows(data) {
   }));
 }
 
+/** CONSUMO primero para que el corte lo auto-seleccione al elegir EMPLEADO. */
+function ordenarTiposEmpleadoCorte(tipos) {
+  return [...tipos].sort((a, b) => {
+    const an = String(a || '').toUpperCase();
+    const bn = String(b || '').toUpperCase();
+    const ac = an.includes('CONSUMO') ? 0 : 1;
+    const bc = bn.includes('CONSUMO') ? 0 : 1;
+    if (ac !== bc) return ac - bc;
+    return an.localeCompare(bn, 'es');
+  });
+}
+
 /** Convierte catálogo IE (Virtual/Abarrotes, compartido) → formato de corte. */
 export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual') {
   const out = [];
@@ -130,6 +144,7 @@ export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual') {
     // el empleado se elige en el select aparte (MAIN / tienda).
     const esEmp =
       String(c.id || '').toLowerCase() === 'empleado'
+      || esCategoriaEmpleado(c)
       || categoria === 'EMPLEADO'
       || categoria.startsWith('EMPLEADO ');
     if (esEmp) {
@@ -140,10 +155,10 @@ export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual') {
         ? plantilla.map((s) => String(s.nombre || '').trim().toUpperCase()).filter(Boolean)
         : ['CONSUMO', 'ANTICIPO', 'CUBRE TURNOS', 'FALTANTE', 'NOMINA EMPLEADO', 'OTROS', 'RECARGAS'];
       out.push({
-        id: c.id,
-        ieId: c.id,
+        id: c.id || 'empleado',
+        ieId: c.id || 'empleado',
         categoria: 'EMPLEADO',
-        subcategorias: [...new Set(tipos)],
+        subcategorias: ordenarTiposEmpleadoCorte([...new Set(tipos)]),
         fuente,
         es_categoria_empleado: true,
       });
@@ -249,7 +264,13 @@ async function guardarCategoriaGastoProveedor(supabase, categoria, subcategorias
 export async function listarCatalogoGastos(supabase, sucursal, modulo) {
   const ieRes = await listarCatalogoContVirtual(supabase);
   const fuenteIe = modulo === 'abarrotes' ? 'ie_abarrotes' : 'ie_virtual';
-  const desdeIe = catalogoIeConFallback(ieRes.data || [], fuenteIe);
+  let desdeIe = catalogoIeConFallback(ieRes.data || [], fuenteIe);
+  // Si Empleado no llegó al corte (catálogo roto / desactivado), reparar y reintentar.
+  if (!desdeIe.some((c) => c.es_categoria_empleado || esCategoriaEmpleado(c))) {
+    await repararCategoriaEmpleado(supabase);
+    const ie2 = await listarCatalogoContVirtual(supabase);
+    desdeIe = catalogoIeConFallback(ie2.data || [], fuenteIe);
+  }
 
   if (modulo !== 'abarrotes') {
     return { data: desdeIe, fuente: fuenteIe, aviso: ieRes.aviso, error: ieRes.error };
@@ -341,6 +362,12 @@ export async function eliminarCategoriaGasto(supabase, sucursal, modulo, categor
   const cat = String(categoria || '').trim().toUpperCase();
   const actual = await listarCatalogoGastos(supabase, sucursal, modulo);
   const row = filaPorCategoria(actual.data, cat);
+  if (row?.es_categoria_empleado || esCategoriaEmpleado(row || { categoria: cat }) || cat === 'EMPLEADO') {
+    return {
+      ok: false,
+      error: 'La categoría EMPLEADO es del sistema y no se puede eliminar. Usa «Editar tipos» solo para tipos de gasto.',
+    };
+  }
 
   if (modulo === 'abarrotes' && esCategoriaProveedores(cat)) {
     if (!supabase) {
@@ -381,6 +408,27 @@ export async function renombrarCategoriaGasto(supabase, sucursal, modulo, catego
 
   const actual = await listarCatalogoGastos(supabase, sucursal, modulo);
   const row = filaPorCategoria(actual.data, vieja);
+  const esEmp = Boolean(
+    row?.es_categoria_empleado || esCategoriaEmpleado(row || { categoria: vieja }) || vieja === 'EMPLEADO',
+  );
+
+  // EMPLEADO: no se renombra; solo se agregan tipos nuevos (los fijos no se borran).
+  if (esEmp) {
+    const ieId = row?.ieId || 'empleado';
+    await repararCategoriaEmpleado(supabase);
+    const want = new Set((subcategorias || []).map((s) => String(s).trim().toUpperCase()).filter(Boolean));
+    const after = await listarCatalogoContVirtual(supabase);
+    const ieCat2 = (after.data || []).find((c) => c.id === ieId);
+    const have = new Set((ieCat2?.subcategorias || []).map((s) => String(s.nombre || '').trim().toUpperCase()));
+    for (const sub of want) {
+      if (!have.has(sub)) {
+        const r = await crearSubcategoriaContVirtual(supabase, { categoriaId: ieId, nombre: sub });
+        if (!r.ok) return r;
+      }
+    }
+    return { ok: true };
+  }
+
   if (!row?.ieId) {
     return guardarCategoriaGasto(supabase, sucursal, modulo, nueva, subcategorias);
   }
