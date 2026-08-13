@@ -4,15 +4,14 @@
  * Cambia `id` en cada release importante para volver a notificar.
  */
 export const RELEASE_AVISO_ACTUAL = {
-  id: '2026-07-31-prestamos-garage-ie',
+  id: '2026-08-13-vales-rif-prestamos-nomina',
   titulo: 'Actualización del POS',
   resumen:
     'Hay cambios nuevos. Pulsa Actualizar para cargar la versión reciente (limpia caché y recarga).',
   cambios: [
-    'Préstamos empleados: Editar, Eliminar, Abonar y Liquidar (cargo a Virtual / Abarrotes / Garage)',
-    'IE Virtual: al tocar el monto de una recolección ves el desglose de gastos',
-    'Corte Garage: gastos y faltantes se conservan hasta la recolección con máquinas en cero',
-    'Recibo Corte Virtual con tienda, folio, turno, tipo, fecha y cajero',
+    'Vales: solo botón Eliminar en el listado',
+    'RIF: Abonar / Liquidar; abono parcial pide nueva promesa; Imprimir RIF',
+    'Préstamos empleados: cuota semanal $500 (o resto) se descuenta en Contabilidad → Nómina',
   ],
 };
 

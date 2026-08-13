@@ -1,14 +1,13 @@
 {
-  "version": "1.1.2",
-  "buildId": "empleado-gasto",
+  "version": "1.1.3",
+  "buildId": "vales-rif-prestamos-nomina",
   "branch": "main",
-  "builtAt": "2026-08-13T15:56:00.000Z",
+  "builtAt": "2026-08-13T16:50:00.000Z",
   "title": "Actualización disponible",
-  "summary": "Gastos EMPLEADO: lista de personas + concepto; en el listado se ve el nombre del empleado (no categorías tipo proveedor/operativos). Pulsa Actualizar.",
+  "summary": "Vales solo Eliminar; RIF con Abonar/Liquidar, nueva promesa al abonar e Imprimir RIF; cuota semanal de préstamos empleados ($500 o resto) a Contabilidad → Nómina.",
   "changes": [
-    "EMPLEADO: Categoría → Empleado (lista) → Concepto (Consumo…)",
-    "Al agregar gasto de empleado no se muestra categoría proveedor/operativos",
-    "Se muestra el nombre del empleado en la tabla y en el ticket",
-    "Repara y protege categoría Empleado del catálogo IE"
+    "Vales: en listado solo botón Eliminar",
+    "RIF: Abonar, Liquidar; abono parcial pide nueva promesa; Imprimir RIF actualizado",
+    "Préstamos empleados: cuota semanal $500 (o saldo restante) se descuenta en Contabilidad → Nómina"
   ]
 }
