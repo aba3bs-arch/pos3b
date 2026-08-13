@@ -167,8 +167,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const puedeAprobarVales = esAdmin || esGerente;
   /** Abonar / liquidar / editar en vales, RIF, préstamos e interárea. */
   const puedeOperarDocs = Boolean(user);
-  /** Eliminar: admin o gerente, y solo con corte abierto (validado en lib). */
+  /** Eliminar RIF/préstamos: admin o gerente (corte abierto validado en lib). */
   const puedeEliminarDocs = esAdmin || esGerente;
+  /** Vales: cajero también puede eliminar si se equivoca (corte abierto validado en lib). */
+  const puedeEliminarVales = Boolean(user);
   const puedeVerBandejaAprobacion = puedeAprobarVales || esSocio;
   const vePendientesTodasTiendas = puedeAprobarVales;
   const requiereAuthAhora = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria);
@@ -773,7 +775,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   };
 
   const eliminarValeRow = async (v) => {
-    if (!puedeEliminarDocs) return alert('Solo administrador o gerente pueden eliminar.');
+    if (!puedeEliminarVales) return alert('Inicia sesión para eliminar vales.');
     if (!confirm(`¿Eliminar vale ${v.folio}? Solo si el corte está abierto.`)) return;
     const res = await eliminarVale(supabase, v, { nombre: user?.nombre });
     if (!res.ok) return alert(res.error);
@@ -1245,7 +1247,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                       <td style={{ fontWeight: 700 }}>{fmt(v.monto)}</td>
                       <td className="muted">{v.cargado_corte ? 'Sí' : 'No'}</td>
                       <td style={{ whiteSpace: 'nowrap' }}>
-                        {puedeEliminarDocs && (
+                        {valePuedeImprimir(v) && (
+                          <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => imprimirValeSi(v)}>Imprimir</button>
+                        )}
+                        {puedeEliminarVales && (
                           <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => eliminarValeRow(v)}>Eliminar</button>
                         )}
                       </td>
