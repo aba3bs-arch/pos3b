@@ -106,15 +106,16 @@ export default function CorteGastosPanel({
   const esCatEmpleado = Boolean(
     filaCat?.es_categoria_empleado || esCategoriaEmpleado(filaCat || { categoria: cat }),
   );
-  // EMPLEADO + sus subtipos (o legacy): aparece la lista desplegable de empleados.
+  // Flujo EMPLEADO: Categoría → lista Empleado → Concepto (Consumo…). Legacy igual pide persona.
   const requiereEmpleado = esCatEmpleado || gastoRequiereEmpleado(modulo, cat, sub);
+  const conceptosEmpleado = esCatEmpleado ? subsDeCat : [];
 
   const empSeleccionado = requiereEmpleado
     ? (empleadosEfectivos || []).find((e) => String(e.id) === String(usuarioId))
     : null;
-  const rutaGasto = [cat || null, sub || null, empSeleccionado?.nombre || null]
-    .filter(Boolean)
-    .join(' · ');
+  const rutaGasto = esCatEmpleado
+    ? [cat || null, empSeleccionado?.nombre || 'Empleado', sub || null].filter(Boolean).join(' · ')
+    : [cat || null, sub || null].filter(Boolean).join(' · ');
 
   useEffect(() => {
     if (!habilitado || !catalogo.length) return;
@@ -127,12 +128,15 @@ export default function CorteGastosPanel({
 
   useEffect(() => {
     if (!habilitado || !cat) return;
-    const subs = catalogo.find((c) => c.categoria === cat)?.subcategorias || [];
+    const row = catalogo.find((c) => c.categoria === cat);
+    const esEmp = Boolean(row?.es_categoria_empleado || esCategoriaEmpleado(row || { categoria: cat }));
+    const subs = row?.subcategorias || [];
+    // En EMPLEADO, "sub" guarda el concepto (Consumo…); la persona va en usuarioId.
     setSub((prev) => {
       if (prev && subs.includes(prev)) return prev;
       return subs[0] || '';
     });
-    if (!(esCategoriaEmpleado({ categoria: cat }) || gastoRequiereEmpleado(modulo, cat, subs[0] || ''))) {
+    if (!esEmp && !gastoRequiereEmpleado(modulo, cat, subs[0] || '')) {
       setUsuarioId('');
     }
   }, [habilitado, cat, catalogo, modulo]);
@@ -336,54 +340,90 @@ export default function CorteGastosPanel({
                 ))}
               </select>
             </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem', fontWeight: 700 }}>
-              <span className="muted">Subcategoría</span>
-              <select className="select" value={sub} onChange={(e) => setSub(e.target.value)} disabled={!cat}>
-                <option value="">Subcategoría</option>
-                {subsDeCat.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {requiereEmpleado && (
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem', fontWeight: 700, gridColumn: '1 / -1' }}>
-                <span className="muted">Empleado (lista vinculada a {sub || 'esta subcategoría'})</span>
-                <select className="select" value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)}>
-                  <option value="">Elige empleado…</option>
-                  {gruposEmpleados.tienda.length > 0 && (
-                    <optgroup label="Empleados de esta tienda">
-                      {gruposEmpleados.tienda.map((e) => (
-                        <option key={e.id} value={e.id}>
-                          {normalizarCodigoTienda(sucursal) === 'MAIN' || !sucursal
-                            ? `${e.nombre} · ${etiquetaTienda(e.sucursal_id)}`
-                            : e.nombre}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {gruposEmpleados.indirectos.length > 0 && (
-                    <optgroup label="Indirectos / MAIN">
-                      {gruposEmpleados.indirectos.map((e) => (
-                        <option key={e.id} value={e.id}>
-                          {e.nombre}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
-                  {gruposEmpleados.admins.length > 0 && (
-                    <optgroup label="Administradores">
-                      {gruposEmpleados.admins.map((e) => (
-                        <option key={e.id} value={e.id}>
-                          {e.nombre}
-                        </option>
-                      ))}
-                    </optgroup>
-                  )}
+
+            {esCatEmpleado ? (
+              <>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem', fontWeight: 700, gridColumn: '1 / -1' }}>
+                  <span className="muted">Empleado</span>
+                  <select
+                    className="select"
+                    value={usuarioId}
+                    onChange={(e) => setUsuarioId(e.target.value)}
+                    style={{ fontSize: '1rem', minHeight: 42 }}
+                  >
+                    <option value="">Elige empleado…</option>
+                    {gruposEmpleados.tienda.length > 0 && (
+                      <optgroup label="Empleados de esta tienda">
+                        {gruposEmpleados.tienda.map((e) => (
+                          <option key={e.id} value={e.id}>
+                            {normalizarCodigoTienda(sucursal) === 'MAIN' || !sucursal
+                              ? `${e.nombre} · ${etiquetaTienda(e.sucursal_id)}`
+                              : e.nombre}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {gruposEmpleados.indirectos.length > 0 && (
+                      <optgroup label="Indirectos / MAIN">
+                        {gruposEmpleados.indirectos.map((e) => (
+                          <option key={e.id} value={e.id}>
+                            {e.nombre}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {gruposEmpleados.admins.length > 0 && (
+                      <optgroup label="Administradores">
+                        {gruposEmpleados.admins.map((e) => (
+                          <option key={e.id} value={e.id}>
+                            {e.nombre}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                </label>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem', fontWeight: 700 }}>
+                  <span className="muted">Concepto</span>
+                  <select className="select" value={sub} onChange={(e) => setSub(e.target.value)}>
+                    <option value="">Concepto…</option>
+                    {conceptosEmpleado.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            ) : (
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem', fontWeight: 700 }}>
+                <span className="muted">Subcategoría</span>
+                <select className="select" value={sub} onChange={(e) => setSub(e.target.value)} disabled={!cat}>
+                  <option value="">Subcategoría</option>
+                  {subsDeCat.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
                 </select>
               </label>
             )}
+
+            {!esCatEmpleado && requiereEmpleado && (
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem', fontWeight: 700, gridColumn: '1 / -1' }}>
+                <span className="muted">Empleado</span>
+                <select className="select" value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)}>
+                  <option value="">Elige empleado…</option>
+                  {gruposEmpleados.tienda.map((e) => (
+                    <option key={e.id} value={e.id}>{e.nombre}</option>
+                  ))}
+                  {gruposEmpleados.indirectos.map((e) => (
+                    <option key={`i-${e.id}`} value={e.id}>{e.nombre}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+
             <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem', fontWeight: 700 }}>
               <span className="muted">Monto</span>
               <input className="input" type="number" min="0" step="0.01" placeholder="Monto" value={monto} onChange={(e) => setMonto(e.target.value)} />
@@ -392,6 +432,11 @@ export default function CorteGastosPanel({
           {rutaGasto ? (
             <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.45rem', fontWeight: 600 }}>
               {rutaGasto}
+            </p>
+          ) : null}
+          {esCatEmpleado ? (
+            <p className="muted" style={{ fontSize: '0.72rem', margin: '0 0 0.4rem' }}>
+              Elige <strong>EMPLEADO</strong> → abre la lista de personas → elige el <strong>concepto</strong> (Consumo, Anticipo…).
             </p>
           ) : null}
           {requiereEmpleado && avisoEmp ? (
