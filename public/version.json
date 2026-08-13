@@ -4,9 +4,9 @@
   "branch": "main",
   "builtAt": "2026-08-13T16:50:00.000Z",
   "title": "Actualización disponible",
-  "summary": "Vales solo Eliminar; RIF con Abonar/Liquidar, nueva promesa al abonar e Imprimir RIF; cuota semanal de préstamos empleados ($500 o resto) a Contabilidad → Nómina.",
+  "summary": "Vales: Imprimir y Eliminar (también cajero). RIF con Abonar/Liquidar e Imprimir. Cuota préstamos a Nómina.",
   "changes": [
-    "Vales: en listado solo botón Eliminar",
+    "Vales: botones Imprimir y Eliminar (Eliminar visible para cajero si se equivoca)",
     "RIF: Abonar, Liquidar; abono parcial pide nueva promesa; Imprimir RIF actualizado",
     "Préstamos empleados: cuota semanal $500 (o saldo restante) se descuenta en Contabilidad → Nómina"
   ]

@@ -4,12 +4,12 @@
  * Cambia `id` en cada release importante para volver a notificar.
  */
 export const RELEASE_AVISO_ACTUAL = {
-  id: '2026-08-13-vales-rif-prestamos-nomina',
+  id: '2026-08-13-vales-imprimir-eliminar-cajero',
   titulo: 'Actualización del POS',
   resumen:
     'Hay cambios nuevos. Pulsa Actualizar para cargar la versión reciente (limpia caché y recarga).',
   cambios: [
-    'Vales: solo botón Eliminar en el listado',
+    'Vales: Imprimir y Eliminar (Eliminar visible también para cajero)',
     'RIF: Abonar / Liquidar; abono parcial pide nueva promesa; Imprimir RIF',
     'Préstamos empleados: cuota semanal $500 (o resto) se descuenta en Contabilidad → Nómina',
   ],
