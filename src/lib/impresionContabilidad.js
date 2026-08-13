@@ -378,6 +378,8 @@ export function imprimirVale(vale, opts) {
 
 export function htmlRif(rif, opts = {}) {
   const firma = opts.mostrarFirma !== false;
+  const saldo = Number(rif.saldo != null ? rif.saldo : rif.monto) || 0;
+  const montoMostrar = rif.estado === 'liquidado' ? 0 : saldo;
   const promesa = rif.hora_promesa
     ? new Date(rif.hora_promesa).toLocaleString('es-MX', {
         day: '2-digit',
@@ -401,11 +403,12 @@ export function htmlRif(rif, opts = {}) {
   </style></head><body>
     <h1>RIF — REQUISICIÓN INTERNA DE FONDOS</h1>
     <div>Folio: <strong>${esc(rif.folio || '—')}</strong></div>
+    <div>Estado: <strong>${esc(rif.estado || '—')}</strong></div>
     <div>Emitido: ${esc(emitido)}</div>
     <div>Tienda origen: <strong>${esc(rif.sucursal_origen || '—')}</strong></div>
     <div>Tienda receptora: <strong>${esc(rif.sucursal_destino || '—')}</strong></div>
     <div>Responsable: <strong>${esc(rif.responsable_nombre || '—')}</strong></div>
-    <div style="font-size:20px;margin:12px 0"><strong>Monto: ${fmt(rif.monto)}</strong></div>
+    <div style="font-size:20px;margin:12px 0"><strong>Saldo / monto: ${fmt(montoMostrar)}</strong></div>
     <div>Hora promesa de pago: <strong>${esc(promesa)}</strong></div>
     <div>Motivo: ${esc(rif.motivo || '—')}</div>
     <div class="muted">Emitido por: ${esc(rif.emitido_por || '—')}</div>

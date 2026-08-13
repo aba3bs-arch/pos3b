@@ -194,17 +194,31 @@ export async function abonarRif(supabase, rif, montoAbono, opts = {}) {
   const saldo = Math.max(0, Math.round((montoAntes - abono) * 100) / 100);
   if (saldo <= 0.001) return liquidarRif(supabase, rif.id, opts);
 
+  if (!opts.hora_promesa) {
+    return { ok: false, error: 'En abono parcial indica la nueva promesa de pago (fecha y hora).' };
+  }
+  const t = new Date(opts.hora_promesa).getTime();
+  if (!Number.isFinite(t)) return { ok: false, error: 'Nueva promesa de pago inválida.' };
+
+  const upd = {
+    monto: saldo,
+    saldo,
+    hora_promesa: new Date(opts.hora_promesa).toISOString(),
+  };
+
   let { data, error } = await supabase
     .from('rifs')
-    .update({ monto: saldo, saldo })
+    .update(upd)
     .eq('id', rif.id)
     .select('*')
     .single();
   if (error && /saldo/i.test(String(error.message || ''))) {
-    ({ data, error } = await supabase.from('rifs').update({ monto: saldo }).eq('id', rif.id).select('*').single());
+    const sinSaldo = { ...upd };
+    delete sinSaldo.saldo;
+    ({ data, error } = await supabase.from('rifs').update(sinSaldo).eq('id', rif.id).select('*').single());
   }
   if (error) return { ok: false, error: error.message };
-  return { ok: true, rif: data, saldo };
+  return { ok: true, rif: data, saldo, abono };
 }
 
 export async function editarRif(supabase, rif, patch = {}, opts = {}) {
