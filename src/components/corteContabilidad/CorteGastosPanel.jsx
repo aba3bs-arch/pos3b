@@ -293,7 +293,7 @@ export default function CorteGastosPanel({
               </strong>
               <span className="muted" style={{ fontSize: '0.8rem', flex: 1 }}>
                 {(c.subcategorias || []).length ? c.subcategorias.join(' · ') : 'Sin subcategorías'}
-                {esEmp ? ' · (al capturar: lista desplegable de empleados)' : ''}
+                {esEmp ? ' · captura: Empleado → Concepto' : ''}
               </span>
               <button type="button" className="btn btn-ghost" style={btnSm} onClick={() => nuevaSubcategoria(c.categoria)}>
                 {esEmp ? '+ Tipo' : '+ Sub'}
