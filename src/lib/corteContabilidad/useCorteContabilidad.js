@@ -6,6 +6,7 @@ import { gastoRequiereEmpleado } from './catalogoGastos.js';
 import {
   detalleRecoleccionParaIe,
   gastosIdsDesdeUltimaRecoleccion,
+  gastosListaDesdeUltimaRecoleccion,
   gastosPeriodoDesdeUltimaRecoleccion,
   monedaAInyectarVirtual,
   monedaTopeVirtual,
@@ -465,6 +466,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       const mi = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
       const tope = monedaTopeVirtual(estado);
       const monedaInyectar = monedaAInyectarVirtual(estado, mf);
+      const gastosPeriodoLista = gastosListaDesdeUltimaRecoleccion(historial, gastos);
       const gastosPeriodo = gastosPeriodoDesdeUltimaRecoleccion(historial, calc.gastosTotal);
       const gastosIds = gastosIdsDesdeUltimaRecoleccion(historial, gastos);
       const estadoAprob = estadoAprobacionRecoleccionInicial(user?.nombre);
@@ -490,7 +492,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
             moneda_final_editada: true,
             faltante: round2(estado.faltante),
             venta: calc.venta,
-            gastos,
+            gastos: gastosPeriodoLista,
             gastos_ids: gastosIds,
             gastos_turno_actual: calc.gastosTotal,
             subtotal: calc.subtotal,
@@ -538,8 +540,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         monedaInyectar,
         miSiguiente: nuevoEstado.moneda_inicial_turno,
         estadoImpresion: payload.detalle,
-        gastosImpresion: gastos,
-        calcImpresion: { ...calc },
+        gastosImpresion: gastosPeriodoLista,
+        calcImpresion: { ...calc, gastosTotal: gastosPeriodo },
         estadoAprobacion: estadoAprob,
         pendienteIe: estadoAprob === 'pendiente_admin',
       };

@@ -90,6 +90,10 @@ export default function CorteGastosPanel({
     () => agruparEmpleadosParaSelectCorte(empleadosEfectivos),
     [empleadosEfectivos],
   );
+  const totalEmpleadosSelect =
+    (gruposEmpleados.tienda?.length || 0)
+    + (gruposEmpleados.indirectos?.length || 0)
+    + (gruposEmpleados.admins?.length || 0);
 
   const cargarCat = useCallback(async () => {
     const res = await listarCatalogoGastos(supabase, sucursal, modulo);

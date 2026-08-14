@@ -71,10 +71,31 @@ export function gastosPeriodoDesdeUltimaRecoleccion(historial = [], gastosAbiert
 
 /** IDs de gastos del periodo (abiertos + embebidos en cierres) desde la última recolección. */
 export function gastosIdsDesdeUltimaRecoleccion(historial = [], gastosAbiertos = []) {
-  const ids = new Set();
-  for (const g of gastosAbiertos || []) {
-    if (g?.id != null && g.id !== '') ids.add(String(g.id));
-  }
+  return gastosListaDesdeUltimaRecoleccion(historial, gastosAbiertos)
+    .map((g) => (g?.id != null && g.id !== '' ? String(g.id) : null))
+    .filter(Boolean);
+}
+
+/**
+ * Lista de gastos del periodo (cierres desde la última recolección + abiertos actuales).
+ * Para ticket de recolección e IE.
+ */
+export function gastosListaDesdeUltimaRecoleccion(historial = [], gastosAbiertos = []) {
+  const porId = new Map();
+  const push = (g) => {
+    if (!g) return;
+    const id = g.id != null && g.id !== '' ? String(g.id) : null;
+    if (id) {
+      if (!porId.has(id)) porId.set(id, g);
+      return;
+    }
+    // Sin id: clave débil para no perder filas embebidas
+    const key = `tmp:${g.created_at || ''}|${g.monto}|${g.categoria}|${g.comentario || ''}|${g.usuario_nombre || ''}`;
+    if (!porId.has(key)) porId.set(key, g);
+  };
+
+  for (const g of gastosAbiertos || []) push(g);
+
   const lista = [...(historial || [])].sort((a, b) => {
     const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
     const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
@@ -83,11 +104,9 @@ export function gastosIdsDesdeUltimaRecoleccion(historial = [], gastosAbiertos =
   for (const h of lista) {
     const tipo = String(h?.detalle?.tipo_cierre || h?.turno || '').toLowerCase();
     if (tipo === 'recoleccion') break;
-    for (const g of h?.detalle?.gastos || []) {
-      if (g?.id != null && g.id !== '') ids.add(String(g.id));
-    }
+    for (const g of h?.detalle?.gastos || []) push(g);
   }
-  return [...ids];
+  return [...porId.values()];
 }
 
 /** Referencia del recolector (morado): fija hasta la próxima recolección; no cambia con los cierres de cajero. */

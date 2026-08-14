@@ -309,62 +309,70 @@ function htmlGastosPorCajero(data) {
     .join('');
 }
 
-/** Ticket específico de recolección Virtual (distinto al corte normal). */
+/** Ticket simple de recolección Virtual: tope, final, inyectar, gastos, recolectado. */
 export function htmlRecoleccionVirtual(data) {
   const logo = leerLogoUrl();
   const negocio = leerNombreNegocio();
   const fecha = data.fecha ? new Date(data.fecha).toLocaleString('es-MX') : new Date().toLocaleString('es-MX');
   const e = data.estado || {};
-  const miOp = round2(e.moneda_inicial);
-  const mi = round2(e.moneda_inicial_turno ?? e.moneda_inicial);
   const mf = round2(e.moneda_final);
-  const cajaAnt = round2(e.caja_anterior);
-  const gastos = round2(data.gastos_total);
-  const venta = round2(data.venta ?? (mi - mf));
-  const rec = round2(data.recoleccion ?? e.recoleccion ?? 0);
-  const subtotal = round2(data.subtotal ?? (venta - gastos));
-  const cajaActual = round2(data.caja_actual ?? (cajaAnt + subtotal));
   const tope = round2(e.moneda_tope ?? e.moneda_inicial);
   const inyectar = round2(
     data.moneda_inyectar ?? e.moneda_inyectar ?? Math.max(0, tope - mf),
   );
-  const miSiguiente = tope > 0 ? tope : (mf > 0 || e.moneda_final_editada ? mf : mi);
+  const rec = round2(data.recoleccion ?? e.recoleccion ?? 0);
+  const gastosLista = (data.gastos && data.gastos.length)
+    ? data.gastos
+    : (Array.isArray(e.gastos) ? e.gastos : []);
+  const gastosTotal = round2(
+    data.gastos_total
+      ?? e.gastos_total
+      ?? gastosLista.reduce((a, g) => a + (Number(g.monto) || 0), 0),
+  );
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recolección Virtual</title><style>
     ${estilosCortePos()}
     .banner{background:#6c3483}
+    .inyectar-monto{font-size:12px;font-weight:900}
+    .recolectado{
+      margin-top:14px;
+      text-align:center;
+      border:2px solid #000;
+      padding:12px 8px;
+    }
+    .recolectado-label{font-size:13px;font-weight:900;margin:0 0 4px}
+    .recolectado-monto{font-size:16px;font-weight:900;margin:0}
     td{border-bottom:1px solid #ccc}
   </style></head><body>
     <img class="logo" src="${esc(logo)}" alt=""/>
     <h1>${esc(negocio)}</h1>
-    <div class="sub">TICKET DE RECOLECCIÓN · VIRTUAL</div>
+    <div class="sub">RECOLECCIÓN · VIRTUAL</div>
     <div class="banner">RECOLECCIÓN</div>
-    ${htmlEncabezadoCorte({ ...data, tipo_cierre: data.tipo_cierre || 'recoleccion' }, { fecha })}
+    <table>
+      <tr><td>Tienda</td><td class="r"><strong>${esc(etiquetaTienda(data.sucursal))}</strong></td></tr>
+      <tr><td>Folio</td><td class="r"><strong>${esc(data.folio || '—')}</strong></td></tr>
+      <tr><td>Fecha</td><td class="r">${esc(fecha)}</td></tr>
+      <tr><td>Usuario</td><td class="r">${esc(data.usuario_nombre || '—')}</td></tr>
+    </table>
     <div class="sep"></div>
     <table>
-      <tr><td class="op">Moneda tope (ref)</td><td class="r op">${fmt(miOp)}</td></tr>
-      <tr><td>Fondo fijo</td><td class="r">${fmt(e.fondo)}</td></tr>
-      <tr><td>Caja chica (anterior)</td><td class="r">${fmt(cajaAnt)}</td></tr>
-      <tr><td>Moneda inicial (corte)</td><td class="r">${fmt(mi)}</td></tr>
-      <tr><td>Moneda final</td><td class="r">${fmt(mf)}</td></tr>
-      <tr><td>Venta efectivo</td><td class="r">${fmt(venta)}</td></tr>
-      <tr><td>Gastos</td><td class="r">${fmt(gastos)}</td></tr>
-      <tr><td>Subtotal</td><td class="r">${fmt(subtotal)}</td></tr>
-      <tr><td>Caja chica actual</td><td class="r">${fmt(cajaActual)}</td></tr>
-      <tr><td class="rec">Recolección</td><td class="r rec">${fmt(rec)}</td></tr>
-      <tr><td class="op"><strong>Moneda a inyectar</strong></td><td class="r op"><strong>${fmt(inyectar)}</strong></td></tr>
-      <tr><td>Próxima MI (portal)</td><td class="r">${fmt(miSiguiente)}</td></tr>
-      <tr><td>Caja chica nueva</td><td class="r">${fmt(0)}</td></tr>
+      <tr><td>Moneda tope</td><td class="r"><strong>${fmt(tope)}</strong></td></tr>
+      <tr><td>Moneda final</td><td class="r"><strong>${fmt(mf)}</strong></td></tr>
+      <tr>
+        <td>Moneda a inyectar<br/><span class="muted">tope − moneda final</span></td>
+        <td class="r"><span class="inyectar-monto">${fmt(inyectar)}</span></td>
+      </tr>
     </table>
     <div class="sep"></div>
-    <strong>Desglose de gastos</strong>
-    ${htmlGastosPorCajero(data)}
+    <strong>Desglose de gastos (cierres del periodo)</strong>
+    ${htmlGastosPorCajero({ ...data, gastos: gastosLista })}
     <table style="margin-top:8px">
-      <tr><td><strong>Total gastos</strong></td><td class="r"><strong>${fmt(gastos)}</strong></td></tr>
+      <tr><td><strong>Total gastos</strong></td><td class="r"><strong>${fmt(gastosTotal)}</strong></td></tr>
     </table>
-    ${data.comentarios ? `<div class="sep"></div><p class="muted"><strong>Comentarios:</strong> ${esc(data.comentarios)}</p>` : ''}
-    <div class="sep"></div>
-    <p class="muted" style="text-align:center">Solo la recolección entra a IE. Moneda a inyectar = tope − moneda final.</p>
+    <div class="recolectado">
+      <p class="recolectado-label">Cantidad recolectada</p>
+      <p class="recolectado-monto">${fmt(rec)}</p>
+    </div>
   </body></html>`;
 }
 
