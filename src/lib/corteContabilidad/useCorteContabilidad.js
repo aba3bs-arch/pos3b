@@ -9,6 +9,7 @@ import {
   gastosListaDesdeUltimaRecoleccion,
   gastosPeriodoDesdeUltimaRecoleccion,
   monedaAInyectarVirtual,
+  monedaFinalParaInyectarVirtual,
   monedaTopeVirtual,
   round2,
 } from './calc.js';
@@ -462,14 +463,13 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       if (!(calcRec > 0)) {
         return alert('Indique el monto de recolección.');
       }
-      const mfCapturada = Boolean(estado.moneda_final_editada) || round2(estado.moneda_final) > 0;
-      const mi = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
-      const mf = round2(mfCapturada ? estado.moneda_final : mi);
-      const tope = monedaTopeVirtual(estado);
-      const monedaInyectar = round2(Math.max(0, tope - mf));
-      // Historial amplio para no perder gastos de cortes del periodo.
+      // Historial amplio: gastos del periodo + MF del último cierre.
       const histPeriodoRes = await listarCierresCorte(supabase, sucursal, modulo, 120);
       const histPeriodo = histPeriodoRes.data?.length ? histPeriodoRes.data : historial;
+      const mi = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
+      const mf = monedaFinalParaInyectarVirtual(estado, histPeriodo);
+      const tope = monedaTopeVirtual(estado);
+      const monedaInyectar = round2(Math.max(0, tope - mf));
       const gastosPeriodoLista = gastosListaDesdeUltimaRecoleccion(histPeriodo, gastos, {
         folioAbierto: folio || 'ABIERTO',
         turnoAbierto: estado.turno_sesion || turnoActual() || 'Corte actual',
@@ -534,7 +534,12 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
 
       await limpiarGastosTurno(supabase, sucursal, modulo, (gastos || []).map((g) => g.id).filter(Boolean));
       const prep = prepararTrasRecoleccion || ((e) => e);
-      const nuevoEstado = prep(estado, calc, {
+      const estadoConMf = {
+        ...estado,
+        moneda_final: mf,
+        moneda_final_editada: true,
+      };
+      const nuevoEstado = prep(estadoConMf, calc, {
         monedaTope: tope,
         montoRecoleccion: calcRec,
       });

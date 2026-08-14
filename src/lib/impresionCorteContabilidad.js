@@ -460,7 +460,7 @@ export function htmlRecoleccionVirtual(data) {
     <div class="sep"></div>
     <table>
       <tr><td>Moneda tope</td><td class="r"><strong>${fmt(tope)}</strong></td></tr>
-      <tr><td>Moneda final</td><td class="r"><strong>${fmt(mf)}</strong></td></tr>
+      <tr><td>Moneda final<br/><span class="muted">último cierre / conteo</span></td><td class="r"><strong>${fmt(mf)}</strong></td></tr>
     </table>
     <div class="inyectar-box">
       <p class="inyectar-label">MONEDA A INYECTAR</p>

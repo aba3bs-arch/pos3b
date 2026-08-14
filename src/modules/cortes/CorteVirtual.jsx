@@ -8,6 +8,7 @@ import {
   aplicarInyeccionMonedaVirtual,
   calcularVirtual,
   monedaAInyectarVirtual,
+  monedaFinalParaInyectarVirtual,
   prepararTrasCierreVirtual,
   prepararTrasRecoleccionVirtual,
   round2,
@@ -132,9 +133,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     if (!puedeRec) return alert('Solo admin/recolector puede recolectar.');
     if (!(montoRec > 0)) return alert('Indique el monto a recolectar.');
 
-    const mfActual = round2(estado.moneda_final_editada || round2(estado.moneda_final) > 0
-      ? estado.moneda_final
-      : miCorte);
+    const mfActual = monedaFinalParaInyectarVirtual(estado, historial);
     const inyectar = monedaAInyectarVirtual(estado, mfActual);
     const miSiguiente = round2(monedaOperacion > 0 ? monedaOperacion : mfActual);
 
@@ -144,7 +143,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         `Gastos del periodo se deducen solo en IE (no se restan aquí).\n` +
         `Ingreso bruto a IE: efectivo + gastos del periodo\n` +
         `Caja chica quedará en ${fmtCorte(0)}\n` +
-        `Moneda final actual: ${fmtCorte(mfActual)}\n` +
+        `Moneda final (último cierre / conteo): ${fmtCorte(mfActual)}\n` +
         `Tope de operación: ${fmtCorte(monedaOperacion)}\n` +
         `>>> MONEDA A INYECTAR (tope − final): ${fmtCorte(inyectar)} <<<\n` +
         `Próxima moneda inicial (MI = tope): ${fmtCorte(miSiguiente)}\n\n` +
@@ -169,7 +168,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         calc: res.calcImpresion,
         recoleccion: res.recoleccion,
         moneda_tope: res.monedaTope ?? monedaOperacion,
-        moneda_final: mfActual,
+        moneda_final: res.monedaFinal ?? mfActual,
         moneda_inyectar: res.monedaInyectar ?? inyectar,
       }),
     );

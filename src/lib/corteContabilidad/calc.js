@@ -295,6 +295,36 @@ export function monedaAInyectarVirtual(estado, monedaFinal) {
   return round2(Math.max(0, tope - mf));
 }
 
+/**
+ * MF real del portal para calcular inyección en recolección.
+ * Prioridad:
+ * 1) MF capturada en el corte abierto (conteo actual)
+ * 2) MF del último cierre (después de N turnos la moneda ya bajó)
+ * 3) MI del corte abierto (= MF del cierre anterior tras prepararTrasCierre)
+ */
+export function monedaFinalParaInyectarVirtual(estado = {}, historial = []) {
+  if (estado?.moneda_final_editada || round2(estado?.moneda_final) > 0) {
+    return round2(estado.moneda_final);
+  }
+
+  const lista = [...(historial || [])].sort((a, b) => {
+    const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+    return tb - ta;
+  });
+
+  for (const h of lista) {
+    if (esCierreRecoleccion(h)) break;
+    const d = h?.detalle || {};
+    if (d.moneda_final_editada || round2(d.moneda_final) > 0) {
+      return round2(d.moneda_final);
+    }
+    break;
+  }
+
+  return monedaInicialTurnoEfectiva(estado);
+}
+
 /** Efectivo físico que queda en portal al recolectar (= MF capturada). */
 export function monedaTrasRecoleccionVirtual(estado) {
   const mf = round2(estado?.moneda_final);
