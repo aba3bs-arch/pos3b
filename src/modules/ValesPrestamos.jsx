@@ -46,6 +46,7 @@ import {
   beneficiarioValePorId,
   esSocioAprobadorPrestamo,
   etiquetaCategoriaVale,
+  etiquetaColectaPrestamo,
   etiquetaEstadoPrestamo,
   etiquetaEstadoVale,
   listarCategoriasVale,
@@ -428,6 +429,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       created_by: user?.nombre || null,
     });
     if (!res.ok) return alert(res.error);
+    alert(res.mensaje || `Préstamo registrado y cargado al corte ${ETIQUETA_AREA[prestForm.origen] || prestForm.origen}.`);
+    setPrestForm((prev) => ({ ...prev, monto: '', notas: '' }));
     recargarTodo();
   };
 
@@ -467,9 +470,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       fecha: prestSucForm.fecha || hoyISO(),
       notas: prestSucForm.notas.trim() || null,
       created_by: user?.nombre || null,
+      area_corte: prestSucForm.areaCorte || 'abarrotes',
     });
     if (!res.ok) return alert(res.error);
-    alert(`Préstamo a ${etiquetaTienda(prestSucForm.destino)} registrado. Queda pendiente de cobro (no va al corte).`);
+    alert(res.mensaje || `Préstamo a ${etiquetaTienda(prestSucForm.destino)} cargado al corte de origen.`);
     setPrestSucForm({ destino: '', monto: '', notas: '', fecha: hoyISO(), areaCorte: 'abarrotes' });
     recargarTodo();
   };
@@ -864,7 +868,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     if (raw === null) return;
     const monto = parseFloat(String(raw).replace(',', '.'));
     if (!(monto > 0)) return alert('Monto inválido.');
-    const res = await abonarPrestamoInterarea(supabase, p, monto);
+    const res = await abonarPrestamoInterarea(supabase, p, monto, {
+      nombreActor: user?.nombre || null,
+      sucursal,
+    });
     if (!res.ok) return alert(res.error);
     alert(res.liquidado ? 'Liquidado.' : `Abono ok. Saldo: ${fmt(res.saldo)}`);
     recargarTodo();
@@ -873,7 +880,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const liquidarInterarea = async (p) => {
     if (!puedeOperarDocs) return;
     if (!confirm('¿Liquidar este préstamo entre áreas?')) return;
-    const res = await liquidarPrestamoInterarea(supabase, p);
+    const res = await liquidarPrestamoInterarea(supabase, p, {
+      nombreActor: user?.nombre || null,
+      sucursal,
+    });
     if (!res.ok) return alert(res.error);
     alert('Liquidado.');
     recargarTodo();
@@ -898,7 +908,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const eliminarInterarea = async (p) => {
     if (!puedeEliminarDocs) return alert('Solo administrador o gerente pueden eliminar.');
-    if (!confirm('¿Eliminar préstamo entre áreas? (solo si sigue activo / sin liquidar)')) return;
+    if (!confirm('¿Eliminar préstamo entre áreas? Solo si el gasto sigue en corte abierto (aún no recolectado).')) return;
     const res = await eliminarPrestamoInterarea(supabase, p);
     if (!res.ok) return alert(res.error);
     alert(res.mensaje || 'Eliminado.');
@@ -1423,6 +1433,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <>
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem' }}>Préstamo entre áreas (gastos)</h3>
+            <p className="muted" style={{ fontSize: '0.85rem' }}>
+              Sale del corte de <strong>origen</strong> (Virtual, Abarrotes o Garage) como gasto.
+              Al recolectar ese corte queda el nombre de <strong>quién colectó</strong> el préstamo.
+              Al <strong>liquidar</strong> queda en la misma línea el usuario y la sucursal desde donde se liquidó.
+            </p>
             <div className="grid-2">
               <select className="select" value={prestForm.origen} onChange={(e) => setPrestForm({ ...prestForm, origen: e.target.value })}>
                 {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>{ETIQUETA_AREA[a]}</option>)}
@@ -1443,12 +1458,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     <th>Monto</th>
                     <th>Saldo</th>
                     <th>Estado</th>
+                    <th>Colectó</th>
                     <th />
                   </tr>
                 </thead>
                 <tbody>
                   {prestamosArea.length === 0 ? (
-                    <tr><td colSpan={7} className="muted">Sin préstamos entre áreas.</td></tr>
+                    <tr><td colSpan={8} className="muted">Sin préstamos entre áreas.</td></tr>
                   ) : (
                     prestamosArea.map((p) => {
                       const activo = String(p.estado || 'activo') === 'activo';
@@ -1460,7 +1476,17 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                           <td>{ETIQUETA_AREA[p.destino]}</td>
                           <td>{fmt(p.monto)}</td>
                           <td style={{ fontWeight: 700 }}>{fmt(saldo)}</td>
-                          <td className="muted">{p.estado || 'activo'}</td>
+                          <td className="muted">
+                            {p.estado || 'activo'}
+                            {String(p.estado) === 'liquidado' && (p.liquidado_por || p.liquidado_sucursal) ? (
+                              <>
+                                {' · '}
+                                {p.liquidado_por || '—'}
+                                {p.liquidado_sucursal ? ` · ${etiquetaTienda(p.liquidado_sucursal)}` : ''}
+                              </>
+                            ) : null}
+                          </td>
+                          <td className="muted" style={{ fontSize: '0.8rem' }}>{etiquetaColectaPrestamo(p)}</td>
                           <td style={{ whiteSpace: 'nowrap' }}>
                             <button
                               type="button"
@@ -1499,11 +1525,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 <>
                   Registra el efectivo que MAIN manda a la tienda. Al generar se <strong>carga al corte</strong> elegido
                   (baja caja). <strong>No se inyecta</strong> moneda y <strong>no va a IE/contabilidad</strong>.
+                  Al recolectar ese corte queda quién colectó el vale.
                 </>
               ) : (
                 <>
-                  Presta efectivo a otra tienda. <strong>No se refleja en el corte</strong>; queda pendiente de cobro
-                  hasta que se pague a <strong>{etiquetaTienda(sucursal)}</strong> (origen).
+                  Presta efectivo a otra tienda. Se carga como <strong>gasto al corte de origen</strong> (Virtual, Abarrotes o Garage).
+                  Al recolectar queda el nombre de quién colectó. Sigue <strong>pendiente de cobro</strong> hasta que se pague a{' '}
+                  <strong>{etiquetaTienda(sucursal)}</strong>.
                 </>
               )}
             </p>
@@ -1525,17 +1553,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 value={prestSucForm.monto}
                 onChange={(e) => setPrestSucForm({ ...prestSucForm, monto: e.target.value })}
               />
-              {esMain && (
-                <select
-                  className="select"
-                  value={prestSucForm.areaCorte || 'abarrotes'}
-                  onChange={(e) => setPrestSucForm({ ...prestSucForm, areaCorte: e.target.value })}
-                >
-                  <option value="abarrotes">Corte Abarrotes</option>
-                  <option value="virtual">Corte Virtual</option>
-                  <option value="garage">Corte Garage</option>
-                </select>
-              )}
+              <select
+                className="select"
+                value={prestSucForm.areaCorte || 'abarrotes'}
+                onChange={(e) => setPrestSucForm({ ...prestSucForm, areaCorte: e.target.value })}
+              >
+                <option value="abarrotes">Corte Abarrotes (origen)</option>
+                <option value="virtual">Corte Virtual (origen)</option>
+                <option value="garage">Corte Garage (origen)</option>
+              </select>
               <input
                 className="input"
                 placeholder="Notas"
@@ -1543,7 +1569,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 onChange={(e) => setPrestSucForm({ ...prestSucForm, notas: e.target.value })}
               />
               <button type="button" className="btn btn-primary" onClick={guardarPrestamoSucursal}>
-                {esMain ? 'Generar vale y cargar al corte' : 'Registrar préstamo'}
+                {esMain ? 'Generar vale y cargar al corte' : 'Registrar y cargar al corte'}
               </button>
             </div>
             <div className="table-wrap" style={{ marginTop: '1rem' }}>
@@ -1556,13 +1582,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     <th>Monto</th>
                     <th>Saldo</th>
                     <th>Estado</th>
+                    <th>Colectó</th>
                     <th />
                   </tr>
                 </thead>
                 <tbody>
                   {prestamosSuc.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="muted">
+                      <td colSpan={8} className="muted">
                         {esMain ? 'No hay envíos MAIN registrados.' : 'No hay préstamos entre sucursales.'}
                       </td>
                     </tr>
@@ -1583,6 +1610,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                               ? `Cargado corte${p.area_corte ? ` ${p.area_corte}` : ''}`
                               : etiquetaEstadoPrestamo(p)}
                           </td>
+                          <td className="muted" style={{ fontSize: '0.8rem' }}>{etiquetaColectaPrestamo(p)}</td>
                           <td style={{ whiteSpace: 'nowrap' }}>
                             <button
                               type="button"

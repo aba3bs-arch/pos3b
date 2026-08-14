@@ -218,3 +218,26 @@ export function etiquetaEstadoPrestamo(p) {
   if (e === 'activo') return 'Activo';
   return e || '—';
 }
+
+/** Usuario y sucursal desde donde se liquidó un préstamo entre áreas. */
+export function etiquetaLiquidacionPrestamo(p) {
+  if (String(p?.estado || '') !== 'liquidado') return '';
+  const quien = String(p?.liquidado_por || '').trim();
+  const donde = String(p?.liquidado_sucursal || '').trim();
+  if (!quien && !donde) return '';
+  if (quien && donde) return `${quien} · ${donde}`;
+  return quien || donde;
+}
+
+/** Quién recolectó el corte donde el préstamo área/sucursal quedó como gasto. */
+export function etiquetaColectaPrestamo(p) {
+  if (p?.colectado_por) {
+    const dia = String(p.colectado_at || '').slice(0, 10);
+    const folio = p.colectado_folio ? ` · ${p.colectado_folio}` : '';
+    const area = p.colectado_modulo || p.origen || p.area_corte || '';
+    const areaLbl = ETIQUETA_AREA[area] || area;
+    return `${p.colectado_por}${dia ? ` · ${dia}` : ''}${areaLbl ? ` · ${areaLbl}` : ''}${folio}`;
+  }
+  if (p?.cargado_corte) return 'En corte · pendiente recolección';
+  return '—';
+}

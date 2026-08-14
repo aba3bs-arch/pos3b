@@ -35,6 +35,31 @@ import {
 import { estadoAprobacionRecoleccionInicial } from '../contabilidadConstants.js';
 import { normalizarRol } from '../roles.js';
 
+async function sellarPrestamosColectados({
+  supabase,
+  sucursal,
+  modulo,
+  user,
+  gastos,
+  gastosIds,
+  folio,
+}) {
+  if (!supabase) return;
+  try {
+    const { marcarPrestamosColectadosEnRecoleccion } = await import('../cargosContabilidad.js');
+    await marcarPrestamosColectadosEnRecoleccion(supabase, {
+      sucursal,
+      modulo,
+      gastos,
+      gastosIds,
+      recolectorNombre: user?.nombre || null,
+      folio,
+    });
+  } catch {
+    /* no bloquear la recolección */
+  }
+}
+
 function snapshotTurno(date = new Date()) {
   const t = turnoActual(null, date);
   if (!t) return null;
@@ -415,6 +440,16 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       const res = await registrarCierreCorte(supabase, payload);
       if (!res.ok) return { ok: false, error: res.error || AVISO_FALTA_CORTES };
 
+      await sellarPrestamosColectados({
+        supabase,
+        sucursal,
+        modulo,
+        user,
+        gastos: gastosAbiertos,
+        gastosIds,
+        folio: folioRec,
+      });
+
       // Solo recolección definitiva (máquinas en cero) escala a Contabilidad / IE.
       if (maquinasEnCero) {
         if (estadoAprob === 'aprobado' && res.data) {
@@ -520,6 +555,16 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       };
       const res = await registrarCierreCorte(supabase, payload);
       if (!res.ok) return { ok: false, error: res.error || AVISO_FALTA_CORTES };
+
+      await sellarPrestamosColectados({
+        supabase,
+        sucursal,
+        modulo,
+        user,
+        gastos: gastosPeriodoLista,
+        gastosIds,
+        folio: payload.folio,
+      });
 
       if (estadoAprob === 'aprobado' && res.data) {
         try {
@@ -630,6 +675,16 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
 
     const res = await registrarCierreCorte(supabase, payload);
     if (!res.ok) return alert(res.error || AVISO_FALTA_CORTES);
+
+    await sellarPrestamosColectados({
+      supabase,
+      sucursal,
+      modulo,
+      user,
+      gastos,
+      gastosIds,
+      folio: payload.folio,
+    });
 
     if (estadoAprob === 'aprobado' && res.data) {
       try {

@@ -13,7 +13,16 @@ import {
 } from './contabilidadConstants.js';
 import { esCategoriaValeConocida } from './valesCategorias.js';
 import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
-import { cargarValeACorte, cargarPrestamoEmpleadoACorte, quitarValeDeCorteAbierto, corteDocumentoEliminable } from './cargosContabilidad.js';
+import {
+  cargarValeACorte,
+  cargarPrestamoEmpleadoACorte,
+  cargarPrestamoInterareaACorte,
+  cargarPrestamoSucursalACorte,
+  quitarValeDeCorteAbierto,
+  corteDocumentoEliminable,
+  TOKEN_PRESTAMO_IA,
+  TOKEN_PRESTAMO_SUC,
+} from './cargosContabilidad.js';
 import { asegurarCamposSinReservadoOPin } from './reservadoAdminPrincipal.js';
 
 export function faltaTablaVales(error) {
@@ -27,7 +36,7 @@ export function faltaTablaPrestamos(error) {
 }
 
 export const AVISO_FALTA_CONTABILIDAD =
-  'Faltan tablas de contabilidad. Ejecuta supabase/fix_contabilidad.sql y fix_vales_prestamos_aprobaciones.sql';
+  'Faltan tablas de contabilidad. Ejecuta supabase/fix_contabilidad.sql, fix_vales_prestamos_aprobaciones.sql y fix_prestamos_area_colectado.sql';
 
 /** Fecha del vale para filtros (columna fecha o día de created_at). */
 export function fechaEfectivaVale(vale) {
@@ -954,6 +963,7 @@ export async function registrarPrestamoInterarea(supabase, row) {
     .single();
   if (error?.code === '42P01') return { ok: false, error: 'Ejecuta fix_contabilidad_ampliacion.sql' };
   // Si faltan columnas saldo/abono, reintentar sin ellas
+  let prestamoRow = data;
   if (error && /saldo|abono/i.test(String(error.message || ''))) {
     const retry = await supabase
       .from('prestamos_interarea')
@@ -961,9 +971,10 @@ export async function registrarPrestamoInterarea(supabase, row) {
       .select('*')
       .single();
     if (retry.error) return { ok: false, error: retry.error.message };
-    return { ok: true, prestamo: retry.data };
+    prestamoRow = retry.data;
+  } else if (error) {
+    return { ok: false, error: error.message };
   }
-  if (error) return { ok: false, error: error.message };
 
   const origenLbl = row.origen || '—';
   const destinoLbl = row.destino || '—';
@@ -971,12 +982,30 @@ export async function registrarPrestamoInterarea(supabase, row) {
     sucursal_id: row.sucursal_id || 'MAIN',
     tipo: TIPOS_NOTIF.PRESTAMO_INTERAREA,
     ref_tabla: 'prestamos_interarea',
-    ref_id: data.id,
+    ref_id: prestamoRow.id,
     titulo: `Préstamo entre áreas · ${origenLbl} → ${destinoLbl}`,
     mensaje: `$${Number(row.monto || 0).toFixed(2)}${row.notas ? ` · ${row.notas}` : ''}`,
     area_buzon: row.destino || row.gastos_area || 'abarrotes',
   });
-  return { ok: true, prestamo: data };
+
+  const corteRes = await cargarPrestamoInterareaACorte(supabase, prestamoRow);
+  if (!corteRes.ok) {
+    await supabase.from('prestamos_interarea').delete().eq('id', prestamoRow.id);
+    return { ok: false, error: corteRes.error || 'No se pudo cargar el préstamo al corte de origen.' };
+  }
+
+  return {
+    ok: true,
+    prestamo: {
+      ...prestamoRow,
+      cargado_corte: true,
+      gasto_id: corteRes.gastoId || null,
+    },
+    gastoId: corteRes.gastoId,
+    moduloCorte: corteRes.modulo,
+    aviso: corteRes.aviso,
+    mensaje: `Préstamo registrado y cargado como gasto al corte ${corteRes.modulo || origenLbl}.`,
+  };
 }
 
 function saldoInterarea(p) {
@@ -984,7 +1013,30 @@ function saldoInterarea(p) {
   return Number(p?.monto) || 0;
 }
 
-export async function abonarPrestamoInterarea(supabase, prestamo, montoAbono) {
+function patchActorLiquidacionInterarea({ nombreActor, sucursal } = {}) {
+  const quien = String(nombreActor || '').trim() || null;
+  const donde = String(sucursal || '').trim().toUpperCase() || null;
+  if (!quien && !donde) return {};
+  return {
+    liquidado_por: quien,
+    liquidado_at: new Date().toISOString(),
+    liquidado_sucursal: donde,
+  };
+}
+
+async function actualizarPrestamoInterarea(supabase, prestamoId, upd) {
+  let { data, error } = await supabase.from('prestamos_interarea').update(upd).eq('id', prestamoId).select('*').single();
+  if (error && /liquidado_por|liquidado_at|liquidado_sucursal/i.test(String(error.message || ''))) {
+    const slim = { ...upd };
+    delete slim.liquidado_por;
+    delete slim.liquidado_at;
+    delete slim.liquidado_sucursal;
+    ({ data, error } = await supabase.from('prestamos_interarea').update(slim).eq('id', prestamoId).select('*').single());
+  }
+  return { data, error };
+}
+
+export async function abonarPrestamoInterarea(supabase, prestamo, montoAbono, opts = {}) {
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
   if (String(prestamo.estado || 'activo') !== 'activo') {
     return { ok: false, error: 'El préstamo no está activo.' };
@@ -995,50 +1047,47 @@ export async function abonarPrestamoInterarea(supabase, prestamo, montoAbono) {
   if (abono > saldoAntes + 0.001) return { ok: false, error: 'El abono no puede superar el saldo.' };
   const saldo = Math.max(0, Math.round((saldoAntes - abono) * 100) / 100);
   const abonoTotal = (Number(prestamo.abono) || 0) + abono;
+  const liquidado = saldo <= 0;
   const upd = {
     saldo,
     abono: abonoTotal,
-    estado: saldo <= 0 ? 'liquidado' : 'activo',
+    estado: liquidado ? 'liquidado' : 'activo',
+    ...(liquidado ? patchActorLiquidacionInterarea(opts) : {}),
   };
-  let { data, error } = await supabase.from('prestamos_interarea').update(upd).eq('id', prestamo.id).select('*').single();
+  let { data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, upd);
   if (error && /saldo|abono/i.test(String(error.message || ''))) {
-    ({ data, error } = await supabase
-      .from('prestamos_interarea')
-      .update({ monto: saldo, estado: saldo <= 0 ? 'liquidado' : 'activo' })
-      .eq('id', prestamo.id)
-      .select('*')
-      .single());
+    ({ data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, {
+      monto: saldo,
+      estado: liquidado ? 'liquidado' : 'activo',
+      ...(liquidado ? patchActorLiquidacionInterarea(opts) : {}),
+    }));
   }
   if (error) return { ok: false, error: error.message };
-  return { ok: true, prestamo: data, saldo, liquidado: saldo <= 0 };
+  return { ok: true, prestamo: data, saldo, liquidado };
 }
 
-export async function liquidarPrestamoInterarea(supabase, prestamo) {
+export async function liquidarPrestamoInterarea(supabase, prestamo, opts = {}) {
   const saldo = saldoInterarea(prestamo);
   if (!(saldo > 0) && String(prestamo?.estado) === 'liquidado') {
     return { ok: false, error: 'Ya está liquidado.' };
   }
   if (!(saldo > 0)) {
-    const { data, error } = await supabase
-      .from('prestamos_interarea')
-      .update({ estado: 'liquidado', saldo: 0 })
-      .eq('id', prestamo.id)
-      .select('*')
-      .single();
+    const actor = patchActorLiquidacionInterarea(opts);
+    let { data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, {
+      estado: 'liquidado',
+      saldo: 0,
+      ...actor,
+    });
     if (error && /saldo/i.test(String(error.message || ''))) {
-      const retry = await supabase
-        .from('prestamos_interarea')
-        .update({ estado: 'liquidado' })
-        .eq('id', prestamo.id)
-        .select('*')
-        .single();
-      if (retry.error) return { ok: false, error: retry.error.message };
-      return { ok: true, prestamo: retry.data, liquidado: true };
+      ({ data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, {
+        estado: 'liquidado',
+        ...actor,
+      }));
     }
     if (error) return { ok: false, error: error.message };
     return { ok: true, prestamo: data, liquidado: true };
   }
-  return abonarPrestamoInterarea(supabase, prestamo, saldo);
+  return abonarPrestamoInterarea(supabase, prestamo, saldo, opts);
 }
 
 export async function editarPrestamoInterarea(supabase, prestamo, patch = {}, { user, sucursal } = {}) {
@@ -1066,21 +1115,44 @@ export async function editarPrestamoInterarea(supabase, prestamo, patch = {}, { 
   return { ok: true, prestamo: data, mensaje: 'Actualizado.' };
 }
 
-/** Interárea no carga a corte de caja; se puede eliminar si sigue activo. */
+/** Interárea carga gasto al corte de origen; solo se borra si ese gasto sigue en corte abierto. */
 export async function eliminarPrestamoInterarea(supabase, prestamo) {
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
   if (String(prestamo.estado) === 'liquidado') {
     return { ok: false, error: 'No se puede eliminar un préstamo liquidado.' };
   }
-  // Regla de producto: eliminar solo con “corte abierto”. Interárea no va a corte;
-  // se permite borrar mientras esté activo (equivalente a no cerrado).
+  if (prestamo.colectado_por) {
+    return {
+      ok: false,
+      error: `Ya lo colectó ${prestamo.colectado_por}. No se puede eliminar.`,
+    };
+  }
+  const check = await corteDocumentoEliminable(supabase, {
+    cargadoCorte: Boolean(prestamo.cargado_corte || prestamo.gasto_id),
+    sucursal_id: prestamo.sucursal_id,
+    modulo: normalizarAreaCorte(prestamo.origen, 'virtual'),
+    comentarioIlike: `%${TOKEN_PRESTAMO_IA}${prestamo.id}%`,
+    categoria: 'PRESTAMOS',
+    gastoId: prestamo.gasto_id || null,
+  });
+  if (!check.ok) return check;
+  if (!check.eliminable) return { ok: false, error: check.error };
+
+  if (check.idsAbiertos?.length) {
+    const { error: eDel } = await supabase.from('cortes_contabilidad_gastos').delete().in('id', check.idsAbiertos);
+    if (eDel) return { ok: false, error: eDel.message };
+  }
+
   const { error } = await supabase.from('prestamos_interarea').delete().eq('id', prestamo.id);
   if (error) return { ok: false, error: error.message };
   return { ok: true, eliminado: true, mensaje: 'Préstamo entre áreas eliminado.' };
 }
 
 export const AVISO_FALTA_PRESTAMOS_SUCURSALES =
-  'Falta la tabla de préstamos entre sucursales. Ejecuta supabase/fix_prestamos_sucursales.sql';
+  'Falta la tabla de préstamos entre sucursales. Ejecuta supabase/fix_prestamos_sucursales.sql y fix_prestamos_area_colectado.sql';
+
+export const AVISO_FALTA_COLECTA_PRESTAMOS =
+  'Para registrar quién colectó el préstamo, ejecuta supabase/fix_prestamos_area_colectado.sql';
 
 function faltaTablaPrestamosSucursales(error) {
   const msg = String(error?.message || error || '').toLowerCase();
@@ -1110,8 +1182,9 @@ export async function listarPrestamosSucursales(supabase, opts = {}) {
 }
 
 /**
- * Préstamo de una tienda a otra. No se carga al corte; queda pendiente de cobro
- * hasta que se liquide en la sucursal donde se originó.
+ * Préstamo de una tienda a otra. Se carga como gasto al corte del área de origen
+ * (virtual / abarrotes / garage). Queda pendiente de cobro hasta liquidarse
+ * en la sucursal donde se originó.
  * (MAIN no usa este flujo: usa registrarEnvioMainATienda.)
  */
 export async function registrarPrestamoSucursal(supabase, row) {
@@ -1128,6 +1201,10 @@ export async function registrarPrestamoSucursal(supabase, row) {
   if (origen === destino) return { ok: false, error: 'La sucursal destino debe ser distinta a la de origen.' };
   const monto = Number(row.monto);
   if (!(monto > 0)) return { ok: false, error: 'Monto inválido.' };
+  const area = String(row.area_corte || row.areaCorte || 'abarrotes').toLowerCase();
+  if (!['virtual', 'abarrotes', 'garage'].includes(area)) {
+    return { ok: false, error: 'Área de corte inválida (virtual, abarrotes o garage).' };
+  }
 
   const payload = {
     sucursal_origen: origen,
@@ -1139,11 +1216,25 @@ export async function registrarPrestamoSucursal(supabase, row) {
     notas: row.notas || null,
     estado: 'pendiente_cobro',
     created_by: row.created_by || null,
+    area_corte: area,
+    tipo: 'sucursal',
   };
 
-  const { data, error } = await supabase.from('prestamos_sucursales').insert([payload]).select('*').single();
+  let { data, error } = await supabase.from('prestamos_sucursales').insert([payload]).select('*').single();
+  if (error && /area_corte|tipo/i.test(String(error.message || ''))) {
+    const slim = { ...payload };
+    delete slim.area_corte;
+    delete slim.tipo;
+    ({ data, error } = await supabase.from('prestamos_sucursales').insert([slim]).select('*').single());
+  }
   if (faltaTablaPrestamosSucursales(error)) return { ok: false, error: AVISO_FALTA_PRESTAMOS_SUCURSALES };
   if (error) return { ok: false, error: error.message };
+
+  const corteRes = await cargarPrestamoSucursalACorte(supabase, { ...data, area_corte: area, created_by: payload.created_by }, area);
+  if (!corteRes.ok) {
+    await supabase.from('prestamos_sucursales').delete().eq('id', data.id);
+    return { ok: false, error: corteRes.error || 'No se pudo cargar el préstamo al corte de origen.' };
+  }
 
   await crearNotificacion(supabase, {
     sucursal_id: origen,
@@ -1151,7 +1242,7 @@ export async function registrarPrestamoSucursal(supabase, row) {
     ref_tabla: 'prestamos_sucursales',
     ref_id: data.id,
     titulo: `Préstamo a sucursal · ${origen} → ${destino}`,
-    mensaje: `$${monto.toFixed(2)} pendiente de cobro${row.notas ? ` · ${row.notas}` : ''}`,
+    mensaje: `$${monto.toFixed(2)} en corte ${area} · pendiente de cobro${row.notas ? ` · ${row.notas}` : ''}`,
   });
   await crearNotificacion(supabase, {
     sucursal_id: destino,
@@ -1162,7 +1253,19 @@ export async function registrarPrestamoSucursal(supabase, row) {
     mensaje: `$${monto.toFixed(2)} — pagar a ${origen}${row.notas ? ` · ${row.notas}` : ''}`,
   });
 
-  return { ok: true, prestamo: data };
+  return {
+    ok: true,
+    prestamo: {
+      ...data,
+      area_corte: area,
+      cargado_corte: true,
+      gasto_id: corteRes.gastoId || null,
+    },
+    gastoId: corteRes.gastoId,
+    moduloCorte: corteRes.modulo,
+    aviso: corteRes.aviso,
+    mensaje: `Préstamo a ${destino} cargado como gasto al corte ${area} de ${origen}. Queda pendiente de cobro.`,
+  };
 }
 
 /**
@@ -1216,7 +1319,7 @@ export async function registrarEnvioMainATienda(supabase, row, opts = {}) {
     {
       categoria: 'VALE MAIN',
       subcategoria: 'ENVIO EFECTIVO',
-      comentario: `MAIN → ${destino}${notas ? ` · ${notas}` : ''} · ${String(data.id).slice(0, 8)}`.toUpperCase(),
+      comentario: `${TOKEN_PRESTAMO_SUC}${data.id} · MAIN → ${destino}${notas ? ` · ${String(notas).toUpperCase()}` : ''}`,
       monto,
     },
     {
@@ -1231,6 +1334,15 @@ export async function registrarEnvioMainATienda(supabase, row, opts = {}) {
     return { ok: false, error: gastoRes.error || 'No se pudo cargar al corte de la tienda.' };
   }
 
+  const gastoId = gastoRes.data?.id || null;
+  const { error: eGasto } = await supabase
+    .from('prestamos_sucursales')
+    .update({ gasto_id: gastoId })
+    .eq('id', data.id);
+  if (eGasto && !/gasto_id|column|schema cache/i.test(String(eGasto.message || ''))) {
+    /* no bloquear */
+  }
+
   await crearNotificacion(supabase, {
     sucursal_id: destino,
     tipo: TIPOS_NOTIF.PRESTAMO_SUCURSAL,
@@ -1242,7 +1354,16 @@ export async function registrarEnvioMainATienda(supabase, row, opts = {}) {
 
   return {
     ok: true,
-    prestamo: { ...data, area_corte: area, cargado_corte: true, tipo: 'main_envio', estado: 'liquidado', saldo: 0, abono: monto },
+    prestamo: {
+      ...data,
+      area_corte: area,
+      cargado_corte: true,
+      tipo: 'main_envio',
+      estado: 'liquidado',
+      saldo: 0,
+      abono: monto,
+      gasto_id: gastoId,
+    },
     gasto: gastoRes.data,
     mensaje: `Vale MAIN → ${destino} cargado al corte ${area}. No se registra en IE/contabilidad.`,
   };
@@ -1280,4 +1401,10 @@ export async function abonarPrestamoSucursal(supabase, prestamo, montoAbono, { n
   return { ok: true, prestamo: data, saldo };
 }
 
-export { cargarValeACorte, cargarPrestamoEmpleadoACorte } from './cargosContabilidad.js';
+export {
+  cargarValeACorte,
+  cargarPrestamoEmpleadoACorte,
+  cargarPrestamoInterareaACorte,
+  cargarPrestamoSucursalACorte,
+  marcarPrestamosColectadosEnRecoleccion,
+} from './cargosContabilidad.js';
