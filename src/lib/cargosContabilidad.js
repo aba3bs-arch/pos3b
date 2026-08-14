@@ -228,3 +228,274 @@ export async function cargarPrestamoEmpleadoACorte(supabase, prestamo, areaCorte
   }
   return { ok: true, modulo };
 }
+
+/** Token en el comentario del gasto para ligar el préstamo al corte / recolección. */
+export const TOKEN_PRESTAMO_IA = 'PRESTAMO-IA:';
+export const TOKEN_PRESTAMO_SUC = 'PRESTAMO-SUC:';
+
+const UUID_EN_COMENTARIO = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
+
+function faltaColumnaMsg(error, nombres = []) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  if (!msg) return false;
+  return nombres.some((n) => msg.includes(String(n).toLowerCase()));
+}
+
+export function comentarioGastoPrestamoInterarea(prestamo) {
+  const origen = String(prestamo?.origen || '').toUpperCase();
+  const destino = String(prestamo?.destino || '').toUpperCase();
+  const notas = String(prestamo?.notas || '').trim();
+  const extra = notas ? ` · ${notas.toUpperCase()}` : '';
+  return `${TOKEN_PRESTAMO_IA}${prestamo.id} · ${origen}→${destino}${extra}`;
+}
+
+export function comentarioGastoPrestamoSucursal(prestamo) {
+  const origen = String(prestamo?.sucursal_origen || '').toUpperCase();
+  const destino = String(prestamo?.sucursal_destino || '').toUpperCase();
+  const notas = String(prestamo?.notas || '').trim();
+  const extra = notas ? ` · ${notas.toUpperCase()}` : '';
+  return `${TOKEN_PRESTAMO_SUC}${prestamo.id} · ${origen}→${destino}${extra}`;
+}
+
+export function idsPrestamosDesdeGastosRecoleccion(gastos = []) {
+  const iaRe = new RegExp(`${TOKEN_PRESTAMO_IA}(${UUID_EN_COMENTARIO})`, 'i');
+  const sucRe = new RegExp(`${TOKEN_PRESTAMO_SUC}(${UUID_EN_COMENTARIO})`, 'i');
+  const interarea = [];
+  const sucursales = [];
+  const gastoIds = [];
+  for (const g of gastos || []) {
+    if (g?.id != null && g.id !== '' && !String(g.id).startsWith('local-')) {
+      gastoIds.push(String(g.id));
+    }
+    const c = String(g?.comentario || '');
+    const mIa = c.match(iaRe);
+    if (mIa) interarea.push(mIa[1].toLowerCase());
+    const mSuc = c.match(sucRe);
+    if (mSuc) sucursales.push(mSuc[1].toLowerCase());
+  }
+  return {
+    interarea: [...new Set(interarea)],
+    sucursales: [...new Set(sucursales)],
+    gastoIds: [...new Set(gastoIds)],
+  };
+}
+
+async function marcarPrestamoCargadoCorte(supabase, tabla, prestamoId, { gastoId, areaCorte } = {}) {
+  const full = {
+    cargado_corte: true,
+    gasto_id: gastoId || null,
+  };
+  if (areaCorte) full.area_corte = areaCorte;
+  let { error } = await supabase.from(tabla).update(full).eq('id', prestamoId);
+  if (error && faltaColumnaMsg(error, ['area_corte'])) {
+    const noArea = { cargado_corte: true, gasto_id: gastoId || null };
+    ({ error } = await supabase.from(tabla).update(noArea).eq('id', prestamoId));
+  }
+  if (error && faltaColumnaMsg(error, ['gasto_id'])) {
+    ({ error } = await supabase.from(tabla).update({ cargado_corte: true }).eq('id', prestamoId));
+  }
+  if (error && faltaColumnaMsg(error, ['cargado_corte'])) {
+    return { ok: true, aviso: 'Falta ejecutar supabase/fix_prestamos_area_colectado.sql' };
+  }
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, gastoId };
+}
+
+/**
+ * Carga un préstamo entre áreas como gasto del corte de origen
+ * (virtual / abarrotes / garage). No va a IE: es movimiento interno.
+ */
+export async function cargarPrestamoInterareaACorte(supabase, prestamo) {
+  if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  if (prestamo.cargado_corte && prestamo.gasto_id) return { ok: true, yaCargado: true, gastoId: prestamo.gasto_id };
+  const modulo = normalizarAreaCorte(prestamo.origen, 'virtual');
+  const payload = {
+    sucursal_id: prestamo.sucursal_id || 'MAIN',
+    modulo,
+    categoria: 'PRESTAMOS',
+    subcategoria: 'AREA',
+    comentario: comentarioGastoPrestamoInterarea(prestamo),
+    monto: Number(prestamo.monto) || 0,
+    usuario_nombre: prestamo.created_by || null,
+    cerrado: false,
+    descontado_nomina: false,
+    estado_aprobacion: 'aprobado',
+    solicitado_por: prestamo.created_by || null,
+  };
+  let { data, error: e1 } = await supabase
+    .from('cortes_contabilidad_gastos')
+    .insert([payload])
+    .select('id')
+    .single();
+  if (e1 && faltaColumnaMsg(e1, ['estado_aprobacion', 'solicitado_por', 'descontado_nomina'])) {
+    const slim = { ...payload };
+    delete slim.estado_aprobacion;
+    delete slim.solicitado_por;
+    delete slim.descontado_nomina;
+    ({ data, error: e1 } = await supabase.from('cortes_contabilidad_gastos').insert([slim]).select('id').single());
+  }
+  if (e1) return { ok: false, error: e1.message };
+  const gastoId = data?.id || null;
+  const marked = await marcarPrestamoCargadoCorte(supabase, 'prestamos_interarea', prestamo.id, { gastoId });
+  if (!marked.ok) return marked;
+  return { ok: true, modulo, gastoId, aviso: marked.aviso };
+}
+
+/**
+ * Carga un préstamo entre sucursales (o envío MAIN) como gasto del corte de origen.
+ */
+export async function cargarPrestamoSucursalACorte(supabase, prestamo, areaCorte) {
+  if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  if (prestamo.cargado_corte && prestamo.gasto_id) return { ok: true, yaCargado: true, gastoId: prestamo.gasto_id };
+  const modulo = normalizarAreaCorte(areaCorte || prestamo.area_corte, 'abarrotes');
+  const suc = String(prestamo.sucursal_origen || '').toUpperCase() || 'MAIN';
+  const payload = {
+    sucursal_id: suc,
+    modulo,
+    categoria: 'PRESTAMOS',
+    subcategoria: 'SUCURSAL',
+    comentario: comentarioGastoPrestamoSucursal(prestamo),
+    monto: Number(prestamo.monto) || 0,
+    usuario_nombre: prestamo.created_by || null,
+    cerrado: false,
+    descontado_nomina: false,
+    estado_aprobacion: 'aprobado',
+    solicitado_por: prestamo.created_by || null,
+  };
+  let { data, error: e1 } = await supabase
+    .from('cortes_contabilidad_gastos')
+    .insert([payload])
+    .select('id')
+    .single();
+  if (e1 && faltaColumnaMsg(e1, ['estado_aprobacion', 'solicitado_por', 'descontado_nomina'])) {
+    const slim = { ...payload };
+    delete slim.estado_aprobacion;
+    delete slim.solicitado_por;
+    delete slim.descontado_nomina;
+    ({ data, error: e1 } = await supabase.from('cortes_contabilidad_gastos').insert([slim]).select('id').single());
+  }
+  if (e1) return { ok: false, error: e1.message };
+  const gastoId = data?.id || null;
+  const marked = await marcarPrestamoCargadoCorte(supabase, 'prestamos_sucursales', prestamo.id, {
+    gastoId,
+    areaCorte: modulo,
+  });
+  if (!marked.ok) return marked;
+  return { ok: true, modulo, gastoId, aviso: marked.aviso };
+}
+
+function patchColectaPrestamo({ recolectorNombre, folio, modulo }) {
+  return {
+    colectado_por: recolectorNombre || null,
+    colectado_at: new Date().toISOString(),
+    colectado_folio: folio || null,
+    colectado_modulo: modulo || null,
+  };
+}
+
+async function aplicarColectaPrestamos(supabase, tabla, ids, patch) {
+  const uniq = [...new Set((ids || []).map((id) => String(id).toLowerCase()).filter(Boolean))];
+  if (!uniq.length) return { ok: true, count: 0 };
+  let { data, error } = await supabase
+    .from(tabla)
+    .update(patch)
+    .in('id', uniq)
+    .is('colectado_por', null)
+    .select('id');
+  if (error && faltaColumnaMsg(error, ['colectado_modulo'])) {
+    const slim = { ...patch };
+    delete slim.colectado_modulo;
+    ({ data, error } = await supabase
+      .from(tabla)
+      .update(slim)
+      .in('id', uniq)
+      .is('colectado_por', null)
+      .select('id'));
+  }
+  if (error && faltaColumnaMsg(error, ['colectado_por', 'colectado_at', 'colectado_folio'])) {
+    return { ok: true, count: 0, aviso: 'Falta ejecutar supabase/fix_prestamos_area_colectado.sql' };
+  }
+  if (error) return { ok: false, error: error.message, count: 0 };
+  return { ok: true, count: (data || []).length };
+}
+
+async function idsPrestamosPorGastoId(supabase, tabla, gastoIds) {
+  const ids = [...new Set((gastoIds || []).map(String).filter((id) => id && !id.startsWith('local-')))];
+  if (!ids.length) return [];
+  const { data, error } = await supabase.from(tabla).select('id, gasto_id').in('gasto_id', ids);
+  if (error) return [];
+  return (data || []).map((r) => String(r.id));
+}
+
+/**
+ * Cuando el recolector cierra la recolección de Virtual / Abarrotes / Garage,
+ * sella en el préstamo quién colectó si ese préstamo viajó como gasto del corte.
+ */
+export async function marcarPrestamosColectadosEnRecoleccion(supabase, opts = {}) {
+  if (!supabase) return { ok: true, count: 0 };
+  const {
+    sucursal,
+    modulo,
+    gastos = [],
+    gastosIds = [],
+    recolectorNombre,
+    folio,
+  } = opts;
+  const nombre = String(recolectorNombre || '').trim();
+  if (!nombre) return { ok: true, count: 0, omitido: 'sin_recolector' };
+
+  let listaGastos = Array.isArray(gastos) ? [...gastos] : [];
+  const idsSet = new Set(
+    [...gastosIds, ...listaGastos.map((g) => g?.id)]
+      .map((id) => (id != null && id !== '' ? String(id) : ''))
+      .filter((id) => id && !id.startsWith('local-')),
+  );
+
+  const parsed = idsPrestamosDesdeGastosRecoleccion(listaGastos);
+  parsed.gastoIds.forEach((id) => idsSet.add(id));
+
+  const haveIds = new Set(
+    listaGastos.filter((g) => g?.id != null && g.id !== '').map((g) => String(g.id)),
+  );
+  const missing = [...idsSet].filter((id) => !haveIds.has(id));
+  if (missing.length) {
+    const { data } = await supabase
+      .from('cortes_contabilidad_gastos')
+      .select('id, comentario, categoria, subcategoria')
+      .in('id', missing);
+    if (data?.length) {
+      listaGastos = [...listaGastos, ...data];
+    }
+  }
+
+  const fromComments = idsPrestamosDesdeGastosRecoleccion(listaGastos);
+  fromComments.gastoIds.forEach((id) => idsSet.add(id));
+
+  const [iaPorGasto, sucPorGasto] = await Promise.all([
+    idsPrestamosPorGastoId(supabase, 'prestamos_interarea', [...idsSet]),
+    idsPrestamosPorGastoId(supabase, 'prestamos_sucursales', [...idsSet]),
+  ]);
+
+  const iaIds = [...new Set([...fromComments.interarea, ...iaPorGasto])];
+  const sucIds = [...new Set([...fromComments.sucursales, ...sucPorGasto])];
+
+  if (!iaIds.length && !sucIds.length) return { ok: true, count: 0 };
+
+  const patch = patchColectaPrestamo({ recolectorNombre: nombre, folio, modulo: modulo || null });
+  const [iaRes, sucRes] = await Promise.all([
+    aplicarColectaPrestamos(supabase, 'prestamos_interarea', iaIds, patch),
+    aplicarColectaPrestamos(supabase, 'prestamos_sucursales', sucIds, patch),
+  ]);
+  const aviso = iaRes.aviso || sucRes.aviso || null;
+  if (!iaRes.ok && !sucRes.ok) {
+    return { ok: false, error: iaRes.error || sucRes.error, count: 0, aviso };
+  }
+  return {
+    ok: true,
+    count: (iaRes.count || 0) + (sucRes.count || 0),
+    interarea: iaRes.count || 0,
+    sucursales: sucRes.count || 0,
+    sucursal: sucursal || null,
+    aviso,
+  };
+}

@@ -127,6 +127,8 @@ export function htmlPrestamoInterarea(p) {
     <div style="font-size:20px;margin:12px 0"><strong>Monto: ${fmt(p.monto)}</strong></div>
     <div>Saldo: ${fmt(saldo)}</div>
     <div>Estado: ${esc(p.estado || 'activo')}</div>
+    ${p.cargado_corte ? `<div>Corte origen: gasto en ${esc(ETIQUETA_AREA[p.origen] || p.origen || '—')}</div>` : ''}
+    ${p.colectado_por ? `<div>Colectó: <strong>${esc(p.colectado_por)}</strong>${p.colectado_at ? ` · ${esc(String(p.colectado_at).slice(0, 16).replace('T', ' '))}` : ''}${p.colectado_folio ? ` · ${esc(p.colectado_folio)}` : ''}</div>` : ''}
     ${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ''}
     <div class="muted">Sucursal: ${esc(p.sucursal_id || '—')}</div>
     <div class="firma">Firma / recibido: _________________________________</div>
@@ -144,6 +146,8 @@ export function htmlPrestamoSucursal(p) {
     <div style="font-size:20px;margin:12px 0"><strong>Monto: ${fmt(p.monto)}</strong></div>
     <div>Saldo: ${fmt(p.saldo)}</div>
     <div>Estado: ${esc(p.estado || '—')}</div>
+    ${p.area_corte ? `<div>Corte origen: ${esc(p.area_corte)}</div>` : ''}
+    ${p.colectado_por ? `<div>Colectó: <strong>${esc(p.colectado_por)}</strong>${p.colectado_at ? ` · ${esc(String(p.colectado_at).slice(0, 16).replace('T', ' '))}` : ''}${p.colectado_folio ? ` · ${esc(p.colectado_folio)}` : ''}</div>` : ''}
     ${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ''}
     <div class="firma">Firma / recibido: _________________________________</div>
   </body></html>`;
