@@ -24,6 +24,8 @@ import {
   listarCatalogoContVirtual,
   resolverNombresCatalogo,
   filtrarCatalogoPorFlujo,
+  categoriaEnCatalogoCortes,
+  setCategoriaEnCatalogoCortes,
   AVISO_FALTA_CONT_VIRTUAL,
 } from '../lib/contVirtualCatalogo.js';
 import {
@@ -1022,6 +1024,26 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     await cargarCatalogo();
   };
 
+  const toggleEnviarACortes = async (cat) => {
+    if (!esAdmin || !cat) return;
+    if (esCategoriaEmpleado(cat)) {
+      return alert('Empleado siempre está en el catálogo de cortes (nómina).');
+    }
+    if (String(cat.flujo || '').toLowerCase() === 'ingreso') {
+      return alert('Las cuentas de ingreso no se envían al catálogo de gastos de cortes.');
+    }
+    const yaEnCortes = categoriaEnCatalogoCortes(cat);
+    const msg = yaEnCortes
+      ? `¿Quitar «${cat.nombre}» del catálogo de gastos de cortes?\n\nDejará de aparecer en Corte Virtual, Abarrotes y Garage.`
+      : `¿Enviar «${cat.nombre}» al catálogo de gastos de cortes?\n\nAparecerá para capturar gastos en Corte Virtual, Abarrotes y Garage.`;
+    if (!confirm(msg)) return;
+    setGuardando(true);
+    const res = await setCategoriaEnCatalogoCortes(supabase, cat.id, !yaEnCortes);
+    setGuardando(false);
+    if (!res.ok) return alert(res.error);
+    await cargarCatalogo();
+  };
+
   const editarEmpleadoCat = async (emp) => {
     if (!esAdmin || !emp?.usuario_id || !supabase) return;
     const nombre = prompt('Nombre del empleado:', emp.nombre || '');
@@ -1643,14 +1665,40 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             Catálogo compartido de IE Virtual e IE Abarrotes: <strong>Cuenta → Subcuenta → Detalle</strong>.
             Los <strong>ingresos</strong> son independientes de los <strong>egresos</strong>, con el mismo formato.
             En <strong>Empleado</strong> (egresos): los tipos son Consumo/Anticipo/…; las personas se eligen al capturar (módulo Empleados). No renombres ni elimines Empleado.
+            {' '}El administrador puede <strong>enviar o quitar</strong> cada egreso del catálogo de gastos de cortes.
           </p>
           {!esAdmin && <p className="cv-error">Solo el administrador puede editar cuentas y subcuentas.</p>}
           {(catalogoFlujoVista || []).map((c) => (
             <div key={c.id} className="cv-cat-card">
               <div className="cv-cat-hd">
-                <strong>{c.nombre}{c.fijo ? ' · sistema' : ''}{esCategoriaEmpleado(c) ? ' · nómina cortes' : ''}</strong>
+                <strong>
+                  {c.nombre}
+                  {c.fijo ? ' · sistema' : ''}
+                  {esCategoriaEmpleado(c) ? ' · nómina cortes' : ''}
+                  {!esCategoriaEmpleado(c) && catalogoFlujo === 'egreso' && categoriaEnCatalogoCortes(c) ? ' · en cortes' : ''}
+                </strong>
                 {esAdmin && (
                   <span className="cv-cat-actions">
+                    {catalogoFlujo === 'egreso' && !esCategoriaEmpleado(c) && (
+                      <button
+                        type="button"
+                        className="cv-btn ghost cv-cat-btn"
+                        disabled={guardando}
+                        title={
+                          categoriaEnCatalogoCortes(c)
+                            ? 'Quitar del catálogo de gastos de cortes'
+                            : 'Evaluar y enviar esta cuenta al catálogo de cortes'
+                        }
+                        onClick={() => toggleEnviarACortes(c)}
+                        style={
+                          categoriaEnCatalogoCortes(c)
+                            ? { borderColor: '#6c3483', color: '#6c3483', fontWeight: 700 }
+                            : undefined
+                        }
+                      >
+                        {categoriaEnCatalogoCortes(c) ? 'Quitar de cortes' : 'Enviar a cortes'}
+                      </button>
+                    )}
                     <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => nuevaSubEnCat(c.id, c.nombre)}>+ Subcuenta</button>
                     {!esCategoriaEmpleado(c) && (
                       <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarCategoria(c)}>Editar</button>

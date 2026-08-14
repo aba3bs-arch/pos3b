@@ -167,6 +167,17 @@ export function filtrarCatalogoPorFlujo(catalogo, flujo) {
   return (catalogo || []).filter((c) => normalizarFlujoCatalogo(c.flujo) === f && c.activo !== false);
 }
 
+/** ¿Debe aparecer en el catálogo de gastos de cortes? Empleado siempre sí. */
+export function categoriaEnCatalogoCortes(c) {
+  if (!c || c.activo === false) return false;
+  if (String(c.id || '').toLowerCase() === 'empleado') return true;
+  const nom = String(c.nombre || '').trim().toUpperCase();
+  if (nom === 'EMPLEADO' || nom.startsWith('EMPLEADO ')) return true;
+  if (normalizarFlujoCatalogo(c.flujo) === 'ingreso') return false;
+  // null/undefined = true (catálogo previo a la columna)
+  return c.en_catalogo_cortes !== false;
+}
+
 /** Mapeo categoría de vale → subcategoría Cont Virtual. */
 export const VALE_A_CONT_VIRTUAL = {
   gasolina: { categoriaId: 'vales', subcategoriaId: 'vales-gasolina' },
@@ -236,11 +247,13 @@ function catalogoDefaultCompleto() {
     ...CATEGORIAS_CONT_VIRTUAL_DEFAULT.map((c) => ({
       ...c,
       flujo: 'egreso',
+      en_catalogo_cortes: true,
       subcategorias: (c.subcategorias || []).map((s) => ({ ...s, detalles: s.detalles || [] })),
     })),
     ...CATEGORIAS_INGRESOS_CONT_VIRTUAL_DEFAULT.map((c) => ({
       ...c,
       flujo: 'ingreso',
+      en_catalogo_cortes: false,
       subcategorias: (c.subcategorias || []).map((s) => ({ ...s, detalles: s.detalles || [] })),
     })),
   ];
@@ -438,6 +451,8 @@ function armarCatalogo(cats, subs, detalles = []) {
       activo: c.activo !== false,
       fijo: Boolean(c.fijo),
       flujo: normalizarFlujoCatalogo(c.flujo || (String(c.id || '').startsWith('ing-') ? 'ingreso' : 'egreso')),
+      // Si la columna aún no existe / es null → true (comportamiento previo).
+      en_catalogo_cortes: c.en_catalogo_cortes !== false,
       subcategorias: [],
     };
   }
@@ -578,42 +593,64 @@ export async function sembrarCatalogoDefault(supabase) {
   return { ok: true };
 }
 
-export async function crearCategoriaContVirtual(supabase, { nombre, flujo = 'egreso' }) {
+export async function crearCategoriaContVirtual(supabase, { nombre, flujo = 'egreso', enCatalogoCortes } = {}) {
   const label = String(nombre || '').trim();
   if (!label) return { ok: false, error: 'Nombre obligatorio.' };
   const flujoN = normalizarFlujoCatalogo(flujo);
   const id = slug(flujoN === 'ingreso' ? `ing-${label}` : label, flujoN === 'ingreso' ? 'ing' : 'cat');
+  // Nuevas cuentas: el admin decide si van a cortes (por defecto no).
+  const enCortes = flujoN === 'ingreso'
+    ? false
+    : (enCatalogoCortes == null ? false : Boolean(enCatalogoCortes));
   if (!supabase) {
     const lista = leerLocal();
     if (lista.some((c) => c.id === id)) return { ok: false, error: 'Ya existe esa categoría.' };
-    lista.push({ id, nombre: label, orden: 100, activo: true, fijo: false, flujo: flujoN, subcategorias: [] });
+    lista.push({
+      id,
+      nombre: label,
+      orden: 100,
+      activo: true,
+      fijo: false,
+      flujo: flujoN,
+      en_catalogo_cortes: enCortes,
+      subcategorias: [],
+    });
     guardarLocal(lista);
     return { ok: true, id };
   }
-  const { error } = await supabase.from('cont_virtual_categorias').insert({
+  const row = {
     id,
     nombre: label,
     orden: 100,
     activo: true,
     fijo: false,
     flujo: flujoN,
-  });
+    en_catalogo_cortes: enCortes,
+  };
+  let { error } = await supabase.from('cont_virtual_categorias').insert(row);
   if (error) {
     if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CONT_VIRTUAL };
     const msg = String(error.message || '').toLowerCase();
-    if (msg.includes('flujo')) {
-      const retry = await supabase.from('cont_virtual_categorias').insert({
-        id,
-        nombre: label,
-        orden: 100,
-        activo: true,
-        fijo: false,
-      });
+    if (msg.includes('en_catalogo_cortes')) {
+      const { en_catalogo_cortes: _e, ...sinFlag } = row;
+      const retry = await supabase.from('cont_virtual_categorias').insert(sinFlag);
       if (!retry.error) {
         return {
           ok: true,
           id,
-          aviso: 'Categoría creada. Ejecuta supabase/fix_cont_virtual_ingresos.sql para marcar ingresos/egresos.',
+          aviso: 'Cuenta creada. Ejecuta supabase/fix_cont_virtual_en_catalogo_cortes.sql para el botón de cortes.',
+        };
+      }
+      error = retry.error;
+    }
+    if (msg.includes('flujo') || String(error.message || '').toLowerCase().includes('flujo')) {
+      const { flujo: _f, en_catalogo_cortes: _e, ...sinExtra } = row;
+      const retry = await supabase.from('cont_virtual_categorias').insert(sinExtra);
+      if (!retry.error) {
+        return {
+          ok: true,
+          id,
+          aviso: 'Categoría creada. Ejecuta los SQL de ingresos y en_catalogo_cortes en Supabase.',
         };
       }
       return { ok: false, error: retry.error.message };
@@ -721,6 +758,44 @@ export async function editarCategoriaContVirtual(supabase, id, { nombre } = {}) 
   const { error } = await supabase.from('cont_virtual_categorias').update({ nombre: label }).eq('id', id);
   if (error) {
     if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CONT_VIRTUAL };
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
+/**
+ * Admin: marca o quita una categoría de egreso del catálogo de gastos de cortes.
+ */
+export async function setCategoriaEnCatalogoCortes(supabase, id, enabled) {
+  if (!id) return { ok: false, error: 'ID inválido.' };
+  if (String(id).toLowerCase() === 'empleado') {
+    return { ok: false, error: 'Empleado siempre está en el catálogo de cortes.' };
+  }
+  const on = Boolean(enabled);
+  if (!supabase) {
+    const lista = leerLocal();
+    const cat = lista.find((c) => c.id === id);
+    if (!cat) return { ok: false, error: 'Categoría no encontrada.' };
+    if (normalizarFlujoCatalogo(cat.flujo) === 'ingreso') {
+      return { ok: false, error: 'Las cuentas de ingreso no van al catálogo de cortes.' };
+    }
+    cat.en_catalogo_cortes = on;
+    guardarLocal(lista);
+    return { ok: true };
+  }
+  const { error } = await supabase
+    .from('cont_virtual_categorias')
+    .update({ en_catalogo_cortes: on })
+    .eq('id', id);
+  if (error) {
+    if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CONT_VIRTUAL };
+    const msg = String(error.message || '').toLowerCase();
+    if (msg.includes('en_catalogo_cortes') || msg.includes('schema cache')) {
+      return {
+        ok: false,
+        error: 'Falta la columna en_catalogo_cortes. Ejecuta supabase/fix_cont_virtual_en_catalogo_cortes.sql en Supabase.',
+      };
+    }
     return { ok: false, error: error.message };
   }
   return { ok: true };

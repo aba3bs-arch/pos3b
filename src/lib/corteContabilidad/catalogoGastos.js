@@ -1,5 +1,6 @@
 import {
   CATEGORIAS_CONT_VIRTUAL_DEFAULT,
+  categoriaEnCatalogoCortes,
   crearCategoriaContVirtual,
   crearSubcategoriaContVirtual,
   editarCategoriaContVirtual,
@@ -161,9 +162,12 @@ export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual') {
         subcategorias: ordenarTiposEmpleadoCorte([...new Set(tipos)]),
         fuente,
         es_categoria_empleado: true,
+        en_catalogo_cortes: true,
       });
       continue;
     }
+    // Solo cuentas que el admin marcó para el catálogo de cortes.
+    if (!categoriaEnCatalogoCortes(c)) continue;
     vistos.add(categoria);
     const subs = [];
     for (const s of c.subcategorias || []) {
@@ -187,6 +191,7 @@ export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual') {
       categoria,
       subcategorias: [...new Set(subs)],
       fuente,
+      en_catalogo_cortes: true,
     });
   }
   return out;
