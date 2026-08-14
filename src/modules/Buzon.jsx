@@ -62,6 +62,7 @@ import {
   incidenciaPerteneceABuzon,
   notificacionPerteneceABuzon,
 } from '../lib/buzonAreas.js';
+import { filtrarIncidenciasMiBuzon, filtrarNotificacionesMiBuzon } from '../lib/buzonUsuario.js';
 
 const PRESETS_INCIDENCIAS = [{ id: 'todos', label: 'Todas las fechas' }, ...PRESETS_FECHA_PRODUCTO];
 
@@ -98,6 +99,8 @@ export default function Buzon({
 
   const [pestana, setPestana] = useState(soloIncidencias ? 'incidencias' : pestanaInicial);
   const [buzonArea, setBuzonArea] = useState('todos');
+  /** false = Mi buzón (asignado a mí); true = todo el buzón (solo admin/gerente). */
+  const [verTodoBuzon, setVerTodoBuzon] = useState(false);
   const [aviso, setAviso] = useState('');
   const [pendientes, setPendientes] = useState([]);
   const [historial, setHistorial] = useState([]);
@@ -149,17 +152,22 @@ export default function Buzon({
 
   const filtrarPendientes = useCallback(
     (lista) => {
-      if (esAdmin || esGerente) return lista;
-      if (esSocio || esAprobadorRecIe) {
-        return lista.filter((n) =>
-          (esSocio && n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO)
-          || (esAprobadorRecIe && n.tipo === TIPOS_NOTIF.RECOLECCION_CORTE_IE),
-        );
+      let base = lista || [];
+      if (!(esAdmin || esGerente)) {
+        if (esSocio || esAprobadorRecIe) {
+          base = base.filter((n) =>
+            (esSocio && n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO)
+            || (esAprobadorRecIe && n.tipo === TIPOS_NOTIF.RECOLECCION_CORTE_IE),
+          );
+        } else if (!veTodasTiendas) {
+          base = base.filter((n) => n.tipo === TIPOS_NOTIF.INCIDENCIA || n.sucursal_id === sucursal);
+        }
       }
-      if (veTodasTiendas) return lista;
-      return lista.filter((n) => n.tipo === TIPOS_NOTIF.INCIDENCIA || n.sucursal_id === sucursal);
+      return filtrarNotificacionesMiBuzon(base, user, {
+        verTodo: Boolean(verTodoBuzon && (esAdmin || esGerente)),
+      });
     },
-    [esAdmin, esGerente, esSocio, esAprobadorRecIe, sucursal, veTodasTiendas],
+    [esAdmin, esGerente, esSocio, esAprobadorRecIe, sucursal, veTodasTiendas, user, verTodoBuzon],
   );
 
   const recargar = useCallback(async () => {
@@ -200,19 +208,25 @@ export default function Buzon({
   }, [pestanaInicial, soloIncidencias]);
 
   const incidenciasVisibles = useMemo(() => {
-    if (modoVista === 'administracion' || tieneAccionIncidencia('inc_resolver_todas', rol, user?.id)) {
-      return incidencias;
+    let base = incidencias;
+    if (!(modoVista === 'administracion' || tieneAccionIncidencia('inc_resolver_todas', rol, user?.id))) {
+      if (!veTodasTiendas) {
+        const nombre = user?.nombre;
+        if (nombre) {
+          if (puedeResolver) {
+            base = incidencias.filter(
+              (i) => esResponsableIncidencia(nombre, i.responsable) || i.reportado_por === nombre,
+            );
+          } else {
+            base = incidencias.filter((i) => i.reportado_por === nombre);
+          }
+        }
+      }
     }
-    if (veTodasTiendas) return incidencias;
-    const nombre = user?.nombre;
-    if (!nombre) return incidencias;
-    if (puedeResolver) {
-      return incidencias.filter(
-        (i) => esResponsableIncidencia(nombre, i.responsable) || i.reportado_por === nombre,
-      );
-    }
-    return incidencias.filter((i) => i.reportado_por === nombre);
-  }, [incidencias, modoVista, rol, user?.id, user?.nombre, veTodasTiendas, puedeResolver]);
+    return filtrarIncidenciasMiBuzon(base, user, {
+      verTodo: Boolean(verTodoBuzon && (esAdmin || esGerente)),
+    });
+  }, [incidencias, modoVista, rol, user, veTodasTiendas, puedeResolver, verTodoBuzon, esAdmin, esGerente]);
 
   const cambiarPresetFechaInc = (preset) => {
     setPresetFechaInc(preset);
@@ -548,15 +562,37 @@ export default function Buzon({
       <div>
         <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>
           Buzón{buzonArea !== 'todos' ? ` · ${etiquetaBuzon(buzonArea)}` : ''}
+          {!soloIncidencias && !(verTodoBuzon && (esAdmin || esGerente)) ? ' · Mi bandeja' : ''}
         </h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
           {soloIncidencias
-            ? `Tienda ${etiquetaTienda(sucursal)} · levanta un reporte para que administración lo atienda`
-            : puedeResolver
-              ? `Tienda ${etiquetaTienda(sucursal)} · atiende incidencias asignadas${veTodasTiendas ? ' de todas las sucursales' : ''}`
-              : 'Tres buzones: Virtual, Abarrotes y Garage · vales, préstamos, recolecciones e incidencias'}
+            ? `Tienda ${etiquetaTienda(sucursal)} · levanta un reporte; el responsable lo atiende en su buzón`
+            : (esAdmin || esGerente)
+              ? (verTodoBuzon
+                ? `Vista completa · todas las pendientes e incidencias${veTodasTiendas ? ' (todas las sucursales)' : ''}`
+                : 'Tu bandeja: lo asignado a ti (incidencias) y pendientes de tu rol. Activa «Ver todo» para el buzón completo.')
+              : 'Abre tu buzón para atender lo que te asignaron. Las alertas también llegan a usuarios MAIN.'}
         </p>
       </div>
+
+      {(esAdmin || esGerente) && !soloIncidencias && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <button
+            type="button"
+            className={`btn ${!verTodoBuzon ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setVerTodoBuzon(false)}
+          >
+            Mi buzón
+          </button>
+          <button
+            type="button"
+            className={`btn ${verTodoBuzon ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setVerTodoBuzon(true)}
+          >
+            Ver todo el buzón
+          </button>
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
         <button

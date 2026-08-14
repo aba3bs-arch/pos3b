@@ -201,8 +201,16 @@ export function etiquetaTipoNotificacion(tipo) {
  * Funciona aunque Realtime de Supabase no esté activo.
  */
 export function iniciarMonitorNotificacionesDispositivo(supabase, opts = {}) {
-  const { rol, sucursal, veTodasTiendas = true, intervaloMs = intervaloMonitorNotificacionesMs(), onClickNotificacion } = opts;
-  if (!supabase || !puedeRecibirNotificacionesDispositivo(rol)) return () => {};
+  const {
+    rol,
+    user,
+    sucursal,
+    veTodasTiendas = true,
+    intervaloMs = intervaloMonitorNotificacionesMs(),
+    onClickNotificacion,
+  } = opts;
+  const sujeto = user || { rol };
+  if (!supabase || !puedeRecibirNotificacionesDispositivo(sujeto)) return () => {};
 
   const idsBaselined = new Set();
   let baselineListo = false;

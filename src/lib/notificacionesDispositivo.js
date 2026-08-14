@@ -1,5 +1,6 @@
 import { leerLogoUrl, leerNombreNegocio } from './branding.js';
 import { normalizarRol } from './roles.js';
+import { esUsuarioMainNotificable } from './buzonUsuario.js';
 
 const notificacionesMostradas = new Set();
 let swRegistroPromise = null;
@@ -22,8 +23,12 @@ export function esPwaInstalada() {
   );
 }
 
-export function puedeRecibirNotificacionesDispositivo(rol) {
-  const r = normalizarRol(rol);
+/** Admin, Gerente y responsables MAIN (Antonio, Francisco, etc.) reciben alertas de dispositivo. */
+export function puedeRecibirNotificacionesDispositivo(rolOrUser) {
+  if (rolOrUser && typeof rolOrUser === 'object') {
+    return esUsuarioMainNotificable(rolOrUser);
+  }
+  const r = normalizarRol(rolOrUser);
   return r === 'Administrador' || r === 'Gerente';
 }
 

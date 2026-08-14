@@ -8,7 +8,6 @@ import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
 import { hayAnuncioActivo, EVENTO_ANUNCIOS } from '../lib/anunciosPos.js';
 import PanelAnunciosAdmin from '../components/PanelAnunciosAdmin.jsx';
 import PanelPurgeDatosAdmin from '../components/PanelPurgeDatosAdmin.jsx';
-import PanelNotificacionesInicio from '../components/PanelNotificacionesInicio.jsx';
 import PanelAppMovilInicio from '../components/PanelAppMovilInicio.jsx';
 import PanelProyeccionFaltante from '../components/PanelProyeccionFaltante.jsx';
 
@@ -24,7 +23,6 @@ export default function Inicio({
   user,
   cargarDatos,
   onNavigate,
-  onIrIncidencias,
   puedeModulo,
   /** true = app central (MAIN); false = caja de sucursal. */
   consolaCentral = false,
@@ -184,40 +182,7 @@ export default function Inicio({
         </p>
       </div>
 
-      <PanelNotificacionesInicio
-        supabase={supabase}
-        sucursal={sucursal}
-        user={user}
-        onNavigate={onNavigate}
-        puedeModulo={puede}
-      />
-
       <PanelAppMovilInicio sucursal={sucursal} />
-
-      {puede('Incidencias') && typeof onIrIncidencias === 'function' && (
-        <div
-          className="card"
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '1rem',
-            borderLeft: '5px solid #dc2626',
-            background: 'linear-gradient(135deg, rgba(220,38,38,0.06) 0%, #fff 60%)',
-          }}
-        >
-          <div>
-            <h3 style={{ margin: 0, color: 'var(--brand-blue-dark)', fontSize: '1.05rem' }}>Incidencias de tienda</h3>
-            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
-              Reporta fallas de equipo, operación o inventario para que administración las atienda.
-            </p>
-          </div>
-          <button type="button" className="btn btn-primary" onClick={onIrIncidencias} style={{ flexShrink: 0 }}>
-            <BtnLabel icon="alert">Incidencias</BtnLabel>
-          </button>
-        </div>
-      )}
 
       {esAdminPrincipal && (
         <div className="card" style={{ borderLeft: '4px solid var(--brand-blue)' }}>

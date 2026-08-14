@@ -272,7 +272,7 @@ function App() {
 
   useEffect(() => {
     if (!sesion || !user || !supabase) return undefined;
-    if (!puedeRecibirNotificacionesDispositivo(user?.rol)) return undefined;
+    if (!puedeRecibirNotificacionesDispositivo(user)) return undefined;
 
     const abrirPendientes = (n) => {
       if (n?.tipo === TIPOS_NOTIF.RECOLECCION_POST_LIQ && puedeVerModulo(user?.rol, 'Liquidación recolecciones', user?.id)) {
@@ -292,6 +292,7 @@ function App() {
     void registrarServiceWorkerNotificaciones();
 
     const detenerMonitor = iniciarMonitorNotificacionesDispositivo(supabase, {
+      user,
       rol: user?.rol,
       veTodasTiendas: true,
       onClickNotificacion: abrirPendientes,
@@ -305,10 +306,11 @@ function App() {
         (payload) => {
           const row = payload.new;
           if (!row || row.estado !== 'pendiente') return;
+          // Avisa a todos los usuarios MAIN notificables: deben abrir su Buzón.
           void mostrarNotificacionDispositivo({
             id: row.id,
             titulo: row.titulo,
-            mensaje: row.mensaje,
+            mensaje: row.mensaje || 'Hay un pendiente nuevo en el Buzón.',
             onClick: () => abrirPendientes(row),
           });
           window.dispatchEvent(new CustomEvent(EVENTO_NOTIFICACIONES));
@@ -902,7 +904,7 @@ function App() {
             </h2>
             <RelojNogales />
             <div className="app-header-quick">
-              {puedeRecibirNotificacionesDispositivo(user?.rol) && (
+              {puedeRecibirNotificacionesDispositivo(user) && (
                 <BotonActivarNotificaciones supabase={supabase} user={user} />
               )}
               <BadgeNotificacionesContabilidad
@@ -910,7 +912,7 @@ function App() {
                 sucursal={sucursal}
                 user={user}
                 onClick={() => {
-                  // Campanita = bandeja general (gastos de corte, incidencias, recaudaciones, vales).
+                  // Campanita = Buzón (recolecciones, incidencias, vales). No van en Inicio.
                   if (puedeAbrirBandejaIncidencias(user?.rol, user?.id) && puedeVerModulo(user?.rol, 'Incidencias', user?.id)) {
                     setBuzonPestana('pendientes');
                     irAModulo('Incidencias');
@@ -921,7 +923,7 @@ function App() {
                     irAModulo('Vales y Préstamos', { pestana: 'pendientes' });
                     return;
                   }
-                  alert('No tienes acceso a la bandeja. Revisa privilegios de Incidencias o Vales y Préstamos.');
+                  alert('No tienes acceso al Buzón. Revisa privilegios de Incidencias o Vales y Préstamos.');
                 }}
               />
             </div>
