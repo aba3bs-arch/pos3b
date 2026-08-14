@@ -5,6 +5,8 @@
 -- Al registrar el préstamo se carga como gasto al corte de origen
 -- (virtual, abarrotes o garage). Al recolectar ese corte, se guarda
 -- quién colectó el dinero (recolector) en el préstamo.
+-- Al liquidar un préstamo entre áreas se guarda quién lo liquidó y
+-- desde qué sucursal.
 
 alter table public.prestamos_interarea
   add column if not exists cargado_corte boolean default false;
@@ -50,6 +52,20 @@ alter table public.prestamos_sucursales
 
 comment on column public.prestamos_sucursales.colectado_por is
   'Nombre de quien recolectó el corte donde el préstamo quedó como gasto.';
+
+alter table public.prestamos_interarea
+  add column if not exists liquidado_por text;
+
+alter table public.prestamos_interarea
+  add column if not exists liquidado_at timestamptz;
+
+alter table public.prestamos_interarea
+  add column if not exists liquidado_sucursal text;
+
+comment on column public.prestamos_interarea.liquidado_por is
+  'Usuario que pasó el préstamo entre áreas a liquidado.';
+comment on column public.prestamos_interarea.liquidado_sucursal is
+  'Sucursal desde donde se hizo la liquidación.';
 
 create index if not exists idx_prestamos_interarea_gasto
   on public.prestamos_interarea (gasto_id)

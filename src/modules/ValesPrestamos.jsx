@@ -868,7 +868,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     if (raw === null) return;
     const monto = parseFloat(String(raw).replace(',', '.'));
     if (!(monto > 0)) return alert('Monto inválido.');
-    const res = await abonarPrestamoInterarea(supabase, p, monto);
+    const res = await abonarPrestamoInterarea(supabase, p, monto, {
+      nombreActor: user?.nombre || null,
+      sucursal,
+    });
     if (!res.ok) return alert(res.error);
     alert(res.liquidado ? 'Liquidado.' : `Abono ok. Saldo: ${fmt(res.saldo)}`);
     recargarTodo();
@@ -877,7 +880,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const liquidarInterarea = async (p) => {
     if (!puedeOperarDocs) return;
     if (!confirm('¿Liquidar este préstamo entre áreas?')) return;
-    const res = await liquidarPrestamoInterarea(supabase, p);
+    const res = await liquidarPrestamoInterarea(supabase, p, {
+      nombreActor: user?.nombre || null,
+      sucursal,
+    });
     if (!res.ok) return alert(res.error);
     alert('Liquidado.');
     recargarTodo();
@@ -1430,6 +1436,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             <p className="muted" style={{ fontSize: '0.85rem' }}>
               Sale del corte de <strong>origen</strong> (Virtual, Abarrotes o Garage) como gasto.
               Al recolectar ese corte queda el nombre de <strong>quién colectó</strong> el préstamo.
+              Al <strong>liquidar</strong> queda en la misma línea el usuario y la sucursal desde donde se liquidó.
             </p>
             <div className="grid-2">
               <select className="select" value={prestForm.origen} onChange={(e) => setPrestForm({ ...prestForm, origen: e.target.value })}>
@@ -1469,7 +1476,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                           <td>{ETIQUETA_AREA[p.destino]}</td>
                           <td>{fmt(p.monto)}</td>
                           <td style={{ fontWeight: 700 }}>{fmt(saldo)}</td>
-                          <td className="muted">{p.estado || 'activo'}</td>
+                          <td className="muted">
+                            {p.estado || 'activo'}
+                            {String(p.estado) === 'liquidado' && (p.liquidado_por || p.liquidado_sucursal) ? (
+                              <>
+                                {' · '}
+                                {p.liquidado_por || '—'}
+                                {p.liquidado_sucursal ? ` · ${etiquetaTienda(p.liquidado_sucursal)}` : ''}
+                              </>
+                            ) : null}
+                          </td>
                           <td className="muted" style={{ fontSize: '0.8rem' }}>{etiquetaColectaPrestamo(p)}</td>
                           <td style={{ whiteSpace: 'nowrap' }}>
                             <button

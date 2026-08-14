@@ -1013,7 +1013,30 @@ function saldoInterarea(p) {
   return Number(p?.monto) || 0;
 }
 
-export async function abonarPrestamoInterarea(supabase, prestamo, montoAbono) {
+function patchActorLiquidacionInterarea({ nombreActor, sucursal } = {}) {
+  const quien = String(nombreActor || '').trim() || null;
+  const donde = String(sucursal || '').trim().toUpperCase() || null;
+  if (!quien && !donde) return {};
+  return {
+    liquidado_por: quien,
+    liquidado_at: new Date().toISOString(),
+    liquidado_sucursal: donde,
+  };
+}
+
+async function actualizarPrestamoInterarea(supabase, prestamoId, upd) {
+  let { data, error } = await supabase.from('prestamos_interarea').update(upd).eq('id', prestamoId).select('*').single();
+  if (error && /liquidado_por|liquidado_at|liquidado_sucursal/i.test(String(error.message || ''))) {
+    const slim = { ...upd };
+    delete slim.liquidado_por;
+    delete slim.liquidado_at;
+    delete slim.liquidado_sucursal;
+    ({ data, error } = await supabase.from('prestamos_interarea').update(slim).eq('id', prestamoId).select('*').single());
+  }
+  return { data, error };
+}
+
+export async function abonarPrestamoInterarea(supabase, prestamo, montoAbono, opts = {}) {
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
   if (String(prestamo.estado || 'activo') !== 'activo') {
     return { ok: false, error: 'El préstamo no está activo.' };
@@ -1024,50 +1047,47 @@ export async function abonarPrestamoInterarea(supabase, prestamo, montoAbono) {
   if (abono > saldoAntes + 0.001) return { ok: false, error: 'El abono no puede superar el saldo.' };
   const saldo = Math.max(0, Math.round((saldoAntes - abono) * 100) / 100);
   const abonoTotal = (Number(prestamo.abono) || 0) + abono;
+  const liquidado = saldo <= 0;
   const upd = {
     saldo,
     abono: abonoTotal,
-    estado: saldo <= 0 ? 'liquidado' : 'activo',
+    estado: liquidado ? 'liquidado' : 'activo',
+    ...(liquidado ? patchActorLiquidacionInterarea(opts) : {}),
   };
-  let { data, error } = await supabase.from('prestamos_interarea').update(upd).eq('id', prestamo.id).select('*').single();
+  let { data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, upd);
   if (error && /saldo|abono/i.test(String(error.message || ''))) {
-    ({ data, error } = await supabase
-      .from('prestamos_interarea')
-      .update({ monto: saldo, estado: saldo <= 0 ? 'liquidado' : 'activo' })
-      .eq('id', prestamo.id)
-      .select('*')
-      .single());
+    ({ data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, {
+      monto: saldo,
+      estado: liquidado ? 'liquidado' : 'activo',
+      ...(liquidado ? patchActorLiquidacionInterarea(opts) : {}),
+    }));
   }
   if (error) return { ok: false, error: error.message };
-  return { ok: true, prestamo: data, saldo, liquidado: saldo <= 0 };
+  return { ok: true, prestamo: data, saldo, liquidado };
 }
 
-export async function liquidarPrestamoInterarea(supabase, prestamo) {
+export async function liquidarPrestamoInterarea(supabase, prestamo, opts = {}) {
   const saldo = saldoInterarea(prestamo);
   if (!(saldo > 0) && String(prestamo?.estado) === 'liquidado') {
     return { ok: false, error: 'Ya está liquidado.' };
   }
   if (!(saldo > 0)) {
-    const { data, error } = await supabase
-      .from('prestamos_interarea')
-      .update({ estado: 'liquidado', saldo: 0 })
-      .eq('id', prestamo.id)
-      .select('*')
-      .single();
+    const actor = patchActorLiquidacionInterarea(opts);
+    let { data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, {
+      estado: 'liquidado',
+      saldo: 0,
+      ...actor,
+    });
     if (error && /saldo/i.test(String(error.message || ''))) {
-      const retry = await supabase
-        .from('prestamos_interarea')
-        .update({ estado: 'liquidado' })
-        .eq('id', prestamo.id)
-        .select('*')
-        .single();
-      if (retry.error) return { ok: false, error: retry.error.message };
-      return { ok: true, prestamo: retry.data, liquidado: true };
+      ({ data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, {
+        estado: 'liquidado',
+        ...actor,
+      }));
     }
     if (error) return { ok: false, error: error.message };
     return { ok: true, prestamo: data, liquidado: true };
   }
-  return abonarPrestamoInterarea(supabase, prestamo, saldo);
+  return abonarPrestamoInterarea(supabase, prestamo, saldo, opts);
 }
 
 export async function editarPrestamoInterarea(supabase, prestamo, patch = {}, { user, sucursal } = {}) {
