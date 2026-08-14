@@ -3,6 +3,7 @@
  * Los empleados viven en `usuarios`; los detalles son plantilla fija (o las subcats legacy).
  */
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
+import { normalizarRol } from './roles.js';
 import {
   agruparEmpleadosCatalogo,
   dedupeEmpleadosPorNombre,
@@ -59,15 +60,18 @@ export function plantillaDetallesEmpleado(cat) {
 }
 
 /**
- * Empleados visibles en catálogo Empleado:
+ * Empleados visibles en catálogo Empleado / select de corte:
  * - MAIN/indirectos: todas las sucursales (+ placeholders de vales si faltan)
- * - Tienda: solo los de `sucursalActiva` (si MAIN o vacío: todos los de tienda, agrupados)
+ * - Tienda: solo los de `sucursalActiva` (si MAIN o vacío: todas las sucursales operativas, máx. 2 c/u)
+ * - Nunca incluye Administrador
  */
 export function empleadosParaCatalogoEmpleado(empleados, sucursalActiva) {
   const enriquecidos = enriquecerEmpleadosNominaIndirectos(empleados || []);
   const { porTienda, indirectos } = agruparEmpleadosCatalogo(enriquecidos, { incluirBajas: false });
   const suc = normalizarCodigoTienda(sucursalActiva);
-  const main = dedupeEmpleadosPorNombre(indirectos);
+  const main = dedupeEmpleadosPorNombre(indirectos).filter(
+    (e) => normalizarRol(e?.rol) !== 'Administrador',
+  );
 
   let tiendaGrupos;
   if (suc && suc !== 'MAIN') {
@@ -76,17 +80,16 @@ export function empleadosParaCatalogoEmpleado(empleados, sucursalActiva) {
       {
         sucursalId: suc,
         label: etiquetaTienda(suc),
-        empleados: dedupeEmpleadosPorNombre(g?.empleados || []),
+        empleados: dedupeEmpleadosPorNombre(g?.empleados || []).slice(0, 2),
       },
     ];
   } else {
-    tiendaGrupos = porTienda
-      .filter((g) => (g.empleados || []).length)
-      .map((g) => ({
-        sucursalId: g.sucursalId,
-        label: etiquetaTienda(g.sucursalId),
-        empleados: dedupeEmpleadosPorNombre(g.empleados),
-      }));
+    // MAIN / sin tienda: listar todas las sucursales operativas (aunque vayan 0/2).
+    tiendaGrupos = (porTienda || []).map((g) => ({
+      sucursalId: g.sucursalId,
+      label: etiquetaTienda(g.sucursalId),
+      empleados: dedupeEmpleadosPorNombre(g.empleados || []).slice(0, 2),
+    }));
   }
 
   return {

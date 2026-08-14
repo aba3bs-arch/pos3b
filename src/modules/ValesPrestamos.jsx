@@ -63,7 +63,7 @@ import {
   sincronizarCategoriasValeDesdeNube,
 } from '../lib/valesCategorias.js';
 import { listarNotificacionesPendientes, TIPOS_NOTIF } from '../lib/contabilidadNotificaciones.js';
-import { imprimirPrestamo, imprimirRif, imprimirVale } from '../lib/impresionContabilidad.js';
+import { imprimirPrestamo, imprimirPrestamoInterarea, imprimirPrestamoSucursal, imprimirRif, imprimirVale } from '../lib/impresionContabilidad.js';
 import {
   AVISO_FALTA_RIFS,
   abonarRif,
@@ -75,6 +75,7 @@ import {
   listarRifs,
   procesarRifsVencidos,
   registrarRif,
+  rifPuedeAbonar,
   rifPuedeCancelar,
   rifPuedeImprimir,
   rifPuedeLiquidar,
@@ -537,7 +538,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const imprimirPrestamoSi = (p) => {
     if (!prestamoPuedeImprimir(p)) return alert('El préstamo aún no está aprobado.');
-    imprimirPrestamo(p);
+    imprimirPrestamo(p, { mostrarFirma: true });
   };
 
   const cargarValeManual = async (v) => {
@@ -633,7 +634,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     if (tipo === 'abono' || tipo === 'descuento') {
       const raw = prompt(
         `${tipo === 'abono' ? 'Abono' : 'Descuento'} a ${p.nombre_empleado}\nSaldo: $${saldo.toFixed(2)}\n\nMonto:`,
-        tipo === 'abono' ? String(Math.min(saldo, Number(p.cuota_semanal) || saldo)) : String(saldo),
+        tipo === 'abono' ? String(Math.min(saldo, CUOTA_SEMANAL_MINIMA)) : String(saldo),
       );
       if (raw === null) return;
       monto = parseFloat(String(raw).replace(',', '.'));
@@ -1270,7 +1271,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Nuevo RIF (Requisición Interna de Fondos)</h3>
             <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
               Tienda origen: <strong>{etiquetaTienda(sucursal)}</strong>. Usa <strong>Abonar</strong> / <strong>Liquidar</strong>;
-              al abonar parcial se pide nueva promesa de pago. <strong>Imprimir RIF</strong> genera el comprobante actualizado.
+              al abonar parcial se pide nueva promesa de pago. <strong>Imprimir (firma)</strong> genera el comprobante.
               Si no se liquida a la hora promesa, se carga al <strong>Corte de Abarrotes</strong> como <strong>Fondo requerido</strong>.
             </p>
             <div className="grid-2">
@@ -1384,17 +1385,20 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                             : '—'}
                         </td>
                         <td style={{ whiteSpace: 'nowrap' }}>
+                          {puedeOperarDocs && rifPuedeAbonar(r) && (
+                            <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => abonarRifRow(r)}>Abonar</button>
+                          )}
                           {puedeOperarDocs && rifPuedeLiquidar(r) && (
-                            <>
-                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => abonarRifRow(r)}>Abonar</button>
-                              <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem' }} onClick={() => liquidarR(r)}>
-                                Liquidar
-                              </button>
-                            </>
+                            <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem' }} onClick={() => liquidarR(r)}>
+                              Liquidar
+                            </button>
+                          )}
+                          {puedeOperarDocs && rifPuedeAbonar(r) && (
+                            <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => editarRifRow(r)}>Editar</button>
                           )}
                           {rifPuedeImprimir(r) && (
-                            <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => imprimirRif(r, { mostrarFirma: true })}>
-                              Imprimir RIF
+                            <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} title="Ticket con espacio para firma" onClick={() => imprimirRif(r, { mostrarFirma: true })}>
+                              Imprimir (firma)
                             </button>
                           )}
                           {puedeEliminarDocs && r.estado !== 'liquidado' && (
@@ -1458,6 +1462,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                           <td style={{ fontWeight: 700 }}>{fmt(saldo)}</td>
                           <td className="muted">{p.estado || 'activo'}</td>
                           <td style={{ whiteSpace: 'nowrap' }}>
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ padding: '0.2rem 0.4rem' }}
+                              onClick={() => imprimirPrestamoInterarea(p)}
+                            >
+                              Imprimir (firma)
+                            </button>
                             {puedeOperarDocs && activo && (
                               <>
                                 <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => abonarInterarea(p)}>Abonar</button>
@@ -1572,7 +1584,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                               : etiquetaEstadoPrestamo(p)}
                           </td>
                           <td style={{ whiteSpace: 'nowrap' }}>
-                            {!esEnvioMain && esOrigen && pendiente && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ padding: '0.2rem 0.4rem' }}
+                              onClick={() => imprimirPrestamoSucursal(p)}
+                            >
+                              Imprimir (firma)
+                            </button>
+                            {!esEnvioMain && pendiente && (
                               <>
                                 <button
                                   type="button"
@@ -1588,13 +1608,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                                   style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }}
                                   onClick={() => cobrarPrestamoSucursal(p, true)}
                                 >
-                                  Cobrar todo
+                                  Liquidar
                                 </button>
                               </>
                             )}
                             {!esEnvioMain && !esOrigen && pendiente && (
-                              <span className="muted" style={{ fontSize: '0.8rem' }}>
-                                Pagar a {etiquetaTienda(p.sucursal_origen)}
+                              <span className="muted" style={{ fontSize: '0.75rem', display: 'block' }}>
+                                Origen: {etiquetaTienda(p.sucursal_origen)}
                               </span>
                             )}
                             {esEnvioMain && (
@@ -1623,8 +1643,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             <h3 style={{ margin: '0 0 0.75rem' }}>Préstamo a empleado</h3>
             <p className="muted" style={{ fontSize: '0.85rem' }}>
               El monto se carga al <strong>corte</strong> del área elegida al aprobarse.
-              La <strong>cuota semanal</strong> ({fmt(CUOTA_SEMANAL_MINIMA)}, o el saldo si es menor) se descuenta en
-              <strong> Contabilidad → Nómina</strong> al cerrar la semana — no en caja.
+              En <strong>nómina</strong> se descuenta automáticamente <strong>${CUOTA_SEMANAL_MINIMA}</strong> por semana;
+              si el saldo es menor, se deduce el remanente hasta liquidar.
             </p>
             <div className="grid-2">
               <select className="select" value={prestEmpForm.usuarioId} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, usuarioId: e.target.value })}>
@@ -1660,8 +1680,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   </select>
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
-                  Cuota semanal
-                  <input className="input" type="number" value={editForm.cuota_semanal} onChange={(e) => setEditForm({ ...editForm, cuota_semanal: e.target.value })} />
+                  Cuota semanal (fija)
+                  <input
+                    className="input"
+                    type="number"
+                    value={CUOTA_SEMANAL_MINIMA}
+                    disabled
+                    title="Se descuenta $500 por semana en nómina; el remanente en la última semana"
+                  />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
                   Monto original {(Number(editPrestamo.abono) || 0) > 0 ? '(bloqueado: ya hay abonos)' : ''}
@@ -1744,7 +1770,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                           <td>{fmt(p.monto_original)}</td>
                           <td className="muted">{fmt(p.abono)}</td>
                           <td style={{ fontWeight: 700 }}>{fmt(p.saldo)}</td>
-                          <td>{p.cuota_semanal ? fmt(p.cuota_semanal) : '—'}</td>
+                          <td title="Descuento automático en nómina: $500/sem o remanente">{fmt(CUOTA_SEMANAL_MINIMA)}</td>
                           <td className="muted">{ETIQUETA_AREA[p.area_corte] || p.area_corte || '—'}</td>
                           <td className="muted">{p.cargado_corte ? 'Sí' : 'No'}</td>
                           <td style={{ whiteSpace: 'nowrap' }}>
@@ -1770,7 +1796,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                               <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => eliminarPrestamoEmp(p)}>Eliminar</button>
                             )}
                             {prestamoPuedeImprimir(p) && (
-                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => imprimirPrestamoSi(p)}>Imprimir recibo</button>
+                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => imprimirPrestamoSi(p)}>Imprimir (firma)</button>
                             )}
                             {esAdmin && prestamoPuedeImprimir(p) && !p.cargado_corte && (
                               <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => cargarPrestamoManual(p)}>→ Corte</button>

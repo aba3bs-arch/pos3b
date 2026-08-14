@@ -93,13 +93,11 @@ export function valeRequiereAutorizacionAdmin(fecha = new Date(), categoria = 'c
 
 export const HORA_LIMITE_VALE = 9;
 
-export function cuotaSemanalPrestamo(saldo, cuotaPropuesta) {
+/** Cuota semanal fija $500; si el saldo es menor, cobra el remanente (última semana). */
+export function cuotaSemanalPrestamo(saldo, _cuotaPropuesta) {
   const s = Math.max(0, Number(saldo) || 0);
   if (s <= 0) return 0;
-  const prop = Number(cuotaPropuesta);
-  if (prop >= CUOTA_SEMANAL_MINIMA) return Math.min(s, prop);
-  if (s < CUOTA_SEMANAL_MINIMA) return s;
-  return CUOTA_SEMANAL_MINIMA;
+  return Math.min(s, CUOTA_SEMANAL_MINIMA);
 }
 
 export function prestamoRequiereSocio(monto) {

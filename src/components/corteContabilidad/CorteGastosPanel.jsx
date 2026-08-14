@@ -154,7 +154,9 @@ export default function CorteGastosPanel({
       { user, sucursal },
     );
     if (!authTxt.ok) return alert(authTxt.error);
-    const emp = requiereEmpleado ? (empleadosEfectivos || []).find((e) => String(e.id) === String(usuarioId)) : null;
+    const emp = requiereEmpleado
+      ? (empleadosEfectivos || []).find((e) => String(e.id) === String(usuarioId))
+      : null;
     const uid = emp?.id != null ? String(emp.id) : '';
     onAgregar?.({
       categoria: cat.trim().toUpperCase(),
@@ -444,9 +446,10 @@ export default function CorteGastosPanel({
               {avisoEmp}
             </p>
           ) : null}
-          {requiereEmpleado && !avisoEmp && !gruposEmpleados.tienda.length && !gruposEmpleados.indirectos.length ? (
+          {requiereEmpleado && !avisoEmp && totalEmpleadosSelect === 0 ? (
             <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.4rem' }}>
-              Sin empleados cargados. Revisa módulo Empleados (tipo tienda / indirecto) y la tienda activa del corte.
+              Sin empleados cargados. En módulo Empleados da de alta tipo <strong>tienda</strong> (máx. 2 por sucursal) o{' '}
+              <strong>indirecto</strong> (MAIN). Los administradores no aparecen aquí.
             </p>
           ) : null}
           <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>

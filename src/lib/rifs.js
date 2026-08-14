@@ -47,7 +47,11 @@ export function etiquetaEstadoRif(estado) {
 }
 
 export function rifPuedeLiquidar(rif) {
-  return rif?.estado === 'abierto';
+  return rif?.estado === 'abierto' || rif?.estado === 'vencido';
+}
+
+export function rifPuedeAbonar(rif) {
+  return rif?.estado === 'abierto' || rif?.estado === 'vencido';
 }
 
 export function rifPuedeImprimir(rif) {
@@ -131,8 +135,14 @@ export async function liquidarRif(supabase, id, opts = {}) {
   if (e0 && faltaTabla(e0)) return { ok: false, error: AVISO_FALTA_RIFS };
   if (e0) return { ok: false, error: e0.message };
   if (!rif) return { ok: false, error: 'RIF no encontrado.' };
-  if (rif.estado !== 'abierto') {
+  if (!rifPuedeLiquidar(rif)) {
     return { ok: false, error: `No se puede liquidar: estado ${etiquetaEstadoRif(rif.estado)}.` };
+  }
+
+  // Si estaba vencido en corte abierto, quitar el gasto al liquidar.
+  if (rif.estado === 'vencido' && (rif.gasto_id || !rif.gasto_eliminado)) {
+    const q = await quitarRifDeCorteAbierto(supabase, rif);
+    if (!q.ok) return q;
   }
 
   const { data, error } = await supabase
@@ -142,12 +152,13 @@ export async function liquidarRif(supabase, id, opts = {}) {
       liquidado_por: opts.usuarioNombre || null,
       liquidado_at: new Date().toISOString(),
       saldo: 0,
+      gasto_eliminado: true,
+      gasto_id: null,
     })
     .eq('id', id)
-    .eq('estado', 'abierto')
     .select('*')
     .single();
-  if (error && /saldo/i.test(String(error.message || ''))) {
+  if (error && /saldo|gasto_/i.test(String(error.message || ''))) {
     const retry = await supabase
       .from('rifs')
       .update({
@@ -156,7 +167,6 @@ export async function liquidarRif(supabase, id, opts = {}) {
         liquidado_at: new Date().toISOString(),
       })
       .eq('id', id)
-      .eq('estado', 'abierto')
       .select('*')
       .single();
     if (retry.error) return { ok: false, error: retry.error.message };
@@ -186,7 +196,7 @@ async function afterLiquidarRif(supabase, rif, data, opts) {
 
 export async function abonarRif(supabase, rif, montoAbono, opts = {}) {
   if (!supabase || !rif?.id) return { ok: false, error: 'RIF inválido.' };
-  if (rif.estado !== 'abierto') return { ok: false, error: 'Solo se abona a RIF abiertos.' };
+  if (!rifPuedeAbonar(rif)) return { ok: false, error: 'Solo se abona a RIF abiertos o vencidos.' };
   const abono = Math.max(0, Number(montoAbono) || 0);
   if (!(abono > 0)) return { ok: false, error: 'Monto inválido.' };
   const montoAntes = Number(rif.saldo != null ? rif.saldo : rif.monto) || 0;

@@ -98,18 +98,54 @@ export function htmlVale(vale, opts = {}) {
 }
 
 export function htmlPrestamo(p) {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Préstamo</title><style>${estilos()}</style></head><body>
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Préstamo</title><style>${estilos()}
+  .firma{margin-top:48px;border-top:1px solid #333;width:70%;padding-top:6px;font-size:11px}
+  </style></head><body>
     <h1>PRÉSTAMO A EMPLEADO</h1>
     <div>Fecha: ${esc(p.fecha)}</div>
     <div>Empleado: <strong>${esc(p.nombre_empleado)}</strong></div>
     <div style="font-size:20px;margin:12px 0"><strong>Monto: ${fmt(p.monto_original)}</strong></div>
     <div>Saldo: ${fmt(p.saldo)}</div>
-    <div>Cuota semanal: <strong>${fmt(p.cuota_semanal)}</strong> (mín. $500)</div>
+    <div>Cuota semanal: <strong>$500.00</strong> (automática en nómina)</div>
     ${p.aprobado_admin_por ? `<div>Aprobó admin: ${esc(p.aprobado_admin_por)}</div>` : ''}
     ${p.aprobado_socio_por ? `<div>Aprobó socio: ${esc(p.aprobado_socio_por)}</div>` : ''}
-    <div class="muted">Descuento automático en nómina semanal (sáb–vie).</div>
+    <div class="muted">Descuento automático en nómina: $500 por semana; el remanente se deduce en la última semana hasta liquidar.</div>
     ${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ''}
-    <div style="margin-top:40px;border-top:1px solid #333;width:70%;padding-top:6px">Firma empleado: _________________________</div>
+    <div class="firma">Firma empleado: _________________________________</div>
+  </body></html>`;
+}
+
+export function htmlPrestamoInterarea(p) {
+  const saldo = p.saldo != null ? p.saldo : p.monto;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Préstamo áreas</title><style>${estilos()}
+  .firma{margin-top:48px;border-top:1px solid #333;width:70%;padding-top:6px;font-size:11px}
+  </style></head><body>
+    <h1>PRÉSTAMO ENTRE ÁREAS</h1>
+    <div>Fecha: ${esc(p.fecha)}</div>
+    <div>Origen: <strong>${esc(ETIQUETA_AREA[p.origen] || p.origen)}</strong></div>
+    <div>Destino: <strong>${esc(ETIQUETA_AREA[p.destino] || p.destino)}</strong></div>
+    <div style="font-size:20px;margin:12px 0"><strong>Monto: ${fmt(p.monto)}</strong></div>
+    <div>Saldo: ${fmt(saldo)}</div>
+    <div>Estado: ${esc(p.estado || 'activo')}</div>
+    ${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ''}
+    <div class="muted">Sucursal: ${esc(p.sucursal_id || '—')}</div>
+    <div class="firma">Firma / recibido: _________________________________</div>
+  </body></html>`;
+}
+
+export function htmlPrestamoSucursal(p) {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Préstamo sucursal</title><style>${estilos()}
+  .firma{margin-top:48px;border-top:1px solid #333;width:70%;padding-top:6px;font-size:11px}
+  </style></head><body>
+    <h1>PRÉSTAMO ENTRE SUCURSALES</h1>
+    <div>Fecha: ${esc(p.fecha)}</div>
+    <div>Origen: <strong>${esc(p.sucursal_origen || '—')}</strong></div>
+    <div>Destino: <strong>${esc(p.sucursal_destino || '—')}</strong></div>
+    <div style="font-size:20px;margin:12px 0"><strong>Monto: ${fmt(p.monto)}</strong></div>
+    <div>Saldo: ${fmt(p.saldo)}</div>
+    <div>Estado: ${esc(p.estado || '—')}</div>
+    ${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ''}
+    <div class="firma">Firma / recibido: _________________________________</div>
   </body></html>`;
 }
 
@@ -418,9 +454,17 @@ export function htmlRif(rif, opts = {}) {
 }
 
 export function imprimirRif(rif, opts) {
-  return abrirVentanaImpresion(htmlRif(rif, opts), 'RIF');
+  return abrirVentanaImpresion(htmlRif(rif, { mostrarFirma: true, ...opts }), 'RIF');
 }
 
-export function imprimirPrestamo(prestamo) {
-  return abrirVentanaImpresion(htmlPrestamo(prestamo), 'Préstamo');
+export function imprimirPrestamo(prestamo, opts = {}) {
+  return abrirVentanaImpresion(htmlPrestamo(prestamo, opts), 'Préstamo');
+}
+
+export function imprimirPrestamoInterarea(prestamo) {
+  return abrirVentanaImpresion(htmlPrestamoInterarea(prestamo), 'Préstamo áreas');
+}
+
+export function imprimirPrestamoSucursal(prestamo) {
+  return abrirVentanaImpresion(htmlPrestamoSucursal(prestamo), 'Préstamo sucursal');
 }

@@ -460,6 +460,7 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
   const monto = Number(row.monto_original) || 0;
   const areaCorte = normalizarAreaCorte(row.area_corte || opts.areaCorte, 'virtual');
   const necesitaSocio = prestamoRequiereSocio(monto);
+  const cuotaFija = cuotaSemanalPrestamo(monto);
 
   const payload = {
     ...row,
@@ -468,7 +469,7 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
     abono: 0,
     estado: 'pendiente_admin',
     requiere_aprobacion_socio: necesitaSocio,
-    cuota_semanal: 0,
+    cuota_semanal: cuotaFija,
     cargado_corte: false,
   };
   const { data, error } = await supabase.from('prestamos').insert([payload]).select('*').single();
@@ -705,11 +706,9 @@ export async function editarPrestamo(supabase, prestamo, patch = {}, { nombre } 
     upd.area_corte = area;
   }
   if (patch.cuota_semanal != null && patch.cuota_semanal !== '') {
-    const c = Math.max(0, Number(patch.cuota_semanal) || 0);
-    if (c > 0 && c < CUOTA_SEMANAL_MINIMA) {
-      return { ok: false, error: `La cuota semanal mínima es $${CUOTA_SEMANAL_MINIMA}.` };
-    }
-    upd.cuota_semanal = c;
+    // Cuota fija $500/sem en nómina (o el saldo si es menor).
+    const saldoRef = Number(prestamo.saldo) || Number(prestamo.monto_original) || 0;
+    upd.cuota_semanal = cuotaSemanalPrestamo(saldoRef, CUOTA_SEMANAL_MINIMA);
   }
   if (patch.notas !== undefined) {
     upd.notas = String(patch.notas || '').trim() || null;
