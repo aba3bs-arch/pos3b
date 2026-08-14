@@ -1013,6 +1013,22 @@ function saldoInterarea(p) {
   return Number(p?.monto) || 0;
 }
 
+export function puedeOperarPrestamoAreaSucursal(rol) {
+  const r = normalizarRol(rol);
+  return r === 'Administrador' || r === 'Gerente';
+}
+
+const AVISO_SOLO_ADMIN_GERENTE_PRESTAMO_AREA =
+  'Solo administrador o gerente pueden abonar, liquidar o editar préstamos área/sucursal.';
+
+function exigirAdminGerentePrestamoArea(opts = {}) {
+  const rol = opts.rolActor ?? opts.user?.rol;
+  if (!puedeOperarPrestamoAreaSucursal(rol)) {
+    return { ok: false, error: AVISO_SOLO_ADMIN_GERENTE_PRESTAMO_AREA };
+  }
+  return { ok: true };
+}
+
 function patchActorLiquidacionInterarea({ nombreActor, sucursal } = {}) {
   const quien = String(nombreActor || '').trim() || null;
   const donde = String(sucursal || '').trim().toUpperCase() || null;
@@ -1037,6 +1053,8 @@ async function actualizarPrestamoInterarea(supabase, prestamoId, upd) {
 }
 
 export async function abonarPrestamoInterarea(supabase, prestamo, montoAbono, opts = {}) {
+  const auth = exigirAdminGerentePrestamoArea(opts);
+  if (!auth.ok) return auth;
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
   if (String(prestamo.estado || 'activo') !== 'activo') {
     return { ok: false, error: 'El préstamo no está activo.' };
@@ -1067,6 +1085,8 @@ export async function abonarPrestamoInterarea(supabase, prestamo, montoAbono, op
 }
 
 export async function liquidarPrestamoInterarea(supabase, prestamo, opts = {}) {
+  const auth = exigirAdminGerentePrestamoArea(opts);
+  if (!auth.ok) return auth;
   const saldo = saldoInterarea(prestamo);
   if (!(saldo > 0) && String(prestamo?.estado) === 'liquidado') {
     return { ok: false, error: 'Ya está liquidado.' };
@@ -1091,6 +1111,8 @@ export async function liquidarPrestamoInterarea(supabase, prestamo, opts = {}) {
 }
 
 export async function editarPrestamoInterarea(supabase, prestamo, patch = {}, { user, sucursal } = {}) {
+  const auth = exigirAdminGerentePrestamoArea({ user, rolActor: user?.rol });
+  if (!auth.ok) return auth;
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
   if (['liquidado', 'cancelado'].includes(String(prestamo.estado || ''))) {
     return { ok: false, error: 'No se puede editar un préstamo liquidado o cancelado.' };
@@ -1370,7 +1392,9 @@ export async function registrarEnvioMainATienda(supabase, row, opts = {}) {
 }
 
 /** Abono o liquidación del préstamo entre sucursales (solo en la tienda origen). */
-export async function abonarPrestamoSucursal(supabase, prestamo, montoAbono, { nombreActor } = {}) {
+export async function abonarPrestamoSucursal(supabase, prestamo, montoAbono, { nombreActor, rolActor } = {}) {
+  const auth = exigirAdminGerentePrestamoArea({ rolActor });
+  if (!auth.ok) return auth;
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   if (!prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
   if (prestamo.estado === 'liquidado' || prestamo.estado === 'cancelado') {
