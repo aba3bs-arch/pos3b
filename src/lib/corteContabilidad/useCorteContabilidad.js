@@ -181,7 +181,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const [estRes, gasRes, histRes, empRes] = await Promise.all([
       cargarEstadoCorte(supabase, sucursal, modulo),
       listarGastosTurno(supabase, sucursal, modulo),
-      listarCierresCorte(supabase, sucursal, modulo, 15),
+      listarCierresCorte(supabase, sucursal, modulo, modulo === 'virtual' ? 80 : 15),
       cargarUsuariosCorte(),
     ]);
     if (estRes.aviso || gasRes.aviso) setAviso(estRes.aviso || gasRes.aviso || '');
@@ -467,9 +467,20 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       const mf = round2(mfCapturada ? estado.moneda_final : mi);
       const tope = monedaTopeVirtual(estado);
       const monedaInyectar = round2(Math.max(0, tope - mf));
-      const gastosPeriodoLista = gastosListaDesdeUltimaRecoleccion(historial, gastos);
-      const gastosPeriodo = gastosPeriodoDesdeUltimaRecoleccion(historial, calc.gastosTotal);
-      const gastosIds = gastosIdsDesdeUltimaRecoleccion(historial, gastos);
+      // Historial amplio para no perder gastos de cortes del periodo.
+      const histPeriodoRes = await listarCierresCorte(supabase, sucursal, modulo, 120);
+      const histPeriodo = histPeriodoRes.data?.length ? histPeriodoRes.data : historial;
+      const gastosPeriodoLista = gastosListaDesdeUltimaRecoleccion(histPeriodo, gastos, {
+        folioAbierto: folio || 'ABIERTO',
+        turnoAbierto: estado.turno_sesion || turnoActual() || 'Corte actual',
+        usuarioAbierto: user?.nombre || null,
+      });
+      const gastosPeriodo = round2(
+        gastosPeriodoLista.reduce((a, g) => a + (Number(g.monto) || 0), 0),
+      );
+      const gastosIds = gastosPeriodoLista
+        .map((g) => (g?.id != null && g.id !== '' ? String(g.id) : null))
+        .filter(Boolean);
       const estadoAprob = estadoAprobacionRecoleccionInicial(user?.nombre);
       const payload = {
         sucursal_id: sucursal || 'MAIN',

@@ -80,21 +80,48 @@ export function gastosIdsDesdeUltimaRecoleccion(historial = [], gastosAbiertos =
  * Lista de gastos del periodo (cierres desde la última recolección + abiertos actuales).
  * Para ticket de recolección e IE.
  */
-export function gastosListaDesdeUltimaRecoleccion(historial = [], gastosAbiertos = []) {
+function esCierreRecoleccion(h) {
+  const tipo = String(h?.detalle?.tipo_cierre || '').toLowerCase();
+  if (tipo === 'recoleccion' || tipo === 'recoleccion_temporal') return true;
+  const turno = String(h?.turno || '').toUpperCase();
+  return !tipo && turno.includes('RECOLEC');
+}
+
+/**
+ * Lista de gastos del periodo (cierres desde la última recolección + abiertos actuales).
+ * Para ticket de recolección e IE. Cada gasto lleva metadatos de su corte.
+ */
+export function gastosListaDesdeUltimaRecoleccion(historial = [], gastosAbiertos = [], opts = {}) {
   const porId = new Map();
-  const push = (g) => {
+  const push = (g, meta = {}) => {
     if (!g) return;
-    const id = g.id != null && g.id !== '' ? String(g.id) : null;
+    const row = {
+      ...g,
+      _corte_folio: meta.folio ?? g._corte_folio ?? null,
+      _corte_turno: meta.turno ?? g._corte_turno ?? null,
+      _corte_usuario: meta.usuario ?? g._corte_usuario ?? null,
+      _corte_fecha: meta.fecha ?? g._corte_fecha ?? null,
+      solicitado_por: g.solicitado_por || meta.usuario || g.usuario_nombre || null,
+    };
+    const id = row.id != null && row.id !== '' ? String(row.id) : null;
     if (id) {
-      if (!porId.has(id)) porId.set(id, g);
+      if (!porId.has(id)) porId.set(id, row);
       return;
     }
-    // Sin id: clave débil para no perder filas embebidas
-    const key = `tmp:${g.created_at || ''}|${g.monto}|${g.categoria}|${g.comentario || ''}|${g.usuario_nombre || ''}`;
-    if (!porId.has(key)) porId.set(key, g);
+    const key = `tmp:${row.created_at || ''}|${row.monto}|${row.categoria}|${row.comentario || ''}|${row.usuario_nombre || ''}|${row._corte_folio || ''}`;
+    if (!porId.has(key)) porId.set(key, row);
   };
 
-  for (const g of gastosAbiertos || []) push(g);
+  const folioAbierto = opts.folioAbierto || 'ABIERTO';
+  const turnoAbierto = opts.turnoAbierto || 'Corte actual';
+  for (const g of gastosAbiertos || []) {
+    push(g, {
+      folio: folioAbierto,
+      turno: turnoAbierto,
+      usuario: opts.usuarioAbierto || g.solicitado_por || g.usuario_nombre || null,
+      fecha: g.created_at || null,
+    });
+  }
 
   const lista = [...(historial || [])].sort((a, b) => {
     const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
@@ -102,9 +129,17 @@ export function gastosListaDesdeUltimaRecoleccion(historial = [], gastosAbiertos
     return tb - ta;
   });
   for (const h of lista) {
-    const tipo = String(h?.detalle?.tipo_cierre || h?.turno || '').toLowerCase();
-    if (tipo === 'recoleccion') break;
-    for (const g of h?.detalle?.gastos || []) push(g);
+    if (esCierreRecoleccion(h)) break;
+    const meta = {
+      folio: h.folio || '—',
+      turno: h.turno || h.detalle?.turno_sesion || '—',
+      usuario: h.usuario_nombre || null,
+      fecha: h.created_at || null,
+    };
+    const embebidos = h?.detalle?.gastos;
+    if (Array.isArray(embebidos) && embebidos.length) {
+      for (const g of embebidos) push(g, meta);
+    }
   }
   return [...porId.values()];
 }

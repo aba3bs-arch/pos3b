@@ -148,11 +148,9 @@ export function datosImpresionDesdeHistorial(h, modulo) {
     moneda_inyectar: (() => {
       const tope = round2(d.moneda_tope ?? d.moneda_inicial);
       const mf = round2(d.moneda_final ?? d.moneda_final_recoleccion ?? d.precoleccion);
-      if (d.moneda_inyectar != null && d.moneda_inyectar !== '' && round2(d.moneda_inyectar) > 0) {
-        return round2(d.moneda_inyectar);
-      }
       return round2(Math.max(0, tope - mf));
     })(),
+    gastos: Array.isArray(d.gastos) ? d.gastos : [],
     es_borrador: false,
   };
 }
@@ -318,6 +316,89 @@ function htmlGastosPorCajero(data) {
     .join('');
 }
 
+/** Todos los gastos del periodo agrupados por corte (folio / turno). */
+function htmlGastosPorCortePeriodo(data) {
+  const gastos = data.gastos || [];
+  if (!gastos.length) return '<p class="muted">Sin gastos en los cortes del periodo.</p>';
+
+  const porCorte = new Map();
+  for (const g of gastos) {
+    const folio = String(g._corte_folio || 'Sin folio').trim() || 'Sin folio';
+    const turno = String(g._corte_turno || '').trim();
+    const key = `${folio}||${turno}`;
+    if (!porCorte.has(key)) {
+      porCorte.set(key, {
+        folio,
+        turno,
+        usuario: g._corte_usuario || null,
+        fecha: g._corte_fecha || null,
+        total: 0,
+        items: [],
+      });
+    }
+    const block = porCorte.get(key);
+    block.total += Number(g.monto) || 0;
+    block.items.push(g);
+  }
+
+  const bloques = [...porCorte.values()].sort((a, b) => {
+    const ta = a.fecha ? new Date(a.fecha).getTime() : 0;
+    const tb = b.fecha ? new Date(b.fecha).getTime() : 0;
+    return tb - ta;
+  });
+
+  return bloques
+    .map((block) => {
+      const fechaTxt = block.fecha
+        ? new Date(block.fecha).toLocaleString('es-MX', {
+          day: '2-digit',
+          month: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+        : '';
+      const head = [
+        `Folio ${block.folio}`,
+        block.turno ? block.turno : null,
+        block.usuario ? block.usuario : null,
+        fechaTxt || null,
+      ].filter(Boolean).join(' · ');
+      const rows = block.items
+        .map((it) => {
+          const catU = String(it.categoria || '').toUpperCase();
+          const esEmp = catU.startsWith('EMPLEADO')
+            || catU.includes('CONSUMO')
+            || catU.includes('ANTICIPO')
+            || catU.includes('FALTANTE')
+            || catU.includes('RECARG');
+          const concepto = esEmp
+            ? [it.subcategoria || it.categoria, it.comentario].filter(Boolean).join(' · ')
+            : [it.categoria, it.subcategoria, it.comentario].filter(Boolean).join(' · ');
+          const emp = String(it.usuario_nombre || '').trim() || '—';
+          const hora = it.created_at
+            ? new Date(it.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+            : '—';
+          return `<tr>
+            <td>${esc(concepto || '—')}</td>
+            <td>${esc(emp)}</td>
+            <td class="r muted">${esc(hora)}</td>
+            <td class="r">${fmt(it.monto)}</td>
+          </tr>`;
+        })
+        .join('');
+      return `
+        <div class="cat-block">
+          <div class="cat-head"><strong>${esc(head)}</strong></div>
+          <table>
+            <tr><td class="muted">Concepto</td><td class="muted">Empleado</td><td class="r muted">Hora</td><td class="r muted">Monto</td></tr>
+            ${rows}
+            <tr><td colspan="3"><strong>Subtotal corte</strong></td><td class="r"><strong>${fmt(block.total)}</strong></td></tr>
+          </table>
+        </div>`;
+    })
+    .join('');
+}
+
 /** Ticket simple de recolección Virtual: tope, final, inyectar, gastos, recolectado. */
 export function htmlRecoleccionVirtual(data) {
   const logo = leerLogoUrl();
@@ -333,22 +414,29 @@ export function htmlRecoleccionVirtual(data) {
       ?? e.moneda_inicial
       ?? e.moneda_operacion,
   );
-  // Siempre tope − MF con los montos del ticket (no confiar en 0 guardado por ??).
+  // Siempre tope − MF (lo que Antonio debe inyectar / actualizar en portal).
   const inyectar = round2(Math.max(0, tope - mf));
   const rec = round2(data.recoleccion ?? e.recoleccion ?? e.recoleccion_turno ?? 0);
   const gastosLista = (data.gastos && data.gastos.length)
     ? data.gastos
     : (Array.isArray(e.gastos) ? e.gastos : []);
   const gastosTotal = round2(
-    data.gastos_total
-      ?? e.gastos_total
-      ?? gastosLista.reduce((a, g) => a + (Number(g.monto) || 0), 0),
+    gastosLista.reduce((a, g) => a + (Number(g.monto) || 0), 0),
   );
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recolección Virtual</title><style>
     ${estilosCortePos()}
     .banner{background:#6c3483}
-    .inyectar-monto{font-size:14px;font-weight:900}
+    .inyectar-box{
+      margin:12px 0;
+      text-align:center;
+      border:3px solid #6c3483;
+      padding:12px 8px;
+      background:#f5eef8;
+    }
+    .inyectar-label{font-size:12px;font-weight:900;margin:0 0 4px;color:#6c3483}
+    .inyectar-monto{font-size:20px;font-weight:900;margin:0;color:#000}
+    .inyectar-hint{font-size:11px;font-weight:800;margin:6px 0 0}
     .recolectado{
       margin-top:14px;
       text-align:center;
@@ -373,14 +461,15 @@ export function htmlRecoleccionVirtual(data) {
     <table>
       <tr><td>Moneda tope</td><td class="r"><strong>${fmt(tope)}</strong></td></tr>
       <tr><td>Moneda final</td><td class="r"><strong>${fmt(mf)}</strong></td></tr>
-      <tr>
-        <td>Moneda a inyectar<br/><span class="muted">tope − moneda final</span></td>
-        <td class="r"><span class="inyectar-monto">${fmt(inyectar)}</span></td>
-      </tr>
     </table>
+    <div class="inyectar-box">
+      <p class="inyectar-label">MONEDA A INYECTAR</p>
+      <p class="inyectar-monto">${fmt(inyectar)}</p>
+      <p class="inyectar-hint">tope − moneda final · actualizar portal con esta cantidad</p>
+    </div>
     <div class="sep"></div>
-    <strong>Desglose de gastos (cierres del periodo)</strong>
-    ${htmlGastosPorCajero({ ...data, gastos: gastosLista })}
+    <strong>Desglose de gastos — todos los cortes del periodo (${gastosLista.length})</strong>
+    ${htmlGastosPorCortePeriodo({ ...data, gastos: gastosLista })}
     <table style="margin-top:8px">
       <tr><td><strong>Total gastos</strong></td><td class="r"><strong>${fmt(gastosTotal)}</strong></td></tr>
     </table>
@@ -408,11 +497,11 @@ export function datosImpresionRecoleccionVirtual({
   const e = estado || {};
   const tope = round2(moneda_tope ?? e.moneda_tope ?? e.moneda_inicial);
   const mf = round2(moneda_final ?? e.moneda_final ?? e.moneda_final_recoleccion ?? e.precoleccion);
-  const inyectar = round2(
-    moneda_inyectar != null && moneda_inyectar !== ''
-      ? Math.max(0, round2(moneda_inyectar))
-      : Math.max(0, tope - mf),
-  );
+  const inyectar = round2(Math.max(0, tope - mf));
+  const lista = Array.isArray(gastos) && gastos.length
+    ? gastos
+    : (Array.isArray(e.gastos) ? e.gastos : []);
+  const gastosTotal = round2(lista.reduce((a, g) => a + (Number(g.monto) || 0), 0));
   return {
     modulo: 'virtual',
     sucursal,
@@ -424,13 +513,15 @@ export function datosImpresionRecoleccionVirtual({
     venta: calc?.venta ?? 0,
     subtotal: calc?.subtotal ?? 0,
     caja_actual: calc?.cajaActual ?? 0,
-    gastos_total: calc?.gastosTotal ?? 0,
-    gastos: gastos || [],
+    gastos_total: gastosTotal || round2(calc?.gastosTotal ?? e.gastos_total ?? 0),
+    gastos: lista,
     estado: {
       ...e,
       moneda_tope: tope,
       moneda_final: mf,
       moneda_inyectar: inyectar,
+      gastos: lista,
+      gastos_total: gastosTotal || round2(calc?.gastosTotal ?? e.gastos_total ?? 0),
     },
     comentarios: e.comentarios || '',
     recoleccion: recoleccion ?? e.recoleccion ?? e.recoleccion_turno ?? 0,

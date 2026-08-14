@@ -146,8 +146,9 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         `Caja chica quedará en ${fmtCorte(0)}\n` +
         `Moneda final actual: ${fmtCorte(mfActual)}\n` +
         `Tope de operación: ${fmtCorte(monedaOperacion)}\n` +
-        `Inyección automática: ${fmtCorte(inyectar)}\n` +
+        `>>> MONEDA A INYECTAR (tope − final): ${fmtCorte(inyectar)} <<<\n` +
         `Próxima moneda inicial (MI = tope): ${fmtCorte(miSiguiente)}\n\n` +
+        `Antonio: actualizar portal solo con la moneda a inyectar.\n` +
         `Después de la recolección, si cambia el tope, la MI del corte también cambia.\n` +
         `Al cerrar el siguiente turno, la MI del corte siguiente será la MF de ese cierre.`,
     )) return;
