@@ -143,7 +143,16 @@ export function datosImpresionDesdeHistorial(h, modulo) {
     comentarios: d.comentarios || '',
     recoleccion: d.recoleccion ?? d.recoleccion_turno ?? 0,
     recoleccion_anterior_tras: d.recoleccion_anterior_tras,
-    moneda_inyectar: d.moneda_inyectar ?? 0,
+    moneda_tope: d.moneda_tope ?? d.moneda_inicial,
+    moneda_final: d.moneda_final ?? d.moneda_final_recoleccion ?? d.precoleccion,
+    moneda_inyectar: (() => {
+      const tope = round2(d.moneda_tope ?? d.moneda_inicial);
+      const mf = round2(d.moneda_final ?? d.moneda_final_recoleccion ?? d.precoleccion);
+      if (d.moneda_inyectar != null && d.moneda_inyectar !== '' && round2(d.moneda_inyectar) > 0) {
+        return round2(d.moneda_inyectar);
+      }
+      return round2(Math.max(0, tope - mf));
+    })(),
     es_borrador: false,
   };
 }
@@ -315,12 +324,18 @@ export function htmlRecoleccionVirtual(data) {
   const negocio = leerNombreNegocio();
   const fecha = data.fecha ? new Date(data.fecha).toLocaleString('es-MX') : new Date().toLocaleString('es-MX');
   const e = data.estado || {};
-  const mf = round2(e.moneda_final);
-  const tope = round2(e.moneda_tope ?? e.moneda_inicial);
-  const inyectar = round2(
-    data.moneda_inyectar ?? e.moneda_inyectar ?? Math.max(0, tope - mf),
+  const mf = round2(
+    data.moneda_final ?? e.moneda_final ?? e.moneda_final_recoleccion ?? e.precoleccion,
   );
-  const rec = round2(data.recoleccion ?? e.recoleccion ?? 0);
+  const tope = round2(
+    data.moneda_tope
+      ?? e.moneda_tope
+      ?? e.moneda_inicial
+      ?? e.moneda_operacion,
+  );
+  // Siempre tope − MF con los montos del ticket (no confiar en 0 guardado por ??).
+  const inyectar = round2(Math.max(0, tope - mf));
+  const rec = round2(data.recoleccion ?? e.recoleccion ?? e.recoleccion_turno ?? 0);
   const gastosLista = (data.gastos && data.gastos.length)
     ? data.gastos
     : (Array.isArray(e.gastos) ? e.gastos : []);
@@ -333,7 +348,7 @@ export function htmlRecoleccionVirtual(data) {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recolección Virtual</title><style>
     ${estilosCortePos()}
     .banner{background:#6c3483}
-    .inyectar-monto{font-size:12px;font-weight:900}
+    .inyectar-monto{font-size:14px;font-weight:900}
     .recolectado{
       margin-top:14px;
       text-align:center;
@@ -386,8 +401,18 @@ export function datosImpresionRecoleccionVirtual({
   calc,
   recoleccion,
   moneda_inyectar,
+  moneda_tope,
+  moneda_final,
   fecha,
 }) {
+  const e = estado || {};
+  const tope = round2(moneda_tope ?? e.moneda_tope ?? e.moneda_inicial);
+  const mf = round2(moneda_final ?? e.moneda_final ?? e.moneda_final_recoleccion ?? e.precoleccion);
+  const inyectar = round2(
+    moneda_inyectar != null && moneda_inyectar !== ''
+      ? Math.max(0, round2(moneda_inyectar))
+      : Math.max(0, tope - mf),
+  );
   return {
     modulo: 'virtual',
     sucursal,
@@ -401,10 +426,17 @@ export function datosImpresionRecoleccionVirtual({
     caja_actual: calc?.cajaActual ?? 0,
     gastos_total: calc?.gastosTotal ?? 0,
     gastos: gastos || [],
-    estado: estado || {},
-    comentarios: estado?.comentarios || '',
-    recoleccion: recoleccion ?? 0,
-    moneda_inyectar: moneda_inyectar ?? estado?.moneda_inyectar ?? 0,
+    estado: {
+      ...e,
+      moneda_tope: tope,
+      moneda_final: mf,
+      moneda_inyectar: inyectar,
+    },
+    comentarios: e.comentarios || '',
+    recoleccion: recoleccion ?? e.recoleccion ?? e.recoleccion_turno ?? 0,
+    moneda_tope: tope,
+    moneda_final: mf,
+    moneda_inyectar: inyectar,
     es_borrador: false,
   };
 }

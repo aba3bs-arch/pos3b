@@ -462,10 +462,11 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       if (!(calcRec > 0)) {
         return alert('Indique el monto de recolección.');
       }
-      const mf = round2(estado.moneda_final);
+      const mfCapturada = Boolean(estado.moneda_final_editada) || round2(estado.moneda_final) > 0;
       const mi = round2(estado.moneda_inicial_turno ?? estado.moneda_inicial);
+      const mf = round2(mfCapturada ? estado.moneda_final : mi);
       const tope = monedaTopeVirtual(estado);
-      const monedaInyectar = monedaAInyectarVirtual(estado, mf);
+      const monedaInyectar = round2(Math.max(0, tope - mf));
       const gastosPeriodoLista = gastosListaDesdeUltimaRecoleccion(historial, gastos);
       const gastosPeriodo = gastosPeriodoDesdeUltimaRecoleccion(historial, calc.gastosTotal);
       const gastosIds = gastosIdsDesdeUltimaRecoleccion(historial, gastos);
@@ -537,6 +538,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         ok: true,
         folio: payload.folio,
         recoleccion: calcRec,
+        monedaTope: tope,
+        monedaFinal: mf,
         monedaInyectar,
         miSiguiente: nuevoEstado.moneda_inicial_turno,
         estadoImpresion: payload.detalle,
