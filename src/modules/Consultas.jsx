@@ -18,6 +18,7 @@ import {
   inicialesNombre,
 } from '../lib/consultasUi.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
+import ReportePreciosVentas from '../components/ReportePreciosVentas.jsx';
 import './Consultas.css';
 
 const NAV = [
@@ -26,6 +27,7 @@ const NAV = [
   { id: 'compras', label: 'Compras', ico: '🛒' },
   { id: 'cajas', label: 'Cajas de cobro', ico: '🖥' },
   { id: 'inventarios', label: 'Inventarios', ico: '⬡' },
+  { id: 'precios', label: 'Precios', ico: '$' },
 ];
 
 const TITULOS = {
@@ -39,6 +41,8 @@ const TITULOS = {
   cajas_saldos: 'Saldos de caja',
   cajas_cortes: 'Cortes de caja',
   inventarios: 'Ajuste De Inventario',
+  precios: 'Precios',
+  precios_vs_inv: 'Precios · Ventas vs inventario',
 };
 
 function hoyYmd() {
@@ -131,7 +135,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     seccion === 'compras' ||
     seccion === 'inventarios' ||
     seccion === 'cajas_cortes' ||
-    seccion === 'cajas_saldos';
+    seccion === 'cajas_saldos' ||
+    seccion === 'precios_vs_inv';
 
   const buscarVentas = useCallback(async () => {
     if (!supabase) return [];
@@ -222,7 +227,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   }, [supabase, filtroSucursal, sucursal]);
 
   const refrescar = useCallback(async () => {
-    if (!esLista) return;
+    if (!esLista || seccion === 'precios_vs_inv') return;
     setLoading(true);
     setAviso('');
     setSel(null);
@@ -448,7 +453,9 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
               ? 'Buscar caja o turno'
               : seccion === 'inventarios'
                 ? 'Buscar folio o monto'
-                : 'Buscar…';
+                : seccion === 'precios_vs_inv'
+                  ? 'Buscar código o nombre'
+                  : 'Buscar…';
 
   const irA = (id) => {
     setSel(null);
@@ -553,7 +560,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
               seccion === 'cajas_saldos' ||
               seccion === 'cfdi_ventas' ||
               seccion === 'ventas_tickets' ||
-              seccion === 'ventas_articulo') && (
+              seccion === 'ventas_articulo' ||
+              seccion === 'precios_vs_inv') && (
               <button
                 type="button"
                 className="consultas-back"
@@ -562,6 +570,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                   if (enDetalleInv) setSel(null);
                   else if (seccion.startsWith('cajas_')) irA('cajas');
                   else if (seccion.startsWith('cfdi_')) irA('cfdi');
+                  else if (seccion.startsWith('precios_')) irA('precios');
                   else if (seccion.startsWith('ventas_')) irA('ventas');
                 }}
               >
@@ -626,6 +635,21 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
             </button>
             <button type="button" onClick={() => irA('cajas_cortes')}>
               Cortes de caja <span>›</span>
+            </button>
+          </div>
+        )}
+
+        {seccion === 'precios' && (
+          <div className="consultas-submenu">
+            <button
+              type="button"
+              onClick={() => {
+                setDesde(haceDiasYmd(30));
+                setHasta(hoyYmd());
+                irA('precios_vs_inv');
+              }}
+            >
+              Ventas vs inventario <span>›</span>
             </button>
           </div>
         )}
@@ -838,6 +862,18 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
             {aviso && <div className="consultas-aviso">{aviso}</div>}
 
             <div className="consultas-body">
+              {seccion === 'precios_vs_inv' && (
+                <ReportePreciosVentas
+                  supabase={supabase}
+                  inventario={inventario}
+                  desde={desde}
+                  hasta={hasta}
+                  filtroSucursal={filtroSucursal}
+                  q={q}
+                  onAviso={setAviso}
+                />
+              )}
+
               {(seccion === 'ventas_tickets' || seccion === 'cfdi_ventas') && (
                 ventasFiltradas.length === 0 ? (
                   <EmptyState />
