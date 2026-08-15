@@ -344,6 +344,7 @@ Pedido y recepción desde el módulo si la impresión está activa en Configurac
     body: `### 11.1 Consultas
 
 - Ventas por fecha, producto, sucursal
+- **Precios → Ventas vs inventario**: compara lo cobrado en cada ticket con el precio actual del catálogo (útil si la caja cobró $0 o un precio distinto)
 - Movimientos de inventario
 - Cortes históricos
 - Filtro por tienda cuando hay varias sucursales

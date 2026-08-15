@@ -74,3 +74,66 @@ export async function consultarVentas(supabase, opts = {}) {
     aviso: AVISO_SIN_CREATED_AT,
   };
 }
+
+export const VENTAS_PAGE_SIZE = 1000;
+
+/**
+ * Todas las ventas del rango (PostgREST limita ~1000 filas por request).
+ */
+export async function consultarVentasPaginadas(supabase, opts = {}) {
+  if (!supabase) return { data: [], error: 'Sin conexión a Supabase', sinFecha: false };
+
+  const {
+    columns = VENTAS_SELECT_FULL,
+    desde = null,
+    hasta = null,
+    sucursal = null,
+    pageSize = VENTAS_PAGE_SIZE,
+    orderAsc = true,
+  } = opts;
+
+  const suc = sucursal ? normalizarCodigoTienda(sucursal) : null;
+
+  const fetchConColumnas = async (cols) => {
+    const all = [];
+    let from = 0;
+    const usaFecha = cols.includes('created_at');
+    for (;;) {
+      let q = supabase.from('ventas').select(cols);
+      if (suc) q = q.eq('sucursal_id', suc);
+      if (usaFecha && desde) q = q.gte('created_at', desde.toISOString());
+      if (usaFecha && hasta) q = q.lte('created_at', hasta.toISOString());
+      if (usaFecha) q = q.order('created_at', { ascending: orderAsc }).order('id', { ascending: true });
+      else q = q.order('id', { ascending: false });
+      const { data, error } = await q.range(from, from + pageSize - 1);
+      if (error) return { data: all, error };
+      const batch = data || [];
+      all.push(...batch);
+      if (batch.length < pageSize) return { data: all, error: null };
+      from += pageSize;
+    }
+  };
+
+  const primero = await fetchConColumnas(columns);
+  if (!primero.error) return { data: primero.data || [], error: null, sinFecha: false };
+
+  if (!errorFaltaCreatedAt(primero.error)) {
+    return { data: [], error: primero.error.message, sinFecha: false };
+  }
+
+  const colsSin = columns
+    .split(',')
+    .map((c) => c.trim())
+    .filter((c) => c && c !== 'created_at')
+    .join(',');
+
+  const segundo = await fetchConColumnas(colsSin || VENTAS_SELECT_BASE);
+  if (segundo.error) return { data: [], error: segundo.error.message, sinFecha: true };
+
+  return {
+    data: segundo.data || [],
+    error: null,
+    sinFecha: true,
+    aviso: AVISO_SIN_CREATED_AT,
+  };
+}
