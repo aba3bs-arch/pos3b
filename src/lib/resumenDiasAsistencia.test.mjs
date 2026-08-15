@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import {
   clasificarHuecosSinAsistencia,
   construirResumenEmpleados,
+  diasCompletosPorEntradaSalida,
   listarYmdInclusive,
   lineaResumenEmpleado,
   resumirDiasEmpleado,
@@ -17,6 +18,25 @@ assert.deepEqual(semana, [
   '2026-08-15',
   '2026-08-16',
 ])
+
+function parDia(usuario_id, nombre, sucursal_id, ymd) {
+  return [
+    {
+      usuario_id,
+      nombre,
+      sucursal_id,
+      tipo: 'ENTRADA',
+      created_at: `${ymd}T08:00:00`,
+    },
+    {
+      usuario_id,
+      nombre,
+      sucursal_id,
+      tipo: 'SALIDA',
+      created_at: `${ymd}T16:00:00`,
+    },
+  ]
+}
 
 // Sandra: 5 días + 2 descansos aislados (p. ej. mié y dom)
 {
@@ -68,25 +88,35 @@ assert.equal(
 )
 
 {
-  const iso = (ymd) => `${ymd}T15:00:00`
+  const soloEntrada = [
+    { tipo: 'ENTRADA', created_at: '2026-08-10T08:00:00' },
+    { tipo: 'ENTRADA', created_at: '2026-08-11T08:00:00' },
+  ]
+  assert.equal(diasCompletosPorEntradaSalida(soloEntrada).size, 0)
+}
+
+{
+  const noche = [
+    { tipo: 'ENTRADA', created_at: '2026-08-10T22:00:00' },
+    { tipo: 'SALIDA', created_at: '2026-08-11T06:00:00' },
+  ]
+  const dias = diasCompletosPorEntradaSalida(noche)
+  assert.equal(dias.size, 1)
+  assert.ok(dias.has('2026-08-10'))
+  assert.equal(dias.has('2026-08-11'), false)
+}
+
+{
   const ahora = new Date(2026, 7, 16, 20, 0, 0)
   const usuarios = [
     { id: '1', nombre: 'sandra martinez', sucursal_id: '3B10', activo: true, rol: 'Cajero' },
     { id: '2', nombre: 'lizbeth selene lopez', sucursal_id: 'FUSION', activo: true, rol: 'Cajero' },
   ]
   const marcajes = [
-    ...['2026-08-10', '2026-08-11', '2026-08-13', '2026-08-14', '2026-08-15'].map((d) => ({
-      usuario_id: '1',
-      nombre: 'sandra martinez',
-      sucursal_id: '3B10',
-      created_at: iso(d),
-    })),
-    ...['2026-08-10', '2026-08-16'].map((d) => ({
-      usuario_id: '2',
-      nombre: 'lizbeth selene lopez',
-      sucursal_id: 'FUSION',
-      created_at: iso(d),
-    })),
+    ...['2026-08-10', '2026-08-11', '2026-08-13', '2026-08-14', '2026-08-15'].flatMap((d) =>
+      parDia('1', 'sandra martinez', '3B10', d),
+    ),
+    ...['2026-08-10', '2026-08-16'].flatMap((d) => parDia('2', 'lizbeth selene lopez', 'FUSION', d)),
   ]
   const filas = construirResumenEmpleados({
     usuarios,
@@ -103,7 +133,6 @@ assert.equal(
 }
 
 {
-  const iso = (ymd) => `${ymd}T15:00:00`
   const ahora = new Date(2026, 7, 16, 20, 0, 0)
   const filas = construirResumenEmpleados({
     usuarios: [{ id: '1', nombre: 'sandra martinez', sucursal_id: '3B10', activo: true, rol: 'Cajero' }],
@@ -112,13 +141,29 @@ assert.equal(
         usuario_id: null,
         nombre: 'juan perez (cubre turno)',
         sucursal_id: '3B10',
-        created_at: iso('2026-08-11'),
+        tipo: 'ENTRADA',
+        created_at: '2026-08-11T08:00:00',
       },
       {
         usuario_id: null,
         nombre: 'juan perez (cubre turno)',
         sucursal_id: '3B10',
-        created_at: iso('2026-08-13'),
+        tipo: 'SALIDA',
+        created_at: '2026-08-11T16:00:00',
+      },
+      {
+        usuario_id: null,
+        nombre: 'juan perez (cubre turno)',
+        sucursal_id: '3B10',
+        tipo: 'ENTRADA',
+        created_at: '2026-08-13T08:00:00',
+      },
+      {
+        usuario_id: null,
+        nombre: 'juan perez (cubre turno)',
+        sucursal_id: '3B10',
+        tipo: 'SALIDA',
+        created_at: '2026-08-13T16:00:00',
       },
     ],
     desdeYmd: '2026-08-10',
@@ -132,6 +177,31 @@ assert.equal(
   assert.equal(ct.dias, 2)
   assert.equal(ct.descansos, 0)
   assert.equal(ct.faltas, 0)
+}
+
+// Solo entradas (p. ej. María Milagros / Luz Elena): no es día trabajado
+{
+  const ahora = new Date(2026, 7, 16, 20, 0, 0)
+  const filas = construirResumenEmpleados({
+    usuarios: [{ id: '9', nombre: 'maria milagros', sucursal_id: '3B10', activo: true, rol: 'Cajero' }],
+    marcajes: ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14', '2026-08-15', '2026-08-16'].map(
+      (d) => ({
+        usuario_id: '9',
+        nombre: 'maria milagros',
+        sucursal_id: '3B10',
+        tipo: 'ENTRADA',
+        created_at: `${d}T08:00:00`,
+      }),
+    ),
+    desdeYmd: '2026-08-10',
+    hastaYmd: '2026-08-16',
+    ahora,
+    filtroSucursal: '3B10',
+  })
+  const maria = filas.find((f) => f.nombre === 'maria milagros')
+  assert.equal(maria.dias, 0)
+  assert.equal(maria.descansos, 1)
+  assert.equal(maria.faltas, 6)
 }
 
 console.log('resumenDiasAsistencia.test.mjs ok')

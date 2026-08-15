@@ -117,8 +117,9 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, suc
     <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
       <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Resumen de días</h3>
       <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-        De los días <strong>seguidos</strong> sin checada, el primero cuenta como descanso; a partir del segundo son faltas.
-        No se cuentan días futuros. Quien cubre turno (<strong>CT</strong>) solo suma los días que checó: sin descanso ni faltas.
+        De los días <strong>seguidos</strong> sin jornada cerrada, el primero cuenta como descanso; a partir del segundo son faltas.
+        Un día trabajado requiere <strong>entrada y salida</strong> (si solo hay entrada, no cuenta). El turno nocturno cierra al día siguiente.
+        No se cuentan días futuros. Quien cubre turno (<strong>CT</strong>) solo suma los días cerrados: sin descanso ni faltas.
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'flex-end' }}>
         {esAdmin && (
