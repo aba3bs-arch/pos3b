@@ -118,7 +118,7 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, suc
       <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Resumen de días</h3>
       <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
         De los días <strong>seguidos</strong> sin checada, el primero cuenta como descanso; a partir del segundo son faltas.
-        No se cuentan días futuros. Quien cubre turno aparece si checó en el periodo.
+        No se cuentan días futuros. Quien cubre turno (<strong>CT</strong>) solo suma los días que checó: sin descanso ni faltas.
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'flex-end' }}>
         {esAdmin && (
@@ -161,25 +161,44 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, suc
       {error && (
         <p style={{ margin: '0 0 0.75rem', color: 'var(--brand-red)' }}>{error}</p>
       )}
-      {!cargando && !error && filas.length === 0 ? (
+      {!error && !cargando && filas.length === 0 ? (
         <p className="muted">Sin empleados ni checadas en el periodo.</p>
-      ) : (
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-          {filas.map((f) => (
-            <li
-              key={f.clave}
-              style={{
-                padding: '0.55rem 0',
-                borderBottom: '1px solid var(--border)',
-                fontVariantNumeric: 'tabular-nums',
-                fontWeight: 600,
-                color: 'var(--brand-blue-dark)',
-              }}
-            >
-              {f.linea}
-            </li>
-          ))}
-        </ul>
+      ) : !error ? (
+        <div className="table-wrap">
+          <table className="data">
+            <thead>
+              <tr>
+                <th>Empleado</th>
+                <th>Tienda</th>
+                <th>Días</th>
+                <th>Descanso</th>
+                <th>Faltas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filas.map((f) => (
+                <tr key={f.clave}>
+                  <td>
+                    {f.nombre}
+                    {f.esCubreTurno ? (
+                      <span className="badge" style={{ marginLeft: '0.4rem' }}>
+                        CT
+                      </span>
+                    ) : null}
+                  </td>
+                  <td>{f.sucursalEtiqueta}</td>
+                  <td style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{f.dias}</td>
+                  <td className={f.esCubreTurno ? 'muted' : undefined} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {f.esCubreTurno ? '—' : f.descansos}
+                  </td>
+                  <td className={f.esCubreTurno ? 'muted' : undefined} style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {f.esCubreTurno ? '—' : f.faltas}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
