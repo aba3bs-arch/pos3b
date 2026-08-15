@@ -44,6 +44,10 @@ export function limpiarNombreAsistencia(nombre) {
     .trim()
 }
 
+export function esNombreCubreTurno(nombre) {
+  return /\(\s*cubre\s*turno\s*\)/i.test(String(nombre || ''))
+}
+
 /**
  * @param {Set<string>} diasTrabajadosYmd
  * @param {string[]} diasPeriodoYmd
@@ -69,10 +73,19 @@ export function clasificarHuecosSinAsistencia(diasTrabajadosYmd, diasPeriodoYmd)
   return { descansos, faltas }
 }
 
-export function resumirDiasEmpleado({ diasTrabajadosYmd, desdeYmd, hastaYmd, ahora }) {
+export function resumirDiasEmpleado({
+  diasTrabajadosYmd,
+  desdeYmd,
+  hastaYmd,
+  ahora,
+  soloDiasRegistrados = false,
+}) {
   const hasta = ymdHastaEfectivo(hastaYmd, ahora)
   const periodo = listarYmdInclusive(desdeYmd, hasta)
   const enPeriodo = new Set(periodo.filter((d) => diasTrabajadosYmd.has(d)))
+  if (soloDiasRegistrados) {
+    return { dias: enPeriodo.size, descansos: 0, faltas: 0 }
+  }
   const { descansos, faltas } = clasificarHuecosSinAsistencia(enPeriodo, periodo)
   return {
     dias: enPeriodo.size,
@@ -110,18 +123,20 @@ export function construirResumenEmpleados({
   const porId = new Map()
   const porNomSuc = new Map()
 
-  const ensure = (clave, { nombre, sucursalId, usuarioId }) => {
+  const ensure = (clave, { nombre, sucursalId, usuarioId, esCubreTurno = false }) => {
     if (!map.has(clave)) {
       map.set(clave, {
         clave,
         nombre: nombre || 'Sin nombre',
         sucursalId: sucursalId || filtro || '',
         usuarioId: usuarioId || '',
+        esCubreTurno: Boolean(esCubreTurno),
         diasTrabajadosYmd: new Set(),
       })
     }
     const row = map.get(clave)
     if (nombre && row.nombre === 'Sin nombre') row.nombre = nombre
+    if (esCubreTurno) row.esCubreTurno = true
     return row
   }
 
@@ -133,7 +148,7 @@ export function construirResumenEmpleados({
     if (filtro && sucU !== filtro) continue
     if (!sucU) continue
     const clave = `id:${u.id}`
-    ensure(clave, { nombre: u.nombre, sucursalId: sucU, usuarioId: String(u.id) })
+    ensure(clave, { nombre: u.nombre, sucursalId: sucU, usuarioId: String(u.id), esCubreTurno: false })
     porId.set(String(u.id), clave)
     const nomClave = claveNombreSucursal(u.nombre, sucU)
     if (nomClave) porNomSuc.set(nomClave, clave)
@@ -145,17 +160,31 @@ export function construirResumenEmpleados({
     const ymd = ymdLocalDesdeIso(m.created_at)
     if (!ymd) continue
     const uid = m.usuario_id != null ? String(m.usuario_id).trim() : ''
+    const cubrePorNombre = esNombreCubreTurno(m.nombre)
     let clave = uid && porId.has(uid) ? porId.get(uid) : ''
     const nomClave = claveNombreSucursal(m.nombre, sucM || filtro)
-    if (!clave && nomClave) clave = porNomSuc.get(nomClave) || ''
+    if (!clave && nomClave && map.has(`ct:${nomClave}`)) clave = `ct:${nomClave}`
+    // CT no se mezcla con la plantilla por nombre: es gente eventual.
+    if (!clave && !cubrePorNombre && nomClave) clave = porNomSuc.get(nomClave) || ''
     if (!clave) {
-      clave = uid ? `id:${uid}` : nomClave || `tmp:${map.size}`
+      clave = cubrePorNombre
+        ? `ct:${nomClave || map.size}`
+        : uid
+          ? `id:${uid}`
+          : nomClave || `tmp:${map.size}`
       const nombre = limpiarNombreAsistencia(m.nombre) || 'Sin nombre'
-      ensure(clave, { nombre, sucursalId: sucM || filtro, usuarioId: uid })
-      if (uid) porId.set(uid, clave)
-      if (nomClave) porNomSuc.set(nomClave, clave)
+      ensure(clave, {
+        nombre,
+        sucursalId: sucM || filtro,
+        usuarioId: uid,
+        esCubreTurno: cubrePorNombre || !uid,
+      })
+      if (uid && !cubrePorNombre) porId.set(uid, clave)
+      if (nomClave && !cubrePorNombre) porNomSuc.set(nomClave, clave)
     }
-    map.get(clave).diasTrabajadosYmd.add(ymd)
+    const row = map.get(clave)
+    if (cubrePorNombre) row.esCubreTurno = true
+    row.diasTrabajadosYmd.add(ymd)
   }
 
   const sucMostrar = (row) => filtro || row.sucursalId || '—'
@@ -166,11 +195,13 @@ export function construirResumenEmpleados({
       desdeYmd,
       hastaYmd,
       ahora,
+      soloDiasRegistrados: row.esCubreTurno,
     })
     const sucursalEtiqueta = sucMostrar(row)
     return {
       clave: row.clave,
       nombre: row.nombre,
+      esCubreTurno: Boolean(row.esCubreTurno),
       sucursalId: row.sucursalId,
       sucursalEtiqueta,
       dias: r.dias,
@@ -189,6 +220,7 @@ export function construirResumenEmpleados({
   lista.sort((a, b) => {
     const s = String(a.sucursalEtiqueta).localeCompare(String(b.sucursalEtiqueta), 'es')
     if (s) return s
+    if (Boolean(a.esCubreTurno) !== Boolean(b.esCubreTurno)) return a.esCubreTurno ? 1 : -1
     return String(a.nombre).localeCompare(String(b.nombre), 'es')
   })
   return lista

@@ -102,4 +102,36 @@ assert.equal(
   assert.equal(liz.linea, 'lizbeth selene lopez: FUSION dias 2 - descanso 1 - faltas 4')
 }
 
+{
+  const iso = (ymd) => `${ymd}T15:00:00`
+  const ahora = new Date(2026, 7, 16, 20, 0, 0)
+  const filas = construirResumenEmpleados({
+    usuarios: [{ id: '1', nombre: 'sandra martinez', sucursal_id: '3B10', activo: true, rol: 'Cajero' }],
+    marcajes: [
+      {
+        usuario_id: null,
+        nombre: 'juan perez (cubre turno)',
+        sucursal_id: '3B10',
+        created_at: iso('2026-08-11'),
+      },
+      {
+        usuario_id: null,
+        nombre: 'juan perez (cubre turno)',
+        sucursal_id: '3B10',
+        created_at: iso('2026-08-13'),
+      },
+    ],
+    desdeYmd: '2026-08-10',
+    hastaYmd: '2026-08-16',
+    ahora,
+    filtroSucursal: '3B10',
+  })
+  const ct = filas.find((f) => f.esCubreTurno)
+  assert.ok(ct)
+  assert.equal(ct.nombre, 'juan perez')
+  assert.equal(ct.dias, 2)
+  assert.equal(ct.descansos, 0)
+  assert.equal(ct.faltas, 0)
+}
+
 console.log('resumenDiasAsistencia.test.mjs ok')
