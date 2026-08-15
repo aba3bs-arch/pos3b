@@ -19,6 +19,7 @@ import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import InputPin from '../components/InputPin.jsx';
 import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
+import ResumenDiasAsistencia from '../components/ResumenDiasAsistencia.jsx';
 import { refrescarPinCubreTurnoSucursal, AVISO_SIN_TABLA_PIN_CUBRE } from '../lib/cubreTurnoSync.js';
 import {
   construirUsuarioCubreTurno,
@@ -502,6 +503,16 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
         </button>
         <button
           type="button"
+          className={pestana === 'resumen' ? 'btn btn-primary' : 'btn btn-ghost'}
+          onClick={() => {
+            setPestana('resumen');
+            setMsg('');
+          }}
+        >
+          Resumen días
+        </button>
+        <button
+          type="button"
           className={pestana === 'historial' ? 'btn btn-primary' : 'btn btn-ghost'}
           onClick={() => {
             setPestana('historial');
@@ -796,6 +807,15 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
             </table>
           </div>
         </div>
+      )}
+
+      {pestana === 'resumen' && (
+        <ResumenDiasAsistencia
+          supabase={supabase}
+          sucursal={sucursal}
+          esAdmin={esAdmin}
+          sucursalesLista={tiendas}
+        />
       )}
 
       {pestana === 'historial' && (

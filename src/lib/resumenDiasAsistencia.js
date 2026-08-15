@@ -1,0 +1,239 @@
+/**
+ * Resumen de días trabajados / descansos / faltas a partir de checadas.
+ *
+ * Un día con al menos una asistencia cuenta como trabajado.
+ * Los días del periodo (hasta hoy) sin checada se agrupan en rachas consecutivas:
+ * - 1 día suelto → 1 descanso
+ * - N días seguidos sin checada → 1 descanso + (N − 1) faltas
+ */
+
+import { esAlmacenCentral, normalizarCodigoTienda } from '../constants/sucursales.js'
+import { normalizarNombreEmpleado } from './nominaMatch.js'
+import { ymdLocal } from './semanaNomina.js'
+import { esAdministradorSinAnclaje, usuarioEstaActivo } from './usuariosAuth.js'
+
+export function ymdLocalDesdeIso(iso) {
+  if (!iso) return ''
+  return ymdLocal(iso)
+}
+
+export function listarYmdInclusive(desdeYmd, hastaYmd) {
+  if (!desdeYmd || !hastaYmd || desdeYmd > hastaYmd) return []
+  const [y0, m0, d0] = desdeYmd.split('-').map(Number)
+  const [y1, m1, d1] = hastaYmd.split('-').map(Number)
+  const cur = new Date(y0, m0 - 1, d0)
+  const fin = new Date(y1, m1 - 1, d1)
+  const out = []
+  while (cur <= fin) {
+    out.push(ymdLocal(cur))
+    cur.setDate(cur.getDate() + 1)
+  }
+  return out
+}
+
+/** Recorta el periodo a días ya transcurridos (no cuenta el futuro). */
+export function ymdHastaEfectivo(hastaYmd, ahora = new Date()) {
+  const hoy = ymdLocal(ahora)
+  if (!hastaYmd) return hoy
+  return hastaYmd < hoy ? hastaYmd : hoy
+}
+
+export function limpiarNombreAsistencia(nombre) {
+  return String(nombre || '')
+    .replace(/\s*\(cubre\s*turno\)\s*$/i, '')
+    .trim()
+}
+
+/**
+ * @param {Set<string>} diasTrabajadosYmd
+ * @param {string[]} diasPeriodoYmd
+ */
+export function clasificarHuecosSinAsistencia(diasTrabajadosYmd, diasPeriodoYmd) {
+  let descansos = 0
+  let faltas = 0
+  let racha = 0
+  const flush = () => {
+    if (racha <= 0) return
+    descansos += 1
+    if (racha > 1) faltas += racha - 1
+    racha = 0
+  }
+  for (const ymd of diasPeriodoYmd) {
+    if (diasTrabajadosYmd.has(ymd)) {
+      flush()
+    } else {
+      racha += 1
+    }
+  }
+  flush()
+  return { descansos, faltas }
+}
+
+export function resumirDiasEmpleado({ diasTrabajadosYmd, desdeYmd, hastaYmd, ahora }) {
+  const hasta = ymdHastaEfectivo(hastaYmd, ahora)
+  const periodo = listarYmdInclusive(desdeYmd, hasta)
+  const enPeriodo = new Set(periodo.filter((d) => diasTrabajadosYmd.has(d)))
+  const { descansos, faltas } = clasificarHuecosSinAsistencia(enPeriodo, periodo)
+  return {
+    dias: enPeriodo.size,
+    descansos,
+    faltas,
+  }
+}
+
+export function lineaResumenEmpleado({ nombre, sucursalEtiqueta, dias, descansos, faltas }) {
+  const suc = sucursalEtiqueta || '—'
+  return `${nombre}: ${suc} dias ${dias} - descanso ${descansos} - faltas ${faltas}`
+}
+
+function claveNombreSucursal(nombre, sucursalId) {
+  const nom = normalizarNombreEmpleado(limpiarNombreAsistencia(nombre))
+  const suc = normalizarCodigoTienda(sucursalId) || ''
+  if (!nom) return ''
+  return `nom:${nom}|${suc}`
+}
+
+/**
+ * Arma el resumen por empleado: usuarios activos de la tienda + quien checó
+ * (cubre turno u otros) aunque no esté en la plantilla.
+ */
+export function construirResumenEmpleados({
+  usuarios = [],
+  marcajes = [],
+  desdeYmd,
+  hastaYmd,
+  ahora = new Date(),
+  filtroSucursal = '',
+} = {}) {
+  const filtro = normalizarCodigoTienda(filtroSucursal)
+  const map = new Map()
+  const porId = new Map()
+  const porNomSuc = new Map()
+
+  const ensure = (clave, { nombre, sucursalId, usuarioId }) => {
+    if (!map.has(clave)) {
+      map.set(clave, {
+        clave,
+        nombre: nombre || 'Sin nombre',
+        sucursalId: sucursalId || filtro || '',
+        usuarioId: usuarioId || '',
+        diasTrabajadosYmd: new Set(),
+      })
+    }
+    const row = map.get(clave)
+    if (nombre && row.nombre === 'Sin nombre') row.nombre = nombre
+    return row
+  }
+
+  for (const u of usuarios) {
+    if (!usuarioEstaActivo(u)) continue
+    if (esAlmacenCentral(u.sucursal_id)) continue
+    if (esAdministradorSinAnclaje(u.rol)) continue
+    const sucU = normalizarCodigoTienda(u.sucursal_id)
+    if (filtro && sucU !== filtro) continue
+    if (!sucU) continue
+    const clave = `id:${u.id}`
+    ensure(clave, { nombre: u.nombre, sucursalId: sucU, usuarioId: String(u.id) })
+    porId.set(String(u.id), clave)
+    const nomClave = claveNombreSucursal(u.nombre, sucU)
+    if (nomClave) porNomSuc.set(nomClave, clave)
+  }
+
+  for (const m of marcajes) {
+    const sucM = normalizarCodigoTienda(m.sucursal_id)
+    if (filtro && sucM && sucM !== filtro) continue
+    const ymd = ymdLocalDesdeIso(m.created_at)
+    if (!ymd) continue
+    const uid = m.usuario_id != null ? String(m.usuario_id).trim() : ''
+    let clave = uid && porId.has(uid) ? porId.get(uid) : ''
+    const nomClave = claveNombreSucursal(m.nombre, sucM || filtro)
+    if (!clave && nomClave) clave = porNomSuc.get(nomClave) || ''
+    if (!clave) {
+      clave = uid ? `id:${uid}` : nomClave || `tmp:${map.size}`
+      const nombre = limpiarNombreAsistencia(m.nombre) || 'Sin nombre'
+      ensure(clave, { nombre, sucursalId: sucM || filtro, usuarioId: uid })
+      if (uid) porId.set(uid, clave)
+      if (nomClave) porNomSuc.set(nomClave, clave)
+    }
+    map.get(clave).diasTrabajadosYmd.add(ymd)
+  }
+
+  const sucMostrar = (row) => filtro || row.sucursalId || '—'
+
+  const lista = [...map.values()].map((row) => {
+    const r = resumirDiasEmpleado({
+      diasTrabajadosYmd: row.diasTrabajadosYmd,
+      desdeYmd,
+      hastaYmd,
+      ahora,
+    })
+    const sucursalEtiqueta = sucMostrar(row)
+    return {
+      clave: row.clave,
+      nombre: row.nombre,
+      sucursalId: row.sucursalId,
+      sucursalEtiqueta,
+      dias: r.dias,
+      descansos: r.descansos,
+      faltas: r.faltas,
+      linea: lineaResumenEmpleado({
+        nombre: row.nombre,
+        sucursalEtiqueta,
+        dias: r.dias,
+        descansos: r.descansos,
+        faltas: r.faltas,
+      }),
+    }
+  })
+
+  lista.sort((a, b) => {
+    const s = String(a.sucursalEtiqueta).localeCompare(String(b.sucursalEtiqueta), 'es')
+    if (s) return s
+    return String(a.nombre).localeCompare(String(b.nombre), 'es')
+  })
+  return lista
+}
+
+const PAGE = 1000
+
+async function fetchPaginado(supabase, table, select, apply) {
+  const all = []
+  let from = 0
+  for (;;) {
+    let q = supabase.from(table).select(select)
+    if (apply) q = apply(q)
+    const { data, error } = await q.range(from, from + PAGE - 1)
+    if (error) return { data: all, error }
+    const batch = data || []
+    all.push(...batch)
+    if (batch.length < PAGE) return { data: all, error: null }
+    from += PAGE
+  }
+}
+
+export async function cargarMarcajesResumen(supabase, { desdeIso, hastaIso, sucursalId }) {
+  if (!supabase) return { data: [], error: null }
+  return fetchPaginado(
+    supabase,
+    'asistencias',
+    'id,usuario_id,nombre,sucursal_id,tipo,created_at',
+    (q) => {
+      let n = q
+        .gte('created_at', desdeIso)
+        .lte('created_at', hastaIso)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true })
+      if (sucursalId) n = n.eq('sucursal_id', sucursalId)
+      return n
+    },
+  )
+}
+
+export async function cargarUsuariosResumen(supabase, { sucursalId }) {
+  if (!supabase) return { data: [], error: null }
+  return fetchPaginado(supabase, 'usuarios', 'id,nombre,rol,sucursal_id,activo', (q) => {
+    let n = q.order('nombre', { ascending: true }).order('id', { ascending: true })
+    if (sucursalId) n = n.eq('sucursal_id', sucursalId)
+    return n
+  })
+}
