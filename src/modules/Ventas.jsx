@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { etiquetaMetodoPago, leerMetodosPago, resolverImpresionVentaPorMonto } from '../lib/posConfig.js';
 import { imprimirVenta } from '../lib/impresion.js';
-import { productoEnVenta, productoEsFavorito } from '../lib/productoForm.js';
+import { productoEnVenta, productoEsFavorito, precioVentaParaCaja } from '../lib/productoForm.js';
 import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from '../lib/departamentos.js';
 import Icon, { BtnLabel } from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
@@ -17,6 +17,7 @@ import { suscribirEscanerRemoto } from '../lib/escanerRemoto.js';
 import { puedeVerStockNegativo } from '../lib/roles.js';
 
 function addToCart(carrito, producto) {
+  const precio = precioVentaParaCaja(producto);
   const i = carrito.findIndex((c) => c.id === producto.id);
   if (i >= 0) {
     const next = [...carrito];
@@ -24,6 +25,7 @@ function addToCart(carrito, producto) {
       ...next[i],
       qty: (next[i].qty || 1) + 1,
       foto_url: next[i].foto_url || producto.foto_url || null,
+      precio: Number(next[i].precio) > 0 ? next[i].precio : precio,
     };
     return next;
   }
@@ -32,7 +34,7 @@ function addToCart(carrito, producto) {
     {
       id: producto.id,
       nombre: producto.nombre,
-      precio: producto.precio,
+      precio,
       foto_url: producto.foto_url || null,
       qty: 1,
     },
@@ -485,7 +487,7 @@ export default function Ventas({
                       sucursal={sucursal}
                       verNegativos={verNegativos}
                     />
-                    <div className="ventas-favorito-precio">${Number(p.precio).toFixed(2)}</div>
+                    <div className="ventas-favorito-precio">${precioVentaParaCaja(p).toFixed(2)}</div>
                     <div className="ventas-favorito-nombre">{p.nombre}</div>
                     {deptoActivo === 'todos' && (
                       <div className="ventas-favorito-depto">{etiquetaDepartamento(p.cat)}</div>
@@ -611,7 +613,7 @@ export default function Ventas({
                       <strong>{p.nombre}</strong>
                       <span className="muted"> · {p.id}</span>
                     </span>
-                    <span className="ventas-resultado-precio">${Number(p.precio).toFixed(2)}</span>
+                    <span className="ventas-resultado-precio">${precioVentaParaCaja(p).toFixed(2)}</span>
                   </button>
                 ))}
               </div>

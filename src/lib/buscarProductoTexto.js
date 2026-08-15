@@ -108,5 +108,10 @@ export function productoPorCodigoExacto(inventario, query) {
     .trim()
     .toLowerCase();
   if (!t) return null;
-  return (inventario || []).find((p) => productoTieneCodigo(p, t)) || null;
+  const matches = (inventario || []).filter((p) => productoTieneCodigo(p, t));
+  if (!matches.length) return null;
+  const exactId = matches.find((p) => String(p.id || '').trim().toLowerCase() === t);
+  if (exactId) return exactId;
+  const conPrecio = matches.filter((p) => Number(p.precio) > 0);
+  return conPrecio[0] || matches[0];
 }
