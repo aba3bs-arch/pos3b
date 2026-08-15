@@ -57,6 +57,7 @@ import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
 import { sincronizarPrivilegiosDesdeNube } from './lib/privilegiosSync.js';
 import { sincronizarTipoCambioDesdeNube } from './lib/tipoCambioSync.js';
+import { sincronizarClaveGroqDesdeNube } from './lib/asistenteGroq.js';
 import { sincronizarVentanaRecoleccionDesdeNube } from './lib/ventanaRecoleccionSync.js';
 import {
   AVISO_SIN_TABLA_PIN_CUBRE,
@@ -392,6 +393,7 @@ function App() {
       if (r.cambio) setTickPrivilegios((n) => n + 1);
     });
     sincronizarTipoCambioDesdeNube(supabase);
+    sincronizarClaveGroqDesdeNube(supabase);
     sincronizarVentanaRecoleccionDesdeNube(supabase, sucursal);
     sincronizarPinsCubreTurnoDesdeNube(supabase, sucursal).then((r) => {
       if (r.cambio) setTickCubreTurno((n) => n + 1);
@@ -406,6 +408,7 @@ function App() {
           if (r.cambio) setTickPrivilegios((n) => n + 1);
         });
         sincronizarTipoCambioDesdeNube(supabase);
+        sincronizarClaveGroqDesdeNube(supabase);
         sincronizarVentanaRecoleccionDesdeNube(supabase, sucursal);
       }
       sincronizarPinsCubreTurnoDesdeNube(supabase, sucursal).then((r) => {

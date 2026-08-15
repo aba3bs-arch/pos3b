@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { responderUso, SUGERENCIAS_USO } from '../lib/asistenteUso.js';
+import { groqActivo } from '../lib/asistenteGroq.js';
 import './AsistenteUso.css';
 
 function renderTexto(text) {
@@ -29,7 +30,7 @@ function Burbuja({ msg }) {
           ))}
         {!mio && msg.modo ? (
           <div className="asistente-meta">
-            {msg.modo === 'ia' ? 'IA · manual POS' : 'Manual POS'}
+            {msg.modo === 'ia' ? (msg.modelo === 'groq' ? 'IA · Groq' : 'IA · manual POS') : 'Manual POS'}
             {msg.fuentes?.length
               ? ` · ${msg.fuentes
                   .slice(0, 2)
@@ -50,8 +51,9 @@ export default function AsistenteUso({ supabase, user }) {
       id: 'hola',
       rol: 'bot',
       modo: 'local',
-      texto:
-        'Hola. Pregúntame **cómo usar el POS**: cobrar, corte de caja, PIN, precios, traspasos o compras. Respondo con el manual de Las 3B.',
+      texto: groqActivo()
+        ? 'Hola. Soy el asistente con **IA Groq**. Pregúntame cómo usar el POS: cobrar, corte, PIN, precios, traspasos o compras.'
+        : 'Hola. Pregúntame **cómo usar el POS**: cobrar, corte de caja, PIN, precios, traspasos o compras. Respondo con el manual de Las 3B.',
     },
   ]);
   const [enviando, setEnviando] = useState(false);
@@ -79,6 +81,7 @@ export default function AsistenteUso({ supabase, user }) {
           id: `b-${Date.now()}`,
           rol: 'bot',
           modo: r.modo,
+          modelo: r.modelo,
           texto: r.texto,
           fuentes: r.fuentes,
         },

@@ -1,5 +1,6 @@
 import { MANUAL_ADMIN_SECCIONES } from '../content/manualAdminSections.js';
 import { FAQ_USO_POS } from '../content/faqUsoPos.js';
+import { completarGroq, groqActivo, leerClaveGroq } from './asistenteGroq.js';
 
 const STOP = new Set([
   'el', 'la', 'de', 'que', 'como', 'para', 'una', 'uno', 'los', 'las', 'del', 'con', 'por',
@@ -148,6 +149,7 @@ export function responderUsoLocal(pregunta) {
 let nubeInhabilitada = false;
 
 function iaNubeHabilitada() {
+  if (groqActivo()) return true;
   try {
     if (typeof window !== 'undefined' && window.__POS3B_CONFIG__?.asistenteIa) return true;
   } catch {
@@ -162,6 +164,16 @@ function iaNubeHabilitada() {
 }
 
 export async function consultarAsistenteNube(supabase, { pregunta, rol, fragmentos }) {
+  const clave = leerClaveGroq();
+  if (clave) {
+    try {
+      const r = await completarGroq({ clave, pregunta, fragmentos });
+      if (r.ok) return { ok: true, texto: r.texto, modelo: 'groq' };
+      return { ok: false, error: r.error, sinClave: r.sinClave };
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) };
+    }
+  }
   if (nubeInhabilitada || !iaNubeHabilitada() || !supabase?.functions?.invoke) {
     return { ok: false, skipped: true };
   }

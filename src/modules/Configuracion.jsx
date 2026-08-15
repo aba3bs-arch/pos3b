@@ -111,6 +111,7 @@ import SubcomandosHub from '../components/SubcomandosHub.jsx';
 import SelectorTemaInterfaz from '../components/SelectorTemaInterfaz.jsx';
 import PanelCatalogoIncidencias from '../components/PanelCatalogoIncidencias.jsx';
 import PanelNotificacionesAlertas from '../components/PanelNotificacionesAlertas.jsx';
+import PanelAsistenteGroq from '../components/PanelAsistenteGroq.jsx';
 import InputPin from '../components/InputPin.jsx';
 import SelectorSucursal from '../components/SelectorSucursal.jsx';
 import AdminInventarioCentral from './AdminInventarioCentral.jsx';
@@ -887,6 +888,14 @@ export default function Configuracion({
         ayuda: 'Personaliza nombre del negocio, logo y texto al pie del ticket de venta.',
         icon: 'camera',
         color: 'var(--brand-red)',
+      },
+      esAdmin && {
+        id: 'asistente',
+        label: 'Asistente Groq',
+        desc: 'IA de cómo usar el POS',
+        ayuda: 'Pega la clave gratis de Groq para que Ayuda → Asistente redacte con IA.',
+        icon: 'link',
+        color: '#f59e0b',
       },
       {
         id: 'integracion',
@@ -2882,6 +2891,8 @@ export default function Configuracion({
         </p>
       </div>
       )}
+
+      {panelCfg === 'asistente' && esAdmin && <PanelAsistenteGroq supabase={supabase} />}
 
       {panelCfg === 'integracion' && (
       <div className="card">
