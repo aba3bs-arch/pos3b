@@ -1,10 +1,11 @@
 /**
  * Resumen de días trabajados / descansos / faltas a partir de checadas.
  *
- * Un día con al menos una asistencia cuenta como trabajado.
- * Los días del periodo (hasta hoy) sin checada se agrupan en rachas consecutivas:
+ * Un día trabajado exige par ENTRADA + SALIDA (si solo hay entrada, no cuenta).
+ * Turno nocturno: la salida puede ser al día siguiente; el día es el de la entrada.
+ * Los días del periodo (hasta hoy) sin par completo se agrupan en rachas:
  * - 1 día suelto → 1 descanso
- * - N días seguidos sin checada → 1 descanso + (N − 1) faltas
+ * - N días seguidos sin par → 1 descanso + (N − 1) faltas
  */
 
 import { esAlmacenCentral, normalizarCodigoTienda } from '../constants/sucursales.js'
@@ -46,6 +47,50 @@ export function limpiarNombreAsistencia(nombre) {
 
 export function esNombreCubreTurno(nombre) {
   return /\(\s*cubre\s*turno\s*\)/i.test(String(nombre || ''))
+}
+
+export function normalizarTipoMarcaje(tipo) {
+  const t = String(tipo || '').trim().toUpperCase()
+  if (t === 'ENTRADA' || t === 'SALIDA') return t
+  return ''
+}
+
+/** Ventana máxima para emparejar una entrada con su salida (cubre 12×12 + extra). */
+export const MAX_HORAS_PAR_ENTRADA_SALIDA = 18
+
+/**
+ * Días con jornada cerrada: cada ENTRADA se empareja con la siguiente SALIDA
+ * (hasta 18 h). El día cuenta el de la entrada. Solo entrada no cuenta.
+ */
+export function diasCompletosPorEntradaSalida(marcajes = []) {
+  const sorted = [...marcajes].filter((m) => m?.created_at)
+  sorted.sort((a, b) => {
+    const da = new Date(a.created_at).getTime()
+    const db = new Date(b.created_at).getTime()
+    if (Number.isNaN(da) || Number.isNaN(db)) return 0
+    if (da !== db) return da - db
+    return String(a.id || '').localeCompare(String(b.id || ''))
+  })
+  const maxMs = MAX_HORAS_PAR_ENTRADA_SALIDA * 3600 * 1000
+  const salidasUsadas = new Set()
+  const dias = new Set()
+  for (let i = 0; i < sorted.length; i++) {
+    if (normalizarTipoMarcaje(sorted[i].tipo) !== 'ENTRADA') continue
+    const tEnt = new Date(sorted[i].created_at).getTime()
+    if (Number.isNaN(tEnt)) continue
+    for (let j = i + 1; j < sorted.length; j++) {
+      if (salidasUsadas.has(j)) continue
+      if (normalizarTipoMarcaje(sorted[j].tipo) !== 'SALIDA') continue
+      const tSal = new Date(sorted[j].created_at).getTime()
+      if (Number.isNaN(tSal) || tSal <= tEnt) continue
+      if (tSal - tEnt > maxMs) break
+      salidasUsadas.add(j)
+      const ymd = ymdLocalDesdeIso(sorted[i].created_at)
+      if (ymd) dias.add(ymd)
+      break
+    }
+  }
+  return dias
 }
 
 /**
@@ -131,7 +176,7 @@ export function construirResumenEmpleados({
         sucursalId: sucursalId || filtro || '',
         usuarioId: usuarioId || '',
         esCubreTurno: Boolean(esCubreTurno),
-        diasTrabajadosYmd: new Set(),
+        marcajes: [],
       })
     }
     const row = map.get(clave)
@@ -184,14 +229,14 @@ export function construirResumenEmpleados({
     }
     const row = map.get(clave)
     if (cubrePorNombre) row.esCubreTurno = true
-    row.diasTrabajadosYmd.add(ymd)
+    row.marcajes.push(m)
   }
 
   const sucMostrar = (row) => filtro || row.sucursalId || '—'
 
   const lista = [...map.values()].map((row) => {
     const r = resumirDiasEmpleado({
-      diasTrabajadosYmd: row.diasTrabajadosYmd,
+      diasTrabajadosYmd: diasCompletosPorEntradaSalida(row.marcajes),
       desdeYmd,
       hastaYmd,
       ahora,
@@ -245,6 +290,10 @@ async function fetchPaginado(supabase, table, select, apply) {
 
 export async function cargarMarcajesResumen(supabase, { desdeIso, hastaIso, sucursalId }) {
   if (!supabase) return { data: [], error: null }
+  const hasta = new Date(hastaIso)
+  const hastaConSalida = Number.isNaN(hasta.getTime())
+    ? hastaIso
+    : new Date(hasta.getTime() + MAX_HORAS_PAR_ENTRADA_SALIDA * 3600 * 1000).toISOString()
   return fetchPaginado(
     supabase,
     'asistencias',
@@ -252,7 +301,7 @@ export async function cargarMarcajesResumen(supabase, { desdeIso, hastaIso, sucu
     (q) => {
       let n = q
         .gte('created_at', desdeIso)
-        .lte('created_at', hastaIso)
+        .lte('created_at', hastaConSalida)
         .order('created_at', { ascending: true })
         .order('id', { ascending: true })
       if (sucursalId) n = n.eq('sucursal_id', sucursalId)
