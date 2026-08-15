@@ -7,6 +7,7 @@ import { esAlmacenCentral, etiquetaCedisEmpresa, etiquetaStockLista, stockVisibl
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { tieneFoto } from '../lib/fotosCatalogo.js';
 import { leerImagenProductoComoDataUrl } from '../lib/imagenProducto.js';
+import { precioVentaParaCaja } from '../lib/productoForm.js';
 
 function fmtPrecio(n) {
   return `$${Number(n || 0).toFixed(2)}`;
@@ -53,7 +54,7 @@ export default function DetalleProducto({
 
   const enCentral = esAlmacenCentral(sucursal);
   const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : 'MAIN';
-  const precioCon = Number(producto.precio ?? producto.precio_venta_con ?? 0);
+  const precioCon = precioVentaParaCaja(producto);
   const impuesto = Number(producto.impuesto ?? 8);
   const precioSin = Number(producto.precio_venta_sin ?? (precioCon / (1 + impuesto / 100)));
   const favorito = Boolean(producto.en_favoritos) || producto.cat === 'FAVORITOS';

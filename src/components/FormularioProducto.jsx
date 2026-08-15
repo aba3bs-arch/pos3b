@@ -7,6 +7,7 @@ import {
   GANANCIA_DEFAULT,
   actualizarCampoProducto,
   productoVacio,
+  precioVentaSugeridoPorCosto,
 } from '../lib/productoForm.js';
 import { normalizarCodigosAlt } from '../lib/buscarProductoTexto.js';
 import Icon, { BtnLabel } from './Icon.jsx';
@@ -389,6 +390,18 @@ export default function FormularioProducto({
               onChange={(e) => setCampo('precio_venta_con', parseInt(e.target.value, 10) || 0)}
             />
           </label>
+          {(() => {
+            const sugerido = precioVentaSugeridoPorCosto(form);
+            const actual = Math.round(Number(form.precio_venta_con || form.precio) || 0);
+            if (!(sugerido > 0) || sugerido === actual) return null;
+            return (
+              <p className="muted" style={{ gridColumn: '1 / -1', margin: 0, fontSize: '0.8rem', color: actual <= 0 ? 'var(--danger)' : undefined }}>
+                {actual <= 0
+                  ? `El precio en caja está en $0. Por costo + margen saldría $${sugerido}. Guarda para que la caja cobre ese monto.`
+                  : `La caja cobra $${actual}. Por costo + margen saldría $${sugerido}.`}
+              </p>
+            );
+          })()}
           <label className="muted">
             {tiendaLabel ? `Piso · ${tiendaLabel}` : 'Stock piso (mostrador)'}
             <input className="input" type="number" min={0} style={{ marginTop: '0.35rem' }} value={form.stock} onChange={(e) => setCampoSimple('stock', parseInt(e.target.value, 10) || 0)} />

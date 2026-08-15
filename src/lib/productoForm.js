@@ -37,6 +37,35 @@ export function gananciaEfectiva(v) {
   return n;
 }
 
+export function costoCompraSin(p, impuestoPct = IVA_DEFAULT) {
+  let compraSin = Number(p?.precio_compra_sin) || 0;
+  if (compraSin <= 0 && Number(p?.precio_compra_con || p?.costo) > 0) {
+    compraSin = sinImpuesto(Number(p.precio_compra_con || p.costo), impuestoPct);
+  }
+  return compraSin;
+}
+
+/** Precio al público ya guardado en el producto (el que debe cobrar la caja). */
+export function precioVentaGuardado(p) {
+  return precioConsumidor(Number(p?.precio ?? p?.precio_venta_con) || 0);
+}
+
+/** Precio sugerido: costo + ganancia + IVA. No sustituye al precio guardado. */
+export function precioVentaSugeridoPorCosto(p) {
+  const impuesto = impuestoEfectivo(p?.impuesto);
+  const ganancia = gananciaEfectiva(p?.ganancia_pct);
+  const compraSin = costoCompraSin(p, impuesto);
+  if (!(compraSin > 0)) return 0;
+  return precioVentaConDesdeCompra(compraSin, ganancia, impuesto);
+}
+
+/** Lo que cobra la caja: precio guardado; si está en 0, el sugerido por costo (evita vender a $0.00). */
+export function precioVentaParaCaja(p) {
+  const guardado = precioVentaGuardado(p);
+  if (guardado > 0) return guardado;
+  return precioVentaSugeridoPorCosto(p);
+}
+
 export function precioVentaConDesdeCompra(compraSin, gananciaPct = GANANCIA_DEFAULT, impuestoPct = IVA_DEFAULT) {
   const ventaSin = ventaSinDesdeGanancia(compraSin, gananciaPct);
   return precioConsumidor(conImpuesto(ventaSin, impuestoPct));
@@ -101,21 +130,31 @@ export function productoVacio() {
 export function productoDesdeDb(p) {
   if (!p) return productoVacio();
   const impuesto = impuestoEfectivo(p.impuesto);
-  const ganancia = gananciaEfectiva(p.ganancia_pct);
-  let compraSin = Number(p.precio_compra_sin) || 0;
-  if (compraSin <= 0 && Number(p.precio_compra_con || p.costo) > 0) {
-    compraSin = sinImpuesto(Number(p.precio_compra_con || p.costo), impuesto);
-  }
+  let compraSin = costoCompraSin(p, impuesto);
   const compraCon = p.precio_compra_con != null ? Number(p.precio_compra_con) : conImpuesto(compraSin, impuesto);
 
+  const precioGuardado = precioVentaGuardado(p);
   let ventaCon;
   let ventaSin;
-  if (compraSin > 0) {
+  let ganancia = Number(p.ganancia_pct);
+
+  // El precio de venta guardado manda. No recalcular al abrir (eso hacía que
+  // el formulario mostrara $26 y la caja cobrara $0 o $2).
+  if (precioGuardado > 0) {
+    ventaCon = precioGuardado;
+    ventaSin = Number(p.precio_venta_sin) > 0 ? Number(p.precio_venta_sin) : sinImpuesto(ventaCon, impuesto);
+    if (!Number.isFinite(ganancia) || ganancia <= 0) {
+      ganancia = compraSin > 0 ? gananciaDesdePrecios(compraSin, ventaSin) : GANANCIA_DEFAULT;
+    }
+    if (!Number.isFinite(ganancia) || ganancia <= 0) ganancia = GANANCIA_DEFAULT;
+  } else if (compraSin > 0) {
+    ganancia = gananciaEfectiva(p.ganancia_pct);
     ventaSin = ventaSinDesdeGanancia(compraSin, ganancia);
     ventaCon = precioVentaConDesdeCompra(compraSin, ganancia, impuesto);
   } else {
-    ventaCon = precioConsumidor(Number(p.precio) || 0);
-    ventaSin = p.precio_venta_sin != null ? Number(p.precio_venta_sin) : sinImpuesto(ventaCon, impuesto);
+    ganancia = gananciaEfectiva(p.ganancia_pct);
+    ventaCon = 0;
+    ventaSin = 0;
   }
 
   return {
