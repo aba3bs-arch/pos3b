@@ -39,10 +39,22 @@ create table if not exists public.cortes_contabilidad_cierres (
   caja_actual numeric(14,2) default 0,
   ventas numeric(14,2) default 0,
   detalle jsonb default '{}'::jsonb,
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  deleted_at timestamptz,
+  deleted_by text
 );
 
+-- Columnas por si la tabla ya existía sin soft-delete
+alter table public.cortes_contabilidad_cierres add column if not exists deleted_at timestamptz;
+alter table public.cortes_contabilidad_cierres add column if not exists deleted_by text;
+
 create index if not exists idx_cortes_cierres_mod on public.cortes_contabilidad_cierres (sucursal_id, modulo, created_at desc);
+create index if not exists idx_cortes_cierres_activos
+  on public.cortes_contabilidad_cierres (sucursal_id, modulo, created_at desc)
+  where deleted_at is null;
+create index if not exists idx_cortes_cierres_eliminados
+  on public.cortes_contabilidad_cierres (sucursal_id, modulo, deleted_at desc)
+  where deleted_at is not null;
 
 create table if not exists public.cortes_contabilidad_folios (
   sucursal_id text not null default 'MAIN',
