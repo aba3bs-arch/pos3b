@@ -1195,7 +1195,7 @@ function App() {
               cargarDatos={cargarDatos}
             />
           )}
-          {vista === 'Ayuda' && <Ayuda user={user} supabase={supabase} />}
+          {vista === 'Ayuda' && <Ayuda user={user} />}
         </div>
         {user ? <ReleaseAvisoOverlay user={user} /> : null}
         {user ? <ActualizacionPendienteOverlay /> : null}

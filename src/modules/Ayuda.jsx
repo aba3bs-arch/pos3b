@@ -8,7 +8,6 @@ import {
   TIPOS_HORARIO,
 } from '../lib/turnos.js';
 import ManualAdministrador from './ManualAdministrador.jsx';
-import AsistenteUso from '../components/AsistenteUso.jsx';
 import { puedeGestionarUsuarios } from '../lib/roles.js';
 
 const SECCIONES = [
@@ -157,9 +156,9 @@ function BloqueTurnos() {
   );
 }
 
-export default function Ayuda({ user, supabase }) {
+export default function Ayuda({ user }) {
   const [open, setOpen] = useState('turnos');
-  const [pestaña, setPestaña] = useState('asistente');
+  const [pestaña, setPestaña] = useState(() => (puedeGestionarUsuarios(user?.rol) ? 'manual' : 'rapida'));
   const esAdmin = puedeGestionarUsuarios(user?.rol);
 
   return (
@@ -167,26 +166,27 @@ export default function Ayuda({ user, supabase }) {
       <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Centro de ayuda</h3>
         <p className="muted" style={{ marginTop: 0 }}>
-          Pregunta al <strong>asistente</strong> cómo usar el POS, o abre las guías y el manual.
-        </p>
-        <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
-          <button type="button" className={pestaña === 'asistente' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setPestaña('asistente')}>
-            Asistente
-          </button>
-          <button type="button" className={pestaña === 'rapida' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setPestaña('rapida')}>
-            Guías rápidas
-          </button>
+          Guías rápidas, turnos y solución de problemas del POS CONTROL 3B.
           {esAdmin && (
-            <button type="button" className={pestaña === 'manual' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setPestaña('manual')}>
-              Manual administrador
-            </button>
+            <>
+              {' '}
+              Como administrador, abre el <strong>Manual administrador</strong> (instructivo completo con buscador).
+            </>
           )}
-        </div>
+        </p>
+        {esAdmin && (
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+            <button type="button" className={pestaña === 'rapida' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setPestaña('rapida')}>
+              Guías rápidas
+            </button>
+            <button type="button" className={pestaña === 'manual' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setPestaña('manual')}>
+              Manual administrador (instructivo)
+            </button>
+          </div>
+        )}
       </div>
 
-      {pestaña === 'asistente' ? (
-        <AsistenteUso supabase={supabase} user={user} />
-      ) : pestaña === 'manual' && esAdmin ? (
+      {pestaña === 'manual' && esAdmin ? (
         <ManualAdministrador />
       ) : (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
