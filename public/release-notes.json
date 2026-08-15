@@ -1,11 +1,11 @@
 {
   "title": "Actualización disponible",
-  "summary": "Préstamos empleados (editar/eliminar/abonar/liquidar), desglose de gastos en IE y Corte Garage con gastos persistentes. Pulsa Actualizar.",
+  "summary": "Checador: Resumen de días (entrada y salida). Cortes: papelera y teclado en pantalla. Acepta para actualizar esta caja.",
   "changes": [
-    "Préstamos empleados: Editar, Eliminar, Abonar y Liquidar",
-    "Cargo del préstamo al área Virtual / Abarrotes / Garage",
-    "IE Virtual: desglose de gastos al tocar el monto de una recolección",
-    "Corte Garage: gastos persistentes hasta recolección con máquinas en cero",
-    "Aviso de actualización visible para todos con botón Actualizar"
+    "Checador → pestaña Resumen días: tabla de días, descansos y faltas",
+    "Un día trabajado solo cuenta con entrada y salida (si solo hay entrada, no cuenta)",
+    "Cubre turno (CT) solo suma días checados, sin faltas ni descansos",
+    "Cortes Virtual/Abarrotes/Garage: papelera de cierres borrados, con quién los eliminó y Restaurar",
+    "Teclado en pantalla en esos cortes para tablet/POS sin teclado físico"
   ]
 }

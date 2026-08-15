@@ -31,6 +31,7 @@ export default function CampoCorte({
   className = '',
   inputClassName = '',
   inputStyle = {},
+  teclado = 'num',
 }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.8rem' }} className={className}>
@@ -38,9 +39,10 @@ export default function CampoCorte({
       <input
         className={`input${editable ? ' corte-campo-editable' : ''}${inputClassName ? ` ${inputClassName}` : ''}`}
         type="text"
-        inputMode="decimal"
+        inputMode="none"
         autoComplete="off"
         data-corte-tab={editable ? '1' : undefined}
+        data-corte-teclado={editable && teclado ? teclado : undefined}
         value={valorInput(value, editable)}
         readOnly={!editable}
         onChange={editable ? (e) => onChange?.(e.target.value) : undefined}
@@ -58,14 +60,15 @@ export default function CampoCorte({
   );
 }
 
-export function InputCorteInline({ value, onChange, editable = true, style = {} }) {
+export function InputCorteInline({ value, onChange, editable = true, style = {}, teclado = 'num' }) {
   return (
     <input
       className={`input${editable ? ' corte-campo-editable' : ''}`}
       type="text"
-      inputMode="decimal"
+      inputMode="none"
       autoComplete="off"
       data-corte-tab={editable ? '1' : undefined}
+      data-corte-teclado={editable && teclado ? teclado : undefined}
       value={valorInput(value, editable)}
       readOnly={!editable}
       onChange={editable ? (e) => onChange?.(e.target.value) : undefined}
