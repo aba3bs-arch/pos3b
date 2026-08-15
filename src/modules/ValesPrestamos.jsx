@@ -167,8 +167,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
   /** Admin/gerente aprueban vales; socio solo préstamos >$1,000. */
   const puedeAprobarVales = esAdmin || esGerente;
-  /** Abonar / liquidar / editar en vales, RIF, préstamos e interárea. */
+  /** Abonar / liquidar / editar vales, RIF y préstamos a empleado. */
   const puedeOperarDocs = Boolean(user);
+  /** Abonar / liquidar / editar préstamos área y sucursal: solo admin o gerente. */
+  const puedeOperarPrestamosAreaSuc = esAdmin || esGerente;
   /** Eliminar RIF/préstamos: admin o gerente (corte abierto validado en lib). */
   const puedeEliminarDocs = esAdmin || esGerente;
   /** Vales: cajero también puede eliminar si se equivoca (corte abierto validado en lib). */
@@ -479,6 +481,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   };
 
   const cobrarPrestamoSucursal = async (p, liquidar = false) => {
+    if (!puedeOperarPrestamosAreaSuc) return alert('Solo administrador o gerente pueden abonar o liquidar.');
     if (!supabase) return;
     if (p.sucursal_origen !== String(sucursal || '').toUpperCase()) {
       return alert(`El cobro solo se registra en ${etiquetaTienda(p.sucursal_origen)}.`);
@@ -492,7 +495,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     } else if (!confirm(`¿Registrar cobro total de ${fmt(saldo)} en ${etiquetaTienda(p.sucursal_origen)}?`)) {
       return;
     }
-    const res = await abonarPrestamoSucursal(supabase, p, monto, { nombreActor: user?.nombre });
+    const res = await abonarPrestamoSucursal(supabase, p, monto, { nombreActor: user?.nombre, rolActor: user?.rol });
     if (!res.ok) return alert(res.error);
     alert(res.saldo <= 0 ? 'Préstamo liquidado.' : `Abono registrado. Saldo: ${fmt(res.saldo)}`);
     recargarTodo();
@@ -862,7 +865,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   };
 
   const abonarInterarea = async (p) => {
-    if (!puedeOperarDocs) return;
+    if (!puedeOperarPrestamosAreaSuc) return alert('Solo administrador o gerente pueden abonar.');
     const saldo = p.saldo != null ? Number(p.saldo) : Number(p.monto) || 0;
     const raw = prompt(`Abonar préstamo interárea\nSaldo: ${fmt(saldo)}\n\nMonto:`, String(saldo));
     if (raw === null) return;
@@ -871,6 +874,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     const res = await abonarPrestamoInterarea(supabase, p, monto, {
       nombreActor: user?.nombre || null,
       sucursal,
+      rolActor: user?.rol,
     });
     if (!res.ok) return alert(res.error);
     alert(res.liquidado ? 'Liquidado.' : `Abono ok. Saldo: ${fmt(res.saldo)}`);
@@ -878,11 +882,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   };
 
   const liquidarInterarea = async (p) => {
-    if (!puedeOperarDocs) return;
+    if (!puedeOperarPrestamosAreaSuc) return alert('Solo administrador o gerente pueden liquidar.');
     if (!confirm('¿Liquidar este préstamo entre áreas?')) return;
     const res = await liquidarPrestamoInterarea(supabase, p, {
       nombreActor: user?.nombre || null,
       sucursal,
+      rolActor: user?.rol,
     });
     if (!res.ok) return alert(res.error);
     alert('Liquidado.');
@@ -890,7 +895,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   };
 
   const editarInterarea = async (p) => {
-    if (!puedeOperarDocs) return;
+    if (!puedeOperarPrestamosAreaSuc) return alert('Solo administrador o gerente pueden editar.');
     const notas = prompt('Notas:', p.notas || '');
     if (notas === null) return;
     const monto = Number(p.abono) > 0 ? null : prompt('Monto:', String(p.monto));
@@ -1496,7 +1501,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                             >
                               Imprimir (firma)
                             </button>
-                            {puedeOperarDocs && activo && (
+                            {puedeOperarPrestamosAreaSuc && activo && (
                               <>
                                 <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => abonarInterarea(p)}>Abonar</button>
                                 <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem' }} onClick={() => liquidarInterarea(p)}>Liquidar</button>
@@ -1620,7 +1625,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                             >
                               Imprimir (firma)
                             </button>
-                            {!esEnvioMain && pendiente && (
+                            {!esEnvioMain && pendiente && puedeOperarPrestamosAreaSuc && (
                               <>
                                 <button
                                   type="button"
