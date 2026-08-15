@@ -4510,3 +4510,172 @@ table.data th {
 }
 
 
+
+/* ——— Teclado alfanumérico (cortes Virtual / Abarrotes / Garage) ——— */
+.corte-con-teclado {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+}
+
+.corte-con-teclado.teclado-abierto {
+  padding-bottom: min(42vh, 320px);
+}
+
+.corte-teclado {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1200;
+  background: linear-gradient(180deg, #f7f8fb 0%, #eef1f6 100%);
+  border-top: 3px solid var(--corte-teclado-accent, var(--brand-blue));
+  box-shadow: 0 -8px 28px rgba(15, 23, 42, 0.18);
+  padding: 0.45rem 0.55rem calc(0.55rem + env(safe-area-inset-bottom, 0px));
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.corte-teclado-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.corte-teclado-modos {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.corte-teclado-modo {
+  border: 0;
+  background: transparent;
+  padding: 0.35rem 0.75rem;
+  font-weight: 800;
+  font-size: 0.82rem;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.corte-teclado-modo.is-active {
+  background: var(--corte-teclado-accent, var(--brand-blue));
+  color: #fff;
+}
+
+.corte-teclado-hint {
+  font-size: 0.75rem;
+  font-weight: 600;
+  flex: 1;
+}
+
+.corte-teclado-cerrar {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.35rem 0.75rem;
+  font-weight: 700;
+  font-size: 0.8rem;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.corte-teclado-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  max-width: 920px;
+  margin: 0 auto;
+}
+
+.corte-teclado-grid.is-num {
+  max-width: 360px;
+}
+
+.corte-teclado-fila {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 0.28rem;
+}
+
+.corte-teclado-grid.is-num .corte-teclado-fila {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.corte-teclado-fila-acciones {
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+}
+
+.corte-teclado-key {
+  min-height: 44px;
+  border: 1px solid #c9d0db;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #ffffff 0%, #f3f5f8 100%);
+  color: var(--text);
+  font-weight: 800;
+  font-size: 1rem;
+  cursor: pointer;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.08);
+  touch-action: manipulation;
+}
+
+.corte-teclado-key:active {
+  transform: translateY(1px);
+  background: #e8eef8;
+}
+
+.corte-teclado-key.is-active {
+  background: color-mix(in srgb, var(--corte-teclado-accent, var(--brand-blue)) 18%, #fff);
+  border-color: var(--corte-teclado-accent, var(--brand-blue));
+  color: var(--corte-teclado-accent, var(--brand-blue));
+}
+
+.corte-teclado-key-wide {
+  font-size: 0.85rem;
+}
+
+.corte-teclado-key-space {
+  grid-column: span 2;
+  font-size: 0.85rem;
+}
+
+.corte-teclado-key-ok {
+  background: linear-gradient(180deg, var(--brand-blue) 0%, var(--brand-blue-dark) 100%);
+  border-color: var(--brand-blue-dark);
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .corte-teclado-key {
+    min-height: 40px;
+    font-size: 0.92rem;
+    border-radius: 8px;
+  }
+
+  .corte-con-teclado.teclado-abierto {
+    padding-bottom: min(48vh, 360px);
+  }
+}
+
+[data-tema='nocturno'] .corte-teclado {
+  background: linear-gradient(180deg, #1e2430 0%, #151a22 100%);
+}
+
+[data-tema='nocturno'] .corte-teclado-key {
+  background: linear-gradient(180deg, #2a3342 0%, #222935 100%);
+  border-color: #3a4558;
+  color: #e8edf5;
+}
+
+[data-tema='nocturno'] .corte-teclado-modo,
+[data-tema='nocturno'] .corte-teclado-cerrar,
+[data-tema='nocturno'] .corte-teclado-modos {
+  background: #222935;
+  color: #e8edf5;
+  border-color: #3a4558;
+}

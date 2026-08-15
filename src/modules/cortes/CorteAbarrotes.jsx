@@ -3,6 +3,7 @@ import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPane
 import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
+import CorteConTeclado from '../../components/corteContabilidad/CorteConTeclado.jsx';
 import { calcularAbarrotes } from '../../lib/corteContabilidad/calc.js';
 import { datosImpresionCorteActual, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
@@ -33,7 +34,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     caja_actual_manual: '',
   }), []);
 
-  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, empleados, cerrarCorte, eliminarCierreHistorial, editarCierreHistorial, recargar } =
+  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, historialEliminados, empleados, cerrarCorte, eliminarCierreHistorial, editarCierreHistorial, restaurarCierreHistorial, recargar } =
     useCorteContabilidad({
       supabase,
       sucursal,
@@ -85,6 +86,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
   };
 
   return (
+    <CorteConTeclado accent={COLOR}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -100,6 +102,8 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
               style={{ width: 110, fontWeight: 700 }}
               value={estado.folio ?? folio}
               readOnly={!perm.folio}
+              inputMode="none"
+              data-corte-teclado={perm.folio ? 'alpha' : undefined}
               onChange={(e) => patchEstado({ folio: e.target.value })}
               placeholder="Folio"
             />
@@ -126,30 +130,36 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         <div className="card">
           <h4 style={{ margin: '0 0 0.75rem' }}>Movimientos</h4>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            {CAMPOS.map(({ key, label, danger }) => (
+            {CAMPOS.map(({ key, label, danger }) => {
+              const editable = !(perm.soloLectura || (key === 'recoleccion' && !perm.recoleccion));
+              return (
               <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.8rem' }}>
                 <span style={{ fontWeight: 700, color: danger ? 'var(--danger)' : 'var(--muted)' }}>{label}</span>
                 <input
-                  className="input"
-                  type="number"
-                  step="0.01"
+                  className={`input${editable ? ' corte-campo-editable' : ''}`}
+                  type="text"
+                  inputMode="none"
+                  autoComplete="off"
+                  data-corte-teclado={editable ? 'num' : undefined}
                   value={estado[key] ?? 0}
-                  readOnly={perm.soloLectura || (key === 'recoleccion' && !perm.recoleccion)}
+                  readOnly={!editable}
+                  onFocus={editable ? (e) => e.target.select() : undefined}
                   onChange={(e) => patchEstado({ [key]: e.target.value })}
                   style={{ fontWeight: 700, textAlign: 'center' }}
                 />
               </label>
-            ))}
+              );
+            })}
             {perm.editarTodo && (
               <div style={{ marginTop: '0.5rem', paddingTop: '0.5rem', borderTop: '1px dashed var(--border)' }}>
                 <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.35rem', fontWeight: 700 }}>Ajuste manual (admin)</div>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
                   <span className="muted">Subtotal turno</span>
-                  <input className="input" type="number" step="0.01" value={estado.subtotal_manual ?? ''} placeholder="Automático" onChange={(e) => patchEstado({ subtotal_manual: e.target.value })} style={{ fontWeight: 700, textAlign: 'center' }} />
+                  <input className="input corte-campo-editable" type="text" inputMode="none" autoComplete="off" data-corte-teclado="num" value={estado.subtotal_manual ?? ''} placeholder="Automático" onFocus={(e) => e.target.select()} onChange={(e) => patchEstado({ subtotal_manual: e.target.value })} style={{ fontWeight: 700, textAlign: 'center' }} />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.8rem' }}>
                   <span className="muted">Caja final</span>
-                  <input className="input" type="number" step="0.01" value={estado.caja_actual_manual ?? ''} placeholder="Automático" onChange={(e) => patchEstado({ caja_actual_manual: e.target.value })} style={{ fontWeight: 700, textAlign: 'center' }} />
+                  <input className="input corte-campo-editable" type="text" inputMode="none" autoComplete="off" data-corte-teclado="num" value={estado.caja_actual_manual ?? ''} placeholder="Automático" onFocus={(e) => e.target.select()} onChange={(e) => patchEstado({ caja_actual_manual: e.target.value })} style={{ fontWeight: 700, textAlign: 'center' }} />
                 </label>
               </div>
             )}
@@ -191,6 +201,8 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             style={{ minHeight: 72 }}
             value={estado.comentarios || ''}
             readOnly={!perm.comentarios}
+            inputMode="none"
+            data-corte-teclado={perm.comentarios ? 'alpha' : undefined}
             onChange={(e) => patchEstado({ comentarios: e.target.value })}
           />
         </div>
@@ -216,12 +228,15 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
 
       <CorteHistorialImpresion
         historial={historial}
+        historialEliminados={historialEliminados}
         modulo="abarrotes"
         puedeEliminar={perm.editarTodo}
         puedeEditar={perm.editarTodo || perm.guardar}
         onEliminar={eliminarCierreHistorial}
         onGuardarEdicion={editarCierreHistorial}
+        onRestaurar={restaurarCierreHistorial}
       />
     </div>
+    </CorteConTeclado>
   );
 }

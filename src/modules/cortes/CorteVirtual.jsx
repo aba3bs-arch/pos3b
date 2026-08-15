@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
 import CampoCorte from '../../components/corteContabilidad/CampoCorte.jsx';
+import CorteConTeclado from '../../components/corteContabilidad/CorteConTeclado.jsx';
 import CorteVirtualDesgloseModal from '../../components/corteContabilidad/CorteVirtualDesgloseModal.jsx';
 import {
   aplicarCambioTopePostRecoleccionVirtual,
@@ -63,11 +64,13 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     aviso,
     cargando,
     historial,
+    historialEliminados,
     empleados,
     cerrarCorte,
     registrarRecoleccion,
     eliminarCierreHistorial,
     editarCierreHistorial,
+    restaurarCierreHistorial,
     editarGastoEnCierre,
     eliminarGastoEnCierre,
     recargar,
@@ -245,6 +248,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
   };
 
   return (
+    <CorteConTeclado accent={ACCENT}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }} data-corte-form="virtual">
       <div className="card" style={{ borderTop: `3px solid ${ACCENT}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-start', justifyContent: 'space-between' }}>
@@ -259,12 +263,16 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
               </span>
               {puedeMonedaOperacion && puedeEditar ? (
                 <input
-                  className="input"
-                  type="number"
-                  step="0.01"
+                  className="input corte-campo-editable"
+                  type="text"
+                  inputMode="none"
+                  autoComplete="off"
+                  data-corte-teclado="num"
                   value={estado.moneda_inicial ?? ''}
+                  onFocus={(e) => e.target.select()}
                   onChange={(e) => {
-                    const v = moneyNum(e.target.value);
+                    const raw = e.target.value;
+                    const v = raw === '' || raw === '.' || raw.endsWith('.') ? raw : moneyNum(raw);
                     if (estado._post_recoleccion) {
                       patchEstado(aplicarCambioTopePostRecoleccionVirtual(estado, v));
                       return;
@@ -491,6 +499,8 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
           className="input"
           value={estado.comentarios || ''}
           readOnly={!puedeComentarios}
+          inputMode="none"
+          data-corte-teclado={puedeComentarios ? 'alpha' : undefined}
           onChange={(e) => patchEstado({ comentarios: e.target.value })}
           placeholder="Notas del turno…"
           style={{ minHeight: 72, width: '100%', resize: 'vertical' }}
@@ -499,16 +509,19 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
 
       <CorteHistorialImpresion
         historial={historial}
+        historialEliminados={historialEliminados}
         modulo="virtual"
         puedeEliminar={perm.editarTodo}
         puedeEditar={perm.editarTodo || perm.guardar}
         onEliminar={eliminarCierreHistorial}
         onGuardarEdicion={editarCierreHistorial}
+        onRestaurar={restaurarCierreHistorial}
         columnasExtra={[
           { key: 'tipo', label: 'Tipo', render: (h) => etiquetaTipoCierre(h.detalle) },
           { key: 'usuario', label: 'Usuario', render: (h) => h.usuario_nombre || '—' },
         ]}
       />
     </div>
+    </CorteConTeclado>
   );
 }

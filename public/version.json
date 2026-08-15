@@ -1,13 +1,15 @@
 {
-  "version": "1.1.3",
-  "buildId": "vales-rif-prestamos-nomina",
+  "version": "1.1.4",
+  "buildId": "reloj-resumen-cortes-papelera",
   "branch": "main",
-  "builtAt": "2026-08-13T16:50:00.000Z",
+  "builtAt": "2026-08-15T16:30:00.000Z",
   "title": "Actualización disponible",
-  "summary": "Vales: Imprimir y Eliminar (también cajero). RIF con Abonar/Liquidar e Imprimir. Cuota préstamos a Nómina.",
+  "summary": "Checador: Resumen de días (entrada y salida). Cortes: papelera y teclado en pantalla. Acepta para actualizar esta caja.",
   "changes": [
-    "Vales: botones Imprimir y Eliminar (Eliminar visible para cajero si se equivoca)",
-    "RIF: Abonar, Liquidar; abono parcial pide nueva promesa; Imprimir RIF actualizado",
-    "Préstamos empleados: cuota semanal $500 (o saldo restante) se descuenta en Contabilidad → Nómina"
+    "Checador → pestaña Resumen días: tabla de días, descansos y faltas",
+    "Un día trabajado solo cuenta con entrada y salida (si solo hay entrada, no cuenta)",
+    "Cubre turno (CT) solo suma días checados, sin faltas ni descansos",
+    "Cortes Virtual/Abarrotes/Garage: papelera de cierres borrados, con quién los eliminó y Restaurar",
+    "Teclado en pantalla en esos cortes para tablet/POS sin teclado físico"
   ]
 }

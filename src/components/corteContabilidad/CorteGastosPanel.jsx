@@ -414,7 +414,6 @@ export default function CorteGastosPanel({
                 </select>
               </label>
             )}
-
             {!esCatEmpleado && requiereEmpleado && (
               <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem', fontWeight: 700, gridColumn: '1 / -1' }}>
                 <span className="muted">Empleado</span>
@@ -432,7 +431,17 @@ export default function CorteGastosPanel({
 
             <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem', fontWeight: 700 }}>
               <span className="muted">Monto</span>
-              <input className="input" type="number" min="0" step="0.01" placeholder="Monto" value={monto} onChange={(e) => setMonto(e.target.value)} />
+              <input
+                className="input corte-campo-editable"
+                type="text"
+                inputMode="none"
+                autoComplete="off"
+                data-corte-teclado="num"
+                placeholder="Monto"
+                value={monto}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setMonto(e.target.value)}
+              />
             </label>
           </div>
           {rutaGasto ? (
@@ -462,6 +471,8 @@ export default function CorteGastosPanel({
               placeholder="Comentario (opcional)"
               style={{ flex: 1, minWidth: 140 }}
               value={comentario}
+              inputMode="none"
+              data-corte-teclado="alpha"
               onChange={(e) => setComentario(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && agregar()}
             />
@@ -514,12 +525,14 @@ export default function CorteGastosPanel({
                 <td style={{ fontWeight: 700 }}>
                   {puedeEditarGastos ? (
                     <input
-                      className="input"
-                      type="number"
-                      min="0"
-                      step="0.01"
+                      className="input corte-campo-editable"
+                      type="text"
+                      inputMode="none"
+                      autoComplete="off"
+                      data-corte-teclado="num"
                       style={{ width: '90px', fontWeight: 700 }}
                       value={g.monto}
+                      onFocus={(e) => e.target.select()}
                       onChange={(e) => onEditar?.(g.id, { monto: e.target.value })}
                     />
                   ) : (
