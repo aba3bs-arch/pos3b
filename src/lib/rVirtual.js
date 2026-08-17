@@ -4,14 +4,8 @@ import {
   nombreCoincidePatrones,
   normalizarNombreMatch,
 } from './contabilidadConstants.js';
+import { fmtMonto } from './controlEfectivo.js';
 import {
-  armarAcreditacionesLiquidacion,
-  fmtMonto,
-  liquidarMovimientos,
-  listarGastosActivosParaLiquidacion,
-} from './controlEfectivo.js';
-import {
-  CUENTA_RT_ABB_ID,
   etiquetaCuentaRt,
   resolverOCrearCuentaRt,
   transferirEntreCuentasRt,
@@ -48,8 +42,13 @@ export function claveRecolectorRVirtual(nombre) {
   return normalizarNombreMatch(etiquetaRecolectorRVirtual(nombre)) || 'sin-nombre';
 }
 
-function esCierreRecoleccionVirtual(row) {
-  if (String(row?.modulo || '').toLowerCase() !== 'virtual') return false;
+const MODULOS_R_VIRTUAL = new Set(['virtual', 'garage']);
+
+/** Solo recolecciones definitivas de cortes Virtual / Garage (no temporales, no abarrotes). */
+function esCierreRecoleccionRVirtual(row) {
+  const mod = String(row?.modulo || '').toLowerCase();
+  if (!MODULOS_R_VIRTUAL.has(mod)) return false;
+  if (row?.detalle?.r_virtual_estado) return false;
   const tipo = String(row?.detalle?.tipo_cierre || '').toLowerCase();
   if (tipo === 'recoleccion_temporal') return false;
   if (tipo === 'recoleccion') return true;
@@ -60,6 +59,12 @@ function esCierreRecoleccionVirtual(row) {
 function montoCorteRecoleccion(row) {
   const d = row?.detalle || {};
   return Number(d.recoleccion_efectivo ?? d.recoleccion ?? d.recoleccion_turno ?? 0) || 0;
+}
+
+function etiquetaTipoCorte(row) {
+  const mod = String(row?.modulo || '').toLowerCase();
+  if (mod === 'garage') return 'Recolección Garage';
+  return 'Recolección Virtual';
 }
 
 function claveItem(origen, origenId) {
@@ -76,50 +81,16 @@ async function listarCustodia(supabase) {
   return data || [];
 }
 
-async function listarTransitoPendienteRVirtual(supabase) {
-  const { data, error } = await supabase
-    .from('transito_efectivo')
-    .select(
-      'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, estatus, descripcion_gasto',
-    )
-    .in('estatus', ['En Tránsito', 'Por Cobrar'])
-    .in('tipo_movimiento', ['Recolección', 'Entrega Crédito', 'Cobro Servicio'])
-    .order('fecha_hora', { ascending: false })
-    .limit(800);
-  if (error) throw error;
-  return data || [];
-}
-
-async function listarRecoleccionesCorteVirtual(supabase) {
+async function listarRecoleccionesCorteRVirtual(supabase) {
   const { data, error } = await supabase
     .from('cortes_contabilidad_cierres')
     .select('id, sucursal_id, folio, usuario_nombre, created_at, detalle, modulo, turno')
-    .eq('modulo', 'virtual')
+    .in('modulo', ['virtual', 'garage'])
     .eq('turno', 'RECOLECCION')
     .order('created_at', { ascending: false })
-    .limit(200);
+    .limit(300);
   if (error) throw error;
-  return (data || []).filter(esCierreRecoleccionVirtual);
-}
-
-function itemDesdeTransito(m) {
-  const nombre = m.repartidores?.nombre || m.cajero_nombre || 'Recolector';
-  return {
-    origen: 'transito',
-    origenId: String(m.id),
-    recolectorNombre: nombre,
-    recolectorClave: claveRecolectorRVirtual(nombre),
-    recolectorEtiqueta: etiquetaRecolectorRVirtual(nombre),
-    monto: Number(m.monto || 0),
-    sucursal: m.sucursal_origen || '',
-    folio: m.num_traspaso || '',
-    tipoItem: m.tipo_movimiento || 'Recolección',
-    estatusOrigen: m.estatus,
-    fecha: m.fecha_hora,
-    detalle: m.descripcion_gasto || '',
-    receivable: m.estatus === 'En Tránsito',
-    deuda: m.estatus === 'Por Cobrar',
-  };
+  return (data || []).filter(esCierreRecoleccionRVirtual);
 }
 
 function itemDesdeCorte(row) {
@@ -134,7 +105,8 @@ function itemDesdeCorte(row) {
     monto,
     sucursal: etiquetaTienda(row.sucursal_id) || row.sucursal_id || '',
     folio: row.folio || '',
-    tipoItem: 'Recolección Virtual',
+    tipoItem: etiquetaTipoCorte(row),
+    modulo: String(row.modulo || '').toLowerCase() || 'virtual',
     estatusOrigen: 'En Tránsito',
     fecha: row.created_at,
     detalle: '',
@@ -200,20 +172,22 @@ function agruparCustodiaPorAdmin(rows) {
 }
 
 /**
- * Recolecciones de corte Virtual + traspasos aún en tránsito/deuda.
- * Lo ya liquidado (antes de recolectar en R Virtual) no aparece.
+ * Solo recolecciones de cortes Virtual y Garage.
+ * No incluye abarrotes ni traspasos a crédito / cobro servicio.
+ * Lo ya recibido en R Virtual no aparece.
  */
 export async function listarBandejaRVirtual(supabase) {
   if (!supabase) return { recolectores: [], porEntregarAbb: [], error: null };
   try {
-    const [transito, custodia] = await Promise.all([
-      listarTransitoPendienteRVirtual(supabase),
+    const [cortes, custodia] = await Promise.all([
+      listarRecoleccionesCorteRVirtual(supabase),
       listarCustodia(supabase),
     ]);
     const yaRecibidos = new Set((custodia || []).map((c) => claveItem(c.origen, c.origen_id)));
     const pendientes = [];
-    for (const m of transito) {
-      const it = itemDesdeTransito(m);
+    for (const row of cortes) {
+      const it = itemDesdeCorte(row);
+      if (!(it.monto > 0)) continue;
       if (yaRecibidos.has(claveItem(it.origen, it.origenId))) continue;
       pendientes.push(it);
     }
@@ -231,24 +205,6 @@ export async function listarBandejaRVirtual(supabase) {
     }
     return { recolectores: [], porEntregarAbb: [], error: e.message || String(e) };
   }
-}
-
-function repartirMontoAcreditado(items, acreditado) {
-  const gross = items.reduce((a, it) => a + Number(it.monto || 0), 0);
-  const net = Math.round((Number(acreditado) || 0) * 100) / 100;
-  if (!(gross > 0) || net <= 0) {
-    return items.map((it) => ({ ...it, montoAcreditado: 0 }));
-  }
-  let asignado = 0;
-  return items.map((it, idx) => {
-    if (idx === items.length - 1) {
-      const resto = Math.round((net - asignado) * 100) / 100;
-      return { ...it, montoAcreditado: Math.max(0, resto) };
-    }
-    const parte = Math.round((it.monto * net) / gross * 100) / 100;
-    asignado += parte;
-    return { ...it, montoAcreditado: parte };
-  });
 }
 
 async function insertarCustodia(supabase, rows) {
@@ -273,7 +229,7 @@ async function marcarCorteRecibido(supabase, origenId, patch) {
 }
 
 /**
- * El admin recibe las recolecciones en tránsito del recolector y las carga a su cuenta.
+ * El admin recibe recolecciones de cortes Virtual/Garage y las carga a su cuenta.
  * Si el admin es ABB, quedan entregadas a él. Si no, quedan por entregar a ABB.
  */
 export async function recibirRecoleccionesRVirtual(supabase, { recolectorClave, adminNombre, items } = {}) {
@@ -286,16 +242,41 @@ export async function recibirRecoleccionesRVirtual(supabase, { recolectorClave, 
     return { ok: false, error: AVISO_FALTA_R_VIRTUAL };
   }
 
-  const receivable = (items || []).filter((it) => it.receivable && it.recolectorClave === recolectorClave);
+  const receivable = (items || []).filter(
+    (it) => it.receivable
+      && it.origen === 'corte'
+      && it.recolectorClave === recolectorClave
+      && Number(it.monto || 0) > 0,
+  );
   if (!receivable.length) {
-    return { ok: false, error: 'No hay recolecciones en tránsito para recibir. Las deudas por cobrar no se cargan hasta que se cobren; lo ya liquidado no se vuelve a recolectar.' };
+    return {
+      ok: false,
+      error: 'No hay recolecciones de Virtual/Garage pendientes de recibir.',
+    };
+  }
+
+  // Confirmar en nube que siguen siendo cortes Virtual/Garage no recibidos.
+  const ids = receivable.map((it) => it.origenId);
+  const { data: rowsNube, error: errNube } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .select('id, modulo, detalle, turno')
+    .in('id', ids);
+  if (errNube) return { ok: false, error: errNube.message };
+  const vivosMap = new Map((rowsNube || []).map((r) => [String(r.id), r]));
+  const cortes = receivable.filter((it) => {
+    const row = vivosMap.get(String(it.origenId));
+    return row && esCierreRecoleccionRVirtual(row);
+  });
+  if (!cortes.length) {
+    return {
+      ok: false,
+      error: 'Esas recolecciones ya se recibieron o no son de Virtual/Garage.',
+    };
   }
 
   const cuenta = await resolverOCrearCuentaRt(supabase, admin);
   if (!cuenta.ok) return cuenta;
 
-  const transito = receivable.filter((it) => it.origen === 'transito');
-  const cortes = receivable.filter((it) => it.origen === 'corte');
   const grupoId = crypto.randomUUID();
   const ahora = new Date().toISOString();
   const esDestinoFinal = esAbb(admin);
@@ -303,49 +284,6 @@ export async function recibirRecoleccionesRVirtual(supabase, { recolectorClave, 
   const etiquetaAbb = etiquetaRecolectorRVirtual(admin);
 
   const acreditados = [];
-
-  if (transito.length) {
-    const ids = transito.map((it) => it.origenId);
-    const { data: rows } = await supabase
-      .from('transito_efectivo')
-      .select('id, monto, tipo_movimiento, sucursal_origen, num_traspaso, repartidor_id')
-      .in('id', ids)
-      .eq('estatus', 'En Tránsito');
-    const vivos = rows || [];
-    if (!vivos.length && !cortes.length) {
-      return { ok: false, error: 'Esas recolecciones ya se liquidaron; no hace falta volver a recolectarlas.' };
-    }
-    if (vivos.length) {
-      let totalGastos = 0;
-      const repIds = [...new Set(vivos.map((r) => r.repartidor_id).filter(Boolean))];
-      for (const rid of repIds) {
-        const activos = await listarGastosActivosParaLiquidacion(supabase, rid);
-        totalGastos += (activos || []).reduce((a, g) => a + Number(g.monto || 0), 0);
-      }
-      const seleccionados = vivos.map((r) => ({
-        ...r,
-        tipo_movimiento: r.tipo_movimiento || 'Recolección',
-      }));
-      const { acreditaciones } = armarAcreditacionesLiquidacion({
-        seleccionados,
-        totalGastos,
-        cuentaRtMercancia: cuenta.cuentaId,
-        cuentaRtServicios: cuenta.cuentaId,
-        repartidorNombre: transito[0]?.recolectorNombre,
-      });
-      const liq = await liquidarMovimientos(supabase, {
-        ids: vivos.map((r) => r.id),
-        adminNombre: admin,
-        repartidorNombre: transito[0]?.recolectorNombre,
-        acreditaciones,
-      });
-      if (!liq.ok) return liq;
-      const vivosItems = transito.filter((it) => vivos.some((r) => String(r.id) === String(it.origenId)));
-      const montoAcred = (liq.acreditaciones || []).reduce((a, ac) => a + Number(ac.monto || 0), 0);
-      acreditados.push(...repartirMontoAcreditado(vivosItems, montoAcred));
-    }
-  }
-
   for (const it of cortes) {
     const cred = await resolverOCrearCuentaRt(supabase, admin);
     if (!cred.ok) return cred;
@@ -356,7 +294,7 @@ export async function recibirRecoleccionesRVirtual(supabase, { recolectorClave, 
       montoTotal: it.monto,
       usuarioNombre: admin,
       repartidorNombre: it.recolectorNombre,
-      notas: `R Virtual · recolección corte ${it.folio || it.origenId}`,
+      notas: `R Virtual · ${it.tipoItem || 'recolección'} ${it.folio || it.origenId}`,
     });
     if (!res.ok) return res;
     acreditados.push({ ...it, montoAcreditado: it.monto });

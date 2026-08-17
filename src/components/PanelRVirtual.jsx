@@ -57,7 +57,7 @@ export default function PanelRVirtual({ supabase, user }) {
   const recibir = async (grupo) => {
     const n = (grupo.items || []).filter((it) => it.receivable).length;
     if (!n) {
-      setMsg('Solo hay deudas por cobrar. Cuando se liquiden o se cobren, ya no habrá que recolectarlas aquí.');
+      setMsg('No hay recolecciones de Virtual/Garage pendientes de recibir.');
       return;
     }
     if (!confirm(
@@ -113,8 +113,9 @@ export default function PanelRVirtual({ supabase, user }) {
       <div className="card">
         <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>R Virtual</h3>
         <p className="muted" style={{ margin: 0, fontSize: '0.88rem' }}>
-          Recolecciones y traspasos en tránsito o como deuda.
-          Si ya se liquidaron antes, no aparecen (no se vuelven a recolectar).
+          Solo recolecciones de cortes Virtual y Garage.
+          No incluye abarrotes ni traspasos a crédito.
+          Las ya recibidas aquí no vuelven a aparecer.
           {adminEsAbb
             ? ' Tú eres ABB: al recibir quedan en tu cuenta; también puedes quitarle a quien te entregue.'
             : ' Al recibir se cargan a tu cuenta; después debes entregarlas a ABB.'}
@@ -220,7 +221,7 @@ export default function PanelRVirtual({ supabase, user }) {
             </h4>
             {recolectores.length === 0 ? (
               <p className="muted" style={{ margin: 0 }}>
-                Nadie tiene recolecciones en tránsito ni traspasos como deuda.
+                No hay recolecciones pendientes de cortes Virtual o Garage.
               </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -254,7 +255,7 @@ export default function PanelRVirtual({ supabase, user }) {
                                   <th>Tipo</th>
                                   <th>Folio</th>
                                   <th>Sucursal</th>
-                                  <th>Estatus</th>
+                                  <th>Módulo</th>
                                   <th>Monto</th>
                                 </tr>
                               </thead>
@@ -265,7 +266,7 @@ export default function PanelRVirtual({ supabase, user }) {
                                     <td>{it.tipoItem}</td>
                                     <td>{it.folio || '—'}</td>
                                     <td>{it.sucursal || '—'}</td>
-                                    <td>{it.deuda ? 'Por cobrar (deuda)' : 'En tránsito'}</td>
+                                    <td>{it.tipoItem?.includes('Garage') ? 'Garage' : 'Virtual'}</td>
                                     <td>{fmtMonto(it.monto)}</td>
                                   </tr>
                                 ))}
@@ -286,7 +287,7 @@ export default function PanelRVirtual({ supabase, user }) {
                             </button>
                           ) : (
                             <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.85rem' }}>
-                              Solo hay deuda por cobrar. Si se liquida antes, ya no hay que recolectarla aquí.
+                              No hay monto por recibir en estas recolecciones.
                             </p>
                           )}
                         </div>
