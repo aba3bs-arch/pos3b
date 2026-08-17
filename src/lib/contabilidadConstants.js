@@ -104,7 +104,7 @@ export function prestamoRequiereSocio(monto) {
   return (Number(monto) || 0) > MONTO_PRESTAMO_REQUIERE_SOCIO;
 }
 
-function normalizarNombreMatch(nombre) {
+export function normalizarNombreMatch(nombre) {
   return String(nombre || '')
     .trim()
     .toLowerCase()
@@ -113,7 +113,7 @@ function normalizarNombreMatch(nombre) {
     .replace(/\s+/g, ' ');
 }
 
-function nombreCoincidePatrones(nombre, patrones = []) {
+export function nombreCoincidePatrones(nombre, patrones = []) {
   const n = normalizarNombreMatch(nombre);
   if (!n) return false;
   const tokens = n.split(' ').filter(Boolean);
@@ -134,6 +134,12 @@ export function esSocioAprobadorPrestamo(nombre) {
 /** ABB, FJBB o JLBB (o Antonio / Francisco / José Luis). */
 export function esAprobadorRecoleccionIe(nombre) {
   return APROBADORES_RECOLECCION_IE.some((s) => nombreCoincidePatrones(nombre, s.patrones));
+}
+
+/** Antonio / ABB: destino final de R Virtual. */
+export function esAbb(nombre) {
+  const abb = APROBADORES_RECOLECCION_IE.find((s) => s.id === 'abb');
+  return nombreCoincidePatrones(nombre, abb?.patrones || ['abb', 'antonio']);
 }
 
 /** Luis Enrique Mada Osuna o AMR: requieren aprobación de ABB/FJBB/JLBB. */

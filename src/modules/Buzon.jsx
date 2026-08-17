@@ -57,12 +57,14 @@ import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
 import { PRESETS_FECHA_PRODUCTO, rangoDesdePreset } from '../lib/consultasInventario.js';
 import { enRangoYmd, toYmd } from '../lib/fechas.js';
 import {
+  BUZON_R_VIRTUAL,
   BUZONES_AREA,
   etiquetaBuzon,
   incidenciaPerteneceABuzon,
   notificacionPerteneceABuzon,
 } from '../lib/buzonAreas.js';
 import { filtrarIncidenciasMiBuzon, filtrarNotificacionesMiBuzon } from '../lib/buzonUsuario.js';
+import PanelRVirtual from '../components/PanelRVirtual.jsx';
 
 const PRESETS_INCIDENCIAS = [{ id: 'todos', label: 'Todas las fechas' }, ...PRESETS_FECHA_PRODUCTO];
 
@@ -561,21 +563,23 @@ export default function Buzon({
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
         <h2 style={{ margin: 0, color: 'var(--brand-blue)' }}>
-          Buzón{buzonArea !== 'todos' ? ` · ${etiquetaBuzon(buzonArea)}` : ''}
-          {!soloIncidencias && !(verTodoBuzon && (esAdmin || esGerente)) ? ' · Mi bandeja' : ''}
+          Incidencias{buzonArea !== 'todos' ? ` · ${etiquetaBuzon(buzonArea)}` : ''}
+          {!soloIncidencias && buzonArea !== BUZON_R_VIRTUAL.id && !(verTodoBuzon && (esAdmin || esGerente)) ? ' · Mi bandeja' : ''}
         </h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
           {soloIncidencias
             ? `Tienda ${etiquetaTienda(sucursal)} · levanta un reporte; el responsable lo atiende en su buzón`
-            : (esAdmin || esGerente)
-              ? (verTodoBuzon
-                ? `Vista completa · todas las pendientes e incidencias${veTodasTiendas ? ' (todas las sucursales)' : ''}`
-                : 'Tu bandeja: lo asignado a ti (incidencias) y pendientes de tu rol. Activa «Ver todo» para el buzón completo.')
-              : 'Abre tu buzón para atender lo que te asignaron. Las alertas también llegan a usuarios MAIN.'}
+            : buzonArea === BUZON_R_VIRTUAL.id
+              ? 'Recolecciones y traspasos en tránsito o deuda. Recibe a tu cuenta; si no eres ABB, entrega a ABB.'
+              : (esAdmin || esGerente)
+                ? (verTodoBuzon
+                  ? `Vista completa · todas las pendientes e incidencias${veTodasTiendas ? ' (todas las sucursales)' : ''}`
+                  : 'Tu bandeja: lo asignado a ti (incidencias) y pendientes de tu rol. Activa «Ver todo» para el buzón completo.')
+                : 'Abre tu buzón para atender lo que te asignaron. Las alertas también llegan a usuarios MAIN.'}
         </p>
       </div>
 
-      {(esAdmin || esGerente) && !soloIncidencias && (
+      {(esAdmin || esGerente) && !soloIncidencias && buzonArea !== BUZON_R_VIRTUAL.id && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
           <button
             type="button"
@@ -612,6 +616,15 @@ export default function Buzon({
             {b.label}
           </button>
         ))}
+        {!soloIncidencias && puedeBandejaPendientes && (
+          <button
+            type="button"
+            className={`btn ${buzonArea === BUZON_R_VIRTUAL.id ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setBuzonArea(BUZON_R_VIRTUAL.id)}
+          >
+            {BUZON_R_VIRTUAL.label}
+          </button>
+        )}
       </div>
 
       {aviso && (
@@ -626,6 +639,10 @@ export default function Buzon({
         </div>
       )}
 
+      {buzonArea === BUZON_R_VIRTUAL.id && !soloIncidencias && puedeBandejaPendientes ? (
+        <PanelRVirtual supabase={supabase} user={user} />
+      ) : (
+      <>
       {!soloIncidencias && (
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
         {pestanas.map((p) => (
@@ -1162,6 +1179,8 @@ export default function Buzon({
             </div>
           )}
         </div>
+      )}
+      </>
       )}
     </div>
   );

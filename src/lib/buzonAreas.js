@@ -8,6 +8,9 @@ export const BUZONES_AREA = AREAS_CONTABILIDAD.map((id) => ({
   label: ETIQUETA_AREA[id] || id,
 }));
 
+/** Buzón de recolecciones Virtual (custodia → cuenta del admin → ABB). */
+export const BUZON_R_VIRTUAL = { id: 'r_virtual', label: 'R Virtual' };
+
 /** Categorías de incidencia que pertenecen a un buzón de área. */
 const CATS_AREA = new Set(AREAS_CONTABILIDAD);
 
@@ -96,5 +99,6 @@ export function incidenciaPerteneceABuzon(inc, areaBuzon) {
 
 export function etiquetaBuzon(area) {
   if (!area || area === 'todos') return 'Todos';
+  if (area === BUZON_R_VIRTUAL.id) return BUZON_R_VIRTUAL.label;
   return ETIQUETA_AREA[normalizarAreaCorte(area, area)] || area;
 }

@@ -306,11 +306,11 @@ function App() {
         (payload) => {
           const row = payload.new;
           if (!row || row.estado !== 'pendiente') return;
-          // Avisa a todos los usuarios MAIN notificables: deben abrir su Buzón.
+          // Avisa a todos los usuarios MAIN notificables: deben abrir Incidencias.
           void mostrarNotificacionDispositivo({
             id: row.id,
             titulo: row.titulo,
-            mensaje: row.mensaje || 'Hay un pendiente nuevo en el Buzón.',
+            mensaje: row.mensaje || 'Hay un pendiente nuevo en Incidencias.',
             onClick: () => abrirPendientes(row),
           });
           window.dispatchEvent(new CustomEvent(EVENTO_NOTIFICACIONES));
@@ -912,7 +912,7 @@ function App() {
                 sucursal={sucursal}
                 user={user}
                 onClick={() => {
-                  // Campanita = Buzón (recolecciones, incidencias, vales). No van en Inicio.
+                  // Campanita = Incidencias (recolecciones, incidencias, vales). No van en Inicio.
                   if (puedeAbrirBandejaIncidencias(user?.rol, user?.id) && puedeVerModulo(user?.rol, 'Incidencias', user?.id)) {
                     setBuzonPestana('pendientes');
                     irAModulo('Incidencias');
@@ -923,7 +923,7 @@ function App() {
                     irAModulo('Vales y Préstamos', { pestana: 'pendientes' });
                     return;
                   }
-                  alert('No tienes acceso al Buzón. Revisa privilegios de Incidencias o Vales y Préstamos.');
+                  alert('No tienes acceso a Incidencias. Revisa privilegios de Incidencias o Vales y Préstamos.');
                 }}
               />
             </div>

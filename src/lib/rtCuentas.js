@@ -6,9 +6,14 @@ export const AVISO_FALTA_TABLA_RT_CUENTAS =
   'Ejecuta en Supabase: supabase/fix_rt_cuentas.sql para crear las cuentas RT.';
 
 export const CUENTAS_RT = [
-  { id: 'francisco', nombre: 'Francisco', patrones: ['francisco'] },
-  { id: 'andres', nombre: 'Andrés', patrones: ['andres', 'andrés'] },
+  { id: 'francisco', nombre: 'Francisco', patrones: ['francisco', 'fjbb'] },
+  { id: 'andres', nombre: 'Andrés', patrones: ['andres', 'andrés', 'amr'] },
+  { id: 'abb', nombre: 'ABB', patrones: ['abb', 'antonio'] },
+  { id: 'jlbb', nombre: 'JLBB', patrones: ['jlbb', 'jose luis', 'josé luis'] },
+  { id: 'luis-enrique', nombre: 'Luis Enrique', patrones: ['luis enrique'] },
 ];
+
+export const CUENTA_RT_ABB_ID = 'abb';
 
 export const PRESETS_RT_CUENTAS = [
   { id: 'hoy', label: 'Hoy' },
@@ -37,10 +42,39 @@ export function esErrorTablaRtCuentas(error) {
 export function resolverCuentaRtPorNombre(nombre) {
   const n = normNombre(nombre);
   if (!n) return null;
+  const tokens = n.split(' ').filter(Boolean);
   for (const c of CUENTAS_RT) {
-    if (c.patrones.some((p) => n.includes(normNombre(p)))) return c.id;
+    if (c.patrones.some((p) => {
+      const pn = normNombre(p);
+      if (!pn) return false;
+      if (pn.length <= 4) return n === pn || tokens.includes(pn);
+      return n.includes(pn) || pn.includes(n);
+    })) return c.id;
   }
   return null;
+}
+
+export function slugCuentaRt(nombre) {
+  const n = normNombre(nombre).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return (n || 'cuenta').slice(0, 40);
+}
+
+/** Resuelve cuenta RT del admin; si no existe, la crea. */
+export async function resolverOCrearCuentaRt(supabase, nombre) {
+  const conocido = resolverCuentaRtPorNombre(nombre);
+  const id = conocido || slugCuentaRt(nombre);
+  const meta = CUENTAS_RT.find((c) => c.id === id);
+  const etiqueta = meta?.nombre || String(nombre || '').trim() || id;
+  if (!supabase) return { ok: true, cuentaId: id, nombre: etiqueta, creada: false };
+  const { error } = await supabase.from('rt_cuentas').upsert(
+    { id, nombre: etiqueta, activo: true },
+    { onConflict: 'id' },
+  );
+  if (error) {
+    if (esErrorTablaRtCuentas(error)) return { ok: false, error: AVISO_FALTA_TABLA_RT_CUENTAS };
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, cuentaId: id, nombre: etiqueta };
 }
 
 export function etiquetaCuentaRt(id) {

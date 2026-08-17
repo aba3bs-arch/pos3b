@@ -51,7 +51,7 @@ export default function BadgeNotificacionesContabilidad({ supabase, sucursal, us
       type="button"
       className="btn btn-ghost"
       onClick={onClick}
-      title="Abrir Buzón · pendientes a tu cargo"
+      title="Abrir Incidencias · pendientes a tu cargo"
       style={{ position: 'relative', padding: '0.4rem 0.65rem' }}
     >
       📬
