@@ -184,7 +184,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
 
   useEffect(() => {
     const detectada = resolverCuentaRtPorNombre(user?.nombre);
-    if (detectada) setCuentaRtLiberar(detectada);
+    if (detectada) setCuentaRtLiberarMerc(detectada);
   }, [user?.nombre]);
 
   const cargarCuentasRt = useCallback(async () => {
