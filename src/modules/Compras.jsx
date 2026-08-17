@@ -843,7 +843,11 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                               type="number"
                               min={0}
                               className="input"
-                              style={{ width: '72px', padding: '0.35rem' }}
+                              style={{
+                                width: '72px',
+                                padding: '0.35rem',
+                                ...(modoEntregaDirecta ? { background: '#f0fdf4' } : {}),
+                              }}
                               value={l.qty_pedido}
                               readOnly={modoRecepcion}
                               disabled={modoRecepcion}
@@ -856,7 +860,6 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                                     ? 'Piezas entregadas (entra al inventario al registrar)'
                                     : 'Enter = cantidad sugerida'
                               }
-                              style={modoEntregaDirecta ? { background: '#f0fdf4' } : undefined}
                             />
                           </td>
                           {!modoEntregaDirecta ? (

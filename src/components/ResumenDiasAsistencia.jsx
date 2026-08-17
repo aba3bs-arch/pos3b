@@ -164,7 +164,7 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, suc
       )}
       {!error && !cargando && filas.length === 0 ? (
         <p className="muted">Sin empleados ni checadas en el periodo.</p>
-      ) : !error ? (
+      ) : !error && !cargando ? (
         <div className="table-wrap">
           <table className="data">
             <thead>
@@ -200,7 +200,7 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, suc
             </tbody>
           </table>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
