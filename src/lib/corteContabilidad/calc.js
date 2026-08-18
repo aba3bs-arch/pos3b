@@ -1,3 +1,5 @@
+import { hoyYmdNogales } from '../corteCaja.js';
+
 export function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
@@ -47,6 +49,8 @@ export function detalleRecoleccionParaIe({ efectivo, gastosTotal, extras = {} })
     recoleccion_contabilidad: round2(rec + gastos),
     formula_recoleccion_ie: 'efectivo_mas_gastos',
     gastos_deducidos_en_ie: true,
+    /** Día operativo Sonora 00:00–24:00 (no UTC). */
+    fecha_negocio: extras.fecha_negocio || hoyYmdNogales(),
   };
 }
 

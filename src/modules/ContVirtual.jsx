@@ -46,7 +46,7 @@ import {
   listarInversionesOficina,
   registrarInversionOficinaProveedor,
 } from '../lib/inversionesOficinaProveedor.js';
-import { hoyYmdNogales } from '../lib/corteCaja.js';
+import { hoyYmdNogales, ymdNegocioDesdeIso, fmtYmdEs } from '../lib/corteCaja.js';
 import './ContVirtual.css';
 
 const LS_NOTAS = 'pos3b_cont_virtual_notas';
@@ -75,8 +75,7 @@ function hoyYmd() {
 }
 
 function fmtFechaCorta(ymd) {
-  const [y, m, d] = String(ymd).split('-');
-  return `${Number(d)}.${Number(m)}.${y}`;
+  return fmtYmdEs(ymdNegocioDesdeIso(ymd) || ymd);
 }
 
 function fmtRangoCorto(desde, hasta) {
@@ -352,12 +351,15 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
   const [nav, setNav] = useState('trans'); // trans | estad | cuentas | mas
   const [transTab, setTransTab] = useState('diario');
-  const [anio, setAnio] = useState(() => new Date().getFullYear());
-  const [mes, setMes] = useState(() => new Date().getMonth());
+  const [anio, setAnio] = useState(() => Number(hoyYmdNogales().slice(0, 4)));
+  const [mes, setMes] = useState(() => Number(hoyYmdNogales().slice(5, 7)) - 1);
   const [estadPreset, setEstadPreset] = useState('mes');
   const [estadTab, setEstadTab] = useState('gastos');
-  const [mesExpandido, setMesExpandido] = useState(() => new Date().getMonth());
-  const hoyRef = useMemo(() => new Date(), []);
+  const [mesExpandido, setMesExpandido] = useState(() => Number(hoyYmdNogales().slice(5, 7)) - 1);
+  const hoyRef = useMemo(() => {
+    const [y, m, d] = hoyYmdNogales().split('-').map(Number);
+    return new Date(y, m - 1, d, 12, 0, 0);
+  }, []);
   const [filtroTienda, setFiltroTienda] = useState('');
   const [filtroCuenta, setFiltroCuenta] = useState(''); // '' | virtual | garage
   const [showFiltro, setShowFiltro] = useState(true);
@@ -631,7 +633,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       map[id].ingresos += monto;
       map[id].recolecciones.push({
         id: it.id || `${id}-${it.fecha}-${map[id].recolecciones.length}`,
-        fecha: String(it.fecha || '').slice(0, 10),
+        fecha: ymdNegocioDesdeIso(it.fecha) || String(it.fecha || '').slice(0, 10),
         monto: Math.round(monto * 100) / 100,
         folio: it.folio || '',
         cuenta: it.cuenta || '',

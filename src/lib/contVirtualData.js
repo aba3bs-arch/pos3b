@@ -20,7 +20,7 @@ import {
   gastoEsCuentaRtFrancisco,
   reclasificarGastosRtFranciscoAAbarrotes,
 } from './contabilidadDepartamentos.js';
-import { finDia, inicioDia, hoyYmdNogales, ymdNogalesFromDate } from './corteCaja.js';
+import { finDia, inicioDia, hoyYmdNogales, ymdNogalesFromDate, ymdNegocioDesdeIso } from './corteCaja.js';
 
 function toYmd(d) {
   return ymdNogalesFromDate(d) || hoyYmdNogales();
@@ -28,11 +28,7 @@ function toYmd(d) {
 
 /** Día calendario Sonora 00:00–24:00 (no UTC). */
 function ymdNegocio(isoOrDate) {
-  if (!isoOrDate) return '';
-  if (typeof isoOrDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(isoOrDate.trim())) {
-    return isoOrDate.trim();
-  }
-  return ymdNogalesFromDate(isoOrDate);
+  return ymdNegocioDesdeIso(isoOrDate);
 }
 
 function isoEnRango(iso, desde, hasta) {
@@ -186,7 +182,10 @@ function itemIngresoRecoleccion(r, { desde, etiquetaCuentaFn } = {}) {
   const cuentaLbl = typeof etiquetaCuentaFn === 'function'
     ? etiquetaCuentaFn(mod)
     : (mod === 'garage' ? 'Garage' : mod === 'abarrotes' ? 'Abarrotes' : 'Virtual');
-  const f = ymdNegocio(r.created_at) || desde;
+  // Preferir fecha_negocio guardada; si no, día Sonora desde created_at (nunca slice UTC).
+  const f = ymdNegocio(detalle.fecha_negocio)
+    || ymdNegocio(r.created_at)
+    || desde;
   return {
     id: `rec-${r.id}`,
     cierre_id: r.id,
