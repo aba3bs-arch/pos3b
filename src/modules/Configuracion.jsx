@@ -37,9 +37,10 @@ import {
 } from '../lib/posConfig.js';
 import {
   EVENTO_HORA_LIMITE_VALE,
-  HORA_LIMITE_VALE_DEFAULT,
+  HORA_LIMITE_VALE_DEFAULT_ETIQUETA,
   guardarHoraLimiteVale,
-  leerHoraLimiteVale,
+  etiquetaHoraLimiteVale,
+  opcionesHoraLimiteValeCuartos,
 } from '../lib/contabilidadConstants.js';
 import {
   EVENTO_PERIFERICOS,
@@ -317,7 +318,7 @@ export default function Configuracion({
   const [nuevoTurnoForm, setNuevoTurnoForm] = useState({ nombre: '', hora_inicio: '08:00', hora_fin: '16:00' });
   const [filtroUsuariosTurno, setFiltroUsuariosTurno] = useState('');
   const [valesTiendas, setValesTiendas] = useState(() => leerTiendasValesPermitidas() || listarSucursalesParaUI());
-  const [horaLimiteValeCfg, setHoraLimiteValeCfg] = useState(() => leerHoraLimiteVale());
+  const [horaLimiteValeCfg, setHoraLimiteValeCfg] = useState(() => etiquetaHoraLimiteVale());
   const puedeAsignarTurnoEmpleados = puedeAsignarTurnos(user?.rol);
 
   const syncBrandingForm = () => {
@@ -337,7 +338,7 @@ export default function Configuracion({
       setPerifericos(leerPerifericos());
       setSerialActivo(puertoSerialConectado());
     };
-    const onHoraVale = () => setHoraLimiteValeCfg(leerHoraLimiteVale());
+    const onHoraVale = () => setHoraLimiteValeCfg(etiquetaHoraLimiteVale());
     window.addEventListener(EVENTO_BRANDING, onBrand);
     window.addEventListener(EVENTO_PERIFERICOS, onPeriph);
     window.addEventListener(EVENTO_HORA_LIMITE_VALE, onHoraVale);
@@ -1859,19 +1860,20 @@ export default function Configuracion({
           <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>Horario sin autorización</h4>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
             Antes de esta hora (Sonora), gasolina / herramienta / accesorios se registran <strong>sin autorización</strong> de admin.
-            Consumo siempre requiere admin. Por defecto: {HORA_LIMITE_VALE_DEFAULT}:00.
+            Consumo siempre requiere admin. Por defecto: {HORA_LIMITE_VALE_DEFAULT_ETIQUETA}. Intervalos de 15 min (ej. 10:15, 10:30, 10:45).
           </p>
           <label className="muted" style={{ display: 'inline-block', marginTop: '0.5rem' }}>
-            Hora límite (0–23)
-            <input
-              className="input"
-              type="number"
-              min={0}
-              max={23}
-              style={{ display: 'block', marginTop: '0.35rem', width: 100 }}
+            Hora límite
+            <select
+              className="select"
+              style={{ display: 'block', marginTop: '0.35rem', minWidth: 120 }}
               value={horaLimiteValeCfg}
-              onChange={(e) => setHoraLimiteValeCfg(Number(e.target.value))}
-            />
+              onChange={(e) => setHoraLimiteValeCfg(e.target.value)}
+            >
+              {opcionesHoraLimiteValeCuartos().map((o) => (
+                <option key={o.etiqueta} value={o.etiqueta}>{o.etiqueta}</option>
+              ))}
+            </select>
           </label>
           <div style={{ marginTop: '0.65rem' }}>
             <button
@@ -1880,7 +1882,7 @@ export default function Configuracion({
               onClick={() => {
                 const h = guardarHoraLimiteVale(horaLimiteValeCfg);
                 setHoraLimiteValeCfg(h);
-                alert(`Hora límite guardada: antes de las ${String(h).padStart(2, '0')}:00 sin autorización.`);
+                alert(`Hora límite guardada: antes de las ${h} sin autorización.`);
               }}
             >
               Guardar hora límite
