@@ -240,7 +240,7 @@ export default function Inicio({
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
         {puedeVerValorizacion && kpi('Total inventario', fmtMxn(valorInv.valorTotal), `${valorInv.unidades} uds. a precio venta`, () => onNavigate('Productos'), 'package')}
         {kpi('Ventas hoy', ventasHoy.length.toString(), `$${totalHoy.toFixed(2)} MXN acumulado`, puede('Ventas') ? () => onNavigate('Ventas') : undefined, 'cart')}
-        {kpi('Ticket promedio', `$${ticketProm.toFixed(2)}`, 'MXN por venta', puede('Estadisticas') ? () => onNavigate('Estadisticas') : undefined, 'dollar')}
+        {kpi('Ticket promedio', `$${ticketProm.toFixed(2)}`, 'MXN por venta', puede('Estadísticas Abarrotes') ? () => onNavigate('Estadísticas Abarrotes') : undefined, 'dollar')}
         {kpi('Alertas stock', String(lowStock.length), 'SKU con menos de 5 uds.', puede('Productos') ? () => onNavigate('Productos') : undefined, 'alert')}
       </div>
 

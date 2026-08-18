@@ -102,7 +102,7 @@ import {
   pinCubreTurnoActivo,
 } from '../lib/cubreTurno.js';
 import { pinUsuarioOcupadoEnSucursal } from '../lib/usuariosAuth.js';
-import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarPrivilegios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, ROLES, listarTodosLosRoles, leerRolesPersonalizados, agregarRolPersonalizado, quitarRolPersonalizado, esRolSistema, EVENTO_ROLES, modulosDefaultRol, modulosEnEdicionPrivilegios, tieneListaPersonalizada, normalizarListaModulos, describeOrigenPrivilegios, normalizarRol } from '../lib/roles.js';
+import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarPrivilegios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, SUBMODULOS_ESTADISTICAS, ROLES, listarTodosLosRoles, leerRolesPersonalizados, agregarRolPersonalizado, quitarRolPersonalizado, esRolSistema, EVENTO_ROLES, modulosDefaultRol, modulosEnEdicionPrivilegios, tieneListaPersonalizada, normalizarListaModulos, describeOrigenPrivilegios, normalizarRol } from '../lib/roles.js';
 import { puedeRecibirNotificacionesDispositivo } from '../lib/notificacionesDispositivo.js';
 import { sincronizarPrivilegiosDesdeNube } from '../lib/privilegiosSync.js';
 import { cargarPinsCubreTurnoDesdeNube, AVISO_SIN_TABLA_PIN_CUBRE } from '../lib/cubreTurnoSync.js';
@@ -1459,6 +1459,9 @@ export default function Configuracion({
             const subActivos = SUBMODULOS_CONTABILIDAD.filter((m) => activos.includes(m));
             const todosSub = SUBMODULOS_CONTABILIDAD.every((m) => activos.includes(m));
             const algunoSub = subActivos.length > 0;
+            const subEstActivos = SUBMODULOS_ESTADISTICAS.filter((m) => activos.includes(m));
+            const todosSubEst = SUBMODULOS_ESTADISTICAS.every((m) => activos.includes(m));
+            const algunoSubEst = subEstActivos.length > 0;
             const usuariosConOverride =
               privModo === 'rol'
                 ? usuariosTurno.filter((u) => normalizarRol(u.rol) === normalizarRol(privRol) && tieneListaPersonalizada('porUsuario', u.id, privilegios))
@@ -1484,6 +1487,14 @@ export default function Configuracion({
               const actual = modulosEnEdicionPrivilegios({ privilegios, store, key: privKey, defaults: baseModulos });
               const sinSub = actual.filter((m) => !SUBMODULOS_CONTABILIDAD.includes(m));
               const next = marcar ? [...sinSub, ...SUBMODULOS_CONTABILIDAD] : sinSub;
+              void aplicarModulos(next);
+            };
+
+            const toggleTodosEstadisticas = (marcar) => {
+              if (!privKey) return;
+              const actual = modulosEnEdicionPrivilegios({ privilegios, store, key: privKey, defaults: baseModulos });
+              const sinSub = actual.filter((m) => !SUBMODULOS_ESTADISTICAS.includes(m));
+              const next = marcar ? [...sinSub, ...SUBMODULOS_ESTADISTICAS] : sinSub;
               void aplicarModulos(next);
             };
 
@@ -1597,6 +1608,51 @@ export default function Configuracion({
                   {privKey && !algunoSub && (
                     <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem', color: 'var(--brand-red)' }}>
                       Sin submódulos activos: el menú Contabilidad no se mostrará para este {privModo === 'usuario' ? 'usuario' : 'rol'}.
+                    </p>
+                  )}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: '0.85rem',
+                    padding: '0.75rem 0.85rem',
+                    borderRadius: 10,
+                    background: 'rgba(22,163,74,0.06)',
+                    border: '1px solid rgba(22,163,74,0.25)',
+                    borderLeft: '4px solid #16a34a',
+                  }}
+                >
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <h4 style={{ margin: 0, fontSize: '0.95rem', color: '#16a34a', flex: '1 1 160px' }}>Estadísticas</h4>
+                    {privKey && (
+                      <span className="badge" style={{ fontSize: '0.72rem' }}>
+                        {subEstActivos.length} / {SUBMODULOS_ESTADISTICAS.length} áreas
+                      </span>
+                    )}
+                  </div>
+                  <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
+                    Tres tableros separados: <strong>Abarrotes</strong>, <strong>Virtual</strong> y <strong>Garage</strong>.
+                  </p>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={todosSubEst}
+                      disabled={!privKey}
+                      onChange={() => toggleTodosEstadisticas(!todosSubEst)}
+                    />
+                    Todas las áreas de Estadísticas
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.35rem', paddingLeft: '1.25rem' }}>
+                    {SUBMODULOS_ESTADISTICAS.map((mod) => (
+                      <label key={mod} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem' }}>
+                        <input type="checkbox" checked={activos.includes(mod)} disabled={!privKey} onChange={() => toggleModulo(mod)} />
+                        {mod}
+                      </label>
+                    ))}
+                  </div>
+                  {privKey && !algunoSubEst && (
+                    <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem', color: 'var(--brand-red)' }}>
+                      Sin áreas activas: el menú Estadísticas no se mostrará.
                     </p>
                   )}
                 </div>

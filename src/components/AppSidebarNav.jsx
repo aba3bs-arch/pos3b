@@ -2,15 +2,18 @@ import React from 'react';
 import Icon from './Icon.jsx';
 import { iconoDeModulo, colorDeModulo } from '../lib/moduloIcons.js';
 import { sonidoMenuNavegacion } from '../lib/sonidosPos.js';
-import { etiquetaModuloSidebar, VISTA_HUB_CONTABILIDAD } from '../lib/roles.js';
+import { etiquetaModuloSidebar, VISTA_HUB_CONTABILIDAD, VISTA_HUB_ESTADISTICAS } from '../lib/roles.js';
 
 const COLOR_CONTABILIDAD = '#7c3aed';
+const COLOR_ESTADISTICAS = '#16a34a';
 
 export default function AppSidebarNav({
   modulosNav,
   vista,
   subContabilidad,
   contabilidadActiva,
+  subEstadisticas = [],
+  estadisticasActiva = false,
   onNavigate,
   onItemClick,
 }) {
@@ -34,6 +37,18 @@ export default function AppSidebarNav({
           <span>{etiquetaModuloSidebar(null, m)}</span>
         </button>
       ))}
+      {subEstadisticas.length > 0 && (
+        <button
+          type="button"
+          onClick={() => ir(VISTA_HUB_ESTADISTICAS)}
+          onMouseEnter={() => vista !== VISTA_HUB_ESTADISTICAS && !estadisticasActiva && sonidoMenuNavegacion()}
+          className={`btn btn-ghost nav-btn${estadisticasActiva ? ' nav-btn-active' : ''}`}
+          style={{ color: estadisticasActiva ? COLOR_ESTADISTICAS : 'var(--muted)' }}
+        >
+          <Icon name="chart" size={20} style={{ color: COLOR_ESTADISTICAS }} />
+          <span>Estadísticas</span>
+        </button>
+      )}
       {subContabilidad.length > 0 && (
         <button
           type="button"

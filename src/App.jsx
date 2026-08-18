@@ -12,6 +12,8 @@ import Clientes from './modules/Clientes.jsx';
 import Usuarios from './modules/Usuarios.jsx';
 import Consultas from './modules/Consultas.jsx';
 import Estadisticas from './modules/Estadisticas.jsx';
+import EstadisticasArea from './components/EstadisticasArea.jsx';
+import VolverEstadisticas from './components/VolverEstadisticas.jsx';
 import ResumenOperativo from './modules/ResumenOperativo.jsx';
 import Reportes from './modules/Reportes.jsx';
 import Nomina from './modules/Nomina.jsx';
@@ -52,7 +54,7 @@ import {
   esAlmacenCentral,
   sucursalFijaEsCajaFisica,
 } from './constants/sucursales.js';
-import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias } from './lib/roles.js';
+import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, submodulosEstadisticasVisibles, puedeVerSeccionEstadisticas, SUBMODULOS_ESTADISTICAS, VISTA_HUB_ESTADISTICAS, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias } from './lib/roles.js';
 import { inventarioParaSucursal } from './lib/inventarioMultitienda.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
@@ -420,13 +422,17 @@ function App() {
   useEffect(() => {
     if (!sesion || !user) return;
     const hubContab = vista === VISTA_HUB_CONTABILIDAD;
+    const hubEstad = vista === VISTA_HUB_ESTADISTICAS;
     const permitido = hubContab
       ? puedeVerSeccionContabilidad(user.rol, user.id)
-      : puedeVerModulo(user.rol, vista, user.id);
+      : hubEstad
+        ? puedeVerSeccionEstadisticas(user.rol, user.id)
+        : puedeVerModulo(user.rol, vista, user.id);
     if (!permitido) {
       const nav = modulosParaSidebar(user.rol, user.id);
       const sub = submodulosContabilidadVisibles(user.rol, user.id);
-      setVista(nav[0] || sub[0] || VISTA_HUB_CONTABILIDAD || 'Inicio');
+      const subEst = submodulosEstadisticasVisibles(user.rol, user.id);
+      setVista(nav[0] || sub[0] || subEst[0] || VISTA_HUB_CONTABILIDAD || 'Inicio');
     }
   }, [sesion, user, vista, tickPrivilegios]);
 
@@ -437,7 +443,8 @@ function App() {
   const irAModulo = useCallback(
     (m, opts = {}) => {
       const okHubContab = m === VISTA_HUB_CONTABILIDAD && puedeVerSeccionContabilidad(user?.rol, user?.id);
-      if (!okHubContab && !puedeVerModulo(user?.rol, m, user?.id)) {
+      const okHubEstad = m === VISTA_HUB_ESTADISTICAS && puedeVerSeccionEstadisticas(user?.rol, user?.id);
+      if (!okHubContab && !okHubEstad && !puedeVerModulo(user?.rol, m, user?.id)) {
         if (m === 'Vales y Préstamos') {
           alert(
             'Tu usuario no tiene acceso a «Vales y Préstamos».\n\n' +
@@ -860,6 +867,8 @@ function App() {
   const modulosNav = modulosParaSidebar(user.rol, user.id);
   const subContabilidad = submodulosContabilidadVisibles(user.rol, user.id);
   const contabilidadActiva = vista === VISTA_HUB_CONTABILIDAD || SUBMODULOS_CONTABILIDAD.includes(vista);
+  const subEstadisticas = submodulosEstadisticasVisibles(user.rol, user.id);
+  const estadisticasActiva = vista === VISTA_HUB_ESTADISTICAS || SUBMODULOS_ESTADISTICAS.includes(vista);
 
   return (
     <div className={`app-shell${mobile ? ' app-shell--mobile' : ''}`}>
@@ -888,6 +897,8 @@ function App() {
             vista={vista}
             subContabilidad={subContabilidad}
             contabilidadActiva={contabilidadActiva}
+            subEstadisticas={subEstadisticas}
+            estadisticasActiva={estadisticasActiva}
             onNavigate={irAModulo}
             onItemClick={() => setSidebarOpen(false)}
           />
@@ -1102,7 +1113,27 @@ function App() {
           {vista === 'Consultas' && (
             <Consultas supabase={supabase} inventario={inventario} sucursal={sucursal} sucursalesLista={listaSucursales} cargarDatos={cargarDatos} user={user} />
           )}
-          {vista === 'Estadisticas' && <Estadisticas supabase={supabase} />}
+          {vista === VISTA_HUB_ESTADISTICAS && (
+            <Estadisticas submodulosVisibles={subEstadisticas} onNavigate={irAModulo} />
+          )}
+          {vista === 'Estadísticas Abarrotes' && (
+            <>
+              <VolverEstadisticas onClick={() => irAModulo(VISTA_HUB_ESTADISTICAS)} />
+              <EstadisticasArea supabase={supabase} area="abarrotes" inventario={inventario} />
+            </>
+          )}
+          {vista === 'Estadísticas Virtual' && (
+            <>
+              <VolverEstadisticas onClick={() => irAModulo(VISTA_HUB_ESTADISTICAS)} />
+              <EstadisticasArea supabase={supabase} area="virtual" inventario={inventario} />
+            </>
+          )}
+          {vista === 'Estadísticas Garage' && (
+            <>
+              <VolverEstadisticas onClick={() => irAModulo(VISTA_HUB_ESTADISTICAS)} />
+              <EstadisticasArea supabase={supabase} area="garage" inventario={inventario} />
+            </>
+          )}
           {vista === 'Resumen operativo' && <ResumenOperativo supabase={supabase} inventarioCompleto={inventario} />}
           {vista === 'Reportes' && (
             <Reportes

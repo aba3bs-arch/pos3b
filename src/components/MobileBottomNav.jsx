@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import Icon from './Icon.jsx';
 import { iconoDeModulo, colorDeModulo } from '../lib/moduloIcons.js';
-import { SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD } from '../lib/roles.js';
+import { SUBMODULOS_CONTABILIDAD, SUBMODULOS_ESTADISTICAS, VISTA_HUB_CONTABILIDAD, VISTA_HUB_ESTADISTICAS } from '../lib/roles.js';
 import { sonidoMenuNavegacion } from '../lib/sonidosPos.js';
 
 const PRIORIDAD_TABS = ['Inicio', 'Ventas', 'Recolecciones', 'Incidencias', 'Checador', 'Corte de caja', 'Productos'];
@@ -18,6 +18,9 @@ function etiquetaCorta(modulo) {
     'Vales y Préstamos': 'Vales',
     Configuracion: 'Config',
     Estadisticas: 'Stats',
+    'Estadísticas Abarrotes': 'Est. Abb',
+    'Estadísticas Virtual': 'Est. Virt',
+    'Estadísticas Garage': 'Est. Gar',
     Incidencias: 'Incid.',
   };
   return map[modulo] || modulo;
@@ -37,7 +40,8 @@ export default function MobileBottomNav({ modulos, vista, onNavigate, onOpenMenu
 
   const vistaEnTabs = tabs.includes(vista);
   const enContabilidad = vista === VISTA_HUB_CONTABILIDAD || SUBMODULOS_CONTABILIDAD.includes(vista);
-  const masActivo = !vistaEnTabs && !enContabilidad;
+  const enEstadisticas = vista === VISTA_HUB_ESTADISTICAS || SUBMODULOS_ESTADISTICAS.includes(vista);
+  const masActivo = !vistaEnTabs && !enContabilidad && !enEstadisticas;
 
   const ir = (m) => {
     sonidoMenuNavegacion();

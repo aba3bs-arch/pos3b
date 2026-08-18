@@ -19,7 +19,6 @@ export const MODULOS_IDS = [
   'Clientes',
   'Usuarios',
   'Consultas',
-  'Estadisticas',
   'Resumen operativo',
   'Reportes',
   'Vales y Préstamos',
@@ -31,6 +30,9 @@ export const MODULOS_IDS = [
   'Auto Fin',
   'Crédito',
   'Cobranza',
+  'Estadísticas Abarrotes',
+  'Estadísticas Virtual',
+  'Estadísticas Garage',
   'Configuracion',
   'Ayuda',
 ];
@@ -40,7 +42,8 @@ const VALIDOS = new Set(MODULOS_IDS);
 const ALIAS_MODULO = {
   'Recolecciones y traspasos': 'Panel RT',
   Buzón: 'Incidencias',
-  Estadísticas: 'Estadisticas',
+  Estadísticas: 'Estadísticas Abarrotes',
+  Estadisticas: 'Estadísticas Abarrotes',
   Configuración: 'Configuracion',
   'Corte de Caja': 'Corte de caja',
   'Cont Virtual': 'IE VIRTUAL',
@@ -56,6 +59,15 @@ export function normalizarListaModulos(lista) {
     if (!VALIDOS.has(m) || vistos.has(m)) continue;
     vistos.add(m);
     out.push(m);
+  }
+  // Si tenían el hub viejo «Estadisticas», habilitar las 3 áreas.
+  if (lista.includes('Estadisticas') || lista.includes('Estadísticas')) {
+    for (const m of ['Estadísticas Abarrotes', 'Estadísticas Virtual', 'Estadísticas Garage']) {
+      if (!vistos.has(m) && VALIDOS.has(m)) {
+        vistos.add(m);
+        out.push(m);
+      }
+    }
   }
   return MODULOS_IDS.filter((m) => vistos.has(m));
 }
