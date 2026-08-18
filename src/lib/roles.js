@@ -122,9 +122,19 @@ export const SUBMODULOS_CONTABILIDAD = [
 
 export const VISTA_HUB_CONTABILIDAD = 'Contabilidad';
 
+/** Submódulos bajo Estadísticas (una área de negocio cada uno). */
+export const SUBMODULOS_ESTADISTICAS = [
+  'Estadísticas Abarrotes',
+  'Estadísticas Virtual',
+  'Estadísticas Garage',
+];
+
+export const VISTA_HUB_ESTADISTICAS = 'Estadisticas';
+
 export const MODULOS_CORTES = ['Corte Virtual', 'Corte Abarrotes', 'Corte Garage'];
 
 export const MODULOS_AGRUPADOS_CONTABILIDAD = new Set(SUBMODULOS_CONTABILIDAD);
+export const MODULOS_AGRUPADOS_ESTADISTICAS = new Set(SUBMODULOS_ESTADISTICAS);
 
 /** Orden fijo del menú lateral */
 export const MODULOS_ORDEN = [
@@ -146,7 +156,6 @@ export const MODULOS_ORDEN = [
   'Clientes',
   'Usuarios',
   'Consultas',
-  'Estadisticas',
   'Resumen operativo',
   'Reportes',
   'Vales y Préstamos',
@@ -158,7 +167,9 @@ export const MODULOS_ORDEN = [
 export const MODULOS_SOLO_OFICINA = new Set([]);
 
 export const MODULOS_PRIVILEGIOS_GENERAL = MODULOS_ORDEN.filter(
-  (m) => !MODULOS_AGRUPADOS_CONTABILIDAD.has(m) && !MODULOS_SOLO_OFICINA.has(m),
+  (m) => !MODULOS_AGRUPADOS_CONTABILIDAD.has(m)
+    && !MODULOS_AGRUPADOS_ESTADISTICAS.has(m)
+    && !MODULOS_SOLO_OFICINA.has(m),
 );
 
 const ACCESO_POR_ROL = {
@@ -196,7 +207,9 @@ const ACCESO_POR_ROL = {
     'Proveedores',
     'Clientes',
     'Consultas',
-    'Estadisticas',
+    'Estadísticas Abarrotes',
+    'Estadísticas Virtual',
+    'Estadísticas Garage',
     'Reportes',
     'Panel RT',
     'Crédito',
@@ -222,7 +235,9 @@ const ACCESO_POR_ROL = {
     'Proveedores',
     'Clientes',
     'Consultas',
-    'Estadisticas',
+    'Estadísticas Abarrotes',
+    'Estadísticas Virtual',
+    'Estadísticas Garage',
     'Reportes',
     'Vales y Préstamos',
     'Ayuda',
@@ -245,7 +260,9 @@ const ACCESO_POR_ROL = {
     'Proveedores',
     'Clientes',
     'Consultas',
-    'Estadisticas',
+    'Estadísticas Abarrotes',
+    'Estadísticas Virtual',
+    'Estadísticas Garage',
     'Reportes',
     'Nómina',
     'Panel RT',
@@ -344,7 +361,9 @@ export function etiquetaModuloSidebar(_rol, moduloId) {
 }
 
 export function modulosParaSidebar(rol, userId = null) {
-  const filtrar = (lista) => lista.filter((m) => !MODULOS_AGRUPADOS_CONTABILIDAD.has(m));
+  const filtrar = (lista) => lista.filter(
+    (m) => !MODULOS_AGRUPADOS_CONTABILIDAD.has(m) && !MODULOS_AGRUPADOS_ESTADISTICAS.has(m),
+  );
   const r = normalizarRol(rol);
   if (r === 'Administrador') return filtrar(MODULOS_ORDEN);
 
@@ -364,6 +383,14 @@ export function submodulosContabilidadVisibles(rol, userId = null) {
 
 export function puedeVerSeccionContabilidad(rol, userId = null) {
   return submodulosContabilidadVisibles(rol, userId).length > 0;
+}
+
+export function submodulosEstadisticasVisibles(rol, userId = null) {
+  return SUBMODULOS_ESTADISTICAS.filter((m) => puedeVerModulo(rol, m, userId));
+}
+
+export function puedeVerSeccionEstadisticas(rol, userId = null) {
+  return submodulosEstadisticasVisibles(rol, userId).length > 0;
 }
 
 export function modulosDefaultRol(rol) {
@@ -442,6 +469,7 @@ export const MODULOS_BLOQUEADOS_MOSTRADOR = new Set([
   'Auto Fin',
   'Crédito',
   'Cobranza',
+  ...SUBMODULOS_ESTADISTICAS,
 ]);
 
 /** Módulos que el repartidor nunca puede abrir (bloqueo duro). Cobranza sí: cobro de créditos CEDIS. */
@@ -453,6 +481,7 @@ export const MODULOS_BLOQUEADOS_REPARTIDOR = new Set([
   'Usuarios',
   'Configuracion',
   ...SUBMODULOS_CONTABILIDAD.filter((m) => m !== 'Cobranza'),
+  ...SUBMODULOS_ESTADISTICAS,
 ]);
 
 /** Consultar productos / historial: sí. Crear, editar, borrar, precios: no (cajero/técnico). */
