@@ -7,15 +7,15 @@ import { AREAS_ESTADISTICA, FECHA_INICIO_ESTADISTICAS } from '../lib/estadistica
 const DESCRIPCIONES = {
   'Estadísticas Abarrotes': {
     desc: AREAS_ESTADISTICA.abarrotes.desc,
-    ayuda: 'Ventas POS, gastos, inventario y mermas de abarrotes en 3B2 / 3B5.',
+    ayuda: 'Ventas de corte Abarrotes, gastos, inventario y mermas en todas las sucursales.',
   },
   'Estadísticas Virtual': {
     desc: AREAS_ESTADISTICA.virtual.desc,
-    ayuda: 'Ventas y gastos del corte Virtual, comparación por periodo y turno.',
+    ayuda: 'Ventas y gastos del corte Virtual, comparación por periodo y turno (diurno/nocturno).',
   },
   'Estadísticas Garage': {
     desc: AREAS_ESTADISTICA.garage.desc,
-    ayuda: 'Ventas y gastos del corte Garage, comparación por periodo y turno.',
+    ayuda: 'Ventas y gastos del corte Garage, comparación por periodo y turno (diurno/nocturno).',
   },
 };
 
@@ -38,7 +38,7 @@ export default function Estadisticas({ submodulosVisibles, onNavigate }) {
       <div>
         <h2 style={{ margin: 0, color: '#16a34a' }}>Estadísticas</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-          Tres tableros separados. Datos desde {FECHA_INICIO_ESTADISTICAS} · foco 3B2 y 3B5.
+          Tres tableros separados. Datos desde {FECHA_INICIO_ESTADISTICAS} · todas las sucursales · semana sáb–vie · turnos diurno/nocturno.
           Gastos de prueba ($10,000 / test) quedan fuera.
         </p>
       </div>

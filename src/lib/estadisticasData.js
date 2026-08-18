@@ -1,15 +1,20 @@
-import { consultarVentasPaginadas } from './ventasQuery.js';
-import { rangoDesdePreset, PRESETS_FECHA_PRODUCTO, cargarReporteMovimientosInventario } from './consultasInventario.js';
-import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
+import { rangoDesdePreset as rangoDesdePresetBase, PRESETS_FECHA_PRODUCTO, cargarReporteMovimientosInventario } from './consultasInventario.js';
+import { etiquetaTienda, esAlmacenCentral, listarSucursalesOperativas } from '../constants/sucursales.js';
 import { costoUnitarioInventario, resumirValorInventario } from './valorInventario.js';
 import { inventarioParaSucursal } from './inventarioMultitienda.js';
 
-export { PRESETS_FECHA_PRODUCTO, rangoDesdePreset };
+export { PRESETS_FECHA_PRODUCTO };
 
-/** Desde la última semana de julio 2026 (arranque operativo 3B2 / 3B5). */
+/** Desde la última semana de julio 2026 (arranque operativo). */
 export const FECHA_INICIO_ESTADISTICAS = '2026-07-25';
 
-export const TIENDAS_FOCO_ESTADISTICAS = ['3B2', '3B5'];
+/** Todas las tiendas operativas (sin MAIN). */
+export function tiendasEstadisticas() {
+  return listarSucursalesOperativas();
+}
+
+/** Compat: alias de tiendas operativas (ya no solo 3B2/3B5). */
+export const TIENDAS_FOCO_ESTADISTICAS = listarSucursalesOperativas();
 
 export const AREAS_ESTADISTICA = {
   abarrotes: {
@@ -17,7 +22,7 @@ export const AREAS_ESTADISTICA = {
     moduloVista: 'Estadísticas Abarrotes',
     label: 'Abarrotes',
     color: '#b5a642',
-    desc: 'Ventas POS, gastos de corte, inventario y mermas',
+    desc: 'Ventas de corte Abarrotes, gastos, inventario y mermas',
   },
   virtual: {
     id: 'virtual',
@@ -37,7 +42,7 @@ export const AREAS_ESTADISTICA = {
 
 export const GRANULARIDAD_OPTS = [
   { id: 'dia', label: 'Por día' },
-  { id: 'semana', label: 'Por semana' },
+  { id: 'semana', label: 'Por semana (sáb–vie)' },
   { id: 'mes', label: 'Por mes' },
   { id: 'anual', label: 'Por año' },
 ];
@@ -55,11 +60,10 @@ export const COLORES_TIENDA = [
   '#7f8c8d',
 ];
 
+/** Solo 2 turnos operativos (12×12). */
 export const COLORES_TURNO = {
-  Manana: '#3498db',
-  Tarde: '#e67e22',
-  Noche: '#2c3e50',
-  Otro: '#95a5a6',
+  Diurno: '#3498db',
+  Nocturno: '#2c3e50',
 };
 
 function toDateStart(ymd) {
@@ -77,8 +81,28 @@ function padYmd(d) {
   return `${y}-${m}-${day}`;
 }
 
+/** Inicio de semana operativa: sábado (cierra viernes). */
+export function inicioSemanaSabado(fecha = new Date()) {
+  const d = new Date(fecha);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay(); // 0=dom … 6=sáb
+  const diasDesdeSabado = (day + 1) % 7;
+  d.setDate(d.getDate() - diasDesdeSabado);
+  return d;
+}
+
 export function hoyYmdEstadisticas() {
   return padYmd(new Date());
+}
+
+/** Presets con semana sáb–vie. */
+export function rangoDesdePreset(preset) {
+  if (preset === 'semana') {
+    const hasta = hoyYmdEstadisticas();
+    const ini = inicioSemanaSabado(new Date());
+    return { desde: padYmd(ini), hasta };
+  }
+  return rangoDesdePresetBase(preset);
 }
 
 /** Asegura que el rango no empiece antes del arranque operativo. */
@@ -121,11 +145,8 @@ export function bucketKey(iso, gran) {
   if (gran === 'anual') return String(d.getFullYear());
   if (gran === 'mes') return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   if (gran === 'semana') {
-    const tmp = new Date(d);
-    const day = tmp.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
-    tmp.setDate(tmp.getDate() + diff);
-    return padYmd(tmp);
+    // Semana operativa: sábado → viernes
+    return padYmd(inicioSemanaSabado(d));
   }
   return padYmd(d);
 }
@@ -138,22 +159,39 @@ export function etiquetaBucket(key, gran) {
     const [y, m] = key.split('-');
     return `${meses[Number(m) - 1]} ${y}`;
   }
-  if (gran === 'semana') return `Sem ${key.slice(5)}`;
+  if (gran === 'semana') {
+    // key = sábado de inicio
+    const [y, m, d] = key.split('-');
+    return `Sem sáb ${d}/${m}`;
+  }
   return key.slice(5);
 }
 
+/**
+ * Turno diurno 07:00–19:00 / nocturno 19:00–07:00 (horario 12×12).
+ * Si el cierre trae nombre de turno, se respeta.
+ */
 export function turnoDesdeHora(iso) {
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return 'Otro';
+  if (Number.isNaN(d.getTime())) return 'Diurno';
   const h = d.getHours();
-  if (h >= 6 && h < 14) return 'Manana';
-  if (h >= 14 && h < 22) return 'Tarde';
-  return 'Noche';
+  if (h >= 7 && h < 19) return 'Diurno';
+  return 'Nocturno';
+}
+
+export function turnoDesdeVentaOCierre(row) {
+  const raw = String(row?.turno || row?.turno_sesion || '').toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (/nocturn|noche/.test(raw)) return 'Nocturno';
+  if (/diurn|matutin|dia\b/.test(raw)) return 'Diurno';
+  return turnoDesdeHora(row?.created_at);
 }
 
 export function etiquetaTurno(id) {
-  if (id === 'Manana') return 'Mañana';
-  return id || 'Otro';
+  if (id === 'Diurno') return 'Turno diurno';
+  if (id === 'Nocturno') return 'Turno nocturno';
+  return id || '—';
 }
 
 export function agruparPorPeriodo(rows, gran, campoMonto = 'total', campoFecha = 'created_at') {
@@ -259,14 +297,14 @@ export function pastelDesdePareto(pareto) {
 }
 
 export function agruparPorTurno(rows, campoMonto = 'total') {
-  const map = { Manana: 0, Tarde: 0, Noche: 0, Otro: 0 };
+  const map = { Diurno: 0, Nocturno: 0 };
   for (const v of rows || []) {
-    const t = turnoDesdeHora(v.created_at);
+    const t = turnoDesdeVentaOCierre(v);
     map[t] = (map[t] || 0) + (Number(v[campoMonto]) || 0);
   }
   const sum = Object.values(map).reduce((a, n) => a + n, 0) || 1;
   let start = 0;
-  return ['Manana', 'Tarde', 'Noche', 'Otro']
+  return ['Diurno', 'Nocturno']
     .filter((id) => map[id] > 0)
     .map((id) => {
       const total = map[id];
@@ -276,7 +314,7 @@ export function agruparPorTurno(rows, campoMonto = 'total') {
         label: etiquetaTurno(id),
         total,
         pct,
-        color: COLORES_TURNO[id] || COLORES_TURNO.Otro,
+        color: COLORES_TURNO[id] || '#95a5a6',
         pieStart: start,
         pieEnd: start + pct,
       };
@@ -400,8 +438,7 @@ async function cargarGastosArea(supabase, { desdeDt, hastaDt, sucursal, area }) 
     .gte('created_at', desdeDt.toISOString())
     .lte('created_at', hastaDt.toISOString());
   if (sucursal) q = q.eq('sucursal_id', sucursal);
-  else q = q.in('sucursal_id', TIENDAS_FOCO_ESTADISTICAS);
-  const { data, error } = await q.limit(5000);
+  const { data, error } = await q.limit(8000);
   if (error) return { data: [], error: error.message };
   return { data: depurarGastos(excluirAlmacenCentral(data || [])), error: null };
 }
@@ -415,15 +452,15 @@ async function cargarCierresArea(supabase, { desdeDt, hastaDt, sucursal, area })
     .lte('created_at', hastaDt.toISOString())
     .order('created_at', { ascending: true });
   if (sucursal) q = q.eq('sucursal_id', sucursal);
-  else q = q.in('sucursal_id', TIENDAS_FOCO_ESTADISTICAS);
-  const { data, error } = await q.limit(3000);
+  const { data, error } = await q.limit(5000);
   if (error) return { data: [], error: error.message };
   return { data: excluirAlmacenCentral(data || []), error: null };
 }
 
 /**
  * Carga datos completos de un área (abarrotes | virtual | garage).
- * Depura gastos de prueba. Enfoca 3B2/3B5 si no hay filtro de tienda.
+ * Ventas siempre desde cierres de corte. Depura gastos de prueba.
+ * Sin filtro de tienda: todas las sucursales operativas.
  */
 export async function cargarDatosEstadisticasArea(supabase, {
   area = 'abarrotes',
@@ -447,39 +484,20 @@ export async function cargarDatosEstadisticasArea(supabase, {
   const desdeAcotado = acotarDesdeOperativo(desde);
   const desdeDt = toDateStart(desdeAcotado);
   const hastaDt = toDateEnd(hasta);
-  const tiendas = sucursal ? [sucursal] : [...TIENDAS_FOCO_ESTADISTICAS];
+  const tiendas = sucursal ? [sucursal] : tiendasEstadisticas();
   const avisos = [];
   if (desde && desde < FECHA_INICIO_ESTADISTICAS) {
-    avisos.push(`Datos desde ${FECHA_INICIO_ESTADISTICAS} (arranque operativo 3B2 / 3B5).`);
+    avisos.push(`Datos desde ${FECHA_INICIO_ESTADISTICAS} (arranque operativo).`);
   }
 
-  const gastosP = cargarGastosArea(supabase, { desdeDt, hastaDt, sucursal, area });
-  const cierresP = cargarCierresArea(supabase, { desdeDt, hastaDt, sucursal, area });
+  const [gastosRes, cierresRes] = await Promise.all([
+    cargarGastosArea(supabase, { desdeDt, hastaDt, sucursal, area }),
+    cargarCierresArea(supabase, { desdeDt, hastaDt, sucursal, area }),
+  ]);
 
-  let ventas = [];
-  let ventasError = null;
-  let ventasAviso = null;
-
-  if (area === 'abarrotes') {
-    const ventasRes = await consultarVentasPaginadas(supabase, {
-      columns: 'id,total,created_at,sucursal_id,metodo_pago,vendedor',
-      desde: desdeDt,
-      hasta: hastaDt,
-      sucursal: sucursal || null,
-      orderAsc: true,
-    });
-    ventasError = ventasRes.error;
-    ventasAviso = ventasRes.aviso;
-    let rows = excluirAlmacenCentral(ventasRes.data || []);
-    if (!sucursal) rows = rows.filter((v) => TIENDAS_FOCO_ESTADISTICAS.includes(v.sucursal_id));
-    ventas = rows;
-  }
-
-  const [gastosRes, cierresRes] = await Promise.all([gastosP, cierresP]);
-
-  if (area !== 'abarrotes') {
-    ventas = ventasDesdeCierres(cierresRes.data || []);
-  }
+  // Ventas de las 3 áreas salen de cortes_contabilidad_cierres (más completo que POS).
+  const ventas = ventasDesdeCierres(cierresRes.data || []);
+  const ventasError = cierresRes.error || null;
 
   let movimientos = [];
   try {
@@ -489,10 +507,16 @@ export async function cargarDatosEstadisticasArea(supabase, {
       sucursal: sucursal || undefined,
     });
     movimientos = movRes?.movimientos || movRes?.data || [];
-    if (!sucursal && Array.isArray(movimientos)) {
+    if (sucursal && Array.isArray(movimientos)) {
       movimientos = movimientos.filter((m) => {
         const s = m.sucursal_id || m.sucursal || m.sucursal_operacion;
-        return TIENDAS_FOCO_ESTADISTICAS.includes(s);
+        return s === sucursal;
+      });
+    } else if (Array.isArray(movimientos)) {
+      const setTiendas = new Set(tiendas);
+      movimientos = movimientos.filter((m) => {
+        const s = m.sucursal_id || m.sucursal || m.sucursal_operacion;
+        return setTiendas.has(s);
       });
     }
   } catch {
@@ -508,9 +532,8 @@ export async function cargarDatosEstadisticasArea(supabase, {
         .lte('created_at', hastaDt.toISOString())
         .limit(5000);
       if (sucursal) q = q.eq('sucursal_id', sucursal);
-      else q = q.in('sucursal_id', TIENDAS_FOCO_ESTADISTICAS);
       const { data } = await q;
-      movimientos = data || [];
+      movimientos = excluirAlmacenCentral(data || []);
     } catch {
       movimientos = [];
     }
@@ -521,14 +544,10 @@ export async function cargarDatosEstadisticasArea(supabase, {
 
   if (gastosRes.error) avisos.push(`Gastos: ${gastosRes.error}`);
   if (cierresRes.error) avisos.push(`Cierres: ${cierresRes.error}`);
-  if (ventasAviso) avisos.push(ventasAviso);
-
-  const gastosLimpios = gastosRes.data || [];
-  const omitidos = (gastosRes._rawCount || 0);
 
   return {
     ventas,
-    gastos: gastosLimpios,
+    gastos: gastosRes.data || [],
     cierres: cierresRes.data || [],
     merma,
     inventario: inv,
@@ -540,7 +559,7 @@ export async function cargarDatosEstadisticasArea(supabase, {
     avisos,
     meta: {
       tickets: ventas.length,
-      gastosOmitidosPrueba: omitidos,
+      fuenteVentas: 'cortes',
     },
   };
 }
