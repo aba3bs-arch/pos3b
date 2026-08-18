@@ -111,7 +111,7 @@ export default function PanelRVirtual({ supabase, user }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div className="card">
-        <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>R Virtual</h3>
+        <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>RC Virtual</h3>
         <p className="muted" style={{ margin: 0, fontSize: '0.88rem' }}>
           Solo recolecciones de cortes Virtual y Garage.
           No incluye abarrotes ni traspasos a crédito.

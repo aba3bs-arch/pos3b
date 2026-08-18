@@ -12,7 +12,7 @@ import {
 } from './rtCuentas.js';
 
 export const AVISO_FALTA_R_VIRTUAL =
-  'Ejecuta en Supabase: supabase/fix_r_virtual_custodia.sql para el buzón R Virtual.';
+  'Ejecuta en Supabase: supabase/fix_r_virtual_custodia.sql para RC Virtual.';
 
 export const ETIQUETAS_RECOLECTOR_R_VIRTUAL = [
   { etiqueta: 'ABB', patrones: ['abb', 'antonio'] },
@@ -294,7 +294,7 @@ export async function recibirRecoleccionesRVirtual(supabase, { recolectorClave, 
       montoTotal: it.monto,
       usuarioNombre: admin,
       repartidorNombre: it.recolectorNombre,
-      notas: `R Virtual · ${it.tipoItem || 'recolección'} ${it.folio || it.origenId}`,
+      notas: `RC Virtual · ${it.tipoItem || 'recolección'} ${it.folio || it.origenId}`,
     });
     if (!res.ok) return res;
     acreditados.push({ ...it, montoAcreditado: it.monto });
@@ -377,7 +377,7 @@ export async function entregarCustodiaAAbb(supabase, { recibidoPor, abbNombre } 
       haciaId: cuentaAbb.cuentaId,
       monto: total,
       usuarioNombre: abb,
-      notas: `R Virtual · entregado a: ${etiquetaEntrega} · de ${recibidoPor}`,
+      notas: `RC Virtual · entregado a: ${etiquetaEntrega} · de ${recibidoPor}`,
     });
     if (!trans.ok) return trans;
   }

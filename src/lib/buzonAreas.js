@@ -8,8 +8,8 @@ export const BUZONES_AREA = AREAS_CONTABILIDAD.map((id) => ({
   label: ETIQUETA_AREA[id] || id,
 }));
 
-/** Buzón de recolecciones Virtual (custodia → cuenta del admin → ABB). */
-export const BUZON_R_VIRTUAL = { id: 'r_virtual', label: 'R Virtual' };
+/** Buzón legacy id (ahora vive en Contabilidad → RC Virtual). */
+export const BUZON_R_VIRTUAL = { id: 'r_virtual', label: 'RC Virtual' };
 
 /** Categorías de incidencia que pertenecen a un buzón de área. */
 const CATS_AREA = new Set(AREAS_CONTABILIDAD);
