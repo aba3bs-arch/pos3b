@@ -7,6 +7,10 @@ import {
 } from './contabilidadConstants.js';
 import { fmtMonto } from './controlEfectivo.js';
 import {
+  datosImpresionDesdeHistorial,
+  imprimirCorteContabilidad,
+} from './impresionCorteContabilidad.js';
+import {
   etiquetaCuentaRt,
   resolverOCrearCuentaRt,
   transferirEntreCuentasRt,
@@ -407,6 +411,37 @@ export async function entregarCustodiaAAbb(supabase, { recibidoPor, abbNombre } 
     cuentaOrigen: etiquetaCuentaRt(cuentaOrigen),
     cuentaAbb: etiquetaCuentaRt(cuentaAbb.cuentaId),
   };
+}
+
+/**
+ * Abre el ticket de una recolección Virtual/Garage (ver + imprimir).
+ * `origenId` = id en cortes_contabilidad_cierres.
+ */
+export async function imprimirTicketRcVirtual(supabase, { origenId, origen = 'corte' } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const id = String(origenId || '').trim();
+  if (!id) return { ok: false, error: 'No se identificó la recolección.' };
+  if (origen && origen !== 'corte') {
+    return { ok: false, error: 'Solo hay ticket para recolecciones de corte Virtual/Garage.' };
+  }
+
+  const { data, error } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .select('id, sucursal_id, folio, usuario_nombre, created_at, detalle, modulo, turno, ventas, caja_actual')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!data) return { ok: false, error: 'No se encontró el ticket de esa recolección.' };
+
+  const modulo = String(data.modulo || 'virtual').toLowerCase();
+  if (!MODULOS_R_VIRTUAL.has(modulo)) {
+    return { ok: false, error: 'Esa recolección no es de Virtual/Garage.' };
+  }
+
+  const payload = datosImpresionDesdeHistorial(data, modulo);
+  const r = imprimirCorteContabilidad(payload);
+  if (r && r.ok === false) return r;
+  return { ok: true };
 }
 
 export { fmtMonto };
