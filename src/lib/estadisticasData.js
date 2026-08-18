@@ -287,6 +287,50 @@ export function agruparGastosPorCategoria(rows) {
   return paretoDesdeMapa(map, (id) => id);
 }
 
+/** Pareto de ventas (u otra serie) agrupadas por periodo. */
+export function paretoDesdePeriodo(rows, gran, campoMonto = 'total', campoFecha = 'created_at') {
+  const serie = agruparPorPeriodo(rows, gran, campoMonto, campoFecha);
+  const map = {};
+  for (const s of serie) map[s.key] = s.total;
+  return paretoDesdeMapa(map, (id) => etiquetaBucket(id, gran));
+}
+
+/** Filtra filas cuya semana operativa (sáb–vie) coincide con `semanaKey` (YMD del sábado). */
+export function filasDeSemana(rows, semanaKey, campoFecha = 'created_at') {
+  const key = String(semanaKey || '');
+  if (!key) return [];
+  return (rows || []).filter((r) => bucketKey(r[campoFecha], 'semana') === key);
+}
+
+/** Desglose de gastos de una categoría → por subcategoría (Pareto). */
+export function desgloseGastosPorSubcategoria(rows, categoria) {
+  const cat = String(categoria || '').trim();
+  const filtrados = (rows || []).filter((g) => {
+    const c = String(g.categoria || 'Sin categoría').trim() || 'Sin categoría';
+    return c === cat;
+  });
+  const map = {};
+  for (const g of filtrados) {
+    const sub = String(g.subcategoria || '').trim() || 'Sin subcategoría';
+    map[sub] = (map[sub] || 0) + (Number(g.monto) || 0);
+  }
+  return {
+    items: paretoDesdeMapa(map, (id) => id),
+    detalle: filtrados
+      .slice()
+      .sort((a, b) => (Number(b.monto) || 0) - (Number(a.monto) || 0))
+      .map((g) => ({
+        id: g.id,
+        fecha: String(g.created_at || '').slice(0, 10),
+        subcategoria: String(g.subcategoria || '').trim() || '—',
+        comentario: String(g.comentario || '').trim(),
+        usuario: String(g.usuario_nombre || '').trim(),
+        tienda: etiquetaTienda(g.sucursal_id),
+        monto: Number(g.monto) || 0,
+      })),
+  };
+}
+
 export function pastelDesdePareto(pareto) {
   let start = 0;
   return (pareto || []).map((x) => {
