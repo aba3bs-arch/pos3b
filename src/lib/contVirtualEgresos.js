@@ -10,6 +10,7 @@ import {
 import { gastoCorteLiberadoParaIe } from './contabilidadConstants.js';
 import { etiquetaCategoriaVale } from './valesCategorias.js';
 import { pastelDesdeMapa } from './resumenOperativoData.js';
+import { hoyYmdNogales, ymdNegocioDesdeIso } from './corteCaja.js';
 
 function gastoCorteOmitirIeSiempre(gasto) {
   const catUpper = String(gasto?.categoria || '').toUpperCase();
@@ -17,7 +18,10 @@ function gastoCorteOmitirIeSiempre(gasto) {
 }
 
 function fechaEfectivaVale(vale) {
-  return String(vale?.fecha || vale?.created_at || '').slice(0, 10);
+  // Preferir fecha YMD de negocio; si solo hay timestamptz, convertir a día Sonora.
+  const f = String(vale?.fecha || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(f)) return f;
+  return ymdNegocioDesdeIso(vale?.created_at || vale?.fecha) || hoyYmdNogales();
 }
 
 function valeEstaAprobado(vale) {
@@ -31,7 +35,9 @@ function gastoCorteEstaAprobado(gasto) {
 }
 
 function fechaEfectivaGastoCorte(gasto) {
-  return String(gasto?.created_at || gasto?.fecha || '').slice(0, 10);
+  const f = String(gasto?.fecha || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(f) && !gasto?.created_at) return f;
+  return ymdNegocioDesdeIso(gasto?.created_at || gasto?.fecha) || hoyYmdNogales();
 }
 
 const LS_EGRESOS = 'pos3b_cont_virtual_egresos';
@@ -664,7 +670,7 @@ export function unificarEgresosParaPanel({
     const nombres = resolverNombresCatalogo(catalogo, map.categoriaId, map.subcategoriaId);
     detalle.push({
       id: `corte-${g.id}`,
-      fecha: String(g.created_at || '').slice(0, 10),
+      fecha: fechaEfectivaGastoCorte(g),
       tienda: g.sucursal_id,
       categoria: nombres.categoria_nombre,
       categoria_id: map.categoriaId,
@@ -684,7 +690,7 @@ export function unificarEgresosParaPanel({
     const nombres = resolverNombresCatalogo(catalogo, 'prestamos', 'prestamos-desembolso');
     detalle.push({
       id: `prestamo-${p.id}`,
-      fecha: String(p.created_at || p.aprobado_admin_at || '').slice(0, 10),
+      fecha: ymdNegocioDesdeIso(p.created_at || p.aprobado_admin_at) || hoyYmdNogales(),
       tienda: p.sucursal_id,
       categoria: nombres.categoria_nombre,
       categoria_id: 'prestamos',

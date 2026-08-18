@@ -11,14 +11,45 @@ export function ymdNogalesFromDate(date = new Date()) {
   try {
     const d = date instanceof Date ? date : new Date(date);
     if (Number.isNaN(d.getTime())) return '';
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: TZ_CAJA,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).formatToParts(d);
+    const y = parts.find((p) => p.type === 'year')?.value;
+    const m = parts.find((p) => p.type === 'month')?.value;
+    const day = parts.find((p) => p.type === 'day')?.value;
+    if (y && m && day) return `${y}-${m}-${day}`;
     return d.toLocaleDateString('en-CA', { timeZone: TZ_CAJA });
   } catch {
     try {
-      return new Date(date).toISOString().slice(0, 10);
+      // Fallback: restar offset fijo Nogales (UTC−7) al instante
+      const d = date instanceof Date ? date : new Date(date);
+      const ms = d.getTime() - OFFSET_HORAS_NOGALES * 3600 * 1000;
+      return new Date(ms).toISOString().slice(0, 10);
     } catch {
       return '';
     }
   }
+}
+
+/**
+ * Día de negocio Sonora desde ISO/Date.
+ * Nunca uses slice(0,10) de un timestamptz UTC (después de las 17:00 Sonora “salta” de día).
+ */
+export function ymdNegocioDesdeIso(isoOrDate) {
+  if (!isoOrDate) return '';
+  const s = String(isoOrDate).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  return ymdNogalesFromDate(isoOrDate);
+}
+
+/** Presentación dd/mm/aaaa. */
+export function fmtYmdEs(ymd) {
+  const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return String(ymd || '—');
+  return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
 export function hoyYmdNogales() {
