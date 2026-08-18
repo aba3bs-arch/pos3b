@@ -5,7 +5,6 @@ import {
   AREAS_ESTADISTICA,
   FECHA_INICIO_ESTADISTICAS,
   GRANULARIDAD_OPTS,
-  TIENDAS_FOCO_ESTADISTICAS,
   agruparGastosPorCategoria,
   agruparGastosPorTienda,
   agruparPorTurno,
@@ -23,6 +22,7 @@ import {
   sumaGastos,
   sumaVentas,
   ticketPromedio,
+  tiendasEstadisticas,
 } from '../lib/estadisticasData.js';
 
 function fmt(n) {
@@ -217,8 +217,8 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
               value={filtroTienda}
               onChange={(e) => setFiltroTienda(e.target.value)}
             >
-              <option value="">3B2 + 3B5</option>
-              {TIENDAS_FOCO_ESTADISTICAS.map((t) => (
+              <option value="">Todas las tiendas</option>
+              {tiendasEstadisticas().map((t) => (
                 <option key={t} value={t}>{etiquetaTienda(t)}</option>
               ))}
             </select>
@@ -234,7 +234,7 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
               <option value="operativo">Desde 25-jul (arranque)</option>
               <option value="hoy">Hoy</option>
               <option value="7d">Últimos 7 días</option>
-              <option value="semana">Esta semana</option>
+              <option value="semana">Esta semana (sáb–vie)</option>
               <option value="mes">Este mes</option>
               <option value="mes_ant">Mes anterior</option>
               <option value="6m">Últimos 6 meses</option>
@@ -282,7 +282,7 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
         <Kpi
           title="Ventas"
           value={fmt(totalVentas)}
-          sub={`${ventas.length} ${area === 'abarrotes' ? 'tickets' : 'registros de corte'}`}
+          sub={`${ventas.length} cierres con venta (cortes)`}
           accent={meta.color}
           delta={cambioVentas}
         />
@@ -301,9 +301,9 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
           delta={cambioUtilidad}
         />
         <Kpi
-          title={area === 'abarrotes' ? 'Ticket promedio' : 'Venta promedio / cierre'}
+          title="Venta promedio / cierre"
           value={fmt(ticketPromedio(ventas))}
-          sub={area === 'abarrotes' ? 'Por ticket POS' : 'Por cierre de corte'}
+          sub="Por cierre de corte"
           accent="#2980b9"
         />
         {area === 'abarrotes' && (
@@ -394,7 +394,7 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
         <div className="card">
           <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Ventas por turno (pastel)</h4>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.78rem' }}>
-            Mañana 6–14 · Tarde 14–22 · Noche 22–6
+            Solo Diurno (07–19) y Nocturno (19–07) · turnos 12×12
           </p>
           <PastelChart items={pastelTurno} empty="Sin ventas para repartir por turno." />
         </div>
@@ -432,14 +432,12 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
         </div>
       )}
 
-      {(area === 'virtual' || area === 'garage') && (
-        <div className="card">
-          <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Cierres de corte en el periodo</h4>
-          <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
-            {(pack?.cierres || []).length} cierre(s) · las ventas de esta área salen del historial de corte (no del POS de abarrotes).
-          </p>
-        </div>
-      )}
+      <div className="card">
+        <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Cierres de corte en el periodo</h4>
+        <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
+          {(pack?.cierres || []).length} cierre(s) · las ventas de {meta.label} salen de cortes_contabilidad_cierres (todas las sucursales).
+        </p>
+      </div>
     </div>
   );
 }
