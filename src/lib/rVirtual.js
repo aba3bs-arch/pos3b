@@ -229,7 +229,8 @@ export async function listarBandejaRVirtual(supabase) {
     const pendientes = [];
     for (const row of cortes) {
       const it = itemDesdeCorte(row);
-      if (!(it.monto > 0)) continue;
+      // Mostrar aunque el efectivo ya se gastó (gastos RC), para poder liquidar → IE.
+      if (!(it.monto > 0) && !(it.gastosRcTotal > 0)) continue;
       if (yaRecibidos.has(claveItem(it.origen, it.origenId))) continue;
       pendientes.push(it);
     }
