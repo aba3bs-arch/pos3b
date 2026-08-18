@@ -3,8 +3,11 @@ import { esAbb } from '../lib/contabilidadConstants.js';
 import {
   claveRecolectorRVirtual,
   entregarCustodiaAAbb,
+  esUsuarioAmr,
   fmtMonto,
+  generarGastoRecoleccionRcVirtual,
   imprimirTicketRcVirtual,
+  liquidarRecoleccionRcVirtual,
   listarBandejaRVirtual,
   recibirRecoleccionesRVirtual,
 } from '../lib/rVirtual.js';
@@ -28,9 +31,27 @@ function Chevron({ abierto }) {
   );
 }
 
+function ResumenGastosLinea({ gastos }) {
+  const list = Array.isArray(gastos) ? gastos : [];
+  if (!list.length) return <span className="muted">—</span>;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 220 }}>
+      {list.map((g) => (
+        <span key={g.id} style={{ fontSize: '0.78rem', lineHeight: 1.25 }}>
+          −{fmtMonto(g.monto)}
+          {g.comentario ? (
+            <span className="muted"> · {g.comentario.replace(/\s*·\s*RC Virtual.*$/i, '').trim()}</span>
+          ) : null}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export default function PanelRVirtual({ supabase, user }) {
   const adminNombre = user?.nombre || '';
   const adminEsAbb = esAbb(adminNombre);
+  const adminEsAmr = esUsuarioAmr(adminNombre);
   const miClave = claveRecolectorRVirtual(adminNombre);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
@@ -41,6 +62,9 @@ export default function PanelRVirtual({ supabase, user }) {
   const [abiertoAbb, setAbiertoAbb] = useState(null);
   const [trabajando, setTrabajando] = useState('');
   const [imprimiendo, setImprimiendo] = useState('');
+  const [gastoModal, setGastoModal] = useState(null);
+  const [gastoMonto, setGastoMonto] = useState('');
+  const [gastoDesc, setGastoDesc] = useState('');
 
   const cargar = useCallback(async () => {
     if (!supabase) return;
@@ -123,6 +147,72 @@ export default function PanelRVirtual({ supabase, user }) {
     }
   };
 
+  const liquidarItem = async (it) => {
+    if (!it?.origenId || it.origen !== 'corte') return;
+    const ieTxt = it.aprobadoIe
+      ? 'Ya está en IE VIRTUAL; solo se quitará de esta bandeja.'
+      : 'Los ingresos y egresos pendientes se registrarán ahora en IE VIRTUAL.';
+    if (!confirm(
+      `¿Liquidar / borrar la recolección ${it.folio || it.origenId} (${fmtMonto(it.monto)})?\n\n${ieTxt}`,
+    )) return;
+    setTrabajando(`liq-${it.origenId}`);
+    setMsg('');
+    setError('');
+    const res = await liquidarRecoleccionRcVirtual(supabase, {
+      origenId: it.origenId,
+      adminNombre,
+    });
+    setTrabajando('');
+    if (!res.ok) {
+      setError(res.error || 'No se pudo liquidar.');
+      return;
+    }
+    if (res.yaLiquidada) {
+      setMsg('Esa recolección ya estaba liquidada.');
+    } else if (res.pasoIe) {
+      setMsg(
+        `Liquidada ${it.folio || ''}: pasó a IE VIRTUAL`
+        + (res.egresosLiberados ? ` · ${res.egresosLiberados} egreso(s) liberado(s)` : '')
+        + '.',
+      );
+    } else {
+      setMsg(`Liquidada ${it.folio || ''}: ya estaba en IE; se quitó de la bandeja.`);
+    }
+    await cargar();
+  };
+
+  const abrirGasto = (it) => {
+    if (!adminEsAmr || !it?.origenId) return;
+    setGastoModal(it);
+    setGastoMonto('');
+    setGastoDesc('');
+    setError('');
+  };
+
+  const confirmarGasto = async () => {
+    if (!gastoModal) return;
+    setTrabajando(`gasto-${gastoModal.origenId}`);
+    setMsg('');
+    setError('');
+    const res = await generarGastoRecoleccionRcVirtual(supabase, {
+      origenId: gastoModal.origenId,
+      monto: gastoMonto,
+      descripcion: gastoDesc,
+      usuarioNombre: adminNombre,
+    });
+    setTrabajando('');
+    if (!res.ok) {
+      setError(res.error || 'No se pudo generar el gasto.');
+      return;
+    }
+    setMsg(
+      `Gasto ${fmtMonto(res.monto)} descontado de ${gastoModal.folio || 'la recolección'}. `
+      + `Efectivo restante: ${fmtMonto(res.efectivoRestante)}.`,
+    );
+    setGastoModal(null);
+    await cargar();
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div className="card">
@@ -131,7 +221,10 @@ export default function PanelRVirtual({ supabase, user }) {
           Solo recolecciones de cortes Virtual y Garage (AMR, Luis Enrique, etc.).
           ABB, FJBB y JLBB van directo a IE Virtual y no aparecen aquí.
           No incluye abarrotes ni traspasos a crédito.
-          Las ya recibidas aquí no vuelven a aparecer.
+          <strong> Liquidar / borrar</strong> en cada línea: si aún no pasó a IE VIRTUAL, registra ingresos y egresos pendientes; luego sale de la bandeja.
+          {adminEsAmr
+            ? ' Como AMR puedes Generar gasto sobre una recolección: se descuenta del efectivo y queda registrado en la misma línea.'
+            : ''}
           {adminEsAbb
             ? ' Tú eres ABB: al recibir quedan en tu cuenta; también puedes quitarle a quien te entregue.'
             : ' Al recibir se cargan a tu cuenta; después debes entregarlas a ABB.'}
@@ -146,6 +239,60 @@ export default function PanelRVirtual({ supabase, user }) {
       {msg && (
         <div className="card" style={{ padding: '0.65rem 1rem', background: 'rgba(59,105,181,0.08)' }}>
           <p style={{ margin: 0, fontSize: '0.9rem' }}>{msg}</p>
+        </div>
+      )}
+
+      {gastoModal && (
+        <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)', padding: '0.85rem 1rem' }}>
+          <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue-dark)' }}>
+            Generar gasto · {gastoModal.folio || gastoModal.origenId}
+          </h4>
+          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+            {gastoModal.tipoItem} · {gastoModal.sucursal} · efectivo disponible {fmtMonto(gastoModal.monto)}
+          </p>
+          <div className="grid-2" style={{ gap: '0.75rem' }}>
+            <label className="muted" style={{ display: 'block' }}>
+              Monto ($)
+              <input
+                className="input"
+                type="number"
+                min="0"
+                step="0.01"
+                style={{ marginTop: '0.35rem' }}
+                value={gastoMonto}
+                onChange={(e) => setGastoMonto(e.target.value)}
+                autoFocus
+              />
+            </label>
+            <label className="muted" style={{ display: 'block' }}>
+              Descripción
+              <input
+                className="input"
+                style={{ marginTop: '0.35rem' }}
+                value={gastoDesc}
+                onChange={(e) => setGastoDesc(e.target.value)}
+                placeholder="Ej. Gasolina / taxi"
+              />
+            </label>
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-gold"
+              disabled={Boolean(trabajando)}
+              onClick={confirmarGasto}
+            >
+              {trabajando === `gasto-${gastoModal.origenId}` ? 'Guardando…' : 'Confirmar gasto'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={Boolean(trabajando)}
+              onClick={() => setGastoModal(null)}
+            >
+              Cancelar
+            </button>
+          </div>
         </div>
       )}
 
@@ -288,7 +435,9 @@ export default function PanelRVirtual({ supabase, user }) {
                                   <th>Folio</th>
                                   <th>Sucursal</th>
                                   <th>Módulo</th>
-                                  <th>Monto</th>
+                                  <th>Efectivo</th>
+                                  <th>Gastos</th>
+                                  <th>IE</th>
                                   <th />
                                 </tr>
                               </thead>
@@ -301,20 +450,54 @@ export default function PanelRVirtual({ supabase, user }) {
                                     <td>{it.sucursal || '—'}</td>
                                     <td>{it.tipoItem?.includes('Garage') ? 'Garage' : 'Virtual'}</td>
                                     <td>{fmtMonto(it.monto)}</td>
-                                    <td style={{ whiteSpace: 'nowrap' }}>
-                                      {it.origen === 'corte' && it.origenId ? (
-                                        <button
-                                          type="button"
-                                          className="btn btn-ghost"
-                                          style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
-                                          disabled={Boolean(imprimiendo)}
-                                          onClick={() => verTicket(it.origenId, it.origen)}
-                                        >
-                                          {imprimiendo === String(it.origenId) ? 'Abriendo…' : 'Ver ticket'}
-                                        </button>
+                                    <td>
+                                      <ResumenGastosLinea gastos={it.gastosRc} />
+                                    </td>
+                                    <td style={{ fontSize: '0.78rem' }}>
+                                      {it.aprobadoIe ? (
+                                        <span style={{ color: 'var(--brand-blue)' }}>En IE</span>
                                       ) : (
-                                        <span className="muted">—</span>
+                                        <span className="muted">Pendiente</span>
                                       )}
+                                    </td>
+                                    <td style={{ whiteSpace: 'nowrap' }}>
+                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', justifyContent: 'flex-end' }}>
+                                        {it.origen === 'corte' && it.origenId ? (
+                                          <button
+                                            type="button"
+                                            className="btn btn-ghost"
+                                            style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+                                            disabled={Boolean(imprimiendo) || Boolean(trabajando)}
+                                            onClick={() => verTicket(it.origenId, it.origen)}
+                                          >
+                                            {imprimiendo === String(it.origenId) ? 'Abriendo…' : 'Ver ticket'}
+                                          </button>
+                                        ) : null}
+                                        {adminEsAmr && it.origen === 'corte' && it.origenId ? (
+                                          <button
+                                            type="button"
+                                            className="btn btn-ghost"
+                                            style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+                                            disabled={Boolean(trabajando)}
+                                            onClick={() => abrirGasto(it)}
+                                          >
+                                            Generar gasto
+                                          </button>
+                                        ) : null}
+                                        {it.origen === 'corte' && it.origenId ? (
+                                          <button
+                                            type="button"
+                                            className="btn btn-danger"
+                                            style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+                                            disabled={Boolean(trabajando)}
+                                            onClick={() => liquidarItem(it)}
+                                          >
+                                            {trabajando === `liq-${it.origenId}` ? 'Liquidando…' : 'Liquidar'}
+                                          </button>
+                                        ) : (
+                                          <span className="muted">—</span>
+                                        )}
+                                      </div>
                                     </td>
                                   </tr>
                                 ))}

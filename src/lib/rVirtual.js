@@ -4,6 +4,7 @@ import {
   esAprobadorRecoleccionIe,
   nombreCoincidePatrones,
   normalizarNombreMatch,
+  recoleccionAprobadaParaIe,
 } from './contabilidadConstants.js';
 import { fmtMonto } from './controlEfectivo.js';
 import {
@@ -15,6 +16,15 @@ import {
   resolverOCrearCuentaRt,
   transferirEntreCuentasRt,
 } from './rtCuentas.js';
+
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/** Usuario AMR / Andrés: puede generar gastos sobre recolecciones en RC Virtual. */
+export function esUsuarioAmr(nombre) {
+  return nombreCoincidePatrones(nombre, ['amr', 'andres', 'andrés']);
+}
 
 export const AVISO_FALTA_R_VIRTUAL =
   'Ejecuta en Supabase: supabase/fix_r_virtual_custodia.sql para RC Virtual.';
@@ -100,9 +110,29 @@ async function listarRecoleccionesCorteRVirtual(supabase) {
   return (data || []).filter(esCierreRecoleccionRVirtual);
 }
 
+function gastosRcDesdeDetalle(detalle = {}) {
+  const list = Array.isArray(detalle?.gastos) ? detalle.gastos : [];
+  return list
+    .map((g, i) => ({
+      id: g.id != null ? String(g.id) : `g-${i}`,
+      monto: round2(g.monto),
+      comentario: String(g.comentario || '').trim(),
+      categoria: String(g.categoria || '').trim(),
+      usuario: String(g.usuario_nombre || g.solicitado_por || '').trim(),
+      origenRc: g.origen_rc_virtual === true
+        || String(g.subcategoria || '').toUpperCase() === 'RC VIRTUAL'
+        || String(g.comentario || '').includes('RC Virtual'),
+    }))
+    .filter((g) => g.monto > 0);
+}
+
 function itemDesdeCorte(row) {
   const nombre = row.usuario_nombre || 'Recolector';
   const monto = montoCorteRecoleccion(row);
+  const d = row.detalle || {};
+  const gastosRc = gastosRcDesdeDetalle(d);
+  const gastosRcTotal = round2(gastosRc.reduce((a, g) => a + g.monto, 0));
+  const aprobadoIe = recoleccionAprobadaParaIe(row);
   return {
     origen: 'corte',
     origenId: String(row.id),
@@ -119,6 +149,10 @@ function itemDesdeCorte(row) {
     detalle: '',
     receivable: monto > 0,
     deuda: false,
+    gastosRc,
+    gastosRcTotal,
+    aprobadoIe,
+    estadoAprobacionIe: String(d.estado_aprobacion || '').toLowerCase() || (aprobadoIe ? 'aprobado' : ''),
   };
 }
 
@@ -195,7 +229,8 @@ export async function listarBandejaRVirtual(supabase) {
     const pendientes = [];
     for (const row of cortes) {
       const it = itemDesdeCorte(row);
-      if (!(it.monto > 0)) continue;
+      // Mostrar aunque el efectivo ya se gastó (gastos RC), para poder liquidar → IE.
+      if (!(it.monto > 0) && !(it.gastosRcTotal > 0)) continue;
       if (yaRecibidos.has(claveItem(it.origen, it.origenId))) continue;
       pendientes.push(it);
     }
@@ -442,6 +477,227 @@ export async function imprimirTicketRcVirtual(supabase, { origenId, origen = 'co
   const r = imprimirCorteContabilidad(payload);
   if (r && r.ok === false) return r;
   return { ok: true };
+}
+
+/**
+ * Liquida / borra una recolección de la bandeja RC Virtual:
+ * - Si aún no pasó a IE VIRTUAL, la aprueba y libera egresos/ingresos pendientes.
+ * - Si ya estaba aprobada, no duplica (solo marca liquidada).
+ * - Sale de la bandeja (r_virtual_estado = liquidado).
+ */
+export async function liquidarRecoleccionRcVirtual(supabase, { origenId, adminNombre } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const id = String(origenId || '').trim();
+  if (!id) return { ok: false, error: 'No se identificó la recolección.' };
+  const actor = String(adminNombre || '').trim() || null;
+
+  const { data: row, error: errGet } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (errGet) return { ok: false, error: errGet.message };
+  if (!row) return { ok: false, error: 'Recolección no encontrada.' };
+
+  const mod = String(row.modulo || '').toLowerCase();
+  if (!MODULOS_R_VIRTUAL.has(mod)) {
+    return { ok: false, error: 'Esa recolección no es de Virtual/Garage.' };
+  }
+  if (String(row?.detalle?.r_virtual_estado || '') === 'liquidado') {
+    return { ok: true, yaLiquidada: true, origenId: id, monto: montoCorteRecoleccion(row) };
+  }
+
+  const yaAprobada = recoleccionAprobadaParaIe(row);
+  const ahora = new Date().toISOString();
+  let detalle = { ...(row.detalle || {}) };
+  const pasoIe = !yaAprobada;
+
+  if (pasoIe) {
+    detalle = {
+      ...detalle,
+      estado_aprobacion: 'aprobado',
+      aprobado_por: actor,
+      aprobado_at: ahora,
+    };
+  }
+
+  detalle = {
+    ...detalle,
+    r_virtual_estado: 'liquidado',
+    r_virtual_liquidado_por: actor,
+    r_virtual_liquidado_at: ahora,
+  };
+
+  const { data: updated, error: errUp } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .update({ detalle })
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (errUp) return { ok: false, error: errUp.message };
+
+  let egresosLiberados = 0;
+  try {
+    const { liberarGastosCorteAIeTrasRecoleccion } = await import('./contVirtualEgresos.js');
+    const lib = await liberarGastosCorteAIeTrasRecoleccion(supabase, updated);
+    egresosLiberados = Number(lib?.count) || 0;
+  } catch {
+    /* no bloquear liquidación */
+  }
+
+  try {
+    const { marcarNotificacionAtendida } = await import('./contabilidadNotificaciones.js');
+    await marcarNotificacionAtendida(supabase, 'cortes_contabilidad_cierres', id, actor);
+  } catch {
+    /* ignore */
+  }
+
+  return {
+    ok: true,
+    origenId: id,
+    monto: montoCorteRecoleccion(updated),
+    pasoIe,
+    yaEstabaEnIe: yaAprobada,
+    egresosLiberados,
+  };
+}
+
+/**
+ * AMR genera un gasto descontándolo del efectivo de una recolección pendiente en RC Virtual.
+ * El bruto para IE (efectivo + gastos) se mantiene; el gasto queda registrado en la misma línea.
+ * Si la recolección ya está aprobada en IE, el egreso aparece al recargar el panel.
+ */
+export async function generarGastoRecoleccionRcVirtual(supabase, {
+  origenId,
+  monto,
+  descripcion,
+  usuarioNombre,
+} = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  if (!esUsuarioAmr(usuarioNombre)) {
+    return { ok: false, error: 'Solo el usuario AMR puede generar gastos sobre recolecciones.' };
+  }
+  const id = String(origenId || '').trim();
+  if (!id) return { ok: false, error: 'Indica la recolección.' };
+  const m = round2(monto);
+  if (!(m > 0)) return { ok: false, error: 'Indica un monto mayor a cero.' };
+  const desc = String(descripcion || '').trim();
+  if (!desc) return { ok: false, error: 'Describe el gasto.' };
+
+  const { data: row, error: errGet } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (errGet) return { ok: false, error: errGet.message };
+  if (!row) return { ok: false, error: 'Recolección no encontrada.' };
+
+  const mod = String(row.modulo || '').toLowerCase();
+  if (!MODULOS_R_VIRTUAL.has(mod)) {
+    return { ok: false, error: 'Solo se pueden generar gastos sobre recolecciones Virtual/Garage.' };
+  }
+  if (row?.detalle?.r_virtual_estado === 'liquidado') {
+    return { ok: false, error: 'Esa recolección ya fue liquidada.' };
+  }
+
+  const d = row.detalle && typeof row.detalle === 'object' ? { ...row.detalle } : {};
+  const efectivoPrev = round2(d.recoleccion_efectivo ?? d.recoleccion ?? d.recoleccion_turno ?? 0);
+  if (m > efectivoPrev + 0.001) {
+    return {
+      ok: false,
+      error: `El gasto (${fmtMonto(m)}) supera el efectivo de la recolección (${fmtMonto(efectivoPrev)}).`,
+    };
+  }
+
+  const comentario = `${desc} · RC Virtual · ${row.folio || id}`;
+  const { data: gastoRow, error: errGasto } = await supabase
+    .from('cortes_contabilidad_gastos')
+    .insert([
+      {
+        sucursal_id: row.sucursal_id || 'MAIN',
+        modulo: mod,
+        categoria: 'GASTOS OPERATIVOS',
+        subcategoria: 'RC VIRTUAL',
+        comentario,
+        monto: m,
+        usuario_nombre: usuarioNombre || 'AMR',
+        cerrado: true,
+        estado_aprobacion: 'aprobado',
+        solicitado_por: usuarioNombre || null,
+        aprobado_por: usuarioNombre || null,
+        aprobado_at: new Date().toISOString(),
+      },
+    ])
+    .select('*')
+    .single();
+  if (errGasto) {
+    if (errGasto.code === '42P01') {
+      return { ok: false, error: 'Ejecuta supabase/fix_cortes_contabilidad.sql en Supabase.' };
+    }
+    return { ok: false, error: errGasto.message };
+  }
+
+  const efectivo = round2(efectivoPrev - m);
+  const gastosPrev = Array.isArray(d.gastos) ? [...d.gastos] : [];
+  const idsPrev = Array.isArray(d.gastos_ids) ? d.gastos_ids.map(String) : [];
+  const gastoEmb = {
+    id: gastoRow.id,
+    categoria: gastoRow.categoria,
+    subcategoria: gastoRow.subcategoria,
+    comentario: gastoRow.comentario,
+    monto: m,
+    usuario_nombre: gastoRow.usuario_nombre,
+    solicitado_por: gastoRow.solicitado_por,
+    origen_rc_virtual: true,
+    created_at: gastoRow.created_at,
+  };
+  gastosPrev.push(gastoEmb);
+  if (!idsPrev.includes(String(gastoRow.id))) idsPrev.push(String(gastoRow.id));
+  const gastosTotal = round2(
+    gastosPrev.reduce((a, g) => a + (Number(g.monto) || 0), 0),
+  );
+
+  const detalle = {
+    ...d,
+    recoleccion: efectivo,
+    recoleccion_turno: efectivo,
+    recoleccion_efectivo: efectivo,
+    gastos: gastosPrev,
+    gastos_ids: idsPrev,
+    gastos_total: gastosTotal,
+    recoleccion_contabilidad: round2(efectivo + gastosTotal),
+    formula_recoleccion_ie: 'efectivo_mas_gastos',
+    gastos_deducidos_en_ie: true,
+  };
+
+  const { error: errUp } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .update({ detalle })
+    .eq('id', id);
+  if (errUp) {
+    await supabase.from('cortes_contabilidad_gastos').delete().eq('id', gastoRow.id);
+    return { ok: false, error: errUp.message };
+  }
+
+  // Si ya estaba en IE, intentar registrar egreso de libro (CUBRE/TAXIS u omitidos no aplican;
+  // el unificado lo tomará por gastos_ids liberados).
+  if (recoleccionAprobadaParaIe({ ...row, detalle })) {
+    try {
+      const { liberarGastosCorteAIeTrasRecoleccion } = await import('./contVirtualEgresos.js');
+      await liberarGastosCorteAIeTrasRecoleccion(supabase, { ...row, detalle });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return {
+    ok: true,
+    origenId: id,
+    monto: m,
+    efectivoRestante: efectivo,
+    gastoId: gastoRow.id,
+    gasto: gastoEmb,
+  };
 }
 
 export { fmtMonto };
