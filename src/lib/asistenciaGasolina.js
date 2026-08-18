@@ -21,8 +21,9 @@ export function valeRequirioAprobacionAdmin(vale) {
 /** Cobrado antes de la hora límite de vales (día laboral temprano). */
 export function cobradoAntesDeLas9(vale) {
   if (!vale?.cobrado || !vale?.cobrado_at) return false;
-  const hora = new Date(vale.cobrado_at).getHours();
-  return hora < leerHoraLimiteVale();
+  const d = new Date(vale.cobrado_at);
+  const mins = d.getHours() * 60 + d.getMinutes();
+  return mins < leerHoraLimiteVale();
 }
 
 /** No cobrado y ya pasó las 15:00 del día del vale. */

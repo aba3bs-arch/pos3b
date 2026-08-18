@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BENEFICIARIOS_VALES, ETIQUETA_AREA, leerHoraLimiteVale } from '../lib/contabilidadConstants.js';
+import { BENEFICIARIOS_VALES, ETIQUETA_AREA, etiquetaHoraLimiteVale } from '../lib/contabilidadConstants.js';
 import { listarValesGasolina, marcarValeCobrado, valeEstaAprobado } from '../lib/valesPrestamos.js';
 import { periodoSemanaNomina, etiquetaSemanaNomina } from '../lib/semanaNomina.js';
 import FiltroRangoCalendario from '../components/FiltroRangoCalendario.jsx';
@@ -17,10 +17,10 @@ function fmtFecha(iso) {
 }
 
 function IconoAprobacionAdmin() {
-  const h = leerHoraLimiteVale();
+  const h = etiquetaHoraLimiteVale();
   return (
     <span
-      title={`Vale aprobado por administrador (solicitado después de las ${h}:00)`}
+      title={`Vale aprobado por administrador (solicitado a partir de las ${h})`}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
@@ -217,7 +217,7 @@ export default function PanelAsistenciaGasolina({ supabase, sucursal, user, edit
       <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
         Solo muestra vales de categoría <strong>Gasolina</strong> ya aprobados. Los de consumo, herramienta o accesorios están en la pestaña <strong>Vales</strong>.
         {' '}
-        <span style={{ color: '#2e7d32', fontWeight: 700 }}>✓✓ Verde</span> = cobrado antes de las {leerHoraLimiteVale()}:00.{' '}
+        <span style={{ color: '#2e7d32', fontWeight: 700 }}>✓✓ Verde</span> = cobrado antes de las {etiquetaHoraLimiteVale()}.{' '}
         <span style={{ color: '#2e7d32', fontWeight: 700 }}>✓ Verde</span> = cobrado (día laboral).{' '}
         <span style={{ color: '#c62828', fontWeight: 700 }}>✓ Roja</span> = vale aprobado por admin (después de las 9:00).{' '}
         <span style={{ color: '#c62828', fontWeight: 700 }}>✗</span> = falta (no cobrado antes de las {HORA_LIMITE_COBRO_GASOLINA}:00).
@@ -258,7 +258,7 @@ export default function PanelAsistenciaGasolina({ supabase, sucursal, user, edit
       <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
         <strong>{resumen.cobrados}</strong> día(s) laboral(es)
         {resumen.cobradosTemprano > 0 && (
-          <span className="muted"> ({resumen.cobradosTemprano} antes de las {leerHoraLimiteVale()}:00)</span>
+          <span className="muted"> ({resumen.cobradosTemprano} antes de las {etiquetaHoraLimiteVale()})</span>
         )}
         {' · '}
         <strong style={{ color: '#c62828' }}>{resumen.faltas}</strong> falta(s)

@@ -86,59 +86,125 @@ export function normalizarAreaCorte(area, fallback = 'virtual') {
 }
 
 /** Hora límite por defecto: antes de esta hora, gasolina/herramienta/accesorios sin admin. */
+export const HORA_LIMITE_VALE_DEFAULT_ETIQUETA = '09:00';
+export const HORA_LIMITE_VALE_DEFAULT_MINUTOS = 9 * 60;
+/** @deprecated usar HORA_LIMITE_VALE_DEFAULT_ETIQUETA / leerHoraLimiteVale() */
 export const HORA_LIMITE_VALE_DEFAULT = 9;
-/** Compat: valor por defecto (usar leerHoraLimiteVale() para el valor vigente). */
+/** Compat numérica (hora entera). Preferir etiquetaHoraLimiteVale(). */
 export const HORA_LIMITE_VALE = HORA_LIMITE_VALE_DEFAULT;
 
 const LS_HORA_LIMITE_VALE = 'pos3b_hora_limite_vale';
 export const EVENTO_HORA_LIMITE_VALE = 'pos3b-hora-limite-vale-updated';
 
-function clampHoraLimiteVale(n) {
-  const v = Number(n);
-  if (!Number.isFinite(v)) return HORA_LIMITE_VALE_DEFAULT;
-  return Math.min(23, Math.max(0, Math.floor(v)));
+const CUARTOS = [0, 15, 30, 45];
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
 }
 
-/** Hora (0–23) a partir de la cual los vales no-nómina requieren admin. Persistida en este equipo. */
+function snapCuarto(minuto) {
+  const m = Number(minuto) || 0;
+  return CUARTOS.reduce((best, q) => (Math.abs(q - m) < Math.abs(best - m) ? q : best), 0);
+}
+
+/** Opciones cada 15 min (00:00 … 23:45) para el selector. */
+export function opcionesHoraLimiteValeCuartos() {
+  const out = [];
+  for (let h = 0; h < 24; h += 1) {
+    for (const m of CUARTOS) {
+      const etiqueta = `${pad2(h)}:${pad2(m)}`;
+      out.push({ etiqueta, minutos: h * 60 + m });
+    }
+  }
+  return out;
+}
+
+/**
+ * Normaliza "10:15", "9", 9 o minutos (>23) → { etiqueta, minutos }.
+ */
+export function normalizarHoraLimiteVale(raw) {
+  if (raw == null || raw === '') {
+    return { etiqueta: HORA_LIMITE_VALE_DEFAULT_ETIQUETA, minutos: HORA_LIMITE_VALE_DEFAULT_MINUTOS };
+  }
+  const s = String(raw).trim();
+  const hm = s.match(/^(\d{1,2}):(\d{1,2})$/);
+  if (hm) {
+    const h = Math.min(23, Math.max(0, Number(hm[1])));
+    const m = snapCuarto(Number(hm[2]));
+    return { etiqueta: `${pad2(h)}:${pad2(m)}`, minutos: h * 60 + m };
+  }
+  const n = Number(s);
+  if (!Number.isFinite(n)) {
+    return { etiqueta: HORA_LIMITE_VALE_DEFAULT_ETIQUETA, minutos: HORA_LIMITE_VALE_DEFAULT_MINUTOS };
+  }
+  // Valor legado: hora entera 0–23
+  if (n >= 0 && n <= 23 && Number.isInteger(n)) {
+    return { etiqueta: `${pad2(n)}:00`, minutos: n * 60 };
+  }
+  // Minutos desde medianoche
+  const mins = Math.min(23 * 60 + 45, Math.max(0, Math.round(n / 15) * 15));
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return { etiqueta: `${pad2(h)}:${pad2(m)}`, minutos: h * 60 + m };
+}
+
+/** Minutos desde medianoche (Sonora) a partir de los cuales se exige admin. */
 export function leerHoraLimiteVale() {
   try {
     const raw = localStorage.getItem(LS_HORA_LIMITE_VALE);
-    if (raw != null && raw !== '') return clampHoraLimiteVale(raw);
+    if (raw != null && raw !== '') return normalizarHoraLimiteVale(raw).minutos;
   } catch {
     /* ignore */
   }
-  return HORA_LIMITE_VALE_DEFAULT;
+  return HORA_LIMITE_VALE_DEFAULT_MINUTOS;
 }
 
-export function guardarHoraLimiteVale(hora) {
-  const h = clampHoraLimiteVale(hora);
-  localStorage.setItem(LS_HORA_LIMITE_VALE, String(h));
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent(EVENTO_HORA_LIMITE_VALE, { detail: { hora: h } }));
+/** Etiqueta HH:MM vigente (cuartos de hora). */
+export function etiquetaHoraLimiteVale() {
+  try {
+    const raw = localStorage.getItem(LS_HORA_LIMITE_VALE);
+    if (raw != null && raw !== '') return normalizarHoraLimiteVale(raw).etiqueta;
+  } catch {
+    /* ignore */
   }
-  return h;
+  return HORA_LIMITE_VALE_DEFAULT_ETIQUETA;
 }
 
-function horaLocalSonora(fecha = new Date()) {
+/** Guarda "10:15" / hora entera / minutos. Devuelve etiqueta HH:MM. */
+export function guardarHoraLimiteVale(hora) {
+  const { etiqueta, minutos } = normalizarHoraLimiteVale(hora);
+  localStorage.setItem(LS_HORA_LIMITE_VALE, etiqueta);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(EVENTO_HORA_LIMITE_VALE, { detail: { etiqueta, minutos } }));
+  }
+  return etiqueta;
+}
+
+function minutosLocalSonora(fecha = new Date()) {
   try {
     const d = fecha instanceof Date ? fecha : new Date(fecha);
     const parts = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/Hermosillo',
       hour: 'numeric',
+      minute: 'numeric',
       hourCycle: 'h23',
     }).formatToParts(d);
     let h = Number(parts.find((p) => p.type === 'hour')?.value);
+    let m = Number(parts.find((p) => p.type === 'minute')?.value);
     if (h === 24) h = 0;
-    return Number.isFinite(h) ? h : d.getHours();
+    if (!Number.isFinite(h)) h = d.getHours();
+    if (!Number.isFinite(m)) m = d.getMinutes();
+    return h * 60 + m;
   } catch {
-    return fecha instanceof Date ? fecha.getHours() : new Date(fecha).getHours();
+    const d = fecha instanceof Date ? fecha : new Date(fecha);
+    return d.getHours() * 60 + d.getMinutes();
   }
 }
 
 /** Consumos (y tipos con descuentaNomina) siempre requieren admin; otras categorías después de la hora límite. */
 export function valeRequiereAutorizacionAdmin(fecha = new Date(), categoria = 'consumo') {
   if (valeDescuentaNomina(categoria)) return true;
-  return horaLocalSonora(fecha) >= leerHoraLimiteVale();
+  return minutosLocalSonora(fecha) >= leerHoraLimiteVale();
 }
 
 /** Cuota semanal fija $500; si el saldo es menor, cobra el remanente (última semana). */
