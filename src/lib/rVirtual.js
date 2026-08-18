@@ -1,6 +1,7 @@
 import { etiquetaTienda } from '../constants/sucursales.js';
 import {
   esAbb,
+  esAprobadorRecoleccionIe,
   nombreCoincidePatrones,
   normalizarNombreMatch,
 } from './contabilidadConstants.js';
@@ -44,11 +45,13 @@ export function claveRecolectorRVirtual(nombre) {
 
 const MODULOS_R_VIRTUAL = new Set(['virtual', 'garage']);
 
-/** Solo recolecciones definitivas de cortes Virtual / Garage (no temporales, no abarrotes). */
+/** Solo recolecciones definitivas de cortes Virtual / Garage (no temporales, no abarrotes).
+ * ABB / FJBB / JLBB van directo a IE Virtual: no pasan por RC Virtual. */
 function esCierreRecoleccionRVirtual(row) {
   const mod = String(row?.modulo || '').toLowerCase();
   if (!MODULOS_R_VIRTUAL.has(mod)) return false;
   if (row?.detalle?.r_virtual_estado) return false;
+  if (esAprobadorRecoleccionIe(row?.usuario_nombre)) return false;
   const tipo = String(row?.detalle?.tipo_cierre || '').toLowerCase();
   if (tipo === 'recoleccion_temporal') return false;
   if (tipo === 'recoleccion') return true;
@@ -172,9 +175,10 @@ function agruparCustodiaPorAdmin(rows) {
 }
 
 /**
- * Solo recolecciones de cortes Virtual y Garage.
+ * Solo recolecciones de cortes Virtual y Garage de AMR / Luis Enrique (u otros).
+ * ABB, FJBB y JLBB no aparecen: van directo a IE Virtual.
  * No incluye abarrotes ni traspasos a crédito / cobro servicio.
- * Lo ya recibido en R Virtual no aparece.
+ * Lo ya recibido en RC Virtual no aparece.
  */
 export async function listarBandejaRVirtual(supabase) {
   if (!supabase) return { recolectores: [], porEntregarAbb: [], error: null };
@@ -246,7 +250,8 @@ export async function recibirRecoleccionesRVirtual(supabase, { recolectorClave, 
     (it) => it.receivable
       && it.origen === 'corte'
       && it.recolectorClave === recolectorClave
-      && Number(it.monto || 0) > 0,
+      && Number(it.monto || 0) > 0
+      && !esAprobadorRecoleccionIe(it.recolectorNombre),
   );
   if (!receivable.length) {
     return {

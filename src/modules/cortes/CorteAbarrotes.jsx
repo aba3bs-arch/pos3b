@@ -102,8 +102,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
               style={{ width: 110, fontWeight: 700 }}
               value={estado.folio ?? folio}
               readOnly={!perm.folio}
-              inputMode="none"
-              data-corte-teclado={perm.folio ? 'alpha' : undefined}
+              inputMode="text"
               onChange={(e) => patchEstado({ folio: e.target.value })}
               placeholder="Folio"
             />
@@ -138,9 +137,8 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
                 <input
                   className={`input${editable ? ' corte-campo-editable' : ''}`}
                   type="text"
-                  inputMode="none"
+                  inputMode="decimal"
                   autoComplete="off"
-                  data-corte-teclado={editable ? 'num' : undefined}
                   value={estado[key] ?? 0}
                   readOnly={!editable}
                   onFocus={editable ? (e) => e.target.select() : undefined}
@@ -155,11 +153,11 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
                 <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.35rem', fontWeight: 700 }}>Ajuste manual (admin)</div>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
                   <span className="muted">Subtotal turno</span>
-                  <input className="input corte-campo-editable" type="text" inputMode="none" autoComplete="off" data-corte-teclado="num" value={estado.subtotal_manual ?? ''} placeholder="Automático" onFocus={(e) => e.target.select()} onChange={(e) => patchEstado({ subtotal_manual: e.target.value })} style={{ fontWeight: 700, textAlign: 'center' }} />
+                  <input className="input corte-campo-editable" type="text" inputMode="decimal" autoComplete="off" value={estado.subtotal_manual ?? ''} placeholder="Automático" onFocus={(e) => e.target.select()} onChange={(e) => patchEstado({ subtotal_manual: e.target.value })} style={{ fontWeight: 700, textAlign: 'center' }} />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.8rem' }}>
                   <span className="muted">Caja final</span>
-                  <input className="input corte-campo-editable" type="text" inputMode="none" autoComplete="off" data-corte-teclado="num" value={estado.caja_actual_manual ?? ''} placeholder="Automático" onFocus={(e) => e.target.select()} onChange={(e) => patchEstado({ caja_actual_manual: e.target.value })} style={{ fontWeight: 700, textAlign: 'center' }} />
+                  <input className="input corte-campo-editable" type="text" inputMode="decimal" autoComplete="off" value={estado.caja_actual_manual ?? ''} placeholder="Automático" onFocus={(e) => e.target.select()} onChange={(e) => patchEstado({ caja_actual_manual: e.target.value })} style={{ fontWeight: 700, textAlign: 'center' }} />
                 </label>
               </div>
             )}
@@ -201,8 +199,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             style={{ minHeight: 72 }}
             value={estado.comentarios || ''}
             readOnly={!perm.comentarios}
-            inputMode="none"
-            data-corte-teclado={perm.comentarios ? 'alpha' : undefined}
+            inputMode="text"
             onChange={(e) => patchEstado({ comentarios: e.target.value })}
           />
         </div>

@@ -265,9 +265,8 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
                 <input
                   className="input corte-campo-editable"
                   type="text"
-                  inputMode="none"
+                  inputMode="decimal"
                   autoComplete="off"
-                  data-corte-teclado="num"
                   value={estado.moneda_inicial ?? ''}
                   onFocus={(e) => e.target.select()}
                   onChange={(e) => {
@@ -499,8 +498,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
           className="input"
           value={estado.comentarios || ''}
           readOnly={!puedeComentarios}
-          inputMode="none"
-          data-corte-teclado={puedeComentarios ? 'alpha' : undefined}
+          inputMode="text"
           onChange={(e) => patchEstado({ comentarios: e.target.value })}
           placeholder="Notas del turno…"
           style={{ minHeight: 72, width: '100%', resize: 'vertical' }}

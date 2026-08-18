@@ -113,7 +113,8 @@ export default function PanelRVirtual({ supabase, user }) {
       <div className="card">
         <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>RC Virtual</h3>
         <p className="muted" style={{ margin: 0, fontSize: '0.88rem' }}>
-          Solo recolecciones de cortes Virtual y Garage.
+          Solo recolecciones de cortes Virtual y Garage (AMR, Luis Enrique, etc.).
+          ABB, FJBB y JLBB van directo a IE Virtual y no aparecen aquí.
           No incluye abarrotes ni traspasos a crédito.
           Las ya recibidas aquí no vuelven a aparecer.
           {adminEsAbb

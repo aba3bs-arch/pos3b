@@ -317,8 +317,7 @@ export default function CorteGarage({ supabase, sucursal, user }) {
               style={{ minHeight: 96, width: '100%', boxSizing: 'border-box' }}
               value={estado.comentarios || ''}
               readOnly={!perm.comentarios}
-              inputMode="none"
-              data-corte-teclado={perm.comentarios ? 'alpha' : undefined}
+              inputMode="text"
               onChange={(e) => patchEstado({ comentarios: e.target.value })}
             />
           </div>
