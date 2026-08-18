@@ -4,6 +4,7 @@ import {
   claveRecolectorRVirtual,
   entregarCustodiaAAbb,
   fmtMonto,
+  imprimirTicketRcVirtual,
   listarBandejaRVirtual,
   recibirRecoleccionesRVirtual,
 } from '../lib/rVirtual.js';
@@ -39,6 +40,7 @@ export default function PanelRVirtual({ supabase, user }) {
   const [abierto, setAbierto] = useState(null);
   const [abiertoAbb, setAbiertoAbb] = useState(null);
   const [trabajando, setTrabajando] = useState('');
+  const [imprimiendo, setImprimiendo] = useState('');
 
   const cargar = useCallback(async () => {
     if (!supabase) return;
@@ -106,6 +108,19 @@ export default function PanelRVirtual({ supabase, user }) {
       `Entregado a: ${res.entregadoA}. Se quitaron ${fmtMonto(res.total)} de la cuenta de ${grupo.etiqueta}.`,
     );
     await cargar();
+  };
+
+  const verTicket = async (origenId, origen = 'corte') => {
+    const key = String(origenId || '');
+    if (!key) return;
+    setImprimiendo(key);
+    setError('');
+    const res = await imprimirTicketRcVirtual(supabase, { origenId: key, origen });
+    setImprimiendo('');
+    if (!res.ok) {
+      setError(res.error || 'No se pudo abrir el ticket.');
+      return;
+    }
   };
 
   return (
@@ -181,6 +196,7 @@ export default function PanelRVirtual({ supabase, user }) {
                                   <th>Folio</th>
                                   <th>Sucursal</th>
                                   <th>Monto</th>
+                                  <th />
                                 </tr>
                               </thead>
                               <tbody>
@@ -191,6 +207,21 @@ export default function PanelRVirtual({ supabase, user }) {
                                     <td>{r.folio || '—'}</td>
                                     <td>{r.sucursal || '—'}</td>
                                     <td>{fmtMonto(r.monto)}</td>
+                                    <td style={{ whiteSpace: 'nowrap' }}>
+                                      {r.origen === 'corte' && r.origen_id ? (
+                                        <button
+                                          type="button"
+                                          className="btn btn-ghost"
+                                          style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+                                          disabled={Boolean(imprimiendo)}
+                                          onClick={() => verTicket(r.origen_id, r.origen)}
+                                        >
+                                          {imprimiendo === String(r.origen_id) ? 'Abriendo…' : 'Ver ticket'}
+                                        </button>
+                                      ) : (
+                                        <span className="muted">—</span>
+                                      )}
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>
@@ -258,6 +289,7 @@ export default function PanelRVirtual({ supabase, user }) {
                                   <th>Sucursal</th>
                                   <th>Módulo</th>
                                   <th>Monto</th>
+                                  <th />
                                 </tr>
                               </thead>
                               <tbody>
@@ -269,6 +301,21 @@ export default function PanelRVirtual({ supabase, user }) {
                                     <td>{it.sucursal || '—'}</td>
                                     <td>{it.tipoItem?.includes('Garage') ? 'Garage' : 'Virtual'}</td>
                                     <td>{fmtMonto(it.monto)}</td>
+                                    <td style={{ whiteSpace: 'nowrap' }}>
+                                      {it.origen === 'corte' && it.origenId ? (
+                                        <button
+                                          type="button"
+                                          className="btn btn-ghost"
+                                          style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+                                          disabled={Boolean(imprimiendo)}
+                                          onClick={() => verTicket(it.origenId, it.origen)}
+                                        >
+                                          {imprimiendo === String(it.origenId) ? 'Abriendo…' : 'Ver ticket'}
+                                        </button>
+                                      ) : (
+                                        <span className="muted">—</span>
+                                      )}
+                                    </td>
                                   </tr>
                                 ))}
                               </tbody>
