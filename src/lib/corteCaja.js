@@ -6,15 +6,22 @@ const LS_CORTES = 'pos3b_cortes_caja';
 export const TZ_CAJA = 'America/Hermosillo';
 const OFFSET_HORAS_NOGALES = 7;
 
-function ymdNogalesFromDate(date = new Date()) {
+/** YYYY-MM-DD en hora Sonora (evita que created_at UTC mueva el día). */
+export function ymdNogalesFromDate(date = new Date()) {
   try {
-    return date.toLocaleDateString('en-CA', { timeZone: TZ_CAJA });
+    const d = date instanceof Date ? date : new Date(date);
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('en-CA', { timeZone: TZ_CAJA });
   } catch {
-    return date.toISOString().slice(0, 10);
+    try {
+      return new Date(date).toISOString().slice(0, 10);
+    } catch {
+      return '';
+    }
   }
 }
 
-function hoyYmdNogales() {
+export function hoyYmdNogales() {
   return ymdNogalesFromDate(new Date());
 }
 

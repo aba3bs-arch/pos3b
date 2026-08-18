@@ -20,20 +20,35 @@ import {
   gastoEsCuentaRtFrancisco,
   reclasificarGastosRtFranciscoAAbarrotes,
 } from './contabilidadDepartamentos.js';
+import { finDia, inicioDia, hoyYmdNogales, ymdNogalesFromDate } from './corteCaja.js';
 
 function toYmd(d) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return ymdNogalesFromDate(d) || hoyYmdNogales();
+}
+
+/** Día calendario Sonora 00:00–24:00 (no UTC). */
+function ymdNegocio(isoOrDate) {
+  if (!isoOrDate) return '';
+  if (typeof isoOrDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(isoOrDate.trim())) {
+    return isoOrDate.trim();
+  }
+  return ymdNogalesFromDate(isoOrDate);
 }
 
 function isoEnRango(iso, desde, hasta) {
-  const f = String(iso || '').slice(0, 10);
+  const f = ymdNegocio(iso);
   if (!f) return false;
   if (desde && f < desde) return false;
   if (hasta && f > hasta) return false;
   return true;
+}
+
+/** Límites ISO del periodo en hora Sonora (día 0–24h). */
+function rangoIsoNogales(desde, hasta) {
+  return {
+    desdeIso: inicioDia(desde).toISOString(),
+    hastaIso: finDia(hasta).toISOString(),
+  };
 }
 
 export const PRESETS_CONT_VIRTUAL = [
@@ -171,7 +186,7 @@ function itemIngresoRecoleccion(r, { desde, etiquetaCuentaFn } = {}) {
   const cuentaLbl = typeof etiquetaCuentaFn === 'function'
     ? etiquetaCuentaFn(mod)
     : (mod === 'garage' ? 'Garage' : mod === 'abarrotes' ? 'Abarrotes' : 'Virtual');
-  const f = String(r.created_at || '').slice(0, 10);
+  const f = ymdNegocio(r.created_at) || desde;
   return {
     id: `rec-${r.id}`,
     cierre_id: r.id,
@@ -220,8 +235,7 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
   const tiendas = listarSucursalesOperativas();
   const tiendasFiltro = sucursal ? [sucursal] : tiendas;
 
-  const desdeIso = `${desde}T00:00:00`;
-  const hastaIso = `${hasta}T23:59:59.999`;
+  const { desdeIso, hastaIso } = rangoIsoNogales(desde, hasta);
 
   await Promise.all([
     sincronizarValesContVirtual(supabase),
@@ -475,8 +489,7 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
 
   const tiendas = listarSucursalesOperativas();
   const tiendasFiltro = sucursal ? [sucursal] : tiendas;
-  const desdeIso = `${desde}T00:00:00`;
-  const hastaIso = `${hasta}T23:59:59.999`;
+  const { desdeIso, hastaIso } = rangoIsoNogales(desde, hasta);
 
   await sincronizarGastosCubreTaxiContVirtual(supabase);
 

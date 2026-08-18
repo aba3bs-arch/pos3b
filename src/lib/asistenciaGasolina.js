@@ -1,4 +1,4 @@
-import { HORA_LIMITE_VALE } from './contabilidadConstants.js';
+import { leerHoraLimiteVale } from './contabilidadConstants.js';
 
 /** Hora límite para cobrar el vale el mismo día (15:00); después cuenta como falta. */
 export const HORA_LIMITE_COBRO_GASOLINA = 15;
@@ -13,16 +13,16 @@ function limiteCobroDelDia(fechaStr) {
   return new Date(y, m - 1, d, HORA_LIMITE_COBRO_GASOLINA, 0, 0, 0);
 }
 
-/** Vale solicitado después de las 9:00 y aprobado por administrador. */
+/** Vale solicitado después de la hora límite y aprobado por administrador. */
 export function valeRequirioAprobacionAdmin(vale) {
   return Boolean(vale?.requiere_autorizacion) && vale?.estado_aprobacion === 'aprobado';
 }
 
-/** Cobrado antes de las 9:00 (día laboral temprano). */
+/** Cobrado antes de la hora límite de vales (día laboral temprano). */
 export function cobradoAntesDeLas9(vale) {
   if (!vale?.cobrado || !vale?.cobrado_at) return false;
   const hora = new Date(vale.cobrado_at).getHours();
-  return hora < HORA_LIMITE_VALE;
+  return hora < leerHoraLimiteVale();
 }
 
 /** No cobrado y ya pasó las 15:00 del día del vale. */
