@@ -434,9 +434,8 @@ export default function CorteGastosPanel({
               <input
                 className="input corte-campo-editable"
                 type="text"
-                inputMode="none"
+                inputMode="decimal"
                 autoComplete="off"
-                data-corte-teclado="num"
                 placeholder="Monto"
                 value={monto}
                 onFocus={(e) => e.target.select()}
@@ -471,8 +470,7 @@ export default function CorteGastosPanel({
               placeholder="Comentario (opcional)"
               style={{ flex: 1, minWidth: 140 }}
               value={comentario}
-              inputMode="none"
-              data-corte-teclado="alpha"
+              inputMode="text"
               onChange={(e) => setComentario(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && agregar()}
             />
@@ -527,9 +525,8 @@ export default function CorteGastosPanel({
                     <input
                       className="input corte-campo-editable"
                       type="text"
-                      inputMode="none"
+                      inputMode="decimal"
                       autoComplete="off"
-                      data-corte-teclado="num"
                       style={{ width: '90px', fontWeight: 700 }}
                       value={g.monto}
                       onFocus={(e) => e.target.select()}

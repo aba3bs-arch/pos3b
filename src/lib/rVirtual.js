@@ -1,6 +1,7 @@
 import { etiquetaTienda } from '../constants/sucursales.js';
 import {
   esAbb,
+  esAprobadorRecoleccionIe,
   nombreCoincidePatrones,
   normalizarNombreMatch,
 } from './contabilidadConstants.js';
@@ -12,7 +13,7 @@ import {
 } from './rtCuentas.js';
 
 export const AVISO_FALTA_R_VIRTUAL =
-  'Ejecuta en Supabase: supabase/fix_r_virtual_custodia.sql para el buzón R Virtual.';
+  'Ejecuta en Supabase: supabase/fix_r_virtual_custodia.sql para RC Virtual.';
 
 export const ETIQUETAS_RECOLECTOR_R_VIRTUAL = [
   { etiqueta: 'ABB', patrones: ['abb', 'antonio'] },
@@ -44,11 +45,13 @@ export function claveRecolectorRVirtual(nombre) {
 
 const MODULOS_R_VIRTUAL = new Set(['virtual', 'garage']);
 
-/** Solo recolecciones definitivas de cortes Virtual / Garage (no temporales, no abarrotes). */
+/** Solo recolecciones definitivas de cortes Virtual / Garage (no temporales, no abarrotes).
+ * ABB / FJBB / JLBB van directo a IE Virtual: no pasan por RC Virtual. */
 function esCierreRecoleccionRVirtual(row) {
   const mod = String(row?.modulo || '').toLowerCase();
   if (!MODULOS_R_VIRTUAL.has(mod)) return false;
   if (row?.detalle?.r_virtual_estado) return false;
+  if (esAprobadorRecoleccionIe(row?.usuario_nombre)) return false;
   const tipo = String(row?.detalle?.tipo_cierre || '').toLowerCase();
   if (tipo === 'recoleccion_temporal') return false;
   if (tipo === 'recoleccion') return true;
@@ -172,9 +175,10 @@ function agruparCustodiaPorAdmin(rows) {
 }
 
 /**
- * Solo recolecciones de cortes Virtual y Garage.
+ * Solo recolecciones de cortes Virtual y Garage de AMR / Luis Enrique (u otros).
+ * ABB, FJBB y JLBB no aparecen: van directo a IE Virtual.
  * No incluye abarrotes ni traspasos a crédito / cobro servicio.
- * Lo ya recibido en R Virtual no aparece.
+ * Lo ya recibido en RC Virtual no aparece.
  */
 export async function listarBandejaRVirtual(supabase) {
   if (!supabase) return { recolectores: [], porEntregarAbb: [], error: null };
@@ -246,7 +250,8 @@ export async function recibirRecoleccionesRVirtual(supabase, { recolectorClave, 
     (it) => it.receivable
       && it.origen === 'corte'
       && it.recolectorClave === recolectorClave
-      && Number(it.monto || 0) > 0,
+      && Number(it.monto || 0) > 0
+      && !esAprobadorRecoleccionIe(it.recolectorNombre),
   );
   if (!receivable.length) {
     return {
@@ -294,7 +299,7 @@ export async function recibirRecoleccionesRVirtual(supabase, { recolectorClave, 
       montoTotal: it.monto,
       usuarioNombre: admin,
       repartidorNombre: it.recolectorNombre,
-      notas: `R Virtual · ${it.tipoItem || 'recolección'} ${it.folio || it.origenId}`,
+      notas: `RC Virtual · ${it.tipoItem || 'recolección'} ${it.folio || it.origenId}`,
     });
     if (!res.ok) return res;
     acreditados.push({ ...it, montoAcreditado: it.monto });
@@ -377,7 +382,7 @@ export async function entregarCustodiaAAbb(supabase, { recibidoPor, abbNombre } 
       haciaId: cuentaAbb.cuentaId,
       monto: total,
       usuarioNombre: abb,
-      notas: `R Virtual · entregado a: ${etiquetaEntrega} · de ${recibidoPor}`,
+      notas: `RC Virtual · entregado a: ${etiquetaEntrega} · de ${recibidoPor}`,
     });
     if (!trans.ok) return trans;
   }

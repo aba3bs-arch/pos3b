@@ -33,6 +33,7 @@ import Buzon from './modules/Buzon.jsx';
 import Ayuda from './modules/Ayuda.jsx';
 import Recolecciones from './modules/Recolecciones.jsx';
 import LiquidacionRecolecciones from './modules/LiquidacionRecolecciones.jsx';
+import RcVirtual from './modules/RcVirtual.jsx';
 import {
   listarSucursalesParaUI,
   etiquetaTienda,
@@ -1045,6 +1046,12 @@ function App() {
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
               <LiquidacionRecolecciones supabase={supabase} user={user} />
+            </>
+          )}
+          {vista === 'RC Virtual' && (
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <RcVirtual supabase={supabase} user={user} />
             </>
           )}
           {vista === 'Venta en Ruta' && (

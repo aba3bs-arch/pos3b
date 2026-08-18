@@ -16,6 +16,10 @@ const DESCRIPCIONES = {
     desc: 'Sellar efectivo en tránsito por tienda y día',
     ayuda: 'Cierra y sella el efectivo recolectado por tienda/día para liquidarlo en contabilidad.',
   },
+  'RC Virtual': {
+    desc: 'Custodia Virtual/Garage → cuenta admin → ABB',
+    ayuda: 'Recibe recolecciones de cortes Virtual y Garage a tu cuenta y entrégalas a ABB.',
+  },
   'IE VIRTUAL': {
     desc: 'Antonio · ingresos y egresos Virtual + Garage',
     ayuda: 'Ingresos y egresos de Virtual y Garage (cuenta Antonio). Incluye liberar recolecciones a IE.',

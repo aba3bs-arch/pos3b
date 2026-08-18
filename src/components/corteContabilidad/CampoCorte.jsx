@@ -33,16 +33,16 @@ export default function CampoCorte({
   inputStyle = {},
   teclado = 'num',
 }) {
+  const mode = teclado === 'alpha' ? 'text' : 'decimal';
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.8rem' }} className={className}>
       <span style={{ fontWeight: 700, color: color || 'var(--muted)' }}>{label}</span>
       <input
         className={`input${editable ? ' corte-campo-editable' : ''}${inputClassName ? ` ${inputClassName}` : ''}`}
         type="text"
-        inputMode="none"
+        inputMode={editable ? mode : undefined}
         autoComplete="off"
         data-corte-tab={editable ? '1' : undefined}
-        data-corte-teclado={editable && teclado ? teclado : undefined}
         value={valorInput(value, editable)}
         readOnly={!editable}
         onChange={editable ? (e) => onChange?.(e.target.value) : undefined}
@@ -61,14 +61,14 @@ export default function CampoCorte({
 }
 
 export function InputCorteInline({ value, onChange, editable = true, style = {}, teclado = 'num' }) {
+  const mode = teclado === 'alpha' ? 'text' : 'decimal';
   return (
     <input
       className={`input${editable ? ' corte-campo-editable' : ''}`}
       type="text"
-      inputMode="none"
+      inputMode={editable ? mode : undefined}
       autoComplete="off"
       data-corte-tab={editable ? '1' : undefined}
-      data-corte-teclado={editable && teclado ? teclado : undefined}
       value={valorInput(value, editable)}
       readOnly={!editable}
       onChange={editable ? (e) => onChange?.(e.target.value) : undefined}
