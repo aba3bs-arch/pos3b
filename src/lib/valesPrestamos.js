@@ -10,6 +10,7 @@ import {
   normalizarAreaCorte,
   MONTO_PRESTAMO_REQUIERE_SOCIO,
   CUOTA_SEMANAL_MINIMA,
+  leerHoraLimiteVale,
 } from './contabilidadConstants.js';
 import { esCategoriaValeConocida } from './valesCategorias.js';
 import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
@@ -209,7 +210,7 @@ export async function registrarVale(supabase, row, opts = {}) {
       ref_tabla: 'vales',
       ref_id: data.id,
       titulo: `Vale pendiente · ${row.nombre_empleado}`,
-      mensaje: `${folio} · $${Number(row.monto).toFixed(2)} · ${categoria}${descuentaNomina ? ' · requiere admin' : ' · después de las 9:00'}`,
+      mensaje: `${folio} · $${Number(row.monto).toFixed(2)} · ${categoria}${descuentaNomina ? ' · requiere admin' : ` · después de las ${leerHoraLimiteVale()}:00`}`,
       area_buzon: data.area || row.area || 'virtual',
     });
     return {

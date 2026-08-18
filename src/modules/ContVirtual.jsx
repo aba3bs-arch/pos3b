@@ -46,6 +46,7 @@ import {
   listarInversionesOficina,
   registrarInversionOficinaProveedor,
 } from '../lib/inversionesOficinaProveedor.js';
+import { hoyYmdNogales } from '../lib/corteCaja.js';
 import './ContVirtual.css';
 
 const LS_NOTAS = 'pos3b_cont_virtual_notas';
@@ -70,8 +71,7 @@ function round2(n) {
 }
 
 function hoyYmd() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return hoyYmdNogales();
 }
 
 function fmtFechaCorta(ymd) {

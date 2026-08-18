@@ -85,13 +85,61 @@ export function normalizarAreaCorte(area, fallback = 'virtual') {
   return areaCorteValida(a) ? a : fallback;
 }
 
-/** Consumos (y tipos con descuentaNomina) siempre requieren admin; otras categorías después de las 9:00. */
-export function valeRequiereAutorizacionAdmin(fecha = new Date(), categoria = 'consumo') {
-  if (valeDescuentaNomina(categoria)) return true;
-  return fecha.getHours() >= 9;
+/** Hora límite por defecto: antes de esta hora, gasolina/herramienta/accesorios sin admin. */
+export const HORA_LIMITE_VALE_DEFAULT = 9;
+/** Compat: valor por defecto (usar leerHoraLimiteVale() para el valor vigente). */
+export const HORA_LIMITE_VALE = HORA_LIMITE_VALE_DEFAULT;
+
+const LS_HORA_LIMITE_VALE = 'pos3b_hora_limite_vale';
+export const EVENTO_HORA_LIMITE_VALE = 'pos3b-hora-limite-vale-updated';
+
+function clampHoraLimiteVale(n) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return HORA_LIMITE_VALE_DEFAULT;
+  return Math.min(23, Math.max(0, Math.floor(v)));
 }
 
-export const HORA_LIMITE_VALE = 9;
+/** Hora (0–23) a partir de la cual los vales no-nómina requieren admin. Persistida en este equipo. */
+export function leerHoraLimiteVale() {
+  try {
+    const raw = localStorage.getItem(LS_HORA_LIMITE_VALE);
+    if (raw != null && raw !== '') return clampHoraLimiteVale(raw);
+  } catch {
+    /* ignore */
+  }
+  return HORA_LIMITE_VALE_DEFAULT;
+}
+
+export function guardarHoraLimiteVale(hora) {
+  const h = clampHoraLimiteVale(hora);
+  localStorage.setItem(LS_HORA_LIMITE_VALE, String(h));
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(EVENTO_HORA_LIMITE_VALE, { detail: { hora: h } }));
+  }
+  return h;
+}
+
+function horaLocalSonora(fecha = new Date()) {
+  try {
+    const d = fecha instanceof Date ? fecha : new Date(fecha);
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Hermosillo',
+      hour: 'numeric',
+      hourCycle: 'h23',
+    }).formatToParts(d);
+    let h = Number(parts.find((p) => p.type === 'hour')?.value);
+    if (h === 24) h = 0;
+    return Number.isFinite(h) ? h : d.getHours();
+  } catch {
+    return fecha instanceof Date ? fecha.getHours() : new Date(fecha).getHours();
+  }
+}
+
+/** Consumos (y tipos con descuentaNomina) siempre requieren admin; otras categorías después de la hora límite. */
+export function valeRequiereAutorizacionAdmin(fecha = new Date(), categoria = 'consumo') {
+  if (valeDescuentaNomina(categoria)) return true;
+  return horaLocalSonora(fecha) >= leerHoraLimiteVale();
+}
 
 /** Cuota semanal fija $500; si el saldo es menor, cobra el remanente (última semana). */
 export function cuotaSemanalPrestamo(saldo, _cuotaPropuesta) {

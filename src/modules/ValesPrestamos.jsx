@@ -41,7 +41,7 @@ import {
   BENEFICIARIOS_VALES,
   CUOTA_SEMANAL_MINIMA,
   ETIQUETA_AREA,
-  HORA_LIMITE_VALE,
+  EVENTO_HORA_LIMITE_VALE,
   MONTO_PRESTAMO_REQUIERE_SOCIO,
   beneficiarioValePorId,
   esSocioAprobadorPrestamo,
@@ -50,6 +50,7 @@ import {
   etiquetaEstadoPrestamo,
   etiquetaEstadoVale,
   listarCategoriasVale,
+  leerHoraLimiteVale,
   prestamoPuedeImprimir,
   valePuedeImprimir,
   valePuedeCancelar,
@@ -158,6 +159,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const [nuevoTipoVale, setNuevoTipoVale] = useState({ label: '', descuentaNomina: false });
   const [valesPendAll, setValesPendAll] = useState([]);
   const [prestamosPendAll, setPrestamosPendAll] = useState([]);
+  const [horaLimiteVale, setHoraLimiteVale] = useState(() => leerHoraLimiteVale());
 
   const rolNorm = normalizarRol(user?.rol);
   const esAdmin = rolNorm === 'Administrador';
@@ -289,6 +291,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     const onCat = () => setCategoriasTick((n) => n + 1);
     window.addEventListener(EVENTO_VALES_CATEGORIAS, onCat);
     return () => window.removeEventListener(EVENTO_VALES_CATEGORIAS, onCat);
+  }, []);
+
+  useEffect(() => {
+    const onHora = () => setHoraLimiteVale(leerHoraLimiteVale());
+    window.addEventListener(EVENTO_HORA_LIMITE_VALE, onHora);
+    return () => window.removeEventListener(EVENTO_HORA_LIMITE_VALE, onHora);
   }, []);
 
   useEffect(() => {
@@ -991,14 +999,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       <div className="card" style={{ fontSize: '0.85rem' }}>
         <strong>Vales consumo</strong> — Siempre requieren autorización del administrador.
         <br />
-        <strong>Gasolina, herramienta, accesorios y tipos creados por admin</strong> — Antes de las {HORA_LIMITE_VALE}:00 se imprimen con firma; después de las 9:00 el admin debe aprobar.
+        <strong>Gasolina, herramienta, accesorios y tipos creados por admin</strong> — Antes de las {horaLimiteVale}:00 se imprimen con firma; después de las {horaLimiteVale}:00 el admin debe aprobar.
         <br />
         <strong>Corte</strong> — Al aprobarse, el vale va al corte del área del beneficiario (Virtual / Abarrotes / Garage). El préstamo va al área que indiques.
         <br />
         <strong>Préstamos</strong> — Admin aprueba siempre; mayores a ${MONTO_PRESTAMO_REQUIERE_SOCIO} requieren Antonio, Francisco o José Luis.
         Cuota semanal mín. ${CUOTA_SEMANAL_MINIMA} en nómina.
         {requiereAuthAhora && !esAdmin && valeForm.categoria !== 'consumo' && (
-          <span style={{ color: 'var(--danger)' }}> · Ahora ({new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}) vales post-9:00 van a bandeja admin.</span>
+          <span style={{ color: 'var(--danger)' }}> · Ahora ({new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}) vales post-{horaLimiteVale}:00 van a bandeja admin.</span>
         )}
       </div>
 
@@ -1224,7 +1232,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', color: 'var(--brand-red)' }}>
                 {valeForm.categoria === 'consumo'
                   ? 'Los vales de consumo siempre requieren aprobación del administrador.'
-                  : `Son las ${new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} — vales después de las ${HORA_LIMITE_VALE}:00 van a bandeja del administrador.`}
+                  : `Son las ${new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} — vales después de las ${horaLimiteVale}:00 van a bandeja del administrador.`}
               </p>
             )}
           </div>

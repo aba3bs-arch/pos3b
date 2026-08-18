@@ -36,6 +36,12 @@ import {
   guardarTiendasValesPermitidas,
 } from '../lib/posConfig.js';
 import {
+  EVENTO_HORA_LIMITE_VALE,
+  HORA_LIMITE_VALE_DEFAULT,
+  guardarHoraLimiteVale,
+  leerHoraLimiteVale,
+} from '../lib/contabilidadConstants.js';
+import {
   EVENTO_PERIFERICOS,
   conectarDispositivoUsb,
   conectarPuertoSerial,
@@ -311,6 +317,7 @@ export default function Configuracion({
   const [nuevoTurnoForm, setNuevoTurnoForm] = useState({ nombre: '', hora_inicio: '08:00', hora_fin: '16:00' });
   const [filtroUsuariosTurno, setFiltroUsuariosTurno] = useState('');
   const [valesTiendas, setValesTiendas] = useState(() => leerTiendasValesPermitidas() || listarSucursalesParaUI());
+  const [horaLimiteValeCfg, setHoraLimiteValeCfg] = useState(() => leerHoraLimiteVale());
   const puedeAsignarTurnoEmpleados = puedeAsignarTurnos(user?.rol);
 
   const syncBrandingForm = () => {
@@ -330,11 +337,14 @@ export default function Configuracion({
       setPerifericos(leerPerifericos());
       setSerialActivo(puertoSerialConectado());
     };
+    const onHoraVale = () => setHoraLimiteValeCfg(leerHoraLimiteVale());
     window.addEventListener(EVENTO_BRANDING, onBrand);
     window.addEventListener(EVENTO_PERIFERICOS, onPeriph);
+    window.addEventListener(EVENTO_HORA_LIMITE_VALE, onHoraVale);
     return () => {
       window.removeEventListener(EVENTO_BRANDING, onBrand);
       window.removeEventListener(EVENTO_PERIFERICOS, onPeriph);
+      window.removeEventListener(EVENTO_HORA_LIMITE_VALE, onHoraVale);
     };
   }, []);
 
@@ -1844,6 +1854,38 @@ export default function Configuracion({
           >
             Guardar permisos de vales
           </button>
+
+          <hr style={{ margin: '1.25rem 0', border: 0, borderTop: '1px solid var(--border)' }} />
+          <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>Horario sin autorización</h4>
+          <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+            Antes de esta hora (Sonora), gasolina / herramienta / accesorios se registran <strong>sin autorización</strong> de admin.
+            Consumo siempre requiere admin. Por defecto: {HORA_LIMITE_VALE_DEFAULT}:00.
+          </p>
+          <label className="muted" style={{ display: 'inline-block', marginTop: '0.5rem' }}>
+            Hora límite (0–23)
+            <input
+              className="input"
+              type="number"
+              min={0}
+              max={23}
+              style={{ display: 'block', marginTop: '0.35rem', width: 100 }}
+              value={horaLimiteValeCfg}
+              onChange={(e) => setHoraLimiteValeCfg(Number(e.target.value))}
+            />
+          </label>
+          <div style={{ marginTop: '0.65rem' }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                const h = guardarHoraLimiteVale(horaLimiteValeCfg);
+                setHoraLimiteValeCfg(h);
+                alert(`Hora límite guardada: antes de las ${String(h).padStart(2, '0')}:00 sin autorización.`);
+              }}
+            >
+              Guardar hora límite
+            </button>
+          </div>
         </div>
       )}
 
