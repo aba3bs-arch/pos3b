@@ -11,6 +11,8 @@ const CLAVES_PRESERVAR = new Set([
   'pos3b_sucursales_extra',
   'pos3b_tipo_cambio',
   'pos3b_tipo_cambio_updated_at',
+  'pos3b_bonos_config',
+  'pos3b_bonos_config_at',
   'pos3b_metodos_pago',
   'pos3b_perifericos',
   'pos3b_config_impresion',

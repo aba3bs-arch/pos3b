@@ -10,6 +10,7 @@ import PanelAnunciosAdmin from '../components/PanelAnunciosAdmin.jsx';
 import PanelPurgeDatosAdmin from '../components/PanelPurgeDatosAdmin.jsx';
 import PanelAppMovilInicio from '../components/PanelAppMovilInicio.jsx';
 import PanelProyeccionFaltante from '../components/PanelProyeccionFaltante.jsx';
+import PanelBonoInicio from '../components/PanelBonoInicio.jsx';
 
 function PuntoVerdeActivo() {
   return <span className="punto-verde-parpadeo" title="Anuncio activo" aria-hidden />;
@@ -168,6 +169,15 @@ export default function Inicio({
 
       {puedeVerProyeccion && (
         <PanelProyeccionFaltante
+          supabase={supabase}
+          sucursal={sucursal}
+          inventario={inventario}
+          onNavigateConfig={puede('Configuracion') ? () => onNavigate('Configuracion') : undefined}
+        />
+      )}
+
+      {!esAlmacenCentral(sucursal) && supabase && (
+        <PanelBonoInicio
           supabase={supabase}
           sucursal={sucursal}
           inventario={inventario}
