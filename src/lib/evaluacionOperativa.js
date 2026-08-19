@@ -76,254 +76,89 @@ export function itemsPisoPorBloque() {
 }
 
 /**
- * Banco amplio de preguntas orales / de conocimiento.
- * Basadas en las normas operativas del Check List.
+ * Banco de preguntas orales / de conocimiento (FA3B-014).
+ * Cubren las 8 secciones del Check List FA3B-017 + servicio.
+ * Campos: id, seccion, codigo (norma), texto, guia, tipo (conocimiento|situacion|observacion)
  */
 export const BANCO_PREGUNTAS_EVALUACION = [
-  // Generales / disciplina
-  {
-    id: 'g1',
-    seccion: '1',
-    texto: 'Menciona las 5 primeras normas operativas (o las secciones principales del check list).',
-    guia: 'Disciplina, Estandarización, Limpieza, Orden, Clasificación…',
-  },
-  {
-    id: 'g2',
-    seccion: '1',
-    texto: '¿En qué se basa el check list operativo?',
-    guia: 'En las normas operativas FA3B-017 (disciplina, procesos, limpieza, orden…).',
-  },
-  {
-    id: 'g3',
-    seccion: '1',
-    texto: '¿Para qué sirve registrar la asistencia y cumplir horarios de entrada/salida?',
-    guia: 'Disciplina 1.1–1.2: control de visitas y turnos.',
-  },
-  {
-    id: 'g4',
-    seccion: '1',
-    texto: '¿Qué pasa si no se respetan los descansos asignados?',
-    guia: 'Incumplimiento de norma 1.3; afecta operación y personal.',
-  },
-  // Procesos
-  {
-    id: 'p1',
-    seccion: '2',
-    texto: '¿Qué es un preinventario y para qué sirve?',
-    guia: 'Conteo previo para detectar faltantes/sobrantes antes de abasto o cierre (2.1).',
-  },
-  {
-    id: 'p2',
-    seccion: '2',
-    texto: 'Describe el proceso de venta en mostrador (pasos básicos).',
-    guia: 'Atender, escanear/registrar, cobrar, entregar ticket, descontar inventario (2.2).',
-  },
-  {
-    id: 'p3',
-    seccion: '2',
-    texto: '¿Cómo se registra una compra de proveedor en el sistema?',
-    guia: 'Proceso de compras 2.3: recibir, verificar ticket, ingresar cantidades.',
-  },
-  {
-    id: 'p4',
-    seccion: '2',
-    texto: '¿Cuándo y cómo se solicita abasto a la central / MAIN?',
-    guia: 'Proceso 2.4: lista de faltantes y solicitud formal.',
-  },
-  {
-    id: 'p5',
-    seccion: '2',
-    texto: 'Si el ticket de compra no coincide con lo recibido, ¿qué debes hacer?',
-    guia: 'Reportar diferencia (negativa/positiva), no ingresar a ciegas.',
-  },
-  {
-    id: 'p6',
-    seccion: '2',
-    texto: 'Menciona al menos 3 procesos estandarizados que debes dominar en tienda.',
-    guia: 'Preinventario, venta, compras, solicitud de abasto.',
-  },
-  // Limpieza
-  {
-    id: 'l1',
-    seccion: '3',
-    texto: '¿Qué áreas de limpieza revisa el check list? Menciona al menos 4.',
-    guia: 'Piso de venta, máquinas, estantes/vitrinas, caja, banqueta/patio/baño.',
-  },
-  {
-    id: 'l2',
-    seccion: '3',
-    texto: '¿Con qué frecuencia se debe desempolvar la mercancía?',
-    guia: 'Según rutina del turno; norma 3.4 exige mantenerla limpia.',
-  },
-  {
-    id: 'l3',
-    seccion: '3',
-    texto: '¿Por qué es importante la limpieza del área de máquinas?',
-    guia: 'Imagen, seguridad y funcionamiento (3.2).',
-  },
-  {
-    id: 'l4',
-    seccion: '3',
-    texto: '¿Qué incluye la limpieza de banqueta, patio y baño?',
-    guia: 'Exterior e instalaciones sanitarias accesibles y presentables (3.6).',
-  },
-  {
-    id: 'l5',
-    seccion: '3',
-    texto: 'Al abrir el turno, ¿qué puntos de limpieza debes verificar primero?',
-    guia: 'Caja, piso de venta y área visible al cliente.',
-  },
-  // Orden
-  {
-    id: 'o1',
-    seccion: '4',
-    texto: 'Menciona algunos de los puntos de la norma 4 (Orden).',
-    guia: 'Exhibición, mermas, acomodo según planos/caducidad, caja, anuncios.',
-  },
-  {
-    id: 'o2',
-    seccion: '4',
-    texto: '¿Cómo se acomoda la mercancía según fecha de caducidad?',
-    guia: 'FIFO: lo que caduca primero al frente (4.3 / caducados).',
-  },
-  {
-    id: 'o3',
-    seccion: '4',
-    texto: '¿Qué revisas en mercancía caduca exhibida?',
-    guia: 'Retirar o clasificar; no vender caducado (4.2 / 5.1).',
-  },
-  {
-    id: 'o4',
-    seccion: '4',
-    texto: '¿Por qué debe estar ordenada el área de caja?',
-    guia: 'Agilidad de cobro, control de efectivo y buena imagen (4.4).',
-  },
-  {
-    id: 'o5',
-    seccion: '4',
-    texto: '¿Qué haces con anuncios y publicidad dañados o vencidos?',
-    guia: 'Acomodar o retirar (4.5).',
-  },
-  // Clasificación
-  {
-    id: 'c1',
-    seccion: '5',
-    texto: '¿Cómo se clasifica la mercancía caducada o dañada?',
-    guia: 'Por proveedor (5.1 / 5.2).',
-  },
-  {
-    id: 'c2',
-    seccion: '5',
-    texto: '¿Qué se hace con la mercancía almacenada?',
-    guia: 'Acomodarla por proveedor (5.3).',
-  },
-  {
-    id: 'c3',
-    seccion: '5',
-    texto: '¿Cómo se clasifican los tickets de compra?',
-    guia: 'Por proveedor y fecha (5.6).',
-  },
-  {
-    id: 'c4',
-    seccion: '5',
-    texto: '¿Qué significa “separar lo que no se usa en tienda”?',
-    guia: 'Sacar artículos ajenos u obsoletos del piso/almacén (5.4).',
-  },
-  // Abasto
-  {
-    id: 'a1',
-    seccion: '6',
-    texto: '¿Qué es “rellenar huecos” en estantes y refrigeradores?',
-    guia: 'Completar faltantes visibles para no perder venta (6.1).',
-  },
-  {
-    id: 'a2',
-    seccion: '6',
-    texto: '¿Para qué sirve la lista de mercancía faltante?',
-    guia: 'Base de la solicitud de abasto (6.2 / 6.5).',
-  },
-  {
-    id: 'a3',
-    seccion: '6',
-    texto: 'Después de recibir mercancía, ¿qué debes hacer en el sistema?',
-    guia: 'Ingresar compras al sistema (6.3).',
-  },
-  {
-    id: 'a4',
-    seccion: '6',
-    texto: '¿La tienda debe contar con utensilios de limpieza? ¿Cuáles ejemplos?',
-    guia: 'Sí (6.4): trapeador, jalador, recogedor, trapos, etc.',
-  },
-  // Mantenimiento
-  {
-    id: 'm1',
-    seccion: '7',
-    texto: '¿Qué revisas en máquinas (estado y funcionamiento)?',
-    guia: 'Que operen, sin fallas visibles (7.1).',
-  },
-  {
-    id: 'm2',
-    seccion: '7',
-    texto: 'Si hay luces fundidas o quebradas, ¿qué haces?',
-    guia: 'Reportar falla de mantenimiento (7.2 / 8.3).',
-  },
-  {
-    id: 'm3',
-    seccion: '7',
-    texto: '¿Qué incluye la revisión de ventanas, puertas y candados?',
-    guia: 'Seguridad del local: cierren, sin daños, candados útiles (7.3).',
-  },
-  {
-    id: 'm4',
-    seccion: '7',
-    texto: 'Menciona fallas de infraestructura que debes reportar.',
-    guia: 'Pisos, techos, goteras, fugas de agua, baños (7.4).',
-  },
-  {
-    id: 'm5',
-    seccion: '7',
-    texto: 'Antes de vender, ¿qué verificas del punto de venta?',
-    guia: 'Equipo encendido y rollos/tickets disponibles (7.5).',
-  },
-  // Comunicación
-  {
-    id: 'k1',
-    seccion: '8',
-    texto: '¿Qué tipo de incidencias debes reportar al supervisor / buzón?',
-    guia: 'Personal, abasto, mantenimiento, moneda virtual, POS (8.1–8.5).',
-  },
-  {
-    id: 'k2',
-    seccion: '8',
-    texto: 'Si falla el sistema de moneda virtual, ¿qué haces?',
-    guia: 'Reportar de inmediato (8.4); no improvisar sin aviso.',
-  },
-  {
-    id: 'k3',
-    seccion: '8',
-    texto: '¿Por qué es importante reportar incidencias de personal?',
-    guia: 'Norma 8.1: continuidad del turno y disciplina.',
-  },
-  // Servicio / observación
-  {
-    id: 's1',
-    seccion: 'svc',
-    texto: 'Observa y describe cómo es el servicio al cliente que brinda el encargado / empleado.',
-    guia: 'Saludo, rapidez, amabilidad, manejo de quejas.',
-    tipo: 'observacion',
-  },
-  {
-    id: 's2',
-    seccion: 'svc',
-    texto: '¿Cómo atenderías a un cliente molesto por un producto caduco o mal cobrado?',
-    guia: 'Escuchar, corregir según política, reportar si aplica.',
-  },
-  {
-    id: 's3',
-    seccion: 'svc',
-    texto: '¿Qué actitud debes mantener en el piso de venta frente al cliente?',
-    guia: 'Presentación, atención y orden del área visible.',
-  },
+  // ——— 1 DISCIPLINA ———
+  { id: 'g1', seccion: '1', codigo: '1', texto: 'Menciona las secciones principales del check list / normas operativas.', guia: 'Disciplina, Estandarización de procesos, Limpieza, Orden, Clasificación, Abasto, Mantenimiento, Comunicación.', tipo: 'conocimiento' },
+  { id: 'g2', seccion: '1', codigo: '1', texto: '¿En qué se basa el check list operativo?', guia: 'En las normas operativas FA3B-017 (disciplina, procesos, limpieza, orden…).', tipo: 'conocimiento' },
+  { id: 'g3', seccion: '1', codigo: '1.1', texto: '¿Para qué sirve el registro de asistencia / visitas a tienda?', guia: '1.1: control de quién está en turno y evidencia de disciplina.', tipo: 'conocimiento' },
+  { id: 'g4', seccion: '1', codigo: '1.2', texto: '¿Qué debes hacer si llegas tarde al turno?', guia: 'Avisar y registrar asistencia real; no omitir el checador (1.2).', tipo: 'situacion' },
+  { id: 'g5', seccion: '1', codigo: '1.3', texto: '¿Puedes tomar descansos fuera del horario asignado? ¿Por qué?', guia: 'No: cumplir descansos asignados (1.3) para no dejar la tienda sola.', tipo: 'situacion' },
+  { id: 'g6', seccion: '1', codigo: '1.1', texto: '¿Quién debe checar entrada y salida en el sistema?', guia: 'El mismo empleado del turno; no checar por otra persona (1.1–1.2).', tipo: 'conocimiento' },
+
+  // ——— 2 PROCESOS ———
+  { id: 'p1', seccion: '2', codigo: '2.1', texto: '¿Qué es un preinventario y para qué sirve?', guia: 'Conteo previo para detectar faltantes/sobrantes antes de abasto o cierre (2.1).', tipo: 'conocimiento' },
+  { id: 'p2', seccion: '2', codigo: '2.1', texto: '¿En qué momento del turno conviene hacer o revisar el preinventario?', guia: 'Al inicio o al preparar abasto; no dejarlo sin tiempo al cierre (2.1).', tipo: 'situacion' },
+  { id: 'p3', seccion: '2', codigo: '2.2', texto: 'Describe el proceso de venta en mostrador (pasos básicos).', guia: 'Atender → escanear/registrar → cobrar → ticket → descontar inventario (2.2).', tipo: 'conocimiento' },
+  { id: 'p4', seccion: '2', codigo: '2.2', texto: 'Si el escáner no lee un código, ¿qué haces para no detener la venta?', guia: 'Captura manual, verificar precio; reportar falla POS si persiste (2.2 / 8.5).', tipo: 'situacion' },
+  { id: 'p5', seccion: '2', codigo: '2.3', texto: '¿Cómo se registra una compra de proveedor en el sistema?', guia: 'Recibir → confrontar ticket → ingresar cantidades correctas (2.3 / 6.3).', tipo: 'conocimiento' },
+  { id: 'p6', seccion: '2', codigo: '2.3', texto: 'Si el ticket de compra no coincide con lo recibido, ¿qué haces?', guia: 'Anotar dif. neg./pos. y reportar; no ingresar a ciegas (FA3B-014 tickets).', tipo: 'situacion' },
+  { id: 'p7', seccion: '2', codigo: '2.4', texto: '¿Cuándo y cómo se solicita abasto a la central / MAIN?', guia: 'Con lista de faltantes y solicitud formal de abarrotes (2.4 / 6.2 / 6.5).', tipo: 'conocimiento' },
+  { id: 'p8', seccion: '2', codigo: '2', texto: 'Menciona al menos 3 procesos estandarizados que debes dominar en tienda.', guia: 'Preinventario, venta, compras, solicitud de abasto (sección 2).', tipo: 'conocimiento' },
+  { id: 'p9', seccion: '2', codigo: '2.3', texto: '¿Por qué no debes aceptar un ticket sin contar la mercancía?', guia: 'Puede haber faltantes; hay que confrontar ticket vs físico (2.3).', tipo: 'situacion' },
+
+  // ——— 3 LIMPIEZA ———
+  { id: 'l1', seccion: '3', codigo: '3', texto: '¿Qué áreas de limpieza revisa el check list? Menciona al menos 4.', guia: 'Piso de venta, máquinas, estantes/vitrinas, caja, banqueta/patio/baño (3.1–3.6).', tipo: 'conocimiento' },
+  { id: 'l2', seccion: '3', codigo: '3.4', texto: '¿Qué significa “desempolvar mercancía” y por qué importa?', guia: 'Quitar polvo del producto exhibido; imagen y rotación (3.4).', tipo: 'conocimiento' },
+  { id: 'l3', seccion: '3', codigo: '3.2', texto: '¿Por qué es importante la limpieza del área de máquinas?', guia: 'Imagen, seguridad y que las máquinas funcionen (3.2).', tipo: 'conocimiento' },
+  { id: 'l4', seccion: '3', codigo: '3.6', texto: '¿Qué incluye la limpieza de banqueta, patio y baño?', guia: 'Exterior limpio y baño usable/presentable (3.6).', tipo: 'conocimiento' },
+  { id: 'l5', seccion: '3', codigo: '3.5', texto: 'Al abrir el turno, ¿qué puntos de limpieza verificas primero?', guia: 'Caja, piso de venta y zona visible al cliente (3.1 / 3.5).', tipo: 'situacion' },
+  { id: 'l6', seccion: '3', codigo: '3.3', texto: '¿Cómo dejas los estantes y vitrinas al terminar el acomodo?', guia: 'Limpios, sin polvo ni empaques vacíos (3.3).', tipo: 'conocimiento' },
+  { id: 'l7', seccion: '3', codigo: '3.1', texto: 'Hay un derrame en el piso de venta: ¿qué haces de inmediato?', guia: 'Señalizar/limpiar ya; no dejar riesgo para el cliente (3.1).', tipo: 'situacion' },
+
+  // ——— 4 ORDEN ———
+  { id: 'o1', seccion: '4', codigo: '4', texto: 'Menciona algunos de los puntos de la norma 4 (Orden).', guia: 'Exhibición, mermas, acomodo según planos, caja, anuncios (4.1–4.5).', tipo: 'conocimiento' },
+  { id: 'o2', seccion: '4', codigo: '4.3', texto: '¿Cómo se acomoda la mercancía según fecha de caducidad / planos?', guia: 'FIFO: lo que caduca primero al frente; respetar planos (4.3).', tipo: 'conocimiento' },
+  { id: 'o3', seccion: '4', codigo: '4.2', texto: '¿Qué revisas al “checar mermas”?', guia: 'Producto dañado/caduco; separarlo y no dejarlo en exhibición (4.2).', tipo: 'conocimiento' },
+  { id: 'o4', seccion: '4', codigo: '4.4', texto: '¿Por qué debe estar ordenada el área de caja?', guia: 'Cobro ágil, control de efectivo e imagen (4.4).', tipo: 'conocimiento' },
+  { id: 'o5', seccion: '4', codigo: '4.5', texto: '¿Qué haces con anuncios o publicidad dañados o vencidos?', guia: 'Acomodar o retirar (4.5).', tipo: 'situacion' },
+  { id: 'o6', seccion: '4', codigo: '4.1', texto: '¿Qué es una buena exhibición de mercancías?', guia: 'Frente lleno, limpio, precio visible, sin huecos (4.1 / 6.1).', tipo: 'conocimiento' },
+  { id: 'o7', seccion: '4', codigo: '4.3', texto: 'Encuentras producto nuevo detrás y caduco al frente: ¿qué corriges?', guia: 'Rotar FIFO o retirar si ya venció (4.3 / 5.1).', tipo: 'situacion' },
+
+  // ——— 5 CLASIFICACIÓN ———
+  { id: 'c1', seccion: '5', codigo: '5.1', texto: '¿Cómo se clasifica la mercancía caducada?', guia: 'Por proveedor (5.1); no mezclar con venta.', tipo: 'conocimiento' },
+  { id: 'c2', seccion: '5', codigo: '5.2', texto: '¿Cómo se clasifica la mercancía dañada?', guia: 'Por proveedor (5.2); reportar merma.', tipo: 'conocimiento' },
+  { id: 'c3', seccion: '5', codigo: '5.3', texto: '¿Cómo se acomoda la mercancía almacenada?', guia: 'Por proveedor, ordenada y accesible (5.3).', tipo: 'conocimiento' },
+  { id: 'c4', seccion: '5', codigo: '5.4', texto: '¿Qué significa “separar lo que no se usa en tienda”?', guia: 'Sacar objetos ajenos/obsoletos del piso o almacén (5.4).', tipo: 'conocimiento' },
+  { id: 'c5', seccion: '5', codigo: '5.6', texto: '¿Cómo se clasifican los tickets de compra?', guia: 'Por proveedor y fecha (5.6).', tipo: 'conocimiento' },
+  { id: 'c6', seccion: '5', codigo: '5.1', texto: 'Encuentras un producto caducado en anaquel: ¿pasos exactos?', guia: 'Retirar → clasificar por proveedor → no vender → reportar (5.1 / 4.2).', tipo: 'situacion' },
+  { id: 'c7', seccion: '5', codigo: '5.6', texto: '¿Dónde y cómo guardas los tickets de compra del día?', guia: 'Ordenados por proveedor y fecha para auditoría (5.6).', tipo: 'situacion' },
+
+  // ——— 6 ABASTO ———
+  { id: 'a1', seccion: '6', codigo: '6.1', texto: '¿Qué es “rellenar huecos” en estantes y refrigeradores?', guia: 'Completar faltantes visibles para no perder venta (6.1).', tipo: 'conocimiento' },
+  { id: 'a2', seccion: '6', codigo: '6.2', texto: '¿Para qué sirve la lista de mercancía faltante?', guia: 'Base de la solicitud de abasto / abarrotes (6.2 / 6.5).', tipo: 'conocimiento' },
+  { id: 'a3', seccion: '6', codigo: '6.3', texto: 'Después de recibir mercancía, ¿qué debes hacer en el sistema?', guia: 'Ingresar la compra con cantidades correctas (6.3).', tipo: 'conocimiento' },
+  { id: 'a4', seccion: '6', codigo: '6.4', texto: '¿La tienda debe contar con utensilios de limpieza? Da 3 ejemplos.', guia: 'Sí (6.4): trapeador, jalador, recogedor, trapos, etc.', tipo: 'conocimiento' },
+  { id: 'a5', seccion: '6', codigo: '6.5', texto: '¿Qué información lleva una buena solicitud de abarrotes?', guia: 'Productos faltantes, cantidades, tienda y urgencia (6.5).', tipo: 'conocimiento' },
+  { id: 'a6', seccion: '6', codigo: '6.1', texto: 'El refrigerador tiene huecos visibles: ¿qué haces durante el turno?', guia: 'Rellenar desde almacén; si no hay stock, anotar en faltantes (6.1 / 6.2).', tipo: 'situacion' },
+  { id: 'a7', seccion: '6', codigo: '6.3', texto: 'Llegó mercancía pero no hay tiempo de ingresarla: ¿qué riesgo hay?', guia: 'Inventario incorrecto y diferencias en tickets; priorizar ingreso (6.3).', tipo: 'situacion' },
+
+  // ——— 7 MANTENIMIENTO ———
+  { id: 'm1', seccion: '7', codigo: '7.1', texto: '¿Qué revisas en máquinas (estado y funcionamiento)?', guia: 'Que enciendan/operen sin fallas evidentes (7.1).', tipo: 'conocimiento' },
+  { id: 'm2', seccion: '7', codigo: '7.2', texto: 'Si hay luces fundidas o quebradas, ¿qué haces?', guia: 'Reportar falla de mantenimiento (7.2 / 8.3).', tipo: 'situacion' },
+  { id: 'm3', seccion: '7', codigo: '7.3', texto: '¿Qué incluye la revisión de ventanas, puertas y candados?', guia: 'Que cierren, sin daños; candados útiles (7.3).', tipo: 'conocimiento' },
+  { id: 'm4', seccion: '7', codigo: '7.4', texto: 'Menciona fallas de infraestructura que debes reportar.', guia: 'Pisos, techos, goteras, fugas de agua, baños (7.4).', tipo: 'conocimiento' },
+  { id: 'm5', seccion: '7', codigo: '7.5', texto: 'Antes de vender, ¿qué verificas del punto de venta?', guia: 'Equipo ok y rollos/tickets disponibles (7.5).', tipo: 'conocimiento' },
+  { id: 'm6', seccion: '7', codigo: '7.5', texto: 'Se acaba el rollo de ticket a media venta: ¿qué debiste preparar?', guia: 'Revisar stock de rollos al abrir (7.5); tener repuesto a la mano.', tipo: 'situacion' },
+  { id: 'm7', seccion: '7', codigo: '7.4', texto: 'Detectas una gotera cerca de mercancía: ¿qué haces?', guia: 'Proteger producto, reportar mantenimiento, no dejar riesgo (7.4 / 8.3).', tipo: 'situacion' },
+
+  // ——— 8 COMUNICACIÓN ———
+  { id: 'k1', seccion: '8', codigo: '8', texto: '¿Qué tipos de incidencias debes reportar (buzón / supervisor)?', guia: 'Personal, abasto, mantenimiento, moneda virtual, POS (8.1–8.5).', tipo: 'conocimiento' },
+  { id: 'k2', seccion: '8', codigo: '8.4', texto: 'Si falla el sistema de moneda virtual, ¿qué haces?', guia: 'Reportar de inmediato (8.4); no improvisar sin aviso.', tipo: 'situacion' },
+  { id: 'k3', seccion: '8', codigo: '8.1', texto: '¿Por qué es importante reportar incidencias de personal?', guia: 'Continuidad del turno y disciplina (8.1).', tipo: 'conocimiento' },
+  { id: 'k4', seccion: '8', codigo: '8.2', texto: 'Se agotó un producto de alta rotación y no hay en almacén: ¿qué reportas?', guia: 'Incidencia de abasto + lista de faltantes (8.2 / 6.2).', tipo: 'situacion' },
+  { id: 'k5', seccion: '8', codigo: '8.5', texto: 'El punto de venta se congela o no imprime: ¿qué canal usas?', guia: 'Reportar falla POS (8.5); no dejar ventas sin registro.', tipo: 'situacion' },
+  { id: 'k6', seccion: '8', codigo: '8.3', texto: 'Una máquina deja de funcionar a mitad del turno: ¿qué reportas?', guia: 'Falla de mantenimiento / máquina (8.3 / 7.1) por buzón o supervisor.', tipo: 'situacion' },
+
+  // ——— SERVICIO ———
+  { id: 's1', seccion: 'svc', codigo: 'svc', texto: 'Observa y califica el servicio al cliente que brinda el encargado / empleado.', guia: 'Saludo, rapidez, amabilidad, manejo de fila y quejas.', tipo: 'observacion' },
+  { id: 's2', seccion: 'svc', codigo: 'svc', texto: '¿Cómo atenderías a un cliente molesto por un producto caduco o mal cobrado?', guia: 'Escuchar, corregir según política, reportar si aplica.', tipo: 'situacion' },
+  { id: 's3', seccion: 'svc', codigo: 'svc', texto: '¿Qué actitud debes mantener en el piso de venta frente al cliente?', guia: 'Presentación, atención y orden del área visible.', tipo: 'conocimiento' },
+  { id: 's4', seccion: 'svc', codigo: 'svc', texto: 'Hay fila en caja y un proveedor entregando a la vez: ¿cómo priorizas?', guia: 'Atender al cliente primero; coordinar recepción sin abandonar la caja.', tipo: 'situacion' },
+  { id: 's5', seccion: 'svc', codigo: 'svc', texto: 'Un cliente pide un producto que no está en anaquel pero sí en almacén: ¿qué haces?', guia: 'Buscarlo, ofrecerlo y rellenar hueco después (servicio + 6.1).', tipo: 'situacion' },
 ];
 
 function faltaTabla(error) {
@@ -352,7 +187,9 @@ export function barajar(lista) {
 
 /**
  * Selecciona N preguntas aleatorias del banco.
- * Intenta cubrir varias secciones.
+ * - Cubre secciones distintas
+ * - Incluye al menos 1 situacional (si hay)
+ * - Máximo 1 de observación
  */
 export function seleccionarPreguntasAleatorias(n = NUM_PREGUNTAS_ALEATORIAS, opts = {}) {
   const banco = BANCO_PREGUNTAS_EVALUACION.filter((p) => {
@@ -365,25 +202,38 @@ export function seleccionarPreguntasAleatorias(n = NUM_PREGUNTAS_ALEATORIAS, opt
     if (!porSec[k]) porSec[k] = [];
     porSec[k].push(p);
   }
-  const secciones = barajar(Object.keys(porSec));
   const elegidas = [];
   const usados = new Set();
 
-  // Una por sección distinta primero
-  for (const sec of secciones) {
-    if (elegidas.length >= n) break;
-    const cand = barajar(porSec[sec]).find((p) => !usados.has(p.id));
-    if (cand) {
-      elegidas.push(cand);
-      usados.add(cand.id);
-    }
-  }
-  // Completar al azar
-  const resto = barajar(banco.filter((p) => !usados.has(p.id)));
-  for (const p of resto) {
-    if (elegidas.length >= n) break;
+  const tomar = (p) => {
+    if (!p || usados.has(p.id) || elegidas.length >= n) return false;
     elegidas.push(p);
     usados.add(p.id);
+    return true;
+  };
+
+  // 1) Preferir una situacional
+  const situacionales = barajar(banco.filter((p) => p.tipo === 'situacion'));
+  if (situacionales.length) tomar(situacionales[0]);
+
+  // 2) Una por sección distinta
+  for (const sec of barajar(Object.keys(porSec))) {
+    if (elegidas.length >= n) break;
+    const cand = barajar(porSec[sec]).find((p) => !usados.has(p.id) && p.tipo !== 'observacion');
+    tomar(cand);
+  }
+
+  // 3) Completar (evitar más de una observación)
+  const yaObs = elegidas.some((p) => p.tipo === 'observacion');
+  const resto = barajar(banco.filter((p) => {
+    if (usados.has(p.id)) return false;
+    if (yaObs && p.tipo === 'observacion') return false;
+    return true;
+  }));
+  for (const p of resto) {
+    if (elegidas.length >= n) break;
+    if (p.tipo === 'observacion' && elegidas.some((x) => x.tipo === 'observacion')) continue;
+    tomar(p);
   }
 
   return elegidas.slice(0, n).map((p, i) => ({
