@@ -141,6 +141,7 @@ import {
   sincronizarVentanaRecoleccionDesdeNube,
   AVISO_FALTA_VENTANA_RECOLECCION,
 } from '../lib/ventanaRecoleccionSync.js';
+import PanelBonosConfig from '../components/PanelBonosConfig.jsx';
 
 export default function Configuracion({
   supabase,
@@ -780,6 +781,14 @@ export default function Configuracion({
         color: 'var(--brand-blue)',
       },
       {
+        id: 'bonos',
+        label: 'Bonos por recolección',
+        desc: 'Rangos, reglas y monitoreo',
+        ayuda: 'Parámetros del bono (rangos de recolección, % por cumplimiento, faltante, merma, evaluación y check list) y monitoreo por sucursal.',
+        icon: 'dollar',
+        color: '#b45309',
+      },
+      {
         id: 'sonidos',
         label: 'Sonidos del sistema',
         desc: 'Menú y escaneo',
@@ -927,7 +936,7 @@ export default function Configuracion({
   }
 
   return (
-    <div style={{ maxWidth: panelCfg === 'inventario' || panelCfg === 'privilegios' || panelCfg === 'turnos' ? '100%' : '720px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+    <div style={{ maxWidth: panelCfg === 'inventario' || panelCfg === 'privilegios' || panelCfg === 'turnos' || panelCfg === 'bonos' ? '100%' : '720px', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <button type="button" className="btn btn-ghost" style={{ alignSelf: 'flex-start', padding: '0.35rem 0.65rem', fontSize: '0.85rem' }} onClick={() => setPanelCfg(null)}>
         ← Volver a Configuración
       </button>
@@ -940,6 +949,14 @@ export default function Configuracion({
           sucursalesLista={sucursalesLista}
         />
       )}
+      {panelCfg === 'bonos' && (
+        <PanelBonosConfig
+          supabase={supabase}
+          inventario={inventario || []}
+          esAdmin={esAdmin}
+        />
+      )}
+
       {panelCfg === 'operacion' && (
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Operación</h3>
@@ -2995,6 +3012,9 @@ export default function Configuracion({
           </li>
           <li>
             Ejecuta <code>supabase/fix_turnos.sql</code> para turnos en corte de caja (un corte por turno).
+          </li>
+          <li>
+            Ejecuta <code>supabase/fix_bonos_config.sql</code> para sincronizar parámetros del bono por recolección entre sucursales.
           </li>
           <li>
             Ejecuta <code>supabase/schema.sql</code> para tablas de clientes, proveedores y compras.
