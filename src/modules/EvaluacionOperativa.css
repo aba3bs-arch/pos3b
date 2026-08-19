@@ -1,0 +1,429 @@
+/* Evaluación Operativa FA3B-014 — UI móvil (auditor) */
+
+.eo-app {
+  --eo-bg: #f7f5f0;
+  --eo-card: #ffffff;
+  --eo-ink: #1c1917;
+  --eo-muted: #78716c;
+  --eo-line: #e7e5e4;
+  --eo-accent: #0f766e;
+  --eo-accent-2: #b45309;
+  --eo-ok: #15803d;
+  --eo-no: #b91c1c;
+  --eo-warn: #a16207;
+  --eo-shadow: 0 8px 24px rgba(28, 25, 23, 0.08);
+
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 0.5rem 0.65rem 2.5rem;
+  color: var(--eo-ink);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background:
+    radial-gradient(120% 80% at 100% -10%, rgba(15, 118, 110, 0.12), transparent 55%),
+    radial-gradient(90% 60% at -10% 20%, rgba(180, 83, 9, 0.08), transparent 50%),
+    var(--eo-bg);
+  border-radius: 16px;
+  min-height: min(860px, calc(100vh - 100px));
+}
+
+.eo-head {
+  padding: 0.85rem 0.35rem 0.5rem;
+}
+
+.eo-head h2 {
+  margin: 0;
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+  color: var(--eo-accent);
+}
+
+.eo-head .doc {
+  display: inline-block;
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--eo-accent-2);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.eo-head p {
+  margin: 0.35rem 0 0;
+  font-size: 0.82rem;
+  color: var(--eo-muted);
+  line-height: 1.35;
+}
+
+.eo-tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin: 0.65rem 0 0.85rem;
+}
+
+.eo-tabs button {
+  flex: 1;
+  border: 1px solid var(--eo-line);
+  background: var(--eo-card);
+  color: var(--eo-muted);
+  border-radius: 999px;
+  padding: 0.55rem 0.75rem;
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.eo-tabs button.active {
+  background: var(--eo-accent);
+  border-color: var(--eo-accent);
+  color: #fff;
+}
+
+.eo-card {
+  background: var(--eo-card);
+  border: 1px solid var(--eo-line);
+  border-radius: 14px;
+  padding: 0.85rem;
+  margin-bottom: 0.75rem;
+  box-shadow: var(--eo-shadow);
+}
+
+.eo-card h3 {
+  margin: 0 0 0.65rem;
+  font-size: 0.95rem;
+  color: var(--eo-ink);
+}
+
+.eo-card .sub {
+  margin: -0.35rem 0 0.65rem;
+  font-size: 0.75rem;
+  color: var(--eo-muted);
+}
+
+.eo-grid {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.eo-grid.two {
+  grid-template-columns: 1fr 1fr;
+}
+
+.eo-field label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--eo-muted);
+  margin-bottom: 0.2rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.eo-field input,
+.eo-field select,
+.eo-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--eo-line);
+  border-radius: 10px;
+  padding: 0.65rem 0.7rem;
+  font-size: 1rem;
+  background: #fff;
+  color: var(--eo-ink);
+}
+
+.eo-field textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.eo-scorebar {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.eo-scorebar .kpi {
+  background: var(--eo-card);
+  border: 1px solid var(--eo-line);
+  border-radius: 12px;
+  padding: 0.55rem 0.45rem;
+  text-align: center;
+}
+
+.eo-scorebar .kpi .lbl {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--eo-muted);
+  text-transform: uppercase;
+}
+
+.eo-scorebar .kpi strong {
+  font-size: 1.05rem;
+  color: var(--eo-accent);
+}
+
+.eo-bloque-hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.55rem;
+}
+
+.eo-bloque-hd .pts {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: var(--eo-accent);
+  white-space: nowrap;
+}
+
+.eo-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.65rem 0;
+  border-top: 1px solid var(--eo-line);
+}
+
+.eo-item:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.eo-item .txt {
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.eo-item .cod {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--eo-accent-2);
+  margin-right: 0.35rem;
+}
+
+.eo-toggle {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.eo-toggle button {
+  flex: 1;
+  min-height: 44px;
+  border-radius: 10px;
+  border: 1px solid var(--eo-line);
+  background: #fafaf9;
+  font-weight: 800;
+  font-size: 0.85rem;
+  cursor: pointer;
+  color: var(--eo-muted);
+}
+
+.eo-toggle button.si.active {
+  background: rgba(21, 128, 61, 0.12);
+  border-color: var(--eo-ok);
+  color: var(--eo-ok);
+}
+
+.eo-toggle button.no.active {
+  background: rgba(185, 28, 28, 0.1);
+  border-color: var(--eo-no);
+  color: var(--eo-no);
+}
+
+.eo-ticket {
+  border: 1px dashed var(--eo-line);
+  border-radius: 12px;
+  padding: 0.65rem;
+  margin-bottom: 0.55rem;
+  background: #fafaf9;
+}
+
+.eo-ticket .eo-grid.two {
+  gap: 0.4rem;
+}
+
+.eo-preg {
+  border-top: 1px solid var(--eo-line);
+  padding: 0.75rem 0;
+}
+
+.eo-preg:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.eo-preg .n {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--eo-accent);
+  text-transform: uppercase;
+}
+
+.eo-preg .q {
+  margin: 0.25rem 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.eo-preg .guia {
+  font-size: 0.75rem;
+  color: var(--eo-muted);
+  margin-bottom: 0.45rem;
+}
+
+.eo-pts-row {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-top: 0.45rem;
+}
+
+.eo-pts-row button {
+  min-width: 48px;
+  min-height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--eo-line);
+  background: #fff;
+  font-weight: 800;
+  cursor: pointer;
+  color: var(--eo-muted);
+}
+
+.eo-pts-row button.active {
+  background: var(--eo-accent);
+  border-color: var(--eo-accent);
+  color: #fff;
+}
+
+.eo-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-top: 0.85rem;
+  position: sticky;
+  bottom: 0.5rem;
+  z-index: 5;
+}
+
+.eo-btn {
+  min-height: 48px;
+  border: none;
+  border-radius: 12px;
+  font-weight: 800;
+  font-size: 0.95rem;
+  cursor: pointer;
+  padding: 0.7rem 1rem;
+}
+
+.eo-btn.primary {
+  background: var(--eo-accent);
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(15, 118, 110, 0.28);
+}
+
+.eo-btn.ghost {
+  background: var(--eo-card);
+  color: var(--eo-ink);
+  border: 1px solid var(--eo-line);
+}
+
+.eo-btn.warn {
+  background: var(--eo-accent-2);
+  color: #fff;
+}
+
+.eo-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.eo-aviso {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.8rem;
+  margin-bottom: 0.65rem;
+}
+
+.eo-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.65rem;
+}
+
+.eo-okmsg {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.85rem;
+  margin-bottom: 0.65rem;
+}
+
+.eo-hist-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--eo-line);
+  background: transparent;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.eo-hist-row:first-child {
+  border-top: none;
+}
+
+.eo-hist-row .t {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.eo-hist-row .m {
+  font-size: 0.75rem;
+  color: var(--eo-muted);
+}
+
+.eo-badge {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: var(--eo-ok);
+}
+
+.eo-badge.borrador {
+  background: #fff7ed;
+  color: var(--eo-warn);
+}
+
+.eo-empty {
+  text-align: center;
+  color: var(--eo-muted);
+  padding: 1.5rem 0.5rem;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 420px) {
+  .eo-grid.two {
+    grid-template-columns: 1fr;
+  }
+}
