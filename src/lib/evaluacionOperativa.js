@@ -216,24 +216,34 @@ export function seleccionarPreguntasAleatorias(n = NUM_PREGUNTAS_ALEATORIAS, opt
   const situacionales = barajar(banco.filter((p) => p.tipo === 'situacion'));
   if (situacionales.length) tomar(situacionales[0]);
 
+  const secsUsadas = new Set(elegidas.map((p) => p.seccion));
+
   // 2) Una por sección distinta
   for (const sec of barajar(Object.keys(porSec))) {
     if (elegidas.length >= n) break;
+    if (secsUsadas.has(sec)) continue;
     const cand = barajar(porSec[sec]).find((p) => !usados.has(p.id) && p.tipo !== 'observacion');
-    tomar(cand);
+    if (tomar(cand)) secsUsadas.add(sec);
   }
 
-  // 3) Completar (evitar más de una observación)
+  // 3) Completar sin repetir sección si aún hay secciones libres
   const yaObs = elegidas.some((p) => p.tipo === 'observacion');
   const resto = barajar(banco.filter((p) => {
     if (usados.has(p.id)) return false;
     if (yaObs && p.tipo === 'observacion') return false;
     return true;
   }));
-  for (const p of resto) {
+  // Primero secciones aún no usadas
+  const libres = resto.filter((p) => !secsUsadas.has(p.seccion));
+  const repetidas = resto.filter((p) => secsUsadas.has(p.seccion));
+  for (const p of [...libres, ...repetidas]) {
     if (elegidas.length >= n) break;
     if (p.tipo === 'observacion' && elegidas.some((x) => x.tipo === 'observacion')) continue;
-    tomar(p);
+    // Evitar repetir sección mientras queden libres
+    if (secsUsadas.has(p.seccion) && libres.some((x) => !usados.has(x.id) && !secsUsadas.has(x.seccion))) {
+      continue;
+    }
+    if (tomar(p)) secsUsadas.add(p.seccion);
   }
 
   return elegidas.slice(0, n).map((p, i) => ({
