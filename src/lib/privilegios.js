@@ -15,6 +15,7 @@ export const MODULOS_IDS = [
   'Compras',
   'Checador',
   'Check List',
+  'Evaluación operativa',
   'Proveedores',
   'Clientes',
   'Usuarios',
@@ -73,7 +74,7 @@ export function normalizarListaModulos(lista) {
 }
 
 /** Módulos nuevos que se agregan a listas personalizadas si faltan (una vez). */
-const MODULOS_MIGRA_PRIVILEGIOS = ['Check List'];
+const MODULOS_MIGRA_PRIVILEGIOS = ['Check List', 'Evaluación operativa'];
 
 function conModulosMigrados(lista) {
   const set = new Set(normalizarListaModulos(lista));

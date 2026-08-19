@@ -7,6 +7,7 @@ import Productos from './modules/Productos.jsx';
 import Compras from './modules/Compras.jsx';
 import Checador from './modules/Checador.jsx';
 import CheckList from './modules/CheckList.jsx';
+import EvaluacionOperativa from './modules/EvaluacionOperativa.jsx';
 import Proveedores from './modules/Proveedores.jsx';
 import Clientes from './modules/Clientes.jsx';
 import Usuarios from './modules/Usuarios.jsx';
@@ -1096,6 +1097,9 @@ function App() {
                 irAModulo('Incidencias', { pestana: 'incidencias' });
               }}
             />
+          )}
+          {vista === 'Evaluación operativa' && (
+            <EvaluacionOperativa supabase={supabase} sucursal={sucursal} user={user} />
           )}
           {vista === 'Proveedores' && (
             <Proveedores supabase={supabase} inventario={inventario} user={user} sucursal={sucursal} cargarDatos={cargarDatos} />
