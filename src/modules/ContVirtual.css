@@ -1201,3 +1201,133 @@
   gap: 0.35rem;
   margin-bottom: 0.25rem;
 }
+
+/* IE Abarrotes — proveedores / utilidades */
+.cv-prov-panel {
+  padding: 0.5rem 0.75rem 1rem;
+}
+
+.cv-prov-kpis {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.45rem;
+  margin-bottom: 0.65rem;
+}
+
+.cv-prov-kpi {
+  background: var(--cv-bg2);
+  border: 1px solid var(--cv-line);
+  border-radius: 10px;
+  padding: 0.55rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.cv-prov-kpi .lbl {
+  font-size: 0.72rem;
+  color: var(--cv-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.cv-prov-kpi strong {
+  font-size: 1rem;
+}
+
+.cv-prov-kpi strong.ingreso {
+  color: var(--cv-ingreso);
+}
+
+.cv-prov-kpi strong.gasto {
+  color: var(--cv-gasto);
+}
+
+.cv-prov-hint {
+  font-size: 0.72rem;
+  margin: 0 0 0.75rem;
+  line-height: 1.35;
+}
+
+.cv-prov-row {
+  border-top: 1px solid var(--cv-line);
+  padding: 0.45rem 0;
+}
+
+.cv-prov-row-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--cv-text);
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.25rem 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.cv-prov-row-hd .chev {
+  color: var(--cv-muted);
+}
+
+.cv-prov-row-vals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  font-size: 0.78rem;
+  color: var(--cv-muted);
+  margin-top: 0.15rem;
+}
+
+.cv-prov-row-vals em {
+  font-style: normal;
+  color: var(--cv-muted);
+  opacity: 0.85;
+  margin-right: 0.2rem;
+}
+
+.cv-prov-row-det {
+  margin-top: 0.45rem;
+  padding: 0.45rem 0.55rem;
+  background: var(--cv-bg2);
+  border-radius: 8px;
+  font-size: 0.8rem;
+}
+
+.cv-prov-row-det .item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  color: var(--cv-muted);
+}
+
+.cv-prov-row-det .item .gasto {
+  color: var(--cv-gasto);
+}
+
+.cv-prov-det-hd {
+  display: block;
+  margin: 0.45rem 0 0.25rem;
+  font-size: 0.75rem;
+  color: var(--cv-text);
+}
+
+.cv-prov-gasto {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  padding: 0.2rem 0;
+  color: var(--cv-muted);
+  border-top: 1px solid rgba(51, 51, 60, 0.45);
+}
+
+.cv-prov-gasto .gasto {
+  color: var(--cv-gasto);
+  font-weight: 600;
+  white-space: nowrap;
+}

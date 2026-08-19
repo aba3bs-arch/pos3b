@@ -46,6 +46,7 @@ import {
   listarInversionesOficina,
   registrarInversionOficinaProveedor,
 } from '../lib/inversionesOficinaProveedor.js';
+import { cargarReporteProveedoresIeAbarrotes } from '../lib/ieAbarrotesProveedores.js';
 import { hoyYmdNogales, ymdNegocioDesdeIso, fmtYmdEs } from '../lib/corteCaja.js';
 import './ContVirtual.css';
 
@@ -384,6 +385,9 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const [guardando, setGuardando] = useState(false);
   const [inversiones, setInversiones] = useState([]);
   const [avisoInversiones, setAvisoInversiones] = useState('');
+  const [provReporte, setProvReporte] = useState(null);
+  const [cargandoProv, setCargandoProv] = useState(false);
+  const [provSel, setProvSel] = useState(null);
 
   const defsInv = defaultsInversionPorLibro(libro);
   const [manual, setManual] = useState({
@@ -534,6 +538,34 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   useEffect(() => {
     cargar();
   }, [cargar]);
+
+  const cargarProveedores = useCallback(async () => {
+    if (!esFrancisco || !supabase || !rango?.desde || !rango?.hasta) {
+      setProvReporte(null);
+      return;
+    }
+    setCargandoProv(true);
+    const res = await cargarReporteProveedoresIeAbarrotes(supabase, {
+      desde: rango.desde,
+      hasta: rango.hasta,
+      sucursal: filtroTienda || null,
+      egresosIeTotal: datos?.egresosTotal || 0,
+      detalleGastosIe: datos?.detalleGastos || [],
+    });
+    setCargandoProv(false);
+    if (!res.ok) {
+      setProvReporte({ ok: false, error: res.error, porProveedor: [], totales: {} });
+      return;
+    }
+    setProvReporte(res);
+  }, [esFrancisco, supabase, rango?.desde, rango?.hasta, filtroTienda, datos?.egresosTotal, datos?.detalleGastos]);
+
+  useEffect(() => {
+    if (!esFrancisco) return;
+    if (nav !== 'estad' && nav !== 'cuentas') return;
+    if (cargando) return;
+    cargarProveedores();
+  }, [esFrancisco, nav, cargando, cargarProveedores]);
 
   const porDiaBase = useMemo(
     () => agruparMovimientosPorDia({
@@ -1406,7 +1438,14 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     </>
   );
 
-  const renderEstad = () => (
+  const renderEstad = () => {
+    const tot = provReporte?.totales || {};
+    const listaProv = provReporte?.porProveedor || [];
+    const detalleSel = provSel
+      ? (provReporte?.detalleGastos || []).filter((g) => g.proveedor === provSel)
+      : [];
+
+    return (
     <>
       <div className="cv-estad-top">
         <PeriodNav label={labelPeriodo} onPrev={() => shiftPeriod(-1)} onNext={() => shiftPeriod(1)} />
@@ -1438,7 +1477,92 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       <div className="cv-estad-tabs">
         <button type="button" className={estadTab === 'ingresos' ? 'active' : ''} onClick={() => setEstadTab('ingresos')}>Ingresos</button>
         <button type="button" className={estadTab === 'gastos' ? 'active' : ''} onClick={() => setEstadTab('gastos')}>Gastos</button>
+        {esFrancisco && (
+          <button type="button" className={estadTab === 'proveedores' ? 'active' : ''} onClick={() => setEstadTab('proveedores')}>
+            Proveedores
+          </button>
+        )}
       </div>
+
+      {estadTab === 'proveedores' && esFrancisco ? (
+        <div className="cv-prov-panel">
+          {(cargando || cargandoProv) && <div className="cv-loading">Cargando ventas y gastos por proveedor…</div>}
+          {!cargando && !cargandoProv && provReporte?.error && (
+            <div className="cv-error">{provReporte.error}</div>
+          )}
+          {!cargando && !cargandoProv && !provReporte?.error && (
+            <>
+              <div className="cv-prov-kpis">
+                <div className="cv-prov-kpi">
+                  <span className="lbl">Ventas</span>
+                  <strong className="ingreso">{fmtMoney(tot.ventas)}</strong>
+                </div>
+                <div className="cv-prov-kpi">
+                  <span className="lbl">Gastos prov.</span>
+                  <strong className="gasto">{fmtMoney(tot.gastos_proveedores)}</strong>
+                </div>
+                <div className="cv-prov-kpi">
+                  <span className="lbl">Utilidad bruta</span>
+                  <strong className={(tot.utilidad_bruta || 0) >= 0 ? 'ingreso' : 'gasto'}>{fmtMoney(tot.utilidad_bruta)}</strong>
+                </div>
+                <div className="cv-prov-kpi">
+                  <span className="lbl">Ganancia neta</span>
+                  <strong className={(tot.ganancia_neta || 0) >= 0 ? 'ingreso' : 'gasto'}>{fmtMoney(tot.ganancia_neta)}</strong>
+                </div>
+              </div>
+              <p className="muted cv-prov-hint">
+                Ventas POS por proveedor (vínculo producto). Gastos = pagos PROVEEDORES del corte.
+                Utilidad bruta = ventas − costo. Ganancia neta = utilidad − egresos operativos IE
+                ({fmtMoney(tot.gastos_operativos)}).
+                {tot.margen_pct != null ? ` Margen ${tot.margen_pct}%.` : ''}
+              </p>
+              {(provReporte?.avisos || []).length > 0 && (
+                <div className="cv-aviso">{provReporte.avisos.join(' · ')}</div>
+              )}
+              {!listaProv.length && <EmptyState />}
+              {listaProv.map((p) => {
+                const abierto = provSel === p.nombre;
+                return (
+                  <div key={p.id} className="cv-prov-row">
+                    <button
+                      type="button"
+                      className={`cv-prov-row-hd${abierto ? ' open' : ''}`}
+                      onClick={() => setProvSel(abierto ? null : p.nombre)}
+                    >
+                      <span className="name">{p.nombre}</span>
+                      <span className="chev">{abierto ? '▾' : '›'}</span>
+                    </button>
+                    <div className="cv-prov-row-vals">
+                      <span><em>Ventas</em> {fmtMoney(p.ventas)}</span>
+                      <span><em>Gastos</em> {fmtMoney(p.gastos)}</span>
+                      <span><em>Util.</em> {fmtMoney(p.utilidad_bruta)}</span>
+                    </div>
+                    {abierto && (
+                      <div className="cv-prov-row-det">
+                        <div className="item"><span>Costo mercancía</span><span>{fmtMoney(p.costo)}</span></div>
+                        <div className="item"><span>Compras recibidas</span><span>{fmtMoney(p.compras)}</span></div>
+                        <div className="item"><span>Piezas / tickets</span><span>{p.piezas} · {p.tickets}</span></div>
+                        <div className="item"><span>Pagos a proveedor</span><span className="gasto">{fmtMoney(p.gastos)} ({p.movimientos_gasto})</span></div>
+                        {detalleSel.length > 0 && (
+                          <>
+                            <strong className="cv-prov-det-hd">Movimientos de gasto</strong>
+                            {detalleSel.map((g) => (
+                              <div key={g.id} className="cv-prov-gasto">
+                                <span>{fmtFechaCorta(g.fecha)} · {etiquetaTienda(g.tienda)}{g.subcategoria ? ` · ${g.subcategoria}` : ''}</span>
+                                <span className="gasto">{fmtMoney(g.monto)}</span>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          )}
+        </div>
+      ) : (
       <div className="cv-pastel-wrap">
         {cargando && <div className="cv-loading">Cargando…</div>}
         {!cargando && !slicesActivos.length && <EmptyState />}
@@ -1458,18 +1582,21 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           </>
         )}
       </div>
+      )}
     </>
-  );
+    );
+  };
 
   const renderCuentas = () => {
     const pc = datos?.porCuenta || {};
     if (esFrancisco) {
       const ab = pc.abarrotes || { ingresos: 0, egresos: 0, neto: 0, recolecciones: 0, cierres: 0 };
+      const tot = provReporte?.totales || {};
       return (
         <>
           <div className="cv-cuentas-hd">
             <span>Abarrotes · Francisco</span>
-            <button type="button" className="cv-icon-btn" onClick={() => setNav('estad')} aria-label="Estadísticas">
+            <button type="button" className="cv-icon-btn" onClick={() => { setNav('estad'); setEstadTab('proveedores'); }} aria-label="Estadísticas proveedores">
               <IconChart />
             </button>
           </div>
@@ -1479,7 +1606,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             balance={ab.neto}
             ingresosPorTienda={ingresosPorTiendaResumen}
             labelGastos="Egresos"
-            labelBalance="Neto"
+            labelBalance="Neto IE"
           />
           <div className="cv-cuenta-group">
             <div className="hd">
@@ -1488,6 +1615,45 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             </div>
             <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0' }}>
               {ab.cierres || 0} cierres · recolecciones {fmtMoney(ab.recolecciones || 0)}
+            </p>
+          </div>
+          <div className="cv-cuenta-group">
+            <div className="hd">
+              <span>Utilidades · periodo</span>
+              <strong style={{ color: (tot.ganancia_neta || 0) >= 0 ? 'var(--cv-ingreso)' : 'var(--cv-gasto)' }}>
+                {cargandoProv ? '…' : fmtMoney(tot.ganancia_neta)}
+              </strong>
+            </div>
+            <div className="item">
+              <span>Ventas POS (por proveedor)</span>
+              <span className="amt">{fmtMoney(tot.ventas)}</span>
+            </div>
+            <div className="item">
+              <span>Costo mercancía vendida</span>
+              <span className="amt" style={{ color: 'var(--cv-gasto)' }}>{fmtMoney(tot.costo)}</span>
+            </div>
+            <div className="item">
+              <span>Utilidad bruta</span>
+              <span className="amt" style={{ color: (tot.utilidad_bruta || 0) >= 0 ? 'var(--cv-ingreso)' : 'var(--cv-gasto)' }}>
+                {fmtMoney(tot.utilidad_bruta)}
+              </span>
+            </div>
+            <div className="item">
+              <span>Gastos a proveedores (corte)</span>
+              <span className="amt" style={{ color: 'var(--cv-gasto)' }}>{fmtMoney(tot.gastos_proveedores)}</span>
+            </div>
+            <div className="item">
+              <span>Egresos operativos IE</span>
+              <span className="amt" style={{ color: 'var(--cv-gasto)' }}>{fmtMoney(tot.gastos_operativos)}</span>
+            </div>
+            <div className="item">
+              <span>Ganancia neta</span>
+              <span className="amt" style={{ fontWeight: 700, color: (tot.ganancia_neta || 0) >= 0 ? 'var(--cv-ingreso)' : 'var(--cv-gasto)' }}>
+                {fmtMoney(tot.ganancia_neta)}
+              </span>
+            </div>
+            <p className="muted" style={{ fontSize: '0.75rem', margin: '0.5rem 0 0' }}>
+              Detalle por proveedor en Estad. → Proveedores.
             </p>
           </div>
         </>
@@ -1880,7 +2046,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             Apariencia
           </button>
           <button type="button" className="cv-mas-item" onClick={() => alert(esFrancisco
-            ? 'IE ABARROTES (Francisco): ingresos y egresos de Abarrotes.\n\nAdmin: botones ＋I / ＋E en Transacciones para captura manual; Más → Cuentas/subcuentas para el catálogo.'
+            ? 'IE ABARROTES (Francisco): ingresos y egresos de Abarrotes.\n\nEstad. → Proveedores: ventas POS y gastos PROVEEDORES del corte por proveedor, con utilidad bruta y ganancia neta.\n\nAdmin: botones ＋I / ＋E en Transacciones para captura manual; Más → Cuentas/subcuentas para el catálogo.'
             : 'IE VIRTUAL (Antonio): Virtual y Garage. Vales y gastos CUBRE TURNO/TAXIS se registran solos.\n\nAdmin: botones ＋I / ＋E en Transacciones para captura manual; Más → Cuentas/subcuentas para el catálogo. Abarrotes va en IE ABARROTES.')}>
             <span className="ico">?</span>
             Ayuda
