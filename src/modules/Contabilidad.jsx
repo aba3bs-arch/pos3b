@@ -25,8 +25,8 @@ const DESCRIPCIONES = {
     ayuda: 'Ingresos y egresos de Virtual y Garage (cuenta Antonio). Incluye liberar recolecciones a IE.',
   },
   'IE ABARROTES': {
-    desc: 'Francisco · ingresos y egresos de Abarrotes',
-    ayuda: 'Ingresos y egresos del área de Abarrotes (cuenta Francisco).',
+    desc: 'Francisco · ingresos, egresos, proveedores y utilidades',
+    ayuda: 'Ingresos y egresos de Abarrotes (cuenta Francisco). Incluye ventas/gastos por proveedor, utilidad bruta y ganancia neta.',
   },
   'Auto Fin': {
     desc: 'Antonio · vehículos y préstamos con enganche y cuotas',
