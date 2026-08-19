@@ -441,7 +441,8 @@ export default function EvaluacionOperativa({ supabase, sucursal, user }) {
                 <span className="pts">{fmtPts(score.preguntas.pts)} / {score.preguntas.max} pts</span>
               </div>
               <p className="sub">
-                {NUM_PREGUNTAS_ALEATORIAS} preguntas al azar · {PTS_POR_PREGUNTA} pts c/u. Califica según la respuesta oral.
+                {NUM_PREGUNTAS_ALEATORIAS} preguntas al azar (normas + situaciones) · {PTS_POR_PREGUNTA} pts c/u.
+                Califica según la respuesta oral.
               </p>
               {!cerrado && (
                 <button type="button" className="eo-btn ghost" style={{ width: '100%', marginBottom: '0.75rem' }} onClick={mezclarPreguntas}>
