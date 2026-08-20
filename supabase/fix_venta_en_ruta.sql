@@ -1,6 +1,10 @@
 -- =============================================================================
 -- POS 3B — Venta en Ruta / CEDIS Ruta (aislado de MAIN)
 -- Ejecutar en Supabase → SQL Editor (seguro re-ejecutar)
+--
+-- Alternativa (recomendado): un solo script con Auto Fin + Venta en Ruta:
+--   supabase/fix_autofin_y_venta_ruta_completo.sql
+-- También necesitas: fix_precio_ruta_y_cxc.sql y fix_venta_ruta_pos_v2.sql
 -- =============================================================================
 
 -- Stock del almacén CEDIS Ruta (NO toca stock_sucursales / MAIN.cedis)

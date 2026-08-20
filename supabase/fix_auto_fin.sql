@@ -1,6 +1,9 @@
 -- =============================================================================
 -- POS 3B — Auto Fin: créditos de autofinanciamiento
 -- Ejecutar en Supabase → SQL Editor. Seguro re-ejecutar.
+--
+-- Alternativa (recomendado): un solo script con Auto Fin + Venta en Ruta:
+--   supabase/fix_autofin_y_venta_ruta_completo.sql
 -- =============================================================================
 
 create table if not exists public.auto_fin_creditos (

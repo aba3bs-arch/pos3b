@@ -10,7 +10,7 @@ import { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
 const LS_CXC = 'pos3b_ruta_cxc_movimientos';
 
 export const AVISO_FALTA_CXC =
-  'Falta la tabla de crédito/cobranza. Ejecuta supabase/fix_precio_ruta_y_cxc.sql y fix_venta_ruta_pos_v2.sql';
+  'Falta la tabla de crédito/cobranza. En Supabase ejecuta supabase/fix_autofin_y_venta_ruta_completo.sql (o fix_precio_ruta_y_cxc.sql + fix_venta_ruta_pos_v2.sql).';
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;

@@ -18,7 +18,7 @@ const LS_LINEAS = 'pos3b_ruta_carga_lineas';
 const LS_VENTAS = 'pos3b_ruta_ventas';
 
 export const AVISO_FALTA_VENTA_RUTA =
-  'Faltan tablas de Venta en Ruta. Ejecuta supabase/fix_venta_en_ruta.sql y fix_venta_ruta_pos_v2.sql';
+  'Faltan tablas de Venta en Ruta. En Supabase ejecuta supabase/fix_autofin_y_venta_ruta_completo.sql (o fix_venta_en_ruta.sql + fix_precio_ruta_y_cxc.sql + fix_venta_ruta_pos_v2.sql).';
 
 export const NOMBRE_ALMACEN_RUTA = 'MAIN · CEDIS';
 

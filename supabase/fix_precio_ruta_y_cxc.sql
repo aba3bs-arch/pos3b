@@ -1,6 +1,8 @@
 -- =============================================================================
 -- POS 3B — Precio CEDIS Ruta + Cuentas por cobrar (crédito / cobranza)
 -- Ejecutar en Supabase → SQL Editor (seguro re-ejecutar)
+--
+-- Alternativa (recomendado): supabase/fix_autofin_y_venta_ruta_completo.sql
 -- =============================================================================
 
 -- Legado: precio_ruta (la app usa precio_compra_con como precio CEDIS Ruta)

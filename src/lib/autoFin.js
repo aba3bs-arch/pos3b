@@ -5,7 +5,7 @@
  */
 
 export const AVISO_FALTA_AUTO_FIN =
-  'Ejecuta supabase/fix_auto_fin.sql y supabase/fix_auto_fin_prestamos.sql en Supabase para Auto Fin.';
+  'Faltan tablas Auto Fin. En Supabase ejecuta supabase/fix_autofin_y_venta_ruta_completo.sql (o fix_auto_fin.sql + fix_auto_fin_prestamos.sql).';
 
 export const TIPOS_AUTO_FIN = [
   { id: 'vehiculo', label: 'Vehículo / autofinanciamiento' },
