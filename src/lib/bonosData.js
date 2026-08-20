@@ -132,9 +132,9 @@ async function mermaPctPeriodo(supabase, sucursal, desde, hasta, inventario = []
   const reg = manual.registro;
   if (reg && reg.pct_merma != null && Number.isFinite(Number(reg.pct_merma))) {
     const pct = round2(Number(reg.pct_merma));
-    const valorInventario = Number(reg.valor_sistema) > 0
-      ? round2(Number(reg.valor_sistema))
-      : 0;
+    const valorInventario = Number(reg.valor_contado ?? reg.total_inventario) > 0
+      ? round2(Number(reg.valor_contado ?? reg.total_inventario))
+      : (Number(reg.valor_sistema) > 0 ? round2(Number(reg.valor_sistema)) : 0);
     const valorMerma = Number(reg.valor_faltante) >= 0
       ? round2(Number(reg.valor_faltante))
       : (valorInventario > 0 ? round2(valorInventario * (pct / 100)) : 0);
@@ -142,8 +142,8 @@ async function mermaPctPeriodo(supabase, sucursal, desde, hasta, inventario = []
       pct,
       valorMerma,
       valorInventario,
+      invDespuesAjuste: reg.valor_despues_ajuste != null ? round2(Number(reg.valor_despues_ajuste)) : null,
       fuente: 'resultado_manual',
-      efectividad: reg.pct_efectividad != null ? round2(Number(reg.pct_efectividad)) : null,
       periodoResultado: { desde: reg.desde, hasta: reg.hasta },
     };
   }
@@ -295,7 +295,7 @@ export async function calcularBonoSucursal(supabase, {
     const maxPct = Number(reglasCfg.mermaMaxPct.maxPct) || 2.5;
     const ok = merma.pct <= maxPct;
     if (ok) cumplidas += 1;
-    const fuenteLabel = merma.fuente === 'resultado_manual' ? ' · resultado manual' : '';
+    const fuenteLabel = merma.fuente === 'resultado_manual' ? ' · captura manual' : '';
     detalleReglas.push({
       id: 'mermaMaxPct',
       label: reglasCfg.mermaMaxPct.label,
@@ -303,7 +303,6 @@ export async function calcularBonoSucursal(supabase, {
       valor: `${merma.pct}%${fuenteLabel}`,
       requerido: `≤ ${maxPct}%`,
       fuente: merma.fuente || 'movimientos',
-      efectividad: merma.efectividad ?? null,
     });
   }
 
@@ -361,7 +360,9 @@ export async function calcularBonoSucursal(supabase, {
       faltante: falt.total,
       mermaPct: merma.pct,
       mermaFuente: merma.fuente || 'movimientos',
-      efectividadConteo: merma.efectividad ?? null,
+      mermaValorInventario: merma.valorInventario ?? null,
+      mermaValorFaltante: merma.valorMerma ?? null,
+      invDespuesAjuste: merma.invDespuesAjuste ?? null,
       evaluacionPct: evalRes.pct,
       checklist: check,
     },
