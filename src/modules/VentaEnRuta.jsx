@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import SubcomandosHub from '../components/SubcomandosHub.jsx';
+import FormularioCobranzaRuta from '../components/FormularioCobranzaRuta.jsx';
 import {
   AVISO_FALTA_VENTA_RUTA,
   NOMBRE_ALMACEN_RUTA,
@@ -19,38 +20,126 @@ import {
   registrarVentaRuta,
   stockProductoCedisRuta,
 } from '../lib/ventaEnRuta.js';
+import {
+  ajustarEfectivoRuta,
+  listarMovimientosEfectivoRuta,
+  puedeAdministrarVentaRuta,
+  puedeModificarStockCedisRuta,
+  saldoEfectivoRuta,
+} from '../lib/rutaCuentas.js';
+import { saldosCxcPorCliente } from '../lib/rutaCxc.js';
+import {
+  justificarCapitalRuta,
+  liberarCapitalRuta,
+  listarCapitalRuta,
+  rechazarCapitalRuta,
+  solicitarCapitalRuta,
+} from '../lib/rutaCapital.js';
+import {
+  aplicarConteoLinea,
+  generarPlantillaPreinventarioRuta,
+  guardarSesionPreinventarioRuta,
+  listarSesionesPreinventarioRuta,
+  resumenPreinventarioRuta,
+} from '../lib/rutaPreinventario.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { confirmarSiCantidadFueraDeEmpaque } from '../lib/empaqueSoda.js';
-import FormularioCobranzaRuta from '../components/FormularioCobranzaRuta.jsx';
+import { leerImagenProductoComoDataUrl } from '../lib/imagenProducto.js';
 
 const COLOR = '#0f766e';
-
-const SUBS = [
-  { id: 'almacen', label: NOMBRE_ALMACEN_RUTA, desc: 'Existencias aisladas de MAIN', icon: '📦' },
-  { id: 'carga', label: 'Carga de camión', desc: 'Sacar producto de CEDIS Ruta al camión', icon: '🚚' },
-  { id: 'venta', label: 'Venta en ruta', desc: 'Venta directa (efectivo / crédito)', icon: '🧾' },
-  { id: 'liquidacion', label: 'Liquidación', desc: 'Cuadre y sobrante de regreso', icon: '🧮' },
-  { id: 'clientes', label: 'Clientes de ruta', desc: 'Clientes externos (no propios)', icon: '👥' },
-  { id: 'cobranza', label: 'Cobrar créditos', desc: 'Abonos a crédito por cobrar', icon: '💵' },
-  { id: 'consultas', label: 'Consultas', desc: 'Cargas, ventas y liquidaciones', icon: '🔍' },
-];
 
 function fmtQty(n) {
   const v = Number(n) || 0;
   return Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
 }
 
+function etiquetaEstadoCapital(e) {
+  if (e === 'pendiente') return 'Pendiente';
+  if (e === 'liberado') return 'Liberado · falta ticket';
+  if (e === 'justificado') return 'Justificado';
+  if (e === 'rechazado') return 'Rechazado';
+  if (e === 'cancelado') return 'Cancelado';
+  return e || '—';
+}
+
 export default function VentaEnRuta({ supabase, user, inventario = [] }) {
   const [vista, setVista] = useState('hub');
   const [aviso, setAviso] = useState('');
-  const [loading, setLoading] = useState(false);
+  const esAdmin = puedeAdministrarVentaRuta(user?.rol);
+  const puedeSurte = puedeModificarStockCedisRuta(user?.rol);
 
   const productoPorId = useMemo(() => {
     const m = new Map();
     for (const p of inventario || []) m.set(String(p.id), p);
     return m;
   }, [inventario]);
+
+  const subs = useMemo(() => {
+    const items = [];
+    if (puedeSurte) {
+      items.push({
+        id: 'surte',
+        label: 'Surte almacén',
+        desc: `Ingresos y ajustes de ${NOMBRE_ALMACEN_RUTA}`,
+        icon: 'package',
+      });
+    }
+    items.push({
+      id: 'inventario',
+      label: puedeSurte ? `Almacén ${NOMBRE_ALMACEN_RUTA}` : 'Inventario (solo lectura)',
+      desc: puedeSurte ? 'Existencias del CEDIS Ruta' : 'Consulta existencias · sin modificar',
+      icon: 'eye',
+    });
+    if (puedeSurte) {
+      items.push({
+        id: 'carga',
+        label: 'Carga de camión',
+        desc: 'Sacar producto del CEDIS al camión',
+        icon: 'truck',
+      });
+    }
+    items.push(
+      {
+        id: 'venta',
+        label: 'Venta en ruta',
+        desc: 'POS de ruta · efectivo o crédito',
+        icon: 'cart',
+      },
+      {
+        id: 'cobranza',
+        label: 'Cobranza',
+        desc: 'Cobrar créditos (vendedor de ruta)',
+        icon: 'dollar',
+      },
+      {
+        id: 'cuentas',
+        label: 'Cuentas',
+        desc: esAdmin ? 'Efectivo y crédito · ajustes solo admin' : 'Consulta saldos · sin modificar',
+        icon: 'chart',
+      },
+      {
+        id: 'capital',
+        label: 'Capital / gastos',
+        desc: esAdmin ? 'Liberar solicitudes de capital' : 'Solicitar capital y subir foto del ticket',
+        icon: 'file',
+      },
+      {
+        id: 'preinventario',
+        label: 'Preinventario',
+        desc: 'Plantilla del catálogo CEDIS Ruta',
+        icon: 'package',
+      },
+    );
+    if (esAdmin) {
+      items.push(
+        { id: 'clientes', label: 'Clientes de ruta', desc: 'Clientes externos', icon: 'users' },
+        { id: 'liquidacion', label: 'Liquidación', desc: 'Cuadre de carga y sobrante', icon: 'check' },
+        { id: 'consultas', label: 'Consultas', desc: 'Cargas, ventas y liquidaciones', icon: 'search' },
+      );
+    }
+    return items;
+  }, [puedeSurte, esAdmin]);
 
   const ir = (id) => {
     setAviso('');
@@ -67,7 +156,8 @@ export default function VentaEnRuta({ supabase, user, inventario = [] }) {
         )}
         <h2 style={{ margin: 0, color: COLOR }}>Venta en Ruta</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-          {NOMBRE_ALMACEN_RUTA}: almacén propio · no usa MAIN ni traspasos · venta directa
+          Admin surte {NOMBRE_ALMACEN_RUTA} → carga → venta tipo POS. Ventas a cuenta efectivo o crédito.
+          El vendedor no modifica cuentas ni inventario.
         </p>
       </div>
 
@@ -80,64 +170,68 @@ export default function VentaEnRuta({ supabase, user, inventario = [] }) {
       {vista === 'hub' && (
         <SubcomandosHub
           color={COLOR}
-          items={SUBS.map((s) => ({
+          subtitulo={esAdmin ? 'Panel administración / CEDIS' : 'Panel vendedor de ruta'}
+          items={subs.map((s) => ({
             id: s.id,
             label: s.label,
             desc: s.desc,
             ayuda: s.desc,
-            icon: 'truck',
+            icon: s.icon || 'truck',
             color: COLOR,
           }))}
           onSelect={ir}
         />
       )}
 
-      {vista === 'almacen' && (
-        <VistaAlmacen
+      {vista === 'surte' && puedeSurte && (
+        <VistaSurte
           supabase={supabase}
           user={user}
           productoPorId={productoPorId}
           inventario={inventario}
           setAviso={setAviso}
-          loading={loading}
-          setLoading={setLoading}
         />
       )}
-      {vista === 'carga' && (
-        <VistaCarga
+      {vista === 'inventario' && (
+        <VistaInventario
           supabase={supabase}
-          user={user}
           productoPorId={productoPorId}
-          inventario={inventario}
           setAviso={setAviso}
+          soloLectura={!puedeSurte}
         />
+      )}
+      {vista === 'carga' && puedeSurte && (
+        <VistaCarga supabase={supabase} user={user} productoPorId={productoPorId} inventario={inventario} setAviso={setAviso} />
       )}
       {vista === 'venta' && (
-        <VistaVenta
-          supabase={supabase}
-          user={user}
-          productoPorId={productoPorId}
-          setAviso={setAviso}
-        />
+        <VistaVenta supabase={supabase} user={user} productoPorId={productoPorId} setAviso={setAviso} />
       )}
-      {vista === 'liquidacion' && <VistaLiquidacion supabase={supabase} user={user} setAviso={setAviso} />}
-      {vista === 'clientes' && <VistaClientes supabase={supabase} setAviso={setAviso} />}
       {vista === 'cobranza' && (
         <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
-          <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Cobrar créditos</h3>
+          <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Cobranza de créditos</h3>
           <FormularioCobranzaRuta supabase={supabase} user={user} onAviso={setAviso} />
         </div>
       )}
-      {vista === 'consultas' && <VistaConsultas supabase={supabase} setAviso={setAviso} />}
+      {vista === 'cuentas' && <VistaCuentas supabase={supabase} user={user} esAdmin={esAdmin} setAviso={setAviso} />}
+      {vista === 'capital' && <VistaCapital supabase={supabase} user={user} esAdmin={esAdmin} setAviso={setAviso} />}
+      {vista === 'preinventario' && (
+        <VistaPreinventario supabase={supabase} user={user} inventario={inventario} setAviso={setAviso} />
+      )}
+      {vista === 'clientes' && esAdmin && <VistaClientes supabase={supabase} setAviso={setAviso} />}
+      {vista === 'liquidacion' && esAdmin && <VistaLiquidacion supabase={supabase} user={user} setAviso={setAviso} />}
+      {vista === 'consultas' && esAdmin && <VistaConsultas supabase={supabase} setAviso={setAviso} />}
     </div>
   );
 }
 
-function VistaAlmacen({ supabase, user, productoPorId, inventario, setAviso, loading, setLoading }) {
+/* ─── Surte almacén (admin) ─────────────────────────────────────── */
+
+function VistaSurte({ supabase, user, productoPorId, inventario, setAviso }) {
   const [stock, setStock] = useState([]);
   const [codigo, setCodigo] = useState('');
   const [qty, setQty] = useState('');
   const [tipo, setTipo] = useState('ingreso');
+  const [loading, setLoading] = useState(false);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -145,7 +239,7 @@ function VistaAlmacen({ supabase, user, productoPorId, inventario, setAviso, loa
     if (r.aviso) setAviso(r.aviso);
     setStock(r.data || []);
     setLoading(false);
-  }, [supabase, setAviso, setLoading]);
+  }, [supabase, setAviso]);
 
   useEffect(() => {
     void cargar();
@@ -162,8 +256,9 @@ function VistaAlmacen({ supabase, user, productoPorId, inventario, setAviso, loa
       productoId: producto.id,
       tipo,
       cantidad: n,
-      nota: `${tipo} manual ${NOMBRE_ALMACEN_RUTA}`,
+      nota: `${tipo} · surte admin`,
       usuarioNombre: user?.nombre,
+      rol: user?.rol,
     });
     setLoading(false);
     if (!r.ok) return alert(r.error);
@@ -178,21 +273,15 @@ function VistaAlmacen({ supabase, user, productoPorId, inventario, setAviso, loa
     .filter((s) => Number(s.cantidad) > 0)
     .map((s) => {
       const p = productoPorId.get(String(s.producto_id));
-      return {
-        ...s,
-        nombre: p?.nombre || s.producto_id,
-        precio: precioCedisRuta(p),
-        precioSucursal: Number(p?.precio) || 0,
-      };
+      return { ...s, nombre: p?.nombre || s.producto_id, precio: precioCedisRuta(p) };
     })
     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
 
   return (
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
-      <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>{NOMBRE_ALMACEN_RUTA}</h3>
+      <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Surte almacén · {NOMBRE_ALMACEN_RUTA}</h3>
       <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
-        Inicia vacío. Los ingresos aquí no tocan MAIN ni el piso de tiendas.
-        Usa el <strong>precio de compra con impuestos</strong> del producto (no el de mostrador).
+        Solo admin/gerente. El vendedor de ruta ve el inventario pero no lo modifica.
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem', alignItems: 'flex-end' }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: '0.8rem' }}>
@@ -226,8 +315,7 @@ function VistaAlmacen({ supabase, user, productoPorId, inventario, setAviso, loa
             <tr>
               <th>Producto</th>
               <th>Existencia</th>
-              <th>P. compra</th>
-              <th>P. sucursal</th>
+              <th>P. CEDIS</th>
             </tr>
           </thead>
           <tbody>
@@ -238,10 +326,7 @@ function VistaAlmacen({ supabase, user, productoPorId, inventario, setAviso, loa
                   <div className="muted" style={{ fontSize: '0.75rem' }}>{f.producto_id}</div>
                 </td>
                 <td style={{ fontWeight: 700 }}>{fmtQty(f.cantidad)}</td>
-                <td style={{ fontWeight: 700, color: f.precio ? COLOR : 'var(--danger)' }}>
-                  {f.precio != null ? fmtMonto(f.precio) : 'Sin precio compra'}
-                </td>
-                <td className="muted">{fmtMonto(f.precioSucursal)}</td>
+                <td>{f.precio != null ? fmtMonto(f.precio) : '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -251,72 +336,127 @@ function VistaAlmacen({ supabase, user, productoPorId, inventario, setAviso, loa
   );
 }
 
+/* ─── Inventario solo lectura ───────────────────────────────────── */
+
+function VistaInventario({ supabase, productoPorId, setAviso, soloLectura }) {
+  const [stock, setStock] = useState([]);
+
+  useEffect(() => {
+    void listarStockCedisRuta(supabase).then((r) => {
+      if (r.aviso) setAviso(r.aviso);
+      setStock(r.data || []);
+    });
+  }, [supabase, setAviso]);
+
+  const filas = stock
+    .filter((s) => Number(s.cantidad) > 0)
+    .map((s) => {
+      const p = productoPorId.get(String(s.producto_id));
+      return { ...s, nombre: p?.nombre || s.producto_id, precio: precioCedisRuta(p) };
+    })
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+
+  return (
+    <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
+      <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>
+        {soloLectura ? 'Inventario CEDIS Ruta (solo lectura)' : NOMBRE_ALMACEN_RUTA}
+      </h3>
+      {soloLectura && (
+        <p className="muted" style={{ fontSize: '0.8rem' }}>
+          Puedes consultar existencias. No puedes ingresar, retirar ni ajustar stock.
+        </p>
+      )}
+      {filas.length === 0 ? (
+        <p className="muted">Sin existencias.</p>
+      ) : (
+        <table className="consultas-table">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>Existencia</th>
+              <th>P. CEDIS</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((f) => (
+              <tr key={f.producto_id}>
+                <td>
+                  <strong>{f.nombre}</strong>
+                  <div className="muted" style={{ fontSize: '0.75rem' }}>{f.producto_id}</div>
+                </td>
+                <td style={{ fontWeight: 700 }}>{fmtQty(f.cantidad)}</td>
+                <td>{f.precio != null ? fmtMonto(f.precio) : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+/* ─── Carga camión ──────────────────────────────────────────────── */
+
 function VistaCarga({ supabase, user, productoPorId, inventario, setAviso }) {
   const [lineas, setLineas] = useState([]);
   const [codigo, setCodigo] = useState('');
-  const [qty, setQty] = useState('');
-  const [vendedor, setVendedor] = useState(user?.nombre || '');
+  const [qty, setQty] = useState('1');
+  const [notas, setNotas] = useState('');
   const [guardando, setGuardando] = useState(false);
 
   const agregar = async () => {
     const { producto } = buscarProductoInventario(inventario, codigo);
     if (!producto) return alert('Producto no encontrado.');
     const precioRuta = precioCedisRuta(producto);
-    if (precioRuta == null) {
-      return alert(
-        `«${producto.nombre || producto.id}» no tiene precio de compra.\n\nEdítalo en Productos (precio de compra con impuestos). Ese es el precio de CEDIS Ruta; no se usa el de mostrador.`,
-      );
+    if (!(precioRuta > 0)) {
+      return alert(`«${producto.nombre || producto.id}» sin precio de compra (CEDIS Ruta).`);
     }
     const n = Math.floor(Number(qty) || 0);
     if (!(n > 0)) return alert('Cantidad inválida.');
-    if (!confirmarSiCantidadFueraDeEmpaque(producto, n)) return;
     const disp = await stockProductoCedisRuta(supabase, producto.id);
-    if (disp < n) return alert(`En ${NOMBRE_ALMACEN_RUTA} solo hay ${disp}.`);
+    const ya = lineas.filter((l) => String(l.productoId) === String(producto.id)).reduce((s, l) => s + l.cantidad, 0);
+    if (disp + 0.0001 < ya + n) return alert(`Stock insuficiente en CEDIS (hay ${disp}).`);
     setLineas((prev) => {
       const i = prev.findIndex((l) => String(l.productoId) === String(producto.id));
       if (i >= 0) {
         const next = [...prev];
-        next[i] = { ...next[i], cantidad: next[i].cantidad + n, precio: precioRuta };
+        next[i] = { ...next[i], cantidad: next[i].cantidad + n };
         return next;
       }
-      return [...prev, {
-        productoId: producto.id,
-        nombre: producto.nombre,
-        precio: precioRuta,
-        cantidad: n,
-      }];
+      return [...prev, { productoId: producto.id, nombre: producto.nombre, precio: precioRuta, cantidad: n }];
     });
     setCodigo('');
-    setQty('');
+    setQty('1');
   };
 
-  const confirmar = async () => {
+  const crear = async () => {
     if (!lineas.length) return alert('Agrega productos.');
-    if (!confirm(`¿Crear carga con ${lineas.length} producto(s) para ${vendedor || 'vendedor'}?\nSe descontará de ${NOMBRE_ALMACEN_RUTA}.`)) return;
+    if (!confirm(`¿Crear carga con ${lineas.length} producto(s)? Se descuenta de ${NOMBRE_ALMACEN_RUTA}.`)) return;
     setGuardando(true);
     const r = await crearCargaRuta(supabase, {
-      vendedorNombre: vendedor,
+      vendedorNombre: user?.nombre,
+      vendedorId: user?.id,
+      notas,
       lineas,
       usuarioNombre: user?.nombre,
     });
     setGuardando(false);
     if (!r.ok) return alert(r.error);
-    if (r.aviso || r.soloLocal) setAviso(r.aviso || AVISO_FALTA_VENTA_RUTA);
-    alert(`Carga creada: ${r.carga?.folio || 'OK'}`);
+    if (r.aviso) setAviso(r.aviso);
+    alert(`Carga ${r.carga?.folio || ''} creada.`);
     setLineas([]);
+    setNotas('');
   };
+
+  const total = lineas.reduce((s, l) => s + (Number(l.precio) || 0) * (Number(l.cantidad) || 0), 0);
 
   return (
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
-      <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Carga de camión</h3>
-      <label style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: '0.8rem', marginBottom: '0.75rem' }}>
-        Vendedor / ruta
-        <input className="input" value={vendedor} onChange={(e) => setVendedor(e.target.value)} />
-      </label>
+      <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>Carga de camión</h3>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
-        <input className="input" style={{ flex: 1, minWidth: 140 }} value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Código producto" />
-        <input className="input" style={{ width: 90 }} type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)} placeholder="Cant." />
-        <button type="button" className="btn btn-ghost" onClick={() => void agregar()}>+ Agregar</button>
+        <input className="input" style={{ flex: 1, minWidth: 140 }} value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Código" onKeyDown={(e) => e.key === 'Enter' && void agregar()} />
+        <input className="input" type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)} style={{ width: 80 }} />
+        <button type="button" className="btn btn-primary" onClick={() => void agregar()}>Agregar</button>
       </div>
       {lineas.length === 0 ? (
         <p className="muted">Sin líneas.</p>
@@ -325,7 +465,8 @@ function VistaCarga({ supabase, user, productoPorId, inventario, setAviso }) {
           <thead>
             <tr>
               <th>Producto</th>
-              <th>Cant.</th>
+              <th>Cant</th>
+              <th>Precio</th>
               <th />
             </tr>
           </thead>
@@ -333,10 +474,11 @@ function VistaCarga({ supabase, user, productoPorId, inventario, setAviso }) {
             {lineas.map((l) => (
               <tr key={l.productoId}>
                 <td>{l.nombre}</td>
-                <td style={{ fontWeight: 700 }}>{l.cantidad}</td>
+                <td>{fmtQty(l.cantidad)}</td>
+                <td>{fmtMonto(l.precio)}</td>
                 <td>
-                  <button type="button" className="btn btn-ghost" onClick={() => setLineas((p) => p.filter((x) => x.productoId !== l.productoId))}>
-                    ✕
+                  <button type="button" className="btn btn-ghost" style={{ padding: '0.15rem 0.4rem' }} onClick={() => setLineas((p) => p.filter((x) => x.productoId !== l.productoId))}>
+                    Quitar
                   </button>
                 </td>
               </tr>
@@ -344,190 +486,645 @@ function VistaCarga({ supabase, user, productoPorId, inventario, setAviso }) {
           </tbody>
         </table>
       )}
-      <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} disabled={guardando || !lineas.length} onClick={() => void confirmar()}>
-        {guardando ? 'Guardando…' : 'Confirmar carga'}
-      </button>
+      <input className="input" style={{ marginTop: '0.75rem' }} value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Notas (opcional)" />
+      <div style={{ marginTop: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <strong>Total: {fmtMonto(total)}</strong>
+        <button type="button" className="btn btn-primary" disabled={guardando || !lineas.length} onClick={() => void crear()}>
+          Crear carga
+        </button>
+      </div>
     </div>
   );
 }
 
+/* ─── Venta POS ─────────────────────────────────────────────────── */
+
 function VistaVenta({ supabase, user, productoPorId, setAviso }) {
   const [cargas, setCargas] = useState([]);
   const [cargaId, setCargaId] = useState('');
-  const [lineasCarga, setLineasCarga] = useState([]);
+  const [lineas, setLineas] = useState([]);
   const [clientesExt, setClientesExt] = useState([]);
   const [clienteKey, setClienteKey] = useState('');
   const [metodo, setMetodo] = useState('efectivo');
-  const [cart, setCart] = useState([]);
-  const [prodId, setProdId] = useState('');
-  const [qty, setQty] = useState('1');
+  const [carrito, setCarrito] = useState([]);
   const [guardando, setGuardando] = useState(false);
 
   const destinos = useMemo(() => listarDestinosVentaRuta(clientesExt), [clientesExt]);
 
-  const refresh = useCallback(async () => {
+  const cargarBase = useCallback(async () => {
     const [c, cli] = await Promise.all([
-      listarCargasRuta(supabase, { estado: 'en_ruta', limit: 40 }),
+      listarCargasRuta(supabase, { estado: 'en_ruta' }),
       listarClientesRuta(supabase),
     ]);
-    if (c.aviso || cli.aviso) setAviso(c.aviso || cli.aviso);
+    if (c.aviso || cli.aviso) setAviso(c.aviso || cli.aviso || AVISO_FALTA_VENTA_RUTA);
     setCargas(c.data || []);
     setClientesExt(cli.data || []);
   }, [supabase, setAviso]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void cargarBase();
+  }, [cargarBase]);
 
   useEffect(() => {
     if (!cargaId) {
-      setLineasCarga([]);
+      setLineas([]);
       return;
     }
-    void lineasDeCarga(supabase, cargaId).then((r) => setLineasCarga(r.data || []));
+    void lineasDeCarga(supabase, cargaId).then((r) => setLineas(r.data || []));
   }, [supabase, cargaId]);
 
-  const disponibles = lineasCarga.filter((l) => disponibleEnLineaCarga(l) > 0);
-
-  const agregar = () => {
-    const lin = disponibles.find((l) => String(l.producto_id) === String(prodId));
-    if (!lin) return alert('Elige un producto de la carga.');
-    const n = Math.floor(Number(qty) || 0);
-    if (!(n > 0)) return alert('Cantidad inválida.');
+  const agregarLinea = (lin) => {
     const disp = disponibleEnLineaCarga(lin);
-    const ya = cart.find((c) => String(c.productoId) === String(prodId));
-    const pedidas = (ya?.cantidad || 0) + n;
-    if (pedidas > disp) return alert(`En camión solo hay ${disp}.`);
-    const p = productoPorId.get(String(prodId));
+    if (!(disp > 0)) return alert('Sin disponible en camión.');
+    const p = productoPorId.get(String(lin.producto_id));
     const precioLin = Number(lin.precio) > 0 ? Number(lin.precio) : precioCedisRuta(p);
-    if (precioLin == null || !(precioLin > 0)) {
-      return alert(`«${lin.producto_nombre || lin.producto_id}» sin precio de compra (CEDIS Ruta).`);
-    }
-    setCart((prev) => {
-      if (ya) {
-        return prev.map((c) => (String(c.productoId) === String(prodId) ? { ...c, cantidad: c.cantidad + n } : c));
+    if (!(precioLin > 0)) return alert('Sin precio CEDIS.');
+    setCarrito((prev) => {
+      const i = prev.findIndex((x) => String(x.productoId) === String(lin.producto_id));
+      if (i >= 0) {
+        const next = [...prev];
+        const nueva = next[i].cantidad + 1;
+        if (nueva > disp + 0.0001) {
+          alert(`Solo hay ${disp} en camión.`);
+          return prev;
+        }
+        next[i] = { ...next[i], cantidad: nueva };
+        return next;
       }
-      return [...prev, {
-        productoId: lin.producto_id,
-        nombre: lin.producto_nombre || p?.nombre || lin.producto_id,
-        precio: precioLin,
-        cantidad: n,
-      }];
+      return [...prev, { productoId: lin.producto_id, nombre: lin.producto_nombre || lin.producto_id, precio: precioLin, cantidad: 1, max: disp }];
     });
-    setQty('1');
   };
 
-  const total = cart.reduce((s, c) => s + c.precio * c.cantidad, 0);
+  const total = carrito.reduce((s, a) => s + (Number(a.precio) || 0) * (Number(a.cantidad) || 0), 0);
 
   const cobrar = async () => {
     if (!cargaId) return alert('Elige una carga.');
-    if (!clienteKey) return alert('Elige sucursal o cliente.');
-    if (!cart.length) return alert('Carrito vacío.');
-    const dest = destinos.find((d) => `${d.tipo}:${d.id}` === clienteKey);
-    if (!dest) return alert('Destino inválido.');
-    if (!confirm(`¿Registrar venta ${metodo} a ${dest.nombre} por ${fmtMonto(total)}?`)) return;
+    if (!clienteKey) return alert('Elige cliente / sucursal.');
+    if (!carrito.length) return alert('Carrito vacío.');
+    const [tipo, ...rest] = clienteKey.split(':');
+    const id = rest.join(':');
+    const dest = destinos.find((d) => d.tipo === tipo && String(d.id) === id);
+    if (!confirm(`¿Cobrar ${fmtMonto(total)} en ${metodo === 'credito' ? 'CRÉDITO' : 'EFECTIVO'} a ${dest?.nombre || id}?`)) return;
     setGuardando(true);
     const r = await registrarVentaRuta(supabase, {
       cargaId,
-      clienteTipo: dest.tipo,
-      clienteId: dest.id,
-      clienteNombre: dest.nombre,
+      clienteTipo: tipo,
+      clienteId: id,
+      clienteNombre: dest?.nombre || id,
       metodoPago: metodo,
-      articulos: cart,
+      articulos: carrito,
       vendedorNombre: user?.nombre,
     });
     setGuardando(false);
     if (!r.ok) return alert(r.error);
-    if (r.aviso || r.soloLocal) setAviso(r.aviso || AVISO_FALTA_VENTA_RUTA);
-    alert(`Venta ${r.venta?.folio || ''} registrada.`);
-    setCart([]);
+    if (r.aviso) setAviso(r.aviso);
+    alert(`Venta ${r.venta?.folio || ''} · cuenta ${r.cuenta === 'credito' ? 'crédito' : 'efectivo'}.`);
+    setCarrito([]);
     const lin = await lineasDeCarga(supabase, cargaId);
-    setLineasCarga(lin.data || []);
+    setLineas(lin.data || []);
   };
 
   return (
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
-      <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Venta en ruta</h3>
-      <div style={{ display: 'grid', gap: '0.65rem', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+      <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Venta en ruta (POS)</h3>
+      <p className="muted" style={{ fontSize: '0.8rem' }}>
+        Efectivo → cuenta efectivo · Crédito → cuenta crédito. El vendedor no edita esas cuentas.
+      </p>
+      <div style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', marginBottom: '0.75rem' }}>
         <label style={{ fontSize: '0.8rem' }}>
-          Carga en ruta
+          Carga
           <select className="input" value={cargaId} onChange={(e) => setCargaId(e.target.value)}>
-            <option value="">— Elige —</option>
+            <option value="">— Elegir —</option>
             {cargas.map((c) => (
-              <option key={c.id} value={c.id}>{c.folio} · {c.vendedor_nombre || '—'}</option>
+              <option key={c.id} value={c.id}>{c.folio} · {c.vendedor_nombre}</option>
             ))}
           </select>
         </label>
         <label style={{ fontSize: '0.8rem' }}>
-          Destino
+          Cliente / sucursal
           <select className="input" value={clienteKey} onChange={(e) => setClienteKey(e.target.value)}>
-            <option value="">— Elige —</option>
-            <optgroup label="Sucursales propias">
-              {destinos.filter((d) => d.propio).map((d) => (
-                <option key={`${d.tipo}:${d.id}`} value={`${d.tipo}:${d.id}`}>{d.nombre}</option>
-              ))}
-            </optgroup>
-            <optgroup label="Clientes externos">
-              {destinos.filter((d) => !d.propio).map((d) => (
-                <option key={`${d.tipo}:${d.id}`} value={`${d.tipo}:${d.id}`}>{d.nombre}</option>
-              ))}
-            </optgroup>
+            <option value="">— Elegir —</option>
+            {destinos.map((d) => (
+              <option key={`${d.tipo}:${d.id}`} value={`${d.tipo}:${d.id}`}>
+                {d.nombre} ({d.tipo === 'externo' ? 'externo' : 'sucursal'})
+              </option>
+            ))}
           </select>
         </label>
         <label style={{ fontSize: '0.8rem' }}>
-          Pago
+          Forma de pago
           <select className="input" value={metodo} onChange={(e) => setMetodo(e.target.value)}>
-            <option value="efectivo">Efectivo</option>
-            <option value="credito">Crédito</option>
+            <option value="efectivo">Efectivo → cuenta efectivo</option>
+            <option value="credito">Crédito → cuenta crédito</option>
           </select>
         </label>
       </div>
 
       {cargaId && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', margin: '0.75rem 0' }}>
-          <select className="input" style={{ flex: 1, minWidth: 160 }} value={prodId} onChange={(e) => setProdId(e.target.value)}>
-            <option value="">Producto en camión…</option>
-            {disponibles.map((l) => (
-              <option key={l.producto_id} value={l.producto_id}>
-                {l.producto_nombre || l.producto_id} ({fmtQty(disponibleEnLineaCarga(l))})
-              </option>
-            ))}
+        <div style={{ display: 'grid', gap: '0.75rem', gridTemplateColumns: '1fr 1fr' }}>
+          <div>
+            <h4 style={{ margin: '0 0 0.35rem', fontSize: '0.9rem' }}>Camión</h4>
+            <table className="consultas-table">
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th>Disp</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {lineas.map((l) => {
+                  const disp = disponibleEnLineaCarga(l);
+                  return (
+                    <tr key={l.id || l.producto_id}>
+                      <td>{l.producto_nombre || l.producto_id}</td>
+                      <td>{fmtQty(disp)}</td>
+                      <td>
+                        <button type="button" className="btn btn-ghost" style={{ padding: '0.15rem 0.4rem' }} disabled={!(disp > 0)} onClick={() => agregarLinea(l)}>
+                          +
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <h4 style={{ margin: '0 0 0.35rem', fontSize: '0.9rem' }}>Carrito · {fmtMonto(total)}</h4>
+            {carrito.length === 0 ? (
+              <p className="muted">Vacío</p>
+            ) : (
+              <ul style={{ margin: 0, paddingLeft: '1.1rem' }}>
+                {carrito.map((a) => (
+                  <li key={a.productoId} style={{ marginBottom: 4 }}>
+                    {a.nombre} × {fmtQty(a.cantidad)} = {fmtMonto(a.precio * a.cantidad)}{' '}
+                    <button type="button" className="btn btn-ghost" style={{ padding: '0 0.3rem' }} onClick={() => setCarrito((p) => p.filter((x) => x.productoId !== a.productoId))}>
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem', width: '100%' }} disabled={guardando || !carrito.length} onClick={() => void cobrar()}>
+              Cobrar {fmtMonto(total)}
+            </button>
+          </div>
+        </div>
+      )}
+      {!cargas.length && <p className="muted">No hay cargas en ruta. El admin debe surtir y crear una carga.</p>}
+    </div>
+  );
+}
+
+/* ─── Cuentas (lectura; ajuste solo admin) ───────────────────────── */
+
+function VistaCuentas({ supabase, user, esAdmin, setAviso }) {
+  const [saldoEfe, setSaldoEfe] = useState(0);
+  const [movEfe, setMovEfe] = useState([]);
+  const [saldosCred, setSaldosCred] = useState([]);
+  const [ajusteMonto, setAjusteMonto] = useState('');
+  const [ajusteTipo, setAjusteTipo] = useState('ingreso');
+
+  const cargar = useCallback(async () => {
+    const [e, m, c] = await Promise.all([
+      saldoEfectivoRuta(supabase),
+      listarMovimientosEfectivoRuta(supabase, { limit: 40 }),
+      saldosCxcPorCliente(supabase),
+    ]);
+    if (e.aviso || m.aviso || c.aviso) setAviso(e.aviso || m.aviso || c.aviso);
+    setSaldoEfe(e.saldo || 0);
+    setMovEfe(m.data || []);
+    setSaldosCred((c.data || []).filter((r) => r.saldo > 0.009));
+  }, [supabase, setAviso]);
+
+  useEffect(() => {
+    void cargar();
+  }, [cargar]);
+
+  const ajustar = async () => {
+    if (!esAdmin) return;
+    const r = await ajustarEfectivoRuta(supabase, {
+      monto: ajusteMonto,
+      tipo: ajusteTipo,
+      notas: 'Ajuste admin cuenta efectivo ruta',
+      usuarioNombre: user?.nombre,
+      rol: user?.rol,
+    });
+    if (!r.ok) return alert(r.error);
+    setAjusteMonto('');
+    await cargar();
+    alert('Ajuste registrado.');
+  };
+
+  const totalCredito = saldosCred.reduce((s, r) => s + (Number(r.saldo) || 0), 0);
+
+  return (
+    <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
+      <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Cuentas de ruta</h3>
+      <p className="muted" style={{ fontSize: '0.8rem' }}>
+        {esAdmin
+          ? 'Consulta y ajustes (solo admin/gerente). El vendedor no puede modificar.'
+          : 'Solo consulta. Las ventas y cobranzas mueven las cuentas automáticamente.'}
+      </p>
+      <div style={{ display: 'grid', gap: '0.75rem', gridTemplateColumns: '1fr 1fr', marginBottom: '1rem' }}>
+        <div className="card" style={{ margin: 0, background: 'rgba(15,118,110,0.06)' }}>
+          <div className="muted" style={{ fontSize: '0.75rem' }}>Cuenta efectivo</div>
+          <div style={{ fontSize: '1.4rem', fontWeight: 800, color: COLOR }}>{fmtMonto(saldoEfe)}</div>
+        </div>
+        <div className="card" style={{ margin: 0, background: 'rgba(180,83,9,0.08)' }}>
+          <div className="muted" style={{ fontSize: '0.75rem' }}>Cuenta crédito (por cobrar)</div>
+          <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#b45309' }}>{fmtMonto(totalCredito)}</div>
+        </div>
+      </div>
+
+      {esAdmin && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem', alignItems: 'flex-end' }}>
+          <select className="input" value={ajusteTipo} onChange={(e) => setAjusteTipo(e.target.value)}>
+            <option value="ingreso">Ajuste +</option>
+            <option value="egreso">Ajuste −</option>
           </select>
-          <input className="input" style={{ width: 80 }} type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)} />
-          <button type="button" className="btn btn-ghost" onClick={agregar}>+ </button>
+          <input className="input" type="number" placeholder="Monto" value={ajusteMonto} onChange={(e) => setAjusteMonto(e.target.value)} style={{ width: 120 }} />
+          <button type="button" className="btn btn-primary" onClick={() => void ajustar()}>Ajustar efectivo</button>
         </div>
       )}
 
-      {cart.length > 0 && (
+      <h4 style={{ margin: '0 0 0.35rem', fontSize: '0.9rem' }}>Créditos pendientes</h4>
+      {saldosCred.length === 0 ? (
+        <p className="muted">Sin saldos de crédito.</p>
+      ) : (
+        <table className="consultas-table" style={{ marginBottom: '1rem' }}>
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Saldo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {saldosCred.map((s) => (
+              <tr key={`${s.cliente_tipo}:${s.cliente_id}`}>
+                <td>{s.cliente_nombre}</td>
+                <td style={{ fontWeight: 700 }}>{fmtMonto(s.saldo)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <h4 style={{ margin: '0 0 0.35rem', fontSize: '0.9rem' }}>Últimos movimientos efectivo</h4>
+      {movEfe.length === 0 ? (
+        <p className="muted">Sin movimientos.</p>
+      ) : (
         <table className="consultas-table">
           <thead>
             <tr>
-              <th>Producto</th>
-              <th>Cant.</th>
-              <th>Importe</th>
+              <th>Fecha</th>
+              <th>Tipo</th>
+              <th>Origen</th>
+              <th>Monto</th>
+              <th>Saldo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {movEfe.slice(0, 25).map((m) => (
+              <tr key={m.id}>
+                <td className="muted" style={{ fontSize: '0.75rem' }}>{String(m.created_at || '').slice(0, 16).replace('T', ' ')}</td>
+                <td>{m.tipo}</td>
+                <td>{m.origen}</td>
+                <td style={{ color: m.tipo === 'egreso' ? 'var(--danger)' : COLOR, fontWeight: 700 }}>
+                  {m.tipo === 'egreso' ? '−' : '+'}{fmtMonto(m.monto)}
+                </td>
+                <td>{fmtMonto(m.saldo_despues)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+/* ─── Capital ───────────────────────────────────────────────────── */
+
+function VistaCapital({ supabase, user, esAdmin, setAviso }) {
+  const [lista, setLista] = useState([]);
+  const [monto, setMonto] = useState('');
+  const [motivo, setMotivo] = useState('');
+  const [fotoId, setFotoId] = useState('');
+  const [subiendo, setSubiendo] = useState(false);
+
+  const cargar = useCallback(async () => {
+    const r = await listarCapitalRuta(supabase, {
+      vendedorId: esAdmin ? undefined : user?.id,
+      limit: 80,
+    });
+    if (r.aviso) setAviso(r.aviso);
+    let data = r.data || [];
+    if (!esAdmin && user?.nombre) {
+      data = data.filter(
+        (s) => String(s.vendedor_id) === String(user.id) || String(s.vendedor_nombre) === String(user.nombre),
+      );
+    }
+    setLista(data);
+  }, [supabase, esAdmin, user?.id, user?.nombre, setAviso]);
+
+  useEffect(() => {
+    void cargar();
+  }, [cargar]);
+
+  const solicitar = async () => {
+    const r = await solicitarCapitalRuta(supabase, {
+      monto,
+      motivo,
+      vendedorId: user?.id,
+      vendedorNombre: user?.nombre,
+    });
+    if (!r.ok) return alert(r.error);
+    alert('Solicitud enviada. Espera a que admin libere el capital.');
+    setMonto('');
+    setMotivo('');
+    await cargar();
+  };
+
+  const liberar = async (id) => {
+    if (!confirm('¿Liberar capital? Se descuenta de la cuenta de efectivo de ruta.')) return;
+    const r = await liberarCapitalRuta(supabase, { id, rol: user?.rol, liberadoPor: user?.nombre });
+    if (!r.ok) return alert(r.error);
+    if (r.aviso) setAviso(r.aviso);
+    await cargar();
+  };
+
+  const rechazar = async (id) => {
+    const motivoR = prompt('Motivo del rechazo (opcional):') ?? '';
+    const r = await rechazarCapitalRuta(supabase, { id, rol: user?.rol, rechazadoPor: user?.nombre, motivo: motivoR });
+    if (!r.ok) return alert(r.error);
+    await cargar();
+  };
+
+  const onFoto = async (e, id) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setSubiendo(true);
+    setFotoId(id);
+    try {
+      const dataUrl = await leerImagenProductoComoDataUrl(file, { maxSide: 1000, quality: 0.75 });
+      const r = await justificarCapitalRuta(supabase, {
+        id,
+        fotoTicketUrl: dataUrl,
+        vendedorId: user?.id,
+        vendedorNombre: user?.nombre,
+      });
+      if (!r.ok) alert(r.error);
+      else {
+        alert('Ticket cargado. Capital justificado.');
+        await cargar();
+      }
+    } catch (err) {
+      alert(err?.message || 'No se pudo leer la imagen.');
+    }
+    setSubiendo(false);
+    setFotoId('');
+  };
+
+  return (
+    <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
+      <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Capital para gastos</h3>
+      <p className="muted" style={{ fontSize: '0.8rem' }}>
+        Vendedor solicita → admin libera (sale de efectivo) → vendedor sube foto del ticket.
+      </p>
+
+      {!esAdmin && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem', alignItems: 'flex-end' }}>
+          <input className="input" type="number" placeholder="Monto" value={monto} onChange={(e) => setMonto(e.target.value)} style={{ width: 120 }} />
+          <input className="input" style={{ flex: 1, minWidth: 160 }} placeholder="Motivo del gasto" value={motivo} onChange={(e) => setMotivo(e.target.value)} />
+          <button type="button" className="btn btn-primary" onClick={() => void solicitar()}>Solicitar</button>
+        </div>
+      )}
+
+      {lista.length === 0 ? (
+        <p className="muted">Sin solicitudes.</p>
+      ) : (
+        <table className="consultas-table">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Vendedor</th>
+              <th>Monto</th>
+              <th>Estado</th>
               <th />
             </tr>
           </thead>
           <tbody>
-            {cart.map((c) => (
-              <tr key={c.productoId}>
-                <td>{c.nombre}</td>
-                <td>{c.cantidad}</td>
-                <td>{fmtMonto(c.precio * c.cantidad)}</td>
+            {lista.map((s) => (
+              <tr key={s.id}>
+                <td className="muted" style={{ fontSize: '0.75rem' }}>{String(s.created_at || '').slice(0, 10)}</td>
                 <td>
-                  <button type="button" className="btn btn-ghost" onClick={() => setCart((p) => p.filter((x) => x.productoId !== c.productoId))}>✕</button>
+                  <strong>{s.vendedor_nombre}</strong>
+                  {s.motivo && <div className="muted" style={{ fontSize: '0.72rem' }}>{s.motivo}</div>}
+                </td>
+                <td style={{ fontWeight: 700 }}>{fmtMonto(s.monto)}</td>
+                <td>{etiquetaEstadoCapital(s.estado)}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  {esAdmin && s.estado === 'pendiente' && (
+                    <>
+                      <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.45rem', fontSize: '0.78rem' }} onClick={() => void liberar(s.id)}>Liberar</button>
+                      <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.45rem', fontSize: '0.78rem' }} onClick={() => void rechazar(s.id)}>Rechazar</button>
+                    </>
+                  )}
+                  {!esAdmin && s.estado === 'liberado' && (
+                    <label className="btn btn-primary" style={{ padding: '0.2rem 0.45rem', fontSize: '0.78rem', cursor: 'pointer' }}>
+                      {subiendo && fotoId === s.id ? 'Subiendo…' : 'Subir ticket'}
+                      <input type="file" accept="image/*" capture="environment" hidden disabled={subiendo} onChange={(e) => void onFoto(e, s.id)} />
+                    </label>
+                  )}
+                  {s.estado === 'justificado' && s.foto_ticket_url && (
+                    <a href={s.foto_ticket_url} target="_blank" rel="noreferrer" style={{ fontSize: '0.78rem' }}>Ver ticket</a>
+                  )}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.75rem' }}>
-        <strong>Total {fmtMonto(total)}</strong>
-        <button type="button" className="btn btn-primary" disabled={guardando || !cart.length} onClick={() => void cobrar()}>
-          {guardando ? '…' : 'Registrar venta'}
-        </button>
+    </div>
+  );
+}
+
+/* ─── Preinventario ─────────────────────────────────────────────── */
+
+function VistaPreinventario({ supabase, user, inventario, setAviso }) {
+  const [lineas, setLineas] = useState([]);
+  const [hist, setHist] = useState([]);
+  const [generando, setGenerando] = useState(false);
+
+  const cargarHist = useCallback(async () => {
+    const r = await listarSesionesPreinventarioRuta(supabase);
+    if (r.aviso) setAviso(r.aviso);
+    setHist(r.data || []);
+  }, [supabase, setAviso]);
+
+  useEffect(() => {
+    void cargarHist();
+  }, [cargarHist]);
+
+  const generar = async () => {
+    setGenerando(true);
+    const r = await generarPlantillaPreinventarioRuta(supabase, inventario, { soloConStock: true });
+    setGenerando(false);
+    if (r.aviso) setAviso(r.aviso);
+    if (!r.lineas?.length) return alert('No hay productos en CEDIS Ruta para armar la plantilla.');
+    setLineas(r.lineas);
+  };
+
+  const setConteo = (productoId, raw) => {
+    setLineas((prev) => prev.map((l) => (l.producto_id === productoId ? aplicarConteoLinea(l, raw) : l)));
+  };
+
+  const resumen = useMemo(() => resumenPreinventarioRuta(lineas), [lineas]);
+
+  const cerrar = async () => {
+    if (!lineas.length) return;
+    if (!confirm('¿Cerrar preinventario? No modifica el stock teórico.')) return;
+    const r = await guardarSesionPreinventarioRuta(supabase, {
+      nombre: `Preinventario ${new Date().toISOString().slice(0, 10)}`,
+      lineas,
+      vendedorId: user?.id,
+      vendedorNombre: user?.nombre,
+      cerrar: true,
+    });
+    if (!r.ok) return alert(r.error);
+    alert(`Guardado. Contadas ${resumen.contadas}/${resumen.total}.`);
+    setLineas([]);
+    await cargarHist();
+  };
+
+  return (
+    <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
+      <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Preinventario de ruta</h3>
+      <p className="muted" style={{ fontSize: '0.8rem' }}>
+        Plantilla generada del catálogo / existencias de CEDIS Ruta. Solo conteo de referencia; no altera inventario.
+      </p>
+      <button type="button" className="btn btn-primary" disabled={generando} onClick={() => void generar()} style={{ marginBottom: '0.75rem' }}>
+        {generando ? 'Generando…' : 'Generar plantilla'}
+      </button>
+
+      {lineas.length > 0 && (
+        <>
+          <p style={{ fontSize: '0.85rem' }}>
+            Contadas {resumen.contadas}/{resumen.total}
+            {resumen.faltante > 0 ? ` · faltante ${fmtQty(resumen.faltante)}` : ''}
+            {resumen.sobrante > 0 ? ` · sobrante ${fmtQty(resumen.sobrante)}` : ''}
+          </p>
+          <table className="consultas-table">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Teórico</th>
+                <th>Contado</th>
+                <th>Dif</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lineas.map((l) => (
+                <tr key={l.producto_id}>
+                  <td>{l.nombre}</td>
+                  <td>{fmtQty(l.teorico)}</td>
+                  <td>
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="1"
+                      style={{ width: 90 }}
+                      value={l.contado ?? ''}
+                      onChange={(e) => setConteo(l.producto_id, e.target.value)}
+                    />
+                  </td>
+                  <td style={{ color: l.diferencia < 0 ? 'var(--danger)' : l.diferencia > 0 ? COLOR : undefined }}>
+                    {l.diferencia == null ? '—' : fmtQty(l.diferencia)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={() => void cerrar()}>
+            Cerrar preinventario
+          </button>
+        </>
+      )}
+
+      {hist.length > 0 && (
+        <>
+          <h4 style={{ margin: '1.25rem 0 0.35rem', fontSize: '0.9rem' }}>Historial</h4>
+          <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.85rem' }}>
+            {hist.slice(0, 10).map((h) => (
+              <li key={h.id}>
+                {String(h.created_at || '').slice(0, 10)} · {h.nombre} · {h.vendedor_nombre || '—'}
+                {h.resumen ? ` · contadas ${h.resumen.contadas}/${h.resumen.total}` : ''}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ─── Clientes / liquidación / consultas (admin) ────────────────── */
+
+function VistaClientes({ supabase, setAviso }) {
+  const [list, setList] = useState([]);
+  const [nombre, setNombre] = useState('');
+  const [tel, setTel] = useState('');
+  const [limite, setLimite] = useState('');
+
+  const cargar = useCallback(async () => {
+    const r = await listarClientesRuta(supabase);
+    if (r.aviso) setAviso(r.aviso);
+    setList(r.data || []);
+  }, [supabase, setAviso]);
+
+  useEffect(() => {
+    void cargar();
+  }, [cargar]);
+
+  const guardar = async () => {
+    const r = await guardarClienteRuta(supabase, { nombre, telefono: tel, credito_limite: limite });
+    if (!r.ok) return alert(r.error);
+    setNombre('');
+    setTel('');
+    setLimite('');
+    await cargar();
+  };
+
+  return (
+    <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
+      <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Clientes externos</h3>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+        <input className="input" placeholder="Nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} />
+        <input className="input" placeholder="Teléfono" value={tel} onChange={(e) => setTel(e.target.value)} />
+        <input className="input" type="number" placeholder="Límite crédito" value={limite} onChange={(e) => setLimite(e.target.value)} style={{ width: 130 }} />
+        <button type="button" className="btn btn-primary" onClick={() => void guardar()}>Guardar</button>
       </div>
+      <table className="consultas-table">
+        <thead>
+          <tr>
+            <th>Nombre</th>
+            <th>Tel</th>
+            <th>Límite</th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((c) => (
+            <tr key={c.id}>
+              <td>{c.nombre}</td>
+              <td>{c.telefono || '—'}</td>
+              <td>{fmtMonto(c.credito_limite)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -535,10 +1132,7 @@ function VistaVenta({ supabase, user, productoPorId, setAviso }) {
 function VistaLiquidacion({ supabase, user, setAviso }) {
   const [cargas, setCargas] = useState([]);
   const [cargaId, setCargaId] = useState('');
-  const [ventas, setVentas] = useState([]);
   const [efectivo, setEfectivo] = useState('');
-  const [notas, setNotas] = useState('');
-  const [guardando, setGuardando] = useState(false);
 
   useEffect(() => {
     void listarCargasRuta(supabase, { estado: 'en_ruta' }).then((r) => {
@@ -547,225 +1141,73 @@ function VistaLiquidacion({ supabase, user, setAviso }) {
     });
   }, [supabase, setAviso]);
 
-  useEffect(() => {
-    if (!cargaId) {
-      setVentas([]);
-      return;
-    }
-    void listarVentasRuta(supabase, { cargaId }).then((r) => setVentas(r.data || []));
-  }, [supabase, cargaId]);
-
-  const ventaEfectivo = ventas.filter((v) => v.metodo_pago === 'efectivo').reduce((s, v) => s + (Number(v.total) || 0), 0);
-  const ventaCredito = ventas.filter((v) => v.metodo_pago === 'credito').reduce((s, v) => s + (Number(v.total) || 0), 0);
-
-  const cerrar = async () => {
-    if (!cargaId) return;
-    if (!confirm('¿Liquidar carga? El sobrante del camión regresará a CEDIS Ruta.')) return;
-    setGuardando(true);
+  const liquidar = async () => {
+    if (!cargaId) return alert('Elige carga.');
+    if (!confirm('¿Liquidar carga? El sobrante regresa a CEDIS Ruta.')) return;
     const r = await liquidarCargaRuta(supabase, {
       cargaId,
-      efectivoEntregado: Number(efectivo) || 0,
-      notas,
+      efectivoEntregado: efectivo,
       usuarioNombre: user?.nombre,
     });
-    setGuardando(false);
     if (!r.ok) return alert(r.error);
-    alert(`Liquidación OK · Dif. efectivo ${fmtMonto(r.liquidacion?.diferencia)}`);
+    if (r.aviso) setAviso(r.aviso);
+    alert('Liquidación registrada.');
     setCargaId('');
     setEfectivo('');
-    setNotas('');
     const c = await listarCargasRuta(supabase, { estado: 'en_ruta' });
     setCargas(c.data || []);
   };
 
   return (
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
-      <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Liquidación de ruta</h3>
-      <label style={{ fontSize: '0.8rem', display: 'block', marginBottom: '0.75rem' }}>
-        Carga
-        <select className="input" value={cargaId} onChange={(e) => setCargaId(e.target.value)}>
-          <option value="">— Elige —</option>
-          {cargas.map((c) => (
-            <option key={c.id} value={c.id}>{c.folio} · {c.vendedor_nombre}</option>
-          ))}
-        </select>
-      </label>
-      {cargaId && (
-        <>
-          <div className="grid-2" style={{ gap: '0.5rem', fontSize: '0.9rem', marginBottom: '0.75rem' }}>
-            <div>Ventas efectivo: <strong>{fmtMonto(ventaEfectivo)}</strong></div>
-            <div>Ventas crédito: <strong>{fmtMonto(ventaCredito)}</strong></div>
-            <div>Tickets: <strong>{ventas.length}</strong></div>
-          </div>
-          <label style={{ fontSize: '0.8rem', display: 'block', marginBottom: '0.5rem' }}>
-            Efectivo entregado
-            <input className="input" type="number" step="0.01" value={efectivo} onChange={(e) => setEfectivo(e.target.value)} />
-          </label>
-          <label style={{ fontSize: '0.8rem', display: 'block', marginBottom: '0.75rem' }}>
-            Notas
-            <input className="input" value={notas} onChange={(e) => setNotas(e.target.value)} />
-          </label>
-          <button type="button" className="btn btn-primary" disabled={guardando} onClick={() => void cerrar()}>
-            {guardando ? '…' : 'Cerrar liquidación'}
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
-
-function VistaClientes({ supabase, setAviso }) {
-  const [lista, setLista] = useState([]);
-  const [nombre, setNombre] = useState('');
-  const [direccion, setDireccion] = useState('');
-  const [telefono, setTelefono] = useState('');
-  const [credito, setCredito] = useState('0');
-
-  const cargar = useCallback(async () => {
-    const r = await listarClientesRuta(supabase);
-    if (r.aviso) setAviso(r.aviso);
-    setLista(r.data || []);
-  }, [supabase, setAviso]);
-
-  useEffect(() => {
-    void cargar();
-  }, [cargar]);
-
-  const guardar = async () => {
-    const r = await guardarClienteRuta(supabase, {
-      nombre,
-      direccion,
-      telefono,
-      credito_limite: Number(credito) || 0,
-    });
-    if (!r.ok) return alert(r.error);
-    setNombre('');
-    setDireccion('');
-    setTelefono('');
-    setCredito('0');
-    await cargar();
-  };
-
-  return (
-    <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
-      <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>Clientes de ruta (externos)</h3>
-      <p className="muted" style={{ fontSize: '0.8rem' }}>
-        Las sucursales propias ya aparecen en Venta. Aquí solo clientes no propios.
-      </p>
-      <div style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', marginBottom: '0.75rem' }}>
-        <input className="input" placeholder="Nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} />
-        <input className="input" placeholder="Dirección" value={direccion} onChange={(e) => setDireccion(e.target.value)} />
-        <input className="input" placeholder="Teléfono" value={telefono} onChange={(e) => setTelefono(e.target.value)} />
-        <input className="input" type="number" placeholder="Límite crédito" value={credito} onChange={(e) => setCredito(e.target.value)} />
-      </div>
-      <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={!nombre.trim()}>
-        Guardar cliente
-      </button>
-      <ul style={{ marginTop: '1rem', paddingLeft: '1.1rem' }}>
-        {lista.map((c) => (
-          <li key={c.id} style={{ marginBottom: '0.35rem' }}>
-            <strong>{c.nombre}</strong>
-            {c.activo === false ? ' (inactivo)' : ''}
-            <span className="muted"> · crédito {fmtMonto(c.credito_limite)}</span>
-          </li>
+      <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Liquidación</h3>
+      <select className="input" value={cargaId} onChange={(e) => setCargaId(e.target.value)} style={{ marginBottom: '0.5rem' }}>
+        <option value="">— Carga —</option>
+        {cargas.map((c) => (
+          <option key={c.id} value={c.id}>{c.folio}</option>
         ))}
-      </ul>
+      </select>
+      <input className="input" type="number" placeholder="Efectivo entregado" value={efectivo} onChange={(e) => setEfectivo(e.target.value)} style={{ marginBottom: '0.5rem' }} />
+      <button type="button" className="btn btn-primary" onClick={() => void liquidar()}>Liquidar</button>
     </div>
   );
 }
 
 function VistaConsultas({ supabase, setAviso }) {
-  const [cargas, setCargas] = useState([]);
-  const [ventas, setVentas] = useState([]);
-  const [liqs, setLiqs] = useState([]);
+  const [tab, setTab] = useState('cargas');
+  const [rows, setRows] = useState([]);
 
   useEffect(() => {
     void (async () => {
-      const [c, v, l] = await Promise.all([
-        listarCargasRuta(supabase, { limit: 50 }),
-        listarVentasRuta(supabase, { limit: 80 }),
-        listarLiquidacionesRuta(supabase, { limit: 40 }),
-      ]);
-      if (c.aviso || v.aviso || l.aviso) setAviso(c.aviso || v.aviso || l.aviso);
-      setCargas(c.data || []);
-      setVentas(v.data || []);
-      setLiqs(l.data || []);
+      if (tab === 'cargas') {
+        const r = await listarCargasRuta(supabase, { limit: 60 });
+        if (r.aviso) setAviso(r.aviso);
+        setRows(r.data || []);
+      } else if (tab === 'ventas') {
+        const r = await listarVentasRuta(supabase, { limit: 80 });
+        if (r.aviso) setAviso(r.aviso);
+        setRows(r.data || []);
+      } else {
+        const r = await listarLiquidacionesRuta(supabase);
+        if (r.aviso) setAviso(r.aviso);
+        setRows(r.data || []);
+      }
     })();
-  }, [supabase, setAviso]);
+  }, [supabase, tab, setAviso]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <div className="card">
-        <h4 style={{ margin: '0 0 0.5rem', color: COLOR }}>Cargas</h4>
-        <table className="consultas-table">
-          <thead>
-            <tr>
-              <th>Folio</th>
-              <th>Vendedor</th>
-              <th>Estado</th>
-              <th>Fecha</th>
-            </tr>
-          </thead>
-          <tbody>
-            {cargas.map((c) => (
-              <tr key={c.id}>
-                <td style={{ fontWeight: 700 }}>{c.folio}</td>
-                <td>{c.vendedor_nombre}</td>
-                <td>{c.estado}</td>
-                <td>{String(c.fecha || '').slice(0, 10)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
+      <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Consultas</h3>
+      <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.75rem' }}>
+        {['cargas', 'ventas', 'liquidaciones'].map((t) => (
+          <button key={t} type="button" className={`btn ${tab === t ? 'btn-primary' : 'btn-ghost'}`} style={{ fontSize: '0.8rem' }} onClick={() => setTab(t)}>
+            {t}
+          </button>
+        ))}
       </div>
-      <div className="card">
-        <h4 style={{ margin: '0 0 0.5rem', color: COLOR }}>Ventas</h4>
-        <table className="consultas-table">
-          <thead>
-            <tr>
-              <th>Folio</th>
-              <th>Cliente</th>
-              <th>Pago</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ventas.map((v) => (
-              <tr key={v.id}>
-                <td style={{ fontWeight: 700 }}>{v.folio}</td>
-                <td>{v.cliente_nombre}{v.cliente_tipo === 'externo' ? ' · ext' : ''}</td>
-                <td>{v.metodo_pago}</td>
-                <td>{fmtMonto(v.total)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="card">
-        <h4 style={{ margin: '0 0 0.5rem', color: COLOR }}>Liquidaciones</h4>
-        <table className="consultas-table">
-          <thead>
-            <tr>
-              <th>Carga</th>
-              <th>Efectivo</th>
-              <th>Crédito</th>
-              <th>Entregado</th>
-              <th>Dif.</th>
-            </tr>
-          </thead>
-          <tbody>
-            {liqs.map((l) => (
-              <tr key={l.id}>
-                <td style={{ fontSize: '0.75rem' }}>{String(l.carga_id).slice(0, 8)}</td>
-                <td>{fmtMonto(l.venta_efectivo)}</td>
-                <td>{fmtMonto(l.venta_credito)}</td>
-                <td>{fmtMonto(l.efectivo_entregado)}</td>
-                <td>{fmtMonto(l.diferencia)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <pre style={{ fontSize: '0.72rem', overflow: 'auto', maxHeight: 360, background: 'rgba(0,0,0,0.03)', padding: '0.5rem', borderRadius: 6 }}>
+        {JSON.stringify(rows.slice(0, 40), null, 2)}
+      </pre>
     </div>
   );
 }

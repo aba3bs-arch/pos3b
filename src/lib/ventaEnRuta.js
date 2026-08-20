@@ -5,6 +5,8 @@
 
 import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
 import { precioCedisRuta, registrarCargoCreditoRuta } from './rutaCxc.js';
+import { registrarIngresoEfectivoRuta } from './rutaCuentas.js';
+import { puedeModificarStockCedisRuta } from './rutaCuentas.js';
 
 const LS_STOCK = 'pos3b_cedis_ruta_stock';
 const LS_MOV = 'pos3b_cedis_ruta_mov';
@@ -122,8 +124,11 @@ async function registrarMovLocal(row) {
   guardarLS(LS_MOV, list.slice(0, 2000));
 }
 
-/** Ingreso / retiro / ajuste en CEDIS Ruta. */
-export async function moverStockCedisRuta(supabase, { productoId, tipo, cantidad, nota, usuarioNombre, refTabla, refId } = {}) {
+/** Ingreso / retiro / ajuste en CEDIS Ruta. Solo admin/gerente (rol opcional). */
+export async function moverStockCedisRuta(supabase, { productoId, tipo, cantidad, nota, usuarioNombre, refTabla, refId, rol } = {}) {
+  if (rol != null && !puedeModificarStockCedisRuta(rol) && !['carga', 'devolucion_carga'].includes(String(tipo || '').toLowerCase())) {
+    return { ok: false, error: 'Solo administrador o gerente pueden modificar el almacén CEDIS Ruta.' };
+  }
   const pid = String(productoId || '');
   const qty = round3(Math.abs(Number(cantidad) || 0));
   if (!pid) return { ok: false, error: 'Producto inválido.' };
@@ -480,9 +485,18 @@ export async function registrarVentaRuta(supabase, {
         notas: `Venta ${ventaRow.folio}`,
       });
       if (!cxc.ok) return { ok: false, error: cxc.error || 'No se registró el crédito por cobrar.' };
-      return { ok: true, venta: ventaRow, cxc: cxc.data, aviso: cxc.aviso };
+      return { ok: true, venta: ventaRow, cxc: cxc.data, aviso: cxc.aviso, cuenta: 'credito' };
     }
-    return { ok: true, venta: ventaRow };
+    const efe = await registrarIngresoEfectivoRuta(supabase, {
+      monto: total,
+      origen: 'venta',
+      refTabla: 'ruta_ventas',
+      refId: ventaRow.id,
+      notas: `Venta ${ventaRow.folio} · ${ventaRow.cliente_nombre}`,
+      usuarioNombre: vendedorNombre,
+    });
+    if (!efe.ok) return { ok: false, error: efe.error || 'No se registró en cuenta de efectivo.' };
+    return { ok: true, venta: ventaRow, efectivo: efe.data, aviso: efe.aviso, cuenta: 'efectivo' };
   };
 
   if (!supabase || String(cargaId).startsWith('carga_')) {

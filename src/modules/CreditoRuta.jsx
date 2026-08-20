@@ -39,7 +39,7 @@ export default function CreditoRuta({ supabase }) {
       <div>
         <h2 style={{ margin: 0, color: '#b45309' }}>Crédito</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-          Cuentas por cobrar de Venta en Ruta (cargos por ventas a crédito). La cobranza se registra en el subcomando Cobranza.
+          Cuentas por cobrar de Venta en Ruta. El vendedor cobra en Cobranza; no puede modificar saldos a mano.
         </p>
       </div>
       {aviso && <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)' }}>{aviso}</div>}
