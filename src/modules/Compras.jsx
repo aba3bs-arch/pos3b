@@ -11,13 +11,11 @@ import {
 } from '../lib/comprasPedido.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
-import ModalLeerTicketCompra from '../components/ModalLeerTicketCompra.jsx';
 import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import { enRangoYmd, parseYmd, toYmd } from '../lib/fechas.js';
 import { productoIdsDesdeProveedor } from '../lib/proveedorCatalogo.js';
 import { aplicarMovimientoInventario } from '../lib/inventarioMovimientos.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
-import { PRUEBA_LEER_TICKET_COMPRA } from '../lib/leerTicketCompra.js';
 import {
   MODOS_COMPRA_PROVEEDOR,
   etiquetaModoCompraProveedor,
@@ -86,8 +84,6 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
   const [lineas, setLineas] = useState([]);
   const [vinculoProductoIds, setVinculoProductoIds] = useState([]);
   const [codigoRecepcion, setCodigoRecepcion] = useState('');
-  const [modalLeerTicket, setModalLeerTicket] = useState(false);
-  const [totalTicketSugerido, setTotalTicketSugerido] = useState(null);
   const [ventasPorProducto, setVentasPorProducto] = useState({});
   const [ventasPorDia, setVentasPorDia] = useState({});
   const [presetVentasCompras, setPresetVentasCompras] = useState('14d');
@@ -449,13 +445,9 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
       }));
     if (!items.length) return alert('Anota las cantidades recibidas en la columna Recepción.');
     const calculado = totalRecibidoCalc(lineas.filter((l) => Number(l.qty_recibido) > 0));
-    const sugeridoTicket =
-      totalTicketSugerido != null && Number.isFinite(Number(totalTicketSugerido))
-        ? Number(totalTicketSugerido)
-        : calculado;
     const ticketRaw = prompt(
       `Total calculado por líneas: $${calculado.toFixed(2)} MXN\n\n¿Cuál es el total del ticket del proveedor?`,
-      sugeridoTicket.toFixed(2),
+      calculado.toFixed(2),
     );
     if (ticketRaw === null) return;
     const totalTicket = parseFloat(String(ticketRaw).replace(',', '.'));
@@ -508,7 +500,6 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     setModoRecepcion(false);
     setModoEntregaDirecta(false);
     setLineas([]);
-    setTotalTicketSugerido(null);
     cargarDatos();
     loadProveedoresYHistorial();
     loadPedidosPendientes();
@@ -526,13 +517,9 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
       }));
     if (!items.length) return alert('Captura las cantidades entregadas en la columna Cantidad.');
     const calculado = items.reduce((a, l) => a + l.costo * l.qty, 0);
-    const sugeridoTicket =
-      totalTicketSugerido != null && Number.isFinite(Number(totalTicketSugerido))
-        ? Number(totalTicketSugerido)
-        : calculado;
     const ticketRaw = prompt(
       `Entrega directa · Total calculado: $${calculado.toFixed(2)} MXN\n\n¿Total del ticket / nota del proveedor?`,
-      sugeridoTicket.toFixed(2),
+      calculado.toFixed(2),
     );
     if (ticketRaw === null) return;
     const totalTicket = parseFloat(String(ticketRaw).replace(',', '.'));
@@ -594,7 +581,6 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     setModoEntregaDirecta(false);
     setLineas([]);
     setNotasPedido('');
-    setTotalTicketSugerido(null);
     cargarDatos();
     loadProveedoresYHistorial();
     loadPedidosPendientes();
@@ -607,23 +593,6 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     setModoRecepcion(false);
     setModoEntregaDirecta(false);
     setLineas([]);
-    setModalLeerTicket(false);
-    setTotalTicketSugerido(null);
-  };
-
-  const onAplicarTicketLeido = (r, meta) => {
-    if (!r?.lineas) return;
-    setLineas(r.lineas);
-    if (meta?.totalTicket != null && Number.isFinite(Number(meta.totalTicket))) {
-      setTotalTicketSugerido(Number(meta.totalTicket));
-    }
-    const extra =
-      r.omitidas?.length > 0 ? `\nSin aplicar: ${r.omitidas.slice(0, 5).join(', ')}` : '';
-    alert(
-      `Se aplicaron ${r.aplicadas} línea(s) del ticket a ${modoEntregaDirecta ? 'entrega' : 'recepción'}.` +
-        `\nRevisa cantidades y pulsa ${modoEntregaDirecta ? '«Registrar entrega e inventario»' : '«Recibir mercancía»'} para entrar al teórico.` +
-        extra,
-    );
   };
 
   return (
@@ -822,16 +791,6 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                     }
                     tituloCamara={modoEntregaDirecta ? 'Entrega directa' : 'Recepción de mercancía'}
                   />
-                  {PRUEBA_LEER_TICKET_COMPRA && (
-                    <div style={{ marginTop: '0.5rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
-                      <button type="button" className="btn btn-gold" onClick={() => setModalLeerTicket(true)}>
-                        Leer ticket (prueba)
-                      </button>
-                      <span className="muted" style={{ fontSize: '0.8rem' }}>
-                        Foto o texto del ticket → revisar → aplicar cantidades. Si no sirve, se quita.
-                      </span>
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -1155,17 +1114,6 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
             </table>
           </div>
         </div>
-      )}
-
-      {PRUEBA_LEER_TICKET_COMPRA && (
-        <ModalLeerTicketCompra
-          open={modalLeerTicket}
-          onClose={() => setModalLeerTicket(false)}
-          inventario={inventario}
-          modo={modoEntregaDirecta ? 'entrega' : 'recepcion'}
-          lineasActuales={lineas}
-          onAplicar={onAplicarTicketLeido}
-        />
       )}
     </div>
   );
