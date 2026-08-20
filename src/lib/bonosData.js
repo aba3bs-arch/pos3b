@@ -135,13 +135,17 @@ async function mermaPctPeriodo(supabase, sucursal, desde, hasta, inventario = []
     const valorInventario = Number(reg.valor_contado ?? reg.total_inventario) > 0
       ? round2(Number(reg.valor_contado ?? reg.total_inventario))
       : (Number(reg.valor_sistema) > 0 ? round2(Number(reg.valor_sistema)) : 0);
-    const valorMerma = Number(reg.valor_faltante) >= 0
-      ? round2(Number(reg.valor_faltante))
-      : (valorInventario > 0 ? round2(valorInventario * (pct / 100)) : 0);
+    const faltanteBruto = Number(reg.valor_faltante) >= 0 ? round2(Number(reg.valor_faltante)) : 0;
+    const bonificacion = Number(reg.valor_bonificacion) > 0 ? round2(Number(reg.valor_bonificacion)) : 0;
+    const valorMerma = reg.valor_faltante_neto != null && Number.isFinite(Number(reg.valor_faltante_neto))
+      ? round2(Number(reg.valor_faltante_neto))
+      : round2(Math.max(0, faltanteBruto - bonificacion));
     return {
       pct,
       valorMerma,
       valorInventario,
+      faltanteBruto,
+      bonificacion,
       invDespuesAjuste: reg.valor_despues_ajuste != null ? round2(Number(reg.valor_despues_ajuste)) : null,
       fuente: 'resultado_manual',
       periodoResultado: { desde: reg.desde, hasta: reg.hasta },
@@ -362,6 +366,8 @@ export async function calcularBonoSucursal(supabase, {
       mermaFuente: merma.fuente || 'movimientos',
       mermaValorInventario: merma.valorInventario ?? null,
       mermaValorFaltante: merma.valorMerma ?? null,
+      mermaFaltanteBruto: merma.faltanteBruto ?? null,
+      mermaBonificacion: merma.bonificacion ?? null,
       invDespuesAjuste: merma.invDespuesAjuste ?? null,
       evaluacionPct: evalRes.pct,
       checklist: check,

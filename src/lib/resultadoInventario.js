@@ -2,10 +2,12 @@
  * Resultado manual de inventario para el bono.
  *
  * Campos:
- * 1. Total de inventario (manual)
- * 2. Faltante de inventario (manual)
- * 3. Inv. después del ajuste (auto) = total − faltante
- * 4. Merma % (auto) = faltante ÷ total × 100
+ * 1. Total de inventario (manual — solo Admin/Auditor)
+ * 2. Faltante de inventario (manual — solo Admin/Auditor)
+ * 2b. Bonificación (manual — solo Admin/Auditor; se descuenta del faltante)
+ * 3. Inv. después del ajuste (auto) = total − faltante neto
+ * 4. Merma % (auto) = faltante neto ÷ total × 100
+ *    faltante neto = max(0, faltante − bonificación)
  *
  * Persistencia: localStorage + nube pos_resultados_inventario.
  */
@@ -43,18 +45,21 @@ export function claveResultadoInventario(sucursal, desde, hasta) {
 }
 
 /**
- * Calcula campos 3 y 4 a partir de total y faltante manuales.
- * @param {number|null} totalInventario
- * @param {number|null} faltante
+ * Calcula campos automáticos a partir de total, faltante y bonificación.
+ * Bonificación se descuenta del faltante (faltante neto) para merma y bono.
  */
-export function calcularResultadoInventarioCampos(totalInventario, faltante) {
+export function calcularResultadoInventarioCampos(totalInventario, faltante, bonificacion = 0) {
   const total = Number(totalInventario);
   const fal = Number(faltante);
+  const bonRaw = Number(bonificacion);
+  const bon = Number.isFinite(bonRaw) ? round2(Math.max(0, bonRaw)) : 0;
 
   if (!Number.isFinite(total) || !Number.isFinite(fal)) {
     return {
       totalInventario: Number.isFinite(total) ? round2(total) : null,
-      faltante: Number.isFinite(fal) ? round2(fal) : null,
+      faltante: Number.isFinite(fal) ? round2(Math.max(0, fal)) : null,
+      bonificacion: bon,
+      faltanteNeto: null,
       invDespuesAjuste: null,
       pctMerma: null,
     };
@@ -62,12 +67,17 @@ export function calcularResultadoInventarioCampos(totalInventario, faltante) {
 
   const totalR = round2(total);
   const falR = round2(Math.max(0, fal));
-  const invDespues = round2(totalR - falR);
-  const pctMerma = totalR > 0 ? round2((falR / totalR) * 100) : (falR > 0 ? 100 : 0);
+  const faltanteNeto = round2(Math.max(0, falR - bon));
+  const invDespues = round2(totalR - faltanteNeto);
+  const pctMerma = totalR > 0
+    ? round2((faltanteNeto / totalR) * 100)
+    : (faltanteNeto > 0 ? 100 : 0);
 
   return {
     totalInventario: totalR,
     faltante: falR,
+    bonificacion: bon,
+    faltanteNeto,
     invDespuesAjuste: invDespues,
     pctMerma,
   };
@@ -79,7 +89,7 @@ export function calcularMermaYEfectividad(valorManual, valorSistema) {
   const faltante = Number.isFinite(Number(valorSistema)) && Number.isFinite(Number(valorManual))
     ? Math.max(0, Number(valorSistema) - Number(valorManual))
     : null;
-  const c = calcularResultadoInventarioCampos(total, faltante);
+  const c = calcularResultadoInventarioCampos(total, faltante, 0);
   return {
     valorManual: c.totalInventario,
     valorSistema: c.totalInventario,
@@ -88,6 +98,8 @@ export function calcularMermaYEfectividad(valorManual, valorSistema) {
     faltante: c.faltante,
     pctMerma: c.pctMerma,
     invDespuesAjuste: c.invDespuesAjuste,
+    bonificacion: c.bonificacion,
+    faltanteNeto: c.faltanteNeto,
     diferenciaConteoVsManual: null,
     pctEfectividad: null,
   };
@@ -146,7 +158,11 @@ function normalizarRegistro(row, { sucursal, desde, hasta } = {}) {
     if (sistema != null && sistema >= total) faltante = round2(sistema - total);
   }
 
-  const calc = calcularResultadoInventarioCampos(total, faltante ?? 0);
+  const bonificacion = parseNumInventario(
+    row.valor_bonificacion ?? row.valorBonificacion ?? row.bonificacion,
+  ) ?? 0;
+
+  const calc = calcularResultadoInventarioCampos(total, faltante ?? 0, bonificacion);
   const invDespues = parseNumInventario(
     row.valor_despues_ajuste ?? row.valorDespuesAjuste ?? row.invDespuesAjuste,
   );
@@ -159,11 +175,15 @@ function normalizarRegistro(row, { sucursal, desde, hasta } = {}) {
     /** Campo 1 — total de inventario (manual) */
     valor_contado: calc.totalInventario,
     total_inventario: calc.totalInventario,
-    /** Campo 2 — faltante (manual) */
+    /** Campo 2 — faltante bruto (manual) */
     valor_faltante: faltante != null ? calc.faltante : null,
+    /** Bonificación (manual; se descuenta del faltante) */
+    valor_bonificacion: calc.bonificacion,
+    /** Faltante neto = faltante − bonificación */
+    valor_faltante_neto: calc.faltanteNeto,
     /** Campo 3 — inv. después del ajuste (auto) */
     valor_despues_ajuste: invDespues != null ? round2(invDespues) : calc.invDespuesAjuste,
-    /** Campo 4 — merma % (auto) */
+    /** Campo 4 — merma % (auto, sobre faltante neto) */
     pct_merma: calc.pctMerma,
     valor_sistema: parseNumInventario(row.valor_sistema ?? row.valorSistema),
     valor_contado_sistema: parseNumInventario(row.valor_contado_sistema ?? row.valorContadoSistema),
@@ -236,12 +256,13 @@ export async function cargarResultadoInventario(supabase, { sucursal, desde, has
 }
 
 /**
- * Guarda (o borra si ambos vacíos) el resultado manual.
- * Requiere tienda concreta (no "Todas").
+ * Guarda (o borra si total y faltante vacíos) el resultado manual.
+ * Requiere tienda concreta (no "Todas"). Solo Admin/Auditor deben llamarlo.
  *
  * @param {object} opts
  * @param {string|number} opts.totalInventario — Campo 1 (manual)
  * @param {string|number} opts.faltante — Campo 2 (manual)
+ * @param {string|number} [opts.bonificacion] — Bonificación (manual; descuenta del faltante)
  */
 export async function guardarResultadoInventario(supabase, {
   sucursal,
@@ -249,6 +270,7 @@ export async function guardarResultadoInventario(supabase, {
   hasta,
   totalInventario,
   faltante,
+  bonificacion = 0,
   /** Compat API anterior */
   valorContado,
   valorSistema = null,
@@ -267,6 +289,7 @@ export async function guardarResultadoInventario(supabase, {
   const clave = claveResultadoInventario(suc, desde, hasta);
   const total = parseNumInventario(totalInventario ?? valorContado);
   const fal = parseNumInventario(faltante);
+  const bon = parseNumInventario(bonificacion) ?? 0;
 
   if (total == null && fal == null) {
     try {
@@ -309,8 +332,11 @@ export async function guardarResultadoInventario(supabase, {
   if (fal > total) {
     return { ok: false, error: 'El faltante no puede ser mayor que el total de inventario.' };
   }
+  if (bon < 0) {
+    return { ok: false, error: 'La bonificación no puede ser negativa.' };
+  }
 
-  const calc = calcularResultadoInventarioCampos(total, fal);
+  const calc = calcularResultadoInventarioCampos(total, fal, bon);
   const updated_at = new Date().toISOString();
   const registro = {
     sucursal_id: suc,
@@ -320,6 +346,7 @@ export async function guardarResultadoInventario(supabase, {
     valor_sistema: parseNumInventario(valorSistema),
     valor_contado_sistema: parseNumInventario(valorContadoSistema),
     valor_faltante: calc.faltante,
+    valor_bonificacion: calc.bonificacion,
     valor_despues_ajuste: calc.invDespuesAjuste,
     pct_merma: calc.pctMerma,
     pct_efectividad: null,
@@ -328,11 +355,22 @@ export async function guardarResultadoInventario(supabase, {
     updated_at,
   };
 
-  escribirLocal(clave, { ...registro, fuente: 'local' });
+  escribirLocal(clave, {
+    ...registro,
+    valor_faltante_neto: calc.faltanteNeto,
+    fuente: 'local',
+  });
 
   if (!supabase) {
     emitirEvento({ sucursal: suc, desde, hasta, registro });
-    return { ok: true, registro: { ...registro, fuente: 'local' } };
+    return {
+      ok: true,
+      registro: {
+        ...registro,
+        valor_faltante_neto: calc.faltanteNeto,
+        fuente: 'local',
+      },
+    };
   }
 
   try {
@@ -343,23 +381,38 @@ export async function guardarResultadoInventario(supabase, {
       .maybeSingle();
 
     if (error) {
-      // Si falta la columna nueva, reintentar sin ella
       const msg = String(error.message || '').toLowerCase();
-      if (msg.includes('valor_despues_ajuste')) {
-        const { valor_despues_ajuste: _drop, ...sinCol } = registro;
-        const retry = await supabase
+      // Reintentar sin columnas nuevas si aún no se ejecutó el SQL actualizado
+      if (msg.includes('valor_bonificacion') || msg.includes('valor_despues_ajuste')) {
+        const sinCols = { ...registro };
+        if (msg.includes('valor_bonificacion') || true) {
+          // intentar primero sin bonificacion; luego sin despues_ajuste si hace falta
+        }
+        delete sinCols.valor_bonificacion;
+        let retry = await supabase
           .from('pos_resultados_inventario')
-          .upsert(sinCol, { onConflict: 'sucursal_id,desde,hasta' })
+          .upsert(sinCols, { onConflict: 'sucursal_id,desde,hasta' })
           .select('*')
           .maybeSingle();
+        if (retry.error && String(retry.error.message || '').toLowerCase().includes('valor_despues_ajuste')) {
+          delete sinCols.valor_despues_ajuste;
+          retry = await supabase
+            .from('pos_resultados_inventario')
+            .upsert(sinCols, { onConflict: 'sucursal_id,desde,hasta' })
+            .select('*')
+            .maybeSingle();
+        }
         if (!retry.error) {
-          const guardado = normalizarRegistro(retry.data || registro, { sucursal: suc, desde, hasta });
+          const guardado = normalizarRegistro(
+            { ...(retry.data || registro), valor_bonificacion: calc.bonificacion },
+            { sucursal: suc, desde, hasta },
+          );
           escribirLocal(clave, { ...guardado, fuente: 'nube' });
           emitirEvento({ sucursal: suc, desde, hasta, registro: guardado });
           return {
             ok: true,
             registro: { ...guardado, fuente: 'nube' },
-            aviso: 'Falta la columna valor_despues_ajuste: vuelve a ejecutar supabase/fix_resultados_inventario.sql',
+            aviso: 'Faltan columnas nuevas: vuelve a ejecutar supabase/fix_resultados_inventario.sql',
           };
         }
       }
@@ -367,7 +420,11 @@ export async function guardarResultadoInventario(supabase, {
         emitirEvento({ sucursal: suc, desde, hasta, registro });
         return {
           ok: true,
-          registro: { ...registro, fuente: 'local' },
+          registro: {
+            ...registro,
+            valor_faltante_neto: calc.faltanteNeto,
+            fuente: 'local',
+          },
           aviso: AVISO_FALTA_RESULTADOS_INV_SQL,
           sinTabla: true,
         };
@@ -381,7 +438,15 @@ export async function guardarResultadoInventario(supabase, {
     return { ok: true, registro: { ...guardado, fuente: 'nube' } };
   } catch (e) {
     emitirEvento({ sucursal: suc, desde, hasta, registro });
-    return { ok: false, error: e?.message || String(e), registro: { ...registro, fuente: 'local' } };
+    return {
+      ok: false,
+      error: e?.message || String(e),
+      registro: {
+        ...registro,
+        valor_faltante_neto: calc.faltanteNeto,
+        fuente: 'local',
+      },
+    };
   }
 }
 
