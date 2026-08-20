@@ -49,6 +49,8 @@ const SESSION_TEMPORAL = new Set(['pos3b_anuncios_vistos']);
 
 function debePreservar(clave) {
   if (CLAVES_PRESERVAR.has(clave)) return true;
+  // Resultado manual de inventario (alimenta bono / efectividad)
+  if (clave.startsWith('pos3b_resultado_inv_')) return true;
   return false;
 }
 

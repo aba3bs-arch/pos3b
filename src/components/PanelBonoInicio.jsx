@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { esAlmacenCentral, etiquetaTienda } from '../constants/sucursales.js';
 import { EVENTO_BONOS_CONFIG } from '../lib/bonosConfig.js';
+import { EVENTO_RESULTADO_INVENTARIO } from '../lib/resultadoInventario.js';
 import { calcularBonoSucursal } from '../lib/bonosData.js';
 
 function fmtMoney(n) {
@@ -31,10 +32,12 @@ export default function PanelBonoInicio({ supabase, sucursal, inventario = [], o
     load();
     const onCfg = () => load();
     window.addEventListener(EVENTO_BONOS_CONFIG, onCfg);
+    window.addEventListener(EVENTO_RESULTADO_INVENTARIO, onCfg);
     const t = setInterval(load, 5 * 60 * 1000);
     return () => {
       ok = false;
       window.removeEventListener(EVENTO_BONOS_CONFIG, onCfg);
+      window.removeEventListener(EVENTO_RESULTADO_INVENTARIO, onCfg);
       clearInterval(t);
     };
   }, [supabase, sucursal, inventario]);
