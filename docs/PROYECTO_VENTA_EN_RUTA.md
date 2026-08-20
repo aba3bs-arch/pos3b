@@ -1,54 +1,67 @@
 # Proyecto: Venta en Ruta (CEDIS)
 
-**Estado:** decisiones confirmadas · implementación Fase A en curso  
-**Fecha:** 2026-08-06  
+**Estado:** rediseño operativo · 2026-08-20  
 **Alcance:** comando **Venta en Ruta** · almacén **CEDIS Ruta** (aislado de MAIN)
-
----
-
-## Decisiones confirmadas
-
-| # | Tema | Decisión |
-|---|------|----------|
-| 1 | Stock inicial | **CEDIS Ruta inicia vacío** (ingresos propios; no toma stock de MAIN) |
-| 2 | Destino de venta | **Sucursales propias** + opción **clientes no propios (externos)** |
-| 3 | Modalidad | **Solo venta directa** (sin preventa) |
-| 4 | Formas de pago | **Efectivo** y **crédito** |
-| 5 | Traspasos | **Ocultos en este flujo** (no se usan para surtir) |
-| 6 | Nombre del almacén | **CEDIS Ruta** |
 
 ---
 
 ## Flujo
 
 ```
-CEDIS Ruta (vacío al inicio)
-  → ingreso a almacén
-  → carga de camión
-  → venta directa (sucursal propia o cliente externo)
-  → liquidación (efectivo + crédito; sobrante regresa a CEDIS Ruta)
+Admin surte CEDIS Ruta
+  → carga de camión (admin)
+  → venta en ruta tipo POS (vendedor)
+       · efectivo  → cuenta efectivo
+       · crédito   → cuenta crédito (CxC)
+  → cobranza (vendedor cobra créditos → efectivo)
+  → liquidación (admin, sobrante regresa a CEDIS)
 ```
 
-**No interfiere con MAIN.cedis ni con piso de tiendas. No usa traspasos.**
+El vendedor **no modifica** inventario ni cuentas; solo consulta, vende, cobra y solicita capital.
 
 ---
 
-## Subcomandos Fase A (MVP)
+## Roles
 
-1. **CEDIS Ruta** — existencias del almacén aislado (ingreso / retiro / consulta)
-2. **Carga de camión** — arma folio; baja CEDIS Ruta → inventario de la carga
-3. **Venta en ruta** — vende desde la carga (efectivo / crédito; sucursal o externo)
-4. **Liquidación** — cuadre; sobrante vuelve a CEDIS Ruta; cierra carga
-5. **Clientes de ruta** — externos (no propios)
-6. **Consultas** — cargas, ventas, liquidaciones
+| Acción | Admin / Gerente | Vendedor (Repartidor) |
+|--------|-----------------|------------------------|
+| Surte almacén | Sí | No |
+| Ver inventario | Sí | Solo lectura |
+| Carga de camión | Sí | No |
+| Venta POS | Sí | Sí |
+| Cobranza créditos | Sí | Sí |
+| Ver cuentas | Sí + ajuste | Solo lectura |
+| Capital | Liberar / rechazar | Solicitar + foto ticket |
+| Preinventario | Sí | Sí (plantilla catálogo) |
 
-Fase B (después): rutas/vendedores formales, merma detallada, impresión, reportes avanzados.
+---
+
+## Subcomandos
+
+1. **Surte almacén** — ingresos/ajustes CEDIS Ruta  
+2. **Inventario** — consulta (vendedor sin editar)  
+3. **Carga de camión** — folio; baja CEDIS → camión  
+4. **Venta en ruta** — POS efectivo/crédito  
+5. **Cobranza** — abonos a CxC  
+6. **Cuentas** — saldos efectivo y crédito  
+7. **Capital / gastos** — solicitud → liberación → foto ticket  
+8. **Preinventario** — plantilla del catálogo CEDIS (no altera stock)  
+
+---
+
+## SQL
+
+1. `supabase/fix_venta_en_ruta.sql`  
+2. `supabase/fix_precio_ruta_y_cxc.sql`  
+3. `supabase/fix_venta_en_ruta_cuentas_capital.sql`  
 
 ---
 
 ## Criterio de éxito
 
-- Comando visible y usable
-- Stock CEDIS Ruta independiente de MAIN
-- Carga → venta (efectivo/crédito) → liquidación con historial
-- Traspasos no aparecen dentro de este flujo; en MAIN se indica que el surtido es por Venta en Ruta
+- Admin surte → carga → venta POS funcional  
+- Ventas asientan en cuenta efectivo o crédito  
+- Vendedor no edita cuentas ni inventario  
+- Cobranza de créditos por vendedor  
+- Capital con liberación admin y justificación con foto  
+- Preinventario por plantilla del catálogo de ruta  

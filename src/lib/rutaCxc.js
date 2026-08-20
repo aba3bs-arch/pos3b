@@ -3,6 +3,7 @@
  */
 
 import { conImpuesto, impuestoEfectivo } from './productoForm.js';
+import { registrarIngresoEfectivoRuta } from './rutaCuentas.js';
 
 const LS_CXC = 'pos3b_ruta_cxc_movimientos';
 
@@ -203,7 +204,7 @@ export async function registrarAbonoCobranzaRuta(supabase, {
   }
   const saldoDespues = round2(saldoAntes - m);
   const mp = String(metodoPago || 'efectivo').toLowerCase();
-  return insertarMovimiento(supabase, {
+  const res = await insertarMovimiento(supabase, {
     cliente_tipo: clienteTipo === 'externo' ? 'externo' : 'sucursal',
     cliente_id: String(clienteId),
     cliente_nombre: clienteNombre || String(clienteId),
@@ -216,4 +217,21 @@ export async function registrarAbonoCobranzaRuta(supabase, {
     notas: notas || 'Cobranza de crédito',
     usuario_nombre: usuarioNombre || null,
   });
+  if (!res.ok) return res;
+  // Cobro en efectivo → entra a cuenta efectivo de ruta (el vendedor no edita la cuenta).
+  if ((res.data?.metodo_pago || mp) === 'efectivo') {
+    const efe = await registrarIngresoEfectivoRuta(supabase, {
+      monto: m,
+      origen: 'cobranza',
+      refTabla: 'ruta_cxc_movimientos',
+      refId: res.data?.id,
+      notas: `Cobranza · ${clienteNombre || clienteId}`,
+      usuarioNombre,
+    });
+    if (!efe.ok) {
+      return { ok: true, data: res.data, aviso: efe.error || 'Cobro registrado; no se pudo asentar en efectivo.' };
+    }
+    return { ok: true, data: res.data, efectivo: efe.data, aviso: efe.aviso || res.aviso };
+  }
+  return res;
 }

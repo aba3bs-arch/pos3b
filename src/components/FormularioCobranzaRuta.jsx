@@ -89,7 +89,7 @@ export default function FormularioCobranzaRuta({ supabase, user, onAviso, onCobr
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
       <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>
-        Cobra créditos generados en Venta en Ruta. El saldo vive en Contabilidad → Crédito / Cobranza.
+        Cobra créditos de Venta en Ruta. El abono en efectivo entra solo a la cuenta efectivo (no se edita a mano).
       </p>
 
       {saldos.length === 0 ? (

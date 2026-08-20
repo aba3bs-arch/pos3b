@@ -34,11 +34,11 @@ const DESCRIPCIONES = {
   },
   Crédito: {
     desc: 'Cartera por cobrar de Venta en Ruta',
-    ayuda: 'Saldos y movimientos de crédito CEDIS Ruta. La cobranza se registra en el subcomando Cobranza.',
+    ayuda: 'Saldos de crédito CEDIS Ruta. El vendedor cobra en Cobranza; no puede ajustar cuentas a mano.',
   },
   Cobranza: {
-    desc: 'Cobro de créditos de ruta (repartidor CEDIS)',
-    ayuda: 'Formulario para registrar abonos a créditos por cobrar generados en Venta en Ruta.',
+    desc: 'Cobro de créditos de ruta (vendedor)',
+    ayuda: 'Abonos a créditos. El cobro en efectivo entra a la cuenta efectivo de ruta automáticamente.',
   },
 };
 

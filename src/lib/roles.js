@@ -549,7 +549,7 @@ export function descripcionRol(rol) {
   const r = normalizarRol(rol);
   const textos = {
     Cajero: 'Mostrador: ventas, cortes, checador, compras, proveedores, consultas, reportes, ingreso/ajuste de inventario, traspasos y preinventario; catálogo solo consulta',
-    Repartidor: 'Ruta / recolector: recolecciones, Venta en Ruta (CEDIS Ruta), cobranza de créditos, incidencias y productos; sin ventas de caja, checador, configuración ni usuarios',
+    Repartidor: 'Ruta: recolecciones, Venta en Ruta (venta/cobranza/capital/preinventario; inventario solo lectura), incidencias y productos; sin surtir CEDIS ni editar cuentas',
     Auditor: 'Consultas, reportes, inventario e incidencias en todas las tiendas desde central MAIN',
     Supervisor: 'Operación de tienda sin configuración ni usuarios',
     Gerente: 'Operación, configuración y gestión de incidencias en todas las tiendas',
