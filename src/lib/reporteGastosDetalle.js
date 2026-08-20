@@ -33,8 +33,10 @@ function fmtMonto(n) {
 
 /** Normaliza un gasto de corte a fila de reporte. */
 export function filaReporteGasto(g) {
-  const nombre = String(g.comentario || '').trim() || String(g.subcategoria || '').trim() || String(g.categoria || '').trim() || '—';
-  const partesConcepto = [g.categoria, g.subcategoria].map((x) => String(x || '').trim()).filter(Boolean);
+  const categoria = String(g.categoria || '').trim();
+  const subcategoria = String(g.subcategoria || '').trim();
+  const nombre = String(g.comentario || '').trim() || subcategoria || categoria || '—';
+  const partesConcepto = [categoria, subcategoria].filter(Boolean);
   const concepto = partesConcepto.join(' · ') || '—';
   return {
     id: g.id,
@@ -51,9 +53,59 @@ export function filaReporteGasto(g) {
     cantidad: 1,
     monto: Number(g.monto) || 0,
     concepto,
+    categoria: categoria || '—',
+    subcategoria: subcategoria || '',
     estado: g.estado_aprobacion || 'aprobado',
     descontado_nomina: Boolean(g.descontado_nomina),
   };
+}
+
+function textoBusquedaNorm(s) {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+/** Filtra filas por palabra clave (nombre, concepto, categoría, etc.) y/o categoría. */
+export function filtrarFilasGastos(filas, { q = '', categoria = '' } = {}) {
+  let out = filas || [];
+  const cat = String(categoria || '').trim();
+  if (cat) {
+    const catNorm = textoBusquedaNorm(cat);
+    out = out.filter((f) => textoBusquedaNorm(f.categoria) === catNorm);
+  }
+  const needle = textoBusquedaNorm(q);
+  if (needle) {
+    out = out.filter((f) => {
+      const haystack = [
+        f.nombre,
+        f.concepto,
+        f.categoria,
+        f.subcategoria,
+        f.empleado,
+        f.tienda,
+        f.modulo_label,
+        f.fecha_corta,
+        f.fecha_texto,
+        String(f.monto ?? ''),
+      ]
+        .map(textoBusquedaNorm)
+        .join(' ');
+      return haystack.includes(needle);
+    });
+  }
+  return out;
+}
+
+export function categoriasUnicas(filas) {
+  const set = new Set();
+  for (const f of filas || []) {
+    const c = String(f.categoria || '').trim();
+    if (c && c !== '—') set.add(c);
+  }
+  return [...set].sort((a, b) => a.localeCompare(b, 'es'));
 }
 
 /** Lista gastos detallados de cortes contabilidad en un rango. */
@@ -155,6 +207,8 @@ export function columnasCsvGastos() {
     { label: 'empleado', value: (f) => f.empleado },
     { label: 'fecha', value: (f) => f.fecha_texto },
     { label: 'nombre', value: (f) => f.nombre },
+    { label: 'categoria', value: (f) => f.categoria },
+    { label: 'subcategoria', value: (f) => f.subcategoria },
     { label: 'cantidad', value: (f) => f.cantidad },
     { label: 'monto', value: (f) => f.monto },
     { label: 'concepto', value: (f) => f.concepto },

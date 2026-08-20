@@ -8,8 +8,10 @@ import {
   agruparPorEmpleado,
   agruparPorTienda,
   cargarGastosDetalle,
+  categoriasUnicas,
   columnasCsvGastos,
   empleadosUnicos,
+  filtrarFilasGastos,
   fmtMonto,
   tiendasFiltroGastos,
   totalMontoFilas,
@@ -165,6 +167,8 @@ export default function ReporteGastosDetalle({ supabase, sucursal, user }) {
   const [tiendaFiltro, setTiendaFiltro] = useState('');
   const [moduloFiltro, setModuloFiltro] = useState('');
   const [empleadoFiltro, setEmpleadoFiltro] = useState('');
+  const [categoriaFiltro, setCategoriaFiltro] = useState('');
+  const [qBusqueda, setQBusqueda] = useState('');
   const [vista, setVista] = useState('detalle');
   const [cargando, setCargando] = useState(false);
   const [borrandoId, setBorrandoId] = useState(null);
@@ -191,10 +195,15 @@ export default function ReporteGastosDetalle({ supabase, sucursal, user }) {
     cargar();
   }, [cargar]);
 
+  const categoriasLista = useMemo(() => categoriasUnicas(filas), [filas]);
   const empleadosLista = useMemo(() => empleadosUnicos(filas), [filas]);
-  const total = useMemo(() => totalMontoFilas(filas), [filas]);
-  const porTienda = useMemo(() => agruparPorTienda(filas), [filas]);
-  const porEmpleado = useMemo(() => agruparPorEmpleado(filas), [filas]);
+  const filasVisibles = useMemo(
+    () => filtrarFilasGastos(filas, { q: qBusqueda, categoria: categoriaFiltro }),
+    [filas, qBusqueda, categoriaFiltro],
+  );
+  const total = useMemo(() => totalMontoFilas(filasVisibles), [filasVisibles]);
+  const porTienda = useMemo(() => agruparPorTienda(filasVisibles), [filasVisibles]);
+  const porEmpleado = useMemo(() => agruparPorEmpleado(filasVisibles), [filasVisibles]);
 
   const borrarGasto = async (fila) => {
     if (!esAdmin || !fila?.id) return;
@@ -217,13 +226,13 @@ export default function ReporteGastosDetalle({ supabase, sucursal, user }) {
   };
 
   const exportarCsv = () => {
-    if (!filas.length) return alert('No hay datos para exportar.');
-    downloadCsv(`gastos_detalle_${desde}_${hasta}.csv`, toCsv(filas, columnasCsvGastos()));
+    if (!filasVisibles.length) return alert('No hay datos para exportar.');
+    downloadCsv(`gastos_detalle_${desde}_${hasta}.csv`, toCsv(filasVisibles, columnasCsvGastos()));
   };
 
   const imprimir = async () => {
-    if (!filas.length) return alert('No hay datos para imprimir.');
-    const tablaFilas = filas.map((f) => ({
+    if (!filasVisibles.length) return alert('No hay datos para imprimir.');
+    const tablaFilas = filasVisibles.map((f) => ({
       fecha: f.fecha_corta,
       tienda: f.tienda,
       empleado: f.empleado,
@@ -239,7 +248,12 @@ export default function ReporteGastosDetalle({ supabase, sucursal, user }) {
       secciones: [
         {
           titulo: 'Resumen',
-          lineas: [`Movimientos: ${filas.length}`, `Total: ${fmtMonto(total)}`],
+          lineas: [
+            `Movimientos: ${filasVisibles.length}`,
+            `Total: ${fmtMonto(total)}`,
+            categoriaFiltro ? `Categoría: ${categoriaFiltro}` : null,
+            qBusqueda.trim() ? `Buscar: ${qBusqueda.trim()}` : null,
+          ].filter(Boolean),
         },
       ],
       tabla: {
@@ -307,6 +321,33 @@ export default function ReporteGastosDetalle({ supabase, sucursal, user }) {
             ))}
           </datalist>
         </label>
+        <label className="muted" style={{ display: 'block' }}>
+          Categoría
+          <select
+            className="select"
+            style={{ marginTop: '0.35rem' }}
+            value={categoriaFiltro}
+            onChange={(e) => setCategoriaFiltro(e.target.value)}
+          >
+            <option value="">Todas</option>
+            {categoriasLista.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="muted" style={{ display: 'block', gridColumn: '1 / -1' }}>
+          Buscar por palabra clave
+          <input
+            className="input"
+            style={{ marginTop: '0.35rem' }}
+            type="search"
+            placeholder="Ej. taxi, consumo, proveedor, folio…"
+            value={qBusqueda}
+            onChange={(e) => setQBusqueda(e.target.value)}
+          />
+        </label>
       </div>
 
       <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
@@ -322,23 +363,25 @@ export default function ReporteGastosDetalle({ supabase, sucursal, user }) {
           </button>
         ))}
         <span className="muted" style={{ alignSelf: 'center', fontSize: '0.82rem', marginLeft: 'auto' }}>
-          {cargando ? 'Cargando…' : `${filas.length} mov. · ${fmtMonto(total)}`}
+          {cargando
+            ? 'Cargando…'
+            : `${filasVisibles.length}${filasVisibles.length !== filas.length ? ` / ${filas.length}` : ''} mov. · ${fmtMonto(total)}`}
         </span>
       </div>
 
       {error && <p style={{ color: 'var(--danger)', fontSize: '0.85rem' }}>{error}</p>}
 
       {vista === 'detalle' && (
-        <TablaDetalle filas={filas} puedeBorrar={esAdmin} borrandoId={borrandoId} onBorrar={borrarGasto} />
+        <TablaDetalle filas={filasVisibles} puedeBorrar={esAdmin} borrandoId={borrandoId} onBorrar={borrarGasto} />
       )}
       {vista === 'tienda' && <TablaAgrupada grupos={porTienda} colGrupo="Tienda" />}
       {vista === 'empleado' && <TablaAgrupada grupos={porEmpleado} colGrupo="Empleado" />}
 
       <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
-        <button type="button" className="btn btn-gold" disabled={!filas.length} onClick={exportarCsv}>
+        <button type="button" className="btn btn-gold" disabled={!filasVisibles.length} onClick={exportarCsv}>
           <BtnLabel icon="download">Exportar CSV</BtnLabel>
         </button>
-        <button type="button" className="btn btn-ghost" disabled={!filas.length} onClick={imprimir}>
+        <button type="button" className="btn btn-ghost" disabled={!filasVisibles.length} onClick={imprimir}>
           <BtnLabel icon="print">Imprimir</BtnLabel>
         </button>
         <button type="button" className="btn btn-ghost" disabled={cargando} onClick={cargar}>
