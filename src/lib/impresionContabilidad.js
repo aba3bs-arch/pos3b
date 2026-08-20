@@ -1,7 +1,7 @@
 import { abrirVentanaImpresion, estilosImpresion } from './impresion.js';
 import { leerNombreNegocio, leerLogoUrl } from './branding.js';
 import { leerConfigImpresion } from './posConfig.js';
-import { ETIQUETA_AREA, etiquetaCategoriaVale } from './contabilidadConstants.js';
+import { ETIQUETA_AREA, etiquetaCategoriaVale, etiquetaEstadoPrestamo } from './contabilidadConstants.js';
 
 function esc(s) {
   return String(s ?? '')
@@ -126,7 +126,7 @@ export function htmlPrestamoInterarea(p) {
     <div>Destino: <strong>${esc(ETIQUETA_AREA[p.destino] || p.destino)}</strong></div>
     <div style="font-size:20px;margin:12px 0"><strong>Monto: ${fmt(p.monto)}</strong></div>
     <div>Saldo: ${fmt(saldo)}</div>
-    <div>Estado: ${esc(p.estado || 'activo')}${String(p.estado) === 'liquidado' && (p.liquidado_por || p.liquidado_sucursal) ? ` · ${esc(p.liquidado_por || '—')}${p.liquidado_sucursal ? ` · ${esc(p.liquidado_sucursal)}` : ''}` : ''}</div>
+    <div>Estado: ${esc(etiquetaEstadoPrestamo(p))}${['liquidado', 'recuperado'].includes(String(p.estado || '')) && (p.liquidado_por || p.liquidado_sucursal) ? ` · ${esc(p.liquidado_por || '—')}${p.liquidado_sucursal ? ` · ${esc(p.liquidado_sucursal)}` : ''}` : ''}</div>
     ${p.cargado_corte ? `<div>Corte origen: gasto en ${esc(ETIQUETA_AREA[p.origen] || p.origen || '—')}</div>` : ''}
     ${p.colectado_por ? `<div>Colectó: <strong>${esc(p.colectado_por)}</strong>${p.colectado_at ? ` · ${esc(String(p.colectado_at).slice(0, 16).replace('T', ' '))}` : ''}${p.colectado_folio ? ` · ${esc(p.colectado_folio)}` : ''}</div>` : ''}
     ${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ''}

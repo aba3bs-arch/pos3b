@@ -315,8 +315,14 @@ export function valePuedeCancelar(vale) {
 
 export function prestamoPuedeImprimir(p) {
   if (!p) return false;
-  // Recibo disponible cuando ya está autorizado (activo) o liquidado.
-  return p.estado === 'activo' || p.estado === 'liquidado';
+  // Recibo disponible cuando está en recuperación o ya recuperado.
+  return (
+    p.estado === 'activo'
+    || p.estado === 'recuperar'
+    || p.estado === 'por_recolectar'
+    || p.estado === 'liquidado'
+    || p.estado === 'recuperado'
+  );
 }
 
 export function etiquetaEstadoVale(v) {
@@ -327,6 +333,25 @@ export function etiquetaEstadoVale(v) {
   return 'Aprobado';
 }
 
+/** Estados abiertos de préstamo entre áreas (recuperación automática por negativo). */
+export const ESTADOS_PRESTAMO_INTERAREA_ABIERTOS = new Set([
+  'recuperar',
+  'activo',
+  'por_recolectar',
+]);
+
+/** Estados cerrados de préstamo entre áreas. */
+export const ESTADOS_PRESTAMO_INTERAREA_CERRADOS = new Set([
+  'recuperado',
+  'liquidado',
+  'cancelado',
+]);
+
+export function prestamoInterareaEstaAbierto(p) {
+  const e = String(p?.estado || 'recuperar');
+  return ESTADOS_PRESTAMO_INTERAREA_ABIERTOS.has(e);
+}
+
 export function etiquetaEstadoPrestamo(p) {
   const e = p?.estado;
   if (e === 'pendiente_admin') return 'Pendiente admin';
@@ -334,14 +359,17 @@ export function etiquetaEstadoPrestamo(p) {
   if (e === 'pendiente_cobro') return 'Pendiente de cobro';
   if (e === 'rechazado') return 'Rechazado';
   if (e === 'cancelado') return 'Cancelado';
-  if (e === 'liquidado') return 'Liquidado';
+  if (e === 'liquidado' || e === 'recuperado') return e === 'recuperado' ? 'Recuperado' : 'Liquidado';
+  if (e === 'recuperar') return 'Recuperar';
+  if (e === 'por_recolectar') return 'Por recolectar';
   if (e === 'activo') return 'Activo';
   return e || '—';
 }
 
-/** Usuario y sucursal desde donde se liquidó un préstamo entre áreas. */
+/** Usuario y sucursal desde donde se liquidó/recuperó un préstamo entre áreas. */
 export function etiquetaLiquidacionPrestamo(p) {
-  if (String(p?.estado || '') !== 'liquidado') return '';
+  const est = String(p?.estado || '');
+  if (est !== 'liquidado' && est !== 'recuperado') return '';
   const quien = String(p?.liquidado_por || '').trim();
   const donde = String(p?.liquidado_sucursal || '').trim();
   if (!quien && !donde) return '';
