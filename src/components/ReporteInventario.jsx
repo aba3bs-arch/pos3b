@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import FiltroPeriodo from './FiltroPeriodo.jsx';
 import { BtnLabel } from './Icon.jsx';
 import { imprimirReporte } from '../lib/impresion.js';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
 import { etiquetaDepartamento } from '../lib/departamentos.js';
 import {
   PRESETS_REPORTE_INVENTARIO,
@@ -21,6 +21,11 @@ import {
   totalesLineasProducto,
 } from '../lib/reporteInventario.js';
 import { puedeAjustarInventario } from '../lib/roles.js';
+import {
+  calcularMermaYEfectividad,
+  cargarResultadoInventario,
+  guardarResultadoInventario,
+} from '../lib/resultadoInventario.js';
 
 function toCsv(rows, columns) {
   const esc = (v) => {
@@ -238,41 +243,21 @@ export default function ReporteInventario({
   const [lineaEdit, setLineaEdit] = useState(null);
   const [guardandoCorreccion, setGuardandoCorreccion] = useState(false);
   const [errorCorreccion, setErrorCorreccion] = useState('');
-  /** Valor físico total capturado a mano (comparación, no altera el sistema). */
+  /** Valor físico total capturado a mano (comparación + bono; no altera el stock). */
   const [resultadoManual, setResultadoManual] = useState('');
+  const [guardandoResultado, setGuardandoResultado] = useState(false);
+  const [avisoResultado, setAvisoResultado] = useState('');
+  const [estadoResultado, setEstadoResultado] = useState('');
+  const [metaResultado, setMetaResultado] = useState(null);
 
   const puedeEditar = Boolean(supabase && puedeAjustarInventario(user?.rol));
   const catalogo = inventarioCompleto?.length ? inventarioCompleto : inventario;
-
-  const claveResultadoManual = useMemo(
-    () => `pos3b_resultado_inv_${tienda || 'TODAS'}_${rango.desde || ''}_${rango.hasta || ''}`,
-    [tienda, rango.desde, rango.hasta],
-  );
-
-  useEffect(() => {
-    if (!abierto || !rango.desde) return;
-    try {
-      const raw = localStorage.getItem(claveResultadoManual);
-      setResultadoManual(raw != null ? String(raw) : '');
-    } catch {
-      setResultadoManual('');
-    }
-  }, [abierto, claveResultadoManual, rango.desde]);
-
-  const guardarResultadoManual = (raw) => {
-    setResultadoManual(raw);
-    try {
-      if (String(raw).trim() === '') localStorage.removeItem(claveResultadoManual);
-      else localStorage.setItem(claveResultadoManual, String(raw).trim());
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const resultadoManualNum = useMemo(() => {
-    const n = Number(String(resultadoManual).replace(/,/g, ''));
-    return Number.isFinite(n) ? n : null;
-  }, [resultadoManual]);
+  /** Tienda concreta para guardar resultado / bono (no "Todas" ni MAIN). */
+  const tiendaResultado = useMemo(() => {
+    if (tienda && !esAlmacenCentral(tienda)) return tienda;
+    if (!tienda && sucursal && !esAlmacenCentral(sucursal)) return sucursal;
+    return '';
+  }, [tienda, sucursal]);
 
   const tiendas = useMemo(() => {
     const base = tiendasParaFiltroInventario(sucursal, sucursalesLista);
@@ -347,21 +332,106 @@ export default function ReporteInventario({
     () => enriquecerTotalesConReferencia(totalesLineasProducto(lineasProducto), referencia),
     [lineasProducto, referencia],
   );
-  /** Faltante y % merma a partir del total contado manual vs inventario sistema. */
-  const mermaManual = useMemo(() => {
+
+  const resultadoManualNum = useMemo(() => {
+    const n = Number(String(resultadoManual).replace(/,/g, ''));
+    return Number.isFinite(n) ? n : null;
+  }, [resultadoManual]);
+
+  /** Merma (bono) + efectividad del conteo vs resultado manual. */
+  const analisisManual = useMemo(() => {
     const sistema = Number(totalesGenerales?.referencia?.valorSistema);
-    if (resultadoManualNum == null || !(sistema > 0)) return null;
-    const diferencia = resultadoManualNum - sistema;
-    const faltante = Math.max(0, sistema - resultadoManualNum);
-    const pctMerma = Math.round((faltante / sistema) * 10000) / 100;
-    return {
-      sistema,
-      contado: resultadoManualNum,
-      diferencia,
-      faltante: Math.round(faltante * 100) / 100,
-      pctMerma,
+    const contadoSis = Number(totalesGenerales?.valorContado);
+    if (resultadoManualNum == null) return null;
+    return calcularMermaYEfectividad(
+      resultadoManualNum,
+      Number.isFinite(sistema) ? sistema : null,
+      Number.isFinite(contadoSis) ? contadoSis : null,
+    );
+  }, [
+    resultadoManualNum,
+    totalesGenerales?.referencia?.valorSistema,
+    totalesGenerales?.valorContado,
+  ]);
+
+  useEffect(() => {
+    if (!abierto || !rango.desde || !rango.hasta) return undefined;
+    if (!tiendaResultado) {
+      setResultadoManual('');
+      setMetaResultado(null);
+      setAvisoResultado('Elige una tienda operativa para capturar el resultado de inventario.');
+      return undefined;
+    }
+    let cancel = false;
+    setAvisoResultado('');
+    setEstadoResultado('');
+    cargarResultadoInventario(supabase, {
+      sucursal: tiendaResultado,
+      desde: rango.desde,
+      hasta: rango.hasta,
+    }).then((r) => {
+      if (cancel) return;
+      if (r.aviso) setAvisoResultado(r.aviso);
+      if (r.registro?.valor_contado != null) {
+        setResultadoManual(String(r.registro.valor_contado));
+        setMetaResultado(r.registro);
+      } else {
+        setResultadoManual('');
+        setMetaResultado(null);
+      }
+    });
+    return () => {
+      cancel = true;
     };
-  }, [resultadoManualNum, totalesGenerales?.referencia?.valorSistema]);
+  }, [abierto, supabase, tiendaResultado, rango.desde, rango.hasta]);
+
+  const persistirResultadoManual = async (raw) => {
+    const valor = String(raw ?? resultadoManual).trim();
+    if (!tiendaResultado) {
+      setAvisoResultado('Elige una tienda (no "Todas") para guardar el resultado.');
+      return;
+    }
+    if (!rango.desde || !rango.hasta) {
+      setAvisoResultado('Espera a que cargue el periodo del reporte.');
+      return;
+    }
+    setGuardandoResultado(true);
+    setAvisoResultado('');
+    setEstadoResultado('');
+    try {
+      const r = await guardarResultadoInventario(supabase, {
+        sucursal: tiendaResultado,
+        desde: rango.desde,
+        hasta: rango.hasta,
+        valorContado: valor === '' ? null : valor,
+        valorSistema: totalesGenerales?.referencia?.valorSistema ?? null,
+        valorContadoSistema: totalesGenerales?.valorContado ?? null,
+        usuario: user?.nombre || user?.email || user?.id || '—',
+      });
+      if (!r.ok) {
+        setAvisoResultado(r.error || 'No se pudo guardar.');
+        return;
+      }
+      if (r.aviso) setAvisoResultado(r.aviso);
+      if (r.borrado) {
+        setResultadoManual('');
+        setMetaResultado(null);
+        setEstadoResultado('Resultado borrado.');
+      } else {
+        setMetaResultado(r.registro || null);
+        setEstadoResultado(
+          r.registro?.fuente === 'nube'
+            ? 'Guardado en nube · se usa para el bono y la efectividad del conteo.'
+            : 'Guardado en este dispositivo · ejecuta el SQL para sincronizar el bono en todas las cajas.',
+        );
+      }
+    } catch (e) {
+      setAvisoResultado(e?.message || String(e));
+    } finally {
+      setGuardandoResultado(false);
+    }
+  };
+
   const totalesVista = useMemo(
     () => totalesLineasProducto(lineasVisibles),
     [lineasVisibles],
@@ -432,8 +502,11 @@ export default function ReporteInventario({
               ? `Inventario total: ${fmtMxnReporte(ref.valorSistema)} · Merma: ${fmtMxnReporte(t.valorFaltante)} · % merma total: ${fmtPctReporte(t.pctMermaTotal ?? 0)}`
               : null,
             `% merma (contado): ${fmtPctReporte(t.pctMerma)}`,
-            mermaManual
-              ? `Resultado manual: contado ${fmtMxnReporte(mermaManual.contado)} · faltante ${fmtMxnReporte(mermaManual.faltante)} · % merma ${fmtPctReporte(mermaManual.pctMerma)}`
+            analisisManual?.pctMerma != null
+              ? `Resultado manual: contado ${fmtMxnReporte(analisisManual.valorManual)} · faltante ${fmtMxnReporte(analisisManual.faltante)} · % merma ${fmtPctReporte(analisisManual.pctMerma)}`
+              : null,
+            analisisManual?.pctEfectividad != null
+              ? `Efectividad del conteo: ${fmtPctReporte(analisisManual.pctEfectividad)} (contado sistema ${fmtMxnReporte(analisisManual.valorContadoSistema)} vs manual ${fmtMxnReporte(analisisManual.valorManual)})`
               : null,
           ].filter(Boolean),
         },
@@ -471,8 +544,8 @@ export default function ReporteInventario({
       <div className="card">
         <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>Inventario (auditoría)</h3>
         <p className="muted" style={{ marginTop: 0 }}>
-          Detalle por departamento: no. de ajuste, código, producto, inv. teórico, contado, diferencia y % merma.
-          Incluye todos los artículos contados al aplicar.
+          Detalle por departamento, merma vs sistema, captura manual del resultado para el bono y efectividad del
+          conteo.
         </p>
         <button type="button" className="btn btn-primary" onClick={() => setAbierto(true)}>
           <BtnLabel icon="chart">Reporte de inventario</BtnLabel>
@@ -667,55 +740,159 @@ export default function ReporteInventario({
         >
           <div style={{ fontWeight: 700, marginBottom: '0.35rem' }}>Resultado de inventario (manual)</div>
           <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.8rem' }}>
-            Escribe el total en pesos que obtuviste al contar en físico. Se calcula faltante y % merma vs inventario
-            sistema. Solo sirve para comparar; no cambia el sistema.
+            Captura el total en pesos del conteo físico. Ese valor alimenta la merma del bono y se compara con el
+            conteo del sistema para medir la efectividad. No altera el stock.
           </p>
-          <label className="muted" style={{ display: 'block', fontSize: '0.85rem', maxWidth: 280 }}>
-            Total contado ($)
-            <input
-              className="input"
-              type="text"
-              inputMode="decimal"
-              placeholder="Ej. 125430.50"
-              style={{ marginTop: '0.35rem', fontSize: '1.05rem' }}
-              value={resultadoManual}
-              onChange={(e) => guardarResultadoManual(e.target.value)}
-            />
-          </label>
-          {mermaManual ? (
-            <div style={{ margin: '0.5rem 0 0', fontSize: '0.88rem' }}>
-              <p style={{ margin: 0 }}>
-                Sistema: <strong>{fmtMxnReporte(mermaManual.sistema)}</strong>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem', alignItems: 'flex-end' }}>
+            <label className="muted" style={{ display: 'block', fontSize: '0.85rem', maxWidth: 280, flex: '1 1 200px' }}>
+              Total contado ($)
+              <input
+                className="input"
+                type="text"
+                inputMode="decimal"
+                placeholder="Ej. 125430.50"
+                style={{ marginTop: '0.35rem', fontSize: '1.05rem' }}
+                value={resultadoManual}
+                onChange={(e) => {
+                  setResultadoManual(e.target.value);
+                  setEstadoResultado('');
+                }}
+                disabled={guardandoResultado || !tiendaResultado}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={guardandoResultado || !tiendaResultado || !rango.desde}
+              onClick={() => persistirResultadoManual(resultadoManual)}
+            >
+              {guardandoResultado ? 'Guardando…' : 'Guardar resultado'}
+            </button>
+            {resultadoManual.trim() !== '' ? (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={guardandoResultado || !tiendaResultado}
+                onClick={() => persistirResultadoManual('')}
+              >
+                Borrar
+              </button>
+            ) : null}
+          </div>
+          {!tiendaResultado ? (
+            <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem' }}>
+              Elige la tienda en el filtro para guardar el resultado (se usa en el bono de esa sucursal).
+            </p>
+          ) : null}
+          {avisoResultado ? (
+            <p style={{ margin: '0.5rem 0 0', fontSize: '0.8rem', color: 'var(--brand-red, #b45309)' }}>
+              {avisoResultado}
+            </p>
+          ) : null}
+          {estadoResultado ? (
+            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.8rem', color: 'var(--brand-blue)' }}>
+              {estadoResultado}
+              {metaResultado?.updated_at
+                ? ` · ${new Date(metaResultado.updated_at).toLocaleString('es-MX')}`
+                : ''}
+            </p>
+          ) : null}
+
+          {analisisManual?.pctMerma != null ? (
+            <div style={{ margin: '0.65rem 0 0', fontSize: '0.88rem' }}>
+              <p style={{ margin: 0, fontWeight: 600, color: 'var(--brand-blue)' }}>Merma para bono</p>
+              <p style={{ margin: '0.25rem 0 0' }}>
+                Sistema: <strong>{fmtMxnReporte(analisisManual.valorSistema)}</strong>
                 {' · '}
-                Tu conteo: <strong>{fmtMxnReporte(mermaManual.contado)}</strong>
+                Tu conteo: <strong>{fmtMxnReporte(analisisManual.valorManual)}</strong>
                 {' · '}
                 Diferencia:{' '}
                 <strong
                   style={{
-                    color: mermaManual.diferencia < 0 ? 'var(--brand-red, #c0392b)' : 'var(--brand-gold-dark)',
+                    color:
+                      analisisManual.diferenciaManualVsSistema < 0
+                        ? 'var(--brand-red, #c0392b)'
+                        : 'var(--brand-gold-dark)',
                   }}
                 >
-                  {fmtMxnReporte(mermaManual.diferencia)}
+                  {fmtMxnReporte(analisisManual.diferenciaManualVsSistema)}
                 </strong>
               </p>
-              <p style={{ margin: '0.4rem 0 0' }}>
+              <p style={{ margin: '0.35rem 0 0' }}>
                 Faltante:{' '}
                 <strong style={{ color: 'var(--brand-red, #c0392b)' }}>
-                  {fmtMxnReporte(mermaManual.faltante)}
+                  {fmtMxnReporte(analisisManual.faltante)}
                 </strong>
                 {' · '}
                 % merma:{' '}
                 <strong style={{ color: 'var(--brand-red, #c0392b)', fontSize: '1.05rem' }}>
-                  {fmtPctReporte(mermaManual.pctMerma)}
+                  {fmtPctReporte(analisisManual.pctMerma)}
                 </strong>
                 <span className="muted" style={{ fontSize: '0.75rem', marginLeft: '0.35rem' }}>
-                  (faltante ÷ inventario sistema)
+                  (faltante ÷ inventario sistema · regla del bono)
                 </span>
               </p>
             </div>
           ) : resultadoManualNum != null && !totalesGenerales.referencia?.valorSistema ? (
             <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem' }}>
               Elige la tienda en el filtro para calcular faltante y % merma sobre el inventario sistema.
+            </p>
+          ) : null}
+
+          {analisisManual?.pctEfectividad != null ? (
+            <div
+              style={{
+                margin: '0.75rem 0 0',
+                padding: '0.65rem 0.75rem',
+                borderRadius: 10,
+                background: 'color-mix(in srgb, var(--brand-gold, #c9a227) 10%, var(--surface))',
+                border: '1px solid color-mix(in srgb, var(--brand-gold, #c9a227) 35%, transparent)',
+              }}
+            >
+              <p style={{ margin: 0, fontWeight: 700, color: 'var(--brand-blue)' }}>Efectividad del conteo</p>
+              <p className="muted" style={{ margin: '0.25rem 0 0.4rem', fontSize: '0.78rem' }}>
+                Qué tan cerca quedó el total del conteo en sistema respecto al resultado físico capturado.
+              </p>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                  gap: '0.5rem',
+                  fontSize: '0.85rem',
+                }}
+              >
+                <div>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>Resultado manual</div>
+                  <strong>{fmtMxnReporte(analisisManual.valorManual)}</strong>
+                </div>
+                <div>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>Contado en sistema</div>
+                  <strong>{fmtMxnReporte(analisisManual.valorContadoSistema)}</strong>
+                </div>
+                <div>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>Diferencia</div>
+                  <strong
+                    style={{
+                      color:
+                        Math.abs(analisisManual.diferenciaConteoVsManual) < 0.01
+                          ? undefined
+                          : 'var(--brand-red, #c0392b)',
+                    }}
+                  >
+                    {fmtMxnReporte(analisisManual.diferenciaConteoVsManual)}
+                  </strong>
+                </div>
+                <div>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>Efectividad</div>
+                  <strong style={{ fontSize: '1.15rem', color: 'var(--brand-blue)' }}>
+                    {fmtPctReporte(analisisManual.pctEfectividad)}
+                  </strong>
+                </div>
+              </div>
+            </div>
+          ) : resultadoManualNum != null && !(Number(totalesGenerales?.valorContado) > 0) ? (
+            <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem' }}>
+              Aplica conteos en el periodo para comparar la efectividad (total contado en sistema vs tu resultado).
             </p>
           ) : null}
         </div>

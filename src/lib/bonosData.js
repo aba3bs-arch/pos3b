@@ -17,6 +17,7 @@ import {
   pctPorReglasCumplidas,
   sincronizarBonosConfigDesdeNube,
 } from './bonosConfig.js';
+import { resultadoInventarioParaBono } from './resultadoInventario.js';
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -119,9 +120,34 @@ async function faltantePeriodo(supabase, sucursal, desde, hasta) {
   return { total, ok: total <= 0.009 };
 }
 
-/** Merma % = valor retiros merma / valor inventario a costo. */
+/**
+ * Merma % para bono.
+ * Preferencia: resultado manual de inventario (Reportes → Inventario) si existe en el periodo.
+ * Fallback: valor retiros merma / valor inventario a costo.
+ */
 async function mermaPctPeriodo(supabase, sucursal, desde, hasta, inventario = []) {
   const suc = normalizarCodigoTienda(sucursal);
+
+  const manual = await resultadoInventarioParaBono(supabase, { sucursal: suc, desde, hasta });
+  const reg = manual.registro;
+  if (reg && reg.pct_merma != null && Number.isFinite(Number(reg.pct_merma))) {
+    const pct = round2(Number(reg.pct_merma));
+    const valorInventario = Number(reg.valor_sistema) > 0
+      ? round2(Number(reg.valor_sistema))
+      : 0;
+    const valorMerma = Number(reg.valor_faltante) >= 0
+      ? round2(Number(reg.valor_faltante))
+      : (valorInventario > 0 ? round2(valorInventario * (pct / 100)) : 0);
+    return {
+      pct,
+      valorMerma,
+      valorInventario,
+      fuente: 'resultado_manual',
+      efectividad: reg.pct_efectividad != null ? round2(Number(reg.pct_efectividad)) : null,
+      periodoResultado: { desde: reg.desde, hasta: reg.hasta },
+    };
+  }
+
   const inv = inventarioParaSucursal(inventario, suc);
   const valor = resumirValorInventario(inv);
   const denom = Number(valor.valorCosto) > 0 ? Number(valor.valorCosto) : Number(valor.valorTotal) || 0;
@@ -158,7 +184,7 @@ async function mermaPctPeriodo(supabase, sucursal, desde, hasta, inventario = []
   }
 
   const pct = denom > 0 ? round2((valorMerma / denom) * 100) : (valorMerma > 0 ? 100 : 0);
-  return { pct, valorMerma, valorInventario: denom };
+  return { pct, valorMerma, valorInventario: denom, fuente: 'movimientos' };
 }
 
 async function evaluacionPct(supabase, sucursal) {
@@ -269,12 +295,15 @@ export async function calcularBonoSucursal(supabase, {
     const maxPct = Number(reglasCfg.mermaMaxPct.maxPct) || 2.5;
     const ok = merma.pct <= maxPct;
     if (ok) cumplidas += 1;
+    const fuenteLabel = merma.fuente === 'resultado_manual' ? ' · resultado manual' : '';
     detalleReglas.push({
       id: 'mermaMaxPct',
       label: reglasCfg.mermaMaxPct.label,
       ok,
-      valor: `${merma.pct}%`,
+      valor: `${merma.pct}%${fuenteLabel}`,
       requerido: `≤ ${maxPct}%`,
+      fuente: merma.fuente || 'movimientos',
+      efectividad: merma.efectividad ?? null,
     });
   }
 
@@ -331,6 +360,8 @@ export async function calcularBonoSucursal(supabase, {
     metricas: {
       faltante: falt.total,
       mermaPct: merma.pct,
+      mermaFuente: merma.fuente || 'movimientos',
+      efectividadConteo: merma.efectividad ?? null,
       evaluacionPct: evalRes.pct,
       checklist: check,
     },
