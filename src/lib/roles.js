@@ -505,6 +505,16 @@ export function puedeAjustarInventario(rol) {
   return ['Administrador', 'Gerente', 'Supervisor', 'Auditor', 'Repartidor'].includes(r);
 }
 
+/**
+ * Captura manual de resultado de inventario para bono
+ * (total, faltante, bonificación): solo Administrador o Auditor.
+ * Las sucursales pueden verlo, no modificarlo.
+ */
+export function puedeCapturarResultadoInventarioBono(rol) {
+  const r = rolSistemaEfectivo(rol);
+  return r === 'Administrador' || r === 'Auditor';
+}
+
 /** Traspasos entre tiendas / CEDIS. */
 export function puedeTraspasarInventario(rol) {
   if (esRolMostradorRestringido(rol)) return true;

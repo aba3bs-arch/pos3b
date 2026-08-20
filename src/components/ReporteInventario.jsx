@@ -20,7 +20,7 @@ import {
   tiendasParaFiltroInventario,
   totalesLineasProducto,
 } from '../lib/reporteInventario.js';
-import { puedeAjustarInventario } from '../lib/roles.js';
+import { puedeAjustarInventario, puedeCapturarResultadoInventarioBono } from '../lib/roles.js';
 import {
   calcularResultadoInventarioCampos,
   cargarResultadoInventario,
@@ -244,15 +244,17 @@ export default function ReporteInventario({
   const [lineaEdit, setLineaEdit] = useState(null);
   const [guardandoCorreccion, setGuardandoCorreccion] = useState(false);
   const [errorCorreccion, setErrorCorreccion] = useState('');
-  /** Campos manuales para bono: total + faltante. */
+  /** Campos manuales para bono: total + faltante + bonificación (solo Admin/Auditor). */
   const [totalInventarioManual, setTotalInventarioManual] = useState('');
   const [faltanteInventarioManual, setFaltanteInventarioManual] = useState('');
+  const [bonificacionManual, setBonificacionManual] = useState('');
   const [guardandoResultado, setGuardandoResultado] = useState(false);
   const [avisoResultado, setAvisoResultado] = useState('');
   const [estadoResultado, setEstadoResultado] = useState('');
   const [metaResultado, setMetaResultado] = useState(null);
 
   const puedeEditar = Boolean(supabase && puedeAjustarInventario(user?.rol));
+  const puedeCapturarBono = Boolean(puedeCapturarResultadoInventarioBono(user?.rol));
   const catalogo = inventarioCompleto?.length ? inventarioCompleto : inventario;
   /** Tienda concreta para guardar resultado / bono (no "Todas" ni MAIN). */
   const tiendaResultado = useMemo(() => {
@@ -343,11 +345,15 @@ export default function ReporteInventario({
     () => parseNumInventario(faltanteInventarioManual),
     [faltanteInventarioManual],
   );
+  const bonificacionNum = useMemo(
+    () => parseNumInventario(bonificacionManual) ?? 0,
+    [bonificacionManual],
+  );
 
-  /** Campos 3 y 4 calculados en vivo a partir de total + faltante. */
+  /** Campos auto: inv. post-ajuste y % merma (faltante − bonificación). */
   const analisisManual = useMemo(
-    () => calcularResultadoInventarioCampos(totalInventarioNum, faltanteInventarioNum),
-    [totalInventarioNum, faltanteInventarioNum],
+    () => calcularResultadoInventarioCampos(totalInventarioNum, faltanteInventarioNum, bonificacionNum),
+    [totalInventarioNum, faltanteInventarioNum, bonificacionNum],
   );
 
   useEffect(() => {
@@ -355,8 +361,9 @@ export default function ReporteInventario({
     if (!tiendaResultado) {
       setTotalInventarioManual('');
       setFaltanteInventarioManual('');
+      setBonificacionManual('');
       setMetaResultado(null);
-      setAvisoResultado('Elige una tienda operativa para capturar el resultado de inventario.');
+      setAvisoResultado('Elige una tienda operativa para ver/capturar el resultado de inventario.');
       return undefined;
     }
     let cancel = false;
@@ -374,10 +381,16 @@ export default function ReporteInventario({
         setFaltanteInventarioManual(
           r.registro.valor_faltante != null ? String(r.registro.valor_faltante) : '',
         );
+        setBonificacionManual(
+          r.registro.valor_bonificacion != null && Number(r.registro.valor_bonificacion) !== 0
+            ? String(r.registro.valor_bonificacion)
+            : '',
+        );
         setMetaResultado(r.registro);
       } else {
         setTotalInventarioManual('');
         setFaltanteInventarioManual('');
+        setBonificacionManual('');
         setMetaResultado(null);
       }
     });
@@ -387,6 +400,10 @@ export default function ReporteInventario({
   }, [abierto, supabase, tiendaResultado, rango.desde, rango.hasta]);
 
   const persistirResultadoManual = async ({ borrar = false } = {}) => {
+    if (!puedeCapturarBono) {
+      setAvisoResultado('Solo Administrador o Auditor pueden capturar o modificar estos datos.');
+      return;
+    }
     if (!tiendaResultado) {
       setAvisoResultado('Elige una tienda (no "Todas") para guardar el resultado.');
       return;
@@ -405,6 +422,7 @@ export default function ReporteInventario({
         hasta: rango.hasta,
         totalInventario: borrar ? null : totalInventarioManual,
         faltante: borrar ? null : faltanteInventarioManual,
+        bonificacion: borrar ? null : bonificacionManual,
         valorSistema: totalesGenerales?.referencia?.valorSistema ?? null,
         valorContadoSistema: totalesGenerales?.valorContado ?? null,
         usuario: user?.nombre || user?.email || user?.id || '—',
@@ -417,6 +435,7 @@ export default function ReporteInventario({
       if (r.borrado) {
         setTotalInventarioManual('');
         setFaltanteInventarioManual('');
+        setBonificacionManual('');
         setMetaResultado(null);
         setEstadoResultado('Resultado borrado.');
       } else {
@@ -427,9 +446,14 @@ export default function ReporteInventario({
         if (r.registro?.valor_faltante != null) {
           setFaltanteInventarioManual(String(r.registro.valor_faltante));
         }
+        if (r.registro?.valor_bonificacion != null) {
+          setBonificacionManual(
+            Number(r.registro.valor_bonificacion) !== 0 ? String(r.registro.valor_bonificacion) : '',
+          );
+        }
         setEstadoResultado(
           r.registro?.fuente === 'nube'
-            ? 'Guardado · el % merma se usa para el bono de esta tienda.'
+            ? 'Guardado · el % merma (faltante − bonificación) se usa para el bono.'
             : 'Guardado en este dispositivo · ejecuta el SQL para sincronizar el bono en todas las cajas.',
         );
       }
@@ -511,7 +535,7 @@ export default function ReporteInventario({
               : null,
             `% merma (contado): ${fmtPctReporte(t.pctMerma)}`,
             analisisManual?.pctMerma != null
-              ? `Resultado manual: total ${fmtMxnReporte(analisisManual.totalInventario)} · faltante ${fmtMxnReporte(analisisManual.faltante)} · inv. después ajuste ${fmtMxnReporte(analisisManual.invDespuesAjuste)} · merma ${fmtPctReporte(analisisManual.pctMerma)}`
+              ? `Resultado manual: total ${fmtMxnReporte(analisisManual.totalInventario)} · faltante ${fmtMxnReporte(analisisManual.faltante)} · bonif. ${fmtMxnReporte(analisisManual.bonificacion)} · neto ${fmtMxnReporte(analisisManual.faltanteNeto)} · inv. después ${fmtMxnReporte(analisisManual.invDespuesAjuste)} · merma ${fmtPctReporte(analisisManual.pctMerma)}`
               : null,
           ].filter(Boolean),
         },
@@ -744,14 +768,15 @@ export default function ReporteInventario({
         >
           <div style={{ fontWeight: 700, marginBottom: '0.35rem' }}>Resultado de inventario (para bono)</div>
           <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.8rem' }}>
-            Captura a mano el total y el faltante. El sistema calcula el inventario después del ajuste y el % de
-            merma; ese % alimenta la regla de merma del bono. No altera el stock.
+            {puedeCapturarBono
+              ? 'Captura total, faltante y bonificación. La bonificación se descuenta del faltante para el % de merma del bono. No altera el stock.'
+              : 'Solo lectura: Administrador o Auditor capturan total, faltante y bonificación. Las sucursales no pueden modificar estos datos.'}
           </p>
 
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
               gap: '0.65rem',
               alignItems: 'end',
             }}
@@ -766,10 +791,12 @@ export default function ReporteInventario({
                 style={{ marginTop: '0.35rem', fontSize: '1.05rem', width: '100%' }}
                 value={totalInventarioManual}
                 onChange={(e) => {
+                  if (!puedeCapturarBono) return;
                   setTotalInventarioManual(e.target.value);
                   setEstadoResultado('');
                 }}
-                disabled={guardandoResultado || !tiendaResultado}
+                readOnly={!puedeCapturarBono}
+                disabled={guardandoResultado || !tiendaResultado || !puedeCapturarBono}
               />
             </label>
             <label className="muted" style={{ display: 'block', fontSize: '0.82rem' }}>
@@ -782,12 +809,51 @@ export default function ReporteInventario({
                 style={{ marginTop: '0.35rem', fontSize: '1.05rem', width: '100%' }}
                 value={faltanteInventarioManual}
                 onChange={(e) => {
+                  if (!puedeCapturarBono) return;
                   setFaltanteInventarioManual(e.target.value);
                   setEstadoResultado('');
                 }}
-                disabled={guardandoResultado || !tiendaResultado}
+                readOnly={!puedeCapturarBono}
+                disabled={guardandoResultado || !tiendaResultado || !puedeCapturarBono}
               />
             </label>
+            <label className="muted" style={{ display: 'block', fontSize: '0.82rem' }}>
+              Bonificación ($)
+              <input
+                className="input"
+                type="text"
+                inputMode="decimal"
+                placeholder="Ej. 500"
+                style={{ marginTop: '0.35rem', fontSize: '1.05rem', width: '100%' }}
+                value={bonificacionManual}
+                onChange={(e) => {
+                  if (!puedeCapturarBono) return;
+                  setBonificacionManual(e.target.value);
+                  setEstadoResultado('');
+                }}
+                readOnly={!puedeCapturarBono}
+                disabled={guardandoResultado || !tiendaResultado || !puedeCapturarBono}
+              />
+              <span style={{ display: 'block', fontSize: '0.68rem', marginTop: 2 }}>
+                Se descuenta del faltante
+              </span>
+            </label>
+            <div
+              style={{
+                padding: '0.55rem 0.65rem',
+                borderRadius: 10,
+                background: 'var(--surface)',
+                border: '1px solid var(--border, rgba(0,0,0,0.1))',
+              }}
+            >
+              <div className="muted" style={{ fontSize: '0.72rem' }}>Faltante neto</div>
+              <strong style={{ fontSize: '1.05rem', color: 'var(--brand-red, #c0392b)' }}>
+                {analisisManual.faltanteNeto != null
+                  ? fmtMxnReporte(analisisManual.faltanteNeto)
+                  : '—'}
+              </strong>
+              <div className="muted" style={{ fontSize: '0.68rem' }}>faltante − bonificación</div>
+            </div>
             <div
               style={{
                 padding: '0.55rem 0.65rem',
@@ -802,7 +868,7 @@ export default function ReporteInventario({
                   ? fmtMxnReporte(analisisManual.invDespuesAjuste)
                   : '—'}
               </strong>
-              <div className="muted" style={{ fontSize: '0.68rem' }}>total − faltante</div>
+              <div className="muted" style={{ fontSize: '0.68rem' }}>total − faltante neto</div>
             </div>
             <div
               style={{
@@ -816,40 +882,48 @@ export default function ReporteInventario({
               <strong style={{ fontSize: '1.2rem', color: 'var(--brand-red, #c0392b)' }}>
                 {analisisManual.pctMerma != null ? fmtPctReporte(analisisManual.pctMerma) : '—'}
               </strong>
-              <div className="muted" style={{ fontSize: '0.68rem' }}>faltante ÷ total · bono</div>
+              <div className="muted" style={{ fontSize: '0.68rem' }}>faltante neto ÷ total · bono</div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
-            <button
-              type="button"
-              className="btn btn-primary"
-              disabled={
-                guardandoResultado
-                || !tiendaResultado
-                || !rango.desde
-                || totalInventarioNum == null
-                || faltanteInventarioNum == null
-              }
-              onClick={() => persistirResultadoManual()}
-            >
-              {guardandoResultado ? 'Guardando…' : 'Guardar para bono'}
-            </button>
-            {(totalInventarioManual.trim() !== '' || faltanteInventarioManual.trim() !== '') ? (
+          {puedeCapturarBono ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
               <button
                 type="button"
-                className="btn btn-ghost"
-                disabled={guardandoResultado || !tiendaResultado}
-                onClick={() => persistirResultadoManual({ borrar: true })}
+                className="btn btn-primary"
+                disabled={
+                  guardandoResultado
+                  || !tiendaResultado
+                  || !rango.desde
+                  || totalInventarioNum == null
+                  || faltanteInventarioNum == null
+                }
+                onClick={() => persistirResultadoManual()}
               >
-                Borrar
+                {guardandoResultado ? 'Guardando…' : 'Guardar para bono'}
               </button>
-            ) : null}
-          </div>
+              {(totalInventarioManual.trim() !== ''
+                || faltanteInventarioManual.trim() !== ''
+                || bonificacionManual.trim() !== '') ? (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={guardandoResultado || !tiendaResultado}
+                  onClick={() => persistirResultadoManual({ borrar: true })}
+                >
+                  Borrar
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
+              Sin permiso de edición (se requiere Administrador o Auditor).
+            </p>
+          )}
 
           {!tiendaResultado ? (
             <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem' }}>
-              Elige la tienda en el filtro para guardar el resultado (se usa en el bono de esa sucursal).
+              Elige la tienda en el filtro para ver el resultado de esa sucursal.
             </p>
           ) : null}
           {avisoResultado ? (
