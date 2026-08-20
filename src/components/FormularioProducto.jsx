@@ -317,7 +317,7 @@ export default function FormularioProducto({
       <div style={{ marginTop: '1.25rem', padding: '1rem', borderRadius: '12px', background: 'var(--surface)', border: '1px solid var(--border)' }}>
         <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)', fontSize: '0.95rem' }}>Precio de compra</h4>
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.75rem' }}>
-          El <strong>con impuestos</strong> es el precio de Venta en Ruta / CEDIS (no el de mostrador).
+          Costo de compra del producto. El precio de <strong>Venta en Ruta</strong> es aparte (sin impuestos).
         </p>
         <div className="grid-2">
           <label className="muted">
@@ -333,7 +333,7 @@ export default function FormularioProducto({
             />
           </label>
           <label className="muted">
-            Con impuestos (MXN) — CEDIS Ruta
+            Con impuestos (MXN)
             <input
               className="input"
               type="number"
@@ -345,6 +345,18 @@ export default function FormularioProducto({
             />
           </label>
         </div>
+        <label className="muted" style={{ display: 'block', marginTop: '0.75rem' }}>
+          Precio Venta en Ruta (MXN, sin impuestos)
+          <input
+            className="input"
+            type="number"
+            step="0.01"
+            min={0}
+            style={{ marginTop: '0.35rem', fontWeight: 700, borderColor: '#0f766e' }}
+            value={form.precio_ruta ?? 0}
+            onChange={(e) => setCampo('precio_ruta', parseFloat(e.target.value) || 0)}
+          />
+        </label>
       </div>
 
       <div style={{ marginTop: '0.75rem', padding: '1rem', borderRadius: '12px', background: 'rgba(59,105,181,0.06)', border: '1px solid rgba(59,105,181,0.2)' }}>

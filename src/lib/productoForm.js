@@ -113,6 +113,7 @@ export function productoVacio() {
     impuesto: IVA_DEFAULT,
     precio_compra_sin: 0,
     precio_compra_con: 0,
+    precio_ruta: 0,
     ganancia_pct: GANANCIA_DEFAULT,
     precio_venta_sin: 0,
     precio_venta_con: 0,

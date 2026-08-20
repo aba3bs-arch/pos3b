@@ -1189,7 +1189,7 @@ function App() {
           {vista === 'Cobranza' && (
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
-              <CobranzaRuta supabase={supabase} user={user} />
+              <CobranzaRuta supabase={supabase} user={user} sucursal={sucursal} />
             </>
           )}
           {vista === 'Vales y Préstamos' && (

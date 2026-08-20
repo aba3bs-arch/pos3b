@@ -34,11 +34,11 @@ const DESCRIPCIONES = {
   },
   Crédito: {
     desc: 'Cartera por cobrar de Venta en Ruta',
-    ayuda: 'Saldos de crédito CEDIS Ruta. El vendedor cobra en Cobranza; no puede ajustar cuentas a mano.',
+    ayuda: 'Consulta de saldos. El pago lo hace el cajero en Cobranza con PIN.',
   },
   Cobranza: {
-    desc: 'Cobro de créditos de ruta (vendedor)',
-    ayuda: 'Abonos a créditos. El cobro en efectivo entra a la cuenta efectivo de ruta automáticamente.',
+    desc: 'Pagar créditos de ruta (cajero + PIN)',
+    ayuda: 'Selecciona créditos, ingresa PIN. Gasto abarrotes «credito liquidado» + efectivo a tránsito.',
   },
 };
 
