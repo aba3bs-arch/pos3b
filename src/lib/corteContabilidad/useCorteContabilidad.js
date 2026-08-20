@@ -60,6 +60,18 @@ async function sellarPrestamosColectados({
   } catch {
     /* no bloquear la recolección */
   }
+  // Recolección de Virtual con deuda abierta de abarrotes → por_recolectar
+  if (String(modulo || '').toLowerCase() === 'virtual') {
+    try {
+      const { marcarPrestamosInterareaPorRecolectar } = await import('../valesPrestamos.js');
+      await marcarPrestamosInterareaPorRecolectar(supabase, {
+        sucursal,
+        areaDeuda: 'abarrotes',
+      });
+    } catch {
+      /* no bloquear */
+    }
+  }
 }
 
 function snapshotTurno(date = new Date()) {
@@ -105,6 +117,28 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   );
 
   const calc = useMemo(() => calcFn(estado, gastos), [estado, gastos, calcFn]);
+
+  const syncRecuperacionPrestamosRef = useRef(null);
+  useEffect(() => {
+    if (!supabase || cargando) return;
+    const caja = calc?.cajaActual;
+    if (caja == null || !Number.isFinite(Number(caja))) return;
+    clearTimeout(syncRecuperacionPrestamosRef.current);
+    syncRecuperacionPrestamosRef.current = setTimeout(async () => {
+      try {
+        const { sincronizarRecuperacionPrestamosInterarea } = await import('../valesPrestamos.js');
+        await sincronizarRecuperacionPrestamosInterarea(supabase, {
+          sucursal,
+          modulo,
+          cajaActual: Number(caja),
+          nombreActor: user?.nombre ? `${user.nombre} · auto` : 'Sistema · recuperación por ventas',
+        });
+      } catch {
+        /* no bloquear el corte */
+      }
+    }, 700);
+    return () => clearTimeout(syncRecuperacionPrestamosRef.current);
+  }, [supabase, sucursal, modulo, calc?.cajaActual, cargando, user?.nombre, gastos.length]);
 
   const persistir = useCallback(
     async (nextEstado) => {

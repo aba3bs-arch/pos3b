@@ -486,6 +486,27 @@ export async function marcarPrestamosColectadosEnRecoleccion(supabase, opts = {}
     aplicarColectaPrestamos(supabase, 'prestamos_interarea', iaIds, patch),
     aplicarColectaPrestamos(supabase, 'prestamos_sucursales', sucIds, patch),
   ]);
+
+  // Préstamos interárea aún con saldo → por_recolectar (deuda vigente al recolectar).
+  if (iaIds.length) {
+    try {
+      const { data: abiertos } = await supabase
+        .from('prestamos_interarea')
+        .select('id, saldo, monto, estado')
+        .in('id', iaIds);
+      for (const p of abiertos || []) {
+        const saldo = p.saldo != null ? Number(p.saldo) : Number(p.monto) || 0;
+        const est = String(p.estado || '');
+        if (!(saldo > 0.001)) continue;
+        if (['recuperado', 'liquidado', 'cancelado'].includes(est)) continue;
+        if (est === 'por_recolectar') continue;
+        await supabase.from('prestamos_interarea').update({ estado: 'por_recolectar' }).eq('id', p.id);
+      }
+    } catch {
+      /* no bloquear */
+    }
+  }
+
   const aviso = iaRes.aviso || sucRes.aviso || null;
   if (!iaRes.ok && !sucRes.ok) {
     return { ok: false, error: iaRes.error || sucRes.error, count: 0, aviso };

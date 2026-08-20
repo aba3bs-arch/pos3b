@@ -51,6 +51,7 @@ import {
   etiquetaEstadoVale,
   etiquetaHoraLimiteVale,
   listarCategoriasVale,
+  prestamoInterareaEstaAbierto,
   prestamoPuedeImprimir,
   valePuedeImprimir,
   valePuedeCancelar,
@@ -128,8 +129,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     fecha: hoyISO(),
   });
   const [prestForm, setPrestForm] = useState({
-    origen: 'virtual',
-    gastos_area: 'abarrotes',
+    origen: 'abarrotes',
+    gastos_area: 'virtual',
     monto: '',
     notas: '',
     fecha: hoyISO(),
@@ -885,20 +886,20 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       rolActor: user?.rol,
     });
     if (!res.ok) return alert(res.error);
-    alert(res.liquidado ? 'Liquidado.' : `Abono ok. Saldo: ${fmt(res.saldo)}`);
+    alert(res.liquidado || res.recuperado ? 'Recuperado.' : `Abono ok. Saldo: ${fmt(res.saldo)}`);
     recargarTodo();
   };
 
   const liquidarInterarea = async (p) => {
     if (!puedeOperarPrestamosAreaSuc) return alert('Solo administrador o gerente pueden liquidar.');
-    if (!confirm('¿Liquidar este préstamo entre áreas?')) return;
+    if (!confirm('¿Marcar este préstamo entre áreas como recuperado?')) return;
     const res = await liquidarPrestamoInterarea(supabase, p, {
       nombreActor: user?.nombre || null,
       sucursal,
       rolActor: user?.rol,
     });
     if (!res.ok) return alert(res.error);
-    alert('Liquidado.');
+    alert('Recuperado.');
     recargarTodo();
   };
 
@@ -1446,17 +1447,23 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <>
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem' }}>Préstamo entre áreas (gastos)</h3>
-            <p className="muted" style={{ fontSize: '0.85rem' }}>
-              Sale del corte de <strong>origen</strong> (Virtual, Abarrotes o Garage) como gasto.
-              Al recolectar ese corte queda el nombre de <strong>quién colectó</strong> el préstamo.
-              Al <strong>liquidar</strong> queda en la misma línea el usuario y la sucursal desde donde se liquidó.
+            <p className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>
+              El dinero sale del corte de <strong>origen</strong> como categoría PRESTAMOS (movimiento interno: no es gasto de IE).
+              Al recolectar ese corte queda quién <strong>colectó</strong>. La liquidación manual sigue disponible para admin/gerente.
+            </p>
+            <p className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+              <strong>Ejemplo — Virtual presta $500 a Abarrotes para un proveedor:</strong>{' '}
+              Origen = Abarrotes, Destino = Virtual. El $500 queda en el corte de Abarrotes (puede ir a negativo).
+              Mientras haya negativo y no se haya recolectado, el estado es <strong>Recuperar</strong>.
+              Conforme las ventas bajan el negativo, el saldo del préstamo se abona solo; al llegar la caja a $0 pasa a <strong>Recuperado</strong>.
+              Si recolectan Virtual con deuda de Abarrotes aún abierta, el préstamo pasa a <strong>Por recolectar</strong>.
             </p>
             <div className="grid-2">
               <select className="select" value={prestForm.origen} onChange={(e) => setPrestForm({ ...prestForm, origen: e.target.value })}>
-                {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>{ETIQUETA_AREA[a]}</option>)}
+                {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>{ETIQUETA_AREA[a]} (origen · gasto)</option>)}
               </select>
               <select className="select" value={prestForm.gastos_area} onChange={(e) => setPrestForm({ ...prestForm, gastos_area: e.target.value })}>
-                {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>{ETIQUETA_AREA[a]}</option>)}
+                {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>{ETIQUETA_AREA[a]} (destino · quien prestó)</option>)}
               </select>
               <input className="input" type="number" placeholder="Monto" value={prestForm.monto} onChange={(e) => setPrestForm({ ...prestForm, monto: e.target.value })} />
               <button type="button" className="btn btn-primary" onClick={guardarPrestamoGastos}>Registrar</button>
@@ -1480,8 +1487,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     <tr><td colSpan={8} className="muted">Sin préstamos entre áreas.</td></tr>
                   ) : (
                     prestamosArea.map((p) => {
-                      const activo = String(p.estado || 'activo') === 'activo';
+                      const activo = prestamoInterareaEstaAbierto(p);
                       const saldo = p.saldo != null ? Number(p.saldo) : Number(p.monto) || 0;
+                      const cerrado = ['liquidado', 'recuperado'].includes(String(p.estado || ''));
                       return (
                         <tr key={p.id}>
                           <td>{p.fecha}</td>
@@ -1490,8 +1498,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                           <td>{fmt(p.monto)}</td>
                           <td style={{ fontWeight: 700 }}>{fmt(saldo)}</td>
                           <td className="muted">
-                            {p.estado || 'activo'}
-                            {String(p.estado) === 'liquidado' && (p.liquidado_por || p.liquidado_sucursal) ? (
+                            {etiquetaEstadoPrestamo(p)}
+                            {cerrado && (p.liquidado_por || p.liquidado_sucursal) ? (
                               <>
                                 {' · '}
                                 {p.liquidado_por || '—'}
@@ -1512,7 +1520,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                             {puedeOperarPrestamosAreaSuc && activo && (
                               <>
                                 <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => abonarInterarea(p)}>Abonar</button>
-                                <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem' }} onClick={() => liquidarInterarea(p)}>Liquidar</button>
+                                <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem' }} onClick={() => liquidarInterarea(p)}>Marcar recuperado</button>
                                 <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => editarInterarea(p)}>Editar</button>
                               </>
                             )}
