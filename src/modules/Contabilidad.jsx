@@ -29,8 +29,8 @@ const DESCRIPCIONES = {
     ayuda: 'Ingresos y egresos de Abarrotes (cuenta Francisco). Incluye ventas/gastos por proveedor, utilidad bruta y ganancia neta.',
   },
   'Auto Fin': {
-    desc: 'Antonio · vehículos y préstamos con enganche y cuotas',
-    ayuda: 'Control de vehículos financiados: enganche, cuotas e historial de pagos.',
+    desc: 'Antonio · vehículos y préstamos a externos o empleados (MAIN)',
+    ayuda: 'Financia clientes externos (no 3B) o empleados de tiendas y MAIN. Enganche, cuotas e historial de pagos.',
   },
   Crédito: {
     desc: 'Cartera por cobrar de Venta en Ruta',

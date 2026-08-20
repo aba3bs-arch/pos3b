@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
+import { etiquetaTienda, listarSucursales } from '../constants/sucursales.js';
 import {
   AVISO_FALTA_AUTO_FIN,
   FRECUENCIAS_AUTO_FIN,
@@ -28,6 +28,12 @@ function hoyYmd() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function etiquetaEmpleadoFin(e) {
+  const suc = String(e?.sucursal_id || '').toUpperCase() || '—';
+  const sucLbl = suc === 'MAIN' ? 'MAIN (central)' : etiquetaTienda(suc);
+  return `${e?.nombre || '—'} · ${sucLbl}`;
+}
+
 const FORM_VACIO = {
   tipo: 'vehiculo',
   beneficiario_tipo: 'cliente',
@@ -50,7 +56,7 @@ const FORM_VACIO = {
 };
 
 export default function AutoFin({ supabase, user }) {
-  const tiendas = useMemo(() => listarSucursalesOperativas(), []);
+  const tiendas = useMemo(() => listarSucursales(), []);
   const [vista, setVista] = useState('lista'); // lista | nuevo | detalle
   const [creditos, setCreditos] = useState([]);
   const [filtroEstado, setFiltroEstado] = useState('activo');
@@ -68,6 +74,21 @@ export default function AutoFin({ supabase, user }) {
   const [fechaFinanciamiento, setFechaFinanciamiento] = useState(hoyYmd());
 
   const esPrestamo = form.tipo === 'prestamo';
+
+  /** Empleados activos, incluyendo los de MAIN. */
+  const empleadosFinanciables = useMemo(
+    () =>
+      (empleados || [])
+        .filter((e) => e && e.activo !== false)
+        .slice()
+        .sort((a, b) => {
+          const sa = String(a.sucursal_id || '').toUpperCase() === 'MAIN' ? 0 : 1;
+          const sb = String(b.sucursal_id || '').toUpperCase() === 'MAIN' ? 0 : 1;
+          if (sa !== sb) return sa - sb;
+          return String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es');
+        }),
+    [empleados],
+  );
 
   const planPreview = useMemo(
     () =>
@@ -101,7 +122,8 @@ export default function AutoFin({ supabase, user }) {
     if (!supabase) return;
     const [{ data: cli }, { data: emp }, prest] = await Promise.all([
       supabase.from('clientes').select('id,nombre,telefono').order('nombre').limit(500),
-      supabase.from('usuarios').select('id,nombre,rol,sucursal_id').order('nombre').limit(500),
+      // Incluye usuarios de MAIN y de tiendas (activos e inactivos; se filtra en UI).
+      supabase.from('usuarios').select('id,nombre,rol,sucursal_id,activo').order('nombre').limit(800),
       listarPrestamosActivosParaFinanciar(supabase, {}),
     ]);
     setClientes(cli || []);
@@ -259,7 +281,8 @@ export default function AutoFin({ supabase, user }) {
           <div>
             <h2 style={{ margin: 0, color: COLOR }}>Auto Fin</h2>
             <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
-              Vehículos y préstamos · enganche opcional · cuotas semanales, quincenales o mensuales · con o sin intereses
+              Vehículos y préstamos a <strong>clientes externos</strong> (no 3B) o a <strong>empleados</strong> (incluye MAIN) ·
+              cuotas semanales / quincenales / mensuales
             </p>
           </div>
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -275,7 +298,7 @@ export default function AutoFin({ supabase, user }) {
                   className="btn btn-ghost"
                   style={{ borderColor: COLOR, color: COLOR }}
                   onClick={() => {
-                    setForm({ ...FORM_VACIO, tipo: 'prestamo', beneficiario_tipo: 'empleado', enganche: '0', fecha_inicio: hoyYmd() });
+                    setForm({ ...FORM_VACIO, tipo: 'prestamo', beneficiario_tipo: 'cliente', enganche: '0', fecha_inicio: hoyYmd() });
                     setVista('nuevo');
                   }}
                 >
@@ -348,6 +371,10 @@ export default function AutoFin({ supabase, user }) {
                         </td>
                         <td>
                           <strong>{c.empleado_nombre || c.cliente_nombre}</strong>
+                          <div className="muted" style={{ fontSize: '0.72rem' }}>
+                            {String(c.beneficiario_tipo) === 'empleado' ? 'Empleado' : 'Cliente externo'}
+                            {c.sucursal_id ? ` · ${etiquetaTienda(c.sucursal_id)}` : ''}
+                          </div>
                           {c.cliente_telefono && <div className="muted" style={{ fontSize: '0.75rem' }}>{c.cliente_telefono}</div>}
                         </td>
                         <td>{c.descripcion || '—'}</td>
@@ -389,7 +416,8 @@ export default function AutoFin({ supabase, user }) {
                     setForm((f) => ({
                       ...f,
                       tipo,
-                      beneficiario_tipo: tipo === 'prestamo' ? 'empleado' : 'cliente',
+                      // Conserva cliente externo / empleado; no fuerza empleado en préstamos.
+                      beneficiario_tipo: f.beneficiario_tipo || 'cliente',
                       enganche: tipo === 'prestamo' ? (f.enganche || '0') : f.enganche,
                       prestamo_id: tipo === 'prestamo' ? f.prestamo_id : '',
                     }));
@@ -401,47 +429,55 @@ export default function AutoFin({ supabase, user }) {
                 </select>
               </label>
 
-              {esPrestamo && (
-                <>
-                  <label className="muted">
-                    Préstamo activo existente (opcional)
-                    <select
-                      className="select"
-                      style={{ marginTop: '0.25rem' }}
-                      value={form.prestamo_id}
-                      onChange={(e) => seleccionarPrestamoExistente(e.target.value)}
-                    >
-                      <option value="">— Nuevo / capturar monto —</option>
-                      {prestamosActivos.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.nombre_empleado} · saldo {fmt(p.saldo)} · {etiquetaTienda(p.sucursal_id)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="muted">
-                    Beneficiario
-                    <select
-                      className="select"
-                      style={{ marginTop: '0.25rem' }}
-                      value={form.beneficiario_tipo}
-                      onChange={(e) => setForm({ ...form, beneficiario_tipo: e.target.value })}
-                    >
-                      <option value="empleado">Empleado</option>
-                      <option value="cliente">Cliente</option>
-                    </select>
-                  </label>
-                </>
+              <label className="muted">
+                ¿A quién se financia? *
+                <select
+                  className="select"
+                  style={{ marginTop: '0.25rem' }}
+                  value={form.beneficiario_tipo}
+                  onChange={(e) => {
+                    const bt = e.target.value;
+                    setForm((f) => ({
+                      ...f,
+                      beneficiario_tipo: bt,
+                      ...(bt === 'cliente'
+                        ? { empleado_id: '', empleado_nombre: '', prestamo_id: '' }
+                        : { cliente_id: '' }),
+                    }));
+                  }}
+                >
+                  <option value="cliente">Cliente externo (no trabaja en 3B)</option>
+                  <option value="empleado">Empleado 3B (incluye MAIN)</option>
+                </select>
+              </label>
+
+              {esPrestamo && form.beneficiario_tipo === 'empleado' && (
+                <label className="muted">
+                  Préstamo activo existente (opcional)
+                  <select
+                    className="select"
+                    style={{ marginTop: '0.25rem' }}
+                    value={form.prestamo_id}
+                    onChange={(e) => seleccionarPrestamoExistente(e.target.value)}
+                  >
+                    <option value="">— Nuevo / capturar monto —</option>
+                    {prestamosActivos.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.nombre_empleado} · saldo {fmt(p.saldo)} · {etiquetaTienda(p.sucursal_id)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               )}
 
               {form.beneficiario_tipo === 'empleado' && (
                 <>
                   <label className="muted">
-                    Empleado *
+                    Empleado * (tiendas y MAIN)
                     <select className="select" style={{ marginTop: '0.25rem' }} value={form.empleado_id} onChange={(e) => seleccionarEmpleado(e.target.value)}>
                       <option value="">— Seleccionar —</option>
-                      {empleados.map((e) => (
-                        <option key={e.id} value={e.id}>{e.nombre}</option>
+                      {empleadosFinanciables.map((e) => (
+                        <option key={e.id} value={e.id}>{etiquetaEmpleadoFin(e)}</option>
                       ))}
                     </select>
                   </label>
@@ -459,10 +495,13 @@ export default function AutoFin({ supabase, user }) {
 
               {form.beneficiario_tipo === 'cliente' && (
                 <>
+                  <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>
+                    Puedes elegir un cliente del catálogo o escribir el nombre de alguien externo que no trabaja en las 3B.
+                  </p>
                   <label className="muted">
                     Cliente del catálogo (opcional)
                     <select className="select" style={{ marginTop: '0.25rem' }} value={form.cliente_id} onChange={(e) => seleccionarCliente(e.target.value)}>
-                      <option value="">— Escribir manualmente —</option>
+                      <option value="">— Escribir manualmente (externo) —</option>
                       {clientes.map((c) => (
                         <option key={c.id} value={c.id}>{c.nombre}</option>
                       ))}
@@ -470,7 +509,7 @@ export default function AutoFin({ supabase, user }) {
                   </label>
                   <label className="muted">
                     Nombre del cliente *
-                    <input className="input" style={{ marginTop: '0.25rem' }} value={form.cliente_nombre} onChange={(e) => setForm({ ...form, cliente_nombre: e.target.value })} />
+                    <input className="input" style={{ marginTop: '0.25rem' }} value={form.cliente_nombre} onChange={(e) => setForm({ ...form, cliente_nombre: e.target.value })} placeholder="Nombre completo" />
                   </label>
                   <label className="muted">
                     Teléfono
@@ -490,10 +529,10 @@ export default function AutoFin({ supabase, user }) {
                 />
               </label>
               <label className="muted">
-                Sucursal
+                Sucursal / oficina
                 <select className="select" style={{ marginTop: '0.25rem' }} value={form.sucursal_id} onChange={(e) => setForm({ ...form, sucursal_id: e.target.value })}>
                   {tiendas.map((t) => (
-                    <option key={t} value={t}>{etiquetaTienda(t)}</option>
+                    <option key={t} value={t}>{t === 'MAIN' ? 'MAIN (central)' : etiquetaTienda(t)}</option>
                   ))}
                 </select>
               </label>
@@ -600,6 +639,8 @@ export default function AutoFin({ supabase, user }) {
               <div>
                 <h3 style={{ margin: 0, color: COLOR }}>{detalle.credito.empleado_nombre || detalle.credito.cliente_nombre}</h3>
                 <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
+                  {String(detalle.credito.beneficiario_tipo) === 'empleado' ? 'Empleado 3B' : 'Cliente externo'}
+                  {detalle.credito.sucursal_id ? ` · ${etiquetaTienda(detalle.credito.sucursal_id)}` : ''} ·{' '}
                   {etiquetaTipoAutoFin(detalle.credito.tipo)} · {detalle.credito.descripcion || 'Sin descripción'} · {etiquetaFrecuencia(detalle.credito.frecuencia)} ·{' '}
                   {detalle.credito.con_interes ? `Interés ${detalle.credito.tasa_interes}%` : 'Sin intereses'} · Estado: {detalle.credito.estado}
                 </p>

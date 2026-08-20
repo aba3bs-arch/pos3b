@@ -209,10 +209,13 @@ export async function obtenerCreditoAutoFin(supabase, id) {
 export async function crearCreditoAutoFin(supabase, input, usuarioNombre) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const tipo = String(input.tipo || 'vehiculo').toLowerCase() === 'prestamo' ? 'prestamo' : 'vehiculo';
+  // Por defecto cliente externo (no 3B); empleado incluye usuarios de tiendas y MAIN.
   const beneficiarioTipo =
-    String(input.beneficiario_tipo || (tipo === 'prestamo' ? 'empleado' : 'cliente')).toLowerCase() === 'empleado'
-      ? 'empleado'
-      : 'cliente';
+    String(input.beneficiario_tipo || 'cliente').toLowerCase() === 'empleado' ? 'empleado' : 'cliente';
+
+  if (beneficiarioTipo === 'empleado' && !String(input.empleado_id || '').trim()) {
+    return { ok: false, error: 'Selecciona el empleado (tiendas o MAIN).' };
+  }
 
   const nombre = String(
     beneficiarioTipo === 'empleado'
@@ -222,7 +225,7 @@ export async function crearCreditoAutoFin(supabase, input, usuarioNombre) {
   if (!nombre) {
     return {
       ok: false,
-      error: beneficiarioTipo === 'empleado' ? 'Indica el empleado.' : 'Indica el cliente.',
+      error: beneficiarioTipo === 'empleado' ? 'Indica el empleado.' : 'Indica el nombre del cliente externo.',
     };
   }
 
