@@ -22,9 +22,10 @@ import {
 } from '../lib/reporteInventario.js';
 import { puedeAjustarInventario } from '../lib/roles.js';
 import {
-  calcularMermaYEfectividad,
+  calcularResultadoInventarioCampos,
   cargarResultadoInventario,
   guardarResultadoInventario,
+  parseNumInventario,
 } from '../lib/resultadoInventario.js';
 
 function toCsv(rows, columns) {
@@ -243,8 +244,9 @@ export default function ReporteInventario({
   const [lineaEdit, setLineaEdit] = useState(null);
   const [guardandoCorreccion, setGuardandoCorreccion] = useState(false);
   const [errorCorreccion, setErrorCorreccion] = useState('');
-  /** Valor físico total capturado a mano (comparación + bono; no altera el stock). */
-  const [resultadoManual, setResultadoManual] = useState('');
+  /** Campos manuales para bono: total + faltante. */
+  const [totalInventarioManual, setTotalInventarioManual] = useState('');
+  const [faltanteInventarioManual, setFaltanteInventarioManual] = useState('');
   const [guardandoResultado, setGuardandoResultado] = useState(false);
   const [avisoResultado, setAvisoResultado] = useState('');
   const [estadoResultado, setEstadoResultado] = useState('');
@@ -333,31 +335,26 @@ export default function ReporteInventario({
     [lineasProducto, referencia],
   );
 
-  const resultadoManualNum = useMemo(() => {
-    const n = Number(String(resultadoManual).replace(/,/g, ''));
-    return Number.isFinite(n) ? n : null;
-  }, [resultadoManual]);
+  const totalInventarioNum = useMemo(
+    () => parseNumInventario(totalInventarioManual),
+    [totalInventarioManual],
+  );
+  const faltanteInventarioNum = useMemo(
+    () => parseNumInventario(faltanteInventarioManual),
+    [faltanteInventarioManual],
+  );
 
-  /** Merma (bono) + efectividad del conteo vs resultado manual. */
-  const analisisManual = useMemo(() => {
-    const sistema = Number(totalesGenerales?.referencia?.valorSistema);
-    const contadoSis = Number(totalesGenerales?.valorContado);
-    if (resultadoManualNum == null) return null;
-    return calcularMermaYEfectividad(
-      resultadoManualNum,
-      Number.isFinite(sistema) ? sistema : null,
-      Number.isFinite(contadoSis) ? contadoSis : null,
-    );
-  }, [
-    resultadoManualNum,
-    totalesGenerales?.referencia?.valorSistema,
-    totalesGenerales?.valorContado,
-  ]);
+  /** Campos 3 y 4 calculados en vivo a partir de total + faltante. */
+  const analisisManual = useMemo(
+    () => calcularResultadoInventarioCampos(totalInventarioNum, faltanteInventarioNum),
+    [totalInventarioNum, faltanteInventarioNum],
+  );
 
   useEffect(() => {
     if (!abierto || !rango.desde || !rango.hasta) return undefined;
     if (!tiendaResultado) {
-      setResultadoManual('');
+      setTotalInventarioManual('');
+      setFaltanteInventarioManual('');
       setMetaResultado(null);
       setAvisoResultado('Elige una tienda operativa para capturar el resultado de inventario.');
       return undefined;
@@ -373,10 +370,14 @@ export default function ReporteInventario({
       if (cancel) return;
       if (r.aviso) setAvisoResultado(r.aviso);
       if (r.registro?.valor_contado != null) {
-        setResultadoManual(String(r.registro.valor_contado));
+        setTotalInventarioManual(String(r.registro.valor_contado));
+        setFaltanteInventarioManual(
+          r.registro.valor_faltante != null ? String(r.registro.valor_faltante) : '',
+        );
         setMetaResultado(r.registro);
       } else {
-        setResultadoManual('');
+        setTotalInventarioManual('');
+        setFaltanteInventarioManual('');
         setMetaResultado(null);
       }
     });
@@ -385,8 +386,7 @@ export default function ReporteInventario({
     };
   }, [abierto, supabase, tiendaResultado, rango.desde, rango.hasta]);
 
-  const persistirResultadoManual = async (raw) => {
-    const valor = String(raw ?? resultadoManual).trim();
+  const persistirResultadoManual = async ({ borrar = false } = {}) => {
     if (!tiendaResultado) {
       setAvisoResultado('Elige una tienda (no "Todas") para guardar el resultado.');
       return;
@@ -403,7 +403,8 @@ export default function ReporteInventario({
         sucursal: tiendaResultado,
         desde: rango.desde,
         hasta: rango.hasta,
-        valorContado: valor === '' ? null : valor,
+        totalInventario: borrar ? null : totalInventarioManual,
+        faltante: borrar ? null : faltanteInventarioManual,
         valorSistema: totalesGenerales?.referencia?.valorSistema ?? null,
         valorContadoSistema: totalesGenerales?.valorContado ?? null,
         usuario: user?.nombre || user?.email || user?.id || '—',
@@ -414,14 +415,21 @@ export default function ReporteInventario({
       }
       if (r.aviso) setAvisoResultado(r.aviso);
       if (r.borrado) {
-        setResultadoManual('');
+        setTotalInventarioManual('');
+        setFaltanteInventarioManual('');
         setMetaResultado(null);
         setEstadoResultado('Resultado borrado.');
       } else {
         setMetaResultado(r.registro || null);
+        if (r.registro?.valor_contado != null) {
+          setTotalInventarioManual(String(r.registro.valor_contado));
+        }
+        if (r.registro?.valor_faltante != null) {
+          setFaltanteInventarioManual(String(r.registro.valor_faltante));
+        }
         setEstadoResultado(
           r.registro?.fuente === 'nube'
-            ? 'Guardado en nube · se usa para el bono y la efectividad del conteo.'
+            ? 'Guardado · el % merma se usa para el bono de esta tienda.'
             : 'Guardado en este dispositivo · ejecuta el SQL para sincronizar el bono en todas las cajas.',
         );
       }
@@ -503,10 +511,7 @@ export default function ReporteInventario({
               : null,
             `% merma (contado): ${fmtPctReporte(t.pctMerma)}`,
             analisisManual?.pctMerma != null
-              ? `Resultado manual: contado ${fmtMxnReporte(analisisManual.valorManual)} · faltante ${fmtMxnReporte(analisisManual.faltante)} · % merma ${fmtPctReporte(analisisManual.pctMerma)}`
-              : null,
-            analisisManual?.pctEfectividad != null
-              ? `Efectividad del conteo: ${fmtPctReporte(analisisManual.pctEfectividad)} (contado sistema ${fmtMxnReporte(analisisManual.valorContadoSistema)} vs manual ${fmtMxnReporte(analisisManual.valorManual)})`
+              ? `Resultado manual: total ${fmtMxnReporte(analisisManual.totalInventario)} · faltante ${fmtMxnReporte(analisisManual.faltante)} · inv. después ajuste ${fmtMxnReporte(analisisManual.invDespuesAjuste)} · merma ${fmtPctReporte(analisisManual.pctMerma)}`
               : null,
           ].filter(Boolean),
         },
@@ -544,8 +549,7 @@ export default function ReporteInventario({
       <div className="card">
         <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>Inventario (auditoría)</h3>
         <p className="muted" style={{ marginTop: 0 }}>
-          Detalle por departamento, merma vs sistema, captura manual del resultado para el bono y efectividad del
-          conteo.
+          Detalle por departamento y captura manual (total + faltante) para calcular merma del bono.
         </p>
         <button type="button" className="btn btn-primary" onClick={() => setAbierto(true)}>
           <BtnLabel icon="chart">Reporte de inventario</BtnLabel>
@@ -738,47 +742,111 @@ export default function ReporteInventario({
             borderTop: '1px dashed var(--border, rgba(0,0,0,0.12))',
           }}
         >
-          <div style={{ fontWeight: 700, marginBottom: '0.35rem' }}>Resultado de inventario (manual)</div>
-          <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.8rem' }}>
-            Captura el total en pesos del conteo físico. Ese valor alimenta la merma del bono y se compara con el
-            conteo del sistema para medir la efectividad. No altera el stock.
+          <div style={{ fontWeight: 700, marginBottom: '0.35rem' }}>Resultado de inventario (para bono)</div>
+          <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.8rem' }}>
+            Captura a mano el total y el faltante. El sistema calcula el inventario después del ajuste y el % de
+            merma; ese % alimenta la regla de merma del bono. No altera el stock.
           </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem', alignItems: 'flex-end' }}>
-            <label className="muted" style={{ display: 'block', fontSize: '0.85rem', maxWidth: 280, flex: '1 1 200px' }}>
-              Total contado ($)
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+              gap: '0.65rem',
+              alignItems: 'end',
+            }}
+          >
+            <label className="muted" style={{ display: 'block', fontSize: '0.82rem' }}>
+              1. Total de inventario ($)
               <input
                 className="input"
                 type="text"
                 inputMode="decimal"
-                placeholder="Ej. 125430.50"
-                style={{ marginTop: '0.35rem', fontSize: '1.05rem' }}
-                value={resultadoManual}
+                placeholder="Ej. 250000"
+                style={{ marginTop: '0.35rem', fontSize: '1.05rem', width: '100%' }}
+                value={totalInventarioManual}
                 onChange={(e) => {
-                  setResultadoManual(e.target.value);
+                  setTotalInventarioManual(e.target.value);
                   setEstadoResultado('');
                 }}
                 disabled={guardandoResultado || !tiendaResultado}
               />
             </label>
+            <label className="muted" style={{ display: 'block', fontSize: '0.82rem' }}>
+              2. Faltante de inventario ($)
+              <input
+                className="input"
+                type="text"
+                inputMode="decimal"
+                placeholder="Ej. 3500"
+                style={{ marginTop: '0.35rem', fontSize: '1.05rem', width: '100%' }}
+                value={faltanteInventarioManual}
+                onChange={(e) => {
+                  setFaltanteInventarioManual(e.target.value);
+                  setEstadoResultado('');
+                }}
+                disabled={guardandoResultado || !tiendaResultado}
+              />
+            </label>
+            <div
+              style={{
+                padding: '0.55rem 0.65rem',
+                borderRadius: 10,
+                background: 'var(--surface)',
+                border: '1px solid var(--border, rgba(0,0,0,0.1))',
+              }}
+            >
+              <div className="muted" style={{ fontSize: '0.72rem' }}>3. Inv. después del ajuste</div>
+              <strong style={{ fontSize: '1.1rem', color: 'var(--brand-blue)' }}>
+                {analisisManual.invDespuesAjuste != null
+                  ? fmtMxnReporte(analisisManual.invDespuesAjuste)
+                  : '—'}
+              </strong>
+              <div className="muted" style={{ fontSize: '0.68rem' }}>total − faltante</div>
+            </div>
+            <div
+              style={{
+                padding: '0.55rem 0.65rem',
+                borderRadius: 10,
+                background: 'color-mix(in srgb, var(--brand-red, #c0392b) 6%, var(--surface))',
+                border: '1px solid color-mix(in srgb, var(--brand-red, #c0392b) 25%, transparent)',
+              }}
+            >
+              <div className="muted" style={{ fontSize: '0.72rem' }}>4. Merma / diferencia %</div>
+              <strong style={{ fontSize: '1.2rem', color: 'var(--brand-red, #c0392b)' }}>
+                {analisisManual.pctMerma != null ? fmtPctReporte(analisisManual.pctMerma) : '—'}
+              </strong>
+              <div className="muted" style={{ fontSize: '0.68rem' }}>faltante ÷ total · bono</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
             <button
               type="button"
               className="btn btn-primary"
-              disabled={guardandoResultado || !tiendaResultado || !rango.desde}
-              onClick={() => persistirResultadoManual(resultadoManual)}
+              disabled={
+                guardandoResultado
+                || !tiendaResultado
+                || !rango.desde
+                || totalInventarioNum == null
+                || faltanteInventarioNum == null
+              }
+              onClick={() => persistirResultadoManual()}
             >
-              {guardandoResultado ? 'Guardando…' : 'Guardar resultado'}
+              {guardandoResultado ? 'Guardando…' : 'Guardar para bono'}
             </button>
-            {resultadoManual.trim() !== '' ? (
+            {(totalInventarioManual.trim() !== '' || faltanteInventarioManual.trim() !== '') ? (
               <button
                 type="button"
                 className="btn btn-ghost"
                 disabled={guardandoResultado || !tiendaResultado}
-                onClick={() => persistirResultadoManual('')}
+                onClick={() => persistirResultadoManual({ borrar: true })}
               >
                 Borrar
               </button>
             ) : null}
           </div>
+
           {!tiendaResultado ? (
             <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem' }}>
               Elige la tienda en el filtro para guardar el resultado (se usa en el bono de esa sucursal).
@@ -795,104 +863,6 @@ export default function ReporteInventario({
               {metaResultado?.updated_at
                 ? ` · ${new Date(metaResultado.updated_at).toLocaleString('es-MX')}`
                 : ''}
-            </p>
-          ) : null}
-
-          {analisisManual?.pctMerma != null ? (
-            <div style={{ margin: '0.65rem 0 0', fontSize: '0.88rem' }}>
-              <p style={{ margin: 0, fontWeight: 600, color: 'var(--brand-blue)' }}>Merma para bono</p>
-              <p style={{ margin: '0.25rem 0 0' }}>
-                Sistema: <strong>{fmtMxnReporte(analisisManual.valorSistema)}</strong>
-                {' · '}
-                Tu conteo: <strong>{fmtMxnReporte(analisisManual.valorManual)}</strong>
-                {' · '}
-                Diferencia:{' '}
-                <strong
-                  style={{
-                    color:
-                      analisisManual.diferenciaManualVsSistema < 0
-                        ? 'var(--brand-red, #c0392b)'
-                        : 'var(--brand-gold-dark)',
-                  }}
-                >
-                  {fmtMxnReporte(analisisManual.diferenciaManualVsSistema)}
-                </strong>
-              </p>
-              <p style={{ margin: '0.35rem 0 0' }}>
-                Faltante:{' '}
-                <strong style={{ color: 'var(--brand-red, #c0392b)' }}>
-                  {fmtMxnReporte(analisisManual.faltante)}
-                </strong>
-                {' · '}
-                % merma:{' '}
-                <strong style={{ color: 'var(--brand-red, #c0392b)', fontSize: '1.05rem' }}>
-                  {fmtPctReporte(analisisManual.pctMerma)}
-                </strong>
-                <span className="muted" style={{ fontSize: '0.75rem', marginLeft: '0.35rem' }}>
-                  (faltante ÷ inventario sistema · regla del bono)
-                </span>
-              </p>
-            </div>
-          ) : resultadoManualNum != null && !totalesGenerales.referencia?.valorSistema ? (
-            <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem' }}>
-              Elige la tienda en el filtro para calcular faltante y % merma sobre el inventario sistema.
-            </p>
-          ) : null}
-
-          {analisisManual?.pctEfectividad != null ? (
-            <div
-              style={{
-                margin: '0.75rem 0 0',
-                padding: '0.65rem 0.75rem',
-                borderRadius: 10,
-                background: 'color-mix(in srgb, var(--brand-gold, #c9a227) 10%, var(--surface))',
-                border: '1px solid color-mix(in srgb, var(--brand-gold, #c9a227) 35%, transparent)',
-              }}
-            >
-              <p style={{ margin: 0, fontWeight: 700, color: 'var(--brand-blue)' }}>Efectividad del conteo</p>
-              <p className="muted" style={{ margin: '0.25rem 0 0.4rem', fontSize: '0.78rem' }}>
-                Qué tan cerca quedó el total del conteo en sistema respecto al resultado físico capturado.
-              </p>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-                  gap: '0.5rem',
-                  fontSize: '0.85rem',
-                }}
-              >
-                <div>
-                  <div className="muted" style={{ fontSize: '0.72rem' }}>Resultado manual</div>
-                  <strong>{fmtMxnReporte(analisisManual.valorManual)}</strong>
-                </div>
-                <div>
-                  <div className="muted" style={{ fontSize: '0.72rem' }}>Contado en sistema</div>
-                  <strong>{fmtMxnReporte(analisisManual.valorContadoSistema)}</strong>
-                </div>
-                <div>
-                  <div className="muted" style={{ fontSize: '0.72rem' }}>Diferencia</div>
-                  <strong
-                    style={{
-                      color:
-                        Math.abs(analisisManual.diferenciaConteoVsManual) < 0.01
-                          ? undefined
-                          : 'var(--brand-red, #c0392b)',
-                    }}
-                  >
-                    {fmtMxnReporte(analisisManual.diferenciaConteoVsManual)}
-                  </strong>
-                </div>
-                <div>
-                  <div className="muted" style={{ fontSize: '0.72rem' }}>Efectividad</div>
-                  <strong style={{ fontSize: '1.15rem', color: 'var(--brand-blue)' }}>
-                    {fmtPctReporte(analisisManual.pctEfectividad)}
-                  </strong>
-                </div>
-              </div>
-            </div>
-          ) : resultadoManualNum != null && !(Number(totalesGenerales?.valorContado) > 0) ? (
-            <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem' }}>
-              Aplica conteos en el periodo para comparar la efectividad (total contado en sistema vs tu resultado).
             </p>
           ) : null}
         </div>

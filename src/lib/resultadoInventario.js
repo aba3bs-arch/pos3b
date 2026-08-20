@@ -1,7 +1,13 @@
 /**
- * Resultado manual de inventario (total $ contado en físico).
+ * Resultado manual de inventario para el bono.
+ *
+ * Campos:
+ * 1. Total de inventario (manual)
+ * 2. Faltante de inventario (manual)
+ * 3. Inv. después del ajuste (auto) = total − faltante
+ * 4. Merma % (auto) = faltante ÷ total × 100
+ *
  * Persistencia: localStorage + nube pos_resultados_inventario.
- * Usado por el reporte (comparación / efectividad) y por el bono (merma %).
  */
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
 
@@ -24,7 +30,7 @@ function faltaTabla(error) {
   );
 }
 
-function parseNum(raw) {
+export function parseNumInventario(raw) {
   if (raw == null || String(raw).trim() === '') return null;
   const n = Number(String(raw).replace(/,/g, ''));
   return Number.isFinite(n) ? n : null;
@@ -37,53 +43,53 @@ export function claveResultadoInventario(sucursal, desde, hasta) {
 }
 
 /**
- * Merma y efectividad a partir del total manual vs sistema / contado en líneas.
- * @param {number} valorManual
- * @param {number} valorSistema
- * @param {number} [valorContadoSistema] suma $ del conteo aplicado en sistema
+ * Calcula campos 3 y 4 a partir de total y faltante manuales.
+ * @param {number|null} totalInventario
+ * @param {number|null} faltante
  */
-export function calcularMermaYEfectividad(valorManual, valorSistema, valorContadoSistema = null) {
-  const manual = Number(valorManual);
-  const sistema = Number(valorSistema);
-  const contadoSis = valorContadoSistema == null ? null : Number(valorContadoSistema);
+export function calcularResultadoInventarioCampos(totalInventario, faltante) {
+  const total = Number(totalInventario);
+  const fal = Number(faltante);
 
-  if (!Number.isFinite(manual)) {
+  if (!Number.isFinite(total) || !Number.isFinite(fal)) {
     return {
-      valorManual: null,
-      valorSistema: Number.isFinite(sistema) ? round2(sistema) : null,
-      valorContadoSistema: Number.isFinite(contadoSis) ? round2(contadoSis) : null,
-      diferenciaManualVsSistema: null,
-      faltante: null,
+      totalInventario: Number.isFinite(total) ? round2(total) : null,
+      faltante: Number.isFinite(fal) ? round2(fal) : null,
+      invDespuesAjuste: null,
       pctMerma: null,
-      diferenciaConteoVsManual: null,
-      pctEfectividad: null,
     };
   }
 
-  const sistemaOk = Number.isFinite(sistema) && sistema > 0;
-  const diferencia = sistemaOk ? round2(manual - sistema) : null;
-  const faltante = sistemaOk ? round2(Math.max(0, sistema - manual)) : null;
-  const pctMerma = sistemaOk && faltante != null
-    ? round2((faltante / sistema) * 100)
-    : null;
-
-  let diferenciaConteoVsManual = null;
-  let pctEfectividad = null;
-  if (Number.isFinite(contadoSis) && manual > 0) {
-    diferenciaConteoVsManual = round2(contadoSis - manual);
-    const desvioPct = (Math.abs(contadoSis - manual) / manual) * 100;
-    pctEfectividad = round2(Math.max(0, Math.min(100, 100 - desvioPct)));
-  }
+  const totalR = round2(total);
+  const falR = round2(Math.max(0, fal));
+  const invDespues = round2(totalR - falR);
+  const pctMerma = totalR > 0 ? round2((falR / totalR) * 100) : (falR > 0 ? 100 : 0);
 
   return {
-    valorManual: round2(manual),
-    valorSistema: sistemaOk ? round2(sistema) : (Number.isFinite(sistema) ? round2(sistema) : null),
-    valorContadoSistema: Number.isFinite(contadoSis) ? round2(contadoSis) : null,
-    diferenciaManualVsSistema: diferencia,
-    faltante,
+    totalInventario: totalR,
+    faltante: falR,
+    invDespuesAjuste: invDespues,
     pctMerma,
-    diferenciaConteoVsManual,
-    pctEfectividad,
+  };
+}
+
+/** @deprecated usar calcularResultadoInventarioCampos */
+export function calcularMermaYEfectividad(valorManual, valorSistema) {
+  const total = Number.isFinite(Number(valorSistema)) ? Number(valorSistema) : Number(valorManual);
+  const faltante = Number.isFinite(Number(valorSistema)) && Number.isFinite(Number(valorManual))
+    ? Math.max(0, Number(valorSistema) - Number(valorManual))
+    : null;
+  const c = calcularResultadoInventarioCampos(total, faltante);
+  return {
+    valorManual: c.totalInventario,
+    valorSistema: c.totalInventario,
+    valorContadoSistema: null,
+    diferenciaManualVsSistema: null,
+    faltante: c.faltante,
+    pctMerma: c.pctMerma,
+    invDespuesAjuste: c.invDespuesAjuste,
+    diferenciaConteoVsManual: null,
+    pctEfectividad: null,
   };
 }
 
@@ -91,9 +97,9 @@ function leerLocalRaw(clave) {
   try {
     const raw = localStorage.getItem(clave);
     if (raw == null) return null;
-    // Compat: versiones anteriores guardaban solo el número como string
+    // Compat: versiones anteriores guardaban solo el número como string (= total)
     if (/^\s*-?\d+(\.\d+)?\s*$/.test(raw) || (raw[0] !== '{' && raw[0] !== '[')) {
-      const n = parseNum(raw);
+      const n = parseNumInventario(raw);
       if (n == null) return null;
       return { valor_contado: n };
     }
@@ -128,19 +134,40 @@ function emitirEvento(detail) {
 
 function normalizarRegistro(row, { sucursal, desde, hasta } = {}) {
   if (!row) return null;
-  const valor = parseNum(row.valor_contado ?? row.valorContado);
-  if (valor == null) return null;
+  const total = parseNumInventario(
+    row.valor_contado ?? row.valorContado ?? row.total_inventario ?? row.totalInventario,
+  );
+  if (total == null) return null;
+
+  let faltante = parseNumInventario(row.valor_faltante ?? row.valorFaltante ?? row.faltante);
+  // Compat: si solo había total contado vs sistema, reconstruir faltante
+  if (faltante == null) {
+    const sistema = parseNumInventario(row.valor_sistema ?? row.valorSistema);
+    if (sistema != null && sistema >= total) faltante = round2(sistema - total);
+  }
+
+  const calc = calcularResultadoInventarioCampos(total, faltante ?? 0);
+  const invDespues = parseNumInventario(
+    row.valor_despues_ajuste ?? row.valorDespuesAjuste ?? row.invDespuesAjuste,
+  );
+
   return {
     id: row.id || null,
     sucursal_id: normalizarCodigoTienda(row.sucursal_id || sucursal) || '',
     desde: String(row.desde || desde || '').slice(0, 10),
     hasta: String(row.hasta || hasta || '').slice(0, 10),
-    valor_contado: round2(valor),
-    valor_sistema: parseNum(row.valor_sistema ?? row.valorSistema),
-    valor_contado_sistema: parseNum(row.valor_contado_sistema ?? row.valorContadoSistema),
-    valor_faltante: parseNum(row.valor_faltante ?? row.valorFaltante),
-    pct_merma: parseNum(row.pct_merma ?? row.pctMerma),
-    pct_efectividad: parseNum(row.pct_efectividad ?? row.pctEfectividad),
+    /** Campo 1 — total de inventario (manual) */
+    valor_contado: calc.totalInventario,
+    total_inventario: calc.totalInventario,
+    /** Campo 2 — faltante (manual) */
+    valor_faltante: faltante != null ? calc.faltante : null,
+    /** Campo 3 — inv. después del ajuste (auto) */
+    valor_despues_ajuste: invDespues != null ? round2(invDespues) : calc.invDespuesAjuste,
+    /** Campo 4 — merma % (auto) */
+    pct_merma: calc.pctMerma,
+    valor_sistema: parseNumInventario(row.valor_sistema ?? row.valorSistema),
+    valor_contado_sistema: parseNumInventario(row.valor_contado_sistema ?? row.valorContadoSistema),
+    pct_efectividad: parseNumInventario(row.pct_efectividad ?? row.pctEfectividad),
     usuario: row.usuario || null,
     nota: row.nota || null,
     updated_at: row.updated_at || null,
@@ -209,13 +236,20 @@ export async function cargarResultadoInventario(supabase, { sucursal, desde, has
 }
 
 /**
- * Guarda (o borra si valor vacío) el resultado manual.
+ * Guarda (o borra si ambos vacíos) el resultado manual.
  * Requiere tienda concreta (no "Todas").
+ *
+ * @param {object} opts
+ * @param {string|number} opts.totalInventario — Campo 1 (manual)
+ * @param {string|number} opts.faltante — Campo 2 (manual)
  */
 export async function guardarResultadoInventario(supabase, {
   sucursal,
   desde,
   hasta,
+  totalInventario,
+  faltante,
+  /** Compat API anterior */
   valorContado,
   valorSistema = null,
   valorContadoSistema = null,
@@ -231,9 +265,10 @@ export async function guardarResultadoInventario(supabase, {
   }
 
   const clave = claveResultadoInventario(suc, desde, hasta);
-  const valor = parseNum(valorContado);
+  const total = parseNumInventario(totalInventario ?? valorContado);
+  const fal = parseNumInventario(faltante);
 
-  if (valor == null) {
+  if (total == null && fal == null) {
     try {
       localStorage.removeItem(clave);
     } catch {
@@ -262,18 +297,32 @@ export async function guardarResultadoInventario(supabase, {
     return { ok: true, borrado: true };
   }
 
-  const calc = calcularMermaYEfectividad(valor, valorSistema, valorContadoSistema);
+  if (total == null) {
+    return { ok: false, error: 'Captura el total de inventario (campo 1).' };
+  }
+  if (fal == null) {
+    return { ok: false, error: 'Captura el faltante de inventario (campo 2).' };
+  }
+  if (fal < 0) {
+    return { ok: false, error: 'El faltante no puede ser negativo.' };
+  }
+  if (fal > total) {
+    return { ok: false, error: 'El faltante no puede ser mayor que el total de inventario.' };
+  }
+
+  const calc = calcularResultadoInventarioCampos(total, fal);
   const updated_at = new Date().toISOString();
   const registro = {
     sucursal_id: suc,
     desde,
     hasta,
-    valor_contado: calc.valorManual,
-    valor_sistema: calc.valorSistema,
-    valor_contado_sistema: calc.valorContadoSistema,
+    valor_contado: calc.totalInventario,
+    valor_sistema: parseNumInventario(valorSistema),
+    valor_contado_sistema: parseNumInventario(valorContadoSistema),
     valor_faltante: calc.faltante,
+    valor_despues_ajuste: calc.invDespuesAjuste,
     pct_merma: calc.pctMerma,
-    pct_efectividad: calc.pctEfectividad,
+    pct_efectividad: null,
     usuario: usuario || null,
     nota: nota || null,
     updated_at,
@@ -294,6 +343,26 @@ export async function guardarResultadoInventario(supabase, {
       .maybeSingle();
 
     if (error) {
+      // Si falta la columna nueva, reintentar sin ella
+      const msg = String(error.message || '').toLowerCase();
+      if (msg.includes('valor_despues_ajuste')) {
+        const { valor_despues_ajuste: _drop, ...sinCol } = registro;
+        const retry = await supabase
+          .from('pos_resultados_inventario')
+          .upsert(sinCol, { onConflict: 'sucursal_id,desde,hasta' })
+          .select('*')
+          .maybeSingle();
+        if (!retry.error) {
+          const guardado = normalizarRegistro(retry.data || registro, { sucursal: suc, desde, hasta });
+          escribirLocal(clave, { ...guardado, fuente: 'nube' });
+          emitirEvento({ sucursal: suc, desde, hasta, registro: guardado });
+          return {
+            ok: true,
+            registro: { ...guardado, fuente: 'nube' },
+            aviso: 'Falta la columna valor_despues_ajuste: vuelve a ejecutar supabase/fix_resultados_inventario.sql',
+          };
+        }
+      }
       if (faltaTabla(error)) {
         emitirEvento({ sucursal: suc, desde, hasta, registro });
         return {
@@ -325,23 +394,21 @@ export async function resultadoInventarioParaBono(supabase, { sucursal, desde, h
   if (!suc || !desde || !hasta) return { ok: true, registro: null };
 
   const exacto = await cargarResultadoInventario(supabase, { sucursal: suc, desde, hasta });
-  if (exacto.registro) return exacto;
+  if (exacto.registro?.pct_merma != null) return exacto;
 
   if (!supabase) {
-    // Escaneo local: cualquier clave de esta tienda que solape el periodo
     const candidatos = [];
     try {
       for (let i = 0; i < localStorage.length; i += 1) {
         const k = localStorage.key(i);
         if (!k || !k.startsWith(`${LS_RESULTADO_INV_PREFIX}${suc}_`)) continue;
-        // suc_desde_hasta — fechas YYYY-MM-DD al final de la clave
         const match = k.match(new RegExp(`^${LS_RESULTADO_INV_PREFIX}${suc.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}_(\\d{4}-\\d{2}-\\d{2})_(\\d{4}-\\d{2}-\\d{2})$`));
         if (!match) continue;
         const d0 = match[1];
         const d1 = match[2];
         if (d1 < desde || d0 > hasta) continue;
         const reg = normalizarRegistro(leerLocalRaw(k), { sucursal: suc, desde: d0, hasta: d1 });
-        if (reg) candidatos.push(reg);
+        if (reg?.pct_merma != null) candidatos.push(reg);
       }
     } catch {
       /* ignore */
@@ -370,10 +437,9 @@ export async function resultadoInventarioParaBono(supabase, { sucursal, desde, h
 
     const rows = (data || [])
       .map((r) => normalizarRegistro(r))
-      .filter(Boolean);
+      .filter((r) => r && r.pct_merma != null);
     if (!rows.length) return { ok: true, registro: null };
 
-    // Preferir el que más días solapa con el periodo del bono
     const score = (r) => {
       const a = r.desde > desde ? r.desde : desde;
       const b = r.hasta < hasta ? r.hasta : hasta;
