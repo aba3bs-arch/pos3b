@@ -1,6 +1,7 @@
 /**
  * Auto Fin — planes (semanal / quincenal / mensual) con o sin interés.
  * Tipos: vehiculo (precio + enganche) | prestamo (monto a financiar en cuotas).
+ * Beneficiario: cliente externo (no 3B) o empleado de cualquier sucursal, incluido MAIN.
  */
 
 export const AVISO_FALTA_AUTO_FIN =
