@@ -39,7 +39,7 @@ export function faltaTablaPrestamos(error) {
 }
 
 export const AVISO_FALTA_CONTABILIDAD =
-  'Faltan tablas de contabilidad. Ejecuta supabase/fix_contabilidad.sql, fix_vales_prestamos_aprobaciones.sql y fix_prestamos_area_colectado.sql';
+  'Faltan tablas de contabilidad. Ejecuta supabase/fix_contabilidad.sql, fix_vales_prestamos_aprobaciones.sql, fix_prestamos_area_colectado.sql y fix_prestamos_interarea_recuperacion.sql';
 
 /** Fecha del vale para filtros (columna fecha o día de created_at). */
 export function fechaEfectivaVale(vale) {
