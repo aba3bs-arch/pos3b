@@ -19,6 +19,8 @@ import {
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { stockEnUbicacion } from '../lib/inventarioMultitienda.js';
+import { etiquetaDepartamento, listarDepartamentos } from '../lib/departamentos.js';
+import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 
 const COLOR = '#0f766e';
 
@@ -188,38 +190,179 @@ function VistaCarga({ supabase, user, inventario, setAviso }) {
 
 function VistaPrecios({ supabase, user, inventario, setAviso }) {
   const [q, setQ] = useState('');
+  const [departamento, setDepartamento] = useState('');
+  const [proveedorId, setProveedorId] = useState('');
+  const [proveedores, setProveedores] = useState([]);
+  const [productosPorProveedor, setProductosPorProveedor] = useState(() => new Map());
+  const [idsConProveedor, setIdsConProveedor] = useState(() => new Set());
   const [editId, setEditId] = useState('');
   const [editVal, setEditVal] = useState('');
 
+  const departamentos = useMemo(() => listarDepartamentos(inventario), [inventario]);
+
+  useEffect(() => {
+    if (!supabase) return undefined;
+    let cancel = false;
+    (async () => {
+      const { data } = await supabase.from('proveedores').select('id, nombre').order('nombre');
+      if (!cancel) setProveedores(data || []);
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [supabase]);
+
+  useEffect(() => {
+    if (!supabase) return undefined;
+    let cancel = false;
+    (async () => {
+      const { data, error } = await supabase.from('proveedor_producto').select('proveedor_id, producto_id');
+      if (cancel) return;
+      if (error) {
+        setProductosPorProveedor(new Map());
+        setIdsConProveedor(new Set());
+        return;
+      }
+      const map = new Map();
+      const todos = new Set();
+      for (const row of data || []) {
+        const prov = String(row.proveedor_id ?? '').trim();
+        const prod = String(row.producto_id ?? '').trim();
+        if (!prov || !prod) continue;
+        if (!map.has(prov)) map.set(prov, new Set());
+        map.get(prov).add(prod);
+        todos.add(prod);
+      }
+      setProductosPorProveedor(map);
+      setIdsConProveedor(todos);
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [supabase]);
+
+  const filtrosActivos = Boolean(q.trim() || departamento || proveedorId);
+
   const lista = useMemo(() => {
-    const term = q.trim().toLowerCase();
-    return (inventario || [])
-      .filter((p) => !term || String(p.nombre || '').toLowerCase().includes(term) || String(p.id || '').toLowerCase().includes(term))
-      .slice(0, 80);
-  }, [inventario, q]);
+    let list = inventario || [];
+    const term = q.trim();
+    if (term) list = list.filter((p) => productoCoincideBusqueda(p, term));
+    if (departamento) {
+      list = list.filter((p) => String(p.cat || '').toUpperCase() === departamento.toUpperCase());
+    }
+    if (proveedorId === '__ninguno__') {
+      list = list.filter((p) => !idsConProveedor.has(String(p.id)));
+    } else if (proveedorId) {
+      const ids = productosPorProveedor.get(String(proveedorId));
+      list = list.filter((p) => ids?.has(String(p.id)));
+    }
+    // Con filtro depto/proveedor mostrar más filas; sin filtro mantener tope razonable
+    const tope = filtrosActivos ? 500 : 80;
+    return list.slice(0, tope);
+  }, [
+    inventario,
+    q,
+    departamento,
+    proveedorId,
+    productosPorProveedor,
+    idsConProveedor,
+    filtrosActivos,
+  ]);
 
   const guardar = async (p) => {
     const r = await guardarPrecioRutaProducto(supabase, p.id, editVal, { rol: user?.rol });
     if (!r.ok) return alert(r.error);
     setAviso('Precio de ruta actualizado (sin impuestos). Recarga catálogo si no ves el cambio.');
     setEditId('');
-    // mutate local display
     p.precio_ruta = r.precio;
+  };
+
+  const limpiarFiltros = () => {
+    setQ('');
+    setDepartamento('');
+    setProveedorId('');
   };
 
   return (
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Precios de ruta</h3>
-      <p className="muted" style={{ fontSize: '0.8rem' }}>Precio especial sin impuestos. Solo admin/gerente.</p>
-      <input className="input" placeholder="Buscar…" value={q} onChange={(e) => setQ(e.target.value)} style={{ marginBottom: '0.75rem' }} />
+      <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
+        Precio especial sin impuestos. Filtra por departamento o proveedor para elegir los productos que se
+        repartirán por ruta. Solo admin/gerente.
+      </p>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'center' }}>
+        <input
+          className="input"
+          placeholder="Buscar por nombre o código…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          style={{ flex: '1 1 180px', minWidth: 140 }}
+        />
+        <select
+          className="select"
+          style={{ flex: '0 1 180px', minWidth: 140 }}
+          value={departamento}
+          onChange={(e) => setDepartamento(e.target.value)}
+          title="Filtrar por departamento"
+        >
+          <option value="">Todos los departamentos</option>
+          {departamentos.map((d) => (
+            <option key={d} value={d}>
+              {etiquetaDepartamento(d)}
+            </option>
+          ))}
+        </select>
+        <select
+          className="select"
+          style={{ flex: '0 1 180px', minWidth: 140 }}
+          value={proveedorId}
+          onChange={(e) => setProveedorId(e.target.value)}
+          title="Filtrar por proveedor"
+        >
+          <option value="">Todos los proveedores</option>
+          <option value="__ninguno__">Sin proveedor</option>
+          {proveedores.map((pr) => (
+            <option key={pr.id} value={String(pr.id)}>
+              {pr.nombre || pr.id}
+            </option>
+          ))}
+        </select>
+        {filtrosActivos ? (
+          <button type="button" className="btn btn-ghost" style={{ fontSize: '0.82rem' }} onClick={limpiarFiltros}>
+            Limpiar filtros
+          </button>
+        ) : null}
+      </div>
+
+      <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.78rem' }}>
+        {lista.length} producto(s)
+        {departamento ? ` · ${etiquetaDepartamento(departamento)}` : ''}
+        {proveedorId && proveedorId !== '__ninguno__'
+          ? ` · ${proveedores.find((p) => String(p.id) === String(proveedorId))?.nombre || 'proveedor'}`
+          : proveedorId === '__ninguno__'
+            ? ' · sin proveedor'
+            : ''}
+      </p>
+
       <table className="consultas-table">
-        <thead><tr><th>Producto</th><th>P. ruta</th><th /></tr></thead>
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>Depto</th>
+            <th>P. ruta</th>
+            <th />
+          </tr>
+        </thead>
         <tbody>
           {lista.map((p) => (
             <tr key={p.id}>
               <td>
                 <strong>{p.nombre}</strong>
                 <div className="muted" style={{ fontSize: '0.72rem' }}>{p.id}</div>
+              </td>
+              <td className="muted" style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                {etiquetaDepartamento(p.cat || 'GENERAL')}
               </td>
               <td>
                 {editId === p.id ? (
@@ -247,6 +390,13 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
               </td>
             </tr>
           ))}
+          {!lista.length ? (
+            <tr>
+              <td colSpan={4} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>
+                No hay productos con estos filtros.
+              </td>
+            </tr>
+          ) : null}
         </tbody>
       </table>
     </div>
