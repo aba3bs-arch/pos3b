@@ -190,11 +190,12 @@ const ACCESO_POR_ROL = {
     'Consultas',
     'Reportes',
     'Vales y Préstamos',
+    'Cobranza',
     'Checador',
     'Check List',
     'Ayuda',
   ],
-  Repartidor: ['Inicio', 'Incidencias', 'Recolecciones', 'Productos', 'Venta en Ruta', 'Cobranza', 'Ayuda'],
+  Repartidor: ['Inicio', 'Incidencias', 'Recolecciones', 'Productos', 'Venta en Ruta', 'Ayuda'],
   Auditor: [
     'Inicio',
     'Incidencias',
@@ -436,7 +437,7 @@ export function puedeEliminarProductosCatalogo(rol) {
 export const ROLES_CAMBIO_TIENDA_CENTRAL = ['Auditor', 'Técnico', 'Repartidor', 'Supervisor'];
 
 /** Rol de sistema efectivo (roles personalizados usan su plantilla). */
-function rolSistemaEfectivo(rol) {
+export function rolSistemaEfectivo(rol) {
   const r = normalizarRol(rol);
   if (ROLES.includes(r)) return r;
   const custom = leerRolesPersonalizados().find((x) => x.nombre.toLowerCase() === r.toLowerCase());
@@ -472,12 +473,11 @@ export const MODULOS_BLOQUEADOS_MOSTRADOR = new Set([
   'IE ABARROTES',
   'Auto Fin',
   'Crédito',
-  'Cobranza',
   'Evaluación operativa',
   ...SUBMODULOS_ESTADISTICAS,
 ]);
 
-/** Módulos que el repartidor nunca puede abrir (bloqueo duro). Cobranza sí: cobro de créditos CEDIS. */
+/** Módulos que el repartidor nunca puede abrir (bloqueo duro). */
 export const MODULOS_BLOQUEADOS_REPARTIDOR = new Set([
   'Ventas',
   'Escáner caja',
@@ -485,7 +485,9 @@ export const MODULOS_BLOQUEADOS_REPARTIDOR = new Set([
   'Checador',
   'Usuarios',
   'Configuracion',
-  ...SUBMODULOS_CONTABILIDAD.filter((m) => m !== 'Cobranza'),
+  'Cobranza',
+  'Crédito',
+  ...SUBMODULOS_CONTABILIDAD.filter((m) => m !== 'Cobranza' && m !== 'Crédito'),
   ...SUBMODULOS_ESTADISTICAS,
 ]);
 
@@ -548,8 +550,8 @@ export function puedeConsolidarVentasInventario(rol) {
 export function descripcionRol(rol) {
   const r = normalizarRol(rol);
   const textos = {
-    Cajero: 'Mostrador: ventas, cortes, checador, compras, proveedores, consultas, reportes, ingreso/ajuste de inventario, traspasos y preinventario; catálogo solo consulta',
-    Repartidor: 'Ruta: recolecciones, Venta en Ruta (venta/cobranza/capital/preinventario; inventario solo lectura), incidencias y productos; sin surtir CEDIS ni editar cuentas',
+    Cajero: 'Mostrador: ventas, cortes, checador, compras, cobranza créditos ruta (PIN), consultas, reportes, ingreso/ajuste de inventario, traspasos y preinventario; catálogo solo consulta',
+    Repartidor: 'Ruta: recolecciones, Venta en Ruta (POS camión), productos; sin cobranza (la paga el cajero con PIN)',
     Auditor: 'Consultas, reportes, inventario e incidencias en todas las tiendas desde central MAIN',
     Supervisor: 'Operación de tienda sin configuración ni usuarios',
     Gerente: 'Operación, configuración y gestión de incidencias en todas las tiendas',

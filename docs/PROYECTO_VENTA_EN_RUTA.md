@@ -1,67 +1,49 @@
-# Proyecto: Venta en Ruta (CEDIS)
+# Proyecto: Venta en Ruta (POS)
 
-**Estado:** rediseño operativo · 2026-08-20  
-**Alcance:** comando **Venta en Ruta** · almacén **CEDIS Ruta** (aislado de MAIN)
+**Estado:** POS v2 · 2026-08-20  
+**Alcance:** MAIN · CEDIS → camión → POS móvil → tránsito / CxC / Compras
 
 ---
 
 ## Flujo
 
 ```
-Admin surte CEDIS Ruta
-  → carga de camión (admin)
-  → venta en ruta tipo POS (vendedor)
-       · efectivo  → cuenta efectivo
-       · crédito   → cuenta crédito (CxC)
-  → cobranza (vendedor cobra créditos → efectivo)
-  → liquidación (admin, sobrante regresa a CEDIS)
+Admin ajusta precio_ruta (sin impuestos)
+Admin carga camión (descuenta MAIN · CEDIS)
+Repartidor vende en POS (scan) · 1 folio por sucursal
+  · efectivo → transito_efectivo (hasta liquidación)
+  · crédito  → ruta_cxc (pendiente)
+Sucursal recibe mercancía en Compras (pedido pendiente)
+Cajero paga crédito con PIN
+  · gasto corte abarrotes «credito liquidado»
+  · efectivo cobrado → transito_efectivo
+Liquidación de tránsito = flujo Recolecciones / Liquidación
 ```
-
-El vendedor **no modifica** inventario ni cuentas; solo consulta, vende, cobra y solicita capital.
-
----
-
-## Roles
-
-| Acción | Admin / Gerente | Vendedor (Repartidor) |
-|--------|-----------------|------------------------|
-| Surte almacén | Sí | No |
-| Ver inventario | Sí | Solo lectura |
-| Carga de camión | Sí | No |
-| Venta POS | Sí | Sí |
-| Cobranza créditos | Sí | Sí |
-| Ver cuentas | Sí + ajuste | Solo lectura |
-| Capital | Liberar / rechazar | Solicitar + foto ticket |
-| Preinventario | Sí | Sí (plantilla catálogo) |
 
 ---
 
 ## Subcomandos
 
-1. **Surte almacén** — ingresos/ajustes CEDIS Ruta  
-2. **Inventario** — consulta (vendedor sin editar)  
-3. **Carga de camión** — folio; baja CEDIS → camión  
-4. **Venta en ruta** — POS efectivo/crédito  
-5. **Cobranza** — abonos a CxC  
-6. **Cuentas** — saldos efectivo y crédito  
-7. **Capital / gastos** — solicitud → liberación → foto ticket  
-8. **Preinventario** — plantilla del catálogo CEDIS (no altera stock)  
+| Quién | Subcomando |
+|-------|------------|
+| Admin/Gerente | Carga camión, Precios ruta, Clientes externos, Consultas |
+| Repartidor | POS venta en ruta |
+| Cajero | Contabilidad → Cobranza (PIN) |
 
 ---
 
 ## SQL
 
-1. `supabase/fix_venta_en_ruta.sql`  
-2. `supabase/fix_precio_ruta_y_cxc.sql`  
-3. `supabase/fix_venta_en_ruta_cuentas_capital.sql`  
+1. `fix_venta_en_ruta.sql` (cargas / ventas / clientes)  
+2. `fix_precio_ruta_y_cxc.sql`  
+3. `fix_venta_ruta_pos_v2.sql`  
 
 ---
 
-## Criterio de éxito
+## Deprecado (ya no usa la app)
 
-- Admin surte → carga → venta POS funcional  
-- Ventas asientan en cuenta efectivo o crédito  
-- Vendedor no edita cuentas ni inventario  
-- Cobranza de créditos por vendedor  
-- Capital con liberación admin y justificación con foto  
-- Preinventario por plantilla del catálogo de ruta  
+- `cedis_ruta_stock` / movimientos  
+- `ruta_efectivo_movimientos`  
+- `ruta_capital_solicitudes`  
+- `ruta_preinventario_sesiones`  
+- Cobranza por el repartidor  
