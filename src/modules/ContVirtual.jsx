@@ -469,7 +469,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const [anio, setAnio] = useState(() => Number(hoyYmdNogales().slice(0, 4)));
   const [mes, setMes] = useState(() => Number(hoyYmdNogales().slice(5, 7)) - 1);
   const [estadPreset, setEstadPreset] = useState('mes');
-  const [estadTab, setEstadTab] = useState('gastos');
+  const [estadTab, setEstadTab] = useState(() => (libro === 'francisco' ? 'negocio' : 'gastos'));
   const [mesExpandido, setMesExpandido] = useState(() => Number(hoyYmdNogales().slice(5, 7)) - 1);
   const hoyRef = useMemo(() => {
     const [y, m, d] = hoyYmdNogales().split('-').map(Number);
@@ -680,13 +680,6 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     if (cargando) return;
     cargarProveedores();
   }, [esFrancisco, nav, cargando, cargarProveedores]);
-
-  // En IE Abarrotes, abrir Estadísticas en el panorama del negocio.
-  useEffect(() => {
-    if (esFrancisco && nav === 'estad' && !['negocio', 'proveedores', 'ingresos', 'gastos'].includes(estadTab)) {
-      setEstadTab('negocio');
-    }
-  }, [esFrancisco, nav, estadTab]);
 
   const porDiaBase = useMemo(
     () => agruparMovimientosPorDia({
@@ -1769,45 +1762,9 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             ingresosIe={ab.ingresos}
             egresosIe={ab.egresos}
           />
-          <div className="cv-cuenta-group">
-            <div className="hd">
-              <span>Utilidades · periodo</span>
-              <strong style={{ color: (tot.ganancia_neta || 0) >= 0 ? 'var(--cv-ingreso)' : 'var(--cv-gasto)' }}>
-                {cargandoProv ? '…' : fmtMoney(tot.ganancia_neta)}
-              </strong>
-            </div>
-            <div className="item">
-              <span>Ventas POS (por proveedor)</span>
-              <span className="amt">{fmtMoney(tot.ventas)}</span>
-            </div>
-            <div className="item">
-              <span>Costo mercancía vendida</span>
-              <span className="amt" style={{ color: 'var(--cv-gasto)' }}>{fmtMoney(tot.costo)}</span>
-            </div>
-            <div className="item">
-              <span>Utilidad bruta</span>
-              <span className="amt" style={{ color: (tot.utilidad_bruta || 0) >= 0 ? 'var(--cv-ingreso)' : 'var(--cv-gasto)' }}>
-                {fmtMoney(tot.utilidad_bruta)}
-              </span>
-            </div>
-            <div className="item">
-              <span>Gastos a proveedores (corte)</span>
-              <span className="amt" style={{ color: 'var(--cv-gasto)' }}>{fmtMoney(tot.gastos_proveedores)}</span>
-            </div>
-            <div className="item">
-              <span>Egresos operativos IE</span>
-              <span className="amt" style={{ color: 'var(--cv-gasto)' }}>{fmtMoney(tot.gastos_operativos)}</span>
-            </div>
-            <div className="item">
-              <span>Ganancia neta</span>
-              <span className="amt" style={{ fontWeight: 700, color: (tot.ganancia_neta || 0) >= 0 ? 'var(--cv-ingreso)' : 'var(--cv-gasto)' }}>
-                {fmtMoney(tot.ganancia_neta)}
-              </span>
-            </div>
-            <p className="muted" style={{ fontSize: '0.75rem', margin: '0.5rem 0 0' }}>
-              Detalle por proveedor en Estad. → Proveedores.
-            </p>
-          </div>
+          <p className="muted" style={{ fontSize: '0.75rem', margin: '0.5rem 0 0' }}>
+            Detalle por proveedor en Estad. → Proveedores.
+          </p>
         </>
       );
     }
