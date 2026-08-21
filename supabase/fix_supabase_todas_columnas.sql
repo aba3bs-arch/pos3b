@@ -146,11 +146,15 @@ create table if not exists public.proveedores (
   contacto text,
   telefono text,
   email text,
+  rfc text,
+  direccion text,
   notas text,
   created_at timestamptz default now()
 );
 
 alter table public.proveedores add column if not exists email text;
+alter table public.proveedores add column if not exists rfc text;
+alter table public.proveedores add column if not exists direccion text;
 
 alter table public.proveedores enable row level security;
 drop policy if exists "proveedores_anon_rw" on public.proveedores;

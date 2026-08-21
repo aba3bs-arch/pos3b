@@ -12,9 +12,27 @@ import { etiquetaTienda } from '../constants/sucursales.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import MatrizEntregasProveedores from '../components/MatrizEntregasProveedores.jsx';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
-import { MODOS_COMPRA_PROVEEDOR, normalizarModoCompraProveedor } from '../lib/comprasProveedor.js';
+import { MODOS_COMPRA_PROVEEDOR, etiquetaModoCompraProveedor, normalizarModoCompraProveedor } from '../lib/comprasProveedor.js';
 
-const empty = { nombre: '', contacto: '', telefono: '', email: '', notas: '', modo_compra: 'pedido' };
+const empty = {
+  nombre: '',
+  contacto: '',
+  telefono: '',
+  email: '',
+  rfc: '',
+  direccion: '',
+  notas: '',
+  modo_compra: 'pedido',
+};
+
+/** Columnas opcionales: si faltan en Supabase, se omiten al guardar y se indica el script. */
+const COLUMNAS_OPCIONALES = [
+  ['email', 'supabase/fix_proveedores_columnas.sql'],
+  ['rfc', 'supabase/fix_proveedores_columnas.sql'],
+  ['direccion', 'supabase/fix_proveedores_columnas.sql'],
+  ['modo_compra', 'supabase/fix_proveedores_columnas.sql'],
+];
+
 const emptyCatalogo = {
   nombre: '',
   presentacion: '',
@@ -105,6 +123,8 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
       contacto: String(form.contacto || '').trim() || null,
       telefono: String(form.telefono || '').trim() || null,
       email: String(form.email || '').trim() || null,
+      rfc: String(form.rfc || '').trim().toUpperCase() || null,
+      direccion: String(form.direccion || '').trim() || null,
       notas: String(form.notas || '').trim() || null,
       modo_compra: normalizarModoCompraProveedor(form.modo_compra),
     };
@@ -119,10 +139,7 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
     let { error } = await persistir(payload);
 
     // Tablas antiguas: quitar columnas que aún no existen y reintentar.
-    for (const [col, script] of [
-      ['email', 'supabase/fix_proveedores_email.sql'],
-      ['modo_compra', 'supabase/fix_proveedor_modo_compra.sql'],
-    ]) {
+    for (const [col, script] of COLUMNAS_OPCIONALES) {
       if (!error || !faltaColumna(error, col)) continue;
       const { [col]: _omit, ...rest } = payload;
       payload = rest;
@@ -134,13 +151,12 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
       if (String(error.message || '').includes('relation') || error.code === '42P01') {
         return alert('Ejecuta supabase/schema.sql para crear la tabla proveedores.');
       }
-      if (faltaColumna(error, 'email')) {
-        return alert('No existe la columna email en proveedores. Ejecuta en Supabase: supabase/fix_proveedores_email.sql');
-      }
       return alert(error.message);
     }
 
-    if (avisos.length) alert(`Proveedor guardado.\n\n${avisos.join('\n')}`);
+    if (avisos.length) {
+      alert(`Proveedor guardado parcialmente.\n\n${avisos.join('\n')}\n\nPara completar la tabla ejecuta: supabase/fix_proveedores_columnas.sql`);
+    }
     setForm(empty);
     setEditId(null);
     load();
@@ -153,6 +169,8 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
       contacto: r.contacto || '',
       telefono: r.telefono || '',
       email: r.email || '',
+      rfc: r.rfc || '',
+      direccion: r.direccion || '',
       notas: r.notas || '',
       modo_compra: normalizarModoCompraProveedor(r.modo_compra),
     });
@@ -341,7 +359,11 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
                 Email
                 <input className="input" style={{ marginTop: '0.35rem' }} placeholder="correo@proveedor.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} type="email" autoComplete="email" />
               </label>
-              <label className="muted" style={{ gridColumn: '1 / -1' }}>
+              <label className="muted" style={{ display: 'block' }}>
+                RFC
+                <input className="input" style={{ marginTop: '0.35rem' }} placeholder="RFC" value={form.rfc} onChange={(e) => setForm({ ...form, rfc: e.target.value.toUpperCase() })} autoComplete="off" />
+              </label>
+              <label className="muted" style={{ display: 'block' }}>
                 Tipo de compra
                 <select
                   className="select"
@@ -355,15 +377,19 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
                     </option>
                   ))}
                 </select>
-                <span style={{ display: 'block', marginTop: '0.25rem', fontSize: '0.78rem' }}>
-                  {MODOS_COMPRA_PROVEEDOR.find((m) => m.id === normalizarModoCompraProveedor(form.modo_compra))?.hint}
-                </span>
               </label>
+              <label className="muted" style={{ gridColumn: '1 / -1', display: 'block' }}>
+                Dirección
+                <input className="input" style={{ marginTop: '0.35rem' }} placeholder="Calle, colonia, ciudad…" value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })} />
+              </label>
+              <p className="muted" style={{ gridColumn: '1 / -1', margin: 0, fontSize: '0.78rem' }}>
+                {MODOS_COMPRA_PROVEEDOR.find((m) => m.id === normalizarModoCompraProveedor(form.modo_compra))?.hint}
+              </p>
               <label className="muted" style={{ gridColumn: '1 / -1', display: 'block' }}>
                 Notas
                 <textarea
                   className="input"
-                  placeholder="Pagos, días de entrega…"
+                  placeholder="Pagos, condiciones, días de entrega…"
                   style={{ marginTop: '0.35rem', minHeight: '72px' }}
                   value={form.notas}
                   onChange={(e) => setForm({ ...form, notas: e.target.value })}
@@ -596,23 +622,31 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
                 <th>Contacto</th>
                 <th>Teléfono</th>
                 <th>Email</th>
+                <th>RFC</th>
+                <th>Dirección</th>
+                <th>Tipo compra</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="muted">
+                  <td colSpan={8} className="muted">
                     Sin proveedores registrados.
                   </td>
                 </tr>
               ) : (
                 rows.map((r) => (
                   <tr key={r.id}>
-                    <td>{r.nombre}</td>
-                    <td>{r.contacto}</td>
-                    <td>{r.telefono}</td>
-                    <td>{r.email}</td>
+                    <td>{r.nombre || '—'}</td>
+                    <td>{r.contacto || '—'}</td>
+                    <td>{r.telefono || '—'}</td>
+                    <td>{r.email || '—'}</td>
+                    <td>{r.rfc || '—'}</td>
+                    <td style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.direccion || ''}>
+                      {r.direccion || '—'}
+                    </td>
+                    <td>{etiquetaModoCompraProveedor(r.modo_compra)}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => editar(r)}>
                         Editar
