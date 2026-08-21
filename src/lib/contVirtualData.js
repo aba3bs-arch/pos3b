@@ -485,6 +485,13 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
 
   const neto = round2(ingresosTotal - unificado.egresosTotal);
 
+  const panorama = construirPanoramaVirtual({
+    ingresosItems,
+    egresosTotal: unificado.egresosTotal,
+    porCuenta,
+    recoleccionesCount: recolecciones.length,
+  });
+
   return {
     ok: true,
     desde,
@@ -499,6 +506,8 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     detalleGastos: unificado.detalle.slice(0, 500),
     ingresosPorDia,
     porCuenta,
+    panorama,
+    totalesNegocio: panorama.totales,
     pastelCategorias: unificado.pastelCategorias,
     pastelSubcategorias: unificado.pastelSubcategorias,
     catalogo,
@@ -509,6 +518,106 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     cuotasNominaTotal,
     cuotaMinima: CUOTA_SEMANAL_MINIMA,
   };
+}
+
+/**
+ * Panorama IE VIRTUAL (Antonio): recolecciones → efectivo vs gastos en tienda → egresos → neto.
+ * El ingreso a IE es la recolección bruta (efectivo + gastos embebidos del corte).
+ */
+export function construirPanoramaVirtual({
+  ingresosItems = [],
+  egresosTotal = 0,
+  porCuenta = {},
+  recoleccionesCount = 0,
+} = {}) {
+  let recoleccionesBruto = 0;
+  let efectivo = 0;
+  let gastosEnRecoleccion = 0;
+  let ingresosManual = 0;
+  let nRec = 0;
+
+  for (const it of ingresosItems || []) {
+    const monto = round2(it.monto);
+    if (!(monto > 0)) continue;
+    if (it.tipo_mov === 'recoleccion') {
+      nRec += 1;
+      recoleccionesBruto = round2(recoleccionesBruto + monto);
+      efectivo = round2(efectivo + (Number(it.efectivo) || 0));
+      gastosEnRecoleccion = round2(gastosEnRecoleccion + (Number(it.gastos_total) || 0));
+    } else {
+      ingresosManual = round2(ingresosManual + monto);
+    }
+  }
+
+  const ingresosTotal = round2(recoleccionesBruto + ingresosManual);
+  const egresos = round2(egresosTotal);
+  const neto = round2(ingresosTotal - egresos);
+  const virtual = porCuenta?.virtual || {};
+  const garage = porCuenta?.garage || {};
+
+  const pctEfectivo = recoleccionesBruto > 0
+    ? round2((efectivo / recoleccionesBruto) * 100)
+    : 0;
+  const pctGastosEnRec = recoleccionesBruto > 0
+    ? round2((gastosEnRecoleccion / recoleccionesBruto) * 100)
+    : 0;
+  const pctEgresosSobreRec = recoleccionesBruto > 0
+    ? round2((egresos / recoleccionesBruto) * 100)
+    : (egresos > 0 ? 100 : 0);
+  const pctNetoSobreRec = recoleccionesBruto > 0
+    ? round2((neto / recoleccionesBruto) * 100)
+    : 0;
+
+  const countRec = recoleccionesCount || nRec;
+
+  const totales = {
+    recolecciones: recoleccionesBruto,
+    efectivo,
+    gastos_en_recoleccion: gastosEnRecoleccion,
+    ingresos_manual: ingresosManual,
+    ingresos_total: ingresosTotal,
+    egresos,
+    neto,
+    recolecciones_count: countRec,
+    virtual_ingresos: round2(virtual.ingresos || 0),
+    virtual_egresos: round2(virtual.egresos || 0),
+    virtual_neto: round2(virtual.neto || 0),
+    garage_ingresos: round2(garage.ingresos || 0),
+    garage_egresos: round2(garage.egresos || 0),
+    garage_neto: round2(garage.neto || 0),
+    pct_efectivo: pctEfectivo,
+    pct_gastos_en_recoleccion: pctGastosEnRec,
+    pct_egresos_sobre_recolecciones: pctEgresosSobreRec,
+    pct_neto_sobre_recolecciones: pctNetoSobreRec,
+  };
+
+  return {
+    ...totales,
+    totales,
+    resumen: [
+      countRec > 0
+        ? `${countRec} recolección${countRec === 1 ? '' : 'es'} aprobada${countRec === 1 ? '' : 's'} · bruto ${fmtMoneyPlain(recoleccionesBruto)}.`
+        : 'Sin recolecciones aprobadas en el periodo.',
+      recoleccionesBruto > 0
+        ? `De cada $100 recolectados (bruto), ~$${pctEfectivo.toFixed(0)} llega en efectivo y ~$${pctGastosEnRec.toFixed(0)} ya salió como gasto en tienda.`
+        : '',
+      recoleccionesBruto > 0
+        ? `Los egresos de IE consumen ~${pctEgresosSobreRec.toFixed(0)}% de las recolecciones brutas.`
+        : (egresos > 0 ? 'Hay egresos aunque no haya recolecciones en el periodo.' : ''),
+      `Resultado neto: ${neto >= 0 ? '' : '−'}$${Math.abs(neto).toFixed(2)}${
+        recoleccionesBruto > 0 ? ` (${pctNetoSobreRec}% de las recolecciones).` : '.'
+      }`,
+      (virtual.ingresos || garage.ingresos)
+        ? `Virtual ${fmtMoneyPlain(virtual.neto || 0)} · Garage ${fmtMoneyPlain(garage.neto || 0)}.`
+        : '',
+    ].filter(Boolean),
+  };
+}
+
+function fmtMoneyPlain(n) {
+  const v = Number(n) || 0;
+  const sign = v < 0 ? '−' : '';
+  return `${sign}$${Math.abs(v).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /**

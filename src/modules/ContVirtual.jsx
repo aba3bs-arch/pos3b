@@ -212,6 +212,115 @@ function PanoramaNegocioAbarrotes({
   );
 }
 
+/**
+ * Panorama IE VIRTUAL (Antonio):
+ * recolecciones brutas → efectivo vs gastos en tienda → egresos IE → neto.
+ */
+function PanoramaNegocioVirtual({
+  tot = {},
+  panorama = null,
+  cargando = false,
+  error = '',
+}) {
+  if (cargando) return <div className="cv-loading">Calculando panorama del negocio…</div>;
+  if (error) return <div className="cv-error">{error}</div>;
+
+  const recolecciones = Number(tot.recolecciones) || 0;
+  const efectivo = Number(tot.efectivo) || 0;
+  const gastosRec = Number(tot.gastos_en_recoleccion) || 0;
+  const manual = Number(tot.ingresos_manual) || 0;
+  const egresos = Number(tot.egresos) || 0;
+  const neto = Number(tot.neto) || 0;
+  const lineas = panorama?.resumen || [];
+  const nRec = Number(tot.recolecciones_count) || 0;
+
+  return (
+    <div className="cv-prov-panel cv-panorama">
+      <h3 className="cv-panorama-title">Panorama del negocio</h3>
+      <p className="muted cv-prov-hint">
+        En Virtual/Garage el ingreso a IE son las <strong>recolecciones aprobadas</strong>
+        (bruto = efectivo + gastos ya hechos en el corte). De ahí salen los egresos del libro;
+        lo que queda es el <strong>resultado neto</strong> del periodo.
+      </p>
+
+      <div className="cv-panorama-flujo">
+        <div className="cv-panorama-paso">
+          <span className="num">1</span>
+          <div>
+            <strong>Recolecciones (bruto)</strong>
+            <em className="ingreso">{fmtMoney(recolecciones)}</em>
+            <small>
+              {nRec > 0 ? `${nRec} recolección${nRec === 1 ? '' : 'es'} aprobada${nRec === 1 ? '' : 's'}` : 'Sin recolecciones'}
+              {manual > 0 ? ` · + manual ${fmtMoney(manual)}` : ''}
+            </small>
+          </div>
+        </div>
+        <div className="cv-panorama-paso">
+          <span className="num">2</span>
+          <div>
+            <strong>De eso · efectivo vs gastos en tienda</strong>
+            <em className="ingreso">{fmtMoney(efectivo)}</em>
+            <small>
+              Efectivo {tot.pct_efectivo ?? 0}% · gastos en recolección {fmtMoney(gastosRec)}
+              ({tot.pct_gastos_en_recoleccion ?? 0}%). El bruto IE ya incluye ambos.
+            </small>
+          </div>
+        </div>
+        <div className="cv-panorama-paso">
+          <span className="num">3</span>
+          <div>
+            <strong>− Egresos del negocio</strong>
+            <em className="gasto">{fmtMoney(egresos)}</em>
+            <small>
+              Gastos liberados + libro IE (Virtual/Garage).
+              {recolecciones > 0 ? ` Consumen ${tot.pct_egresos_sobre_recolecciones ?? 0}% de las recolecciones.` : ''}
+            </small>
+          </div>
+        </div>
+        <div className="cv-panorama-paso dest final">
+          <span className="num">=</span>
+          <div>
+            <strong>Resultado neto</strong>
+            <em className={neto >= 0 ? 'ingreso' : 'gasto'}>{fmtMoney(neto)}</em>
+            <small>
+              Ingresos − egresos
+              {recolecciones > 0 ? ` (${tot.pct_neto_sobre_recolecciones ?? 0}% de las recolecciones)` : ''}.
+              {neto >= 0 ? ' Disponible en el periodo.' : ' Los egresos superaron lo recolectado.'}
+            </small>
+          </div>
+        </div>
+      </div>
+
+      <div className="cv-prov-kpis" style={{ marginTop: '0.85rem' }}>
+        <div className="cv-prov-kpi">
+          <span className="lbl">Virtual · neto</span>
+          <strong className={(tot.virtual_neto || 0) >= 0 ? 'ingreso' : 'gasto'}>{fmtMoney(tot.virtual_neto)}</strong>
+        </div>
+        <div className="cv-prov-kpi">
+          <span className="lbl">Garage · neto</span>
+          <strong className={(tot.garage_neto || 0) >= 0 ? 'ingreso' : 'gasto'}>{fmtMoney(tot.garage_neto)}</strong>
+        </div>
+        <div className="cv-prov-kpi">
+          <span className="lbl">% rec. → egresos</span>
+          <strong className="gasto">{tot.pct_egresos_sobre_recolecciones ?? 0}%</strong>
+        </div>
+        <div className="cv-prov-kpi">
+          <span className="lbl">% rec. → neto</span>
+          <strong className={neto >= 0 ? 'ingreso' : 'gasto'}>{tot.pct_neto_sobre_recolecciones ?? 0}%</strong>
+        </div>
+      </div>
+
+      {lineas.length > 0 && (
+        <ul className="cv-panorama-resumen">
+          {lineas.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function IconBook({ active }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -469,7 +578,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const [anio, setAnio] = useState(() => Number(hoyYmdNogales().slice(0, 4)));
   const [mes, setMes] = useState(() => Number(hoyYmdNogales().slice(5, 7)) - 1);
   const [estadPreset, setEstadPreset] = useState('mes');
-  const [estadTab, setEstadTab] = useState(() => (libro === 'francisco' ? 'negocio' : 'gastos'));
+  const [estadTab, setEstadTab] = useState('negocio');
   const [mesExpandido, setMesExpandido] = useState(() => Number(hoyYmdNogales().slice(5, 7)) - 1);
   const hoyRef = useMemo(() => {
     const [y, m, d] = hoyYmdNogales().split('-').map(Number);
@@ -1591,11 +1700,9 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       <div className="cv-estad-tabs">
         <button type="button" className={estadTab === 'ingresos' ? 'active' : ''} onClick={() => setEstadTab('ingresos')}>Ingresos</button>
         <button type="button" className={estadTab === 'gastos' ? 'active' : ''} onClick={() => setEstadTab('gastos')}>Gastos</button>
-        {esFrancisco && (
-          <button type="button" className={estadTab === 'negocio' ? 'active' : ''} onClick={() => setEstadTab('negocio')}>
-            Negocio
-          </button>
-        )}
+        <button type="button" className={estadTab === 'negocio' ? 'active' : ''} onClick={() => setEstadTab('negocio')}>
+          Negocio
+        </button>
         {esFrancisco && (
           <button type="button" className={estadTab === 'proveedores' ? 'active' : ''} onClick={() => setEstadTab('proveedores')}>
             Proveedores
@@ -1611,6 +1718,13 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           error={provReporte?.error}
           ingresosIe={datos?.ingresosTotal || 0}
           egresosIe={datos?.egresosTotal || 0}
+        />
+      ) : estadTab === 'negocio' && !esFrancisco ? (
+        <PanoramaNegocioVirtual
+          tot={datos?.totalesNegocio || datos?.panorama?.totales || {}}
+          panorama={datos?.panorama}
+          cargando={cargando}
+          error={datos?.ok === false ? (datos?.error || error) : ''}
         />
       ) : estadTab === 'proveedores' && esFrancisco ? (
         <div className="cv-prov-panel">
@@ -1777,7 +1891,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       <>
         <div className="cv-cuentas-hd">
           <span>Cuentas · Antonio</span>
-          <button type="button" className="cv-icon-btn" onClick={() => setNav('estad')} aria-label="Estadísticas">
+          <button type="button" className="cv-icon-btn" onClick={() => { setNav('estad'); setEstadTab('negocio'); }} aria-label="Panorama del negocio">
             <IconChart />
           </button>
         </div>
@@ -1803,7 +1917,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             <span className="amt">{fmtMoney(virtual.neto)}</span>
           </div>
           <div className="item">
-            <span>Ingresos (cierres + recolecciones)</span>
+            <span>Ingresos (recolecciones)</span>
             <span className="amt">{fmtMoney(virtual.ingresos)}</span>
           </div>
           <div className="item">
@@ -1821,7 +1935,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             <span className="amt">{fmtMoney(garage.neto)}</span>
           </div>
           <div className="item">
-            <span>Ingresos (cierres + recolecciones)</span>
+            <span>Ingresos (recolecciones)</span>
             <span className="amt">{fmtMoney(garage.ingresos)}</span>
           </div>
           <div className="item">
@@ -1845,6 +1959,12 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             </div>
           ))}
         </div>
+        <PanoramaNegocioVirtual
+          tot={datos?.totalesNegocio || datos?.panorama?.totales || {}}
+          panorama={datos?.panorama}
+          cargando={cargando}
+          error={datos?.ok === false ? (datos?.error || error) : ''}
+        />
       </>
     );
   };
@@ -2156,7 +2276,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           </button>
           <button type="button" className="cv-mas-item" onClick={() => alert(esFrancisco
             ? 'IE ABARROTES (Francisco): ingresos = ventas de los cierres.\n\nEstad. → Negocio: panorama ventas → reinversión → utilidad → gastos → ganancia neta.\n\nEstad. → Proveedores: detalle por proveedor.\n\nAdmin: ＋I / ＋E en Transacciones; Más → Cuentas/subcuentas.'
-            : 'IE VIRTUAL (Antonio): Virtual y Garage. Vales y gastos CUBRE TURNO/TAXIS se registran solos.\n\nAdmin: botones ＋I / ＋E en Transacciones para captura manual; Más → Cuentas/subcuentas para el catálogo. Abarrotes va en IE ABARROTES.')}>
+            : 'IE VIRTUAL (Antonio): ingresos = recolecciones aprobadas (Virtual y Garage).\n\nEstad. → Negocio: panorama recolecciones → efectivo vs gastos en tienda → egresos → neto.\n\nVales y gastos CUBRE TURNO/TAXIS se registran solos. Admin: ＋I / ＋E en Transacciones; Más → Cuentas/subcuentas. Abarrotes va en IE ABARROTES.')}>
             <span className="ico">?</span>
             Ayuda
           </button>
