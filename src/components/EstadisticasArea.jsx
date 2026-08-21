@@ -26,6 +26,7 @@ import {
   ticketPromedio,
   tiendasEstadisticas,
 } from '../lib/estadisticasData.js';
+import { cargarRentabilidadProductosFrecuentes } from '../lib/rentabilidadProductosFrecuentes.js';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -127,6 +128,8 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
   const [packAnt, setPackAnt] = useState(null);
   const [semanaSel, setSemanaSel] = useState(null);
   const [categoriaSel, setCategoriaSel] = useState(null);
+  const [rentab, setRentab] = useState(null);
+  const [cargandoRentab, setCargandoRentab] = useState(false);
 
   const rango = useMemo(() => {
     if (presetFecha === 'rango') {
@@ -169,6 +172,31 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
       setSemanaSel(null);
       setCategoriaSel(null);
       setCargando(false);
+    })();
+    return () => {
+      ok = false;
+    };
+  }, [supabase, area, rango, filtroTienda, inventario]);
+
+  useEffect(() => {
+    if (area !== 'abarrotes' || !supabase || !rango?.desde || !rango?.hasta) {
+      setRentab(null);
+      return undefined;
+    }
+    let ok = true;
+    (async () => {
+      setCargandoRentab(true);
+      const res = await cargarRentabilidadProductosFrecuentes(supabase, {
+        desde: rango.desde,
+        hasta: rango.hasta,
+        sucursal: filtroTienda || null,
+        inventario,
+        topN: 25,
+        diasAlerta: 3,
+      });
+      if (!ok) return;
+      setRentab(res);
+      setCargandoRentab(false);
     })();
     return () => {
       ok = false;
@@ -534,6 +562,123 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
           />
         </div>
       </div>
+
+      {area === 'abarrotes' && (
+        <div className="card" style={{ marginBottom: '1rem' }}>
+          <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
+            Rentabilidad · productos de alta frecuencia
+          </h4>
+          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.8rem' }}>
+            Los que más salen en tickets: margen real (venta − costo) y stock en piso para no dejarlos agotar.
+            Alerta si la cobertura es menor a {rentab?.totales?.dias_alerta ?? 3} días al ritmo del periodo.
+          </p>
+          {cargandoRentab && <p className="muted">Calculando rentabilidad por producto…</p>}
+          {!cargandoRentab && rentab?.error && (
+            <p style={{ color: '#c0392b', margin: 0 }}>{rentab.error}</p>
+          )}
+          {!cargandoRentab && rentab?.ok && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.65rem', marginBottom: '0.85rem' }}>
+                <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>Top frecuentes</div>
+                  <strong style={{ fontSize: '1.1rem' }}>{rentab.totales.top_count}</strong>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>{rentab.totales.skus_vendidos} SKUs vendidos</div>
+                </div>
+                <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>Ventas top</div>
+                  <strong style={{ fontSize: '1.1rem', color: '#27ae60' }}>{fmt(rentab.totales.ventas)}</strong>
+                </div>
+                <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>Utilidad / margen</div>
+                  <strong style={{ fontSize: '1.1rem', color: (rentab.totales.utilidad || 0) >= 0 ? '#27ae60' : '#c0392b' }}>
+                    {fmt(rentab.totales.utilidad)}
+                  </strong>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>{rentab.totales.margen_pct}% margen</div>
+                </div>
+                <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>Atención stock</div>
+                  <strong style={{ fontSize: '1.1rem', color: (rentab.totales.alertas_stock || 0) > 0 ? '#c0392b' : '#27ae60' }}>
+                    {rentab.totales.alertas_stock}
+                  </strong>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>productos en riesgo</div>
+                </div>
+              </div>
+
+              {(rentab.avisos || []).length > 0 && (
+                <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.5rem' }}>{rentab.avisos.join(' · ')}</p>
+              )}
+
+              {rentab.atencionStock?.length > 0 && (
+                <div style={{ marginBottom: '0.85rem', padding: '0.55rem 0.65rem', borderRadius: 8, background: 'rgba(192,57,43,0.08)', border: '1px solid rgba(192,57,43,0.25)' }}>
+                  <strong style={{ color: '#c0392b', fontSize: '0.85rem' }}>Prioridad reposición</strong>
+                  <ul style={{ margin: '0.35rem 0 0', paddingLeft: '1.1rem', fontSize: '0.82rem' }}>
+                    {rentab.atencionStock.slice(0, 8).map((p) => (
+                      <li key={`alert-${p.id}`}>
+                        <strong>{p.nombre}</strong>
+                        {' · stock '}
+                        <span style={{ color: '#c0392b', fontWeight: 700 }}>{p.stock}</span>
+                        {p.dias_cobertura != null ? ` · ~${p.dias_cobertura} d de cobertura` : ' · sin ritmo'}
+                        {' · '}
+                        {p.tickets} tickets · margen {p.margen_pct}%
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {!rentab.top?.length ? (
+                <p className="muted">Sin ventas por artículo en el periodo.</p>
+              ) : (
+                <div className="table-wrap">
+                  <table className="data">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>Producto</th>
+                        <th>Tickets</th>
+                        <th>Piezas</th>
+                        <th>Ventas</th>
+                        <th>Utilidad</th>
+                        <th>Margen</th>
+                        <th>Stock</th>
+                        <th>Cobertura</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rentab.top.map((p, i) => (
+                        <tr key={p.id} style={p.alerta_stock ? { background: 'rgba(192,57,43,0.06)' } : undefined}>
+                          <td>{i + 1}</td>
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{p.nombre}</div>
+                            <div className="muted" style={{ fontSize: '0.72rem' }}>{p.departamento} · {p.id}</div>
+                          </td>
+                          <td>{p.tickets}</td>
+                          <td>{p.piezas}</td>
+                          <td>{fmt(p.ventas)}</td>
+                          <td style={{ color: p.utilidad >= 0 ? '#27ae60' : '#c0392b', fontWeight: 600 }}>{fmt(p.utilidad)}</td>
+                          <td style={{ fontWeight: 700 }}>{p.margen_pct}%</td>
+                          <td style={{ color: p.alerta_stock ? '#c0392b' : undefined, fontWeight: p.alerta_stock ? 800 : 500 }}>
+                            {p.stock}
+                          </td>
+                          <td>
+                            {p.dias_cobertura == null
+                              ? '—'
+                              : (
+                                <span style={{ color: p.alerta_stock ? '#c0392b' : undefined, fontWeight: p.alerta_stock ? 700 : 500 }}>
+                                  {p.dias_cobertura} d
+                                </span>
+                              )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {area === 'abarrotes' && (
         <div className="grid-2">
