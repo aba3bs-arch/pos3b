@@ -98,6 +98,120 @@ function guardarNotas(lista) {
   localStorage.setItem(LS_NOTAS, JSON.stringify(lista.slice(0, 200)));
 }
 
+/**
+ * Panorama del negocio IE ABARROTES:
+ * ventas → reinversión en producto → utilidad → gastos → ganancia neta.
+ */
+function PanoramaNegocioAbarrotes({
+  tot = {},
+  panorama = null,
+  cargando = false,
+  error = '',
+  ingresosIe = 0,
+  egresosIe = 0,
+}) {
+  if (cargando) return <div className="cv-loading">Calculando panorama del negocio…</div>;
+  if (error) return <div className="cv-error">{error}</div>;
+
+  const ventas = Number(tot.ventas) || 0;
+  const reinversion = Number(tot.reinversion_producto ?? tot.costo) || 0;
+  const utilidad = Number(tot.utilidad_bruta) || 0;
+  const gastosOp = Number(tot.gastos_operativos) || 0;
+  const neta = Number(tot.ganancia_neta) || 0;
+  const pagosProv = Number(tot.gastos_proveedores) || 0;
+  const lineas = panorama?.resumen || [];
+
+  return (
+    <div className="cv-prov-panel cv-panorama">
+      <h3 className="cv-panorama-title">Panorama del negocio</h3>
+      <p className="muted cv-prov-hint">
+        Lo que vendes se reparte así: primero se reinviste el costo de la mercancía;
+        lo que sobra es la <strong>ganancia del producto</strong>; de ahí salen los gastos del negocio;
+        lo que queda es la <strong>ganancia neta</strong>.
+      </p>
+
+      <div className="cv-panorama-flujo">
+        <div className="cv-panorama-paso">
+          <span className="num">1</span>
+          <div>
+            <strong>Ventas</strong>
+            <em className="ingreso">{fmtMoney(ventas)}</em>
+            <small>Dinero que entró por producto vendido (POS)</small>
+          </div>
+        </div>
+        <div className="cv-panorama-paso">
+          <span className="num">2</span>
+          <div>
+            <strong>− Reinversión en mercancía</strong>
+            <em className="gasto">{fmtMoney(reinversion)}</em>
+            <small>
+              Costo de lo vendido ({tot.pct_reinversion_ventas ?? 0}% de las ventas).
+              {pagosProv > 0 ? ` Pagos a proveedores en corte: ${fmtMoney(pagosProv)}.` : ''}
+            </small>
+          </div>
+        </div>
+        <div className="cv-panorama-paso dest">
+          <span className="num">=</span>
+          <div>
+            <strong>Utilidad bruta (ganancia del producto)</strong>
+            <em className={utilidad >= 0 ? 'ingreso' : 'gasto'}>{fmtMoney(utilidad)}</em>
+            <small>Margen {tot.margen_pct ?? 0}% · esto es lo que “gana” el negocio antes de gastos</small>
+          </div>
+        </div>
+        <div className="cv-panorama-paso">
+          <span className="num">3</span>
+          <div>
+            <strong>− Gastos del negocio</strong>
+            <em className="gasto">{fmtMoney(gastosOp)}</em>
+            <small>
+              Egresos operativos de IE Abarrotes (sin pagos a proveedores).
+              {utilidad > 0 ? ` Consumen ${tot.pct_gastos_sobre_utilidad ?? 0}% de la utilidad bruta.` : ''}
+            </small>
+          </div>
+        </div>
+        <div className="cv-panorama-paso dest final">
+          <span className="num">=</span>
+          <div>
+            <strong>Ganancia neta</strong>
+            <em className={neta >= 0 ? 'ingreso' : 'gasto'}>{fmtMoney(neta)}</em>
+            <small>
+              Lo que queda del negocio ({tot.pct_ganancia_ventas ?? 0}% de las ventas).
+              {neta >= 0 ? ' Disponible para reinvertir, ahorrar o retirar.' : ' El periodo no alcanzó a cubrir costos + gastos.'}
+            </small>
+          </div>
+        </div>
+      </div>
+
+      <div className="cv-prov-kpis" style={{ marginTop: '0.85rem' }}>
+        <div className="cv-prov-kpi">
+          <span className="lbl">IE · Ingresos (cierres)</span>
+          <strong className="ingreso">{fmtMoney(ingresosIe)}</strong>
+        </div>
+        <div className="cv-prov-kpi">
+          <span className="lbl">IE · Egresos</span>
+          <strong className="gasto">{fmtMoney(egresosIe)}</strong>
+        </div>
+        <div className="cv-prov-kpi">
+          <span className="lbl">% utilidad → gastos</span>
+          <strong className="gasto">{tot.pct_gastos_sobre_utilidad ?? 0}%</strong>
+        </div>
+        <div className="cv-prov-kpi">
+          <span className="lbl">% venta → ganancia</span>
+          <strong className={neta >= 0 ? 'ingreso' : 'gasto'}>{tot.pct_ganancia_ventas ?? 0}%</strong>
+        </div>
+      </div>
+
+      {lineas.length > 0 && (
+        <ul className="cv-panorama-resumen">
+          {lineas.map((t) => (
+            <li key={t}>{t}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function IconBook({ active }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -566,6 +680,13 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     if (cargando) return;
     cargarProveedores();
   }, [esFrancisco, nav, cargando, cargarProveedores]);
+
+  // En IE Abarrotes, abrir Estadísticas en el panorama del negocio.
+  useEffect(() => {
+    if (esFrancisco && nav === 'estad' && !['negocio', 'proveedores', 'ingresos', 'gastos'].includes(estadTab)) {
+      setEstadTab('negocio');
+    }
+  }, [esFrancisco, nav, estadTab]);
 
   const porDiaBase = useMemo(
     () => agruparMovimientosPorDia({
@@ -1478,13 +1599,27 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
         <button type="button" className={estadTab === 'ingresos' ? 'active' : ''} onClick={() => setEstadTab('ingresos')}>Ingresos</button>
         <button type="button" className={estadTab === 'gastos' ? 'active' : ''} onClick={() => setEstadTab('gastos')}>Gastos</button>
         {esFrancisco && (
+          <button type="button" className={estadTab === 'negocio' ? 'active' : ''} onClick={() => setEstadTab('negocio')}>
+            Negocio
+          </button>
+        )}
+        {esFrancisco && (
           <button type="button" className={estadTab === 'proveedores' ? 'active' : ''} onClick={() => setEstadTab('proveedores')}>
             Proveedores
           </button>
         )}
       </div>
 
-      {estadTab === 'proveedores' && esFrancisco ? (
+      {estadTab === 'negocio' && esFrancisco ? (
+        <PanoramaNegocioAbarrotes
+          tot={tot}
+          panorama={provReporte?.panorama}
+          cargando={cargando || cargandoProv}
+          error={provReporte?.error}
+          ingresosIe={datos?.ingresosTotal || 0}
+          egresosIe={datos?.egresosTotal || 0}
+        />
+      ) : estadTab === 'proveedores' && esFrancisco ? (
         <div className="cv-prov-panel">
           {(cargando || cargandoProv) && <div className="cv-loading">Cargando ventas y gastos por proveedor…</div>}
           {!cargando && !cargandoProv && provReporte?.error && (
@@ -1596,7 +1731,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
         <>
           <div className="cv-cuentas-hd">
             <span>Abarrotes · Francisco</span>
-            <button type="button" className="cv-icon-btn" onClick={() => { setNav('estad'); setEstadTab('proveedores'); }} aria-label="Estadísticas proveedores">
+            <button type="button" className="cv-icon-btn" onClick={() => { setNav('estad'); setEstadTab('negocio'); }} aria-label="Panorama del negocio">
               <IconChart />
             </button>
           </div>
@@ -1626,6 +1761,14 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
               <span className="amt" style={{ color: 'var(--cv-gasto)' }}>{fmtMoney(ab.egresos)}</span>
             </div>
           </div>
+          <PanoramaNegocioAbarrotes
+            tot={tot}
+            panorama={provReporte?.panorama}
+            cargando={cargandoProv}
+            error={provReporte?.error}
+            ingresosIe={ab.ingresos}
+            egresosIe={ab.egresos}
+          />
           <div className="cv-cuenta-group">
             <div className="hd">
               <span>Utilidades · periodo</span>
@@ -2055,7 +2198,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             Apariencia
           </button>
           <button type="button" className="cv-mas-item" onClick={() => alert(esFrancisco
-            ? 'IE ABARROTES (Francisco): ingresos = ventas de los cierres de corte (aunque no se recolecte) y egresos de Abarrotes.\n\nEstad. → Proveedores: ventas POS y gastos PROVEEDORES del corte por proveedor, con utilidad bruta y ganancia neta.\n\nAdmin: botones ＋I / ＋E en Transacciones para captura manual; Más → Cuentas/subcuentas para el catálogo.'
+            ? 'IE ABARROTES (Francisco): ingresos = ventas de los cierres.\n\nEstad. → Negocio: panorama ventas → reinversión → utilidad → gastos → ganancia neta.\n\nEstad. → Proveedores: detalle por proveedor.\n\nAdmin: ＋I / ＋E en Transacciones; Más → Cuentas/subcuentas.'
             : 'IE VIRTUAL (Antonio): Virtual y Garage. Vales y gastos CUBRE TURNO/TAXIS se registran solos.\n\nAdmin: botones ＋I / ＋E en Transacciones para captura manual; Más → Cuentas/subcuentas para el catálogo. Abarrotes va en IE ABARROTES.')}>
             <span className="ico">?</span>
             Ayuda

@@ -363,6 +363,15 @@ export async function cargarReporteProveedoresIeAbarrotes(supabase, {
   const gastosOperativos = round2(Math.max(0, egresosIe - egresosProvEnIe));
   const gananciaNeta = round2(utilidadBruta - gastosOperativos);
 
+  // Panorama: qué pasa con la ganancia tras reinvertir en producto.
+  const reinversionProducto = costoTotal; // costo de lo vendido (vuelve a mercancía)
+  const pctReinversionVentas = ventasTotal > 0 ? round2((reinversionProducto / ventasTotal) * 100) : 0;
+  const pctGastosSobreUtilidad = utilidadBruta > 0
+    ? round2((gastosOperativos / utilidadBruta) * 100)
+    : (gastosOperativos > 0 ? 100 : 0);
+  const pctGananciaSobreVentas = ventasTotal > 0 ? round2((gananciaNeta / ventasTotal) * 100) : 0;
+  const pctUtilidadSobreVentas = ventasTotal > 0 ? round2((utilidadBruta / ventasTotal) * 100) : 0;
+
   return {
     ok: true,
     desde,
@@ -372,13 +381,35 @@ export async function cargarReporteProveedoresIeAbarrotes(supabase, {
     totales: {
       ventas: ventasTotal,
       costo: costoTotal,
+      reinversion_producto: reinversionProducto,
       utilidad_bruta: utilidadBruta,
       gastos_proveedores: gastosProveedores,
       compras: comprasTotal,
       egresos_ie: egresosIe,
       gastos_operativos: gastosOperativos,
       ganancia_neta: gananciaNeta,
-      margen_pct: ventasTotal > 0 ? round2((utilidadBruta / ventasTotal) * 100) : 0,
+      margen_pct: pctUtilidadSobreVentas,
+      pct_reinversion_ventas: pctReinversionVentas,
+      pct_gastos_sobre_utilidad: pctGastosSobreUtilidad,
+      pct_ganancia_ventas: pctGananciaSobreVentas,
+    },
+    panorama: {
+      ventas: ventasTotal,
+      reinversion: reinversionProducto,
+      utilidad_bruta: utilidadBruta,
+      gastos_operativos: gastosOperativos,
+      ganancia_neta: gananciaNeta,
+      pagos_proveedores: gastosProveedores,
+      resumen: [
+        `De cada $100 de venta, ~$${pctReinversionVentas.toFixed(0)} se reinvierten en mercancía (costo).`,
+        utilidadBruta > 0
+          ? `Queda ~$${pctUtilidadSobreVentas.toFixed(0)} de utilidad bruta (ganancia del producto).`
+          : 'Aún no hay utilidad bruta en el periodo (costo ≥ ventas o sin ventas).',
+        utilidadBruta > 0
+          ? `De esa utilidad, ~$${pctGastosSobreUtilidad.toFixed(0)}% se fue en gastos del negocio.`
+          : (gastosOperativos > 0 ? 'Hay gastos operativos aunque la utilidad bruta sea 0 o negativa.' : ''),
+        `Ganancia neta del periodo: ${gananciaNeta >= 0 ? '' : '−'}$${Math.abs(gananciaNeta).toFixed(2)} (${pctGananciaSobreVentas}% de las ventas).`,
+      ].filter(Boolean),
     },
     avisos,
     meta: {
