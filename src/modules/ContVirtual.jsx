@@ -1590,7 +1590,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const renderCuentas = () => {
     const pc = datos?.porCuenta || {};
     if (esFrancisco) {
-      const ab = pc.abarrotes || { ingresos: 0, egresos: 0, neto: 0, recolecciones: 0, cierres: 0 };
+      const ab = pc.abarrotes || { ingresos: 0, egresos: 0, neto: 0, recolecciones: 0, ventas: 0, cierres: 0 };
       const tot = provReporte?.totales || {};
       return (
         <>
@@ -1614,8 +1614,17 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
               <strong>{fmtMoney(ab.neto)}</strong>
             </div>
             <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0' }}>
-              {ab.cierres || 0} cierres · recolecciones {fmtMoney(ab.recolecciones || 0)}
+              {ab.cierres || 0} cierres · ventas {fmtMoney(ab.ventas || ab.ingresos || 0)}
+              {(ab.recolecciones || 0) > 0 ? ` · recolectado ${fmtMoney(ab.recolecciones)}` : ''}
             </p>
+            <div className="item">
+              <span>Ingresos (ventas de corte)</span>
+              <span className="amt">{fmtMoney(ab.ingresos)}</span>
+            </div>
+            <div className="item">
+              <span>Egresos</span>
+              <span className="amt" style={{ color: 'var(--cv-gasto)' }}>{fmtMoney(ab.egresos)}</span>
+            </div>
           </div>
           <div className="cv-cuenta-group">
             <div className="hd">
@@ -2046,7 +2055,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             Apariencia
           </button>
           <button type="button" className="cv-mas-item" onClick={() => alert(esFrancisco
-            ? 'IE ABARROTES (Francisco): ingresos y egresos de Abarrotes.\n\nEstad. → Proveedores: ventas POS y gastos PROVEEDORES del corte por proveedor, con utilidad bruta y ganancia neta.\n\nAdmin: botones ＋I / ＋E en Transacciones para captura manual; Más → Cuentas/subcuentas para el catálogo.'
+            ? 'IE ABARROTES (Francisco): ingresos = ventas de los cierres de corte (aunque no se recolecte) y egresos de Abarrotes.\n\nEstad. → Proveedores: ventas POS y gastos PROVEEDORES del corte por proveedor, con utilidad bruta y ganancia neta.\n\nAdmin: botones ＋I / ＋E en Transacciones para captura manual; Más → Cuentas/subcuentas para el catálogo.'
             : 'IE VIRTUAL (Antonio): Virtual y Garage. Vales y gastos CUBRE TURNO/TAXIS se registran solos.\n\nAdmin: botones ＋I / ＋E en Transacciones para captura manual; Más → Cuentas/subcuentas para el catálogo. Abarrotes va en IE ABARROTES.')}>
             <span className="ico">?</span>
             Ayuda

@@ -204,6 +204,39 @@ function itemIngresoRecoleccion(r, { desde, etiquetaCuentaFn } = {}) {
   };
 }
 
+/**
+ * Ingreso IE ABARROTES desde cierre de turno: la venta del corte
+ * (no requiere recolección; la recolección es solo retiro de efectivo).
+ */
+function itemIngresoVentaCierreAbarrotes(c, { desde } = {}) {
+  const detalle = c?.detalle || {};
+  const venta = round2(
+    Number(c?.ventas)
+    || Number(detalle.venta)
+    || Number(detalle.venta_neta)
+    || 0,
+  );
+  const t = c?.sucursal_id || 'MAIN';
+  const f = ymdNegocio(detalle.fecha_negocio)
+    || ymdNegocio(c?.created_at)
+    || desde;
+  const gastosEmb = round2(Number(detalle.gastos_total) || 0);
+  return {
+    id: `venta-cierre-${c.id}`,
+    cierre_id: c.id,
+    folio: c.folio || '',
+    fecha: f || desde,
+    monto: venta,
+    efectivo: venta,
+    gastos_total: gastosEmb,
+    gastos: [],
+    comentario: `Ventas Abarrotes · ${etiquetaTienda(t)} · ${c.folio || ''}`.trim(),
+    cuenta: 'abarrotes',
+    tienda: t,
+    tipo_mov: 'venta_cierre',
+  };
+}
+
 function tipoCierre(row) {
   return String(row?.detalle?.tipo_cierre || row?.turno || '').toLowerCase();
 }
@@ -570,21 +603,39 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
   }
 
   const porCuenta = {
-    abarrotes: { id: 'abarrotes', label: 'Abarrotes', ingresos: 0, egresos: 0, neto: 0, recolecciones: 0, cierres: 0 },
+    abarrotes: {
+      id: 'abarrotes',
+      label: 'Abarrotes',
+      ingresos: 0,
+      egresos: 0,
+      neto: 0,
+      recolecciones: 0,
+      ventas: 0,
+      cierres: 0,
+    },
   };
 
   let ingresosTotal = 0;
   const ingresosItems = [];
 
+  let ventasCierresTotal = 0;
   for (const c of cierres) {
     const t = c.sucursal_id || 'MAIN';
     if (sucursal && t !== sucursal) continue;
     if (!ingresosPorTienda[t]) {
       ingresosPorTienda[t] = { id: t, label: etiquetaTienda(t), ingresos: 0, cierres: 0, recolecciones: 0 };
     }
-    // Cierres Abarrotes: solo contadores. El ingreso a IE es la recolección (bruta).
+    // Ingresos IE = ventas del corte (aunque no se recolecte efectivo).
     porCuenta.abarrotes.cierres += 1;
     ingresosPorTienda[t].cierres += 1;
+    const item = itemIngresoVentaCierreAbarrotes(c, { desde });
+    if (!(item.monto > 0)) continue;
+    ventasCierresTotal = round2(ventasCierresTotal + item.monto);
+    ingresosTotal = round2(ingresosTotal + item.monto);
+    porCuenta.abarrotes.ingresos = round2(porCuenta.abarrotes.ingresos + item.monto);
+    porCuenta.abarrotes.ventas = round2(porCuenta.abarrotes.ventas + item.monto);
+    ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + item.monto);
+    ingresosItems.push(item);
   }
 
   let recoleccionTotal = 0;
@@ -597,15 +648,13 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     });
     item.cuenta = 'abarrotes';
     if (!(item.monto > 0)) continue;
+    // Solo contador de efectivo recolectado; no suma otra vez a ingresos
+    // (las ventas del cierre ya son el ingreso).
     recoleccionTotal = round2(recoleccionTotal + item.monto);
-    ingresosTotal = round2(ingresosTotal + item.monto);
-    porCuenta.abarrotes.ingresos = round2(porCuenta.abarrotes.ingresos + item.monto);
     porCuenta.abarrotes.recolecciones = round2(porCuenta.abarrotes.recolecciones + item.monto);
     if (ingresosPorTienda[t]) {
       ingresosPorTienda[t].recolecciones = round2((ingresosPorTienda[t].recolecciones || 0) + item.monto);
-      ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + item.monto);
     }
-    ingresosItems.push(item);
   }
 
   // Ingresos capturados a mano (Admin) en Abarrotes
@@ -679,6 +728,7 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     egresosTotal: unificado.egresosTotal,
     neto,
     recoleccionTotal,
+    ventasCierresTotal,
     egresosPorCat,
     ingresosPorTienda: Object.values(ingresosPorTienda).sort((a, b) => b.ingresos - a.ingresos),
     egresosPorTienda: Object.values(egresosPorTienda).sort((a, b) => b.total - a.total),
