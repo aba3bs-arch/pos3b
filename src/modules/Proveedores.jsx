@@ -89,37 +89,58 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
   const guardar = async () => {
     if (!supabase) return;
     if (!form.nombre.trim()) return alert('Nombre obligatorio');
-    const payload = {
-      ...form,
+    if (!editId && !puedeAlta) {
+      return alert('Solo el administrador puede dar de alta proveedores.');
+    }
+
+    const faltaColumna = (error, col) => {
+      const msg = String(error?.message || error || '').toLowerCase();
+      return msg.includes(String(col).toLowerCase()) && (
+        msg.includes('column') || msg.includes('columna') || msg.includes('schema cache') || msg.includes('does not exist')
+      );
+    };
+
+    let payload = {
+      nombre: form.nombre.trim(),
+      contacto: String(form.contacto || '').trim() || null,
+      telefono: String(form.telefono || '').trim() || null,
+      email: String(form.email || '').trim() || null,
+      notas: String(form.notas || '').trim() || null,
       modo_compra: normalizarModoCompraProveedor(form.modo_compra),
     };
-    if (editId) {
-      let { error } = await supabase.from('proveedores').update(payload).eq('id', editId);
-      if (error && String(error.message || '').includes('modo_compra')) {
-        const { modo_compra, ...sinModo } = payload;
-        ({ error } = await supabase.from('proveedores').update(sinModo).eq('id', editId));
-        if (!error) {
-          alert('Proveedor guardado. Para recordar el tipo de entrega, ejecuta supabase/fix_proveedor_modo_compra.sql');
-        }
-      }
-      if (error) return alert(error.message);
-    } else {
-      if (!puedeAlta) return alert('Solo el administrador puede dar de alta proveedores.');
-      let { error } = await supabase.from('proveedores').insert([payload]);
-      if (error && String(error.message || '').includes('modo_compra')) {
-        const { modo_compra, ...sinModo } = payload;
-        ({ error } = await supabase.from('proveedores').insert([sinModo]));
-        if (!error) {
-          alert('Proveedor guardado. Para tipo de entrega, ejecuta supabase/fix_proveedor_modo_compra.sql');
-        }
-      }
-      if (error) {
-        if (error.message.includes('relation') || error.code === '42P01') {
-          return alert('Ejecuta supabase/schema.sql para crear la tabla proveedores.');
-        }
-        return alert(error.message);
-      }
+
+    const persistir = (row) => (
+      editId
+        ? supabase.from('proveedores').update(row).eq('id', editId)
+        : supabase.from('proveedores').insert([row])
+    );
+
+    const avisos = [];
+    let { error } = await persistir(payload);
+
+    // Tablas antiguas: quitar columnas que aún no existen y reintentar.
+    for (const [col, script] of [
+      ['email', 'supabase/fix_proveedores_email.sql'],
+      ['modo_compra', 'supabase/fix_proveedor_modo_compra.sql'],
+    ]) {
+      if (!error || !faltaColumna(error, col)) continue;
+      const { [col]: _omit, ...rest } = payload;
+      payload = rest;
+      ({ error } = await persistir(payload));
+      if (!error) avisos.push(`Para guardar «${col}», ejecuta ${script} en Supabase.`);
     }
+
+    if (error) {
+      if (String(error.message || '').includes('relation') || error.code === '42P01') {
+        return alert('Ejecuta supabase/schema.sql para crear la tabla proveedores.');
+      }
+      if (faltaColumna(error, 'email')) {
+        return alert('No existe la columna email en proveedores. Ejecuta en Supabase: supabase/fix_proveedores_email.sql');
+      }
+      return alert(error.message);
+    }
+
+    if (avisos.length) alert(`Proveedor guardado.\n\n${avisos.join('\n')}`);
     setForm(empty);
     setEditId(null);
     load();
@@ -304,10 +325,22 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
         {(puedeAlta || editId) && (
           <>
             <div className="grid-2">
-              <input className="input" placeholder="Nombre empresa *" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />
-              <input className="input" placeholder="Contacto" value={form.contacto} onChange={(e) => setForm({ ...form, contacto: e.target.value })} />
-              <input className="input" placeholder="Teléfono" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} />
-              <input className="input" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+              <label className="muted" style={{ display: 'block' }}>
+                Nombre empresa *
+                <input className="input" style={{ marginTop: '0.35rem' }} placeholder="Razón social" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />
+              </label>
+              <label className="muted" style={{ display: 'block' }}>
+                Contacto
+                <input className="input" style={{ marginTop: '0.35rem' }} placeholder="Nombre de contacto" value={form.contacto} onChange={(e) => setForm({ ...form, contacto: e.target.value })} />
+              </label>
+              <label className="muted" style={{ display: 'block' }}>
+                Teléfono
+                <input className="input" style={{ marginTop: '0.35rem' }} placeholder="Teléfono" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} type="tel" />
+              </label>
+              <label className="muted" style={{ display: 'block' }}>
+                Email
+                <input className="input" style={{ marginTop: '0.35rem' }} placeholder="correo@proveedor.com" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} type="email" autoComplete="email" />
+              </label>
               <label className="muted" style={{ gridColumn: '1 / -1' }}>
                 Tipo de compra
                 <select
@@ -326,13 +359,16 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
                   {MODOS_COMPRA_PROVEEDOR.find((m) => m.id === normalizarModoCompraProveedor(form.modo_compra))?.hint}
                 </span>
               </label>
-              <textarea
-                className="input"
-                placeholder="Notas (pagos, días de entrega…)"
-                style={{ gridColumn: '1 / -1', minHeight: '72px' }}
-                value={form.notas}
-                onChange={(e) => setForm({ ...form, notas: e.target.value })}
-              />
+              <label className="muted" style={{ gridColumn: '1 / -1', display: 'block' }}>
+                Notas
+                <textarea
+                  className="input"
+                  placeholder="Pagos, días de entrega…"
+                  style={{ marginTop: '0.35rem', minHeight: '72px' }}
+                  value={form.notas}
+                  onChange={(e) => setForm({ ...form, notas: e.target.value })}
+                />
+              </label>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
               <button type="button" className="btn btn-primary" onClick={guardar}>

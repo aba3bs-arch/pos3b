@@ -150,6 +150,8 @@ create table if not exists public.proveedores (
   created_at timestamptz default now()
 );
 
+alter table public.proveedores add column if not exists email text;
+
 alter table public.proveedores enable row level security;
 drop policy if exists "proveedores_anon_rw" on public.proveedores;
 create policy "proveedores_anon_rw" on public.proveedores for all using (true) with check (true);
