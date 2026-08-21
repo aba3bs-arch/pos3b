@@ -281,6 +281,100 @@ export async function aplicarConsolidacionVentasInventario(supabase, filas, opts
   };
 }
 
+/**
+ * Ventas netas (tickets − cancelaciones) por producto en un periodo.
+ * @returns {{ ok: boolean, porProducto: Map<string, number>, piezas: number, error?: string }}
+ */
+export async function obtenerVentasNetasEnPeriodo(supabase, {
+  sucursal,
+  desdeIso,
+  hastaIso,
+  productoIds = null,
+} = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.', porProducto: new Map(), piezas: 0 };
+  const sucFiltro = sucursal ? normalizarCodigoTienda(sucursal) : null;
+  const idSet = productoIds?.length ? new Set(productoIds.map(String)) : null;
+
+  const [ventasRes, cancRes] = await Promise.all([
+    cargarTodasLasFilas(supabase, 'ventas', 'id,sucursal_id,articulos,created_at', {
+      sucursal: sucFiltro,
+      desdeIso,
+      hastaIso,
+    }),
+    cargarTodasLasFilas(supabase, 'cancelaciones', 'id,sucursal_id,articulos,created_at', {
+      sucursal: sucFiltro,
+      desdeIso,
+      hastaIso,
+    }),
+  ]);
+
+  if (ventasRes.error) return { ok: false, error: ventasRes.error, porProducto: new Map(), piezas: 0 };
+
+  const map = new Map();
+  const sumar = (pid, qty) => {
+    if (!pid || !qty) return;
+    if (idSet && !idSet.has(String(pid))) return;
+    map.set(String(pid), (map.get(String(pid)) || 0) + qty);
+  };
+
+  for (const v of ventasRes.data || []) {
+    if (sucFiltro && normalizarCodigoTienda(v.sucursal_id) !== sucFiltro) continue;
+    for (const a of artsOf(v)) {
+      const qty = Math.max(0, Math.floor(Number(a.qty ?? a.cantidad ?? 1) || 0));
+      sumar(a.id, qty);
+    }
+  }
+  for (const c of cancRes.data || []) {
+    if (sucFiltro && normalizarCodigoTienda(c.sucursal_id) !== sucFiltro) continue;
+    for (const a of artsOf(c)) {
+      const qty = Math.max(0, Math.floor(Number(a.qty ?? a.cantidad ?? 1) || 0));
+      sumar(a.id, -qty);
+    }
+  }
+
+  // Netos no negativos
+  for (const [k, v] of [...map.entries()]) {
+    const n = Math.max(0, Math.floor(Number(v) || 0));
+    if (n <= 0) map.delete(k);
+    else map.set(k, n);
+  }
+
+  const piezas = [...map.values()].reduce((a, n) => a + n, 0);
+  return { ok: true, porProducto: map, piezas, tickets: (ventasRes.data || []).length };
+}
+
+/**
+ * Resta ventas del periodo a las cantidades contadas (para cerrar conteo si se siguió vendiendo).
+ * @returns {{ lineas: Array, piezasRestadas: number, productosAfectados: number }}
+ */
+export function restarVentasDeLineasConteo(lineas, ventasPorProducto) {
+  const map = ventasPorProducto instanceof Map ? ventasPorProducto : new Map();
+  let piezasRestadas = 0;
+  let productosAfectados = 0;
+  const out = (lineas || []).map((l) => {
+    const contada = l.contadaNum != null
+      ? Math.max(0, Math.floor(Number(l.contadaNum)))
+      : (l.contada != null && String(l.contada).trim() !== ''
+        ? Math.max(0, Math.floor(Number(l.contada)))
+        : null);
+    if (contada == null) return l;
+    const vendido = Math.max(0, Math.floor(Number(map.get(String(l.productoId || l.codigo))) || 0));
+    if (vendido <= 0) return l;
+    const neto = Math.max(0, contada - vendido);
+    piezasRestadas += Math.min(vendido, contada);
+    productosAfectados += 1;
+    return {
+      ...l,
+      contada: String(neto),
+      contadaNum: neto,
+      diferencia: l.existencia != null ? neto - Number(l.existencia) : l.diferencia,
+      ventasDuranteConteo: vendido,
+      contadaAntesVentas: contada,
+    };
+  });
+  return { lineas: out, piezasRestadas, productosAfectados };
+}
+
 export function sucursalesParaConsolidacion(sucursalActiva) {
   const ops = listarSucursalesOperativas();
   const act = normalizarCodigoTienda(sucursalActiva);

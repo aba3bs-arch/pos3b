@@ -17,6 +17,8 @@ import Icon from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import ConteoPorDepartamento from './ConteoPorDepartamento.jsx';
 import AjusteLibre from './AjusteLibre.jsx';
+import ConsolidarVentasInventario from '../components/ConsolidarVentasInventario.jsx';
+import { puedeConsolidarVentasInventario } from '../lib/roles.js';
 import {
   FILTROS_HISTORIAL_TIPO,
   PRESETS_FECHA_PRODUCTO,
@@ -74,6 +76,7 @@ export default function AjusteInventario({
   const sucursalOp = sucursalOperacion || sucursal;
   const enCentral = esAlmacenCentral(sucursalOp);
   const verNegativos = puedeVerStockNegativo(user?.rol);
+  const puedeVsVentas = puedeConsolidarVentasInventario(user?.rol);
   const catalogoCompleto = inventarioCompleto || inventario;
   const [modo, setModo] = useState(modoInicial);
   const [tipo, setTipo] = useState(tipoInicial || 'entrada');
@@ -629,6 +632,11 @@ export default function AjusteInventario({
             <button type="button" className={modo === 'departamento' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setModo('departamento')}>
               Por departamento
             </button>
+            {puedeVsVentas && (
+              <button type="button" className={modo === 'ventas_dia' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setModo('ventas_dia')}>
+                Vs ventas del día
+              </button>
+            )}
             <button
               type="button"
               className={modo === 'masivo' ? 'btn btn-primary' : 'btn btn-ghost'}
@@ -653,9 +661,16 @@ export default function AjusteInventario({
           </div>
         )}
 
+        {modo === 'ventas_dia' && (
+          <p className="muted" style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
+            Cruza las ventas del día con el inventario de piso. Úsalo si hubo tickets sin descontar stock, o para revisar pendientes.
+          </p>
+        )}
+
         {modo === 'departamento' && (
           <p className="muted" style={{ fontSize: '0.85rem', margin: '0.75rem 0 0' }}>
             Conteo físico con existencia, cantidad contada, diferencias y folio de ajuste al aplicar.
+            Si vendes durante el conteo, al aplicar te preguntará si restar esas ventas.
           </p>
         )}
 
@@ -705,7 +720,17 @@ export default function AjusteInventario({
       </div>
       )}
 
-      {modo === 'departamento' ? (
+      {modo === 'ventas_dia' && puedeVsVentas ? (
+        <ConsolidarVentasInventario
+          supabase={supabase}
+          inventario={inventario}
+          inventarioCompleto={catalogoCompleto}
+          sucursal={sucursalOp}
+          user={user}
+          cargarDatos={cargarDatos}
+          periodoInicial="hoy"
+        />
+      ) : modo === 'departamento' ? (
         <ConteoPorDepartamento
           supabase={supabase}
           inventario={inventario}

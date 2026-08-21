@@ -756,7 +756,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           ? [{ id: 'precios', label: 'Administrador de precios', icon: 'dollar', onClick: () => { initPreciosDraft(); setVista('precios'); } }]
           : []),
         ...(puedeConsolidar
-          ? [{ id: 'consolidar', label: 'Consolidar ventas vs piso', icon: 'refresh', onClick: () => setVista('consolidar') }]
+          ? [{ id: 'consolidar', label: 'Inventario vs ventas del día', icon: 'refresh', onClick: () => setVista('consolidar') }]
           : []),
         ...(verNegativos
           ? [
@@ -1626,6 +1626,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           user={user}
           cargarDatos={cargarDatos}
           onVolver={irLista}
+          periodoInicial="hoy"
         />
       )}
 

@@ -20,6 +20,10 @@ import {
 } from '../lib/ajusteInventarioBorrador.js';
 import { useAutoGuardarBorrador } from '../hooks/useAutoGuardarBorrador.js';
 import { confirmarSiCantidadFueraDeEmpaque } from '../lib/empaqueSoda.js';
+import {
+  obtenerVentasNetasEnPeriodo,
+  restarVentasDeLineasConteo,
+} from '../lib/consolidarVentasInventario.js';
 
 function estadoInicialDesdeBorrador(borradorInicial, departamentoInicial, sucursal) {
   let base = borradorInicial;
@@ -65,6 +69,7 @@ export default function ConteoPorDepartamento({
   const [ultimoAjuste, setUltimoAjuste] = useState(null);
   const [borradorId, setBorradorId] = useState(init.borradorId);
   const [avisoRecuperado, setAvisoRecuperado] = useState(init.recuperado);
+  const [conteoIniciadoAt] = useState(() => new Date().toISOString());
   const contadaInputRef = useRef(null);
   const scanInputRef = useRef(null);
 
@@ -233,7 +238,7 @@ export default function ConteoPorDepartamento({
     if (!confirm(msg)) return;
 
     setAplicando(true);
-    const lineasFinales = lineas.map((l) => {
+    let lineasFinales = lineas.map((l) => {
       if (l.contadaNum != null) return l;
       return construirLineaConteo(
         productosDept.find((p) => String(p.id) === String(l.productoId)),
@@ -241,6 +246,38 @@ export default function ConteoPorDepartamento({
         sucursal,
       );
     });
+
+    // Si se vendió durante el conteo, ofrecer restar esas ventas al total contado.
+    const ids = lineasFinales.map((l) => l.productoId).filter(Boolean);
+    const ventas = await obtenerVentasNetasEnPeriodo(supabase, {
+      sucursal,
+      desdeIso: conteoIniciadoAt,
+      hastaIso: new Date().toISOString(),
+      productoIds: ids,
+    });
+    let notaVentas = '';
+    if (ventas.ok && ventas.piezas > 0) {
+      const restar = confirm(
+        `Durante este conteo se vendieron ${ventas.piezas} pieza(s) de productos contados.\n\n` +
+          `¿Restarlas del conteo antes de aplicar?\n\n` +
+          `Recomendado: SÍ, si seguiste atendiendo clientes.\n` +
+          `Así el inventario queda: contado − ventas del periodo.`,
+      );
+      if (restar) {
+        const adj = restarVentasDeLineasConteo(lineasFinales, ventas.porProducto);
+        lineasFinales = adj.lineas;
+        notaVentas = `\nVentas restadas del conteo: ${adj.piezasRestadas} pza(s) en ${adj.productosAfectados} producto(s).`;
+      }
+    } else if (!ventas.ok && ventas.error) {
+      const seguir = confirm(
+        `No se pudieron consultar ventas del periodo (${ventas.error}).\n\n¿Aplicar el conteo sin restar ventas?`,
+      );
+      if (!seguir) {
+        setAplicando(false);
+        return;
+      }
+    }
+
     const r = await aplicarConteoDepartamento(supabase, {
       lineas: lineasFinales,
       inventario,
@@ -262,7 +299,7 @@ export default function ConteoPorDepartamento({
     }
     setAvisoRecuperado(false);
     cargarDatos();
-    alert(`${r.mensaje}\n\nFolio de ajuste: ${r.folio}`);
+    alert(`${r.mensaje}${notaVentas}\n\nFolio de ajuste: ${r.folio}`);
   };
 
   const guardarEnEspera = () => {

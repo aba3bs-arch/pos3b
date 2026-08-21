@@ -6,7 +6,7 @@ import {
 } from '../lib/consolidarVentasInventario.js';
 import { etiquetaTienda, esAlmacenCentral, listarSucursalesOperativas } from '../constants/sucursales.js';
 import { fmtMxn } from '../lib/valorInventario.js';
-import Icon, { BtnLabel } from './Icon.jsx';
+import { BtnLabel } from './Icon.jsx';
 
 function hoyYmd() {
   return new Date().toISOString().slice(0, 10);
@@ -28,6 +28,10 @@ function finIso(ymd) {
   return new Date(`${ymd}T23:59:59.999`).toISOString();
 }
 
+/**
+ * Acción: inventario vs ventas (por defecto ventas del día).
+ * Descuenta del piso piezas vendidas que no tienen retiro registrado.
+ */
 export default function ConsolidarVentasInventario({
   supabase,
   inventario = [],
@@ -36,6 +40,7 @@ export default function ConsolidarVentasInventario({
   user,
   cargarDatos,
   onVolver,
+  periodoInicial = 'hoy',
 }) {
   const catalogo = inventarioCompleto || inventario;
   const enCentral = esAlmacenCentral(sucursal);
@@ -45,7 +50,7 @@ export default function ConsolidarVentasInventario({
   );
 
   const [filtroSuc, setFiltroSuc] = useState(() => (enCentral ? '' : sucursal));
-  const [desde, setDesde] = useState(() => haceDiasYmd(90));
+  const [desde, setDesde] = useState(() => (periodoInicial === 'hoy' ? hoyYmd() : haceDiasYmd(7)));
   const [hasta, setHasta] = useState(() => hoyYmd());
   const [soloPendientes, setSoloPendientes] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -85,7 +90,7 @@ export default function ConsolidarVentasInventario({
     if (!pendientes.length) return alert('No hay piezas pendientes por descontar.');
     const ok = confirm(
       `¿Descontar del piso ${reporte.resumen.piezasPendientes} pieza(s) en ${pendientes.length} producto(s)?\n\n` +
-        `Esto ajusta inventario por ventas registradas sin retiro de stock.\n` +
+        `Ajusta inventario por ventas registradas sin retiro de stock.\n` +
         `Periodo: ${desde} → ${hasta}.`,
     );
     if (!ok) return;
@@ -105,14 +110,18 @@ export default function ConsolidarVentasInventario({
   };
 
   const resumen = reporte?.resumen;
+  const esHoy = desde === hoyYmd() && hasta === hoyYmd();
 
   return (
     <div className="card" style={{ borderLeft: '4px solid var(--brand-blue)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <div>
-          <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Consolidar ventas vs piso</h3>
+          <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>
+            {esHoy ? 'Inventario vs ventas del día' : 'Inventario vs ventas'}
+          </h3>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem', maxWidth: 640 }}>
-            Cruza tickets de venta (− cancelaciones) con retiros de inventario. Si hay piezas vendidas sin descontar del piso, puedes ajustar todo el catálogo de una vez.
+            Cruza tickets (− cancelaciones) con retiros de inventario. Si hay piezas vendidas sin descontar del piso, puedes ajustarlas de una vez.
+            {esHoy ? ' Periodo: hoy.' : ''}
           </p>
         </div>
         {onVolver && (
@@ -157,21 +166,24 @@ export default function ConsolidarVentasInventario({
           <input className="input" type="date" style={{ display: 'block', marginTop: '0.25rem', width: '100%' }} value={hasta} onChange={(e) => setHasta(e.target.value)} />
         </label>
         <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+          <button type="button" className={`btn ${esHoy ? 'btn-primary' : 'btn-ghost'}`} style={{ fontSize: '0.8rem' }} onClick={() => { setDesde(hoyYmd()); setHasta(hoyYmd()); }}>
+            Hoy
+          </button>
+          <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={() => { const a = haceDiasYmd(1); setDesde(a); setHasta(a); }}>
+            Ayer
+          </button>
+          <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={() => { setDesde(haceDiasYmd(7)); setHasta(hoyYmd()); }}>
+            7 días
+          </button>
           <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={() => { setDesde(haceDiasYmd(30)); setHasta(hoyYmd()); }}>
             30 días
-          </button>
-          <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={() => { setDesde(haceDiasYmd(90)); setHasta(hoyYmd()); }}>
-            90 días
-          </button>
-          <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={() => { setDesde('2024-01-01'); setHasta(hoyYmd()); }}>
-            Todo
           </button>
         </div>
       </div>
 
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.85rem', alignItems: 'center' }}>
         <button type="button" className="btn btn-primary" disabled={loading || aplicando} onClick={analizar}>
-          <BtnLabel icon="search">{loading ? 'Analizando…' : 'Analizar catálogo'}</BtnLabel>
+          <BtnLabel icon="search">{loading ? 'Analizando…' : esHoy ? 'Analizar ventas del día' : 'Analizar periodo'}</BtnLabel>
         </button>
         <button
           type="button"
@@ -180,7 +192,7 @@ export default function ConsolidarVentasInventario({
           onClick={aplicar}
         >
           <BtnLabel icon="check">
-            {aplicando ? 'Aplicando…' : `Descontar pendientes${resumen?.piezasPendientes ? ` (${resumen.piezasPendientes})` : ''}`}
+            {aplicando ? 'Aplicando…' : `Descontar del inventario${resumen?.piezasPendientes ? ` (${resumen.piezasPendientes})` : ''}`}
           </BtnLabel>
         </button>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.85rem' }}>
@@ -254,9 +266,7 @@ export default function ConsolidarVentasInventario({
                     <td>{f.cancelado}</td>
                     <td>{f.netoVendido}</td>
                     <td>{f.descontado}</td>
-                    <td style={{ fontWeight: f.pendiente > 0 ? 800 : 400, color: f.pendiente > 0 ? 'var(--brand-red)' : undefined }}>
-                      {f.pendiente}
-                    </td>
+                    <td style={{ fontWeight: f.pendiente > 0 ? 700 : 400 }}>{f.pendiente}</td>
                     <td>{f.pisoActual == null ? '—' : f.pisoActual}</td>
                   </tr>
                 ))
@@ -264,13 +274,6 @@ export default function ConsolidarVentasInventario({
             </tbody>
           </table>
         </div>
-      )}
-
-      {!reporte && !loading && (
-        <p className="muted" style={{ margin: '1rem 0 0', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-          <Icon name="alert" size={16} />
-          Elige periodo y pulsa Analizar catálogo.
-        </p>
       )}
     </div>
   );

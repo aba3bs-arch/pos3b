@@ -19,6 +19,10 @@ import {
 import { useAutoGuardarBorrador } from '../hooks/useAutoGuardarBorrador.js';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 import { confirmarSiCantidadFueraDeEmpaque } from '../lib/empaqueSoda.js';
+import {
+  obtenerVentasNetasEnPeriodo,
+  restarVentasDeLineasConteo,
+} from '../lib/consolidarVentasInventario.js';
 
 const FILTROS_VACIOS = {
   diferencia: 'todo',
@@ -97,6 +101,7 @@ export default function AjusteLibre({
   const [avisoBusqueda, setAvisoBusqueda] = useState('');
   const [borradorId, setBorradorId] = useState(init.borradorId);
   const [avisoRecuperado, setAvisoRecuperado] = useState(init.recuperado);
+  const [conteoIniciadoAt] = useState(() => new Date().toISOString());
   const scanRef = useRef(null);
   const cantidadRef = useRef(null);
 
@@ -321,8 +326,31 @@ export default function AjusteLibre({
       : `¿Cerrar ajuste sin diferencias?\n(Total contado ${resumen.piezasContadas} = existencia actual.)`;
     if (!confirm(msg)) return;
     setAplicando(true);
+    let lineasAplicar = pendientes.length ? contadas : lineas;
+
+    const ids = lineasAplicar.map((l) => l.productoId).filter(Boolean);
+    const ventas = await obtenerVentasNetasEnPeriodo(supabase, {
+      sucursal,
+      desdeIso: conteoIniciadoAt,
+      hastaIso: new Date().toISOString(),
+      productoIds: ids,
+    });
+    let notaVentas = '';
+    if (ventas.ok && ventas.piezas > 0) {
+      const restar = confirm(
+        `Durante este ajuste se vendieron ${ventas.piezas} pieza(s) de productos de la lista.\n\n` +
+          `¿Restarlas del conteo antes de aplicar?\n\n` +
+          `Recomendado: SÍ si seguiste vendiendo (contado − ventas).`,
+      );
+      if (restar) {
+        const adj = restarVentasDeLineasConteo(lineasAplicar, ventas.porProducto);
+        lineasAplicar = adj.lineas;
+        notaVentas = `\nVentas restadas: ${adj.piezasRestadas} pza(s) en ${adj.productosAfectados} producto(s).`;
+      }
+    }
+
     const r = await aplicarConteoDepartamento(supabase, {
-      lineas: pendientes.length ? contadas : lineas,
+      lineas: lineasAplicar,
       inventario,
       departamento: 'LIBRE',
       usuario: user?.nombre,
@@ -338,7 +366,7 @@ export default function AjusteLibre({
     eliminarAjusteEnEspera(idAutoBorrador('libre', sucursal));
     setAvisoRecuperado(false);
     cargarDatos();
-    alert(`${r.mensaje}\n\nFolio: ${r.folio}`);
+    alert(`${r.mensaje}${notaVentas}\n\nFolio: ${r.folio}`);
   };
 
   const imprimir = () => {
