@@ -82,45 +82,27 @@ create table if not exists public.clientes (
 
 
 create table if not exists public.proveedores (
-comment on table public.asistencias is 'Marcajes de reloj checador por tienda; usuario_id opcional si existe en usuarios';
-
+  id uuid primary key default gen_random_uuid(),
   nombre text not null,
-
   contacto text,
-
   telefono text,
-
   email text,
-
   notas text,
-
   created_at timestamptz default now()
-
 );
 
-
+alter table public.proveedores add column if not exists email text;
 
 create table if not exists public.compras (
-
   id uuid primary key default gen_random_uuid(),
-
   proveedor_id uuid references public.proveedores(id) on delete set null,
-
   sucursal_id text,
-
   fecha date default (now() at time zone 'utc')::date,
-
   total numeric(12,2) default 0,
-
   notas text,
-
   items jsonb default '[]'::jsonb,
-
   created_at timestamptz default now()
-
 );
-
-
 
 alter table public.clientes enable row level security;
 

@@ -324,7 +324,9 @@ Ventas del día, ticket promedio, alertas de stock bajo. El cajero no ve valor t
     keywords: ['compras', 'proveedor', 'pedido', 'recepcion', 'orden'],
     body: `### 10.1 Proveedores
 
-Módulo **Proveedores**. **Solo administrador** da de alta proveedores nuevos.
+Módulo **Proveedores**. **Solo administrador** da de alta proveedores nuevos (nombre, contacto, teléfono, **email**, tipo de compra).
+
+Si al guardar falla la columna email, ejecuta en Supabase: \`supabase/fix_proveedores_email.sql\`.
 
 ### 10.2 Flujo de compra
 
