@@ -596,7 +596,7 @@ export function construirPanoramaVirtual({
     totales,
     resumen: [
       countRec > 0
-        ? `${countRec} recolección${countRec === 1 ? '' : 'es'} aprobada${countRec === 1 ? '' : 's'} · bruto ${fmtMoneyPlain(recoleccionesBruto)}.`
+        ? `${countRec} ${countRec === 1 ? 'recolección aprobada' : 'recolecciones aprobadas'} · bruto ${fmtMoneyPlain(recoleccionesBruto)}.`
         : 'Sin recolecciones aprobadas en el periodo.',
       recoleccionesBruto > 0
         ? `De cada $100 recolectados (bruto), ~$${pctEfectivo.toFixed(0)} llega en efectivo y ~$${pctGastosEnRec.toFixed(0)} ya salió como gasto en tienda.`

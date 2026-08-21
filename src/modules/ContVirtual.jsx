@@ -250,7 +250,7 @@ function PanoramaNegocioVirtual({
             <strong>Recolecciones (bruto)</strong>
             <em className="ingreso">{fmtMoney(recolecciones)}</em>
             <small>
-              {nRec > 0 ? `${nRec} recolección${nRec === 1 ? '' : 'es'} aprobada${nRec === 1 ? '' : 's'}` : 'Sin recolecciones'}
+              {nRec > 0 ? `${nRec} ${nRec === 1 ? 'recolección aprobada' : 'recolecciones aprobadas'}` : 'Sin recolecciones'}
               {manual > 0 ? ` · + manual ${fmtMoney(manual)}` : ''}
             </small>
           </div>
