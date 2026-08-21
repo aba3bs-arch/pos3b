@@ -279,10 +279,18 @@ export function recoleccionAprobadaParaIe(cierre) {
   return String(raw).toLowerCase() === 'aprobado';
 }
 
+/**
+ * ¿El gasto de corte ya puede verse en IE?
+ * - Liberado por recolección aprobada (Virtual/Garage) vía gastos_ids.
+ * - Legado: antes de LEGACY_GASTOS_CORTE_IE_HASTA.
+ * - Abarrotes: no tiene flujo de recolección; entra a IE ABARROTES con el corte
+ *   (si no, agosto/meses posteriores quedarían vacíos).
+ */
 export function gastoCorteLiberadoParaIe(gasto, idsLiberados) {
   if (!gasto) return false;
   const id = gasto.id != null ? String(gasto.id) : '';
   if (id && idsLiberados instanceof Set && idsLiberados.has(id)) return true;
+  if (String(gasto.modulo || '').toLowerCase() === 'abarrotes') return true;
   const f = String(gasto.created_at || gasto.fecha || '').slice(0, 10);
   return Boolean(f && f < LEGACY_GASTOS_CORTE_IE_HASTA);
 }

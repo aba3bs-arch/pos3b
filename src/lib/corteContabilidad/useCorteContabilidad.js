@@ -351,6 +351,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const turnoTexto = nombreTurnoLegible(turnoCierre);
     const folioCierre = modulo === 'abarrotes' ? estado.folio || folio : folio;
     const gastosCierre = [...(gastos || [])];
+    const gastosIds = gastosCierre.map((g) => g.id).filter(Boolean);
     const calcCierre = { ...calc };
     const estadoCierre = { ...estado };
 
@@ -366,6 +367,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       detalle: {
         ...estado,
         gastos,
+        gastos_ids: gastosIds,
         gastos_total: calc.gastosTotal,
         subtotal: calc.subtotal,
         venta_neta: calc.ventaNeta,

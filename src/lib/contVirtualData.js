@@ -552,7 +552,11 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
   const cierres = todosCierres.filter((c) => esCierreTurno(c));
   const recoleccionesTodas = todosCierres.filter((c) => esRecoleccionParaIe(c));
   const recolecciones = recoleccionesTodas.filter((c) => recoleccionAprobadaParaIe(c));
-  const idsGastosLiberados = idsGastosLiberadosPorRecolecciones(recoleccionesTodas);
+  // Abarrotes libera por cierre de turno (no hay recolección); Virtual/Garage por recolección.
+  const idsGastosLiberados = idsGastosLiberadosPorRecolecciones([
+    ...recoleccionesTodas,
+    ...cierres,
+  ]);
   const gastos = [...(gastosRes.data || []), ...legacyFrancisco].filter((g) => {
     if (sucursal && g.sucursal_id !== sucursal) return false;
     const est = g.estado_aprobacion;

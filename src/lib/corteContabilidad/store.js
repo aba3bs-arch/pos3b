@@ -170,7 +170,9 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
       /* no bloquea el corte */
     }
   }
-  // Gastos aplican en corte sin aprobación. A IE solo con recolección aprobada
+  // Gastos aplican en corte sin aprobación.
+  // Virtual/Garage → IE solo con recolección aprobada (gastos_ids).
+  // Abarrotes → IE ABARROTES al cerrar/registrar (no hay recolección en ese módulo).
   // (omitirIe = nunca van a IE: inversión oficina, envío MAIN, etc.).
   return { ok: true, data, omitirIe: Boolean(omitirIe) };
 }
