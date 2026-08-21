@@ -7,6 +7,8 @@ import {
   PLANTILLA_CHECKLIST_FA3B017,
   TURNOS_CHECKLIST,
   cerrarSesionChecklist,
+  eliminarSesionChecklist,
+  eliminarSesionesChecklist,
   guardarComentariosSesion,
   guardarRespuestaChecklist,
   hoyYmdLocal,
@@ -32,9 +34,13 @@ export default function CheckList({ supabase, sucursal, user, onIrIncidencias })
   const [abiertas, setAbiertas] = useState(() => new Set(['1']));
   const [historial, setHistorial] = useState([]);
   const [cargandoHist, setCargandoHist] = useState(false);
+  const [eliminandoHist, setEliminandoHist] = useState(false);
 
   const rol = normalizarRol(user?.rol);
+  /** Reabrir / ver todas las tiendas: Admin, Gerente, Supervisor */
   const esAdmin = puedeGestionarUsuarios(rol) || rol === 'Gerente' || rol === 'Supervisor';
+  /** Borrar historial: solo Administrador */
+  const puedeEliminarHistorial = puedeGestionarUsuarios(rol);
   const tienda = normalizarCodigoTienda(sucursal);
   const cerrado = sesion?.estado === 'cerrado';
   const prog = useMemo(() => progresoChecklist(respuestas), [respuestas]);
@@ -172,6 +178,49 @@ export default function CheckList({ supabase, sucursal, user, onIrIncidencias })
     setFecha(String(s.fecha).slice(0, 10));
     setTurno(s.turno);
     setPestana('llenar');
+  };
+
+  const eliminarUno = async (s) => {
+    if (!puedeEliminarHistorial || !s?.id) return;
+    const label = `${String(s.fecha).slice(0, 10)} · ${etiquetaTienda(s.sucursal_id)} · ${labelTurno(s.turno)}`;
+    if (!confirm(`¿Eliminar del historial?\n${label}\n\nSe borrarán las respuestas. No se puede deshacer.`)) return;
+    setEliminandoHist(true);
+    const res = await eliminarSesionChecklist(supabase, s.id);
+    setEliminandoHist(false);
+    if (!res.ok) {
+      alert(res.error || 'No se pudo eliminar.');
+      return;
+    }
+    if (sesion?.id === s.id) {
+      setSesion(null);
+      setRespuestas({});
+      setComentarios('');
+    }
+    setMsg('Checklist eliminado del historial.');
+    await cargarHistorial();
+  };
+
+  const eliminarTodoHistorial = async () => {
+    if (!puedeEliminarHistorial || !historial.length) return;
+    const n = historial.length;
+    if (!confirm(
+      `¿Eliminar las ${n} sesión(es) del historial listado?\n\nEsto borra checklists y respuestas. No se puede deshacer.`,
+    )) return;
+    setEliminandoHist(true);
+    const ids = historial.map((s) => s.id);
+    const res = await eliminarSesionesChecklist(supabase, ids);
+    setEliminandoHist(false);
+    if (!res.ok) {
+      alert(res.error || 'No se pudo eliminar el historial.');
+      return;
+    }
+    if (sesion?.id && ids.includes(sesion.id)) {
+      setSesion(null);
+      setRespuestas({});
+      setComentarios('');
+    }
+    setMsg(`Historial eliminado (${res.eliminadas || n}).`);
+    await cargarHistorial();
   };
 
   return (
@@ -387,7 +436,25 @@ export default function CheckList({ supabase, sucursal, user, onIrIncidencias })
 
       {pestana === 'historial' && (
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>Historial</h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+            <h3 style={{ margin: 0 }}>Historial</h3>
+            {puedeEliminarHistorial && historial.length > 0 ? (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ fontSize: '0.78rem', color: '#c0392b', borderColor: 'rgba(192,57,43,0.35)' }}
+                disabled={eliminandoHist || cargandoHist}
+                onClick={eliminarTodoHistorial}
+              >
+                Eliminar historial (admin)
+              </button>
+            ) : null}
+          </div>
+          {puedeEliminarHistorial ? (
+            <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.75rem' }}>
+              Solo Administrador puede borrar sesiones del historial. La acción no se puede deshacer.
+            </p>
+          ) : null}
           {cargandoHist ? (
             <p className="muted">Cargando…</p>
           ) : !historial.length ? (
@@ -416,9 +483,22 @@ export default function CheckList({ supabase, sucursal, user, onIrIncidencias })
                       </td>
                       <td className="muted">{s.usuario_nombre || '—'}</td>
                       <td>
-                        <button type="button" className="btn btn-ghost" style={{ fontSize: '0.75rem' }} onClick={() => abrirHistorial(s)}>
-                          Abrir
-                        </button>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                          <button type="button" className="btn btn-ghost" style={{ fontSize: '0.75rem' }} onClick={() => abrirHistorial(s)}>
+                            Abrir
+                          </button>
+                          {puedeEliminarHistorial ? (
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ fontSize: '0.75rem', color: '#c0392b' }}
+                              disabled={eliminandoHist}
+                              onClick={() => eliminarUno(s)}
+                            >
+                              Eliminar
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   ))}

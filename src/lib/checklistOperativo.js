@@ -316,6 +316,46 @@ export async function reabrirSesionChecklist(supabase, sesionId) {
   return { ok: true, sesion: data };
 }
 
+/**
+ * Elimina una sesión del historial (y sus respuestas por CASCADE).
+ * Uso exclusivo de Administrador (validar en UI).
+ */
+export async function eliminarSesionChecklist(supabase, sesionId) {
+  if (!supabase || !sesionId) return { ok: false, error: 'Sin sesión.' };
+  // Borrar respuestas primero por si el FK no tiene cascade en algún entorno legado
+  const delResp = await supabase.from('checklist_respuestas').delete().eq('sesion_id', sesionId);
+  if (delResp.error && faltaTabla(delResp.error)) {
+    return { ok: false, error: AVISO_FALTA_CHECKLIST, aviso: AVISO_FALTA_CHECKLIST };
+  }
+  if (delResp.error) return { ok: false, error: delResp.error.message };
+
+  const { error } = await supabase.from('checklist_sesiones').delete().eq('id', sesionId);
+  if (error && faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CHECKLIST, aviso: AVISO_FALTA_CHECKLIST };
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/**
+ * Elimina varias sesiones del historial. Solo Admin.
+ * @param {string[]} sesionIds
+ */
+export async function eliminarSesionesChecklist(supabase, sesionIds = []) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const ids = [...new Set((sesionIds || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!ids.length) return { ok: false, error: 'No hay sesiones para eliminar.' };
+
+  const delResp = await supabase.from('checklist_respuestas').delete().in('sesion_id', ids);
+  if (delResp.error && faltaTabla(delResp.error)) {
+    return { ok: false, error: AVISO_FALTA_CHECKLIST, aviso: AVISO_FALTA_CHECKLIST };
+  }
+  if (delResp.error) return { ok: false, error: delResp.error.message };
+
+  const { error } = await supabase.from('checklist_sesiones').delete().in('id', ids);
+  if (error && faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CHECKLIST, aviso: AVISO_FALTA_CHECKLIST };
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, eliminadas: ids.length };
+}
+
 export async function listarSesionesChecklist(supabase, {
   sucursalId = null,
   desde = null,
