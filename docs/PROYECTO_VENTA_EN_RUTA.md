@@ -9,7 +9,7 @@
 
 ```
 Admin ajusta precio_ruta (sin impuestos)
-Admin carga camión (descuenta MAIN · CEDIS)
+Admin carga camión desde MAIN · CEDIS (elige repartidor con rol Repartidor)
 Repartidor vende en POS (scan) · 1 folio por sucursal
   · efectivo → transito_efectivo (hasta liquidación)
   · crédito  → ruta_cxc (pendiente)

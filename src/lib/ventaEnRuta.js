@@ -6,7 +6,7 @@
 
 import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { aplicarMovimientoInventario } from './inventarioMovimientos.js';
-import { normalizarRol } from './roles.js';
+import { esRolRepartidor, normalizarRol } from './roles.js';
 import { registrarCargoCreditoRuta } from './rutaCxc.js';
 import { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
 
@@ -62,6 +62,22 @@ function folioVenta() {
 export function puedeAdministrarVentaRuta(rol) {
   const r = normalizarRol(rol);
   return r === 'Administrador' || r === 'Gerente';
+}
+
+/**
+ * Usuarios activos con rol Repartidor (o plantilla Repartidor).
+ * Para asignar el camión al cargar desde CEDIS.
+ */
+export async function listarUsuariosRepartidores(supabase) {
+  if (!supabase) return { data: [] };
+  const { data, error } = await supabase
+    .from('usuarios')
+    .select('id, nombre, rol, sucursal_id, activo')
+    .order('nombre')
+    .limit(500);
+  if (error) return { data: [], error: error.message };
+  const list = (data || []).filter((u) => u?.activo !== false && esRolRepartidor(u.rol));
+  return { data: list };
 }
 
 /** Precio especial de ruta (sin impuestos). */
@@ -163,18 +179,21 @@ export async function guardarPrecioRutaProducto(supabase, productoId, precio, { 
 
 // ─── Cargas (descuenta MAIN · CEDIS) ───────────────────────────────
 
-export async function listarCargasRuta(supabase, { estado, limit = 80 } = {}) {
+export async function listarCargasRuta(supabase, { estado, vendedorId, limit = 80 } = {}) {
   if (!supabase) {
     let list = leerLS(LS_CARGAS, []);
     if (estado) list = list.filter((c) => c.estado === estado);
+    if (vendedorId) list = list.filter((c) => String(c.vendedor_id) === String(vendedorId));
     return { data: list.slice(0, limit) };
   }
   let q = supabase.from('ruta_cargas').select('*').order('created_at', { ascending: false }).limit(limit);
   if (estado) q = q.eq('estado', estado);
+  if (vendedorId) q = q.eq('vendedor_id', String(vendedorId));
   const { data, error } = await q;
   if (error && faltaTabla(error)) {
     let list = leerLS(LS_CARGAS, []);
     if (estado) list = list.filter((c) => c.estado === estado);
+    if (vendedorId) list = list.filter((c) => String(c.vendedor_id) === String(vendedorId));
     return { data: list.slice(0, limit), aviso: AVISO_FALTA_VENTA_RUTA };
   }
   if (error) return { data: [], error: error.message };
@@ -198,12 +217,32 @@ export async function lineasDeCarga(supabase, cargaId) {
 }
 
 /**
- * Crea carga y descuenta inventario de MAIN · CEDIS.
+ * Crea carga y descuenta inventario de MAIN · CEDIS (almacén central).
+ * El repartidor debe ser un usuario con rol Repartidor.
  * @param {Array<{productoId, nombre, precio, cantidad}>} lineas
  */
 export async function crearCargaRuta(supabase, { vendedorNombre, vendedorId, notas, lineas, usuarioNombre, rol, inventario = [] } = {}) {
   if (!puedeAdministrarVentaRuta(rol)) {
-    return { ok: false, error: 'Solo administrador o gerente pueden cargar el camión desde MAIN.' };
+    return { ok: false, error: 'Solo administrador o gerente pueden cargar el camión desde CEDIS.' };
+  }
+  const repId = String(vendedorId || '').trim();
+  const repNombre = String(vendedorNombre || '').trim();
+  if (!repId || !repNombre) {
+    return { ok: false, error: 'Selecciona un repartidor con rol Repartidor.' };
+  }
+  if (supabase) {
+    const { data: uRep, error: eRep } = await supabase
+      .from('usuarios')
+      .select('id, nombre, rol, activo')
+      .eq('id', repId)
+      .maybeSingle();
+    if (eRep) return { ok: false, error: eRep.message };
+    if (!uRep || uRep.activo === false) {
+      return { ok: false, error: 'El repartidor seleccionado no existe o está inactivo.' };
+    }
+    if (!esRolRepartidor(uRep.rol)) {
+      return { ok: false, error: 'El usuario seleccionado no tiene rol Repartidor.' };
+    }
   }
   const items = (lineas || [])
     .map((l) => ({
@@ -214,15 +253,15 @@ export async function crearCargaRuta(supabase, { vendedorNombre, vendedorId, not
     }))
     .filter((l) => l.productoId && l.cantidad > 0);
   if (!items.length) return { ok: false, error: 'Agrega al menos un producto a la carga.' };
-  if (!supabase) return { ok: false, error: 'Se requiere conexión a Supabase para descontar MAIN.' };
+  if (!supabase) return { ok: false, error: 'Se requiere conexión a Supabase para descontar CEDIS.' };
 
   const folio = folioCarga();
   const { data: row, error } = await supabase
     .from('ruta_cargas')
     .insert([{
       folio,
-      vendedor_id: vendedorId || null,
-      vendedor_nombre: vendedorNombre || usuarioNombre || '—',
+      vendedor_id: repId,
+      vendedor_nombre: repNombre,
       fecha: new Date().toISOString().slice(0, 10),
       estado: 'en_ruta',
       notas: notas || null,
@@ -237,17 +276,19 @@ export async function crearCargaRuta(supabase, { vendedorNombre, vendedorId, not
 
   for (const it of items) {
     const prod = porId.get(it.productoId) || { id: it.productoId, nombre: it.nombre };
+    // Retiro explícito de CEDIS (almacén central en MAIN), no del piso.
     const mov = await aplicarMovimientoInventario(supabase, {
       tipo: 'retiro',
       productoOrigen: prod,
       cantidad: it.cantidad,
-      motivo: `Carga camión ruta ${folio}`,
+      motivo: `Carga camión ruta ${folio} · CEDIS → ${repNombre}`,
       usuario: usuarioNombre || '—',
       sucursal: 'MAIN',
       sucursalOperacion: 'MAIN',
+      modo: 'cedis',
     });
     if (!mov.ok) {
-      return { ok: false, error: `MAIN · ${it.nombre || it.productoId}: ${mov.error}` };
+      return { ok: false, error: `CEDIS · ${it.nombre || it.productoId}: ${mov.error}` };
     }
     const { error: eLin } = await supabase.from('ruta_carga_lineas').insert([{
       carga_id: cargaId,

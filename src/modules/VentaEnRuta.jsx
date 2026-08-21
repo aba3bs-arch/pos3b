@@ -11,6 +11,7 @@ import {
   listarCargasRuta,
   listarClientesRuta,
   listarDestinosVentaRuta,
+  listarUsuariosRepartidores,
   listarVentasRuta,
   puedeAdministrarVentaRuta,
   precioRutaEspecial,
@@ -21,6 +22,7 @@ import { fmtMonto } from '../lib/consultasUi.js';
 import { stockEnUbicacion } from '../lib/inventarioMultitienda.js';
 import { etiquetaDepartamento, listarDepartamentos } from '../lib/departamentos.js';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
+import { esRolRepartidor } from '../lib/roles.js';
 
 const COLOR = '#0f766e';
 
@@ -44,7 +46,7 @@ export default function VentaEnRuta({ supabase, user, inventario = [] }) {
     const items = [];
     if (esAdmin) {
       items.push(
-        { id: 'carga', label: 'Carga de camión', desc: `Descuenta ${NOMBRE_ALMACEN_RUTA}`, icon: 'truck' },
+        { id: 'carga', label: 'Carga de camión', desc: `Repartidor · descuenta ${NOMBRE_ALMACEN_RUTA}`, icon: 'truck' },
         { id: 'precios', label: 'Precios de ruta', desc: 'Precio especial sin impuestos', icon: 'dollar' },
         { id: 'clientes', label: 'Clientes externos', desc: 'Clientes no propios', icon: 'users' },
         { id: 'consultas', label: 'Consultas', desc: 'Cargas y ventas', icon: 'search' },
@@ -107,8 +109,32 @@ function VistaCarga({ supabase, user, inventario, setAviso }) {
   const [lineas, setLineas] = useState([]);
   const [codigo, setCodigo] = useState('');
   const [qty, setQty] = useState('1');
-  const [vendedor, setVendedor] = useState(user?.nombre || '');
+  const [repartidores, setRepartidores] = useState([]);
+  const [repartidorId, setRepartidorId] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [cargandoRep, setCargandoRep] = useState(true);
+
+  useEffect(() => {
+    if (!supabase) {
+      setCargandoRep(false);
+      return undefined;
+    }
+    let cancel = false;
+    (async () => {
+      setCargandoRep(true);
+      const r = await listarUsuariosRepartidores(supabase);
+      if (cancel) return;
+      if (r.error) setAviso(r.error);
+      setRepartidores(r.data || []);
+      setCargandoRep(false);
+    })();
+    return () => { cancel = true; };
+  }, [supabase, setAviso]);
+
+  const repartidorSel = useMemo(
+    () => repartidores.find((u) => String(u.id) === String(repartidorId)) || null,
+    [repartidores, repartidorId],
+  );
 
   const agregar = () => {
     const { producto } = buscarProductoInventario(inventario, codigo);
@@ -119,9 +145,9 @@ function VistaCarga({ supabase, user, inventario, setAviso }) {
     }
     const n = Math.floor(Number(qty) || 0);
     if (!(n > 0)) return alert('Cantidad inválida (enteros).');
-    const stockMain = stockEnUbicacion(producto, 'MAIN', 'cedis', 'MAIN');
+    const stockCedis = stockEnUbicacion(producto, 'MAIN', 'cedis', 'MAIN');
     const ya = lineas.filter((l) => String(l.productoId) === String(producto.id)).reduce((s, l) => s + l.cantidad, 0);
-    if (stockMain < ya + n) return alert(`Stock insuficiente en MAIN · CEDIS (hay ${stockMain}).`);
+    if (stockCedis < ya + n) return alert(`Stock insuficiente en ${NOMBRE_ALMACEN_RUTA} (hay ${stockCedis}).`);
     setLineas((prev) => {
       const i = prev.findIndex((l) => String(l.productoId) === String(producto.id));
       if (i >= 0) {
@@ -137,11 +163,12 @@ function VistaCarga({ supabase, user, inventario, setAviso }) {
 
   const crear = async () => {
     if (!lineas.length) return alert('Agrega productos.');
-    if (!confirm(`¿Cargar camión? Se descuenta de ${NOMBRE_ALMACEN_RUTA}.`)) return;
+    if (!repartidorSel) return alert('Selecciona un repartidor (usuarios con rol Repartidor).');
+    if (!confirm(`¿Cargar camión para ${repartidorSel.nombre}? Se descuenta de ${NOMBRE_ALMACEN_RUTA}.`)) return;
     setGuardando(true);
     const r = await crearCargaRuta(supabase, {
-      vendedorNombre: vendedor || user?.nombre,
-      vendedorId: user?.id,
+      vendedorNombre: repartidorSel.nombre,
+      vendedorId: repartidorSel.id,
       lineas,
       usuarioNombre: user?.nombre,
       rol: user?.rol,
@@ -150,15 +177,36 @@ function VistaCarga({ supabase, user, inventario, setAviso }) {
     setGuardando(false);
     if (!r.ok) return alert(r.error);
     if (r.aviso) setAviso(r.aviso);
-    alert(`Carga ${r.carga?.folio || ''} creada. Stock MAIN descontado.`);
+    alert(`Carga ${r.carga?.folio || ''} creada para ${repartidorSel.nombre}. Stock CEDIS descontado.`);
     setLineas([]);
   };
 
   return (
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Carga de camión</h3>
-      <p className="muted" style={{ fontSize: '0.8rem' }}>Al crear la carga se descuenta el inventario de MAIN · CEDIS.</p>
-      <input className="input" style={{ marginBottom: '0.5rem' }} value={vendedor} onChange={(e) => setVendedor(e.target.value)} placeholder="Vendedor / repartidor" />
+      <p className="muted" style={{ fontSize: '0.8rem' }}>
+        Elige un repartidor con rol Repartidor. Al crear la carga se descuenta el inventario de {NOMBRE_ALMACEN_RUTA}.
+      </p>
+      <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
+        Repartidor
+        <select
+          className="input"
+          style={{ display: 'block', width: '100%', marginTop: '0.25rem' }}
+          value={repartidorId}
+          onChange={(e) => setRepartidorId(e.target.value)}
+          disabled={cargandoRep}
+        >
+          <option value="">{cargandoRep ? 'Cargando…' : '— Seleccionar repartidor —'}</option>
+          {repartidores.map((u) => (
+            <option key={u.id} value={u.id}>{u.nombre}</option>
+          ))}
+        </select>
+      </label>
+      {!cargandoRep && repartidores.length === 0 && (
+        <p className="muted" style={{ fontSize: '0.8rem', color: 'var(--danger, #b91c1c)' }}>
+          No hay usuarios activos con rol Repartidor. Créalos en Usuarios.
+        </p>
+      )}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
         <input className="input" style={{ flex: 1, minWidth: 140 }} value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Código / escanear" onKeyDown={(e) => e.key === 'Enter' && agregar()} />
         <input className="input" type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)} style={{ width: 80 }} />
@@ -181,8 +229,8 @@ function VistaCarga({ supabase, user, inventario, setAviso }) {
           </tbody>
         </table>
       )}
-      <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} disabled={guardando || !lineas.length} onClick={() => void crear()}>
-        Crear carga y descontar MAIN
+      <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} disabled={guardando || !lineas.length || !repartidorId} onClick={() => void crear()}>
+        Crear carga y descontar CEDIS
       </button>
     </div>
   );
@@ -414,17 +462,21 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso }) {
   const [carrito, setCarrito] = useState([]);
   const [guardando, setGuardando] = useState(false);
 
+  const esRep = esRolRepartidor(user?.rol);
   const destinos = useMemo(() => listarDestinosVentaRuta(clientesExt), [clientesExt]);
 
   const cargarBase = useCallback(async () => {
+    const filtros = { estado: 'en_ruta' };
+    // El repartidor solo ve las cargas asignadas a él.
+    if (esRolRepartidor(user?.rol) && user?.id) filtros.vendedorId = user.id;
     const [c, cli] = await Promise.all([
-      listarCargasRuta(supabase, { estado: 'en_ruta' }),
+      listarCargasRuta(supabase, filtros),
       listarClientesRuta(supabase),
     ]);
     if (c.aviso || cli.aviso) setAviso(c.aviso || cli.aviso || AVISO_FALTA_VENTA_RUTA);
     setCargas(c.data || []);
     setClientesExt(cli.data || []);
-  }, [supabase, setAviso]);
+  }, [supabase, setAviso, user?.id, user?.rol]);
 
   useEffect(() => { void cargarBase(); }, [cargarBase]);
 
@@ -496,13 +548,18 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso }) {
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>POS venta en ruta</h3>
       <p className="muted" style={{ fontSize: '0.8rem' }}>
         Escanea productos del camión. Un folio por sucursal. Efectivo → tránsito · Crédito → CxC.
+        {esRep ? ' Solo ves las cargas asignadas a ti.' : ''}
       </p>
       <div style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: '0.75rem' }}>
         <label style={{ fontSize: '0.8rem' }}>
           Carga
           <select className="input" value={cargaId} onChange={(e) => setCargaId(e.target.value)}>
             <option value="">—</option>
-            {cargas.map((c) => <option key={c.id} value={c.id}>{c.folio}</option>)}
+            {cargas.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.folio}{c.vendedor_nombre ? ` · ${c.vendedor_nombre}` : ''}
+              </option>
+            ))}
           </select>
         </label>
         <label style={{ fontSize: '0.8rem' }}>
