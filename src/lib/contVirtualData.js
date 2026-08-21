@@ -513,6 +513,7 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
 
 /**
  * Panel IE ABARROTES (Francisco): ingresos/egresos solo de Abarrotes.
+ * Ingresos = ventas de cierres de corte (aunque no se recolecte) + capturas manuales.
  * Independiente de Virtual/Garage (Antonio).
  */
 export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = null } = {}) {

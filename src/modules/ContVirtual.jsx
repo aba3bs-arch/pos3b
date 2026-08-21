@@ -918,7 +918,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     if (!esAdmin) return;
     if (row?.tipo === 'ingreso') {
       if (!row.manual && row.tipo_mov !== 'manual' && !String(row.id || '').startsWith('local-ing')) {
-        return; // recolecciones no se borran aquí
+        return; // ventas de cierre / recolecciones no se borran aquí
       }
       if (!confirm(`¿Eliminar este ingreso de ${tituloLibro}?\n\n${row.comentario || ''}\n${fmt(row.monto)}`)) return;
       const res = await eliminarIngresoContVirtual(supabase, row.id);
