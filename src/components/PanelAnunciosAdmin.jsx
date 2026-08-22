@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
+import { normalizarRol } from '../lib/roles.js';
 import {
   AVISO_SQL_ANUNCIOS,
   DURACION_ANUNCIO_OPTS,
@@ -14,8 +14,9 @@ function PuntoVerdeActivo() {
   return <span className="punto-verde-parpadeo" title="Anuncio activo" aria-hidden />;
 }
 
+/** Publicar anuncios flotantes: cualquier Administrador (antes solo Andrés). */
 export default function PanelAnunciosAdmin({ supabase, user, onCerrar }) {
-  const esAdmin = esAdministradorPrincipal(user);
+  const esAdmin = normalizarRol(user?.rol) === 'Administrador';
   const [activo, setActivo] = useState(false);
   const [lista, setLista] = useState([]);
   const [asunto, setAsunto] = useState('');

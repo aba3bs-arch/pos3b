@@ -5,6 +5,7 @@ import { iconoDeModulo } from '../lib/moduloIcons.js';
 import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
 import { fmtMxn, resumirValorInventario } from '../lib/valorInventario.js';
 import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
+import { normalizarRol } from '../lib/roles.js';
 import { hayAnuncioActivo, EVENTO_ANUNCIOS } from '../lib/anunciosPos.js';
 import PanelAnunciosAdmin from '../components/PanelAnunciosAdmin.jsx';
 import PanelPurgeDatosAdmin from '../components/PanelPurgeDatosAdmin.jsx';
@@ -35,13 +36,14 @@ export default function Inicio({
   const puedeVerValorizacion = puede('Productos') && consolaCentral;
   // Proyección de faltante (carrito / cancelaciones / checador): en cada sucursal operativa.
   const puedeVerProyeccion = puede('Productos') && !esAlmacenCentral(sucursal);
+  const esAdmin = normalizarRol(user?.rol) === 'Administrador';
   const esAdminPrincipal = esAdministradorPrincipal(user);
   const [panelAnuncios, setPanelAnuncios] = useState(false);
   const [panelPurge, setPanelPurge] = useState(false);
   const [hayAnuncio, setHayAnuncio] = useState(false);
 
   useEffect(() => {
-    if (!esAdminPrincipal || !supabase) return;
+    if (!esAdmin || !supabase) return;
     let ok = true;
     const check = async () => {
       const h = await hayAnuncioActivo(supabase);
@@ -54,7 +56,7 @@ export default function Inicio({
       ok = false;
       window.removeEventListener(EVENTO_ANUNCIOS, onEvt);
     };
-  }, [esAdminPrincipal, supabase, sucursal]);
+  }, [esAdmin, supabase, sucursal]);
   const [ventasHoy, setVentasHoy] = useState([]);
   const [loading, setLoading] = useState(true);
   const valorInv = useMemo(() => resumirValorInventario(inventario), [inventario]);
@@ -194,11 +196,13 @@ export default function Inicio({
 
       <PanelAppMovilInicio sucursal={sucursal} />
 
-      {esAdminPrincipal && (
+      {esAdmin && (
         <div className="card" style={{ borderLeft: '4px solid var(--brand-blue)' }}>
-          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)', fontSize: '1rem' }}>Herramientas del administrador principal</h3>
+          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)', fontSize: '1rem' }}>
+            Anuncios a sucursales
+          </h3>
           {!panelAnuncios && !panelPurge && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
               <button
                 type="button"
                 className="btn btn-primary"
@@ -215,16 +219,21 @@ export default function Inicio({
                   </span>
                 )}
               </button>
-              <button
-                type="button"
-                className="btn btn-danger"
-                onClick={() => {
-                  setPanelAnuncios(false);
-                  setPanelPurge(true);
-                }}
-              >
-                <BtnLabel icon="trash">Borrar datos del sistema</BtnLabel>
-              </button>
+              <span className="muted" style={{ fontSize: '0.8rem' }}>
+                Mensaje flotante en todas las pantallas POS, con vigencia configurable.
+              </span>
+              {esAdminPrincipal && (
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={() => {
+                    setPanelAnuncios(false);
+                    setPanelPurge(true);
+                  }}
+                >
+                  <BtnLabel icon="trash">Borrar datos del sistema</BtnLabel>
+                </button>
+              )}
             </div>
           )}
           {panelAnuncios && (
@@ -234,7 +243,7 @@ export default function Inicio({
               onCerrar={() => setPanelAnuncios(false)}
             />
           )}
-          {panelPurge && (
+          {panelPurge && esAdminPrincipal && (
             <PanelPurgeDatosAdmin
               supabase={supabase}
               user={user}
