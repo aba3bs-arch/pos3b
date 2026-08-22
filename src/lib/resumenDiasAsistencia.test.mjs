@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import {
   clasificarHuecosSinAsistencia,
+  construirCalendarioAsistencia,
   construirResumenEmpleados,
   diasCompletosPorEntradaSalida,
   listarYmdInclusive,
@@ -104,6 +105,67 @@ assert.equal(
   assert.equal(dias.size, 1)
   assert.ok(dias.has('2026-08-10'))
   assert.equal(dias.has('2026-08-11'), false)
+}
+
+// Turno nocturno 19:00 → 07:00: cuenta el día de la entrada (19 h), no el de la salida
+{
+  const noche19 = [
+    { tipo: 'ENTRADA', created_at: '2026-08-10T19:00:00' },
+    { tipo: 'SALIDA', created_at: '2026-08-11T07:00:00' },
+  ]
+  const dias = diasCompletosPorEntradaSalida(noche19)
+  assert.equal(dias.size, 1)
+  assert.ok(dias.has('2026-08-10'))
+  assert.equal(dias.has('2026-08-11'), false)
+}
+
+{
+  const { descansos, faltas, diasDescansoYmd, diasFaltaYmd } = clasificarHuecosSinAsistencia(
+    new Set(['2026-08-10', '2026-08-16']),
+    semana,
+  )
+  assert.equal(descansos, 1)
+  assert.equal(faltas, 4)
+  assert.deepEqual(diasDescansoYmd, ['2026-08-11'])
+  assert.deepEqual(diasFaltaYmd, ['2026-08-12', '2026-08-13', '2026-08-14', '2026-08-15'])
+}
+
+{
+  const r = resumirDiasEmpleado({
+    diasTrabajadosYmd: new Set(['2026-08-10', '2026-08-12']),
+    desdeYmd: '2026-08-10',
+    hastaYmd: '2026-08-16',
+    ahora: new Date(2026, 7, 16, 20, 0, 0),
+  })
+  assert.deepEqual(r.diasTrabajadosYmd, ['2026-08-10', '2026-08-12'])
+  assert.equal(r.mapaEstado['2026-08-10'], 'trabajado')
+  assert.equal(r.mapaEstado['2026-08-11'], 'descanso')
+  assert.equal(r.mapaEstado['2026-08-12'], 'trabajado')
+  assert.equal(r.mapaEstado['2026-08-13'], 'descanso')
+  assert.equal(r.mapaEstado['2026-08-14'], 'falta')
+  assert.equal(r.mapaEstado['2026-08-15'], 'falta')
+  assert.equal(r.mapaEstado['2026-08-16'], 'falta')
+  assert.equal(r.descansos, 2)
+  assert.equal(r.faltas, 3)
+}
+
+{
+  const cal = construirCalendarioAsistencia({
+    desdeYmd: '2026-08-10',
+    hastaYmd: '2026-08-16',
+    mapaEstado: {
+      '2026-08-10': 'trabajado',
+      '2026-08-11': 'descanso',
+      '2026-08-12': 'trabajado',
+    },
+    ahora: new Date(2026, 7, 16, 12, 0, 0),
+  })
+  assert.ok(cal.semanas.length >= 1)
+  const flat = cal.semanas.flat()
+  const d10 = flat.find((c) => c.ymd === '2026-08-10')
+  assert.equal(d10.estado, 'trabajado')
+  // Lunes 10 ago 2026 → la primera celda de esa semana es lunes
+  assert.equal(cal.semanas[0][0].ymd, '2026-08-10')
 }
 
 {
