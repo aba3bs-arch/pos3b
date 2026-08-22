@@ -28,21 +28,53 @@ export function empleadosVisiblesParaTienda(empleados, sucursalActiva, actorRol 
 }
 
 /**
- * Préstamos a empleado: la tienda solo ve empleados registrados en esa sucursal
- * (sin indirectos/MAIN). En MAIN, admin ve todos los de tipo tienda.
+ * Préstamos a empleado:
+ * - Tienda operativa: solo personal tipo tienda de esa sucursal (sin MAIN/indirectos).
+ * - En MAIN (admin): empleados de tienda (todas) + usuarios MAIN/indirectos
+ *   (estos últimos pueden pedir préstamo solo desde MAIN; no van a corte, sí a nómina).
  */
 export function empleadosParaPrestamosEmpleado(empleados, sucursalActiva, actorRol = null) {
-  const lista = (empleados || []).filter((e) => {
-    if (!e || e.activo === false) return false;
-    if (normalizarRol(e.rol) === 'Administrador') return false;
-    return resolverTipoEmpleado(e) === 'tienda';
-  });
   const suc = normalizarCodigoTienda(sucursalActiva);
-  if (!suc || suc === 'MAIN') {
-    if (puedeGestionarUsuarios(actorRol)) return lista;
-    return [];
+  const enMain = !suc || suc === 'MAIN';
+  const sortNom = (a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es');
+
+  if (enMain) {
+    if (!puedeGestionarUsuarios(actorRol)) return [];
+    return (empleados || [])
+      .filter((e) => {
+        if (!e || e.activo === false) return false;
+        if (normalizarRol(e.rol) === 'Administrador') return false;
+        const tipo = resolverTipoEmpleado(e);
+        return tipo === 'tienda' || tipo === 'indirecto';
+      })
+      .sort(sortNom);
   }
-  return lista.filter((e) => normalizarCodigoTienda(e.sucursal_id) === suc);
+
+  return (empleados || [])
+    .filter((e) => {
+      if (!e || e.activo === false) return false;
+      if (normalizarRol(e.rol) === 'Administrador') return false;
+      if (resolverTipoEmpleado(e) !== 'tienda') return false;
+      return normalizarCodigoTienda(e.sucursal_id) === suc;
+    })
+    .sort(sortNom);
+}
+
+/** Agrupa el selector de préstamos en MAIN: Usuarios MAIN vs Empleados de tienda. */
+export function agruparEmpleadosParaSelectPrestamo(empleados) {
+  const main = [];
+  const tienda = [];
+  for (const e of empleados || []) {
+    if (esEmpleadoIndirectoOMain(e)) main.push(e);
+    else tienda.push(e);
+  }
+  const sortNom = (a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es');
+  return { main: main.sort(sortNom), tienda: tienda.sort(sortNom) };
+}
+
+/** Préstamo a usuario MAIN/indirecto: no carga corte; cuota semanal va a nómina. */
+export function prestamoEmpleadoOmiteCorte(empleado) {
+  return esEmpleadoIndirectoOMain(empleado);
 }
 
 /** ¿El empleado está asignado al turno de caja actual (hoy y hora)? */

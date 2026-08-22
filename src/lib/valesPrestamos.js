@@ -39,7 +39,7 @@ export function faltaTablaPrestamos(error) {
 }
 
 export const AVISO_FALTA_CONTABILIDAD =
-  'Faltan tablas de contabilidad. Ejecuta supabase/fix_contabilidad.sql, fix_vales_prestamos_aprobaciones.sql, fix_prestamos_area_colectado.sql y fix_prestamos_interarea_recuperacion.sql';
+  'Faltan tablas de contabilidad. Ejecuta supabase/fix_contabilidad.sql, fix_vales_prestamos_aprobaciones.sql, fix_prestamos_area_colectado.sql, fix_prestamos_interarea_recuperacion.sql y fix_prestamos_omitir_corte.sql';
 
 /** Fecha del vale para filtros (columna fecha o día de created_at). */
 export function fechaEfectivaVale(vale) {
@@ -463,6 +463,49 @@ export async function listarPrestamos(supabase, opts = {}) {
   return { data: data || [], error: error?.message || null };
 }
 
+function faltaColumnaPrestamo(error, col) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  const c = String(col || '').toLowerCase();
+  return Boolean(c) && (msg.includes(c) || (msg.includes('schema cache') && msg.includes(c)));
+}
+
+/**
+ * Inserta préstamo con reintentos si faltan columnas nuevas (omitir_corte / area_corte).
+ * Si se pidió omitir_corte y la columna no existe, falla (hay que correr fix_prestamos_omitir_corte.sql).
+ */
+async function insertPrestamoCompat(supabase, payload) {
+  let { data, error } = await supabase.from('prestamos').insert([payload]).select('*').single();
+  if (!error) return { data, error: null };
+
+  if (faltaTablaPrestamos(error)) return { data: null, error, faltaTabla: true };
+
+  const queriaOmitir = Boolean(payload.omitir_corte);
+  if (faltaColumnaPrestamo(error, 'omitir_corte') && 'omitir_corte' in payload) {
+    if (queriaOmitir) {
+      return {
+        data: null,
+        error: {
+          message:
+            'Falta la columna omitir_corte en préstamos. Ejecuta supabase/fix_prestamos_omitir_corte.sql en Supabase.',
+        },
+      };
+    }
+    const cur = { ...payload };
+    delete cur.omitir_corte;
+    ({ data, error } = await supabase.from('prestamos').insert([cur]).select('*').single());
+    if (!error) return { data, error: null };
+  }
+  if (error && faltaColumnaPrestamo(error, 'area_corte') && 'area_corte' in (payload || {})) {
+    const cur = { ...payload };
+    delete cur.omitir_corte;
+    const area = cur.area_corte;
+    delete cur.area_corte;
+    ({ data, error } = await supabase.from('prestamos').insert([cur]).select('*').single());
+    if (!error) return { data: { ...data, area_corte: area }, error: null };
+  }
+  return { data: null, error };
+}
+
 export async function registrarPrestamo(supabase, row, opts = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   if (!String(row.nombre_empleado || '').trim()) {
@@ -470,64 +513,111 @@ export async function registrarPrestamo(supabase, row, opts = {}) {
   }
 
   const monto = Number(row.monto_original) || 0;
-  const areaCorte = normalizarAreaCorte(row.area_corte || opts.areaCorte, 'virtual');
+  const omitirCorte = Boolean(opts.omitirCorte || row.omitir_corte);
+  const areaCorte = omitirCorte
+    ? null
+    : normalizarAreaCorte(row.area_corte || opts.areaCorte, 'virtual');
   const necesitaSocio = prestamoRequiereSocio(monto);
   const cuotaFija = cuotaSemanalPrestamo(monto);
+  const rolActor = normalizarRol(opts.rolActor);
+  const esAdminActor = rolActor === 'Administrador';
+  const ahora = new Date().toISOString();
+
+  // Usuario MAIN: lo registra el admin; no va a corte; sí a nómina ($500/sem).
+  // Si no requiere socio, queda activo de inmediato.
+  let estado = 'pendiente_admin';
+  let aprobadoAdminPor = null;
+  let aprobadoAdminAt = null;
+  if (omitirCorte && esAdminActor) {
+    if (necesitaSocio) {
+      estado = 'pendiente_socio';
+      aprobadoAdminPor = opts.nombreActor || null;
+      aprobadoAdminAt = ahora;
+    } else {
+      estado = 'activo';
+      aprobadoAdminPor = opts.nombreActor || null;
+      aprobadoAdminAt = ahora;
+    }
+  }
 
   const payload = {
     ...row,
     area_corte: areaCorte,
     saldo: monto,
     abono: 0,
-    estado: 'pendiente_admin',
+    estado,
     requiere_aprobacion_socio: necesitaSocio,
     cuota_semanal: cuotaFija,
     cargado_corte: false,
+    omitir_corte: omitirCorte,
   };
-  const { data, error } = await supabase.from('prestamos').insert([payload]).select('*').single();
-  if (error) {
-    if (faltaTablaPrestamos(error)) return { ok: false, error: AVISO_FALTA_CONTABILIDAD };
-    // Compatibilidad si aún no corre fix_vales_categorias.sql (sin columna area_corte).
-    if (String(error.message || '').toLowerCase().includes('area_corte')) {
-      const { area_corte: _a, ...sinArea } = payload;
-      const retry = await supabase.from('prestamos').insert([sinArea]).select('*').single();
-      if (retry.error) return { ok: false, error: retry.error.message };
-      await crearNotificacion(supabase, {
-        sucursal_id: row.sucursal_id,
-        tipo: TIPOS_NOTIF.PRESTAMO_ADMIN,
-        ref_tabla: 'prestamos',
-        ref_id: retry.data.id,
-        titulo: `Préstamo pendiente · ${row.nombre_empleado}`,
-        mensaje: `$${monto.toFixed(2)} · corte ${areaCorte}${necesitaSocio ? ' · requiere socio' : ''}`,
-        area_buzon: areaCorte,
-      });
-      return {
-        ok: true,
-        prestamo: { ...retry.data, area_corte: areaCorte },
-        pendiente: true,
-        mensaje: `Préstamo registrado (corte ${areaCorte}). El administrador debe aprobar antes de imprimir.`,
-        areaCorte,
-      };
-    }
-    return { ok: false, error: error.message };
+  if (aprobadoAdminPor) {
+    payload.aprobado_admin_por = aprobadoAdminPor;
+    payload.aprobado_admin_at = aprobadoAdminAt;
   }
 
-  await crearNotificacion(supabase, {
-    sucursal_id: row.sucursal_id,
-    tipo: TIPOS_NOTIF.PRESTAMO_ADMIN,
-    ref_tabla: 'prestamos',
-    ref_id: data.id,
-    titulo: `Préstamo pendiente · ${row.nombre_empleado}`,
-    mensaje: `$${monto.toFixed(2)} · corte ${areaCorte}${necesitaSocio ? ' · requiere socio' : ''}`,
-    area_buzon: areaCorte,
-  });
+  const { data, error, faltaTabla } = await insertPrestamoCompat(supabase, payload);
+  if (faltaTabla) return { ok: false, error: AVISO_FALTA_CONTABILIDAD };
+  if (error) return { ok: false, error: error.message };
+
+  const prestamo = { ...data, omitir_corte: omitirCorte, area_corte: data.area_corte ?? areaCorte };
+
+  if (estado === 'pendiente_admin') {
+    await crearNotificacion(supabase, {
+      sucursal_id: row.sucursal_id,
+      tipo: TIPOS_NOTIF.PRESTAMO_ADMIN,
+      ref_tabla: 'prestamos',
+      ref_id: prestamo.id,
+      titulo: `Préstamo pendiente · ${row.nombre_empleado}`,
+      mensaje: omitirCorte
+        ? `$${monto.toFixed(2)} · solo nómina (sin corte)${necesitaSocio ? ' · requiere socio' : ''}`
+        : `$${monto.toFixed(2)} · corte ${areaCorte}${necesitaSocio ? ' · requiere socio' : ''}`,
+      area_buzon: areaCorte || undefined,
+    });
+    return {
+      ok: true,
+      prestamo,
+      pendiente: true,
+      mensaje: omitirCorte
+        ? 'Préstamo registrado (solo nómina, sin corte). El administrador debe aprobar antes de imprimir.'
+        : `Préstamo registrado (corte ${areaCorte}). El administrador debe aprobar antes de imprimir el ticket.`,
+      areaCorte,
+      omitirCorte,
+    };
+  }
+
+  if (estado === 'pendiente_socio') {
+    await crearNotificacion(supabase, {
+      sucursal_id: row.sucursal_id,
+      tipo: TIPOS_NOTIF.PRESTAMO_SOCIO,
+      ref_tabla: 'prestamos',
+      ref_id: prestamo.id,
+      titulo: `Préstamo +$1,000 · ${row.nombre_empleado}`,
+      mensaje: omitirCorte
+        ? `$${monto.toFixed(2)} · solo nómina · espera Antonio, Francisco o José Luis`
+        : `$${monto.toFixed(2)} · espera Antonio, Francisco o José Luis`,
+    });
+    return {
+      ok: true,
+      prestamo,
+      pendienteSocio: true,
+      mensaje: omitirCorte
+        ? 'Préstamo MAIN registrado (sin corte). Falta autorización de socio (+$1,000).'
+        : 'Aprobado por admin. Falta autorización de socio (puede tardar más de 24 h).',
+      areaCorte,
+      omitirCorte,
+    };
+  }
 
   return {
     ok: true,
-    prestamo: data,
-    pendiente: true,
-    mensaje: `Préstamo registrado (corte ${areaCorte}). El administrador debe aprobar antes de imprimir el ticket.`,
+    prestamo,
+    pendiente: false,
+    mensaje: omitirCorte
+      ? `Préstamo activo (usuario MAIN). No va a corte; en nómina se descuenta $${CUOTA_SEMANAL_MINIMA}/semana hasta liquidar.`
+      : `Préstamo registrado (corte ${areaCorte}). El administrador debe aprobar antes de imprimir el ticket.`,
     areaCorte,
+    omitirCorte,
   };
 }
 
@@ -570,36 +660,45 @@ export async function aprobarPrestamoAdmin(supabase, prestamoId, { nombreAprobad
   }
 
   const cuota = cuotaSemanalPrestamo(monto, cuotaPropuesta);
-  const area = normalizarAreaCorte(areaCorte || p.area_corte, 'virtual');
+  const omitirCorte = Boolean(p.omitir_corte);
+  const area = omitirCorte
+    ? (p.area_corte || null)
+    : normalizarAreaCorte(areaCorte || p.area_corte, 'virtual');
+  const upd = {
+    estado: 'activo',
+    cuota_semanal: cuota,
+    aprobado_admin_por: nombreAprobador,
+    aprobado_admin_at: new Date().toISOString(),
+  };
+  if (area) upd.area_corte = area;
   let { data, error } = await supabase
     .from('prestamos')
-    .update({
-      estado: 'activo',
-      cuota_semanal: cuota,
-      aprobado_admin_por: nombreAprobador,
-      aprobado_admin_at: new Date().toISOString(),
-      area_corte: area,
-    })
+    .update(upd)
     .eq('id', prestamoId)
     .select('*')
     .single();
   if (error && String(error.message || '').toLowerCase().includes('area_corte')) {
+    const { area_corte: _a, ...sinArea } = upd;
     ({ data, error } = await supabase
       .from('prestamos')
-      .update({
-        estado: 'activo',
-        cuota_semanal: cuota,
-        aprobado_admin_por: nombreAprobador,
-        aprobado_admin_at: new Date().toISOString(),
-      })
+      .update(sinArea)
       .eq('id', prestamoId)
       .select('*')
       .single());
   }
   if (error) return { ok: false, error: error.message };
   await marcarNotificacionAtendida(supabase, 'prestamos', prestamoId, nombreAprobador);
-  if (cargarCorte) await cargarPrestamoEmpleadoACorte(supabase, { ...data, area_corte: area }, area);
-  return { ok: true, prestamo: { ...data, area_corte: area }, cuota, mensaje: `Préstamo activo y cargado al corte de ${area}. Ya puede imprimir el ticket.` };
+  const debeCargarCorte = cargarCorte && !omitirCorte;
+  if (debeCargarCorte) await cargarPrestamoEmpleadoACorte(supabase, { ...data, area_corte: area }, area);
+  const prestamoOut = { ...data, area_corte: area ?? data.area_corte, omitir_corte: omitirCorte };
+  return {
+    ok: true,
+    prestamo: prestamoOut,
+    cuota,
+    mensaje: omitirCorte
+      ? `Préstamo activo (solo nómina, sin corte). Cuota $${CUOTA_SEMANAL_MINIMA}/semana. Ya puede imprimir el ticket.`
+      : `Préstamo activo y cargado al corte de ${area}. Ya puede imprimir el ticket.`,
+  };
 }
 
 export async function aprobarPrestamoSocio(supabase, prestamoId, { pin, sucursal, cuotaPropuesta, cargarCorte = true, areaCorte } = {}) {
@@ -613,23 +712,35 @@ export async function aprobarPrestamoSocio(supabase, prestamoId, { pin, sucursal
 
   const saldo = Number(p.saldo) || Number(p.monto_original) || 0;
   const cuota = cuotaSemanalPrestamo(saldo, cuotaPropuesta);
-  const area = normalizarAreaCorte(areaCorte || p.area_corte, 'virtual');
+  const omitirCorte = Boolean(p.omitir_corte);
+  const area = omitirCorte
+    ? (p.area_corte || null)
+    : normalizarAreaCorte(areaCorte || p.area_corte, 'virtual');
+  const updSocio = {
+    estado: 'activo',
+    cuota_semanal: cuota,
+    aprobado_socio_por: auth.nombre,
+    aprobado_socio_at: new Date().toISOString(),
+  };
+  if (area) updSocio.area_corte = area;
   const { data, error } = await supabase
     .from('prestamos')
-    .update({
-      estado: 'activo',
-      cuota_semanal: cuota,
-      aprobado_socio_por: auth.nombre,
-      aprobado_socio_at: new Date().toISOString(),
-      area_corte: area,
-    })
+    .update(updSocio)
     .eq('id', prestamoId)
     .select('*')
     .single();
   if (error) return { ok: false, error: error.message };
   await marcarNotificacionAtendida(supabase, 'prestamos', prestamoId, auth.nombre);
-  if (cargarCorte) await cargarPrestamoEmpleadoACorte(supabase, data, area);
-  return { ok: true, prestamo: data, cuota, mensaje: `Préstamo autorizado por socio y cargado al corte de ${area}. Ya puede imprimir.` };
+  const debeCargarCorte = cargarCorte && !omitirCorte;
+  if (debeCargarCorte) await cargarPrestamoEmpleadoACorte(supabase, data, area);
+  return {
+    ok: true,
+    prestamo: { ...data, omitir_corte: omitirCorte },
+    cuota,
+    mensaje: omitirCorte
+      ? `Préstamo autorizado por socio (solo nómina, sin corte). Cuota $${CUOTA_SEMANAL_MINIMA}/semana.`
+      : `Préstamo autorizado por socio y cargado al corte de ${area}. Ya puede imprimir.`,
+  };
 }
 
 export async function rechazarPrestamo(supabase, prestamoId, { nombre, motivo } = {}) {
@@ -713,7 +824,7 @@ export async function editarPrestamo(supabase, prestamo, patch = {}, { nombre } 
   }
 
   const upd = {};
-  if (patch.area_corte != null && patch.area_corte !== '') {
+  if (!prestamo.omitir_corte && patch.area_corte != null && patch.area_corte !== '') {
     const area = normalizarAreaCorte(patch.area_corte, prestamo.area_corte || 'virtual');
     upd.area_corte = area;
   }

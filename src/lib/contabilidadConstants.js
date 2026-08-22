@@ -394,6 +394,12 @@ export function etiquetaColectaPrestamo(p) {
     const areaLbl = ETIQUETA_AREA[area] || area;
     return `${p.colectado_por}${dia ? ` · ${dia}` : ''}${areaLbl ? ` · ${areaLbl}` : ''}${folio}`;
   }
+  if (p?.omitir_corte) return 'Solo nómina (sin corte)';
   if (p?.cargado_corte) return 'En corte · pendiente recolección';
   return '—';
+}
+
+/** Préstamo a empleado MAIN/indirecto: no va a corte. */
+export function prestamoOmiteCorte(p) {
+  return Boolean(p?.omitir_corte);
 }

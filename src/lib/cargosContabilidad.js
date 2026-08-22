@@ -198,6 +198,9 @@ export async function quitarRifDeCorteAbierto(supabase, rif) {
 
 export async function cargarPrestamoEmpleadoACorte(supabase, prestamo, areaCorte) {
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  if (prestamo.omitir_corte) {
+    return { ok: false, error: 'Este préstamo es solo nómina (usuario MAIN); no se carga a corte.' };
+  }
   if (prestamo.cargado_corte) return { ok: true, yaCargado: true };
   const modulo = normalizarAreaCorte(areaCorte || prestamo.area_corte, 'virtual');
   const payload = {

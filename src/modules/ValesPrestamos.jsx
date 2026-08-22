@@ -52,6 +52,7 @@ import {
   etiquetaHoraLimiteVale,
   listarCategoriasVale,
   prestamoInterareaEstaAbierto,
+  prestamoOmiteCorte,
   prestamoPuedeImprimir,
   valePuedeImprimir,
   valePuedeCancelar,
@@ -84,7 +85,12 @@ import {
   rifPuedeLiquidar,
 } from '../lib/rifs.js';
 import { normalizarRol } from '../lib/roles.js';
-import { empleadosParaPrestamosEmpleado, empleadosVisiblesParaTienda } from '../lib/empleadosVisibles.js';
+import {
+  agruparEmpleadosParaSelectPrestamo,
+  empleadosParaPrestamosEmpleado,
+  empleadosVisiblesParaTienda,
+  prestamoEmpleadoOmiteCorte,
+} from '../lib/empleadosVisibles.js';
 import { tiendaPuedeGenerarVales } from '../lib/posConfig.js';
 import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
 import PanelAsistenciaGasolina from '../components/PanelAsistenciaGasolina.jsx';
@@ -187,6 +193,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const categoriasExtra = useMemo(() => leerCategoriasValeExtra().filter((c) => c.activo !== false), [categoriasTick]);
   const beneficiarioSel = beneficiarioValePorId(valeForm.beneficiarioId);
   const areaCorteVale = beneficiarioSel?.area || null;
+  const empPrestamoSel = useMemo(
+    () => empleadosPrestamo.find((e) => String(e.id) === String(prestEmpForm.usuarioId)) || null,
+    [empleadosPrestamo, prestEmpForm.usuarioId],
+  );
+  const prestamoSelOmiteCorte = prestamoEmpleadoOmiteCorte(empPrestamoSel);
+  const empleadosPrestamoGrupos = useMemo(
+    () => agruparEmpleadosParaSelectPrestamo(empleadosPrestamo),
+    [empleadosPrestamo],
+  );
 
   const valesPendientes = useMemo(() => {
     const fuente = vePendientesTodasTiendas ? valesPendAll : vales;
@@ -366,10 +381,19 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const guardarPrestamoEmpleado = async () => {
     if (!supabase) return alert('Sin conexión.');
     const emp = empleadosPrestamo.find((e) => String(e.id) === String(prestEmpForm.usuarioId));
-    if (!emp) return alert('Selecciona un empleado de esta tienda.');
+    if (!emp) return alert(esMain ? 'Selecciona un empleado o usuario MAIN.' : 'Selecciona un empleado de esta tienda.');
+    const omitirCorte = prestamoEmpleadoOmiteCorte(emp);
+    if (omitirCorte && !esMain) {
+      return alert('Los usuarios MAIN solo pueden recibir préstamo desde MAIN.');
+    }
+    if (omitirCorte && !esAdmin) {
+      return alert('Los préstamos a usuarios MAIN solo los registra el administrador.');
+    }
     const monto = Number(prestEmpForm.monto);
     if (!(monto > 0)) return alert('Monto inválido.');
-    if (!prestEmpForm.areaCorte) return alert('Selecciona el área de corte (Virtual, Abarrotes o Garage).');
+    if (!omitirCorte && !prestEmpForm.areaCorte) {
+      return alert('Selecciona el área de corte (Virtual, Abarrotes o Garage).');
+    }
     const authTxt = await asegurarCamposSinReservadoOPin(supabase, [prestEmpForm.notas], { user, sucursal });
     if (!authTxt.ok) return alert(authTxt.error);
     const res = await registrarPrestamo(
@@ -382,12 +406,21 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         fecha: prestEmpForm.fecha || hoyISO(),
         notas: prestEmpForm.notas.trim() || null,
         created_by: user?.nombre || null,
-        area_corte: prestEmpForm.areaCorte,
+        area_corte: omitirCorte ? null : prestEmpForm.areaCorte,
+        omitir_corte: omitirCorte,
       },
-      { rolActor: user?.rol, nombreActor: user?.nombre, areaCorte: prestEmpForm.areaCorte },
+      {
+        rolActor: user?.rol,
+        nombreActor: user?.nombre,
+        areaCorte: omitirCorte ? null : prestEmpForm.areaCorte,
+        omitirCorte,
+      },
     );
     if (!res.ok) return alert(res.error);
     alert(res.mensaje);
+    if (!res.pendiente && !res.pendienteSocio && res.prestamo && confirm('¿Imprimir recibo de préstamo?')) {
+      imprimirPrestamo(res.prestamo);
+    }
     setPrestEmpForm({
       usuarioId: '',
       monto: '',
@@ -520,10 +553,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const aprobarPAdmin = async (id) => {
     const p = prestamosEmp.find((x) => x.id === id) || prestamosPendAll.find((x) => x.id === id);
+    const omitir = prestamoOmiteCorte(p);
     const res = await aprobarPrestamoAdmin(supabase, id, {
       nombreAprobador: user?.nombre,
-      cargarCorte: true,
-      areaCorte: p?.area_corte || prestEmpForm.areaCorte,
+      cargarCorte: !omitir,
+      areaCorte: omitir ? null : (p?.area_corte || prestEmpForm.areaCorte),
     });
     if (!res.ok) return alert(res.error);
     alert(res.mensaje);
@@ -534,11 +568,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const aprobarPSocio = async (id) => {
     if (!pinSocio.trim()) return alert('Ingresa tu PIN (Antonio, Francisco o José Luis).');
     const p = prestamosEmp.find((x) => x.id === id) || prestamosPendAll.find((x) => x.id === id);
+    const omitir = prestamoOmiteCorte(p);
     const res = await aprobarPrestamoSocio(supabase, id, {
       pin: pinSocio.trim(),
       sucursal,
-      cargarCorte: true,
-      areaCorte: p?.area_corte || prestEmpForm.areaCorte,
+      cargarCorte: !omitir,
+      areaCorte: omitir ? null : (p?.area_corte || prestEmpForm.areaCorte),
     });
     if (!res.ok) return alert(res.error);
     setPinSocio('');
@@ -569,6 +604,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   };
 
   const cargarPrestamoManual = async (p) => {
+    if (prestamoOmiteCorte(p)) {
+      return alert('Este préstamo es de usuario MAIN: solo nómina, no se carga a corte.');
+    }
     const res = await cargarPrestamoEmpleadoACorte(supabase, p, p.area_corte || prestEmpForm.areaCorte);
     if (!res.ok) return alert(res.error);
     alert(res.yaCargado ? 'Ya estaba en corte.' : `Préstamo cargado al corte de ${ETIQUETA_AREA[res.modulo] || res.modulo}.`);
@@ -726,7 +764,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       supabase,
       editPrestamo,
       {
-        area_corte: editForm.area_corte,
+        area_corte: prestamoOmiteCorte(editPrestamo) ? undefined : editForm.area_corte,
         cuota_semanal: editForm.cuota_semanal,
         notas: editForm.notas,
         monto_original: editForm.monto_original,
@@ -1691,27 +1729,80 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem' }}>Préstamo a empleado</h3>
             <p className="muted" style={{ fontSize: '0.85rem' }}>
-              El monto se carga al <strong>corte</strong> del área elegida al aprobarse.
-              En <strong>nómina</strong> se descuenta automáticamente <strong>${CUOTA_SEMANAL_MINIMA}</strong> por semana;
-              si el saldo es menor, se deduce el remanente hasta liquidar.
+              {prestamoSelOmiteCorte ? (
+                <>
+                  Usuario <strong>MAIN</strong>: el administrador registra el préstamo.
+                  <strong> No va a corte</strong>; en <strong>nómina</strong> se descuenta automáticamente{' '}
+                  <strong>${CUOTA_SEMANAL_MINIMA}</strong> por semana hasta liquidar.
+                </>
+              ) : (
+                <>
+                  El monto se carga al <strong>corte</strong> del área elegida al aprobarse.
+                  En <strong>nómina</strong> se descuenta automáticamente <strong>${CUOTA_SEMANAL_MINIMA}</strong> por semana;
+                  si el saldo es menor, se deduce el remanente hasta liquidar.
+                </>
+              )}
             </p>
+            {esMain && (
+              <p className="muted" style={{ fontSize: '0.82rem', marginTop: 0 }}>
+                En MAIN también aparecen usuarios MAIN/indirectos (solo aquí). Sus préstamos no afectan el corte.
+              </p>
+            )}
             <div className="grid-2">
               <select className="select" value={prestEmpForm.usuarioId} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, usuarioId: e.target.value })}>
-                <option value="">— Empleado de esta tienda —</option>
-                {empleadosPrestamo.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                <option value="">{esMain ? '— Empleado o usuario MAIN —' : '— Empleado de esta tienda —'}</option>
+                {esMain ? (
+                  <>
+                    {empleadosPrestamoGrupos.main.length > 0 && (
+                      <optgroup label="Usuarios MAIN (sin corte · nómina $500/sem)">
+                        {empleadosPrestamoGrupos.main.map((e) => (
+                          <option key={e.id} value={e.id}>{e.nombre}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {empleadosPrestamoGrupos.tienda.length > 0 && (
+                      <optgroup label="Empleados de tienda (van a corte)">
+                        {empleadosPrestamoGrupos.tienda.map((e) => (
+                          <option key={e.id} value={e.id}>{e.nombre} · {etiquetaTienda(e.sucursal_id)}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </>
+                ) : (
+                  empleadosPrestamo.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)
+                )}
               </select>
               <input className="input" type="number" placeholder="Monto" value={prestEmpForm.monto} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, monto: e.target.value })} />
-              <select className="select" value={prestEmpForm.areaCorte} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, areaCorte: e.target.value })}>
-                {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>Cargo a corte: {ETIQUETA_AREA[a]}</option>)}
-              </select>
+              {!prestamoSelOmiteCorte && (
+                <select className="select" value={prestEmpForm.areaCorte} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, areaCorte: e.target.value })}>
+                  {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>Cargo a corte: {ETIQUETA_AREA[a]}</option>)}
+                </select>
+              )}
+              {prestamoSelOmiteCorte && (
+                <div className="muted" style={{ fontSize: '0.85rem', alignSelf: 'center' }}>
+                  Sin cargo a corte · solo nómina
+                </div>
+              )}
               <input className="input" placeholder="Notas" value={prestEmpForm.notas} onChange={(e) => setPrestEmpForm({ ...prestEmpForm, notas: e.target.value })} />
             </div>
             <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={guardarPrestamoEmpleado}>
-              Solicitar préstamo (requiere autorización)
+              {prestamoSelOmiteCorte
+                ? 'Registrar préstamo MAIN (solo nómina)'
+                : 'Solicitar préstamo (requiere autorización)'}
             </button>
             <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
-              Pendiente de autorización admin{!esAdmin ? ' (y socio si supera $1,000)' : ''}.
-              Corte: <strong>{ETIQUETA_AREA[prestEmpForm.areaCorte]}</strong>. Cobro semanal: min({fmt(CUOTA_SEMANAL_MINIMA)}, saldo) en Nómina.
+              {prestamoSelOmiteCorte ? (
+                <>
+                  Lo registra el administrador. No va a corte.
+                  Cobro semanal: min({fmt(CUOTA_SEMANAL_MINIMA)}, saldo) en Nómina
+                  {Number(prestEmpForm.monto) > MONTO_PRESTAMO_REQUIERE_SOCIO ? ' · montos +$1,000 requieren socio' : ''}.
+                </>
+              ) : (
+                <>
+                  Pendiente de autorización admin{!esAdmin ? ' (y socio si supera $1,000)' : ''}.
+                  Corte: <strong>{ETIQUETA_AREA[prestEmpForm.areaCorte]}</strong>. Cobro semanal: min({fmt(CUOTA_SEMANAL_MINIMA)}, saldo) en Nómina.
+                </>
+              )}
             </p>
           </div>
 
@@ -1719,15 +1810,25 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             <div className="card" style={{ borderLeft: '4px solid var(--brand-blue)' }}>
               <h3 style={{ margin: '0 0 0.5rem' }}>Editar préstamo · {editPrestamo.nombre_empleado}</h3>
               <p className="muted" style={{ fontSize: '0.82rem', marginTop: 0 }}>
-                Área de cargo: Virtual o Abarrotes (o Garage). Si ya está en corte, el área no se puede cambiar.
+                {prestamoOmiteCorte(editPrestamo)
+                  ? 'Préstamo MAIN: sin corte; la cuota semanal ($500) se descuenta en nómina.'
+                  : 'Área de cargo: Virtual o Abarrotes (o Garage). Si ya está en corte, el área no se puede cambiar.'}
               </p>
               <div className="grid-2">
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
-                  Área de cargo
-                  <select className="select" value={editForm.area_corte} onChange={(e) => setEditForm({ ...editForm, area_corte: e.target.value })} disabled={Boolean(editPrestamo.cargado_corte)}>
-                    {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>{ETIQUETA_AREA[a]}</option>)}
-                  </select>
-                </label>
+                {!prestamoOmiteCorte(editPrestamo) && (
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
+                    Área de cargo
+                    <select className="select" value={editForm.area_corte} onChange={(e) => setEditForm({ ...editForm, area_corte: e.target.value })} disabled={Boolean(editPrestamo.cargado_corte)}>
+                      {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>{ETIQUETA_AREA[a]}</option>)}
+                    </select>
+                  </label>
+                )}
+                {prestamoOmiteCorte(editPrestamo) && (
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
+                    Destino
+                    <input className="input" value="Solo nómina (sin corte)" disabled />
+                  </label>
+                )}
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.85rem' }}>
                   Cuota semanal (fija)
                   <input
@@ -1820,8 +1921,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                           <td className="muted">{fmt(p.abono)}</td>
                           <td style={{ fontWeight: 700 }}>{fmt(p.saldo)}</td>
                           <td title="Descuento automático en nómina: $500/sem o remanente">{fmt(CUOTA_SEMANAL_MINIMA)}</td>
-                          <td className="muted">{ETIQUETA_AREA[p.area_corte] || p.area_corte || '—'}</td>
-                          <td className="muted">{p.cargado_corte ? 'Sí' : 'No'}</td>
+                          <td className="muted">
+                            {prestamoOmiteCorte(p)
+                              ? 'Solo nómina'
+                              : (ETIQUETA_AREA[p.area_corte] || p.area_corte || '—')}
+                          </td>
+                          <td className="muted">
+                            {prestamoOmiteCorte(p) ? 'No (MAIN)' : (p.cargado_corte ? 'Sí' : 'No')}
+                          </td>
                           <td style={{ whiteSpace: 'nowrap' }}>
                             {puedeAprobarVales && p.estado === 'pendiente_admin' && (
                               <>
@@ -1847,7 +1954,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                             {prestamoPuedeImprimir(p) && (
                               <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => imprimirPrestamoSi(p)}>Imprimir (firma)</button>
                             )}
-                            {esAdmin && prestamoPuedeImprimir(p) && !p.cargado_corte && (
+                            {esAdmin && prestamoPuedeImprimir(p) && !p.cargado_corte && !prestamoOmiteCorte(p) && (
                               <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => cargarPrestamoManual(p)}>→ Corte</button>
                             )}
                             {activo && !movPend && (
