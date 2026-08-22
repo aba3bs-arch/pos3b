@@ -1,5 +1,6 @@
 import { listarSucursales, esAlmacenCentral } from '../constants/sucursales.js';
 import { vaciarInventario } from './borrarInventario.js';
+import { limpiarTodosCarritosVenta } from './carritoVentaPersistencia.js';
 
 export const TIPOS_PURGA = [
   { id: 'ventas', label: 'Ventas', desc: 'Tickets y totales en la nube.' },
@@ -96,6 +97,7 @@ function limpiarCacheLocal() {
       /* ignore */
     }
   }
+  limpiarTodosCarritosVenta();
   // Cortes de contabilidad / egresos locales por tienda-módulo
   try {
     const keys = [];
