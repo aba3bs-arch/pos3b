@@ -48,6 +48,7 @@ import {
 } from '../lib/inversionesOficinaProveedor.js';
 import { cargarReporteProveedoresIeAbarrotes } from '../lib/ieAbarrotesProveedores.js';
 import { hoyYmdNogales, ymdNegocioDesdeIso, fmtYmdEs } from '../lib/corteCaja.js';
+import BarraDiasMes, { etiquetaPeriodoDias, ymdDiaMes } from '../components/BarraDiasMes.jsx';
 import './ContVirtual.css';
 
 const LS_NOTAS = 'pos3b_cont_virtual_notas';
@@ -111,6 +112,7 @@ function PanoramaNegocioAbarrotes({
   error = '',
   ingresosIe = 0,
   egresosIe = 0,
+  periodoLabel = '',
 }) {
   if (cargando) return <div className="cv-loading">Calculando panorama del negocio…</div>;
   if (error) return <div className="cv-error">{error}</div>;
@@ -128,6 +130,11 @@ function PanoramaNegocioAbarrotes({
   return (
     <div className="cv-prov-panel cv-panorama">
       <h3 className="cv-panorama-title">Panorama del negocio</h3>
+      {periodoLabel ? (
+        <p className="cv-panorama-periodo">
+          Periodo visualizado: <strong>{periodoLabel}</strong>
+        </p>
+      ) : null}
       <p className="muted cv-prov-hint">
         Lectura en tres pasos: <strong>1)</strong> de dónde sale la ganancia (ventas menos mercancía),
         {' '}<strong>2)</strong> en qué se gasta esa ganancia, <strong>3)</strong> qué queda.
@@ -664,6 +671,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const [provReporte, setProvReporte] = useState(null);
   const [cargandoProv, setCargandoProv] = useState(false);
   const [provSel, setProvSel] = useState(null);
+  /** Filtro día(s) del mes en IE Abarrotes: { start, end } o null = mes completo. */
+  const [filtroDiasMes, setFiltroDiasMes] = useState(null);
 
   const defsInv = defaultsInversionPorLibro(libro);
   const [manual, setManual] = useState({
@@ -692,12 +701,12 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const [nuevaDet, setNuevaDet] = useState({ categoriaId: 'vales', subcategoriaId: '', nombre: '' });
 
   const rango = useMemo(() => {
+    let base;
     if (nav === 'estad') {
       if (estadPreset === 'hoy') {
         const h = hoyYmd();
-        return { desde: h, hasta: h };
-      }
-      if (estadPreset === 'semana') {
+        base = { desde: h, hasta: h };
+      } else if (estadPreset === 'semana') {
         const d = new Date(anio, mes, Math.min(hoyRef.getDate(), 28));
         const day = d.getDay();
         const sinceSat = (day + 1) % 7;
@@ -706,20 +715,44 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
         const fin = new Date(ini);
         fin.setDate(ini.getDate() + 6);
         const ymd = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
-        return { desde: ymd(ini), hasta: ymd(fin) };
+        base = { desde: ymd(ini), hasta: ymd(fin) };
+      } else if (estadPreset === 'ano') {
+        base = rangoAnioContVirtual(anio);
+      } else {
+        base = rangoMesContVirtual(anio, mes);
       }
-      if (estadPreset === 'ano') return rangoAnioContVirtual(anio);
-      return rangoMesContVirtual(anio, mes);
+    } else if (nav === 'trans' && transTab === 'mensual') {
+      base = rangoAnioContVirtual(anio);
+    } else {
+      base = rangoMesContVirtual(anio, mes);
     }
-    if (nav === 'trans' && transTab === 'mensual') return rangoAnioContVirtual(anio);
-    return rangoMesContVirtual(anio, mes);
-  }, [nav, transTab, anio, mes, estadPreset, hoyRef]);
+
+    // IE Abarrotes: si eligieron día(s) en la barra, filtrar ese rango del mes.
+    if (esFrancisco && filtroDiasMes && (nav === 'estad' || nav === 'cuentas')) {
+      const start = Math.min(filtroDiasMes.start, filtroDiasMes.end);
+      const end = Math.max(filtroDiasMes.start, filtroDiasMes.end);
+      return {
+        desde: ymdDiaMes(anio, mes, start),
+        hasta: ymdDiaMes(anio, mes, end),
+      };
+    }
+    return base;
+  }, [nav, transTab, anio, mes, estadPreset, hoyRef, esFrancisco, filtroDiasMes]);
 
   const labelPeriodo = useMemo(() => {
+    if (esFrancisco && filtroDiasMes && (nav === 'estad' || nav === 'cuentas')) {
+      return etiquetaPeriodoDias(anio, mes, filtroDiasMes);
+    }
     if (nav === 'trans' && transTab === 'mensual') return String(anio);
     if (nav === 'estad' && estadPreset === 'ano') return String(anio);
     return `${MESES_CORTO_ES[mes]} ${anio}`;
-  }, [nav, transTab, anio, mes, estadPreset]);
+  }, [nav, transTab, anio, mes, estadPreset, esFrancisco, filtroDiasMes]);
+
+  const etiquetaRangoPanorama = useMemo(() => {
+    if (!rango?.desde || !rango?.hasta) return '';
+    if (rango.desde === rango.hasta) return fmtFechaCorta(rango.desde);
+    return `${fmtFechaCorta(rango.desde)} → ${fmtFechaCorta(rango.hasta)}`;
+  }, [rango]);
 
   const cargarCatalogo = useCallback(async () => {
     const res = await listarCatalogoContVirtual(supabase);
@@ -1020,6 +1053,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   }, [catalogoFlujoVista, nuevaDet.categoriaId]);
 
   const shiftPeriod = (dir) => {
+    setFiltroDiasMes(null);
     if ((nav === 'trans' && transTab === 'mensual') || (nav === 'estad' && estadPreset === 'ano')) {
       setAnio((y) => y + dir);
       return;
@@ -1728,7 +1762,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
         <select
           className="cv-chip"
           value={estadPreset}
-          onChange={(e) => setEstadPreset(e.target.value)}
+          onChange={(e) => {
+            setFiltroDiasMes(null);
+            setEstadPreset(e.target.value);
+          }}
         >
           {ESTAD_PRESETS.map((p) => (
             <option key={p.id} value={p.id}>{p.label}</option>
@@ -1771,6 +1808,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           error={provReporte?.error}
           ingresosIe={datos?.ingresosTotal || 0}
           egresosIe={datos?.egresosTotal || 0}
+          periodoLabel={etiquetaRangoPanorama}
         />
       ) : estadTab === 'negocio' && !esFrancisco ? (
         <PanoramaNegocioVirtual
@@ -1928,6 +1966,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             error={provReporte?.error}
             ingresosIe={ab.ingresos}
             egresosIe={ab.egresos}
+            periodoLabel={etiquetaRangoPanorama}
           />
           <p className="muted" style={{ fontSize: '0.75rem', margin: '0.5rem 0 0' }}>
             Detalle por proveedor en Estad. → Proveedores.
@@ -2350,6 +2389,20 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       <div className="cv-libro-banner" style={{ padding: '0.55rem 0.85rem', background: esFrancisco ? 'rgba(181,166,66,0.12)' : 'rgba(142,68,173,0.1)', borderBottom: '1px solid var(--border, #e5e7eb)' }}>
         <strong style={{ color: esFrancisco ? '#b5a642' : '#8e44ad' }}>{tituloLibro}</strong>
         <span className="muted" style={{ display: 'block', fontSize: '0.78rem', marginTop: 2 }}>{subtituloLibro}</span>
+        {esFrancisco && (
+          <BarraDiasMes
+            anio={anio}
+            mes={mes}
+            seleccion={filtroDiasMes}
+            onChange={(sel) => {
+              setFiltroDiasMes(sel);
+              if (sel) {
+                // Al filtrar días, conviene estar en vista mensual del mes de la barra.
+                if (nav === 'estad' && estadPreset !== 'mes') setEstadPreset('mes');
+              }
+            }}
+          />
+        )}
       </div>
       {(avisoSql || datos?.avisoCatalogo) && (
         <div className="cv-aviso">{avisoSql || datos?.avisoCatalogo || AVISO_FALTA_CONT_VIRTUAL}</div>

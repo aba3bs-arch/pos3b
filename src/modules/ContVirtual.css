@@ -1259,6 +1259,20 @@
   color: var(--cv-text);
 }
 
+.cv-panorama-periodo {
+  margin: 0 0 0.5rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  background: rgba(181, 166, 66, 0.12);
+  border: 1px solid rgba(181, 166, 66, 0.35);
+  font-size: 0.8rem;
+  color: var(--cv-text);
+}
+
+.cv-panorama-periodo strong {
+  color: #9a8a2e;
+}
+
 .cv-panorama-bloque {
   margin-top: 0.85rem;
   padding-top: 0.35rem;
@@ -1504,4 +1518,123 @@
   color: var(--cv-gasto);
   font-weight: 600;
   white-space: nowrap;
+}
+
+/* —— Barra día a día (IE Abarrotes) —— */
+.cv-dias-bar {
+  margin-top: 0.55rem;
+  padding-top: 0.45rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.cv-dias-bar-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 0.75rem;
+  margin-bottom: 0.4rem;
+}
+
+.cv-dias-bar-periodo {
+  font-size: 0.78rem;
+  color: var(--cv-muted, #666);
+}
+
+.cv-dias-bar-periodo strong {
+  color: inherit;
+  font-weight: 750;
+}
+
+.cv-libro-banner .cv-dias-bar-periodo,
+.cv-libro-banner .cv-dias-bar-hint {
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.cv-libro-banner .cv-dias-bar-periodo strong {
+  color: #7a6c1e;
+}
+
+.cv-dias-bar-hint {
+  font-size: 0.68rem;
+}
+
+.cv-dias-bar-clear {
+  border: none;
+  background: rgba(181, 166, 66, 0.2);
+  color: #7a6c1e;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.cv-dias-bar-clear:hover {
+  background: rgba(181, 166, 66, 0.35);
+}
+
+.cv-dias-bar-track {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 3px;
+  overflow-x: auto;
+  padding: 0.15rem 0 0.25rem;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+}
+
+.cv-dias-bar-day {
+  flex: 0 0 auto;
+  min-width: 1.55rem;
+  height: 1.55rem;
+  padding: 0 0.15rem;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.04);
+  color: rgba(0, 0, 0, 0.4);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  line-height: 1;
+  user-select: none;
+  touch-action: none;
+}
+
+.cv-dias-bar-day.filled {
+  border-color: transparent;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.cv-dias-bar-day.future {
+  opacity: 0.55;
+}
+
+.cv-dias-bar-day.today:not(.selected) {
+  box-shadow: inset 0 0 0 2px #b5a642;
+}
+
+.cv-dias-bar-day.selected {
+  outline: 2px solid #3b66b5;
+  outline-offset: 1px;
+  z-index: 1;
+}
+
+.cv-dias-bar-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+  font-size: 0.62rem;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.cv-dias-bar-legend .leg-grad {
+  flex: 1;
+  height: 4px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #c62828 0%, #ef6c00 45%, #2e7d32 100%);
 }
