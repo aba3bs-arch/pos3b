@@ -56,8 +56,8 @@ const PRESETS_HISTORIAL = [
   { id: 'rango', label: 'Rango personalizado' },
 ];
 
-export default function Checador({ inventario, supabase, sucursal, user, sucursalesLista }) {
-  const [pestana, setPestana] = useState('precios');
+export default function Checador({ inventario, supabase, sucursal, user, sucursalesLista, pestanaInicial = 'precios' }) {
+  const [pestana, setPestana] = useState(() => pestanaInicial || 'precios');
   const [reloj, setReloj] = useState(() => new Date());
   const [pinEmpleado, setPinEmpleado] = useState('');
   const [empleado, setEmpleado] = useState(null);
@@ -92,6 +92,11 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
 
   const esAdmin = puedeGestionarUsuarios(user?.rol);
   const tiendas = sucursalesLista?.length ? sucursalesLista : listarSucursalesParaUI();
+
+  useEffect(() => {
+    if (!pestanaInicial) return;
+    setPestana(pestanaInicial);
+  }, [pestanaInicial]);
 
   useEffect(() => {
     if (pestana !== 'reloj') return undefined;

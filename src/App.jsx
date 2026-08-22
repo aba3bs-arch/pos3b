@@ -149,6 +149,7 @@ function App() {
   const [valesNavOpts, setValesNavOpts] = useState(null);
   const [valesRetornoModulo, setValesRetornoModulo] = useState(null);
   const [buzonPestana, setBuzonPestana] = useState('pendientes');
+  const [checadorPestana, setChecadorPestana] = useState('precios');
   const [sucursal, setSucursal] = useState(sucursalInicial);
   const [tiendaFijadaParaAcceso, setTiendaFijadaParaAcceso] = useState(() => {
     if (CAJA_FISICA_FIJA_ENV) return true;
@@ -462,6 +463,9 @@ function App() {
         const abrePendientes = puedeVerBandejaPendientesIncidencias(user?.rol, user?.id);
         setBuzonPestana(opts.pestana || (abrePendientes ? 'pendientes' : 'incidencias'));
       }
+      if (m === 'Checador') {
+        setChecadorPestana(opts.pestana || 'precios');
+      }
       if (m === 'Vales y Préstamos' && (opts.pestana || opts.retorno)) {
         setValesNavOpts({ pestana: opts.pestana || null, retorno: opts.retorno || null });
         if (opts.retorno) setValesRetornoModulo(opts.retorno);
@@ -534,7 +538,12 @@ function App() {
       setNombreCubre('');
       setTelefonoCubre('');
       limpiarAnunciosVistos();
-      setVista('Inicio');
+      if (puedeVerModulo(data.rol, 'Checador', data.id)) {
+        setChecadorPestana('reloj');
+        setVista('Checador');
+      } else {
+        setVista('Inicio');
+      }
       const loginRow = {
         usuario_id: data.id || null,
         nombre: data.nombre,
@@ -1088,7 +1097,14 @@ function App() {
             <Compras supabase={supabase} sucursal={sucursal} inventario={inventarioTienda} cargarDatos={cargarDatos} onNavigate={irAModulo} user={user} />
           )}
           {vista === 'Checador' && (
-            <Checador inventario={inventarioTienda} supabase={supabase} sucursal={sucursal} user={user} sucursalesLista={listaSucursales} />
+            <Checador
+              inventario={inventarioTienda}
+              supabase={supabase}
+              sucursal={sucursal}
+              user={user}
+              sucursalesLista={listaSucursales}
+              pestanaInicial={checadorPestana}
+            />
           )}
           {vista === 'Check List' && (
             <CheckList
