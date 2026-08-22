@@ -15,6 +15,11 @@ import { productoCoincideBusqueda, productoPorCodigoExacto, pareceCodigoProducto
 import { registrarRemocionCarrito } from '../lib/proyeccionFaltante.js';
 import { suscribirEscanerRemoto } from '../lib/escanerRemoto.js';
 import { puedeVerStockNegativo } from '../lib/roles.js';
+import {
+  guardarCarritoVenta,
+  leerCarritoVenta,
+  limpiarCarritoVenta,
+} from '../lib/carritoVentaPersistencia.js';
 
 function addToCart(carrito, producto) {
   const precio = precioVentaParaCaja(producto);
@@ -74,7 +79,7 @@ export default function Ventas({
   setBusqueda,
 }) {
   const verNegativos = puedeVerStockNegativo(user?.rol);
-  const [carrito, setCarrito] = useState([]);
+  const [carrito, setCarrito] = useState(() => leerCarritoVenta(sucursal));
   const [pagoCon, setPagoCon] = useState('');
   const [refPago, setRefPago] = useState('');
   const [monedaPago, setMonedaPago] = useState('MXN');
@@ -89,6 +94,8 @@ export default function Ventas({
   const [detalleProductoId, setDetalleProductoId] = useState(null);
   const [avisoEscanerRemoto, setAvisoEscanerRemoto] = useState('');
   const inventarioRef = useRef(inventario);
+  const carritoRef = useRef(carrito);
+  const omitirGuardadoRef = useRef(false);
 
   const detalleProducto = useMemo(() => {
     if (!detalleProductoId) return null;
@@ -98,6 +105,28 @@ export default function Ventas({
   useEffect(() => {
     inventarioRef.current = inventario;
   }, [inventario]);
+
+  useEffect(() => {
+    carritoRef.current = carrito;
+  }, [carrito]);
+
+  // Al cambiar de tienda, cargar el carrito de esa sucursal (sin pisar el de la anterior).
+  useEffect(() => {
+    omitirGuardadoRef.current = true;
+    setCarrito(leerCarritoVenta(sucursal));
+  }, [sucursal]);
+
+  // Persistir tras cada cambio (y al desmontar / cerrar sesión en este equipo).
+  useEffect(() => {
+    if (omitirGuardadoRef.current) {
+      omitirGuardadoRef.current = false;
+      return undefined;
+    }
+    guardarCarritoVenta(sucursal, carrito);
+    return () => {
+      guardarCarritoVenta(sucursal, carritoRef.current);
+    };
+  }, [carrito, sucursal]);
 
   useEffect(() => {
     if (!supabase || !user?.id) return undefined;
@@ -306,6 +335,7 @@ export default function Ventas({
       if (!pr.ok) console.warn(pr.error);
     }
     setCarrito([]);
+    limpiarCarritoVenta(sucursal);
     resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago });
     setResultadoVenta({
       total: totalVenta,
