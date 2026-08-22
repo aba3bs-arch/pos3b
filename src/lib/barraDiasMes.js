@@ -1,11 +1,22 @@
-/** Helpers de la barra día a día (IE Abarrotes). */
+/** Helpers de la barra de periodo (IE Abarrotes · panorama). */
 
 const MESES_ES = [
   'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
   'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
 ];
 
-/** Color del progreso del mes: rojo (inicio) → naranja → verde (fin). */
+/**
+ * Color de la barra según ganancia neta del panorama.
+ * Negativo → rojo; cerca de cero → naranja; positivo → verde.
+ */
+export function colorEstadoPanorama(neta) {
+  const n = Number(neta) || 0;
+  if (n < -0.01) return { fill: 'linear-gradient(90deg, #b71c1c 0%, #e53935 55%, #ef6c00 100%)', label: 'En negativo' };
+  if (n > 0.01) return { fill: 'linear-gradient(90deg, #ef6c00 0%, #7cb342 45%, #2e7d32 100%)', label: 'En positivo' };
+  return { fill: 'linear-gradient(90deg, #ef6c00 0%, #fb8c00 100%)', label: 'En equilibrio' };
+}
+
+/** @deprecated Preferir colorEstadoPanorama; se mantiene por compat de tests antiguos. */
 export function colorProgresoDia(indice0, totalDias) {
   const t = totalDias <= 1 ? 1 : indice0 / (totalDias - 1);
   const stops = [
@@ -36,13 +47,34 @@ export function ymdDiaMes(anio, mes0, dia) {
   return `${anio}-${m}-${d}`;
 }
 
+export function diasEnMes(anio, mes0) {
+  return new Date(anio, mes0 + 1, 0).getDate();
+}
+
+/** Porcentaje 0–100 del avance del mes hasta “hoy” (o mes completo si ya pasó). */
+export function pctProgresoMes(anio, mes0, yHoy, mHoy1, dHoy) {
+  const total = diasEnMes(anio, mes0);
+  const esFuturo = anio > yHoy || (anio === yHoy && mes0 + 1 > mHoy1);
+  if (esFuturo) return 0;
+  const esActual = yHoy === anio && mHoy1 === mes0 + 1;
+  const dia = esActual ? Math.min(dHoy, total) : total;
+  return total <= 0 ? 0 : Math.round((dia / total) * 1000) / 10;
+}
+
 export function etiquetaPeriodoDias(anio, mes0, seleccion) {
   const mesNom = MESES_ES[mes0] || '';
   if (!seleccion) {
-    const fin = new Date(anio, mes0 + 1, 0).getDate();
+    const fin = diasEnMes(anio, mes0);
     return `1 – ${fin} ${mesNom} ${anio}`;
   }
   const { start, end } = seleccion;
   if (start === end) return `${start} ${mesNom} ${anio}`;
   return `${start} – ${end} ${mesNom} ${anio}`;
+}
+
+export function normalizarSeleccionDias(start, end, maxDia) {
+  let a = Math.max(1, Math.min(Number(start) || 1, maxDia));
+  let b = Math.max(1, Math.min(Number(end) || a, maxDia));
+  if (a > b) [a, b] = [b, a];
+  return { start: a, end: b };
 }
