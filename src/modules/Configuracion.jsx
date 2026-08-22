@@ -746,14 +746,20 @@ export default function Configuracion({
   };
 
   const guardarImpresion = () => {
-    guardarConfigImpresion(configImpresion);
+    const guardada = guardarConfigImpresion(configImpresion);
+    setConfigImpresion(guardada);
     alert('Preferencias de impresión guardadas.');
   };
 
   const toggleDocImpresion = (id) => {
+    const nextModos = { ...configImpresion.modos, [id]: !configImpresion.modos[id] };
     setConfigImpresion({
       ...configImpresion,
-      modos: { ...configImpresion.modos, [id]: !configImpresion.modos[id] },
+      modos: nextModos,
+      // Si desactivan el documento venta, no imprimir en automático.
+      ...(id === 'venta' && nextModos.venta === false
+        ? { autoVenta: false, entregaVenta: 'ninguno' }
+        : {}),
     });
   };
 
@@ -2786,13 +2792,32 @@ export default function Configuracion({
           </label>
         </div>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.65rem', cursor: 'pointer' }} className="muted">
-          <input type="checkbox" checked={configImpresion.autoVenta} onChange={(e) => setConfigImpresion({ ...configImpresion, autoVenta: e.target.checked })} />
+          <input
+            type="checkbox"
+            checked={Boolean(configImpresion.autoVenta) && configImpresion.entregaVenta !== 'ninguno' && configImpresion.modos?.venta !== false}
+            onChange={(e) => {
+              const on = e.target.checked;
+              setConfigImpresion({
+                ...configImpresion,
+                autoVenta: on,
+                entregaVenta: on ? (configImpresion.entregaVenta === 'ninguno' ? 'imprimir' : configImpresion.entregaVenta) : 'ninguno',
+                modos: {
+                  ...configImpresion.modos,
+                  ...(on ? { venta: true } : {}),
+                },
+              });
+            }}
+          />
           Imprimir ticket automáticamente al cobrar
         </label>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginLeft: '1rem', cursor: 'pointer' }} className="muted">
           <input type="checkbox" checked={configImpresion.autoCorte} onChange={(e) => setConfigImpresion({ ...configImpresion, autoCorte: e.target.checked })} />
           Imprimir al guardar corte de caja
         </label>
+        <p className="muted" style={{ margin: '0.45rem 0 0', fontSize: '0.8rem' }}>
+          Si desactivas la impresión automática (o pones «No» en la tabla para Venta), <strong>no se abre el ticket</strong> al cobrar.
+          Puedes imprimirlo después con el botón «Imprimir ticket».
+        </p>
 
         <div
           style={{
@@ -2806,14 +2831,17 @@ export default function Configuracion({
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }} className="muted">
             <input
               type="checkbox"
-              checked={Boolean(configImpresion.ventaPorMonto?.activo)}
-              disabled={!configImpresion.autoVenta}
+              checked={Boolean(configImpresion.ventaPorMonto?.activo) || Number(configImpresion.ventaPorMonto?.umbralMinimo) > 0}
+              disabled={!configImpresion.autoVenta || configImpresion.entregaVenta === 'ninguno'}
               onChange={(e) =>
                 setConfigImpresion({
                   ...configImpresion,
                   ventaPorMonto: {
                     ...(configImpresion.ventaPorMonto || {}),
                     activo: e.target.checked,
+                    umbralMinimo: e.target.checked
+                      ? Math.max(Number(configImpresion.ventaPorMonto?.umbralMinimo) || 0, 150)
+                      : Number(configImpresion.ventaPorMonto?.umbralMinimo) || 0,
                   },
                 })
               }
@@ -2821,9 +2849,11 @@ export default function Configuracion({
             Imprimir ticket de venta según el monto
           </label>
           <p className="muted" style={{ margin: '0.35rem 0 0.65rem', fontSize: '0.8rem' }}>
-            Decide si se imprime (y cuántas copias) según el total cobrado. Requiere “imprimir automáticamente al cobrar”.
+            Ej.: mínimo $150 — ventas menores <strong>no abren ticket</strong> (opción «No imprimir»). Requiere impresión automática al cobrar.
           </p>
-          {configImpresion.ventaPorMonto?.activo && configImpresion.autoVenta && (
+          {(Boolean(configImpresion.ventaPorMonto?.activo) || Number(configImpresion.ventaPorMonto?.umbralMinimo) > 0) &&
+            configImpresion.autoVenta &&
+            configImpresion.entregaVenta !== 'ninguno' && (
             <div className="grid-2" style={{ gap: '0.65rem' }}>
               <label className="muted">
                 Monto mínimo para imprimir (MXN)
@@ -2839,6 +2869,7 @@ export default function Configuracion({
                       ...configImpresion,
                       ventaPorMonto: {
                         ...(configImpresion.ventaPorMonto || {}),
+                        activo: true,
                         umbralMinimo: Math.max(0, parseFloat(e.target.value) || 0),
                       },
                     })
@@ -2861,7 +2892,7 @@ export default function Configuracion({
                     })
                   }
                 >
-                  <option value="no_imprimir">No imprimir</option>
+                  <option value="no_imprimir">No imprimir (sin ventana)</option>
                   <option value="preguntar">Preguntar</option>
                 </select>
               </label>

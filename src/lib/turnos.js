@@ -562,6 +562,46 @@ export function turnosDisponiblesParaCorte(turnos = null, date = new Date(), tol
   return out;
 }
 
+/**
+ * Turno sugerido al abrir Corte de caja:
+ * - Por defecto el turno en curso según el horario actual (reloj Nogales).
+ * - Si el cajero es del turno saliente y aún está en ventana de login (tolerancia
+ *   de Configuración), se sugiere su turno pendiente de entrega.
+ */
+export function sugerirTurnoParaCorte(turnos = null, date = new Date(), opts = {}) {
+  const list = turnos || leerTurnos();
+  if (!list.length) return { turno: null, motivo: null };
+  const actual = turnoActual(list, date);
+  const entrega = turnoEnEntrega(list, date, opts.tolerancia ?? null, opts);
+  const user = opts.user;
+  const asignado = user ? turnoIdParaUsuario(user, date) : null;
+  const rol = normalizarRol(user?.rol);
+  const esSupervisor = ['Administrador', 'Gerente', 'Supervisor'].includes(rol);
+
+  // Saliente aún dentro de la tolerancia de login → su corte pendiente.
+  if (
+    entrega &&
+    asignado &&
+    !esTurnoAmbos(asignado) &&
+    String(asignado) === String(entrega.id) &&
+    horaEnVentanaLogin(entrega, date, opts.tolerancia ?? null)
+  ) {
+    return { turno: entrega, motivo: 'entrega' };
+  }
+
+  // Turno en curso = el que corresponde al horario actual.
+  if (actual) return { turno: actual, motivo: 'actual' };
+
+  if (
+    entrega &&
+    (esSupervisor || (asignado && String(asignado) === String(entrega.id)))
+  ) {
+    return { turno: entrega, motivo: 'entrega' };
+  }
+
+  return { turno: list[0] || null, motivo: 'consulta' };
+}
+
 /** Nombre corto para UI (sin “12 h”, etc.). */
 export function nombreTurnoLegible(turnoOrNombre, id) {
   const nombre = typeof turnoOrNombre === 'string' ? turnoOrNombre : turnoOrNombre?.nombre;

@@ -14,9 +14,7 @@ import {
   EVENTO_TURNOS,
   leerTurnos,
   nombreTurnoLegible,
-  turnoActual,
-  turnoEnEntrega,
-  turnoIdParaUsuario,
+  sugerirTurnoParaCorte,
   turnosDisponiblesParaCorte,
   usuarioAutorizadoCorte,
 } from '../lib/turnos.js';
@@ -78,20 +76,7 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
   const [turnos, setTurnos] = useState(() => leerTurnos());
   const [turnoActivo, setTurnoActivo] = useState(() => {
     const list = leerTurnos();
-    const entrega = turnoEnEntrega(list, new Date(), null, { user, sucursal });
-    const actual = turnoActual(list);
-    const asignado = turnoIdParaUsuario(user);
-    // Prioriza el pendiente de entrega (saliente o relevo entrante).
-    const rol = normalizarRol(user?.rol);
-    if (
-      entrega &&
-      (String(asignado) === String(entrega.id) ||
-        String(asignado) === String(actual?.id) ||
-        ['Administrador', 'Gerente', 'Supervisor'].includes(rol))
-    ) {
-      return entrega;
-    }
-    return actual;
+    return sugerirTurnoParaCorte(list, new Date(), { user, sucursal }).turno;
   });
   const [fecha, setFecha] = useState(() => fechaCorteSugerida(turnoActivo));
   const [turnoManual, setTurnoManual] = useState(false);
@@ -212,17 +197,7 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
       const t = leerTurnos();
       setTurnos(t);
       if (!turnoManual) {
-        const entrega = turnoEnEntrega(t, new Date(), null, { user, sucursal });
-        const actual = turnoActual(t);
-        const asignado = turnoIdParaUsuario(user);
-        const rol = normalizarRol(user?.rol);
-        const sugerido =
-          entrega &&
-          (String(asignado) === String(entrega.id) ||
-            String(asignado) === String(actual?.id) ||
-            ['Administrador', 'Gerente', 'Supervisor'].includes(rol))
-            ? entrega
-            : actual;
+        const sugerido = sugerirTurnoParaCorte(t, new Date(), { user, sucursal }).turno;
         setTurnoActivo(sugerido);
         setFecha(fechaCorteSugerida(sugerido));
       }
@@ -634,9 +609,10 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
               </select>
             </label>
             <span className="muted" style={{ fontSize: '0.78rem' }}>
-              El turno saliente queda pendiente de entrega hasta que se registre su corte
-              {minsExt > 0 ? ` · extensión de sesión activa (${minsExt} min)` : ''}. El cajero entrante (o un
-              gerente/admin) puede cerrarlo aunque el relevo llegue tarde.
+              El turno <strong>en curso</strong> sigue el horario actual. El saliente queda pendiente de entrega hasta
+              su corte
+              {minsExt > 0 ? ` · extensión de sesión activa (${minsExt} min)` : ''}. La tolerancia de Configuración
+              aplica al login del cajero saliente para cerrar su turno.
             </span>
           </div>
         )}
