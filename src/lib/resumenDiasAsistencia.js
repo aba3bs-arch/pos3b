@@ -2,7 +2,8 @@
  * Resumen de días trabajados / descansos / faltas a partir de checadas.
  *
  * Un día trabajado exige par ENTRADA + SALIDA (si solo hay entrada, no cuenta).
- * Turno nocturno: la salida puede ser al día siguiente; el día es el de la entrada.
+ * Turno nocturno (p. ej. 19:00 → 07:00 del día siguiente): la salida cae al día
+ * siguiente, pero el día que cuenta es el de la ENTRADA (cuando empieza a las 19 h).
  * Los días del periodo (hasta hoy) sin par completo se agrupan en rachas:
  * - 1 día suelto → 1 descanso
  * - N días seguidos sin par → 1 descanso + (N − 1) faltas
@@ -96,28 +97,51 @@ export function diasCompletosPorEntradaSalida(marcajes = []) {
 /**
  * @param {Set<string>} diasTrabajadosYmd
  * @param {string[]} diasPeriodoYmd
+ * @returns {{ descansos: number, faltas: number, diasDescansoYmd: string[], diasFaltaYmd: string[] }}
  */
 export function clasificarHuecosSinAsistencia(diasTrabajadosYmd, diasPeriodoYmd) {
   let descansos = 0
   let faltas = 0
-  let racha = 0
+  /** @type {string[]} */
+  const diasDescansoYmd = []
+  /** @type {string[]} */
+  const diasFaltaYmd = []
+  /** @type {string[]} */
+  let rachaDias = []
   const flush = () => {
-    if (racha <= 0) return
+    if (rachaDias.length <= 0) return
     descansos += 1
-    if (racha > 1) faltas += racha - 1
-    racha = 0
+    diasDescansoYmd.push(rachaDias[0])
+    if (rachaDias.length > 1) {
+      faltas += rachaDias.length - 1
+      diasFaltaYmd.push(...rachaDias.slice(1))
+    }
+    rachaDias = []
   }
   for (const ymd of diasPeriodoYmd) {
     if (diasTrabajadosYmd.has(ymd)) {
       flush()
     } else {
-      racha += 1
+      rachaDias.push(ymd)
     }
   }
   flush()
-  return { descansos, faltas }
+  return { descansos, faltas, diasDescansoYmd, diasFaltaYmd }
 }
 
+/**
+ * Estado de un día en el calendario de asistencia.
+ * @typedef {'trabajado' | 'descanso' | 'falta' | 'fuera' | 'futuro'} EstadoDiaAsistencia
+ */
+
+/**
+ * @param {object} opts
+ * @param {Set<string>|string[]} opts.diasTrabajadosYmd
+ * @param {string} opts.desdeYmd
+ * @param {string} opts.hastaYmd
+ * @param {Date} [opts.ahora]
+ * @param {boolean} [opts.soloDiasRegistrados] — cubre turno: sin descanso/faltas
+ */
 export function resumirDiasEmpleado({
   diasTrabajadosYmd,
   desdeYmd,
@@ -125,18 +149,92 @@ export function resumirDiasEmpleado({
   ahora,
   soloDiasRegistrados = false,
 }) {
+  const setTrab = diasTrabajadosYmd instanceof Set ? diasTrabajadosYmd : new Set(diasTrabajadosYmd || [])
   const hasta = ymdHastaEfectivo(hastaYmd, ahora)
   const periodo = listarYmdInclusive(desdeYmd, hasta)
-  const enPeriodo = new Set(periodo.filter((d) => diasTrabajadosYmd.has(d)))
+  const trabajados = periodo.filter((d) => setTrab.has(d))
+  const enPeriodo = new Set(trabajados)
   if (soloDiasRegistrados) {
-    return { dias: enPeriodo.size, descansos: 0, faltas: 0 }
+    return {
+      dias: enPeriodo.size,
+      descansos: 0,
+      faltas: 0,
+      diasTrabajadosYmd: trabajados,
+      diasDescansoYmd: [],
+      diasFaltaYmd: [],
+      mapaEstado: Object.fromEntries(trabajados.map((d) => [d, 'trabajado'])),
+    }
   }
-  const { descansos, faltas } = clasificarHuecosSinAsistencia(enPeriodo, periodo)
+  const { descansos, faltas, diasDescansoYmd, diasFaltaYmd } = clasificarHuecosSinAsistencia(
+    enPeriodo,
+    periodo,
+  )
+  /** @type {Record<string, EstadoDiaAsistencia>} */
+  const mapaEstado = {}
+  for (const d of trabajados) mapaEstado[d] = 'trabajado'
+  for (const d of diasDescansoYmd) mapaEstado[d] = 'descanso'
+  for (const d of diasFaltaYmd) mapaEstado[d] = 'falta'
   return {
     dias: enPeriodo.size,
     descansos,
     faltas,
+    diasTrabajadosYmd: trabajados,
+    diasDescansoYmd,
+    diasFaltaYmd,
+    mapaEstado,
   }
+}
+
+/**
+ * Semanas (lun→dom) que cubren el rango, para pintar el calendario.
+ * Celdas fuera del periodo llevan estado `fuera`.
+ * @returns {{ semanas: Array<Array<{ ymd: string, dia: number, estado: EstadoDiaAsistencia }>>, desdeYmd: string, hastaYmd: string }}
+ */
+export function construirCalendarioAsistencia({
+  desdeYmd,
+  hastaYmd,
+  mapaEstado = {},
+  ahora = new Date(),
+} = {}) {
+  if (!desdeYmd || !hastaYmd || desdeYmd > hastaYmd) {
+    return { semanas: [], desdeYmd: desdeYmd || '', hastaYmd: hastaYmd || '' }
+  }
+  const hoy = ymdLocal(ahora)
+  const [y0, m0, d0] = desdeYmd.split('-').map(Number)
+  const [y1, m1, d1] = hastaYmd.split('-').map(Number)
+  const inicio = new Date(y0, m0 - 1, d0)
+  const fin = new Date(y1, m1 - 1, d1)
+  // Alinear al lunes de la semana del inicio (getDay: 0=dom … 6=sáb)
+  const dowIni = inicio.getDay()
+  const offsetLun = dowIni === 0 ? -6 : 1 - dowIni
+  const cur = new Date(inicio)
+  cur.setDate(inicio.getDate() + offsetLun)
+  // Extender hasta el domingo de la semana del fin
+  const dowFin = fin.getDay()
+  const offsetDom = dowFin === 0 ? 0 : 7 - dowFin
+  const finGrid = new Date(fin)
+  finGrid.setDate(fin.getDate() + offsetDom)
+
+  /** @type {Array<Array<{ ymd: string, dia: number, estado: EstadoDiaAsistencia }>>} */
+  const semanas = []
+  /** @type {Array<{ ymd: string, dia: number, estado: EstadoDiaAsistencia }>} */
+  let semana = []
+  while (cur <= finGrid) {
+    const ymd = ymdLocal(cur)
+    let estado = /** @type {EstadoDiaAsistencia} */ ('fuera')
+    if (ymd >= desdeYmd && ymd <= hastaYmd) {
+      if (ymd > hoy) estado = 'futuro'
+      else estado = /** @type {EstadoDiaAsistencia} */ (mapaEstado[ymd] || 'fuera')
+    }
+    semana.push({ ymd, dia: cur.getDate(), estado })
+    if (semana.length === 7) {
+      semanas.push(semana)
+      semana = []
+    }
+    cur.setDate(cur.getDate() + 1)
+  }
+  if (semana.length) semanas.push(semana)
+  return { semanas, desdeYmd, hastaYmd }
 }
 
 export function lineaResumenEmpleado({ nombre, sucursalEtiqueta, dias, descansos, faltas }) {
@@ -243,6 +341,12 @@ export function construirResumenEmpleados({
       soloDiasRegistrados: row.esCubreTurno,
     })
     const sucursalEtiqueta = sucMostrar(row)
+    const calendario = construirCalendarioAsistencia({
+      desdeYmd,
+      hastaYmd,
+      mapaEstado: r.mapaEstado,
+      ahora,
+    })
     return {
       clave: row.clave,
       nombre: row.nombre,
@@ -252,6 +356,11 @@ export function construirResumenEmpleados({
       dias: r.dias,
       descansos: r.descansos,
       faltas: r.faltas,
+      diasTrabajadosYmd: r.diasTrabajadosYmd,
+      diasDescansoYmd: r.diasDescansoYmd,
+      diasFaltaYmd: r.diasFaltaYmd,
+      mapaEstado: r.mapaEstado,
+      calendario: calendario.semanas,
       linea: lineaResumenEmpleado({
         nombre: row.nombre,
         sucursalEtiqueta,

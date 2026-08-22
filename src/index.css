@@ -972,6 +972,150 @@ table.data th {
   align-items: flex-end;
 }
 
+/* —— Resumen de días (calendario asistencia) —— */
+.rda-leyenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.rda-leyenda-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.rda-swatch {
+  display: inline-block;
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.rda-lista {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17.5rem, 1fr));
+  gap: 0.85rem;
+}
+
+.rda-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.75rem;
+  background: var(--surface);
+}
+
+.rda-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin-bottom: 0.55rem;
+}
+
+.rda-nombre {
+  font-size: 0.95rem;
+  color: var(--brand-blue-dark);
+}
+
+.rda-totales {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.rda-totales strong {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.rda-cal {
+  margin-top: 0.25rem;
+}
+
+.rda-cal-mes {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: capitalize;
+  color: var(--brand-blue);
+  margin-bottom: 0.35rem;
+}
+
+.rda-cal-dow {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  margin-bottom: 3px;
+  text-align: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.rda-cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+
+.rda-cal-day {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  font-size: 0.78rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: transparent;
+}
+
+.rda-cal-day--fuera {
+  opacity: 0.28;
+}
+
+.rda-cal-day--futuro {
+  opacity: 0.45;
+  border-style: dashed;
+  border-color: var(--border);
+}
+
+.rda-cal-day--trabajado {
+  background: rgba(46, 125, 50, 0.18);
+  border-color: rgba(46, 125, 50, 0.45);
+  color: #1b5e20;
+}
+
+.rda-cal-day--descanso {
+  background: rgba(59, 102, 181, 0.12);
+  border-color: rgba(59, 102, 181, 0.35);
+  color: var(--brand-blue-dark);
+}
+
+.rda-cal-day--falta {
+  background: rgba(198, 40, 40, 0.14);
+  border-color: rgba(198, 40, 40, 0.4);
+  color: #b71c1c;
+}
+
+.rda-fechas {
+  margin: 0.55rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
 /* ── Shell principal ── */
 .app-shell {
   display: flex;
