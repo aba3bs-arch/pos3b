@@ -107,9 +107,12 @@ export function htmlPrestamo(p) {
     <div style="font-size:20px;margin:12px 0"><strong>Monto: ${fmt(p.monto_original)}</strong></div>
     <div>Saldo: ${fmt(p.saldo)}</div>
     <div>Cuota semanal: <strong>$500.00</strong> (automática en nómina)</div>
+    ${p.omitir_corte ? '<div><strong>Solo nómina</strong> — no se carga a corte (usuario MAIN)</div>' : ''}
     ${p.aprobado_admin_por ? `<div>Aprobó admin: ${esc(p.aprobado_admin_por)}</div>` : ''}
     ${p.aprobado_socio_por ? `<div>Aprobó socio: ${esc(p.aprobado_socio_por)}</div>` : ''}
-    <div class="muted">Descuento automático en nómina: $500 por semana; el remanente se deduce en la última semana hasta liquidar.</div>
+    <div class="muted">${p.omitir_corte
+      ? 'Préstamo de administrador a usuario MAIN: no afecta el corte; descuento $500/semana en nómina hasta liquidar.'
+      : 'Descuento automático en nómina: $500 por semana; el remanente se deduce en la última semana hasta liquidar.'}</div>
     ${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ''}
     <div class="firma">Firma empleado: _________________________________</div>
   </body></html>`;
