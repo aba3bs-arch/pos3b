@@ -1273,6 +1273,43 @@
   color: #9a8a2e;
 }
 
+.cv-panorama-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem 0.85rem;
+  margin: 0.15rem 0 0.55rem;
+}
+
+.cv-panorama-filtro-tienda {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.68rem;
+  color: var(--cv-muted, #666);
+}
+
+.cv-panorama-filtro-tienda select {
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 650;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border, #d0d0d0);
+  border-radius: 6px;
+  background: var(--bg, #fff);
+  color: inherit;
+  min-width: 10rem;
+}
+
+.cv-panorama-filtro-tienda-lbl {
+  font-size: 0.75rem;
+  align-self: center;
+}
+
+.cv-panorama-filtro-tienda-lbl strong {
+  color: var(--cv-text, #222);
+}
+
 .cv-panorama-bloque {
   margin-top: 0.85rem;
   padding-top: 0.35rem;
