@@ -1,6 +1,6 @@
 import { normalizarNombrePersona, esAdministradorPrincipal, verificarAdminPrincipal } from './adminPrincipal.js';
 
-/** Nombres/iniciales reservados: no usar en comentarios ni categorías sin Andrés. */
+/** Nombres/iniciales reservados: AMR = Andrés = Marrero (misma persona). */
 export const RESERVADOS_ADMIN_PRINCIPAL = ['amr', 'andres', 'marrero'];
 
 export function textoContieneReservadoAdmin(texto) {
@@ -24,7 +24,7 @@ export function encontrarReservadoAdmin(texto) {
 
 /**
  * Valida comentarios / categorías / motivos.
- * Si el actor es admin principal, permite. Si no y hay coincidencia → error o pedir PIN.
+ * Si el actor es admin principal (AMR/Andrés), permite. Si no y hay coincidencia → pedir PIN.
  * @returns {{ ok: true } | { ok: false, error: string, requierePin?: true }}
  */
 export function validarTextoSinReservadoAdmin(texto, user) {
@@ -36,12 +36,12 @@ export function validarTextoSinReservadoAdmin(texto, user) {
     requierePin: true,
     error:
       `No se puede usar «${hallado.toUpperCase()}» en comentarios ni categorías ` +
-      `sin autorización del administrador principal (Andrés).`,
+      `sin autorización del administrador principal (AMR / Andrés).`,
   };
 }
 
 /**
- * Si el texto tiene reservado y el usuario no es Andrés, pide PIN de Andrés.
+ * Si el texto tiene reservado y el usuario no es AMR/Andrés, pide su PIN.
  * @returns {{ ok: true, autorizadoPor?: string } | { ok: false, error: string, cancelado?: boolean }}
  */
 export async function asegurarTextoSinReservadoOPin(supabase, texto, { user, sucursal, promptFn = prompt } = {}) {
@@ -50,7 +50,7 @@ export async function asegurarTextoSinReservadoOPin(supabase, texto, { user, suc
   if (!supabase) return { ok: false, error: v.error };
 
   const pin = promptFn(
-    `${v.error}\n\nPIN del administrador principal Andrés para autorizar:`,
+    `${v.error}\n\nPIN de AMR / Andrés para autorizar:`,
   );
   if (pin === null) return { ok: false, error: 'Autorización cancelada.', cancelado: true };
   const auth = await verificarAdminPrincipal(supabase, String(pin).trim(), sucursal);
