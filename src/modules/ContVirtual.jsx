@@ -99,8 +99,10 @@ function guardarNotas(lista) {
 }
 
 /**
- * Panorama del negocio IE ABARROTES:
- * ventas → reinversión en producto → utilidad → gastos → ganancia neta.
+ * Panorama del negocio IE ABARROTES (lenguaje claro):
+ * 1) De dónde sale la ganancia: ventas − inversión en mercancía (proveedores).
+ * 2) En qué se gasta esa ganancia: egresos del negocio (sin proveedores).
+ * 3) Qué queda: ganancia neta.
  */
 function PanoramaNegocioAbarrotes({
   tot = {},
@@ -119,65 +121,116 @@ function PanoramaNegocioAbarrotes({
   const gastosOp = Number(tot.gastos_operativos) || 0;
   const neta = Number(tot.ganancia_neta) || 0;
   const pagosProv = Number(tot.gastos_proveedores) || 0;
+  const egresosProvIe = Number(tot.egresos_proveedores_ie) || 0;
   const lineas = panorama?.resumen || [];
+  const desglose = panorama?.gastos_desglose || [];
 
   return (
     <div className="cv-prov-panel cv-panorama">
       <h3 className="cv-panorama-title">Panorama del negocio</h3>
       <p className="muted cv-prov-hint">
-        Lo que vendes se reparte así: primero se reinviste el costo de la mercancía;
-        lo que sobra es la <strong>ganancia del producto</strong>; de ahí salen los gastos del negocio;
-        lo que queda es la <strong>ganancia neta</strong>.
+        Lectura en tres pasos: <strong>1)</strong> de dónde sale la ganancia (ventas menos mercancía),
+        {' '}<strong>2)</strong> en qué se gasta esa ganancia, <strong>3)</strong> qué queda.
+        Los pagos a <strong>proveedores no cuentan como gasto</strong>: son la inversión con la que se compra
+        lo que después se vende.
       </p>
 
-      <div className="cv-panorama-flujo">
-        <div className="cv-panorama-paso">
-          <span className="num">1</span>
-          <div>
-            <strong>Ventas</strong>
-            <em className="ingreso">{fmtMoney(ventas)}</em>
-            <small>Dinero que entró por producto vendido (POS)</small>
+      <div className="cv-panorama-bloque">
+        <h4 className="cv-panorama-bloque-title">1 · De dónde sale la ganancia</h4>
+        <div className="cv-panorama-flujo">
+          <div className="cv-panorama-paso">
+            <span className="num">A</span>
+            <div>
+              <strong>Ventas (lo que cobramos)</strong>
+              <em className="ingreso">{fmtMoney(ventas)}</em>
+              <small>Dinero que entró por producto vendido en el POS</small>
+            </div>
+          </div>
+          <div className="cv-panorama-paso cv-panorama-paso--inv">
+            <span className="num">B</span>
+            <div>
+              <strong>− Inversión en mercancía (proveedores)</strong>
+              <em className="inv">{fmtMoney(reinversion)}</em>
+              <small>
+                Costo de lo que se vendió ({tot.pct_reinversion_ventas ?? 0}% de las ventas).
+                Esto <strong>no es un gasto</strong>: es lo que se reinvirtió en producto para poder vender.
+                {pagosProv > 0
+                  ? ` Dinero pagado a proveedores en corte: ${fmtMoney(pagosProv)}${egresosProvIe > 0 && egresosProvIe !== pagosProv ? ` · en IE: ${fmtMoney(egresosProvIe)}` : ''}.`
+                  : ''}
+              </small>
+            </div>
+          </div>
+          <div className="cv-panorama-paso dest">
+            <span className="num">=</span>
+            <div>
+              <strong>Ganancia del producto</strong>
+              <em className={utilidad >= 0 ? 'ingreso' : 'gasto'}>{fmtMoney(utilidad)}</em>
+              <small>
+                Ventas − costo de mercancía · margen {tot.margen_pct ?? 0}%.
+                Aquí empieza lo que el negocio “gana” antes de gastar en operación.
+              </small>
+            </div>
           </div>
         </div>
-        <div className="cv-panorama-paso">
-          <span className="num">2</span>
-          <div>
-            <strong>− Reinversión en mercancía</strong>
-            <em className="gasto">{fmtMoney(reinversion)}</em>
-            <small>
-              Costo de lo vendido ({tot.pct_reinversion_ventas ?? 0}% de las ventas).
-              {pagosProv > 0 ? ` Pagos a proveedores en corte: ${fmtMoney(pagosProv)}.` : ''}
-            </small>
+      </div>
+
+      <div className="cv-panorama-bloque">
+        <h4 className="cv-panorama-bloque-title">2 · En qué se gasta esa ganancia</h4>
+        <p className="muted cv-prov-hint" style={{ marginTop: 0 }}>
+          Solo egresos del negocio (nómina, servicios, taxis, faltantes, etc.).
+          <strong> Sin pagos a proveedores.</strong>
+          {utilidad > 0 ? ` Consumen ${tot.pct_gastos_sobre_utilidad ?? 0}% de la ganancia del producto.` : ''}
+        </p>
+        <div className="cv-panorama-flujo">
+          <div className="cv-panorama-paso">
+            <span className="num">C</span>
+            <div>
+              <strong>− Gastos del negocio</strong>
+              <em className="gasto">{fmtMoney(gastosOp)}</em>
+              <small>
+                Total egresado de la ganancia en el periodo
+                {desglose.length ? ` · ${desglose.length} rubro(s)` : ''}.
+              </small>
+            </div>
           </div>
         </div>
-        <div className="cv-panorama-paso dest">
-          <span className="num">=</span>
-          <div>
-            <strong>Utilidad bruta (ganancia del producto)</strong>
-            <em className={utilidad >= 0 ? 'ingreso' : 'gasto'}>{fmtMoney(utilidad)}</em>
-            <small>Margen {tot.margen_pct ?? 0}% · esto es lo que “gana” el negocio antes de gastos</small>
+        {desglose.length > 0 ? (
+          <div className="cv-panorama-desglose">
+            <div className="cv-panorama-desglose-hd">Desglose: cómo se egresa la ganancia</div>
+            <ul>
+              {desglose.map((r) => (
+                <li key={r.categoria}>
+                  <span className="cat">{r.categoria}</span>
+                  <span className="meta muted">
+                    {r.movimientos} mov. · {r.pct_sobre_utilidad}% de la ganancia
+                  </span>
+                  <strong className="gasto">{fmtMoney(r.monto)}</strong>
+                </li>
+              ))}
+            </ul>
           </div>
-        </div>
-        <div className="cv-panorama-paso">
-          <span className="num">3</span>
-          <div>
-            <strong>− Gastos del negocio</strong>
-            <em className="gasto">{fmtMoney(gastosOp)}</em>
-            <small>
-              Egresos operativos de IE Abarrotes (sin pagos a proveedores).
-              {utilidad > 0 ? ` Consumen ${tot.pct_gastos_sobre_utilidad ?? 0}% de la utilidad bruta.` : ''}
-            </small>
-          </div>
-        </div>
-        <div className="cv-panorama-paso dest final">
-          <span className="num">=</span>
-          <div>
-            <strong>Ganancia neta</strong>
-            <em className={neta >= 0 ? 'ingreso' : 'gasto'}>{fmtMoney(neta)}</em>
-            <small>
-              Lo que queda del negocio ({tot.pct_ganancia_ventas ?? 0}% de las ventas).
-              {neta >= 0 ? ' Disponible para reinvertir, ahorrar o retirar.' : ' El periodo no alcanzó a cubrir costos + gastos.'}
-            </small>
+        ) : (
+          <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0' }}>
+            No hay gastos del negocio (fuera de proveedores) en este periodo.
+          </p>
+        )}
+      </div>
+
+      <div className="cv-panorama-bloque">
+        <h4 className="cv-panorama-bloque-title">3 · Qué queda</h4>
+        <div className="cv-panorama-flujo">
+          <div className="cv-panorama-paso dest final">
+            <span className="num">=</span>
+            <div>
+              <strong>Ganancia neta (lo que sobra)</strong>
+              <em className={neta >= 0 ? 'ingreso' : 'gasto'}>{fmtMoney(neta)}</em>
+              <small>
+                Ganancia del producto − gastos del negocio ({tot.pct_ganancia_ventas ?? 0}% de las ventas).
+                {neta >= 0
+                  ? ' Disponible para reinvertir, ahorrar o retirar.'
+                  : ' En este periodo los gastos del negocio superaron la ganancia del producto.'}
+              </small>
+            </div>
           </div>
         </div>
       </div>
@@ -188,16 +241,16 @@ function PanoramaNegocioAbarrotes({
           <strong className="ingreso">{fmtMoney(ingresosIe)}</strong>
         </div>
         <div className="cv-prov-kpi">
-          <span className="lbl">IE · Egresos</span>
+          <span className="lbl">IE · Egresos totales</span>
           <strong className="gasto">{fmtMoney(egresosIe)}</strong>
         </div>
         <div className="cv-prov-kpi">
-          <span className="lbl">% utilidad → gastos</span>
-          <strong className="gasto">{tot.pct_gastos_sobre_utilidad ?? 0}%</strong>
+          <span className="lbl">De eso · proveedores (inversión)</span>
+          <strong className="inv">{fmtMoney(egresosProvIe || pagosProv)}</strong>
         </div>
         <div className="cv-prov-kpi">
-          <span className="lbl">% venta → ganancia</span>
-          <strong className={neta >= 0 ? 'ingreso' : 'gasto'}>{tot.pct_ganancia_ventas ?? 0}%</strong>
+          <span className="lbl">De eso · gastos del negocio</span>
+          <strong className="gasto">{fmtMoney(gastosOp)}</strong>
         </div>
       </div>
 
@@ -1740,11 +1793,11 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                   <strong className="ingreso">{fmtMoney(tot.ventas)}</strong>
                 </div>
                 <div className="cv-prov-kpi">
-                  <span className="lbl">Gastos prov.</span>
-                  <strong className="gasto">{fmtMoney(tot.gastos_proveedores)}</strong>
+                  <span className="lbl">Pagos a proveedores</span>
+                  <strong className="inv">{fmtMoney(tot.gastos_proveedores)}</strong>
                 </div>
                 <div className="cv-prov-kpi">
-                  <span className="lbl">Utilidad bruta</span>
+                  <span className="lbl">Ganancia del producto</span>
                   <strong className={(tot.utilidad_bruta || 0) >= 0 ? 'ingreso' : 'gasto'}>{fmtMoney(tot.utilidad_bruta)}</strong>
                 </div>
                 <div className="cv-prov-kpi">
@@ -1753,9 +1806,9 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                 </div>
               </div>
               <p className="muted cv-prov-hint">
-                Ventas POS por proveedor (vínculo producto). Gastos = pagos PROVEEDORES del corte.
-                Utilidad bruta = ventas − costo. Ganancia neta = utilidad − egresos operativos IE
-                ({fmtMoney(tot.gastos_operativos)}).
+                Ventas POS por proveedor. Pagos a proveedores = inversión en mercancía (no son gasto del negocio).
+                Ganancia del producto = ventas − costo. Ganancia neta = esa ganancia − gastos del negocio
+                ({fmtMoney(tot.gastos_operativos)}, sin proveedores).
                 {tot.margen_pct != null ? ` Margen ${tot.margen_pct}%.` : ''}
               </p>
               {(provReporte?.avisos || []).length > 0 && (
@@ -1784,10 +1837,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                         <div className="item"><span>Costo mercancía</span><span>{fmtMoney(p.costo)}</span></div>
                         <div className="item"><span>Compras recibidas</span><span>{fmtMoney(p.compras)}</span></div>
                         <div className="item"><span>Piezas / tickets</span><span>{p.piezas} · {p.tickets}</span></div>
-                        <div className="item"><span>Pagos a proveedor</span><span className="gasto">{fmtMoney(p.gastos)} ({p.movimientos_gasto})</span></div>
+                        <div className="item"><span>Pagos a proveedor (inversión)</span><span className="inv">{fmtMoney(p.gastos)} ({p.movimientos_gasto})</span></div>
                         {detalleSel.length > 0 && (
                           <>
-                            <strong className="cv-prov-det-hd">Movimientos de gasto</strong>
+                            <strong className="cv-prov-det-hd">Pagos a este proveedor</strong>
                             {detalleSel.map((g) => (
                               <div key={g.id} className="cv-prov-gasto">
                                 <span>{fmtFechaCorta(g.fecha)} · {etiquetaTienda(g.tienda)}{g.subcategoria ? ` · ${g.subcategoria}` : ''}</span>
@@ -2275,7 +2328,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             Apariencia
           </button>
           <button type="button" className="cv-mas-item" onClick={() => alert(esFrancisco
-            ? 'IE ABARROTES (Francisco): ingresos = ventas de los cierres.\n\nEstad. → Negocio: panorama ventas → reinversión → utilidad → gastos → ganancia neta.\n\nEstad. → Proveedores: detalle por proveedor.\n\nAdmin: ＋I / ＋E en Transacciones; Más → Cuentas/subcuentas.'
+            ? 'IE ABARROTES (Francisco): ingresos = ventas de los cierres.\n\nEstad. → Negocio: 1) ventas − mercancía = ganancia del producto · 2) en qué se gasta esa ganancia (sin proveedores) · 3) ganancia neta.\n\nEstad. → Proveedores: detalle por proveedor (pagos = inversión, no gasto).\n\nAdmin: ＋I / ＋E en Transacciones; Más → Cuentas/subcuentas.'
             : 'IE VIRTUAL (Antonio): ingresos = recolecciones aprobadas (Virtual y Garage).\n\nEstad. → Negocio: panorama recolecciones → efectivo vs gastos en tienda → egresos → neto.\n\nVales y gastos CUBRE TURNO/TAXIS se registran solos. Admin: ＋I / ＋E en Transacciones; Más → Cuentas/subcuentas. Abarrotes va en IE ABARROTES.')}>
             <span className="ico">?</span>
             Ayuda
