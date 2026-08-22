@@ -202,8 +202,28 @@ export function leerConfigImpresion() {
 }
 
 export function guardarConfigImpresion(cfg) {
-  localStorage.setItem(LS_IMPRESION, JSON.stringify(cfg));
+  const next = {
+    ...cfg,
+    ventaPorMonto: {
+      ...IMPRESION_DEFAULT.ventaPorMonto,
+      ...(cfg?.ventaPorMonto || {}),
+    },
+  };
+  // Umbral > 0 activa la regla de monto (evita configurar 150 y que no aplique).
+  if (Number(next.ventaPorMonto.umbralMinimo) > 0) {
+    next.ventaPorMonto.activo = true;
+  }
+  // Mantener autoVenta alineado con entregaVenta / modo documento.
+  if (next.modos?.venta === false || next.entregaVenta === 'ninguno') {
+    next.autoVenta = false;
+  } else if (next.autoVenta === false && next.entregaVenta === 'imprimir') {
+    next.entregaVenta = 'ninguno';
+  } else if (next.autoVenta === true && next.entregaVenta === 'ninguno') {
+    next.entregaVenta = 'imprimir';
+  }
+  localStorage.setItem(LS_IMPRESION, JSON.stringify(next));
   window.dispatchEvent(new CustomEvent(EVENTO_IMPRESION));
+  return next;
 }
 
 export function impresionHabilitada(tipoDoc) {
@@ -213,18 +233,24 @@ export function impresionHabilitada(tipoDoc) {
 
 /**
  * Decide si imprimir el ticket de venta según config y monto.
- * @returns {{ accion: 'omitir'|'imprimir'|'preguntar', copias: number }}
+ * @returns {{ accion: 'omitir'|'imprimir'|'preguntar'|'pdf', copias: number }}
  */
 export function resolverImpresionVentaPorMonto(total, cfgInput) {
   const cfg = cfgInput || leerConfigImpresion();
   const copiasBase = Math.max(1, Math.min(5, Number(cfg.copias) || 1));
 
-  if (!cfg.autoVenta || cfg.modos?.venta === false) {
+  // Documento "venta" desactivado en la tabla, o modo explícito "no imprimir".
+  if (cfg.modos?.venta === false) {
+    return { accion: 'omitir', copias: copiasBase };
+  }
+  if (cfg.entregaVenta === 'ninguno' || cfg.autoVenta === false) {
     return { accion: 'omitir', copias: copiasBase };
   }
 
   const totalN = Number(total) || 0;
   const reglas = { ...IMPRESION_DEFAULT.ventaPorMonto, ...(cfg.ventaPorMonto || {}) };
+  // Si hay umbral > 0, la regla de monto aplica aunque olviden marcar "activo".
+  const reglasActivas = Boolean(reglas.activo) || Number(reglas.umbralMinimo) > 0;
 
   let copias = copiasBase;
   const umbralExtra = Number(reglas.umbralCopiasExtra);
@@ -232,18 +258,24 @@ export function resolverImpresionVentaPorMonto(total, cfgInput) {
     copias = Math.max(1, Math.min(5, Number(reglas.copiasAltoMonto) || copiasBase));
   }
 
-  if (!reglas.activo) {
+  if (reglasActivas) {
+    const min = Math.max(0, Number(reglas.umbralMinimo) || 0);
+    if (totalN < min) {
+      if (reglas.debajoDelUmbral === 'preguntar') {
+        return { accion: 'preguntar', copias: copiasBase };
+      }
+      // no_imprimir (default): ni ventana ni diálogo.
+      return { accion: 'omitir', copias: copiasBase };
+    }
     return { accion: 'imprimir', copias };
   }
 
-  const min = Math.max(0, Number(reglas.umbralMinimo) || 0);
-  if (totalN < min) {
-    if (reglas.debajoDelUmbral === 'preguntar') {
-      return { accion: 'preguntar', copias: copiasBase };
-    }
-    return { accion: 'omitir', copias: copiasBase };
+  if (cfg.entregaVenta === 'preguntar') {
+    return { accion: 'preguntar', copias: copiasBase };
   }
-
+  if (cfg.entregaVenta === 'pdf') {
+    return { accion: 'pdf', copias };
+  }
   return { accion: 'imprimir', copias };
 }
 

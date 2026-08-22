@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { etiquetaMetodoPago, leerMetodosPago, resolverImpresionVentaPorMonto } from '../lib/posConfig.js';
-import { imprimirVenta } from '../lib/impresion.js';
+import { entregarTicketVenta, imprimirVenta } from '../lib/impresion.js';
 import { productoEnVenta, productoEsFavorito, precioVentaParaCaja } from '../lib/productoForm.js';
 import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from '../lib/departamentos.js';
 import Icon, { BtnLabel } from '../components/Icon.jsx';
@@ -324,14 +324,16 @@ export default function Ventas({
     };
     setUltimaVenta(ticket);
     const decision = resolverImpresionVentaPorMonto(totalVenta);
-    let debeImprimir = decision.accion === 'imprimir';
+    let debeImprimir = decision.accion === 'imprimir' || decision.accion === 'pdf';
     if (decision.accion === 'preguntar') {
       debeImprimir = confirm(
-        `Venta de $${Number(totalVenta).toFixed(2)} MXN (menor al mínimo configurado).\n\n¿Imprimir ticket?`,
+        `Venta de $${Number(totalVenta).toFixed(2)} MXN.\n\n¿Imprimir ticket?`,
       );
     }
+    // omitir → no abrir ventana ni diálogo de impresión
     if (debeImprimir) {
-      const pr = await imprimirVenta(ticket, { copias: decision.copias });
+      const modo = decision.accion === 'pdf' ? 'pdf' : 'imprimir';
+      const pr = await entregarTicketVenta(ticket, modo, { copias: decision.copias });
       if (!pr.ok) console.warn(pr.error);
     }
     setCarrito([]);
@@ -346,6 +348,7 @@ export default function Ventas({
       moneda: monedaPago,
       recibido: recibidoVenta,
       avisoStock: erroresStock.length > 0,
+      ticketOmitido: !debeImprimir,
     });
     setFinalizando(false);
     cargarDatos();
@@ -863,6 +866,19 @@ export default function Ventas({
               <p className="muted" style={{ fontSize: '0.8rem', margin: '0.5rem 0 0' }}>
                 Revisa inventario: hubo un aviso al actualizar stock.
               </p>
+            )}
+            {resultadoVenta.ticketOmitido && ultimaVenta && (
+              <button
+                type="button"
+                className="btn btn-gold"
+                style={{ width: '100%', marginTop: '0.75rem' }}
+                onClick={async () => {
+                  const r = await imprimirVenta(ultimaVenta);
+                  if (!r.ok) alert(r.error || 'No se pudo imprimir.');
+                }}
+              >
+                Imprimir ticket
+              </button>
             )}
             <button type="button" className="btn btn-primary" style={{ width: '100%', marginTop: '1rem' }} onClick={() => setResultadoVenta(null)}>
               Cerrar
