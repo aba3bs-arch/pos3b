@@ -113,10 +113,11 @@ function PanoramaNegocioAbarrotes({
   ingresosIe = 0,
   egresosIe = 0,
   periodoLabel = '',
+  anio = null,
+  mes = null,
+  filtroDias = null,
+  onFiltroDias = null,
 }) {
-  if (cargando) return <div className="cv-loading">Calculando panorama del negocio…</div>;
-  if (error) return <div className="cv-error">{error}</div>;
-
   const ventas = Number(tot.ventas) || 0;
   const reinversion = Number(tot.reinversion_producto ?? tot.costo) || 0;
   const utilidad = Number(tot.utilidad_bruta) || 0;
@@ -126,15 +127,28 @@ function PanoramaNegocioAbarrotes({
   const egresosProvIe = Number(tot.egresos_proveedores_ie) || 0;
   const lineas = panorama?.resumen || [];
   const desglose = panorama?.gastos_desglose || [];
+  const mostrarFiltroPeriodo = typeof onFiltroDias === 'function' && anio != null && mes != null;
 
   return (
     <div className="cv-prov-panel cv-panorama">
       <h3 className="cv-panorama-title">Panorama del negocio</h3>
-      {periodoLabel ? (
+      {mostrarFiltroPeriodo ? (
+        <BarraDiasMes
+          anio={anio}
+          mes={mes}
+          seleccion={filtroDias}
+          onChange={onFiltroDias}
+          gananciaNeta={neta}
+        />
+      ) : periodoLabel ? (
         <p className="cv-panorama-periodo">
           Periodo visualizado: <strong>{periodoLabel}</strong>
         </p>
       ) : null}
+      {cargando ? <div className="cv-loading">Calculando panorama del negocio…</div> : null}
+      {!cargando && error ? <div className="cv-error">{error}</div> : null}
+      {(cargando || error) ? null : (
+      <>
       <p className="muted cv-prov-hint">
         Lectura en tres pasos: <strong>1)</strong> de dónde sale la ganancia (ventas menos mercancía),
         {' '}<strong>2)</strong> en qué se gasta esa ganancia, <strong>3)</strong> qué queda.
@@ -267,6 +281,8 @@ function PanoramaNegocioAbarrotes({
             <li key={t}>{t}</li>
           ))}
         </ul>
+      )}
+      </>
       )}
     </div>
   );
@@ -1809,6 +1825,13 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           ingresosIe={datos?.ingresosTotal || 0}
           egresosIe={datos?.egresosTotal || 0}
           periodoLabel={etiquetaRangoPanorama}
+          anio={anio}
+          mes={mes}
+          filtroDias={filtroDiasMes}
+          onFiltroDias={(sel) => {
+            setFiltroDiasMes(sel);
+            if (sel && estadPreset !== 'mes') setEstadPreset('mes');
+          }}
         />
       ) : estadTab === 'negocio' && !esFrancisco ? (
         <PanoramaNegocioVirtual
@@ -1967,6 +1990,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             ingresosIe={ab.ingresos}
             egresosIe={ab.egresos}
             periodoLabel={etiquetaRangoPanorama}
+            anio={anio}
+            mes={mes}
+            filtroDias={filtroDiasMes}
+            onFiltroDias={setFiltroDiasMes}
           />
           <p className="muted" style={{ fontSize: '0.75rem', margin: '0.5rem 0 0' }}>
             Detalle por proveedor en Estad. → Proveedores.
@@ -2389,20 +2416,6 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       <div className="cv-libro-banner" style={{ padding: '0.55rem 0.85rem', background: esFrancisco ? 'rgba(181,166,66,0.12)' : 'rgba(142,68,173,0.1)', borderBottom: '1px solid var(--border, #e5e7eb)' }}>
         <strong style={{ color: esFrancisco ? '#b5a642' : '#8e44ad' }}>{tituloLibro}</strong>
         <span className="muted" style={{ display: 'block', fontSize: '0.78rem', marginTop: 2 }}>{subtituloLibro}</span>
-        {esFrancisco && (
-          <BarraDiasMes
-            anio={anio}
-            mes={mes}
-            seleccion={filtroDiasMes}
-            onChange={(sel) => {
-              setFiltroDiasMes(sel);
-              if (sel) {
-                // Al filtrar días, conviene estar en vista mensual del mes de la barra.
-                if (nav === 'estad' && estadPreset !== 'mes') setEstadPreset('mes');
-              }
-            }}
-          />
-        )}
       </div>
       {(avisoSql || datos?.avisoCatalogo) && (
         <div className="cv-aviso">{avisoSql || datos?.avisoCatalogo || AVISO_FALTA_CONT_VIRTUAL}</div>
