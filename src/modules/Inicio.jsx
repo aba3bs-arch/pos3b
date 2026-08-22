@@ -29,9 +29,9 @@ export default function Inicio({
   consolaCentral = false,
 }) {
   const puede = typeof puedeModulo === 'function' ? puedeModulo : () => true;
-  // Valorización de inventario: solo en consola central (MAIN).
-  // Al cambiar de sucursal en el selector, muestra el total de ESA tienda.
-  // En cajas de sucursal no se muestra.
+  // Valorización de inventario: solo panel central (MAIN / equipo sin caja fijada).
+  // Las cajas de sucursal (env o tienda bloqueada en el navegador) no lo ven.
+  // Desde MAIN, al elegir otra tienda, sí se muestra el total de esa tienda.
   const puedeVerValorizacion = puede('Productos') && consolaCentral;
   // Proyección de faltante (carrito / cancelaciones / checador): en cada sucursal operativa.
   const puedeVerProyeccion = puede('Productos') && !esAlmacenCentral(sucursal);

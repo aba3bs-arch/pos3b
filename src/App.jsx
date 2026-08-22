@@ -877,6 +877,8 @@ function App() {
   // Admin/Gerente SIEMPRE pueden cambiar tienda en la sesión (necesario en celular / central).
   const puedeCambiarTiendaSesion = Boolean(puedeCambiarTienda || esAdminOGerente);
   const tiendaCajaFisicaBloqueada = Boolean(CAJA_FISICA_FIJA_ENV || tiendaFijadaParaAcceso);
+  /** Solo panel central (MAIN / equipo sin caja de sucursal fijada). Las sucursales no ven valorización de inventario. */
+  const consolaCentral = !tiendaCajaFisicaBloqueada;
   const modulosNav = modulosParaSidebar(user.rol, user.id);
   const subContabilidad = submodulosContabilidadVisibles(user.rol, user.id);
   const contabilidadActiva = vista === VISTA_HUB_CONTABILIDAD || SUBMODULOS_CONTABILIDAD.includes(vista);
@@ -1012,7 +1014,7 @@ function App() {
               onNavigate={irAModulo}
               onIrIncidencias={irAIncidencias}
               puedeModulo={(m) => puedeVerModulo(user?.rol, m, user?.id)}
-              consolaCentral={!CAJA_FISICA_FIJA_ENV}
+              consolaCentral={consolaCentral}
             />
           )}
           {vista === 'Incidencias' && (
@@ -1090,7 +1092,7 @@ function App() {
               fusionarProducto={fusionarProductoEnCatalogo}
               user={user}
               sucursal={sucursal}
-              consolaCentral={!CAJA_FISICA_FIJA_ENV}
+              consolaCentral={consolaCentral}
             />
           )}
           {vista === 'Compras' && (
