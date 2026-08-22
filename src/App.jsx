@@ -68,7 +68,15 @@ import {
   refrescarPinCubreTurnoSucursal,
   sincronizarPinsCubreTurnoDesdeNube,
 } from './lib/cubreTurnoSync.js';
-import { buscarUsuarioPorPinYSucursal, mensajePinSucursalIncorrecta, esAdministradorSinAnclaje } from './lib/usuariosAuth.js';
+import { buscarUsuarioPorPinYSucursal, buscarUsuarioPorId, mensajePinSucursalIncorrecta, esAdministradorSinAnclaje } from './lib/usuariosAuth.js';
+import {
+  autenticarConBiometria,
+  convieneOfrecerBiometria,
+  hayBiometriaParaSucursal,
+  plataformaBiometricaDisponible,
+  registrarBiometriaTrasLogin,
+  usuarioTieneBiometriaEnEquipo,
+} from './lib/loginBiometrico.js';
 import {
   evaluarVinculoDispositivo,
   vincularDispositivoUsuario,
@@ -160,6 +168,9 @@ function App() {
   const [tipoCambio, setTipoCambioRaw] = useState(() => leerTipoCambio());
   const [tickPrivilegios, setTickPrivilegios] = useState(0);
   const [tickCubreTurno, setTickCubreTurno] = useState(0);
+  const [biometriaOk, setBiometriaOk] = useState(false);
+  const [biometriaLista, setBiometriaLista] = useState(false);
+  const [biometriaCargando, setBiometriaCargando] = useState(false);
   const [inventario, setInventario] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [brandTitle, setBrandTitle] = useState(leerNombreNegocio);
@@ -213,6 +224,24 @@ function App() {
   useEffect(() => {
     return registrarCapturaInstalacionPwa();
   }, []);
+
+  useEffect(() => {
+    let ok = true;
+    (async () => {
+      if (!convieneOfrecerBiometria()) {
+        if (ok) {
+          setBiometriaOk(false);
+          setBiometriaLista(false);
+        }
+        return;
+      }
+      const plat = await plataformaBiometricaDisponible();
+      if (!ok) return;
+      setBiometriaOk(Boolean(plat));
+      setBiometriaLista(Boolean(plat) && hayBiometriaParaSucursal(sucursal));
+    })();
+    return () => { ok = false; };
+  }, [sucursal, sesion]);
 
   useEffect(() => instalarSeleccionCamposCantidad(), []);
 
@@ -562,6 +591,29 @@ function App() {
           void supabase.from('logins').insert([sinTel]);
         }
       });
+
+      // Tras PIN exitoso en móvil/PWA: ofrecer Face ID / huella (no cubre turno).
+      if (
+        !cubreTurno
+        && data.id
+        && convieneOfrecerBiometria()
+        && !usuarioTieneBiometriaEnEquipo(data.id, sucursalLogin)
+      ) {
+        const quiere = window.confirm(
+          `¿Activar biometría (Face ID / huella) para ${data.nombre || 'este usuario'} en este equipo?\n\n`
+          + 'La próxima vez podrás entrar sin escribir el PIN. El PIN seguirá disponible como respaldo.',
+        );
+        if (quiere) {
+          const reg = await registrarBiometriaTrasLogin({ user: data, sucursal: sucursalLogin });
+          if (reg.ok) {
+            setBiometriaLista(true);
+            alert('Biometría activada en este equipo. También puedes seguir entrando con PIN.');
+          } else if (!reg.cancelado) {
+            alert(reg.error || 'No se pudo activar la biometría.');
+          }
+        }
+      }
+
       return true;
     },
     [sucursal, tiendaFijadaParaAcceso, supabase],
@@ -624,6 +676,39 @@ function App() {
       alert(avisoSucursal ? mensajePinSucursalIncorrecta(etiquetaTienda(sucursal), sucursalReal) : 'PIN incorrecto');
     }
     setPin('');
+  };
+
+  const manejarLoginBiometrico = async () => {
+    if (!supabase) {
+      alert('Configura VITE_SUPABASE_URL y VITE_SUPABASE_ANON_KEY en el archivo .env y reinicia el servidor de desarrollo.');
+      return;
+    }
+    if (!codigoTiendaValido(sucursal)) {
+      alert('La tienda actual no es válida. Vuelve a fijar la sucursal o revisa Configuración.');
+      return;
+    }
+    setBiometriaCargando(true);
+    try {
+      const bio = await autenticarConBiometria(sucursal);
+      if (!bio.ok) {
+        if (!bio.cancelado) alert(bio.error || 'Biometría no disponible.');
+        return;
+      }
+      const { user: data, error } = await buscarUsuarioPorId(supabase, bio.userId);
+      if (error || !data) {
+        alert(error || 'Usuario no encontrado. Entra con PIN.');
+        return;
+      }
+      const accesoTurno = usuarioAutorizadoLogin(data, new Date(), null, sucursal);
+      if (!accesoTurno.ok) {
+        setPendienteAutorizacionTurno({ user: data, error: accesoTurno.error, ajustarSucursal: false });
+        setPendienteAutorizacionDispositivo(null);
+        return;
+      }
+      await completarLogin(data, { autorizacionAdmin: Boolean(accesoTurno.autorizacionAdmin) });
+    } finally {
+      setBiometriaCargando(false);
+    }
   };
 
   const manejarEntradaCubreTurno = async () => {
@@ -836,6 +921,9 @@ function App() {
         pinFieldKey={loginPinKey}
         onPinChange={(e) => setPin(e.target.value)}
         onLogin={manejarLogin}
+        onLoginBiometrico={biometriaOk ? manejarLoginBiometrico : undefined}
+        biometriaDisponible={biometriaLista}
+        biometriaCargando={biometriaCargando}
         puedeIngresarPin={puedeIngresarPin}
         pendienteCubreTurno={pendienteCubreTurno}
         nombreCubre={nombreCubre}

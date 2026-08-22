@@ -162,3 +162,15 @@ export async function pinUsuarioOcupadoEnSucursal(supabase, pin, sucursalActiva,
   if (data) return { ocupado: true, usuario: data };
   return { ocupado: false };
 }
+
+/** Carga un usuario activo por id (p. ej. tras desbloqueo biométrico). */
+export async function buscarUsuarioPorId(supabase, userId) {
+  if (!supabase) return { user: null, error: 'Sin conexión a Supabase.' };
+  const id = String(userId || '').trim();
+  if (!id) return { user: null, error: 'Usuario inválido.' };
+  const { data, error } = await supabase.from('usuarios').select('*').eq('id', id).maybeSingle();
+  if (error) return { user: null, error: error.message };
+  if (!data) return { user: null, error: 'Usuario no encontrado.' };
+  return rechazarSiInactivo(data);
+}
+

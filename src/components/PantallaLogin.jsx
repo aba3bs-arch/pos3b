@@ -22,6 +22,9 @@ export default function PantallaLogin({
   pin,
   onPinChange,
   onLogin,
+  onLoginBiometrico,
+  biometriaDisponible = false,
+  biometriaCargando = false,
   puedeIngresarPin,
   pinFieldKey = 0,
   pendienteCubreTurno,
@@ -170,6 +173,19 @@ export default function PantallaLogin({
 
         {!pendienteCubreTurno && !pedirAdminDesbloqueo && (
           <>
+            {typeof onLoginBiometrico === 'function' && biometriaDisponible && (
+              <button
+                type="button"
+                className="btn btn-gold login-btn-block"
+                onClick={onLoginBiometrico}
+                disabled={!puedeIngresarPin || biometriaCargando || Boolean(pendienteAutorizacionTurno) || Boolean(pendienteAutorizacionDispositivo)}
+                style={{ marginBottom: '0.55rem' }}
+              >
+                <BtnLabel icon="smartphone">
+                  {biometriaCargando ? 'Verificando…' : 'Entrar con biometría'}
+                </BtnLabel>
+              </button>
+            )}
             <InputPin
               key={`login-pin-${pinFieldKey}`}
               value={pin}
@@ -188,11 +204,16 @@ export default function PantallaLogin({
               onClick={onLogin}
               disabled={!puedeIngresarPin || Boolean(pendienteAutorizacionTurno) || Boolean(pendienteAutorizacionDispositivo)}
             >
-              <BtnLabel icon="logIn">Entrar</BtnLabel>
+              <BtnLabel icon="logIn">Entrar con PIN</BtnLabel>
             </button>
             {cubreTurnoHabilitado && (
               <p className="muted login-hint-sm" style={{ marginTop: '0.5rem' }}>
                 Si cubres turno, usa el <strong>PIN de cubre turno</strong> configurado por el administrador en {etiquetaTienda(sucursal)}.
+              </p>
+            )}
+            {typeof onLoginBiometrico === 'function' && biometriaDisponible && (
+              <p className="muted login-hint-sm" style={{ marginTop: '0.45rem' }}>
+                Biometría (Face ID / huella) y PIN: ambos sirven en este equipo. La primera vez entra con PIN y activa la biometría cuando te lo pida.
               </p>
             )}
           </>

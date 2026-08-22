@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { listarSucursales, etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
+import { listarSucursales, listarSucursalesOperativas, etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { puedeGestionarUsuarios } from '../lib/roles.js';
 import { estiloPastel } from '../lib/estadisticasData.js';
 import {
@@ -117,6 +117,9 @@ function PanoramaNegocioAbarrotes({
   mes = null,
   filtroDias = null,
   onFiltroDias = null,
+  filtroTienda = '',
+  onFiltroTienda = null,
+  tiendas = [],
 }) {
   const ventas = Number(tot.ventas) || 0;
   const reinversion = Number(tot.reinversion_producto ?? tot.costo) || 0;
@@ -128,10 +131,35 @@ function PanoramaNegocioAbarrotes({
   const lineas = panorama?.resumen || [];
   const desglose = panorama?.gastos_desglose || [];
   const mostrarFiltroPeriodo = typeof onFiltroDias === 'function' && anio != null && mes != null;
+  const mostrarFiltroTienda = typeof onFiltroTienda === 'function';
+  const listaTiendas = tiendas.length ? tiendas : listarSucursalesOperativas();
+  const etiquetaTiendaActiva = filtroTienda ? etiquetaTienda(filtroTienda) : 'Todas las sucursales';
 
   return (
     <div className="cv-prov-panel cv-panorama">
       <h3 className="cv-panorama-title">Panorama del negocio</h3>
+      {(mostrarFiltroPeriodo || mostrarFiltroTienda) ? (
+        <div className="cv-panorama-filtros">
+          {mostrarFiltroTienda ? (
+            <label className="cv-panorama-filtro-tienda">
+              Tienda
+              <select
+                value={filtroTienda || ''}
+                onChange={(e) => onFiltroTienda(e.target.value)}
+                title="Filtrar panorama por sucursal"
+              >
+                <option value="">Todas las sucursales</option>
+                {listaTiendas.map((t) => (
+                  <option key={t} value={t}>{etiquetaTienda(t)}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <span className="cv-panorama-filtro-tienda-lbl muted">
+            Viendo: <strong>{etiquetaTiendaActiva}</strong>
+          </span>
+        </div>
+      ) : null}
       {mostrarFiltroPeriodo ? (
         <BarraDiasMes
           anio={anio}
@@ -143,6 +171,7 @@ function PanoramaNegocioAbarrotes({
       ) : periodoLabel ? (
         <p className="cv-panorama-periodo">
           Periodo visualizado: <strong>{periodoLabel}</strong>
+          {mostrarFiltroTienda ? <> · <strong>{etiquetaTiendaActiva}</strong></> : null}
         </p>
       ) : null}
       {cargando ? <div className="cv-loading">Calculando panorama del negocio…</div> : null}
@@ -647,6 +676,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     ? 'Francisco · ingresos y egresos de Abarrotes'
     : 'Antonio · ingresos y egresos de Virtual y Garage';
   const tiendas = useMemo(() => listarSucursales(), []);
+  const tiendasOperativas = useMemo(() => listarSucursalesOperativas(), []);
   const sucursalActiva = normalizarCodigoTienda(sucursalProp) || '';
 
   const [nav, setNav] = useState('trans'); // trans | estad | cuentas | mas
@@ -1832,6 +1862,9 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             setFiltroDiasMes(sel);
             if (sel && estadPreset !== 'mes') setEstadPreset('mes');
           }}
+          filtroTienda={filtroTienda}
+          onFiltroTienda={setFiltroTienda}
+          tiendas={tiendasOperativas}
         />
       ) : estadTab === 'negocio' && !esFrancisco ? (
         <PanoramaNegocioVirtual
@@ -1994,6 +2027,9 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             mes={mes}
             filtroDias={filtroDiasMes}
             onFiltroDias={setFiltroDiasMes}
+            filtroTienda={filtroTienda}
+            onFiltroTienda={setFiltroTienda}
+            tiendas={tiendasOperativas}
           />
           <p className="muted" style={{ fontSize: '0.75rem', margin: '0.5rem 0 0' }}>
             Detalle por proveedor en Estad. → Proveedores.
