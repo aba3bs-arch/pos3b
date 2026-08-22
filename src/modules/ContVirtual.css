@@ -1243,6 +1243,10 @@
   color: var(--cv-gasto);
 }
 
+.cv-prov-kpi strong.inv {
+  color: #c47f15;
+}
+
 .cv-prov-hint {
   font-size: 0.72rem;
   margin: 0 0 0.75rem;
@@ -1253,6 +1257,26 @@
   margin: 0 0 0.35rem;
   font-size: 1rem;
   color: var(--cv-text);
+}
+
+.cv-panorama-bloque {
+  margin-top: 0.85rem;
+  padding-top: 0.35rem;
+  border-top: 1px dashed var(--cv-line);
+}
+
+.cv-panorama-bloque:first-of-type {
+  margin-top: 0.5rem;
+  padding-top: 0;
+  border-top: none;
+}
+
+.cv-panorama-bloque-title {
+  margin: 0 0 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 750;
+  color: var(--cv-text);
+  letter-spacing: 0.01em;
 }
 
 .cv-panorama-flujo {
@@ -1279,6 +1303,11 @@
 .cv-panorama-paso.final {
   border-color: rgba(59, 130, 246, 0.4);
   background: rgba(59, 130, 246, 0.08);
+}
+
+.cv-panorama-paso--inv {
+  border-color: rgba(245, 158, 11, 0.4);
+  background: rgba(245, 158, 11, 0.07);
 }
 
 .cv-panorama-paso .num {
@@ -1314,12 +1343,72 @@
 
 .cv-panorama-paso em.ingreso { color: var(--cv-ingreso); }
 .cv-panorama-paso em.gasto { color: var(--cv-gasto); }
+.cv-panorama-paso em.inv { color: #c47f15; }
+
+.cv-prov-kpi strong.inv { color: #c47f15; }
 
 .cv-panorama-paso small {
   font-size: 0.72rem;
   color: var(--cv-muted);
   line-height: 1.3;
 }
+
+.cv-panorama-desglose {
+  margin-top: 0.55rem;
+  border: 1px solid var(--cv-line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--cv-bg2);
+}
+
+.cv-panorama-desglose-hd {
+  padding: 0.4rem 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--cv-muted);
+  border-bottom: 1px solid var(--cv-line);
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.cv-panorama-desglose ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cv-panorama-desglose li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.15rem 0.75rem;
+  padding: 0.45rem 0.65rem;
+  border-top: 1px solid var(--cv-line);
+  align-items: baseline;
+}
+
+.cv-panorama-desglose li:first-child {
+  border-top: none;
+}
+
+.cv-panorama-desglose .cat {
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.cv-panorama-desglose .meta {
+  grid-column: 1 / 2;
+  font-size: 0.7rem;
+}
+
+.cv-panorama-desglose strong {
+  grid-row: 1 / 3;
+  grid-column: 2;
+  font-size: 0.9rem;
+  align-self: center;
+}
+
+.cv-panorama-desglose strong.gasto { color: var(--cv-gasto); }
 
 .cv-panorama-resumen {
   margin: 0.85rem 0 0;
@@ -1387,6 +1476,11 @@
 
 .cv-prov-row-det .item .gasto {
   color: var(--cv-gasto);
+}
+
+.cv-prov-row-det .item .inv {
+  color: #c47f15;
+  font-weight: 700;
 }
 
 .cv-prov-det-hd {

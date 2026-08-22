@@ -353,17 +353,34 @@ export async function cargarReporteProveedoresIeAbarrotes(supabase, {
   const gastosProveedores = round2(porProveedor.reduce((s, r) => s + r.gastos, 0));
   const comprasTotal = round2(porProveedor.reduce((s, r) => s + r.compras, 0));
 
-  // Egresos IE que ya son pagos a proveedor (evitar doble resta en neta)
+  // Egresos IE que ya son pagos a proveedor (NO son “gasto del negocio”:
+  // son inversión / costo de mercancía — de ahí salen las ventas y la ganancia).
   const egresosProvEnIe = round2(
     (detalleGastosIe || [])
       .filter((d) => esCategoriaProveedores(d.categoria) || esCategoriaProveedores(d.categoria_id))
       .reduce((s, d) => s + (Number(d.monto) || 0), 0),
   );
   const egresosIe = round2(egresosIeTotal);
-  const gastosOperativos = round2(Math.max(0, egresosIe - egresosProvEnIe));
+
+  // Gastos reales del negocio (nómina, servicios, taxis, etc.) — sin proveedores.
+  const gastosOpMap = new Map();
+  for (const d of detalleGastosIe || []) {
+    if (esCategoriaProveedores(d.categoria) || esCategoriaProveedores(d.categoria_id)) continue;
+    const monto = round2(d.monto);
+    if (!(monto > 0)) continue;
+    const cat = String(d.categoria || d.categoria_id || 'Otros').trim() || 'Otros';
+    const prev = gastosOpMap.get(cat) || { categoria: cat, monto: 0, movimientos: 0 };
+    prev.monto = round2(prev.monto + monto);
+    prev.movimientos += 1;
+    gastosOpMap.set(cat, prev);
+  }
+  const gastosOperativosDesglose = [...gastosOpMap.values()].sort((a, b) => b.monto - a.monto);
+  const gastosOperativos = round2(
+    gastosOperativosDesglose.reduce((s, r) => s + r.monto, 0) || Math.max(0, egresosIe - egresosProvEnIe),
+  );
   const gananciaNeta = round2(utilidadBruta - gastosOperativos);
 
-  // Panorama: qué pasa con la ganancia tras reinvertir en producto.
+  // Panorama: de dónde sale la ganancia y en qué se gasta (sin mezclar proveedores).
   const reinversionProducto = costoTotal; // costo de lo vendido (vuelve a mercancía)
   const pctReinversionVentas = ventasTotal > 0 ? round2((reinversionProducto / ventasTotal) * 100) : 0;
   const pctGastosSobreUtilidad = utilidadBruta > 0
@@ -371,6 +388,13 @@ export async function cargarReporteProveedoresIeAbarrotes(supabase, {
     : (gastosOperativos > 0 ? 100 : 0);
   const pctGananciaSobreVentas = ventasTotal > 0 ? round2((gananciaNeta / ventasTotal) * 100) : 0;
   const pctUtilidadSobreVentas = ventasTotal > 0 ? round2((utilidadBruta / ventasTotal) * 100) : 0;
+  const pctPagosProvSobreVentas = ventasTotal > 0 ? round2((gastosProveedores / ventasTotal) * 100) : 0;
+
+  const desgloseConPct = gastosOperativosDesglose.map((r) => ({
+    ...r,
+    pct_sobre_utilidad: utilidadBruta > 0 ? round2((r.monto / utilidadBruta) * 100) : 0,
+    pct_sobre_gastos: gastosOperativos > 0 ? round2((r.monto / gastosOperativos) * 100) : 0,
+  }));
 
   return {
     ok: true,
@@ -386,12 +410,14 @@ export async function cargarReporteProveedoresIeAbarrotes(supabase, {
       gastos_proveedores: gastosProveedores,
       compras: comprasTotal,
       egresos_ie: egresosIe,
+      egresos_proveedores_ie: egresosProvEnIe,
       gastos_operativos: gastosOperativos,
       ganancia_neta: gananciaNeta,
       margen_pct: pctUtilidadSobreVentas,
       pct_reinversion_ventas: pctReinversionVentas,
       pct_gastos_sobre_utilidad: pctGastosSobreUtilidad,
       pct_ganancia_ventas: pctGananciaSobreVentas,
+      pct_pagos_prov_ventas: pctPagosProvSobreVentas,
     },
     panorama: {
       ventas: ventasTotal,
@@ -400,15 +426,19 @@ export async function cargarReporteProveedoresIeAbarrotes(supabase, {
       gastos_operativos: gastosOperativos,
       ganancia_neta: gananciaNeta,
       pagos_proveedores: gastosProveedores,
+      egresos_proveedores_ie: egresosProvEnIe,
+      gastos_desglose: desgloseConPct,
       resumen: [
-        `De cada $100 de venta, ~$${pctReinversionVentas.toFixed(0)} se reinvierten en mercancía (costo).`,
-        utilidadBruta > 0
-          ? `Queda ~$${pctUtilidadSobreVentas.toFixed(0)} de utilidad bruta (ganancia del producto).`
-          : 'Aún no hay utilidad bruta en el periodo (costo ≥ ventas o sin ventas).',
-        utilidadBruta > 0
-          ? `De esa utilidad, ~$${pctGastosSobreUtilidad.toFixed(0)}% se fue en gastos del negocio.`
-          : (gastosOperativos > 0 ? 'Hay gastos operativos aunque la utilidad bruta sea 0 o negativa.' : ''),
-        `Ganancia neta del periodo: ${gananciaNeta >= 0 ? '' : '−'}$${Math.abs(gananciaNeta).toFixed(2)} (${pctGananciaSobreVentas}% de las ventas).`,
+        'Los pagos a proveedores NO son un “gasto del negocio”: es el dinero con el que se compra la mercancía que después se vende.',
+        ventasTotal > 0
+          ? `De cada $100 vendidos, ~$${pctReinversionVentas.toFixed(0)} corresponden al costo de la mercancía (inversión). Quedan ~$${pctUtilidadSobreVentas.toFixed(0)} de ganancia del producto.`
+          : 'Aún no hay ventas en el periodo para calcular la ganancia del producto.',
+        utilidadBruta > 0 && gastosOperativos > 0
+          ? `De esa ganancia del producto (${fmtPlain(utilidadBruta)}), se egresaron ${fmtPlain(gastosOperativos)} en gastos del negocio (~${pctGastosSobreUtilidad}%).`
+          : (gastosOperativos > 0
+            ? `Hay ${fmtPlain(gastosOperativos)} de gastos del negocio aunque la ganancia del producto sea 0 o negativa.`
+            : 'No hubo gastos del negocio (fuera de proveedores) en el periodo.'),
+        `Lo que queda al final (ganancia neta): ${fmtPlain(gananciaNeta)} — ${pctGananciaSobreVentas}% de las ventas.`,
       ].filter(Boolean),
     },
     avisos,
@@ -418,4 +448,10 @@ export async function cargarReporteProveedoresIeAbarrotes(supabase, {
       proveedores: porProveedor.length,
     },
   };
+}
+
+function fmtPlain(n) {
+  const v = Number(n) || 0;
+  const sign = v < 0 ? '−' : '';
+  return `${sign}$${Math.abs(v).toFixed(2)}`;
 }
