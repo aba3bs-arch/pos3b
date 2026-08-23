@@ -16,6 +16,7 @@ import {
   listarSesionesChecklist,
   obtenerOCrearSesionChecklist,
   progresoChecklist,
+  evaluacionCompaneroChecklist,
   reabrirSesionChecklist,
   turnoSugeridoAhora,
 } from '../lib/checklistOperativo.js';
@@ -44,6 +45,7 @@ export default function CheckList({ supabase, sucursal, user, onIrIncidencias })
   const tienda = normalizarCodigoTienda(sucursal);
   const cerrado = sesion?.estado === 'cerrado';
   const prog = useMemo(() => progresoChecklist(respuestas), [respuestas]);
+  const evalCompanero = useMemo(() => evaluacionCompaneroChecklist(respuestas), [respuestas]);
 
   const cargarSesion = useCallback(async () => {
     if (!supabase || !tienda) return;
@@ -280,6 +282,22 @@ export default function CheckList({ supabase, sucursal, user, onIrIncidencias })
               </strong>
               <span className="muted" style={{ fontSize: '0.78rem' }}>
                 ✔ {prog.ok} · ✘ {prog.no} · R {prog.reportar}
+              </span>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'baseline',
+                  gap: '0.4rem',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: evalCompanero.color,
+                  lineHeight: 1.2,
+                }}
+                title={`${evalCompanero.etiqueta} · ✔ ${prog.ok} de ${prog.total}`}
+              >
+                <span>{evalCompanero.pct}%</span>
+                <span style={{ fontWeight: 600 }}>evaluación del compañero</span>
+                <span style={{ fontWeight: 500, opacity: 0.9 }}>({evalCompanero.etiqueta})</span>
               </span>
               {sesion ? (
                 <span

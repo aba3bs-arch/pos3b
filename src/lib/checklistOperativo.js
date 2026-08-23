@@ -154,6 +154,40 @@ export function progresoChecklist(respuestasMap) {
   return { total, marcados, ok, no, reportar, pct: total ? Math.round((marcados / total) * 100) : 0 };
 }
 
+/**
+ * Evaluación del compañero: % de puntos que cumplen (✔) sobre el total del checklist.
+ * Colores: ≤40 rojo (pésimo), 41–80 amarillo, 81–100 verde (excelente).
+ */
+export function evaluacionCompaneroChecklist(respuestasMap) {
+  const prog = progresoChecklist(respuestasMap);
+  const pct = prog.total ? Math.round((prog.ok / prog.total) * 100) : 0;
+  if (pct <= 40) {
+    return {
+      pct,
+      nivel: 'rojo',
+      etiqueta: 'pésimo',
+      color: '#c62828',
+      label: 'evaluación del compañero',
+    };
+  }
+  if (pct <= 80) {
+    return {
+      pct,
+      nivel: 'amarillo',
+      etiqueta: 'regular',
+      color: '#f9a825',
+      label: 'evaluación del compañero',
+    };
+  }
+  return {
+    pct,
+    nivel: 'verde',
+    etiqueta: 'excelente',
+    color: '#2e7d32',
+    label: 'evaluación del compañero',
+  };
+}
+
 export async function obtenerOCrearSesionChecklist(supabase, {
   sucursalId,
   fecha,
