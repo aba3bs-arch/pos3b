@@ -128,6 +128,9 @@ function PanoramaNegocioAbarrotes({
   const neta = Number(tot.ganancia_neta) || 0;
   const pagosProv = Number(tot.gastos_proveedores) || 0;
   const egresosProvIe = Number(tot.egresos_proveedores_ie) || 0;
+  /** Lo que Reportes / corte muestran como PROVEEDORES (no es “gasto del negocio”). */
+  const pagosProvVista = egresosProvIe > 0 ? egresosProvIe : pagosProv;
+  const egresosTotales = Number(egresosIe) || 0;
   const fuenteVentas = String(tot.fuente_ventas || panorama?.fuente_ventas || '').toLowerCase();
   const lineas = panorama?.resumen || [];
   const desglose = panorama?.gastos_desglose || [];
@@ -185,9 +188,27 @@ function PanoramaNegocioAbarrotes({
       <p className="muted cv-prov-hint">
         Lectura en tres pasos: <strong>1)</strong> de dónde sale la ganancia (ventas menos mercancía),
         {' '}<strong>2)</strong> en qué se gasta esa ganancia, <strong>3)</strong> qué queda.
-        Los pagos a <strong>proveedores no cuentan como gasto</strong>: son la inversión con la que se compra
-        lo que después se vende.
+        Los pagos a <strong>proveedores no cuentan como “gasto del negocio”</strong>: son la inversión
+        con la que se compra lo que después se vende (los verás en Reportes como PROVEEDORES).
       </p>
+
+      {pagosProvVista > 0 ? (
+        <div className="cv-panorama-aviso-prov">
+          <div>
+            <span className="lbl">Pagado a proveedores (corte / Reportes)</span>
+            <strong className="inv">{fmtMoney(pagosProvVista)}</strong>
+          </div>
+          <div>
+            <span className="lbl">Gastos del negocio (sin proveedores)</span>
+            <strong className="gasto">{fmtMoney(gastosOp)}</strong>
+          </div>
+          <p className="muted">
+            Si en Reportes ves ~{fmtMoney(pagosProvVista)} en BIMBO, Sabritas, etc., eso es inversión en mercancía,
+            no el rubro “gastos del negocio” ({fmtMoney(gastosOp)}).
+            {egresosTotales > 0 ? ` Egresos IE totales: ${fmtMoney(egresosTotales)}.` : ''}
+          </p>
+        </div>
+      ) : null}
 
       <div className="cv-panorama-bloque">
         <h4 className="cv-panorama-bloque-title">1 · De dónde sale la ganancia</h4>
@@ -207,9 +228,9 @@ function PanoramaNegocioAbarrotes({
               <em className="inv">{fmtMoney(reinversion)}</em>
               <small>
                 Costo de lo que se vendió ({tot.pct_reinversion_ventas ?? 0}% de las ventas).
-                Esto <strong>no es un gasto</strong>: es lo que se reinvirtió en producto para poder vender.
-                {pagosProv > 0
-                  ? ` Dinero pagado a proveedores en corte: ${fmtMoney(pagosProv)}${egresosProvIe > 0 && egresosProvIe !== pagosProv ? ` · en IE: ${fmtMoney(egresosProvIe)}` : ''}.`
+                Esto <strong>no es un gasto operativo</strong>: es reinversión en producto.
+                {pagosProvVista > 0
+                  ? ` En corte/Reportes se pagó a proveedores: ${fmtMoney(pagosProvVista)}${reinversion > 0 && Math.abs(reinversion - pagosProvVista) > 0.009 ? ` · costo de lo vendido en panorama: ${fmtMoney(reinversion)}` : ''}.`
                   : ''}
               </small>
             </div>
@@ -233,17 +254,23 @@ function PanoramaNegocioAbarrotes({
         <p className="muted cv-prov-hint" style={{ marginTop: 0 }}>
           Solo egresos del negocio (nómina, servicios, taxis, faltantes, etc.).
           <strong> Sin pagos a proveedores.</strong>
+          {pagosProvVista > 0
+            ? ` Los ${fmtMoney(pagosProvVista)} de PROVEEDORES del reporte van arriba (inversión), no aquí.`
+            : ''}
           {utilidad > 0 ? ` Consumen ${tot.pct_gastos_sobre_utilidad ?? 0}% de la ganancia del producto.` : ''}
         </p>
         <div className="cv-panorama-flujo">
           <div className="cv-panorama-paso">
             <span className="num">C</span>
             <div>
-              <strong>− Gastos del negocio</strong>
+              <strong>− Gastos del negocio (sin proveedores)</strong>
               <em className="gasto">{fmtMoney(gastosOp)}</em>
               <small>
                 Total egresado de la ganancia en el periodo
                 {desglose.length ? ` · ${desglose.length} rubro(s)` : ''}.
+                {pagosProvVista > 0
+                  ? ` No incluye ${fmtMoney(pagosProvVista)} pagados a proveedores.`
+                  : ''}
               </small>
             </div>
           </div>
@@ -265,7 +292,9 @@ function PanoramaNegocioAbarrotes({
           </div>
         ) : (
           <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0' }}>
-            No hay gastos del negocio (fuera de proveedores) en este periodo.
+            {pagosProvVista > 0
+              ? `No hay gastos del negocio fuera de proveedores. Lo de Reportes (${fmtMoney(pagosProvVista)}) es inversión en mercancía.`
+              : 'No hay gastos del negocio (fuera de proveedores) en este periodo.'}
           </p>
         )}
       </div>
@@ -300,7 +329,7 @@ function PanoramaNegocioAbarrotes({
         </div>
         <div className="cv-prov-kpi">
           <span className="lbl">De eso · proveedores (inversión)</span>
-          <strong className="inv">{fmtMoney(egresosProvIe || pagosProv)}</strong>
+          <strong className="inv">{fmtMoney(pagosProvVista)}</strong>
         </div>
         <div className="cv-prov-kpi">
           <span className="lbl">De eso · gastos del negocio</span>

@@ -449,6 +449,9 @@ export async function cargarReporteProveedoresIeAbarrotes(supabase, {
         ventasTotal > 0
           ? `De cada $100 vendidos, ~$${pctReinversionVentas.toFixed(0)} corresponden al costo de la mercancía (inversión). Quedan ~$${pctUtilidadSobreVentas.toFixed(0)} de ganancia del producto.`
           : 'Aún no hay ventas de corte ni POS en el periodo para calcular la ganancia del producto.',
+        (egresosProvEnIe > 0 || gastosProveedores > 0)
+          ? `Pagado a proveedores en corte/IE (lo que ves en Reportes como PROVEEDORES): ${fmtPlain(egresosProvEnIe || gastosProveedores)}. Eso NO suma en “gastos del negocio”.`
+          : '',
         utilidadBruta > 0 && gastosOperativos > 0
           ? `De esa ganancia del producto (${fmtPlain(utilidadBruta)}), se egresaron ${fmtPlain(gastosOperativos)} en gastos del negocio (~${pctGastosSobreUtilidad}%).`
           : (gastosOperativos > 0
