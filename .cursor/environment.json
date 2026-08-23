@@ -1,0 +1,10 @@
+{
+  "name": "POS CONTROL 3B",
+  "install": "ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci",
+  "terminals": [
+    {
+      "name": "vite-dev",
+      "command": "npm run dev"
+    }
+  ]
+}
