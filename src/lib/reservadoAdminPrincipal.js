@@ -1,7 +1,13 @@
-import { normalizarNombrePersona, esAdministradorPrincipal, verificarAdminPrincipal } from './adminPrincipal.js';
+import { normalizarNombrePersona, verificarAdminPrincipal } from './adminPrincipal.js';
+import { normalizarRol } from './roles.js';
 
 /** Nombres/iniciales reservados: AMR = Andrés = Marrero (misma persona). */
 export const RESERVADOS_ADMIN_PRINCIPAL = ['amr', 'andres', 'marrero'];
+
+/** Cualquier Administrador puede usar Andrés / AMR / Marrero sin PIN. */
+export function esAdminPuedeUsarReservado(user) {
+  return Boolean(user) && normalizarRol(user.rol) === 'Administrador';
+}
 
 export function textoContieneReservadoAdmin(texto) {
   const n = normalizarNombrePersona(texto);
@@ -24,24 +30,25 @@ export function encontrarReservadoAdmin(texto) {
 
 /**
  * Valida comentarios / categorías / motivos.
- * Si el actor es admin principal (AMR/Andrés), permite. Si no y hay coincidencia → pedir PIN.
+ * Cualquier Administrador puede usar Andrés/AMR/Marrero sin PIN.
+ * Si no es admin y hay coincidencia → pedir PIN del admin principal.
  * @returns {{ ok: true } | { ok: false, error: string, requierePin?: true }}
  */
 export function validarTextoSinReservadoAdmin(texto, user) {
   const hallado = encontrarReservadoAdmin(texto);
   if (!hallado) return { ok: true };
-  if (esAdministradorPrincipal(user)) return { ok: true };
+  if (esAdminPuedeUsarReservado(user)) return { ok: true };
   return {
     ok: false,
     requierePin: true,
     error:
       `No se puede usar «${hallado.toUpperCase()}» en comentarios ni categorías ` +
-      `sin autorización del administrador principal (AMR / Andrés).`,
+      `sin ser administrador o sin autorización (PIN de AMR / Andrés).`,
   };
 }
 
 /**
- * Si el texto tiene reservado y el usuario no es AMR/Andrés, pide su PIN.
+ * Si el texto tiene reservado y el usuario no es Administrador, pide PIN de AMR/Andrés.
  * @returns {{ ok: true, autorizadoPor?: string } | { ok: false, error: string, cancelado?: boolean }}
  */
 export async function asegurarTextoSinReservadoOPin(supabase, texto, { user, sucursal, promptFn = prompt } = {}) {
