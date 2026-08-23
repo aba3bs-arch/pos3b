@@ -85,6 +85,7 @@ export function proveedorDesdeGastoCorte(gasto) {
  * @param {object} opts
  * @param {number} [opts.egresosIeTotal] egresos del panel IE Abarrotes del periodo
  * @param {Array} [opts.detalleGastosIe] detalle de egresos IE (para restar pagos proveedor del operativo)
+ * @param {number} [opts.ventasCierresIe] ventas de cortes abarrotes (cargarContAbarrotes); prioriza el panorama
  */
 export async function cargarReporteProveedoresIeAbarrotes(supabase, {
   desde,
@@ -92,6 +93,7 @@ export async function cargarReporteProveedoresIeAbarrotes(supabase, {
   sucursal = null,
   egresosIeTotal = 0,
   detalleGastosIe = [],
+  ventasCierresIe = null,
 } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   if (!desde || !hasta) return { ok: false, error: 'Indica el periodo.' };
@@ -347,9 +349,8 @@ export async function cargarReporteProveedoresIeAbarrotes(supabase, {
     .filter((r) => r.ventas > 0 || r.gastos > 0 || r.compras > 0)
     .sort((a, b) => (b.ventas + b.gastos) - (a.ventas + a.gastos) || a.nombre.localeCompare(b.nombre, 'es'));
 
-  const ventasTotal = round2(porProveedor.reduce((s, r) => s + r.ventas, 0));
+  const ventasPosTotal = round2(porProveedor.reduce((s, r) => s + r.ventas, 0));
   const costoTotal = round2(porProveedor.reduce((s, r) => s + r.costo, 0));
-  const utilidadBruta = round2(ventasTotal - costoTotal);
   const gastosProveedores = round2(porProveedor.reduce((s, r) => s + r.gastos, 0));
   const comprasTotal = round2(porProveedor.reduce((s, r) => s + r.compras, 0));
 
@@ -361,6 +362,18 @@ export async function cargarReporteProveedoresIeAbarrotes(supabase, {
       .reduce((s, d) => s + (Number(d.monto) || 0), 0),
   );
   const egresosIe = round2(egresosIeTotal);
+
+  // IE Abarrotes: las ventas del panorama deben cuadrar con los cortes (ingresos IE),
+  // no solo con tickets POS. Si hay ventas de cierre, priorizarlas.
+  const ventasDesdeCierres = round2(Number(ventasCierresIe) || 0);
+  const ventasTotal = ventasDesdeCierres > 0 ? ventasDesdeCierres : ventasPosTotal;
+  const fuenteVentas = ventasDesdeCierres > 0 ? 'cierres' : 'pos';
+
+  // Reinversión: costo POS de lo vendido; si no hay, pagos a proveedores del IE/corte.
+  const reinversionProducto = costoTotal > 0
+    ? costoTotal
+    : (egresosProvEnIe > 0 ? egresosProvEnIe : gastosProveedores);
+  const utilidadBruta = round2(ventasTotal - reinversionProducto);
 
   // Gastos reales del negocio (nómina, servicios, taxis, etc.) — sin proveedores.
   const gastosOpMap = new Map();
@@ -381,7 +394,6 @@ export async function cargarReporteProveedoresIeAbarrotes(supabase, {
   const gananciaNeta = round2(utilidadBruta - gastosOperativos);
 
   // Panorama: de dónde sale la ganancia y en qué se gasta (sin mezclar proveedores).
-  const reinversionProducto = costoTotal; // costo de lo vendido (vuelve a mercancía)
   const pctReinversionVentas = ventasTotal > 0 ? round2((reinversionProducto / ventasTotal) * 100) : 0;
   const pctGastosSobreUtilidad = utilidadBruta > 0
     ? round2((gastosOperativos / utilidadBruta) * 100)
@@ -404,7 +416,10 @@ export async function cargarReporteProveedoresIeAbarrotes(supabase, {
     detalleGastos: detalleGastosProv.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))),
     totales: {
       ventas: ventasTotal,
-      costo: costoTotal,
+      ventas_pos: ventasPosTotal,
+      ventas_cierres: ventasDesdeCierres,
+      fuente_ventas: fuenteVentas,
+      costo: reinversionProducto,
       reinversion_producto: reinversionProducto,
       utilidad_bruta: utilidadBruta,
       gastos_proveedores: gastosProveedores,
@@ -421,6 +436,7 @@ export async function cargarReporteProveedoresIeAbarrotes(supabase, {
     },
     panorama: {
       ventas: ventasTotal,
+      fuente_ventas: fuenteVentas,
       reinversion: reinversionProducto,
       utilidad_bruta: utilidadBruta,
       gastos_operativos: gastosOperativos,
@@ -432,7 +448,7 @@ export async function cargarReporteProveedoresIeAbarrotes(supabase, {
         'Los pagos a proveedores NO son un “gasto del negocio”: es el dinero con el que se compra la mercancía que después se vende.',
         ventasTotal > 0
           ? `De cada $100 vendidos, ~$${pctReinversionVentas.toFixed(0)} corresponden al costo de la mercancía (inversión). Quedan ~$${pctUtilidadSobreVentas.toFixed(0)} de ganancia del producto.`
-          : 'Aún no hay ventas en el periodo para calcular la ganancia del producto.',
+          : 'Aún no hay ventas de corte ni POS en el periodo para calcular la ganancia del producto.',
         utilidadBruta > 0 && gastosOperativos > 0
           ? `De esa ganancia del producto (${fmtPlain(utilidadBruta)}), se egresaron ${fmtPlain(gastosOperativos)} en gastos del negocio (~${pctGastosSobreUtilidad}%).`
           : (gastosOperativos > 0
@@ -446,6 +462,7 @@ export async function cargarReporteProveedoresIeAbarrotes(supabase, {
       tickets: ventas.length,
       gastos_count: gastosRaw.length,
       proveedores: porProveedor.length,
+      fuente_ventas: fuenteVentas,
     },
   };
 }

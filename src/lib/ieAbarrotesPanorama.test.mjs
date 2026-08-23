@@ -51,4 +51,26 @@ function simularPanorama({ ventas, costo, egresosIe, detalleGastosIe }) {
   assert.equal(r.gastosOpMap.get('NOMINA'), 120);
 }
 
+/** Preferir ventas de cortes sobre POS vacío (caso Fusion / IE Abarrotes). */
+function elegirVentasPanorama({ ventasPos, ventasCierres }) {
+  const cierres = Math.round((Number(ventasCierres) || 0) * 100) / 100;
+  const pos = Math.round((Number(ventasPos) || 0) * 100) / 100;
+  if (cierres > 0) return { ventas: cierres, fuente: 'cierres' };
+  return { ventas: pos, fuente: 'pos' };
+}
+
+{
+  const fusion = elegirVentasPanorama({ ventasPos: 0, ventasCierres: 21990 });
+  assert.equal(fusion.fuente, 'cierres');
+  assert.equal(fusion.ventas, 21990);
+
+  const soloPos = elegirVentasPanorama({ ventasPos: 500, ventasCierres: 0 });
+  assert.equal(soloPos.fuente, 'pos');
+  assert.equal(soloPos.ventas, 500);
+
+  const ambos = elegirVentasPanorama({ ventasPos: 500, ventasCierres: 800 });
+  assert.equal(ambos.fuente, 'cierres');
+  assert.equal(ambos.ventas, 800);
+}
+
 console.log('ieAbarrotesPanorama.test.mjs ok');
