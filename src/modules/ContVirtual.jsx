@@ -25,7 +25,11 @@ import {
   resolverNombresCatalogo,
   filtrarCatalogoPorFlujo,
   categoriaEnCatalogoCortes,
+  subcategoriaEnCatalogoCortes,
   setCategoriaEnCatalogoCortes,
+  setSubcategoriaEnCatalogoCortes,
+  etiquetaAlcanceCortes,
+  normalizarCortesSucursales,
   AVISO_FALTA_CONT_VIRTUAL,
 } from '../lib/contVirtualCatalogo.js';
 import {
@@ -752,6 +756,11 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const [provSel, setProvSel] = useState(null);
   /** Filtro día(s) del mes en IE Abarrotes: { start, end } o null = mes completo. */
   const [filtroDiasMes, setFiltroDiasMes] = useState(null);
+  /** Modal: enviar categoría/subcategoría a cortes (todas o por tienda). */
+  const [modalCortes, setModalCortes] = useState(null);
+  // modalCortes: { tipo: 'categoria'|'subcategoria', item, parentCat?, modo: 'enviar'|'editar' }
+  const [modalCortesTodas, setModalCortesTodas] = useState(true);
+  const [modalCortesTiendas, setModalCortesTiendas] = useState(() => new Set());
 
   const defsInv = defaultsInversionPorLibro(libro);
   const [manual, setManual] = useState({
@@ -1450,6 +1459,66 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     await cargarCatalogo();
   };
 
+  const abrirModalEnviarCortes = (tipo, item, parentCat = null) => {
+    if (!esAdmin || !item) return;
+    if (tipo === 'categoria' && esCategoriaEmpleado(item)) {
+      return alert('Empleado siempre está en el catálogo de cortes (nómina).');
+    }
+    if (tipo === 'categoria' && String(item.flujo || '').toLowerCase() === 'ingreso') {
+      return alert('Las cuentas de ingreso no se envían al catálogo de gastos de cortes.');
+    }
+    const ya = tipo === 'categoria'
+      ? categoriaEnCatalogoCortes(item)
+      : subcategoriaEnCatalogoCortes(item, { categoria: parentCat });
+    const alcance = normalizarCortesSucursales(item.cortes_sucursales);
+    setModalCortesTodas(!alcance);
+    setModalCortesTiendas(new Set(alcance || []));
+    setModalCortes({
+      tipo,
+      item,
+      parentCat,
+      modo: ya ? 'editar' : 'enviar',
+    });
+  };
+
+  const quitarDeCortes = async (tipo, item, parentCat = null) => {
+    if (!esAdmin || !item) return;
+    if (tipo === 'categoria' && esCategoriaEmpleado(item)) {
+      return alert('Empleado siempre está en el catálogo de cortes (nómina).');
+    }
+    const nombre = item.nombre || '';
+    const msg = tipo === 'categoria'
+      ? `¿Quitar «${nombre}» del catálogo de gastos de cortes?\n\nDejará de aparecer en Corte Virtual, Abarrotes y Garage (todas las tiendas).`
+      : `¿Quitar la subcuenta «${nombre}» del catálogo de cortes?`;
+    if (!confirm(msg)) return;
+    setGuardando(true);
+    const res = tipo === 'categoria'
+      ? await setCategoriaEnCatalogoCortes(supabase, item.id, false)
+      : await setSubcategoriaEnCatalogoCortes(supabase, item.id, false);
+    setGuardando(false);
+    if (!res.ok) return alert(res.error);
+    if (res.aviso) setAvisoSql(res.aviso);
+    await cargarCatalogo();
+  };
+
+  const confirmarModalCortes = async () => {
+    if (!modalCortes?.item) return;
+    const { tipo, item } = modalCortes;
+    const sucursales = modalCortesTodas ? null : [...modalCortesTiendas];
+    if (!modalCortesTodas && !sucursales.length) {
+      return alert('Elige «Todas las sucursales» o marca al menos una tienda.');
+    }
+    setGuardando(true);
+    const res = tipo === 'categoria'
+      ? await setCategoriaEnCatalogoCortes(supabase, item.id, true, { sucursales })
+      : await setSubcategoriaEnCatalogoCortes(supabase, item.id, true, { sucursales });
+    setGuardando(false);
+    if (!res.ok) return alert(res.error);
+    if (res.aviso) setAvisoSql(res.aviso);
+    setModalCortes(null);
+    await cargarCatalogo();
+  };
+
   const toggleEnviarACortes = async (cat) => {
     if (!esAdmin || !cat) return;
     if (esCategoriaEmpleado(cat)) {
@@ -1458,16 +1527,12 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     if (String(cat.flujo || '').toLowerCase() === 'ingreso') {
       return alert('Las cuentas de ingreso no se envían al catálogo de gastos de cortes.');
     }
-    const yaEnCortes = categoriaEnCatalogoCortes(cat);
-    const msg = yaEnCortes
-      ? `¿Quitar «${cat.nombre}» del catálogo de gastos de cortes?\n\nDejará de aparecer en Corte Virtual, Abarrotes y Garage.`
-      : `¿Enviar «${cat.nombre}» al catálogo de gastos de cortes?\n\nAparecerá para capturar gastos en Corte Virtual, Abarrotes y Garage.`;
-    if (!confirm(msg)) return;
-    setGuardando(true);
-    const res = await setCategoriaEnCatalogoCortes(supabase, cat.id, !yaEnCortes);
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    await cargarCatalogo();
+    if (categoriaEnCatalogoCortes(cat)) {
+      // Ya está: abrir modal para editar alcance o quitar
+      abrirModalEnviarCortes('categoria', cat);
+      return;
+    }
+    abrirModalEnviarCortes('categoria', cat);
   };
 
   const editarEmpleadoCat = async (emp) => {
@@ -2253,17 +2318,110 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             Catálogo compartido de IE Virtual e IE Abarrotes: <strong>Cuenta → Subcuenta → Detalle</strong>.
             Los <strong>ingresos</strong> son independientes de los <strong>egresos</strong>, con el mismo formato.
             En <strong>Empleado</strong> (egresos): los tipos son Consumo/Anticipo/…; las personas se eligen al capturar (módulo Empleados). No renombres ni elimines Empleado.
-            {' '}El administrador puede <strong>enviar o quitar</strong> cada egreso del catálogo de gastos de cortes.
+            {' '}El administrador decide con casillas qué <strong>cuentas y subcuentas</strong> van a cortes,
+            y puede enviarlas a <strong>todas las tiendas</strong> o solo a algunas.
           </p>
           {!esAdmin && <p className="cv-error">Solo el administrador puede editar cuentas y subcuentas.</p>}
+
+          {modalCortes ? (
+            <div className="cv-modal-cortes" role="dialog" aria-modal="true">
+              <div className="cv-modal-cortes-card">
+                <h4 style={{ margin: '0 0 0.35rem' }}>
+                  {modalCortes.modo === 'editar' ? 'Cortes · alcance' : 'Enviar a cortes'}
+                </h4>
+                <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.8rem' }}>
+                  {modalCortes.tipo === 'categoria' ? 'Cuenta' : 'Subcuenta'}:{' '}
+                  <strong>{modalCortes.item?.nombre}</strong>
+                </p>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '0.5rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={modalCortesTodas}
+                    onChange={(e) => {
+                      setModalCortesTodas(e.target.checked);
+                      if (e.target.checked) setModalCortesTiendas(new Set());
+                    }}
+                  />
+                  <strong>Todas las sucursales</strong>
+                </label>
+                <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.45rem' }}>
+                  O elige tiendas específicas:
+                </p>
+                <div className="cv-modal-cortes-tiendas">
+                  {tiendasOperativas.map((t) => {
+                    const on = modalCortesTiendas.has(t);
+                    return (
+                      <label key={t} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.82rem' }}>
+                        <input
+                          type="checkbox"
+                          disabled={modalCortesTodas}
+                          checked={on}
+                          onChange={() => {
+                            setModalCortesTodas(false);
+                            setModalCortesTiendas((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(t)) next.delete(t);
+                              else next.add(t);
+                              return next;
+                            });
+                          }}
+                        />
+                        {etiquetaTienda(t)}
+                      </label>
+                    );
+                  })}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem', marginTop: '0.85rem' }}>
+                  <button type="button" className="cv-btn primary" disabled={guardando} onClick={confirmarModalCortes}>
+                    {guardando ? 'Guardando…' : 'Guardar'}
+                  </button>
+                  {modalCortes.modo === 'editar' ? (
+                    <button
+                      type="button"
+                      className="cv-btn ghost"
+                      disabled={guardando}
+                      style={{ color: '#c0392b' }}
+                      onClick={async () => {
+                        const snap = modalCortes;
+                        setModalCortes(null);
+                        await quitarDeCortes(snap.tipo, snap.item, snap.parentCat);
+                      }}
+                    >
+                      Quitar de cortes
+                    </button>
+                  ) : null}
+                  <button type="button" className="cv-btn ghost" disabled={guardando} onClick={() => setModalCortes(null)}>
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {(catalogoFlujoVista || []).map((c) => (
             <div key={c.id} className="cv-cat-card">
               <div className="cv-cat-hd">
-                <strong>
+                <strong style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                  {catalogoFlujo === 'egreso' && !esCategoriaEmpleado(c) && esAdmin ? (
+                    <input
+                      type="checkbox"
+                      title="Visible en cortes"
+                      checked={categoriaEnCatalogoCortes(c)}
+                      disabled={guardando}
+                      onChange={() => {
+                        if (categoriaEnCatalogoCortes(c)) abrirModalEnviarCortes('categoria', c);
+                        else abrirModalEnviarCortes('categoria', c);
+                      }}
+                    />
+                  ) : null}
                   {c.nombre}
                   {c.fijo ? ' · sistema' : ''}
                   {esCategoriaEmpleado(c) ? ' · nómina cortes' : ''}
-                  {!esCategoriaEmpleado(c) && catalogoFlujo === 'egreso' && categoriaEnCatalogoCortes(c) ? ' · en cortes' : ''}
+                  {!esCategoriaEmpleado(c) && catalogoFlujo === 'egreso' && categoriaEnCatalogoCortes(c) ? (
+                    <span className="muted" style={{ fontWeight: 500, fontSize: '0.75rem' }}>
+                      · en cortes ({etiquetaAlcanceCortes(c.cortes_sucursales)})
+                    </span>
+                  ) : null}
                 </strong>
                 {esAdmin && (
                   <span className="cv-cat-actions">
@@ -2274,8 +2432,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                         disabled={guardando}
                         title={
                           categoriaEnCatalogoCortes(c)
-                            ? 'Quitar del catálogo de gastos de cortes'
-                            : 'Evaluar y enviar esta cuenta al catálogo de cortes'
+                            ? 'Editar tiendas o quitar de cortes'
+                            : 'Enviar esta cuenta al catálogo de cortes'
                         }
                         onClick={() => toggleEnviarACortes(c)}
                         style={
@@ -2284,7 +2442,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                             : undefined
                         }
                       >
-                        {categoriaEnCatalogoCortes(c) ? 'Quitar de cortes' : 'Enviar a cortes'}
+                        {categoriaEnCatalogoCortes(c) ? 'Cortes / tiendas…' : 'Enviar a cortes…'}
                       </button>
                     )}
                     <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => nuevaSubEnCat(c.id, c.nombre)}>+ Subcuenta</button>
@@ -2300,12 +2458,46 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                 )}
               </div>
               <ul>
-                {(c.subcategorias || []).filter((s) => s.activo !== false).map((s) => (
+                {(c.subcategorias || []).filter((s) => s.activo !== false).map((s) => {
+                  const subEnCortes = subcategoriaEnCatalogoCortes(s, { categoria: c });
+                  return (
                   <li key={s.id} className="cv-sub-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.35rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'center' }}>
-                      <span>{s.nombre}{s.fijo ? ' · sistema' : ''}</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                        {catalogoFlujo === 'egreso' && !esCategoriaEmpleado(c) && esAdmin ? (
+                          <input
+                            type="checkbox"
+                            title="Visible en cortes"
+                            checked={subEnCortes}
+                            disabled={guardando || !categoriaEnCatalogoCortes(c)}
+                            onChange={() => {
+                              if (!categoriaEnCatalogoCortes(c)) {
+                                return alert('Primero envía la cuenta padre a cortes.');
+                              }
+                              if (subEnCortes) abrirModalEnviarCortes('subcategoria', s, c);
+                              else abrirModalEnviarCortes('subcategoria', s, c);
+                            }}
+                          />
+                        ) : null}
+                        {s.nombre}{s.fijo ? ' · sistema' : ''}
+                        {catalogoFlujo === 'egreso' && !esCategoriaEmpleado(c) && subEnCortes && categoriaEnCatalogoCortes(c) ? (
+                          <span className="muted" style={{ fontSize: '0.72rem' }}>
+                            · cortes ({etiquetaAlcanceCortes(s.cortes_sucursales ?? c.cortes_sucursales)})
+                          </span>
+                        ) : null}
+                      </span>
                       {esAdmin && (
                         <span className="cv-cat-actions">
+                          {catalogoFlujo === 'egreso' && !esCategoriaEmpleado(c) && categoriaEnCatalogoCortes(c) ? (
+                            <button
+                              type="button"
+                              className="cv-btn ghost cv-cat-btn"
+                              disabled={guardando}
+                              onClick={() => abrirModalEnviarCortes('subcategoria', s, c)}
+                            >
+                              {subEnCortes ? 'Cortes…' : 'Enviar…'}
+                            </button>
+                          ) : null}
                           <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => nuevoDetalleEnSub(s.id, s.nombre)}>+ Detalle</button>
                           <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarSub(s)}>Editar</button>
                           <button type="button" className="cv-row-del" onClick={() => borrarSub(s)}>
@@ -2331,7 +2523,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                       )}
                     </ul>
                   </li>
-                ))}
+                  );
+                })}
                 {!(c.subcategorias || []).filter((s) => s.activo !== false).length && (
                   <li className="muted">Sin subcategorías</li>
                 )}

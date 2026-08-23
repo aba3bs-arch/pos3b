@@ -1,6 +1,7 @@
 import {
   CATEGORIAS_CONT_VIRTUAL_DEFAULT,
   categoriaEnCatalogoCortes,
+  subcategoriaEnCatalogoCortes,
   crearCategoriaContVirtual,
   crearSubcategoriaContVirtual,
   editarCategoriaContVirtual,
@@ -133,7 +134,7 @@ function ordenarTiposEmpleadoCorte(tipos) {
 }
 
 /** Convierte catálogo IE (Virtual/Abarrotes, compartido) → formato de corte. */
-export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual') {
+export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual', { sucursal = null } = {}) {
   const out = [];
   const vistos = new Set();
   for (const c of ieCats || []) {
@@ -166,13 +167,12 @@ export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual') {
       });
       continue;
     }
-    // Solo cuentas que el admin marcó para el catálogo de cortes.
-    if (!categoriaEnCatalogoCortes(c)) continue;
+    // Solo cuentas que el admin marcó para el catálogo de cortes (y alcance de tienda).
+    if (!categoriaEnCatalogoCortes(c, { sucursal })) continue;
     vistos.add(categoria);
     const subs = [];
     for (const s of c.subcategorias || []) {
-      if (s?.activo === false) continue;
-      if (s.es_empleado_vivo) continue;
+      if (!subcategoriaEnCatalogoCortes(s, { sucursal, categoria: c })) continue;
       const subNom = String(s.nombre || '').trim().toUpperCase();
       if (!subNom) continue;
       const dets = (s.detalles || []).filter((d) => d?.activo !== false);
@@ -185,6 +185,9 @@ export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual') {
         subs.push(subNom);
       }
     }
+    // Si la categoría está en cortes pero ninguna sub quedó, igual mostrar la categoría
+    // con lista vacía (el cajero puede necesitar verla); o saltarla si no hay subs.
+    if (!subs.length) continue;
     out.push({
       id: c.id,
       ieId: c.id,
@@ -192,15 +195,16 @@ export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual') {
       subcategorias: [...new Set(subs)],
       fuente,
       en_catalogo_cortes: true,
+      cortes_sucursales: c.cortes_sucursales || null,
     });
   }
   return out;
 }
 
-function catalogoIeConFallback(ieData, fuente = 'ie_virtual') {
-  const desdeIe = catalogoIeAFormatoCorte(ieData, fuente);
+function catalogoIeConFallback(ieData, fuente = 'ie_virtual', opts = {}) {
+  const desdeIe = catalogoIeAFormatoCorte(ieData, fuente, opts);
   if (desdeIe.length) return desdeIe;
-  return catalogoIeAFormatoCorte(CATEGORIAS_CONT_VIRTUAL_DEFAULT, fuente);
+  return catalogoIeAFormatoCorte(CATEGORIAS_CONT_VIRTUAL_DEFAULT, fuente, opts);
 }
 
 async function listarDesdeNube(supabase, sucursalId, modulo) {
@@ -269,12 +273,13 @@ async function guardarCategoriaGastoProveedor(supabase, categoria, subcategorias
 export async function listarCatalogoGastos(supabase, sucursal, modulo) {
   const ieRes = await listarCatalogoContVirtual(supabase);
   const fuenteIe = modulo === 'abarrotes' ? 'ie_abarrotes' : 'ie_virtual';
-  let desdeIe = catalogoIeConFallback(ieRes.data || [], fuenteIe);
+  const optsSuc = { sucursal: sucursal || null };
+  let desdeIe = catalogoIeConFallback(ieRes.data || [], fuenteIe, optsSuc);
   // Si Empleado no llegó al corte (catálogo roto / desactivado), reparar y reintentar.
   if (!desdeIe.some((c) => c.es_categoria_empleado || esCategoriaEmpleado(c))) {
     await repararCategoriaEmpleado(supabase);
     const ie2 = await listarCatalogoContVirtual(supabase);
-    desdeIe = catalogoIeConFallback(ie2.data || [], fuenteIe);
+    desdeIe = catalogoIeConFallback(ie2.data || [], fuenteIe, optsSuc);
   }
 
   if (modulo !== 'abarrotes') {
