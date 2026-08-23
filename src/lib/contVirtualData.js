@@ -1,4 +1,4 @@
-import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
+import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { periodoSemanaNomina } from './semanaNomina.js';
 import {
   CUOTA_SEMANAL_MINIMA,
@@ -204,19 +204,27 @@ function itemIngresoRecoleccion(r, { desde, etiquetaCuentaFn } = {}) {
   };
 }
 
+/** Monto de venta de un cierre abarrotes (columna + detalle). */
+export function montoVentaCierreAbarrotes(c) {
+  const detalle = c?.detalle && typeof c.detalle === 'object' ? c.detalle : {};
+  return round2(
+    Number(c?.ventas)
+    || Number(detalle.venta)
+    || Number(detalle.venta_neta)
+    || Number(detalle.venta_efectivo)
+    || Number(detalle.subtotal)
+    || 0,
+  );
+}
+
 /**
  * Ingreso IE ABARROTES desde cierre de turno: la venta del corte
  * (no requiere recolección; la recolección es solo retiro de efectivo).
  */
 function itemIngresoVentaCierreAbarrotes(c, { desde } = {}) {
-  const detalle = c?.detalle || {};
-  const venta = round2(
-    Number(c?.ventas)
-    || Number(detalle.venta)
-    || Number(detalle.venta_neta)
-    || 0,
-  );
-  const t = c?.sucursal_id || 'MAIN';
+  const detalle = c?.detalle && typeof c.detalle === 'object' ? c.detalle : {};
+  const venta = montoVentaCierreAbarrotes(c);
+  const t = normalizarCodigoTienda(c?.sucursal_id) || 'MAIN';
   const f = ymdNegocio(detalle.fecha_negocio)
     || ymdNegocio(c?.created_at)
     || desde;
@@ -238,12 +246,14 @@ function itemIngresoVentaCierreAbarrotes(c, { desde } = {}) {
 }
 
 function tipoCierre(row) {
-  return String(row?.detalle?.tipo_cierre || row?.turno || '').toLowerCase();
+  // Solo detalle.tipo_cierre: no usar `turno` ("Turno diurno", etc.) como tipo.
+  return String(row?.detalle?.tipo_cierre || '').toLowerCase();
 }
 
 function esCierreTurno(row) {
   const t = tipoCierre(row);
-  // Excluye recolección definitiva y temporal (no son cierres de cajero).
+  // Sin tipo (cierres viejos) o 'cierre' cuentan; excluye recolección / actualización.
+  if (!t || t === 'cierre') return true;
   return !t.startsWith('recoleccion') && t !== 'actualizacion';
 }
 
@@ -629,8 +639,9 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   if (!desde || !hasta) return { ok: false, error: 'Indica el periodo.' };
 
+  const sucFiltro = sucursal ? normalizarCodigoTienda(sucursal) : null;
   const tiendas = listarSucursalesOperativas();
-  const tiendasFiltro = sucursal ? [sucursal] : tiendas;
+  const tiendasFiltro = sucFiltro ? [sucFiltro] : tiendas;
   const { desdeIso, hastaIso } = rangoIsoNogales(desde, hasta);
 
   await sincronizarGastosCubreTaxiContVirtual(supabase);
@@ -643,7 +654,7 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     .lte('created_at', hastaIso)
     .order('created_at', { ascending: false })
     .limit(3000);
-  if (sucursal) qCierres = qCierres.eq('sucursal_id', sucursal);
+  // No .eq sucursal aquí: filtramos con normalizarCodigoTienda (FUSION vs Fusion).
 
   let qGastos = supabase
     .from('cortes_contabilidad_gastos')
@@ -653,7 +664,6 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     .lte('created_at', hastaIso)
     .order('created_at', { ascending: false })
     .limit(5000);
-  if (sucursal) qGastos = qGastos.eq('sucursal_id', sucursal);
 
   // Legacy: gastos RT Francisco que aún aparecen con modulo=virtual
   let qGastosRtLegacy = supabase
@@ -665,10 +675,8 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     .lte('created_at', hastaIso)
     .order('created_at', { ascending: false })
     .limit(2000);
-  if (sucursal) qGastosRtLegacy = qGastosRtLegacy.eq('sucursal_id', sucursal);
 
   let qPrestamos = supabase.from('prestamos').select('*').order('created_at', { ascending: false }).limit(1000);
-  if (sucursal) qPrestamos = qPrestamos.eq('sucursal_id', sucursal);
 
   const [cierresRes, gastosRes, gastosLegacyRes, prestamosRes, catalogoRes, egresosLibroRes, refsPrestElimRes, ingresosManualRes] = await Promise.all([
     qCierres,
@@ -676,9 +684,9 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     qGastosRtLegacy,
     qPrestamos,
     listarCatalogoContVirtual(supabase),
-    listarEgresosContVirtual(supabase, { desde, hasta, sucursal, cuenta: 'abarrotes' }),
+    listarEgresosContVirtual(supabase, { desde, hasta, sucursal: sucFiltro, cuenta: 'abarrotes' }),
     listarRefsEgresosEliminadosIe(supabase, 'prestamos'),
-    listarIngresosContVirtual(supabase, { desde, hasta, sucursal, cuenta: 'abarrotes' }),
+    listarIngresosContVirtual(supabase, { desde, hasta, sucursal: sucFiltro, cuenta: 'abarrotes' }),
   ]);
 
   if (cierresRes.error && cierresRes.error.code !== '42P01') {
@@ -691,7 +699,12 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
   const legacyFrancisco = (gastosLegacyRes.error ? [] : gastosLegacyRes.data || []).filter(gastoEsCuentaRtFrancisco);
   await reclasificarGastosRtFranciscoAAbarrotes(supabase, legacyFrancisco);
 
-  const todosCierres = cierresRes.data || [];
+  // Soft-delete: no contar cierres en papelera (si la columna no existe, deleted_at viene undefined).
+  const todosCierres = (cierresRes.data || []).filter((c) => {
+    if (c.deleted_at) return false;
+    if (sucFiltro && normalizarCodigoTienda(c.sucursal_id) !== sucFiltro) return false;
+    return true;
+  });
   const cierres = todosCierres.filter((c) => esCierreTurno(c));
   const recoleccionesTodas = todosCierres.filter((c) => esRecoleccionParaIe(c));
   const recolecciones = recoleccionesTodas.filter((c) => recoleccionAprobadaParaIe(c));
@@ -701,10 +714,14 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
     ...cierres,
   ]);
   const gastos = [...(gastosRes.data || []), ...legacyFrancisco].filter((g) => {
-    if (sucursal && g.sucursal_id !== sucursal) return false;
+    if (sucFiltro && normalizarCodigoTienda(g.sucursal_id) !== sucFiltro) return false;
     const est = g.estado_aprobacion;
     return !est || est === 'aprobado';
   });
+  const prestamosAllRaw = prestamosRes.error ? [] : prestamosRes.data || [];
+  const prestamosAll = sucFiltro
+    ? prestamosAllRaw.filter((p) => normalizarCodigoTienda(p.sucursal_id) === sucFiltro)
+    : prestamosAllRaw;
   const catalogo = (catalogoRes.data || []).filter((c) => c.activo !== false);
 
   const ingresosPorTienda = {};
@@ -730,8 +747,8 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
 
   let ventasCierresTotal = 0;
   for (const c of cierres) {
-    const t = c.sucursal_id || 'MAIN';
-    if (sucursal && t !== sucursal) continue;
+    const t = normalizarCodigoTienda(c.sucursal_id) || 'MAIN';
+    if (sucFiltro && t !== sucFiltro) continue;
     if (!ingresosPorTienda[t]) {
       ingresosPorTienda[t] = { id: t, label: etiquetaTienda(t), ingresos: 0, cierres: 0, recolecciones: 0 };
     }
@@ -750,13 +767,14 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
 
   let recoleccionTotal = 0;
   for (const r of recolecciones) {
-    const t = r.sucursal_id || 'MAIN';
-    if (sucursal && t !== sucursal) continue;
+    const t = normalizarCodigoTienda(r.sucursal_id) || 'MAIN';
+    if (sucFiltro && t !== sucFiltro) continue;
     const item = itemIngresoRecoleccion(r, {
       desde,
       etiquetaCuentaFn: () => 'Abarrotes',
     });
     item.cuenta = 'abarrotes';
+    item.tienda = t;
     if (!(item.monto > 0)) continue;
     // Solo contador de efectivo recolectado; no suma otra vez a ingresos
     // (las ventas del cierre ya son el ingreso).
@@ -771,19 +789,20 @@ export async function cargarContAbarrotes(supabase, { desde, hasta, sucursal = n
   for (const row of ingresosManualRes.data || []) {
     const item = itemIngresoManualDesdeFila({ ...row, cuenta: 'abarrotes' });
     if (!(item.monto > 0)) continue;
-    const t = item.tienda || 'MAIN';
+    const t = normalizarCodigoTienda(item.tienda) || 'MAIN';
+    if (sucFiltro && t !== sucFiltro) continue;
     ingresosTotal = round2(ingresosTotal + item.monto);
     porCuenta.abarrotes.ingresos = round2(porCuenta.abarrotes.ingresos + item.monto);
     if (!ingresosPorTienda[t]) {
       ingresosPorTienda[t] = { id: t, label: etiquetaTienda(t), ingresos: 0, cierres: 0, recolecciones: 0 };
     }
     ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + item.monto);
+    item.tienda = t;
     ingresosItems.push(item);
   }
 
   const ingresosPorDia = ingresosItems.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
 
-  const prestamosAll = prestamosRes.error ? [] : prestamosRes.data || [];
   const prestamosPeriodo = prestamosAll.filter((p) => {
     if (['rechazado', 'pendiente_admin'].includes(String(p.estado))) return false;
     const area = String(p.area_corte || '').toLowerCase();

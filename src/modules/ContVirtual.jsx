@@ -128,12 +128,16 @@ function PanoramaNegocioAbarrotes({
   const neta = Number(tot.ganancia_neta) || 0;
   const pagosProv = Number(tot.gastos_proveedores) || 0;
   const egresosProvIe = Number(tot.egresos_proveedores_ie) || 0;
+  const fuenteVentas = String(tot.fuente_ventas || panorama?.fuente_ventas || '').toLowerCase();
   const lineas = panorama?.resumen || [];
   const desglose = panorama?.gastos_desglose || [];
   const mostrarFiltroPeriodo = typeof onFiltroDias === 'function' && anio != null && mes != null;
   const mostrarFiltroTienda = typeof onFiltroTienda === 'function';
   const listaTiendas = tiendas.length ? tiendas : listarSucursalesOperativas();
   const etiquetaTiendaActiva = filtroTienda ? etiquetaTienda(filtroTienda) : 'Todas las sucursales';
+  const etiquetaFuenteVentas = fuenteVentas === 'cierres'
+    ? 'Suma de ventas de cortes Abarrotes (cierres de turno)'
+    : 'Dinero que entró por producto vendido en el POS';
 
   return (
     <div className="cv-prov-panel cv-panorama">
@@ -193,7 +197,7 @@ function PanoramaNegocioAbarrotes({
             <div>
               <strong>Ventas (lo que cobramos)</strong>
               <em className="ingreso">{fmtMoney(ventas)}</em>
-              <small>Dinero que entró por producto vendido en el POS</small>
+              <small>{etiquetaFuenteVentas}</small>
             </div>
           </div>
           <div className="cv-panorama-paso cv-panorama-paso--inv">
@@ -906,6 +910,9 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       sucursal: filtroTienda || null,
       egresosIeTotal: datos?.egresosTotal || 0,
       detalleGastosIe: datos?.detalleGastos || [],
+      ventasCierresIe: datos?.ventasCierresTotal
+        ?? datos?.porCuenta?.abarrotes?.ventas
+        ?? 0,
     });
     setCargandoProv(false);
     if (!res.ok) {
@@ -913,7 +920,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       return;
     }
     setProvReporte(res);
-  }, [esFrancisco, supabase, rango?.desde, rango?.hasta, filtroTienda, datos?.egresosTotal, datos?.detalleGastos]);
+  }, [esFrancisco, supabase, rango?.desde, rango?.hasta, filtroTienda, datos?.egresosTotal, datos?.detalleGastos, datos?.ventasCierresTotal, datos?.porCuenta?.abarrotes?.ventas]);
 
   useEffect(() => {
     if (!esFrancisco) return;
@@ -1006,8 +1013,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
     const map = {};
     for (const it of itemsIngreso) {
-      const id = it.tienda || 'MAIN';
-      if (filtroTienda && id !== filtroTienda) continue;
+      const id = normalizarCodigoTienda(it.tienda) || 'MAIN';
+      if (filtroTienda && id !== normalizarCodigoTienda(filtroTienda)) continue;
       if (!map[id]) {
         map[id] = {
           id,
