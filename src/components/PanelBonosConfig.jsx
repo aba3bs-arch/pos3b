@@ -254,6 +254,53 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
             </label>
           </div>
 
+          <h4 style={{ margin: '1rem 0 0.5rem', color: 'var(--brand-blue)' }}>Bonos por turno (Check List)</h4>
+          <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
+            Se ajustan con el % de evaluación del compañero del checklist cerrado:
+            {' '}<strong>bono = base × (% / 100)</strong>. Ej.: TD $100 al 80% → $80; TN $50 al 100% → $50.
+          </p>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
+            <input
+              type="checkbox"
+              checked={cfg.bonosTurno?.activo !== false}
+              onChange={(e) => setCfg((c) => ({
+                ...c,
+                bonosTurno: { ...(c.bonosTurno || {}), activo: e.target.checked },
+              }))}
+            />
+            Activar bonos por turno TD / TN
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
+            <label className="muted" style={{ fontSize: '0.75rem' }}>
+              Bono TD (turno día) $
+              <input
+                className="input"
+                type="number"
+                min={0}
+                step="1"
+                value={cfg.bonosTurno?.TD ?? 100}
+                onChange={(e) => setCfg((c) => ({
+                  ...c,
+                  bonosTurno: { ...(c.bonosTurno || {}), TD: Number(e.target.value) },
+                }))}
+              />
+            </label>
+            <label className="muted" style={{ fontSize: '0.75rem' }}>
+              Bono TN (turno noche) $
+              <input
+                className="input"
+                type="number"
+                min={0}
+                step="1"
+                value={cfg.bonosTurno?.TN ?? 50}
+                onChange={(e) => setCfg((c) => ({
+                  ...c,
+                  bonosTurno: { ...(c.bonosTurno || {}), TN: Number(e.target.value) },
+                }))}
+              />
+            </label>
+          </div>
+
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '1.25rem' }}>
             <button type="button" className="btn btn-primary" disabled={guardando || !esAdmin} onClick={guardar}>
               {guardando ? 'Guardando…' : 'Guardar parámetros'}
@@ -284,6 +331,7 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                   <th style={{ padding: '0.4rem' }}>Base</th>
                   <th style={{ padding: '0.4rem' }}>%</th>
                   <th style={{ padding: '0.4rem' }}>Bono</th>
+                  <th style={{ padding: '0.4rem' }}>Turnos</th>
                   <th style={{ padding: '0.4rem' }}>Reglas</th>
                 </tr>
               </thead>
@@ -295,6 +343,11 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                     <td style={{ padding: '0.45rem' }}>{fmtMoney(row.base)}</td>
                     <td style={{ padding: '0.45rem' }}>{row.pct}%</td>
                     <td style={{ padding: '0.45rem', fontWeight: 800, color: row.bono > 0 ? '#b45309' : undefined }}>{fmtMoney(row.bono)}</td>
+                    <td style={{ padding: '0.45rem', fontSize: '0.78rem' }}>
+                      {row.bonosTurno?.activo
+                        ? `TD ${fmtMoney(row.bonosTurno?.porTurno?.TD?.bono || 0)} · TN ${fmtMoney(row.bonosTurno?.porTurno?.TN?.bono || 0)}`
+                        : '—'}
+                    </td>
                     <td style={{ padding: '0.45rem' }}>
                       {(row.reglas || []).map((r) => (
                         <span key={r.id} title={`${r.label}: ${r.valor}`} style={{ marginRight: 4, color: r.ok ? '#15803d' : '#b91c1c' }}>

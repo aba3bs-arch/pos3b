@@ -29,6 +29,13 @@ export const NIVELES_PCT_DEFAULT = [
   { reglasMin: 0, pct: 0 },
 ];
 
+/** Bono base por turno de checklist (ajustado por % evaluación del compañero). */
+export const BONOS_TURNO_DEFAULT = {
+  activo: true,
+  TD: 100,
+  TN: 50,
+};
+
 export const BONOS_CONFIG_DEFAULT = {
   activo: true,
   /** Semana nómina (sáb–vie) o día. */
@@ -41,6 +48,11 @@ export const BONOS_CONFIG_DEFAULT = {
     evaluacionMinPct: { activo: true, label: 'Evaluación operativa', minPct: 75 },
     checklistDiario: { activo: true, label: 'Check list operativo diario' },
   },
+  /**
+   * Bonos por turno (TD/TN) según % de evaluación del compañero del checklist.
+   * monto = baseTurno × (pctCumple / 100).
+   */
+  bonosTurno: { ...BONOS_TURNO_DEFAULT },
   /**
    * Si true, recolecciones por encima del último max usan el bono del último rango.
    * Si false, fuera de rango = $0.
@@ -92,6 +104,16 @@ export function normalizarNivelesPct(niveles) {
     .sort((a, b) => b.reglasMin - a.reglasMin);
 }
 
+export function normalizarBonosTurno(raw) {
+  const base = BONOS_TURNO_DEFAULT;
+  const r = raw && typeof raw === 'object' ? raw : {};
+  return {
+    activo: r.activo !== false,
+    TD: Math.max(0, round2(num(r.TD, base.TD))),
+    TN: Math.max(0, round2(num(r.TN, base.TN))),
+  };
+}
+
 export function normalizarBonosConfig(raw) {
   const base = BONOS_CONFIG_DEFAULT;
   const r = raw && typeof raw === 'object' ? raw : {};
@@ -121,6 +143,7 @@ export function normalizarBonosConfig(raw) {
         label: String(reglasIn.checklistDiario?.label || base.reglas.checklistDiario.label),
       },
     },
+    bonosTurno: normalizarBonosTurno(r.bonosTurno),
     topeSuperiorUsaUltimo: r.topeSuperiorUsaUltimo !== false,
   };
 }
@@ -234,4 +257,9 @@ export function pctPorReglasCumplidas(cumplidas, config = null) {
 
 export function bonoFinal(base, pct) {
   return round2((Number(base) || 0) * ((Number(pct) || 0) / 100));
+}
+
+/** Bono de un turno = base configurada × % evaluación del compañero. */
+export function bonoTurnoPorEvaluacion(baseTurno, pctEvaluacion) {
+  return bonoFinal(baseTurno, pctEvaluacion);
 }
