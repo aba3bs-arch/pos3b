@@ -5,13 +5,14 @@ import { normalizarCodigoTienda } from '../constants/sucursales.js';
 import { inicioDia, finDia, hoyYmdNogales } from './corteCaja.js';
 import { periodoSemanaNomina } from './semanaNomina.js';
 import { listarMovimientosRecoleccionContabilidad, claveDiaReporte, sucursalParaControlEfectivo } from './controlEfectivo.js';
-import { listarSesionesChecklist, hoyYmdLocal } from './checklistOperativo.js';
+import { listarSesionesChecklist, listarRespuestasSesion, hoyYmdLocal, evaluacionCompaneroChecklist, labelTurno } from './checklistOperativo.js';
 import { listarEvaluaciones } from './evaluacionOperativa.js';
 import { costoUnitarioInventario, resumirValorInventario } from './valorInventario.js';
 import { inventarioParaSucursal } from './inventarioMultitienda.js';
 import {
   bonoBasePorMonto,
   bonoFinal,
+  bonoTurnoPorEvaluacion,
   leerBonosConfig,
   normalizarBonosConfig,
   pctPorReglasCumplidas,
@@ -247,6 +248,94 @@ async function checklistCumple(supabase, sucursal, desde, hasta, esDia) {
 }
 
 /**
+ * Bonos por turno TD/TN según % evaluación del compañero del checklist cerrado.
+ * bono = baseTurno × (pct / 100). Ej.: TD $100 · 80% → $80; TN $50 · 100% → $50.
+ */
+export async function calcularBonosTurnoChecklist(supabase, {
+  sucursal,
+  desde,
+  hasta,
+  config = null,
+} = {}) {
+  const cfg = normalizarBonosConfig(config || leerBonosConfig());
+  const bt = cfg.bonosTurno || {};
+  const vacio = {
+    activo: !!bt.activo,
+    bases: { TD: bt.TD || 0, TN: bt.TN || 0 },
+    detalle: [],
+    porTurno: {
+      TD: { base: bt.TD || 0, sesiones: 0, pctPromedio: 0, bono: 0 },
+      TN: { base: bt.TN || 0, sesiones: 0, pctPromedio: 0, bono: 0 },
+    },
+    total: 0,
+  };
+  if (!bt.activo || !supabase) return vacio;
+
+  const suc = normalizarCodigoTienda(sucursal);
+  const res = await listarSesionesChecklist(supabase, {
+    sucursalId: suc,
+    desde,
+    hasta,
+    limit: 200,
+  });
+  const sesiones = (res.data || []).filter((s) => {
+    const t = String(s.turno || '').toUpperCase();
+    return (t === 'TD' || t === 'TN') && String(s.estado) === 'cerrado';
+  });
+
+  const detalle = [];
+  for (const s of sesiones) {
+    const turno = String(s.turno || '').toUpperCase();
+    const base = turno === 'TD' ? Number(bt.TD) || 0 : Number(bt.TN) || 0;
+    const resp = await listarRespuestasSesion(supabase, s.id);
+    const evalC = evaluacionCompaneroChecklist(resp.data || {});
+    const bono = bonoTurnoPorEvaluacion(base, evalC.pct);
+    detalle.push({
+      id: s.id,
+      fecha: String(s.fecha || '').slice(0, 10),
+      turno,
+      labelTurno: labelTurno(turno),
+      base,
+      pct: evalC.pct,
+      bono,
+      nivel: evalC.nivel,
+      color: evalC.color,
+      etiqueta: evalC.etiqueta,
+      usuario: s.usuario_nombre || '',
+    });
+  }
+
+  detalle.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)) || String(a.turno).localeCompare(String(b.turno)));
+
+  const porTurno = {
+    TD: { base: Number(bt.TD) || 0, sesiones: 0, pctSuma: 0, pctPromedio: 0, bono: 0 },
+    TN: { base: Number(bt.TN) || 0, sesiones: 0, pctSuma: 0, pctPromedio: 0, bono: 0 },
+  };
+  let total = 0;
+  for (const d of detalle) {
+    const slot = porTurno[d.turno];
+    if (!slot) continue;
+    slot.sesiones += 1;
+    slot.pctSuma += d.pct;
+    slot.bono = round2(slot.bono + d.bono);
+    total = round2(total + d.bono);
+  }
+  for (const k of ['TD', 'TN']) {
+    const s = porTurno[k];
+    s.pctPromedio = s.sesiones ? Math.round(s.pctSuma / s.sesiones) : 0;
+    delete s.pctSuma;
+  }
+
+  return {
+    activo: true,
+    bases: { TD: Number(bt.TD) || 0, TN: Number(bt.TN) || 0 },
+    detalle,
+    porTurno,
+    total,
+  };
+}
+
+/**
  * Calcula bono de una sucursal para el periodo configurado.
  */
 export async function calcularBonoSucursal(supabase, {
@@ -266,12 +355,18 @@ export async function calcularBonoSucursal(supabase, {
   const rango = rangoPeriodoBono(cfgLive, fecha);
   const esDia = cfgLive.periodo === 'dia';
 
-  const [reco, falt, merma, evalRes, check] = await Promise.all([
+  const [reco, falt, merma, evalRes, check, bonosTurno] = await Promise.all([
     totalRecoleccionPeriodo(supabase, suc, rango.desde, rango.hasta),
     faltantePeriodo(supabase, suc, rango.desde, rango.hasta),
     mermaPctPeriodo(supabase, suc, rango.desde, rango.hasta, inventario),
     evaluacionPct(supabase, suc),
     checklistCumple(supabase, suc, rango.desde, rango.hasta, esDia),
+    calcularBonosTurnoChecklist(supabase, {
+      sucursal: suc,
+      desde: rango.desde,
+      hasta: rango.hasta,
+      config: cfgLive,
+    }),
   ]);
 
   const base = bonoBasePorMonto(reco.total, cfgLive);
@@ -344,7 +439,9 @@ export async function calcularBonoSucursal(supabase, {
     : cumplidas;
 
   const pct = cfgLive.activo ? pctPorReglasCumplidas(cumplidasNorm, cfgLive) : 0;
-  const bono = cfgLive.activo && base > 0 ? bonoFinal(base, pct) : 0;
+  const bonoRecoleccion = cfgLive.activo && base > 0 ? bonoFinal(base, pct) : 0;
+  const bonoTurnos = cfgLive.activo && bonosTurno?.activo ? (Number(bonosTurno.total) || 0) : 0;
+  const bono = round2(bonoRecoleccion + bonoTurnos);
 
   return {
     ok: true,
@@ -356,6 +453,9 @@ export async function calcularBonoSucursal(supabase, {
     base,
     pct,
     bono,
+    bonoRecoleccion,
+    bonoTurnos,
+    bonosTurno,
     cumplidas,
     activas,
     cumplidasNorm,
