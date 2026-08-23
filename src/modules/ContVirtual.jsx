@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { listarSucursales, listarSucursalesOperativas, etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
-import { puedeGestionarUsuarios } from '../lib/roles.js';
+import { puedeGestionarUsuarios, normalizarRol, listarTodosLosRoles } from '../lib/roles.js';
+import { pinEsCubreTurnoDeSucursal } from '../lib/cubreTurnoSync.js';
 import { estiloPastel } from '../lib/estadisticasData.js';
 import {
   cargarContVirtual,
@@ -1470,6 +1471,63 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     await cargarCatalogo();
   };
 
+  const crearEmpleadoMain = async () => {
+    if (!esAdmin || !supabase) return;
+    const nombre = prompt('Nombre del empleado Main (indirecto / todas las tiendas):');
+    if (nombre == null) return;
+    const n = String(nombre).trim();
+    if (!n) return alert('Nombre obligatorio.');
+    const pin = prompt('PIN de acceso (obligatorio):');
+    if (pin == null) return;
+    const p = String(pin).trim();
+    if (!p) return alert('PIN obligatorio.');
+    const rolesDisp = listarTodosLosRoles();
+    const rolRaw = prompt(
+      `Rol (${rolesDisp.slice(0, 6).join(', ')}…):`,
+      'Cajero',
+    );
+    if (rolRaw == null) return;
+    const rol = normalizarRol(String(rolRaw).trim() || 'Cajero');
+    const payload = {
+      nombre: n,
+      pin: p,
+      rol,
+      tipo_empleado: 'indirecto',
+      sucursal_id: 'MAIN',
+      nomina_pagador: 'abarrotes',
+      activo: true,
+    };
+    const cubre = await pinEsCubreTurnoDeSucursal(supabase, payload.pin, payload.sucursal_id);
+    if (cubre.coincide) {
+      return alert(
+        `Ese PIN es el de cubre turno de ${etiquetaTienda(payload.sucursal_id)}. Elige otro PIN para el empleado.`,
+      );
+    }
+    const { error } = await supabase.from('usuarios').insert([payload]);
+    if (error) {
+      if (error.code === '23505' || String(error.message).includes('duplicate')) {
+        return alert(`Ya existe un usuario con PIN ${payload.pin} en MAIN.`);
+      }
+      if (String(error.message).includes('tipo_empleado')) {
+        return alert('Ejecuta supabase/fix_usuarios_tipo_empleado.sql en Supabase.');
+      }
+      if (String(error.message).includes('usuarios_rol_check')) {
+        return alert(
+          `El rol "${payload.rol}" no está permitido en Supabase. Ejecuta supabase/fix_usuarios_rol_check.sql.`,
+        );
+      }
+      if (String(error.message).includes('sucursal_id')) {
+        return alert('Ejecuta supabase/fix_usuarios_sucursal.sql en Supabase.');
+      }
+      if (String(error.message).includes('activo')) {
+        return alert('Ejecuta supabase/fix_usuarios_activo.sql en Supabase.');
+      }
+      return alert(error.message);
+    }
+    await cargarUsuariosCat();
+    alert(`${n} dado de alta en Main (${rol}).`);
+  };
+
   const editarEmpleadoCat = async (emp) => {
     if (!esAdmin || !emp?.usuario_id || !supabase) return;
     const nombre = prompt('Nombre del empleado:', emp.nombre || '');
@@ -2252,7 +2310,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.75rem' }}>
             Catálogo compartido de IE Virtual e IE Abarrotes: <strong>Cuenta → Subcuenta → Detalle</strong>.
             Los <strong>ingresos</strong> son independientes de los <strong>egresos</strong>, con el mismo formato.
-            En <strong>Empleado</strong> (egresos): los tipos son Consumo/Anticipo/…; las personas se eligen al capturar (módulo Empleados). No renombres ni elimines Empleado.
+            En <strong>Empleado</strong> (egresos): los tipos son Consumo/Anticipo/…; las personas Main se dan de alta aquí (+ Main). No renombres ni elimines Empleado.
             {' '}El administrador puede <strong>enviar o quitar</strong> cada egreso del catálogo de gastos de cortes.
           </p>
           {!esAdmin && <p className="cv-error">Solo el administrador puede editar cuentas y subcuentas.</p>}
@@ -2340,7 +2398,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                 <div style={{ marginTop: '0.75rem', paddingTop: '0.65rem', borderTop: '1px dashed var(--border, #ddd)' }}>
                   <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.45rem' }}>
                     Personal que puede recibir estos gastos: <strong>Main</strong> (todas las tiendas) y <strong>tienda</strong> (solo la sucursal).
-                    Al capturar en corte o egreso manual se elige la persona. Altas en módulo Empleados.
+                    Al capturar en corte o egreso manual se elige la persona. Puedes dar de alta empleados Main aquí; tienda también en Empleados.
                   </p>
                   <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
                     Sucursal tienda
@@ -2357,8 +2415,13 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                     </select>
                   </label>
                   <ul>
-                    <li className="cv-sub-row" style={{ background: 'rgba(0,0,0,0.04)', fontWeight: 700, fontSize: '0.82rem' }}>
-                      Empleados de Main
+                    <li className="cv-sub-row" style={{ background: 'rgba(0,0,0,0.04)', fontWeight: 700, fontSize: '0.82rem', justifyContent: 'space-between' }}>
+                      <span>Empleados de Main</span>
+                      {esAdmin && (
+                        <button type="button" className="cv-btn ghost cv-cat-btn" onClick={crearEmpleadoMain}>
+                          + Main
+                        </button>
+                      )}
                     </li>
                     {empMain.length ? empMain.map((e) => (
                       <li key={`m-${e.id}`} className="cv-sub-row" style={{ justifyContent: 'space-between' }}>
