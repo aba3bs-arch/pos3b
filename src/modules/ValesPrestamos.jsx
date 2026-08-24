@@ -191,7 +191,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const vePendientesTodasTiendas = puedeAprobarVales;
   /** Admin/gerente ven préstamos área/sucursal de todas las tiendas (no solo la sesión actual). */
   const vePrestamosAreaTodasTiendas = puedeOperarPrestamosAreaSuc;
-  const [filtroPrestamosArea, setFiltroPrestamosArea] = useState('abiertos'); // abiertos | todos
+  const [filtroPrestamosArea, setFiltroPrestamosArea] = useState('todos'); // abiertos | todos
   const [qPrestamoArea, setQPrestamoArea] = useState('');
   const requiereAuthAhora = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria);
   const valeFormRequiereAdmin = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria);
