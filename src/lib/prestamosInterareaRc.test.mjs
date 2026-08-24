@@ -3,6 +3,10 @@ import {
   etiquetaColectaPrestamo,
   prestamoInterareaPuedeRecolectarRc,
 } from './contabilidadConstants.js';
+import {
+  puedeOperarPrestamoAreaSucursal,
+  puedeRecolectarPrestamoInterareaRc,
+} from './valesPrestamos.js';
 
 assert.equal(
   prestamoInterareaPuedeRecolectarRc({ estado: 'recuperar', saldo: 100 }),
@@ -33,6 +37,13 @@ assert.equal(
   false,
   'recuperado no se recolecta',
 );
+
+assert.equal(puedeOperarPrestamoAreaSucursal('Repartidor'), false);
+assert.equal(puedeOperarPrestamoAreaSucursal('Administrador'), true);
+assert.equal(puedeRecolectarPrestamoInterareaRc('Repartidor'), true);
+assert.equal(puedeRecolectarPrestamoInterareaRc('recolector'), true);
+assert.equal(puedeRecolectarPrestamoInterareaRc('Gerente'), true);
+assert.equal(puedeRecolectarPrestamoInterareaRc('Cajero'), false);
 
 assert.match(
   etiquetaColectaPrestamo({
