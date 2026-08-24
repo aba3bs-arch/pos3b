@@ -1005,20 +1005,41 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const aplicarRecoleccion822 = async () => {
     if (!puedeOperarPrestamosAreaSuc) return alert('Solo administrador o gerente.');
     if (!confirm(
-      '¿Aplicar la recolección del 22/08/2026 a los préstamos entre áreas?\n\n'
+      '¿Aplicar las recolecciones del 22–23/08/2026 a los préstamos entre áreas?\n\n'
       + 'Los dejará en Por recolectar (reabre los recuperados sin RC Virtual) '
       + 'para que puedas Ajustar / Recolectar hacia RC Virtual.',
     )) return;
-    const res = await aplicarRecoleccionHistoricaPrestamosInterarea(supabase, {
-      fecha: '2026-08-22',
-      sucursal,
-      nombreActor: user?.nombre || null,
-      rolActor: user?.rol,
-      user,
-      reabrirRecuperados: true,
-    });
-    if (!res.ok) return alert(res.error);
-    alert(res.mensaje || `Actualizados: ${res.count}`);
+    const fechas = ['2026-08-22', '2026-08-23'];
+    let total = 0;
+    let reabiertos = 0;
+    const mensajes = [];
+    for (const fecha of fechas) {
+      const res = await aplicarRecoleccionHistoricaPrestamosInterarea(supabase, {
+        fecha,
+        sucursal,
+        nombreActor: user?.nombre || null,
+        rolActor: user?.rol,
+        user,
+        reabrirRecuperados: true,
+      });
+      if (!res.ok) {
+        mensajes.push(`${fecha}: ${res.error}`);
+        continue;
+      }
+      total += Number(res.count) || 0;
+      reabiertos += Number(res.reabiertos) || 0;
+      if (res.count) mensajes.push(`${fecha}: ${res.count} actualizado(s)`);
+    }
+    if (!total && mensajes.length) {
+      alert(mensajes.join('\n') || 'Sin cambios.');
+    } else {
+      alert(
+        `Listo · ${total} préstamo(s)`
+        + (reabiertos ? ` · ${reabiertos} reabierto(s)` : '')
+        + '.\nYa puedes usar Ajustar / Recolectar.'
+        + (mensajes.length ? `\n\n${mensajes.join('\n')}` : ''),
+      );
+    }
     recargarTodo();
   };
 
@@ -1602,10 +1623,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   }}
                   onClick={aplicarRecoleccion822}
                 >
-                  Aplicar recolección 22/08/2026 → Por recolectar
+                  Aplicar recolección 22–23/08/2026 → Por recolectar
                 </button>
                 <span className="muted" style={{ fontSize: '0.78rem' }}>
-                  Reabre préstamos de esa recolección para Ajustar / Recolectar a RC Virtual.
+                  Reabre préstamos de esas recolecciones para Ajustar / Recolectar a RC Virtual.
                 </span>
               </div>
             )}
