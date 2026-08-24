@@ -414,13 +414,28 @@ export function etiquetaColectaPrestamo(p) {
 /**
  * Tras recolectar el corte afectado (estado por_recolectar o ya colectado_por),
  * el préstamo puede enviarse a RC Virtual desde Préstamos área.
+ * Sigue disponible hasta que un rol con privilegios pulse Recolectar (rc_recibido_por).
  */
+export function prestamoInterareaPendienteRc(p) {
+  if (!p) return false;
+  if (String(p.estado || '') === 'cancelado') return false;
+  return !p.rc_recibido_por;
+}
+
 export function prestamoInterareaPuedeRecolectarRc(p) {
-  if (!prestamoInterareaEstaAbierto(p)) return false;
+  if (!prestamoInterareaPendienteRc(p)) return false;
   const saldo = p?.saldo != null ? Number(p.saldo) : Number(p?.monto) || 0;
   if (!(saldo > 0.001)) return false;
   const est = String(p?.estado || '');
-  return est === 'por_recolectar' || Boolean(p?.colectado_por);
+  // Listo tras colectar el corte (aunque el estado haya pasado a recuperado por error/legado).
+  return est === 'por_recolectar'
+    || Boolean(p?.colectado_por)
+    || (ESTADOS_PRESTAMO_INTERAREA_ABIERTOS.has(est) && Boolean(p?.colectado_por));
+}
+
+/** Acciones de expediente (ajustar/editar/eliminar/imprimir) hasta que se recolecte a RC. */
+export function prestamoInterareaPuedeOperarHastaRc(p) {
+  return prestamoInterareaPendienteRc(p);
 }
 
 /** Préstamo a empleado MAIN/indirecto: no va a corte. */
