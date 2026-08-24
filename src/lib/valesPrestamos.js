@@ -1205,14 +1205,32 @@ export function puedeOperarPrestamoAreaSucursal(rol) {
   return r === 'Administrador' || r === 'Gerente';
 }
 
+/** Admin, gerente o repartidor: recolectar préstamo área → RC Virtual. */
+export function puedeRecolectarPrestamoInterareaRc(rol) {
+  const r = normalizarRol(rol);
+  return r === 'Administrador' || r === 'Gerente' || r === 'Repartidor';
+}
+
 const AVISO_SOLO_ADMIN_GERENTE_PRESTAMO_AREA =
   'Solo administrador o gerente pueden abonar, liquidar o editar préstamos área/sucursal.';
+
+const AVISO_SOLO_RECOLECTAR_PRESTAMO_AREA =
+  'Solo administrador, gerente o repartidor pueden recolectar préstamos entre áreas.';
 
 function exigirAdminGerentePrestamoArea(opts = {}) {
   if (opts.sistemaAuto) return { ok: true };
   const rol = opts.rolActor ?? opts.user?.rol;
   if (!puedeOperarPrestamoAreaSucursal(rol)) {
     return { ok: false, error: AVISO_SOLO_ADMIN_GERENTE_PRESTAMO_AREA };
+  }
+  return { ok: true };
+}
+
+function exigirPuedeRecolectarPrestamoArea(opts = {}) {
+  if (opts.sistemaAuto) return { ok: true };
+  const rol = opts.rolActor ?? opts.user?.rol;
+  if (!puedeRecolectarPrestamoInterareaRc(rol)) {
+    return { ok: false, error: AVISO_SOLO_RECOLECTAR_PRESTAMO_AREA };
   }
   return { ok: true };
 }
@@ -1409,7 +1427,7 @@ export async function ajustarCantidadPrestamoInterarea(supabase, prestamo, nuevo
  * y lo envía directo a RC Virtual para rastreo.
  */
 export async function recolectarPrestamoInterarea(supabase, prestamo, montoRecolectar, opts = {}) {
-  const auth = exigirAdminGerentePrestamoArea(opts);
+  const auth = exigirPuedeRecolectarPrestamoArea(opts);
   if (!auth.ok) return auth;
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
   if (!prestamoInterareaPuedeRecolectarRc(prestamo)) {
@@ -1433,7 +1451,7 @@ export async function recolectarPrestamoInterarea(supabase, prestamo, montoRecol
     prestamo,
     monto,
     adminNombre: actor,
-    recolectorNombre: prestamo.colectado_por || actor,
+    recolectorNombre: actor,
   });
   if (!rc.ok) {
     if (/fix_prestamos_interarea_rc_virtual|r_virtual_custodia|origen/i.test(String(rc.error || ''))) {
@@ -1445,10 +1463,13 @@ export async function recolectarPrestamoInterarea(supabase, prestamo, montoRecol
     return { ok: false, error: rc.error || 'No se pudo enviar a RC Virtual.' };
   }
 
+  // Auth ya validada arriba; el abono interno puede ejecutarlo también el repartidor.
   const abonoOpts = {
-    ...opts,
     nombreActor: actor,
-    sistemaAuto: false,
+    sucursal: opts.sucursal,
+    rolActor: opts.rolActor ?? opts.user?.rol,
+    user: opts.user,
+    sistemaAuto: true,
   };
   const abonoRes = await abonarPrestamoInterarea(supabase, prestamo, monto, abonoOpts);
   if (!abonoRes.ok) {

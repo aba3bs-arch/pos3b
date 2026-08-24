@@ -195,7 +195,7 @@ const ACCESO_POR_ROL = {
     'Check List',
     'Ayuda',
   ],
-  Repartidor: ['Inicio', 'Incidencias', 'Recolecciones', 'Productos', 'Venta en Ruta', 'Ayuda'],
+  Repartidor: ['Inicio', 'Incidencias', 'Recolecciones', 'Productos', 'Venta en Ruta', 'Vales y Préstamos', 'Ayuda'],
   Auditor: [
     'Inicio',
     'Incidencias',

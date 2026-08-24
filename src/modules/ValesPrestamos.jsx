@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { normalizarRol } from '../lib/roles.js';
 import {
   AVISO_FALTA_CONTABILIDAD,
   aprobarPrestamoAdmin,
@@ -35,6 +36,7 @@ import {
   recolectarPrestamoInterarea,
   aplicarRecoleccionHistoricaPrestamosInterarea,
   eliminarPrestamoInterarea,
+  puedeRecolectarPrestamoInterareaRc,
   registrarPrestamoSucursal,
   registrarEnvioMainATienda,
   registrarVale,
@@ -88,7 +90,6 @@ import {
   rifPuedeImprimir,
   rifPuedeLiquidar,
 } from '../lib/rifs.js';
-import { normalizarRol } from '../lib/roles.js';
 import {
   agruparEmpleadosParaSelectPrestamo,
   empleadosParaPrestamosEmpleado,
@@ -175,6 +176,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const rolNorm = normalizarRol(user?.rol);
   const esAdmin = rolNorm === 'Administrador';
   const esGerente = rolNorm === 'Gerente';
+  const esRepartidor = rolNorm === 'Repartidor';
   const esMain = String(sucursal || '').toUpperCase() === 'MAIN';
   const puedeGenerarVales = tiendaPuedeGenerarVales(sucursal);
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
@@ -182,8 +184,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const puedeAprobarVales = esAdmin || esGerente;
   /** Abonar / liquidar / editar vales, RIF y préstamos a empleado. */
   const puedeOperarDocs = Boolean(user);
-  /** Abonar / liquidar / editar préstamos área y sucursal: solo admin o gerente. */
+  /** Abonar / liquidar / editar / ajustar / eliminar préstamos área: solo admin o gerente. */
   const puedeOperarPrestamosAreaSuc = esAdmin || esGerente;
+  /** Recolectar préstamo área → RC Virtual: admin, gerente o repartidor. */
+  const puedeRecolectarPrestamoArea = puedeRecolectarPrestamoInterareaRc(user?.rol);
   /** Eliminar RIF/préstamos: admin o gerente (corte abierto validado en lib). */
   const puedeEliminarDocs = esAdmin || esGerente;
   /** Vales: cajero también puede eliminar si se equivoca (corte abierto validado en lib). */
@@ -318,6 +322,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     window.addEventListener(EVENTO_HORA_LIMITE_VALE, onHora);
     return () => window.removeEventListener(EVENTO_HORA_LIMITE_VALE, onHora);
   }, []);
+
+  useEffect(() => {
+    if (esRepartidor) setPestana('prestamos');
+  }, [esRepartidor]);
 
   useEffect(() => {
     if (irAPendientes && puedeVerBandejaAprobacion) {
@@ -946,7 +954,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   };
 
   const recolectarInterarea = async (p) => {
-    if (!puedeOperarPrestamosAreaSuc) return alert('Solo administrador o gerente pueden recolectar.');
+    if (!puedeRecolectarPrestamoArea) {
+      return alert('Solo administrador, gerente o repartidor pueden recolectar.');
+    }
     if (!prestamoInterareaPuedeRecolectarRc(p)) {
       return alert('Aún no está listo: primero debe recolectarse el corte afectado.');
     }
@@ -955,7 +965,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       `Recolectar préstamo → RC Virtual\n`
       + `${ETIQUETA_AREA[p.origen] || p.origen} → ${ETIQUETA_AREA[p.destino] || p.destino}\n`
       + `Saldo: ${fmt(saldo)}\n\n`
-      + `Monto a recolectar (puedes ajustar):`,
+      + `Monto a recolectar:`,
       String(saldo),
     );
     if (raw === null) return;
@@ -964,7 +974,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     if (monto > saldo + 0.001) return alert(`No puede superar el saldo (${fmt(saldo)}).`);
     if (!confirm(
       `¿Recolectar ${fmt(monto)} hacia RC Virtual?\n\n`
-      + `Quedará rastro de ${user?.nombre || 'usuario'} y el monto entrará a tu cuenta RT.`,
+      + `Quedará rastro de ${user?.nombre || 'usuario'} y el monto entrará a RC Virtual.`,
     )) return;
     const res = await recolectarPrestamoInterarea(supabase, p, monto, {
       nombreActor: user?.nombre || null,
@@ -1137,6 +1147,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         </div>
       )}
 
+      {!esRepartidor && (
       <div className="card" style={{ fontSize: '0.85rem' }}>
         <strong>Vales consumo</strong> — Siempre requieren autorización del administrador.
         <br />
@@ -1150,9 +1161,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           <span style={{ color: 'var(--danger)' }}> · Ahora ({new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}) vales desde {horaLimiteVale} van a bandeja admin.</span>
         )}
       </div>
+      )}
 
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        {['vales', 'rif', 'prestamos', 'prestamos_emp', esAdmin && 'tipos', esAdmin && 'gasolina', puedeVerBandejaAprobacion && 'pendientes'].filter(Boolean).map((p) => (
+        {(esRepartidor
+          ? ['prestamos']
+          : ['vales', 'rif', 'prestamos', 'prestamos_emp', esAdmin && 'tipos', esAdmin && 'gasolina', puedeVerBandejaAprobacion && 'pendientes']
+        ).filter(Boolean).map((p) => (
           <button key={p} type="button" className={`btn ${pestana === p ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPestana(p)}>
             {p === 'vales' && 'Vales'}
             {p === 'rif' && `RIF (${rifs.filter((r) => r.estado === 'abierto').length})`}
@@ -1591,8 +1606,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               El dinero sale del corte de <strong>origen</strong> como categoría PRESTAMOS (movimiento interno: no es gasto de IE).
               Al recolectar ese corte queda quién <strong>colectó</strong> y el préstamo pasa a <strong>Por recolectar</strong>.
               Ahí aparece <strong>Recolectar</strong>: envía el efectivo a <strong>RC Virtual</strong> (rastreable) y deja rastro de quién lo recibió.
-              Puedes <strong>ajustar</strong> la cantidad al recolectar. La liquidación manual sigue disponible para admin/gerente.
+              {puedeOperarPrestamosAreaSuc
+                ? ' Puedes ajustar la cantidad al recolectar. La liquidación manual sigue disponible para admin/gerente.'
+                : ' El repartidor puede recolectar e imprimir; no puede ajustar ni eliminar.'}
             </p>
+            {!esRepartidor && (
             <p className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
               <strong>Ejemplo — Virtual presta $500 a Abarrotes para un proveedor:</strong>{' '}
               Origen = Abarrotes, Destino = Virtual. El $500 queda en el corte de Abarrotes (puede ir a negativo).
@@ -1600,6 +1618,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               Conforme las ventas bajan el negativo, el saldo del préstamo se abona solo; al llegar la caja a $0 pasa a <strong>Recuperado</strong>.
               Si recolectan el corte con deuda aún abierta, el préstamo pasa a <strong>Por recolectar</strong> y puedes enviarlo a RC Virtual.
             </p>
+            )}
+            {puedeOperarPrestamosAreaSuc && (
             <div className="grid-2">
               <select className="select" value={prestForm.origen} onChange={(e) => setPrestForm({ ...prestForm, origen: e.target.value })}>
                 {AREAS_CONTABILIDAD.map((a) => <option key={a} value={a}>{ETIQUETA_AREA[a]} (origen · gasto)</option>)}
@@ -1610,6 +1630,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <input className="input" type="number" placeholder="Monto" value={prestForm.monto} onChange={(e) => setPrestForm({ ...prestForm, monto: e.target.value })} />
               <button type="button" className="btn btn-primary" onClick={guardarPrestamoGastos}>Registrar</button>
             </div>
+            )}
             {puedeOperarPrestamosAreaSuc && (
               <div style={{ marginTop: '0.75rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
                 <button
@@ -1652,7 +1673,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                       const activo = prestamoInterareaEstaAbierto(p);
                       const saldo = p.saldo != null ? Number(p.saldo) : Number(p.monto) || 0;
                       const cerrado = ['liquidado', 'recuperado'].includes(String(p.estado || ''));
-                      const puedeRecolectarRc = puedeOperarPrestamosAreaSuc && prestamoInterareaPuedeRecolectarRc(p);
+                      const puedeRecolectarRc = puedeRecolectarPrestamoArea && prestamoInterareaPuedeRecolectarRc(p);
                       return (
                         <tr key={p.id}>
                           <td>{p.fecha}</td>
@@ -1726,6 +1747,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             </div>
           </div>
 
+          {!esRepartidor && (
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem' }}>
               {esMain ? 'Vale envío MAIN → tienda' : 'Préstamo a otra sucursal'}
@@ -1872,6 +1894,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               </p>
             )}
           </div>
+          )}
         </>
       )}
 
