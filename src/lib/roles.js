@@ -326,6 +326,7 @@ function listaModulosEfectiva(rol, userId = null) {
   if (esRolRepartidor(rol)) {
     const set = new Set(permitidos);
     set.add('Productos');
+    set.add('Vales y Préstamos');
     for (const m of MODULOS_BLOQUEADOS_REPARTIDOR) set.delete(m);
     permitidos = [...set];
   }
