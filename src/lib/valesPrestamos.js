@@ -1055,9 +1055,9 @@ export function prestamoTieneSolicitudPendiente(p) {
 
 export async function listarPrestamosInterarea(supabase, opts = {}) {
   if (!supabase) return { data: [], error: null };
-  const { sucursal, limit = 100 } = opts;
+  const { sucursal, limit = 150, todasTiendas = false } = opts;
   let q = supabase.from('prestamos_interarea').select('*').order('created_at', { ascending: false }).limit(limit);
-  if (sucursal) q = q.eq('sucursal_id', sucursal);
+  if (sucursal && !todasTiendas) q = q.eq('sucursal_id', sucursal);
   const { data, error } = await q;
   if (error?.code === '42P01') return { data: [], aviso: 'Ejecuta fix_contabilidad_ampliacion.sql' };
   return { data: data || [], error: error?.message || null };
@@ -1670,13 +1670,13 @@ function faltaTablaPrestamosSucursales(error) {
 /** Lista préstamos entre tiendas visibles para la sucursal (origen o destino). */
 export async function listarPrestamosSucursales(supabase, opts = {}) {
   if (!supabase) return { data: [], error: null };
-  const { sucursal, limit = 100, soloPendientes = false } = opts;
+  const { sucursal, limit = 150, soloPendientes = false, todasTiendas = false } = opts;
   let q = supabase
     .from('prestamos_sucursales')
     .select('*')
     .order('created_at', { ascending: false })
     .limit(limit);
-  if (sucursal) {
+  if (sucursal && !todasTiendas) {
     q = q.or(`sucursal_origen.eq.${sucursal},sucursal_destino.eq.${sucursal}`);
   }
   if (soloPendientes) q = q.eq('estado', 'pendiente_cobro');

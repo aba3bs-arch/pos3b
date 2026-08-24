@@ -189,6 +189,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const puedeEliminarVales = Boolean(user);
   const puedeVerBandejaAprobacion = puedeAprobarVales || esSocio;
   const vePendientesTodasTiendas = puedeAprobarVales;
+  /** Admin/gerente ven préstamos área/sucursal de todas las tiendas (no solo la sesión actual). */
+  const vePrestamosAreaTodasTiendas = puedeOperarPrestamosAreaSuc;
+  const [filtroPrestamosArea, setFiltroPrestamosArea] = useState('abiertos'); // abiertos | todos
+  const [qPrestamoArea, setQPrestamoArea] = useState('');
   const requiereAuthAhora = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria);
   const valeFormRequiereAdmin = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria);
 
@@ -240,6 +244,22 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     [prestamosSuc, sucursal],
   );
 
+  const prestamosAreaVisibles = useMemo(() => {
+    const q = String(qPrestamoArea || '').trim().toLowerCase();
+    return (prestamosArea || []).filter((p) => {
+      if (filtroPrestamosArea === 'abiertos' && !prestamoInterareaEstaAbierto(p)) return false;
+      if (!q) return true;
+      const monto = String(Number(p.monto) || '');
+      const saldo = String(p.saldo != null ? Number(p.saldo) : Number(p.monto) || '');
+      const blob = [
+        p.fecha, p.origen, p.destino, p.estado, p.sucursal_id,
+        p.colectado_por, p.liquidado_por, p.notas, monto, saldo,
+        ETIQUETA_AREA[p.origen], ETIQUETA_AREA[p.destino],
+      ].join(' ').toLowerCase();
+      return blob.includes(q) || monto.includes(q.replace(/[$,\s]/g, '')) || saldo.includes(q.replace(/[$,\s]/g, ''));
+    });
+  }, [prestamosArea, filtroPrestamosArea, qPrestamoArea]);
+
   const recargarTodo = useCallback(async () => {
     if (!supabase) return;
     // Vencer RIF cuya hora promesa ya pasó (carga gasto a corte abarrotes).
@@ -251,8 +271,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     // Admin/gerente: ver préstamos de todas las tiendas en la tabla (antes solo salían en Pendientes).
     const [vRes, paRes, psRes, peRes, nRes, vPendRes, pePendRes, rifRes] = await Promise.all([
       listarVales(supabase, { sucursal, tipo: 'indirecto' }),
-      listarPrestamosInterarea(supabase, { sucursal }),
-      listarPrestamosSucursales(supabase, { sucursal }),
+      listarPrestamosInterarea(supabase, {
+        sucursal,
+        todasTiendas: vePrestamosAreaTodasTiendas,
+        limit: vePrestamosAreaTodasTiendas ? 250 : 150,
+      }),
+      listarPrestamosSucursales(supabase, {
+        sucursal,
+        todasTiendas: vePrestamosAreaTodasTiendas,
+        limit: vePrestamosAreaTodasTiendas ? 250 : 150,
+      }),
       listarPrestamos(supabase, {
         sucursal: vePendientesTodasTiendas ? undefined : sucursal,
         incluirHistorial: true,
@@ -286,7 +314,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     setNotifs(nRes.data || []);
     setValesPendAll(vPendRes.data || []);
     setPrestamosPendAll(pePendRes.data || []);
-  }, [supabase, sucursal, vePendientesTodasTiendas, esSocio, user?.nombre]);
+  }, [supabase, sucursal, vePendientesTodasTiendas, vePrestamosAreaTodasTiendas, esSocio, user?.nombre]);
 
   useEffect(() => {
     recargarTodo();
@@ -1555,7 +1583,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <strong>Ejemplo — Virtual presta $500 a Abarrotes para un proveedor:</strong>{' '}
               Origen = Abarrotes, Destino = Virtual. El $500 queda en el corte de Abarrotes (puede ir a negativo).
               Mientras haya negativo y no se haya recolectado, el estado es <strong>Recuperar</strong>.
-              Conforme las ventas bajan el negativo, el saldo del préstamo se abona solo; al llegar la caja a $0 pasa a <strong>Recuperado</strong>.
+              Conforme las ventas bajan el negativo, el saldo del préstamo se abona solo; al llegar la caja a $0 pasa a <strong>Recuperado</strong>
+              {' '}(no se borra: queda en el historial con saldo $0).
               Si recolectan el corte con deuda aún abierta, el préstamo pasa a <strong>Por recolectar</strong> y puedes enviarlo a RC Virtual.
             </p>
             <div className="grid-2">
@@ -1568,11 +1597,35 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <input className="input" type="number" placeholder="Monto" value={prestForm.monto} onChange={(e) => setPrestForm({ ...prestForm, monto: e.target.value })} />
               <button type="button" className="btn btn-primary" onClick={guardarPrestamoGastos}>Registrar</button>
             </div>
-            <div className="table-wrap" style={{ marginTop: '1rem' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginTop: '0.85rem' }}>
+              <select
+                className="select"
+                style={{ maxWidth: 220 }}
+                value={filtroPrestamosArea}
+                onChange={(e) => setFiltroPrestamosArea(e.target.value)}
+              >
+                <option value="abiertos">Solo abiertos (deuda)</option>
+                <option value="todos">Todos (incluye recuperados)</option>
+              </select>
+              <input
+                className="input"
+                style={{ maxWidth: 260 }}
+                placeholder="Buscar monto, área, tienda… (ej. 1348)"
+                value={qPrestamoArea}
+                onChange={(e) => setQPrestamoArea(e.target.value)}
+              />
+              {vePrestamosAreaTodasTiendas && (
+                <span className="muted" style={{ fontSize: '0.8rem' }}>
+                  Viendo todas las tiendas · {prestamosAreaVisibles.length}/{prestamosArea.length}
+                </span>
+              )}
+            </div>
+            <div className="table-wrap" style={{ marginTop: '0.65rem' }}>
               <table className="data">
                 <thead>
                   <tr>
                     <th>Fecha</th>
+                    {vePrestamosAreaTodasTiendas && <th>Tienda</th>}
                     <th>Origen</th>
                     <th>Destino</th>
                     <th>Monto</th>
@@ -1583,17 +1636,29 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   </tr>
                 </thead>
                 <tbody>
-                  {prestamosArea.length === 0 ? (
-                    <tr><td colSpan={8} className="muted">Sin préstamos entre áreas.</td></tr>
+                  {prestamosAreaVisibles.length === 0 ? (
+                    <tr>
+                      <td colSpan={vePrestamosAreaTodasTiendas ? 9 : 8} className="muted">
+                        {filtroPrestamosArea === 'abiertos'
+                          ? 'Sin préstamos abiertos. Cambia el filtro a «Todos» para ver recuperados (p. ej. Garage $1,348).'
+                          : 'Sin préstamos entre áreas.'}
+                      </td>
+                    </tr>
                   ) : (
-                    prestamosArea.map((p) => {
+                    prestamosAreaVisibles.map((p) => {
                       const activo = prestamoInterareaEstaAbierto(p);
                       const saldo = p.saldo != null ? Number(p.saldo) : Number(p.monto) || 0;
                       const cerrado = ['liquidado', 'recuperado'].includes(String(p.estado || ''));
                       const puedeRecolectarRc = puedeOperarPrestamosAreaSuc && prestamoInterareaPuedeRecolectarRc(p);
                       return (
-                        <tr key={p.id}>
+                        <tr
+                          key={p.id}
+                          style={cerrado ? { opacity: 0.78, background: 'rgba(46,125,50,0.04)' } : undefined}
+                        >
                           <td>{p.fecha}</td>
+                          {vePrestamosAreaTodasTiendas && (
+                            <td className="muted">{etiquetaTienda(p.sucursal_id)}</td>
+                          )}
                           <td>{ETIQUETA_AREA[p.origen]}</td>
                           <td>{ETIQUETA_AREA[p.destino]}</td>
                           <td>{fmt(p.monto)}</td>
