@@ -33,6 +33,7 @@ import {
   editarPrestamoInterarea,
   ajustarCantidadPrestamoInterarea,
   recolectarPrestamoInterarea,
+  aplicarRecoleccionHistoricaPrestamosInterarea,
   eliminarPrestamoInterarea,
   registrarPrestamoSucursal,
   registrarEnvioMainATienda,
@@ -1001,6 +1002,26 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     recargarTodo();
   };
 
+  const aplicarRecoleccion822 = async () => {
+    if (!puedeOperarPrestamosAreaSuc) return alert('Solo administrador o gerente.');
+    if (!confirm(
+      '¿Aplicar la recolección del 22/08/2026 a los préstamos entre áreas?\n\n'
+      + 'Los dejará en Por recolectar (reabre los recuperados sin RC Virtual) '
+      + 'para que puedas Ajustar / Recolectar hacia RC Virtual.',
+    )) return;
+    const res = await aplicarRecoleccionHistoricaPrestamosInterarea(supabase, {
+      fecha: '2026-08-22',
+      sucursal,
+      nombreActor: user?.nombre || null,
+      rolActor: user?.rol,
+      user,
+      reabrirRecuperados: true,
+    });
+    if (!res.ok) return alert(res.error);
+    alert(res.mensaje || `Actualizados: ${res.count}`);
+    recargarTodo();
+  };
+
   const editarInterarea = async (p) => {
     if (!puedeOperarPrestamosAreaSuc) return alert('Solo administrador o gerente pueden editar.');
     const notas = prompt('Notas:', p.notas || '');
@@ -1568,6 +1589,26 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <input className="input" type="number" placeholder="Monto" value={prestForm.monto} onChange={(e) => setPrestForm({ ...prestForm, monto: e.target.value })} />
               <button type="button" className="btn btn-primary" onClick={guardarPrestamoGastos}>Registrar</button>
             </div>
+            {puedeOperarPrestamosAreaSuc && (
+              <div style={{ marginTop: '0.75rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{
+                    padding: '0.35rem 0.65rem',
+                    fontSize: '0.82rem',
+                    borderColor: 'var(--brand-gold)',
+                    color: 'var(--brand-blue-dark)',
+                  }}
+                  onClick={aplicarRecoleccion822}
+                >
+                  Aplicar recolección 22/08/2026 → Por recolectar
+                </button>
+                <span className="muted" style={{ fontSize: '0.78rem' }}>
+                  Reabre préstamos de esa recolección para Ajustar / Recolectar a RC Virtual.
+                </span>
+              </div>
+            )}
             <div className="table-wrap" style={{ marginTop: '1rem' }}>
               <table className="data">
                 <thead>

@@ -24,6 +24,7 @@ import {
   cargarPrestamoSucursalACorte,
   quitarValeDeCorteAbierto,
   corteDocumentoEliminable,
+  idsPrestamosDesdeGastosRecoleccion,
   TOKEN_PRESTAMO_IA,
   TOKEN_PRESTAMO_SUC,
 } from './cargosContabilidad.js';
@@ -1617,6 +1618,211 @@ export async function marcarPrestamosInterareaPorRecolectar(supabase, opts = {})
     if (!eUp) count += 1;
   }
   return { ok: true, count };
+}
+
+/**
+ * Aplica a préstamos interárea el sello de una recolección histórica
+ * (p. ej. 2026-08-22): colectado_* + estado por_recolectar, y reabre los
+ * que quedaron «recuperado» sin pasar por RC Virtual para poder ajustar.
+ */
+export async function aplicarRecoleccionHistoricaPrestamosInterarea(supabase, opts = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const auth = exigirAdminGerentePrestamoArea(opts);
+  if (!auth.ok) return auth;
+
+  const fecha = String(opts.fecha || '').trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+    return { ok: false, error: 'Indica la fecha de recolección (YYYY-MM-DD).' };
+  }
+  const sucursal = String(opts.sucursal || opts.sucursal_id || '').trim().toUpperCase() || null;
+  const reabrirRecuperados = opts.reabrirRecuperados !== false;
+  const inicio = `${fecha}T00:00:00`;
+  const fin = `${fecha}T23:59:59.999`;
+
+  let qCierres = supabase
+    .from('cortes_contabilidad_cierres')
+    .select('id, sucursal_id, folio, usuario_nombre, created_at, detalle, modulo, turno')
+    .gte('created_at', inicio)
+    .lte('created_at', fin)
+    .order('created_at', { ascending: true })
+    .limit(200);
+  if (sucursal) qCierres = qCierres.eq('sucursal_id', sucursal);
+  const { data: cierresRaw, error: errCierres } = await qCierres;
+  if (errCierres) return { ok: false, error: errCierres.message };
+
+  const esRecoleccion = (row) => {
+    const tipo = String(row?.detalle?.tipo_cierre || '').toLowerCase();
+    const turno = String(row?.turno || '').toUpperCase();
+    if (tipo === 'recoleccion_temporal') return false;
+    return tipo === 'recoleccion' || turno.includes('RECOLEC');
+  };
+
+  const cierres = (cierresRaw || []).filter(esRecoleccion);
+  if (!cierres.length) {
+    return {
+      ok: false,
+      error: `No hay recolecciones de cortes el ${fecha}${sucursal ? ` en ${sucursal}` : ''}.`,
+      count: 0,
+    };
+  }
+
+  const idsPorPrestamo = new Map(); // prestamoId -> { cierre, gastoIds }
+
+  for (const cierre of cierres) {
+    const d = cierre.detalle && typeof cierre.detalle === 'object' ? cierre.detalle : {};
+    const gastosEmb = Array.isArray(d.gastos) ? d.gastos : [];
+    const gastosIds = Array.isArray(d.gastos_ids) ? d.gastos_ids.map(String) : [];
+    let listaGastos = [...gastosEmb];
+    const have = new Set(listaGastos.map((g) => String(g?.id || '')).filter(Boolean));
+    const missing = gastosIds.filter((id) => id && !id.startsWith('local-') && !have.has(id));
+    if (missing.length) {
+      const { data: extra } = await supabase
+        .from('cortes_contabilidad_gastos')
+        .select('id, comentario, categoria, subcategoria, monto')
+        .in('id', missing);
+      if (extra?.length) listaGastos = [...listaGastos, ...extra];
+    }
+    const parsed = idsPrestamosDesdeGastosRecoleccion(listaGastos);
+    const gastoIdSet = new Set(parsed.gastoIds);
+    for (const pid of parsed.interarea) {
+      const prev = idsPorPrestamo.get(pid) || { cierre: null, gastoIds: [] };
+      if (!prev.cierre) prev.cierre = cierre;
+      prev.gastoIds = [...new Set([...prev.gastoIds, ...gastoIdSet])];
+      idsPorPrestamo.set(pid, prev);
+    }
+    if (gastoIdSet.size) {
+      const { data: porGasto } = await supabase
+        .from('prestamos_interarea')
+        .select('id')
+        .in('gasto_id', [...gastoIdSet]);
+      for (const row of porGasto || []) {
+        const pid = String(row.id).toLowerCase();
+        const prev = idsPorPrestamo.get(pid) || { cierre: null, gastoIds: [] };
+        if (!prev.cierre) prev.cierre = cierre;
+        prev.gastoIds = [...new Set([...prev.gastoIds, ...gastoIdSet])];
+        idsPorPrestamo.set(pid, prev);
+      }
+    }
+  }
+
+  // También: préstamos con fecha del día o colectados ese día sin estado por_recolectar
+  let qExtra = supabase
+    .from('prestamos_interarea')
+    .select('*')
+    .or(`fecha.eq.${fecha},colectado_at.gte.${inicio},colectado_at.lte.${fin}`)
+    .limit(200);
+  if (sucursal) qExtra = qExtra.eq('sucursal_id', sucursal);
+  const { data: extraPrestamos } = await qExtra;
+  for (const p of extraPrestamos || []) {
+    const pid = String(p.id).toLowerCase();
+    if (!idsPorPrestamo.has(pid)) {
+      idsPorPrestamo.set(pid, { cierre: null, gastoIds: [], prestamo: p });
+    } else {
+      idsPorPrestamo.get(pid).prestamo = p;
+    }
+  }
+
+  const ids = [...idsPorPrestamo.keys()];
+  if (!ids.length) {
+    return {
+      ok: false,
+      error: `No se encontraron préstamos entre áreas ligados a la recolección del ${fecha}.`,
+      count: 0,
+      cierres: cierres.length,
+    };
+  }
+
+  const { data: prestamosNube, error: errP } = await supabase
+    .from('prestamos_interarea')
+    .select('*')
+    .in('id', ids);
+  if (errP) return { ok: false, error: errP.message };
+
+  let actualizados = 0;
+  let reabiertos = 0;
+  const detalles = [];
+
+  for (const p of prestamosNube || []) {
+    const meta = idsPorPrestamo.get(String(p.id).toLowerCase()) || {};
+    const cierre = meta.cierre;
+    const est = String(p.estado || '');
+    const saldoActual = p.saldo != null ? Number(p.saldo) : Number(p.monto) || 0;
+    const abono = Number(p.abono) || 0;
+    const monto = Number(p.monto) || 0;
+    const yaRc = Boolean(p.rc_recibido_por);
+    const cerrado = ['recuperado', 'liquidado', 'cancelado'].includes(est);
+
+    const patch = {};
+    if (!p.colectado_por && cierre) {
+      patch.colectado_por = cierre.usuario_nombre || opts.nombreActor || 'Recolector';
+      patch.colectado_at = cierre.created_at || `${fecha}T12:00:00.000Z`;
+      patch.colectado_folio = cierre.folio || null;
+      patch.colectado_modulo = String(cierre.modulo || p.origen || '').toLowerCase() || null;
+    } else if (!p.colectado_por && p.cargado_corte) {
+      patch.colectado_por = opts.nombreActor || 'Admin · backfill';
+      patch.colectado_at = `${fecha}T12:00:00.000Z`;
+      patch.colectado_folio = patch.colectado_folio || `BACKFILL-${fecha}`;
+      patch.colectado_modulo = String(p.origen || '').toLowerCase() || null;
+    }
+
+    if (reabrirRecuperados && cerrado && !yaRc && est !== 'cancelado') {
+      // Reabre para poder ajustar / recolectar a RC Virtual
+      const saldoReabrir = abono > 0 ? Math.max(0, Math.round((monto - abono) * 100) / 100) : monto;
+      patch.estado = 'por_recolectar';
+      patch.saldo = saldoReabrir > 0 ? saldoReabrir : monto;
+      if (!(saldoReabrir > 0) && monto > 0) {
+        patch.saldo = monto;
+        patch.abono = 0;
+      }
+      patch.liquidado_por = null;
+      patch.liquidado_at = null;
+      patch.liquidado_sucursal = null;
+      reabiertos += 1;
+    } else if (!cerrado && est !== 'por_recolectar') {
+      const saldo = saldoActual > 0.001 ? saldoActual : (abono > 0 ? Math.max(0, monto - abono) : monto);
+      if (saldo > 0.001) {
+        patch.estado = 'por_recolectar';
+        if (!(saldoActual > 0.001) && saldo > 0.001) patch.saldo = saldo;
+      }
+    } else if (!cerrado && est === 'por_recolectar' && !(saldoActual > 0.001) && monto > 0 && !yaRc) {
+      patch.saldo = abono > 0 ? Math.max(0, monto - abono) : monto;
+      if (!(patch.saldo > 0)) {
+        patch.saldo = monto;
+        patch.abono = 0;
+      }
+    }
+
+    if (!Object.keys(patch).length) continue;
+    const { error: eUp } = await actualizarPrestamoInterarea(supabase, p.id, patch);
+    if (eUp) {
+      detalles.push({ id: p.id, error: eUp.message });
+      continue;
+    }
+    actualizados += 1;
+    detalles.push({
+      id: p.id,
+      origen: p.origen,
+      destino: p.destino,
+      monto,
+      estado: patch.estado || est,
+      saldo: patch.saldo != null ? patch.saldo : saldoActual,
+      reabierto: Boolean(reabrirRecuperados && cerrado && !yaRc),
+    });
+  }
+
+  return {
+    ok: true,
+    fecha,
+    cierres: cierres.length,
+    count: actualizados,
+    reabiertos,
+    detalles,
+    mensaje: actualizados
+      ? `Aplicado a ${actualizados} préstamo(s) de la recolección ${fecha}`
+        + (reabiertos ? ` · ${reabiertos} reabierto(s) para ajustar` : '')
+        + '. Ya puedes usar Recolectar / Ajustar.'
+      : `No hubo cambios: los préstamos de ${fecha} ya estaban listos o no aplicaban.`,
+  };
 }
 
 /** Interárea carga gasto al corte de origen; solo se borra si ese gasto sigue en corte abierto. */
