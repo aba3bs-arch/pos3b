@@ -24,6 +24,11 @@ import {
   recontratarEmpleadoRh,
   resumenProgresoRecontratacion,
 } from '../lib/rhAba3b.js';
+import {
+  fusionarDatosIneEnForm,
+  leerIneDesdeArchivo,
+  mapearExtrasAFormDocs,
+} from '../lib/rhIneOcr.js';
 import { ROLES } from '../lib/roles.js';
 
 const FORM_VACIO = {
@@ -51,6 +56,7 @@ const FORM_VACIO = {
   salario_diario: '',
   fecha_alta: new Date().toISOString().slice(0, 10),
   notas: '',
+  ine_foto: '',
   doc_ine: false,
   doc_comprobante: false,
   doc_acta: false,
@@ -155,6 +161,7 @@ export default function RhAba3b({ supabase, user, sucursal }) {
     setForm({
       ...FORM_VACIO,
       ...res.empleado,
+      ...mapearExtrasAFormDocs(res.empleado),
       salario_diario: res.empleado.salario_diario ?? '',
       fecha_nacimiento: res.empleado.fecha_nacimiento || '',
       fecha_alta: res.empleado.fecha_alta || '',
@@ -629,13 +636,119 @@ export default function RhAba3b({ supabase, user, sucursal }) {
 function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable = false }) {
   const set = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
   const esIndirecto = form.tipo_empleado === 'indirecto';
+  const [ocrProg, setOcrProg] = useState(null);
+  const [ocrMsg, setOcrMsg] = useState('');
+  const ineInputRef = React.useRef(null);
 
   useEffect(() => {
     if (esIndirecto && form.sucursal_id !== 'MAIN') set('sucursal_id', 'MAIN');
   }, [esIndirecto]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const procesarIne = async (file) => {
+    if (!file) return;
+    setOcrMsg('');
+    setOcrProg(0);
+    const res = await leerIneDesdeArchivo(file, { onProgress: setOcrProg });
+    setOcrProg(null);
+    if (res.ine_foto) {
+      setForm((prev) => ({ ...prev, ine_foto: res.ine_foto, doc_ine: true }));
+    }
+    if (!res.ok) {
+      setOcrMsg(res.error || 'No se pudo leer el INE.');
+      return;
+    }
+    setForm((prev) => fusionarDatosIneEnForm(prev, res.patch, { sobrescribir: true }));
+    setOcrMsg(res.mensaje || 'Datos del INE aplicados. Revisa el formulario.');
+  };
+
   return (
     <div className="grid-2" style={{ marginTop: '0.75rem' }}>
+      <div
+        style={{
+          gridColumn: '1 / -1',
+          border: '1px dashed rgba(25,118,210,0.45)',
+          borderRadius: 10,
+          padding: '0.85rem 1rem',
+          background: 'rgba(25,118,210,0.05)',
+        }}
+      >
+        <strong style={{ color: 'var(--brand-blue)' }}>Cargar desde foto del INE</strong>
+        <p className="muted" style={{ margin: '0.35rem 0 0.65rem', fontSize: '0.85rem' }}>
+          Sube o toma una foto del <strong>anverso</strong> (nombre, CURP y domicilio). Se rellenan automáticamente
+          para ahorrar tiempo; revisa y completa teléfono, NSS, banco, etc.
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+          <input
+            ref={ineInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/*"
+            capture="environment"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              void procesarIne(f);
+            }}
+          />
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={ocrProg != null}
+            onClick={() => ineInputRef.current?.click()}
+          >
+            {ocrProg != null ? `Leyendo INE… ${ocrProg}%` : 'Subir / tomar foto del INE'}
+          </button>
+          {form.ine_foto && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                set('ine_foto', '');
+                setOcrMsg('Foto del INE quitada del formulario (los datos capturados se conservan).');
+              }}
+            >
+              Quitar foto
+            </button>
+          )}
+        </div>
+        {ocrProg != null && (
+          <div
+            style={{
+              marginTop: '0.65rem',
+              height: 8,
+              borderRadius: 999,
+              background: 'rgba(0,0,0,0.08)',
+              overflow: 'hidden',
+            }}
+          >
+            <div style={{ width: `${ocrProg}%`, height: '100%', background: 'var(--brand-blue)', transition: 'width 0.2s' }} />
+          </div>
+        )}
+        {ocrMsg && (
+          <p style={{ margin: '0.55rem 0 0', fontSize: '0.85rem', color: ocrMsg.startsWith('No') ? 'var(--brand-red)' : 'inherit' }}>
+            {ocrMsg}
+          </p>
+        )}
+        {form.ine_foto && (
+          <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.75rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <img
+              src={form.ine_foto}
+              alt="INE cargado"
+              style={{
+                maxWidth: 220,
+                maxHeight: 140,
+                objectFit: 'cover',
+                borderRadius: 8,
+                border: '1px solid rgba(0,0,0,0.12)',
+              }}
+            />
+            <span className="muted" style={{ fontSize: '0.8rem' }}>
+              La foto se guarda en el expediente al registrar o guardar cambios.
+            </span>
+          </div>
+        )}
+      </div>
+
       <input className="input" placeholder="Nombre(s) *" value={form.nombre || ''} onChange={(e) => set('nombre', e.target.value)} />
       <input className="input" placeholder="Apellidos" value={form.apellidos || ''} onChange={(e) => set('apellidos', e.target.value)} />
       <select className="select" value={form.tipo_empleado || 'tienda'} onChange={(e) => set('tipo_empleado', e.target.value)}>
