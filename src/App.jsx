@@ -37,6 +37,7 @@ import Ayuda from './modules/Ayuda.jsx';
 import Recolecciones from './modules/Recolecciones.jsx';
 import LiquidacionRecolecciones from './modules/LiquidacionRecolecciones.jsx';
 import RcVirtual from './modules/RcVirtual.jsx';
+import RhAba3b from './modules/RhAba3b.jsx';
 import {
   listarSucursalesParaUI,
   etiquetaTienda,
@@ -1296,6 +1297,12 @@ function App() {
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
               <CobranzaRuta supabase={supabase} user={user} sucursal={sucursal} />
+            </>
+          )}
+          {vista === 'RH ABA3B' && (
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <RhAba3b supabase={supabase} user={user} sucursal={sucursal} />
             </>
           )}
           {vista === 'Vales y Préstamos' && (

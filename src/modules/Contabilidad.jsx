@@ -40,6 +40,10 @@ const DESCRIPCIONES = {
     desc: 'Pagar créditos de ruta (cajero + PIN)',
     ayuda: 'Selecciona créditos, ingresa PIN. Gasto abarrotes «credito liquidado» + efectivo a tránsito.',
   },
+  'RH ABA3B': {
+    desc: 'Altas, bajas y expediente de personal',
+    ayuda: 'Empleados de tienda, cubre turnos e indirectos. Activos / inactivos, perfil, historial y recontratación con PIN de administradores.',
+  },
 };
 
 /** Hub de Contabilidad: solo botones; cada submódulo abre su pantalla. */

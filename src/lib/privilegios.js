@@ -31,6 +31,7 @@ export const MODULOS_IDS = [
   'Auto Fin',
   'Crédito',
   'Cobranza',
+  'RH ABA3B',
   'Estadísticas Abarrotes',
   'Estadísticas Virtual',
   'Estadísticas Garage',

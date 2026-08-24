@@ -118,6 +118,7 @@ export const SUBMODULOS_CONTABILIDAD = [
   'Auto Fin',
   'Crédito',
   'Cobranza',
+  'RH ABA3B',
 ];
 
 export const VISTA_HUB_CONTABILIDAD = 'Contabilidad';
@@ -278,6 +279,7 @@ const ACCESO_POR_ROL = {
     'Auto Fin',
     'Crédito',
     'Cobranza',
+    'RH ABA3B',
     'Vales y Préstamos',
     'Configuracion',
     'Ayuda',
