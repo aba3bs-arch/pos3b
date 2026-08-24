@@ -1,4 +1,4 @@
-import { BENEFICIARIOS_VALES, nombreCoincidePatrones } from './contabilidadConstants.js';
+import { BENEFICIARIOS_VALES } from './contabilidadConstants.js';
 
 /** Normaliza nombre para comparar consumos/préstamos con empleados del POS. */
 export function normalizarNombreEmpleado(nombre) {
@@ -22,22 +22,13 @@ export function indiceEmpleados(empleados = []) {
   return { porId, porNombre };
 }
 
-function beneficiarioPorNombre(nombre) {
-  return BENEFICIARIOS_VALES.find((b) => {
-    const patrones = b.patrones?.length ? b.patrones : [b.nombre, b.etiqueta].filter(Boolean);
-    return nombreCoincidePatrones(nombre, patrones);
-  }) || null;
-}
-
 function resolverIndirectoPorId(uid, indice) {
   const slug = uid.replace(/^indirect:/, '');
   const b = BENEFICIARIOS_VALES.find((x) => x.id === slug);
   if (!b) return null;
   if (indice.porId[uid]) return uid;
-  const patrones = b.patrones?.length ? b.patrones : [b.nombre, b.etiqueta].filter(Boolean);
-  for (const [nom, emp] of Object.entries(indice.porNombre)) {
-    if (nombreCoincidePatrones(nom, patrones)) return String(emp.id);
-  }
+  const nom = normalizarNombreEmpleado(b.nombre);
+  if (nom && indice.porNombre[nom]) return String(indice.porNombre[nom].id);
   return uid;
 }
 
@@ -51,14 +42,11 @@ export function resolverClaveEmpleado(row, indice) {
   const nom = normalizarNombreEmpleado(row?.usuario_nombre || row?.nombre_empleado || row?.nombre);
   if (nom && indice.porNombre[nom]) return String(indice.porNombre[nom].id);
   if (nom) {
-    const b = beneficiarioPorNombre(nom);
+    const b = BENEFICIARIOS_VALES.find((x) => normalizarNombreEmpleado(x.nombre) === nom);
     if (b) {
       const idIndirect = `indirect:${b.id}`;
       if (indice.porId[idIndirect]) return idIndirect;
-      const patrones = b.patrones?.length ? b.patrones : [b.nombre, b.etiqueta].filter(Boolean);
-      for (const [nEmp, emp] of Object.entries(indice.porNombre)) {
-        if (nombreCoincidePatrones(nEmp, patrones)) return String(emp.id);
-      }
+      if (indice.porNombre[nom]) return String(indice.porNombre[nom].id);
       return idIndirect;
     }
   }

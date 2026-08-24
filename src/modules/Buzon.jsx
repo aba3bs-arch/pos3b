@@ -43,11 +43,7 @@ import {
   puedeRedirigirIncidenciaPrivilegio,
   tieneAccionIncidencia,
 } from '../lib/incidenciasPrivilegios.js';
-import {
-  esAprobadorRecoleccionIe,
-  esAprobadorValeGasolina,
-  esSocioAprobadorPrestamo,
-} from '../lib/contabilidadConstants.js';
+import { esAprobadorRecoleccionIe, esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
 import {
   aprobarGastoTurno,
   aprobarRecoleccionCorteIe,
@@ -93,11 +89,10 @@ export default function Buzon({
   const esGerente = rol === 'Gerente';
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
   const esAprobadorRecIe = esAprobadorRecoleccionIe(user?.nombre);
-  const esAprobadorGasolina = esAprobadorValeGasolina(user?.nombre);
   const modoVista = modoVistaIncidencias(rol, user?.id);
-  const veTodasTiendas = puedeVerTodasIncidencias(rol, user?.id, sucursal) || esAprobadorRecIe || esAprobadorGasolina;
+  const veTodasTiendas = puedeVerTodasIncidencias(rol, user?.id, sucursal) || esAprobadorRecIe;
   const puedeGestionarNotif = esAdmin;
-  const puedeBandejaPendientes = puedeVerBandejaPendientesIncidencias(rol, user?.id) || esAprobadorRecIe || esAprobadorGasolina;
+  const puedeBandejaPendientes = puedeVerBandejaPendientesIncidencias(rol, user?.id) || esAprobadorRecIe;
   const puedeHistorial = puedeVerHistorialIncidencias(rol, user?.id);
   const puedeResolver = puedeResolverAlgunaIncidencia(rol, user?.id);
   const soloIncidencias = rolSoloPestanaIncidencias(rol, user?.id);
@@ -159,12 +154,10 @@ export default function Buzon({
     (lista) => {
       let base = lista || [];
       if (!(esAdmin || esGerente)) {
-        if (esSocio || esAprobadorRecIe || esAprobadorGasolina) {
+        if (esSocio || esAprobadorRecIe) {
           base = base.filter((n) =>
             (esSocio && n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO)
-            || (esAprobadorRecIe && n.tipo === TIPOS_NOTIF.RECOLECCION_CORTE_IE)
-            || (esAprobadorGasolina && n.tipo === TIPOS_NOTIF.VALE_PENDIENTE
-              && /gasolina/i.test(`${n.mensaje || ''} ${n.titulo || ''}`)),
+            || (esAprobadorRecIe && n.tipo === TIPOS_NOTIF.RECOLECCION_CORTE_IE),
           );
         } else if (!veTodasTiendas) {
           base = base.filter((n) => n.tipo === TIPOS_NOTIF.INCIDENCIA || n.sucursal_id === sucursal);
@@ -174,7 +167,7 @@ export default function Buzon({
         verTodo: Boolean(verTodoBuzon && (esAdmin || esGerente)),
       });
     },
-    [esAdmin, esGerente, esSocio, esAprobadorRecIe, esAprobadorGasolina, sucursal, veTodasTiendas, user, verTodoBuzon],
+    [esAdmin, esGerente, esSocio, esAprobadorRecIe, sucursal, veTodasTiendas, user, verTodoBuzon],
   );
 
   const recargar = useCallback(async () => {
@@ -340,7 +333,6 @@ export default function Buzon({
   };
 
   const puedeAprobarValesAqui = esAdmin || esGerente;
-  const puedeAprobarValeGasolinaAqui = puedeAprobarValesAqui || esAprobadorGasolina;
 
   const aprobarConsumoCorte = async (n) => {
     if (!esAdmin && !esGerente) return;
@@ -366,16 +358,8 @@ export default function Buzon({
   };
 
   const aprobarValeDesdeBandeja = async (n) => {
-    if (!puedeAprobarValeGasolinaAqui || !n.ref_id) return;
-    if (!puedeAprobarValesAqui && !/gasolina/i.test(`${n.mensaje || ''} ${n.titulo || ''}`)) {
-      setMsg('Solo puedes aprobar vales de gasolina.');
-      return;
-    }
-    const res = await aprobarVale(supabase, n.ref_id, {
-      nombreAprobador: user?.nombre,
-      cargarCorte: true,
-      rolActor: user?.rol,
-    });
+    if (!puedeAprobarValesAqui || !n.ref_id) return;
+    const res = await aprobarVale(supabase, n.ref_id, { nombreAprobador: user?.nombre, cargarCorte: true });
     if (!res.ok) setMsg(res.error || 'No se pudo aprobar el vale.');
     else {
       setMsg('Vale aprobado.');
@@ -708,10 +692,7 @@ export default function Buzon({
                               </button>
                             </>
                           )}
-                          {n.tipo === TIPOS_NOTIF.VALE_PENDIENTE && (
-                            puedeAprobarValesAqui
-                            || (esAprobadorGasolina && /gasolina/i.test(`${n.mensaje || ''} ${n.titulo || ''}`))
-                          ) && (
+                          {n.tipo === TIPOS_NOTIF.VALE_PENDIENTE && puedeAprobarValesAqui && (
                             <>
                               <button type="button" className="btn btn-primary btn-sm" onClick={() => aprobarValeDesdeBandeja(n)}>
                                 Aprobar vale

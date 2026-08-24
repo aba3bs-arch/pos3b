@@ -7,7 +7,6 @@ import {
   cuotaSemanalPrestamo,
   prestamoRequiereSocio,
   esSocioAprobadorPrestamo,
-  esAprobadorValeGasolina,
   normalizarAreaCorte,
   MONTO_PRESTAMO_REQUIERE_SOCIO,
   CUOTA_SEMANAL_MINIMA,
@@ -170,12 +169,7 @@ export async function registrarVale(supabase, row, opts = {}) {
     return { ok: false, error: 'Tipo de vale no válido. El administrador debe crearlo primero.' };
   }
 
-  const rol = normalizarRol(opts.rolActor);
-  const esAdmin = rol === 'Administrador';
-  const esGerente = rol === 'Gerente';
-  const actorGasolina = categoria === 'gasolina' && esAprobadorValeGasolina(opts.nombreActor);
-  /** Autoaprueba: admin, o Luis Enrique en vales de gasolina. */
-  const puedeAutoAprobar = esAdmin || actorGasolina;
+  const esAdmin = normalizarRol(opts.rolActor) === 'Administrador';
   const requiereAdmin = valeRequiereAutorizacionAdmin(new Date(), categoria);
   const descuentaNomina = valeDescuentaNomina(categoria);
 
@@ -184,16 +178,13 @@ export async function registrarVale(supabase, row, opts = {}) {
   let autorizadoPor = null;
   let aprobadoAt = new Date().toISOString();
 
-  if (requiereAdmin && !puedeAutoAprobar) {
+  if (requiereAdmin && !esAdmin) {
     estadoAprobacion = 'pendiente_admin';
     requiereAuth = true;
     autorizadoPor = null;
     aprobadoAt = null;
-  } else if (puedeAutoAprobar) {
-    autorizadoPor = opts.nombreActor || (esAdmin ? 'Administrador' : 'Aprobador gasolina');
-  } else if (esGerente) {
-    // Gerente genera: si no requiere auth, queda aprobado sin sello especial.
-    autorizadoPor = opts.nombreActor || null;
+  } else if (esAdmin) {
+    autorizadoPor = opts.nombreActor || 'Administrador';
   }
 
   const folio = row.folio || (await siguienteFolioVale(supabase, row.sucursal_id));
@@ -252,25 +243,12 @@ export async function registrarVale(supabase, row, opts = {}) {
   };
 }
 
-export async function aprobarVale(supabase, valeId, { nombreAprobador, cargarCorte = true, rolActor } = {}) {
+export async function aprobarVale(supabase, valeId, { nombreAprobador, cargarCorte = true } = {}) {
   if (!supabase || !valeId) return { ok: false, error: 'Vale inválido.' };
   const { data: vale, error: e0 } = await supabase.from('vales').select('*').eq('id', valeId).single();
   if (e0 || !vale) return { ok: false, error: 'Vale no encontrado.' };
   if (vale.estado_aprobacion === 'aprobado') return { ok: true, vale };
   if (vale.estado_aprobacion === 'rechazado') return { ok: false, error: 'El vale fue rechazado.' };
-
-  const rol = normalizarRol(rolActor);
-  const esAdminGerente = rol === 'Administrador' || rol === 'Gerente';
-  const gasolinaOk = String(vale.categoria || '').toLowerCase() === 'gasolina'
-    && esAprobadorValeGasolina(nombreAprobador);
-  if (rolActor != null && !esAdminGerente && !gasolinaOk) {
-    return {
-      ok: false,
-      error: vale.categoria === 'gasolina'
-        ? 'Solo administrador, gerente o Luis Enrique pueden aprobar vales de gasolina.'
-        : 'Solo administrador o gerente pueden aprobar este vale.',
-    };
-  }
 
   const { data, error } = await supabase
     .from('vales')

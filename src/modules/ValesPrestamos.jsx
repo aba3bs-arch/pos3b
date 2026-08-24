@@ -46,9 +46,7 @@ import {
   EVENTO_HORA_LIMITE_VALE,
   MONTO_PRESTAMO_REQUIERE_SOCIO,
   beneficiarioValePorId,
-  esAprobadorValeGasolina,
   esSocioAprobadorPrestamo,
-  etiquetaBeneficiarioVale,
   etiquetaCategoriaVale,
   etiquetaColectaPrestamo,
   etiquetaEstadoPrestamo,
@@ -177,15 +175,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const esAdmin = rolNorm === 'Administrador';
   const esGerente = rolNorm === 'Gerente';
   const esMain = String(sucursal || '').toUpperCase() === 'MAIN';
-  const puedeGenerarValesTienda = tiendaPuedeGenerarVales(sucursal);
+  const puedeGenerarVales = tiendaPuedeGenerarVales(sucursal);
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
-  const esAprobadorGasolina = esAprobadorValeGasolina(user?.nombre);
-  /** Luis Enrique puede generar gasolina aunque la tienda no esté en la lista general. */
-  const puedeGenerarVales = puedeGenerarValesTienda || esAprobadorGasolina;
-  const categoriaValeDefault = !puedeGenerarValesTienda && esAprobadorGasolina ? 'gasolina' : 'consumo';
-  /** Admin/gerente aprueban vales; Luis Enrique también aprueba gasolina. */
+  /** Admin/gerente aprueban vales; socio solo préstamos >$1,000. */
   const puedeAprobarVales = esAdmin || esGerente;
-  const puedeAprobarGasolina = puedeAprobarVales || esAprobadorGasolina;
   /** Abonar / liquidar / editar vales, RIF y préstamos a empleado. */
   const puedeOperarDocs = Boolean(user);
   /** Abonar / liquidar / editar préstamos área y sucursal: solo admin o gerente. */
@@ -194,11 +187,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const puedeEliminarDocs = esAdmin || esGerente;
   /** Vales: cajero también puede eliminar si se equivoca (corte abierto validado en lib). */
   const puedeEliminarVales = Boolean(user);
-  const puedeVerBandejaAprobacion = puedeAprobarVales || esSocio || esAprobadorGasolina;
-  const vePendientesTodasTiendas = puedeAprobarVales || esAprobadorGasolina;
+  const puedeVerBandejaAprobacion = puedeAprobarVales || esSocio;
+  const vePendientesTodasTiendas = puedeAprobarVales;
   const requiereAuthAhora = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria);
-  const valeFormRequiereAdmin = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria)
-    && !(valeForm.categoria === 'gasolina' && esAprobadorGasolina);
+  const valeFormRequiereAdmin = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria);
 
   const categoriasValeDisponibles = useMemo(() => listarCategoriasVale(), [categoriasTick]);
   const categoriasExtra = useMemo(() => leerCategoriasValeExtra().filter((c) => c.activo !== false), [categoriasTick]);
@@ -216,13 +208,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const valesPendientes = useMemo(() => {
     const fuente = vePendientesTodasTiendas ? valesPendAll : vales;
-    return (fuente || []).filter((v) => {
-      if (v.estado_aprobacion !== 'pendiente_admin') return false;
-      if (puedeAprobarVales) return true;
-      if (esAprobadorGasolina && String(v.categoria || '').toLowerCase() === 'gasolina') return true;
-      return false;
-    });
-  }, [vales, valesPendAll, vePendientesTodasTiendas, puedeAprobarVales, esAprobadorGasolina]);
+    return (fuente || []).filter((v) => v.estado_aprobacion === 'pendiente_admin');
+  }, [vales, valesPendAll, vePendientesTodasTiendas]);
   const prestamosPendientesAdmin = useMemo(() => {
     const fuente = vePendientesTodasTiendas ? prestamosPendAll : prestamosEmp;
     return (fuente || []).filter((p) => p.estado === 'pendiente_admin');
@@ -332,12 +319,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   }, []);
 
   useEffect(() => {
-    if (!puedeGenerarValesTienda && esAprobadorGasolina) {
-      setValeForm((f) => (f.categoria === 'gasolina' ? f : { ...f, categoria: 'gasolina' }));
-    }
-  }, [puedeGenerarValesTienda, esAprobadorGasolina]);
-
-  useEffect(() => {
     if (irAPendientes && puedeVerBandejaAprobacion) {
       setPestana('pendientes');
       onPendientesVisto?.();
@@ -362,9 +343,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const guardarVale = async () => {
     if (!supabase) return alert('Sin conexión.');
     if (!puedeGenerarVales) return alert('Esta tienda no puede generar vales. El administrador debe autorizarla en Configuración → Vales y préstamos.');
-    if (!puedeGenerarValesTienda && esAprobadorGasolina && String(valeForm.categoria).toLowerCase() !== 'gasolina') {
-      return alert('En esta tienda solo puedes registrar vales de gasolina.');
-    }
     const ben = beneficiarioValePorId(valeForm.beneficiarioId);
     if (!ben) return alert('Selecciona beneficiario.');
     const monto = Number(valeForm.monto);
@@ -380,7 +358,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       {
         sucursal_id: sucursal || 'MAIN',
         usuario_id: null,
-        nombre_empleado: etiquetaBeneficiarioVale(ben),
+        nombre_empleado: ben.nombre,
         tipo: 'indirecto',
         area: ben.area,
         categoria: valeForm.categoria,
@@ -399,7 +377,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     if (!res.pendiente && res.requiereFirma && confirm('¿Imprimir vale para firma del beneficiario?')) {
       imprimirVale(res.vale, { mostrarFirma: true });
     }
-    setValeForm({ beneficiarioId: '', categoria: categoriaValeDefault, monto: '', motivo: '', fecha: hoyISO() });
+    setValeForm({ beneficiarioId: '', categoria: 'consumo', monto: '', motivo: '', fecha: hoyISO() });
     recargarTodo();
   };
 
@@ -569,11 +547,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   };
 
   const aprobarV = async (id) => {
-    const res = await aprobarVale(supabase, id, {
-      nombreAprobador: user?.nombre,
-      cargarCorte: true,
-      rolActor: user?.rol,
-    });
+    const res = await aprobarVale(supabase, id, { nombreAprobador: user?.nombre, cargarCorte: true });
     if (!res.ok) return alert(res.error);
     alert('Vale aprobado y cargado al corte.');
     if (confirm('¿Imprimir vale?')) imprimirVale(res.vale, { mostrarFirma: true });
@@ -1097,19 +1071,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         </div>
       )}
 
-      {!puedeGenerarValesTienda && !esAprobadorGasolina && (
+      {!puedeGenerarVales && (
         <div className="card" style={{ borderLeft: '4px solid var(--danger)', background: 'rgba(211,47,47,0.06)' }}>
           <strong>Esta tienda no está autorizada para generar vales.</strong>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
             El administrador puede habilitarla en <strong>Configuración → Vales y préstamos</strong>.
-          </p>
-        </div>
-      )}
-      {!puedeGenerarValesTienda && esAprobadorGasolina && (
-        <div className="card" style={{ borderLeft: '4px solid var(--brand-blue)', background: 'rgba(25,118,210,0.06)' }}>
-          <strong>Puedes registrar vales de gasolina</strong>
-          <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-            Esta tienda no genera otros tipos de vale; los de gasolina se aprueban al registrarlos.
           </p>
         </div>
       )}
@@ -1144,7 +1110,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       </div>
 
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        {['vales', 'rif', 'prestamos', 'prestamos_emp', esAdmin && 'tipos', (esAdmin || esAprobadorGasolina) && 'gasolina', puedeVerBandejaAprobacion && 'pendientes'].filter(Boolean).map((p) => (
+        {['vales', 'rif', 'prestamos', 'prestamos_emp', esAdmin && 'tipos', esAdmin && 'gasolina', puedeVerBandejaAprobacion && 'pendientes'].filter(Boolean).map((p) => (
           <button key={p} type="button" className={`btn ${pestana === p ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPestana(p)}>
             {p === 'vales' && 'Vales'}
             {p === 'rif' && `RIF (${rifs.filter((r) => r.estado === 'abierto').length})`}
@@ -1167,12 +1133,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               </span>
             )}
           </h3>
-          {puedeAprobarGasolina && valesPendientes.length > 0 && (
+          {puedeAprobarVales && valesPendientes.length > 0 && (
             <>
-              <h4 style={{ margin: '0.5rem 0' }}>
-                Vales pendientes
-                {esAprobadorGasolina && !puedeAprobarVales ? ' (gasolina)' : ''}
-              </h4>
+              <h4 style={{ margin: '0.5rem 0' }}>Vales pendientes</h4>
               {valesPendientes.map((v) => (
                 <div key={v.id} style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.5rem', padding: '0.5rem', background: 'var(--surface)', borderRadius: 8 }}>
                   <span>
@@ -1344,14 +1307,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <select className="select" value={valeForm.beneficiarioId} onChange={(e) => setValeForm({ ...valeForm, beneficiarioId: e.target.value })}>
                 <option value="">— Beneficiario —</option>
                 {BENEFICIARIOS_VALES.map((b) => (
-                  <option key={b.id} value={b.id}>{etiquetaBeneficiarioVale(b)} — corte {ETIQUETA_AREA[b.area]}</option>
+                  <option key={b.id} value={b.id}>{b.nombre} — corte {ETIQUETA_AREA[b.area]}</option>
                 ))}
               </select>
               <select className="select" value={valeForm.categoria} onChange={(e) => setValeForm({ ...valeForm, categoria: e.target.value })}>
-                {(puedeGenerarValesTienda
-                  ? categoriasValeDisponibles
-                  : categoriasValeDisponibles.filter((c) => c.id === 'gasolina')
-                ).map((c) => (
+                {categoriasValeDisponibles.map((c) => (
                   <option key={c.id} value={c.id}>{c.label}{c.descuentaNomina ? ' (nómina)' : ' (sin nómina)'}</option>
                 ))}
               </select>
@@ -1577,7 +1537,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         </>
       )}
 
-      {pestana === 'gasolina' && (esAdmin || esAprobadorGasolina) && (
+      {pestana === 'gasolina' && esAdmin && (
         <PanelAsistenciaGasolina supabase={supabase} sucursal={sucursal} user={user} />
       )}
 

@@ -89,16 +89,10 @@ export function empleadoEnTurnoActual(user, turno = turnoActual(), date = new Da
 }
 
 function esPersonalIndirectoPorNombre(user) {
-  const nom = String(user?.nombre || '').trim();
-  if (!nom) return false;
-  return BENEFICIARIOS_VALES.some((b) => {
-    const patrones = b.patrones?.length ? b.patrones : [b.nombre];
-    return patrones.some((p) => {
-      const pn = String(p || '').trim().toLowerCase();
-      const n = nom.toLowerCase();
-      return n === pn || n.includes(pn) || pn.includes(n);
-    });
-  });
+  const nom = String(user?.nombre || '')
+    .trim()
+    .toLowerCase();
+  return BENEFICIARIOS_VALES.some((b) => b.nombre.toLowerCase() === nom);
 }
 
 /**
