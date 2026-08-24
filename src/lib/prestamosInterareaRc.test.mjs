@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import {
   etiquetaColectaPrestamo,
+  prestamoInterareaPendienteRc,
+  prestamoInterareaPuedeOperarHastaRc,
   prestamoInterareaPuedeRecolectarRc,
 } from './contabilidadConstants.js';
+import { puedeRecolectarPrestamoInterareaRc, puedeOperarPrestamoAreaSucursal } from './valesPrestamos.js';
 
 assert.equal(
   prestamoInterareaPuedeRecolectarRc({ estado: 'recuperar', saldo: 100 }),
@@ -29,10 +32,37 @@ assert.equal(
 );
 
 assert.equal(
-  prestamoInterareaPuedeRecolectarRc({ estado: 'recuperado', saldo: 0, colectado_por: 'JLBB' }),
-  false,
-  'recuperado no se recolecta',
+  prestamoInterareaPuedeRecolectarRc({
+    estado: 'recuperado',
+    saldo: 200,
+    colectado_por: 'JLBB',
+  }),
+  true,
+  'aunque diga recuperado, si no hay RC y hay saldo+colecta, sigue Recolectar',
 );
+
+assert.equal(
+  prestamoInterareaPuedeRecolectarRc({
+    estado: 'por_recolectar',
+    saldo: 100,
+    rc_recibido_por: 'AMR',
+  }),
+  false,
+  'ya recolectado a RC: se ocultan botones de recolección',
+);
+
+assert.equal(prestamoInterareaPendienteRc({ estado: 'por_recolectar', saldo: 10 }), true);
+assert.equal(prestamoInterareaPendienteRc({ estado: 'recuperado', rc_recibido_por: 'X' }), false);
+assert.equal(prestamoInterareaPuedeOperarHastaRc({ estado: 'recuperar', saldo: 10 }), true);
+assert.equal(prestamoInterareaPuedeOperarHastaRc({ rc_recibido_por: 'X' }), false);
+
+assert.equal(puedeOperarPrestamoAreaSucursal('Administrador'), true);
+assert.equal(puedeOperarPrestamoAreaSucursal('Gerente'), true);
+assert.equal(puedeOperarPrestamoAreaSucursal('Repartidor'), false);
+assert.equal(puedeOperarPrestamoAreaSucursal('Cajero'), false);
+assert.equal(puedeRecolectarPrestamoInterareaRc('Repartidor'), true);
+assert.equal(puedeRecolectarPrestamoInterareaRc('Administrador'), true);
+assert.equal(puedeRecolectarPrestamoInterareaRc('Cajero'), false);
 
 assert.match(
   etiquetaColectaPrestamo({

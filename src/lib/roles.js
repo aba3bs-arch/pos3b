@@ -196,7 +196,7 @@ const ACCESO_POR_ROL = {
     'Check List',
     'Ayuda',
   ],
-  Repartidor: ['Inicio', 'Incidencias', 'Recolecciones', 'Productos', 'Venta en Ruta', 'Ayuda'],
+  Repartidor: ['Inicio', 'Incidencias', 'Recolecciones', 'Productos', 'Venta en Ruta', 'Vales y Préstamos', 'Ayuda'],
   Auditor: [
     'Inicio',
     'Incidencias',
@@ -328,6 +328,7 @@ function listaModulosEfectiva(rol, userId = null) {
   if (esRolRepartidor(rol)) {
     const set = new Set(permitidos);
     set.add('Productos');
+    set.add('Vales y Préstamos');
     for (const m of MODULOS_BLOQUEADOS_REPARTIDOR) set.delete(m);
     permitidos = [...set];
   }

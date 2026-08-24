@@ -13,6 +13,8 @@ import {
   etiquetaHoraLimiteVale,
   prestamoInterareaEstaAbierto,
   prestamoInterareaPuedeRecolectarRc,
+  prestamoInterareaPendienteRc,
+  prestamoInterareaPuedeOperarHastaRc,
   ESTADOS_PRESTAMO_INTERAREA_ABIERTOS,
 } from './contabilidadConstants.js';
 import { esCategoriaValeConocida } from './valesCategorias.js';
@@ -1204,14 +1206,31 @@ export function puedeOperarPrestamoAreaSucursal(rol) {
   return r === 'Administrador' || r === 'Gerente';
 }
 
+/** Admin, gerente o repartidor pueden enviar préstamo área → RC Virtual. */
+export function puedeRecolectarPrestamoInterareaRc(rol) {
+  const r = normalizarRol(rol);
+  return r === 'Administrador' || r === 'Gerente' || r === 'Repartidor';
+}
+
 const AVISO_SOLO_ADMIN_GERENTE_PRESTAMO_AREA =
   'Solo administrador o gerente pueden abonar, liquidar o editar préstamos área/sucursal.';
+
+const AVISO_SOLO_RECOLECTAR_PRESTAMO_AREA =
+  'Solo administrador, gerente o repartidor pueden recolectar el préstamo hacia RC Virtual.';
 
 function exigirAdminGerentePrestamoArea(opts = {}) {
   if (opts.sistemaAuto) return { ok: true };
   const rol = opts.rolActor ?? opts.user?.rol;
   if (!puedeOperarPrestamoAreaSucursal(rol)) {
     return { ok: false, error: AVISO_SOLO_ADMIN_GERENTE_PRESTAMO_AREA };
+  }
+  return { ok: true };
+}
+
+function exigirPuedeRecolectarPrestamoArea(opts = {}) {
+  const rol = opts.rolActor ?? opts.user?.rol;
+  if (!puedeRecolectarPrestamoInterareaRc(rol)) {
+    return { ok: false, error: AVISO_SOLO_RECOLECTAR_PRESTAMO_AREA };
   }
   return { ok: true };
 }
@@ -1347,8 +1366,11 @@ export async function editarPrestamoInterarea(supabase, prestamo, patch = {}, { 
   const auth = exigirAdminGerentePrestamoArea({ user, rolActor: user?.rol });
   if (!auth.ok) return auth;
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
-  if (['liquidado', 'recuperado', 'cancelado'].includes(String(prestamo.estado || ''))) {
-    return { ok: false, error: 'No se puede editar un préstamo recuperado o cancelado.' };
+  if (String(prestamo.estado || '') === 'cancelado') {
+    return { ok: false, error: 'No se puede editar un préstamo cancelado.' };
+  }
+  if (prestamo.rc_recibido_por) {
+    return { ok: false, error: 'Ya fue recolectado a RC Virtual. No se puede editar.' };
   }
   const authTxt = await asegurarCamposSinReservadoOPin(supabase, [patch.notas], { user, sucursal });
   if (!authTxt.ok) return authTxt;
@@ -1371,27 +1393,34 @@ export async function editarPrestamoInterarea(supabase, prestamo, patch = {}, { 
 }
 
 /**
- * Ajusta la cantidad pendiente (saldo) de un préstamo abierto, p. ej. al recolectar.
+ * Ajusta la cantidad pendiente (saldo) de un préstamo, p. ej. al recolectar.
+ * Disponible hasta que un rol con privilegios lo recolecte a RC Virtual.
  * Conserva abonos previos: monto = abono + nuevoSaldo.
  */
 export async function ajustarCantidadPrestamoInterarea(supabase, prestamo, nuevoSaldo, opts = {}) {
   const auth = exigirAdminGerentePrestamoArea(opts);
   if (!auth.ok) return auth;
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
-  if (!prestamoInterareaEstaAbierto(prestamo)) {
-    return { ok: false, error: 'Solo se puede ajustar un préstamo abierto.' };
+  if (!prestamoInterareaPendienteRc(prestamo) && !prestamoInterareaPuedeOperarHastaRc(prestamo)) {
+    return { ok: false, error: 'Ya fue recolectado a RC Virtual. No se puede ajustar.' };
+  }
+  if (prestamo.rc_recibido_por) {
+    return { ok: false, error: 'Ya fue recolectado a RC Virtual. No se puede ajustar.' };
   }
   const saldo = Math.round((Number(nuevoSaldo) || 0) * 100) / 100;
   if (!(saldo >= 0)) return { ok: false, error: 'Cantidad inválida.' };
   const abono = Math.max(0, Number(prestamo.abono) || 0);
   const monto = Math.round((abono + saldo) * 100) / 100;
   const recuperado = saldo <= 0.001;
-  const estadoAbierto = String(prestamo.estado || '') === 'por_recolectar' ? 'por_recolectar' : 'recuperar';
+  const listoRc = String(prestamo.estado || '') === 'por_recolectar' || Boolean(prestamo.colectado_por);
+  const estadoAbierto = listoRc ? 'por_recolectar' : 'recuperar';
   const upd = {
     saldo: recuperado ? 0 : saldo,
-    estado: recuperado ? 'recuperado' : estadoAbierto,
-    ...(recuperado ? patchActorLiquidacionInterarea(opts) : { monto: Math.max(monto, 0.01) }),
+    // No cerrar por ajuste a 0 si aún falta recolectar a RC: deja por_recolectar/recuperar.
+    estado: recuperado && !listoRc ? 'recuperado' : (recuperado && listoRc ? 'por_recolectar' : estadoAbierto),
+    ...(recuperado && !listoRc ? patchActorLiquidacionInterarea(opts) : { monto: Math.max(monto, 0.01) }),
   };
+  if (!recuperado) upd.monto = Math.max(monto, 0.01);
   let { data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, upd);
   if (error && /recuperado|recuperar|por_recolectar/i.test(String(error.message || ''))) {
     ({ data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, {
@@ -1408,7 +1437,7 @@ export async function ajustarCantidadPrestamoInterarea(supabase, prestamo, nuevo
  * y lo envía directo a RC Virtual para rastreo.
  */
 export async function recolectarPrestamoInterarea(supabase, prestamo, montoRecolectar, opts = {}) {
-  const auth = exigirAdminGerentePrestamoArea(opts);
+  const auth = exigirPuedeRecolectarPrestamoArea(opts);
   if (!auth.ok) return auth;
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
   if (!prestamoInterareaPuedeRecolectarRc(prestamo)) {
@@ -1526,7 +1555,14 @@ export async function sincronizarRecuperacionPrestamosInterarea(supabase, opts =
   }
   if (error) return { ok: false, error: error.message, cambios: [] };
 
-  const plan = planRecuperacionPrestamosPorNegativo(data || [], cajaActual);
+  // No auto-abonar préstamos ya listos para Recolectar → RC: los botones y el saldo
+  // permanecen hasta que un rol con privilegios pulse Recolectar.
+  const candidatos = (data || []).filter(
+    (p) => String(p.estado || '') !== 'por_recolectar'
+      && !p.colectado_por
+      && !p.rc_recibido_por,
+  );
+  const plan = planRecuperacionPrestamosPorNegativo(candidatos, cajaActual);
   if (!plan.length) return { ok: true, cambios: [] };
 
   const aplicados = [];
@@ -1622,13 +1658,16 @@ export async function marcarPrestamosInterareaPorRecolectar(supabase, opts = {})
 /** Interárea carga gasto al corte de origen; solo se borra si ese gasto sigue en corte abierto. */
 export async function eliminarPrestamoInterarea(supabase, prestamo) {
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
-  if (['liquidado', 'recuperado'].includes(String(prestamo.estado || ''))) {
+  if (prestamo.rc_recibido_por) {
+    return { ok: false, error: 'Ya fue recolectado a RC Virtual. No se puede eliminar.' };
+  }
+  if (['liquidado', 'recuperado'].includes(String(prestamo.estado || '')) && !prestamoInterareaPendienteRc(prestamo)) {
     return { ok: false, error: 'No se puede eliminar un préstamo recuperado.' };
   }
   if (prestamo.colectado_por) {
     return {
       ok: false,
-      error: `Ya lo colectó ${prestamo.colectado_por}. No se puede eliminar.`,
+      error: `Ya lo colectó ${prestamo.colectado_por}. No se puede eliminar (usa Recolectar → RC).`,
     };
   }
   const check = await corteDocumentoEliminable(supabase, {
