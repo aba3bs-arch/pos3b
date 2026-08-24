@@ -240,7 +240,7 @@ export default function PanelAsistenciaGasolina({ supabase, sucursal, user, edit
             <option value="">Todos</option>
             {BENEFICIARIOS_VALES.map((b) => (
               <option key={b.id} value={b.nombre}>
-                {b.nombre} — {ETIQUETA_AREA[b.area]}
+                {b.etiqueta || b.nombre} — {ETIQUETA_AREA[b.area]}
               </option>
             ))}
           </select>

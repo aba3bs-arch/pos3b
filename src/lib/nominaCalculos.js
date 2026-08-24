@@ -1,4 +1,4 @@
-import { BENEFICIARIOS_VALES } from './contabilidadConstants.js';
+import { BENEFICIARIOS_VALES, nombreCoincidePatrones } from './contabilidadConstants.js';
 import { normalizarNombreEmpleado, indiceEmpleados, resolverClaveEmpleado } from './nominaMatch.js';
 import { round2 } from './nominaGastos.js';
 
@@ -18,9 +18,12 @@ function totalLineaNominaImport(l) {
 }
 
 export function esIndirectoNomina(empleado) {
-  const n = normalizarNombreEmpleado(empleado?.nombre);
-  if (!n) return false;
-  return BENEFICIARIOS_VALES.some((b) => normalizarNombreEmpleado(b.nombre) === n);
+  const nom = String(empleado?.nombre || '').trim();
+  if (!nom) return false;
+  return BENEFICIARIOS_VALES.some((b) => {
+    const patrones = b.patrones?.length ? b.patrones : [b.nombre, b.etiqueta].filter(Boolean);
+    return nombreCoincidePatrones(nom, patrones);
+  });
 }
 
 /** Incluye empleado según pagador del usuario y filtro activo en nómina. */

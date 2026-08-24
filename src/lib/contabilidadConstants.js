@@ -29,9 +29,27 @@ export const ETIQUETA_AREA = {
 
 /** Únicos beneficiarios permitidos para vales. El área define a qué corte va el vale. */
 export const BENEFICIARIOS_VALES = [
-  { id: 'luis-enrique', nombre: 'Luis Enrique', area: 'abarrotes' },
-  { id: 'misael', nombre: 'Misael', area: 'virtual' },
-  { id: 'gonzalo', nombre: 'Gonzalo', area: 'virtual' },
+  {
+    id: 'luis-enrique',
+    nombre: 'Luis Enrique',
+    etiqueta: 'Luis Enrique Mada Osuna',
+    area: 'abarrotes',
+    patrones: ['luis enrique mada osuna', 'luis enrique mada', 'luis enrique'],
+  },
+  { id: 'misael', nombre: 'Misael', etiqueta: 'Misael', area: 'virtual', patrones: ['misael'] },
+  { id: 'gonzalo', nombre: 'Gonzalo', etiqueta: 'Gonzalo', area: 'virtual', patrones: ['gonzalo'] },
+];
+
+/**
+ * Pueden generar (autoaprobar) y aprobar vales de gasolina además de admin/gerente.
+ * Incluye a Luis Enrique Mada Osuna.
+ */
+export const APROBADORES_VALES_GASOLINA = [
+  {
+    id: 'luis-enrique',
+    etiqueta: 'Luis Enrique Mada Osuna',
+    patrones: ['luis enrique mada osuna', 'luis enrique mada', 'luis enrique'],
+  },
 ];
 
 export const MONTO_PRESTAMO_REQUIERE_SOCIO = 1000;
@@ -71,9 +89,23 @@ export function beneficiarioValePorId(id) {
   return BENEFICIARIOS_VALES.find((b) => b.id === id) || null;
 }
 
+export function etiquetaBeneficiarioVale(b) {
+  if (!b) return '—';
+  return b.etiqueta || b.nombre || '—';
+}
+
 export function beneficiarioValePermitido(nombre, area) {
-  const n = String(nombre || '').trim().toLowerCase();
-  return BENEFICIARIOS_VALES.some((b) => b.nombre.toLowerCase() === n && b.area === area);
+  const n = String(nombre || '').trim();
+  if (!n) return false;
+  return BENEFICIARIOS_VALES.some((b) => {
+    if (b.area !== area) return false;
+    const patrones = b.patrones?.length ? b.patrones : [b.nombre];
+    return nombreCoincidePatrones(n, patrones);
+  });
+}
+
+export function esAprobadorValeGasolina(nombre) {
+  return APROBADORES_VALES_GASOLINA.some((s) => nombreCoincidePatrones(nombre, s.patrones));
 }
 
 export function areaCorteValida(area) {
