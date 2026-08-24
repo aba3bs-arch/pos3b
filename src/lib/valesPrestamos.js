@@ -1276,8 +1276,18 @@ export async function abonarPrestamoInterarea(supabase, prestamo, montoAbono, op
   const auth = exigirAdminGerentePrestamoArea(opts);
   if (!auth.ok) return auth;
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
-  if (!prestamoInterareaEstaAbierto(prestamo)) {
-    return { ok: false, error: 'El préstamo no está abierto para recuperar.' };
+  // Abonar = separar dinero. Se permite mientras no se haya recolectado a RC.
+  if (prestamo.rc_recibido_por) {
+    return { ok: false, error: 'Ya fue recolectado a RC Virtual. No se puede abonar.' };
+  }
+  if (String(prestamo.estado || '') === 'cancelado') {
+    return { ok: false, error: 'El préstamo está cancelado.' };
+  }
+  if (!prestamoInterareaEstaAbierto(prestamo) && !(Number(prestamo.saldo) > 0.001)) {
+    // Legado recuperado sin RC pero con saldo: permitir; si no hay saldo, no.
+    if (!(saldoInterarea(prestamo) > 0.001) && !prestamoInterareaPendienteRc(prestamo)) {
+      return { ok: false, error: 'El préstamo no está abierto para abonar.' };
+    }
   }
   const abono = Math.max(0, Number(montoAbono) || 0);
   if (!(abono > 0)) return { ok: false, error: 'Monto de abono inválido.' };
@@ -1285,41 +1295,48 @@ export async function abonarPrestamoInterarea(supabase, prestamo, montoAbono, op
   if (abono > saldoAntes + 0.001) return { ok: false, error: 'El abono no puede superar el saldo.' };
   const saldo = Math.max(0, Math.round((saldoAntes - abono) * 100) / 100);
   const abonoTotal = (Number(prestamo.abono) || 0) + abono;
-  const recuperado = saldo <= 0;
-  const estadoAbierto = String(prestamo.estado || '') === 'por_recolectar' ? 'por_recolectar' : 'recuperar';
+  // No cerrar a «recuperado» solo por abonar: el dinero quedó separado;
+  // falta Recolectar → RC. Si vuelve a ocuparse, se genera otro préstamo.
+  const listoRc = String(prestamo.estado || '') === 'por_recolectar' || Boolean(prestamo.colectado_por);
+  const estadoAbierto = listoRc ? 'por_recolectar' : 'recuperar';
   const upd = {
     saldo,
     abono: abonoTotal,
-    estado: recuperado ? 'recuperado' : estadoAbierto,
-    ...(recuperado ? patchActorLiquidacionInterarea(opts) : {}),
+    estado: estadoAbierto,
   };
   let { data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, upd);
   if (error && /recuperado|recuperar|por_recolectar/i.test(String(error.message || ''))) {
-    // Schema viejo: mapear a activo/liquidado
     const legacy = {
       saldo,
       abono: abonoTotal,
-      estado: recuperado ? 'liquidado' : 'activo',
-      ...(recuperado ? patchActorLiquidacionInterarea(opts) : {}),
+      estado: 'activo',
     };
     ({ data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, legacy));
   }
   if (error && /saldo|abono/i.test(String(error.message || ''))) {
     ({ data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, {
-      monto: saldo,
-      estado: recuperado ? 'recuperado' : estadoAbierto,
-      ...(recuperado ? patchActorLiquidacionInterarea(opts) : {}),
+      monto: Math.max(saldo, 0.01),
+      estado: estadoAbierto,
     }));
     if (error && /recuperado|recuperar|por_recolectar/i.test(String(error.message || ''))) {
       ({ data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, {
-        monto: saldo,
-        estado: recuperado ? 'liquidado' : 'activo',
-        ...(recuperado ? patchActorLiquidacionInterarea(opts) : {}),
+        monto: Math.max(saldo, 0.01),
+        estado: 'activo',
       }));
     }
   }
   if (error) return { ok: false, error: error.message };
-  return { ok: true, prestamo: data, saldo, liquidado: recuperado, recuperado };
+  return {
+    ok: true,
+    prestamo: data,
+    saldo,
+    liquidado: false,
+    recuperado: false,
+    separado: saldo <= 0.001,
+    mensaje: saldo <= 0.001
+      ? 'Dinero separado (saldo $0). Usa Recolectar para enviarlo a RC Virtual.'
+      : `Abono ok. Saldo: ${saldo.toFixed(2)}.`,
+  };
 }
 
 export async function liquidarPrestamoInterarea(supabase, prestamo, opts = {}) {
@@ -1433,8 +1450,9 @@ export async function ajustarCantidadPrestamoInterarea(supabase, prestamo, nuevo
 }
 
 /**
- * Recolecta el saldo (o un abono parcial) de un préstamo «por recolectar»
- * y lo envía directo a RC Virtual para rastreo.
+ * Recolecta hacia RC Virtual.
+ * - Con saldo: abona ese monto y lo envía a RC.
+ * - Sin saldo pero con abonos previos (dinero ya separado): solo sella RC con el monto separado.
  */
 export async function recolectarPrestamoInterarea(supabase, prestamo, montoRecolectar, opts = {}) {
   const auth = exigirPuedeRecolectarPrestamoArea(opts);
@@ -1443,18 +1461,27 @@ export async function recolectarPrestamoInterarea(supabase, prestamo, montoRecol
   if (!prestamoInterareaPuedeRecolectarRc(prestamo)) {
     return {
       ok: false,
-      error: 'El préstamo aún no está listo para recolectar. Espera a que se recolecte el corte afectado.',
+      error: 'No hay saldo ni dinero separado pendiente de recolectar a RC.',
     };
-  }
-  const saldo = saldoInterarea(prestamo);
-  const monto = Math.round((Number(montoRecolectar) || 0) * 100) / 100;
-  if (!(monto > 0)) return { ok: false, error: 'Indica un monto mayor a cero.' };
-  if (monto > saldo + 0.001) {
-    return { ok: false, error: `El monto no puede superar el saldo (${saldo.toFixed(2)}).` };
   }
 
   const actor = String(opts.nombreActor || opts.user?.nombre || '').trim();
   if (!actor) return { ok: false, error: 'No se identificó al usuario que recolecta.' };
+
+  const saldo = saldoInterarea(prestamo);
+  const abonado = Number(prestamo.abono) || 0;
+  let monto = Math.round((Number(montoRecolectar) || 0) * 100) / 100;
+
+  // Dinero ya separado (Abonar dejó saldo 0): recolectar el abono acumulado a RC.
+  const soloSellarRc = !(saldo > 0.001) && abonado > 0.001;
+  if (soloSellarRc) {
+    if (!(monto > 0)) monto = Math.round(abonado * 100) / 100;
+  } else {
+    if (!(monto > 0)) return { ok: false, error: 'Indica un monto mayor a cero.' };
+    if (monto > saldo + 0.001) {
+      return { ok: false, error: `El monto no puede superar el saldo (${saldo.toFixed(2)}).` };
+    }
+  }
 
   const { recibirPrestamoInterareaRcVirtual, AVISO_FALTA_R_VIRTUAL } = await import('./rVirtual.js');
   const rc = await recibirPrestamoInterareaRcVirtual(supabase, {
@@ -1473,21 +1500,39 @@ export async function recolectarPrestamoInterarea(supabase, prestamo, montoRecol
     return { ok: false, error: rc.error || 'No se pudo enviar a RC Virtual.' };
   }
 
-  const abonoOpts = {
-    ...opts,
-    nombreActor: actor,
-    sistemaAuto: false,
-  };
-  const abonoRes = await abonarPrestamoInterarea(supabase, prestamo, monto, abonoOpts);
-  if (!abonoRes.ok) {
-    return {
-      ok: false,
-      error: `Ya entró a RC Virtual (${rc.folio || rc.origenId}), pero no se actualizó el préstamo: ${abonoRes.error}`,
-      rc,
+  let prestamoFinal = prestamo;
+  let saldoFinal = saldo;
+  let recuperado = soloSellarRc;
+
+  if (!soloSellarRc) {
+    const abonoOpts = {
+      ...opts,
+      nombreActor: actor,
+      sistemaAuto: false,
     };
+    const abonoRes = await abonarPrestamoInterarea(supabase, prestamo, monto, abonoOpts);
+    if (!abonoRes.ok) {
+      return {
+        ok: false,
+        error: `Ya entró a RC Virtual (${rc.folio || rc.origenId}), pero no se actualizó el préstamo: ${abonoRes.error}`,
+        rc,
+      };
+    }
+    prestamoFinal = abonoRes.prestamo || prestamo;
+    saldoFinal = abonoRes.saldo;
+    recuperado = Number(saldoFinal) <= 0.001;
   }
 
-  const rcPatch = patchRcRecibidoInterarea(abonoOpts, monto, prestamo);
+  const rcPatch = {
+    ...patchRcRecibidoInterarea({ nombreActor: actor }, monto, prestamo),
+    ...(recuperado
+      ? {
+          estado: 'recuperado',
+          saldo: 0,
+          ...patchActorLiquidacionInterarea({ nombreActor: actor, sucursal: opts.sucursal }),
+        }
+      : {}),
+  };
   if (Object.keys(rcPatch).length) {
     const { data: stamped, error: eRc } = await actualizarPrestamoInterarea(
       supabase,
@@ -1498,28 +1543,28 @@ export async function recolectarPrestamoInterarea(supabase, prestamo, montoRecol
       return {
         ok: true,
         prestamo: stamped,
-        saldo: abonoRes.saldo,
-        recuperado: Boolean(abonoRes.recuperado),
-        liquidado: Boolean(abonoRes.liquidado || abonoRes.recuperado),
+        saldo: recuperado ? 0 : saldoFinal,
+        recuperado,
+        liquidado: recuperado,
         rc,
-        mensaje: abonoRes.recuperado
-          ? `Recolectado ${monto.toFixed(2)} → RC Virtual. Préstamo recuperado.`
-          : `Recolectado ${monto.toFixed(2)} → RC Virtual. Saldo: ${Number(abonoRes.saldo).toFixed(2)}.`,
+        mensaje: recuperado
+          ? `Recolectado ${monto.toFixed(2)} → RC Virtual. Préstamo cerrado.`
+          : `Recolectado ${monto.toFixed(2)} → RC Virtual. Saldo: ${Number(saldoFinal).toFixed(2)}.`,
       };
     }
   }
 
   return {
     ok: true,
-    prestamo: abonoRes.prestamo,
-    saldo: abonoRes.saldo,
-    recuperado: Boolean(abonoRes.recuperado),
-    liquidado: Boolean(abonoRes.liquidado || abonoRes.recuperado),
+    prestamo: prestamoFinal,
+    saldo: saldoFinal,
+    recuperado,
+    liquidado: recuperado,
     rc,
-    mensaje: abonoRes.recuperado
-      ? `Recolectado ${monto.toFixed(2)} → RC Virtual. Préstamo recuperado.`
-      : `Recolectado ${monto.toFixed(2)} → RC Virtual. Saldo: ${Number(abonoRes.saldo).toFixed(2)}.`,
-    aviso: Object.keys(rcPatch).length ? AVISO_FALTA_RC_PRESTAMO_AREA : null,
+    mensaje: recuperado
+      ? `Recolectado ${monto.toFixed(2)} → RC Virtual. Préstamo cerrado.`
+      : `Recolectado ${monto.toFixed(2)} → RC Virtual. Saldo: ${Number(saldoFinal).toFixed(2)}.`,
+    aviso: Object.keys(rcPatch).length ? null : AVISO_FALTA_RC_PRESTAMO_AREA,
   };
 }
 
