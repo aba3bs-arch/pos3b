@@ -31,6 +31,8 @@ import {
   abonarPrestamoInterarea,
   liquidarPrestamoInterarea,
   editarPrestamoInterarea,
+  ajustarCantidadPrestamoInterarea,
+  recolectarPrestamoInterarea,
   eliminarPrestamoInterarea,
   registrarPrestamoSucursal,
   registrarEnvioMainATienda,
@@ -52,6 +54,7 @@ import {
   etiquetaHoraLimiteVale,
   listarCategoriasVale,
   prestamoInterareaEstaAbierto,
+  prestamoInterareaPuedeRecolectarRc,
   prestamoOmiteCorte,
   prestamoPuedeImprimir,
   valePuedeImprimir,
@@ -941,6 +944,63 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     recargarTodo();
   };
 
+  const recolectarInterarea = async (p) => {
+    if (!puedeOperarPrestamosAreaSuc) return alert('Solo administrador o gerente pueden recolectar.');
+    if (!prestamoInterareaPuedeRecolectarRc(p)) {
+      return alert('Aún no está listo: primero debe recolectarse el corte afectado.');
+    }
+    const saldo = p.saldo != null ? Number(p.saldo) : Number(p.monto) || 0;
+    const raw = prompt(
+      `Recolectar préstamo → RC Virtual\n`
+      + `${ETIQUETA_AREA[p.origen] || p.origen} → ${ETIQUETA_AREA[p.destino] || p.destino}\n`
+      + `Saldo: ${fmt(saldo)}\n\n`
+      + `Monto a recolectar (puedes ajustar):`,
+      String(saldo),
+    );
+    if (raw === null) return;
+    const monto = parseFloat(String(raw).replace(',', '.'));
+    if (!(monto > 0)) return alert('Monto inválido.');
+    if (monto > saldo + 0.001) return alert(`No puede superar el saldo (${fmt(saldo)}).`);
+    if (!confirm(
+      `¿Recolectar ${fmt(monto)} hacia RC Virtual?\n\n`
+      + `Quedará rastro de ${user?.nombre || 'usuario'} y el monto entrará a tu cuenta RT.`,
+    )) return;
+    const res = await recolectarPrestamoInterarea(supabase, p, monto, {
+      nombreActor: user?.nombre || null,
+      sucursal,
+      rolActor: user?.rol,
+      user,
+    });
+    if (!res.ok) return alert(res.error);
+    if (res.aviso) alert(res.aviso);
+    alert(res.mensaje || 'Recolectado → RC Virtual.');
+    recargarTodo();
+  };
+
+  const ajustarInterarea = async (p) => {
+    if (!puedeOperarPrestamosAreaSuc) return alert('Solo administrador o gerente pueden ajustar.');
+    if (!prestamoInterareaEstaAbierto(p)) return alert('El préstamo no está abierto.');
+    const saldo = p.saldo != null ? Number(p.saldo) : Number(p.monto) || 0;
+    const raw = prompt(
+      `Ajustar cantidad pendiente\n`
+      + `Saldo actual: ${fmt(saldo)}\n\n`
+      + `Nueva cantidad (saldo):`,
+      String(saldo),
+    );
+    if (raw === null) return;
+    const nuevo = parseFloat(String(raw).replace(',', '.'));
+    if (!(nuevo >= 0) || Number.isNaN(nuevo)) return alert('Cantidad inválida.');
+    const res = await ajustarCantidadPrestamoInterarea(supabase, p, nuevo, {
+      nombreActor: user?.nombre || null,
+      sucursal,
+      rolActor: user?.rol,
+      user,
+    });
+    if (!res.ok) return alert(res.error);
+    alert(res.recuperado ? 'Cantidad en 0 · marcado recuperado.' : `Saldo ajustado a ${fmt(res.saldo)}.`);
+    recargarTodo();
+  };
+
   const editarInterarea = async (p) => {
     if (!puedeOperarPrestamosAreaSuc) return alert('Solo administrador o gerente pueden editar.');
     const notas = prompt('Notas:', p.notas || '');
@@ -1487,14 +1547,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             <h3 style={{ margin: '0 0 0.75rem' }}>Préstamo entre áreas (gastos)</h3>
             <p className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>
               El dinero sale del corte de <strong>origen</strong> como categoría PRESTAMOS (movimiento interno: no es gasto de IE).
-              Al recolectar ese corte queda quién <strong>colectó</strong>. La liquidación manual sigue disponible para admin/gerente.
+              Al recolectar ese corte queda quién <strong>colectó</strong> y el préstamo pasa a <strong>Por recolectar</strong>.
+              Ahí aparece <strong>Recolectar</strong>: envía el efectivo a <strong>RC Virtual</strong> (rastreable) y deja rastro de quién lo recibió.
+              Puedes <strong>ajustar</strong> la cantidad al recolectar. La liquidación manual sigue disponible para admin/gerente.
             </p>
             <p className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
               <strong>Ejemplo — Virtual presta $500 a Abarrotes para un proveedor:</strong>{' '}
               Origen = Abarrotes, Destino = Virtual. El $500 queda en el corte de Abarrotes (puede ir a negativo).
               Mientras haya negativo y no se haya recolectado, el estado es <strong>Recuperar</strong>.
               Conforme las ventas bajan el negativo, el saldo del préstamo se abona solo; al llegar la caja a $0 pasa a <strong>Recuperado</strong>.
-              Si recolectan Virtual con deuda de Abarrotes aún abierta, el préstamo pasa a <strong>Por recolectar</strong>.
+              Si recolectan el corte con deuda aún abierta, el préstamo pasa a <strong>Por recolectar</strong> y puedes enviarlo a RC Virtual.
             </p>
             <div className="grid-2">
               <select className="select" value={prestForm.origen} onChange={(e) => setPrestForm({ ...prestForm, origen: e.target.value })}>
@@ -1528,6 +1590,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                       const activo = prestamoInterareaEstaAbierto(p);
                       const saldo = p.saldo != null ? Number(p.saldo) : Number(p.monto) || 0;
                       const cerrado = ['liquidado', 'recuperado'].includes(String(p.estado || ''));
+                      const puedeRecolectarRc = puedeOperarPrestamosAreaSuc && prestamoInterareaPuedeRecolectarRc(p);
                       return (
                         <tr key={p.id}>
                           <td>{p.fecha}</td>
@@ -1555,8 +1618,34 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                             >
                               Imprimir (firma)
                             </button>
+                            {puedeRecolectarRc && (
+                              <button
+                                type="button"
+                                className="btn btn-primary"
+                                style={{
+                                  padding: '0.2rem 0.45rem',
+                                  fontSize: '0.78rem',
+                                  background: 'var(--brand-gold)',
+                                  borderColor: 'var(--brand-gold)',
+                                  color: '#1a1a1a',
+                                }}
+                                onClick={() => recolectarInterarea(p)}
+                              >
+                                Recolectar
+                              </button>
+                            )}
                             {puedeOperarPrestamosAreaSuc && activo && (
                               <>
+                                {puedeRecolectarRc && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-ghost"
+                                    style={{ padding: '0.2rem 0.4rem' }}
+                                    onClick={() => ajustarInterarea(p)}
+                                  >
+                                    Ajustar
+                                  </button>
+                                )}
                                 <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => abonarInterarea(p)}>Abonar</button>
                                 <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem' }} onClick={() => liquidarInterarea(p)}>Marcar recuperado</button>
                                 <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => editarInterarea(p)}>Editar</button>

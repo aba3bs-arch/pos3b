@@ -387,16 +387,40 @@ export function etiquetaLiquidacionPrestamo(p) {
 
 /** Quién recolectó el corte donde el préstamo área/sucursal quedó como gasto. */
 export function etiquetaColectaPrestamo(p) {
+  const partes = [];
   if (p?.colectado_por) {
     const dia = String(p.colectado_at || '').slice(0, 10);
     const folio = p.colectado_folio ? ` · ${p.colectado_folio}` : '';
     const area = p.colectado_modulo || p.origen || p.area_corte || '';
     const areaLbl = ETIQUETA_AREA[area] || area;
-    return `${p.colectado_por}${dia ? ` · ${dia}` : ''}${areaLbl ? ` · ${areaLbl}` : ''}${folio}`;
+    partes.push(`${p.colectado_por}${dia ? ` · ${dia}` : ''}${areaLbl ? ` · ${areaLbl}` : ''}${folio}`);
+  } else if (p?.omitir_corte) {
+    partes.push('Solo nómina (sin corte)');
+  } else if (p?.cargado_corte) {
+    partes.push('En corte · pendiente recolección');
   }
-  if (p?.omitir_corte) return 'Solo nómina (sin corte)';
-  if (p?.cargado_corte) return 'En corte · pendiente recolección';
-  return '—';
+  if (p?.rc_recibido_por) {
+    const diaRc = String(p.rc_recibido_at || '').slice(0, 10);
+    const monRc = Number(p.rc_monto);
+    const monLbl = Number.isFinite(monRc) && monRc > 0
+      ? ` · $${monRc.toFixed(2)}`
+      : '';
+    partes.push(`RC · ${p.rc_recibido_por}${diaRc ? ` · ${diaRc}` : ''}${monLbl}`);
+  }
+  if (!partes.length) return '—';
+  return partes.join(' → ');
+}
+
+/**
+ * Tras recolectar el corte afectado (estado por_recolectar o ya colectado_por),
+ * el préstamo puede enviarse a RC Virtual desde Préstamos área.
+ */
+export function prestamoInterareaPuedeRecolectarRc(p) {
+  if (!prestamoInterareaEstaAbierto(p)) return false;
+  const saldo = p?.saldo != null ? Number(p.saldo) : Number(p?.monto) || 0;
+  if (!(saldo > 0.001)) return false;
+  const est = String(p?.estado || '');
+  return est === 'por_recolectar' || Boolean(p?.colectado_por);
 }
 
 /** Préstamo a empleado MAIN/indirecto: no va a corte. */

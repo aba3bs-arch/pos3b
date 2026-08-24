@@ -700,4 +700,95 @@ export async function generarGastoRecoleccionRcVirtual(supabase, {
   };
 }
 
+/**
+ * Recibe un préstamo entre áreas directo a RC Virtual (cuenta RT + custodia).
+ * No pasa por la bandeja de cortes pendientes: queda rastreable como custodia.
+ */
+export async function recibirPrestamoInterareaRcVirtual(supabase, {
+  prestamo,
+  monto,
+  adminNombre,
+  recolectorNombre,
+} = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  if (!prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  const admin = String(adminNombre || '').trim();
+  if (!admin) return { ok: false, error: 'No se identificó quién recolecta hacia RC Virtual.' };
+
+  const m = round2(monto);
+  if (!(m > 0)) return { ok: false, error: 'Monto inválido.' };
+
+  const probe = await supabase.from('r_virtual_custodia').select('id').limit(1);
+  if (probe.error && esErrorTablaRVirtual(probe.error)) {
+    return { ok: false, error: AVISO_FALTA_R_VIRTUAL };
+  }
+
+  const cuenta = await resolverOCrearCuentaRt(supabase, admin);
+  if (!cuenta.ok) return cuenta;
+
+  const origenLbl = String(prestamo.origen || '').toLowerCase() || 'origen';
+  const destinoLbl = String(prestamo.destino || '').toLowerCase() || 'destino';
+  const folio = `PIA-${String(prestamo.id).replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+  const origenId = crypto.randomUUID();
+  const grupoId = crypto.randomUUID();
+  const ahora = new Date().toISOString();
+  const esDestinoFinal = esAbb(admin);
+  const estatus = esDestinoFinal ? 'entregado_abb' : 'recibido';
+  const etiquetaAbb = etiquetaRecolectorRVirtual(admin);
+  const quienTrajo = String(recolectorNombre || prestamo.colectado_por || admin).trim() || admin;
+
+  const { acreditarLiquidacionCuentaRt } = await import('./rtCuentas.js');
+  const cred = await acreditarLiquidacionCuentaRt(supabase, {
+    cuentaId: cuenta.cuentaId,
+    movimientoIds: [origenId],
+    montoTotal: m,
+    usuarioNombre: admin,
+    repartidorNombre: quienTrajo,
+    notas: `RC Virtual · Préstamo área ${folio} · ${origenLbl}→${destinoLbl}`,
+  });
+  if (!cred.ok) return cred;
+
+  const fila = {
+    origen: 'prestamo_interarea',
+    origen_id: origenId,
+    recolector_nombre: quienTrajo,
+    recolector_clave: claveRecolectorRVirtual(quienTrajo),
+    monto: m,
+    sucursal: etiquetaTienda(prestamo.sucursal_id) || prestamo.sucursal_id || null,
+    folio,
+    tipo_item: 'Préstamo entre áreas',
+    detalle: `Préstamo ${origenLbl}→${destinoLbl} · id:${prestamo.id}`,
+    grupo_id: grupoId,
+    estatus,
+    recibido_por: admin,
+    recibido_cuenta_id: cuenta.cuentaId,
+    recibido_at: ahora,
+    entregado_a: esDestinoFinal ? etiquetaAbb : null,
+    entregado_at: esDestinoFinal ? ahora : null,
+  };
+
+  const ins = await insertarCustodia(supabase, [fila]);
+  if (!ins.ok) {
+    // Si el check de origen aún no incluye prestamo_interarea, avisar el fix SQL.
+    if (/origen|check|prestamo_interarea/i.test(String(ins.error || ''))) {
+      return {
+        ok: false,
+        error: `${ins.error} Ejecuta supabase/fix_prestamos_interarea_rc_virtual.sql.`,
+      };
+    }
+    return ins;
+  }
+
+  return {
+    ok: true,
+    origenId,
+    monto: m,
+    folio,
+    cuentaId: cuenta.cuentaId,
+    entregadoAbb: esDestinoFinal,
+    recibidoPor: admin,
+    recibidoAt: ahora,
+  };
+}
+
 export { fmtMonto };

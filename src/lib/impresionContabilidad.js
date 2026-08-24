@@ -132,6 +132,7 @@ export function htmlPrestamoInterarea(p) {
     <div>Estado: ${esc(etiquetaEstadoPrestamo(p))}${['liquidado', 'recuperado'].includes(String(p.estado || '')) && (p.liquidado_por || p.liquidado_sucursal) ? ` · ${esc(p.liquidado_por || '—')}${p.liquidado_sucursal ? ` · ${esc(p.liquidado_sucursal)}` : ''}` : ''}</div>
     ${p.cargado_corte ? `<div>Corte origen: gasto en ${esc(ETIQUETA_AREA[p.origen] || p.origen || '—')}</div>` : ''}
     ${p.colectado_por ? `<div>Colectó: <strong>${esc(p.colectado_por)}</strong>${p.colectado_at ? ` · ${esc(String(p.colectado_at).slice(0, 16).replace('T', ' '))}` : ''}${p.colectado_folio ? ` · ${esc(p.colectado_folio)}` : ''}</div>` : ''}
+    ${p.rc_recibido_por ? `<div>RC Virtual: <strong>${esc(p.rc_recibido_por)}</strong>${p.rc_recibido_at ? ` · ${esc(String(p.rc_recibido_at).slice(0, 16).replace('T', ' '))}` : ''}${p.rc_monto != null ? ` · ${fmt(p.rc_monto)}` : ''}</div>` : ''}
     ${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ''}
     <div class="muted">Sucursal: ${esc(p.sucursal_id || '—')}</div>
     <div class="firma">Firma / recibido: _________________________________</div>
