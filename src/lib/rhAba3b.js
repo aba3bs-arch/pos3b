@@ -1,6 +1,7 @@
 import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
 import { nombreEsAdminPrincipal, verificarAdminPrincipal } from './adminPrincipal.js';
 import { verificarPinAdministradorGlobal } from './autorizacionTurnoFueraHorario.js';
+import { armarExtrasDesdeForm } from './rhIneOcr.js';
 import { normalizarRol } from './roles.js';
 
 export const AVISO_FALTA_RH_ABA3B =
@@ -266,15 +267,7 @@ export async function altaEmpleadoRh(supabase, form = {}, { user } = {}) {
     fecha_alta: form.fecha_alta || hoyYmd(),
     recontratable: true,
     documentos: form.documentos && typeof form.documentos === 'object' ? form.documentos : {},
-    extras: {
-      ine: Boolean(form.doc_ine),
-      comprobante_domicilio: Boolean(form.doc_comprobante),
-      acta_nacimiento: Boolean(form.doc_acta),
-      constancia_fiscal: Boolean(form.doc_csf),
-      contrato_firmado: Boolean(form.doc_contrato),
-      foto: Boolean(form.doc_foto),
-      notas_alta: String(form.notas || '').trim() || null,
-    },
+    extras: armarExtrasDesdeForm(form, form.extras),
     created_by: user?.nombre || null,
     updated_at: new Date().toISOString(),
   };
@@ -349,6 +342,12 @@ export async function editarEmpleadoRh(supabase, empleadoId, patch = {}, { user 
   if (patch.recontratable === true) upd.motivo_no_recontratable = null;
   if (patch.recontratable === false && !String(patch.motivo_no_recontratable || prev.empleado.motivo_no_recontratable || '').trim()) {
     return { ok: false, error: 'Indica el motivo por el que no es recontratable.' };
+  }
+
+  const docsTouched = ['doc_ine', 'doc_comprobante', 'doc_acta', 'doc_csf', 'doc_contrato', 'doc_foto', 'notas', 'ine_foto']
+    .some((k) => patch[k] !== undefined);
+  if (docsTouched || patch.extras != null) {
+    upd.extras = armarExtrasDesdeForm(patch, prev.empleado.extras || {});
   }
 
   const { data, error } = await supabase
