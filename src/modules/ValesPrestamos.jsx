@@ -195,8 +195,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const puedeEliminarVales = Boolean(user);
   const puedeVerBandejaAprobacion = puedeAprobarVales || esSocio;
   const vePendientesTodasTiendas = puedeAprobarVales;
-  /** Admin/gerente ven préstamos área/sucursal de todas las tiendas (no solo la sesión actual). */
-  const vePrestamosAreaTodasTiendas = puedeOperarPrestamosAreaSuc;
   const requiereAuthAhora = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria);
   const valeFormRequiereAdmin = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria);
 
@@ -928,8 +926,19 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const abonarInterarea = async (p) => {
     if (!puedeOperarPrestamosAreaSuc) return alert('Solo administrador o gerente pueden abonar.');
+    if (!prestamoInterareaPendienteRc(p)) {
+      return alert('Ya fue recolectado a RC Virtual.');
+    }
     const saldo = p.saldo != null ? Number(p.saldo) : Number(p.monto) || 0;
-    const raw = prompt(`Abonar préstamo interárea\nSaldo: ${fmt(saldo)}\n\nMonto:`, String(saldo));
+    if (!(saldo > 0)) return alert('Sin saldo por abonar. Si ya separaste el dinero, usa Recolectar → RC.');
+    const raw = prompt(
+      `Abonar (separar dinero)\n`
+      + `Saldo: ${fmt(saldo)}\n\n`
+      + `El abono separa el efectivo. Si después lo ocupan (p. ej. un premio), hay que generar otro préstamo.\n`
+      + `Luego usa Recolectar para enviarlo a RC Virtual.\n\n`
+      + `Monto a separar:`,
+      String(saldo),
+    );
     if (raw === null) return;
     const monto = parseFloat(String(raw).replace(',', '.'));
     if (!(monto > 0)) return alert('Monto inválido.');
@@ -939,7 +948,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       rolActor: user?.rol,
     });
     if (!res.ok) return alert(res.error);
-    alert(res.liquidado || res.recuperado ? 'Recuperado.' : `Abono ok. Saldo: ${fmt(res.saldo)}`);
+    alert(res.mensaje || (res.separado ? 'Dinero separado. Usa Recolectar → RC.' : `Abono ok. Saldo: ${fmt(res.saldo)}`));
     recargarTodo();
   };
 
@@ -961,23 +970,28 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       return alert('Solo administrador, gerente o repartidor pueden recolectar.');
     }
     if (!prestamoInterareaPuedeRecolectarRc(p)) {
-      return alert('Aún no está listo: primero debe recolectarse el corte afectado.');
+      return alert('No hay saldo ni dinero separado pendiente de recolectar a RC.');
     }
     const saldo = p.saldo != null ? Number(p.saldo) : Number(p.monto) || 0;
+    const abonado = Number(p.abono) || 0;
+    const defaultMonto = saldo > 0.001 ? saldo : abonado;
     const raw = prompt(
-      `Recolectar préstamo → RC Virtual\n`
+      `Recolectar → RC Virtual\n`
       + `${ETIQUETA_AREA[p.origen] || p.origen} → ${ETIQUETA_AREA[p.destino] || p.destino}\n`
-      + `Saldo: ${fmt(saldo)}\n\n`
-      + `Monto a recolectar:`,
-      String(saldo),
+      + (saldo > 0.001
+        ? `Saldo pendiente: ${fmt(saldo)}\n\nMonto a recolectar:`
+        : `Dinero ya separado (abonos): ${fmt(abonado)}\n\nMonto a registrar en RC:`),
+      String(defaultMonto),
     );
     if (raw === null) return;
     const monto = parseFloat(String(raw).replace(',', '.'));
     if (!(monto > 0)) return alert('Monto inválido.');
-    if (monto > saldo + 0.001) return alert(`No puede superar el saldo (${fmt(saldo)}).`);
+    if (saldo > 0.001 && monto > saldo + 0.001) {
+      return alert(`No puede superar el saldo (${fmt(saldo)}).`);
+    }
     if (!confirm(
       `¿Recolectar ${fmt(monto)} hacia RC Virtual?\n\n`
-      + `Quedará rastro de ${user?.nombre || 'usuario'} y el monto entrará a RC Virtual.`,
+      + `Quedará rastro de ${user?.nombre || 'usuario'}.`,
     )) return;
     const res = await recolectarPrestamoInterarea(supabase, p, monto, {
       nombreActor: user?.nombre || null,
@@ -1573,7 +1587,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               El dinero sale del corte de <strong>origen</strong> como categoría PRESTAMOS (movimiento interno: no es gasto de IE).
               Al recolectar ese corte queda quién <strong>colectó</strong> y el préstamo pasa a <strong>Por recolectar</strong>.
               Ahí aparece <strong>Recolectar</strong>: envía el efectivo a <strong>RC Virtual</strong> (rastreable).
-              Los botones (Imprimir, Recolectar, Ajustar, Editar, Eliminar) <strong>permanecen hasta que un rol con privilegios recolecte</strong> a RC.
+              Los botones (Imprimir, Recolectar, Abonar, Ajustar, Editar, Eliminar) <strong>permanecen hasta Recolectar → RC</strong>.
+              <strong> Abonar</strong> = separar el dinero (si luego lo usan p. ej. en un premio, hay que generar otro préstamo).
+              <strong> Recolectar</strong> = enviarlo a RC Virtual.
               {puedeOperarPrestamosAreaSuc
                 ? ' Admin/gerente: todos los botones.'
                 : ' Repartidor: Recolectar e Imprimir.'}
@@ -1620,13 +1636,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     prestamosArea.map((p) => {
                       const pendienteRc = prestamoInterareaPendienteRc(p);
                       const saldo = p.saldo != null ? Number(p.saldo) : Number(p.monto) || 0;
+                      const abonado = Number(p.abono) || 0;
                       const cerradoRc = Boolean(p.rc_recibido_por);
                       const puedeImprimir = pendienteRc || cerradoRc;
                       const puedeRecolectarRc = puedeRecolectarPrestamoArea && prestamoInterareaPuedeRecolectarRc(p);
+                      const puedeAbonar = puedeOperarPrestamosAreaSuc && pendienteRc && saldo > 0.001;
                       const puedeAjustar = puedeOperarPrestamosAreaSuc && pendienteRc;
                       const puedeEditar = puedeOperarPrestamosAreaSuc && pendienteRc;
                       const puedeEliminar = puedeEliminarDocs && pendienteRc && !p.colectado_por;
-                      const puedeAbonarAdmin = puedeOperarPrestamosAreaSuc && pendienteRc && saldo > 0.001;
                       return (
                         <tr key={p.id} style={cerradoRc ? { opacity: 0.75 } : undefined}>
                           <td>{p.fecha}</td>
@@ -1636,6 +1653,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                           <td style={{ fontWeight: 700 }}>{fmt(saldo)}</td>
                           <td className="muted">
                             {etiquetaEstadoPrestamo(p)}
+                            {saldo <= 0.001 && abonado > 0 && !cerradoRc ? ' · dinero separado' : ''}
                             {cerradoRc && (p.rc_recibido_por || p.liquidado_por) ? (
                               <>
                                 {' · RC '}
@@ -1672,6 +1690,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                                 Recolectar
                               </button>
                             )}
+                            {puedeAbonar && (
+                              <button
+                                type="button"
+                                className="btn btn-ghost"
+                                style={{ padding: '0.2rem 0.4rem' }}
+                                onClick={() => abonarInterarea(p)}
+                              >
+                                Abonar
+                              </button>
+                            )}
                             {puedeAjustar && (
                               <button
                                 type="button"
@@ -1681,12 +1709,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                               >
                                 Ajustar
                               </button>
-                            )}
-                            {puedeAbonarAdmin && (
-                              <>
-                                <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => abonarInterarea(p)}>Abonar</button>
-                                <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.4rem', fontSize: '0.78rem' }} onClick={() => liquidarInterarea(p)}>Marcar recuperado</button>
-                              </>
                             )}
                             {puedeEditar && (
                               <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => editarInterarea(p)}>Editar</button>

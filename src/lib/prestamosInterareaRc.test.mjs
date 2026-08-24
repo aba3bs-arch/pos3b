@@ -9,8 +9,8 @@ import { puedeRecolectarPrestamoInterareaRc, puedeOperarPrestamoAreaSucursal } f
 
 assert.equal(
   prestamoInterareaPuedeRecolectarRc({ estado: 'recuperar', saldo: 100 }),
-  false,
-  'sin corte colectado no se recolecta a RC',
+  true,
+  'con saldo pendiente se puede recolectar a RC',
 );
 
 assert.equal(
@@ -20,25 +20,15 @@ assert.equal(
 );
 
 assert.equal(
-  prestamoInterareaPuedeRecolectarRc({ estado: 'recuperar', saldo: 50, colectado_por: 'JLBB' }),
+  prestamoInterareaPuedeRecolectarRc({ estado: 'recuperar', saldo: 0, abono: 500 }),
   true,
-  'colectado_por con saldo habilita Recolectar',
+  'dinero ya separado (abono) sigue permitiendo Recolectar → RC',
 );
 
 assert.equal(
-  prestamoInterareaPuedeRecolectarRc({ estado: 'por_recolectar', saldo: 0 }),
+  prestamoInterareaPuedeRecolectarRc({ estado: 'por_recolectar', saldo: 0, abono: 0 }),
   false,
-  'sin saldo no aparece Recolectar',
-);
-
-assert.equal(
-  prestamoInterareaPuedeRecolectarRc({
-    estado: 'recuperado',
-    saldo: 200,
-    colectado_por: 'JLBB',
-  }),
-  true,
-  'aunque diga recuperado, si no hay RC y hay saldo+colecta, sigue Recolectar',
+  'sin saldo ni abono no aparece Recolectar',
 );
 
 assert.equal(

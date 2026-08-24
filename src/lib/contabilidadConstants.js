@@ -425,15 +425,14 @@ export function prestamoInterareaPendienteRc(p) {
 export function prestamoInterareaPuedeRecolectarRc(p) {
   if (!prestamoInterareaPendienteRc(p)) return false;
   const saldo = p?.saldo != null ? Number(p.saldo) : Number(p?.monto) || 0;
-  if (!(saldo > 0.001)) return false;
-  const est = String(p?.estado || '');
-  // Listo tras colectar el corte (aunque el estado haya pasado a recuperado por error/legado).
-  return est === 'por_recolectar'
-    || Boolean(p?.colectado_por)
-    || (ESTADOS_PRESTAMO_INTERAREA_ABIERTOS.has(est) && Boolean(p?.colectado_por));
+  const abonado = Number(p?.abono) || 0;
+  // Con saldo: se puede recolectar a RC. Sin saldo pero ya abonado (dinero separado):
+  // aún falta el sello Recolectar → RC.
+  if (saldo > 0.001) return true;
+  return abonado > 0.001;
 }
 
-/** Acciones de expediente (ajustar/editar/eliminar/imprimir) hasta que se recolecte a RC. */
+/** Acciones de expediente (ajustar/editar/eliminar/imprimir/abonar) hasta que se recolecte a RC. */
 export function prestamoInterareaPuedeOperarHastaRc(p) {
   return prestamoInterareaPendienteRc(p);
 }
