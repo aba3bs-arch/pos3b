@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
+import CorteNegativoRecuperacion from '../../components/corteContabilidad/CorteNegativoRecuperacion.jsx';
 import CampoCorte from '../../components/corteContabilidad/CampoCorte.jsx';
 import CorteConTeclado from '../../components/corteContabilidad/CorteConTeclado.jsx';
 import CorteVirtualDesgloseModal from '../../components/corteContabilidad/CorteVirtualDesgloseModal.jsx';
@@ -250,6 +251,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
   return (
     <CorteConTeclado accent={ACCENT}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }} data-corte-form="virtual">
+      <CorteNegativoRecuperacion cajaActual={calc.cajaActual} etiqueta="Virtual" />
       <div className="card" style={{ borderTop: `3px solid ${ACCENT}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           <div>
