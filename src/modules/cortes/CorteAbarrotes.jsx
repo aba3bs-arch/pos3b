@@ -2,6 +2,7 @@ import React, { useCallback, useEffect } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
+import CorteNegativoRecuperacion from '../../components/corteContabilidad/CorteNegativoRecuperacion.jsx';
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
 import CorteConTeclado from '../../components/corteContabilidad/CorteConTeclado.jsx';
 import { calcularAbarrotes } from '../../lib/corteContabilidad/calc.js';
@@ -88,6 +89,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
   return (
     <CorteConTeclado accent={COLOR}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <CorteNegativoRecuperacion cajaActual={calc.cajaActual} etiqueta="Abarrotes" />
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
@@ -118,11 +120,6 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         </div>
         {aviso && <p style={{ margin: '0.75rem 0 0', fontSize: '0.85rem', color: 'var(--brand-gold)' }}>{aviso}</p>}
         <CorteSucursalAviso sucursal={sucursal} user={user} />
-        {cajaNegativa && (
-          <div style={{ marginTop: '0.75rem', padding: '0.5rem', background: 'var(--danger)', color: '#fff', borderRadius: 6, fontWeight: 700, textAlign: 'center' }}>
-            ALERTA: CAJA EN NEGATIVO
-          </div>
-        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>

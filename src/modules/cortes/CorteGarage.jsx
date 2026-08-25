@@ -2,6 +2,7 @@ import React, { useCallback } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
+import CorteNegativoRecuperacion from '../../components/corteContabilidad/CorteNegativoRecuperacion.jsx';
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
 import CampoCorte, { InputCorteInline } from '../../components/corteContabilidad/CampoCorte.jsx';
 import CorteConTeclado from '../../components/corteContabilidad/CorteConTeclado.jsx';
@@ -161,6 +162,7 @@ export default function CorteGarage({ supabase, sucursal, user }) {
   return (
     <CorteConTeclado accent={COLOR}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <CorteNegativoRecuperacion cajaActual={calc.cajaActual} etiqueta="Garage" />
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
@@ -306,7 +308,6 @@ export default function CorteGarage({ supabase, sucursal, user }) {
               Venta neta − recolección − recolección anterior
               {calc.recoleccionTotal > 0 ? ` (${fmtCorte(calc.recoleccionTotal)})` : ''}
             </p>
-            {cajaNegativa && <div style={{ color: 'var(--danger)', fontWeight: 700, fontSize: '0.85rem' }}>CAJA GARAGE EN NEGATIVO</div>}
           </div>
 
           <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed var(--border)' }}>
