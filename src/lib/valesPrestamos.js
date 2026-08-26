@@ -1129,8 +1129,8 @@ export async function registrarPrestamoInterarea(supabase, row) {
     tipo: TIPOS_NOTIF.PRESTAMO_INTERAREA,
     ref_tabla: 'prestamos_interarea',
     ref_id: prestamoRow.id,
-    titulo: `Préstamo entre áreas · ${origenLbl} → ${destinoLbl}`,
-    mensaje: `$${Number(row.monto || 0).toFixed(2)}${row.notas ? ` · ${row.notas}` : ''}`,
+    titulo: `Préstamo área · ${destinoLbl} → ${origenLbl}`,
+    mensaje: `$${Number(row.monto || 0).toFixed(2)} · ${destinoLbl} prestó; ${origenLbl} recupera${row.notas ? ` · ${row.notas}` : ''}`,
     area_buzon: row.origen || 'abarrotes',
   });
 

@@ -126,4 +126,13 @@ assert.deepEqual(
   [],
 );
 
+assert.equal(
+  calcularVistaRecuperacionPrestamo(
+    [{ estado: 'recuperar', saldo: 500, monto: 500, origen: 'abarrotes', destino: 'virtual' }],
+    750,
+  ).visible,
+  true,
+  'alerta visible para el área que recibe (origen=abarrotes)',
+);
+
 console.log('prestamosInterareaRc.test.mjs OK');

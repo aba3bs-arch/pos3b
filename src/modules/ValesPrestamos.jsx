@@ -473,7 +473,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const guardarPrestamoGastos = async () => {
     if (!supabase) return alert('Sin conexión.');
-    if (prestForm.origen === prestForm.gastos_area) return alert('Origen y destino deben ser distintos.');
+    if (prestForm.origen === prestForm.gastos_area) return alert('Quién recibe y quién prestó deben ser áreas distintas.');
     const monto = Number(prestForm.monto);
     if (!(monto > 0)) return alert('Monto inválido.');
     const notas = prestForm.notas.trim() || `Pago gastos ${ETIQUETA_AREA[prestForm.gastos_area]}`;
