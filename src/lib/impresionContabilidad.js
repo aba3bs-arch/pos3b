@@ -125,12 +125,12 @@ export function htmlPrestamoInterarea(p) {
   </style></head><body>
     <h1>PRÉSTAMO ENTRE ÁREAS</h1>
     <div>Fecha: ${esc(p.fecha)}</div>
-    <div>Recibe / recupera: <strong>${esc(ETIQUETA_AREA[p.origen] || p.origen)}</strong></div>
-    <div>Prestó: <strong>${esc(ETIQUETA_AREA[p.destino] || p.destino)}</strong></div>
+    <div>Origen (presta): <strong>${esc(ETIQUETA_AREA[p.origen] || p.origen)}</strong></div>
+    <div>Destino (recibe): <strong>${esc(ETIQUETA_AREA[p.destino] || p.destino)}</strong></div>
     <div style="font-size:20px;margin:12px 0"><strong>Monto: ${fmt(p.monto)}</strong></div>
     <div>Saldo: ${fmt(saldo)}</div>
     <div>Estado: ${esc(etiquetaEstadoPrestamo(p))}${['liquidado', 'recuperado'].includes(String(p.estado || '')) && (p.liquidado_por || p.liquidado_sucursal) ? ` · ${esc(p.liquidado_por || '—')}${p.liquidado_sucursal ? ` · ${esc(p.liquidado_sucursal)}` : ''}` : ''}</div>
-    ${p.cargado_corte ? `<div>Corte: gasto en ${esc(ETIQUETA_AREA[p.origen] || p.origen || '—')}</div>` : `<div>Alerta de recuperación en corte <strong>${esc(ETIQUETA_AREA[p.origen] || p.origen || '—')}</strong></div>`}
+    ${p.cargado_corte ? `<div>Corte: gasto en ${esc(ETIQUETA_AREA[p.destino] || p.destino || '—')}</div>` : `<div>Alerta de recuperación en corte <strong>${esc(ETIQUETA_AREA[p.destino] || p.destino || '—')}</strong></div>`}
     ${p.colectado_por ? `<div>Colectó: <strong>${esc(p.colectado_por)}</strong>${p.colectado_at ? ` · ${esc(String(p.colectado_at).slice(0, 16).replace('T', ' '))}` : ''}${p.colectado_folio ? ` · ${esc(p.colectado_folio)}` : ''}</div>` : ''}
     ${p.rc_recibido_por ? `<div>RC Virtual: <strong>${esc(p.rc_recibido_por)}</strong>${p.rc_recibido_at ? ` · ${esc(String(p.rc_recibido_at).slice(0, 16).replace('T', ' '))}` : ''}${p.rc_monto != null ? ` · ${fmt(p.rc_monto)}` : ''}</div>` : ''}
     ${p.notas ? `<div>Notas: ${esc(p.notas)}</div>` : ''}
