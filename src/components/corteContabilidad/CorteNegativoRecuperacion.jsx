@@ -3,8 +3,11 @@ import { fmtCorte } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 
 /**
  * Alerta de recuperación por pagaré / préstamo área y/o caja en negativo.
- * - Cajero: Abonar / Liquidar (sin ticket ni préstamo nuevo).
- * - Admin / recolector: botón Pagaré (genera registro + ticket x2).
+ * - Muestra negativo restante vs recuperado por venta.
+ * - Si venta cubre el negativo: leyenda verde parpadeante + botón Liquidar.
+ * - Si aún hay negativo: botón Abono.
+ * - Cubre turno: sin Abono/Liquidar.
+ * - Admin / recolector: botón Pagaré.
  */
 export default function CorteNegativoRecuperacion({
   etiqueta = 'corte',
@@ -13,38 +16,55 @@ export default function CorteNegativoRecuperacion({
   deuda = 0,
   cajaActual = 0,
   visible = false,
+  cubiertoPorVenta = false,
   puedeAbonarLiquidar = false,
   puedeGenerarPagare = false,
   onAbonar,
   onLiquidar,
   onGenerarPagare,
+  avisoEntregarTurno = false,
 }) {
   const neg = Number(negativo) || 0;
   const rec = Number(recuperado) || 0;
   const deb = Number(deuda) || 0;
   const caja = Number(cajaActual) || 0;
   const cajaEnNegativo = caja < -0.001;
-  if (!visible && !(deb > 0.001) && !cajaEnNegativo) return null;
+  const hayDeuda = deb > 0.001;
+  const restante = Math.max(0, neg);
+  const hayRestante = restante > 0.001;
+  const recuperadoOk = cubiertoPorVenta || (!hayRestante && rec > 0.001 && hayDeuda);
 
-  const abs = Math.abs(neg);
+  if (!visible && !hayDeuda && !cajaEnNegativo) return null;
+
   let fase = 'critico';
-  if (!(abs > 0.001) && rec > 0.001) fase = 'leve';
-  else if (abs < 80) fase = 'leve';
-  else if (abs < 250) fase = 'medio';
+  if (recuperadoOk) fase = 'leve';
+  else if (rec > 0.001 && restante < 80) fase = 'leve';
+  else if (rec > 0.001 && restante < 250) fase = 'medio';
 
-  const montoNegativo = -Math.abs(neg > 0.001 ? neg : (cajaEnNegativo ? Math.abs(caja) : 0));
-  const hayPendienteCobro = deb > 0.001;
+  const montoNegativo = recuperadoOk
+    ? 0
+    : -Math.abs(hayRestante ? restante : (cajaEnNegativo ? Math.abs(caja) : 0));
+
+  const mostrarAbono = puedeAbonarLiquidar && hayDeuda && hayRestante && typeof onAbonar === 'function';
+  const mostrarLiquidar = puedeAbonarLiquidar && hayDeuda && !hayRestante && typeof onLiquidar === 'function';
 
   return (
     <div
-      className={`corte-negativo-recuperacion corte-negativo-recuperacion--${fase}`}
+      className={`corte-negativo-recuperacion corte-negativo-recuperacion--${fase}${recuperadoOk ? ' corte-negativo-recuperacion--recuperado' : ''}`}
       role="alert"
       aria-live="polite"
     >
       <div className="corte-negativo-recuperacion__etiqueta">
         DINERO EN RECUPERACIÓN · {String(etiqueta).toUpperCase()}
-        {hayPendienteCobro ? ' · PENDIENTE' : ''}
+        {hayDeuda ? ' · PENDIENTE' : ''}
       </div>
+
+      {avisoEntregarTurno && (
+        <div className="corte-negativo-recuperacion__aviso-turno" role="status">
+          Has recuperado deudas, favor de entregar al cerrar turno
+        </div>
+      )}
+
       <div className="corte-negativo-recuperacion__cifras">
         <div className="corte-negativo-recuperacion__cifra">
           <span className="corte-negativo-recuperacion__cifra-lbl">Negativo</span>
@@ -52,34 +72,42 @@ export default function CorteNegativoRecuperacion({
         </div>
         <div className="corte-negativo-recuperacion__cifra">
           <span className="corte-negativo-recuperacion__cifra-lbl">Recuperado</span>
-          <span className="corte-negativo-recuperacion__monto corte-negativo-recuperacion__monto--ok">
+          <span
+            className={`corte-negativo-recuperacion__monto corte-negativo-recuperacion__monto--ok${recuperadoOk ? ' corte-negativo-recuperacion__monto--parpadeo-verde' : ''}`}
+          >
             {fmtCorte(rec)}
           </span>
         </div>
       </div>
-      <div className="corte-negativo-recuperacion__hint">
-        {cajaEnNegativo && !(abs > 0.001)
-          ? `Caja en negativo (${fmtCorte(caja)}) — recupera hasta $0.00`
-          : fase === 'leve'
-            ? 'Cubierto por venta — puedes liquidar para cuadrar el corte'
-            : fase === 'medio'
-              ? 'Recuperando… el color se vuelve verde al acercarse a cero'
-              : cajaEnNegativo
-                ? `Corte en negativo ${fmtCorte(caja)} — la alerta refleja el mismo negativo`
-                : 'Pendiente de recuperación — la venta del corte reduce el negativo'}
-      </div>
+
+      {recuperadoOk ? (
+        <div className="corte-negativo-recuperacion__leyenda-recuperado">
+          NEGATIVO RECUPERADO, FAVOR DE LIQUIDAR Y PAGAR PRÉSTAMO
+        </div>
+      ) : (
+        <div className="corte-negativo-recuperacion__hint">
+          {hayDeuda
+            ? (rec > 0.001
+              ? `Venta aplicada: recuperado ${fmtCorte(rec)} · resta ${fmtCorte(-restante)}`
+              : 'Pendiente de recuperación — la venta del corte reduce el negativo')
+            : cajaEnNegativo
+              ? `Corte en negativo ${fmtCorte(caja)} — genera pagaré o recupera hasta $0.00`
+              : 'Pendiente de recuperación'}
+        </div>
+      )}
+
       <div className="corte-negativo-recuperacion__acciones">
-        {puedeAbonarLiquidar && hayPendienteCobro && typeof onAbonar === 'function' && (
+        {mostrarAbono && (
           <button type="button" className="btn btn-ghost corte-negativo-recuperacion__btn" onClick={onAbonar}>
-            Abonar
+            Abono
           </button>
         )}
-        {puedeAbonarLiquidar && hayPendienteCobro && typeof onLiquidar === 'function' && (
+        {mostrarLiquidar && (
           <button type="button" className="btn btn-primary corte-negativo-recuperacion__btn" onClick={onLiquidar}>
             Liquidar
           </button>
         )}
-        {puedeGenerarPagare && (hayPendienteCobro || cajaEnNegativo) && typeof onGenerarPagare === 'function' && (
+        {puedeGenerarPagare && (hayDeuda || cajaEnNegativo) && typeof onGenerarPagare === 'function' && (
           <button
             type="button"
             className="btn btn-gold corte-negativo-recuperacion__btn"
