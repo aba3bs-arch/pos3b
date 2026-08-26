@@ -94,6 +94,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
         negativo={vistaRecuperacion?.negativo}
         recuperado={vistaRecuperacion?.recuperado}
         deuda={vistaRecuperacion?.deuda}
+        cajaActual={vistaRecuperacion?.cajaActual ?? calc.cajaActual}
         visible={vistaRecuperacion?.visible}
         puedeAbonarLiquidar={puedeAbonarLiquidarPrestamo}
         onAbonar={abonarPrestamoDesdeCorte}

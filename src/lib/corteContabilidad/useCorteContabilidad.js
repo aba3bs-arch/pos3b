@@ -140,7 +140,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
 
   const vistaRecuperacion = useMemo(() => {
     const venta = Number(calc?.venta) || 0;
-    // Lazy require-safe: pure helper imported dynamically only for data; compute inline-compatible
+    const caja = Number(calc?.cajaActual);
     const abiertos = prestamosRecuperacion || [];
     const round2p = (n) => Math.round((Number(n) || 0) * 100) / 100;
     const deuda = round2p(
@@ -153,9 +153,23 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       }, 0),
     );
     const recuperado = round2p(Math.min(deuda, Math.max(0, venta)));
-    const negativo = round2p(Math.max(0, deuda - recuperado));
-    return { prestamos: abiertos, deuda, recuperado, negativo, visible: deuda > 0.001 };
-  }, [prestamosRecuperacion, calc?.venta]);
+    const negativoPrestamo = round2p(Math.max(0, deuda - recuperado));
+    // Si la caja del corte está en negativo, la alerta muestra ese mismo negativo.
+    const negativoCaja = Number.isFinite(caja) && caja < -0.001
+      ? round2p(Math.abs(caja))
+      : 0;
+    const negativo = round2p(Math.max(negativoPrestamo, negativoCaja));
+    return {
+      prestamos: abiertos,
+      deuda,
+      recuperado,
+      negativo,
+      negativoPrestamo,
+      negativoCaja,
+      cajaActual: Number.isFinite(caja) ? round2p(caja) : 0,
+      visible: deuda > 0.001 || negativoCaja > 0.001,
+    };
+  }, [prestamosRecuperacion, calc?.venta, calc?.cajaActual]);
 
   const puedeAbonarLiquidarPrestamo = useMemo(() => {
     const r = normalizarRol(user?.rol ?? user?.role);

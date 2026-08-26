@@ -260,6 +260,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         negativo={vistaRecuperacion?.negativo}
         recuperado={vistaRecuperacion?.recuperado}
         deuda={vistaRecuperacion?.deuda}
+        cajaActual={vistaRecuperacion?.cajaActual ?? calc.cajaActual}
         visible={vistaRecuperacion?.visible}
         puedeAbonarLiquidar={puedeAbonarLiquidarPrestamo}
         onAbonar={abonarPrestamoDesdeCorte}
