@@ -5,7 +5,13 @@ import {
   prestamoInterareaPuedeOperarHastaRc,
   prestamoInterareaPuedeRecolectarRc,
 } from './contabilidadConstants.js';
-import { puedeRecolectarPrestamoInterareaRc, puedeOperarPrestamoAreaSucursal } from './valesPrestamos.js';
+import {
+  puedeRecolectarPrestamoInterareaRc,
+  puedeOperarPrestamoAreaSucursal,
+  puedeAbonarLiquidarPrestamoAreaSucursal,
+  calcularVistaRecuperacionPrestamo,
+  planRecuperacionPrestamosPorNegativo,
+} from './valesPrestamos.js';
 
 assert.equal(
   prestamoInterareaPuedeRecolectarRc({ estado: 'recuperar', saldo: 100 }),
@@ -49,7 +55,13 @@ assert.equal(prestamoInterareaPuedeOperarHastaRc({ rc_recibido_por: 'X' }), fals
 assert.equal(puedeOperarPrestamoAreaSucursal('Administrador'), true);
 assert.equal(puedeOperarPrestamoAreaSucursal('Gerente'), true);
 assert.equal(puedeOperarPrestamoAreaSucursal('Repartidor'), false);
-assert.equal(puedeOperarPrestamoAreaSucursal('Cajero'), false);
+assert.equal(puedeOperarPrestamoAreaSucursal('Cajero'), false, 'cajero no edita/ajusta');
+
+assert.equal(puedeAbonarLiquidarPrestamoAreaSucursal('Administrador'), true);
+assert.equal(puedeAbonarLiquidarPrestamoAreaSucursal('Gerente'), true);
+assert.equal(puedeAbonarLiquidarPrestamoAreaSucursal('Cajero'), true, 'cajero abona/liquida');
+assert.equal(puedeAbonarLiquidarPrestamoAreaSucursal('Repartidor'), false);
+
 assert.equal(puedeRecolectarPrestamoInterareaRc('Repartidor'), true);
 assert.equal(puedeRecolectarPrestamoInterareaRc('Administrador'), true);
 assert.equal(puedeRecolectarPrestamoInterareaRc('Cajero'), false);
@@ -76,5 +88,42 @@ assert.match(
 );
 
 assert.equal(etiquetaColectaPrestamo({ cargado_corte: true }), 'En corte · pendiente recolección');
+
+// Alerta: préstamo 500 + venta 750 → negativo 0, recuperado 500
+{
+  const vista = calcularVistaRecuperacionPrestamo(
+    [{ estado: 'recuperar', saldo: 500, monto: 500, origen: 'virtual' }],
+    750,
+  );
+  assert.equal(vista.deuda, 500);
+  assert.equal(vista.recuperado, 500);
+  assert.equal(vista.negativo, 0);
+  assert.equal(vista.visible, true);
+}
+
+// Venta parcial
+{
+  const vista = calcularVistaRecuperacionPrestamo(
+    [{ estado: 'recuperar', saldo: 500, monto: 500 }],
+    200,
+  );
+  assert.equal(vista.recuperado, 200);
+  assert.equal(vista.negativo, 300);
+}
+
+// Sin préstamo abierto: no alerta
+{
+  const vista = calcularVistaRecuperacionPrestamo(
+    [{ estado: 'liquidado', saldo: 0, monto: 500 }],
+    100,
+  );
+  assert.equal(vista.visible, false);
+}
+
+// Auto-abono por caja desactivado
+assert.deepEqual(
+  planRecuperacionPrestamosPorNegativo([{ estado: 'recuperar', saldo: 500 }], -500),
+  [],
+);
 
 console.log('prestamosInterareaRc.test.mjs OK');

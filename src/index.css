@@ -527,6 +527,31 @@ table.data th {
   margin-bottom: 0.2rem;
 }
 
+.corte-negativo-recuperacion__cifras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem 2rem;
+  justify-content: center;
+  align-items: flex-end;
+  width: 100%;
+}
+
+.corte-negativo-recuperacion__cifra {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 8rem;
+}
+
+.corte-negativo-recuperacion__cifra-lbl {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fef3c7;
+  margin-bottom: 0.15rem;
+}
+
 .corte-negativo-recuperacion__monto {
   font-size: 32pt;
   font-weight: 900;
@@ -535,12 +560,29 @@ table.data th {
   font-variant-numeric: tabular-nums;
 }
 
+.corte-negativo-recuperacion__monto--ok {
+  color: #bbf7d0;
+}
+
 .corte-negativo-recuperacion__hint {
   margin-top: 0.35rem;
   font-size: 0.78rem;
   font-weight: 700;
   color: #fef3c7;
   max-width: 36rem;
+}
+
+.corte-negativo-recuperacion__acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-top: 0.75rem;
+}
+
+.corte-negativo-recuperacion__btn {
+  min-width: 7rem;
+  font-weight: 800;
 }
 
 /* Crítico: parpadeo fuerte amarillo / rojo / naranja */

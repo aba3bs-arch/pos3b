@@ -1,8 +1,8 @@
 {
-  "version": "1.1.4",
-  "buildId": "reloj-resumen-cortes-papelera",
-  "branch": "main",
-  "builtAt": "2026-08-15T16:30:00.000Z",
+  "version": "1.1.0",
+  "buildId": "b8c2542",
+  "branch": "cursor/prestamos-area-sin-corte-6f70",
+  "builtAt": "2026-08-26T02:26:43.969Z",
   "title": "Actualización disponible",
   "summary": "Checador: Resumen de días (entrada y salida). Cortes: papelera y teclado en pantalla. Acepta para actualizar esta caja.",
   "changes": [
@@ -10,6 +10,11 @@
     "Un día trabajado solo cuenta con entrada y salida (si solo hay entrada, no cuenta)",
     "Cubre turno (CT) solo suma días checados, sin faltas ni descansos",
     "Cortes Virtual/Abarrotes/Garage: papelera de cierres borrados, con quién los eliminó y Restaurar",
-    "Teclado en pantalla en esos cortes para tablet/POS sin teclado físico"
+    "Teclado en pantalla en esos cortes para tablet/POS sin teclado físico",
+    "feat(cortes): aviso parpadeante de dinero en recuperación",
+    "fix(prestamos): Abonar y Recolectar visibles hasta RC",
+    "fix(prestamos): botones área hasta Recolectar RC, por privilegio de rol",
+    "feat(rh-aba3b): alta con foto del INE y autollenado OCR",
+    "chore(sql): conservar backfill préstamos recolección 22–23/08"
   ]
 }

@@ -57,6 +57,10 @@ export default function CorteGarage({ supabase, sucursal, user }) {
     editarCierreHistorial,
     restaurarCierreHistorial,
     recargar,
+    vistaRecuperacion,
+    puedeAbonarLiquidarPrestamo,
+    abonarPrestamoDesdeCorte,
+    liquidarPrestamoDesdeCorte,
   } = useCorteContabilidad({
     supabase,
     sucursal,
@@ -162,7 +166,16 @@ export default function CorteGarage({ supabase, sucursal, user }) {
   return (
     <CorteConTeclado accent={COLOR}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <CorteNegativoRecuperacion cajaActual={calc.cajaActual} etiqueta="Garage" />
+      <CorteNegativoRecuperacion
+        etiqueta="Garage"
+        negativo={vistaRecuperacion?.negativo}
+        recuperado={vistaRecuperacion?.recuperado}
+        deuda={vistaRecuperacion?.deuda}
+        visible={vistaRecuperacion?.visible}
+        puedeAbonarLiquidar={puedeAbonarLiquidarPrestamo}
+        onAbonar={abonarPrestamoDesdeCorte}
+        onLiquidar={liquidarPrestamoDesdeCorte}
+      />
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>

@@ -35,6 +35,7 @@ import {
   recolectarPrestamoInterarea,
   eliminarPrestamoInterarea,
   puedeRecolectarPrestamoInterareaRc,
+  puedeAbonarLiquidarPrestamoAreaSucursal,
   registrarPrestamoSucursal,
   registrarEnvioMainATienda,
   registrarVale,
@@ -185,8 +186,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const puedeAprobarVales = esAdmin || esGerente;
   /** Abonar / liquidar / editar vales, RIF y préstamos a empleado. */
   const puedeOperarDocs = Boolean(user);
-  /** Abonar / liquidar / editar / ajustar / eliminar préstamos área: solo admin o gerente. */
+  /** Editar / ajustar / eliminar / crear préstamos área: solo admin o gerente. */
   const puedeOperarPrestamosAreaSuc = esAdmin || esGerente;
+  /** Abonar / liquidar préstamos área/sucursal: admin, gerente o cajero. */
+  const puedeAbonarLiquidarPrestamosArea = puedeAbonarLiquidarPrestamoAreaSucursal(user?.rol);
   /** Recolectar préstamo área → RC Virtual: admin, gerente o repartidor. */
   const puedeRecolectarPrestamoArea = puedeRecolectarPrestamoInterareaRc(user?.rol);
   /** Eliminar RIF/préstamos: admin o gerente (corte abierto validado en lib). */
@@ -486,7 +489,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       created_by: user?.nombre || null,
     });
     if (!res.ok) return alert(res.error);
-    alert(res.mensaje || `Préstamo registrado y cargado al corte ${ETIQUETA_AREA[prestForm.origen] || prestForm.origen}.`);
+    try {
+      imprimirPrestamoInterarea(res.prestamo);
+    } catch {
+      /* impresión no bloquea */
+    }
+    alert(res.mensaje || 'Préstamo área registrado (ticket generado). No afecta el corte.');
     setPrestForm((prev) => ({ ...prev, monto: '', notas: '' }));
     recargarTodo();
   };
@@ -530,13 +538,18 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       area_corte: prestSucForm.areaCorte || 'abarrotes',
     });
     if (!res.ok) return alert(res.error);
-    alert(res.mensaje || `Préstamo a ${etiquetaTienda(prestSucForm.destino)} cargado al corte de origen.`);
+    try {
+      imprimirPrestamoSucursal(res.prestamo);
+    } catch {
+      /* impresión no bloquea */
+    }
+    alert(res.mensaje || `Préstamo a ${etiquetaTienda(prestSucForm.destino)} registrado (sin cargo a corte).`);
     setPrestSucForm({ destino: '', monto: '', notas: '', fecha: hoyISO(), areaCorte: 'abarrotes' });
     recargarTodo();
   };
 
   const cobrarPrestamoSucursal = async (p, liquidar = false) => {
-    if (!puedeOperarPrestamosAreaSuc) return alert('Solo administrador o gerente pueden abonar o liquidar.');
+    if (!puedeAbonarLiquidarPrestamosArea) return alert('Solo administrador, gerente o cajero pueden abonar o liquidar.');
     if (!supabase) return;
     if (p.sucursal_origen !== String(sucursal || '').toUpperCase()) {
       return alert(`El cobro solo se registra en ${etiquetaTienda(p.sucursal_origen)}.`);
@@ -552,7 +565,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     }
     const res = await abonarPrestamoSucursal(supabase, p, monto, { nombreActor: user?.nombre, rolActor: user?.rol });
     if (!res.ok) return alert(res.error);
-    alert(res.saldo <= 0 ? 'Préstamo liquidado.' : `Abono registrado. Saldo: ${fmt(res.saldo)}`);
+    if (res.saldo <= 0) {
+      try {
+        imprimirPrestamoSucursal(res.prestamo || { ...p, saldo: 0, estado: 'liquidado' });
+      } catch {
+        /* impresión no bloquea */
+      }
+      alert('Préstamo liquidado.');
+    } else {
+      alert(`Abono registrado. Saldo: ${fmt(res.saldo)}`);
+    }
     recargarTodo();
   };
 
@@ -925,18 +947,17 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   };
 
   const abonarInterarea = async (p) => {
-    if (!puedeOperarPrestamosAreaSuc) return alert('Solo administrador o gerente pueden abonar.');
+    if (!puedeAbonarLiquidarPrestamosArea) return alert('Solo administrador, gerente o cajero pueden abonar.');
     if (!prestamoInterareaPendienteRc(p)) {
       return alert('Ya fue recolectado a RC Virtual.');
     }
     const saldo = p.saldo != null ? Number(p.saldo) : Number(p.monto) || 0;
-    if (!(saldo > 0)) return alert('Sin saldo por abonar. Si ya separaste el dinero, usa Recolectar → RC.');
+    if (!(saldo > 0)) return alert('Sin saldo por abonar.');
     const raw = prompt(
-      `Abonar (separar dinero)\n`
+      `Abonar préstamo\n`
       + `Saldo: ${fmt(saldo)}\n\n`
-      + `El abono separa el efectivo. Si después lo ocupan (p. ej. un premio), hay que generar otro préstamo.\n`
-      + `Luego usa Recolectar para enviarlo a RC Virtual.\n\n`
-      + `Monto a separar:`,
+      + `Se resta del préstamo lo abonado.\n\n`
+      + `Monto a abonar:`,
       String(saldo),
     );
     if (raw === null) return;
@@ -948,20 +969,25 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       rolActor: user?.rol,
     });
     if (!res.ok) return alert(res.error);
-    alert(res.mensaje || (res.separado ? 'Dinero separado. Usa Recolectar → RC.' : `Abono ok. Saldo: ${fmt(res.saldo)}`));
+    alert(res.mensaje || `Abono ok. Saldo: ${fmt(res.saldo)}`);
     recargarTodo();
   };
 
   const liquidarInterarea = async (p) => {
-    if (!puedeOperarPrestamosAreaSuc) return alert('Solo administrador o gerente pueden liquidar.');
-    if (!confirm('¿Marcar este préstamo entre áreas como recuperado?')) return;
+    if (!puedeAbonarLiquidarPrestamosArea) return alert('Solo administrador, gerente o cajero pueden liquidar.');
+    if (!confirm('¿Liquidar este préstamo? Quedará en estado liquidado (línea verde) bajo responsabilidad del cajero.')) return;
     const res = await liquidarPrestamoInterarea(supabase, p, {
       nombreActor: user?.nombre || null,
       sucursal,
       rolActor: user?.rol,
     });
     if (!res.ok) return alert(res.error);
-    alert('Recuperado.');
+    try {
+      imprimirPrestamoInterarea(res.prestamo || p);
+    } catch {
+      /* impresión no bloquea */
+    }
+    alert(res.mensaje || 'Liquidado.');
     recargarTodo();
   };
 
@@ -1582,25 +1608,24 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       {pestana === 'prestamos' && (
         <>
           <div className="card">
-            <h3 style={{ margin: '0 0 0.75rem' }}>Préstamo entre áreas (gastos)</h3>
+            <h3 style={{ margin: '0 0 0.75rem' }}>Préstamo entre áreas</h3>
             <p className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>
-              El dinero sale del corte de <strong>origen</strong> como categoría PRESTAMOS (movimiento interno: no es gasto de IE).
-              Al recolectar ese corte queda quién <strong>colectó</strong> y el préstamo pasa a <strong>Por recolectar</strong>.
-              Ahí aparece <strong>Recolectar</strong>: envía el efectivo a <strong>RC Virtual</strong> (rastreable).
-              Los botones (Imprimir, Recolectar, Abonar, Ajustar, Editar, Eliminar) <strong>permanecen hasta Recolectar → RC</strong>.
-              <strong> Abonar</strong> = separar el dinero (si luego lo usan p. ej. en un premio, hay que generar otro préstamo).
-              <strong> Recolectar</strong> = enviarlo a RC Virtual.
-              {puedeOperarPrestamosAreaSuc
-                ? ' Admin/gerente: todos los botones.'
-                : ' Repartidor: Recolectar e Imprimir.'}
+              <strong>No se carga</strong> al corte Virtual / Abarrotes / Garage. Al registrar se genera <strong>ticket</strong>.
+              La alerta del corte muestra negativo/recuperado según la venta; el cajero puede <strong>Abonar</strong> o <strong>Liquidar</strong> para cuadrar.
+              <strong> Recolectar</strong> envía el efectivo a <strong>RC Virtual</strong>.
+              {esAdmin
+                ? ' Admin: todos los botones.'
+                : puedeAbonarLiquidarPrestamosArea
+                  ? ' Cajero: Abonar y Liquidar.'
+                  : ' Repartidor: Recolectar e Imprimir.'}
             </p>
             {!esRepartidor && (
             <p className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
-              <strong>Ejemplo — Virtual presta $500 a Abarrotes para un proveedor:</strong>{' '}
-              Origen = Abarrotes, Destino = Virtual. El $500 queda en el corte de Abarrotes (puede ir a negativo).
-              Mientras haya negativo y no se haya recolectado, el estado es <strong>Recuperar</strong>.
-              Conforme las ventas bajan el negativo, el saldo del préstamo se abona solo (antes de marcar Por recolectar).
-              Si recolectan el corte con deuda aún abierta, el préstamo pasa a <strong>Por recolectar</strong> y puedes enviarlo a RC Virtual.
+              <strong>Ejemplo — Virtual presta $500 a Abarrotes:</strong>{' '}
+              Origen = Virtual. El corte muestra la alerta del préstamo (no baja la caja).
+              Si la venta del corte es $750, la alerta muestra negativo $0.00 y recuperado $500.
+              Al <strong>Liquidar</strong>, el préstamo queda liquidado (línea verde) bajo responsabilidad del cajero y se imprime ticket.
+              Si el recolector se lleva la deuda, la alerta permanece hasta liquidar desde aquí.
             </p>
             )}
             {puedeOperarPrestamosAreaSuc && (
@@ -1638,14 +1663,24 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                       const saldo = p.saldo != null ? Number(p.saldo) : Number(p.monto) || 0;
                       const abonado = Number(p.abono) || 0;
                       const cerradoRc = Boolean(p.rc_recibido_por);
-                      const puedeImprimir = pendienteRc || cerradoRc;
+                      const liquidado = ['liquidado', 'recuperado'].includes(String(p.estado || ''));
+                      const puedeImprimir = pendienteRc || cerradoRc || liquidado;
                       const puedeRecolectarRc = puedeRecolectarPrestamoArea && prestamoInterareaPuedeRecolectarRc(p);
-                      const puedeAbonar = puedeOperarPrestamosAreaSuc && pendienteRc && saldo > 0.001;
+                      const puedeAbonar = puedeAbonarLiquidarPrestamosArea && pendienteRc && saldo > 0.001;
+                      const puedeLiquidar = puedeAbonarLiquidarPrestamosArea && pendienteRc && !liquidado;
                       const puedeAjustar = puedeOperarPrestamosAreaSuc && pendienteRc;
                       const puedeEditar = puedeOperarPrestamosAreaSuc && pendienteRc;
                       const puedeEliminar = puedeEliminarDocs && pendienteRc && !p.colectado_por;
                       return (
-                        <tr key={p.id} style={cerradoRc ? { opacity: 0.75 } : undefined}>
+                        <tr
+                          key={p.id}
+                          className={liquidado ? 'prestamo-fila-liquidado' : undefined}
+                          style={liquidado
+                            ? { background: 'rgba(22, 163, 74, 0.18)', color: '#166534' }
+                            : cerradoRc
+                              ? { opacity: 0.75 }
+                              : undefined}
+                        >
                           <td>{p.fecha}</td>
                           <td>{ETIQUETA_AREA[p.origen]}</td>
                           <td>{ETIQUETA_AREA[p.destino]}</td>
@@ -1653,7 +1688,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                           <td style={{ fontWeight: 700 }}>{fmt(saldo)}</td>
                           <td className="muted">
                             {etiquetaEstadoPrestamo(p)}
-                            {saldo <= 0.001 && abonado > 0 && !cerradoRc ? ' · dinero separado' : ''}
+                            {saldo <= 0.001 && abonado > 0 && !cerradoRc && !liquidado ? ' · dinero separado' : ''}
                             {cerradoRc && (p.rc_recibido_por || p.liquidado_por) ? (
                               <>
                                 {' · RC '}
@@ -1661,6 +1696,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                                 {p.liquidado_sucursal ? ` · ${etiquetaTienda(p.liquidado_sucursal)}` : ''}
                               </>
                             ) : null}
+                            {liquidado && p.liquidado_por ? ` · ${p.liquidado_por}` : ''}
                           </td>
                           <td className="muted" style={{ fontSize: '0.8rem' }}>{etiquetaColectaPrestamo(p)}</td>
                           <td style={{ whiteSpace: 'nowrap' }}>
@@ -1698,6 +1734,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                                 onClick={() => abonarInterarea(p)}
                               >
                                 Abonar
+                              </button>
+                            )}
+                            {puedeLiquidar && (
+                              <button
+                                type="button"
+                                className="btn btn-primary"
+                                style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }}
+                                onClick={() => liquidarInterarea(p)}
+                              >
+                                Liquidar
                               </button>
                             )}
                             {puedeAjustar && (
@@ -1740,8 +1786,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 </>
               ) : (
                 <>
-                  Presta efectivo a otra tienda. Se carga como <strong>gasto al corte de origen</strong> (Virtual, Abarrotes o Garage).
-                  Al recolectar queda el nombre de quién colectó. Sigue <strong>pendiente de cobro</strong> hasta que se pague a{' '}
+                  Presta efectivo a otra tienda. <strong>No se carga al corte</strong>; la alerta de recuperación
+                  aparece en el área elegida. Sigue <strong>pendiente de cobro</strong> hasta Abonar/Liquidar en{' '}
                   <strong>{etiquetaTienda(sucursal)}</strong>.
                 </>
               )}
@@ -1780,7 +1826,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 onChange={(e) => setPrestSucForm({ ...prestSucForm, notas: e.target.value })}
               />
               <button type="button" className="btn btn-primary" onClick={guardarPrestamoSucursal}>
-                {esMain ? 'Generar vale y cargar al corte' : 'Registrar y cargar al corte'}
+                {esMain ? 'Generar vale y cargar al corte' : 'Registrar préstamo'}
               </button>
             </div>
             <div className="table-wrap" style={{ marginTop: '1rem' }}>
@@ -1810,8 +1856,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                       const pendiente = p.estado === 'pendiente_cobro';
                       const esEnvioMain = p.sucursal_origen === 'MAIN' || p.tipo === 'main_envio';
                       return (
-                        <tr key={p.id}>
-                          <td>{p.fecha}</td>
+                        <tr
+                          key={p.id}
+                          style={
+                            p.estado === 'liquidado' && !esEnvioMain
+                              ? { background: 'rgba(22, 163, 74, 0.18)', color: '#166534' }
+                              : undefined
+                          }
+                        >                          <td>{p.fecha}</td>
                           <td>{etiquetaTienda(p.sucursal_origen)}</td>
                           <td style={{ fontWeight: 700 }}>{etiquetaTienda(p.sucursal_destino)}</td>
                           <td>{fmt(p.monto)}</td>
@@ -1831,7 +1883,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                             >
                               Imprimir (firma)
                             </button>
-                            {!esEnvioMain && pendiente && puedeOperarPrestamosAreaSuc && (
+                            {!esEnvioMain && pendiente && puedeAbonarLiquidarPrestamosArea && (
                               <>
                                 <button
                                   type="button"
