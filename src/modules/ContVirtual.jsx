@@ -1763,6 +1763,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
               </div>
               <div className="sub">
                 {[
+                  it.fuente === 'nom_corte' ? 'Nom corte' : it.fuente === 'payroll' ? 'Payroll' : null,
                   it.cuenta === 'garage' ? 'Garage' : it.cuenta === 'abarrotes' ? 'Abarrotes' : it.cuenta === 'virtual' ? 'Virtual' : null,
                   etiquetaTienda(it.tienda || 'MAIN'),
                   it.empleado || null,

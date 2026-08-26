@@ -182,6 +182,13 @@ export async function eliminarPeriodoNomina(supabase, periodoId, opts = {}) {
     if (!pRes.ok) return { ok: false, error: pRes.error };
 
     arrastreMap = revertirArrastreNomina(lineas);
+
+    try {
+      const { revertirEgresosPayrollNomina } = await import('./nominaIeSync.js');
+      await revertirEgresosPayrollNomina(supabase, lineas);
+    } catch {
+      /* IE sync opcional */
+    }
   }
 
   const { error: eDelLin } = await supabase.from('nomina_lineas').delete().eq('periodo_id', periodoId);

@@ -323,15 +323,27 @@ export async function guardarPeriodoNomina(supabase, payload) {
     if (l.usuario_id) guardarSueldoDefault(l.usuario_id, l.salario_dia ?? l.sueldo_tarifa);
   }
 
-  const { error: e2 } = await supabase.from('nomina_lineas').insert(filas);
-  if (e2) {
-    const msg = String(e2.message || '');
-    if (msg.includes('saldo_pendiente') || msg.includes('deduccion_arrastre')) {
-      const legacy = filas.map(({ deduccion_arrastre, saldo_pendiente, ...rest }) => rest);
-      const { error: e2b } = await supabase.from('nomina_lineas').insert(legacy);
-      if (e2b) return { ok: false, error: e2b.message };
+  let lineasInsertadas = [];
+  {
+    const { data: inserted, error: e2 } = await supabase
+      .from('nomina_lineas')
+      .insert(filas)
+      .select('id, usuario_id, nombre, total, pagador_nomina');
+    if (e2) {
+      const msg = String(e2.message || '');
+      if (msg.includes('saldo_pendiente') || msg.includes('deduccion_arrastre')) {
+        const legacy = filas.map(({ deduccion_arrastre, saldo_pendiente, ...rest }) => rest);
+        const { data: inserted2, error: e2b } = await supabase
+          .from('nomina_lineas')
+          .insert(legacy)
+          .select('id, usuario_id, nombre, total, pagador_nomina');
+        if (e2b) return { ok: false, error: e2b.message };
+        lineasInsertadas = inserted2 || [];
+      } else {
+        return { ok: false, error: e2.message };
+      }
     } else {
-      return { ok: false, error: e2.message };
+      lineasInsertadas = inserted || [];
     }
   }
 
@@ -359,7 +371,23 @@ export async function guardarPeriodoNomina(supabase, payload) {
 
   actualizarSaldosArrastreAlCerrar(lineas);
 
-  return { ok: true, id: per.id, total, lineas };
+  // IE: quien NO reportó sueldo en corte → egreso fuente payroll (evita duplicar nom_corte).
+  const { sincronizarEgresosPayrollNomina } = await import('./nominaIeSync.js');
+  const ieRes = await sincronizarEgresosPayrollNomina(supabase, {
+    periodo: { ...periodo, id: per.id },
+    lineasInsertadas,
+    empleados: listaEmp,
+    todasSucursales,
+  });
+
+  return {
+    ok: true,
+    id: per.id,
+    total,
+    lineas,
+    iePayroll: ieRes,
+    aviso: ieRes?.aviso || null,
+  };
 }
 
 export async function cargarLineasPeriodo(supabase, periodoId) {
