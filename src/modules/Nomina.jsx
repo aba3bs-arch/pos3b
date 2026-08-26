@@ -290,9 +290,11 @@ export default function Nomina({ supabase, sucursal, user }) {
     if (lineas.length === 0) return alert('No hay empleados para la nómina.');
     if (
       !confirm(
-        `¿Cerrar nómina del ${inicio} al ${fin}?\n\n` +
-          `Se consolidan deducciones de todas las sucursales.\n` +
-          `Se marcarán consumos de cortes y se aplicarán abonos a préstamos.`,
+        `¿Cerrar nómina del ${inicio} al ${fin}?\n\n`
+          + `Se consolidan deducciones de todas las sucursales.\n`
+          + `Se marcarán consumos de cortes y se aplicarán abonos a préstamos.\n\n`
+          + `IE: quien reportó sueldo en corte → «Nom corte» (sin duplicar).\n`
+          + `Quien no → egreso «Payroll» en IE Virtual/Abarrotes.`,
       )
     )
       return;
@@ -317,7 +319,11 @@ export default function Nomina({ supabase, sucursal, user }) {
       if (String(res.error).includes('fix_contabilidad')) setAviso(res.error);
       return alert(res.error || 'No se pudo guardar.');
     }
-    alert(`Nómina guardada. Total: ${fmt(res.total)}`);
+    const ie = res.iePayroll || {};
+    const ieMsg = ie.count || ie.omitidosCorte
+      ? `\nIE Payroll: ${ie.count || 0} egreso(s) · omitidos (ya en corte/Nom corte): ${ie.omitidosCorte || 0}`
+      : '';
+    alert(`Nómina guardada. Total: ${fmt(res.total)}${ieMsg}${res.aviso ? `\n${res.aviso}` : ''}`);
     setNotasPeriodo('');
     limpiarBorradorNomina();
     cargarMapaSaldosArrastre(supabase).then(setSaldosArrastre);

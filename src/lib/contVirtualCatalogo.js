@@ -206,6 +206,24 @@ export function esGastoCubreTurnoOTaxi(gasto) {
   return false;
 }
 
+/**
+ * Gasto de corte «NOMINA EMPLEADO»: sueldo reportado en caja.
+ * En IE se etiqueta como fuente `nom_corte` (no se duplica al cerrar nómina).
+ */
+export function esGastoNominaEmpleadoCorte(gasto) {
+  const cat = String(gasto?.categoria || '').trim().toUpperCase();
+  const sub = String(gasto?.subcategoria || '').trim().toUpperCase();
+  if (!(cat === 'EMPLEADO' || cat.startsWith('EMPLEADO '))) return false;
+  if (sub.includes('NOMINA EMPLEADO')) return true;
+  if (!sub.includes('NOMINA')) return false;
+  // Evitar CONSUMO · NOMINA, ANTICIPO, etc.
+  if (sub.includes('CONSUMO') || sub.includes('ANTICIPO') || sub.includes('CUBRE')
+    || sub.includes('FALTANTE') || sub.includes('RECARG')) {
+    return false;
+  }
+  return true;
+}
+
 export function mapearGastoCorteCubreTaxiACatalogo(gasto) {
   const cat = String(gasto?.categoria || '').trim().toUpperCase();
   const sub = String(gasto?.subcategoria || '').trim().toUpperCase();

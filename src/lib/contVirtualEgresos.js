@@ -2,6 +2,7 @@ import {
   AVISO_FALTA_CONT_VIRTUAL,
   VALE_A_CONT_VIRTUAL,
   esGastoCubreTurnoOTaxi,
+  esGastoNominaEmpleadoCorte,
   listarCatalogoContVirtual,
   mapearCorteACatalogo,
   mapearGastoCorteCubreTaxiACatalogo,
@@ -462,7 +463,16 @@ export async function eliminarEgresoDesdePanelIe(supabase, row) {
   }
 
   // Manual u otros: borrado duro (o soft si vino de sync sin ref)
-  if (fuente === 'vale' || fuente === 'corte' || libro?.fuente === 'vale' || libro?.fuente === 'corte') {
+  if (
+    fuente === 'vale'
+    || fuente === 'corte'
+    || fuente === 'payroll'
+    || fuente === 'nom_corte'
+    || libro?.fuente === 'vale'
+    || libro?.fuente === 'corte'
+    || libro?.fuente === 'payroll'
+    || libro?.fuente === 'nom_corte'
+  ) {
     return marcarEgresoLibroEliminado(supabase, id);
   }
   return eliminarEgresoContVirtual(supabase, id);
@@ -668,18 +678,19 @@ export function unificarEgresosParaPanel({
     if (esGastoCubreTurnoOTaxi(g) || refsGastoCorte.has(String(g.id))) continue;
     const map = mapearCorteACatalogo(g.categoria, g.subcategoria);
     const nombres = resolverNombresCatalogo(catalogo, map.categoriaId, map.subcategoriaId);
+    const esNomCorte = esGastoNominaEmpleadoCorte(g);
     detalle.push({
       id: `corte-${g.id}`,
       fecha: fechaEfectivaGastoCorte(g),
       tienda: g.sucursal_id,
       categoria: nombres.categoria_nombre,
       categoria_id: map.categoriaId,
-      subcategoria: nombres.subcategoria_nombre,
+      subcategoria: esNomCorte ? 'Nom corte' : nombres.subcategoria_nombre,
       subcategoria_id: map.subcategoriaId,
       comentario: g.comentario,
       empleado: g.usuario_nombre,
       monto: round2(g.monto),
-      fuente: 'corte',
+      fuente: esNomCorte ? 'nom_corte' : 'corte',
       borrable: true,
       cuenta: normalizarCuentaIe(g.modulo || g.cuenta, modGasto === 'abarrotes' ? 'abarrotes' : 'virtual'),
     });
