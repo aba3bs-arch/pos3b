@@ -36,6 +36,7 @@ import {
 } from './store.js';
 import { estadoAprobacionRecoleccionInicial } from '../contabilidadConstants.js';
 import { normalizarRol } from '../roles.js';
+import { esUsuarioCubreTurno } from '../cubreTurno.js';
 
 async function sellarPrestamosColectados({
   supabase,
@@ -166,36 +167,50 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       pagares.reduce((acc, p) => acc + (Number(p.saldo != null ? p.saldo : p.monto) || 0), 0),
     );
     const deuda = round2p(deudaPrestamo + deudaPagare);
-    const recuperado = round2p(Math.min(deuda, Math.max(0, venta)));
-    const negativoPrestamo = round2p(Math.max(0, deuda - recuperado));
+    // Ejemplo: deuda 800 + venta 500 → recuperado 500, negativo restante 300 (−$300.00).
+    const recuperado = deuda > 0.001
+      ? round2p(Math.min(deuda, Math.max(0, venta)))
+      : 0;
+    const negativoRestante = deuda > 0.001
+      ? round2p(Math.max(0, deuda - recuperado))
+      : 0;
     const negativoCaja = Number.isFinite(caja) && caja < -0.001
       ? round2p(Math.abs(caja))
       : 0;
-    const negativo = round2p(Math.max(negativoPrestamo, negativoCaja));
+    // Si hay deuda, el negativo de la alerta es el restante tras venta; si no, la caja en rojo.
+    const negativo = deuda > 0.001 ? negativoRestante : negativoCaja;
+    const cubiertoPorVenta = deuda > 0.001 && negativoRestante < 0.001 && recuperado > 0.001;
     return {
       prestamos: abiertos,
       pagares,
       deuda,
       deudaPrestamo,
       deudaPagare,
+      venta: round2p(venta),
       recuperado,
       negativo,
-      negativoPrestamo,
+      negativoRestante,
       negativoCaja,
+      cubiertoPorVenta,
       cajaActual: Number.isFinite(caja) ? round2p(caja) : 0,
       visible: deuda > 0.001 || negativoCaja > 0.001,
+      avisoEntregarTurno: recuperado > 0.001,
     };
   }, [prestamosRecuperacion, pagaresRecuperacion, calc?.venta, calc?.cajaActual]);
 
+  const esCubreTurnoSesion = useMemo(() => esUsuarioCubreTurno(user), [user]);
+
   const puedeAbonarLiquidarPrestamo = useMemo(() => {
+    if (esCubreTurnoSesion) return false;
     const r = normalizarRol(user?.rol ?? user?.role);
     return r === 'Administrador' || r === 'Gerente' || r === 'Cajero';
-  }, [user?.rol, user?.role]);
+  }, [user?.rol, user?.role, esCubreTurnoSesion]);
 
   const puedeGenerarPagareCorte = useMemo(() => {
+    if (esCubreTurnoSesion) return false;
     const r = normalizarRol(user?.rol ?? user?.role);
     return r === 'Administrador' || r === 'Gerente' || r === 'Repartidor';
-  }, [user?.rol, user?.role]);
+  }, [user?.rol, user?.role, esCubreTurnoSesion]);
 
   const abonarPrestamoDesdeCorte = useCallback(async () => {
     const pagares = vistaRecuperacion.pagares || [];
