@@ -1,4 +1,4 @@
-import { estadoDefault, normalizarEstadoVirtual } from './calc.js';
+import { estadoDefault, normalizarEstadoVirtual, detalleRecoleccionParaIe } from './calc.js';
 import {
   esAprobadorRecoleccionIe,
   recoleccionAprobadaParaIe,
@@ -730,6 +730,9 @@ export async function actualizarCierreCorte(supabase, id, patch, sucursal, modul
   const caja = patch.caja_actual != null ? Number(patch.caja_actual) : undefined;
   const folio = patch.folio != null ? String(patch.folio).trim() : undefined;
   const comentarios = patch.comentarios != null ? String(patch.comentarios) : undefined;
+  const recoleccion = patch.recoleccion != null ? Number(patch.recoleccion) : undefined;
+  const gastosTotal = patch.gastos_total != null ? Number(patch.gastos_total) : undefined;
+  const fechaNegocio = patch.fecha_negocio != null ? String(patch.fecha_negocio).slice(0, 10) : undefined;
 
   if (!supabase) {
     const key = lsKey(sucursal, modulo, 'historial');
@@ -741,8 +744,25 @@ export async function actualizarCierreCorte(supabase, id, patch, sucursal, modul
     }
     const next = hist.map((h) => {
       if (String(h.id) !== String(id)) return h;
-      const detalle = { ...(h.detalle || {}) };
+      let detalle = { ...(h.detalle || {}) };
       if (comentarios !== undefined) detalle.comentarios = comentarios;
+      if (fechaNegocio !== undefined) detalle.fecha_negocio = fechaNegocio;
+      if (recoleccion !== undefined || gastosTotal !== undefined) {
+        const efectivo = recoleccion !== undefined
+          ? recoleccion
+          : Number(detalle.recoleccion ?? detalle.recoleccion_turno) || 0;
+        const gastos = gastosTotal !== undefined
+          ? gastosTotal
+          : Number(detalle.gastos_total) || 0;
+        detalle = {
+          ...detalle,
+          ...detalleRecoleccionParaIe({
+            efectivo,
+            gastosTotal: gastos,
+            extras: { fecha_negocio: detalle.fecha_negocio },
+          }),
+        };
+      }
       return {
         ...h,
         ...(ventas !== undefined ? { ventas } : {}),
@@ -763,8 +783,25 @@ export async function actualizarCierreCorte(supabase, id, patch, sucursal, modul
   if (errGet) return { ok: false, error: errGet.message };
   if (!row) return { ok: false, error: 'Cierre no encontrado.' };
 
-  const detalle = { ...(row.detalle || {}) };
+  let detalle = { ...(row.detalle || {}) };
   if (comentarios !== undefined) detalle.comentarios = comentarios;
+  if (fechaNegocio !== undefined) detalle.fecha_negocio = fechaNegocio;
+  if (recoleccion !== undefined || gastosTotal !== undefined) {
+    const efectivo = recoleccion !== undefined
+      ? recoleccion
+      : Number(detalle.recoleccion ?? detalle.recoleccion_turno) || 0;
+    const gastos = gastosTotal !== undefined
+      ? gastosTotal
+      : Number(detalle.gastos_total) || 0;
+    detalle = {
+      ...detalle,
+      ...detalleRecoleccionParaIe({
+        efectivo,
+        gastosTotal: gastos,
+        extras: { fecha_negocio: detalle.fecha_negocio },
+      }),
+    };
+  }
 
   const update = { detalle };
   if (ventas !== undefined) update.ventas = ventas;

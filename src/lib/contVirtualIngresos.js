@@ -146,6 +146,52 @@ export async function eliminarIngresoContVirtual(supabase, id) {
   return { ok: true };
 }
 
+/** Actualiza un ingreso manual (admin). */
+export async function actualizarIngresoContVirtual(supabase, id, patch = {}) {
+  if (!id) return { ok: false, error: 'Sin id.' };
+  const sid = String(id);
+  const monto = patch.monto != null ? round2(patch.monto) : undefined;
+  if (monto !== undefined && !(monto > 0)) return { ok: false, error: 'Monto inválido.' };
+
+  const payload = {};
+  if (patch.sucursal_id != null) payload.sucursal_id = patch.sucursal_id || 'MAIN';
+  if (patch.fecha != null) payload.fecha = String(patch.fecha).slice(0, 10);
+  if (patch.categoria_id != null) payload.categoria_id = patch.categoria_id;
+  if (patch.categoria_nombre != null) payload.categoria_nombre = patch.categoria_nombre;
+  if (patch.subcategoria_id !== undefined) payload.subcategoria_id = patch.subcategoria_id || null;
+  if (patch.subcategoria_nombre !== undefined) payload.subcategoria_nombre = patch.subcategoria_nombre || null;
+  if (patch.detalle_id !== undefined) payload.detalle_id = patch.detalle_id || null;
+  if (patch.detalle_nombre !== undefined) payload.detalle_nombre = patch.detalle_nombre || null;
+  if (monto !== undefined) payload.monto = monto;
+  if (patch.descripcion !== undefined) payload.descripcion = String(patch.descripcion || '').trim() || null;
+  if (patch.cuenta != null) payload.cuenta = normalizarCuentaIe(patch.cuenta, 'virtual');
+  if (patch.usuario_nombre !== undefined) payload.usuario_nombre = patch.usuario_nombre || null;
+
+  if (!Object.keys(payload).length) return { ok: false, error: 'Nada que actualizar.' };
+
+  if (!supabase || sid.startsWith('local-')) {
+    const lista = leerLocal().map((r) => (String(r.id) === sid ? { ...r, ...payload } : r));
+    guardarLocal(lista);
+    return { ok: true, soloLocal: true, id: sid };
+  }
+
+  const { data, error } = await supabase
+    .from('cont_virtual_ingresos')
+    .update(payload)
+    .eq('id', sid)
+    .select('id')
+    .single();
+  if (error) {
+    if (faltaTabla(error)) {
+      const lista = leerLocal().map((r) => (String(r.id) === sid ? { ...r, ...payload } : r));
+      guardarLocal(lista);
+      return { ok: true, soloLocal: true, id: sid, aviso: AVISO_FALTA_INGRESOS_IE };
+    }
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, id: data?.id || sid };
+}
+
 /** Normaliza fila de ingreso manual al shape del panel (ingresosPorDia). */
 export function itemIngresoManualDesdeFila(row) {
   const cuenta = normalizarCuentaIe(row.cuenta, 'virtual');
@@ -169,6 +215,12 @@ export function itemIngresoManualDesdeFila(row) {
     subcategoria: row.subcategoria_nombre || null,
     empleado: row.usuario_nombre || null,
     manual: true,
+    // Campos para editar desde el panel IE
+    categoria_id: row.categoria_id || null,
+    subcategoria_id: row.subcategoria_id || null,
+    detalle_id: row.detalle_id || null,
+    descripcion: row.descripcion || '',
+    sucursal_id: row.sucursal_id || 'MAIN',
   };
 }
 
