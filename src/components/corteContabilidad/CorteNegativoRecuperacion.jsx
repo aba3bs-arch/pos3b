@@ -3,10 +3,9 @@ import { fmtCorte } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 
 /**
  * Alerta de recuperación por pagaré / préstamo área y/o caja en negativo.
- * - Muestra negativo restante vs recuperado por venta.
- * - Si venta cubre el negativo: leyenda verde parpadeante + botón Liquidar.
- * - Si aún hay negativo: botón Abono.
- * - Cubre turno: sin Abono/Liquidar.
+ * - Muestra negativo restante vs recuperado por venta (tope = deuda/pico).
+ * - Si venta cubre el negativo: leyenda verde parpadeante; la alerta PERMANECE
+ *   hasta que el cajero abone o liquide (cubre turno no ve esos botones).
  * - Admin / recolector: botón Pagaré.
  */
 export default function CorteNegativoRecuperacion({
@@ -17,8 +16,10 @@ export default function CorteNegativoRecuperacion({
   cajaActual = 0,
   visible = false,
   cubiertoPorVenta = false,
+  pendienteCajaRecuperada = false,
   puedeAbonarLiquidar = false,
   puedeGenerarPagare = false,
+  esCubreTurno = false,
   onAbonar,
   onLiquidar,
   onGenerarPagare,
@@ -32,9 +33,11 @@ export default function CorteNegativoRecuperacion({
   const hayDeuda = deb > 0.001;
   const restante = Math.max(0, neg);
   const hayRestante = restante > 0.001;
-  const recuperadoOk = cubiertoPorVenta || (!hayRestante && rec > 0.001 && hayDeuda);
+  const recuperadoOk = cubiertoPorVenta
+    || pendienteCajaRecuperada
+    || (!hayRestante && rec > 0.001 && (hayDeuda || pendienteCajaRecuperada));
 
-  if (!visible && !hayDeuda && !cajaEnNegativo) return null;
+  if (!visible && !hayDeuda && !cajaEnNegativo && !pendienteCajaRecuperada) return null;
 
   let fase = 'critico';
   if (recuperadoOk) fase = 'leve';
@@ -46,7 +49,10 @@ export default function CorteNegativoRecuperacion({
     : -Math.abs(hayRestante ? restante : (cajaEnNegativo ? Math.abs(caja) : 0));
 
   const mostrarAbono = puedeAbonarLiquidar && hayDeuda && hayRestante && typeof onAbonar === 'function';
-  const mostrarLiquidar = puedeAbonarLiquidar && hayDeuda && !hayRestante && typeof onLiquidar === 'function';
+  const mostrarLiquidar = puedeAbonarLiquidar
+    && !hayRestante
+    && (hayDeuda || pendienteCajaRecuperada)
+    && typeof onLiquidar === 'function';
 
   return (
     <div
@@ -56,7 +62,7 @@ export default function CorteNegativoRecuperacion({
     >
       <div className="corte-negativo-recuperacion__etiqueta">
         DINERO EN RECUPERACIÓN · {String(etiqueta).toUpperCase()}
-        {hayDeuda ? ' · PENDIENTE' : ''}
+        {hayDeuda || pendienteCajaRecuperada ? ' · PENDIENTE' : ''}
       </div>
 
       {avisoEntregarTurno && (
@@ -82,7 +88,9 @@ export default function CorteNegativoRecuperacion({
 
       {recuperadoOk ? (
         <div className="corte-negativo-recuperacion__leyenda-recuperado">
-          NEGATIVO RECUPERADO, FAVOR DE LIQUIDAR Y PAGAR PRÉSTAMO
+          {esCubreTurno
+            ? 'NEGATIVO RECUPERADO — EL CAJERO DEBE LIQUIDAR O ABONAR EN SU SESIÓN'
+            : 'NEGATIVO RECUPERADO, FAVOR DE LIQUIDAR Y PAGAR PRÉSTAMO'}
         </div>
       ) : (
         <div className="corte-negativo-recuperacion__hint">
@@ -93,6 +101,12 @@ export default function CorteNegativoRecuperacion({
             : cajaEnNegativo
               ? `Corte en negativo ${fmtCorte(caja)} — genera pagaré o recupera hasta $0.00`
               : 'Pendiente de recuperación'}
+        </div>
+      )}
+
+      {esCubreTurno && (hayDeuda || pendienteCajaRecuperada || recuperadoOk) && (
+        <div className="corte-negativo-recuperacion__aviso-cubre" role="status">
+          Cubre turno: la alerta permanece visible. Solo el cajero puede abonar o liquidar.
         </div>
       )}
 

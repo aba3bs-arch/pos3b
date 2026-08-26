@@ -105,6 +105,7 @@ import {
   rifPuedeLiquidar,
 } from '../lib/rifs.js';
 import { normalizarRol } from '../lib/roles.js';
+import { esUsuarioCubreTurno } from '../lib/cubreTurno.js';
 import {
   agruparEmpleadosParaSelectPrestamo,
   empleadosParaPrestamosEmpleado,
@@ -209,7 +210,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   /** Editar / ajustar / eliminar / crear préstamos área: solo admin o gerente. */
   const puedeOperarPrestamosAreaSuc = esAdmin || esGerente;
   /** Abonar / liquidar préstamos área/sucursal: admin, gerente o cajero. */
-  const puedeAbonarLiquidarPrestamosArea = puedeAbonarLiquidarPrestamoAreaSucursal(user?.rol);
+  const puedeAbonarLiquidarPrestamosArea = puedeAbonarLiquidarPrestamoAreaSucursal(user?.rol, user)
+    && !esUsuarioCubreTurno(user);
+  const puedeAbonarLiquidarPagaresUi = puedeAbonarLiquidarPagare(user?.rol, user)
+    && !esUsuarioCubreTurno(user);
   /** Recolectar préstamo área → RC Virtual: admin, gerente o repartidor. */
   const puedeRecolectarPrestamoArea = puedeRecolectarPrestamoInterareaRc(user?.rol);
   /** Eliminar RIF/préstamos: admin o gerente (corte abierto validado en lib). */
@@ -1350,7 +1354,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                           >
                             Reimprimir ×2
                           </button>
-                          {puedeAbonarLiquidarPagare(user?.rol) && pagareEstaAbierto(p) && (
+                          {puedeAbonarLiquidarPagaresUi && pagareEstaAbierto(p) && (
                             <>
                               <button
                                 type="button"

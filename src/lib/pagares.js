@@ -1,6 +1,7 @@
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
 import { normalizarRol } from './roles.js';
 import { nombreTurnoLegible, turnoActual } from './turnos.js';
+import { esUsuarioCubreTurno } from './cubreTurno.js';
 
 export const AREAS_PAGARE = ['virtual', 'garage', 'abarrotes'];
 
@@ -49,9 +50,10 @@ export function puedeGenerarPagare(rol) {
   return r === 'Administrador' || r === 'Gerente' || r === 'Repartidor';
 }
 
-/** Cajero / admin / gerente abonan o liquidan (sin ticket ni préstamo). */
-export function puedeAbonarLiquidarPagare(rol) {
-  const r = normalizarRol(rol);
+/** Cajero / admin / gerente abonan o liquidan (sin ticket ni préstamo). Cubre turno: no. */
+export function puedeAbonarLiquidarPagare(rol, user = null) {
+  if (esUsuarioCubreTurno(user)) return false;
+  const r = normalizarRol(rol ?? user?.rol ?? user?.role);
   return r === 'Administrador' || r === 'Gerente' || r === 'Cajero';
 }
 
@@ -159,7 +161,10 @@ export async function registrarPagare(supabase, payload = {}, opts = {}) {
 
 export async function abonarPagare(supabase, pagare, montoAbono, opts = {}) {
   if (!supabase || !pagare?.id) return { ok: false, error: 'Pagaré inválido.' };
-  if (!puedeAbonarLiquidarPagare(opts.rolActor ?? opts.user?.rol)) {
+  if (esUsuarioCubreTurno(opts.user)) {
+    return { ok: false, error: 'Cubre turno no puede abonar. Solo el cajero en su sesión.' };
+  }
+  if (!puedeAbonarLiquidarPagare(opts.rolActor ?? opts.user?.rol, opts.user)) {
     return { ok: false, error: 'Solo administrador, gerente o cajero pueden abonar un pagaré.' };
   }
   const saldo = saldoPagare(pagare);

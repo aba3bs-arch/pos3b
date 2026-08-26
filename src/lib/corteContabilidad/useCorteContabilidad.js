@@ -37,6 +37,7 @@ import {
 import { estadoAprobacionRecoleccionInicial } from '../contabilidadConstants.js';
 import { normalizarRol } from '../roles.js';
 import { esUsuarioCubreTurno } from '../cubreTurno.js';
+import { calcularVistaAlertaRecuperacion } from './alertaRecuperacion.js';
 
 async function sellarPrestamosColectados({
   supabase,
@@ -148,6 +149,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     refrescarPrestamosRecuperacion();
   }, [cargando, refrescarPrestamosRecuperacion, gastos.length, calc?.venta]);
 
+  const esCubreTurnoSesion = useMemo(() => esUsuarioCubreTurno(user), [user]);
+
   const vistaRecuperacion = useMemo(() => {
     const venta = Number(calc?.venta) || 0;
     const caja = Number(calc?.cajaActual);
@@ -167,40 +170,44 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       pagares.reduce((acc, p) => acc + (Number(p.saldo != null ? p.saldo : p.monto) || 0), 0),
     );
     const deuda = round2p(deudaPrestamo + deudaPagare);
-    // Ejemplo: deuda 800 + venta 500 → recuperado 500, negativo restante 300 (−$300.00).
-    const recuperado = deuda > 0.001
-      ? round2p(Math.min(deuda, Math.max(0, venta)))
-      : 0;
-    const negativoRestante = deuda > 0.001
-      ? round2p(Math.max(0, deuda - recuperado))
-      : 0;
-    const negativoCaja = Number.isFinite(caja) && caja < -0.001
-      ? round2p(Math.abs(caja))
-      : 0;
-    // Si hay deuda, el negativo de la alerta es el restante tras venta; si no, la caja en rojo.
-    const negativo = deuda > 0.001 ? negativoRestante : negativoCaja;
-    const cubiertoPorVenta = deuda > 0.001 && negativoRestante < 0.001 && recuperado > 0.001;
+    const base = calcularVistaAlertaRecuperacion({
+      deuda,
+      venta,
+      cajaActual: caja,
+      picoCaja: estado?.alerta_recup_pico,
+      cajaLiquidada: estado?.alerta_recup_liquidada,
+      esCubreTurno: esCubreTurnoSesion,
+    });
     return {
       prestamos: abiertos,
       pagares,
       deuda,
       deudaPrestamo,
       deudaPagare,
-      venta: round2p(venta),
-      recuperado,
-      negativo,
-      negativoRestante,
-      negativoCaja,
-      cubiertoPorVenta,
+      venta: base.venta,
+      recuperado: base.recuperado,
+      negativo: base.negativo,
+      negativoRestante: base.negativo,
+      negativoCaja: base.negativoCaja,
+      cubiertoPorVenta: base.cubiertoPorVenta,
       cajaActual: Number.isFinite(caja) ? round2p(caja) : 0,
-      visible: deuda > 0.001 || negativoCaja > 0.001,
-      avisoEntregarTurno: recuperado > 0.001,
+      visible: base.visible,
+      avisoEntregarTurno: base.recuperado > 0.001,
+      pendienteCajaRecuperada: base.pendienteCajaRecuperada,
+      esCubreTurno: base.esCubreTurno,
     };
-  }, [prestamosRecuperacion, pagaresRecuperacion, calc?.venta, calc?.cajaActual]);
-
-  const esCubreTurnoSesion = useMemo(() => esUsuarioCubreTurno(user), [user]);
+  }, [
+    prestamosRecuperacion,
+    pagaresRecuperacion,
+    calc?.venta,
+    calc?.cajaActual,
+    estado?.alerta_recup_pico,
+    estado?.alerta_recup_liquidada,
+    esCubreTurnoSesion,
+  ]);
 
   const puedeAbonarLiquidarPrestamo = useMemo(() => {
+    // Cubre turno: ve la alerta, pero NUNCA Abono / Liquidar (solo cajero real).
     if (esCubreTurnoSesion) return false;
     const r = normalizarRol(user?.rol ?? user?.role);
     return r === 'Administrador' || r === 'Gerente' || r === 'Cajero';
@@ -212,7 +219,23 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     return r === 'Administrador' || r === 'Gerente' || r === 'Repartidor';
   }, [user?.rol, user?.role, esCubreTurnoSesion]);
 
+  const persistirAlertaRecupCaja = useCallback((patch) => {
+    setEstado((prev) => {
+      const next = { ...prev, ...patch };
+      clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => {
+        void guardarEstadoCorte(supabase, sucursal, modulo, next).then((res) => {
+          if (res?.aviso) setAviso(res.aviso);
+        });
+      }, 400);
+      return next;
+    });
+  }, [supabase, sucursal, modulo]);
+
   const abonarPrestamoDesdeCorte = useCallback(async () => {
+    if (esCubreTurnoSesion) {
+      return alert('Solo el cajero puede abonar. La alerta permanece hasta su sesión.');
+    }
     const pagares = vistaRecuperacion.pagares || [];
     const lista = vistaRecuperacion.prestamos || [];
     if (!pagares.length && !lista.length) return alert('No hay pendiente por abonar.');
@@ -272,12 +295,37 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     } catch (e) {
       alert(e?.message || 'No se pudo abonar.');
     }
-  }, [vistaRecuperacion.pagares, vistaRecuperacion.prestamos, supabase, user, sucursal, refrescarPrestamosRecuperacion]);
+  }, [
+    esCubreTurnoSesion,
+    vistaRecuperacion.pagares,
+    vistaRecuperacion.prestamos,
+    supabase,
+    user,
+    sucursal,
+    refrescarPrestamosRecuperacion,
+  ]);
 
   const liquidarPrestamoDesdeCorte = useCallback(async () => {
+    if (esCubreTurnoSesion) {
+      return alert('Solo el cajero puede liquidar. La alerta permanece hasta su sesión.');
+    }
     const pagares = vistaRecuperacion.pagares || [];
     const lista = vistaRecuperacion.prestamos || [];
-    if (!pagares.length && !lista.length) return alert('No hay pendiente por liquidar.');
+
+    // Sin deuda formal: liquidar la recuperación de caja que ya quedó en $0.
+    if (!pagares.length && !lista.length) {
+      if (!vistaRecuperacion.pendienteCajaRecuperada) {
+        return alert('No hay pendiente por liquidar.');
+      }
+      const rec = Number(vistaRecuperacion.recuperado) || 0;
+      if (!confirm(
+        `¿Liquidar lo recuperado ($${rec.toFixed(2)})?\n\n`
+        + 'Se elimina la alerta. Confirma que el dinero ya se entregó.',
+      )) return;
+      persistirAlertaRecupCaja({ alerta_recup_pico: 0, alerta_recup_liquidada: true });
+      alert('Recuperación liquidada.');
+      return;
+    }
 
     if (pagares.length) {
       const p = pagares[0];
@@ -294,6 +342,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
           user,
         });
         if (!res.ok) return alert(res.error);
+        persistirAlertaRecupCaja({ alerta_recup_pico: 0, alerta_recup_liquidada: true });
         alert(res.mensaje || 'Pagaré liquidado.');
         await refrescarPrestamosRecuperacion();
       } catch (e) {
@@ -327,13 +376,25 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         });
       }
       if (!res.ok) return alert(res.error);
+      persistirAlertaRecupCaja({ alerta_recup_pico: 0, alerta_recup_liquidada: true });
       // Cajero/admin desde corte: sin ticket.
       alert(res.mensaje || 'Préstamo liquidado.');
       await refrescarPrestamosRecuperacion();
     } catch (e) {
       alert(e?.message || 'No se pudo liquidar.');
     }
-  }, [vistaRecuperacion.pagares, vistaRecuperacion.prestamos, supabase, user, sucursal, refrescarPrestamosRecuperacion]);
+  }, [
+    esCubreTurnoSesion,
+    vistaRecuperacion.pagares,
+    vistaRecuperacion.prestamos,
+    vistaRecuperacion.pendienteCajaRecuperada,
+    vistaRecuperacion.recuperado,
+    supabase,
+    user,
+    sucursal,
+    refrescarPrestamosRecuperacion,
+    persistirAlertaRecupCaja,
+  ]);
 
   const generarPagareDesdeCorte = useCallback(async () => {
     const montoSugerido = Math.max(
@@ -421,6 +482,16 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     },
     [persistir],
   );
+
+  // Conserva el pico de caja en rojo aunque la venta ya lo cubra (alerta persistente).
+  useEffect(() => {
+    if (cargando) return;
+    const neg = Number(vistaRecuperacion?.negativoCaja) || 0;
+    const pico = Number(estado?.alerta_recup_pico) || 0;
+    if (neg > pico + 0.001) {
+      patchEstado({ alerta_recup_pico: neg, alerta_recup_liquidada: false });
+    }
+  }, [cargando, vistaRecuperacion?.negativoCaja, estado?.alerta_recup_pico, patchEstado]);
 
   const patchEstadoPermitido = useCallback(
     (patch) => {
