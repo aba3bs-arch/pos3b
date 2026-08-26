@@ -476,3 +476,54 @@ export function imprimirPrestamoInterarea(prestamo) {
 export function imprimirPrestamoSucursal(prestamo) {
   return abrirVentanaImpresion(htmlPrestamoSucursal(prestamo), 'Préstamo sucursal');
 }
+
+const ETIQUETA_AREA_PAGARE_PRINT = {
+  virtual: 'Virtual',
+  garage: 'Garage',
+  abarrotes: 'Abarrotes',
+};
+
+export function htmlPagare(p, opts = {}) {
+  const copia = opts.copia || 1;
+  const totalCopias = opts.totalCopias || 2;
+  const monto = p?.saldo != null ? p.saldo : p?.monto;
+  const area = ETIQUETA_AREA_PAGARE_PRINT[p?.area] || p?.area || '—';
+  const texto = String(p?.texto || '').trim()
+    || `Debo y pagaré la cantidad de: ${fmt(monto)} cuando sea solicitado por el recolector, `
+      + 'de perderse esa cantidad, será descontada en nómina, según acuerdo de pagos.';
+  const fecha = p?.created_at
+    ? String(p.created_at).slice(0, 16).replace('T', ' ')
+    : (p?.fecha || new Date().toLocaleString('es-MX'));
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Pagaré</title><style>${estilos()}
+  .firma{margin-top:48px;border-top:1px solid #333;width:80%;padding-top:6px;font-size:11px}
+  .cuerpo{margin:14px 0;padding:10px;border:1.5px solid #000;line-height:1.45}
+  .copia{font-size:11px;margin-bottom:6px}
+  </style></head><body>
+    <div class="copia">Copia ${copia} de ${totalCopias}</div>
+    <h1>PAGARÉ</h1>
+    <div>Folio: <strong>${esc(p?.folio || '—')}</strong></div>
+    <div>Fecha: ${esc(fecha)}</div>
+    <div>Área: <strong>${esc(area)}</strong></div>
+    <div>Sucursal: <strong>${esc(p?.sucursal_id || '—')}</strong></div>
+    <div>Cajero en turno: <strong>${esc(p?.cajero_nombre || '—')}</strong></div>
+    <div>Turno: <strong>${esc(p?.turno_nombre || '—')}</strong></div>
+    <div style="font-size:20px;margin:12px 0"><strong>Cantidad: ${fmt(monto)}</strong></div>
+    <div class="cuerpo">${esc(texto)}</div>
+    <div class="muted">Generó: ${esc(p?.creado_por || '—')}${p?.creado_por_rol ? ` · ${esc(p.creado_por_rol)}` : ''}</div>
+    <div class="firma">Firma cajero: _________________________________</div>
+    <div class="firma">Firma recolector: _________________________________</div>
+  </body></html>`;
+}
+
+/** Imprime el pagaré 2 veces (dos ventanas de impresión). */
+export function imprimirPagare(pagare, opts = {}) {
+  const copias = Math.max(1, Number(opts.copias) || 2);
+  let last = { ok: true };
+  for (let i = 1; i <= copias; i += 1) {
+    last = abrirVentanaImpresion(
+      htmlPagare(pagare, { copia: i, totalCopias: copias }),
+      `Pagaré (${i}/${copias})`,
+    );
+  }
+  return last;
+}

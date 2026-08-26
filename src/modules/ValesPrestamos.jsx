@@ -74,7 +74,20 @@ import {
   sincronizarCategoriasValeDesdeNube,
 } from '../lib/valesCategorias.js';
 import { listarNotificacionesPendientes, TIPOS_NOTIF } from '../lib/contabilidadNotificaciones.js';
-import { imprimirPrestamo, imprimirPrestamoInterarea, imprimirPrestamoSucursal, imprimirRif, imprimirVale } from '../lib/impresionContabilidad.js';
+import { imprimirPrestamo, imprimirPrestamoInterarea, imprimirPrestamoSucursal, imprimirRif, imprimirVale, imprimirPagare } from '../lib/impresionContabilidad.js';
+import {
+  AVISO_FALTA_PAGARES,
+  ETIQUETA_AREA_PAGARE,
+  abonarPagare,
+  liquidarPagare,
+  listarPagares,
+  pagareEstaAbierto,
+  puedeAbonarLiquidarPagare,
+  puedeGenerarPagare,
+  registrarPagare,
+  saldoPagare,
+  textoPagare,
+} from '../lib/pagares.js';
 import {
   AVISO_FALTA_RIFS,
   abonarRif,
@@ -121,6 +134,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const [prestamosSuc, setPrestamosSuc] = useState([]);
   const [prestamosEmp, setPrestamosEmp] = useState([]);
   const [rifs, setRifs] = useState([]);
+  const [pagares, setPagares] = useState([]);
   const [empleados, setEmpleados] = useState([]);
   const [empleadosPrestamo, setEmpleadosPrestamo] = useState([]);
   const [notifs, setNotifs] = useState([]);
@@ -174,6 +188,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const [valesPendAll, setValesPendAll] = useState([]);
   const [prestamosPendAll, setPrestamosPendAll] = useState([]);
   const [horaLimiteVale, setHoraLimiteVale] = useState(() => etiquetaHoraLimiteVale());
+  const [pagareForm, setPagareForm] = useState({
+    area: 'virtual',
+    monto: '',
+    cajero_nombre: '',
+    turno_nombre: '',
+  });
 
   const rolNorm = normalizarRol(user?.rol);
   const esAdmin = rolNorm === 'Administrador';
@@ -258,7 +278,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       /* ignore */
     }
     // Admin/gerente: ver préstamos de todas las tiendas en la tabla (antes solo salían en Pendientes).
-    const [vRes, paRes, psRes, peRes, nRes, vPendRes, pePendRes, rifRes] = await Promise.all([
+    const [vRes, paRes, psRes, peRes, nRes, vPendRes, pePendRes, rifRes, pagRes] = await Promise.all([
       listarVales(supabase, { sucursal, tipo: 'indirecto' }),
       listarPrestamosInterarea(supabase, { sucursal }),
       listarPrestamosSucursales(supabase, { sucursal }),
@@ -279,9 +299,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         ? listarPrestamos(supabase, { incluirHistorial: true, limit: 250 })
         : Promise.resolve({ data: [] }),
       listarRifs(supabase, { sucursal, todasTiendas: vePendientesTodasTiendas, limit: 150 }),
+      listarPagares(supabase, {
+        sucursal: vePendientesTodasTiendas ? undefined : sucursal,
+        limit: 200,
+      }),
     ]);
     if (vRes.aviso) setAviso(vRes.aviso);
     else if (rifRes.aviso) setAviso(rifRes.aviso);
+    else if (pagRes.faltaTabla) setAviso(AVISO_FALTA_PAGARES);
     else if (psRes.aviso) setAviso(psRes.aviso);
     else if (peRes.aviso) setAviso(peRes.aviso);
     else if (peRes.error) setAviso(peRes.error);
@@ -292,6 +317,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     setPrestamosSuc(psRes.data || []);
     setPrestamosEmp(peRes.data || []);
     setRifs(rifRes.data || []);
+    setPagares(pagRes.data || []);
     setNotifs(nRes.data || []);
     setValesPendAll(vPendRes.data || []);
     setPrestamosPendAll(pePendRes.data || []);
@@ -328,7 +354,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   }, []);
 
   useEffect(() => {
-    if (esRepartidor) setPestana('prestamos');
+    if (esRepartidor) setPestana('pagare');
   }, [esRepartidor]);
 
   useEffect(() => {
@@ -1172,12 +1198,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
         {(esRepartidor
-          ? ['prestamos']
-          : ['vales', 'rif', 'prestamos', 'prestamos_emp', esAdmin && 'tipos', esAdmin && 'gasolina', puedeVerBandejaAprobacion && 'pendientes']
+          ? ['pagare', 'prestamos']
+          : ['vales', 'rif', 'pagare', 'prestamos', 'prestamos_emp', esAdmin && 'tipos', esAdmin && 'gasolina', puedeVerBandejaAprobacion && 'pendientes']
         ).filter(Boolean).map((p) => (
           <button key={p} type="button" className={`btn ${pestana === p ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPestana(p)}>
             {p === 'vales' && 'Vales'}
             {p === 'rif' && `RIF (${rifs.filter((r) => r.estado === 'abierto').length})`}
+            {p === 'pagare' && `Pagaré (${pagares.filter((x) => pagareEstaAbierto(x)).length})`}
             {p === 'prestamos' && 'Préstamos área / sucursal'}
             {p === 'prestamos_emp' && 'Préstamos empleados'}
             {p === 'tipos' && 'Tipos de vale'}
@@ -1186,6 +1213,191 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           </button>
         ))}
       </div>
+
+      {pestana === 'pagare' && (
+        <>
+          <div className="card">
+            <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Pagarés</h3>
+            <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.86rem' }}>
+              Registro del dinero en negativo pendiente de cobro por recolectores.
+              El botón <strong>Pagaré</strong> en la alerta de Virtual / Garage / Abarrotes genera el folio y 2 tickets.
+              El cajero solo abona o liquida (sin ticket ni préstamo).
+            </p>
+            {puedeGenerarPagare(user?.rol) && (
+              <form
+                style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', marginBottom: '1rem' }}
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const monto = parseFloat(String(pagareForm.monto).replace(',', '.'));
+                  if (!(monto > 0)) return alert('Monto inválido.');
+                  const res = await registrarPagare(
+                    supabase,
+                    {
+                      area: pagareForm.area,
+                      sucursal_id: sucursal,
+                      monto,
+                      cajero_nombre: pagareForm.cajero_nombre.trim() || user?.nombre || null,
+                      turno_nombre: pagareForm.turno_nombre.trim() || null,
+                      texto: textoPagare(monto),
+                    },
+                    { nombreActor: user?.nombre, rolActor: user?.rol, user },
+                  );
+                  if (!res.ok) return alert(res.error);
+                  try {
+                    imprimirPagare(res.pagare, { copias: 2 });
+                  } catch {
+                    /* ignore */
+                  }
+                  setPagareForm({ area: pagareForm.area, monto: '', cajero_nombre: '', turno_nombre: '' });
+                  alert(res.mensaje || 'Pagaré registrado.');
+                  recargarTodo();
+                }}
+              >
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Área
+                  <select
+                    className="select"
+                    style={{ marginTop: 4 }}
+                    value={pagareForm.area}
+                    onChange={(e) => setPagareForm({ ...pagareForm, area: e.target.value })}
+                  >
+                    <option value="virtual">Virtual</option>
+                    <option value="garage">Garage</option>
+                    <option value="abarrotes">Abarrotes</option>
+                  </select>
+                </label>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Monto
+                  <input
+                    className="input"
+                    style={{ marginTop: 4 }}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={pagareForm.monto}
+                    onChange={(e) => setPagareForm({ ...pagareForm, monto: e.target.value })}
+                    required
+                  />
+                </label>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Cajero en turno
+                  <input
+                    className="input"
+                    style={{ marginTop: 4 }}
+                    value={pagareForm.cajero_nombre}
+                    onChange={(e) => setPagareForm({ ...pagareForm, cajero_nombre: e.target.value })}
+                    placeholder={user?.nombre || 'Nombre cajero'}
+                  />
+                </label>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Turno
+                  <input
+                    className="input"
+                    style={{ marginTop: 4 }}
+                    value={pagareForm.turno_nombre}
+                    onChange={(e) => setPagareForm({ ...pagareForm, turno_nombre: e.target.value })}
+                    placeholder="Turno"
+                  />
+                </label>
+                <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+                  <button type="submit" className="btn btn-gold">Generar pagaré (2 tickets)</button>
+                </div>
+              </form>
+            )}
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Folio</th>
+                    <th>Área</th>
+                    <th>Sucursal</th>
+                    <th>Cajero</th>
+                    <th>Monto</th>
+                    <th>Saldo</th>
+                    <th>Estado</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagares.length === 0 ? (
+                    <tr><td colSpan={8} className="muted">Sin pagarés. Ejecuta supabase/fix_pagares.sql si falta la tabla.</td></tr>
+                  ) : (
+                    pagares.map((p) => (
+                      <tr key={p.id}>
+                        <td>{p.folio || '—'}</td>
+                        <td>{ETIQUETA_AREA_PAGARE[p.area] || p.area}</td>
+                        <td>{etiquetaTienda(p.sucursal_id)}</td>
+                        <td>
+                          {p.cajero_nombre || '—'}
+                          {p.turno_nombre ? <span className="muted"> · {p.turno_nombre}</span> : null}
+                        </td>
+                        <td>{fmt(p.monto)}</td>
+                        <td>{fmt(saldoPagare(p))}</td>
+                        <td>{p.estado || '—'}</td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }}
+                            onClick={() => imprimirPagare(p, { copias: 2 })}
+                          >
+                            Reimprimir ×2
+                          </button>
+                          {puedeAbonarLiquidarPagare(user?.rol) && pagareEstaAbierto(p) && (
+                            <>
+                              <button
+                                type="button"
+                                className="btn btn-ghost"
+                                style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }}
+                                onClick={async () => {
+                                  const saldo = saldoPagare(p);
+                                  const raw = prompt(`Abonar pagaré ${p.folio}\nSaldo: $${saldo.toFixed(2)}`, String(saldo));
+                                  if (raw === null) return;
+                                  const monto = parseFloat(String(raw).replace(',', '.'));
+                                  if (!(monto > 0)) return alert('Monto inválido.');
+                                  const res = await abonarPagare(supabase, p, monto, {
+                                    nombreActor: user?.nombre,
+                                    rolActor: user?.rol,
+                                    user,
+                                  });
+                                  if (!res.ok) return alert(res.error);
+                                  alert(res.mensaje);
+                                  recargarTodo();
+                                }}
+                              >
+                                Abonar
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-primary"
+                                style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }}
+                                onClick={async () => {
+                                  const saldo = saldoPagare(p);
+                                  if (!confirm(`¿Liquidar pagaré ${p.folio} por $${saldo.toFixed(2)}? Sin ticket.`)) return;
+                                  const res = await liquidarPagare(supabase, p, {
+                                    nombreActor: user?.nombre,
+                                    rolActor: user?.rol,
+                                    user,
+                                  });
+                                  if (!res.ok) return alert(res.error);
+                                  alert(res.mensaje);
+                                  recargarTodo();
+                                }}
+                              >
+                                Liquidar
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
 
       {pestana === 'pendientes' && puedeVerBandejaAprobacion && (
         <div className="card" id="bandeja-aprobaciones-vales">

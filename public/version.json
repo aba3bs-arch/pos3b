@@ -1,8 +1,8 @@
 {
   "version": "1.1.0",
-  "buildId": "b8c2542",
-  "branch": "cursor/prestamos-area-sin-corte-6f70",
-  "builtAt": "2026-08-26T02:26:43.969Z",
+  "buildId": "d879828",
+  "branch": "cursor/pagares-rc-virtual-vales-2331",
+  "builtAt": "2026-08-26T17:02:32.096Z",
   "title": "Actualización disponible",
   "summary": "Checador: Resumen de días (entrada y salida). Cortes: papelera y teclado en pantalla. Acepta para actualizar esta caja.",
   "changes": [
@@ -11,10 +11,10 @@
     "Cubre turno (CT) solo suma días checados, sin faltas ni descansos",
     "Cortes Virtual/Abarrotes/Garage: papelera de cierres borrados, con quién los eliminó y Restaurar",
     "Teclado en pantalla en esos cortes para tablet/POS sin teclado físico",
-    "feat(cortes): aviso parpadeante de dinero en recuperación",
-    "fix(prestamos): Abonar y Recolectar visibles hasta RC",
-    "fix(prestamos): botones área hasta Recolectar RC, por privilegio de rol",
-    "feat(rh-aba3b): alta con foto del INE y autollenado OCR",
-    "chore(sql): conservar backfill préstamos recolección 22–23/08"
+    "fix(cortes): pasar cajaActual a la alerta de recuperación",
+    "fix(cortes): alerta muestra el mismo negativo si la caja está en rojo",
+    "fix(prestamos): Origen presta, Destino recibe; alerta en Destino",
+    "fix(prestamos): textos Recibe/Prestó y buzón al área receptora",
+    "fix(prestamos): alerta de recuperación en el área que recibe"
   ]
 }

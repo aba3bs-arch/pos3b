@@ -12,6 +12,16 @@ import {
   recibirRecoleccionesRVirtual,
 } from '../lib/rVirtual.js';
 import { etiquetaCuentaRt } from '../lib/rtCuentas.js';
+import {
+  AVISO_FALTA_PAGARES,
+  ETIQUETA_AREA_PAGARE,
+  listarPagares,
+  pagareEstaAbierto,
+  registrarPagaresEnRcVirtual,
+  saldoPagare,
+} from '../lib/pagares.js';
+import { imprimirPagare } from '../lib/impresionContabilidad.js';
+import { etiquetaTienda } from '../constants/sucursales.js';
 
 function fmtFecha(iso) {
   if (!iso) return '—';
@@ -53,11 +63,13 @@ export default function PanelRVirtual({ supabase, user }) {
   const adminEsAbb = esAbb(adminNombre);
   const adminEsAmr = esUsuarioAmr(adminNombre);
   const miClave = claveRecolectorRVirtual(adminNombre);
+  const [pestana, setPestana] = useState('recolecciones');
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   const [recolectores, setRecolectores] = useState([]);
   const [porEntregarAbb, setPorEntregarAbb] = useState([]);
+  const [pagares, setPagares] = useState([]);
   const [abierto, setAbierto] = useState(null);
   const [abiertoAbb, setAbiertoAbb] = useState(null);
   const [trabajando, setTrabajando] = useState('');
@@ -69,10 +81,14 @@ export default function PanelRVirtual({ supabase, user }) {
   const cargar = useCallback(async () => {
     if (!supabase) return;
     setCargando(true);
-    const res = await listarBandejaRVirtual(supabase);
+    const [res, pagRes] = await Promise.all([
+      listarBandejaRVirtual(supabase),
+      listarPagares(supabase, { limit: 200 }),
+    ]);
     setRecolectores(res.recolectores || []);
     setPorEntregarAbb(res.porEntregarAbb || []);
-    setError(res.error || '');
+    setPagares(pagRes.data || []);
+    setError(res.error || (pagRes.faltaTabla ? AVISO_FALTA_PAGARES : '') || pagRes.error || '');
     setCargando(false);
   }, [supabase]);
 
@@ -108,6 +124,15 @@ export default function PanelRVirtual({ supabase, user }) {
         ? `Recibido ${fmtMonto(res.total)} de ${grupo.etiqueta}. Entregado a: ABB (tu cuenta).`
         : `Recibido ${fmtMonto(res.total)} de ${grupo.etiqueta} en tu cuenta. Pendiente de entregar a ABB.`,
     );
+    // Registra en pestaña Pagaré los negativos pendientes del área virtual.
+    try {
+      await registrarPagaresEnRcVirtual(supabase, {
+        area: 'virtual',
+        adminNombre,
+      });
+    } catch {
+      /* no bloquea la recepción */
+    }
     await cargar();
   };
 
@@ -231,7 +256,95 @@ export default function PanelRVirtual({ supabase, user }) {
         </p>
       </div>
 
-      {error && (
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className={`btn ${pestana === 'recolecciones' ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => setPestana('recolecciones')}
+        >
+          Recolecciones
+        </button>
+        <button
+          type="button"
+          className={`btn ${pestana === 'pagare' ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => setPestana('pagare')}
+        >
+          Pagaré ({pagares.filter((p) => pagareEstaAbierto(p) || String(p.estado || '').includes('recolect')).length})
+        </button>
+      </div>
+
+      {pestana === 'pagare' && (
+        <div className="card">
+          <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue-dark)' }}>
+            Pagarés · dinero en negativo pendiente de cobro
+          </h4>
+          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.84rem' }}>
+            Se registran al generar Pagaré en el corte (Virtual / Garage / Abarrotes) y al recibir recolecciones en RC Virtual.
+          </p>
+          {cargando ? (
+            <p className="muted">Cargando…</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Folio</th>
+                    <th>Área</th>
+                    <th>Sucursal</th>
+                    <th>Cajero</th>
+                    <th>Monto</th>
+                    <th>Saldo</th>
+                    <th>Estado</th>
+                    <th>RC</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagares.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="muted">
+                        Sin pagarés. Ejecuta <code>supabase/fix_pagares.sql</code> si falta la tabla.
+                      </td>
+                    </tr>
+                  ) : (
+                    pagares.map((p) => (
+                      <tr key={p.id}>
+                        <td>{p.folio || '—'}</td>
+                        <td>{ETIQUETA_AREA_PAGARE[p.area] || p.area}</td>
+                        <td>{etiquetaTienda(p.sucursal_id)}</td>
+                        <td>
+                          {p.cajero_nombre || '—'}
+                          {p.turno_nombre ? <span className="muted"> · {p.turno_nombre}</span> : null}
+                        </td>
+                        <td>{fmtMonto(p.monto)}</td>
+                        <td>{fmtMonto(saldoPagare(p))}</td>
+                        <td>{p.estado || '—'}</td>
+                        <td className="muted" style={{ fontSize: '0.78rem' }}>
+                          {p.rc_recibido_por
+                            ? `${p.rc_recibido_por}${p.rc_recibido_at ? ` · ${fmtFecha(p.rc_recibido_at)}` : ''}`
+                            : '—'}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ fontSize: '0.78rem', padding: '0.2rem 0.4rem' }}
+                            onClick={() => imprimirPagare(p, { copias: 2 })}
+                          >
+                            Ticket ×2
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {pestana === 'recolecciones' && error && (
         <div className="card" style={{ borderLeft: '4px solid var(--danger)', padding: '0.75rem 1rem' }}>
           <p style={{ margin: 0, fontSize: '0.88rem' }}>{error}</p>
         </div>
@@ -296,7 +409,7 @@ export default function PanelRVirtual({ supabase, user }) {
         </div>
       )}
 
-      {cargando ? (
+      {pestana === 'recolecciones' && (cargando ? (
         <p className="muted">Cargando recolecciones…</p>
       ) : (
         <>
@@ -530,7 +643,7 @@ export default function PanelRVirtual({ supabase, user }) {
             )}
           </div>
         </>
-      )}
+      ))}
     </div>
   );
 }

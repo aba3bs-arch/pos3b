@@ -77,8 +77,10 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
     recargar,
     vistaRecuperacion,
     puedeAbonarLiquidarPrestamo,
+    puedeGenerarPagareCorte,
     abonarPrestamoDesdeCorte,
     liquidarPrestamoDesdeCorte,
+    generarPagareDesdeCorte,
   } = useCorteContabilidad({
     supabase,
     sucursal,
@@ -263,8 +265,10 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         cajaActual={vistaRecuperacion?.cajaActual ?? calc.cajaActual}
         visible={vistaRecuperacion?.visible}
         puedeAbonarLiquidar={puedeAbonarLiquidarPrestamo}
+        puedeGenerarPagare={puedeGenerarPagareCorte}
         onAbonar={abonarPrestamoDesdeCorte}
         onLiquidar={liquidarPrestamoDesdeCorte}
+        onGenerarPagare={generarPagareDesdeCorte}
       />
       <div className="card" style={{ borderTop: `3px solid ${ACCENT}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-start', justifyContent: 'space-between' }}>
