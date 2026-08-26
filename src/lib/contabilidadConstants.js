@@ -341,7 +341,7 @@ export function etiquetaEstadoVale(v) {
   return 'Aprobado';
 }
 
-/** Estados abiertos de préstamo entre áreas (recuperación automática por negativo). */
+/** Estados abiertos de préstamo entre áreas (alerta de recuperación en corte). */
 export const ESTADOS_PRESTAMO_INTERAREA_ABIERTOS = new Set([
   'recuperar',
   'activo',
@@ -418,7 +418,8 @@ export function etiquetaColectaPrestamo(p) {
  */
 export function prestamoInterareaPendienteRc(p) {
   if (!p) return false;
-  if (String(p.estado || '') === 'cancelado') return false;
+  const est = String(p.estado || '');
+  if (est === 'cancelado' || est === 'liquidado' || est === 'recuperado') return false;
   return !p.rc_recibido_por;
 }
 

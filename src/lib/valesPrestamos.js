@@ -22,8 +22,6 @@ import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from './co
 import {
   cargarValeACorte,
   cargarPrestamoEmpleadoACorte,
-  cargarPrestamoInterareaACorte,
-  cargarPrestamoSucursalACorte,
   quitarValeDeCorteAbierto,
   corteDocumentoEliminable,
   TOKEN_PRESTAMO_IA,
@@ -1136,23 +1134,19 @@ export async function registrarPrestamoInterarea(supabase, row) {
     area_buzon: row.destino || row.gastos_area || 'abarrotes',
   });
 
-  const corteRes = await cargarPrestamoInterareaACorte(supabase, prestamoRow);
-  if (!corteRes.ok) {
-    await supabase.from('prestamos_interarea').delete().eq('id', prestamoRow.id);
-    return { ok: false, error: corteRes.error || 'No se pudo cargar el préstamo al corte de origen.' };
-  }
-
+  // No se carga al corte (Virtual / Abarrotes / Garage): la recuperación
+  // se gestiona con la alerta de préstamo + Abonar / Liquidar / Recolectar.
   return {
     ok: true,
     prestamo: {
       ...prestamoRow,
-      cargado_corte: true,
-      gasto_id: corteRes.gastoId || null,
+      cargado_corte: false,
+      gasto_id: null,
     },
-    gastoId: corteRes.gastoId,
-    moduloCorte: corteRes.modulo,
-    aviso: corteRes.aviso,
-    mensaje: `Préstamo registrado y cargado como gasto al corte ${corteRes.modulo || origenLbl}.`,
+    gastoId: null,
+    moduloCorte: null,
+    imprimirTicket: true,
+    mensaje: `Préstamo área registrado (${origenLbl} → ${destinoLbl}). No afecta el corte; imprime ticket y recupera desde Préstamos área.`,
   };
 }
 
@@ -1166,44 +1160,58 @@ function round2Prestamo(n) {
 }
 
 /**
- * Plan de abonos automáticos según el negativo de caja del área de origen.
- * Se recupera primero el préstamo más viejo: recovered = sum(saldos) - max(0, -caja).
- * Si cajaActual >= 0, todos quedan en saldo 0 (recuperado).
+ * Vista de la alerta en corte: el «negativo» ya no es la caja del corte,
+ * sino lo que aún falta cubrir del préstamo respecto a la venta del turno.
+ * Ej.: préstamo $500 + venta $750 → negativo $0.00, recuperado $500.
  */
-export function planRecuperacionPrestamosPorNegativo(prestamos, cajaActual) {
-  const abiertos = (prestamos || [])
-    .filter((p) => prestamoInterareaEstaAbierto(p) && saldoInterarea(p) > 0.001)
-    .slice()
-    .sort((a, b) => String(a.created_at || a.fecha || '').localeCompare(String(b.created_at || b.fecha || '')));
-
-  if (!abiertos.length) return [];
-
-  const sumSaldos = round2Prestamo(abiertos.reduce((acc, p) => acc + saldoInterarea(p), 0));
-  const negativo = round2Prestamo(Math.max(0, -(Number(cajaActual) || 0)));
-  let porRecuperar = round2Prestamo(Math.max(0, sumSaldos - negativo));
-  const cambios = [];
-
-  for (const p of abiertos) {
-    if (porRecuperar <= 0.001) break;
-    const saldoAntes = round2Prestamo(saldoInterarea(p));
-    const abono = round2Prestamo(Math.min(saldoAntes, porRecuperar));
-    if (!(abono > 0.001)) continue;
-    const saldoNuevo = round2Prestamo(Math.max(0, saldoAntes - abono));
-    porRecuperar = round2Prestamo(Math.max(0, porRecuperar - abono));
-    cambios.push({
-      prestamo: p,
-      saldoAntes,
-      saldoNuevo,
-      abono,
-      recuperado: saldoNuevo <= 0.001,
-    });
-  }
-  return cambios;
+export function calcularVistaRecuperacionPrestamo(prestamos, venta) {
+  const abiertos = (prestamos || []).filter((p) => {
+    if (!p) return false;
+    const est = String(p.estado || '');
+    if (est === 'cancelado' || est === 'liquidado' || est === 'recuperado') return false;
+    if (p.tipo === 'sucursal' || p.sucursal_origen) {
+      return est === 'pendiente_cobro' && (Number(p.saldo ?? p.monto) || 0) > 0.001;
+    }
+    return prestamoInterareaEstaAbierto(p) && saldoInterarea(p) > 0.001;
+  });
+  const deuda = round2Prestamo(
+    abiertos.reduce((acc, p) => {
+      if (p.tipo === 'sucursal' || p.sucursal_origen) {
+        return acc + (Number(p.saldo != null ? p.saldo : p.monto) || 0);
+      }
+      return acc + saldoInterarea(p);
+    }, 0),
+  );
+  const ventaN = round2Prestamo(Math.max(0, Number(venta) || 0));
+  const recuperado = round2Prestamo(Math.min(deuda, ventaN));
+  const negativo = round2Prestamo(Math.max(0, deuda - recuperado));
+  return {
+    prestamos: abiertos,
+    deuda,
+    recuperado,
+    negativo,
+    visible: deuda > 0.001,
+  };
 }
 
+/** @deprecated Conservado por tests/compat: ya no se auto-abona por caja. */
+export function planRecuperacionPrestamosPorNegativo(prestamos, cajaActual) {
+  const vista = calcularVistaRecuperacionPrestamo(prestamos, Math.max(0, -(Number(cajaActual) || 0)));
+  // Compat: devolvía plan de abonos; ahora vacío (recuperación manual).
+  void vista;
+  return [];
+}
+
+/** Editar / ajustar / eliminar / crear: admin o gerente. */
 export function puedeOperarPrestamoAreaSucursal(rol) {
   const r = normalizarRol(rol);
   return r === 'Administrador' || r === 'Gerente';
+}
+
+/** Abonar / liquidar: admin, gerente o cajero. */
+export function puedeAbonarLiquidarPrestamoAreaSucursal(rol) {
+  const r = normalizarRol(rol);
+  return r === 'Administrador' || r === 'Gerente' || r === 'Cajero';
 }
 
 /** Admin, gerente o repartidor pueden enviar préstamo área → RC Virtual. */
@@ -1213,7 +1221,10 @@ export function puedeRecolectarPrestamoInterareaRc(rol) {
 }
 
 const AVISO_SOLO_ADMIN_GERENTE_PRESTAMO_AREA =
-  'Solo administrador o gerente pueden abonar, liquidar o editar préstamos área/sucursal.';
+  'Solo administrador o gerente pueden editar, ajustar o eliminar préstamos área/sucursal.';
+
+const AVISO_SOLO_ABONAR_LIQUIDAR_PRESTAMO_AREA =
+  'Solo administrador, gerente o cajero pueden abonar o liquidar préstamos área/sucursal.';
 
 const AVISO_SOLO_RECOLECTAR_PRESTAMO_AREA =
   'Solo administrador, gerente o repartidor pueden recolectar el préstamo hacia RC Virtual.';
@@ -1223,6 +1234,15 @@ function exigirAdminGerentePrestamoArea(opts = {}) {
   const rol = opts.rolActor ?? opts.user?.rol;
   if (!puedeOperarPrestamoAreaSucursal(rol)) {
     return { ok: false, error: AVISO_SOLO_ADMIN_GERENTE_PRESTAMO_AREA };
+  }
+  return { ok: true };
+}
+
+function exigirAbonarLiquidarPrestamoArea(opts = {}) {
+  if (opts.sistemaAuto) return { ok: true };
+  const rol = opts.rolActor ?? opts.user?.rol;
+  if (!puedeAbonarLiquidarPrestamoAreaSucursal(rol)) {
+    return { ok: false, error: AVISO_SOLO_ABONAR_LIQUIDAR_PRESTAMO_AREA };
   }
   return { ok: true };
 }
@@ -1273,7 +1293,7 @@ function patchRcRecibidoInterarea(opts = {}, montoRc = 0, prestamo = null) {
 }
 
 export async function abonarPrestamoInterarea(supabase, prestamo, montoAbono, opts = {}) {
-  const auth = exigirAdminGerentePrestamoArea(opts);
+  const auth = exigirAbonarLiquidarPrestamoArea(opts);
   if (!auth.ok) return auth;
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
   // Abonar = separar dinero. Se permite mientras no se haya recolectado a RC.
@@ -1340,43 +1360,53 @@ export async function abonarPrestamoInterarea(supabase, prestamo, montoAbono, op
 }
 
 export async function liquidarPrestamoInterarea(supabase, prestamo, opts = {}) {
-  const auth = exigirAdminGerentePrestamoArea(opts);
+  const auth = exigirAbonarLiquidarPrestamoArea(opts);
   if (!auth.ok) return auth;
+  if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  if (prestamo.rc_recibido_por && ['liquidado', 'recuperado'].includes(String(prestamo.estado || ''))) {
+    return { ok: false, error: 'Ya está liquidado / recolectado a RC.' };
+  }
   const saldo = saldoInterarea(prestamo);
   const yaCerrado = ['liquidado', 'recuperado'].includes(String(prestamo?.estado || ''));
-  if (!(saldo > 0) && yaCerrado) {
-    return { ok: false, error: 'Ya está recuperado.' };
+  if (!(saldo > 0.001) && yaCerrado) {
+    return { ok: false, error: 'Ya está liquidado.' };
   }
-  if (!(saldo > 0)) {
-    const actor = patchActorLiquidacionInterarea(opts);
-    let { data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, {
+  const actor = patchActorLiquidacionInterarea(opts);
+  const abonoTotal = (Number(prestamo.abono) || 0) + Math.max(0, saldo);
+  const upd = {
+    saldo: 0,
+    abono: abonoTotal,
+    estado: 'liquidado',
+    ...actor,
+  };
+  let { data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, upd);
+  if (error && /liquidado/i.test(String(error.message || ''))) {
+    ({ data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, {
+      ...upd,
       estado: 'recuperado',
-      saldo: 0,
+    }));
+  }
+  if (error && /saldo|abono/i.test(String(error.message || ''))) {
+    ({ data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, {
+      estado: 'liquidado',
       ...actor,
-    });
-    if (error && /recuperado/i.test(String(error.message || ''))) {
-      ({ data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, {
-        estado: 'liquidado',
-        saldo: 0,
-        ...actor,
-      }));
-    }
-    if (error && /saldo/i.test(String(error.message || ''))) {
+    }));
+    if (error && /liquidado/i.test(String(error.message || ''))) {
       ({ data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, {
         estado: 'recuperado',
         ...actor,
       }));
-      if (error && /recuperado/i.test(String(error.message || ''))) {
-        ({ data, error } = await actualizarPrestamoInterarea(supabase, prestamo.id, {
-          estado: 'liquidado',
-          ...actor,
-        }));
-      }
     }
-    if (error) return { ok: false, error: error.message };
-    return { ok: true, prestamo: data, liquidado: true, recuperado: true };
   }
-  return abonarPrestamoInterarea(supabase, prestamo, saldo, opts);
+  if (error) return { ok: false, error: error.message };
+  return {
+    ok: true,
+    prestamo: data,
+    liquidado: true,
+    recuperado: true,
+    imprimirTicket: true,
+    mensaje: 'Préstamo liquidado. Responsabilidad del cajero registrada.',
+  };
 }
 
 export async function editarPrestamoInterarea(supabase, prestamo, patch = {}, { user, sucursal } = {}) {
@@ -1569,65 +1599,78 @@ export async function recolectarPrestamoInterarea(supabase, prestamo, montoRecol
 }
 
 /**
- * Sincroniza saldos de préstamos interárea cuyo origen es el módulo del corte:
- * conforme baja el negativo de caja, se abona automáticamente; a caja >= 0 → recuperado.
+ * Antes: auto-abonaba préstamos según el negativo de caja.
+ * Ahora los préstamos área no cargan al corte; la recuperación es manual
+ * (alerta + Abonar / Liquidar). Se conserva la firma por compatibilidad.
  */
-export async function sincronizarRecuperacionPrestamosInterarea(supabase, opts = {}) {
-  if (!supabase) return { ok: true, cambios: [] };
+export async function sincronizarRecuperacionPrestamosInterarea(_supabase, _opts = {}) {
+  return { ok: true, cambios: [], omitido: 'recuperacion_manual' };
+}
+
+/**
+ * Préstamos abiertos que alimentan la alerta del corte (área origen / área_corte).
+ * Incluye interárea y sucursal pendientes; no afecta caja del corte.
+ */
+export async function listarPrestamosAbiertosParaCorte(supabase, opts = {}) {
+  if (!supabase) return { data: [], error: null };
   const sucursal = String(opts.sucursal || opts.sucursal_id || '').trim() || 'MAIN';
   const modulo = normalizarAreaCorte(opts.modulo || opts.origen, '');
-  if (!modulo) return { ok: true, cambios: [], omitido: 'sin_modulo' };
-  const cajaActual = Number(opts.cajaActual);
-  if (!Number.isFinite(cajaActual)) return { ok: true, cambios: [], omitido: 'sin_caja' };
+  if (!modulo) return { data: [], error: null, omitido: 'sin_modulo' };
 
   const estados = [...ESTADOS_PRESTAMO_INTERAREA_ABIERTOS];
-  let q = supabase
-    .from('prestamos_interarea')
-    .select('*')
-    .eq('sucursal_id', sucursal)
-    .eq('origen', modulo)
-    .in('estado', estados)
-    .order('created_at', { ascending: true });
-  let { data, error } = await q;
-  if (error && /recuperar|por_recolectar/i.test(String(error.message || ''))) {
-    ({ data, error } = await supabase
+  let interarea = [];
+  {
+    let { data, error } = await supabase
       .from('prestamos_interarea')
       .select('*')
       .eq('sucursal_id', sucursal)
       .eq('origen', modulo)
-      .in('estado', ['activo'])
-      .order('created_at', { ascending: true }));
+      .in('estado', estados)
+      .order('created_at', { ascending: true });
+    if (error && /recuperar|por_recolectar/i.test(String(error.message || ''))) {
+      ({ data, error } = await supabase
+        .from('prestamos_interarea')
+        .select('*')
+        .eq('sucursal_id', sucursal)
+        .eq('origen', modulo)
+        .in('estado', ['activo'])
+        .order('created_at', { ascending: true }));
+    }
+    if (error) return { data: [], error: error.message };
+    interarea = (data || []).filter((p) => saldoInterarea(p) > 0.001);
   }
-  if (error) return { ok: false, error: error.message, cambios: [] };
 
-  // No auto-abonar préstamos ya listos para Recolectar → RC: los botones y el saldo
-  // permanecen hasta que un rol con privilegios pulse Recolectar.
-  const candidatos = (data || []).filter(
-    (p) => String(p.estado || '') !== 'por_recolectar'
-      && !p.colectado_por
-      && !p.rc_recibido_por,
-  );
-  const plan = planRecuperacionPrestamosPorNegativo(candidatos, cajaActual);
-  if (!plan.length) return { ok: true, cambios: [] };
-
-  const aplicados = [];
-  for (const item of plan) {
-    if (!(item.abono > 0.001)) continue;
-    const res = await abonarPrestamoInterarea(supabase, item.prestamo, item.abono, {
-      sistemaAuto: true,
-      nombreActor: opts.nombreActor || 'Sistema · recuperación por ventas',
-      sucursal,
-    });
-    if (res.ok) {
-      aplicados.push({
-        id: item.prestamo.id,
-        abono: item.abono,
-        saldo: res.saldo,
-        recuperado: Boolean(res.recuperado),
+  let sucursales = [];
+  {
+    let q = supabase
+      .from('prestamos_sucursales')
+      .select('*')
+      .eq('sucursal_origen', sucursal)
+      .eq('estado', 'pendiente_cobro')
+      .order('created_at', { ascending: true });
+    let { data, error } = await q;
+    if (faltaTablaPrestamosSucursales(error)) {
+      data = [];
+      error = null;
+    }
+    if (error && /area_corte/i.test(String(error.message || ''))) {
+      ({ data, error } = await supabase
+        .from('prestamos_sucursales')
+        .select('*')
+        .eq('sucursal_origen', sucursal)
+        .eq('estado', 'pendiente_cobro')
+        .order('created_at', { ascending: true }));
+    }
+    if (!error) {
+      sucursales = (data || []).filter((p) => {
+        const area = String(p.area_corte || 'abarrotes').toLowerCase();
+        const saldo = Number(p.saldo != null ? p.saldo : p.monto) || 0;
+        return area === modulo && saldo > 0.001;
       });
     }
   }
-  return { ok: true, cambios: aplicados };
+
+  return { data: [...interarea, ...sucursales], error: null };
 }
 
 /**
@@ -1770,9 +1813,9 @@ export async function listarPrestamosSucursales(supabase, opts = {}) {
 }
 
 /**
- * Préstamo de una tienda a otra. Se carga como gasto al corte del área de origen
- * (virtual / abarrotes / garage). Queda pendiente de cobro hasta liquidarse
- * en la sucursal donde se originó.
+ * Préstamo de una tienda a otra. No se carga al corte (Virtual / Abarrotes / Garage).
+ * Queda pendiente de cobro hasta liquidarse en la sucursal de origen
+ * (alerta de recuperación + Abonar / Liquidar).
  * (MAIN no usa este flujo: usa registrarEnvioMainATienda.)
  */
 export async function registrarPrestamoSucursal(supabase, row) {
@@ -1806,23 +1849,19 @@ export async function registrarPrestamoSucursal(supabase, row) {
     created_by: row.created_by || null,
     area_corte: area,
     tipo: 'sucursal',
+    cargado_corte: false,
   };
 
   let { data, error } = await supabase.from('prestamos_sucursales').insert([payload]).select('*').single();
-  if (error && /area_corte|tipo/i.test(String(error.message || ''))) {
+  if (error && /area_corte|tipo|cargado_corte/i.test(String(error.message || ''))) {
     const slim = { ...payload };
     delete slim.area_corte;
     delete slim.tipo;
+    delete slim.cargado_corte;
     ({ data, error } = await supabase.from('prestamos_sucursales').insert([slim]).select('*').single());
   }
   if (faltaTablaPrestamosSucursales(error)) return { ok: false, error: AVISO_FALTA_PRESTAMOS_SUCURSALES };
   if (error) return { ok: false, error: error.message };
-
-  const corteRes = await cargarPrestamoSucursalACorte(supabase, { ...data, area_corte: area, created_by: payload.created_by }, area);
-  if (!corteRes.ok) {
-    await supabase.from('prestamos_sucursales').delete().eq('id', data.id);
-    return { ok: false, error: corteRes.error || 'No se pudo cargar el préstamo al corte de origen.' };
-  }
 
   await crearNotificacion(supabase, {
     sucursal_id: origen,
@@ -1830,7 +1869,7 @@ export async function registrarPrestamoSucursal(supabase, row) {
     ref_tabla: 'prestamos_sucursales',
     ref_id: data.id,
     titulo: `Préstamo a sucursal · ${origen} → ${destino}`,
-    mensaje: `$${monto.toFixed(2)} en corte ${area} · pendiente de cobro${row.notas ? ` · ${row.notas}` : ''}`,
+    mensaje: `$${monto.toFixed(2)} · pendiente de cobro (sin cargo a corte)${row.notas ? ` · ${row.notas}` : ''}`,
   });
   await crearNotificacion(supabase, {
     sucursal_id: destino,
@@ -1846,13 +1885,13 @@ export async function registrarPrestamoSucursal(supabase, row) {
     prestamo: {
       ...data,
       area_corte: area,
-      cargado_corte: true,
-      gasto_id: corteRes.gastoId || null,
+      cargado_corte: false,
+      gasto_id: null,
     },
-    gastoId: corteRes.gastoId,
-    moduloCorte: corteRes.modulo,
-    aviso: corteRes.aviso,
-    mensaje: `Préstamo a ${destino} cargado como gasto al corte ${area} de ${origen}. Queda pendiente de cobro.`,
+    gastoId: null,
+    moduloCorte: null,
+    imprimirTicket: true,
+    mensaje: `Préstamo a ${destino} registrado. No afecta el corte; recupera desde Préstamos área/sucursal.`,
   };
 }
 
@@ -1959,7 +1998,7 @@ export async function registrarEnvioMainATienda(supabase, row, opts = {}) {
 
 /** Abono o liquidación del préstamo entre sucursales (solo en la tienda origen). */
 export async function abonarPrestamoSucursal(supabase, prestamo, montoAbono, { nombreActor, rolActor } = {}) {
-  const auth = exigirAdminGerentePrestamoArea({ rolActor });
+  const auth = exigirAbonarLiquidarPrestamoArea({ rolActor });
   if (!auth.ok) return auth;
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   if (!prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };

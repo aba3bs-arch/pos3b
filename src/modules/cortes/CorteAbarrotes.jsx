@@ -35,15 +35,15 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     caja_actual_manual: '',
   }), []);
 
-  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, historialEliminados, empleados, cerrarCorte, eliminarCierreHistorial, editarCierreHistorial, restaurarCierreHistorial, recargar } =
+  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, historialEliminados, empleados, cerrarCorte, eliminarCierreHistorial, editarCierreHistorial, restaurarCierreHistorial, recargar, vistaRecuperacion, puedeAbonarLiquidarPrestamo, abonarPrestamoDesdeCorte, liquidarPrestamoDesdeCorte } =
     useCorteContabilidad({
-      supabase,
-      sucursal,
-      modulo: 'abarrotes',
-      user,
-      calcFn: calcularAbarrotes,
-      prepararTrasCierre,
-    });
+    supabase,
+    sucursal,
+    modulo: 'abarrotes',
+    user,
+    calcFn: calcularAbarrotes,
+    prepararTrasCierre,
+  });
 
   useEffect(() => {
     if (!supabase) return undefined;
@@ -89,7 +89,16 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
   return (
     <CorteConTeclado accent={COLOR}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <CorteNegativoRecuperacion cajaActual={calc.cajaActual} etiqueta="Abarrotes" />
+      <CorteNegativoRecuperacion
+        etiqueta="Abarrotes"
+        negativo={vistaRecuperacion?.negativo}
+        recuperado={vistaRecuperacion?.recuperado}
+        deuda={vistaRecuperacion?.deuda}
+        visible={vistaRecuperacion?.visible}
+        puedeAbonarLiquidar={puedeAbonarLiquidarPrestamo}
+        onAbonar={abonarPrestamoDesdeCorte}
+        onLiquidar={liquidarPrestamoDesdeCorte}
+      />
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
