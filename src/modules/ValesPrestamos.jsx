@@ -325,10 +325,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   useEffect(() => {
     recargarTodo();
-    if (!supabase) return;
+    if (!supabase) return undefined;
     sincronizarCategoriasValeDesdeNube(supabase).then((r) => {
       if (r.aviso) setAviso((prev) => prev || r.aviso);
       if (r.cambio) setCategoriasTick((n) => n + 1);
+    });
+    import('../lib/horaLimiteValeSync.js').then(({ sincronizarHoraLimiteValeDesdeNube }) => {
+      sincronizarHoraLimiteValeDesdeNube(supabase).then((r) => {
+        if (r.cambio) setHoraLimiteVale(etiquetaHoraLimiteVale());
+        if (r.aviso) setAviso((prev) => prev || r.aviso);
+      });
     });
     supabase
       .from('usuarios')
@@ -339,6 +345,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         setEmpleados(empleadosVisiblesParaTienda(raw, sucursal, user?.rol));
         setEmpleadosPrestamo(empleadosParaPrestamosEmpleado(raw, sucursal, user?.rol));
       });
+    return undefined;
   }, [recargarTodo, supabase, sucursal, user?.rol]);
 
   useEffect(() => {
@@ -1184,14 +1191,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       <div className="card" style={{ fontSize: '0.85rem' }}>
         <strong>Vales consumo</strong> — Siempre requieren autorización del administrador.
         <br />
-        <strong>Gasolina, herramienta, accesorios y tipos creados por admin</strong> — Antes de las {horaLimiteVale} se imprimen con firma; a partir de las {horaLimiteVale} el admin debe aprobar.
+        <strong>Gasolina, herramienta, accesorios y tipos creados por admin</strong> — Hasta las {horaLimiteVale} inclusive (Sonora) se imprimen con firma; después de las {horaLimiteVale} el admin debe aprobar.
         <br />
         <strong>Corte</strong> — Al aprobarse, el vale va al corte del área del beneficiario (Virtual / Abarrotes / Garage). El préstamo va al área que indiques.
         <br />
         <strong>Préstamos</strong> — Admin aprueba siempre; mayores a ${MONTO_PRESTAMO_REQUIERE_SOCIO} requieren Antonio, Francisco o José Luis.
         Cuota semanal mín. ${CUOTA_SEMANAL_MINIMA} en nómina.
         {requiereAuthAhora && !esAdmin && valeForm.categoria !== 'consumo' && (
-          <span style={{ color: 'var(--danger)' }}> · Ahora ({new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}) vales desde {horaLimiteVale} van a bandeja admin.</span>
+          <span style={{ color: 'var(--danger)' }}> · Ahora ({new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}) vales después de las {horaLimiteVale} van a bandeja admin.</span>
         )}
       </div>
       )}
@@ -1607,7 +1614,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', color: 'var(--brand-red)' }}>
                 {valeForm.categoria === 'consumo'
                   ? 'Los vales de consumo siempre requieren aprobación del administrador.'
-                  : `Son las ${new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} — vales a partir de las ${horaLimiteVale} van a bandeja del administrador.`}
+                  : `Son las ${new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} — vales después de las ${horaLimiteVale} van a bandeja del administrador.`}
               </p>
             )}
           </div>
