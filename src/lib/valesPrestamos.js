@@ -1131,11 +1131,11 @@ export async function registrarPrestamoInterarea(supabase, row) {
     ref_id: prestamoRow.id,
     titulo: `Préstamo entre áreas · ${origenLbl} → ${destinoLbl}`,
     mensaje: `$${Number(row.monto || 0).toFixed(2)}${row.notas ? ` · ${row.notas}` : ''}`,
-    area_buzon: row.destino || row.gastos_area || 'abarrotes',
+    area_buzon: row.origen || 'abarrotes',
   });
 
-  // No se carga al corte (Virtual / Abarrotes / Garage): la recuperación
-  // se gestiona con la alerta de préstamo + Abonar / Liquidar / Recolectar.
+  // origen = área que recibe (recupera/paga); destino = área que prestó.
+  // La alerta del corte se muestra en origen; no se carga gasto al corte.
   return {
     ok: true,
     prestamo: {
@@ -1146,7 +1146,7 @@ export async function registrarPrestamoInterarea(supabase, row) {
     gastoId: null,
     moduloCorte: null,
     imprimirTicket: true,
-    mensaje: `Préstamo área registrado (${origenLbl} → ${destinoLbl}). No afecta el corte; imprime ticket y recupera desde Préstamos área.`,
+    mensaje: `Préstamo área registrado: ${destinoLbl} prestó a ${origenLbl}. Alerta en corte ${origenLbl} (quien recupera).`,
   };
 }
 
@@ -1608,8 +1608,9 @@ export async function sincronizarRecuperacionPrestamosInterarea(_supabase, _opts
 }
 
 /**
- * Préstamos abiertos que alimentan la alerta del corte (área origen / área_corte).
- * Incluye interárea y sucursal pendientes; no afecta caja del corte.
+ * Préstamos abiertos para la alerta del corte.
+ * Interárea: `origen` = área que RECIBE el préstamo (debe recuperar y pagar).
+ * Sucursal: `area_corte` = área donde se recupera en la tienda origen.
  */
 export async function listarPrestamosAbiertosParaCorte(supabase, opts = {}) {
   if (!supabase) return { data: [], error: null };
@@ -1620,6 +1621,7 @@ export async function listarPrestamosAbiertosParaCorte(supabase, opts = {}) {
   const estados = [...ESTADOS_PRESTAMO_INTERAREA_ABIERTOS];
   let interarea = [];
   {
+    // Alerta en el área receptora (origen), no en quien prestó (destino).
     let { data, error } = await supabase
       .from('prestamos_interarea')
       .select('*')
