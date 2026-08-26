@@ -265,7 +265,9 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         cajaActual={vistaRecuperacion?.cajaActual ?? calc.cajaActual}
         visible={vistaRecuperacion?.visible}
         cubiertoPorVenta={vistaRecuperacion?.cubiertoPorVenta}
+        pendienteCajaRecuperada={vistaRecuperacion?.pendienteCajaRecuperada}
         avisoEntregarTurno={vistaRecuperacion?.avisoEntregarTurno}
+        esCubreTurno={vistaRecuperacion?.esCubreTurno}
         puedeAbonarLiquidar={puedeAbonarLiquidarPrestamo}
         puedeGenerarPagare={puedeGenerarPagareCorte}
         onAbonar={abonarPrestamoDesdeCorte}

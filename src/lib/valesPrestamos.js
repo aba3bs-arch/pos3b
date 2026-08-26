@@ -1208,9 +1208,10 @@ export function puedeOperarPrestamoAreaSucursal(rol) {
   return r === 'Administrador' || r === 'Gerente';
 }
 
-/** Abonar / liquidar: admin, gerente o cajero. */
-export function puedeAbonarLiquidarPrestamoAreaSucursal(rol) {
-  const r = normalizarRol(rol);
+/** Abonar / liquidar: admin, gerente o cajero (no cubre turno). */
+export function puedeAbonarLiquidarPrestamoAreaSucursal(rol, user = null) {
+  if (user?.esCubreTurno) return false;
+  const r = normalizarRol(rol ?? user?.rol ?? user?.role);
   return r === 'Administrador' || r === 'Gerente' || r === 'Cajero';
 }
 
@@ -1240,8 +1241,11 @@ function exigirAdminGerentePrestamoArea(opts = {}) {
 
 function exigirAbonarLiquidarPrestamoArea(opts = {}) {
   if (opts.sistemaAuto) return { ok: true };
+  if (opts.user?.esCubreTurno) {
+    return { ok: false, error: 'Cubre turno no puede abonar ni liquidar. Solo el cajero en su sesión.' };
+  }
   const rol = opts.rolActor ?? opts.user?.rol;
-  if (!puedeAbonarLiquidarPrestamoAreaSucursal(rol)) {
+  if (!puedeAbonarLiquidarPrestamoAreaSucursal(rol, opts.user)) {
     return { ok: false, error: AVISO_SOLO_ABONAR_LIQUIDAR_PRESTAMO_AREA };
   }
   return { ok: true };
