@@ -487,6 +487,20 @@
   color: var(--cv-gasto);
 }
 
+.cv-row-edit {
+  background: transparent;
+  border: none;
+  color: var(--cv-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.2rem;
+  line-height: 1;
+}
+
+.cv-row-edit:hover {
+  color: var(--cv-ingreso, #16a34a);
+}
+
 /* Calendario */
 .cv-cal {
   padding: 0.5rem 0.35rem 1rem;

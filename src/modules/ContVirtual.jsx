@@ -39,7 +39,12 @@ import { eliminarEgresoDesdePanelIe, registrarEgresoContVirtual } from '../lib/c
 import {
   registrarIngresoContVirtual,
   eliminarIngresoContVirtual,
+  actualizarIngresoContVirtual,
 } from '../lib/contVirtualIngresos.js';
+import {
+  actualizarCierreCorte,
+  eliminarCierreCorte,
+} from '../lib/corteContabilidad/store.js';
 import {
   AVISO_FALTA_INVERSIONES_OFICINA,
   cancelarInversionOficina,
@@ -732,6 +737,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const [filtroTipoBusq, setFiltroTipoBusq] = useState(''); // '' | ingreso | gasto
   const [showManual, setShowManual] = useState(false);
   const [manualTipo, setManualTipo] = useState('egreso'); // egreso | ingreso
+  const [editandoManualId, setEditandoManualId] = useState(null);
+  const [editCierre, setEditCierre] = useState(null); // { tipo_mov, cierre_id, cuenta, ... }
   const [showInversion, setShowInversion] = useState(false);
   const [masVista, setMasVista] = useState('menu'); // menu | catalogo | inversiones
   const [catalogoFlujo, setCatalogoFlujo] = useState('egreso'); // egreso | ingreso
@@ -1237,18 +1244,25 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       usuario_nombre: empNombre,
     };
     setGuardando(true);
-    const res = esIngreso
-      ? await registrarIngresoContVirtual(supabase, payload)
-      : await registrarEgresoContVirtual(supabase, payload);
+    let res;
+    if (editandoManualId && esIngreso) {
+      res = await actualizarIngresoContVirtual(supabase, editandoManualId, payload);
+    } else {
+      res = esIngreso
+        ? await registrarIngresoContVirtual(supabase, payload)
+        : await registrarEgresoContVirtual(supabase, payload);
+    }
     setGuardando(false);
     if (!res.ok) return alert(res.error);
     if (res.aviso) alert(res.aviso);
     setManual((m) => ({ ...m, monto: '', descripcion: '', empleado_id: '' }));
+    setEditandoManualId(null);
     setShowManual(false);
     cargar();
   };
 
   const abrirManual = (tipo = 'egreso') => {
+    setEditandoManualId(null);
     setManualTipo(tipo);
     const cats = filtrarCatalogoPorFlujo(catalogo, tipo);
     const prefer = tipo === 'ingreso'
@@ -1269,6 +1283,103 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       descripcion: '',
     }));
     setShowManual(true);
+  };
+
+  const abrirEditarManual = (row) => {
+    if (!esAdmin || !row) return;
+    setEditandoManualId(row.id);
+    setManualTipo('ingreso');
+    setManual({
+      tipo: 'ingreso',
+      fecha: String(row.fecha || hoyYmd()).slice(0, 10),
+      sucursal_id: row.sucursal_id || row.tienda || tiendas[0] || 'MAIN',
+      cuenta: row.cuenta || (esFrancisco ? 'abarrotes' : 'virtual'),
+      categoria_id: row.categoria_id || 'ing-manual',
+      subcategoria_id: row.subcategoria_id || '',
+      detalle_id: row.detalle_id || '',
+      empleado_id: '',
+      monto: String(Number(row.monto) || ''),
+      descripcion: row.descripcion || '',
+    });
+    setShowManual(true);
+  };
+
+  const abrirEditarCierreIe = (row) => {
+    if (!esAdmin || !row?.cierre_id) return;
+    const esRec = row.tipo_mov === 'recoleccion';
+    const esVenta = row.tipo_mov === 'venta_cierre';
+    if (!esRec && !esVenta) return;
+    setEditCierre({
+      tipo_mov: row.tipo_mov,
+      cierre_id: row.cierre_id,
+      cuenta: row.cuenta || (esFrancisco ? 'abarrotes' : 'virtual'),
+      tienda: row.tienda || 'MAIN',
+      folio: row.folio || '',
+      fecha: String(row.fecha || hoyYmd()).slice(0, 10),
+      efectivo: String(Number(esRec ? row.efectivo : row.monto) || ''),
+      gastos_total: String(Number(row.gastos_total) || 0),
+      ventas: String(Number(row.monto) || ''),
+      comentarios: '',
+    });
+  };
+
+  const guardarEditCierreIe = async () => {
+    if (!esAdmin || !editCierre?.cierre_id) return;
+    const modulo = editCierre.cuenta === 'garage'
+      ? 'garage'
+      : editCierre.cuenta === 'abarrotes'
+        ? 'abarrotes'
+        : 'virtual';
+    const patch = {
+      folio: editCierre.folio,
+      comentarios: editCierre.comentarios,
+      fecha_negocio: editCierre.fecha,
+    };
+    if (editCierre.tipo_mov === 'recoleccion') {
+      const efectivo = Number(editCierre.efectivo);
+      const gastos = Number(editCierre.gastos_total);
+      if (!(efectivo >= 0)) return alert('Monto de efectivo inválido.');
+      if (!(gastos >= 0)) return alert('Gastos inválidos.');
+      patch.recoleccion = efectivo;
+      patch.gastos_total = gastos;
+    } else if (editCierre.tipo_mov === 'venta_cierre') {
+      const ventas = Number(editCierre.ventas);
+      if (!(ventas > 0)) return alert('Monto de venta inválido.');
+      patch.ventas = ventas;
+    }
+    setGuardando(true);
+    const res = await actualizarCierreCorte(
+      supabase,
+      editCierre.cierre_id,
+      patch,
+      editCierre.tienda,
+      modulo,
+    );
+    setGuardando(false);
+    if (!res.ok) return alert(res.error || 'No se pudo actualizar.');
+    setEditCierre(null);
+    cargar();
+  };
+
+  const borrarIngresoCierreIe = async (row) => {
+    if (!esAdmin || !row?.cierre_id) return;
+    const esRec = row.tipo_mov === 'recoleccion';
+    const etiqueta = esRec ? 'recolección' : 'cierre / ventas';
+    if (!confirm(
+      `¿Eliminar esta ${etiqueta} de ${tituloLibro}?\n\n${row.comentario || ''}\n${fmt(row.monto)}\n\n`
+      + 'Se mueve a papelera del historial de corte (se puede restaurar desde el corte).',
+    )) return;
+    const modulo = row.cuenta === 'garage'
+      ? 'garage'
+      : row.cuenta === 'abarrotes'
+        ? 'abarrotes'
+        : 'virtual';
+    const res = await eliminarCierreCorte(supabase, row.cierre_id, row.tienda || 'MAIN', modulo, {
+      deletedBy: user?.nombre || 'Administrador',
+    });
+    if (!res.ok) return alert(res.error || 'No se pudo eliminar.');
+    if (res.aviso) alert(res.aviso);
+    cargar();
   };
 
   const guardarInversion = async () => {
@@ -1310,8 +1421,11 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const borrarEgreso = async (row) => {
     if (!esAdmin) return;
     if (row?.tipo === 'ingreso') {
+      if (row.tipo_mov === 'recoleccion' || row.tipo_mov === 'venta_cierre') {
+        return borrarIngresoCierreIe(row);
+      }
       if (!row.manual && row.tipo_mov !== 'manual' && !String(row.id || '').startsWith('local-ing')) {
-        return; // ventas de cierre / recolecciones no se borran aquí
+        return; // otros ingresos de sistema
       }
       if (!confirm(`¿Eliminar este ingreso de ${tituloLibro}?\n\n${row.comentario || ''}\n${fmt(row.monto)}`)) return;
       const res = await eliminarIngresoContVirtual(supabase, row.id);
@@ -1660,8 +1774,20 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             <span className={`cv-row-amt ${it.tipo === 'ingreso' ? 'ingreso' : 'gasto'}`}>
               {fmt(it.monto)}
             </span>
-            {esAdmin && (it.tipo === 'gasto' || (it.tipo === 'ingreso' && (it.manual || it.tipo_mov === 'manual'))) && (
-              <button type="button" className="cv-row-del" title={it.tipo === 'ingreso' ? 'Eliminar ingreso' : 'Eliminar egreso'} onClick={() => borrarEgreso(it)}>✕</button>
+            {esAdmin && it.tipo === 'ingreso' && (it.manual || it.tipo_mov === 'manual') && (
+              <>
+                <button type="button" className="cv-row-edit" title="Editar ingreso" onClick={() => abrirEditarManual(it)}>✎</button>
+                <button type="button" className="cv-row-del" title="Eliminar ingreso" onClick={() => borrarEgreso(it)}>✕</button>
+              </>
+            )}
+            {esAdmin && it.tipo === 'ingreso' && (it.tipo_mov === 'recoleccion' || it.tipo_mov === 'venta_cierre') && (
+              <>
+                <button type="button" className="cv-row-edit" title={it.tipo_mov === 'recoleccion' ? 'Editar recolección' : 'Editar ventas de cierre'} onClick={() => abrirEditarCierreIe(it)}>✎</button>
+                <button type="button" className="cv-row-del" title={it.tipo_mov === 'recoleccion' ? 'Eliminar recolección' : 'Eliminar cierre'} onClick={() => borrarEgreso(it)}>✕</button>
+              </>
+            )}
+            {esAdmin && it.tipo === 'gasto' && (
+              <button type="button" className="cv-row-del" title="Eliminar egreso" onClick={() => borrarEgreso(it)}>✕</button>
             )}
           </div>
         ))}
@@ -2691,9 +2817,14 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       )}
 
       {showManual && (
-        <div className="cv-modal-backdrop" onClick={() => setShowManual(false)} role="presentation">
+        <div className="cv-modal-backdrop" onClick={() => { setShowManual(false); setEditandoManualId(null); }} role="presentation">
           <div className="cv-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Captura manual">
-            <h3>{manualTipo === 'ingreso' ? 'Nuevo ingreso' : 'Nuevo egreso'}</h3>
+            <h3>
+              {editandoManualId
+                ? 'Editar ingreso'
+                : (manualTipo === 'ingreso' ? 'Nuevo ingreso' : 'Nuevo egreso')}
+            </h3>
+            {!editandoManualId && (
             <div className="cv-estad-tabs" style={{ marginBottom: '0.75rem' }}>
               <button
                 type="button"
@@ -2710,6 +2841,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                 Ingreso
               </button>
             </div>
+            )}
             <label>
               Fecha
               <input type="date" value={manual.fecha} onChange={(e) => setManual({ ...manual, fecha: e.target.value })} />
@@ -2816,9 +2948,95 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
               <input value={manual.descripcion} onChange={(e) => setManual({ ...manual, descripcion: e.target.value })} placeholder="Nota u observación" />
             </label>
             <div className="cv-modal-actions">
-              <button type="button" className="cv-btn ghost" onClick={() => setShowManual(false)}>Cancelar</button>
+              <button type="button" className="cv-btn ghost" onClick={() => { setShowManual(false); setEditandoManualId(null); }}>Cancelar</button>
               <button type="button" className="cv-btn" disabled={guardando} onClick={guardarManual}>
-                {guardando ? 'Guardando…' : (manualTipo === 'ingreso' ? 'Registrar ingreso' : 'Registrar egreso')}
+                {guardando
+                  ? 'Guardando…'
+                  : editandoManualId
+                    ? 'Guardar cambios'
+                    : (manualTipo === 'ingreso' ? 'Registrar ingreso' : 'Registrar egreso')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editCierre && (
+        <div className="cv-modal-backdrop" onClick={() => setEditCierre(null)} role="presentation">
+          <div className="cv-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Editar ingreso de corte">
+            <h3>
+              {editCierre.tipo_mov === 'recoleccion' ? 'Editar recolección' : 'Editar ventas de cierre'}
+            </h3>
+            <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.82rem' }}>
+              {etiquetaTienda(editCierre.tienda)} · {editCierre.cuenta}
+            </p>
+            <label>
+              Fecha negocio
+              <input
+                type="date"
+                value={editCierre.fecha}
+                onChange={(e) => setEditCierre({ ...editCierre, fecha: e.target.value })}
+              />
+            </label>
+            <label>
+              Folio
+              <input
+                value={editCierre.folio}
+                onChange={(e) => setEditCierre({ ...editCierre, folio: e.target.value })}
+              />
+            </label>
+            {editCierre.tipo_mov === 'recoleccion' ? (
+              <>
+                <label>
+                  Efectivo recolectado
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editCierre.efectivo}
+                    onChange={(e) => setEditCierre({ ...editCierre, efectivo: e.target.value })}
+                  />
+                </label>
+                <label>
+                  Gastos en recolección
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={editCierre.gastos_total}
+                    onChange={(e) => setEditCierre({ ...editCierre, gastos_total: e.target.value })}
+                  />
+                </label>
+                <p className="muted" style={{ fontSize: '0.78rem' }}>
+                  Bruto IE = efectivo + gastos
+                  {' '}
+                  ({fmt((Number(editCierre.efectivo) || 0) + (Number(editCierre.gastos_total) || 0))})
+                </p>
+              </>
+            ) : (
+              <label>
+                Ventas (ingreso IE)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={editCierre.ventas}
+                  onChange={(e) => setEditCierre({ ...editCierre, ventas: e.target.value })}
+                />
+              </label>
+            )}
+            <label>
+              Comentario
+              <input
+                value={editCierre.comentarios}
+                onChange={(e) => setEditCierre({ ...editCierre, comentarios: e.target.value })}
+                placeholder="Nota de corrección"
+              />
+            </label>
+            <div className="cv-modal-actions">
+              <button type="button" className="cv-btn ghost" onClick={() => setEditCierre(null)}>Cancelar</button>
+              <button type="button" className="cv-btn" disabled={guardando} onClick={guardarEditCierreIe}>
+                {guardando ? 'Guardando…' : 'Guardar cambios'}
               </button>
             </div>
           </div>
