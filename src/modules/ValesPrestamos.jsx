@@ -142,8 +142,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     fecha: hoyISO(),
   });
   const [prestForm, setPrestForm] = useState({
-    origen: 'abarrotes',
-    gastos_area: 'virtual',
+    origen: 'virtual',
+    gastos_area: 'abarrotes',
     monto: '',
     notas: '',
     fecha: hoyISO(),
@@ -473,7 +473,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const guardarPrestamoGastos = async () => {
     if (!supabase) return alert('Sin conexión.');
-    if (prestForm.origen === prestForm.gastos_area) return alert('Quién recibe y quién prestó deben ser áreas distintas.');
+    if (prestForm.origen === prestForm.gastos_area) return alert('Origen (presta) y Destino (recibe) deben ser áreas distintas.');
     const monto = Number(prestForm.monto);
     if (!(monto > 0)) return alert('Monto inválido.');
     const notas = prestForm.notas.trim() || `Pago gastos ${ETIQUETA_AREA[prestForm.gastos_area]}`;
@@ -1611,7 +1611,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             <h3 style={{ margin: '0 0 0.75rem' }}>Préstamo entre áreas</h3>
             <p className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.5rem' }}>
               <strong>No se carga</strong> al corte Virtual / Abarrotes / Garage. Al registrar se genera <strong>ticket</strong>.
-              La alerta aparece en el área que <strong>recibe</strong> el préstamo (quien debe recuperar y pagar), según su venta.
+              Primero eliges quién <strong>presta</strong> (Origen) y después quién <strong>recibe</strong> (Destino).
+              La alerta con el negativo aparece en el corte del <strong>Destino</strong> (quien recupera y paga).
               El cajero puede <strong>Abonar</strong> o <strong>Liquidar</strong> para cuadrar.
               <strong> Recolectar</strong> envía el efectivo a <strong>RC Virtual</strong>.
               {esAdmin
@@ -1622,10 +1623,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             </p>
             {!esRepartidor && (
             <p className="muted" style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
-              <strong>Ejemplo — Virtual presta $500 a Abarrotes:</strong>{' '}
-              Recibe = <strong>Abarrotes</strong>, Prestó = <strong>Virtual</strong>.
-              La alerta sale en <strong>Corte Abarrotes</strong> (quien recupera y paga), no en Virtual.
-              Si la venta de Abarrotes es $750, muestra negativo $0.00 y recuperado $500.
+              <strong>Ejemplo — Virtual presta $400 a Abarrotes:</strong>{' '}
+              Origen = <strong>Virtual</strong> (presta), Destino = <strong>Abarrotes</strong> (recibe).
+              En <strong>Corte Abarrotes</strong> aparece la alerta con negativo $400.00.
+              Si la venta de Abarrotes es $750, muestra negativo $0.00 y recuperado $400.
               Al <strong>Liquidar</strong>, queda liquidado (línea verde) bajo responsabilidad del cajero y se imprime ticket.
             </p>
             )}
@@ -1633,12 +1634,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             <div className="grid-2">
               <select className="select" value={prestForm.origen} onChange={(e) => setPrestForm({ ...prestForm, origen: e.target.value })}>
                 {AREAS_CONTABILIDAD.map((a) => (
-                  <option key={a} value={a}>{ETIQUETA_AREA[a]} (recibe · recupera)</option>
+                  <option key={a} value={a}>{ETIQUETA_AREA[a]} (origen · presta)</option>
                 ))}
               </select>
               <select className="select" value={prestForm.gastos_area} onChange={(e) => setPrestForm({ ...prestForm, gastos_area: e.target.value })}>
                 {AREAS_CONTABILIDAD.map((a) => (
-                  <option key={a} value={a}>{ETIQUETA_AREA[a]} (prestó)</option>
+                  <option key={a} value={a}>{ETIQUETA_AREA[a]} (destino · recibe)</option>
                 ))}
               </select>
               <input className="input" type="number" placeholder="Monto" value={prestForm.monto} onChange={(e) => setPrestForm({ ...prestForm, monto: e.target.value })} />
@@ -1650,8 +1651,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 <thead>
                   <tr>
                     <th>Fecha</th>
-                    <th>Recibe</th>
-                    <th>Prestó</th>
+                    <th>Origen (presta)</th>
+                    <th>Destino (recibe)</th>
                     <th>Monto</th>
                     <th>Saldo</th>
                     <th>Estado</th>

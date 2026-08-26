@@ -128,11 +128,20 @@ assert.deepEqual(
 
 assert.equal(
   calcularVistaRecuperacionPrestamo(
-    [{ estado: 'recuperar', saldo: 500, monto: 500, origen: 'abarrotes', destino: 'virtual' }],
+    [{ estado: 'recuperar', saldo: 400, monto: 400, origen: 'virtual', destino: 'abarrotes' }],
+    0,
+  ).negativo,
+  400,
+  'Virtual presta 400 a Abarrotes → negativo 400 en corte destino (sin venta)',
+);
+
+assert.equal(
+  calcularVistaRecuperacionPrestamo(
+    [{ estado: 'recuperar', saldo: 500, monto: 500, origen: 'virtual', destino: 'abarrotes' }],
     750,
   ).visible,
   true,
-  'alerta visible para el área que recibe (origen=abarrotes)',
+  'alerta visible para el área que recibe (destino=abarrotes)',
 );
 
 console.log('prestamosInterareaRc.test.mjs OK');

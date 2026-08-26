@@ -1129,13 +1129,13 @@ export async function registrarPrestamoInterarea(supabase, row) {
     tipo: TIPOS_NOTIF.PRESTAMO_INTERAREA,
     ref_tabla: 'prestamos_interarea',
     ref_id: prestamoRow.id,
-    titulo: `Préstamo área · ${destinoLbl} → ${origenLbl}`,
-    mensaje: `$${Number(row.monto || 0).toFixed(2)} · ${destinoLbl} prestó; ${origenLbl} recupera${row.notas ? ` · ${row.notas}` : ''}`,
-    area_buzon: row.origen || 'abarrotes',
+    titulo: `Préstamo área · ${origenLbl} → ${destinoLbl}`,
+    mensaje: `$${Number(row.monto || 0).toFixed(2)} · ${origenLbl} prestó; ${destinoLbl} recibe y recupera${row.notas ? ` · ${row.notas}` : ''}`,
+    area_buzon: row.destino || 'abarrotes',
   });
 
-  // origen = área que recibe (recupera/paga); destino = área que prestó.
-  // La alerta del corte se muestra en origen; no se carga gasto al corte.
+  // origen = quien presta; destino = quien recibe (recupera/paga).
+  // La alerta del corte se muestra en destino; no se carga gasto al corte.
   return {
     ok: true,
     prestamo: {
@@ -1146,7 +1146,7 @@ export async function registrarPrestamoInterarea(supabase, row) {
     gastoId: null,
     moduloCorte: null,
     imprimirTicket: true,
-    mensaje: `Préstamo área registrado: ${destinoLbl} prestó a ${origenLbl}. Alerta en corte ${origenLbl} (quien recupera).`,
+    mensaje: `Préstamo área registrado: ${origenLbl} prestó a ${destinoLbl}. Alerta en corte ${destinoLbl} (quien recibe).`,
   };
 }
 
@@ -1609,7 +1609,8 @@ export async function sincronizarRecuperacionPrestamosInterarea(_supabase, _opts
 
 /**
  * Préstamos abiertos para la alerta del corte.
- * Interárea: `origen` = área que RECIBE el préstamo (debe recuperar y pagar).
+ * Interárea: `destino` = área que RECIBE el préstamo (debe recuperar y pagar).
+ *            `origen` = área que PRESTÓ.
  * Sucursal: `area_corte` = área donde se recupera en la tienda origen.
  */
 export async function listarPrestamosAbiertosParaCorte(supabase, opts = {}) {
@@ -1621,12 +1622,12 @@ export async function listarPrestamosAbiertosParaCorte(supabase, opts = {}) {
   const estados = [...ESTADOS_PRESTAMO_INTERAREA_ABIERTOS];
   let interarea = [];
   {
-    // Alerta en el área receptora (origen), no en quien prestó (destino).
+    // Alerta en el área receptora (destino), no en quien prestó (origen).
     let { data, error } = await supabase
       .from('prestamos_interarea')
       .select('*')
       .eq('sucursal_id', sucursal)
-      .eq('origen', modulo)
+      .eq('destino', modulo)
       .in('estado', estados)
       .order('created_at', { ascending: true });
     if (error && /recuperar|por_recolectar/i.test(String(error.message || ''))) {
@@ -1634,7 +1635,7 @@ export async function listarPrestamosAbiertosParaCorte(supabase, opts = {}) {
         .from('prestamos_interarea')
         .select('*')
         .eq('sucursal_id', sucursal)
-        .eq('origen', modulo)
+        .eq('destino', modulo)
         .in('estado', ['activo'])
         .order('created_at', { ascending: true }));
     }
