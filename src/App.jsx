@@ -63,6 +63,7 @@ import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGI
 import { sincronizarPrivilegiosDesdeNube } from './lib/privilegiosSync.js';
 import { sincronizarTipoCambioDesdeNube } from './lib/tipoCambioSync.js';
 import { sincronizarVentanaRecoleccionDesdeNube } from './lib/ventanaRecoleccionSync.js';
+import { sincronizarHoraLimiteValeDesdeNube } from './lib/horaLimiteValeSync.js';
 import { sincronizarBonosConfigDesdeNube } from './lib/bonosConfig.js';
 import {
   AVISO_SIN_TABLA_PIN_CUBRE,
@@ -429,6 +430,7 @@ function App() {
     });
     sincronizarTipoCambioDesdeNube(supabase);
     sincronizarVentanaRecoleccionDesdeNube(supabase, sucursal);
+    sincronizarHoraLimiteValeDesdeNube(supabase);
     sincronizarBonosConfigDesdeNube(supabase);
     sincronizarPinsCubreTurnoDesdeNube(supabase, sucursal).then((r) => {
       if (r.cambio) setTickCubreTurno((n) => n + 1);
@@ -444,6 +446,7 @@ function App() {
         });
         sincronizarTipoCambioDesdeNube(supabase);
         sincronizarVentanaRecoleccionDesdeNube(supabase, sucursal);
+        sincronizarHoraLimiteValeDesdeNube(supabase);
         sincronizarBonosConfigDesdeNube(supabase);
       }
       sincronizarPinsCubreTurnoDesdeNube(supabase, sucursal).then((r) => {

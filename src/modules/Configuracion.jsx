@@ -38,10 +38,13 @@ import {
 import {
   EVENTO_HORA_LIMITE_VALE,
   HORA_LIMITE_VALE_DEFAULT_ETIQUETA,
-  guardarHoraLimiteVale,
   etiquetaHoraLimiteVale,
   opcionesHoraLimiteValeCuartos,
 } from '../lib/contabilidadConstants.js';
+import {
+  aplicarHoraLimiteValeNube,
+  sincronizarHoraLimiteValeDesdeNube,
+} from '../lib/horaLimiteValeSync.js';
 import {
   EVENTO_PERIFERICOS,
   conectarDispositivoUsb,
@@ -343,12 +346,17 @@ export default function Configuracion({
     window.addEventListener(EVENTO_BRANDING, onBrand);
     window.addEventListener(EVENTO_PERIFERICOS, onPeriph);
     window.addEventListener(EVENTO_HORA_LIMITE_VALE, onHoraVale);
+    if (supabase) {
+      sincronizarHoraLimiteValeDesdeNube(supabase).then((r) => {
+        if (r.cambio) setHoraLimiteValeCfg(etiquetaHoraLimiteVale());
+      });
+    }
     return () => {
       window.removeEventListener(EVENTO_BRANDING, onBrand);
       window.removeEventListener(EVENTO_PERIFERICOS, onPeriph);
       window.removeEventListener(EVENTO_HORA_LIMITE_VALE, onHoraVale);
     };
-  }, []);
+  }, [supabase]);
 
   useEffect(() => {
     const sync = () => {
@@ -1882,8 +1890,10 @@ export default function Configuracion({
           <hr style={{ margin: '1.25rem 0', border: 0, borderTop: '1px solid var(--border)' }} />
           <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>Horario sin autorización</h4>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-            Antes de esta hora (Sonora), gasolina / herramienta / accesorios se registran <strong>sin autorización</strong> de admin.
-            Consumo siempre requiere admin. Por defecto: {HORA_LIMITE_VALE_DEFAULT_ETIQUETA}. Intervalos de 15 min (ej. 10:15, 10:30, 10:45).
+            Hasta esta hora inclusive (Sonora), gasolina / herramienta / accesorios se registran <strong>sin autorización</strong> de admin.
+            Después de esa hora el admin debe aprobar. Consumo siempre requiere admin.
+            Por defecto: {HORA_LIMITE_VALE_DEFAULT_ETIQUETA}. Intervalos de 15 min (ej. 10:15, 10:30, 10:45).
+            Se sincroniza a <strong>todas las cajas</strong> al guardar (nube).
           </p>
           <label className="muted" style={{ display: 'inline-block', marginTop: '0.5rem' }}>
             Hora límite
@@ -1902,13 +1912,27 @@ export default function Configuracion({
             <button
               type="button"
               className="btn btn-primary"
-              onClick={() => {
-                const h = guardarHoraLimiteVale(horaLimiteValeCfg);
-                setHoraLimiteValeCfg(h);
-                alert(`Hora límite guardada: antes de las ${h} sin autorización.`);
+              onClick={async () => {
+                const res = await aplicarHoraLimiteValeNube(supabase, horaLimiteValeCfg);
+                if (!res.ok) {
+                  alert(res.error || 'No se pudo guardar.');
+                  return;
+                }
+                setHoraLimiteValeCfg(res.cfg.etiqueta);
+                if (res.soloLocal || res.aviso) {
+                  alert(
+                    `Hora límite ${res.cfg.etiqueta} guardada en ESTE equipo.\n\n`
+                    + `${res.aviso || 'Para sincronizar todas las cajas ejecuta supabase/fix_hora_limite_vale.sql y vuelve a Guardar.'}`,
+                  );
+                  return;
+                }
+                alert(
+                  `Hora límite sincronizada: hasta las ${res.cfg.etiqueta} inclusive sin autorización (todas las cajas).\n`
+                  + 'Las demás cajas la tomarán al iniciar sesión o al recargar.',
+                );
               }}
             >
-              Guardar hora límite
+              Guardar hora límite (todas las cajas)
             </button>
           </div>
         </div>
