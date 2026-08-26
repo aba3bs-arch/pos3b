@@ -463,7 +463,16 @@ export async function eliminarEgresoDesdePanelIe(supabase, row) {
   }
 
   // Manual u otros: borrado duro (o soft si vino de sync sin ref)
-  if (fuente === 'vale' || fuente === 'corte' || libro?.fuente === 'vale' || libro?.fuente === 'corte') {
+  if (
+    fuente === 'vale'
+    || fuente === 'corte'
+    || fuente === 'payroll'
+    || fuente === 'nom_corte'
+    || libro?.fuente === 'vale'
+    || libro?.fuente === 'corte'
+    || libro?.fuente === 'payroll'
+    || libro?.fuente === 'nom_corte'
+  ) {
     return marcarEgresoLibroEliminado(supabase, id);
   }
   return eliminarEgresoContVirtual(supabase, id);

@@ -147,38 +147,23 @@ export async function sincronizarEgresosPayrollNomina(supabase, {
   };
 }
 
-/** Soft-delete egresos IE con fuente payroll del periodo (por líneas). */
+/** Elimina egresos IE con fuente payroll del periodo (por líneas). */
 export async function revertirEgresosPayrollNomina(supabase, lineas = []) {
   if (!supabase) return { ok: true, count: 0 };
   const ids = (lineas || []).map((l) => l?.id).filter(Boolean).map(String);
   if (!ids.length) return { ok: true, count: 0 };
 
   let count = 0;
-  // Chunk por si hay muchas líneas
   for (let i = 0; i < ids.length; i += 80) {
     const chunk = ids.slice(i, i + 80);
+    // Borrado duro: al re-cerrar nómina debe poder recrearse el egreso.
     const { data, error } = await supabase
       .from('cont_virtual_egresos')
-      .update({
-        fuente: 'eliminado',
-        monto: 0,
-        descripcion: '[Eliminado · nómina reabierta]',
-      })
+      .delete()
       .eq('ref_tabla', 'nomina_lineas')
       .in('ref_id', chunk)
       .select('id');
-    if (error) {
-      // Fallback: borrar duro si no admite update
-      const hard = await supabase
-        .from('cont_virtual_egresos')
-        .delete()
-        .eq('ref_tabla', 'nomina_lineas')
-        .in('ref_id', chunk)
-        .select('id');
-      if (hard.error) return { ok: false, error: hard.error.message };
-      count += (hard.data || []).length;
-      continue;
-    }
+    if (error) return { ok: false, error: error.message };
     count += (data || []).length;
   }
   return { ok: true, count };
