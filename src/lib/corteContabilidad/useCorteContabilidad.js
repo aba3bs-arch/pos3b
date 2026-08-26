@@ -119,17 +119,26 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
 
   const calc = useMemo(() => calcFn(estado, gastos), [estado, gastos, calcFn]);
 
+  const [pagaresRecuperacion, setPagaresRecuperacion] = useState([]);
+
   const refrescarPrestamosRecuperacion = useCallback(async () => {
     if (!supabase || !sucursal || !modulo) {
       setPrestamosRecuperacion([]);
+      setPagaresRecuperacion([]);
       return;
     }
     try {
       const { listarPrestamosAbiertosParaCorte } = await import('../valesPrestamos.js');
-      const res = await listarPrestamosAbiertosParaCorte(supabase, { sucursal, modulo });
-      setPrestamosRecuperacion(res.data || []);
+      const { listarPagaresAbiertosParaCorte } = await import('../pagares.js');
+      const [resP, resPag] = await Promise.all([
+        listarPrestamosAbiertosParaCorte(supabase, { sucursal, modulo }),
+        listarPagaresAbiertosParaCorte(supabase, { sucursal, modulo }),
+      ]);
+      setPrestamosRecuperacion(resP.data || []);
+      setPagaresRecuperacion(resPag.data || []);
     } catch {
       setPrestamosRecuperacion([]);
+      setPagaresRecuperacion([]);
     }
   }, [supabase, sucursal, modulo]);
 
@@ -142,8 +151,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const venta = Number(calc?.venta) || 0;
     const caja = Number(calc?.cajaActual);
     const abiertos = prestamosRecuperacion || [];
+    const pagares = pagaresRecuperacion || [];
     const round2p = (n) => Math.round((Number(n) || 0) * 100) / 100;
-    const deuda = round2p(
+    const deudaPrestamo = round2p(
       abiertos.reduce((acc, p) => {
         if (p?.tipo === 'sucursal' || p?.sucursal_origen) {
           return acc + (Number(p.saldo != null ? p.saldo : p.monto) || 0);
@@ -152,16 +162,22 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         return acc + s;
       }, 0),
     );
+    const deudaPagare = round2p(
+      pagares.reduce((acc, p) => acc + (Number(p.saldo != null ? p.saldo : p.monto) || 0), 0),
+    );
+    const deuda = round2p(deudaPrestamo + deudaPagare);
     const recuperado = round2p(Math.min(deuda, Math.max(0, venta)));
     const negativoPrestamo = round2p(Math.max(0, deuda - recuperado));
-    // Si la caja del corte está en negativo, la alerta muestra ese mismo negativo.
     const negativoCaja = Number.isFinite(caja) && caja < -0.001
       ? round2p(Math.abs(caja))
       : 0;
     const negativo = round2p(Math.max(negativoPrestamo, negativoCaja));
     return {
       prestamos: abiertos,
+      pagares,
       deuda,
+      deudaPrestamo,
+      deudaPagare,
       recuperado,
       negativo,
       negativoPrestamo,
@@ -169,16 +185,50 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       cajaActual: Number.isFinite(caja) ? round2p(caja) : 0,
       visible: deuda > 0.001 || negativoCaja > 0.001,
     };
-  }, [prestamosRecuperacion, calc?.venta, calc?.cajaActual]);
+  }, [prestamosRecuperacion, pagaresRecuperacion, calc?.venta, calc?.cajaActual]);
 
   const puedeAbonarLiquidarPrestamo = useMemo(() => {
     const r = normalizarRol(user?.rol ?? user?.role);
     return r === 'Administrador' || r === 'Gerente' || r === 'Cajero';
   }, [user?.rol, user?.role]);
 
+  const puedeGenerarPagareCorte = useMemo(() => {
+    const r = normalizarRol(user?.rol ?? user?.role);
+    return r === 'Administrador' || r === 'Gerente' || r === 'Repartidor';
+  }, [user?.rol, user?.role]);
+
   const abonarPrestamoDesdeCorte = useCallback(async () => {
+    const pagares = vistaRecuperacion.pagares || [];
     const lista = vistaRecuperacion.prestamos || [];
-    if (!lista.length) return alert('No hay préstamo pendiente.');
+    if (!pagares.length && !lista.length) return alert('No hay pendiente por abonar.');
+
+    // Prioriza pagaré: abono de cajero no genera ticket ni préstamo.
+    if (pagares.length) {
+      const p = pagares[0];
+      const saldo = Number(p.saldo != null ? p.saldo : p.monto) || 0;
+      const raw = prompt(
+        `Abonar pagaré ${p.folio || ''}\nSaldo: $${saldo.toFixed(2)}\n\nMonto a abonar:`,
+        String(saldo),
+      );
+      if (raw === null) return;
+      const monto = parseFloat(String(raw).replace(',', '.'));
+      if (!(monto > 0)) return alert('Monto inválido.');
+      try {
+        const { abonarPagare } = await import('../pagares.js');
+        const res = await abonarPagare(supabase, p, monto, {
+          nombreActor: user?.nombre || null,
+          rolActor: user?.rol,
+          user,
+        });
+        if (!res.ok) return alert(res.error);
+        alert(res.mensaje || `Abono ok. Saldo: $${Number(res.saldo ?? 0).toFixed(2)}`);
+        await refrescarPrestamosRecuperacion();
+      } catch (e) {
+        alert(e?.message || 'No se pudo abonar.');
+      }
+      return;
+    }
+
     const p = lista[0];
     const saldo = Number(p.saldo != null ? p.saldo : p.monto) || 0;
     const raw = prompt(
@@ -207,19 +257,46 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     } catch (e) {
       alert(e?.message || 'No se pudo abonar.');
     }
-  }, [vistaRecuperacion.prestamos, supabase, user, sucursal, refrescarPrestamosRecuperacion]);
+  }, [vistaRecuperacion.pagares, vistaRecuperacion.prestamos, supabase, user, sucursal, refrescarPrestamosRecuperacion]);
 
   const liquidarPrestamoDesdeCorte = useCallback(async () => {
+    const pagares = vistaRecuperacion.pagares || [];
     const lista = vistaRecuperacion.prestamos || [];
-    if (!lista.length) return alert('No hay préstamo pendiente.');
+    if (!pagares.length && !lista.length) return alert('No hay pendiente por liquidar.');
+
+    if (pagares.length) {
+      const p = pagares[0];
+      const saldo = Number(p.saldo != null ? p.saldo : p.monto) || 0;
+      if (!confirm(
+        `¿Liquidar pagaré ${p.folio || ''} por $${saldo.toFixed(2)}?\n\n`
+        + 'Se elimina la alerta. No se genera ticket ni préstamo.',
+      )) return;
+      try {
+        const { liquidarPagare } = await import('../pagares.js');
+        const res = await liquidarPagare(supabase, p, {
+          nombreActor: user?.nombre || null,
+          rolActor: user?.rol,
+          user,
+        });
+        if (!res.ok) return alert(res.error);
+        alert(res.mensaje || 'Pagaré liquidado.');
+        await refrescarPrestamosRecuperacion();
+      } catch (e) {
+        alert(e?.message || 'No se pudo liquidar.');
+      }
+      return;
+    }
+
     const p = lista[0];
     const saldo = Number(p.saldo != null ? p.saldo : p.monto) || 0;
-    if (!confirm(`¿Liquidar préstamo por $${saldo.toFixed(2)}?\nQuedará bajo responsabilidad del cajero y se generará ticket.`)) {
+    if (!confirm(
+      `¿Liquidar préstamo por $${saldo.toFixed(2)}?\n\n`
+      + 'Se elimina la alerta. No se genera ticket.',
+    )) {
       return;
     }
     try {
       const vp = await import('../valesPrestamos.js');
-      const { imprimirPrestamoInterarea, imprimirPrestamoSucursal } = await import('../impresionContabilidad.js');
       const esSuc = Boolean(p.sucursal_origen || p.tipo === 'sucursal');
       let res;
       if (esSuc) {
@@ -235,19 +312,80 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         });
       }
       if (!res.ok) return alert(res.error);
-      const liquidado = res.prestamo || { ...p, saldo: 0, estado: 'liquidado', liquidado_por: user?.nombre };
-      try {
-        if (esSuc) imprimirPrestamoSucursal(liquidado);
-        else imprimirPrestamoInterarea(liquidado);
-      } catch {
-        /* impresión no bloquea */
-      }
+      // Cajero/admin desde corte: sin ticket.
       alert(res.mensaje || 'Préstamo liquidado.');
       await refrescarPrestamosRecuperacion();
     } catch (e) {
       alert(e?.message || 'No se pudo liquidar.');
     }
-  }, [vistaRecuperacion.prestamos, supabase, user, sucursal, refrescarPrestamosRecuperacion]);
+  }, [vistaRecuperacion.pagares, vistaRecuperacion.prestamos, supabase, user, sucursal, refrescarPrestamosRecuperacion]);
+
+  const generarPagareDesdeCorte = useCallback(async () => {
+    const montoSugerido = Math.max(
+      Number(vistaRecuperacion.negativo) || 0,
+      Number(vistaRecuperacion.deudaPagare) || 0,
+      Number(vistaRecuperacion.negativoCaja) || 0,
+    );
+    if (!(montoSugerido > 0.001)) {
+      return alert('No hay negativo pendiente para generar pagaré.');
+    }
+    const raw = prompt(
+      `Generar pagaré · ${String(modulo || '').toUpperCase()}\n`
+      + `Sucursal: ${sucursal}\n`
+      + `Cajero: ${user?.nombre || '—'}\n\n`
+      + 'Monto del pagaré:',
+      String(montoSugerido.toFixed(2)),
+    );
+    if (raw === null) return;
+    const monto = parseFloat(String(raw).replace(',', '.'));
+    if (!(monto > 0)) return alert('Monto inválido.');
+    if (!confirm(
+      `¿Generar pagaré por $${monto.toFixed(2)}?\n\n`
+      + 'Se registrará en Vales → Pagaré y RC Virtual → Pagaré.\n'
+      + 'Se imprimirán 2 tickets.',
+    )) return;
+    try {
+      const { registrarPagare, textoPagare } = await import('../pagares.js');
+      const { imprimirPagare } = await import('../impresionContabilidad.js');
+      const res = await registrarPagare(
+        supabase,
+        {
+          area: modulo,
+          sucursal_id: sucursal,
+          monto,
+          cajero_nombre: user?.nombre || null,
+          cajero_id: user?.id || null,
+          turno_nombre: nombreTurnoLegible(turnoActual()) || turno || null,
+          texto: textoPagare(monto),
+        },
+        {
+          nombreActor: user?.nombre || null,
+          rolActor: user?.rol,
+          user,
+        },
+      );
+      if (!res.ok) return alert(res.error);
+      try {
+        imprimirPagare(res.pagare, { copias: 2 });
+      } catch {
+        /* impresión no bloquea */
+      }
+      alert(res.mensaje || 'Pagaré registrado.');
+      await refrescarPrestamosRecuperacion();
+    } catch (e) {
+      alert(e?.message || 'No se pudo generar el pagaré.');
+    }
+  }, [
+    vistaRecuperacion.negativo,
+    vistaRecuperacion.deudaPagare,
+    vistaRecuperacion.negativoCaja,
+    modulo,
+    sucursal,
+    user,
+    turno,
+    supabase,
+    refrescarPrestamosRecuperacion,
+  ]);
 
   const persistir = useCallback(
     async (nextEstado) => {
@@ -1059,8 +1197,10 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     recargar: cargar,
     vistaRecuperacion,
     puedeAbonarLiquidarPrestamo,
+    puedeGenerarPagareCorte,
     abonarPrestamoDesdeCorte,
     liquidarPrestamoDesdeCorte,
+    generarPagareDesdeCorte,
     refrescarPrestamosRecuperacion,
   };
 }

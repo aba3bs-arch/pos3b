@@ -2,9 +2,9 @@ import React from 'react';
 import { fmtCorte } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 
 /**
- * Alerta de recuperación por préstamo área/sucursal y/o caja en negativo.
- * Si el corte está en negativo, el monto de la alerta refleja ese mismo negativo.
- * También muestra recuperado por venta + Abonar / Liquidar del préstamo.
+ * Alerta de recuperación por pagaré / préstamo área y/o caja en negativo.
+ * - Cajero: Abonar / Liquidar (sin ticket ni préstamo nuevo).
+ * - Admin / recolector: botón Pagaré (genera registro + ticket x2).
  */
 export default function CorteNegativoRecuperacion({
   etiqueta = 'corte',
@@ -14,8 +14,10 @@ export default function CorteNegativoRecuperacion({
   cajaActual = 0,
   visible = false,
   puedeAbonarLiquidar = false,
+  puedeGenerarPagare = false,
   onAbonar,
   onLiquidar,
+  onGenerarPagare,
 }) {
   const neg = Number(negativo) || 0;
   const rec = Number(recuperado) || 0;
@@ -24,7 +26,6 @@ export default function CorteNegativoRecuperacion({
   const cajaEnNegativo = caja < -0.001;
   if (!visible && !(deb > 0.001) && !cajaEnNegativo) return null;
 
-  // Escala visual: más cerca de cubrir = más verde
   const abs = Math.abs(neg);
   let fase = 'critico';
   if (!(abs > 0.001) && rec > 0.001) fase = 'leve';
@@ -32,6 +33,7 @@ export default function CorteNegativoRecuperacion({
   else if (abs < 250) fase = 'medio';
 
   const montoNegativo = -Math.abs(neg > 0.001 ? neg : (cajaEnNegativo ? Math.abs(caja) : 0));
+  const hayPendienteCobro = deb > 0.001;
 
   return (
     <div
@@ -41,7 +43,7 @@ export default function CorteNegativoRecuperacion({
     >
       <div className="corte-negativo-recuperacion__etiqueta">
         DINERO EN RECUPERACIÓN · {String(etiqueta).toUpperCase()}
-        {deb > 0.001 ? ' · PRÉSTAMO' : ''}
+        {hayPendienteCobro ? ' · PENDIENTE' : ''}
       </div>
       <div className="corte-negativo-recuperacion__cifras">
         <div className="corte-negativo-recuperacion__cifra">
@@ -66,20 +68,28 @@ export default function CorteNegativoRecuperacion({
                 ? `Corte en negativo ${fmtCorte(caja)} — la alerta refleja el mismo negativo`
                 : 'Pendiente de recuperación — la venta del corte reduce el negativo'}
       </div>
-      {puedeAbonarLiquidar && deb > 0.001 && (
-        <div className="corte-negativo-recuperacion__acciones">
-          {typeof onAbonar === 'function' && (
-            <button type="button" className="btn btn-ghost corte-negativo-recuperacion__btn" onClick={onAbonar}>
-              Abonar
-            </button>
-          )}
-          {typeof onLiquidar === 'function' && (
-            <button type="button" className="btn btn-primary corte-negativo-recuperacion__btn" onClick={onLiquidar}>
-              Liquidar
-            </button>
-          )}
-        </div>
-      )}
+      <div className="corte-negativo-recuperacion__acciones">
+        {puedeAbonarLiquidar && hayPendienteCobro && typeof onAbonar === 'function' && (
+          <button type="button" className="btn btn-ghost corte-negativo-recuperacion__btn" onClick={onAbonar}>
+            Abonar
+          </button>
+        )}
+        {puedeAbonarLiquidar && hayPendienteCobro && typeof onLiquidar === 'function' && (
+          <button type="button" className="btn btn-primary corte-negativo-recuperacion__btn" onClick={onLiquidar}>
+            Liquidar
+          </button>
+        )}
+        {puedeGenerarPagare && (hayPendienteCobro || cajaEnNegativo) && typeof onGenerarPagare === 'function' && (
+          <button
+            type="button"
+            className="btn btn-gold corte-negativo-recuperacion__btn"
+            onClick={onGenerarPagare}
+            title="Genera pagaré con ticket (2 copias). Solo admin / recolector."
+          >
+            Pagaré
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -59,8 +59,10 @@ export default function CorteGarage({ supabase, sucursal, user }) {
     recargar,
     vistaRecuperacion,
     puedeAbonarLiquidarPrestamo,
+    puedeGenerarPagareCorte,
     abonarPrestamoDesdeCorte,
     liquidarPrestamoDesdeCorte,
+    generarPagareDesdeCorte,
   } = useCorteContabilidad({
     supabase,
     sucursal,
@@ -174,8 +176,10 @@ export default function CorteGarage({ supabase, sucursal, user }) {
         cajaActual={vistaRecuperacion?.cajaActual ?? calc.cajaActual}
         visible={vistaRecuperacion?.visible}
         puedeAbonarLiquidar={puedeAbonarLiquidarPrestamo}
+        puedeGenerarPagare={puedeGenerarPagareCorte}
         onAbonar={abonarPrestamoDesdeCorte}
         onLiquidar={liquidarPrestamoDesdeCorte}
+        onGenerarPagare={generarPagareDesdeCorte}
       />
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
