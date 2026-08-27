@@ -277,86 +277,6 @@ function VentaRegistrada() {
   );
 }
 
-function CorteCaja() {
-  return (
-    <Shell title="Corte de caja">
-      <p className="muted" style={{ margin: '-0.5rem 0 1rem' }}>
-        Total acumulado del sistema, movimientos por ticket y cancelaciones. Tienda:{' '}
-        <span className="badge">3B5</span> · Turno: <span className="badge">Turno diurno</span>
-      </p>
-      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-        <button type="button" className="btn btn-primary">Corte</button>
-        <button type="button" className="btn btn-ghost">Movimientos</button>
-        <button type="button" className="btn btn-ghost">Cancelaciones</button>
-      </div>
-      <div className="grid-2" style={{ alignItems: 'start' }}>
-        <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
-          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Resumen del turno</h3>
-          <div style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--brand-blue)' }}>$4,850.00</div>
-          <p className="muted" style={{ margin: '0.35rem 0 0' }}>42 tickets · Efectivo $3,200 · Tarjeta $1,450 · Otros $200</p>
-          <h4 style={{ margin: '1rem 0 0.5rem', fontSize: '0.9rem' }}>Por grupo</h4>
-          <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.9rem' }}>
-            <li>Efectivo: <strong>$3,200.00</strong></li>
-            <li>Tarjeta: <strong>$1,450.00</strong></li>
-            <li>Transferencia / QR: <strong>$200.00</strong></li>
-          </ul>
-        </div>
-        <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
-          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Arqueo de efectivo</h3>
-          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-            El sistema registra <strong>$3,200.00</strong> en efectivo (ventas − cancelaciones en efectivo).
-          </p>
-          <label className="muted">
-            Efectivo contado (MXN)
-            <input className="input" style={{ marginTop: '0.35rem', fontSize: '1.2rem', fontWeight: 700 }} defaultValue="3200.00" readOnly />
-          </label>
-          <div style={{ marginTop: '0.75rem', padding: '0.85rem', borderRadius: '10px', background: 'var(--surface)' }}>
-            <div className="muted" style={{ fontSize: '0.8rem' }}>Diferencia (contado − esperado)</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--brand-green)' }}>$0.00 MXN</div>
-          </div>
-          <button type="button" className="btn btn-success" style={{ marginTop: '0.75rem' }}>Guardar corte</button>
-          <button type="button" className="btn btn-ghost" style={{ marginTop: '0.5rem', marginLeft: '0.5rem' }}>Imprimir preview</button>
-        </div>
-      </div>
-      <div className="card" style={{ borderTop: '4px solid var(--brand-olive, #6b8e23)', marginTop: '1rem' }}>
-        <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)' }}>Corroboración otros rubros</h3>
-        <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-          Compare lo registrado en el sistema con lo que reporta terminal, banco o app (tarjeta, transferencia, QR).
-        </p>
-        <table className="data">
-          <thead>
-            <tr>
-              <th>Rubro</th>
-              <th style={{ textAlign: 'right' }}>Sistema</th>
-              <th style={{ textAlign: 'right' }}>Contado</th>
-              <th style={{ textAlign: 'right' }}>Diferencia</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td style={{ fontWeight: 600 }}>Tarjeta</td>
-              <td style={{ textAlign: 'right' }}>$1,450.00</td>
-              <td style={{ textAlign: 'right' }}>$1,450.00</td>
-              <td style={{ textAlign: 'right', color: 'var(--brand-green)', fontWeight: 700 }}>$0.00</td>
-            </tr>
-            <tr>
-              <td style={{ fontWeight: 600 }}>Transferencia</td>
-              <td style={{ textAlign: 'right' }}>$150.00</td>
-              <td style={{ textAlign: 'right' }}>$150.00</td>
-              <td style={{ textAlign: 'right', color: 'var(--brand-green)', fontWeight: 700 }}>$0.00</td>
-            </tr>
-            <tr>
-              <td style={{ fontWeight: 600 }}>QR / digital</td>
-              <td style={{ textAlign: 'right' }}>$50.00</td>
-              <td style={{ textAlign: 'right' }}>$50.00</td>
-              <td style={{ textAlign: 'right', color: 'var(--brand-green)', fontWeight: 700 }}>$0.00</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </Shell>
-  );
-}
 
 const SCENES = {
   'ventas-ticket': TicketVentas,
@@ -364,7 +284,6 @@ const SCENES = {
   'cobro-usd': CobroEfectivoUsd,
   'cobro-tarjeta': CobroTarjeta,
   'venta-ok': VentaRegistrada,
-  'corte-caja': CorteCaja,
 };
 
 const Comp = SCENES[scene] || TicketVentas;

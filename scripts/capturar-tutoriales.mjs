@@ -17,13 +17,10 @@ const shots = [
   { scene: 'cobro-usd', out: 'public/tutorial-cobros/cobro-03-efectivo-dolares.png' },
   { scene: 'cobro-tarjeta', out: 'public/tutorial-cobros/cobro-04-tarjeta.png' },
   { scene: 'venta-ok', out: 'public/tutorial-cobros/cobro-06-venta-registrada.png' },
-  { scene: 'corte-caja', out: 'public/tutorial-corte-caja/corte-01-pantalla.png' },
 ];
 
 mkdirSync(join(root, 'public/tutorial-cobros'), { recursive: true });
-mkdirSync(join(root, 'public/tutorial-corte-caja'), { recursive: true });
 mkdirSync(join(root, 'docs/img/tutorial-cobros'), { recursive: true });
-mkdirSync(join(root, 'docs/img/tutorial-corte-caja'), { recursive: true });
 
 const browser = await chromium.launch({
   executablePath: process.env.CHROME_PATH || '/usr/local/bin/google-chrome',
