@@ -7,9 +7,55 @@ export const AVISO_FALTA_RIFS =
 
 export const ESTADOS_RIF = ['abierto', 'liquidado', 'vencido', 'cancelado'];
 
+/** Tipos de RIF (requisición interna de fondos). */
+export const TIPOS_RIF = {
+  INTERTIENDA: 'intertienda',
+  MISMA_TIENDA_MERCANCIA: 'misma_tienda_mercancia',
+};
+
+export function normalizarTipoRif(tipo) {
+  const t = String(tipo || '').trim().toLowerCase();
+  if (t === TIPOS_RIF.MISMA_TIENDA_MERCANCIA || t === 'misma_tienda' || t === 'mercancia') {
+    return TIPOS_RIF.MISMA_TIENDA_MERCANCIA;
+  }
+  return TIPOS_RIF.INTERTIENDA;
+}
+
+/** Misma tienda / compra mercancía: por columna tipo o porque origen = destino. */
+export function esRifMismaTienda(rif) {
+  if (!rif) return false;
+  if (normalizarTipoRif(rif.tipo) === TIPOS_RIF.MISMA_TIENDA_MERCANCIA) return true;
+  const o = normalizarCodigoTienda(rif.sucursal_origen) || String(rif.sucursal_origen || '').toUpperCase();
+  const d = normalizarCodigoTienda(rif.sucursal_destino) || String(rif.sucursal_destino || '').toUpperCase();
+  return Boolean(o && d && o === d);
+}
+
+export function etiquetaTipoRif(rifOrTipo) {
+  const tipo =
+    typeof rifOrTipo === 'string'
+      ? normalizarTipoRif(rifOrTipo)
+      : esRifMismaTienda(rifOrTipo)
+        ? TIPOS_RIF.MISMA_TIENDA_MERCANCIA
+        : TIPOS_RIF.INTERTIENDA;
+  if (tipo === TIPOS_RIF.MISMA_TIENDA_MERCANCIA) return 'Misma tienda · mercancía';
+  return 'Entre tiendas';
+}
+
+export function etiquetaRutaRif(rif) {
+  if (!rif) return '—';
+  const origen = etiquetaTienda(rif.sucursal_origen);
+  if (esRifMismaTienda(rif)) return `${origen} · compra mercancía`;
+  return `${origen} → ${etiquetaTienda(rif.sucursal_destino)}`;
+}
+
 function faltaTabla(error) {
   const msg = String(error?.message || error || '').toLowerCase();
   return error?.code === '42P01' || msg.includes('rifs');
+}
+
+function faltaColumnaTipo(error) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  return msg.includes('tipo') && (msg.includes('column') || msg.includes('schema') || msg.includes('does not exist'));
 }
 
 let folioRifLocal = 0;
@@ -79,17 +125,37 @@ export async function listarRifs(supabase, opts = {}) {
 
 /**
  * Crea RIF. No carga a corte al emitir; solo si vence la hora promesa.
+ * Tipos:
+ * - intertienda: origen ≠ destino (préstamo de fondo a otra tienda)
+ * - misma_tienda_mercancia: origen = destino (fondo para comprar mercancía en la misma tienda)
  */
 export async function registrarRif(supabase, row, opts = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const tipo = normalizarTipoRif(row.tipo);
   const origen = normalizarCodigoTienda(row.sucursal_origen) || row.sucursal_origen;
-  const destino = normalizarCodigoTienda(row.sucursal_destino) || row.sucursal_destino;
+  let destino = normalizarCodigoTienda(row.sucursal_destino) || row.sucursal_destino;
   const responsable = String(row.responsable_nombre || '').trim();
   const monto = Number(row.monto);
   const horaPromesa = row.hora_promesa;
+  const motivo = String(row.motivo || '').trim();
+
   if (!origen) return { ok: false, error: 'Indica tienda origen.' };
-  if (!destino) return { ok: false, error: 'Indica tienda receptora.' };
-  if (origen === destino) return { ok: false, error: 'Origen y receptora deben ser distintas.' };
+
+  if (tipo === TIPOS_RIF.MISMA_TIENDA_MERCANCIA) {
+    destino = origen;
+    if (!motivo) {
+      return { ok: false, error: 'Indica el motivo (qué mercancía / para qué se usa el fondo).' };
+    }
+  } else {
+    if (!destino) return { ok: false, error: 'Indica tienda receptora.' };
+    if (origen === destino) {
+      return {
+        ok: false,
+        error: 'Origen y receptora deben ser distintas. Para compra de mercancía en esta tienda elige el tipo «Misma tienda».',
+      };
+    }
+  }
+
   if (!responsable) return { ok: false, error: 'Indica el responsable del RIF.' };
   if (!Number.isFinite(monto) || monto <= 0) return { ok: false, error: 'Monto inválido.' };
   if (!horaPromesa) return { ok: false, error: 'Indica hora promesa de pago.' };
@@ -99,12 +165,13 @@ export async function registrarRif(supabase, row, opts = {}) {
   const folio = row.folio || (await siguienteFolioRif(supabase));
   const payload = {
     folio,
+    tipo,
     sucursal_origen: origen,
     sucursal_destino: destino,
     responsable_nombre: responsable,
     responsable_usuario_id: row.responsable_usuario_id || null,
     monto,
-    motivo: String(row.motivo || '').trim() || null,
+    motivo: motivo || null,
     hora_promesa: new Date(horaPromesa).toISOString(),
     estado: 'abierto',
     emitido_por: opts.usuarioNombre || row.emitido_por || null,
@@ -112,17 +179,30 @@ export async function registrarRif(supabase, row, opts = {}) {
     emitido_at: new Date().toISOString(),
   };
 
-  const { data, error } = await supabase.from('rifs').insert([payload]).select('*').single();
+  let { data, error } = await supabase.from('rifs').insert([payload]).select('*').single();
+  if (error && faltaColumnaTipo(error)) {
+    const sinTipo = { ...payload };
+    delete sinTipo.tipo;
+    ({ data, error } = await supabase.from('rifs').insert([sinTipo]).select('*').single());
+  }
   if (error && faltaTabla(error)) return { ok: false, error: AVISO_FALTA_RIFS };
   if (error) return { ok: false, error: error.message };
+
+  const mensajeNotif =
+    tipo === TIPOS_RIF.MISMA_TIENDA_MERCANCIA
+      ? `${etiquetaTienda(origen)} · compra mercancía · ${responsable} · $${monto.toFixed(2)} · promesa ${new Date(data.hora_promesa).toLocaleString('es-MX')}`
+      : `${etiquetaTienda(origen)} → ${etiquetaTienda(destino)} · ${responsable} · $${monto.toFixed(2)} · promesa ${new Date(data.hora_promesa).toLocaleString('es-MX')}`;
 
   await crearNotificacion(supabase, {
     sucursal_id: origen,
     tipo: TIPOS_NOTIF.RIF_ABIERTO,
     ref_tabla: 'rifs',
     ref_id: data.id,
-    titulo: `RIF ${folio}`,
-    mensaje: `${etiquetaTienda(origen)} → ${etiquetaTienda(destino)} · ${responsable} · $${monto.toFixed(2)} · promesa ${new Date(data.hora_promesa).toLocaleString('es-MX')}`,
+    titulo:
+      tipo === TIPOS_RIF.MISMA_TIENDA_MERCANCIA
+        ? `RIF ${folio} · mercancía`
+        : `RIF ${folio}`,
+    mensaje: mensajeNotif,
     area_buzon: 'abarrotes',
   });
 

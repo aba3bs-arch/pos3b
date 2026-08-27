@@ -441,6 +441,17 @@ export function htmlRif(rif, opts = {}) {
         minute: '2-digit',
       })
     : '—';
+  const mismaTienda =
+    String(rif.tipo || '').toLowerCase() === 'misma_tienda_mercancia' ||
+    (rif.sucursal_origen &&
+      rif.sucursal_destino &&
+      String(rif.sucursal_origen).toUpperCase() === String(rif.sucursal_destino).toUpperCase());
+  const rutaHtml = mismaTienda
+    ? `<div>Tienda: <strong>${esc(rif.sucursal_origen || '—')}</strong></div>
+    <div><strong>Tipo:</strong> Misma tienda · compra de mercancía</div>`
+    : `<div>Tienda origen: <strong>${esc(rif.sucursal_origen || '—')}</strong></div>
+    <div>Tienda receptora: <strong>${esc(rif.sucursal_destino || '—')}</strong></div>
+    <div><strong>Tipo:</strong> Entre tiendas</div>`;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>RIF</title><style>${estilos()}
   .firma{margin-top:48px;border-top:1px solid #333;width:80%;padding-top:6px;font-size:11px}
   .aviso{margin-top:14px;padding:8px;border:1.5px solid #000;font-size:12px}
@@ -449,8 +460,7 @@ export function htmlRif(rif, opts = {}) {
     <div>Folio: <strong>${esc(rif.folio || '—')}</strong></div>
     <div>Estado: <strong>${esc(rif.estado || '—')}</strong></div>
     <div>Emitido: ${esc(emitido)}</div>
-    <div>Tienda origen: <strong>${esc(rif.sucursal_origen || '—')}</strong></div>
-    <div>Tienda receptora: <strong>${esc(rif.sucursal_destino || '—')}</strong></div>
+    ${rutaHtml}
     <div>Responsable: <strong>${esc(rif.responsable_nombre || '—')}</strong></div>
     <div style="font-size:20px;margin:12px 0"><strong>Saldo / monto: ${fmt(montoMostrar)}</strong></div>
     <div>Hora promesa de pago: <strong>${esc(promesa)}</strong></div>

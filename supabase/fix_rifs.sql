@@ -6,6 +6,8 @@
 create table if not exists public.rifs (
   id uuid primary key default gen_random_uuid(),
   folio text not null,
+  -- intertienda | misma_tienda_mercancia
+  tipo text not null default 'intertienda',
   sucursal_origen text not null,
   sucursal_destino text not null,
   responsable_nombre text not null,
@@ -25,6 +27,9 @@ create table if not exists public.rifs (
   created_at timestamptz default now()
 );
 
+alter table public.rifs
+  add column if not exists tipo text not null default 'intertienda';
+
 create index if not exists idx_rifs_origen_estado on public.rifs (sucursal_origen, estado, hora_promesa);
 create index if not exists idx_rifs_folio on public.rifs (folio);
 create unique index if not exists idx_rifs_folio_unico on public.rifs (folio);
@@ -41,4 +46,4 @@ create index if not exists idx_cont_notif_area
   on public.contabilidad_notificaciones (area_buzon, estado, created_at desc);
 
 comment on table public.rifs is
-  'Requisición Interna de Fondos: origen→destino, promesa de pago; al vencer carga gasto Fondo requerido en corte abarrotes.';
+  'Requisición Interna de Fondos: intertienda (origen→destino) o misma_tienda_mercancia (fondo para comprar mercancía); al vencer carga gasto Fondo requerido en corte abarrotes.';
