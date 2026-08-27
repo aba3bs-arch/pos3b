@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { consultarVentas } from '../lib/ventasQuery.js';
 import Icon, { BtnLabel } from '../components/Icon.jsx';
 import { iconoDeModulo } from '../lib/moduloIcons.js';
-import { etiquetaTienda, esSucursalNoVenta } from '../constants/sucursales.js';
+import { etiquetaTienda, esAlmacenCentral, esSucursalNoVenta } from '../constants/sucursales.js';
 import { fmtMxn, resumirValorInventario } from '../lib/valorInventario.js';
 import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
 import { normalizarRol } from '../lib/roles.js';
