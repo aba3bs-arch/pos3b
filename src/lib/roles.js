@@ -162,6 +162,7 @@ export const MODULOS_ORDEN = [
   'Reportes',
   'Vales y Préstamos',
   'Configuracion',
+  'Tutorial',
   'Ayuda',
 ];
 
@@ -194,9 +195,10 @@ const ACCESO_POR_ROL = {
     'Cobranza',
     'Checador',
     'Check List',
+    'Tutorial',
     'Ayuda',
   ],
-  Repartidor: ['Inicio', 'Incidencias', 'Recolecciones', 'Productos', 'Venta en Ruta', 'Vales y Préstamos', 'Ayuda'],
+  Repartidor: ['Inicio', 'Incidencias', 'Recolecciones', 'Productos', 'Venta en Ruta', 'Vales y Préstamos', 'Tutorial', 'Ayuda'],
   Auditor: [
     'Inicio',
     'Incidencias',
@@ -219,6 +221,7 @@ const ACCESO_POR_ROL = {
     'Crédito',
     'Cobranza',
     'Vales y Préstamos',
+    'Tutorial',
     'Ayuda',
   ],
   Supervisor: [
@@ -245,6 +248,7 @@ const ACCESO_POR_ROL = {
     'Estadísticas Garage',
     'Reportes',
     'Vales y Préstamos',
+    'Tutorial',
     'Ayuda',
   ],
   Gerente: [
@@ -282,9 +286,10 @@ const ACCESO_POR_ROL = {
     'RH ABA3B',
     'Vales y Préstamos',
     'Configuracion',
+    'Tutorial',
     'Ayuda',
   ],
-  Técnico: ['Inicio', 'Incidencias', 'Checador', 'Check List', 'Ayuda'],
+  Técnico: ['Inicio', 'Incidencias', 'Checador', 'Check List', 'Tutorial', 'Ayuda'],
   Administrador: [...MODULOS_ORDEN],
 };
 

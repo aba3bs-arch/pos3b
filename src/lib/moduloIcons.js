@@ -38,6 +38,7 @@ export const ICONO_MODULO = {
   'Corte Abarrotes': 'package',
   'Corte Garage': 'building',
   Configuracion: 'settings',
+  Tutorial: 'file',
   Ayuda: 'help',
 };
 
@@ -81,6 +82,7 @@ export const COLOR_MODULO = {
   'Corte Abarrotes': '#b5a642',
   'Corte Garage': '#7f8c8d',
   Configuracion: '#5c5c5c',
+  Tutorial: '#0d9488',
   Ayuda: '#b5b03e',
 };
 

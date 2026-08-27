@@ -168,23 +168,25 @@ Duración ideal: **2 a 5 minutos** por video.
 
 ### Guion (leer en voz alta)
 
-> En este video vas a aprender a manejar el **negativo de dinero**, el **pagaré**, los **abonos** y la **liquidación**.
+> En este video vas a aprender a manejar el **negativo de dinero**, el **abono**, la **liquidación** y el **pagaré**.
 >
 > **Paso 1 — La alerta.**  
 > En el corte aparece **DINERO EN RECUPERACIÓN**. Mira dos números: **Negativo** (lo que falta) y **Recuperado** (lo que ya cubrió la venta).
 >
-> **Paso 2 — Pagaré.**  
-> Si hay que documentar la deuda, el admin, gerente o recolector toca **Pagaré**. Se imprimen **dos tickets**. Ojo: el pagaré **no cierra** la deuda; solo la formaliza.
+> **Paso 2 — Abono.**  
+> Si todavía hay Negativo mayor a cero, el **cajero** toca **Abono** y captura el monto. El saldo baja.
 >
-> **Paso 3 — Abono.**  
-> Si todavía hay Negativo mayor a cero, el cajero toca **Abono** y captura el monto. El saldo baja.
+> **Paso 3 — Liquidar.**  
+> Cuando el Negativo llega a **cero** verás el mensaje verde *NEGATIVO RECUPERADO…*. El **cajero** debe tocar **Liquidar** para quitar la alerta.
 >
-> **Paso 4 — Liquidar.**  
-> Cuando el Negativo llega a **cero** verás el mensaje verde *NEGATIVO RECUPERADO…*. El cajero debe tocar **Liquidar** para quitar la alerta. Si no liquida, la alerta se queda.
+> **Cubre turno:** puede ver la alerta, pero **no** abona ni liquida. Eso lo hace el **cajero al recibir el turno del CT**.
 >
-> **Cubre turno:** puede ver la alerta, pero **no** abona ni liquida. Eso lo hace el cajero.
+> **Paso 4 — Pagaré (al final).**  
+> El **Pagaré** se genera **únicamente** si el negativo **sigue presente durante una recolección**. Lo hace admin, gerente o recolector e imprime **dos tickets**. No cierra la deuda: solo la documenta.
 >
-> **Resumen:** Negativo → Pagaré si aplica → Abono si falta → Liquidar cuando ya recuperaste.
+> **Después de la recolección**, el **cajero** es el **responsable de la recuperación** (abonar o liquidar lo pendiente).
+>
+> **Resumen:** Negativo → Abono → Liquidar → Pagaré solo en recolección si aún hay negativo.
 
 ---
 

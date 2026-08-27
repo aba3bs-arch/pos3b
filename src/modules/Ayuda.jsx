@@ -167,6 +167,7 @@ export default function Ayuda({ user }) {
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Centro de ayuda</h3>
         <p className="muted" style={{ marginTop: 0 }}>
           Guías rápidas, turnos y solución de problemas del POS CONTROL 3B.
+          Abre también el módulo <strong>Tutorial</strong> del menú para las guías ilustradas (negativos, pagaré, abonos).
           {esAdmin && (
             <>
               {' '}

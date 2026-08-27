@@ -36,6 +36,7 @@ export const MODULOS_IDS = [
   'Estadísticas Virtual',
   'Estadísticas Garage',
   'Configuracion',
+  'Tutorial',
   'Ayuda',
 ];
 
