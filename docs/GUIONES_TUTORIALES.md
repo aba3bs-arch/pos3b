@@ -70,9 +70,6 @@ Duración ideal: **2 a 5 minutos** por video.
 - Finalizar sin cobrar en la terminal (tarjeta).
 - No revisar el cambio en efectivo.
 
-**Material de apoyo en el POS:** menú → **Tutorial** → *Cobros en caja…*  
-**Markdown:** [TUTORIAL_COBROS_CAJA.md](./TUTORIAL_COBROS_CAJA.md)
-
 ---
 
 ## Video 2 — Cómo hacer el corte de caja (≈ 4–5 min)
