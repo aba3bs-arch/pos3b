@@ -19,7 +19,7 @@ import {
 } from '../lib/ventaEnRuta.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { fmtMonto } from '../lib/consultasUi.js';
-import { stockEnUbicacion } from '../lib/inventarioMultitienda.js';
+import { stockEnUbicacion, ALMACEN_CENTRAL } from '../lib/inventarioMultitienda.js';
 import { etiquetaDepartamento, listarDepartamentos } from '../lib/departamentos.js';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 import { esRolRepartidor } from '../lib/roles.js';
@@ -145,7 +145,7 @@ function VistaCarga({ supabase, user, inventario, setAviso }) {
     }
     const n = Math.floor(Number(qty) || 0);
     if (!(n > 0)) return alert('Cantidad inválida (enteros).');
-    const stockCedis = stockEnUbicacion(producto, 'MAIN', 'cedis', 'MAIN');
+    const stockCedis = stockEnUbicacion(producto, ALMACEN_CENTRAL, 'cedis', ALMACEN_CENTRAL);
     const ya = lineas.filter((l) => String(l.productoId) === String(producto.id)).reduce((s, l) => s + l.cantidad, 0);
     if (stockCedis < ya + n) return alert(`Stock insuficiente en ${NOMBRE_ALMACEN_RUTA} (hay ${stockCedis}).`);
     setLineas((prev) => {

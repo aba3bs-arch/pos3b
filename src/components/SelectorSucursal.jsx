@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, normalizarCodigoTienda, esAlmacenCentral, esCentralAdmin } from '../constants/sucursales.js';
 
 /**
  * Selector de sucursal.
@@ -62,20 +62,26 @@ export default function SelectorSucursal({
                   const id = normalizarCodigoTienda(s);
                   const online = Boolean(presenciaMap?.[id]?.online);
                   const activo = id === actual;
-                  const esCedis = id === 'MAIN';
+                  const esCedis = esAlmacenCentral(id);
+                  const esMain = esCentralAdmin(id);
                   return (
                     <li key={id} role="option" aria-selected={activo}>
                       <button
                         type="button"
-                        className={`sucursal-select-item${activo ? ' is-active' : ''}${esCedis ? ' is-cedis' : ''}`}
+                        className={`sucursal-select-item${activo ? ' is-active' : ''}${esCedis || esMain ? ' is-cedis' : ''}`}
                         onClick={() => elegir(id)}
                       >
                         <span className={`sucursal-dot ${online ? 'is-online' : 'is-offline'}`} aria-hidden />
                         <span className="sucursal-select-item-label">
                           {etiquetaTienda(id)}
+                          {esMain && (
+                            <span className="muted" style={{ display: 'block', fontSize: '0.78rem', fontWeight: 500 }}>
+                              Panel administrador
+                            </span>
+                          )}
                           {esCedis && (
                             <span className="muted" style={{ display: 'block', fontSize: '0.78rem', fontWeight: 500 }}>
-                              Acceso administrador · inventario central
+                              Inventario · almacén central
                             </span>
                           )}
                         </span>

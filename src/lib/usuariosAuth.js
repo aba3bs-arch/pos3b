@@ -1,4 +1,4 @@
-import { normalizarCodigoTienda, etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
+import { normalizarCodigoTienda, etiquetaTienda, esCentralAdmin } from '../constants/sucursales.js';
 import { normalizarRol } from './roles.js';
 
 export function sucursalUsuario(user) {
@@ -16,7 +16,7 @@ export const ROLES_PERSONAL_CENTRAL = ['Administrador', 'Auditor', 'Técnico', '
  * Gerente de piso NO entra aquí (sigue ligado a su tienda en el checador).
  */
 export function esPersonalCentralAdmin(user) {
-  if (esAlmacenCentral(sucursalUsuario(user))) return true;
+  if (esCentralAdmin(sucursalUsuario(user))) return true;
   const r = normalizarRol(user?.rol);
   return ROLES_PERSONAL_CENTRAL.includes(r);
 }

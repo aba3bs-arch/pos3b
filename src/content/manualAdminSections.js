@@ -87,9 +87,13 @@ Debe mostrar **11 OK**. Si alguna falla, ejecuta el SQL que indique el script.`,
 
 ### 3.2 Tiendas (sucursales)
 
-Tiendas base: **MAIN** (= **CEDIS** / almacén central), **FUSION**, **3B2**, **3B5**, **3B6**, **3B7**, **3B9**, **3B10**.
+Tiendas base: **MAIN** (central de administración), **CEDIS** (almacén), **FUSION**, **3B2**, **3B5**, **3B6**, **3B7**, **3B9**, **3B10**.
 
-En el selector aparece como **CEDIS · almacén central (MAIN)**. El administrador elige esa sucursal e ingresa con su PIN para operar el almacén.
+En el selector son dos entradas distintas:
+- **Central de administración (MAIN)** — panel admin
+- **CEDIS · almacén central** — inventario / traspasos
+
+El administrador puede elegir cualquiera e ingresar con su PIN.
 
 En **Configuración → Tienda y sucursales**:
 - Agregar tiendas nuevas (código alfanumérico)
@@ -104,7 +108,8 @@ En el **header** (arriba a la derecha) verás un **selector de tienda** si eres 
 
 ### 3.4 MAIN = Almacén central
 
-**MAIN** no es una tienda de venta al público: es el **CEDIS / almacén central** de toda la cadena. Ahí recibes mercancía a gran escala y distribuyes a las tiendas con traspasos. Acceso: selector de sucursal → **CEDIS · almacén central (MAIN)** → PIN de administrador.`,
+**MAIN** no es una tienda de venta: es la **central de administración**.
+**CEDIS** es el **almacén central** (inventario). Ahí recibes mercancía y distribuyes a las tiendas con traspasos. Acceso: selector → **CEDIS · almacén central** → PIN de administrador (o personal de almacén).`,
   },
   {
     id: 'usuarios',

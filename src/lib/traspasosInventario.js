@@ -55,7 +55,7 @@ function guardarLocal(list) {
 }
 
 export function etiquetaOrigenTraspaso(codigo) {
-  if (esAlmacenCentral(codigo)) return 'Almacén principal';
+  if (esAlmacenCentral(codigo)) return 'CEDIS · almacén';
   return etiquetaTienda(codigo);
 }
 

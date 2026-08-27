@@ -1,11 +1,21 @@
-import { normalizarCodigoTienda, etiquetaTienda, listarSucursales } from '../constants/sucursales.js';
+import {
+  normalizarCodigoTienda,
+  etiquetaTienda,
+  listarSucursales,
+  ALMACEN_CENTRAL,
+  CENTRAL_ADMIN,
+  esAlmacenCentral,
+  esCentralAdmin,
+  esSucursalNoVenta,
+} from '../constants/sucursales.js';
 
-/** MAIN = central de administración y CEDIS (almacén) de toda la cadena. */
-export const ALMACEN_CENTRAL = 'MAIN';
-
-export function esAlmacenCentral(sucursal) {
-  return normalizarCodigoTienda(sucursal) === ALMACEN_CENTRAL;
-}
+export {
+  ALMACEN_CENTRAL,
+  CENTRAL_ADMIN,
+  esAlmacenCentral,
+  esCentralAdmin,
+  esSucursalNoVenta,
+};
 
 export function etiquetaAlmacenCentral() {
   return etiquetaTienda(ALMACEN_CENTRAL);
@@ -15,7 +25,7 @@ export function etiquetaCedisEmpresa() {
   return 'CEDIS · almacén central';
 }
 
-/** El CEDIS vive solo en MAIN; el piso de venta en cada sucursal. */
+/** El inventario CEDIS vive en la sucursal CEDIS; el piso de venta en cada tienda. */
 export function sucursalParaUbicacion(sucursal, ubicacion) {
   if (ubicacion === 'cedis') return ALMACEN_CENTRAL;
   return normalizarCodigoTienda(sucursal);
@@ -58,7 +68,7 @@ export function parseStockSucursales(producto) {
   return out;
 }
 
-/** Consolida CEDIS de sucursales en MAIN (migración / datos legacy). */
+/** Consolida CEDIS de cualquier sucursal en CEDIS.cedis (migra MAIN.cedis legacy). */
 export function normalizarMapaStockCedisUnico(map) {
   const m = {};
   for (const [k, v] of Object.entries(map || {})) {
@@ -66,10 +76,20 @@ export function normalizarMapaStockCedisUnico(map) {
     if (!suc) continue;
     m[suc] = normalizarEntradaStockSucursal(v);
   }
+
   let cedisCentral = Math.floor(Number(m[ALMACEN_CENTRAL]?.cedis) || 0);
+  // Legacy: el almacén vivía en MAIN.cedis antes de separar CEDIS.
+  const mainCedisLegacy = Math.floor(Number(m[CENTRAL_ADMIN]?.cedis) || 0);
+  if (mainCedisLegacy > 0) {
+    cedisCentral += mainCedisLegacy;
+    m[CENTRAL_ADMIN] = {
+      cedis: 0,
+      piso: Math.floor(Number(m[CENTRAL_ADMIN]?.piso) || 0),
+    };
+  }
 
   for (const s of Object.keys(m)) {
-    if (s === ALMACEN_CENTRAL) continue;
+    if (s === ALMACEN_CENTRAL || s === CENTRAL_ADMIN) continue;
     const branchCedis = Math.floor(Number(m[s]?.cedis) || 0);
     if (branchCedis > 0) cedisCentral += branchCedis;
     m[s] = { cedis: 0, piso: Math.floor(Number(m[s]?.piso) || 0) };
@@ -80,14 +100,19 @@ export function normalizarMapaStockCedisUnico(map) {
     cedis: cedisCentral,
     piso: Math.floor(Number(m[ALMACEN_CENTRAL]?.piso) || 0),
   };
+  if (!m[CENTRAL_ADMIN]) m[CENTRAL_ADMIN] = { cedis: 0, piso: 0 };
+  m[CENTRAL_ADMIN] = {
+    cedis: 0,
+    piso: Math.floor(Number(m[CENTRAL_ADMIN]?.piso) || 0),
+  };
 
   return m;
 }
 
 /** Migra columnas legacy a stock_sucursales si el mapa está vacío. */
-export function asegurarMapaStock(producto, sucursalContext = 'MAIN') {
+export function asegurarMapaStock(producto, sucursalContext = CENTRAL_ADMIN) {
   const existente = parseStockSucursales(producto);
-  const ctx = normalizarCodigoTienda(sucursalContext) || ALMACEN_CENTRAL;
+  const ctx = normalizarCodigoTienda(sucursalContext) || CENTRAL_ADMIN;
   const cedisLegacy = Number(producto?.stock_cedis) || 0;
   const pisoLegacy = Math.floor(Number(producto?.stock) || 0);
 
@@ -111,10 +136,13 @@ export function asegurarMapaStock(producto, sucursalContext = 'MAIN') {
 
   const map = {};
   map[ALMACEN_CENTRAL] = { cedis: cedisLegacy, piso: 0 };
+  map[CENTRAL_ADMIN] = { cedis: 0, piso: 0 };
 
   if (pisoLegacy > 0) {
-    if (ctx === ALMACEN_CENTRAL) {
-      map[ALMACEN_CENTRAL] = { cedis: cedisLegacy, piso: pisoLegacy };
+    if (esAlmacenCentral(ctx) || esCentralAdmin(ctx)) {
+      // Legacy stock en contexto admin/cedis: va al piso 0 del almacén (solo cedis cuenta).
+      map[ALMACEN_CENTRAL] = { cedis: cedisLegacy + (esAlmacenCentral(ctx) ? 0 : 0), piso: 0 };
+      if (esCentralAdmin(ctx)) map[CENTRAL_ADMIN] = { cedis: 0, piso: pisoLegacy };
     } else {
       map[ctx] = { cedis: 0, piso: pisoLegacy };
     }
@@ -135,7 +163,7 @@ export function stockEnUbicacionReal(producto, sucursal, ubicacion, sucursalCont
   return Math.floor(Number(map[sucStock]?.[ubicacion]) || 0);
 }
 
-/** Stock del almacén central (MAIN · cedis). */
+/** Stock del almacén central (CEDIS · cedis). */
 export function stockAlmacenCentral(producto, sucursalContext) {
   return stockEnUbicacion(producto, ALMACEN_CENTRAL, 'cedis', sucursalContext);
 }
@@ -181,7 +209,7 @@ export function buildPatchStock(producto, sucursal, ubicacion, nuevoValor, sucur
   return syncColumnasLegacy({ stock_sucursales: normalizarMapaStockCedisUnico(map) }, map, sucursalActiva);
 }
 
-/** Piso de la tienda + CEDIS central (MAIN) en un solo patch. */
+/** Piso de la tienda + CEDIS central en un solo patch. */
 export function buildPatchStockTienda(producto, sucursal, piso, cedis, sucursalActiva) {
   let base = producto || {};
   let patch = buildPatchStock(base, sucursal, 'piso', piso, sucursalActiva);
@@ -191,7 +219,7 @@ export function buildPatchStockTienda(producto, sucursal, piso, cedis, sucursalA
 
 /** Pone en cero el stock de todas las sucursales del producto. */
 export function buildPatchVaciarInventarioCompleto(producto) {
-  const map = { ...asegurarMapaStock(producto, 'MAIN') };
+  const map = { ...asegurarMapaStock(producto, CENTRAL_ADMIN) };
   for (const s of listarSucursales()) {
     map[s] = { cedis: 0, piso: 0 };
   }
@@ -199,6 +227,7 @@ export function buildPatchVaciarInventarioCompleto(producto) {
     map[s] = { cedis: 0, piso: 0 };
   }
   map[ALMACEN_CENTRAL] = { cedis: 0, piso: 0 };
+  map[CENTRAL_ADMIN] = { cedis: 0, piso: 0 };
   return { stock_sucursales: map, stock: 0, stock_cedis: 0 };
 }
 
@@ -231,7 +260,7 @@ export function stockVisible(valor, verNegativos = true) {
 }
 
 /**
- * Texto corto de existencia para listas (Main muestra CEDIS + piso).
+ * Texto corto de existencia para listas (CEDIS muestra almacén + piso).
  * @param {{ verNegativos?: boolean }} [opts] — false oculta negativos (cajero/repartidor).
  */
 export function etiquetaStockLista(producto, sucursal, opts = {}) {
@@ -244,7 +273,7 @@ export function etiquetaStockLista(producto, sucursal, opts = {}) {
   return { primario: piso, etiquetaPrimario: 'PZA', secundario: null, etiquetaSecundario: null };
 }
 
-/** Ubicación por defecto para entradas: CEDIS central en MAIN, piso en tiendas. */
+/** Ubicación por defecto para entradas: CEDIS en almacén, piso en tiendas. */
 export function ubicacionEntradaDefault(sucursal) {
   return esAlmacenCentral(sucursal) ? 'cedis' : 'piso';
 }
@@ -254,7 +283,11 @@ export function resumenStockProducto(producto, sucursales, sucursalContext) {
   const map = asegurarMapaStock(producto, sucursalContext);
   return (sucursales || listarSucursales()).map((s) => ({
     sucursal: s,
-    etiqueta: esAlmacenCentral(s) ? etiquetaAlmacenCentral() : etiquetaTienda(s),
+    etiqueta: esAlmacenCentral(s)
+      ? etiquetaAlmacenCentral()
+      : esCentralAdmin(s)
+        ? etiquetaTienda(s)
+        : etiquetaTienda(s),
     cedis: esAlmacenCentral(s) ? Math.floor(Number(map[s]?.cedis) || 0) : 0,
     // No enmascarar negativos: ventas sin existencia deben verse.
     piso: Number.isFinite(Number(map[s]?.piso)) ? Math.floor(Number(map[s].piso)) : 0,

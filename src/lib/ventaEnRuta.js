@@ -4,7 +4,7 @@
  * → pedido en Compras para la sucursal.
  */
 
-import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda, ALMACEN_CENTRAL } from '../constants/sucursales.js';
 import { aplicarMovimientoInventario } from './inventarioMovimientos.js';
 import { esRolRepartidor, normalizarRol } from './roles.js';
 import { registrarCargoCreditoRuta } from './rutaCxc.js';
@@ -283,8 +283,8 @@ export async function crearCargaRuta(supabase, { vendedorNombre, vendedorId, not
       cantidad: it.cantidad,
       motivo: `Carga camión ruta ${folio} · CEDIS → ${repNombre}`,
       usuario: usuarioNombre || '—',
-      sucursal: 'MAIN',
-      sucursalOperacion: 'MAIN',
+      sucursal: ALMACEN_CENTRAL,
+      sucursalOperacion: ALMACEN_CENTRAL,
       modo: 'cedis',
     });
     if (!mov.ok) {
@@ -317,7 +317,7 @@ export async function crearPedidoCompraDesdeVentaRuta(supabase, {
 } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const suc = normalizarCodigoTienda(sucursalId);
-  if (!suc || suc === 'MAIN') return { ok: false, error: 'Sucursal inválida para pedido.' };
+  if (!suc || suc === 'MAIN' || suc === 'CEDIS') return { ok: false, error: 'Sucursal inválida para pedido.' };
   const items_pedido = (articulos || []).map((a) => ({
     id: a.producto_id || a.productoId,
     nombre: a.nombre,
@@ -464,7 +464,7 @@ export async function registrarVentaRuta(supabase, {
 
   if (mp === 'efectivo') {
     const tr = await registrarEfectivoTransitoVentaRuta(supabase, {
-      sucursalOrigen: tipoCli === 'sucursal' ? clienteId : 'MAIN',
+      sucursalOrigen: tipoCli === 'sucursal' ? clienteId : ALMACEN_CENTRAL,
       monto: total,
       folioVenta: folio,
       vendedorId,

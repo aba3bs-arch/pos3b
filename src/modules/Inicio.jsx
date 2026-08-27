@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { consultarVentas } from '../lib/ventasQuery.js';
 import Icon, { BtnLabel } from '../components/Icon.jsx';
 import { iconoDeModulo } from '../lib/moduloIcons.js';
-import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
+import { etiquetaTienda, esSucursalNoVenta } from '../constants/sucursales.js';
 import { fmtMxn, resumirValorInventario } from '../lib/valorInventario.js';
 import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
 import { normalizarRol } from '../lib/roles.js';
@@ -35,7 +35,7 @@ export default function Inicio({
   // Desde MAIN, al elegir otra tienda, sí se muestra el total de esa tienda.
   const puedeVerValorizacion = puede('Productos') && consolaCentral;
   // Proyección de faltante (carrito / cancelaciones / checador): en cada sucursal operativa.
-  const puedeVerProyeccion = puede('Productos') && !esAlmacenCentral(sucursal);
+  const puedeVerProyeccion = puede('Productos') && !esSucursalNoVenta(sucursal);
   const esAdmin = normalizarRol(user?.rol) === 'Administrador';
   const esAdminPrincipal = esAdministradorPrincipal(user);
   const [panelAnuncios, setPanelAnuncios] = useState(false);

@@ -327,7 +327,7 @@ function ubicacionMovimiento(tipo, sucursalOperacion, modo = '') {
 function etiquetaUbicacionMovimiento(tipo, sucursalOperacion, modo = '') {
   const u = ubicacionMovimiento(tipo, sucursalOperacion, modo);
   if (u === 'cedis') return etiquetaCedisEmpresa();
-  return esAlmacenCentral(sucursalOperacion) ? 'piso de venta · MAIN' : 'piso de venta';
+  return esAlmacenCentral(sucursalOperacion) ? 'piso de venta · CEDIS' : 'piso de venta';
 }
 
 export async function aplicarMovimientoInventario(supabase, opts) {
