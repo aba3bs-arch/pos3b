@@ -34,6 +34,7 @@ import CorteCaja from './modules/CorteCaja.jsx';
 import Configuracion from './modules/Configuracion.jsx';
 import Buzon from './modules/Buzon.jsx';
 import Ayuda from './modules/Ayuda.jsx';
+import Tutorial from './modules/Tutorial.jsx';
 import Recolecciones from './modules/Recolecciones.jsx';
 import LiquidacionRecolecciones from './modules/LiquidacionRecolecciones.jsx';
 import RcVirtual from './modules/RcVirtual.jsx';
@@ -1358,6 +1359,7 @@ function App() {
               cargarDatos={cargarDatos}
             />
           )}
+          {vista === 'Tutorial' && <Tutorial />}
           {vista === 'Ayuda' && <Ayuda user={user} />}
         </div>
         {user ? <ReleaseAvisoOverlay user={user} /> : null}
