@@ -193,32 +193,35 @@ Duración ideal: **2 a 5 minutos** por video.
 
 ---
 
-## Video 4 — Ingresar compras al sistema (≈ 4–5 min)
+## Video 4 — Ingresar compras / ingreso de inventario (≈ 3–4 min)
 
-**Título sugerido:** `04-compras.mp4`  
+**Título sugerido:** `04-ingreso-inventario.mp4`  
 **Material de apoyo:** menú → **Tutorial** → *Ingresar compras…* · [TUTORIAL_COMPRAS.md](./TUTORIAL_COMPRAS.md)
 
 ### Antes de grabar
-- Tener un proveedor con catálogo vinculado.
-- Ideal: un pedido de prueba pendiente para mostrar recepción.
+- Ten un ticket de proveedor de prueba y 1–2 productos físicos con código.
+- Entra con un PIN que pueda ajustar inventario (cajero/admin).
 
 ### Guion (leer en voz alta)
 
-> En este video vas a aprender a **ingresar compras** al POS.
+> En este video vas a aprender a **ingresar la mercancía del proveedor** al inventario.
 >
-> **Paso 1 — Abrir Compras.**  
-> Menú → **Compras** → **Herramienta de compra**. Eliges el **Proveedor**.
+> **Paso 1 — Productos.**  
+> Entras a **Productos**. Arriba a la derecha tocas el menú de **tres puntos**.
 >
-> **Paso 2 — Pedido.**  
-> Pulsas **Pedido (recepción después)**. En la columna **Pedido** pones las cantidades (Enter acepta la sugerida). Luego **Generar pedido (sin tocar inventario)**. Ojo: esto **no** sube stock.
+> **Paso 2 — Ajuste.**  
+> Eliges **Ajuste de inventario**. En el modal tocas **Ingreso de inventario**.
 >
-> **Paso 3 — Recepción.**  
-> Cuando llega la mercancía: eliges el pedido pendiente o en **Historial** pulsas **Recibir**. Escaneas o capturas la columna **Recepción** y pulsas **Recibir mercancía**. Ahí sí entra el inventario.
+> **Paso 3 — Escanear.**  
+> Escaneas el producto. Aparece *¿Cuántas piezas entran?*
 >
-> **Paso 4 — Entrega directa.**  
-> Si ya te entregaron sin pedido: **Entrega directa a inventario** → cantidades → **Registrar entrega e inventario**.
+> **Paso 4 — Cantidad.**  
+> Miras el **ticket** y el **producto físico**, anotas la cantidad y pulsas **Aceptar**.
 >
-> **Resumen:** Pedido = ordenar. Recibir = subir stock. Entrega directa = atajo.
+> **Paso 5 — Aplicar.**  
+> Repites con cada producto. Al final pulsas **Aplicar** para sumar al stock.
+>
+> **Resumen:** Productos → ⋮ → Ajuste → Ingreso → escanear → cantidad del ticket → Aplicar.
 
 ---
 
@@ -230,7 +233,7 @@ Duración ideal: **2 a 5 minutos** por video.
 | 1 | Cobrar venta | 3–4 min | ☐ |
 | 2 | Corte de caja | 4–5 min | ☐ |
 | 3 | Negativos / pagaré / abonos | 4–5 min | ☐ |
-| 4 | Compras | 4–5 min | ☐ |
+| 4 | Ingreso de inventario (compras) | 3–4 min | ☐ |
 
 ### Tips de producción
 - Habla un poco más lento de lo normal.
@@ -244,5 +247,5 @@ Duración ideal: **2 a 5 minutos** por video.
 01-cobrar-venta.mp4
 02-corte-de-caja.mp4
 03-negativos-pagare-abonos.mp4
-04-compras.mp4
+04-ingreso-inventario.mp4
 ```

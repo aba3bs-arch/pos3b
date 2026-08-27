@@ -1,76 +1,66 @@
-# Tutorial: Ingresar compras al sistema
+# Tutorial: Ingresar compras al sistema (Ingreso de inventario)
 
-Guía ilustrada para cajeros y encargados.
+Así se ingresa la mercancía del proveedor en el POS CONTROL 3B.
 
-> **En el POS:** menú → **Tutorial** → *Ingresar compras al sistema*
-
----
-
-## 1. Mapa
-
-![Flujo de compras](./img/tutorial-compras/compra-00-mapa.png)
-
-| Paso | Qué hace |
-|---|---|
-| **Pedido** | Ordena mercancía · **no** mueve inventario |
-| **Recepción** | Confirma lo que llegó · **sí** sube stock |
-| **Entrega directa** | Atajo: ya te entregaron · stock inmediato |
+> **En el POS:** menú → **Tutorial** → *Ingresar compras al sistema (Ingreso de inventario)*
 
 ---
 
-## 2. Elegir proveedor
+## Camino
 
-![Proveedor](./img/tutorial-compras/compra-01-proveedor.png)
+![Mapa del flujo](./img/tutorial-ingreso-inventario/ingreso-00-mapa.png)
 
-1. Menú → **Compras** → **Herramienta de compra**
-2. **Proveedor** → elige proveedor
-3. **Pedido (recepción después)** o **Entrega directa a inventario**
+**Productos → menú ⋮ → Ajuste de inventario → Ingreso de inventario → escanear + cantidad del ticket (validar físico) → Aplicar**
 
 ---
 
-## 3. Generar pedido
+## 1. Productos → menú ⋮
 
-![Nuevo pedido](./img/tutorial-compras/compra-02-nuevo-pedido.png)
+![Menú de tres puntos](./img/tutorial-ingreso-inventario/ingreso-01-productos-menu.png)
 
-1. Captura cantidades en **Pedido** (Enter = sugerida)
-2. **Generar pedido (sin tocar inventario)**
-3. Opcional: **Imprimir pedido**
-
-> El pedido **no** sube inventario.
+1. Abre **Productos**
+2. Toca **⋮**
+3. Elige **Ajuste de inventario**
 
 ---
 
-## 4. Recibir mercancía
+## 2. Ingreso de inventario
 
-![Recepción](./img/tutorial-compras/compra-03-recepcion.png)
+![Modal Ajuste · Ingreso](./img/tutorial-ingreso-inventario/ingreso-02-modal-ingreso.png)
 
-1. Elige el pedido pendiente o **Historial → Recibir**
-2. Escanea / captura **Recepción**
-3. **Recibir mercancía** → confirma total del ticket del proveedor
-4. El stock entra al sistema
+En el modal, elige **Ingreso de inventario**.
 
 ---
 
-## 5. Entrega directa
+## 3. Escanea
 
-![Entrega directa](./img/tutorial-compras/compra-04-entrega-directa.png)
+![Pantalla Ingreso de inventarios](./img/tutorial-ingreso-inventario/ingreso-03-pantalla-escanear.png)
 
-1. **Entrega directa a inventario**
-2. Captura **Cantidad entregada**
-3. **Registrar entrega e inventario**
+En **Productos a ingresar**, escanea el código (o busca por nombre).
 
 ---
 
-## 6. Historial
+## 4. Cantidad del ticket + validación física
 
-![Historial](./img/tutorial-compras/compra-05-historial.png)
+![¿Cuántas piezas entran?](./img/tutorial-ingreso-inventario/ingreso-04-cantidad.png)
 
-- **pedido** → **Recibir**
-- **recibida** → imprimir
+1. Revisa el **producto físico**
+2. Compara con el **ticket del proveedor**
+3. Escribe la cantidad → **Aceptar**
+
+Las piezas **suman** al stock (no lo reemplazan).
+
+---
+
+## 5. Aplicar
+
+![Aplicar ingreso](./img/tutorial-ingreso-inventario/ingreso-05-aplicar.png)
+
+Repite por cada producto del ticket → opcional **Motivo / referencia** → **Aplicar +N pieza(s)**.
 
 ---
 
 ## Frase para capacitar
 
-> Pedido = ordenar (sin stock). Recibir = ya llegó y **sí** sube inventario.  
-> Si ya te entregaron: **Entrega directa**.
+> Productos → ⋮ → Ajuste → **Ingreso de inventario**.  
+> Escanea → cantidad del ticket → valida el físico → **Aplicar**.
