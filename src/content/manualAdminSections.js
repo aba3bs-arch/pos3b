@@ -158,7 +158,9 @@ En **Configuración → Privilegios por rol o usuario** puedes restringir o ampl
 ### 5.2 Configurar horarios
 
 **Configuración → Turnos de caja**:
-- Plantilla **12×12**: hora inicio/fin de cada turno
+- Plantilla **12×12**: la **entrada del turno diurno** debe ser de mañana (p. ej. **07:00** u **08:00**), no 20:00
+- Correcto: diurno 08:00–20:00 · nocturno 20:00–08:00
+- Incorrecto (intercambiados): diurno 20:00–08:00 · nocturno 08:00–20:00 — la app lo detecta y ofrece **Corregir horarios ahora**
 - Rotación 3 empleados (avanzado)
 - Sincronizar empleados con el patrón
 
