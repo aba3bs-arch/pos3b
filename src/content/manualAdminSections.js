@@ -541,4 +541,51 @@ Solo restan **gastos activos** (después de la última liquidación, sin sello).
 
 Panel RT → Gastos / liberar → elegir recolector y cuentas RT para mercancía y servicios → **Liberar neto**.`,
   },
+  {
+    id: 'cortes-recolecciones-alertas',
+    title: '19. Cortes, recolecciones, alertas y pagaré',
+    keywords: [
+      'corte',
+      'virtual',
+      'recoleccion',
+      'recolectar',
+      'caja chica',
+      'gastos',
+      'bonos',
+      'alerta',
+      'pagare',
+      'dinero en recuperacion',
+      'abono',
+      'liquidar',
+      'cerrar corte',
+    ],
+    body: `Instructivo completo en \`docs/INSTRUCTIVO_CORTES_RECOLECCIONES_ALERTAS.md\`.
+
+### Regla de oro (para que cuadre)
+
+1. Meter **todos** los gastos del periodo, **incluyendo bonos** pagados de caja.
+2. **Cerrar el corte**.
+3. **Recolectar** para dejar la **caja chica actual en $0.00**.
+
+Los gastos del periodo se envían a IE **al recolectar**, no al cerrar turno. Si falta un gasto o bono, la caja no cuadra.
+
+### Alerta DINERO EN RECUPERACIÓN
+
+Aparece con deuda (pagaré / préstamo de área) o caja en negativo. Muestra **Negativo** restante y **Recuperado** por venta.
+
+| Acción | Quién |
+|---|---|
+| **Pagaré** (ticket ×2) | Admin / Gerente / Recolector |
+| **Abono** / **Liquidar** | Cajero / Admin / Gerente (nunca cubre turno) |
+
+Si la venta ya cubrió el negativo, la alerta **permanece** hasta que el cajero liquide o abone.
+
+### Checklist recolector
+
+- Tienda y área correctas
+- Todos los gastos capturados (incl. bonos)
+- Alerta atendida (pagaré / liquidar si aplica)
+- Cerrar corte → Recolección → **Recolectar**
+- Confirmar: caja chica en $0.00`,
+  },
 ];
