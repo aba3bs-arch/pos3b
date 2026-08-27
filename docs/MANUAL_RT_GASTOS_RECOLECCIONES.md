@@ -1,5 +1,8 @@
 # Manual: Panel RT, gastos y recolecciones
 
+> **Cortes en tienda (caja chica, cerrar corte, Recolectar, alertas y pagaré):** ver  
+> [`INSTRUCTIVO_CORTES_RECOLECCIONES_ALERTAS.md`](./INSTRUCTIVO_CORTES_RECOLECCIONES_ALERTAS.md).
+
 ## Qué es la cuenta RT
 
 Las **cuentas RT** son el efectivo ya entregado en oficina y acreditado a:
