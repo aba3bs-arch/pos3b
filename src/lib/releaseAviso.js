@@ -4,14 +4,14 @@
  * Cambia `id` en cada release importante para volver a notificar.
  */
 export const RELEASE_AVISO_ACTUAL = {
-  id: '2026-08-13-vales-imprimir-eliminar-cajero',
+  id: '2026-08-27-tutorial-cobrar-rif-mercancia',
   titulo: 'Actualización del POS',
   resumen:
-    'Hay cambios nuevos. Pulsa Actualizar para cargar la versión reciente (limpia caché y recarga).',
+    'Nuevo tutorial de cobro y RIF para comprar mercancía en la misma tienda. Pulsa Actualizar para cargar la versión reciente.',
   cambios: [
-    'Vales: Imprimir y Eliminar (Eliminar visible también para cajero)',
-    'RIF: Abonar / Liquidar; abono parcial pide nueva promesa; Imprimir RIF',
-    'Préstamos empleados: cuota semanal $500 (o resto) se descuenta en Contabilidad → Nómina',
+    'Tutorial → «Cómo cobrar en el POS» (efectivo MXN/USD y tarjeta, con pantallas reales)',
+    'Vales y Préstamos → RIF → botón «Misma tienda · compra mercancía» (fondo para mercancía en tu tienda)',
+    'RIF entre tiendas sigue igual; elige el tipo arriba del formulario',
   ],
 };
 
