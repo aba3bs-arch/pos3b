@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, esSucursalNoVenta } from '../constants/sucursales.js';
 import {
   ALMACEN_CENTRAL,
   esAlmacenCentral,
+  esCentralAdmin,
   etiquetaAlmacenCentral,
   etiquetaCedisEmpresa,
   inventarioParaSucursal,
@@ -37,14 +38,15 @@ export default function AdminInventarioCentral({
   }, [inventario, busqueda]);
 
   const tiendas = sucursalesLista || [];
-  const tiendasVenta = tiendas.filter((s) => !esAlmacenCentral(s));
+  const tiendasVenta = tiendas.filter((s) => !esSucursalNoVenta(s));
 
   return (
     <div className="card" style={{ borderTop: '4px solid var(--brand-blue)', marginBottom: '1rem' }}>
       <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Inventario multitienda</h3>
       <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-        <strong>{etiquetaCedisEmpresa()}</strong> (MAIN) es el único almacén de la empresa para mercancía por repartir.
-        Cada tienda solo tiene <strong>piso de venta</strong>. Desde MAIN usa el traspaso «CEDIS central → Tienda» para surtir sucursales.
+        <strong>{etiquetaCedisEmpresa()}</strong> es el almacén de la empresa (sucursal <strong>CEDIS</strong>, aparte de MAIN).
+        <strong> MAIN</strong> es solo la central de administración. Cada tienda solo tiene <strong>piso de venta</strong>.
+        Desde CEDIS usa el traspaso «CEDIS central → Tienda» para surtir sucursales.
       </p>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', margin: '0.75rem 0' }}>
@@ -61,7 +63,7 @@ export default function AdminInventarioCentral({
         <select className="select" style={{ marginTop: '0.35rem' }} value={tiendaOp} onChange={(e) => setTiendaOp(e.target.value)}>
           {tiendas.map((s) => (
             <option key={s} value={s}>
-              {esAlmacenCentral(s) ? etiquetaAlmacenCentral() : etiquetaTienda(s)}
+              {esAlmacenCentral(s) || esCentralAdmin(s) ? etiquetaTienda(s) : etiquetaTienda(s)}
             </option>
           ))}
         </select>
@@ -69,7 +71,12 @@ export default function AdminInventarioCentral({
 
       {esAlmacenCentral(tiendaOp) && (
         <p className="muted" style={{ fontSize: '0.8rem', margin: '0.5rem 0 0' }}>
-          En MAIN las entradas y compras suman al CEDIS central. Usa «CEDIS central → Tienda» para distribuir a sucursales.
+          En CEDIS las entradas y compras suman al almacén central. Usa «CEDIS central → Tienda» para distribuir a sucursales.
+        </p>
+      )}
+      {esCentralAdmin(tiendaOp) && (
+        <p className="muted" style={{ fontSize: '0.8rem', margin: '0.5rem 0 0' }}>
+          MAIN es panel administrativo (sin inventario CEDIS). Cambia a <strong>CEDIS</strong> para entradas y traspasos de almacén.
         </p>
       )}
 

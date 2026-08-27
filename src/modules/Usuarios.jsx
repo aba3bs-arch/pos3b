@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { listarTodosLosRoles, normalizarRol, puedeGestionarUsuarios, EVENTO_ROLES } from '../lib/roles.js';
 import { ETIQUETA_AREA, PAGADORES_NOMINA } from '../lib/contabilidadConstants.js';
-import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, listarSucursales, normalizarCodigoTienda, esCentralAdmin } from '../constants/sucursales.js';
 import { leerTurnos, leerConfigHorario, esHorarioPersonalizado, resumenHorarioUsuario, EVENTO_TURNOS, nombreTurnoLegible, TURNO_AMBOS_ID, etiquetaTurno } from '../lib/turnos.js';
 import {
   agruparEmpleadosCatalogo,
@@ -96,7 +96,8 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     [filas, mostrarBajas],
   );
 
-  const tiendasOps = listarSucursalesOperativas();
+  /** Tiendas de venta + CEDIS (almacén). MAIN solo vía tipo Indirecto. */
+  const tiendasAsignables = listarSucursales().filter((s) => !esCentralAdmin(s));
 
   const togglePinVisible = (id) => {
     setPinsVisibles((prev) => {
@@ -114,7 +115,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       nombre: r.nombre || '',
       rol: normalizarRol(r.rol),
       tipo_empleado: tipo,
-      sucursal_id: tipo === 'indirecto' ? 'MAIN' : (normalizarCodigoTienda(r.sucursal_id) || tiendasOps[0] || 'MAIN'),
+      sucursal_id: tipo === 'indirecto' ? 'MAIN' : (normalizarCodigoTienda(r.sucursal_id) || tiendasAsignables[0] || 'CEDIS'),
       nomina_pagador: r.nomina_pagador || 'abarrotes',
     });
   };
@@ -126,7 +127,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     const tipo = editForm.tipo_empleado === 'indirecto' ? 'indirecto' : 'tienda';
     const sucursal_id = tipo === 'indirecto'
       ? 'MAIN'
-      : (normalizarCodigoTienda(editForm.sucursal_id) || tiendasOps[0] || 'MAIN');
+      : (normalizarCodigoTienda(editForm.sucursal_id) || tiendasAsignables[0] || 'CEDIS');
     if (tipo === 'tienda' && normalizarRol(editForm.rol) !== 'Administrador') {
       const cupo = puedeAgregarEmpleadoTienda(rows, sucursal_id, { excluirId: editandoId });
       if (!cupo.ok) return alert(cupo.error);
@@ -174,7 +175,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     const tipo = form.tipo_empleado === 'indirecto' ? 'indirecto' : 'tienda';
     const sucursal_id = tipo === 'indirecto'
       ? 'MAIN'
-      : (normalizarCodigoTienda(form.sucursal_id) || tiendasOps[0] || 'MAIN');
+      : (normalizarCodigoTienda(form.sucursal_id) || tiendasAsignables[0] || 'CEDIS');
     if (tipo === 'tienda' && normalizarRol(form.rol) !== 'Administrador') {
       const cupo = puedeAgregarEmpleadoTienda(rows, sucursal_id);
       if (!cupo.ok) return alert(cupo.error);
@@ -231,7 +232,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     const sucursal_id = tipo === 'indirecto'
       ? 'MAIN'
       : (normalizarCodigoTienda(row.sucursal_id) === 'MAIN'
-        ? (tiendasOps[0] || 'MAIN')
+        ? (tiendasAsignables[0] || 'CEDIS')
         : normalizarCodigoTienda(row.sucursal_id));
     if (tipo === 'tienda' && normalizarRol(row.rol) !== 'Administrador' && row.activo !== false) {
       const cupo = puedeAgregarEmpleadoTienda(rows, sucursal_id, { excluirId: id });
@@ -405,7 +406,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
             value={normalizarCodigoTienda(r.sucursal_id) || 'MAIN'}
             onChange={(e) => actualizarSucursal(r.id, e.target.value)}
           >
-            {tiendasOps.map((s) => (
+            {tiendasAsignables.map((s) => (
               <option key={s} value={s}>{etiquetaTienda(s)}</option>
             ))}
           </select>
@@ -550,7 +551,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                 setForm({
                   ...form,
                   tipo_empleado,
-                  sucursal_id: tipo_empleado === 'indirecto' ? 'MAIN' : (tiendasOps.includes(form.sucursal_id) ? form.sucursal_id : (tiendasOps[0] || 'MAIN')),
+                  sucursal_id: tipo_empleado === 'indirecto' ? 'MAIN' : (tiendasAsignables.includes(form.sucursal_id) ? form.sucursal_id : (tiendasAsignables[0] || 'CEDIS')),
                 });
               }}
             >
@@ -569,7 +570,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
               disabled={form.tipo_empleado === 'indirecto'}
               onChange={(e) => setForm({ ...form, sucursal_id: e.target.value })}
             >
-              {(form.tipo_empleado === 'indirecto' ? ['MAIN'] : tiendasOps).map((s) => (
+              {(form.tipo_empleado === 'indirecto' ? ['MAIN'] : tiendasAsignables).map((s) => (
                 <option key={s} value={s}>
                   {etiquetaTienda(s)}
                 </option>
@@ -732,7 +733,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                     tipo_empleado,
                     sucursal_id: tipo_empleado === 'indirecto'
                       ? 'MAIN'
-                      : (tiendasOps.includes(editForm.sucursal_id) ? editForm.sucursal_id : (tiendasOps[0] || 'MAIN')),
+                      : (tiendasAsignables.includes(editForm.sucursal_id) ? editForm.sucursal_id : (tiendasAsignables[0] || 'CEDIS')),
                   });
                 }}
               >
@@ -749,7 +750,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                 disabled={editForm.tipo_empleado === 'indirecto'}
                 onChange={(e) => setEditForm({ ...editForm, sucursal_id: e.target.value })}
               >
-                {(editForm.tipo_empleado === 'indirecto' ? ['MAIN'] : tiendasOps).map((s) => (
+                {(editForm.tipo_empleado === 'indirecto' ? ['MAIN'] : tiendasAsignables).map((s) => (
                   <option key={s} value={s}>
                     {etiquetaTienda(s)}
                   </option>

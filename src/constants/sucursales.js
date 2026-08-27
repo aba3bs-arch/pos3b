@@ -1,12 +1,26 @@
 /**
- * Tiendas base + MAIN (= CEDIS / almacén central). Las agregadas en la app se guardan en localStorage.
- * MAIN es la sucursal del CEDIS: el administrador entra ahí para operar el almacén central.
+ * Tiendas base:
+ * - MAIN  = Central de administración (panel admin; no es almacén)
+ * - CEDIS = Almacén central / inventario de la cadena
+ * - FUSION, 3Bn = tiendas de venta
  */
-export const SUCURSALES_BASE = ['MAIN', 'FUSION', '3B2', '3B5', '3B6', '3B7', '3B9', '3B10'];
-export const ALMACEN_CENTRAL = 'MAIN';
+export const SUCURSALES_BASE = ['MAIN', 'CEDIS', 'FUSION', '3B2', '3B5', '3B6', '3B7', '3B9', '3B10'];
 
-/** Alias de UI / captura que apuntan al CEDIS (= MAIN). */
-const ALIAS_CEDIS = new Set(['CEDIS', 'CEDIS_CENTRAL', 'ALMACEN_CENTRAL', 'ALMACEN']);
+/** Panel administrativo (login hub, no fijable como caja). */
+export const CENTRAL_ADMIN = 'MAIN';
+
+/** Almacén / CEDIS de la empresa (inventario central). */
+export const ALMACEN_CENTRAL = 'CEDIS';
+
+/** Alias de captura → código canónico. */
+const ALIAS_A_CODIGO = {
+  CEDIS_CENTRAL: 'CEDIS',
+  ALMACEN_CENTRAL: 'CEDIS',
+  ALMACEN: 'CEDIS',
+  CENTRAL: 'MAIN',
+  CENTRAL_ADMIN: 'MAIN',
+  ADMINISTRACION: 'MAIN',
+};
 
 export function normalizarCodigoTienda(s) {
   const c = String(s ?? '')
@@ -14,18 +28,27 @@ export function normalizarCodigoTienda(s) {
     .toUpperCase()
     .replace(/\s+/g, '_');
   if (!c) return '';
-  if (ALIAS_CEDIS.has(c)) return ALMACEN_CENTRAL;
-  return c;
+  return ALIAS_A_CODIGO[c] || c;
 }
 
-/** Central de administración / CEDIS — no participa en estadísticas operativas de tiendas. */
+/** Central de administración (MAIN). */
+export function esCentralAdmin(codigo) {
+  return normalizarCodigoTienda(codigo) === CENTRAL_ADMIN;
+}
+
+/** Almacén CEDIS (inventario). */
 export function esAlmacenCentral(codigo) {
   return normalizarCodigoTienda(codigo) === ALMACEN_CENTRAL;
 }
 
-/** Tiendas de venta (sin almacén central MAIN / CEDIS). */
+/** MAIN o CEDIS: no son tiendas de venta al público. */
+export function esSucursalNoVenta(codigo) {
+  return esCentralAdmin(codigo) || esAlmacenCentral(codigo);
+}
+
+/** Tiendas de venta (sin MAIN ni CEDIS). */
 export function listarSucursalesOperativas() {
-  return listarSucursales().filter((s) => !esAlmacenCentral(s));
+  return listarSucursales().filter((s) => !esSucursalNoVenta(s));
 }
 
 export const LS_SUCURSAL = 'pos3b_sucursal';
@@ -77,7 +100,8 @@ export function codigoTiendaValido(codigo) {
 
 export function etiquetaTienda(codigo) {
   const s = normalizarCodigoTienda(codigo);
-  if (esAlmacenCentral(s)) return 'CEDIS · almacén central (MAIN)';
+  if (esCentralAdmin(s)) return 'Central de administración (MAIN)';
+  if (esAlmacenCentral(s)) return 'CEDIS · almacén central';
   if (s === 'FUSION') return s;
   if (/^3B\d+$/i.test(s)) return `Sucursal ${s}`;
   return s || String(codigo || '');
@@ -87,13 +111,8 @@ export function agregarSucursalExtra(codigo) {
   const c = normalizarCodigoTienda(codigo);
   if (!c || c.length > 32) return { ok: false, error: 'Código vacío o demasiado largo (máx. 32).' };
   if (!/^[A-Z0-9._-]+$/.test(c)) return { ok: false, error: 'Solo letras, números, punto, guion y guion bajo.' };
-  if (esAlmacenCentral(c) || listarSucursales().includes(c)) {
-    return {
-      ok: false,
-      error: esAlmacenCentral(c)
-        ? 'CEDIS ya existe como sucursal MAIN (almacén central). Elige MAIN en el selector.'
-        : 'Esa tienda ya está en la lista.',
-    };
+  if (listarSucursales().includes(c)) {
+    return { ok: false, error: 'Esa tienda ya está en la lista.' };
   }
   const extras = leerExtras().filter((x) => !SUCURSALES_BASE.includes(x));
   extras.push(c);
@@ -134,7 +153,7 @@ export function leerSucursalGuardada() {
   } catch {
     /* ignore */
   }
-  return 'MAIN';
+  return CENTRAL_ADMIN;
 }
 
 export function guardarSucursalLocal(codigo) {
@@ -161,8 +180,8 @@ export function codigoTiendaBloqueadaLocal() {
   try {
     const c = normalizarCodigoTienda(localStorage.getItem(LS_SUCURSAL));
     if (!codigoTiendaValido(c)) return null;
-    // Locks antiguos a MAIN no cuentan (central libre).
-    if (esAlmacenCentral(c)) {
+    // Locks antiguos a MAIN no cuentan (central admin libre).
+    if (esCentralAdmin(c)) {
       desbloquearTiendaEnEsteEquipo();
       return null;
     }
@@ -172,17 +191,18 @@ export function codigoTiendaBloqueadaLocal() {
   }
 }
 
-/** Caja física fijada por env (solo tiendas de venta; MAIN no bloquea el selector). */
+/** Caja física fijada por env (tiendas de venta o CEDIS; MAIN no bloquea el selector). */
 export function sucursalFijaEsCajaFisica() {
   const env = sucursalFijaPorEntorno();
-  return Boolean(env && !esAlmacenCentral(env));
+  return Boolean(env && !esCentralAdmin(env));
 }
 
 export function bloquearTiendaEnEsteEquipo(codigo) {
   const c = normalizarCodigoTienda(codigo);
   if (!codigoTiendaValido(c)) return;
-  // Central MAIN es panel administrativo: nunca se “fijera” como caja de una sola tienda.
-  if (esAlmacenCentral(c)) return;
+  // MAIN es panel administrativo: nunca se “fijera” como caja de una sola tienda.
+  // CEDIS sí se puede fijar (PC de almacén).
+  if (esCentralAdmin(c)) return;
   try {
     localStorage.setItem(LS_SUCURSAL, c);
     localStorage.setItem(LS_TIENDA_BLOQUEADA, '1');

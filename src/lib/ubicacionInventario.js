@@ -66,7 +66,7 @@ export const SUBTIPOS_TRASPASO = [
 
 export function subtiposTraspasoParaSucursal(sucursal) {
   const central = esAlmacenCentral(sucursal);
-  // Solo MAIN→sucursal o sucursal→sucursal (sin CEDIS↔piso ni retorno a MAIN).
+  // Solo CEDIS→sucursal o sucursal→sucursal.
   return SUBTIPOS_TRASPASO.filter((s) => {
     if (s.id === 'cedis_piso' || s.id === 'piso_cedis') return false;
     if (s.id === 'central_tienda') return central;
@@ -77,17 +77,17 @@ export function subtiposTraspasoParaSucursal(sucursal) {
 
 /** ¿El producto ya usa inventario por sucursal? */
 export function usaInventarioMultitienda(producto) {
-  const map = asegurarMapaStock(producto, 'MAIN');
+  const map = asegurarMapaStock(producto, ALMACEN_CENTRAL);
   return Object.keys(map).length > 0;
 }
 
 function etiquetaUbicacion(ubicacion, sucursal) {
   if (ubicacion === 'cedis') return etiquetaCedisEmpresa();
-  return esAlmacenCentral(sucursal) ? 'Piso · MAIN' : `Piso · ${etiquetaTienda(sucursal)}`;
+  return `Piso · ${etiquetaTienda(sucursal)}`;
 }
 
 function etiquetaSucursal(sucursal) {
-  return esAlmacenCentral(sucursal) ? etiquetaAlmacenCentral() : etiquetaTienda(sucursal);
+  return etiquetaTienda(sucursal);
 }
 
 export function resolverTraspaso(subtipo, sucursalOrigen, sucursalDestino) {

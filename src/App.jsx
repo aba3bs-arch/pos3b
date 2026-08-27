@@ -54,6 +54,7 @@ import {
   codigoTiendaBloqueadaLocal,
   normalizarCodigoTienda,
   esAlmacenCentral,
+  esCentralAdmin,
   sucursalFijaEsCajaFisica,
 } from './constants/sucursales.js';
 import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, submodulosEstadisticasVisibles, puedeVerSeccionEstadisticas, SUBMODULOS_ESTADISTICAS, VISTA_HUB_ESTADISTICAS, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias } from './lib/roles.js';
@@ -178,12 +179,13 @@ function App() {
   const [brandTitle, setBrandTitle] = useState(leerNombreNegocio);
   const [listaSucursales, setListaSucursales] = useState(() => listarSucursalesParaUI());
 
-  // Latido: caja física fijada, O sesión activa en Central (MAIN).
+  // Latido: caja física fijada, O sesión activa en MAIN (admin) o CEDIS (almacén).
   // Si el admin solo "consulta" 3B5 desde MAIN sin fijar, NO latea 3B5 (evita falso “en línea”).
   const sucursalLatido =
     (CAJA_FISICA_FIJA_ENV ? SUCURSAL_FIJA_ENV : null) ||
     (tiendaFijadaParaAcceso ? codigoTiendaBloqueadaLocal() || null : null) ||
-    (sesion && esAlmacenCentral(sucursal) ? 'MAIN' : null) ||
+    (sesion && esCentralAdmin(sucursal) ? 'MAIN' : null) ||
+    (sesion && esAlmacenCentral(sucursal) ? 'CEDIS' : null) ||
     null;
 
   const { presenciaMap, avisoPresencia, marcarPresenciaFueraDeLinea } = usePresenciaSucursales({
@@ -839,7 +841,7 @@ function App() {
     }
     if (
       !confirm(
-        `Autorizado por ${auth.nombre}.\n\n¿Desbloquear la tienda de este equipo?\nPodrás elegir CEDIS (MAIN) u otra sucursal.`,
+        `Autorizado por ${auth.nombre}.\n\n¿Desbloquear la tienda de este equipo?\nPodrás elegir MAIN, CEDIS u otra sucursal.`,
       )
     ) {
       return false;
@@ -903,9 +905,9 @@ function App() {
           setLoginPinKey((n) => n + 1);
         }}
         onFijarTienda={() => {
-          if (esAlmacenCentral(sucursal)) {
+          if (esCentralAdmin(sucursal)) {
             alert(
-              'CEDIS (MAIN) no se fija en el equipo.\n\nEs el almacén central / panel administrativo: puedes desplegar y elegir todas las sucursales. Para fijar una caja, elige una tienda de venta (3B5, 3B7, etc.).',
+              'Central de administración (MAIN) no se fija en el equipo.\n\nEs el panel administrativo. Para almacén elige CEDIS (sí se puede fijar). Para caja de venta elige 3B5, 3B7, etc.',
             );
             return;
           }

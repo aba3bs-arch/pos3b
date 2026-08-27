@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { consultarVentas } from '../lib/ventasQuery.js';
 import { consultarCortes, consultarTarjetasAbarrotes } from '../lib/corteCaja.js';
 import { cargarSaldosCajaEnCurso } from '../lib/movimientosCaja.js';
-import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
+import { etiquetaTienda, esSucursalNoVenta } from '../constants/sucursales.js';
 import { cargarReporteMovimientosInventario, PRESETS_CONSULTAS_INVENTARIO, rangoDesdePreset } from '../lib/consultasInventario.js';
 import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from '../lib/departamentos.js';
 import { esAlmacenCentral as esCentralInv, stockEnUbicacion, ubicacionEntradaDefault } from '../lib/inventarioMultitienda.js';
@@ -96,7 +96,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const [desde, setDesde] = useState(() => rangoDesdePreset('semana')?.desde || haceDiasYmd(7));
   const [hasta, setHasta] = useState(() => rangoDesdePreset('semana')?.hasta || hoyYmd());
   const [q, setQ] = useState('');
-  const [filtroSucursal, setFiltroSucursal] = useState(() => (esAlmacenCentral(sucursal) ? '' : sucursal || ''));
+  const [filtroSucursal, setFiltroSucursal] = useState(() => (esSucursalNoVenta(sucursal) ? '' : sucursal || ''));
   const [filtroDepto, setFiltroDepto] = useState('');
   const [filtroOperacionInv, setFiltroOperacionInv] = useState('');
   const [loading, setLoading] = useState(false);
@@ -217,7 +217,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
   const buscarSaldos = useCallback(async () => {
     // Venta al momento del turno (hasta que se cierre el corte). Sin fecha fija del filtro.
-    const tienda = filtroSucursal || (esAlmacenCentral(sucursal) ? null : sucursal) || null;
+    const tienda = filtroSucursal || (esSucursalNoVenta(sucursal) ? null : sucursal) || null;
     if (!tienda) {
       setAviso('Elige una sucursal para ver el saldo de caja en curso (hasta el cierre de corte).');
     }
@@ -279,7 +279,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   }, [seccion, buscarSaldos]);
 
   useEffect(() => {
-    if (esAlmacenCentral(sucursal)) return;
+    if (esSucursalNoVenta(sucursal)) return;
     if (sucursal && !filtroSucursal) setFiltroSucursal(sucursal);
   }, [sucursal]); // eslint-disable-line react-hooks/exhaustive-deps
 
