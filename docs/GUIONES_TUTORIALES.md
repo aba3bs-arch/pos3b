@@ -193,6 +193,35 @@ Duración ideal: **2 a 5 minutos** por video.
 
 ---
 
+## Video 4 — Ingresar compras al sistema (≈ 4–5 min)
+
+**Título sugerido:** `04-compras.mp4`  
+**Material de apoyo:** menú → **Tutorial** → *Ingresar compras…* · [TUTORIAL_COMPRAS.md](./TUTORIAL_COMPRAS.md)
+
+### Antes de grabar
+- Tener un proveedor con catálogo vinculado.
+- Ideal: un pedido de prueba pendiente para mostrar recepción.
+
+### Guion (leer en voz alta)
+
+> En este video vas a aprender a **ingresar compras** al POS.
+>
+> **Paso 1 — Abrir Compras.**  
+> Menú → **Compras** → **Herramienta de compra**. Eliges el **Proveedor**.
+>
+> **Paso 2 — Pedido.**  
+> Pulsas **Pedido (recepción después)**. En la columna **Pedido** pones las cantidades (Enter acepta la sugerida). Luego **Generar pedido (sin tocar inventario)**. Ojo: esto **no** sube stock.
+>
+> **Paso 3 — Recepción.**  
+> Cuando llega la mercancía: eliges el pedido pendiente o en **Historial** pulsas **Recibir**. Escaneas o capturas la columna **Recepción** y pulsas **Recibir mercancía**. Ahí sí entra el inventario.
+>
+> **Paso 4 — Entrega directa.**  
+> Si ya te entregaron sin pedido: **Entrega directa a inventario** → cantidades → **Registrar entrega e inventario**.
+>
+> **Resumen:** Pedido = ordenar. Recibir = subir stock. Entrega directa = atajo.
+
+---
+
 ## Checklist de grabación (para ti)
 
 | # | Video | Duración | Listo |
@@ -201,6 +230,7 @@ Duración ideal: **2 a 5 minutos** por video.
 | 1 | Cobrar venta | 3–4 min | ☐ |
 | 2 | Corte de caja | 4–5 min | ☐ |
 | 3 | Negativos / pagaré / abonos | 4–5 min | ☐ |
+| 4 | Compras | 4–5 min | ☐ |
 
 ### Tips de producción
 - Habla un poco más lento de lo normal.
@@ -214,4 +244,5 @@ Duración ideal: **2 a 5 minutos** por video.
 01-cobrar-venta.mp4
 02-corte-de-caja.mp4
 03-negativos-pagare-abonos.mp4
+04-compras.mp4
 ```
