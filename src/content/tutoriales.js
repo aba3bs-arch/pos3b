@@ -1,6 +1,89 @@
-/** Contenido del módulo Tutorial (POS). Imágenes en /public/tutorial-negativos/ */
+/** Contenido del módulo Tutorial (POS). Imágenes en /public/tutorial-*/ */
 
 export const TUTORIALES = [
+  {
+    id: 'cobrar-pos',
+    titulo: 'Cómo cobrar en el POS',
+    resumen:
+      'Ticket en Ventas → Cobrar → efectivo (pesos o dólares) o tarjeta → Finalizar. Capturas de la pantalla real.',
+    secciones: [
+      {
+        id: 'ticket',
+        titulo: '1. Arma el ticket y pulsa Cobrar',
+        cuerpo: [
+          'En **Ventas**, agrega productos (escaneo o catálogo).',
+          'Revisa el ticket a la derecha (líneas y total).',
+          'Pulsa el botón verde **Cobrar**.',
+        ],
+        imagen: '/tutorial-cobrar/01-ticket-cobrar.png',
+        imagenAlt: 'Ticket con productos y botón Cobrar',
+      },
+      {
+        id: 'efectivo-mxn',
+        titulo: '2. Efectivo en pesos (MXN)',
+        cuerpo: [
+          'Elige **Efectivo** y moneda **MXN**.',
+          'Indica el billete / monto recibido (o usa **Monto exacto**).',
+          'Revisa el **cambio** y pulsa **Finalizar venta**.',
+        ],
+        imagen: '/tutorial-cobrar/02-efectivo-pesos.png',
+        imagenAlt: 'Modal de cobro · Efectivo MXN',
+      },
+      {
+        id: 'efectivo-usd',
+        titulo: '3. Efectivo en dólares (USD)',
+        cuerpo: [
+          '**Efectivo** → moneda **USD**.',
+          'El POS usa el tipo de cambio del día (arriba: *Dólar*).',
+          'Elige el monto en dólares; el sistema calcula el equivalente y el cambio en MXN.',
+          'Pulsa **Finalizar venta**.',
+        ],
+        imagen: '/tutorial-cobrar/03-efectivo-dolares.png',
+        imagenAlt: 'Modal de cobro · Efectivo USD',
+      },
+      {
+        id: 'tarjeta',
+        titulo: '4. Tarjeta',
+        cuerpo: [
+          'Cobra primero en la **terminal**.',
+          'En el POS elige **Tarjeta**.',
+          'En **Referencia / folio** anota los **últimos 4 o 5 dígitos** del ticket de la terminal.',
+          'Pulsa **Finalizar venta**.',
+        ],
+        imagen: '/tutorial-cobrar/04-tarjeta.png',
+        imagenAlt: 'Modal de cobro · Tarjeta con últimos dígitos',
+        notas: [
+          'El aviso en pantalla: *Cobra primero en la terminal y anota aquí los últimos 4 o 5 dígitos del ticket.*',
+        ],
+      },
+      {
+        id: 'registrada',
+        titulo: '5. Venta registrada',
+        cuerpo: [
+          'Aparece **Venta registrada** con método, total y cambio.',
+          'Pulsa **Cerrar**. El ticket se imprime según la configuración de la tienda.',
+        ],
+        imagen: '/tutorial-cobrar/05-venta-registrada.png',
+        imagenAlt: 'Modal Venta registrada',
+      },
+      {
+        id: 'errores-cobrar',
+        titulo: '6. Errores frecuentes',
+        cuerpo: [
+          '· Cobrar sin revisar el ticket (producto o cantidad incorrecta).',
+          '· En tarjeta: olvidar cobrar en la terminal o no anotar los últimos dígitos.',
+          '· En dólares: no verificar el tipo de cambio del día.',
+        ],
+      },
+      {
+        id: 'frase-cobrar',
+        titulo: 'Frase para capacitar',
+        cuerpo: [
+          '**Ventas → ticket → Cobrar → Efectivo (MXN/USD) o Tarjeta (últimos 4–5 dígitos) → Finalizar.**',
+        ],
+      },
+    ],
+  },
   {
     id: 'negativos-pagare',
     titulo: 'Negativos, Pagaré, Abonos y Liquidaciones',
