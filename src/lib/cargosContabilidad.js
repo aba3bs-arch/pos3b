@@ -138,12 +138,20 @@ export async function cargarRifACorte(supabase, rif, opts = {}) {
   if (rif.gasto_id && !rif.gasto_eliminado) return { ok: true, yaCargado: true, gastoId: rif.gasto_id };
   const suc = rif.sucursal_origen || 'MAIN';
   const folio = String(rif.folio || '').trim();
+  const mismaTienda =
+    String(rif.tipo || '').toLowerCase() === 'misma_tienda_mercancia' ||
+    (rif.sucursal_origen &&
+      rif.sucursal_destino &&
+      String(rif.sucursal_origen).toUpperCase() === String(rif.sucursal_destino).toUpperCase());
+  const destinoTxt = mismaTienda
+    ? 'MISMA TIENDA · MERCANCÍA'
+    : `→ ${rif.sucursal_destino || ''}`;
   const payload = {
     sucursal_id: suc,
     modulo: 'abarrotes',
     categoria: 'FONDO_REQUERIDO',
-    subcategoria: 'RIF',
-    comentario: `RIF ${folio} · Resp. ${rif.responsable_nombre || '—'} · → ${rif.sucursal_destino || ''}`.trim().toUpperCase(),
+    subcategoria: mismaTienda ? 'RIF_MERCANCIA' : 'RIF',
+    comentario: `RIF ${folio} · Resp. ${rif.responsable_nombre || '—'} · ${destinoTxt}`.trim().toUpperCase(),
     monto: Number(rif.monto) || 0,
     usuario_id: rif.responsable_usuario_id || null,
     usuario_nombre: rif.responsable_nombre || null,

@@ -95,6 +95,8 @@ import {
   editarRif,
   eliminarRif,
   etiquetaEstadoRif,
+  etiquetaRutaRif,
+  etiquetaTipoRif,
   liquidarRif,
   listarRifs,
   procesarRifsVencidos,
@@ -103,6 +105,7 @@ import {
   rifPuedeCancelar,
   rifPuedeImprimir,
   rifPuedeLiquidar,
+  TIPOS_RIF,
 } from '../lib/rifs.js';
 import { normalizarRol } from '../lib/roles.js';
 import { esUsuarioCubreTurno } from '../lib/cubreTurno.js';
@@ -141,6 +144,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const [notifs, setNotifs] = useState([]);
   const [pinSocio, setPinSocio] = useState('');
   const [rifForm, setRifForm] = useState({
+    tipo: TIPOS_RIF.INTERTIENDA,
     sucursal_destino: '',
     responsable_nombre: '',
     monto: '',
@@ -693,11 +697,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     );
     if (!authTxt.ok) return alert(authTxt.error);
     const horaIso = `${rifForm.fecha_promesa}T${rifForm.hora_promesa || '18:00'}:00`;
+    const tipo = rifForm.tipo || TIPOS_RIF.INTERTIENDA;
     const res = await registrarRif(
       supabase,
       {
+        tipo,
         sucursal_origen: sucursal,
-        sucursal_destino: rifForm.sucursal_destino,
+        sucursal_destino:
+          tipo === TIPOS_RIF.MISMA_TIENDA_MERCANCIA ? sucursal : rifForm.sucursal_destino,
         responsable_nombre: rifForm.responsable_nombre,
         monto: rifForm.monto,
         motivo: rifForm.motivo,
@@ -707,6 +714,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     );
     if (!res.ok) return alert(res.error || AVISO_FALTA_RIFS);
     setRifForm({
+      tipo: TIPOS_RIF.INTERTIENDA,
       sucursal_destino: '',
       responsable_nombre: '',
       monto: '',
@@ -1679,25 +1687,78 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           <div className="card">
             <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Nuevo RIF (Requisición Interna de Fondos)</h3>
             <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-              Tienda origen: <strong>{etiquetaTienda(sucursal)}</strong>. Usa <strong>Abonar</strong> / <strong>Liquidar</strong>;
+              Tienda: <strong>{etiquetaTienda(sucursal)}</strong>. Usa <strong>Abonar</strong> / <strong>Liquidar</strong>;
               al abonar parcial se pide nueva promesa de pago. <strong>Imprimir (firma)</strong> genera el comprobante.
               Si no se liquida a la hora promesa, se carga al <strong>Corte de Abarrotes</strong> como <strong>Fondo requerido</strong>.
             </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.85rem' }}>
+              <button
+                type="button"
+                className={`btn ${rifForm.tipo === TIPOS_RIF.INTERTIENDA ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ fontSize: '0.85rem' }}
+                onClick={() =>
+                  setRifForm({
+                    ...rifForm,
+                    tipo: TIPOS_RIF.INTERTIENDA,
+                    sucursal_destino: rifForm.tipo === TIPOS_RIF.MISMA_TIENDA_MERCANCIA ? '' : rifForm.sucursal_destino,
+                  })
+                }
+              >
+                Entre tiendas
+              </button>
+              <button
+                type="button"
+                className={`btn ${rifForm.tipo === TIPOS_RIF.MISMA_TIENDA_MERCANCIA ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ fontSize: '0.85rem' }}
+                onClick={() =>
+                  setRifForm({
+                    ...rifForm,
+                    tipo: TIPOS_RIF.MISMA_TIENDA_MERCANCIA,
+                    sucursal_destino: sucursal,
+                  })
+                }
+              >
+                Misma tienda · compra mercancía
+              </button>
+            </div>
+            {rifForm.tipo === TIPOS_RIF.MISMA_TIENDA_MERCANCIA ? (
+              <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+                Requisición de fondo <strong>en esta misma tienda</strong> para comprar mercancía.
+                El dinero no se mueve a otra sucursal: documentas el fondo, la promesa de liquidar y el motivo de la compra.
+              </p>
+            ) : (
+              <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+                Préstamo / envío de fondo a <strong>otra tienda</strong> (origen ≠ receptora).
+              </p>
+            )}
             <div className="grid-2">
-              <label className="muted">
-                Tienda receptora
-                <select
-                  className="select"
-                  style={{ marginTop: '0.35rem' }}
-                  value={rifForm.sucursal_destino}
-                  onChange={(e) => setRifForm({ ...rifForm, sucursal_destino: e.target.value })}
-                >
-                  <option value="">— Selecciona —</option>
-                  {sucursalesDestino.map((s) => (
-                    <option key={s} value={s}>{etiquetaTienda(s)}</option>
-                  ))}
-                </select>
-              </label>
+              {rifForm.tipo === TIPOS_RIF.INTERTIENDA ? (
+                <label className="muted">
+                  Tienda receptora
+                  <select
+                    className="select"
+                    style={{ marginTop: '0.35rem' }}
+                    value={rifForm.sucursal_destino}
+                    onChange={(e) => setRifForm({ ...rifForm, sucursal_destino: e.target.value })}
+                  >
+                    <option value="">— Selecciona —</option>
+                    {sucursalesDestino.map((s) => (
+                      <option key={s} value={s}>{etiquetaTienda(s)}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <label className="muted">
+                  Tienda (misma)
+                  <input
+                    className="input"
+                    style={{ marginTop: '0.35rem' }}
+                    value={etiquetaTienda(sucursal)}
+                    disabled
+                    readOnly
+                  />
+                </label>
+              )}
               <label className="muted">
                 Responsable del RIF
                 <input
@@ -1742,12 +1803,17 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               </label>
               <label className="muted" style={{ gridColumn: '1 / -1' }}>
                 Motivo
+                {rifForm.tipo === TIPOS_RIF.MISMA_TIENDA_MERCANCIA ? ' (obligatorio)' : ''}
                 <input
                   className="input"
                   style={{ marginTop: '0.35rem' }}
                   value={rifForm.motivo}
                   onChange={(e) => setRifForm({ ...rifForm, motivo: e.target.value })}
-                  placeholder="Opcional"
+                  placeholder={
+                    rifForm.tipo === TIPOS_RIF.MISMA_TIENDA_MERCANCIA
+                      ? 'Ej. Compra de botanas / reposición proveedor local'
+                      : 'Opcional'
+                  }
                 />
               </label>
             </div>
@@ -1762,8 +1828,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 <thead>
                   <tr>
                     <th>Folio</th>
+                    <th>Tipo</th>
                     <th>Estado</th>
-                    <th>Origen → Receptora</th>
+                    <th>Ruta</th>
                     <th>Responsable</th>
                     <th>Monto</th>
                     <th>Promesa</th>
@@ -1773,14 +1840,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 <tbody>
                   {rifs.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="muted">Sin RIF. Ejecuta supabase/fix_rifs.sql si falta la tabla.</td>
+                      <td colSpan={8} className="muted">Sin RIF. Ejecuta supabase/fix_rifs.sql si falta la tabla.</td>
                     </tr>
                   ) : (
                     rifs.map((r) => (
                       <tr key={r.id}>
                         <td>{r.folio}</td>
+                        <td className="muted" style={{ fontSize: '0.82rem' }}>{etiquetaTipoRif(r)}</td>
                         <td>{etiquetaEstadoRif(r.estado)}</td>
-                        <td className="muted">{etiquetaTienda(r.sucursal_origen)} → {etiquetaTienda(r.sucursal_destino)}</td>
+                        <td className="muted">{etiquetaRutaRif(r)}</td>
                         <td>{r.responsable_nombre}</td>
                         <td style={{ fontWeight: 700 }}>{fmt(r.monto)}</td>
                         <td className="muted" style={{ fontSize: '0.82rem' }}>
