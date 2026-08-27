@@ -1,20 +1,19 @@
 {
   "version": "1.1.0",
-  "buildId": "d879828",
-  "branch": "cursor/pagares-rc-virtual-vales-2331",
-  "builtAt": "2026-08-26T17:02:32.096Z",
+  "buildId": "2cd4b55",
+  "branch": "cursor/aviso-tutorial-rif-4437",
+  "builtAt": "2026-08-27T22:11:57.445Z",
   "title": "Actualización disponible",
-  "summary": "Checador: Resumen de días (entrada y salida). Cortes: papelera y teclado en pantalla. Acepta para actualizar esta caja.",
+  "summary": "Tutorial de cobro en el POS y RIF para comprar mercancía en la misma tienda. Acepta para actualizar esta caja.",
   "changes": [
-    "Checador → pestaña Resumen días: tabla de días, descansos y faltas",
-    "Un día trabajado solo cuenta con entrada y salida (si solo hay entrada, no cuenta)",
-    "Cubre turno (CT) solo suma días checados, sin faltas ni descansos",
-    "Cortes Virtual/Abarrotes/Garage: papelera de cierres borrados, con quién los eliminó y Restaurar",
-    "Teclado en pantalla en esos cortes para tablet/POS sin teclado físico",
-    "fix(cortes): pasar cajaActual a la alerta de recuperación",
-    "fix(cortes): alerta muestra el mismo negativo si la caja está en rojo",
-    "fix(prestamos): Origen presta, Destino recibe; alerta en Destino",
-    "fix(prestamos): textos Recibe/Prestó y buzón al área receptora",
-    "fix(prestamos): alerta de recuperación en el área que recibe"
+    "Tutorial → Cómo cobrar en el POS (efectivo pesos/dólares y tarjeta)",
+    "Vales y Préstamos → RIF → Misma tienda · compra mercancía",
+    "RIF entre tiendas sin cambios; elige el tipo en el formulario",
+    "feat(rif): requisición interna de fondo para mercancía en la misma tienda",
+    "feat(tutorial): cómo cobrar en el POS con capturas reales de Ventas",
+    "docs: quitar enlace al tutorial de cobros en guiones",
+    "chore(tutorial): quitar tutorial Cobros en caja",
+    "chore(tutorial): quitar entrada Corte de caja del catálogo de tutoriales",
+    "chore(tutorial): quitar tutorial de Corte de caja"
   ]
 }

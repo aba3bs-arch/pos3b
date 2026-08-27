@@ -1222,7 +1222,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         ).filter(Boolean).map((p) => (
           <button key={p} type="button" className={`btn ${pestana === p ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPestana(p)}>
             {p === 'vales' && 'Vales'}
-            {p === 'rif' && `RIF (${rifs.filter((r) => r.estado === 'abierto').length})`}
+            {p === 'rif' && `RIF · fondos (${rifs.filter((r) => r.estado === 'abierto').length})`}
             {p === 'pagare' && `Pagaré (${pagares.filter((x) => pagareEstaAbierto(x)).length})`}
             {p === 'prestamos' && 'Préstamos área / sucursal'}
             {p === 'prestamos_emp' && 'Préstamos empleados'}
