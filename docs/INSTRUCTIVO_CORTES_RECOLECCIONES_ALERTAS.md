@@ -4,6 +4,8 @@ Guía para **recolectores** (y cajeros/admin) de cómo debe cuadrar la caja chic
 
 Aplica a **Corte Virtual** (flujo principal de caja chica + Recolectar). Garage y Abarrotes tienen variaciones; al final se resume lo diferente.
 
+> **Tutorial ilustrado (con imágenes):** [TUTORIAL_NEGATIVOS_PAGARE_ABONOS.md](./TUTORIAL_NEGATIVOS_PAGARE_ABONOS.md) — negativos, pagaré, abonos y liquidaciones paso a paso.
+
 ---
 
 ## Regla de oro (para que todo cuadre)
