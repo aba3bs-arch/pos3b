@@ -1,9 +1,11 @@
+import { etiquetaTienda } from '../constants/sucursales.js';
 import {
   ALMACEN_CENTRAL,
   buildPatchStock,
   buildPatchStockTienda,
   buildPatchVaciarInventarioCompleto,
   esAlmacenCentral,
+  etiquetaCedisEmpresa,
   stockEnUbicacion,
 } from './inventarioMultitienda.js';
 import { guardarMovimientoLocal, leerMovimientosLocal, leerProductoInventarioFresco } from './inventarioMovimientos.js';
@@ -121,13 +123,43 @@ export async function vaciarInventario(supabase, opts) {
   };
 }
 
-export const OPCIONES_VACIADO = [
-  { id: 'piso', label: 'Piso de venta (tienda activa)', desc: 'Deja en cero el mostrador; conserva el CEDIS central.' },
-  { id: 'cedis', label: 'CEDIS central (almacén empresa)', desc: 'Vacía el almacén MAIN; conserva el piso de las tiendas.' },
-  {
-    id: 'tienda',
-    label: 'Toda la tienda activa',
-    desc: 'En MAIN vacía CEDIS y piso; en sucursales solo el piso de venta.',
-  },
-  { id: 'global', label: 'Todas las sucursales', desc: 'Pone en cero el CEDIS central y el piso de MAIN y todas las tiendas.' },
-];
+/**
+ * Opciones de vaciado con el nombre concreto de la tienda activa.
+ * @param {string} [sucursal]
+ */
+export function opcionesVaciado(sucursal) {
+  const codigo = String(sucursal || '').trim() || 'MAIN';
+  const tienda = etiquetaTienda(codigo);
+  const enCedis = esAlmacenCentral(codigo);
+  const cedisLbl = etiquetaCedisEmpresa();
+
+  return [
+    {
+      id: 'piso',
+      label: `Piso de venta · ${tienda}`,
+      desc: enCedis
+        ? `Deja en cero el piso de ${tienda}; conserva ${cedisLbl}.`
+        : `Deja en cero el mostrador de ${tienda}; no toca otras tiendas ni ${cedisLbl}.`,
+    },
+    {
+      id: 'cedis',
+      label: cedisLbl,
+      desc: `Vacía solo ${cedisLbl} (código CEDIS). Conserva el piso de ${tienda} y de las demás sucursales.`,
+    },
+    {
+      id: 'tienda',
+      label: `Toda la tienda · ${tienda}`,
+      desc: enCedis
+        ? `Vacía ${cedisLbl} y el piso de ${tienda}. No toca el piso de las otras sucursales.`
+        : `Vacía solo el piso de venta de ${tienda}. No toca ${cedisLbl} ni otras tiendas.`,
+    },
+    {
+      id: 'global',
+      label: 'Todas las sucursales',
+      desc: `Pone en cero ${cedisLbl} y el piso de MAIN, ${tienda} y todas las demás tiendas.`,
+    },
+  ];
+}
+
+/** @deprecated Preferir opcionesVaciado(sucursal) para incluir el nombre de la tienda. */
+export const OPCIONES_VACIADO = opcionesVaciado();

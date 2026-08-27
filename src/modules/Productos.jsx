@@ -11,7 +11,7 @@ import {
   listarProveedoresEnFilas,
   parsearTextoPegado,
 } from '../lib/importarCatalogo.js';
-import { vaciarInventario, OPCIONES_VACIADO } from '../lib/borrarInventario.js';
+import { vaciarInventario, opcionesVaciado } from '../lib/borrarInventario.js';
 import { registrarCambioPrecio, leerProductoInventarioFresco } from '../lib/inventarioMovimientos.js';
 import { mensajeErrorColumnasProducto, productoDesdeDb, productoParaGuardar, productoVacio } from '../lib/productoForm.js';
 import { codigoOcupadoPorOtro, normalizarCodigosAlt } from '../lib/buscarProductoTexto.js';
@@ -648,15 +648,25 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     prepararImportFilas(r.filas, 'Pegado desde Excel');
   };
 
+  const opcionesVaciadoTienda = useMemo(() => opcionesVaciado(sucursal), [sucursal]);
+
   const ejecutarVaciado = async () => {
     if (!puedeVaciarInventario) return alert('Solo Gerente o Administrador pueden vaciar inventario.');
-    const opcion = OPCIONES_VACIADO.find((o) => o.id === alcanceVaciado);
+    const nProds = inventarioCompleto?.length || inventario.length;
+    const opcion = opcionesVaciadoTienda.find((o) => o.id === alcanceVaciado);
     const msg =
       alcanceVaciado === 'global'
-        ? `¿VACIAR inventario de TODAS las sucursales en ${inventarioCompleto?.length || inventario.length} producto(s)? Esta acción no se puede deshacer.`
-        : `¿Vaciar inventario (${opcion?.label}) en ${inventarioCompleto?.length || inventario.length} producto(s)?`;
+        ? `¿VACIAR inventario de TODAS las sucursales (${nProds} producto(s))?\n\nSe pondrá en CERO el CEDIS central y el piso de ${tiendaLabel} y de todas las demás tiendas.\nEsta acción no se puede deshacer.`
+        : alcanceVaciado === 'cedis'
+          ? `¿Vaciar ${opcion?.label} en ${nProds} producto(s)?\n\nNo se modifica el piso de ${tiendaLabel} ni de otras tiendas.`
+          : `¿Vaciar inventario de «${tiendaLabel}»?\n\nAlcance: ${opcion?.label}\nProductos: ${nProds}\n\nSolo afecta el inventario de esta tienda.`;
     if (!confirm(msg)) return;
-    if (alcanceVaciado === 'global' && !confirm('Confirma de nuevo: se pondrá en CERO el stock en MAIN y todas las tiendas.')) return;
+    if (
+      alcanceVaciado === 'global' &&
+      !confirm(`Confirma de nuevo: se pondrá en CERO el stock en CEDIS, ${tiendaLabel} y TODAS las tiendas.`)
+    ) {
+      return;
+    }
     setVaciando(true);
     const r = await vaciarInventario(supabase, {
       inventarioCompleto: inventarioCompleto || inventario,
@@ -668,7 +678,11 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     });
     setVaciando(false);
     if (!r.ok) return alert(r.error);
-    alert(r.mensaje);
+    alert(
+      alcanceVaciado === 'global'
+        ? r.mensaje
+        : `${r.mensaje}\nTienda: ${tiendaLabel}`,
+    );
     cargarDatos();
     setMotivoVaciado('');
   };
@@ -750,7 +764,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
             ]
           : []),
         ...(puedeVaciarInventario
-          ? [{ id: 'vaciarinventario', label: 'Vaciar inventario', icon: 'trash', onClick: () => setVista('vaciarinventario') }]
+          ? [{ id: 'vaciarinventario', label: `Vaciar inventario · ${tiendaLabel}`, icon: 'trash', onClick: () => setVista('vaciarinventario') }]
           : []),
         ...(puedeGestionCatalogo
           ? [{ id: 'precios', label: 'Administrador de precios', icon: 'dollar', onClick: () => { initPreciosDraft(); setVista('precios'); } }]
@@ -864,7 +878,9 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                 : ajusteConfig.modo === 'masivo'
                   ? 'Ingreso de inventarios'
                   : 'Ajuste de inventario'
-              : TITULOS_VISTA[vista] || 'Productos'}
+              : vista === 'vaciarinventario'
+                ? `Vaciar inventario · ${tiendaLabel}`
+                : TITULOS_VISTA[vista] || 'Productos'}
           </h2>
           {vista === 'lista' && (
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
@@ -1218,6 +1234,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
         onClose={() => setModalAjusteOpen(false)}
         inventario={inventario}
         sucursal={sucursal}
+        tiendaLabel={tiendaLabel}
         onElegir={abrirAjusteDesdeModal}
         onBorrarInventario={puedeVaciarInventario ? () => setVista('vaciarinventario') : undefined}
       />
@@ -1580,11 +1597,16 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
       {vista === 'vaciarinventario' && puedeVaciarInventario && (
         <div className="card" style={{ borderTop: '4px solid var(--brand-red)' }}>
           <p className="muted" style={{ marginTop: 0 }}>
-            Pone en <strong>cero</strong> el inventario seleccionado. Se registra en el historial de movimientos (Consultas → Consulta producto).
-            Tienda activa: <strong>{sucursal || 'MAIN'}</strong> · {inventarioCompleto?.length || inventario.length} producto(s).
+            Pone en <strong>cero</strong> el inventario según el alcance elegido. Se registra en el historial de movimientos (Consultas → Consulta producto).
+          </p>
+          <p style={{ margin: '0 0 1rem', padding: '0.65rem 0.85rem', background: 'var(--surface-2, #f5f5f5)', borderRadius: 8, borderLeft: '4px solid var(--brand-red)' }}>
+            Tienda que se vaciará:{' '}
+            <strong style={{ color: 'var(--brand-red)' }}>{tiendaLabel}</strong>
+            <span className="muted"> ({sucursal || 'MAIN'})</span>
+            <span className="muted"> · {inventarioCompleto?.length || inventario.length} producto(s)</span>
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
-            {OPCIONES_VACIADO.map((o) => (
+            {opcionesVaciadoTienda.map((o) => (
               <label key={o.id} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', cursor: 'pointer' }}>
                 <input type="radio" name="alcanceVaciado" value={o.id} checked={alcanceVaciado === o.id} onChange={() => setAlcanceVaciado(o.id)} style={{ marginTop: '0.25rem' }} />
                 <span>
@@ -1599,7 +1621,13 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
             <input className="input" style={{ marginTop: '0.35rem' }} value={motivoVaciado} onChange={(e) => setMotivoVaciado(e.target.value)} placeholder="Conteo anual, cambio de sistema…" />
           </label>
           <button type="button" className="btn btn-danger" style={{ marginTop: '1rem' }} onClick={ejecutarVaciado} disabled={vaciando}>
-            {vaciando ? 'Vaciando…' : 'Vaciar inventario ahora'}
+            {vaciando
+              ? 'Vaciando…'
+              : alcanceVaciado === 'global'
+                ? 'Vaciar inventario de TODAS las tiendas'
+                : alcanceVaciado === 'cedis'
+                  ? 'Vaciar CEDIS central ahora'
+                  : `Vaciar inventario de ${tiendaLabel}`}
           </button>
         </div>
       )}
