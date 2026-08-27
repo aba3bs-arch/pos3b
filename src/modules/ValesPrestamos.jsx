@@ -1158,7 +1158,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
       {(esMain) && (
         <div className="card" style={{ borderLeft: '4px solid var(--brand-blue)', background: 'rgba(59,105,181,0.07)' }}>
-          <strong>Estás en Central (MAIN)</strong>
+          <strong>Estás en CEDIS · almacén central (MAIN)</strong>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
             Aquí puedes generar un <strong>vale de envío de efectivo</strong> a una tienda (pestaña Préstamos).
             Se carga al corte de esa tienda y <strong>no va a IE/contabilidad</strong>. No inyecta moneda a caja.

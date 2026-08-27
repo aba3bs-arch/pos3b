@@ -1232,7 +1232,7 @@ export default function RecoleccionesTraspasosContabilidad({ supabase, user, onV
               <label className="muted">
                 Tienda contable (opcional)
                 <select className="select" style={{ marginTop: '0.35rem' }} value={gastoRtTienda} onChange={(e) => setGastoRtTienda(e.target.value)}>
-                  <option value="">Central (MAIN)</option>
+                  <option value="">CEDIS (MAIN)</option>
                   {tiendas.map((t) => (
                     <option key={t.codigo} value={t.codigo}>
                       {t.etiqueta}

@@ -8,7 +8,7 @@ export function esAlmacenCentral(sucursal) {
 }
 
 export function etiquetaAlmacenCentral() {
-  return 'Central de administración (MAIN)';
+  return etiquetaTienda(ALMACEN_CENTRAL);
 }
 
 export function etiquetaCedisEmpresa() {

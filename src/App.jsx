@@ -839,7 +839,7 @@ function App() {
     }
     if (
       !confirm(
-        `Autorizado por ${auth.nombre}.\n\n¿Desbloquear la tienda de este equipo?\nPodrás elegir Central (MAIN) u otra sucursal.`,
+        `Autorizado por ${auth.nombre}.\n\n¿Desbloquear la tienda de este equipo?\nPodrás elegir CEDIS (MAIN) u otra sucursal.`,
       )
     ) {
       return false;
@@ -905,7 +905,7 @@ function App() {
         onFijarTienda={() => {
           if (esAlmacenCentral(sucursal)) {
             alert(
-              'Central (MAIN) no se fija en el equipo.\n\nEs el panel administrativo: puedes desplegar y elegir todas las sucursales. Para fijar una caja, elige una tienda de venta (3B5, 3B7, etc.).',
+              'CEDIS (MAIN) no se fija en el equipo.\n\nEs el almacén central / panel administrativo: puedes desplegar y elegir todas las sucursales. Para fijar una caja, elige una tienda de venta (3B5, 3B7, etc.).',
             );
             return;
           }
