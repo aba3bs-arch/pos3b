@@ -48,7 +48,9 @@ export default function ModalAjusteInventario({
   sucursal,
   onElegir,
   onBorrarInventario,
+  tiendaLabel,
 }) {
+  const nombreTienda = tiendaLabel || sucursal || 'MAIN';
   const [accion, setAccion] = useState('nuevo');
   const [paso, setPaso] = useState('menu'); // menu | departamentos
   const [qDepto, setQDepto] = useState('');
@@ -207,8 +209,8 @@ export default function ModalAjusteInventario({
                       <button type="button" className="prod-modal-borrar" onClick={() => { onBorrarInventario(); resetYCerrar(); }}>
                         <Icon name="alert" size={22} />
                         <span>
-                          <strong>Borrar inventario</strong>
-                          <small>Resetear todos los productos a 0 existencias</small>
+                          <strong>Borrar inventario · {nombreTienda}</strong>
+                          <small>Vaciar existencias de {nombreTienda} (elige el alcance en la siguiente pantalla)</small>
                         </span>
                       </button>
                     )}
