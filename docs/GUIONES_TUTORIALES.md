@@ -157,6 +157,37 @@ Duración ideal: **2 a 5 minutos** por video.
 
 ---
 
+## Video 3 — Negativos, pagaré, abonos y liquidaciones (≈ 4–5 min)
+
+**Título sugerido:** `03-negativos-pagare-abonos.mp4`  
+**Material de apoyo:** [TUTORIAL_NEGATIVOS_PAGARE_ABONOS.md](./TUTORIAL_NEGATIVOS_PAGARE_ABONOS.md) (con imágenes).
+
+### Antes de grabar
+- Ideal: corte de prueba con alerta **DINERO EN RECUPERACIÓN** (o simular con admin).
+- Tener a la mano un PIN de cajero y uno de admin/recolector.
+
+### Guion (leer en voz alta)
+
+> En este video vas a aprender a manejar el **negativo de dinero**, el **pagaré**, los **abonos** y la **liquidación**.
+>
+> **Paso 1 — La alerta.**  
+> En el corte aparece **DINERO EN RECUPERACIÓN**. Mira dos números: **Negativo** (lo que falta) y **Recuperado** (lo que ya cubrió la venta).
+>
+> **Paso 2 — Pagaré.**  
+> Si hay que documentar la deuda, el admin, gerente o recolector toca **Pagaré**. Se imprimen **dos tickets**. Ojo: el pagaré **no cierra** la deuda; solo la formaliza.
+>
+> **Paso 3 — Abono.**  
+> Si todavía hay Negativo mayor a cero, el cajero toca **Abono** y captura el monto. El saldo baja.
+>
+> **Paso 4 — Liquidar.**  
+> Cuando el Negativo llega a **cero** verás el mensaje verde *NEGATIVO RECUPERADO…*. El cajero debe tocar **Liquidar** para quitar la alerta. Si no liquida, la alerta se queda.
+>
+> **Cubre turno:** puede ver la alerta, pero **no** abona ni liquida. Eso lo hace el cajero.
+>
+> **Resumen:** Negativo → Pagaré si aplica → Abono si falta → Liquidar cuando ya recuperaste.
+
+---
+
 ## Checklist de grabación (para ti)
 
 | # | Video | Duración | Listo |
@@ -164,6 +195,7 @@ Duración ideal: **2 a 5 minutos** por video.
 | 0 | Inicio rápido | 2 min | ☐ |
 | 1 | Cobrar venta | 3–4 min | ☐ |
 | 2 | Corte de caja | 4–5 min | ☐ |
+| 3 | Negativos / pagaré / abonos | 4–5 min | ☐ |
 
 ### Tips de producción
 - Habla un poco más lento de lo normal.
@@ -176,4 +208,5 @@ Duración ideal: **2 a 5 minutos** por video.
 00-inicio-rapido.mp4
 01-cobrar-venta.mp4
 02-corte-de-caja.mp4
+03-negativos-pagare-abonos.mp4
 ```
