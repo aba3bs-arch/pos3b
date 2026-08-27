@@ -793,16 +793,21 @@ export default function Ventas({
                   </p>
                   {metodoActual && (
                     <label className="muted" style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem' }}>
-                      Referencia / folio (opcional)
+                      Referencia / folio (anota los últimos 4 o 5 dígitos del ticket)
                       <input
                         className="input"
                         style={{ marginTop: '0.35rem' }}
                         value={refPago}
                         onChange={(e) => setRefPago(e.target.value)}
-                        placeholder="Últimos dígitos, SPEI, autorización…"
+                        placeholder="Últimos 4 o 5 dígitos del ticket de la terminal…"
                         maxLength={64}
                         disabled={finalizando}
                       />
+                      {String(metodoActual?.id || '').toLowerCase().includes('tarjeta') || /tarjeta/i.test(String(metodoActual?.label || '')) ? (
+                        <span style={{ display: 'block', marginTop: '0.35rem', fontSize: '0.78rem', color: 'var(--brand-gold-dark, #b45309)' }}>
+                          Cobra primero en la terminal y anota aquí los últimos 4 o 5 dígitos del ticket.
+                        </span>
+                      ) : null}
                     </label>
                   )}
                 </>
