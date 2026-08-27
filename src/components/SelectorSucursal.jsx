@@ -62,15 +62,23 @@ export default function SelectorSucursal({
                   const id = normalizarCodigoTienda(s);
                   const online = Boolean(presenciaMap?.[id]?.online);
                   const activo = id === actual;
+                  const esCedis = id === 'MAIN';
                   return (
                     <li key={id} role="option" aria-selected={activo}>
                       <button
                         type="button"
-                        className={`sucursal-select-item${activo ? ' is-active' : ''}`}
+                        className={`sucursal-select-item${activo ? ' is-active' : ''}${esCedis ? ' is-cedis' : ''}`}
                         onClick={() => elegir(id)}
                       >
                         <span className={`sucursal-dot ${online ? 'is-online' : 'is-offline'}`} aria-hidden />
-                        <span className="sucursal-select-item-label">{etiquetaTienda(id)}</span>
+                        <span className="sucursal-select-item-label">
+                          {etiquetaTienda(id)}
+                          {esCedis && (
+                            <span className="muted" style={{ display: 'block', fontSize: '0.78rem', fontWeight: 500 }}>
+                              Acceso administrador · inventario central
+                            </span>
+                          )}
+                        </span>
                         {online && <span className="sucursal-select-online-tag">en línea</span>}
                       </button>
                     </li>

@@ -101,7 +101,8 @@ export default function PantallaLogin({
             <p className="muted login-hint">
               En la PC de caja, al fijar una <strong>tienda de venta</strong> y entrar con PIN de cajero, repartidor, técnico o auditor, ese PIN
               quedará ligado a esta computadora. El <strong>cajero</strong> puede anclar hasta 2 equipos; repartidor, técnico y auditor solo 1
-              (o un 2.º con autorización de administrador). <strong>Central (MAIN)</strong> no se fija: es el panel admin. El administrador no se ancla a dispositivo.
+              (o un 2.º con autorización de administrador). <strong>CEDIS (MAIN)</strong> no se fija: es el almacén
+              central / panel admin. Elige esa sucursal e ingresa con PIN de <strong>administrador</strong>. El administrador no se ancla a dispositivo.
             </p>
           </>
         )}

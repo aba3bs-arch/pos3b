@@ -1,15 +1,29 @@
 /**
- * Tiendas base + MAIN (central de administración). Las agregadas en la app se guardan en localStorage.
+ * Tiendas base + MAIN (= CEDIS / almacén central). Las agregadas en la app se guardan en localStorage.
+ * MAIN es la sucursal del CEDIS: el administrador entra ahí para operar el almacén central.
  */
 export const SUCURSALES_BASE = ['MAIN', 'FUSION', '3B2', '3B5', '3B6', '3B7', '3B9', '3B10'];
 export const ALMACEN_CENTRAL = 'MAIN';
 
-/** Central de administración — no participa en estadísticas operativas de tiendas. */
+/** Alias de UI / captura que apuntan al CEDIS (= MAIN). */
+const ALIAS_CEDIS = new Set(['CEDIS', 'CEDIS_CENTRAL', 'ALMACEN_CENTRAL', 'ALMACEN']);
+
+export function normalizarCodigoTienda(s) {
+  const c = String(s ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '_');
+  if (!c) return '';
+  if (ALIAS_CEDIS.has(c)) return ALMACEN_CENTRAL;
+  return c;
+}
+
+/** Central de administración / CEDIS — no participa en estadísticas operativas de tiendas. */
 export function esAlmacenCentral(codigo) {
   return normalizarCodigoTienda(codigo) === ALMACEN_CENTRAL;
 }
 
-/** Tiendas de venta (sin almacén central MAIN). */
+/** Tiendas de venta (sin almacén central MAIN / CEDIS). */
 export function listarSucursalesOperativas() {
   return listarSucursales().filter((s) => !esAlmacenCentral(s));
 }
@@ -17,13 +31,6 @@ export function listarSucursalesOperativas() {
 export const LS_SUCURSAL = 'pos3b_sucursal';
 const LS_EXTRA = 'pos3b_sucursales_extra';
 const LS_TIENDA_BLOQUEADA = 'pos3b_tienda_bloqueada';
-
-export function normalizarCodigoTienda(s) {
-  return String(s ?? '')
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, '_');
-}
 
 /** Código en .env (sin validar aún contra catálogo). */
 export function codigoSucursalEnEntorno() {
@@ -69,18 +76,25 @@ export function codigoTiendaValido(codigo) {
 }
 
 export function etiquetaTienda(codigo) {
-  const s = String(codigo || '');
-  if (s === 'MAIN') return 'Central de administración (MAIN)';
+  const s = normalizarCodigoTienda(codigo);
+  if (esAlmacenCentral(s)) return 'CEDIS · almacén central (MAIN)';
   if (s === 'FUSION') return s;
   if (/^3B\d+$/i.test(s)) return `Sucursal ${s}`;
-  return s;
+  return s || String(codigo || '');
 }
 
 export function agregarSucursalExtra(codigo) {
   const c = normalizarCodigoTienda(codigo);
   if (!c || c.length > 32) return { ok: false, error: 'Código vacío o demasiado largo (máx. 32).' };
   if (!/^[A-Z0-9._-]+$/.test(c)) return { ok: false, error: 'Solo letras, números, punto, guion y guion bajo.' };
-  if (listarSucursales().includes(c)) return { ok: false, error: 'Esa tienda ya está en la lista.' };
+  if (esAlmacenCentral(c) || listarSucursales().includes(c)) {
+    return {
+      ok: false,
+      error: esAlmacenCentral(c)
+        ? 'CEDIS ya existe como sucursal MAIN (almacén central). Elige MAIN en el selector.'
+        : 'Esa tienda ya está en la lista.',
+    };
+  }
   const extras = leerExtras().filter((x) => !SUCURSALES_BASE.includes(x));
   extras.push(c);
   try {
