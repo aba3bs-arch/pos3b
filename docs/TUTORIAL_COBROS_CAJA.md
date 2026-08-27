@@ -1,91 +1,47 @@
-# Tutorial: Cobros en caja (efectivo, dólares, tarjeta y recargas)
+# Tutorial: Cobros en caja (efectivo, dólares y tarjeta)
 
-Guía ilustrada para cajeros.
+Capturas reales de la UI del POS.
 
-> **En el POS:** menú lateral → **Tutorial** → *Cobros en caja…*
-
----
-
-## 1. Mapa
-
-![Mapa de cobros](./img/tutorial-cobros/cobro-00-mapa.png)
-
-| Qué | Dónde |
-|---|---|
-| Efectivo MXN / USD / Tarjeta | **Ventas** → **Cobrar** |
-| Recargas de celular | **Corte Virtual / Abarrotes** → **Gastos del turno** (no en Ventas) |
+> **En el POS:** menú → **Tutorial** → *Cobros en caja…*
 
 ---
 
-## 2. Armar ticket y cobrar
+## 1. Ticket y Cobrar
 
-![Ticket y Cobrar](./img/tutorial-cobros/cobro-01-ticket-cobrar.png)
+![Ticket](./img/tutorial-cobros/cobro-01-ticket-cobrar.png)
 
-1. Menú → **Ventas** (revisa la tienda).
-2. Escanea o busca en **Código o nombre…** / Favoritos.
-3. Revisa **TOTAL** → pulsa **Cobrar**.
+**Ventas** → arma el ticket → **Cobrar**.
 
 ---
 
-## 3. Efectivo en pesos (MXN)
+## 2. Efectivo MXN
 
 ![Efectivo MXN](./img/tutorial-cobros/cobro-02-efectivo-pesos.png)
 
-1. **Forma de pago** → **Efectivo** → **Pesos (MXN)**.
-2. **Monto exacto** o billete ($20…$1000).
-3. Revisa **Cambio** → **Finalizar venta**.
+**Efectivo** → **Pesos (MXN)** → exacto o billete → revisa **Cambio** → **Finalizar venta**.
 
 ---
 
-## 4. Efectivo en dólares (USD)
+## 3. Efectivo USD
 
 ![Efectivo USD](./img/tutorial-cobros/cobro-03-efectivo-dolares.png)
 
-1. **Efectivo** → **Dólares (USD)**.
-2. Exacto o billete USD ($1…$100).
-3. El **cambio siempre es en MXN** (según tipo de cambio del encabezado).
-4. **Finalizar venta**.
+**Efectivo** → **Dólares (USD)** → el **cambio es en pesos**.
 
 ---
 
-## 5. Tarjeta
+## 4. Tarjeta
 
 ![Tarjeta](./img/tutorial-cobros/cobro-04-tarjeta.png)
 
-1. **Forma de pago** → **Tarjeta**.
-2. Cobra en la **terminal física**.
-3. Opcional: **Referencia / folio**.
-4. **Finalizar venta** en el POS.
-
-> El POS no cobra en la terminal: solo registra.
+1. Cobra en la **terminal**
+2. Anota los **últimos 4 o 5 dígitos** del ticket en **Referencia**
+3. **Finalizar venta**
 
 ---
 
-## 6. Venta registrada
+## 5. Venta registrada
 
 ![Venta registrada](./img/tutorial-cobros/cobro-06-venta-registrada.png)
 
-Revisa cobro y cambio → **Cerrar** / **Imprimir ticket**.
-
----
-
-## 7. Recargas de celular
-
-![Recargas como gasto](./img/tutorial-cobros/cobro-05-recargas-gasto.png)
-
-**No van en Ventas.** Se registran así:
-
-1. **Corte Virtual** o **Corte Abarrotes** → **Gastos del turno**
-2. **Categoría** = **EMPLEADO**
-3. **Empleado** = persona
-4. **Concepto** = **Recargas**
-5. **Monto** → **Agregar**
-
-Descuenta al empleado en nómina. Captúralas **antes** de recolectar.
-
----
-
-## Frase para capacitar
-
-> Ventas = ticket → Cobrar → Efectivo (MXN/USD) o Tarjeta → Finalizar.  
-> Recargas = gasto EMPLEADO en el corte, nunca como venta.
+**Cerrar** o **Imprimir ticket**.
