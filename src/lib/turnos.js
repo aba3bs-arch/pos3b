@@ -105,6 +105,69 @@ export function plantillaTurnos12x12(inicioDiurno = '07:00') {
   ];
 }
 
+/** Minuto del día del punto medio del turno (0–1439). */
+export function puntoMedioTurnoMinutos(turno) {
+  const ini = minutosDesdeMedianoche(turno?.hora_inicio);
+  const dur = duracionTurnoMinutos(turno);
+  return Math.floor((ini + dur / 2) % (24 * 60));
+}
+
+/** ¿El punto medio cae en horario diurno aproximado (06:00–18:00)? */
+export function puntoMedioEsDiurno(turno) {
+  const mid = puntoMedioTurnoMinutos(turno);
+  return mid >= 6 * 60 && mid < 18 * 60;
+}
+
+/**
+ * Detecta si «Turno diurno» tiene horario de noche y «Turno nocturno» de día
+ * (p. ej. diurno 20:00–08:00 y nocturno 08:00–20:00).
+ */
+export function turnosDiurnoNocturnoInvertidos(lista) {
+  const list = Array.isArray(lista) ? lista : [];
+  const diurno = list.find((t) => String(t?.id || '').toLowerCase() === 'diurno');
+  const nocturno = list.find((t) => String(t?.id || '').toLowerCase() === 'nocturno');
+  if (!diurno || !nocturno) return false;
+  return !puntoMedioEsDiurno(diurno) && puntoMedioEsDiurno(nocturno);
+}
+
+/**
+ * Intercambia horas (y nombres estándar) de diurno/nocturno si están invertidos.
+ * Conserva ids; no toca otros turnos.
+ */
+export function corregirTurnosDiurnoNocturno(lista) {
+  const list = (Array.isArray(lista) ? lista : []).map((t) => ({ ...t }));
+  if (!turnosDiurnoNocturnoInvertidos(list)) return { ok: false, corregido: false, turnos: list };
+  const iD = list.findIndex((t) => String(t?.id || '').toLowerCase() === 'diurno');
+  const iN = list.findIndex((t) => String(t?.id || '').toLowerCase() === 'nocturno');
+  if (iD < 0 || iN < 0) return { ok: false, corregido: false, turnos: list };
+  const hIniD = list[iD].hora_inicio;
+  const hFinD = list[iD].hora_fin;
+  list[iD] = {
+    ...list[iD],
+    nombre: 'Turno diurno',
+    hora_inicio: list[iN].hora_inicio,
+    hora_fin: list[iN].hora_fin,
+  };
+  list[iN] = {
+    ...list[iN],
+    nombre: 'Turno nocturno',
+    hora_inicio: hIniD,
+    hora_fin: hFinD,
+  };
+  return { ok: true, corregido: true, turnos: list };
+}
+
+/**
+ * Si la «entrada diurno» de la plantilla es de tarde/noche (≥ 16:00),
+ * se interpreta como inicio del nocturno y se invierte a diurno = esa hora − 12 h.
+ */
+export function normalizarInicioPlantilla12x12(inicio) {
+  const ini = normalizarHora(inicio) || TIPOS_HORARIO['12x12'].inicioDefault;
+  const min = minutosDesdeMedianoche(ini);
+  if (min < 16 * 60) return ini;
+  return sumarHoras(ini, -12);
+}
+
 export function plantillaTurnos8x24(inicioPrimer = '06:00') {
   const ini = normalizarHora(inicioPrimer) || '06:00';
   const fin1 = sumarHoras(ini, 8);
@@ -276,7 +339,7 @@ export function grillaSemanaPatron(diasMap) {
 }
 
 export function aplicarRotacion3Empleados(inicioDiurno = '07:00') {
-  const ini = normalizarHora(inicioDiurno) || '07:00';
+  const ini = normalizarInicioPlantilla12x12(inicioDiurno);
   const lista = plantillaTurnos12x12(ini).map((t) => ({
     ...t,
     nombre: t.id === 'diurno' ? 'Turno diurno' : 'Turno nocturno',
@@ -317,7 +380,7 @@ export function esHorarioPersonalizado(cfg = null) {
 }
 
 export function turnosParaTipo(tipo, inicio) {
-  if (tipo === '12x12') return plantillaTurnos12x12(inicio);
+  if (tipo === '12x12') return plantillaTurnos12x12(normalizarInicioPlantilla12x12(inicio));
   if (tipo === '8x24') return plantillaTurnos8x24(inicio);
   return leerTurnos();
 }
@@ -327,10 +390,11 @@ export function aplicarPlantillaHorario(tipo, inicio) {
     guardarConfigHorario({ tipo: 'personalizado', inicio });
     return { ok: true, config: leerConfigHorario(), turnos: leerTurnos() };
   }
-  const lista = turnosParaTipo(tipo, inicio);
-  guardarConfigHorario({ tipo, inicio });
+  const inicioNorm = tipo === '12x12' ? normalizarInicioPlantilla12x12(inicio) : inicio;
+  const lista = turnosParaTipo(tipo, inicioNorm);
+  guardarConfigHorario({ tipo, inicio: inicioNorm });
   const r = guardarTurnos(lista);
-  return { ...r, config: leerConfigHorario() };
+  return { ...r, config: leerConfigHorario(), inicioAjustado: inicioNorm !== normalizarHora(inicio) };
 }
 
 export function leerTurnos() {
@@ -338,18 +402,30 @@ export function leerTurnos() {
     const raw = localStorage.getItem(LS_TURNOS);
     if (!raw) {
       const cfg = leerConfigHorario();
-      if (cfg.tipo === '12x12') return plantillaTurnos12x12(cfg.inicio);
+      if (cfg.tipo === '12x12') return plantillaTurnos12x12(normalizarInicioPlantilla12x12(cfg.inicio));
       if (cfg.tipo === '8x24') return plantillaTurnos8x24(cfg.inicio);
       return [...TURNOS_POR_DEFECTO];
     }
     const list = JSON.parse(raw);
     if (!Array.isArray(list) || !list.length) return [...TURNOS_POR_DEFECTO];
-    return list.map((t) => ({
+    const mapped = list.map((t) => ({
       id: String(t.id || '').trim() || 'turno',
       nombre: String(t.nombre || t.id || 'Turno').trim(),
       hora_inicio: normalizarHora(t.hora_inicio) || '08:00',
       hora_fin: normalizarHora(t.hora_fin) || '16:00',
     }));
+    if (!turnosDiurnoNocturnoInvertidos(mapped)) return mapped;
+    const fixed = corregirTurnosDiurnoNocturno(mapped);
+    if (fixed.corregido) {
+      try {
+        localStorage.setItem(LS_TURNOS, JSON.stringify(fixed.turnos));
+        emitTurnos();
+      } catch {
+        /* ignore */
+      }
+      return fixed.turnos;
+    }
+    return mapped;
   } catch {
     return [...TURNOS_POR_DEFECTO];
   }

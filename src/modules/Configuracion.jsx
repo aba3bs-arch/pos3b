@@ -106,6 +106,8 @@ import {
   leerToleranciaTurnos,
   guardarToleranciaTurnos,
   turnoConTolerancia,
+  turnosDiurnoNocturnoInvertidos,
+  corregirTurnosDiurnoNocturno,
 } from '../lib/turnos.js';
 import {
   persistirPinCubreTurno,
@@ -472,11 +474,40 @@ export default function Configuracion({
 
   const aplicarPlantillaConInicio = () => {
     if (configHorario.tipo === 'personalizado') return;
+    const inicioAntes = normalizarHora(configHorario.inicio);
     const r = aplicarPlantillaHorario(configHorario.tipo, configHorario.inicio);
     if (!r.ok) return alert(r.error);
     setTurnos(r.turnos);
     setConfigHorario(r.config);
+    if (r.inicioAjustado || (inicioAntes && r.config?.inicio && r.config.inicio !== inicioAntes)) {
+      alert(
+        `Horarios actualizados.\n\n` +
+          `La entrada del turno diurno debe ser de mañana (antes de las 16:00).\n` +
+          `Se usó ${r.config.inicio} como entrada diurna ` +
+          `(diurno ${r.config.inicio}–${r.turnos?.find((t) => t.id === 'diurno')?.hora_fin || '—'}; ` +
+          `nocturno ${r.turnos?.find((t) => t.id === 'nocturno')?.hora_inicio || '—'}–${r.config.inicio}).`,
+      );
+      return;
+    }
     alert('Horarios de turno actualizados.');
+  };
+
+  const corregirTurnosInvertidos = () => {
+    const r = corregirTurnosDiurnoNocturno(turnos);
+    if (!r.corregido) return alert('Los turnos diurno/nocturno ya tienen horarios coherentes.');
+    const saved = guardarTurnos(r.turnos);
+    if (!saved.ok) return alert(saved.error);
+    setTurnos(saved.turnos);
+    const diurno = saved.turnos.find((t) => t.id === 'diurno');
+    if (diurno?.hora_inicio) {
+      const cfg = guardarConfigHorario({ ...configHorario, inicio: diurno.hora_inicio });
+      setConfigHorario(cfg);
+    }
+    alert(
+      `Horarios corregidos.\n\n` +
+        `Turno diurno: ${diurno?.hora_inicio} – ${diurno?.hora_fin}\n` +
+        `Turno nocturno: ${saved.turnos.find((t) => t.id === 'nocturno')?.hora_inicio} – ${saved.turnos.find((t) => t.id === 'nocturno')?.hora_fin}`,
+    );
   };
 
   const asignarTurnoUsuario = async (userId, turnoId) => {
@@ -2306,7 +2337,7 @@ export default function Configuracion({
           {!esPersonalizado && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', marginTop: '0.75rem', alignItems: 'flex-end' }}>
               <label className="muted">
-                Entrada {configHorario.tipo === '12x12' ? 'turno diurno' : 'primer turno'} (plantilla)
+                Entrada del turno diurno (mañana, p. ej. 07:00 u 08:00)
                 <input
                   type="time"
                   className="input"
@@ -2319,8 +2350,30 @@ export default function Configuracion({
                 Calcular turnos {metaTipo.label}
               </button>
               <p className="muted" style={{ margin: 0, fontSize: '0.8rem', flex: '1 1 220px' }}>
-                La plantilla calcula entradas y salidas automáticamente. Luego puedes ajustar cada turno en la tabla.
+                La plantilla pone <strong>diurno</strong> de esa hora + 12 h y <strong>nocturno</strong> el resto.
+                No uses 20:00 aquí: eso intercambia día y noche.
               </p>
+            </div>
+          )}
+          {turnosDiurnoNocturnoInvertidos(turnos) && (
+            <div
+              role="alert"
+              style={{
+                marginTop: '0.75rem',
+                padding: '0.85rem',
+                borderRadius: '10px',
+                background: 'rgba(185, 28, 28, 0.08)',
+                border: '1px solid rgba(185, 28, 28, 0.35)',
+              }}
+            >
+              <strong style={{ color: 'var(--brand-red, #b91c1c)' }}>Diurno y nocturno están intercambiados</strong>
+              <p className="muted" style={{ margin: '0.35rem 0 0.65rem', fontSize: '0.85rem' }}>
+                El turno diurno debe ser de día (p. ej. 08:00–20:00) y el nocturno de noche (20:00–08:00).
+                Como está ahora, un cajero «diurno» solo podría entrar de noche.
+              </p>
+              <button type="button" className="btn btn-primary" onClick={corregirTurnosInvertidos}>
+                Corregir horarios ahora
+              </button>
             </div>
           )}
           {esPersonalizado && !esRotacion3 && (
