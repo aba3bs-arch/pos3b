@@ -193,6 +193,38 @@ Duración ideal: **2 a 5 minutos** por video.
 
 ---
 
+## Video 4 — Ingresar compras / ingreso de inventario (≈ 3–4 min)
+
+**Título sugerido:** `04-ingreso-inventario.mp4`  
+**Material de apoyo:** menú → **Tutorial** → *Ingresar compras…* · [TUTORIAL_COMPRAS.md](./TUTORIAL_COMPRAS.md)
+
+### Antes de grabar
+- Ten un ticket de proveedor de prueba y 1–2 productos físicos con código.
+- Entra con un PIN que pueda ajustar inventario (cajero/admin).
+
+### Guion (leer en voz alta)
+
+> En este video vas a aprender a **ingresar la mercancía del proveedor** al inventario.
+>
+> **Paso 1 — Productos.**  
+> Entras a **Productos**. Arriba a la derecha tocas el menú de **tres puntos**.
+>
+> **Paso 2 — Ajuste.**  
+> Eliges **Ajuste de inventario**. En el modal tocas **Ingreso de inventario**.
+>
+> **Paso 3 — Escanear.**  
+> Escaneas el producto. Aparece *¿Cuántas piezas entran?*
+>
+> **Paso 4 — Cantidad.**  
+> Miras el **ticket** y el **producto físico**, anotas la cantidad y pulsas **Aceptar**.
+>
+> **Paso 5 — Aplicar.**  
+> Repites con cada producto. Al final pulsas **Aplicar** para sumar al stock.
+>
+> **Resumen:** Productos → ⋮ → Ajuste → Ingreso → escanear → cantidad del ticket → Aplicar.
+
+---
+
 ## Checklist de grabación (para ti)
 
 | # | Video | Duración | Listo |
@@ -201,6 +233,7 @@ Duración ideal: **2 a 5 minutos** por video.
 | 1 | Cobrar venta | 3–4 min | ☐ |
 | 2 | Corte de caja | 4–5 min | ☐ |
 | 3 | Negativos / pagaré / abonos | 4–5 min | ☐ |
+| 4 | Ingreso de inventario (compras) | 3–4 min | ☐ |
 
 ### Tips de producción
 - Habla un poco más lento de lo normal.
@@ -214,4 +247,5 @@ Duración ideal: **2 a 5 minutos** por video.
 01-cobrar-venta.mp4
 02-corte-de-caja.mp4
 03-negativos-pagare-abonos.mp4
+04-ingreso-inventario.mp4
 ```

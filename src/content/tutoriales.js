@@ -267,4 +267,111 @@ export const TUTORIALES = [
       },
     ],
   },
+  {
+    id: 'compras',
+    titulo: 'Ingresar compras al sistema (Ingreso de inventario)',
+    resumen:
+      'Así se ingresa la mercancía del ticket del proveedor: Productos → menú ⋮ → Ajuste de inventario → Ingreso de inventario → escanear y anotar cantidad (validando el producto físico).',
+    secciones: [
+      {
+        id: 'mapa-ingreso',
+        titulo: '1. Camino en el POS',
+        cuerpo: [
+          '**Productos** → menú **⋮** → **Ajuste de inventario** → **Ingreso de inventario**.',
+          'Luego: **escaneas** cada producto, anotas la **cantidad del ticket** y **validas** contra el producto físico.',
+          'Al terminar: **Aplicar +N pieza(s)** para sumar al stock.',
+        ],
+        imagen: '/tutorial-ingreso-inventario/ingreso-00-mapa.png',
+        imagenAlt: 'Mapa: Productos → ⋮ → Ajuste → Ingreso → Escanear + cantidad',
+      },
+      {
+        id: 'abrir-productos',
+        titulo: '2. Entra a Productos y abre el menú ⋮',
+        cuerpo: [
+          '1. En el menú lateral abre **Productos**.',
+          '2. Arriba a la derecha toca el menú de **tres puntos (⋮)**.',
+          '3. Elige **Ajuste de inventario**.',
+        ],
+        imagen: '/tutorial-ingreso-inventario/ingreso-01-productos-menu.png',
+        imagenAlt: 'Productos · menú ⋮ · Ajuste de inventario',
+        notas: [
+          'El cajero también puede usar este camino (ingreso / ajuste), aunque el catálogo sea solo consulta.',
+        ],
+      },
+      {
+        id: 'elegir-ingreso',
+        titulo: '3. Elige Ingreso de inventario',
+        cuerpo: [
+          'Se abre el modal **Ajuste de inventario**.',
+          'En la lista de la izquierda toca **Ingreso de inventario** (*Dar entrada a productos en almacén*).',
+          'Eso abre la pantalla **Ingreso de inventarios**.',
+        ],
+        imagen: '/tutorial-ingreso-inventario/ingreso-02-modal-ingreso.png',
+        imagenAlt: 'Modal Ajuste de inventario · Ingreso de inventario',
+        notas: [
+          'No confundir con **Retiro de inventario** (resta piezas) ni con **Nuevo ajuste** (conteo).',
+        ],
+      },
+      {
+        id: 'escanear',
+        titulo: '4. Escanea el producto',
+        cuerpo: [
+          'En **Productos a ingresar**, pon el cursor en el campo de búsqueda / escaneo (*Nombre o código…*).',
+          '**Escanea el código de barras** del producto (o búscale por nombre / cámara).',
+          'Ten a la mano el **ticket del proveedor** y el producto físico.',
+        ],
+        imagen: '/tutorial-ingreso-inventario/ingreso-03-pantalla-escanear.png',
+        imagenAlt: 'Pantalla Ingreso de inventarios · campo para escanear',
+      },
+      {
+        id: 'cantidad',
+        titulo: '5. Anota la cantidad del ticket (valida el físico)',
+        cuerpo: [
+          'Aparece el cuadro **¿Cuántas piezas entran?** con el nombre del producto.',
+          '1. Cuenta / revisa el **producto físico**.',
+          '2. Compara con la **cantidad del ticket** del proveedor.',
+          '3. Escribe esa cantidad en **Cantidad (piezas)** (ej. 12).',
+          '4. Pulsa **Aceptar**.',
+          'El producto queda en la lista. Si lo vuelves a escanear, lo que escribas se **suma** a lo ya capturado.',
+        ],
+        imagen: '/tutorial-ingreso-inventario/ingreso-04-cantidad.png',
+        imagenAlt: 'Diálogo ¿Cuántas piezas entran?',
+        notas: [
+          'Las cantidades **SUMAN** al stock actual (ej. 10 + 12 = 22). No reemplazan la existencia.',
+          'En tienda el ingreso va al **piso**; en CEDIS al almacén central.',
+        ],
+      },
+      {
+        id: 'aplicar',
+        titulo: '6. Revisa la lista y aplica',
+        cuerpo: [
+          'Repite escaneo + cantidad por cada línea del ticket.',
+          'Opcional: en **Motivo / referencia** escribe algo como *Recepción proveedor ticket 458*.',
+          'Revisa la lista (cantidades vs ticket físico).',
+          'Pulsa **Aplicar +N pieza(s)** para guardar el ingreso en el inventario.',
+        ],
+        imagen: '/tutorial-ingreso-inventario/ingreso-05-aplicar.png',
+        imagenAlt: 'Lista de ingreso y botón Aplicar',
+      },
+      {
+        id: 'errores-ingreso',
+        titulo: '7. Errores frecuentes',
+        cuerpo: [
+          '· Ir al módulo **Compras** en lugar de **Productos → ⋮ → Ingreso**.',
+          '· Elegir **Retiro** por error (resta en vez de sumar).',
+          '· Anotar cantidad sin validar el producto físico vs el ticket.',
+          '· Aplicar sin revisar la lista completa.',
+          '· Olvidar el motivo/referencia del ticket del proveedor.',
+        ],
+      },
+      {
+        id: 'frase-ingreso',
+        titulo: 'Frase para capacitar',
+        cuerpo: [
+          '**Productos → ⋮ → Ajuste de inventario → Ingreso de inventario.**',
+          'Escanea → anota la cantidad del **ticket** → valida el **físico** → **Aplicar**.',
+        ],
+      },
+    ],
+  },
 ];
