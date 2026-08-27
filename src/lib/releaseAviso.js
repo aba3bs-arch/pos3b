@@ -4,14 +4,14 @@
  * Cambia `id` en cada release importante para volver a notificar.
  */
 export const RELEASE_AVISO_ACTUAL = {
-  id: '2026-08-27-tutorial-cobrar-rif-mercancia',
+  id: '2026-08-27-tutorial-corte-abarrotes-negativos',
   titulo: 'Actualización del POS',
   resumen:
-    'Nuevo tutorial de cobro y RIF para comprar mercancía en la misma tienda. Pulsa Actualizar para cargar la versión reciente.',
+    'Nuevo tutorial interactivo de Corte Abarrotes con ejemplos de negativo, Abono, Liquidar y Pagaré. Pulsa Actualizar para cargar la versión reciente.',
   cambios: [
-    'Tutorial → «Cómo cobrar en el POS» (efectivo MXN/USD y tarjeta, con pantallas reales)',
-    'Vales y Préstamos → RIF → botón «Misma tienda · compra mercancía» (fondo para mercancía en tu tienda)',
-    'RIF entre tiendas sigue igual; elige el tipo arriba del formulario',
+    'Tutorial → «Corte Abarrotes y negativos» (paso a paso, pantallas, ejemplos editables y preguntas)',
+    'Practica el cálculo de caja chica y el flujo DINERO EN RECUPERACIÓN en Abarrotes',
+    'Regla: Pagaré solo si el negativo sigue presente en la recolección; el cajero recupera',
   ],
 };
 
