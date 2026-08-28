@@ -12,13 +12,40 @@ export function pareceCodigoProducto(query) {
   return false;
 }
 
+/**
+ * Multiplicador de cantidad en el buscador/escáner:
+ * - `3*30` → qty 3, código "30"
+ * - `5*` → qty 5, esperando escaneo/código
+ * - `750123` → qty 1, código completo
+ * @returns {{ qty: number, codigo: string, tieneMultiplicador: boolean, soloMultiplicador: boolean, raw: string }}
+ */
+export function parseMultiplicadorBusqueda(raw) {
+  const t = String(raw || '').trim();
+  if (!t) {
+    return { qty: 1, codigo: '', tieneMultiplicador: false, soloMultiplicador: false, raw: '' };
+  }
+  const m = t.match(/^(\d{1,4})\s*\*\s*(.*)$/);
+  if (!m) {
+    return { qty: 1, codigo: t, tieneMultiplicador: false, soloMultiplicador: false, raw: t };
+  }
+  const qty = Math.min(9999, Math.max(1, parseInt(m[1], 10) || 1));
+  const codigo = String(m[2] || '').trim();
+  return {
+    qty,
+    codigo,
+    tieneMultiplicador: true,
+    soloMultiplicador: codigo === '',
+    raw: t,
+  };
+}
+
 /** Normaliza lista de códigos alternos (sin vacíos ni duplicados). */
 export function normalizarCodigosAlt(raw) {
   const src = Array.isArray(raw)
     ? raw
     : typeof raw === 'string'
-      ? raw.split(/[,;\n]+/)
-      : [];
+    ? raw.split(/[,;\n]+/)
+    : [];
   const out = [];
   const seen = new Set();
   for (const item of src) {
@@ -75,12 +102,13 @@ export function codigoOcupadoPorOtro(inventario, codigo, excludeId = null) {
 }
 
 /**
- * Coincide producto con texto de búsqueda:
- * - Si parece código: id o código alterno exacto
- * - Si parece nombre: nombre contiene (parcial) o id/alterno exacto
+ * Coincide producto con texto de búsqueda.
+ * Soporta prefijo `N*` (se ignora la cantidad para filtrar).
  */
 export function productoCoincideBusqueda(producto, query) {
-  const t = String(query || '')
+  const { codigo, soloMultiplicador } = parseMultiplicadorBusqueda(query);
+  if (soloMultiplicador) return true;
+  const t = String(codigo || '')
     .trim()
     .toLowerCase();
   if (!t) return true;
@@ -97,14 +125,15 @@ export function productoCoincideBusqueda(producto, query) {
 
 /** Filtra inventario con la misma regla. */
 export function filtrarProductosPorTexto(inventario, query) {
-  const t = String(query || '').trim();
-  if (!t) return [...(inventario || [])];
-  return (inventario || []).filter((p) => productoCoincideBusqueda(p, t));
+  const { codigo, soloMultiplicador } = parseMultiplicadorBusqueda(query);
+  if (soloMultiplicador || !String(codigo || '').trim()) return [...(inventario || [])];
+  return (inventario || []).filter((p) => productoCoincideBusqueda(p, query));
 }
 
 /** Producto cuyo código (principal o alterno) coincide exactamente con el texto. */
 export function productoPorCodigoExacto(inventario, query) {
-  const t = String(query || '')
+  const { codigo } = parseMultiplicadorBusqueda(query);
+  const t = String(codigo || '')
     .trim()
     .toLowerCase();
   if (!t) return null;
