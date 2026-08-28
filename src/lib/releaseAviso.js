@@ -4,14 +4,14 @@
  * Cambia `id` en cada release importante para volver a notificar.
  */
 export const RELEASE_AVISO_ACTUAL = {
-  id: '2026-08-27-tutorial-corte-abarrotes-negativos',
+  id: '2026-08-28-tutorial-corte-abarrotes-real',
   titulo: 'Actualización del POS',
   resumen:
-    'Nuevo tutorial interactivo de Corte Abarrotes con ejemplos de negativo, Abono, Liquidar y Pagaré. Pulsa Actualizar para cargar la versión reciente.',
+    'Tutorial de Corte Abarrotes con captura real de tienda: zonas clicables, calculadora y negativo en caja. Pulsa Actualizar.',
   cambios: [
-    'Tutorial → «Corte Abarrotes y negativos» (paso a paso, pantallas, ejemplos editables y preguntas)',
-    'Practica el cálculo de caja chica y el flujo DINERO EN RECUPERACIÓN en Abarrotes',
-    'Regla: Pagaré solo si el negativo sigue presente en la recolección; el cajero recupera',
+    'Tutorial → «Corte Abarrotes» basado en pantalla real (folio, movimientos, gastos, caja chica)',
+    'Mapa interactivo por zonas + práctica de negativo cuando la caja queda en rojo',
+    'Preguntas de capacitación con los campos que sí existen en el corte',
   ],
 };
 

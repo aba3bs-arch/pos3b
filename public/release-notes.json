@@ -1,9 +1,9 @@
 {
   "title": "Actualización disponible",
-  "summary": "Tutorial interactivo de Corte Abarrotes y negativos. Acepta para actualizar esta caja.",
+  "summary": "Tutorial Corte Abarrotes con captura real de tienda. Acepta para actualizar esta caja.",
   "changes": [
-    "Tutorial → Corte Abarrotes y negativos (paso a paso con imágenes)",
-    "Ejemplos numéricos: préstamo $400, caja en −$180, abono parcial",
-    "Preguntas de práctica para capacitar en tienda"
+    "Tutorial → Corte Abarrotes (pantalla real, zonas clicables)",
+    "Calculadora con campos de Movimientos / Caja chica",
+    "Ejemplos de negativo cuando la caja actual queda en rojo"
   ]
 }

@@ -23,33 +23,68 @@ function fmtMx(n) {
   return v.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
 }
 
+function round2(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
 function calcCaja(campos) {
   const c = campos || {};
-  const caja = round2(
-    (Number(c.caja_anterior) || 0) +
-      (Number(c.venta) || 0) -
-      (Number(c.gastos) || 0) -
-      (Number(c.recoleccion) || 0) -
-      (Number(c.faltante) || 0) -
-      (Number(c.tarjeta) || 0),
-  );
   const subtotal = round2(
     (Number(c.venta) || 0) -
       (Number(c.gastos) || 0) -
       (Number(c.faltante) || 0) -
       (Number(c.tarjeta) || 0),
   );
+  const caja = round2(
+    (Number(c.caja_anterior) || 0) + subtotal - (Number(c.recoleccion) || 0),
+  );
   return { caja, subtotal };
 }
 
-function round2(n) {
-  return Math.round((Number(n) || 0) * 100) / 100;
+function MapaHotspots({ imagen, hotspots, activo, onSelect, alt }) {
+  const entries = Object.entries(hotspots || {});
+  if (!imagen) return null;
+  return (
+    <figure className="tut-mapa">
+      <div className="tut-mapa__frame">
+        <img src={imagen} alt={alt || 'Pantalla del módulo'} className="tut-mapa__img" />
+        {entries.map(([id, hs]) => {
+          const isOn = activo === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              className={`tut-mapa__spot${isOn ? ' tut-mapa__spot--on' : ''}`}
+              style={{
+                top: `${hs.top}%`,
+                left: `${hs.left}%`,
+                width: `${hs.width}%`,
+                height: `${hs.height}%`,
+              }}
+              onClick={() => onSelect?.(id)}
+              title={hs.label}
+              aria-label={hs.label}
+            >
+              <span className="tut-mapa__spot-lbl">{hs.label}</span>
+            </button>
+          );
+        })}
+      </div>
+      <figcaption className="muted tut-mapa__cap">
+        Toca una zona de la captura real para ir a ese paso.
+      </figcaption>
+    </figure>
+  );
 }
 
 function EjemploCaja({ ejemplo }) {
   const [campos, setCampos] = useState({ ...(ejemplo.campos || {}) });
   const { caja, subtotal } = calcCaja(campos);
   const negativo = caja < -0.001;
+
+  useEffect(() => {
+    setCampos({ ...(ejemplo.campos || {}) });
+  }, [ejemplo]);
 
   const set = (key) => (e) => {
     const raw = e.target.value;
@@ -59,7 +94,7 @@ function EjemploCaja({ ejemplo }) {
   const filas = [
     { key: 'caja_anterior', label: 'Caja chica anterior (+)' },
     { key: 'venta', label: 'Venta total (+)' },
-    { key: 'gastos', label: 'Gastos (−)' },
+    { key: 'gastos', label: 'Gastos / egresos (−)' },
     { key: 'tarjeta', label: 'Pago tarjeta (−)' },
     { key: 'faltante', label: 'Faltante (−)' },
     { key: 'recoleccion', label: 'Recolección (−)' },
@@ -68,9 +103,25 @@ function EjemploCaja({ ejemplo }) {
   return (
     <div className="tut-ejemplo">
       <h4 className="tut-ejemplo__titulo">{ejemplo.titulo}</h4>
-      <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-        Cambia los montos y mira cómo se mueve la caja (misma fórmula del Corte Abarrotes).
+      <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.85rem' }}>
+        Misma lógica que en pantalla: subtotal = venta − egresos − tarjeta − faltante;
+        caja = anterior + subtotal − recolección.
       </p>
+      {(ejemplo.presets || []).length > 0 ? (
+        <div className="tut-ejemplo__tabs" role="tablist">
+          {ejemplo.presets.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className="btn btn-ghost"
+              style={{ fontSize: '0.78rem', padding: '0.35rem 0.65rem' }}
+              onClick={() => setCampos({ ...p.campos })}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="tut-ejemplo__grid">
         <div className="tut-ejemplo__campos">
           {filas.map(({ key, label }) => (
@@ -87,25 +138,29 @@ function EjemploCaja({ ejemplo }) {
           ))}
         </div>
         <div className="tut-ejemplo__resultado">
-          <div className="muted" style={{ fontSize: '0.8rem' }}>Subtotal turno</div>
-          <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#f1c40f' }}>{fmtMx(subtotal)}</div>
-          <div className="muted" style={{ fontSize: '0.8rem', marginTop: '0.75rem' }}>Caja chica actual</div>
+          <div style={{ fontSize: '0.8rem', opacity: 0.9 }}>Subtotal turno</div>
+          <div style={{ fontSize: '1.35rem', fontWeight: 800, color: '#f1c40f' }}>{fmtMx(subtotal)}</div>
+          <div style={{ fontSize: '0.72rem', opacity: 0.75, marginTop: '0.15rem' }}>
+            Venta − egresos − tarjeta − faltante
+          </div>
+          <div style={{ fontSize: '0.8rem', opacity: 0.9, marginTop: '0.85rem' }}>Caja chica actual</div>
           <div
             style={{
-              fontSize: '1.85rem',
+              fontSize: '1.9rem',
               fontWeight: 800,
-              color: negativo ? 'var(--danger, #c0392b)' : '#27ae60',
+              color: negativo ? '#e74c3c' : '#2ecc71',
             }}
           >
             {fmtMx(caja)}
           </div>
+          <div style={{ fontSize: '0.72rem', opacity: 0.75 }}>Anterior + subtotal − recolección</div>
           {negativo ? (
             <p className="tut-ejemplo__alerta" role="status">
-              Caja en negativo — recupera o documenta (Pagaré en recolección si aplica).
+              Negativo: en el corte real este monto se ve en rojo.
             </p>
           ) : (
-            <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem' }}>
-              Caja en positivo / cero.
+            <p style={{ margin: '0.5rem 0 0', fontSize: '0.78rem', opacity: 0.8 }}>
+              En verde = caja en cero o positivo (como en la captura).
             </p>
           )}
         </div>
@@ -113,136 +168,6 @@ function EjemploCaja({ ejemplo }) {
       {ejemplo.explicacion ? (
         <p className="tut-ejemplo__nota">{renderTexto(ejemplo.explicacion)}</p>
       ) : null}
-      <button
-        type="button"
-        className="btn btn-ghost"
-        style={{ marginTop: '0.5rem', fontSize: '0.8rem' }}
-        onClick={() => setCampos({ ...(ejemplo.campos || {}) })}
-      >
-        Restablecer ejemplo
-      </button>
-    </div>
-  );
-}
-
-function EjemploRecuperacion({ ejemplo }) {
-  const escenarios = ejemplo.escenarios || [];
-  const [idx, setIdx] = useState(0);
-  const esc = escenarios[idx] || escenarios[0];
-  if (!esc) return null;
-
-  const deuda = Number(esc.deuda) || 0;
-  const aplicada = Math.min(deuda, Math.max(0, Number(esc.ventaAplicada) || 0));
-  const recuperado = aplicada;
-  const negativo = Math.max(0, deuda - aplicada);
-  const recuperadoOk = negativo < 0.001 && deuda > 0;
-
-  return (
-    <div className="tut-ejemplo">
-      <h4 className="tut-ejemplo__titulo">{ejemplo.titulo}</h4>
-      <div className="tut-ejemplo__tabs" role="tablist">
-        {escenarios.map((s, i) => (
-          <button
-            key={s.id}
-            type="button"
-            role="tab"
-            aria-selected={i === idx}
-            className={i === idx ? 'btn btn-primary' : 'btn btn-ghost'}
-            style={{ fontSize: '0.8rem', padding: '0.4rem 0.7rem' }}
-            onClick={() => setIdx(i)}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
-      <div
-        className={`tut-alerta-demo${recuperadoOk ? ' tut-alerta-demo--ok' : ''}`}
-        role="status"
-      >
-        <div className="tut-alerta-demo__etiq">
-          DINERO EN RECUPERACIÓN · ABARROTES{recuperadoOk || negativo > 0 ? ' · PENDIENTE' : ''}
-        </div>
-        <div className="tut-alerta-demo__cifras">
-          <div>
-            <div className="tut-alerta-demo__lbl">Negativo</div>
-            <div className="tut-alerta-demo__monto tut-alerta-demo__monto--neg">
-              {fmtMx(recuperadoOk ? 0 : -negativo)}
-            </div>
-          </div>
-          <div>
-            <div className="tut-alerta-demo__lbl">Recuperado</div>
-            <div className="tut-alerta-demo__monto tut-alerta-demo__monto--ok">{fmtMx(recuperado)}</div>
-          </div>
-        </div>
-        {recuperadoOk ? (
-          <div className="tut-alerta-demo__leyenda">
-            NEGATIVO RECUPERADO, FAVOR DE LIQUIDAR Y PAGAR PRÉSTAMO
-          </div>
-        ) : (
-          <div className="tut-alerta-demo__hint">
-            Pendiente de recuperación — la venta del corte reduce el negativo
-          </div>
-        )}
-        <div className="tut-alerta-demo__btns">
-          {!recuperadoOk ? (
-            <span className="btn btn-ghost" style={{ pointerEvents: 'none', opacity: 0.9 }}>Abono</span>
-          ) : (
-            <span className="btn btn-primary" style={{ pointerEvents: 'none' }}>Liquidar</span>
-          )}
-          {!recuperadoOk ? (
-            <span className="btn btn-gold" style={{ pointerEvents: 'none', opacity: 0.9 }}>Pagaré</span>
-          ) : null}
-        </div>
-      </div>
-      <p className="tut-ejemplo__nota">{renderTexto(esc.narracion)}</p>
-    </div>
-  );
-}
-
-function EjemploAbono({ ejemplo }) {
-  const deuda = Number(ejemplo.deudaInicial) || 0;
-  const rec0 = Number(ejemplo.recuperadoInicial) || 0;
-  const [abono, setAbono] = useState(Number(ejemplo.montoAbonoDefault) || 100);
-  const aplicado = Math.max(0, Math.min(deuda - rec0, Number(abono) || 0));
-  const recuperado = rec0 + aplicado;
-  const negativo = Math.max(0, deuda - recuperado);
-
-  return (
-    <div className="tut-ejemplo">
-      <h4 className="tut-ejemplo__titulo">{ejemplo.titulo}</h4>
-      <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.85rem' }}>
-        {ejemplo.narracionAntes}
-      </p>
-      <label className="tut-ejemplo__campo" style={{ maxWidth: 220 }}>
-        <span>Monto del abono</span>
-        <input
-          className="input"
-          type="number"
-          min={0}
-          step="10"
-          value={abono}
-          onChange={(e) => setAbono(e.target.value === '' ? '' : Number(e.target.value))}
-        />
-      </label>
-      <div className="tut-alerta-demo" style={{ marginTop: '0.75rem' }} role="status">
-        <div className="tut-alerta-demo__etiq">DESPUÉS DEL ABONO · ABARROTES</div>
-        <div className="tut-alerta-demo__cifras">
-          <div>
-            <div className="tut-alerta-demo__lbl">Negativo</div>
-            <div className="tut-alerta-demo__monto tut-alerta-demo__monto--neg">{fmtMx(-negativo)}</div>
-          </div>
-          <div>
-            <div className="tut-alerta-demo__lbl">Recuperado (venta + abono)</div>
-            <div className="tut-alerta-demo__monto tut-alerta-demo__monto--ok">{fmtMx(recuperado)}</div>
-          </div>
-        </div>
-      </div>
-      <p className="tut-ejemplo__nota">
-        {renderTexto(
-          ejemplo.narracionDespues ||
-            `Tras abonar ${fmtMx(aplicado)}: Negativo ${fmtMx(-negativo)}.`,
-        )}
-      </p>
     </div>
   );
 }
@@ -270,8 +195,6 @@ function QuizBloque({ quiz }) {
                 if (respondio) {
                   if (oi === q.correcta) cls += ' tut-quiz__opt--ok';
                   else if (oi === elegida) cls += ' tut-quiz__opt--bad';
-                } else if (elegida === oi) {
-                  cls += ' tut-quiz__opt--pick';
                 }
                 return (
                   <button
@@ -298,78 +221,76 @@ function QuizBloque({ quiz }) {
       {respondidas === total ? (
         <p className="tut-quiz__score" role="status">
           Resultado: <strong>{correctas}/{total}</strong>
-          {correctas === total ? ' — ¡Listo para capacitar en tienda!' : ' — Revisa las explicaciones y reintenta.'}
+          {correctas === total ? ' — dominio de la pantalla real.' : ' — revisa las zonas de la captura y reintenta.'}
         </p>
       ) : null}
       {respondidas > 0 ? (
         <button type="button" className="btn btn-ghost" onClick={() => setRespuestas({})}>
-          Reintentar preguntas
+          Reintentar
         </button>
       ) : null}
     </div>
   );
 }
 
-function Seccion({ seccion }) {
+function Seccion({ seccion, tutorial, onHotspot }) {
+  const baseImg = tutorial?.imagenBase || seccion.imagen;
+  const showMapa = seccion.mapaInteractivo && tutorial?.hotspots;
+  const showMiniMapa = !showMapa && seccion.hotspotActivo && tutorial?.hotspots && tutorial?.imagenBase;
+  const showZoom =
+    !showMapa &&
+    seccion.imagen &&
+    seccion.imagen !== tutorial?.imagenBase;
+
   return (
     <article
       id={`tut-${seccion.id}`}
-      className="card"
-      style={{ marginBottom: '1rem', borderTop: '3px solid var(--brand-blue)' }}
+      className="card tut-seccion"
+      style={{ borderTop: '3px solid #b5a642' }}
     >
-      <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)', fontSize: '1.05rem' }}>
-        {seccion.titulo}
-      </h3>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+      <h3 className="tut-seccion__titulo">{seccion.titulo}</h3>
+      <div className="tut-seccion__cuerpo">
         {(seccion.cuerpo || []).map((linea, i) => (
-          <p key={i} style={{ margin: 0, lineHeight: 1.55, fontSize: '0.92rem' }}>
-            {renderTexto(linea)}
-          </p>
+          <p key={i}>{renderTexto(linea)}</p>
         ))}
       </div>
-      {seccion.imagen ? (
-        <figure style={{ margin: '1rem 0 0' }}>
-          <img
-            src={seccion.imagen}
-            alt={seccion.imagenAlt || seccion.titulo}
-            style={{
-              width: '100%',
-              maxWidth: 720,
-              height: 'auto',
-              borderRadius: 10,
-              border: '1px solid var(--border)',
-              display: 'block',
-              background: '#f8fafc',
-            }}
-            loading="lazy"
-          />
+
+      {showMapa ? (
+        <MapaHotspots
+          imagen={baseImg}
+          hotspots={tutorial.hotspots}
+          activo={seccion.hotspotActivo}
+          onSelect={onHotspot}
+          alt={seccion.imagenAlt}
+        />
+      ) : null}
+
+      {showMiniMapa ? (
+        <MapaHotspots
+          imagen={tutorial.imagenBase}
+          hotspots={tutorial.hotspots}
+          activo={seccion.hotspotActivo}
+          onSelect={onHotspot}
+          alt="Zona resaltada en la captura real"
+        />
+      ) : null}
+
+      {showZoom ? (
+        <figure className="tut-seccion__fig">
+          <img src={seccion.imagen} alt={seccion.imagenAlt || seccion.titulo} loading="lazy" />
           {seccion.imagenAlt ? (
-            <figcaption className="muted" style={{ marginTop: '0.4rem', fontSize: '0.78rem' }}>
-              {seccion.imagenAlt}
-            </figcaption>
+            <figcaption className="muted">{seccion.imagenAlt}</figcaption>
           ) : null}
         </figure>
       ) : null}
+
       {seccion.ejemplo?.tipo === 'caja' ? <EjemploCaja ejemplo={seccion.ejemplo} /> : null}
-      {seccion.ejemplo?.tipo === 'recuperacion' ? <EjemploRecuperacion ejemplo={seccion.ejemplo} /> : null}
-      {seccion.ejemplo?.tipo === 'abono' ? <EjemploAbono ejemplo={seccion.ejemplo} /> : null}
       {seccion.quiz?.length ? <QuizBloque quiz={seccion.quiz} /> : null}
+
       {(seccion.notas || []).length > 0 ? (
-        <div
-          style={{
-            marginTop: '0.9rem',
-            padding: '0.65rem 0.85rem',
-            borderRadius: 8,
-            borderLeft: '4px solid var(--brand-gold)',
-            background: 'rgba(225,153,41,0.1)',
-            fontSize: '0.88rem',
-            lineHeight: 1.5,
-          }}
-        >
+        <div className="tut-nota">
           {(seccion.notas || []).map((n, i) => (
-            <p key={i} style={{ margin: i ? '0.35rem 0 0' : 0 }}>
-              {renderTexto(n)}
-            </p>
+            <p key={i}>{renderTexto(n)}</p>
           ))}
         </div>
       ) : null}
@@ -393,6 +314,14 @@ export default function Tutorial() {
     setModoPaso(Boolean(tutorial?.interactivo));
   }, [tutorial?.id, tutorial?.interactivo]);
 
+  const irHotspot = (hotspotId) => {
+    const idx = secciones.findIndex((s) => s.hotspotActivo === hotspotId || s.id === hotspotId);
+    if (idx >= 0) {
+      setModoPaso(true);
+      setPaso(idx);
+    }
+  };
+
   if (!tutorial) {
     return (
       <div className="card">
@@ -406,14 +335,14 @@ export default function Tutorial() {
   const progreso = secciones.length ? Math.round(((pasoActual + 1) / secciones.length) * 100) : 0;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: 900 }}>
+    <div className="tut-root">
       <header>
         <h2 style={{ margin: 0, color: 'var(--brand-blue)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <Icon name="file" size={22} />
           Tutorial
         </h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
-          Guías ilustradas para capacitar en tienda. Ábrelas cuando necesites el paso a paso.
+          Guías con pantallas reales para capacitar en tienda.
         </p>
       </header>
 
@@ -433,14 +362,8 @@ export default function Tutorial() {
         </div>
       ) : null}
 
-      <div
-        className="card"
-        style={{
-          borderLeft: '4px solid var(--brand-gold)',
-          background: 'linear-gradient(135deg, #fff 0%, rgba(59,105,181,0.06) 100%)',
-        }}
-      >
-        <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue-dark)' }}>{tutorial.titulo}</h3>
+      <div className="card tut-hero">
+        <h3 style={{ margin: '0 0 0.35rem', color: '#8a7a2a' }}>{tutorial.titulo}</h3>
         <p className="muted" style={{ margin: 0, fontSize: '0.9rem' }}>
           {tutorial.resumen}
         </p>
@@ -494,7 +417,9 @@ export default function Tutorial() {
             </div>
           </div>
 
-          {seccionPaso ? <Seccion seccion={seccionPaso} /> : null}
+          {seccionPaso ? (
+            <Seccion seccion={seccionPaso} tutorial={tutorial} onHotspot={irHotspot} />
+          ) : null}
 
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
             <button
@@ -534,7 +459,7 @@ export default function Tutorial() {
             ))}
           </nav>
           {secciones.map((s) => (
-            <Seccion key={s.id} seccion={s} />
+            <Seccion key={s.id} seccion={s} tutorial={tutorial} onHotspot={irHotspot} />
           ))}
         </>
       )}

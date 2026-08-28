@@ -1,19 +1,19 @@
 {
   "version": "1.1.0",
-  "buildId": "64df251",
+  "buildId": "f5c5637",
   "branch": "cursor/tutorial-corte-abarrotes-negativos-5140",
-  "builtAt": "2026-08-27T23:58:17.759Z",
+  "builtAt": "2026-08-28T00:14:10.951Z",
   "title": "Actualización disponible",
-  "summary": "Tutorial interactivo de Corte Abarrotes y negativos. Acepta para actualizar esta caja.",
+  "summary": "Tutorial Corte Abarrotes con captura real de tienda. Acepta para actualizar esta caja.",
   "changes": [
-    "Tutorial → Corte Abarrotes y negativos (paso a paso con imágenes)",
-    "Ejemplos numéricos: préstamo $400, caja en −$180, abono parcial",
-    "Preguntas de práctica para capacitar en tienda",
+    "Tutorial → Corte Abarrotes (pantalla real, zonas clicables)",
+    "Calculadora con campos de Movimientos / Caja chica",
+    "Ejemplos de negativo cuando la caja actual queda en rojo",
+    "feat(tutorial): interactivo Corte Abarrotes con negativos y ejemplos",
     "chore(app): aviso de actualización para tutorial de cobro y RIF mercancía",
     "feat(rif): requisición interna de fondo para mercancía en la misma tienda",
     "feat(tutorial): cómo cobrar en el POS con capturas reales de Ventas",
     "docs: quitar enlace al tutorial de cobros en guiones",
-    "chore(tutorial): quitar tutorial Cobros en caja",
-    "chore(tutorial): quitar entrada Corte de caja del catálogo de tutoriales"
+    "chore(tutorial): quitar tutorial Cobros en caja"
   ]
 }

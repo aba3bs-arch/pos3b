@@ -168,7 +168,7 @@ export default function Ayuda({ user }) {
         <p className="muted" style={{ marginTop: 0 }}>
           Guías rápidas, turnos y solución de problemas del POS CONTROL 3B.
           Abre también el módulo <strong>Tutorial</strong> del menú para las guías ilustradas
-          (incluye el tutorial interactivo de <strong>Corte Abarrotes y negativos</strong>).
+          (incluye <strong>Corte Abarrotes</strong> con captura real de pantalla).
           (<strong>Cómo cobrar en el POS</strong>, ingreso de compras, negativos / pagaré / abonos).
           En <strong>Vales y Préstamos → RIF</strong> puedes hacer requisición de fondo
           <strong>entre tiendas</strong> o <strong>misma tienda · compra mercancía</strong>.

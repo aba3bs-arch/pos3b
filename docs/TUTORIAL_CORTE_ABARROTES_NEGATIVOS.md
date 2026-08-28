@@ -1,84 +1,44 @@
-# Tutorial interactivo: Corte Abarrotes y negativos
+# Tutorial: Corte Abarrotes (pantalla real)
 
-Guía ilustrada e interactiva para capacitar en tienda (cajeros, CT, recolectores, gerentes).
+Guía interactiva basada en una **captura real** del módulo (tienda FUSION, folio AB-044).
 
-> **En el POS:** menú → **Tutorial** → **Corte Abarrotes y negativos** (paso a paso, ejemplos editables y preguntas).
+> **En el POS:** menú → **Tutorial** → **Corte Abarrotes** (paso a paso, zonas clicables, calculadora y preguntas).
 
-Documento hermano (negativos en todos los cortes): [TUTORIAL_NEGATIVOS_PAGARE_ABONOS.md](./TUTORIAL_NEGATIVOS_PAGARE_ABONOS.md).
-
----
-
-## 1. La pantalla
-
-![Pantalla Corte Abarrotes](./img/tutorial-corte-abarrotes/01-pantalla-corte.png)
-
-- Independiente del corte de caja POS.
-- Fórmula de caja: **Anterior + Venta − Gastos − Recolección − Faltante − Tarjeta**.
-- Captura **todos** los gastos del turno (incl. bonos de caja) antes de cerrar / recolectar.
+No inventa botones ni paneles que no estén en la captura. El tema de **negativo** se explica con la **Caja chica actual en rojo** y los campos con signo **(−)**.
 
 ---
 
-## 2. Qué es el Negativo
+## Zonas de la pantalla
 
-![Alerta DINERO EN RECUPERACIÓN en Abarrotes](./img/tutorial-corte-abarrotes/02-alerta-negativo.png)
+![Pantalla real Corte Abarrotes](./img/tutorial-corte-abarrotes/00-pantalla-real.png)
 
-Aparece cuando hay **pagaré / préstamo de área** abierto hacia Abarrotes, o la **caja chica** está en rojo.
-
-| Campo | Significado |
+| Zona | Qué es |
 |---|---|
-| **Negativo** | Lo que aún falta recuperar |
-| **Recuperado** | Lo que ya cubrió la venta del corte |
-
-### Ejemplo A — Virtual presta $400 a Abarrotes
-
-1. Al recibir: Negativo **−$400**, Recuperado **$0**.
-2. Con venta parcial $150: Negativo **−$250**, Recuperado **$150**.
-3. Con venta $750: Negativo **$0**, Recuperado **$400** → el **cajero** pulsa **Liquidar**.
+| Encabezado | Folio, **Cerrar corte**, **Imprimir corte** |
+| Movimientos | Fondo fijo, caja anterior, venta, tarjeta, faltante, recolección |
+| Centro | Subtotal turno + **Gastos del turno** + Observaciones |
+| Caja chica | Anterior, actual, gastos del turno |
 
 ---
 
-## 3. Caja chica en negativo
+## Fórmulas (texto en pantalla)
 
-![Caja chica −$180](./img/tutorial-corte-abarrotes/04-caja-negativa.png)
-
-**Ejemplo B:** 500 + 620 − 1150 − 100 − 50 = **−$180**.  
-No se recolecta en negativo: recupera / abona / documenta.
+- **Subtotal turno:** `Venta − egresos − tarjeta − faltante`
+- **Caja chica actual:** `Anterior + subtotal − recolección`
 
 ---
 
-## 4. Abono (parcial)
+## Negativo (con lo que se ve en pantalla)
 
-![Abono parcial](./img/tutorial-corte-abarrotes/05-abono-parcial.png)
+Los campos **Pago tarjeta (−)**, **Faltante (−)** y **Recolección (−)** restan.
 
-- Solo si **Negativo > $0**.
-- Lo hace el **cajero** (nunca el cubre turno).
-- Si llega a $0, se liquida solo.
+Si al aplicar gastos / faltante / recolección la **Caja chica actual** baja de $0, el monto se muestra en **rojo**: eso es el negativo en esta pantalla.
 
----
-
-## 5. Liquidar
-
-![Negativo recuperado](./img/tutorial-corte-abarrotes/03-ejemplo-recuperado.png)
-
-Cuando Negativo = $0 y la alerta sigue: el cajero **Liquida**. El CT solo ve el aviso.
-
----
-
-## 6. Orden correcto y Pagaré
-
-![Flujo en 5 pasos](./img/tutorial-corte-abarrotes/06-flujo-orden.png)
-
-1. Gastos del turno  
-2. Abono / Liquidar (cajero)  
-3. Cerrar corte  
-4. Recolección → si el negativo **sigue** → **Pagaré** (×2 tickets)  
-5. Después: el **cajero** es responsable de la recuperación  
-
-El Pagaré **documenta**; no cierra la deuda.
+En el tutorial hay una calculadora que parte de los números de la captura (`caja anterior 2020`) y presets de ejemplo.
 
 ---
 
 ## Frase para capacitar
 
-> En **Corte Abarrotes**: mete **todos** los gastos, atiende el **Negativo** (Abono/Liquidar = **cajero**), **cierra** y **después** recolecta.  
-> El **Pagaré** va **al final** y **solo** si el negativo sigue en la recolección.
+> **Movimientos → Gastos del turno → revisa Caja chica → Cerrar / Imprimir.**  
+> Si la caja se pone en **rojo**, hay negativo: revisa faltante, gastos, tarjeta y recolección.
