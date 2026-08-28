@@ -11,7 +11,7 @@ import { descontarStockPorVenta, guardarMovimientoLocal } from '../lib/inventari
 import { sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
 import DetalleProducto from '../components/DetalleProducto.jsx';
-import { productoCoincideBusqueda, productoPorCodigoExacto, pareceCodigoProducto } from '../lib/buscarProductoTexto.js';
+import { productoCoincideBusqueda, productoPorCodigoExacto, pareceCodigoProducto, parseMultiplicadorBusqueda } from '../lib/buscarProductoTexto.js';
 import { registrarRemocionCarrito } from '../lib/proyeccionFaltante.js';
 import { suscribirEscanerRemoto } from '../lib/escanerRemoto.js';
 import { puedeVerStockNegativo } from '../lib/roles.js';
@@ -22,14 +22,15 @@ import {
 } from '../lib/carritoVentaPersistencia.js';
 import { encolarVentaOffline, esErrorDeRed } from '../lib/ventasOffline.js';
 
-function addToCart(carrito, producto) {
+function addToCart(carrito, producto, qtyAdd = 1) {
+  const add = Math.max(1, Math.floor(Number(qtyAdd) || 1));
   const precio = precioVentaParaCaja(producto);
   const i = carrito.findIndex((c) => c.id === producto.id);
   if (i >= 0) {
     const next = [...carrito];
     next[i] = {
       ...next[i],
-      qty: (next[i].qty || 1) + 1,
+      qty: (next[i].qty || 1) + add,
       foto_url: next[i].foto_url || producto.foto_url || null,
       precio: Number(next[i].precio) > 0 ? next[i].precio : precio,
     };
@@ -42,7 +43,7 @@ function addToCart(carrito, producto) {
       nombre: producto.nombre,
       precio,
       foto_url: producto.foto_url || null,
-      qty: 1,
+      qty: add,
     },
   ];
 }
@@ -99,6 +100,7 @@ export default function Ventas({
   const [avisoEscanerRemoto, setAvisoEscanerRemoto] = useState('');
   const inventarioRef = useRef(inventario);
   const carritoRef = useRef(carrito);
+  const busquedaRef = useRef(busqueda);
   const omitirGuardadoRef = useRef(false);
 
   const detalleProducto = useMemo(() => {
@@ -113,6 +115,10 @@ export default function Ventas({
   useEffect(() => {
     carritoRef.current = carrito;
   }, [carrito]);
+
+  useEffect(() => {
+    busquedaRef.current = busqueda;
+  }, [busqueda]);
 
   // Al cambiar de tienda, cargar el carrito de esa sucursal (sin pisar el de la anterior).
   useEffect(() => {
@@ -138,14 +144,21 @@ export default function Ventas({
       sucursal,
       userId: user.id,
       onCodigo: (codigo) => {
+        const pending = parseMultiplicadorBusqueda(busquedaRef.current);
+        const qty = pending.soloMultiplicador ? pending.qty : 1;
         const prod = productoPorCodigoExacto(inventarioRef.current, codigo);
         if (!prod) {
           setAvisoEscanerRemoto(`Escáner móvil: no se encontró ${codigo}`);
           return;
         }
-        setCarrito((c) => addToCart(c, prod));
+        setCarrito((c) => addToCart(c, prod, qty));
         sonidoEscaneoProducto();
-        setAvisoEscanerRemoto(`Escáner móvil: + ${prod.nombre}`);
+        setBusqueda('');
+        setAvisoEscanerRemoto(
+          qty > 1
+            ? `Escáner móvil: +${qty} ${prod.nombre}`
+            : `Escáner móvil: + ${prod.nombre}`,
+        );
       },
     });
   }, [supabase, sucursal, user?.id]);
@@ -213,8 +226,15 @@ export default function Ventas({
   const filtrados = useMemo(() => {
     const q = (busqueda || '').trim();
     if (!q) return [];
+    const { soloMultiplicador, codigo } = parseMultiplicadorBusqueda(q);
+    if (soloMultiplicador || !codigo) return [];
     return enVenta.filter((p) => productoCoincideBusqueda(p, q));
   }, [enVenta, busqueda]);
+
+  const qtyPendienteBusqueda = useMemo(() => {
+    const { qty, tieneMultiplicador } = parseMultiplicadorBusqueda(busqueda);
+    return tieneMultiplicador ? qty : 1;
+  }, [busqueda]);
 
   const deptoActualMeta = departamentosMenu.find((d) => d.id === deptoActivo) || departamentosMenu[0];
 
@@ -450,22 +470,24 @@ export default function Ventas({
     if (!r.ok) alert(r.error);
   };
 
-  const agregarAlCarrito = (producto, conSonido = false) => {
+  const agregarAlCarrito = (producto, conSonido = false, qtyAdd = 1) => {
     if (conSonido) sonidoEscaneoProducto();
-    setCarrito((car) => addToCart(car, producto));
+    setCarrito((car) => addToCart(car, producto, qtyAdd));
   };
 
   const procesarCodigoCamara = (codigo) => {
     const c = String(codigo || '').trim();
     if (!c) return;
+    const pending = parseMultiplicadorBusqueda(busqueda);
+    const qty = pending.soloMultiplicador ? pending.qty : 1;
     const exacto = productoPorCodigoExacto(enVenta, c);
     if (exacto) {
       // El beep ya lo emite EscanerCamara al leer el código.
-      agregarAlCarrito(exacto, false);
+      agregarAlCarrito(exacto, false, qty);
       setBusqueda('');
       return;
     }
-    setBusqueda(c);
+    setBusqueda(pending.soloMultiplicador ? `${pending.qty}*${c}` : c);
     if (pareceCodigoProducto(c)) {
       alert(`No se encontró el producto ${c} en el catálogo de venta.`);
     }
@@ -652,7 +674,7 @@ export default function Ventas({
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
             onEscanear={procesarCodigoCamara}
-            placeholder="Código o nombre…"
+            placeholder="Código, nombre o 3*30…"
             tituloCamara="Escanear producto"
             labelCamara="Abrir cámara"
             camaraSoloIcono
@@ -660,25 +682,35 @@ export default function Ventas({
               if (e.key !== 'Enter') return;
               const q = (busqueda || '').trim();
               if (!q) return;
+              const mult = parseMultiplicadorBusqueda(q);
+              if (mult.soloMultiplicador) {
+                e.preventDefault();
+                return; // Esperar código o escaneo (ej. 5*)
+              }
               const exacto = productoPorCodigoExacto(enVenta, q);
               if (exacto) {
                 e.preventDefault();
-                agregarAlCarrito(exacto, true);
+                agregarAlCarrito(exacto, true, mult.qty);
                 setBusqueda('');
                 return;
               }
               if (filtrados.length === 1) {
                 e.preventDefault();
-                agregarAlCarrito(filtrados[0], true);
+                agregarAlCarrito(filtrados[0], true, mult.qty);
                 setBusqueda('');
               }
             }}
             inputStyle={{ padding: '0.7rem 0.8rem', fontSize: '1rem' }}
           />
+          {parseMultiplicadorBusqueda(busqueda).soloMultiplicador ? (
+            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.8rem' }}>
+              Cantidad ×{qtyPendienteBusqueda}: escanea o escribe el código y Enter
+            </p>
+          ) : null}
           {filtrados.length > 0 && (
             <div className="ventas-resultados-card ventas-resultados-card--ticket">
               <div className="ventas-seccion-head">
-                <span>Resultados</span>
+                <span>Resultados{qtyPendienteBusqueda > 1 ? ` · ×${qtyPendienteBusqueda}` : ''}</span>
                 <span className="muted">{filtrados.length}</span>
               </div>
               <div className="ventas-resultados-lista">
@@ -687,7 +719,7 @@ export default function Ventas({
                     key={p.id}
                     type="button"
                     onClick={() => {
-                      setCarrito((c) => addToCart(c, p));
+                      setCarrito((c) => addToCart(c, p, qtyPendienteBusqueda));
                       setBusqueda('');
                     }}
                     className="ventas-resultado-item"
