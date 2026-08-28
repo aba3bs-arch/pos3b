@@ -9,7 +9,7 @@ import {
   listarPeriodosNomina,
   totalLineaNomina,
 } from '../lib/nomina.js';
-import { fusionarLineasNomina, otrosDeudasLinea, recalcularLineaNomina, sueldoBrutoLinea, pagoNominaLinea } from '../lib/nominaCalculos.js';
+import { fusionarLineasNomina, otrosDeudasLinea, recalcularLineaNomina, sueldoBrutoLinea, pagoNominaLinea, TIPOS_FILTRO_NOMINA } from '../lib/nominaCalculos.js';
 import { periodoSemanaNomina, etiquetaSemanaNomina, esSemanaNominaActual } from '../lib/semanaNomina.js';
 import { ETIQUETA_AREA, PAGADORES_NOMINA } from '../lib/contabilidadConstants.js';
 import { imprimirNomina, imprimirReciboNominaIndividual, imprimirTodosRecibosNomina } from '../lib/impresionContabilidad.js';
@@ -75,6 +75,7 @@ export default function Nomina({ supabase, sucursal, user }) {
   const [inicio, setInicio] = useState(() => periodoSemanaNomina().inicio);
   const [fin, setFin] = useState(() => periodoSemanaNomina().fin);
   const [pagadorFiltro, setPagadorFiltro] = useState('');
+  const [tipoFiltro, setTipoFiltro] = useState('');
   const [notasPeriodo, setNotasPeriodo] = useState('');
   const [lineas, setLineas] = useState([]);
   const [empleadosCache, setEmpleadosCache] = useState([]);
@@ -95,7 +96,7 @@ export default function Nomina({ supabase, sucursal, user }) {
       setErr('');
       const { data: empleados, error } = await supabase
         .from('usuarios')
-        .select('id, nombre, rol, sucursal_id, nomina_pagador, turno_id, turno_horario')
+        .select('id, nombre, rol, sucursal_id, tipo_empleado, nomina_pagador, turno_id, turno_horario')
         .order('nombre');
       if (error) {
         setErr(error.message);
@@ -124,6 +125,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         valesGasolinaNoCobradosMap: valesRes.mapNoCobrados,
         asistenciasMap: asistenciasRes?.map || {},
         pagadorFiltro,
+        tipoFiltro,
         arrastreMap: saldosArrastre,
       }).filter((l) => !excluidosIds.has(String(l.usuario_id)));
 
@@ -134,7 +136,7 @@ export default function Nomina({ supabase, sucursal, user }) {
       setEmpleadosCache(lista);
       setCargando(false);
     },
-    [supabase, sucursal, inicio, fin, pagadorFiltro, excluidos, saldosArrastre],
+    [supabase, sucursal, inicio, fin, pagadorFiltro, tipoFiltro, excluidos, saldosArrastre],
   );
 
   const cargarPeriodos = useCallback(async () => {
@@ -172,6 +174,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         setInicio(b.inicio);
         setFin(b.fin);
         if (b.pagadorFiltro != null) setPagadorFiltro(b.pagadorFiltro);
+        if (b.tipoFiltro != null) setTipoFiltro(b.tipoFiltro);
         if (b.notasPeriodo) setNotasPeriodo(b.notasPeriodo);
         if (Array.isArray(b.excluidos)) setExcluidos(new Set(b.excluidos));
         if (b.modo === 'manual' || b.modo === 'automatico') setModoNomina(b.modo);
@@ -213,7 +216,7 @@ export default function Nomina({ supabase, sucursal, user }) {
     cargarPeriodos();
     // modoNomina no va en deps: el cambio de modo se maneja en cambiarModoNomina
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabase, borradorListo, inicio, fin, pagadorFiltro, excluidos, cargarEmpleadosYGastos, cargarPeriodos]);
+  }, [supabase, borradorListo, inicio, fin, pagadorFiltro, tipoFiltro, excluidos, cargarEmpleadosYGastos, cargarPeriodos]);
 
   useEffect(() => {
     if (!borradorListo) return;
@@ -230,12 +233,13 @@ export default function Nomina({ supabase, sucursal, user }) {
       inicio,
       fin,
       pagadorFiltro,
+      tipoFiltro,
       notasPeriodo,
       lineas,
       excluidos: [...excluidos],
       modo: modoNomina,
     });
-  }, [lineas, inicio, fin, pagadorFiltro, notasPeriodo, excluidos, modoNomina, borradorListo]);
+  }, [lineas, inicio, fin, pagadorFiltro, tipoFiltro, notasPeriodo, excluidos, modoNomina, borradorListo]);
 
   const cambiarModoNomina = (nuevo) => {
     if (nuevo === modoNomina) return;
@@ -382,6 +386,7 @@ export default function Nomina({ supabase, sucursal, user }) {
     setInicio(res.periodo.periodo_inicio);
     setFin(res.periodo.periodo_fin);
     setPagadorFiltro(res.periodo.pagador_filtro || '');
+    setTipoFiltro('');
     setNotasPeriodo(res.periodo.notas || '');
     setLineas(res.lineas || []);
     setSaldosArrastre(res.arrastreMap || {});
@@ -392,6 +397,7 @@ export default function Nomina({ supabase, sucursal, user }) {
       inicio: res.periodo.periodo_inicio,
       fin: res.periodo.periodo_fin,
       pagadorFiltro: res.periodo.pagador_filtro || '',
+      tipoFiltro: '',
       notasPeriodo: res.periodo.notas || '',
       lineas: res.lineas || [],
       excluidos: [],
@@ -782,6 +788,16 @@ export default function Nomina({ supabase, sucursal, user }) {
               {PAGADORES_NOMINA.map((a) => (
                 <option key={a} value={a}>
                   {ETIQUETA_AREA[a]}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', fontSize: '0.85rem' }}>
+            Empleados
+            <select className="select" value={tipoFiltro} onChange={(e) => setTipoFiltro(e.target.value)}>
+              {TIPOS_FILTRO_NOMINA.map((t) => (
+                <option key={t.id || 'todos'} value={t.id}>
+                  {t.label}
                 </option>
               ))}
             </select>

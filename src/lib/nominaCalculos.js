@@ -1,8 +1,16 @@
 import { BENEFICIARIOS_VALES } from './contabilidadConstants.js';
+import { esEmpleadoIndirectoOMain } from './empleadosVisibles.js';
 import { normalizarNombreEmpleado, indiceEmpleados, resolverClaveEmpleado } from './nominaMatch.js';
 import { round2 } from './nominaGastos.js';
 
 export const DIAS_SEMANA_NOMINA = 7;
+
+/** Filtro de nómina: todos | directos (tienda) | indirectos (MAIN). */
+export const TIPOS_FILTRO_NOMINA = [
+  { id: '', label: 'Todos' },
+  { id: 'directo', label: 'Directos (tienda)' },
+  { id: 'indirecto', label: 'Indirectos (MAIN)' },
+];
 
 /** Días trabajados con decimales (ej. 5.5 o 5,5). Redondea a 2 decimales; no fuerza enteros. */
 export function normalizarDiasNomina(dias) {
@@ -17,7 +25,9 @@ function totalLineaNominaImport(l) {
   return pagoNominaLinea(l);
 }
 
+/** Indirecto / MAIN (o beneficiario de vales): pago por vales de gasolina. */
 export function esIndirectoNomina(empleado) {
+  if (esEmpleadoIndirectoOMain(empleado)) return true;
   const n = normalizarNombreEmpleado(empleado?.nombre);
   if (!n) return false;
   return BENEFICIARIOS_VALES.some((b) => normalizarNombreEmpleado(b.nombre) === n);
@@ -30,6 +40,15 @@ export function empleadoIncluidoEnPagadorFiltro(empleado, filtro) {
   if (pag === 'ambos') return filtro === 'virtual' || filtro === 'abarrotes' || filtro === 'ambos';
   if (filtro === 'ambos') return pag === 'ambos' || pag === 'virtual' || pag === 'abarrotes';
   return pag === filtro;
+}
+
+/** Incluye empleado según filtro Directos / Indirectos. */
+export function empleadoIncluidoEnTipoFiltro(empleado, filtro) {
+  if (!filtro) return true;
+  const indirecto = esIndirectoNomina(empleado);
+  if (filtro === 'indirecto') return indirecto;
+  if (filtro === 'directo') return !indirecto;
+  return true;
 }
 
 export function sueldoProporcionalDias(tarifaSemanal, dias) {
