@@ -25,6 +25,7 @@ import {
   calcularResultadoInventarioCampos,
   cargarResultadoInventario,
   guardarResultadoInventario,
+  listarResultadosInventario,
   parseNumInventario,
 } from '../lib/resultadoInventario.js';
 
@@ -252,6 +253,11 @@ export default function ReporteInventario({
   const [avisoResultado, setAvisoResultado] = useState('');
   const [estadoResultado, setEstadoResultado] = useState('');
   const [metaResultado, setMetaResultado] = useState(null);
+  const [listaPorTiendaAbierta, setListaPorTiendaAbierta] = useState(false);
+  const [listaPorTienda, setListaPorTienda] = useState([]);
+  const [cargandoLista, setCargandoLista] = useState(false);
+  const [avisoLista, setAvisoLista] = useState('');
+  const [tiendaListaExpandida, setTiendaListaExpandida] = useState('');
 
   const puedeEditar = Boolean(supabase && puedeAjustarInventario(user?.rol));
   const puedeCapturarBono = Boolean(puedeCapturarResultadoInventarioBono(user?.rol));
@@ -457,11 +463,62 @@ export default function ReporteInventario({
             : 'Guardado en este dispositivo · ejecuta el SQL para sincronizar el bono en todas las cajas.',
         );
       }
+      if (listaPorTiendaAbierta) {
+        void cargarListaPorTienda({ forzarAbrir: false });
+      }
     } catch (e) {
       setAvisoResultado(e?.message || String(e));
     } finally {
       setGuardandoResultado(false);
     }
+  };
+
+  const cargarListaPorTienda = async ({ forzarAbrir = true } = {}) => {
+    if (forzarAbrir) setListaPorTiendaAbierta(true);
+    setCargandoLista(true);
+    setAvisoLista('');
+    try {
+      const r = await listarResultadosInventario(supabase, {
+        desde: rango.desde || null,
+        hasta: rango.hasta || null,
+        limit: 100,
+      });
+      setListaPorTienda(r.porTienda || []);
+      if (r.aviso) setAvisoLista(r.aviso);
+      else if (!(r.porTienda || []).length) {
+        setAvisoLista(
+          rango.desde && rango.hasta
+            ? `No hay resultados guardados que solapen ${rango.desde} — ${rango.hasta}.`
+            : 'No hay resultados guardados (nube ni este dispositivo).',
+        );
+      }
+    } catch (e) {
+      setListaPorTienda([]);
+      setAvisoLista(e?.message || String(e));
+    } finally {
+      setCargandoLista(false);
+    }
+  };
+
+  const aplicarRegistroGuardado = (reg) => {
+    if (!reg?.sucursal_id) return;
+    setTienda(reg.sucursal_id);
+    setPreset('custom');
+    if (reg.desde) setDesde(reg.desde);
+    if (reg.hasta) setHasta(reg.hasta);
+    setTotalInventarioManual(reg.valor_contado != null ? String(reg.valor_contado) : '');
+    setFaltanteInventarioManual(reg.valor_faltante != null ? String(reg.valor_faltante) : '');
+    setBonificacionManual(
+      reg.valor_bonificacion != null && Number(reg.valor_bonificacion) !== 0
+        ? String(reg.valor_bonificacion)
+        : '',
+    );
+    setMetaResultado(reg);
+    setEstadoResultado(
+      `Cargado · ${etiquetaTienda(reg.sucursal_id)} · ${reg.desde} — ${reg.hasta}`
+        + (reg.fuente === 'nube' ? ' (nube)' : ' (este dispositivo)'),
+    );
+    setAvisoResultado('');
   };
 
   const totalesVista = useMemo(
@@ -772,6 +829,147 @@ export default function ReporteInventario({
               ? 'Captura total, faltante y bonificación. La bonificación se descuenta del faltante para el % de merma del bono. No altera el stock.'
               : 'Solo lectura: Administrador o Auditor capturan total, faltante y bonificación. Las sucursales no pueden modificar estos datos.'}
           </p>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+            <button
+              type="button"
+              className={listaPorTiendaAbierta ? 'btn btn-primary' : 'btn btn-ghost'}
+              disabled={cargandoLista}
+              onClick={() => {
+                if (listaPorTiendaAbierta) {
+                  setListaPorTiendaAbierta(false);
+                  return;
+                }
+                void cargarListaPorTienda();
+              }}
+            >
+              {cargandoLista
+                ? 'Cargando…'
+                : listaPorTiendaAbierta
+                  ? 'Ocultar reportes por tienda'
+                  : 'Ver reportes guardados por tienda'}
+            </button>
+            {listaPorTiendaAbierta ? (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={cargandoLista}
+                onClick={() => void cargarListaPorTienda({ forzarAbrir: false })}
+              >
+                Actualizar lista
+              </button>
+            ) : null}
+          </div>
+
+          {listaPorTiendaAbierta ? (
+            <div
+              style={{
+                marginBottom: '0.85rem',
+                padding: '0.65rem 0.75rem',
+                borderRadius: 10,
+                background: 'var(--surface)',
+                border: '1px solid var(--border, rgba(0,0,0,0.1))',
+              }}
+            >
+              <div style={{ fontWeight: 650, marginBottom: '0.35rem', fontSize: '0.9rem' }}>
+                Guardados {rango.desde && rango.hasta ? `(periodo ${rango.desde} — ${rango.hasta})` : ''}
+              </div>
+              {avisoLista ? (
+                <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.8rem' }}>{avisoLista}</p>
+              ) : null}
+              {!cargandoLista && listaPorTienda.length === 0 ? (
+                <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
+                  Sin registros. Si acabas de guardar y no aparece, revisa el aviso del SQL o guarda de nuevo con una tienda elegida.
+                </p>
+              ) : null}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem' }}>
+                {listaPorTienda.map((grupo) => {
+                  const expandida = tiendaListaExpandida === grupo.sucursal_id;
+                  const ultimo = grupo.registros[0];
+                  return (
+                    <div
+                      key={grupo.sucursal_id}
+                      style={{
+                        border: '1px solid var(--border, rgba(0,0,0,0.1))',
+                        borderRadius: 8,
+                        overflow: 'hidden',
+                        background: 'var(--bg, #fff)',
+                      }}
+                    >
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{
+                          width: '100%',
+                          justifyContent: 'space-between',
+                          borderRadius: 0,
+                          padding: '0.55rem 0.7rem',
+                          fontSize: '0.85rem',
+                        }}
+                        onClick={() =>
+                          setTiendaListaExpandida((prev) =>
+                            prev === grupo.sucursal_id ? '' : grupo.sucursal_id,
+                          )
+                        }
+                      >
+                        <span>
+                          <strong>{etiquetaTienda(grupo.sucursal_id)}</strong>
+                          <span className="muted">
+                            {' '}
+                            · {grupo.registros.length} periodo{grupo.registros.length === 1 ? '' : 's'}
+                          </span>
+                        </span>
+                        <span className="muted" style={{ fontSize: '0.78rem' }}>
+                          {ultimo?.pct_merma != null ? `merma ${fmtPctReporte(ultimo.pct_merma)}` : '—'}
+                          {' · '}
+                          {expandida ? '▲' : '▼'}
+                        </span>
+                      </button>
+                      {expandida ? (
+                        <div className="table-wrap" style={{ margin: 0, borderTop: '1px solid var(--border, rgba(0,0,0,0.08))' }}>
+                          <table className="data" style={{ fontSize: '0.78rem', margin: 0 }}>
+                            <thead>
+                              <tr>
+                                <th>Periodo</th>
+                                <th>Total</th>
+                                <th>Faltante</th>
+                                <th>Bonif.</th>
+                                <th>Merma</th>
+                                <th>Origen</th>
+                                <th />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {grupo.registros.map((reg) => (
+                                <tr key={`${reg.sucursal_id}-${reg.desde}-${reg.hasta}`}>
+                                  <td>{reg.desde} — {reg.hasta}</td>
+                                  <td>{fmtMxnReporte(reg.valor_contado)}</td>
+                                  <td>{fmtMxnReporte(reg.valor_faltante)}</td>
+                                  <td>{fmtMxnReporte(reg.valor_bonificacion || 0)}</td>
+                                  <td>{reg.pct_merma != null ? fmtPctReporte(reg.pct_merma) : '—'}</td>
+                                  <td className="muted">{reg.fuente === 'nube' ? 'Nube' : 'Local'}</td>
+                                  <td>
+                                    <button
+                                      type="button"
+                                      className="btn btn-ghost"
+                                      style={{ padding: '0.2rem 0.45rem', fontSize: '0.72rem' }}
+                                      onClick={() => aplicarRegistroGuardado(reg)}
+                                    >
+                                      Ver / cargar
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
 
           <div
             style={{

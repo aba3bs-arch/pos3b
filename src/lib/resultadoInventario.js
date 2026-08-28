@@ -451,6 +451,113 @@ export async function guardarResultadoInventario(supabase, {
 }
 
 /**
+ * Lista resultados manuales guardados (nube + local), agrupables por tienda.
+ * Si se pasa desde/hasta, incluye registros que solapan ese periodo.
+ * Sin fechas: trae los más recientes de la nube y todo lo local.
+ */
+export async function listarResultadosInventario(supabase, { desde = null, hasta = null, limit = 80 } = {}) {
+  const porClave = new Map();
+
+  const push = (reg, fuente) => {
+    if (!reg?.sucursal_id || !reg.desde || !reg.hasta) return;
+    if (reg.valor_contado == null) return;
+    const k = `${reg.sucursal_id}|${reg.desde}|${reg.hasta}`;
+    const prev = porClave.get(k);
+    const next = { ...reg, fuente: fuente || reg.fuente || 'local' };
+    if (!prev) {
+      porClave.set(k, next);
+      return;
+    }
+    // Preferir nube; si empatan, el más reciente.
+    if (prev.fuente !== 'nube' && next.fuente === 'nube') {
+      porClave.set(k, next);
+      return;
+    }
+    if (prev.fuente === 'nube' && next.fuente !== 'nube') return;
+    if (String(next.updated_at || '') > String(prev.updated_at || '')) {
+      porClave.set(k, next);
+    }
+  };
+
+  try {
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith(LS_RESULTADO_INV_PREFIX)) continue;
+      const rest = key.slice(LS_RESULTADO_INV_PREFIX.length);
+      const m = rest.match(/^(.+)_(\d{4}-\d{2}-\d{2})_(\d{4}-\d{2}-\d{2})$/);
+      if (!m) continue;
+      const suc = normalizarCodigoTienda(m[1]);
+      const d0 = m[2];
+      const d1 = m[3];
+      if (desde && hasta && (d1 < desde || d0 > hasta)) continue;
+      const reg = normalizarRegistro(leerLocalRaw(key), { sucursal: suc, desde: d0, hasta: d1 });
+      if (reg) push(reg, 'local');
+    }
+  } catch {
+    /* ignore */
+  }
+
+  let aviso = null;
+  let sinTabla = false;
+
+  if (supabase) {
+    try {
+      let q = supabase
+        .from('pos_resultados_inventario')
+        .select('*')
+        .order('updated_at', { ascending: false })
+        .limit(Math.max(1, Number(limit) || 80));
+      if (desde && hasta) {
+        q = q.lte('desde', hasta).gte('hasta', desde);
+      }
+      const { data, error } = await q;
+      if (error) {
+        if (faltaTabla(error)) {
+          aviso = AVISO_FALTA_RESULTADOS_INV_SQL;
+          sinTabla = true;
+        } else {
+          aviso = error.message;
+        }
+      } else {
+        for (const row of data || []) {
+          const reg = normalizarRegistro(row);
+          if (reg) push(reg, 'nube');
+        }
+      }
+    } catch (e) {
+      aviso = e?.message || String(e);
+    }
+  }
+
+  const registros = [...porClave.values()].sort((a, b) => {
+    const suc = String(a.sucursal_id).localeCompare(String(b.sucursal_id), 'es', { numeric: true });
+    if (suc !== 0) return suc;
+    return String(b.desde || '').localeCompare(String(a.desde || ''))
+      || String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
+  });
+
+  const porTienda = [];
+  const mapTienda = new Map();
+  for (const r of registros) {
+    const sid = r.sucursal_id;
+    if (!mapTienda.has(sid)) {
+      const grupo = { sucursal_id: sid, registros: [] };
+      mapTienda.set(sid, grupo);
+      porTienda.push(grupo);
+    }
+    mapTienda.get(sid).registros.push(r);
+  }
+
+  return {
+    ok: !aviso || sinTabla || registros.length > 0,
+    registros,
+    porTienda,
+    aviso,
+    sinTabla,
+  };
+}
+
+/**
  * Busca el resultado de inventario que aplica al periodo del bono (solapamiento de fechas).
  * Preferencia: coincidencia exacta de rango → mayor solape → más reciente.
  */
