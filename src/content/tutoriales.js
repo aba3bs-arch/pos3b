@@ -1,6 +1,9 @@
-/** Contenido del módulo Tutorial (POS). Imágenes en /public/tutorial-*/ */
+/** Contenido del módulo Tutorial (POS). Imágenes en /public/tutorial-... */
+
+import { TUTORIAL_CORTE_ABARROTES } from './tutorialCorteAbarrotes.js';
 
 export const TUTORIALES = [
+  TUTORIAL_CORTE_ABARROTES,
   {
     id: 'cobrar-pos',
     titulo: 'Cómo cobrar en el POS',

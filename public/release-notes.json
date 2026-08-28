@@ -1,9 +1,9 @@
 {
   "title": "Actualización disponible",
-  "summary": "Tutorial de cobro en el POS y RIF para comprar mercancía en la misma tienda. Acepta para actualizar esta caja.",
+  "summary": "Tutorial Corte Abarrotes con captura real de tienda. Acepta para actualizar esta caja.",
   "changes": [
-    "Tutorial → Cómo cobrar en el POS (efectivo pesos/dólares y tarjeta)",
-    "Vales y Préstamos → RIF → Misma tienda · compra mercancía",
-    "RIF entre tiendas sin cambios; elige el tipo en el formulario"
+    "Tutorial → Corte Abarrotes (pantalla real, zonas clicables)",
+    "Calculadora con campos de Movimientos / Caja chica",
+    "Ejemplos de negativo cuando la caja actual queda en rojo"
   ]
 }

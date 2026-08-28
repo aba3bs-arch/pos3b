@@ -1,19 +1,19 @@
 {
   "version": "1.1.0",
-  "buildId": "2cd4b55",
-  "branch": "cursor/aviso-tutorial-rif-4437",
-  "builtAt": "2026-08-27T22:11:57.445Z",
+  "buildId": "f5c5637",
+  "branch": "cursor/tutorial-corte-abarrotes-negativos-5140",
+  "builtAt": "2026-08-28T00:14:10.951Z",
   "title": "Actualización disponible",
-  "summary": "Tutorial de cobro en el POS y RIF para comprar mercancía en la misma tienda. Acepta para actualizar esta caja.",
+  "summary": "Tutorial Corte Abarrotes con captura real de tienda. Acepta para actualizar esta caja.",
   "changes": [
-    "Tutorial → Cómo cobrar en el POS (efectivo pesos/dólares y tarjeta)",
-    "Vales y Préstamos → RIF → Misma tienda · compra mercancía",
-    "RIF entre tiendas sin cambios; elige el tipo en el formulario",
+    "Tutorial → Corte Abarrotes (pantalla real, zonas clicables)",
+    "Calculadora con campos de Movimientos / Caja chica",
+    "Ejemplos de negativo cuando la caja actual queda en rojo",
+    "feat(tutorial): interactivo Corte Abarrotes con negativos y ejemplos",
+    "chore(app): aviso de actualización para tutorial de cobro y RIF mercancía",
     "feat(rif): requisición interna de fondo para mercancía en la misma tienda",
     "feat(tutorial): cómo cobrar en el POS con capturas reales de Ventas",
     "docs: quitar enlace al tutorial de cobros en guiones",
-    "chore(tutorial): quitar tutorial Cobros en caja",
-    "chore(tutorial): quitar entrada Corte de caja del catálogo de tutoriales",
-    "chore(tutorial): quitar tutorial de Corte de caja"
+    "chore(tutorial): quitar tutorial Cobros en caja"
   ]
 }
