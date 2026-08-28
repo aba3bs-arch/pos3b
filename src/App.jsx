@@ -940,6 +940,23 @@ function App() {
     if (modoOffline && vista !== 'Ventas') setVista('Ventas');
   }, [modoOffline, vista]);
 
+  const modulosNav = useMemo(() => {
+    if (!user) return [];
+    const all = modulosParaSidebar(user.rol, user.id);
+    if (modoOffline) return all.filter((m) => moduloPermitidoOffline(m));
+    return all;
+  }, [user, modoOffline]);
+
+  const subContabilidad = useMemo(() => {
+    if (!user || modoOffline) return [];
+    return submodulosContabilidadVisibles(user.rol, user.id);
+  }, [user, modoOffline]);
+
+  const subEstadisticas = useMemo(() => {
+    if (!user || modoOffline) return [];
+    return submodulosEstadisticasVisibles(user.rol, user.id);
+  }, [user, modoOffline]);
+
   if (!sesion) {
     return (
       <PantallaLogin
@@ -1029,14 +1046,7 @@ function App() {
   const tiendaCajaFisicaBloqueada = Boolean(CAJA_FISICA_FIJA_ENV || tiendaFijadaParaAcceso);
   /** Solo panel central (MAIN / equipo sin caja de sucursal fijada). Las sucursales no ven valorización de inventario. */
   const consolaCentral = !tiendaCajaFisicaBloqueada;
-  const modulosNav = useMemo(() => {
-    const all = modulosParaSidebar(user.rol, user.id);
-    if (modoOffline) return all.filter((m) => moduloPermitidoOffline(m));
-    return all;
-  }, [user, modoOffline]);
-  const subContabilidad = modoOffline ? [] : submodulosContabilidadVisibles(user.rol, user.id);
   const contabilidadActiva = !modoOffline && (vista === VISTA_HUB_CONTABILIDAD || SUBMODULOS_CONTABILIDAD.includes(vista));
-  const subEstadisticas = modoOffline ? [] : submodulosEstadisticasVisibles(user.rol, user.id);
   const estadisticasActiva = !modoOffline && (vista === VISTA_HUB_ESTADISTICAS || SUBMODULOS_ESTADISTICAS.includes(vista));
 
   return (
