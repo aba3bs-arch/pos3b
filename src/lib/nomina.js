@@ -5,6 +5,7 @@ import { gastosDeduccionPorEmpleado } from './nominaGastos.js';
 import { prestamosDeduccionPorEmpleado } from './nominaPrestamos.js';
 import {
   empleadoIncluidoEnPagadorFiltro,
+  empleadoIncluidoEnTipoFiltro,
   esIndirectoNomina,
   sueldoPorSalarioDia,
   sueldoIndirectoPorVales,
@@ -145,6 +146,7 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
     valesGasolinaNoCobradosMap = {},
     asistenciasMap = {},
     pagadorFiltro = '',
+    tipoFiltro = '',
     arrastreMap = {},
   } = opts;
 
@@ -152,6 +154,9 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
   let lista = empleados || [];
   if (pagadorFiltro) {
     lista = lista.filter((u) => empleadoIncluidoEnPagadorFiltro(u, pagadorFiltro));
+  }
+  if (tipoFiltro) {
+    lista = lista.filter((u) => empleadoIncluidoEnTipoFiltro(u, tipoFiltro));
   }
 
   return lista.map((u) => {
