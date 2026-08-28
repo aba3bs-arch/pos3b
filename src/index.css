@@ -3940,6 +3940,60 @@ table.data th {
   font-size: 0.9rem;
 }
 
+.ventas-qty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  min-width: 44px;
+  user-select: none;
+}
+
+.ventas-qty--open {
+  min-width: 108px;
+}
+
+.ventas-qty__valor {
+  min-width: 40px;
+  height: 36px;
+  padding: 0 0.45rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+  font-weight: 800;
+  font-size: 0.95rem;
+  color: var(--brand-blue-dark);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.ventas-qty__valor--activo {
+  border-color: var(--brand-blue);
+  background: rgba(59, 102, 181, 0.08);
+}
+
+.ventas-qty__btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #f7f5ef;
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--brand-blue-dark);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.ventas-qty__btn:active {
+  transform: scale(0.96);
+  background: rgba(59, 102, 181, 0.12);
+}
+
 /* Favoritos en Ventas con imagen — solo esta zona hace scroll */
 .ventas-favoritos-grid {
   display: grid;

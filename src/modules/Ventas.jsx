@@ -98,6 +98,8 @@ export default function Ventas({
   const [qDepto, setQDepto] = useState('');
   const [detalleProductoId, setDetalleProductoId] = useState(null);
   const [avisoEscanerRemoto, setAvisoEscanerRemoto] = useState('');
+  const [qtyEditId, setQtyEditId] = useState(null);
+  const scanInputRef = useRef(null);
   const inventarioRef = useRef(inventario);
   const carritoRef = useRef(carrito);
   const busquedaRef = useRef(busqueda);
@@ -446,6 +448,45 @@ export default function Ventas({
     );
   };
 
+  const enfocarBuscador = () => {
+    // Dejar el foco en el escáner para que un código no se meta en la cantidad.
+    requestAnimationFrame(() => {
+      try {
+        scanInputRef.current?.focus?.({ preventScroll: true });
+      } catch {
+        scanInputRef.current?.focus?.();
+      }
+    });
+  };
+
+  const abrirEditorQty = (id) => {
+    setQtyEditId(id);
+    enfocarBuscador();
+  };
+
+  const ajustarQty = (id, delta) => {
+    const row = carrito.find((r) => r.id === id);
+    const actual = Number(row?.qty || 1);
+    setQty(id, actual + delta);
+    enfocarBuscador();
+  };
+
+  // Cerrar stepper al tocar fuera / al cambiar el carrito vacío.
+  useEffect(() => {
+    if (!qtyEditId) return undefined;
+    if (!carrito.some((r) => r.id === qtyEditId)) {
+      setQtyEditId(null);
+      return undefined;
+    }
+    const onPointer = (e) => {
+      const el = e.target?.closest?.('[data-qty-stepper]');
+      if (el && String(el.getAttribute('data-qty-stepper')) === String(qtyEditId)) return;
+      setQtyEditId(null);
+    };
+    document.addEventListener('pointerdown', onPointer);
+    return () => document.removeEventListener('pointerdown', onPointer);
+  }, [qtyEditId, carrito]);
+
   const quitarDelCarrito = (it) => {
     void registrarRemocionCarrito(supabase, {
       sucursal,
@@ -674,6 +715,7 @@ export default function Ventas({
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
             onEscanear={procesarCodigoCamara}
+            inputRef={scanInputRef}
             placeholder="Código, nombre o 3*30…"
             tituloCamara="Escanear producto"
             labelCamara="Abrir cámara"
@@ -690,12 +732,14 @@ export default function Ventas({
               const exacto = productoPorCodigoExacto(enVenta, q);
               if (exacto) {
                 e.preventDefault();
+                setQtyEditId(null);
                 agregarAlCarrito(exacto, true, mult.qty);
                 setBusqueda('');
                 return;
               }
               if (filtrados.length === 1) {
                 e.preventDefault();
+                setQtyEditId(null);
                 agregarAlCarrito(filtrados[0], true, mult.qty);
                 setBusqueda('');
               }
@@ -745,7 +789,10 @@ export default function Ventas({
         )}
         <div className="ventas-ticket-lineas">
           {carrito.length === 0 && <p className="muted">Carrito vacío</p>}
-          {carrito.map((it) => (
+          {carrito.map((it) => {
+            const qty = it.qty || 1;
+            const editando = qtyEditId === it.id;
+            return (
             <div key={it.id} className="ventas-carrito-linea">
               <ProductoThumb producto={it} size={40} />
               <div className="ventas-carrito-info">
@@ -754,17 +801,59 @@ export default function Ventas({
                   Quitar
                 </button>
               </div>
-              <input
-                type="number"
-                min={1}
-                className="input"
-                style={{ width: '56px', padding: '0.35rem' }}
-                value={it.qty || 1}
-                onChange={(e) => setQty(it.id, parseInt(e.target.value, 10) || 1)}
-              />
-              <b className="ventas-carrito-importe">${(Number(it.precio) * (it.qty || 1)).toFixed(2)}</b>
+              <div
+                className={`ventas-qty${editando ? ' ventas-qty--open' : ''}`}
+                data-qty-stepper={it.id}
+              >
+                {editando ? (
+                  <>
+                    <button
+                      type="button"
+                      className="ventas-qty__btn"
+                      aria-label="Quitar uno"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => ajustarQty(it.id, -1)}
+                    >
+                      −
+                    </button>
+                    <button
+                      type="button"
+                      className="ventas-qty__valor ventas-qty__valor--activo"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setQtyEditId(null);
+                        enfocarBuscador();
+                      }}
+                      title="Cerrar"
+                    >
+                      {qty}
+                    </button>
+                    <button
+                      type="button"
+                      className="ventas-qty__btn"
+                      aria-label="Agregar uno"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => ajustarQty(it.id, 1)}
+                    >
+                      +
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="ventas-qty__valor"
+                    onClick={() => abrirEditorQty(it.id)}
+                    title="Cambiar cantidad"
+                    aria-label={`Cantidad ${qty}. Toca para ajustar`}
+                  >
+                    {qty}
+                  </button>
+                )}
+              </div>
+              <b className="ventas-carrito-importe">${(Number(it.precio) * qty).toFixed(2)}</b>
             </div>
-          ))}
+            );
+          })}
         </div>
         <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--brand-blue)', borderTop: '2px solid var(--brand-blue)', paddingTop: '0.75rem', marginTop: '0.5rem' }}>
           TOTAL ${totalMXN.toFixed(2)} MXN
