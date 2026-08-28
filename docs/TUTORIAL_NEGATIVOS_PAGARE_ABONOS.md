@@ -4,7 +4,7 @@ Guía ilustrada para cajeros, recolectores, gerentes y administradores.
 
 Aplica en **Corte Virtual**, **Corte Abarrotes** y **Corte Garage**.  
 Documento hermano (sin imágenes): [INSTRUCTIVO_CORTES_RECOLECCIONES_ALERTAS.md](./INSTRUCTIVO_CORTES_RECOLECCIONES_ALERTAS.md).  
-Tutorial interactivo enfocado en Abarrotes: [TUTORIAL_CORTE_ABARROTES_NEGATIVOS.md](./TUTORIAL_CORTE_ABARROTES_NEGATIVOS.md).
+Tutorial interactivo enfocado en Abarrotes (captura real): [TUTORIAL_CORTE_ABARROTES_NEGATIVOS.md](./TUTORIAL_CORTE_ABARROTES_NEGATIVOS.md).
 
 > **En el POS:** menú lateral → **Tutorial** (mismo contenido con imágenes).
 
