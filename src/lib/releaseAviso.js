@@ -4,14 +4,14 @@
  * Cambia `id` en cada release importante para volver a notificar.
  */
 export const RELEASE_AVISO_ACTUAL = {
-  id: '2026-08-28-tutorial-corte-abarrotes-real',
+  id: '2026-08-28-ventas-modo-offline',
   titulo: 'Actualización del POS',
   resumen:
-    'Tutorial de Corte Abarrotes con captura real de tienda: zonas clicables, calculadora y negativo en caja. Pulsa Actualizar.',
+    'Nuevo MODO OFFLINE: si se cae internet, solo Ventas sigue operando; el resto se bloquea y las ventas se sincronizan al volver la red.',
   cambios: [
-    'Tutorial → «Corte Abarrotes» basado en pantalla real (folio, movimientos, gastos, caja chica)',
-    'Mapa interactivo por zonas + práctica de negativo cuando la caja queda en rojo',
-    'Preguntas de capacitación con los campos que sí existen en el corte',
+    'Etiqueta visible MODO OFFLINE en la caja',
+    'Solo módulo Ventas habilitado sin internet (inventario y cortes bloqueados)',
+    'Ventas pendientes se suben solas al recuperar conexión',
   ],
 };
 

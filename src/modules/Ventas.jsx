@@ -20,6 +20,7 @@ import {
   leerCarritoVenta,
   limpiarCarritoVenta,
 } from '../lib/carritoVentaPersistencia.js';
+import { encolarVentaOffline, esErrorDeRed } from '../lib/ventasOffline.js';
 
 function addToCart(carrito, producto) {
   const precio = precioVentaParaCaja(producto);
@@ -77,6 +78,9 @@ export default function Ventas({
   cargarDatos,
   busqueda,
   setBusqueda,
+  modoOffline = false,
+  forzarOffline,
+  onVentaOfflineLocal,
 }) {
   const verNegativos = puedeVerStockNegativo(user?.rol);
   const [carrito, setCarrito] = useState(() => leerCarritoVenta(sucursal));
@@ -234,7 +238,7 @@ export default function Ventas({
   }, [metodoActual, monedaPago, refPago]);
 
   const finalizarVenta = async () => {
-    if (!supabase || !user || finalizando) return;
+    if (!user || finalizando) return;
     const acceso = usuarioAutorizadoLogin(user, new Date(), null, sucursal);
     if (!acceso.ok) return alert(acceso.error);
     const turno = turnoActual();
@@ -252,30 +256,116 @@ export default function Ventas({
       if (!p) return alert(`Producto no disponible en catálogo: ${c.nombre || c.id}`);
     }
     setFinalizando(true);
-    const { error } = await supabase.from('ventas').insert([
-      {
-        vendedor: user.nombre,
-        usuario_id: user.id || null,
-        sucursal_id: normalizarCodigoTienda(sucursal) || sucursal,
-        total: totalMXN,
-        metodo_pago: textoMetodoPago,
-        articulos,
-        turno_id: turno?.id || null,
-        turno_nombre: nombreTurnoLegible(turno) || null,
-      },
-    ]);
-    if (error) {
-      setFinalizando(false);
-      alert(error.message);
-      return;
-    }
-    const vendidoEn = new Date().toISOString();
+
+    const tiendaVenta = normalizarCodigoTienda(sucursal) || sucursal;
     const totalVenta = totalMXN;
     const cambioVenta = esEfectivo ? cambioMXN : null;
     const metodoVenta = textoMetodoPago;
     const recibidoVenta = esEfectivo ? montoRecibidoEfectivo(pagoCon, totalMXN, monedaPago, tipoCambio) : totalMXN;
     const pagoExacto = esEfectivo && pagoCon === PAGO_EXACTO;
-    const tiendaVenta = normalizarCodigoTienda(sucursal) || sucursal;
+    const vendidoEn = new Date().toISOString();
+
+    const ventaPayload = {
+      vendedor: user.nombre,
+      usuario_id: user.id || null,
+      sucursal_id: tiendaVenta,
+      total: totalVenta,
+      metodo_pago: metodoVenta,
+      articulos,
+      turno_id: turno?.id || null,
+      turno_nombre: nombreTurnoLegible(turno) || null,
+      created_at: vendidoEn,
+    };
+
+    const cerrarTicketLocal = async ({ offlineGuardada = false, erroresStock = [] } = {}) => {
+      const ticket = {
+        sucursal: tiendaVenta,
+        vendedor: user.nombre,
+        articulos,
+        total: totalVenta,
+        metodo_pago: metodoVenta,
+        esEfectivo,
+        recibido: recibidoVenta,
+        cambio: cambioVenta,
+        moneda: monedaPago,
+      };
+      setUltimaVenta(ticket);
+      const decision = resolverImpresionVentaPorMonto(totalVenta);
+      let debeImprimir = decision.accion === 'imprimir' || decision.accion === 'pdf';
+      if (decision.accion === 'preguntar') {
+        debeImprimir = confirm(
+          `Venta de $${Number(totalVenta).toFixed(2)} MXN.\n\n¿Imprimir ticket?`,
+        );
+      }
+      if (debeImprimir) {
+        const modo = decision.accion === 'pdf' ? 'pdf' : 'imprimir';
+        const pr = await entregarTicketVenta(ticket, modo, { copias: decision.copias });
+        if (!pr.ok) console.warn(pr.error);
+      }
+      setCarrito([]);
+      limpiarCarritoVenta(sucursal);
+      resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago });
+      setResultadoVenta({
+        total: totalVenta,
+        cambio: cambioVenta,
+        metodo: metodoVenta,
+        esEfectivo,
+        pagoExacto,
+        moneda: monedaPago,
+        recibido: recibidoVenta,
+        avisoStock: erroresStock.length > 0,
+        ticketOmitido: !debeImprimir,
+        offlineGuardada,
+      });
+      setFinalizando(false);
+    };
+
+    const guardarComoOffline = async () => {
+      const r = encolarVentaOffline(ventaPayload);
+      if (!r.ok) {
+        setFinalizando(false);
+        alert(r.error || 'No se pudo guardar la venta offline.');
+        return;
+      }
+      forzarOffline?.();
+      onVentaOfflineLocal?.(articulos);
+      await cerrarTicketLocal({ offlineGuardada: true });
+    };
+
+    if (modoOffline || !supabase) {
+      await guardarComoOffline();
+      return;
+    }
+
+    let errorInsert = null;
+    try {
+      const { error } = await supabase.from('ventas').insert([
+        {
+          vendedor: ventaPayload.vendedor,
+          usuario_id: ventaPayload.usuario_id,
+          sucursal_id: ventaPayload.sucursal_id,
+          total: ventaPayload.total,
+          metodo_pago: ventaPayload.metodo_pago,
+          articulos: ventaPayload.articulos,
+          turno_id: ventaPayload.turno_id,
+          turno_nombre: ventaPayload.turno_nombre,
+        },
+      ]);
+      errorInsert = error;
+    } catch (e) {
+      errorInsert = e;
+    }
+
+    if (errorInsert) {
+      if (esErrorDeRed(errorInsert)) {
+        await guardarComoOffline();
+        return;
+      }
+      setFinalizando(false);
+      alert(errorInsert.message || String(errorInsert));
+      return;
+    }
+
     const erroresStock = [];
     for (const c of carrito) {
       const need = c.qty || 1;
@@ -311,46 +401,7 @@ export default function Ventas({
           `\n\nRevisa inventario o ejecuta supabase/fix_stock_ubicaciones.sql si falta la columna.`,
       );
     }
-    const ticket = {
-      sucursal: tiendaVenta,
-      vendedor: user.nombre,
-      articulos,
-      total: totalVenta,
-      metodo_pago: metodoVenta,
-      esEfectivo,
-      recibido: recibidoVenta,
-      cambio: cambioVenta,
-      moneda: monedaPago,
-    };
-    setUltimaVenta(ticket);
-    const decision = resolverImpresionVentaPorMonto(totalVenta);
-    let debeImprimir = decision.accion === 'imprimir' || decision.accion === 'pdf';
-    if (decision.accion === 'preguntar') {
-      debeImprimir = confirm(
-        `Venta de $${Number(totalVenta).toFixed(2)} MXN.\n\n¿Imprimir ticket?`,
-      );
-    }
-    // omitir → no abrir ventana ni diálogo de impresión
-    if (debeImprimir) {
-      const modo = decision.accion === 'pdf' ? 'pdf' : 'imprimir';
-      const pr = await entregarTicketVenta(ticket, modo, { copias: decision.copias });
-      if (!pr.ok) console.warn(pr.error);
-    }
-    setCarrito([]);
-    limpiarCarritoVenta(sucursal);
-    resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago });
-    setResultadoVenta({
-      total: totalVenta,
-      cambio: cambioVenta,
-      metodo: metodoVenta,
-      esEfectivo,
-      pagoExacto,
-      moneda: monedaPago,
-      recibido: recibidoVenta,
-      avisoStock: erroresStock.length > 0,
-      ticketOmitido: !debeImprimir,
-    });
-    setFinalizando(false);
+    await cerrarTicketLocal({ erroresStock });
     cargarDatos();
   };
 
@@ -846,6 +897,21 @@ export default function Ventas({
           <div className="ventas-cambio-modal" onClick={(e) => e.stopPropagation()}>
             <h3 id="ventas-cambio-titulo">Venta registrada</h3>
             <p className="muted ventas-cambio-metodo">{resultadoVenta.metodo}</p>
+            {resultadoVenta.offlineGuardada ? (
+              <p
+                style={{
+                  margin: '0 0 0.65rem',
+                  padding: '0.5rem 0.65rem',
+                  borderRadius: 8,
+                  background: 'rgba(185, 28, 28, 0.1)',
+                  color: '#991b1b',
+                  fontSize: '0.85rem',
+                  fontWeight: 700,
+                }}
+              >
+                Guardada en MODO OFFLINE · se subirá sola al recuperar internet
+              </p>
+            ) : null}
             <div className="ventas-cambio-total">Total ${Number(resultadoVenta.total).toFixed(2)} MXN</div>
             {resultadoVenta.esEfectivo ? (
               <div className="ventas-cambio-monto">

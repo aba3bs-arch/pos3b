@@ -1,9 +1,9 @@
 {
   "title": "Actualización disponible",
-  "summary": "Tutorial Corte Abarrotes con captura real de tienda. Acepta para actualizar esta caja.",
+  "summary": "MODO OFFLINE: solo Ventas sin internet, sync automática al recuperar red. Acepta para actualizar.",
   "changes": [
-    "Tutorial → Corte Abarrotes (pantalla real, zonas clicables)",
-    "Calculadora con campos de Movimientos / Caja chica",
-    "Ejemplos de negativo cuando la caja actual queda en rojo"
+    "Etiqueta visible MODO OFFLINE",
+    "Bloqueo de inventario, cortes y demás módulos sin red",
+    "Cola de ventas con sincronización automática"
   ]
 }

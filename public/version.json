@@ -1,19 +1,19 @@
 {
   "version": "1.1.0",
-  "buildId": "f5c5637",
-  "branch": "cursor/tutorial-corte-abarrotes-negativos-5140",
-  "builtAt": "2026-08-28T00:14:10.951Z",
+  "buildId": "6d50818",
+  "branch": "cursor/ventas-offline-sync-5140",
+  "builtAt": "2026-08-28T15:24:46.768Z",
   "title": "Actualización disponible",
-  "summary": "Tutorial Corte Abarrotes con captura real de tienda. Acepta para actualizar esta caja.",
+  "summary": "MODO OFFLINE: solo Ventas sin internet, sync automática al recuperar red. Acepta para actualizar.",
   "changes": [
-    "Tutorial → Corte Abarrotes (pantalla real, zonas clicables)",
-    "Calculadora con campos de Movimientos / Caja chica",
-    "Ejemplos de negativo cuando la caja actual queda en rojo",
+    "Etiqueta visible MODO OFFLINE",
+    "Bloqueo de inventario, cortes y demás módulos sin red",
+    "Cola de ventas con sincronización automática",
+    "docs: aclarar tutorial Corte Abarrotes con captura real",
+    "feat(tutorial): Corte Abarrotes con captura real e interactivo",
     "feat(tutorial): interactivo Corte Abarrotes con negativos y ejemplos",
     "chore(app): aviso de actualización para tutorial de cobro y RIF mercancía",
     "feat(rif): requisición interna de fondo para mercancía en la misma tienda",
-    "feat(tutorial): cómo cobrar en el POS con capturas reales de Ventas",
-    "docs: quitar enlace al tutorial de cobros en guiones",
-    "chore(tutorial): quitar tutorial Cobros en caja"
+    "feat(tutorial): cómo cobrar en el POS con capturas reales de Ventas"
   ]
 }
