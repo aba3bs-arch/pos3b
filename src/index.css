@@ -5420,3 +5420,73 @@ table.data th {
   background: rgba(181, 166, 66, 0.12);
   font-size: 0.92rem;
 }
+
+/* —— Modo offline (solo Ventas) —— */
+.modo-offline-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.55rem 1rem;
+  background: linear-gradient(90deg, #7f1d1d 0%, #b91c1c 55%, #9a3412 100%);
+  color: #fff;
+  border-bottom: 2px solid #450a0a;
+  z-index: 40;
+}
+.modo-offline-banner--sync {
+  background: linear-gradient(90deg, #1e3a5f 0%, #1d4ed8 100%);
+  border-bottom-color: #1e3a8a;
+}
+.modo-offline-banner__main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  min-width: 0;
+}
+.modo-offline-banner__pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: #fff;
+  color: #991b1b;
+  animation: modo-offline-pulse 1.4s ease-in-out infinite;
+}
+.modo-offline-banner__pill--ok {
+  color: #1e40af;
+  animation: none;
+}
+@keyframes modo-offline-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.72; }
+}
+.modo-offline-banner__txt {
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+.modo-offline-banner__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.65rem;
+}
+.modo-offline-banner__sync,
+.modo-offline-banner__msg {
+  font-size: 0.8rem;
+  opacity: 0.95;
+}
+.modo-offline-banner__btn {
+  background: rgba(255, 255, 255, 0.15) !important;
+  color: #fff !important;
+  border: 1px solid rgba(255, 255, 255, 0.35) !important;
+  font-size: 0.78rem;
+  padding: 0.35rem 0.65rem;
+}
+.modo-offline-banner__btn:hover {
+  background: rgba(255, 255, 255, 0.28) !important;
+}

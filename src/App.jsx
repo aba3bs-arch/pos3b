@@ -132,7 +132,15 @@ import BotonActivarNotificaciones from './components/BotonActivarNotificaciones.
 import PantallaLogin from './components/PantallaLogin.jsx';
 import MobileBottomNav from './components/MobileBottomNav.jsx';
 import AppSidebarNav from './components/AppSidebarNav.jsx';
+import { BannerModoOffline, BannerSyncPendiente } from './components/BannerModoOffline.jsx';
 import { useMobileLayout } from './hooks/useMobileLayout.js';
+import useModoOffline from './hooks/useModoOffline.js';
+import {
+  aplicarDescuentoStockLocal,
+  guardarCatalogoOffline,
+  leerCatalogoOffline,
+  moduloPermitidoOffline,
+} from './lib/ventasOffline.js';
 import { EVENTO_TEMA_INTERFAZ, aplicarTemaInterfaz, leerTemaInterfaz } from './lib/temasInterfaz.js';
 import { iconoDeModulo, colorDeModulo } from './lib/moduloIcons.js';
 
@@ -278,11 +286,39 @@ function App() {
     if (gen !== cargarDatosGenRef.current) return;
     if (!r.ok) {
       console.error(r.error);
-      setInventario([]);
+      // No borrar catálogo en memoria si falló por red (modo offline).
       return;
     }
     setInventario(r.data || []);
   }, []);
+
+  const {
+    offline: modoOffline,
+    pendientes: ventasOfflinePendientes,
+    syncing: syncVentasOffline,
+    ultimoSyncMsg,
+    forzarOffline,
+    intentarSync,
+    catalogoRespaldo,
+  } = useModoOffline({
+    supabase,
+    sesion,
+    sucursal,
+    inventario,
+    cargarDatos,
+  });
+
+  const aplicarVentaOfflineLocal = useCallback(
+    (articulos) => {
+      setInventario((prev) => {
+        const base = Array.isArray(prev) && prev.length ? prev : leerCatalogoOffline(sucursal);
+        const next = aplicarDescuentoStockLocal(base, articulos, sucursal);
+        guardarCatalogoOffline(sucursal, next);
+        return next;
+      });
+    },
+    [sucursal],
+  );
 
   /** Fusiona o agrega un producto ya guardado sin esperar toda la recarga. */
   const fusionarProductoEnCatalogo = useCallback((row) => {
@@ -483,6 +519,14 @@ function App() {
 
   const irAModulo = useCallback(
     (m, opts = {}) => {
+      if (modoOffline && !moduloPermitidoOffline(m)) {
+        alert(
+          'Caja en MODO OFFLINE.\n\nSolo puedes usar Ventas.\nInventario, cortes y el resto están bloqueados hasta que regrese internet (las ventas se sincronizan solas).',
+        );
+        setVista('Ventas');
+        setSidebarOpen(false);
+        return;
+      }
       const okHubContab = m === VISTA_HUB_CONTABILIDAD && puedeVerSeccionContabilidad(user?.rol, user?.id);
       const okHubEstad = m === VISTA_HUB_ESTADISTICAS && puedeVerSeccionEstadisticas(user?.rol, user?.id);
       if (!okHubContab && !okHubEstad && !puedeVerModulo(user?.rol, m, user?.id)) {
@@ -509,7 +553,7 @@ function App() {
       setVista(m);
       setSidebarOpen(false);
     },
-    [user],
+    [user, modoOffline],
   );
 
   const irAIncidencias = useCallback(() => {
@@ -880,10 +924,21 @@ function App() {
     [nombreCubre, telefonoCubre],
   );
 
+  const inventarioFuente = useMemo(() => {
+    if (sesion && modoOffline && catalogoRespaldo?.length && !(inventario || []).length) {
+      return catalogoRespaldo;
+    }
+    return inventario;
+  }, [sesion, modoOffline, catalogoRespaldo, inventario]);
+
   const inventarioTienda = useMemo(
-    () => (sesion ? inventarioParaSucursal(inventario, sucursal) : []),
-    [sesion, inventario, sucursal],
+    () => (sesion ? inventarioParaSucursal(inventarioFuente, sucursal) : []),
+    [sesion, inventarioFuente, sucursal],
   );
+
+  useEffect(() => {
+    if (modoOffline && vista !== 'Ventas') setVista('Ventas');
+  }, [modoOffline, vista]);
 
   if (!sesion) {
     return (
@@ -974,11 +1029,15 @@ function App() {
   const tiendaCajaFisicaBloqueada = Boolean(CAJA_FISICA_FIJA_ENV || tiendaFijadaParaAcceso);
   /** Solo panel central (MAIN / equipo sin caja de sucursal fijada). Las sucursales no ven valorización de inventario. */
   const consolaCentral = !tiendaCajaFisicaBloqueada;
-  const modulosNav = modulosParaSidebar(user.rol, user.id);
-  const subContabilidad = submodulosContabilidadVisibles(user.rol, user.id);
-  const contabilidadActiva = vista === VISTA_HUB_CONTABILIDAD || SUBMODULOS_CONTABILIDAD.includes(vista);
-  const subEstadisticas = submodulosEstadisticasVisibles(user.rol, user.id);
-  const estadisticasActiva = vista === VISTA_HUB_ESTADISTICAS || SUBMODULOS_ESTADISTICAS.includes(vista);
+  const modulosNav = useMemo(() => {
+    const all = modulosParaSidebar(user.rol, user.id);
+    if (modoOffline) return all.filter((m) => moduloPermitidoOffline(m));
+    return all;
+  }, [user, modoOffline]);
+  const subContabilidad = modoOffline ? [] : submodulosContabilidadVisibles(user.rol, user.id);
+  const contabilidadActiva = !modoOffline && (vista === VISTA_HUB_CONTABILIDAD || SUBMODULOS_CONTABILIDAD.includes(vista));
+  const subEstadisticas = modoOffline ? [] : submodulosEstadisticasVisibles(user.rol, user.id);
+  const estadisticasActiva = !modoOffline && (vista === VISTA_HUB_ESTADISTICAS || SUBMODULOS_ESTADISTICAS.includes(vista));
 
   return (
     <div className={`app-shell${mobile ? ' app-shell--mobile' : ''}`}>
@@ -1080,6 +1139,11 @@ function App() {
               </span>
             )}
             <span className="app-header-user">{user?.nombre}</span>
+            {modoOffline && (
+              <span className="badge" style={{ background: '#991b1b', color: '#fff', fontWeight: 800 }}>
+                OFFLINE
+              </span>
+            )}
             {esUsuarioCubreTurno(user) && (
               <span className="badge" style={{ background: 'rgba(225,153,41,0.15)', color: 'var(--brand-gold)' }}>
                 Cubre turno
@@ -1096,6 +1160,21 @@ function App() {
             </div>
           </div>
         </header>
+
+        {modoOffline ? (
+          <BannerModoOffline
+            pendientes={ventasOfflinePendientes}
+            syncing={syncVentasOffline}
+            ultimoSyncMsg={ultimoSyncMsg}
+            onSyncAhora={intentarSync}
+          />
+        ) : (
+          <BannerSyncPendiente
+            pendientes={ventasOfflinePendientes}
+            syncing={syncVentasOffline}
+            onSyncAhora={intentarSync}
+          />
+        )}
 
         <div key={vista} className="app-content app-page-enter">
           {vista === 'Inicio' && (
@@ -1143,6 +1222,9 @@ function App() {
               cargarDatos={cargarDatos}
               busqueda={busqueda}
               setBusqueda={setBusqueda}
+              modoOffline={modoOffline}
+              forzarOffline={forzarOffline}
+              onVentaOfflineLocal={aplicarVentaOfflineLocal}
             />
           )}
           {vista === 'Escáner caja' && (

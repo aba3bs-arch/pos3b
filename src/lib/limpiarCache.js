@@ -42,6 +42,7 @@ const CLAVES_PRESERVAR = new Set([
   'pos3b_ventana_recoleccion',
   'pos3b_cont_virtual_catalogo',
   'pos3b_cont_virtual_egresos',
+  'pos3b_ventas_offline_cola',
 ]);
 
 
@@ -52,6 +53,10 @@ function debePreservar(clave) {
   if (CLAVES_PRESERVAR.has(clave)) return true;
   // Resultado manual de inventario (alimenta bono / efectividad)
   if (clave.startsWith('pos3b_resultado_inv_')) return true;
+  // Catálogo caché para vender sin internet
+  if (clave.startsWith('pos3b_catalogo_offline_')) return true;
+  // Carrito de venta en curso
+  if (clave.startsWith('pos3b_carrito_venta_')) return true;
   return false;
 }
 
