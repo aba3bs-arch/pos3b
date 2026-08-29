@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import BrandLogo from './BrandLogo.jsx';
 import InputPin from './InputPin.jsx';
 import SelectorTemaInterfaz from './SelectorTemaInterfaz.jsx';
@@ -48,9 +48,6 @@ export default function PantallaLogin({
 }) {
   const [pedirAdminDesbloqueo, setPedirAdminDesbloqueo] = useState(false);
   const [pinAdminDesbloqueo, setPinAdminDesbloqueo] = useState('');
-  const autoBioIntentado = useRef('');
-  const onLoginBiometricoRef = useRef(onLoginBiometrico);
-  onLoginBiometricoRef.current = onLoginBiometrico;
 
   const cancelarDesbloqueo = () => {
     setPedirAdminDesbloqueo(false);
@@ -63,31 +60,6 @@ export default function PantallaLogin({
       if (ok) cancelarDesbloqueo();
     });
   };
-
-  const bioLista =
-    typeof onLoginBiometrico === 'function'
-    && biometriaDisponible
-    && !pendienteCubreTurno
-    && !pedirAdminDesbloqueo
-    && !pendienteAutorizacionTurno
-    && !pendienteAutorizacionDispositivo
-    && puedeIngresarPin;
-
-  // Al abrir login con biometría ya enrollada: pedir huella / Face ID sin botón de barra.
-  useEffect(() => {
-    if (!bioLista) {
-      return undefined;
-    }
-    if (biometriaCargando) return undefined;
-    const clave = `${sucursal}|bio`;
-    if (autoBioIntentado.current === clave) return undefined;
-    const t = window.setTimeout(() => {
-      autoBioIntentado.current = clave;
-      const fn = onLoginBiometricoRef.current;
-      if (typeof fn === 'function') fn();
-    }, 350);
-    return () => window.clearTimeout(t);
-  }, [bioLista, biometriaCargando, sucursal]);
 
   return (
     <div className="login-shell">
@@ -217,7 +189,7 @@ export default function PantallaLogin({
                 <p className="muted login-bio-hint">
                   {biometriaCargando
                     ? 'Usa tu huella o Face ID…'
-                    : 'Toca el icono o usa tu huella / cara'}
+                    : 'Toca el icono y usa tu huella o cara'}
                 </p>
               </div>
             )}

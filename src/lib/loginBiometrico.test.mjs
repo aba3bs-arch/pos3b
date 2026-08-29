@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   convieneOfrecerBiometria,
+  esErrorSinLlaveAcceso,
   hayBiometriaParaSucursal,
   listarCredencialesBiometricas,
   marcarOfertaBiometriaRespondida,
@@ -12,6 +13,10 @@ assert.equal(typeof soporteBiometricoDisponible(), 'boolean');
 assert.equal(typeof convieneOfrecerBiometria(), 'boolean');
 assert.deepEqual(listarCredencialesBiometricas('3B5'), []);
 assert.equal(hayBiometriaParaSucursal('3B5'), false);
+
+assert.equal(esErrorSinLlaveAcceso({ message: 'No hay llave de acceso disponible' }), true);
+assert.equal(esErrorSinLlaveAcceso({ message: 'No hay llaves de acceso disponibles' }), true);
+assert.equal(esErrorSinLlaveAcceso({ message: 'User cancelled' }), false);
 
 // Oferta de configuración: rechazar no se repite; aceptar sin credencial sí permite reintento.
 assert.equal(yaSeOfrecioBiometria('u-test', '3B5'), false);
