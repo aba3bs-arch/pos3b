@@ -243,10 +243,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const categoriasExtra = useMemo(() => leerCategoriasValeExtra().filter((c) => c.activo !== false), [categoriasTick]);
   const beneficiariosVales = useMemo(() => listarBeneficiariosVales(empleadosAll), [empleadosAll]);
   const beneficiarioSel = beneficiarioValePorId(valeForm.beneficiarioId, beneficiariosVales);
-  const necesitaSelectorCorte = esMain || !beneficiarioSel?.area;
-  const areaCorteVale = esMain
-    ? (valeForm.areaCorte || null)
-    : (valeForm.areaCorte || beneficiarioSel?.area || null);
+  /** El admin elige siempre el corte; ya no se toma del beneficiario. */
+  const areaCorteVale = valeForm.areaCorte || null;
   const sucursalesDestinoVale = useMemo(() => listarSucursalesOperativas(), []);
   const empPrestamoSel = useMemo(
     () => empleadosPrestamo.find((e) => String(e.id) === String(prestEmpForm.usuarioId)) || null,
@@ -430,18 +428,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     if (!(monto > 0)) return alert('Monto inválido.');
 
     let sucursalVale = String(sucursal || 'MAIN').toUpperCase();
-    let areaVale = ben.area || valeForm.areaCorte || '';
+    if (!valeForm.areaCorte) return alert('Selecciona el corte (Virtual / Abarrotes / Garage).');
+    const areaVale = valeForm.areaCorte;
     if (esMain) {
       if (!valeForm.sucursalDestino) return alert('Selecciona la sucursal donde se cargará el vale.');
-      if (!valeForm.areaCorte) return alert('Selecciona el corte (Virtual / Abarrotes / Garage).');
       sucursalVale = String(valeForm.sucursalDestino).toUpperCase();
-      areaVale = valeForm.areaCorte;
       if (valeForm.categoria === 'gasolina') {
         return alert('Los vales de gasolina se generan desde la tienda, no desde MAIN.');
       }
-    } else if (!areaVale) {
-      if (!valeForm.areaCorte) return alert('Selecciona el corte (Virtual / Abarrotes / Garage).');
-      areaVale = valeForm.areaCorte;
     }
 
     const authTxt = await asegurarCamposSinReservadoOPin(
@@ -1270,7 +1264,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <br />
         <strong>Desde MAIN</strong> — Sin ventana de horario: se generan y cobran a cualquier hora. Elige <strong>sucursal</strong> y <strong>corte</strong> destino. Beneficiarios: personal indirecto MAIN.
         <br />
-        <strong>Corte</strong> — Al aprobarse, el vale va al corte indicado (Virtual / Abarrotes / Garage) de la sucursal.
+        <strong>Corte</strong> — El admin elige el corte (Virtual / Abarrotes / Garage) al generar el vale. Al aprobarse, se carga ahí.
         <br />
         <strong>Permisos</strong> — Admin: editar, eliminar e imprimir. Cajero: solo imprimir.
         <br />
@@ -1675,22 +1669,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <select
                 className="select"
                 value={valeForm.beneficiarioId}
-                onChange={(e) => {
-                  const id = e.target.value;
-                  const ben = beneficiarioValePorId(id, beneficiariosVales);
-                  setValeForm({
-                    ...valeForm,
-                    beneficiarioId: id,
-                    areaCorte: esMain ? valeForm.areaCorte : (ben?.area || valeForm.areaCorte || ''),
-                  });
-                }}
+                onChange={(e) => setValeForm({ ...valeForm, beneficiarioId: e.target.value })}
               >
                 <option value="">— Beneficiario —</option>
                 {beneficiariosVales.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.nombre}
-                    {b.area ? ` — corte ${ETIQUETA_AREA[b.area]}` : ' — indirecto MAIN'}
-                  </option>
+                  <option key={b.id} value={b.id}>{b.nombre}</option>
                 ))}
               </select>
               <select
@@ -1717,21 +1700,19 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   </select>
                 </label>
               )}
-              {necesitaSelectorCorte && (
-                <label className="muted" style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                  Corte destino
-                  <select
-                    className="select"
-                    value={valeForm.areaCorte}
-                    onChange={(e) => setValeForm({ ...valeForm, areaCorte: e.target.value })}
-                  >
-                    <option value="">— Corte —</option>
-                    {AREAS_CONTABILIDAD.map((a) => (
-                      <option key={a} value={a}>{ETIQUETA_AREA[a]}</option>
-                    ))}
-                  </select>
-                </label>
-              )}
+              <label className="muted" style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                Corte destino
+                <select
+                  className="select"
+                  value={valeForm.areaCorte}
+                  onChange={(e) => setValeForm({ ...valeForm, areaCorte: e.target.value })}
+                >
+                  <option value="">— Corte —</option>
+                  {AREAS_CONTABILIDAD.map((a) => (
+                    <option key={a} value={a}>{ETIQUETA_AREA[a]}</option>
+                  ))}
+                </select>
+              </label>
               <input className="input" type="number" min="0" step="0.01" placeholder="Monto" value={valeForm.monto} onChange={(e) => setValeForm({ ...valeForm, monto: e.target.value })} />
               <SelectorCalendario label="Fecha del vale" value={valeForm.fecha} onChange={(f) => setValeForm({ ...valeForm, fecha: f })} />
               <input className="input" placeholder="Motivo" style={{ gridColumn: '1 / -1' }} value={valeForm.motivo} onChange={(e) => setValeForm({ ...valeForm, motivo: e.target.value })} />

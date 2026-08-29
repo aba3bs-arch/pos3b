@@ -58,7 +58,8 @@ export const TUTORIAL_VALES_MAIN = {
       titulo: '3. Beneficiarios: personal indirecto MAIN',
       cuerpo: [
         'El selector **Beneficiario** incluye a Luis Enrique, Misael, Gonzalo **y todo el personal indirecto de MAIN**.',
-        'Desde MAIN eliges a quién va el vale; el área de corte ya no viene fija solo del nombre.',
+        'Solo muestra el **nombre**; el corte ya no viene en la leyenda del beneficiario.',
+        'El admin elige aparte el **corte destino** (Virtual / Abarrotes / Garage) donde se cargará el vale.',
       ],
       imagen: `${IMG}/01-nuevo-vale.png`,
       imagenAlt: 'Formulario Nuevo vale · beneficiario',
@@ -69,18 +70,17 @@ export const TUTORIAL_VALES_MAIN = {
     },
     {
       id: 'sucursal-corte',
-      titulo: '4. Desde MAIN: sucursal + corte',
+      titulo: '4. Sucursal (MAIN) + corte (siempre)',
       cuerpo: [
-        'Si generas el vale **desde MAIN**, aparecen dos selectores obligatorios:',
-        '· **Sucursal destino** — a qué tienda se manda el vale (3B5, FUSION, etc.).',
-        '· **Corte destino** — Virtual, Abarrotes o Garage (ahí se carga al aprobarse).',
-        'El vale **no se queda en MAIN**: se registra con la sucursal elegida y aparece en el corte de esa tienda.',
+        'El selector **Corte destino** es obligatorio en todos los vales: el admin decide Virtual, Abarrotes o Garage.',
+        'Si generas el vale **desde MAIN**, también eliges **Sucursal destino** (3B5, FUSION, etc.).',
+        'El vale se registra en esa tienda/área y ahí se carga al aprobarse.',
       ],
       imagen: `${IMG}/01-nuevo-vale.png`,
       imagenAlt: 'Formulario con destino de sucursal y corte',
       hotspotActivo: 'form',
       notas: [
-        'En tienda (no MAIN) el vale usa la sucursal actual; el corte puede venir del beneficiario o elegirse si es indirecto sin área fija.',
+        'En tienda (no MAIN) no eliges sucursal (usa la actual), pero sí eliges el corte.',
       ],
     },
     {
@@ -131,7 +131,7 @@ export const TUTORIAL_VALES_MAIN = {
       titulo: '8. Paso a paso desde MAIN',
       cuerpo: [
         '1. Entrá en **MAIN** → **Vales y Préstamos** → **Vales**.',
-        '2. Elige **beneficiario** (indirecto MAIN).',
+        '2. Elige **beneficiario** (solo el nombre).',
         '3. Elige **categoría** (no gasolina).',
         '4. Elige **sucursal destino** y **corte**.',
         '5. Monto, fecha, motivo → **Registrar vale**.',
@@ -145,7 +145,7 @@ export const TUTORIAL_VALES_MAIN = {
       id: 'frase',
       titulo: 'Frase para capacitar',
       cuerpo: [
-        '**MAIN → beneficiario indirecto → sucursal + corte → registrar a cualquier hora. Gasolina solo en tienda. Admin edita/borra; cajero solo imprime.**',
+        '**Beneficiario = nombre. El admin elige el corte. Desde MAIN también elige sucursal. Gasolina solo en tienda. Cajero solo imprime.**',
       ],
       imagen: `${IMG}/02-pestanas.png`,
       imagenAlt: 'Pestaña Vales',
