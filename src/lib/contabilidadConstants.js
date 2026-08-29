@@ -27,7 +27,10 @@ export const ETIQUETA_AREA = {
   ambos: 'Abarrotes y Virtual',
 };
 
-/** Únicos beneficiarios permitidos para vales. El área define a qué corte va el vale. */
+/**
+ * Beneficiarios fijos históricos (área = corte por defecto en tienda).
+ * Además se listan todos los indirectos / MAIN desde usuarios (ver listarBeneficiariosVales).
+ */
 export const BENEFICIARIOS_VALES = [
   { id: 'luis-enrique', nombre: 'Luis Enrique', area: 'abarrotes' },
   { id: 'misael', nombre: 'Misael', area: 'virtual' },
@@ -67,13 +70,34 @@ export const ESTADOS_VALE_APROBADO = new Set(['aprobado']);
 export const ESTADOS_PRESTAMO_ACTIVO = new Set(['activo']);
 export const ESTADOS_PRESTAMO_PENDIENTE = new Set(['pendiente_admin', 'pendiente_socio']);
 
-export function beneficiarioValePorId(id) {
-  return BENEFICIARIOS_VALES.find((b) => b.id === id) || null;
+export function slugBeneficiarioVale(nombre) {
+  const n = String(nombre || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+  return n || 'beneficiario';
 }
 
-export function beneficiarioValePermitido(nombre, area) {
+export function beneficiarioValePorId(id, catalogo = null) {
+  const list = Array.isArray(catalogo) && catalogo.length ? catalogo : BENEFICIARIOS_VALES;
+  return list.find((b) => String(b.id) === String(id)) || null;
+}
+
+/**
+ * @param {string} nombre
+ * @param {string} area
+ * @param {{ ampliado?: boolean }} [opts] — ampliado: cualquier personal con área de corte válida (indirectos MAIN).
+ */
+export function beneficiarioValePermitido(nombre, area, opts = {}) {
   const n = String(nombre || '').trim().toLowerCase();
-  return BENEFICIARIOS_VALES.some((b) => b.nombre.toLowerCase() === n && b.area === area);
+  if (!n) return false;
+  const a = String(area || '').toLowerCase();
+  if (!AREAS_CONTABILIDAD.includes(a)) return false;
+  if (opts.ampliado) return true;
+  return BENEFICIARIOS_VALES.some((b) => b.nombre.toLowerCase() === n && b.area === a);
 }
 
 export function areaCorteValida(area) {
@@ -201,9 +225,14 @@ function minutosLocalSonora(fecha = new Date()) {
   }
 }
 
-/** Consumos (y tipos con descuentaNomina) siempre requieren admin; otras categorías después de la hora límite. */
-export function valeRequiereAutorizacionAdmin(fecha = new Date(), categoria = 'consumo') {
+/**
+ * Consumos (y tipos con descuentaNomina) siempre requieren admin.
+ * Otras categorías: después de la hora límite (Sonora), salvo vales generados desde MAIN
+ * (`opts.origenMain` / `omitirVentana`) que no tienen ventana de servicio.
+ */
+export function valeRequiereAutorizacionAdmin(fecha = new Date(), categoria = 'consumo', opts = {}) {
   if (valeDescuentaNomina(categoria)) return true;
+  if (opts.omitirVentana || opts.origenMain) return false;
   // "Hasta las HH:MM" inclusive (hora Sonora): a las 10:45 aún sin auth si el límite es 10:45.
   // A partir del minuto siguiente (10:46) sí requiere admin.
   return minutosLocalSonora(fecha) > leerHoraLimiteVale();

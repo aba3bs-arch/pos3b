@@ -160,17 +160,30 @@ export async function marcarValeCobrado(supabase, valeId, cobrado, { nombre } = 
 
 export async function registrarVale(supabase, row, opts = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
-  if (!beneficiarioValePermitido(row.nombre_empleado, row.area)) {
-    return { ok: false, error: 'Solo vales para Luis Enrique (Abarrotes), Misael y Gonzalo (Virtual).' };
+  const area = normalizarAreaCorte(row.area, 'virtual');
+  const ampliado = Boolean(opts.ampliado || opts.origenMain || opts.permitirCualquierBeneficiario);
+  if (!beneficiarioValePermitido(row.nombre_empleado, area, { ampliado })) {
+    return {
+      ok: false,
+      error: ampliado
+        ? 'Selecciona beneficiario y un área de corte válida (Virtual / Abarrotes / Garage).'
+        : 'Solo vales para Luis Enrique (Abarrotes), Misael y Gonzalo (Virtual), u otros indirectos MAIN con área de corte.',
+    };
   }
 
   const categoria = String(row.categoria || 'consumo').toLowerCase();
   if (!esCategoriaValeConocida(categoria)) {
     return { ok: false, error: 'Tipo de vale no válido. El administrador debe crearlo primero.' };
   }
+  if (opts.origenMain && categoria === 'gasolina') {
+    return { ok: false, error: 'Los vales de gasolina se generan desde la tienda, no desde MAIN.' };
+  }
 
   const esAdmin = normalizarRol(opts.rolActor) === 'Administrador';
-  const requiereAdmin = valeRequiereAutorizacionAdmin(new Date(), categoria);
+  const requiereAdmin = valeRequiereAutorizacionAdmin(new Date(), categoria, {
+    origenMain: Boolean(opts.origenMain),
+    omitirVentana: Boolean(opts.omitirVentana || opts.origenMain),
+  });
   const descuentaNomina = valeDescuentaNomina(categoria);
 
   let estadoAprobacion = 'aprobado';
@@ -192,7 +205,7 @@ export async function registrarVale(supabase, row, opts = {}) {
     ...row,
     folio,
     categoria,
-    area: normalizarAreaCorte(row.area, 'virtual'),
+    area,
     descuenta_nomina: descuentaNomina,
     estado_aprobacion: estadoAprobacion,
     requiere_autorizacion: requiereAuth,
@@ -217,7 +230,7 @@ export async function registrarVale(supabase, row, opts = {}) {
       ref_id: data.id,
       titulo: `Vale pendiente · ${row.nombre_empleado}`,
       mensaje: `${folio} · $${Number(row.monto).toFixed(2)} · ${categoria}${descuentaNomina ? ' · requiere admin' : ` · después de las ${etiquetaHoraLimiteVale()}`}`,
-      area_buzon: data.area || row.area || 'virtual',
+      area_buzon: data.area || area || 'virtual',
     });
     return {
       ok: true,
@@ -238,7 +251,7 @@ export async function registrarVale(supabase, row, opts = {}) {
     ok: true,
     vale: data,
     pendiente: false,
-    mensaje: `Vale autorizado y cargado al corte de ${payload.area}. Imprima y solicite la firma del beneficiario.`,
+    mensaje: `Vale autorizado y cargado al corte de ${payload.area}${row.sucursal_id ? ` · ${row.sucursal_id}` : ''}. Imprima y solicite la firma del beneficiario.`,
     requiereFirma: true,
   };
 }
@@ -291,7 +304,7 @@ export async function rechazarVale(supabase, valeId, { nombre, motivo } = {}) {
   return { ok: true, vale: data };
 }
 
-/** Edita un vale (monto, categoría, motivo/notas). Bloquea nombres reservados sin Andrés. */
+/** Edita un vale (monto, categoría, motivo/notas, área). Bloquea nombres reservados sin Andrés. */
 export async function editarVale(supabase, vale, patch = {}, { nombre, user, sucursal } = {}) {
   if (!supabase || !vale?.id) return { ok: false, error: 'Vale inválido.' };
   const est = vale.estado_aprobacion || 'aprobado';
@@ -320,6 +333,12 @@ export async function editarVale(supabase, vale, patch = {}, { nombre, user, suc
   if (patch.notas !== undefined) upd.notas = String(patch.notas || '').trim() || null;
   if (patch.nombre_empleado != null && String(patch.nombre_empleado).trim()) {
     upd.nombre_empleado = String(patch.nombre_empleado).trim();
+  }
+  if (patch.area != null && String(patch.area).trim()) {
+    upd.area = normalizarAreaCorte(patch.area, vale.area || 'virtual');
+  }
+  if (patch.sucursal_id != null && String(patch.sucursal_id).trim()) {
+    upd.sucursal_id = String(patch.sucursal_id).trim().toUpperCase();
   }
   if (!Object.keys(upd).length) return { ok: false, error: 'Sin cambios.' };
 
