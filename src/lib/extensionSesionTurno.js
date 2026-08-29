@@ -1,7 +1,8 @@
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
 
 export const LS_EXTENSION_SESION_TURNO = 'pos3b_extension_sesion_turno';
-export const MINUTOS_EXTENSION_SESION = 30;
+/** Minutos extra al terminar la ventana de turno (móvil / caja). */
+export const MINUTOS_EXTENSION_SESION = 45;
 export const EVENTO_EXTENSION_SESION = 'pos3b-extension-sesion';
 
 function claveExtension(usuarioId, sucursal) {

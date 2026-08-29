@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import BrandLogo from './BrandLogo.jsx';
 import InputPin from './InputPin.jsx';
 import SelectorTemaInterfaz from './SelectorTemaInterfaz.jsx';
 import SelectorSucursal from './SelectorSucursal.jsx';
-import { BtnLabel } from './Icon.jsx';
+import Icon, { BtnLabel } from './Icon.jsx';
 import { etiquetaTienda } from '../constants/sucursales.js';
 
 export default function PantallaLogin({
@@ -48,6 +48,9 @@ export default function PantallaLogin({
 }) {
   const [pedirAdminDesbloqueo, setPedirAdminDesbloqueo] = useState(false);
   const [pinAdminDesbloqueo, setPinAdminDesbloqueo] = useState('');
+  const autoBioIntentado = useRef('');
+  const onLoginBiometricoRef = useRef(onLoginBiometrico);
+  onLoginBiometricoRef.current = onLoginBiometrico;
 
   const cancelarDesbloqueo = () => {
     setPedirAdminDesbloqueo(false);
@@ -60,6 +63,31 @@ export default function PantallaLogin({
       if (ok) cancelarDesbloqueo();
     });
   };
+
+  const bioLista =
+    typeof onLoginBiometrico === 'function'
+    && biometriaDisponible
+    && !pendienteCubreTurno
+    && !pedirAdminDesbloqueo
+    && !pendienteAutorizacionTurno
+    && !pendienteAutorizacionDispositivo
+    && puedeIngresarPin;
+
+  // Al abrir login con biometría ya enrollada: pedir huella / Face ID sin botón de barra.
+  useEffect(() => {
+    if (!bioLista) {
+      return undefined;
+    }
+    if (biometriaCargando) return undefined;
+    const clave = `${sucursal}|bio`;
+    if (autoBioIntentado.current === clave) return undefined;
+    const t = window.setTimeout(() => {
+      autoBioIntentado.current = clave;
+      const fn = onLoginBiometricoRef.current;
+      if (typeof fn === 'function') fn();
+    }, 350);
+    return () => window.clearTimeout(t);
+  }, [bioLista, biometriaCargando, sucursal]);
 
   return (
     <div className="login-shell">
@@ -175,17 +203,23 @@ export default function PantallaLogin({
         {!pendienteCubreTurno && !pedirAdminDesbloqueo && (
           <>
             {typeof onLoginBiometrico === 'function' && biometriaDisponible && (
-              <button
-                type="button"
-                className="btn btn-gold login-btn-block"
-                onClick={onLoginBiometrico}
-                disabled={!puedeIngresarPin || biometriaCargando || Boolean(pendienteAutorizacionTurno) || Boolean(pendienteAutorizacionDispositivo)}
-                style={{ marginBottom: '0.55rem' }}
-              >
-                <BtnLabel icon="smartphone">
-                  {biometriaCargando ? 'Verificando…' : 'Entrar con biometría'}
-                </BtnLabel>
-              </button>
+              <div className="login-bio-row">
+                <button
+                  type="button"
+                  className={`login-bio-icon-btn${biometriaCargando ? ' is-loading' : ''}`}
+                  onClick={onLoginBiometrico}
+                  disabled={!puedeIngresarPin || biometriaCargando || Boolean(pendienteAutorizacionTurno) || Boolean(pendienteAutorizacionDispositivo)}
+                  aria-label={biometriaCargando ? 'Verificando biometría' : 'Entrar con huella o Face ID'}
+                  title={biometriaCargando ? 'Verificando…' : 'Huella / Face ID'}
+                >
+                  <Icon name="fingerprint" size={28} />
+                </button>
+                <p className="muted login-bio-hint">
+                  {biometriaCargando
+                    ? 'Usa tu huella o Face ID…'
+                    : 'Toca el icono o usa tu huella / cara'}
+                </p>
+              </div>
             )}
             <InputPin
               key={`login-pin-${pinFieldKey}`}
@@ -210,11 +244,6 @@ export default function PantallaLogin({
             {cubreTurnoHabilitado && (
               <p className="muted login-hint-sm" style={{ marginTop: '0.5rem' }}>
                 Si cubres turno, usa el <strong>PIN de cubre turno</strong> configurado por el administrador en {etiquetaTienda(sucursal)}.
-              </p>
-            )}
-            {typeof onLoginBiometrico === 'function' && biometriaDisponible && (
-              <p className="muted login-hint-sm" style={{ marginTop: '0.45rem' }}>
-                Biometría (Face ID / huella) y PIN: ambos sirven en este equipo. La primera vez entra con PIN y activa la biometría cuando te lo pida.
               </p>
             )}
           </>

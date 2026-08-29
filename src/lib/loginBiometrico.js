@@ -24,19 +24,29 @@ function base64UrlToBuffer(str) {
   return out.buffer;
 }
 
+function claveOferta(userId, sucursal) {
+  return `${String(userId || '')}|${normalizarCodigoTienda(sucursal)}`;
+}
+
 function leerStore() {
   try {
     const raw = localStorage.getItem(LS_BIO);
-    if (!raw) return { creds: [] };
+    if (!raw) return { creds: [], ofertas: {} };
     const parsed = JSON.parse(raw);
-    return { creds: Array.isArray(parsed?.creds) ? parsed.creds : [] };
+    return {
+      creds: Array.isArray(parsed?.creds) ? parsed.creds : [],
+      ofertas: parsed?.ofertas && typeof parsed.ofertas === 'object' ? parsed.ofertas : {},
+    };
   } catch {
-    return { creds: [] };
+    return { creds: [], ofertas: {} };
   }
 }
 
 function guardarStore(store) {
-  localStorage.setItem(LS_BIO, JSON.stringify({ creds: store.creds || [] }));
+  localStorage.setItem(LS_BIO, JSON.stringify({
+    creds: store.creds || [],
+    ofertas: store.ofertas && typeof store.ofertas === 'object' ? store.ofertas : {},
+  }));
 }
 
 export function soporteBiometricoDisponible() {
@@ -80,6 +90,32 @@ export function usuarioTieneBiometriaEnEquipo(userId, sucursal) {
   return listarCredencialesBiometricas(sucursal).some((c) => String(c.userId) === uid);
 }
 
+/**
+ * ¿Ya se mostró (y respondió) la oferta de activar biometría para este usuario en esta tienda?
+ * Aceptar o rechazar cuenta: no volver a preguntar.
+ */
+export function yaSeOfrecioBiometria(userId, sucursal) {
+  const uid = String(userId || '');
+  if (!uid) return false;
+  if (usuarioTieneBiometriaEnEquipo(uid, sucursal)) return true;
+  const store = leerStore();
+  const entry = store.ofertas?.[claveOferta(uid, sucursal)];
+  return Boolean(entry?.respondidoEn);
+}
+
+/** Marca la oferta como respondida (aceptada o rechazada) para no repetir el mensaje. */
+export function marcarOfertaBiometriaRespondida(userId, sucursal, decision = 'rechazada') {
+  const uid = String(userId || '');
+  if (!uid) return;
+  const store = leerStore();
+  store.ofertas = store.ofertas || {};
+  store.ofertas[claveOferta(uid, sucursal)] = {
+    decision: decision === 'aceptada' ? 'aceptada' : 'rechazada',
+    respondidoEn: new Date().toISOString(),
+  };
+  guardarStore(store);
+}
+
 export function olvidarBiometriaUsuario(userId, sucursal) {
   const uid = String(userId || '');
   const suc = normalizarCodigoTienda(sucursal);
@@ -87,6 +123,10 @@ export function olvidarBiometriaUsuario(userId, sucursal) {
   store.creds = store.creds.filter(
     (c) => !(String(c.userId) === uid && (!suc || c.sucursal === suc)),
   );
+  if (store.ofertas && uid) {
+    const k = claveOferta(uid, suc);
+    if (store.ofertas[k]) delete store.ofertas[k];
+  }
   guardarStore(store);
 }
 
@@ -94,6 +134,11 @@ export function olvidarTodaBiometriaSucursal(sucursal) {
   const suc = normalizarCodigoTienda(sucursal);
   const store = leerStore();
   store.creds = store.creds.filter((c) => c.sucursal !== suc);
+  if (store.ofertas) {
+    for (const k of Object.keys(store.ofertas)) {
+      if (k.endsWith(`|${suc}`)) delete store.ofertas[k];
+    }
+  }
   guardarStore(store);
 }
 
@@ -152,6 +197,7 @@ export async function registrarBiometriaTrasLogin({ user, sucursal }) {
       enrolledAt: new Date().toISOString(),
     });
     guardarStore(store);
+    marcarOfertaBiometriaRespondida(userId, suc, 'aceptada');
     return { ok: true };
   } catch (err) {
     const name = String(err?.name || '');
