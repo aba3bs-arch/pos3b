@@ -91,8 +91,10 @@ export function usuarioTieneBiometriaEnEquipo(userId, sucursal) {
 }
 
 /**
- * ¿Ya se mostró (y respondió) la oferta de activar biometría para este usuario en esta tienda?
- * Aceptar o rechazar cuenta: no volver a preguntar.
+ * ¿Ya se respondió la oferta de biometría y no hace falta volver a preguntar?
+ * - Rechazó → no preguntar de nuevo.
+ * - Ya tiene credencial → no preguntar.
+ * - Aceptó pero falló el registro (sin credencial) → sí volver a ofrecer.
  */
 export function yaSeOfrecioBiometria(userId, sucursal) {
   const uid = String(userId || '');
@@ -100,7 +102,7 @@ export function yaSeOfrecioBiometria(userId, sucursal) {
   if (usuarioTieneBiometriaEnEquipo(uid, sucursal)) return true;
   const store = leerStore();
   const entry = store.ofertas?.[claveOferta(uid, sucursal)];
-  return Boolean(entry?.respondidoEn);
+  return entry?.decision === 'rechazada';
 }
 
 /** Marca la oferta como respondida (aceptada o rechazada) para no repetir el mensaje. */
@@ -144,44 +146,74 @@ export function olvidarTodaBiometriaSucursal(sucursal) {
 
 /**
  * Registra Face ID / huella para este usuario en este dispositivo.
+ * Usa credencial de plataforma no descubrible (localStorage guarda el id):
+ * en Android/Chrome las passkeys descubribles suelen fallar con
+ * "No se puede generar la llave de acceso".
  * @returns {{ ok: true } | { ok: false, error: string, cancelado?: boolean }}
  */
 export async function registrarBiometriaTrasLogin({ user, sucursal }) {
   if (!user?.id) return { ok: false, error: 'Usuario inválido.' };
-  if (!(await plataformaBiometricaDisponible())) {
+  if (!soporteBiometricoDisponible()) {
     return { ok: false, error: 'Este equipo no admite biometría (Face ID / huella).' };
   }
   const suc = normalizarCodigoTienda(sucursal);
   const userId = String(user.id);
   const challenge = crypto.getRandomValues(new Uint8Array(32));
-  const userIdBytes = new TextEncoder().encode(userId).buffer;
+  // user.id WebAuthn: máximo 64 bytes; UUID/texto corto cabe en UTF-8.
+  const userIdBytes = new TextEncoder().encode(userId.slice(0, 64));
+
+  const existentes = listarCredencialesBiometricas(suc).filter((c) => String(c.userId) === userId);
+
+  const publicKeyBase = {
+    challenge,
+    rp: {
+      name: 'POS CONTROL 3B',
+      id: window.location.hostname,
+    },
+    user: {
+      id: userIdBytes,
+      name: `${user.nombre || userId}@${suc}`.slice(0, 64),
+      displayName: String(user.nombre || 'Usuario POS').slice(0, 64),
+    },
+    pubKeyCredParams: [
+      { type: 'public-key', alg: -7 },
+      { type: 'public-key', alg: -257 },
+    ],
+    excludeCredentials: existentes.map((c) => ({
+      type: 'public-key',
+      id: base64UrlToBuffer(c.credentialId),
+      transports: ['internal'],
+    })),
+    timeout: 90_000,
+    attestation: 'none',
+  };
+
+  async function crearCredencial(authenticatorSelection) {
+    return navigator.credentials.create({
+      publicKey: { ...publicKeyBase, authenticatorSelection },
+    });
+  }
 
   try {
-    const cred = await navigator.credentials.create({
-      publicKey: {
-        challenge,
-        rp: {
-          name: 'POS CONTROL 3B',
-          id: window.location.hostname,
-        },
-        user: {
-          id: userIdBytes,
-          name: `${user.nombre || userId}@${suc}`,
-          displayName: String(user.nombre || 'Usuario POS'),
-        },
-        pubKeyCredParams: [
-          { type: 'public-key', alg: -7 },
-          { type: 'public-key', alg: -257 },
-        ],
-        authenticatorSelection: {
-          authenticatorAttachment: 'platform',
-          userVerification: 'required',
-          residentKey: 'preferred',
-        },
-        timeout: 90_000,
-        attestation: 'none',
-      },
-    });
+    // Importante: no hacer await de red/API entre el gesto del usuario y create().
+    let cred;
+    try {
+      cred = await crearCredencial({
+        authenticatorAttachment: 'platform',
+        userVerification: 'required',
+        // Evita passkey en el administrador de contraseñas (falla frecuente en Android).
+        residentKey: 'discouraged',
+        requireResidentKey: false,
+      });
+    } catch (errPrimero) {
+      const n = String(errPrimero?.name || '');
+      if (n === 'NotAllowedError' || n === 'AbortError' || n === 'InvalidStateError') throw errPrimero;
+      // Reintento más compatible (algunos Android rechazan residentKey / UV required).
+      cred = await crearCredencial({
+        authenticatorAttachment: 'platform',
+        userVerification: 'preferred',
+      });
+    }
     if (!cred?.rawId) return { ok: false, error: 'No se pudo crear la credencial biométrica.' };
 
     const credentialId = bufferToBase64Url(cred.rawId);
@@ -201,10 +233,28 @@ export async function registrarBiometriaTrasLogin({ user, sucursal }) {
     return { ok: true };
   } catch (err) {
     const name = String(err?.name || '');
+    const msg = String(err?.message || '');
+    if (name === 'InvalidStateError') {
+      // Ya existe una credencial en el autenticador para este usuario.
+      if (existentes.length) {
+        marcarOfertaBiometriaRespondida(userId, suc, 'aceptada');
+        return { ok: true };
+      }
+      return {
+        ok: false,
+        error: 'Este equipo ya tiene una llave biométrica para este usuario. Prueba entrar con biometría o borra datos del sitio e inténtalo de nuevo.',
+      };
+    }
     if (name === 'NotAllowedError' || name === 'AbortError') {
       return { ok: false, error: 'Registro biométrico cancelado.', cancelado: true };
     }
-    return { ok: false, error: err?.message || 'No se pudo activar la biometría.' };
+    if (name === 'NotSupportedError' || /llave de acceso|access key|passkey/i.test(msg)) {
+      return {
+        ok: false,
+        error: 'No se pudo generar la llave biométrica en este equipo. Revisa que Face ID / huella esté activa en el sistema e inténtalo de nuevo al entrar con PIN.',
+      };
+    }
+    return { ok: false, error: msg || 'No se pudo activar la biometría.' };
   }
 }
 

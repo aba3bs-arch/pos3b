@@ -112,6 +112,7 @@ import Icon, { BtnLabel } from './components/Icon.jsx';
 import BotonLimpiarCache from './components/BotonLimpiarCache.jsx';
 import RelojNogales from './components/RelojNogales.jsx';
 import ModalExtensionTurno from './components/ModalExtensionTurno.jsx';
+import ModalActivarBiometria from './components/ModalActivarBiometria.jsx';
 import { EVENTO_CACHE_LIMPIADO } from './lib/limpiarCache.js';
 import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesContabilidad.jsx';
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
@@ -185,6 +186,8 @@ function App() {
   const [biometriaOk, setBiometriaOk] = useState(false);
   const [biometriaLista, setBiometriaLista] = useState(false);
   const [biometriaCargando, setBiometriaCargando] = useState(false);
+  const [ofertaBiometria, setOfertaBiometria] = useState(null);
+  const [registrandoBiometria, setRegistrandoBiometria] = useState(false);
   const [inventario, setInventario] = useState([]);
   const [busqueda, setBusqueda] = useState('');
   const [brandTitle, setBrandTitle] = useState(leerNombreNegocio);
@@ -645,7 +648,7 @@ function App() {
         }
       });
 
-      // Tras PIN exitoso en móvil/PWA: ofrecer Face ID / huella una sola vez (no cubre turno).
+      // Tras PIN exitoso en móvil/PWA: ofrecer Face ID / huella (modal con gesto real; no cubre turno).
       if (
         !cubreTurno
         && data.id
@@ -653,29 +656,46 @@ function App() {
         && !usuarioTieneBiometriaEnEquipo(data.id, sucursalLogin)
         && !yaSeOfrecioBiometria(data.id, sucursalLogin)
       ) {
-        const quiere = window.confirm(
-          `¿Activar biometría (Face ID / huella) para ${data.nombre || 'este usuario'} en este equipo?\n\n`
-          + 'La próxima vez podrás entrar sin escribir el PIN. El PIN seguirá disponible como respaldo.\n\n'
-          + 'Esta pregunta solo se muestra una vez.',
-        );
-        if (quiere) {
-          marcarOfertaBiometriaRespondida(data.id, sucursalLogin, 'aceptada');
-          const reg = await registrarBiometriaTrasLogin({ user: data, sucursal: sucursalLogin });
-          if (reg.ok) {
-            setBiometriaLista(true);
-            alert('Biometría activada en este equipo. También puedes seguir entrando con PIN.');
-          } else if (!reg.cancelado) {
-            alert(reg.error || 'No se pudo activar la biometría.');
-          }
-        } else {
-          marcarOfertaBiometriaRespondida(data.id, sucursalLogin, 'rechazada');
-        }
+        setOfertaBiometria({ user: data, sucursal: sucursalLogin });
       }
 
       return true;
     },
     [sucursal, tiendaFijadaParaAcceso, supabase],
   );
+
+  const aceptarOfertaBiometria = useCallback(async () => {
+    if (!ofertaBiometria?.user?.id) return;
+    setRegistrandoBiometria(true);
+    try {
+      const reg = await registrarBiometriaTrasLogin({
+        user: ofertaBiometria.user,
+        sucursal: ofertaBiometria.sucursal,
+      });
+      if (reg.ok) {
+        setBiometriaLista(true);
+        setOfertaBiometria(null);
+        alert('Biometría activada en este equipo. También puedes seguir entrando con PIN.');
+        return;
+      }
+      if (reg.cancelado) {
+        marcarOfertaBiometriaRespondida(ofertaBiometria.user.id, ofertaBiometria.sucursal, 'rechazada');
+        setOfertaBiometria(null);
+        return;
+      }
+      alert(reg.error || 'No se pudo activar la biometría. Puedes intentarlo de nuevo la próxima vez que entres con PIN.');
+      setOfertaBiometria(null);
+    } finally {
+      setRegistrandoBiometria(false);
+    }
+  }, [ofertaBiometria]);
+
+  const omitirOfertaBiometria = useCallback(() => {
+    if (ofertaBiometria?.user?.id) {
+      marcarOfertaBiometriaRespondida(ofertaBiometria.user.id, ofertaBiometria.sucursal, 'rechazada');
+    }
+    setOfertaBiometria(null);
+  }, [ofertaBiometria]);
 
   const manejarLogin = async () => {
     if (!supabase) {
@@ -821,6 +841,7 @@ function App() {
   const forzarCierreSesionPorTurno = useCallback(() => {
     if (user?.id && sucursal) limpiarExtensionSesionTurno(user.id, sucursal);
     setAvisoExtensionTurno(null);
+    setOfertaBiometria(null);
     setSesion(false);
     setUser(null);
     setVista('Inicio');
@@ -844,6 +865,7 @@ function App() {
     limpiarAnunciosVistos();
     limpiarNotificacionesDispositivoMostradas();
     setAvisoExtensionTurno(null);
+    setOfertaBiometria(null);
     setSesion(false);
     setUser(null);
     setVista('Inicio');
@@ -1464,6 +1486,13 @@ function App() {
         {user ? <ReleaseAvisoOverlay user={user} /> : null}
         {user ? <ActualizacionPendienteOverlay /> : null}
         <AnuncioPosOverlay supabase={supabase} onIrVentas={() => irAModulo('Ventas')} />
+        <ModalActivarBiometria
+          open={Boolean(ofertaBiometria)}
+          nombre={ofertaBiometria?.user?.nombre}
+          registrando={registrandoBiometria}
+          onActivar={aceptarOfertaBiometria}
+          onOmitir={omitirOfertaBiometria}
+        />
         <ModalExtensionTurno
           open={Boolean(avisoExtensionTurno)}
           minutos={MINUTOS_EXTENSION_SESION}
