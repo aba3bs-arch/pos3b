@@ -30,5 +30,15 @@ assert.equal(valeRequiereAutorizacionAdmin(sonoraDate(10, 20), 'gasolina'), fals
 assert.equal(valeRequiereAutorizacionAdmin(sonoraDate(10, 45), 'gasolina'), false, '10:45 inclusive sin auth');
 assert.equal(valeRequiereAutorizacionAdmin(sonoraDate(10, 46), 'gasolina'), true, '10:46 ya requiere');
 assert.equal(valeRequiereAutorizacionAdmin(sonoraDate(9, 0), 'consumo'), true, 'consumo siempre');
+assert.equal(
+  valeRequiereAutorizacionAdmin(sonoraDate(22, 30), 'gasolina', { origenMain: true }),
+  false,
+  'MAIN omite ventana aunque sea de noche',
+);
+assert.equal(
+  valeRequiereAutorizacionAdmin(sonoraDate(22, 30), 'consumo', { origenMain: true }),
+  true,
+  'consumo sigue requiriendo admin aunque sea MAIN',
+);
 
 console.log('horaLimiteVale.test.mjs ok');

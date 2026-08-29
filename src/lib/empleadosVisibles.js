@@ -1,5 +1,5 @@
 import { listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
-import { BENEFICIARIOS_VALES } from './contabilidadConstants.js';
+import { BENEFICIARIOS_VALES, slugBeneficiarioVale, AREAS_CONTABILIDAD } from './contabilidadConstants.js';
 import { normalizarRol, puedeGestionarUsuarios } from './roles.js';
 import { esTurnoAmbos, turnoActual, turnoIdParaUsuario } from './turnos.js';
 
@@ -427,6 +427,64 @@ export function enriquecerEmpleadosNominaIndirectos(empleados) {
 export function empleadosParaNominaGlobal(empleados) {
   const base = (empleados || []).filter((e) => e?.activo !== false && normalizarRol(e.rol) !== 'Administrador');
   return enriquecerEmpleadosNominaIndirectos(base);
+}
+
+/**
+ * Catálogo de beneficiarios para vales:
+ * - fijos históricos (Luis Enrique / Misael / Gonzalo) con área de corte por defecto
+ * - todo el personal indirecto / MAIN activo (sin administradores)
+ */
+export function listarBeneficiariosVales(empleados = []) {
+  const out = [];
+  const seenNom = new Set();
+
+  const push = (b) => {
+    const key = normalizarNombrePersona(b.nombre);
+    if (!key || seenNom.has(key)) return;
+    seenNom.add(key);
+    out.push(b);
+  };
+
+  for (const b of BENEFICIARIOS_VALES) {
+    push({ ...b, fijo: true, usuario_id: null });
+  }
+
+  for (const e of empleados || []) {
+    if (!e || e.activo === false) continue;
+    if (normalizarRol(e.rol) === 'Administrador') continue;
+    if (!esEmpleadoIndirectoOMain(e)) continue;
+    const areaRaw = String(e.nomina_pagador || '').toLowerCase();
+    const area = AREAS_CONTABILIDAD.includes(areaRaw) ? areaRaw : null;
+    // Preferir id fijo si coincide con placeholder
+    const fijo = BENEFICIARIOS_VALES.find((b) => nombresMismaPersona(b.nombre, e.nombre));
+    if (fijo) {
+      // Actualizar entrada fija con usuario_id real si aplica
+      const idx = out.findIndex((x) => x.id === fijo.id);
+      if (idx >= 0) {
+        out[idx] = {
+          ...out[idx],
+          nombre: e.nombre || out[idx].nombre,
+          usuario_id: String(e.id).startsWith('indirect:') ? null : e.id,
+          area: out[idx].area || area,
+        };
+      }
+      continue;
+    }
+    push({
+      id: `usr-${slugBeneficiarioVale(e.nombre)}-${String(e.id).slice(0, 8)}`,
+      nombre: e.nombre,
+      area,
+      usuario_id: String(e.id).startsWith('indirect:') ? null : e.id,
+      fijo: false,
+      esIndirectoMain: true,
+    });
+  }
+
+  return out.sort((a, b) => {
+    if (a.fijo && !b.fijo) return -1;
+    if (!a.fijo && b.fijo) return 1;
+    return String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es');
+  });
 }
 
 /** Pantalla Usuarios (solo admin): filtro opcional por tienda. */
