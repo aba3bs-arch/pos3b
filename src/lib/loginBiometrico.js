@@ -49,6 +49,12 @@ function guardarStore(store) {
   }));
 }
 
+/** Chrome/Android: "No hay llave(s) de acceso disponible(s)". */
+export function esErrorSinLlaveAcceso(err) {
+  const msg = String(err?.message || err || '');
+  return /no hay llave|llaves? de acceso no disponible|no access key|no passkeys? available|credential.*not (found|available)|not.*available/i.test(msg);
+}
+
 export function soporteBiometricoDisponible() {
   if (typeof window === 'undefined') return false;
   if (!window.isSecureContext) return false;
@@ -146,9 +152,7 @@ export function olvidarTodaBiometriaSucursal(sucursal) {
 
 /**
  * Registra Face ID / huella para este usuario en este dispositivo.
- * Usa credencial de plataforma no descubrible (localStorage guarda el id):
- * en Android/Chrome las passkeys descubribles suelen fallar con
- * "No se puede generar la llave de acceso".
+ * Usa credencial de plataforma no descubrible (localStorage guarda el id).
  * @returns {{ ok: true } | { ok: false, error: string, cancelado?: boolean }}
  */
 export async function registrarBiometriaTrasLogin({ user, sucursal }) {
@@ -159,10 +163,11 @@ export async function registrarBiometriaTrasLogin({ user, sucursal }) {
   const suc = normalizarCodigoTienda(sucursal);
   const userId = String(user.id);
   const challenge = crypto.getRandomValues(new Uint8Array(32));
-  // user.id WebAuthn: máximo 64 bytes; UUID/texto corto cabe en UTF-8.
   const userIdBytes = new TextEncoder().encode(userId.slice(0, 64));
 
-  const existentes = listarCredencialesBiometricas(suc).filter((c) => String(c.userId) === userId);
+  // No usar excludeCredentials con IDs viejos: en Android provocan
+  // "No hay llave de acceso disponible" o bloquean un registro limpio.
+  olvidarBiometriaUsuario(userId, suc);
 
   const publicKeyBase = {
     challenge,
@@ -179,11 +184,6 @@ export async function registrarBiometriaTrasLogin({ user, sucursal }) {
       { type: 'public-key', alg: -7 },
       { type: 'public-key', alg: -257 },
     ],
-    excludeCredentials: existentes.map((c) => ({
-      type: 'public-key',
-      id: base64UrlToBuffer(c.credentialId),
-      transports: ['internal'],
-    })),
     timeout: 90_000,
     attestation: 'none',
   };
@@ -201,14 +201,14 @@ export async function registrarBiometriaTrasLogin({ user, sucursal }) {
       cred = await crearCredencial({
         authenticatorAttachment: 'platform',
         userVerification: 'required',
-        // Evita passkey en el administrador de contraseñas (falla frecuente en Android).
         residentKey: 'discouraged',
         requireResidentKey: false,
       });
     } catch (errPrimero) {
       const n = String(errPrimero?.name || '');
-      if (n === 'NotAllowedError' || n === 'AbortError' || n === 'InvalidStateError') throw errPrimero;
-      // Reintento más compatible (algunos Android rechazan residentKey / UV required).
+      if (n === 'AbortError' || n === 'InvalidStateError') throw errPrimero;
+      // Cancelación del usuario: no reintentar (evitar doble diálogo).
+      if (n === 'NotAllowedError' && !esErrorSinLlaveAcceso(errPrimero)) throw errPrimero;
       cred = await crearCredencial({
         authenticatorAttachment: 'platform',
         userVerification: 'preferred',
@@ -227,6 +227,7 @@ export async function registrarBiometriaTrasLogin({ user, sucursal }) {
       nombre: String(user.nombre || ''),
       sucursal: suc,
       enrolledAt: new Date().toISOString(),
+      rpId: window.location.hostname,
     });
     guardarStore(store);
     marcarOfertaBiometriaRespondida(userId, suc, 'aceptada');
@@ -235,23 +236,27 @@ export async function registrarBiometriaTrasLogin({ user, sucursal }) {
     const name = String(err?.name || '');
     const msg = String(err?.message || '');
     if (name === 'InvalidStateError') {
-      // Ya existe una credencial en el autenticador para este usuario.
-      if (existentes.length) {
-        marcarOfertaBiometriaRespondida(userId, suc, 'aceptada');
-        return { ok: true };
-      }
       return {
         ok: false,
-        error: 'Este equipo ya tiene una llave biométrica para este usuario. Prueba entrar con biometría o borra datos del sitio e inténtalo de nuevo.',
+        error: 'Este equipo ya tiene una huella/Face ID registrada para otro intento. Borra los datos del sitio en el navegador e inténtalo de nuevo, o entra solo con PIN.',
       };
     }
-    if (name === 'NotAllowedError' || name === 'AbortError') {
+    if (name === 'AbortError') {
       return { ok: false, error: 'Registro biométrico cancelado.', cancelado: true };
+    }
+    if (name === 'NotAllowedError' || esErrorSinLlaveAcceso(err)) {
+      return {
+        ok: false,
+        error: 'No hay huella o Face ID disponible en este teléfono. Activa el bloqueo con huella/cara en Ajustes del sistema y vuelve a entrar con PIN para activarla.',
+        cancelado: false,
+        sinLlave: true,
+      };
     }
     if (name === 'NotSupportedError' || /llave de acceso|access key|passkey/i.test(msg)) {
       return {
         ok: false,
-        error: 'No se pudo generar la llave biométrica en este equipo. Revisa que Face ID / huella esté activa en el sistema e inténtalo de nuevo al entrar con PIN.',
+        error: 'No se pudo generar la llave biométrica. Revisa que la huella o Face ID esté activa en el sistema e inténtalo al entrar con PIN.',
+        sinLlave: true,
       };
     }
     return { ok: false, error: msg || 'No se pudo activar la biometría.' };
@@ -260,15 +265,23 @@ export async function registrarBiometriaTrasLogin({ user, sucursal }) {
 
 /**
  * Desbloquea con biometría y devuelve el userId enrollado.
- * @returns {{ ok: true, userId: string, nombre?: string } | { ok: false, error: string, cancelado?: boolean }}
+ * @returns {{ ok: true, userId: string, nombre?: string } | { ok: false, error: string, cancelado?: boolean, sinLlave?: boolean }}
  */
 export async function autenticarConBiometria(sucursal) {
-  if (!(await plataformaBiometricaDisponible())) {
+  if (!soporteBiometricoDisponible()) {
     return { ok: false, error: 'Biometría no disponible en este equipo.' };
   }
-  const lista = listarCredencialesBiometricas(sucursal);
+  const suc = normalizarCodigoTienda(sucursal);
+  const lista = listarCredencialesBiometricas(suc).filter(
+    (c) => !c.rpId || c.rpId === window.location.hostname,
+  );
   if (!lista.length) {
-    return { ok: false, error: 'Nadie ha activado biometría en esta tienda en este equipo. Entra con PIN y actívala.' };
+    olvidarTodaBiometriaSucursal(suc);
+    return {
+      ok: false,
+      error: 'Nadie ha activado biometría en esta tienda en este equipo. Entra con PIN y actívala.',
+      sinLlave: true,
+    };
   }
   const challenge = crypto.getRandomValues(new Uint8Array(32));
   try {
@@ -276,11 +289,12 @@ export async function autenticarConBiometria(sucursal) {
       publicKey: {
         challenge,
         timeout: 90_000,
-        userVerification: 'required',
+        userVerification: 'preferred',
+        rpId: window.location.hostname,
+        // Sin transports fijos: en Android "internal" a veces oculta la llave real.
         allowCredentials: lista.map((c) => ({
           type: 'public-key',
           id: base64UrlToBuffer(c.credentialId),
-          transports: ['internal'],
         })),
       },
     });
@@ -291,9 +305,19 @@ export async function autenticarConBiometria(sucursal) {
     return { ok: true, userId: match.userId, nombre: match.nombre };
   } catch (err) {
     const name = String(err?.name || '');
-    if (name === 'NotAllowedError' || name === 'AbortError') {
+    if (name === 'AbortError') {
       return { ok: false, error: 'Biometría cancelada.', cancelado: true };
     }
-    return { ok: false, error: err?.message || 'No se pudo usar la biometría.' };
+    // Llaves en localStorage pero no en el teléfono → limpiar para no repetir el aviso del sistema.
+    if (name === 'NotAllowedError' || esErrorSinLlaveAcceso(err)) {
+      olvidarTodaBiometriaSucursal(suc);
+      return {
+        ok: false,
+        error: 'No hay llave biométrica en este teléfono. Entra con PIN y vuelve a activar Face ID / huella.',
+        cancelado: true,
+        sinLlave: true,
+      };
+    }
+    return { ok: false, error: err?.message || 'No se pudo usar la biometría.', sinLlave: esErrorSinLlaveAcceso(err) };
   }
 }

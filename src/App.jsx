@@ -769,6 +769,7 @@ function App() {
     try {
       const bio = await autenticarConBiometria(sucursal);
       if (!bio.ok) {
+        if (bio.sinLlave) setBiometriaLista(false);
         if (!bio.cancelado) alert(bio.error || 'Biometría no disponible.');
         return;
       }
