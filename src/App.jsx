@@ -77,9 +77,11 @@ import {
   autenticarConBiometria,
   convieneOfrecerBiometria,
   hayBiometriaParaSucursal,
+  marcarOfertaBiometriaRespondida,
   plataformaBiometricaDisponible,
   registrarBiometriaTrasLogin,
   usuarioTieneBiometriaEnEquipo,
+  yaSeOfrecioBiometria,
 } from './lib/loginBiometrico.js';
 import {
   evaluarVinculoDispositivo,
@@ -643,18 +645,21 @@ function App() {
         }
       });
 
-      // Tras PIN exitoso en móvil/PWA: ofrecer Face ID / huella (no cubre turno).
+      // Tras PIN exitoso en móvil/PWA: ofrecer Face ID / huella una sola vez (no cubre turno).
       if (
         !cubreTurno
         && data.id
         && convieneOfrecerBiometria()
         && !usuarioTieneBiometriaEnEquipo(data.id, sucursalLogin)
+        && !yaSeOfrecioBiometria(data.id, sucursalLogin)
       ) {
         const quiere = window.confirm(
           `¿Activar biometría (Face ID / huella) para ${data.nombre || 'este usuario'} en este equipo?\n\n`
-          + 'La próxima vez podrás entrar sin escribir el PIN. El PIN seguirá disponible como respaldo.',
+          + 'La próxima vez podrás entrar sin escribir el PIN. El PIN seguirá disponible como respaldo.\n\n'
+          + 'Esta pregunta solo se muestra una vez.',
         );
         if (quiere) {
+          marcarOfertaBiometriaRespondida(data.id, sucursalLogin, 'aceptada');
           const reg = await registrarBiometriaTrasLogin({ user: data, sucursal: sucursalLogin });
           if (reg.ok) {
             setBiometriaLista(true);
@@ -662,6 +667,8 @@ function App() {
           } else if (!reg.cancelado) {
             alert(reg.error || 'No se pudo activar la biometría.');
           }
+        } else {
+          marcarOfertaBiometriaRespondida(data.id, sucursalLogin, 'rechazada');
         }
       }
 
