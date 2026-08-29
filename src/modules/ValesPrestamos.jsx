@@ -242,7 +242,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   }, [categoriasTick, esMain]);
   const categoriasExtra = useMemo(() => leerCategoriasValeExtra().filter((c) => c.activo !== false), [categoriasTick]);
   const beneficiariosVales = useMemo(() => listarBeneficiariosVales(empleadosAll), [empleadosAll]);
-  const beneficiarioSel = beneficiarioValePorId(valeForm.beneficiarioId, beneficiariosVales);
   /** El admin elige siempre el corte; ya no se toma del beneficiario. */
   const areaCorteVale = valeForm.areaCorte || null;
   const sucursalesDestinoVale = useMemo(() => listarSucursalesOperativas(), []);
