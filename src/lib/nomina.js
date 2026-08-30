@@ -399,13 +399,20 @@ export async function cargarLineasPeriodo(supabase, periodoId) {
   if (!supabase || !periodoId) return { data: [], error: null };
   const { data, error } = await supabase.from('nomina_lineas').select('*').eq('periodo_id', periodoId).order('nombre');
   const lineas = (data || []).map((l) =>
+    // Al cerrar, `deducciones` ya incluye faltas → no volver a sumar faltas.
     recalcularLineaNomina({
       ...l,
-      salario_dia: l.sueldo_tarifa,
+      salario_dia: l.sueldo_tarifa ?? l.salario_dia,
+      deduccion_gastos: Number(l.deduccion_gastos) || 0,
+      deduccion_consumos: Number(l.deduccion_gastos) || 0,
+      deduccion_inventario: Number(l.deduccion_inventario) || 0,
+      deduccion_prestamos: Number(l.deduccion_prestamos) || 0,
       deducciones: Number(l.deducciones) || 0,
       deduccion_arrastre: Number(l.deduccion_arrastre) || 0,
       saldo_pendiente: Number(l.saldo_pendiente) || 0,
       deduccion_faltas: 0,
+      pago: l.total,
+      total: l.total,
     }),
   );
   return { data: lineas, error: error?.message || null };
