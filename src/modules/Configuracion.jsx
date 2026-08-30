@@ -108,7 +108,14 @@ import {
   turnoConTolerancia,
   turnosDiurnoNocturnoInvertidos,
   corregirTurnosDiurnoNocturno,
+  leerPaqueteTurnos,
+  plantillaPaquete12x12,
+  sucursalTurnosActiva,
 } from '../lib/turnos.js';
+import {
+  aplicarTurnosATiendas,
+  cargarTurnosTiendaDesdeNube,
+} from '../lib/turnosSync.js';
 import {
   persistirPinCubreTurno,
   pinCubreTurnoActivo,
@@ -316,16 +323,32 @@ export default function Configuracion({
   const [serialActivo, setSerialActivo] = useState(() => puertoSerialConectado());
   const [logoUrlCustom, setLogoUrlCustom] = useState('');
   const [logoPreviewKey, setLogoPreviewKey] = useState(0);
-  const [turnos, setTurnos] = useState(() => leerTurnos());
-  const [toleranciaTurnos, setToleranciaTurnos] = useState(() => leerToleranciaTurnos());
-  const [configHorario, setConfigHorario] = useState(() => leerConfigHorario());
-  const [patronesRotacion, setPatronesRotacion] = useState(() => leerPatronesRotacion3());
+  const [turnosTienda, setTurnosTienda] = useState(() => {
+    const activa = sucursalTurnosActiva(sucursal);
+    if (activa && activa !== 'GLOBAL') return activa;
+    return listarSucursalesOperativas()[0] || 'FUSION';
+  });
+  const [turnosTiendasSel, setTurnosTiendasSel] = useState(() => []);
+  const [turnosGuardandoNube, setTurnosGuardandoNube] = useState(false);
+  const [turnosAvisoNube, setTurnosAvisoNube] = useState('');
+  const [turnos, setTurnos] = useState(() => leerTurnos(turnosTienda));
+  const [toleranciaTurnos, setToleranciaTurnos] = useState(() => leerToleranciaTurnos(turnosTienda));
+  const [configHorario, setConfigHorario] = useState(() => leerConfigHorario(turnosTienda));
+  const [patronesRotacion, setPatronesRotacion] = useState(() => leerPatronesRotacion3(turnosTienda));
   const [usuariosTurno, setUsuariosTurno] = useState([]);
   const [nuevoTurnoForm, setNuevoTurnoForm] = useState({ nombre: '', hora_inicio: '08:00', hora_fin: '16:00' });
   const [filtroUsuariosTurno, setFiltroUsuariosTurno] = useState('');
   const [valesTiendas, setValesTiendas] = useState(() => leerTiendasValesPermitidas() || listarSucursalesParaUI());
   const [horaLimiteValeCfg, setHoraLimiteValeCfg] = useState(() => etiquetaHoraLimiteVale());
   const puedeAsignarTurnoEmpleados = puedeAsignarTurnos(user?.rol);
+
+  const cargarEstadoTurnosTienda = useCallback((tienda) => {
+    const suc = sucursalTurnosActiva(tienda);
+    setTurnos(leerTurnos(suc));
+    setToleranciaTurnos(leerToleranciaTurnos(suc));
+    setConfigHorario(leerConfigHorario(suc));
+    setPatronesRotacion(leerPatronesRotacion3(suc));
+  }, []);
 
   const syncBrandingForm = () => {
     setNegocio(leerNombreNegocio());
@@ -361,15 +384,25 @@ export default function Configuracion({
   }, [supabase]);
 
   useEffect(() => {
-    const sync = () => {
-      setTurnos(leerTurnos());
-      setToleranciaTurnos(leerToleranciaTurnos());
-      setConfigHorario(leerConfigHorario());
-      setPatronesRotacion(leerPatronesRotacion3());
-    };
+    const sync = () => cargarEstadoTurnosTienda(turnosTienda);
     window.addEventListener(EVENTO_TURNOS, sync);
     return () => window.removeEventListener(EVENTO_TURNOS, sync);
-  }, []);
+  }, [turnosTienda, cargarEstadoTurnosTienda]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      cargarEstadoTurnosTienda(turnosTienda);
+      if (!supabase) return;
+      const r = await cargarTurnosTiendaDesdeNube(supabase, turnosTienda, { aplicarLocal: true });
+      if (cancelled) return;
+      if (r.aviso) setTurnosAvisoNube(r.aviso);
+      cargarEstadoTurnosTienda(turnosTienda);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, turnosTienda, cargarEstadoTurnosTienda]);
 
   const cargarUsuariosTurno = useCallback(async () => {
     if (!supabase) {
@@ -393,18 +426,51 @@ export default function Configuracion({
     cargarUsuariosTurno();
   }, [cargarUsuariosTurno]);
 
-  const persistirTurnos = (lista) => {
+  const persistirTurnos = async (lista, opts = {}) => {
     const invalido = (lista || []).find((t) => !normalizarHora(t.hora_inicio) || !normalizarHora(t.hora_fin));
     if (invalido) return alert(`Indica entrada y salida válidas para "${invalido.nombre}".`);
-    const r = guardarTurnos(lista);
-    if (!r.ok) alert(r.error);
-    else {
-      setTurnos(r.turnos);
-      alert('Horarios de entrada y salida guardados en este equipo.');
+    const r = guardarTurnos(lista, turnosTienda);
+    if (!r.ok) return alert(r.error);
+    setTurnos(r.turnos);
+    guardarConfigHorario(configHorario, turnosTienda, { silent: true });
+    guardarToleranciaTurnos(toleranciaTurnos, turnosTienda, { silent: true });
+    if (opts.soloLocal) {
+      alert(`Horarios guardados en este equipo para ${etiquetaTienda(turnosTienda)}.`);
+      return;
+    }
+    if (!supabase) {
+      alert(`Horarios guardados en este equipo para ${etiquetaTienda(turnosTienda)} (sin nube).`);
+      return;
+    }
+    setTurnosGuardandoNube(true);
+    try {
+      const paquete = {
+        ...leerPaqueteTurnos(turnosTienda),
+        turnos: r.turnos,
+        config: leerConfigHorario(turnosTienda),
+        tolerancia: leerToleranciaTurnos(turnosTienda),
+      };
+      const destinos = opts.tiendas?.length ? opts.tiendas : [turnosTienda];
+      const up = await aplicarTurnosATiendas(supabase, {
+        paquete,
+        tiendas: destinos,
+        incluirGlobal: opts.incluirGlobal === true,
+        tiendaActiva: turnosTienda,
+      });
+      if (!up.ok) {
+        alert(up.error || 'No se pudo sincronizar en la nube.');
+        if (up.aviso) setTurnosAvisoNube(up.aviso);
+        return;
+      }
+      if (up.aviso) setTurnosAvisoNube(up.aviso);
+      alert(
+        `Horarios de ${etiquetaTienda(turnosTienda)} guardados y sincronizados` +
+          (destinos.length > 1 ? ` (${destinos.length} tiendas).` : '.'),
+      );
+    } finally {
+      setTurnosGuardandoNube(false);
     }
   };
-
-  const guardarHorariosTurnos = () => persistirTurnos(turnos);
 
   const actualizarCampoTurno = (id, campo, valor) => {
     setTurnos((prev) => prev.map((t) => (t.id === id ? { ...t, [campo]: valor } : t)));
@@ -435,78 +501,80 @@ export default function Configuracion({
   };
 
   const restaurarTurnosPorDefecto = () => {
-    if (!confirm('¿Aplicar plantilla 8×24 (3 turnos de 8 h)?')) return;
-    const r = aplicarPlantillaHorario('8x24', TIPOS_HORARIO['8x24'].inicioDefault);
+    if (!confirm(`¿Aplicar plantilla 8×24 (3 turnos de 8 h) a ${etiquetaTienda(turnosTienda)}?`)) return;
+    const r = aplicarPlantillaHorario('8x24', TIPOS_HORARIO['8x24'].inicioDefault, turnosTienda);
     if (r.ok) {
       setTurnos(r.turnos);
       setConfigHorario(r.config);
-      alert('Plantilla 8×24 aplicada.');
+      alert('Plantilla 8×24 aplicada. Pulsa «Guardar y sincronizar» para subirla a la nube.');
     } else alert(r.error);
   };
 
   const cambiarTipoHorario = (tipo) => {
     if (tipo === configHorario.tipo) return;
     if (tipo === 'personalizado') {
-      const cfg = guardarConfigHorario({ ...configHorario, tipo: 'personalizado', subtipo: null });
+      const cfg = guardarConfigHorario({ ...configHorario, tipo: 'personalizado', subtipo: null }, turnosTienda);
       setConfigHorario(cfg);
       if (
         confirm(
           '¿Configurar la rotación de 3 empleados?\n\n· Turno 1: Lun–Vie diurno\n· Turno 2: Mié–Dom nocturno (5 días)\n· Turno 3: Sáb–Dom día, Lun–Mar noche',
         )
       ) {
-        const r = aplicarRotacion3Empleados(configHorario.inicio || '07:00');
+        const r = aplicarRotacion3Empleados(configHorario.inicio || '07:00', turnosTienda);
         if (r.ok) {
           setTurnos(r.turnos);
           setConfigHorario(r.config);
-          setPatronesRotacion(r.patrones || leerPatronesRotacion3());
+          setPatronesRotacion(r.patrones || leerPatronesRotacion3(turnosTienda));
         }
       }
       return;
     }
     const meta = TIPOS_HORARIO[tipo];
-    if (!confirm(`¿Cambiar a ${meta.label}? Se reemplazarán los turnos actuales por la plantilla (${meta.descripcion}).`)) return;
-    const r = aplicarPlantillaHorario(tipo, configHorario.inicio || meta.inicioDefault);
+    if (!confirm(`¿Cambiar a ${meta.label} en ${etiquetaTienda(turnosTienda)}? Se reemplazarán los turnos actuales por la plantilla (${meta.descripcion}).`)) return;
+    const r = aplicarPlantillaHorario(tipo, configHorario.inicio || meta.inicioDefault, turnosTienda);
     if (!r.ok) return alert(r.error);
     setTurnos(r.turnos);
     setConfigHorario(r.config);
-    alert(`Plantilla ${meta.label} aplicada.`);
+    alert(`Plantilla ${meta.label} aplicada. Pulsa «Guardar y sincronizar» para subirla a la nube.`);
   };
 
   const aplicarPlantillaConInicio = () => {
     if (configHorario.tipo === 'personalizado') return;
     const inicioAntes = normalizarHora(configHorario.inicio);
-    const r = aplicarPlantillaHorario(configHorario.tipo, configHorario.inicio);
+    const r = aplicarPlantillaHorario(configHorario.tipo, configHorario.inicio, turnosTienda);
     if (!r.ok) return alert(r.error);
     setTurnos(r.turnos);
     setConfigHorario(r.config);
     if (r.inicioAjustado || (inicioAntes && r.config?.inicio && r.config.inicio !== inicioAntes)) {
       alert(
-        `Horarios actualizados.\n\n` +
+        `Horarios actualizados para ${etiquetaTienda(turnosTienda)}.\n\n` +
           `La entrada del turno diurno debe ser de mañana (antes de las 16:00).\n` +
           `Se usó ${r.config.inicio} como entrada diurna ` +
           `(diurno ${r.config.inicio}–${r.turnos?.find((t) => t.id === 'diurno')?.hora_fin || '—'}; ` +
-          `nocturno ${r.turnos?.find((t) => t.id === 'nocturno')?.hora_inicio || '—'}–${r.config.inicio}).`,
+          `nocturno ${r.turnos?.find((t) => t.id === 'nocturno')?.hora_inicio || '—'}–${r.config.inicio}).\n\n` +
+          `Pulsa «Guardar y sincronizar» para que las demás cajas lo reciban.`,
       );
       return;
     }
-    alert('Horarios de turno actualizados.');
+    alert('Horarios de turno actualizados. Pulsa «Guardar y sincronizar» para subirlos a la nube.');
   };
 
   const corregirTurnosInvertidos = () => {
     const r = corregirTurnosDiurnoNocturno(turnos);
     if (!r.corregido) return alert('Los turnos diurno/nocturno ya tienen horarios coherentes.');
-    const saved = guardarTurnos(r.turnos);
+    const saved = guardarTurnos(r.turnos, turnosTienda);
     if (!saved.ok) return alert(saved.error);
     setTurnos(saved.turnos);
     const diurno = saved.turnos.find((t) => t.id === 'diurno');
     if (diurno?.hora_inicio) {
-      const cfg = guardarConfigHorario({ ...configHorario, inicio: diurno.hora_inicio });
+      const cfg = guardarConfigHorario({ ...configHorario, inicio: diurno.hora_inicio }, turnosTienda);
       setConfigHorario(cfg);
     }
     alert(
-      `Horarios corregidos.\n\n` +
+      `Horarios corregidos en ${etiquetaTienda(turnosTienda)}.\n\n` +
         `Turno diurno: ${diurno?.hora_inicio} – ${diurno?.hora_fin}\n` +
-        `Turno nocturno: ${saved.turnos.find((t) => t.id === 'nocturno')?.hora_inicio} – ${saved.turnos.find((t) => t.id === 'nocturno')?.hora_fin}`,
+        `Turno nocturno: ${saved.turnos.find((t) => t.id === 'nocturno')?.hora_inicio} – ${saved.turnos.find((t) => t.id === 'nocturno')?.hora_fin}\n\n` +
+        `Pulsa «Guardar y sincronizar» para subirlos.`,
     );
   };
 
@@ -575,17 +643,17 @@ export default function Configuracion({
   };
 
   const configurarRotacion3 = () => {
-    if (!confirm('¿Aplicar rotación de 3 empleados?\n\n· Turno 1: Lun–Vie diurno\n· Turno 2: Mié–Dom nocturno\n· Turno 3: Sáb–Dom día, Lun–Mar noche\n\nLuego asigna cada empleado abajo.')) return;
-    const r = aplicarRotacion3Empleados(configHorario.inicio || '07:00');
+    if (!confirm(`¿Aplicar rotación de 3 empleados en ${etiquetaTienda(turnosTienda)}?\n\n· Turno 1: Lun–Vie diurno\n· Turno 2: Mié–Dom nocturno\n· Turno 3: Sáb–Dom día, Lun–Mar noche\n\nLuego asigna cada empleado abajo y sincroniza.`)) return;
+    const r = aplicarRotacion3Empleados(configHorario.inicio || '07:00', turnosTienda);
     if (!r.ok) return alert(r.error);
     setTurnos(r.turnos);
     setConfigHorario(r.config);
-    setPatronesRotacion(r.patrones || leerPatronesRotacion3());
-    alert('Rotación configurada. Asigna Turno 1, 2 o 3 a cada empleado.');
+    setPatronesRotacion(r.patrones || leerPatronesRotacion3(turnosTienda));
+    alert('Rotación configurada. Asigna Turno 1, 2 o 3 a cada empleado y pulsa «Guardar y sincronizar».');
   };
 
   const cambiarDiaPatronRotacion = async (patronId, diaId, valor) => {
-    const r = actualizarDiaPatronRotacion(patronId, diaId, valor || null);
+    const r = actualizarDiaPatronRotacion(patronId, diaId, valor || null, turnosTienda);
     if (!r.ok) return alert(r.error);
     setPatronesRotacion(r.patrones);
     if (supabase) {
@@ -596,7 +664,7 @@ export default function Configuracion({
 
   const restaurarPatronesRotacion = async () => {
     if (!confirm('¿Restaurar los 3 turnos a la configuración recomendada?\n\nTurno 2 quedará Mié–Dom nocturno (5 días).')) return;
-    const r = restaurarPatronesRotacion3Default();
+    const r = restaurarPatronesRotacion3Default(turnosTienda);
     if (!r.ok) return alert(r.error);
     setPatronesRotacion(r.patrones);
     if (supabase) {
@@ -2246,19 +2314,87 @@ export default function Configuracion({
 
       {panelCfg === 'turnos' && (
       <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
-        <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Turnos de caja</h3>
+        <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Turnos de caja por tienda</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-          Por seguridad solo se permite <strong>un corte por turno</strong> (tienda + fecha + turno). Los cajeros <strong>solo pueden entrar al POS en la ventana de su turno</strong> (con tolerancia configurable). Cada venta queda ligada al turno activo. <strong>Solo el administrador</strong> puede cambiar el turno asignado a un empleado.
+          Cada sucursal puede tener su propio horario (ej. Fusion 07:00–19:00 y otra tienda 08:00–20:00).
+          Los cambios se <strong>sincronizan en la nube</strong> para que el panel admin y la PC de la tienda vean lo mismo.
+          Por seguridad solo se permite <strong>un corte por turno</strong> (tienda + fecha + turno).
           {turnoEnCurso && (
             <>
               {' '}
-              Turno actual: <span className="badge">{nombreTurnoLegible(turnoEnCurso)}</span>{' '}
+              Turno actual en <strong>{etiquetaTienda(turnosTienda)}</strong>:{' '}
+              <span className="badge">{nombreTurnoLegible(turnoEnCurso)}</span>{' '}
               <span className="muted" style={{ fontSize: '0.85rem' }}>
                 entrada {turnoEnCurso.hora_inicio} · salida {turnoEnCurso.hora_fin}
               </span>
             </>
           )}
         </p>
+
+        <div style={{ marginTop: '0.85rem', padding: '0.85rem', borderRadius: '10px', background: 'rgba(22,160,133,0.06)', border: '1px solid rgba(22,160,133,0.3)' }}>
+          <strong style={{ color: '#0f766e' }}>Tienda a configurar</strong>
+          <p className="muted" style={{ margin: '0.35rem 0 0.65rem', fontSize: '0.82rem' }}>
+            Elige la sucursal cuyos horarios quieres editar. Al guardar se suben a la nube para esa tienda.
+          </p>
+          <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            Tienda
+            <select
+              className="select"
+              style={{ minWidth: '160px' }}
+              value={turnosTienda}
+              onChange={(e) => setTurnosTienda(e.target.value)}
+            >
+              {listarSucursalesOperativas().map((s) => (
+                <option key={s} value={s}>
+                  {etiquetaTienda(s)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.75rem' }}>
+            {listarSucursalesOperativas().map((t) => {
+              const activa = turnosTiendasSel.includes(t);
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  className={activa ? 'btn btn-primary' : 'btn btn-ghost'}
+                  style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }}
+                  onClick={() =>
+                    setTurnosTiendasSel((prev) =>
+                      prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
+                    )
+                  }
+                  title="Marca para aplicar el mismo horario a varias tiendas al sincronizar"
+                >
+                  {etiquetaTienda(t)}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }}
+              onClick={() => setTurnosTiendasSel(listarSucursalesOperativas())}
+            >
+              Todas
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ padding: '0.3rem 0.55rem', fontSize: '0.78rem' }}
+              onClick={() => setTurnosTiendasSel([])}
+            >
+              Ninguna
+            </button>
+          </div>
+          <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.78rem' }}>
+            Seleccionadas para copiar horario: <strong>{turnosTiendasSel.length || 'solo la tienda del selector'}</strong>
+          </p>
+          {turnosAvisoNube && (
+            <p style={{ margin: '0.5rem 0 0', fontSize: '0.8rem', color: '#b45309' }}>{turnosAvisoNube}</p>
+          )}
+        </div>
 
         <div style={{ marginTop: '1rem', padding: '0.85rem', borderRadius: '10px', background: 'rgba(59,105,181,0.06)', border: '1px solid rgba(59,105,181,0.25)' }}>
           <strong style={{ color: 'var(--brand-blue)' }}>Tolerancia de entrada (login)</strong>
@@ -2300,8 +2436,9 @@ export default function Configuracion({
                 type="button"
                 className="btn btn-gold"
                 onClick={() => {
-                  guardarToleranciaTurnos(toleranciaTurnos);
-                  setToleranciaTurnos(leerToleranciaTurnos());
+                  guardarToleranciaTurnos(toleranciaTurnos, turnosTienda);
+                  setToleranciaTurnos(leerToleranciaTurnos(turnosTienda));
+                  alert(`Tolerancia guardada para ${etiquetaTienda(turnosTienda)}. Inclúyela al sincronizar horarios.`);
                 }}
               >
                 Guardar tolerancia
@@ -2491,14 +2628,70 @@ export default function Configuracion({
           </table>
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem', alignItems: 'center' }}>
-          <button type="button" className="btn btn-gold" onClick={guardarHorariosTurnos}>
-            Guardar entrada y salida
+          <button
+            type="button"
+            className="btn btn-gold"
+            disabled={turnosGuardandoNube}
+            onClick={() =>
+              persistirTurnos(turnos, {
+                tiendas: turnosTiendasSel.length ? turnosTiendasSel : [turnosTienda],
+              })
+            }
+          >
+            {turnosGuardandoNube ? 'Sincronizando…' : 'Guardar y sincronizar'}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={turnosGuardandoNube}
+            onClick={() => persistirTurnos(turnos, { soloLocal: true })}
+          >
+            Solo este equipo
           </button>
           {!esPersonalizado && (
             <button type="button" className="btn btn-ghost" onClick={restaurarTurnosPorDefecto}>
               Restaurar plantilla 8×24
             </button>
           )}
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={turnosGuardandoNube || !supabase}
+            onClick={async () => {
+              if (
+                !confirm(
+                  `¿Aplicar 12×12 (diurno 07:00–19:00 / nocturno 19:00–07:00) a ${
+                    turnosTiendasSel.length ? turnosTiendasSel.map(etiquetaTienda).join(', ') : etiquetaTienda(turnosTienda)
+                  } y sincronizar en la nube?`,
+                )
+              ) {
+                return;
+              }
+              const pack = plantillaPaquete12x12('07:00');
+              const destinos = turnosTiendasSel.length ? turnosTiendasSel : [turnosTienda];
+              setTurnosGuardandoNube(true);
+              try {
+                const up = await aplicarTurnosATiendas(supabase, {
+                  paquete: pack,
+                  tiendas: destinos,
+                  incluirGlobal: true,
+                  tiendaActiva: turnosTienda,
+                });
+                if (!up.ok) {
+                  alert(up.error || 'No se pudo sincronizar.');
+                  if (up.aviso) setTurnosAvisoNube(up.aviso);
+                  return;
+                }
+                if (up.aviso) setTurnosAvisoNube(up.aviso);
+                cargarEstadoTurnosTienda(turnosTienda);
+                alert(`12×12 (07–19) aplicado a ${destinos.length} tienda(s) y sincronizado.`);
+              } finally {
+                setTurnosGuardandoNube(false);
+              }
+            }}
+          >
+            Aplicar 12×12 (07–19) y sincronizar
+          </button>
         </div>
         {esPersonalizado && !esRotacion3 && (
           <>

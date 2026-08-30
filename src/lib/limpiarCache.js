@@ -51,6 +51,11 @@ const SESSION_TEMPORAL = new Set(['pos3b_anuncios_vistos']);
 
 function debePreservar(clave) {
   if (CLAVES_PRESERVAR.has(clave)) return true;
+  // Turnos / horario por tienda
+  if (clave.startsWith('pos3b_turnos_caja__')) return true;
+  if (clave.startsWith('pos3b_tipo_horario__')) return true;
+  if (clave.startsWith('pos3b_patrones_rotacion_3__')) return true;
+  if (clave.startsWith('pos3b_tolerancia_turnos__')) return true;
   // Resultado manual de inventario (alimenta bono / efectividad)
   if (clave.startsWith('pos3b_resultado_inv_')) return true;
   // Catálogo caché para vender sin internet
