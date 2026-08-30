@@ -1,3 +1,5 @@
+import { departamentosCedisVenta } from './cedisVentaConfig.js';
+
 const LS_EXTRA = 'pos3b_departamentos_extra';
 
 export const DEPARTAMENTOS_BASE = ['GENERAL', 'FAVORITOS', 'ABARROTES', 'BEBIDAS', 'LIMPIEZA', 'DULCES', 'HIGIENE', 'LACTEOS', 'CARNES', 'VERDURAS'];
@@ -20,7 +22,7 @@ function leerExtras() {
   }
 }
 
-/** Departamentos del catálogo + base + extras guardados en el navegador */
+/** Departamentos del catálogo + base + extras + depts de venta CEDIS (si activo) */
 export function listarDepartamentos(inventario = []) {
   const seen = new Set();
   const out = [];
@@ -31,6 +33,7 @@ export function listarDepartamentos(inventario = []) {
     out.push(n);
   };
   for (const d of DEPARTAMENTOS_BASE) add(d);
+  for (const d of departamentosCedisVenta()) add(d);
   for (const p of inventario || []) add(p.cat);
   for (const d of leerExtras()) add(d);
   return out.sort((a, b) => a.localeCompare(b, 'es'));
@@ -39,6 +42,9 @@ export function listarDepartamentos(inventario = []) {
 export function etiquetaDepartamento(codigo) {
   const c = normalizarDepartamento(codigo);
   if (c === 'FAVORITOS') return 'Favoritos (ventas rápidas)';
+  if (c === 'BLUNT_WRAPS') return 'Blunt wraps';
+  if (c === 'WRAPS') return 'Wraps';
+  if (c === 'TECNOLOGIA') return 'Tecnología';
   return c.replace(/_/g, ' ');
 }
 
@@ -47,7 +53,8 @@ export function agregarDepartamentoExtra(raw) {
   if (!codigo) return { ok: false, error: 'Escribe un nombre de departamento.' };
   if (codigo.length > 32) return { ok: false, error: 'Máximo 32 caracteres.' };
   const extras = leerExtras();
-  if (DEPARTAMENTOS_BASE.includes(codigo) || extras.includes(codigo)) {
+  const cedis = departamentosCedisVenta().map(normalizarDepartamento);
+  if (DEPARTAMENTOS_BASE.includes(codigo) || extras.includes(codigo) || cedis.includes(codigo)) {
     return { ok: false, error: 'Ese departamento ya existe.' };
   }
   extras.push(codigo);

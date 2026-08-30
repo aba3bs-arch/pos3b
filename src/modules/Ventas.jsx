@@ -21,6 +21,7 @@ import {
   limpiarCarritoVenta,
 } from '../lib/carritoVentaPersistencia.js';
 import { encolarVentaOffline, esErrorDeRed } from '../lib/ventasOffline.js';
+import { esCedisModoVenta, productoPermitidoEnCedisVenta } from '../lib/cedisVentaConfig.js';
 
 function addToCart(carrito, producto, qtyAdd = 1) {
   const add = Math.max(1, Math.floor(Number(qtyAdd) || 1));
@@ -148,9 +149,13 @@ export default function Ventas({
       onCodigo: (codigo) => {
         const pending = parseMultiplicadorBusqueda(busquedaRef.current);
         const qty = pending.soloMultiplicador ? pending.qty : 1;
-        const prod = productoPorCodigoExacto(inventarioRef.current, codigo);
+        const prod = productoPorCodigoExacto(enVentaRef.current, codigo);
         if (!prod) {
-          setAvisoEscanerRemoto(`Escáner móvil: no se encontró ${codigo}`);
+          setAvisoEscanerRemoto(
+            esCedisModoVenta(sucursal)
+              ? `Escáner móvil: ${codigo} no está en el catálogo de venta CEDIS`
+              : `Escáner móvil: no se encontró ${codigo}`,
+          );
           return;
         }
         setCarrito((c) => addToCart(c, prod, qty));
@@ -186,7 +191,18 @@ export default function Ventas({
     [metodosPago, formaPago],
   );
 
-  const enVenta = useMemo(() => (inventario || []).filter((p) => productoEnVenta(p)), [inventario]);
+  const enVenta = useMemo(() => {
+    let list = (inventario || []).filter((p) => productoEnVenta(p));
+    if (esCedisModoVenta(sucursal)) {
+      list = list.filter((p) => productoPermitidoEnCedisVenta(p));
+    }
+    return list;
+  }, [inventario, sucursal]);
+
+  const enVentaRef = useRef(enVenta);
+  useEffect(() => {
+    enVentaRef.current = enVenta;
+  }, [enVenta]);
 
   const favoritos = useMemo(() => enVenta.filter((p) => productoEsFavorito(p)), [enVenta]);
 

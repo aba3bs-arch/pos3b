@@ -10,6 +10,7 @@ import {
   sucursalParaUbicacion,
 } from './inventarioMultitienda.js';
 import { guardarMovimientoLocal, leerMovimientosLocal, parseCantidadInventario, leerProductoInventarioFresco, aplicarDeltaStockAtomico } from './inventarioMovimientos.js';
+import { esCedisModoVenta } from './cedisVentaConfig.js';
 
 const LS_FOLIO_TRP = 'pos3b_folio_traspaso_seq';
 
@@ -42,14 +43,14 @@ export const UBICACIONES = {
 export const SUBTIPOS_TRASPASO = [
   {
     id: 'cedis_piso',
-    label: 'CEDIS → Piso (MAIN)',
-    desc: 'Saca mercancía del almacén central al piso de MAIN (uso interno en central).',
+    label: 'CEDIS almacén → Piso CEDIS',
+    desc: 'Pasa mercancía del almacén central al piso de venta de CEDIS (para cobrar en CEDIS).',
     soloCentral: true,
   },
   {
     id: 'piso_cedis',
-    label: 'Piso → CEDIS central',
-    desc: 'Regresa unidades del piso de venta al almacén central de la empresa.',
+    label: 'Piso CEDIS → Almacén',
+    desc: 'Regresa unidades del piso de venta de CEDIS al almacén central.',
   },
   {
     id: 'central_tienda',
@@ -66,9 +67,9 @@ export const SUBTIPOS_TRASPASO = [
 
 export function subtiposTraspasoParaSucursal(sucursal) {
   const central = esAlmacenCentral(sucursal);
-  // Solo CEDIS→sucursal o sucursal→sucursal.
+  const ventaCedis = esCedisModoVenta(sucursal);
   return SUBTIPOS_TRASPASO.filter((s) => {
-    if (s.id === 'cedis_piso' || s.id === 'piso_cedis') return false;
+    if (s.id === 'cedis_piso' || s.id === 'piso_cedis') return ventaCedis && central;
     if (s.id === 'central_tienda') return central;
     if (s.id === 'tienda_tienda') return !central;
     return false;

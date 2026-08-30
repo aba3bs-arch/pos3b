@@ -1,9 +1,11 @@
 /**
  * Tiendas base:
  * - MAIN  = Central de administración (panel admin; no es almacén)
- * - CEDIS = Almacén central / inventario de la cadena
+ * - CEDIS = Almacén central / inventario de la cadena (opcionalmente venta propia)
  * - FUSION, 3Bn = tiendas de venta
  */
+import { cedisVentaActiva } from '../lib/cedisVentaConfig.js';
+
 export const SUCURSALES_BASE = ['MAIN', 'CEDIS', 'FUSION', '3B2', '3B5', '3B6', '3B7', '3B9', '3B10'];
 
 /** Panel administrativo (login hub, no fijable como caja). */
@@ -41,12 +43,14 @@ export function esAlmacenCentral(codigo) {
   return normalizarCodigoTienda(codigo) === ALMACEN_CENTRAL;
 }
 
-/** MAIN o CEDIS: no son tiendas de venta al público. */
+/** MAIN siempre; CEDIS solo si la venta propia está apagada. */
 export function esSucursalNoVenta(codigo) {
-  return esCentralAdmin(codigo) || esAlmacenCentral(codigo);
+  if (esCentralAdmin(codigo)) return true;
+  if (esAlmacenCentral(codigo)) return !cedisVentaActiva();
+  return false;
 }
 
-/** Tiendas de venta (sin MAIN ni CEDIS). */
+/** Tiendas de venta (sin MAIN; incluye CEDIS si venta propia activa). */
 export function listarSucursalesOperativas() {
   return listarSucursales().filter((s) => !esSucursalNoVenta(s));
 }
@@ -101,7 +105,9 @@ export function codigoTiendaValido(codigo) {
 export function etiquetaTienda(codigo) {
   const s = normalizarCodigoTienda(codigo);
   if (esCentralAdmin(s)) return 'Central de administración (MAIN)';
-  if (esAlmacenCentral(s)) return 'CEDIS · almacén central';
+  if (esAlmacenCentral(s)) {
+    return cedisVentaActiva() ? 'CEDIS · almacén y venta' : 'CEDIS · almacén central';
+  }
   if (s === 'FUSION') return s;
   if (/^3B\d+$/i.test(s)) return `Sucursal ${s}`;
   return s || String(codigo || '');

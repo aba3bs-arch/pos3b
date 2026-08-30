@@ -8,6 +8,7 @@ import {
   esCentralAdmin,
   esSucursalNoVenta,
 } from '../constants/sucursales.js';
+import { esCedisModoVenta } from './cedisVentaConfig.js';
 
 export {
   ALMACEN_CENTRAL,
@@ -268,6 +269,10 @@ export function etiquetaStockLista(producto, sucursal, opts = {}) {
   const piso = stockVisible(producto?.stock, verNegativos);
   if (esAlmacenCentral(sucursal)) {
     const cedis = stockVisible(producto?.stock_cedis, verNegativos);
+    // En modo venta CEDIS, el piso es lo que se cobra (como en tienda).
+    if (esCedisModoVenta(sucursal)) {
+      return { primario: piso, etiquetaPrimario: 'PZA', secundario: cedis, etiquetaSecundario: 'Almacén' };
+    }
     return { primario: cedis, etiquetaPrimario: 'CEDIS', secundario: piso, etiquetaSecundario: 'Piso' };
   }
   return { primario: piso, etiquetaPrimario: 'PZA', secundario: null, etiquetaSecundario: null };

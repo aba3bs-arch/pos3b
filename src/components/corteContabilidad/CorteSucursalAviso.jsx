@@ -1,10 +1,10 @@
 import React from 'react';
-import { esAlmacenCentral, etiquetaTienda } from '../../constants/sucursales.js';
+import { esCentralAdmin, etiquetaTienda } from '../../constants/sucursales.js';
 import { puedeCambiarTiendaLibremente } from '../../lib/roles.js';
 
 /** Indica qué tienda alimenta el corte y avisa si MAIN no tiene datos de sucursal. */
 export default function CorteSucursalAviso({ sucursal, user }) {
-  const enMain = esAlmacenCentral(sucursal);
+  const enMain = esCentralAdmin(sucursal);
   const puedeCambiar = puedeCambiarTiendaLibremente(user?.rol);
 
   return (
