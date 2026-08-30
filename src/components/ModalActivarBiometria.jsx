@@ -22,11 +22,11 @@ export default function ModalActivarBiometria({
         </h2>
         <p style={{ margin: '0.85rem 0 0', lineHeight: 1.5 }}>
           ¿Quieres entrar con Face ID / huella para{' '}
-          <strong>{nombre || 'este usuario'}</strong> en este equipo?
+          <strong>{nombre || 'este usuario'}</strong> en este teléfono?
         </p>
         <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.85rem', lineHeight: 1.45 }}>
-          La próxima vez no necesitarás escribir el PIN. El PIN seguirá disponible como respaldo.
-          Si eliges No, no volveremos a preguntar en este equipo.
+          Solo en celulares (iPhone, Android, Honor, etc.). La próxima vez no necesitarás el PIN;
+          el PIN seguirá como respaldo. Si eliges No, no volveremos a preguntar en este teléfono.
         </p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '1.25rem' }}>
           <button

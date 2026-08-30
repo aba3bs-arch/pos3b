@@ -77,7 +77,7 @@ export default function PanelAppMovilInicio({ sucursal }) {
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
           {esPc
             ? `Descargue el POS como aplicación de escritorio en ${nombreTienda}. Se enlaza a la misma nube (Supabase) que la versión web.`
-            : 'Instale el punto de venta en celular o tablet para cobrar, consultar inventario y recibir alertas. En equipos compatibles podrá entrar con biometría (Face ID / huella) o con PIN.'}
+            : 'Instale el punto de venta en celular o tablet para cobrar, consultar inventario y recibir alertas. En el teléfono podrá entrar con biometría (Face ID / huella) o con PIN.'}
         </p>
         <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem', wordBreak: 'break-all' }}>
           {urlAppMovil()}

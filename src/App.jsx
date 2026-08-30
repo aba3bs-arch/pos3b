@@ -675,7 +675,7 @@ function App() {
       if (reg.ok) {
         setBiometriaLista(true);
         setOfertaBiometria(null);
-        alert('Biometría activada en este equipo. También puedes seguir entrando con PIN.');
+        alert('Biometría activada en este teléfono. También puedes seguir entrando con PIN.');
         return;
       }
       if (reg.cancelado) {
