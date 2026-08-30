@@ -7,12 +7,25 @@ let swRegistroPromise = null;
 
 export function detectarMobile() {
   if (typeof navigator === 'undefined') return false;
-  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const ua = String(navigator.userAgent || '');
+  // Teléfonos y tablets: Android (incl. Honor/Huawei), iPhone, iPad, etc.
+  if (/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Honor|Huawei|HarmonyOS|MagicOS/i.test(ua)) {
+    return true;
+  }
+  // iPadOS 13+ a veces se presenta como Mac con pantalla táctil.
+  const platform = String(navigator.platform || '');
+  if (/Mac/i.test(platform) && Number(navigator.maxTouchPoints || 0) > 1) {
+    return true;
+  }
+  return false;
 }
 
 export function detectarIos() {
   if (typeof navigator === 'undefined') return false;
-  return /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const ua = String(navigator.userAgent || '');
+  if (/iPhone|iPad|iPod/i.test(ua)) return true;
+  const platform = String(navigator.platform || '');
+  return /Mac/i.test(platform) && Number(navigator.maxTouchPoints || 0) > 1;
 }
 
 export function esPwaInstalada() {
