@@ -414,7 +414,25 @@ export const ACCIONES_PRIVILEGIO = [
   { id: 'recol_ctb_eliminar', label: 'Panel RT — Eliminar registros' },
   { id: 'recol_ctb_gastos', label: 'Panel RT — Gastos / liberar efectivo' },
   { id: 'recol_ctb_cuentas', label: 'Panel RT — Cuentas Francisco / Andrés' },
+  { id: 'ruta_carga', label: 'Venta en Ruta — Carga de camión' },
+  { id: 'ruta_precios', label: 'Venta en Ruta — Precios de ruta' },
+  { id: 'ruta_clientes', label: 'Venta en Ruta — Clientes externos' },
+  { id: 'ruta_consultas', label: 'Venta en Ruta — Consultas' },
+  { id: 'ruta_pos', label: 'Venta en Ruta — POS venta en ruta' },
+  { id: 'ruta_corte', label: 'Venta en Ruta — Corte de caja' },
+  { id: 'ruta_preinventario', label: 'Venta en Ruta — Preinventario' },
+  { id: 'ruta_creditos', label: 'Venta en Ruta — Créditos por pagar' },
+  { id: 'ruta_liquidacion', label: 'Venta en Ruta — Liquidación' },
 ];
+
+/** Acciones del Panel RT (y recolección en cortes). */
+export const ACCIONES_PRIVILEGIO_PANEL_RT = ACCIONES_PRIVILEGIO.filter(
+  (a) => a.id === 'recoleccion_cortes' || a.id.startsWith('recol_ctb_'),
+);
+
+/** Acciones del hub Venta en Ruta. */
+export const ACCIONES_PRIVILEGIO_VENTA_RUTA = ACCIONES_PRIVILEGIO.filter((a) => a.id.startsWith('ruta_'));
+
 
 const LS_VALES_TIENDAS = 'pos3b_vales_tiendas_permitidas';
 export const EVENTO_VALES_TIENDAS = 'pos3b-vales-tiendas-updated';

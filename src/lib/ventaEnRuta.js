@@ -9,6 +9,7 @@ import { aplicarMovimientoInventario } from './inventarioMovimientos.js';
 import { esRolRepartidor, normalizarRol } from './roles.js';
 import { registrarCargoCreditoRuta } from './rutaCxc.js';
 import { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
+import { puedeAccionVentaRuta } from './ventaEnRutaAcciones.js';
 
 export { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
 
@@ -163,9 +164,9 @@ export async function guardarClienteRuta(supabase, row) {
 
 // ─── Precios ruta (admin) ─────────────────────────────────────────
 
-export async function guardarPrecioRutaProducto(supabase, productoId, precio, { rol } = {}) {
-  if (!puedeAdministrarVentaRuta(rol)) {
-    return { ok: false, error: 'Solo administrador o gerente pueden ajustar precios de ruta.' };
+export async function guardarPrecioRutaProducto(supabase, productoId, precio, { rol, userId } = {}) {
+  if (!puedeAccionVentaRuta(rol, userId, 'ruta_precios')) {
+    return { ok: false, error: 'Sin privilegio para ajustar precios de ruta.' };
   }
   const pid = String(productoId || '');
   const p = round2(precio);
@@ -221,9 +222,9 @@ export async function lineasDeCarga(supabase, cargaId) {
  * El repartidor debe ser un usuario con rol Repartidor.
  * @param {Array<{productoId, nombre, precio, cantidad}>} lineas
  */
-export async function crearCargaRuta(supabase, { vendedorNombre, vendedorId, notas, lineas, usuarioNombre, rol, inventario = [] } = {}) {
-  if (!puedeAdministrarVentaRuta(rol)) {
-    return { ok: false, error: 'Solo administrador o gerente pueden cargar el camión desde CEDIS.' };
+export async function crearCargaRuta(supabase, { vendedorNombre, vendedorId, notas, lineas, usuarioNombre, rol, userId, inventario = [] } = {}) {
+  if (!puedeAccionVentaRuta(rol, userId, 'ruta_carga')) {
+    return { ok: false, error: 'Sin privilegio para cargar el camión desde CEDIS.' };
   }
   const repId = String(vendedorId || '').trim();
   const repNombre = String(vendedorNombre || '').trim();

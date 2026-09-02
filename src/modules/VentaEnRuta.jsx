@@ -3,6 +3,7 @@ import SubcomandosHub from '../components/SubcomandosHub.jsx';
 import ProductoThumb from '../components/ProductoThumb.jsx';
 import Icon from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
+import PanelLiquidacionRecolecciones from '../components/PanelLiquidacionRecolecciones.jsx';
 import {
   AVISO_FALTA_VENTA_RUTA,
   NOMBRE_ALMACEN_RUTA,
@@ -16,10 +17,11 @@ import {
   listarDestinosVentaRuta,
   listarUsuariosRepartidores,
   listarVentasRuta,
-  puedeAdministrarVentaRuta,
   precioRutaEspecial,
   registrarVentaRuta,
 } from '../lib/ventaEnRuta.js';
+import { subcomandosVentaRutaVisibles, puedeAccionVentaRuta } from '../lib/ventaEnRutaAcciones.js';
+import { listarCreditosCobradosRuta } from '../lib/rutaCxc.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { stockEnUbicacion, ALMACEN_CENTRAL } from '../lib/inventarioMultitienda.js';
@@ -32,6 +34,7 @@ import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 import { esRolRepartidor } from '../lib/roles.js';
 import CorteRuta from './CorteRuta.jsx';
 import PreinventarioRuta from './PreinventarioRuta.jsx';
+import CobranzaRuta from './CobranzaRuta.jsx';
 import './VentaEnRuta.css';
 
 const COLOR = '#0f766e';
@@ -41,10 +44,9 @@ function fmtQty(n) {
   return Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
 }
 
-export default function VentaEnRuta({ supabase, user, inventario = [], onNavigate }) {
+export default function VentaEnRuta({ supabase, user, inventario = [], onNavigate, sucursal }) {
   const [vista, setVista] = useState('hub');
   const [aviso, setAviso] = useState('');
-  const esAdmin = puedeAdministrarVentaRuta(user?.rol);
 
   const productoPorId = useMemo(() => {
     const m = new Map();
@@ -52,38 +54,21 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
     return m;
   }, [inventario]);
 
-  const subs = useMemo(() => {
-    const items = [];
-    if (esAdmin) {
-      items.push(
-        { id: 'carga', label: 'Carga de camión', desc: `Repartidor · descuenta ${NOMBRE_ALMACEN_RUTA}`, icon: 'truck' },
-        { id: 'precios', label: 'Precios de ruta', desc: 'Precio especial sin impuestos', icon: 'dollar' },
-        { id: 'clientes', label: 'Clientes externos', desc: 'Clientes no propios', icon: 'users' },
-        { id: 'consultas', label: 'Consultas', desc: 'Cargas y ventas', icon: 'search' },
-      );
-    }
-    items.push(
-      {
-        id: 'venta',
-        label: 'POS venta en ruta',
-        desc: 'Departamentos · carrito · cobro',
-        icon: 'cart',
-      },
-      {
-        id: 'corte',
-        label: 'Corte de caja',
-        desc: 'Arqueo de ventas del camión',
-        icon: 'dollar',
-      },
-      {
-        id: 'preinventario',
-        label: 'Preinventario',
-        desc: 'Plantillas y conteo del camión',
-        icon: 'package',
-      },
-    );
-    return items;
-  }, [esAdmin]);
+  const subs = useMemo(
+    () =>
+      subcomandosVentaRutaVisibles(user?.rol, user?.id).map((s) => ({
+        id: s.vista,
+        label: s.label,
+        desc: s.desc,
+        icon: s.icon,
+      })),
+    [user?.rol, user?.id],
+  );
+
+  const puede = useCallback(
+    (accionId) => puedeAccionVentaRuta(user?.rol, user?.id, accionId),
+    [user?.rol, user?.id],
+  );
 
   const ir = (id) => {
     setAviso('');
@@ -114,14 +99,14 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           onSelect={ir}
         />
       )}
-      {vista === 'carga' && esAdmin && (
+      {vista === 'carga' && puede('ruta_carga') && (
         <VistaCarga supabase={supabase} user={user} inventario={inventario} setAviso={setAviso} />
       )}
-      {vista === 'precios' && esAdmin && (
+      {vista === 'precios' && puede('ruta_precios') && (
         <VistaPrecios supabase={supabase} user={user} inventario={inventario} setAviso={setAviso} />
       )}
-      {vista === 'clientes' && esAdmin && <VistaClientes supabase={supabase} setAviso={setAviso} />}
-      {vista === 'venta' && (
+      {vista === 'clientes' && puede('ruta_clientes') && <VistaClientes supabase={supabase} setAviso={setAviso} />}
+      {vista === 'venta' && puede('ruta_pos') && (
         <VistaPos
           supabase={supabase}
           user={user}
@@ -131,10 +116,10 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           onNavigate={onNavigate}
         />
       )}
-      {vista === 'corte' && (
+      {vista === 'corte' && puede('ruta_corte') && (
         <CorteRuta supabase={supabase} user={user} setAviso={setAviso} />
       )}
-      {vista === 'preinventario' && (
+      {vista === 'preinventario' && puede('ruta_preinventario') && (
         <PreinventarioRuta
           supabase={supabase}
           user={user}
@@ -144,7 +129,25 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           onVolver={() => ir('hub')}
         />
       )}
-      {vista === 'consultas' && esAdmin && <VistaConsultas supabase={supabase} setAviso={setAviso} />}
+      {vista === 'creditos' && puede('ruta_creditos') && (
+        <CobranzaRuta
+          supabase={supabase}
+          user={user}
+          sucursal={sucursal || user?.sucursal_id}
+          embedded
+          titulo="Créditos por pagar"
+        />
+      )}
+      {vista === 'liquidacion' && puede('ruta_liquidacion') && (
+        <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
+          <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Liquidación</h3>
+          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+            Recibe del repartidor el efectivo en tránsito generado por ventas del camión (y recolecciones asociadas).
+          </p>
+          <PanelLiquidacionRecolecciones supabase={supabase} user={user} embedded />
+        </div>
+      )}
+      {vista === 'consultas' && puede('ruta_consultas') && <VistaConsultas supabase={supabase} setAviso={setAviso} />}
     </div>
   );
 }
@@ -216,6 +219,7 @@ function VistaCarga({ supabase, user, inventario, setAviso }) {
       lineas,
       usuarioNombre: user?.nombre,
       rol: user?.rol,
+      userId: user?.id,
       inventario,
     });
     setGuardando(false);
@@ -362,7 +366,7 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
   ]);
 
   const guardar = async (p) => {
-    const r = await guardarPrecioRutaProducto(supabase, p.id, editVal, { rol: user?.rol });
+    const r = await guardarPrecioRutaProducto(supabase, p.id, editVal, { rol: user?.rol, userId: user?.id });
     if (!r.ok) return alert(r.error);
     setAviso('Precio de ruta actualizado (sin impuestos). Recarga catálogo si no ves el cambio.');
     setEditId('');
@@ -1089,6 +1093,12 @@ function VistaConsultas({ supabase, setAviso }) {
           if (r.aviso) setAviso(r.aviso);
           if (r.error) setAviso(r.error);
           setRows(r.data || []);
+        } else if (tab === 'creditos') {
+          const r = await listarCreditosCobradosRuta(supabase, { limit: 150 });
+          if (cancel) return;
+          if (r.aviso) setAviso(r.aviso);
+          if (r.error) setAviso(r.error);
+          setRows(r.data || []);
         } else {
           const r = await listarVentasRuta(supabase, { limit: 100 });
           if (cancel) return;
@@ -1141,6 +1151,7 @@ function VistaConsultas({ supabase, setAviso }) {
         {[
           { id: 'ventas', label: 'Ventas' },
           { id: 'cargas', label: 'Cargas' },
+          { id: 'creditos', label: 'Créditos cobrados' },
         ].map((t) => (
           <button
             key={t.id}
@@ -1176,6 +1187,34 @@ function VistaConsultas({ supabase, setAviso }) {
                   <td>{c.vendedor_nombre || '—'}</td>
                   <td>{badgeEstado(c.estado)}</td>
                   <td className="muted" style={{ fontSize: '0.8rem' }}>{c.liquidada_at ? fmtFecha(c.liquidada_at) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : tab === 'creditos' ? (
+        <div className="table-wrap">
+          <table className="consultas-table">
+            <thead>
+              <tr>
+                <th>Folio</th>
+                <th>Cliente</th>
+                <th>Monto</th>
+                <th>Cobrado</th>
+                <th>Cajero</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((m) => (
+                <tr key={m.id}>
+                  <td><strong>{m.folio_venta || m.venta_id || '—'}</strong></td>
+                  <td>
+                    {m.cliente_nombre || m.cliente_id || '—'}
+                    {m.cliente_tipo ? <span className="muted" style={{ fontSize: '0.72rem' }}> · {m.cliente_tipo}</span> : null}
+                  </td>
+                  <td>{fmtMonto(m.monto)}</td>
+                  <td className="muted" style={{ fontSize: '0.8rem' }}>{fmtFecha(m.pagado_at || m.created_at)}</td>
+                  <td>{m.pagado_por || '—'}</td>
                 </tr>
               ))}
             </tbody>

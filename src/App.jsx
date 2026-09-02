@@ -1307,7 +1307,7 @@ function App() {
             </>
           )}
           {vista === 'Venta en Ruta' && (
-            <VentaEnRuta supabase={supabase} user={user} inventario={inventario} onNavigate={irAModulo} />
+            <VentaEnRuta supabase={supabase} user={user} inventario={inventario} sucursal={sucursal} onNavigate={irAModulo} />
           )}
           {vista === 'Productos' && (
             <Productos

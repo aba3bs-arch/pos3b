@@ -171,9 +171,8 @@ export default function Productos({
   const esCajero = esRolMostradorRestringido(user?.rol);
   const puedeGestionCatalogo = puedeEditarCatalogoProductos(user?.rol);
   const puedeAjustes = puedeAjustarInventario(user?.rol);
-  /** En MAIN/CEDIS el surtido va por Venta en Ruta — se ocultan traspasos, salvo llegada desde POS ruta. */
-  const puedeTraspasos =
-    puedeTraspasarInventario(user?.rol) && (!esAlmacenCentral(sucursal) || permitirTraspasoDesdeRuta);
+  /** Enviar / recibir traspaso con selector de tiendas (también en MAIN/CEDIS). */
+  const puedeTraspasos = puedeTraspasarInventario(user?.rol);
   const puedePreinventario = puedeHacerPreinventario(user?.rol);
   const verNegativos = puedeVerStockNegativo(user?.rol);
   const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : 'MAIN';

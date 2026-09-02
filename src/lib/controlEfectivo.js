@@ -1014,7 +1014,12 @@ export function resumenTotalesPorTipo(items) {
 }
 
 export function movimientosMercancia(items) {
-  return (items || []).filter((m) => m.tipo_movimiento === 'Recolección' || m.tipo_movimiento === 'Entrega Crédito');
+  return (items || []).filter(
+    (m) =>
+      m.tipo_movimiento === 'Recolección' ||
+      m.tipo_movimiento === 'Entrega Crédito' ||
+      m.tipo_movimiento === 'Venta Ruta',
+  );
 }
 
 export function movimientosServicios(items) {
@@ -1206,7 +1211,7 @@ export async function listarMovimientosRecoleccionContabilidad(supabase, { desde
     .select(
       'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, estatus, descripcion_gasto, fecha_liquidacion, usuario_liquida',
     )
-    .in('tipo_movimiento', ['Recolección', 'Entrega Crédito', 'Cobro Servicio'])
+    .in('tipo_movimiento', ['Recolección', 'Entrega Crédito', 'Cobro Servicio', 'Venta Ruta'])
     .order('fecha_hora', { ascending: false });
   if (desde) q = q.gte('fecha_hora', `${desde}T00:00:00-07:00`);
   if (hasta) q = q.lte('fecha_hora', `${hasta}T23:59:59-07:00`);
@@ -1228,7 +1233,7 @@ export function reporteGeneralPorTienda(movimientos, tiendasCatalogo = null) {
     const monto = Number(m.monto || 0);
     r.count += 1;
     r.total += monto;
-    if (m.tipo_movimiento === 'Recolección') {
+    if (m.tipo_movimiento === 'Recolección' || m.tipo_movimiento === 'Venta Ruta') {
       r.recoleccion += monto;
       r.movRecoleccion += 1;
     } else if (m.tipo_movimiento === 'Cobro Servicio') {

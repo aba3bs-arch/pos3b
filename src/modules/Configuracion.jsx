@@ -28,7 +28,8 @@ import {
   persistirPrivilegios,
   limpiarPrivilegiosRol,
   limpiarPrivilegiosUsuario,
-  ACCIONES_PRIVILEGIO,
+  ACCIONES_PRIVILEGIO_PANEL_RT,
+  ACCIONES_PRIVILEGIO_VENTA_RUTA,
   leerAccionPrivilegio,
   guardarAccionPrivilegio,
   persistirTipoCambio,
@@ -1803,7 +1804,42 @@ export default function Configuracion({
                   <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.82rem' }}>
                     Recolección en cortes y cada subcomando del Panel RT (reporte, servicios, recolectores, etc.). El administrador siempre tiene acceso.
                   </p>
-                  {ACCIONES_PRIVILEGIO.map((acc) => {
+                  {ACCIONES_PRIVILEGIO_PANEL_RT.map((acc) => {
+                    const checked = privKey ? leerAccionPrivilegio(acc.id, privModo, privKey) : false;
+                    return (
+                      <label key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem', marginBottom: '0.35rem' }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={!privKey}
+                          onChange={(e) => {
+                            if (!privKey) return;
+                            const next = guardarAccionPrivilegio(acc.id, privModo, privKey, e.target.checked);
+                            setPrivilegios(next);
+                          }}
+                        />
+                        {acc.label}
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: '1rem',
+                    padding: '0.85rem',
+                    borderRadius: '10px',
+                    background: 'rgba(15,118,110,0.06)',
+                    border: '1px solid rgba(15,118,110,0.22)',
+                    borderLeft: '4px solid #0f766e',
+                  }}
+                >
+                  <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: '#0f766e' }}>Venta en Ruta — acciones especiales</h4>
+                  <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.82rem' }}>
+                    Submódulos del hub (carga, POS, créditos por pagar, liquidación, etc.). El administrador siempre tiene acceso.
+                    Sin checkbox: Gerente ve administración; quien tenga el módulo «Venta en Ruta» ve POS, corte, preinventario y créditos.
+                  </p>
+                  {ACCIONES_PRIVILEGIO_VENTA_RUTA.map((acc) => {
                     const checked = privKey ? leerAccionPrivilegio(acc.id, privModo, privKey) : false;
                     return (
                       <label key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem', marginBottom: '0.35rem' }}>

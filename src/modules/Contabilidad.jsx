@@ -14,7 +14,7 @@ const DESCRIPCIONES = {
   },
   'Liquidación recolecciones': {
     desc: 'Sellar efectivo en tránsito por tienda y día',
-    ayuda: 'Cierra y sella el efectivo recolectado por tienda/día para liquidarlo en contabilidad.',
+    ayuda: 'También en Venta en Ruta → Liquidación. Cierra y sella el efectivo recolectado (incl. ventas de camión) por tienda/día.',
   },
   'RC Virtual': {
     desc: 'Custodia Virtual/Garage → cuenta admin → ABB',
@@ -34,11 +34,11 @@ const DESCRIPCIONES = {
   },
   Crédito: {
     desc: 'Cartera por cobrar de Venta en Ruta',
-    ayuda: 'Consulta de saldos. El pago lo hace el cajero en Cobranza con PIN.',
+    ayuda: 'Consulta de saldos. El pago lo hace el cajero en Cobranza o en Venta en Ruta → Créditos por pagar (PIN).',
   },
   Cobranza: {
     desc: 'Pagar créditos de ruta (cajero + PIN)',
-    ayuda: 'Selecciona créditos, ingresa PIN. Gasto abarrotes «credito liquidado» + efectivo a tránsito.',
+    ayuda: 'También en Venta en Ruta → Créditos por pagar. Selecciona créditos, ingresa PIN. Gasto abarrotes «credito liquidado» + efectivo a tránsito.',
   },
   'RH ABA3B': {
     desc: 'Altas, bajas y expediente de personal',

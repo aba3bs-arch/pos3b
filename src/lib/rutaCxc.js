@@ -119,6 +119,45 @@ export async function listarCreditosPendientesRuta(supabase, { sucursalId, folio
   return { data: rows.slice(0, limit), aviso };
 }
 
+/** Créditos ya cobrados (pagados con PIN de cajero) — reporte de consultas. */
+export async function listarCreditosCobradosRuta(supabase, {
+  sucursalId,
+  folio,
+  fechaDesde,
+  fechaHasta,
+  limit = 200,
+} = {}) {
+  const { data, error, aviso } = await listarMovimientosCxc(supabase, { limit: 2000 });
+  if (error) return { data: [], error, aviso };
+  let rows = (data || []).filter((m) => {
+    if (m.tipo !== 'cargo') return false;
+    const est = String(m.estatus || '').toLowerCase();
+    if (est === 'pagado') return true;
+    if (m.pagado_at) return true;
+    return false;
+  });
+  if (sucursalId) {
+    const suc = String(sucursalId).toUpperCase();
+    rows = rows.filter((m) => String(m.cliente_tipo) === 'sucursal' && String(m.cliente_id).toUpperCase() === suc);
+  }
+  if (folio) {
+    const f = String(folio).trim().toUpperCase();
+    rows = rows.filter(
+      (m) =>
+        String(m.folio_venta || m.notas || '').toUpperCase().includes(f) ||
+        String(m.venta_id || '').toUpperCase().includes(f),
+    );
+  }
+  if (fechaDesde) {
+    rows = rows.filter((m) => String(m.pagado_at || m.created_at || '').slice(0, 10) >= fechaDesde);
+  }
+  if (fechaHasta) {
+    rows = rows.filter((m) => String(m.pagado_at || m.created_at || '').slice(0, 10) <= fechaHasta);
+  }
+  rows.sort((a, b) => String(b.pagado_at || b.created_at || '').localeCompare(String(a.pagado_at || a.created_at || '')));
+  return { data: rows.slice(0, limit), aviso };
+}
+
 export async function saldosCxcPorCliente(supabase) {
   const { data, error, aviso } = await listarMovimientosCxc(supabase, { limit: 3000 });
   if (error) return { data: [], error, aviso };
