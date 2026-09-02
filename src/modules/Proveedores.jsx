@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { puedeCrearProveedor } from '../lib/roles.js';
 import {
   eliminarItemCatalogo,
@@ -13,6 +13,14 @@ import CampoCodigo from '../components/CampoCodigo.jsx';
 import MatrizEntregasProveedores from '../components/MatrizEntregasProveedores.jsx';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 import { MODOS_COMPRA_PROVEEDOR, etiquetaModoCompraProveedor, normalizarModoCompraProveedor } from '../lib/comprasProveedor.js';
+import { etiquetaDepartamento, listarDepartamentos } from '../lib/departamentos.js';
+import {
+  DEPARTAMENTOS_CEDIS_UI,
+  PROVEEDOR_CEDIS_NOMBRE,
+  catCedisDesdeUi,
+  departamentoCedisUiDesdeCat,
+  esProveedorCedisLas3b,
+} from '../lib/catalogoCedis.js';
 
 const empty = {
   nombre: '',
@@ -53,7 +61,28 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
   const [busqProd, setBusqProd] = useState('');
   const [mostrarVinculos, setMostrarVinculos] = useState(false);
   const [registrandoMasivo, setRegistrandoMasivo] = useState(false);
+  const [filtroDeptoCat, setFiltroDeptoCat] = useState('');
   const puedeAlta = puedeCrearProveedor(user?.rol);
+
+  const esProvCedis = esProveedorCedisLas3b(form.nombre) || esProveedorCedisLas3b(rows.find((r) => r.id === editId));
+  const departamentosCatalogo = useMemo(
+    () => (esProvCedis ? DEPARTAMENTOS_CEDIS_UI : listarDepartamentos(inventario)),
+    [esProvCedis, inventario],
+  );
+
+  const catalogoFiltrado = useMemo(() => {
+    if (!filtroDeptoCat) return catalogo;
+    if (esProvCedis) {
+      const want = catCedisDesdeUi(filtroDeptoCat);
+      return catalogo.filter((c) => {
+        const cat = String(c.cat || '').trim().toUpperCase();
+        return cat === want || cat === String(filtroDeptoCat).toUpperCase();
+      });
+    }
+    return catalogo.filter(
+      (c) => String(c.cat || '').trim().toUpperCase() === String(filtroDeptoCat).trim().toUpperCase(),
+    );
+  }, [catalogo, filtroDeptoCat, esProvCedis]);
 
   const load = async () => {
     if (!supabase) return;
@@ -99,9 +128,13 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
     loadVinculos(editId);
     loadCatalogo(editId);
     setBusqProd('');
-    setFormCat(emptyCatalogo);
+    setFormCat({
+      ...emptyCatalogo,
+      cat: esProveedorCedisLas3b(rows.find((r) => r.id === editId)) ? 'CIGARROS' : 'GENERAL',
+    });
     setEditCatId(null);
     setMostrarVinculos(false);
+    setFiltroDeptoCat('');
   }, [supabase, editId]);
 
   const guardar = async () => {
@@ -190,9 +223,16 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
 
   const guardarCatalogo = async () => {
     if (!editId) return;
-    const res = await guardarItemCatalogo(supabase, editId, formCat, editCatId);
+    const catGuardar = esProvCedis ? catCedisDesdeUi(formCat.cat) : String(formCat.cat || 'GENERAL').trim() || 'GENERAL';
+    if (esProvCedis && !formCat.cat) {
+      return alert('Elige un departamento (cigarros, bluntwrap, ropa, etc.).');
+    }
+    const res = await guardarItemCatalogo(supabase, editId, { ...formCat, cat: catGuardar }, editCatId);
     if (!res.ok) return alert(res.error);
-    setFormCat(emptyCatalogo);
+    setFormCat({
+      ...emptyCatalogo,
+      cat: esProvCedis ? 'CIGARROS' : 'GENERAL',
+    });
     setEditCatId(null);
     loadCatalogo(editId);
   };
@@ -204,7 +244,7 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
       presentacion: item.presentacion || '',
       sku_proveedor: item.sku_proveedor || '',
       codigo_barras: item.codigo_barras || '',
-      cat: item.cat || 'GENERAL',
+      cat: esProvCedis ? departamentoCedisUiDesdeCat(item.cat) || 'CIGARROS' : item.cat || 'GENERAL',
       precio_compra_sugerido: item.precio_compra_sugerido != null ? String(item.precio_compra_sugerido) : '',
     });
   };
@@ -421,8 +461,17 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
         <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
           <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Catálogo del proveedor</h3>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-            Define los productos que vende este distribuidor (ej. Coca Cola 600, 500, 1 lt, 2 lts). Cada sucursal los registra en su inventario con{' '}
-            <strong>Registrar en inventario</strong> ({etiquetaTienda(sucursal)}).
+            {esProvCedis ? (
+              <>
+                Proveedor <strong>{PROVEEDOR_CEDIS_NOMBRE}</strong>: elige el <strong>departamento</strong> de cada
+                producto (cigarros, bluntwrap, electrónicos, abarrotes, medicamento, ropa).
+              </>
+            ) : (
+              <>
+                Define los productos que vende este distribuidor (ej. Coca Cola 600, 500, 1 lt, 2 lts). Cada sucursal los registra en su inventario con{' '}
+                <strong>Registrar en inventario</strong> ({etiquetaTienda(sucursal)}).
+              </>
+            )}
           </p>
 
           <div className="grid-2" style={{ marginTop: '0.75rem' }}>
@@ -436,7 +485,22 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
               placeholder="Código de barras (opcional)"
               tituloCamara="Código catálogo proveedor"
             />
-            <input className="input" placeholder="Categoría" value={formCat.cat} onChange={(e) => setFormCat({ ...formCat, cat: e.target.value })} />
+            <label className="muted" style={{ display: 'block' }}>
+              Departamento {esProvCedis ? '*' : ''}
+              <select
+                className="select"
+                style={{ marginTop: '0.35rem', width: '100%' }}
+                value={formCat.cat}
+                onChange={(e) => setFormCat({ ...formCat, cat: e.target.value })}
+              >
+                {!esProvCedis && <option value="GENERAL">GENERAL</option>}
+                {departamentosCatalogo.map((d) => (
+                  <option key={d} value={d}>
+                    {etiquetaDepartamento(d)}
+                  </option>
+                ))}
+              </select>
+            </label>
             <input
               className="input"
               type="number"
@@ -457,12 +521,24 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
                 className="btn btn-ghost"
                 onClick={() => {
                   setEditCatId(null);
-                  setFormCat(emptyCatalogo);
+                  setFormCat({
+                    ...emptyCatalogo,
+                    cat: esProvCedis ? 'CIGARROS' : 'GENERAL',
+                  });
                 }}
               >
                 Cancelar ítem
               </button>
             )}
+            <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginLeft: 'auto' }}>
+              Filtrar depto
+              <select className="select" value={filtroDeptoCat} onChange={(e) => setFiltroDeptoCat(e.target.value)}>
+                <option value="">Todos</option>
+                {departamentosCatalogo.map((d) => (
+                  <option key={d} value={d}>{etiquetaDepartamento(d)}</option>
+                ))}
+              </select>
+            </label>
           </div>
 
           <div className="table-wrap" style={{ marginTop: '0.75rem' }}>
@@ -470,6 +546,7 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
               <thead>
                 <tr>
                   <th>Producto</th>
+                  <th>Depto</th>
                   <th>SKU prov.</th>
                   <th>Código</th>
                   <th>P. compra</th>
@@ -478,16 +555,19 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
                 </tr>
               </thead>
               <tbody>
-                {catalogo.length === 0 ? (
+                {catalogoFiltrado.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="muted">
-                      Sin productos en el catálogo. Agrega ítems arriba (ej. Coca Cola + presentación 600 ml).
+                    <td colSpan={7} className="muted">
+                      {catalogo.length === 0
+                        ? 'Sin productos en el catálogo. Agrega ítems arriba.'
+                        : 'Ningún ítem en ese departamento.'}
                     </td>
                   </tr>
                 ) : (
-                  catalogo.map((c) => (
+                  catalogoFiltrado.map((c) => (
                     <tr key={c.id}>
                       <td>{nombreCatalogoItem(c)}</td>
+                      <td>{etiquetaDepartamento(departamentoCedisUiDesdeCat(c.cat) || c.cat || 'GENERAL')}</td>
                       <td>{c.sku_proveedor || '—'}</td>
                       <td>{c.codigo_barras || '—'}</td>
                       <td>{c.precio_compra_sugerido != null ? `$${Number(c.precio_compra_sugerido).toFixed(2)}` : '—'}</td>
