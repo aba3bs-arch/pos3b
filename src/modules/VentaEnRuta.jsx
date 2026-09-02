@@ -647,30 +647,142 @@ function VistaClientes({ supabase, setAviso }) {
 function VistaConsultas({ supabase, setAviso }) {
   const [tab, setTab] = useState('ventas');
   const [rows, setRows] = useState([]);
+  const [cargando, setCargando] = useState(false);
 
   useEffect(() => {
+    let cancel = false;
     void (async () => {
-      if (tab === 'cargas') {
-        const r = await listarCargasRuta(supabase, { limit: 40 });
-        if (r.aviso) setAviso(r.aviso);
-        setRows(r.data || []);
-      } else {
-        const r = await listarVentasRuta(supabase, { limit: 60 });
-        if (r.aviso) setAviso(r.aviso);
-        setRows(r.data || []);
+      setCargando(true);
+      try {
+        if (tab === 'cargas') {
+          const r = await listarCargasRuta(supabase, { limit: 80 });
+          if (cancel) return;
+          if (r.aviso) setAviso(r.aviso);
+          if (r.error) setAviso(r.error);
+          setRows(r.data || []);
+        } else {
+          const r = await listarVentasRuta(supabase, { limit: 100 });
+          if (cancel) return;
+          if (r.aviso) setAviso(r.aviso);
+          if (r.error) setAviso(r.error);
+          setRows(r.data || []);
+        }
+      } finally {
+        if (!cancel) setCargando(false);
       }
     })();
+    return () => {
+      cancel = true;
+    };
   }, [supabase, tab, setAviso]);
+
+  const fmtFecha = (iso) => {
+    if (!iso) return '—';
+    try {
+      return new Date(iso).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+    } catch {
+      return String(iso);
+    }
+  };
+
+  const badgeEstado = (estado) => {
+    const e = String(estado || '').toLowerCase();
+    const color = e === 'en_ruta' ? '#0f766e' : e === 'liquidada' ? '#64748b' : 'var(--brand-blue)';
+    return (
+      <span
+        style={{
+          display: 'inline-block',
+          padding: '0.1rem 0.45rem',
+          borderRadius: 4,
+          fontSize: '0.72rem',
+          fontWeight: 600,
+          background: `${color}18`,
+          color,
+        }}
+      >
+        {estado || '—'}
+      </span>
+    );
+  };
 
   return (
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
       <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Consultas</h3>
-      <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.75rem' }}>
-        {['ventas', 'cargas'].map((t) => (
-          <button key={t} type="button" className={`btn ${tab === t ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab(t)}>{t}</button>
+      <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+        {[
+          { id: 'ventas', label: 'Ventas' },
+          { id: 'cargas', label: 'Cargas' },
+        ].map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className={`btn ${tab === t.id ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
+          </button>
         ))}
       </div>
-      <pre style={{ fontSize: '0.72rem', overflow: 'auto', maxHeight: 360 }}>{JSON.stringify(rows.slice(0, 30), null, 2)}</pre>
+      {cargando ? (
+        <p className="muted">Cargando…</p>
+      ) : !rows.length ? (
+        <p className="muted">Sin registros.</p>
+      ) : tab === 'cargas' ? (
+        <div className="table-wrap">
+          <table className="consultas-table">
+            <thead>
+              <tr>
+                <th>Folio</th>
+                <th>Fecha</th>
+                <th>Repartidor</th>
+                <th>Estado</th>
+                <th>Liquidada</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((c) => (
+                <tr key={c.id}>
+                  <td><strong>{c.folio || '—'}</strong></td>
+                  <td>{c.fecha || fmtFecha(c.created_at)}</td>
+                  <td>{c.vendedor_nombre || '—'}</td>
+                  <td>{badgeEstado(c.estado)}</td>
+                  <td className="muted" style={{ fontSize: '0.8rem' }}>{c.liquidada_at ? fmtFecha(c.liquidada_at) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="table-wrap">
+          <table className="consultas-table">
+            <thead>
+              <tr>
+                <th>Folio</th>
+                <th>Fecha</th>
+                <th>Cliente</th>
+                <th>Pago</th>
+                <th>Total</th>
+                <th>Vendedor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((v) => (
+                <tr key={v.id}>
+                  <td><strong>{v.folio || '—'}</strong></td>
+                  <td className="muted" style={{ fontSize: '0.8rem' }}>{fmtFecha(v.created_at)}</td>
+                  <td>
+                    {v.cliente_nombre || v.cliente_id || '—'}
+                    {v.cliente_tipo ? <span className="muted" style={{ fontSize: '0.72rem' }}> · {v.cliente_tipo}</span> : null}
+                  </td>
+                  <td>{v.metodo_pago || '—'}{v.estado_credito ? ` · ${v.estado_credito}` : ''}</td>
+                  <td>{fmtMonto(v.total)}</td>
+                  <td className="muted">{v.vendedor_nombre || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

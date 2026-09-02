@@ -33,6 +33,32 @@ const DEPTOS_CEDIS_SET = new Set([
   'ROPA',
 ]);
 
+/** UI «ELECTRONICOS» → valor canónico en BD. */
+const CAT_UI_A_DB = {
+  ELECTRONICOS: 'CIGARRO_ELECTRONICO',
+};
+
+const CAT_DB_A_UI = {
+  CIGARRO_ELECTRONICO: 'ELECTRONICOS',
+};
+
+export function esProveedorCedisLas3b(nombreOrRow) {
+  const nombre = typeof nombreOrRow === 'string' ? nombreOrRow : nombreOrRow?.nombre;
+  return String(nombre || '').trim().toUpperCase() === PROVEEDOR_CEDIS_NOMBRE;
+}
+
+/** Valor de select UI a partir de cat en BD. */
+export function departamentoCedisUiDesdeCat(cat) {
+  const n = normalizarDepartamento(cat);
+  return CAT_DB_A_UI[n] || (DEPARTAMENTOS_CEDIS_UI.includes(n) ? n : '');
+}
+
+/** Valor a guardar en productos / proveedor_catalogo.cat. */
+export function catCedisDesdeUi(deptoUi) {
+  const n = normalizarDepartamento(deptoUi);
+  return CAT_UI_A_DB[n] || n || 'GENERAL';
+}
+
 export function aplicaFiltroCatalogoCedis(sucursal) {
   return esAlmacenCentral(sucursal);
 }
