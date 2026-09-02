@@ -448,6 +448,16 @@ export async function registrarVentaRuta(supabase, {
 
   let compraId = null;
   let transitoId = null;
+  const avisos = [];
+
+  async function enlazarVenta(extra = {}) {
+    const patch = { ...extra };
+    if (compraId) patch.compra_id = compraId;
+    if (transitoId) patch.transito_id = String(transitoId);
+    if (!Object.keys(patch).length) return;
+    const { error: eLink } = await supabase.from('ruta_ventas').update(patch).eq('id', venta.id);
+    if (eLink) avisos.push(`enlace venta: ${eLink.message}`);
+  }
 
   // Sucursal propia → pedido pendiente de recepción
   if (tipoCli === 'sucursal') {
@@ -460,6 +470,8 @@ export async function registrarVentaRuta(supabase, {
     });
     if (!ped.ok) return { ok: false, error: ped.error || 'No se creó el pedido en Compras.' };
     compraId = ped.id;
+    // Enlazar de inmediato: si falla tránsito/CxC después, no perder compra_id
+    await enlazarVenta();
   }
 
   if (mp === 'efectivo') {
@@ -471,7 +483,16 @@ export async function registrarVentaRuta(supabase, {
       vendedorNombre,
       nota: `Venta ruta ${folio} · efectivo · ${clienteNombre || clienteId}`,
     });
-    if (!tr.ok) return { ok: false, error: tr.error || 'No se registró efectivo en tránsito.' };
+    if (!tr.ok) {
+      await enlazarVenta();
+      return {
+        ok: false,
+        error: tr.error || 'No se registró efectivo en tránsito.',
+        compraId,
+        venta: { ...venta, compra_id: compraId },
+        avisos: avisos.length ? avisos : undefined,
+      };
+    }
     transitoId = tr.id;
   } else {
     const cxc = await registrarCargoCreditoRuta(supabase, {
@@ -485,17 +506,19 @@ export async function registrarVentaRuta(supabase, {
       usuarioNombre: vendedorNombre,
       notas: `Venta ${folio}`,
     });
-    if (!cxc.ok) return { ok: false, error: cxc.error || 'No se registró el crédito.' };
-  }
-
-  if (compraId || transitoId) {
-    const patch = {};
-    if (compraId) patch.compra_id = compraId;
-    if (transitoId) patch.transito_id = String(transitoId);
-    if (Object.keys(patch).length) {
-      await supabase.from('ruta_ventas').update(patch).eq('id', venta.id);
+    if (!cxc.ok) {
+      await enlazarVenta();
+      return {
+        ok: false,
+        error: cxc.error || 'No se registró el crédito.',
+        compraId,
+        venta: { ...venta, compra_id: compraId },
+        avisos: avisos.length ? avisos : undefined,
+      };
     }
   }
+
+  await enlazarVenta();
 
   return {
     ok: true,
@@ -503,6 +526,7 @@ export async function registrarVentaRuta(supabase, {
     cuenta: mp === 'credito' ? 'credito' : 'efectivo',
     compraId,
     transitoId,
+    avisos: avisos.length ? avisos : undefined,
   };
 }
 
