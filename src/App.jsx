@@ -174,6 +174,8 @@ function App() {
   const [valesRetornoModulo, setValesRetornoModulo] = useState(null);
   const [buzonPestana, setBuzonPestana] = useState('pendientes');
   const [checadorPestana, setChecadorPestana] = useState('precios');
+  const [productosVistaInicial, setProductosVistaInicial] = useState(null);
+  const [productosDestinoTraspaso, setProductosDestinoTraspaso] = useState(null);
   const [sucursal, setSucursal] = useState(sucursalInicial);
   const [tiendaFijadaParaAcceso, setTiendaFijadaParaAcceso] = useState(() => {
     if (CAJA_FISICA_FIJA_ENV) return true;
@@ -553,6 +555,10 @@ function App() {
       }
       if (m === 'Checador') {
         setChecadorPestana(opts.pestana || 'precios');
+      }
+      if (m === 'Productos') {
+        setProductosVistaInicial(opts.vista || null);
+        setProductosDestinoTraspaso(opts.destinoTraspaso || null);
       }
       if (m === 'Vales y Préstamos' && (opts.pestana || opts.retorno)) {
         setValesNavOpts({ pestana: opts.pestana || null, retorno: opts.retorno || null });
@@ -1301,7 +1307,7 @@ function App() {
             </>
           )}
           {vista === 'Venta en Ruta' && (
-            <VentaEnRuta supabase={supabase} user={user} inventario={inventario} />
+            <VentaEnRuta supabase={supabase} user={user} inventario={inventario} onNavigate={irAModulo} />
           )}
           {vista === 'Productos' && (
             <Productos
@@ -1313,6 +1319,12 @@ function App() {
               user={user}
               sucursal={sucursal}
               consolaCentral={consolaCentral}
+              vistaInicial={productosVistaInicial}
+              destinoTraspasoInicial={productosDestinoTraspaso}
+              onVistaInicialConsumida={() => {
+                setProductosVistaInicial(null);
+                setProductosDestinoTraspaso(null);
+              }}
             />
           )}
           {vista === 'Compras' && (

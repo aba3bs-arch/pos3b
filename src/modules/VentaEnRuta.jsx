@@ -1,5 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import SubcomandosHub from '../components/SubcomandosHub.jsx';
+import ProductoThumb from '../components/ProductoThumb.jsx';
+import Icon from '../components/Icon.jsx';
+import CampoCodigo from '../components/CampoCodigo.jsx';
 import {
   AVISO_FALTA_VENTA_RUTA,
   NOMBRE_ALMACEN_RUTA,
@@ -20,9 +23,14 @@ import {
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { stockEnUbicacion, ALMACEN_CENTRAL } from '../lib/inventarioMultitienda.js';
-import { etiquetaDepartamento, listarDepartamentos } from '../lib/departamentos.js';
+import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from '../lib/departamentos.js';
+import {
+  DEPARTAMENTOS_CEDIS_UI,
+  departamentoFiltroCoincideCedis,
+} from '../lib/catalogoCedis.js';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 import { esRolRepartidor } from '../lib/roles.js';
+import './VentaEnRuta.css';
 
 const COLOR = '#0f766e';
 
@@ -31,7 +39,7 @@ function fmtQty(n) {
   return Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
 }
 
-export default function VentaEnRuta({ supabase, user, inventario = [] }) {
+export default function VentaEnRuta({ supabase, user, inventario = [], onNavigate }) {
   const [vista, setVista] = useState('hub');
   const [aviso, setAviso] = useState('');
   const esAdmin = puedeAdministrarVentaRuta(user?.rol);
@@ -98,7 +106,14 @@ export default function VentaEnRuta({ supabase, user, inventario = [] }) {
       )}
       {vista === 'clientes' && esAdmin && <VistaClientes supabase={supabase} setAviso={setAviso} />}
       {vista === 'venta' && (
-        <VistaPos supabase={supabase} user={user} productoPorId={productoPorId} inventario={inventario} setAviso={setAviso} />
+        <VistaPos
+          supabase={supabase}
+          user={user}
+          productoPorId={productoPorId}
+          inventario={inventario}
+          setAviso={setAviso}
+          onNavigate={onNavigate}
+        />
       )}
       {vista === 'consultas' && esAdmin && <VistaConsultas supabase={supabase} setAviso={setAviso} />}
     </div>
@@ -451,15 +466,21 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
   );
 }
 
-function VistaPos({ supabase, user, productoPorId, inventario, setAviso }) {
+function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavigate }) {
   const [cargas, setCargas] = useState([]);
   const [cargaId, setCargaId] = useState('');
   const [lineas, setLineas] = useState([]);
   const [clientesExt, setClientesExt] = useState([]);
   const [clienteKey, setClienteKey] = useState('');
-  const [metodo, setMetodo] = useState('efectivo');
   const [codigo, setCodigo] = useState('');
   const [carrito, setCarrito] = useState([]);
+  const [deptoActivo, setDeptoActivo] = useState('');
+  const [qDepto, setQDepto] = useState('');
+  const [qtyEditId, setQtyEditId] = useState(null);
+  const [mostrarCobro, setMostrarCobro] = useState(false);
+  const [metodo, setMetodo] = useState('efectivo');
+  const [montoEfectivo, setMontoEfectivo] = useState('');
+  const [montoCredito, setMontoCredito] = useState('');
   const [guardando, setGuardando] = useState(false);
 
   const esRep = esRolRepartidor(user?.rol);
@@ -467,7 +488,6 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso }) {
 
   const cargarBase = useCallback(async () => {
     const filtros = { estado: 'en_ruta' };
-    // El repartidor solo ve las cargas asignadas a él.
     if (esRolRepartidor(user?.rol) && user?.id) filtros.vendedorId = user.id;
     const [c, cli] = await Promise.all([
       listarCargasRuta(supabase, filtros),
@@ -485,40 +505,187 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso }) {
     void lineasDeCarga(supabase, cargaId).then((r) => setLineas(r.data || []));
   }, [supabase, cargaId]);
 
-  const scanAgregar = () => {
+  /** Productos del camión enriquecidos con catálogo (foto, depto). */
+  const productosCamion = useMemo(() => {
+    return (lineas || [])
+      .map((lin) => {
+        const p = productoPorId.get(String(lin.producto_id)) || {};
+        const disp = disponibleEnLineaCarga(lin);
+        const precio = Number(lin.precio) > 0 ? Number(lin.precio) : precioRutaEspecial(p);
+        return {
+          id: String(lin.producto_id),
+          nombre: lin.producto_nombre || p.nombre || lin.producto_id,
+          cat: p.cat || 'GENERAL',
+          foto_url: p.foto_url || p.foto || null,
+          precio: Number(precio) || 0,
+          disponible: disp,
+          linea: lin,
+        };
+      })
+      .filter((p) => p.disponible > 0 && p.precio > 0);
+  }, [lineas, productoPorId]);
+
+  const departamentosMenu = useMemo(() => {
+    const counts = new Map();
+    for (const p of productosCamion) {
+      const cat = normalizarDepartamento(p.cat) || 'GENERAL';
+      // Agrupa CIGARRO_ELECTRONICO bajo ELECTRONICOS en el menú
+      const key = cat === 'CIGARRO_ELECTRONICO' ? 'ELECTRONICOS' : cat;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    const preferidos = DEPARTAMENTOS_CEDIS_UI.filter((d) => counts.has(d));
+    const otros = [...counts.keys()]
+      .filter((d) => !DEPARTAMENTOS_CEDIS_UI.includes(d))
+      .sort((a, b) => a.localeCompare(b, 'es'));
+    const ids = [...preferidos, ...otros];
+    if (!ids.length) return [{ id: '', label: 'Sin productos', count: 0 }];
+    return ids.map((id) => ({
+      id,
+      label: etiquetaDepartamento(id),
+      count: counts.get(id) || 0,
+    }));
+  }, [productosCamion]);
+
+  useEffect(() => {
+    if (!departamentosMenu.length) return;
+    if (!deptoActivo || !departamentosMenu.some((d) => d.id === deptoActivo)) {
+      setDeptoActivo(departamentosMenu[0].id);
+    }
+  }, [departamentosMenu, deptoActivo]);
+
+  const productosCatalogo = useMemo(() => {
+    const t = qDepto.trim();
+    let list = productosCamion;
+    if (deptoActivo) {
+      list = list.filter((p) => departamentoFiltroCoincideCedis(p.cat, deptoActivo));
+    }
+    if (t) list = list.filter((p) => productoCoincideBusqueda(p, t) || String(p.id).includes(t));
+    return list;
+  }, [productosCamion, deptoActivo, qDepto]);
+
+  const qtyEnCarrito = useCallback((productoId) => {
+    const it = carrito.find((x) => String(x.productoId) === String(productoId));
+    return it ? Number(it.cantidad) || 0 : 0;
+  }, [carrito]);
+
+  const agregarProducto = (prod, qtyAdd = 1) => {
     if (!cargaId) return alert('Elige una carga.');
-    const { producto } = buscarProductoInventario(inventario, codigo);
-    const pid = producto?.id || String(codigo || '').trim();
-    const lin = lineas.find((l) => String(l.producto_id) === String(pid));
-    if (!lin) return alert('Ese producto no está en la carga del camión.');
-    const disp = disponibleEnLineaCarga(lin);
-    if (!(disp > 0)) return alert('Sin disponible en camión.');
-    const p = productoPorId.get(String(lin.producto_id));
-    const precio = Number(lin.precio) > 0 ? Number(lin.precio) : precioRutaEspecial(p);
-    if (!(precio > 0)) return alert('Sin precio de ruta.');
+    const add = Math.max(1, Math.floor(Number(qtyAdd) || 1));
+    const enCarrito = qtyEnCarrito(prod.id);
+    const max = Number(prod.disponible) || 0;
+    if (enCarrito + add > max) {
+      return alert(`En camión solo hay ${max} de ${prod.nombre}.`);
+    }
     setCarrito((prev) => {
-      const i = prev.findIndex((x) => String(x.productoId) === String(lin.producto_id));
+      const i = prev.findIndex((x) => String(x.productoId) === String(prod.id));
       if (i >= 0) {
         const next = [...prev];
-        if (next[i].cantidad + 1 > disp) { alert(`Solo hay ${disp}`); return prev; }
-        next[i] = { ...next[i], cantidad: next[i].cantidad + 1 };
+        next[i] = { ...next[i], cantidad: next[i].cantidad + add };
         return next;
       }
-      return [...prev, { productoId: lin.producto_id, nombre: lin.producto_nombre || lin.producto_id, precio, cantidad: 1 }];
+      return [...prev, {
+        productoId: prod.id,
+        nombre: prod.nombre,
+        precio: prod.precio,
+        cantidad: add,
+        foto_url: prod.foto_url || null,
+        disponible: prod.disponible,
+      }];
     });
+  };
+
+  const ajustarQty = (productoId, delta) => {
+    setCarrito((prev) => {
+      const i = prev.findIndex((x) => String(x.productoId) === String(productoId));
+      if (i < 0) return prev;
+      const next = [...prev];
+      const max = Number(next[i].disponible) || 0;
+      const nueva = (Number(next[i].cantidad) || 0) + delta;
+      if (nueva <= 0) {
+        setQtyEditId(null);
+        return next.filter((_, idx) => idx !== i);
+      }
+      if (nueva > max) {
+        alert(`En camión solo hay ${max}.`);
+        return prev;
+      }
+      next[i] = { ...next[i], cantidad: nueva };
+      return next;
+    });
+  };
+
+  const setQtyManual = (productoId, raw) => {
+    const n = Math.floor(Number(raw) || 0);
+    setCarrito((prev) => {
+      const i = prev.findIndex((x) => String(x.productoId) === String(productoId));
+      if (i < 0) return prev;
+      const max = Number(prev[i].disponible) || 0;
+      if (n <= 0) return prev.filter((_, idx) => idx !== i);
+      if (n > max) {
+        alert(`En camión solo hay ${max}.`);
+        return prev;
+      }
+      const next = [...prev];
+      next[i] = { ...next[i], cantidad: n };
+      return next;
+    });
+  };
+
+  const scanAgregar = (codigoIn) => {
+    if (!cargaId) return alert('Elige una carga.');
+    const raw = String(codigoIn ?? codigo ?? '').trim();
+    if (!raw) return;
+    const { producto } = buscarProductoInventario(inventario, raw);
+    const pid = producto?.id || raw;
+    const prod = productosCamion.find((p) => String(p.id) === String(pid));
+    if (!prod) return alert('Ese producto no está disponible en la carga del camión.');
+    agregarProducto(prod, 1);
     setCodigo('');
   };
 
   const total = carrito.reduce((s, a) => s + a.precio * a.cantidad, 0);
 
+  const abrirCobro = () => {
+    if (!cargaId) return alert('Elige una carga.');
+    if (!carrito.length) return alert('Carrito vacío.');
+    setMetodo('efectivo');
+    setMontoEfectivo(String(total.toFixed(2)));
+    setMontoCredito('0');
+    setMostrarCobro(true);
+  };
+
+  const setEfectivoMixto = (raw) => {
+    setMontoEfectivo(raw);
+    const efe = Math.max(0, Number(raw) || 0);
+    const resto = Math.max(0, Math.round((total - efe) * 100) / 100);
+    setMontoCredito(String(resto.toFixed(2)));
+  };
+
   const cobrar = async () => {
     if (!cargaId) return alert('Elige carga.');
-    if (!clienteKey) return alert('Elige sucursal o cliente (un folio por destino).');
+    if (!clienteKey) return alert('Elige la tienda (o cliente) a la que traspasarás la venta.');
     if (!carrito.length) return alert('Carrito vacío.');
     const [tipo, ...rest] = clienteKey.split(':');
     const id = rest.join(':');
     const dest = destinos.find((d) => d.tipo === tipo && String(d.id) === id);
-    if (!confirm(`¿Cerrar venta ${fmtMonto(total)} en ${metodo.toUpperCase()} a ${dest?.nombre || id}?`)) return;
+    let montoEfe = 0;
+    let montoCre = 0;
+    if (metodo === 'efectivo') {
+      montoEfe = total;
+    } else if (metodo === 'credito') {
+      montoCre = total;
+    } else {
+      montoEfe = Math.round((Number(montoEfectivo) || 0) * 100) / 100;
+      montoCre = Math.round((Number(montoCredito) || 0) * 100) / 100;
+      if (Math.abs(montoEfe + montoCre - total) > 0.02) {
+        return alert(`Efectivo + crédito debe sumar ${fmtMonto(total)}.`);
+      }
+    }
+    const labelMetodo = metodo === 'mixto'
+      ? `MIXTO (efe ${fmtMonto(montoEfe)} + créd ${fmtMonto(montoCre)})`
+      : metodo.toUpperCase();
+    if (!confirm(`¿Cerrar venta ${fmtMonto(total)} · ${labelMetodo}\nDestino: ${dest?.nombre || id}?`)) return;
+
     setGuardando(true);
     const r = await registrarVentaRuta(supabase, {
       cargaId,
@@ -529,81 +696,314 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso }) {
       articulos: carrito,
       vendedorNombre: user?.nombre,
       vendedorId: user?.id,
+      montoEfectivo: montoEfe,
+      montoCredito: montoCre,
     });
     setGuardando(false);
     if (!r.ok) return alert(r.error);
-    if (r.aviso) setAviso(r.aviso);
+    if (r.avisos?.length) setAviso(r.avisos.join(' · '));
     const extra = [
-      r.cuenta === 'credito' ? 'Crédito pendiente (cajero paga con PIN)' : 'Efectivo en tránsito',
+      r.cuenta === 'mixto'
+        ? `Mixto · efe ${fmtMonto(r.montoEfectivo)} · créd ${fmtMonto(r.montoCredito)}`
+        : r.cuenta === 'credito'
+          ? 'Crédito pendiente (cajero paga con PIN)'
+          : 'Efectivo en tránsito',
       r.compraId ? 'Pedido en Compras listo para recibir' : null,
     ].filter(Boolean).join(' · ');
     alert(`Venta ${r.venta?.folio || ''} OK.\n${extra}`);
     setCarrito([]);
+    setMostrarCobro(false);
+    setQtyEditId(null);
     const lin = await lineasDeCarga(supabase, cargaId);
     setLineas(lin.data || []);
+    // Ir a Productos → Traspasos (preselecciona tienda destino si es sucursal)
+    onNavigate?.('Productos', {
+      vista: 'traspaso',
+      destinoTraspaso: tipo === 'sucursal' ? id : null,
+    });
   };
 
   return (
-    <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
-      <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>POS venta en ruta</h3>
-      <p className="muted" style={{ fontSize: '0.8rem' }}>
-        Escanea productos del camión. Un folio por sucursal. Efectivo → tránsito · Crédito → CxC.
-        {esRep ? ' Solo ves las cargas asignadas a ti.' : ''}
-      </p>
-      <div style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', marginBottom: '0.75rem' }}>
-        <label style={{ fontSize: '0.8rem' }}>
-          Carga
-          <select className="input" value={cargaId} onChange={(e) => setCargaId(e.target.value)}>
-            <option value="">—</option>
-            {cargas.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.folio}{c.vendedor_nombre ? ` · ${c.vendedor_nombre}` : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label style={{ fontSize: '0.8rem' }}>
-          Sucursal / cliente
-          <select className="input" value={clienteKey} onChange={(e) => setClienteKey(e.target.value)}>
-            <option value="">—</option>
-            {destinos.map((d) => (
-              <option key={`${d.tipo}:${d.id}`} value={`${d.tipo}:${d.id}`}>{d.nombre}</option>
-            ))}
-          </select>
-        </label>
-        <label style={{ fontSize: '0.8rem' }}>
-          Pago
-          <select className="input" value={metodo} onChange={(e) => setMetodo(e.target.value)}>
-            <option value="efectivo">Efectivo (tránsito)</option>
-            <option value="credito">Crédito (cajero paga)</option>
-          </select>
-        </label>
+    <div className="ruta-pos">
+      <div className="ruta-pos-toolbar card">
+        <div>
+          <h3 style={{ margin: 0, color: COLOR }}>POS venta en ruta</h3>
+          <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
+            Departamentos a la izquierda · carrito a la derecha. Un folio por tienda.
+            {esRep ? ' Solo ves las cargas asignadas a ti.' : ''}
+          </p>
+        </div>
+        <div className="ruta-pos-toolbar-fields">
+          <label>
+            Carga
+            <select className="input" value={cargaId} onChange={(e) => { setCargaId(e.target.value); setCarrito([]); }}>
+              <option value="">—</option>
+              {cargas.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.folio}{c.vendedor_nombre ? ` · ${c.vendedor_nombre}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Tienda / cliente (traspaso)
+            <select className="input" value={clienteKey} onChange={(e) => setClienteKey(e.target.value)}>
+              <option value="">— Elige destino —</option>
+              {destinos.map((d) => (
+                <option key={`${d.tipo}:${d.id}`} value={`${d.tipo}:${d.id}`}>{d.nombre}</option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
-      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
-        <input
-          className="input"
-          style={{ flex: 1 }}
-          value={codigo}
-          onChange={(e) => setCodigo(e.target.value)}
-          placeholder="Escanear código…"
-          onKeyDown={(e) => e.key === 'Enter' && scanAgregar()}
-          autoFocus
-        />
-        <button type="button" className="btn btn-primary" onClick={scanAgregar}>+</button>
-      </div>
-      {carrito.length === 0 ? <p className="muted">Carrito vacío</p> : (
-        <ul style={{ margin: 0, paddingLeft: '1.1rem' }}>
-          {carrito.map((a) => (
-            <li key={a.productoId}>
-              {a.nombre} × {a.cantidad} = {fmtMonto(a.precio * a.cantidad)}{' '}
-              <button type="button" className="btn btn-ghost" style={{ padding: '0 0.3rem' }} onClick={() => setCarrito((p) => p.filter((x) => x.productoId !== a.productoId))}>×</button>
-            </li>
-          ))}
-        </ul>
+
+      {!cargaId ? (
+        <div className="card"><p className="muted" style={{ margin: 0 }}>Elige una carga en ruta para ver el catálogo del camión.</p></div>
+      ) : (
+        <div className="ruta-pos-layout">
+          <nav className="ruta-pos-deptos card" aria-label="Departamentos">
+            <h4 className="ruta-pos-deptos-title">Departamentos</h4>
+            {departamentosMenu.map((d) => (
+              <button
+                key={d.id || 'vacio'}
+                type="button"
+                className={`ruta-pos-depto-btn${deptoActivo === d.id ? ' activo' : ''}`}
+                onClick={() => { setDeptoActivo(d.id); setQDepto(''); }}
+                disabled={!d.id}
+              >
+                <span>{d.label}</span>
+                <span className="ruta-pos-depto-count">{d.count}</span>
+              </button>
+            ))}
+          </nav>
+
+          <section className="ruta-pos-catalogo card">
+            <div className="ruta-pos-catalogo-head">
+              <strong>{etiquetaDepartamento(deptoActivo) || 'Catálogo'}</strong>
+              <div className="ruta-pos-buscar">
+                <CampoCodigo
+                  value={codigo}
+                  onChange={(e) => setCodigo(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && scanAgregar()}
+                  onEscanear={(c) => scanAgregar(c)}
+                  beepAlEnter
+                  placeholder="Escanear o buscar…"
+                  tituloCamara="Escanear producto del camión"
+                />
+                <button type="button" className="btn btn-primary" onClick={() => scanAgregar()}>+</button>
+              </div>
+              <input
+                className="input"
+                value={qDepto}
+                onChange={(e) => setQDepto(e.target.value)}
+                placeholder="Filtrar en departamento…"
+                aria-label="Filtrar departamento"
+              />
+            </div>
+            {productosCatalogo.length === 0 ? (
+              <div className="ruta-pos-vacio">
+                <Icon name="package" size={36} />
+                <p className="muted">No hay productos disponibles en este departamento.</p>
+              </div>
+            ) : (
+              <div className="ventas-favoritos-grid ruta-pos-grid">
+                {productosCatalogo.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className="ventas-favorito-btn"
+                    title={`${p.nombre} · disp ${p.disponible}`}
+                    onClick={() => agregarProducto(p, 1)}
+                  >
+                    <ProductoThumb producto={p} size="full" className="ventas-favorito-thumb" />
+                    <div className="ventas-favorito-precio">{fmtMonto(p.precio)}</div>
+                    <div className="ventas-favorito-nombre">{p.nombre}</div>
+                    <div className="muted" style={{ fontSize: '0.68rem' }}>
+                      Camión: {p.disponible}{qtyEnCarrito(p.id) ? ` · carrito ${qtyEnCarrito(p.id)}` : ''}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <aside className="ruta-pos-ticket card">
+            <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>Carrito</h3>
+            <div className="ruta-pos-ticket-lineas">
+              {carrito.length === 0 && <p className="muted">Toca un producto para agregarlo</p>}
+              {carrito.map((it) => {
+                const editando = qtyEditId === it.productoId;
+                return (
+                  <div key={it.productoId} className="ventas-carrito-linea">
+                    <ProductoThumb producto={it} size={40} />
+                    <div className="ventas-carrito-info">
+                      <span className="ventas-carrito-nombre">{it.nombre}</span>
+                      <button
+                        type="button"
+                        className="btn btn-ghost ventas-carrito-quitar"
+                        onClick={() => setCarrito((p) => p.filter((x) => x.productoId !== it.productoId))}
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                    <div className={`ventas-qty${editando ? ' ventas-qty--open' : ''}`}>
+                      {editando ? (
+                        <>
+                          <button type="button" className="ventas-qty__btn" aria-label="Quitar uno" onClick={() => ajustarQty(it.productoId, -1)}>−</button>
+                          <input
+                            className="ventas-qty__valor ventas-qty__valor--activo"
+                            style={{ width: 42, textAlign: 'center', border: 'none', background: 'transparent' }}
+                            value={it.cantidad}
+                            onChange={(e) => setQtyManual(it.productoId, e.target.value)}
+                            onBlur={() => setQtyEditId(null)}
+                            inputMode="numeric"
+                          />
+                          <button type="button" className="ventas-qty__btn" aria-label="Agregar uno" onClick={() => ajustarQty(it.productoId, 1)}>+</button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          className="ventas-qty__valor"
+                          onClick={() => setQtyEditId(it.productoId)}
+                          title="Cambiar cantidad"
+                        >
+                          {it.cantidad}
+                        </button>
+                      )}
+                    </div>
+                    <b className="ventas-carrito-importe">{fmtMonto(it.precio * it.cantidad)}</b>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="ruta-pos-total">TOTAL {fmtMonto(total)}</div>
+            <button
+              type="button"
+              className="btn btn-success"
+              style={{ width: '100%', padding: '0.9rem', fontSize: '1.05rem' }}
+              disabled={!carrito.length}
+              onClick={abrirCobro}
+            >
+              Pagar {fmtMonto(total)}
+            </button>
+          </aside>
+        </div>
       )}
-      <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem', width: '100%' }} disabled={guardando || !carrito.length} onClick={() => void cobrar()}>
-        Cerrar venta {fmtMonto(total)}
-      </button>
+
+      {mostrarCobro && (
+        <div
+          className="prod-modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => !guardando && setMostrarCobro(false)}
+        >
+          <div className="ventas-cobro-modal" onClick={(e) => e.stopPropagation()}>
+            <header className="prod-modal-header">
+              <button type="button" className="prod-modal-close" aria-label="Cerrar" disabled={guardando} onClick={() => setMostrarCobro(false)}>
+                <Icon name="x" size={18} />
+              </button>
+              <h2 style={{ margin: 0, fontSize: '1.1rem' }}>Cobrar venta en ruta</h2>
+              <span style={{ width: 36 }} />
+            </header>
+            <div className="ventas-cobro-body">
+              <div className="ventas-cobro-total">
+                TOTAL <strong>{fmtMonto(total)}</strong>
+              </div>
+
+              <label className="muted" style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
+                Tienda a la que se traspasará la venta
+              </label>
+              <select
+                className="select"
+                style={{ width: '100%', marginBottom: '0.75rem' }}
+                value={clienteKey}
+                onChange={(e) => setClienteKey(e.target.value)}
+                disabled={guardando}
+              >
+                <option value="">— Elige destino —</option>
+                {destinos.map((d) => (
+                  <option key={`${d.tipo}:${d.id}`} value={`${d.tipo}:${d.id}`}>{d.nombre}</option>
+                ))}
+              </select>
+
+              <label className="muted" style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
+                Forma de pago
+              </label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.75rem' }}>
+                {[
+                  { id: 'efectivo', label: 'Efectivo' },
+                  { id: 'credito', label: 'Crédito' },
+                  { id: 'mixto', label: 'Mixto' },
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className={metodo === m.id ? 'btn btn-primary' : 'btn btn-ghost'}
+                    style={{ flex: '1 1 calc(33% - 0.4rem)', minWidth: 90 }}
+                    onClick={() => {
+                      setMetodo(m.id);
+                      if (m.id === 'efectivo') {
+                        setMontoEfectivo(String(total.toFixed(2)));
+                        setMontoCredito('0');
+                      } else if (m.id === 'credito') {
+                        setMontoEfectivo('0');
+                        setMontoCredito(String(total.toFixed(2)));
+                      } else {
+                        setMontoEfectivo('');
+                        setMontoCredito(String(total.toFixed(2)));
+                      }
+                    }}
+                    disabled={guardando}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+
+              {metodo === 'mixto' && (
+                <div style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: '1fr 1fr', marginBottom: '0.75rem' }}>
+                  <label className="muted" style={{ fontSize: '0.8rem' }}>
+                    Efectivo
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={montoEfectivo}
+                      onChange={(e) => setEfectivoMixto(e.target.value)}
+                      disabled={guardando}
+                      style={{ marginTop: '0.25rem' }}
+                    />
+                  </label>
+                  <label className="muted" style={{ fontSize: '0.8rem' }}>
+                    Crédito
+                    <input
+                      className="input"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={montoCredito}
+                      onChange={(e) => setMontoCredito(e.target.value)}
+                      disabled={guardando}
+                      style={{ marginTop: '0.25rem' }}
+                    />
+                  </label>
+                </div>
+              )}
+
+              <button
+                type="button"
+                className="btn btn-success"
+                style={{ width: '100%', padding: '0.9rem', fontSize: '1.05rem' }}
+                disabled={guardando || !clienteKey}
+                onClick={() => void cobrar()}
+              >
+                {guardando ? 'Guardando…' : `Confirmar · ${fmtMonto(total)}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

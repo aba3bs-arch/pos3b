@@ -1,0 +1,201 @@
+/* POS Venta en Ruta — layout deptos | catálogo | carrito */
+
+.ruta-pos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+.ruta-pos-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: flex-end;
+  justify-content: space-between;
+  border-top: 4px solid #0f766e;
+  margin: 0;
+}
+
+.ruta-pos-toolbar-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  flex: 1 1 280px;
+  justify-content: flex-end;
+}
+
+.ruta-pos-toolbar-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--muted, #64748b);
+  min-width: 160px;
+  flex: 1 1 160px;
+  max-width: 280px;
+}
+
+.ruta-pos-layout {
+  display: grid;
+  grid-template-columns: minmax(128px, 168px) minmax(0, 1fr) minmax(260px, 340px);
+  gap: 0.75rem;
+  align-items: stretch;
+  min-height: min(70dvh, 640px);
+  max-height: calc(100dvh - 14rem);
+}
+
+.ruta-pos-deptos {
+  margin: 0;
+  padding: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  overflow: auto;
+  min-height: 0;
+}
+
+.ruta-pos-deptos-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #0f766e;
+}
+
+.ruta-pos-depto-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 8px;
+  padding: 0.55rem 0.6rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: inherit;
+}
+
+.ruta-pos-depto-btn:hover {
+  background: rgba(15, 118, 110, 0.08);
+}
+
+.ruta-pos-depto-btn.activo {
+  background: rgba(15, 118, 110, 0.14);
+  border-color: rgba(15, 118, 110, 0.35);
+  color: #0f766e;
+}
+
+.ruta-pos-depto-count {
+  font-size: 0.72rem;
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.ruta-pos-catalogo {
+  margin: 0;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ruta-pos-catalogo-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.ruta-pos-buscar {
+  display: flex;
+  gap: 0.4rem;
+  align-items: stretch;
+}
+
+.ruta-pos-buscar > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.ruta-pos-grid {
+  overflow: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  align-content: start;
+}
+
+.ruta-pos-vacio {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  opacity: 0.75;
+}
+
+.ruta-pos-ticket {
+  margin: 0;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 4px solid #0f766e;
+}
+
+.ruta-pos-ticket-lineas {
+  flex: 1 1 auto;
+  overflow: auto;
+  min-height: 0;
+  margin-bottom: 0.5rem;
+}
+
+.ruta-pos-total {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #0f766e;
+  border-top: 2px solid #0f766e;
+  padding-top: 0.65rem;
+  margin: 0.35rem 0 0.65rem;
+}
+
+@media (max-width: 960px) {
+  .ruta-pos-layout {
+    grid-template-columns: 1fr;
+    max-height: none;
+    min-height: 0;
+  }
+
+  .ruta-pos-deptos {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    align-items: stretch;
+  }
+
+  .ruta-pos-deptos-title {
+    display: none;
+  }
+
+  .ruta-pos-depto-btn {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .ruta-pos-ticket {
+    order: -1;
+    max-height: 42vh;
+  }
+
+  .ruta-pos-grid {
+    max-height: 50vh;
+  }
+}

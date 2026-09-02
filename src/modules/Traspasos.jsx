@@ -72,6 +72,7 @@ export default function Traspasos({
   user,
   sucursal,
   onVolver,
+  destinoInicial,
 }) {
   const catalogo = inventarioCompleto || inventario || [];
   const sucursalOp = normalizarCodigoTienda(sucursal) || 'MAIN';
@@ -103,6 +104,16 @@ export default function Traspasos({
     const otros = destinosPermitidosPara(sucursalOp);
     return ['MAIN', ...otros];
   }, [enCentral, sucursalOp]);
+
+  useEffect(() => {
+    const dest = normalizarCodigoTienda(destinoInicial);
+    if (!dest) return;
+    if (!destinos.includes(dest) && dest !== sucursalOp) return;
+    setTab('enviar');
+    setModoFlujo('envio');
+    setDestinoId(dest);
+    setPaso('editor');
+  }, [destinoInicial, destinos, sucursalOp]);
 
   const reload = useCallback(async () => {
     setCargando(true);
