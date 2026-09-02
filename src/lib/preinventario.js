@@ -49,9 +49,11 @@ export function teoricoProducto(producto, sucursal) {
   return Math.max(0, stockEnUbicacion(producto, suc, ubi, suc));
 }
 
-export function construirLineasDesdeProductos(productos, sucursal, conteos = {}) {
+export function construirLineasDesdeProductos(productos, sucursal, conteos = {}, teoricoFn = null) {
   return (productos || []).map((p) => {
-    const teorico = teoricoProducto(p, sucursal);
+    const teorico = teoricoFn
+      ? Math.max(0, Math.floor(Number(teoricoFn(p)) || 0))
+      : teoricoProducto(p, sucursal);
     const raw = conteos[p.id];
     const contado =
       raw === null || raw === undefined || String(raw).trim() === ''
