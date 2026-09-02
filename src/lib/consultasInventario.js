@@ -107,13 +107,7 @@ function coincideTipoFiltro(m, tipo) {
   if (tipo === 'cancelacion') return m.modo === 'cancelacion' || m.tipo === 'cancelacion';
   if (tipo === 'venta') return m.modo === 'venta' || m.tipo === 'venta';
   if (tipo === 'ajuste') {
-    return (
-      m.modo === 'conteo_departamento' ||
-      m.modo === 'masivo' ||
-      m.modo === 'departamento' ||
-      m.modo === 'vaciado_inventario' ||
-      m.tipo === 'ajuste'
-    );
+    return esMovimientoAjuste(m);
   }
   if (tipo === 'cambio_precio') return m.tipo === 'cambio_precio';
   return m.tipo === tipo;
@@ -386,10 +380,16 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
         .from('movimientos_inventario')
         .select('*')
         .order('created_at', { ascending: false })
-        .limit(3000);
+        .limit(productoId ? 2000 : 3000);
       // Filtro de sucursal en cliente (incluye traspasos origen/destino en meta).
       if (ini) query = query.gte('created_at', ini.toISOString());
       if (fin) query = query.lte('created_at', fin.toISOString());
+      if (productoId) {
+        const pid = String(productoId).replace(/[(),]/g, '');
+        if (pid) {
+          query = query.or(`producto_id.eq.${pid},producto_destino_id.eq.${pid}`);
+        }
+      }
       const { data, error } = await query;
       if (error) {
         const msg = String(error.message || '');
@@ -683,41 +683,35 @@ export function timelineProducto(productoId, ventas, movimientos, filtroEvento =
     (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0),
   );
 
-  if (filtroEvento === 'existencia') {
-    eventos = eventos.filter((e) => e.stock_antes != null || e.stock_despues != null);
-  } else if (filtroEvento === 'entradas') {
-    eventos = eventos.filter((e) => e.tipo === 'entrada' || (e.tipo === 'traspaso' && e.stock_despues > e.stock_antes));
-  } else if (filtroEvento === 'salidas') {
-    eventos = eventos.filter(
-      (e) => e.tipo === 'retiro' || e.tipo === 'venta' || (e.tipo === 'traspaso' && e.stock_despues < e.stock_antes),
-    );
-  } else if (filtroEvento === 'ajustes') {
-    eventos = eventos.filter(
-      (e) =>
-        e.tipo === 'traspaso' ||
-        e.modo === 'masivo' ||
-        e.modo === 'departamento' ||
-        e.modo === 'vaciado_inventario',
-    );
-  } else if (filtroEvento === 'negativo') {
-    eventos = eventos.filter((e) => esStockNegativo(e));
-  }
+  return eventos.filter((e) => coincideFiltroEventoProducto(e, filtroEvento));
+}
 
-  return eventos;
+function coincideFiltroEventoProducto(e, filtroEvento) {
+  if (!filtroEvento || filtroEvento === 'todos') return true;
+  if (filtroEvento === 'existencia') return e.stock_antes != null || e.stock_despues != null;
+  if (filtroEvento === 'entradas') {
+    return e.tipo === 'entrada' || (e.tipo === 'traspaso' && Number(e.stock_despues) > Number(e.stock_antes));
+  }
+  if (filtroEvento === 'salidas') {
+    return (
+      e.tipo === 'retiro' ||
+      e.tipo === 'venta' ||
+      e.modo === 'venta' ||
+      (e.tipo === 'traspaso' && Number(e.stock_despues) < Number(e.stock_antes))
+    );
+  }
+  if (filtroEvento === 'ajustes') return esMovimientoAjuste(e);
+  if (filtroEvento === 'precios') return e.tipo === 'cambio_precio' || e.modo === 'precio';
+  if (filtroEvento === 'cancelaciones') return e.modo === 'cancelacion' || e.tipo === 'cancelacion';
+  if (filtroEvento === 'negativo') return esStockNegativo(e);
+  return true;
 }
 
 export function filtrarMovimientosPorEvento(movimientos, filtroEvento) {
   if (!filtroEvento || filtroEvento === 'todos') return movimientos || [];
   const fake = (movimientos || []).map((m) => eventoDesdeMovimiento(m, m.producto_id));
   return fake
-    .filter((e) => {
-      if (filtroEvento === 'existencia') return e.stock_antes != null || e.stock_despues != null;
-      if (filtroEvento === 'entradas') return e.tipo === 'entrada';
-      if (filtroEvento === 'salidas') return e.tipo === 'retiro';
-      if (filtroEvento === 'ajustes') return e.tipo === 'traspaso' || e.modo === 'masivo' || e.modo === 'vaciado_inventario';
-      if (filtroEvento === 'negativo') return esStockNegativo(e);
-      return true;
-    })
+    .filter((e) => coincideFiltroEventoProducto(e, filtroEvento))
     .map((e) => movimientos.find((m) => m.id === e.id))
     .filter(Boolean);
 }
@@ -754,11 +748,20 @@ export const FILTROS_HISTORIAL_TIPO = [
   { id: 'ajuste', label: 'Ajuste' },
 ];
 
-const MODOS_AJUSTE = new Set(['masivo', 'departamento', 'conteo_departamento', 'ubicacion', 'vaciado_inventario', 'libre']);
+const MODOS_AJUSTE = new Set([
+  'masivo',
+  'departamento',
+  'conteo_departamento',
+  'conteo_correccion',
+  'ubicacion',
+  'vaciado_inventario',
+  'libre',
+  'movimiento',
+]);
 
 export function esMovimientoAjuste(m) {
   if (!m) return false;
-  if (m.tipo === 'traspaso') return true;
+  if (m.tipo === 'ajuste' || m.tipo === 'traspaso') return true;
   return MODOS_AJUSTE.has(m.modo);
 }
 
