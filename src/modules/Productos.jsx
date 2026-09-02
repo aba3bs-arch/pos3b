@@ -1,6 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { etiquetaDepartamento, listarDepartamentos } from '../lib/departamentos.js';
 import {
+  PROVEEDOR_CEDIS_NOMBRE,
+  aplicaFiltroCatalogoCedis,
+  asegurarVinculosCatalogoCedis,
+  filtrarInventarioCatalogoCedis,
+  listarDepartamentosCatalogoCedis,
+  departamentoFiltroCoincideCedis,
+} from '../lib/catalogoCedis.js';
+import {
   COLUMNAS_CATALOGO,
   descargarPlantillaCsv,
   descargarPlantillaExcel,
@@ -155,24 +163,48 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const verNegativos = puedeVerStockNegativo(user?.rol);
   const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : 'MAIN';
   const enCentral = esAlmacenCentral(sucursal);
+  /** Solo CEDIS: recorta la vista. Tiendas y MAIN siguen con catálogo completo. */
+  const filtroCatalogoCedis = aplicaFiltroCatalogoCedis(sucursal);
+  const [proveedorCedisId, setProveedorCedisId] = useState(null);
+  const [avisoCatalogoCedis, setAvisoCatalogoCedis] = useState('');
+  const vinculosCedisOnceRef = useRef(false);
+
+  const idsProveedorCedis = useMemo(() => {
+    if (!filtroCatalogoCedis || !proveedorCedisId) return null;
+    return productosPorProveedor.get(String(proveedorCedisId)) || new Set();
+  }, [filtroCatalogoCedis, proveedorCedisId, productosPorProveedor]);
+
+  /** Inventario mostrado en listas CEDIS (no muta el catálogo global). */
+  const inventarioVista = useMemo(() => {
+    if (!filtroCatalogoCedis) return inventario || [];
+    // Hasta resolver proveedor, mostrar solo deptos; luego exigir vínculo CEDIS LAS 3B.
+    return filtrarInventarioCatalogoCedis(inventario, {
+      idsProveedorCedis,
+      exigirProveedor: Boolean(proveedorCedisId),
+    });
+  }, [filtroCatalogoCedis, inventario, idsProveedorCedis, proveedorCedisId]);
+
   const chipsExistencia = useMemo(
     () => (verNegativos ? FILTROS_CHIP.existencia : FILTROS_CHIP.existencia.filter((c) => c.id !== 'negativa')),
     [verNegativos],
   );
   const negativosCount = useMemo(() => {
     if (!verNegativos) return 0;
-    return (inventario || []).filter((p) => {
+    return (inventarioVista || []).filter((p) => {
       if (Number(p.stock) < 0) return true;
       if (enCentral && Number(p.stock_cedis) < 0) return true;
       return false;
     }).length;
-  }, [verNegativos, inventario, enCentral]);
+  }, [verNegativos, inventarioVista, enCentral]);
   const resumenInv = useMemo(
-    () => (consolaCentral ? resumirValorInventario(inventario) : null),
-    [consolaCentral, inventario],
+    () => (consolaCentral ? resumirValorInventario(inventarioVista) : null),
+    [consolaCentral, inventarioVista],
   );
 
-  const departamentos = useMemo(() => listarDepartamentos(inventario), [inventario, tickDepartamentos]);
+  const departamentos = useMemo(() => {
+    if (filtroCatalogoCedis) return listarDepartamentosCatalogoCedis();
+    return listarDepartamentos(inventario);
+  }, [filtroCatalogoCedis, inventario, tickDepartamentos]);
 
   useEffect(() => {
     if (vista === 'eliminar' && !puedeEliminarCatalogo) setVista('lista');
@@ -230,14 +262,55 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     void cargarMapaProveedores();
   }, [supabase]);
 
+  // CEDIS: vincular deptos del catálogo al proveedor CEDIS LAS 3B (solo proveedor_producto).
+  useEffect(() => {
+    if (!filtroCatalogoCedis || !supabase) {
+      setProveedorCedisId(null);
+      setAvisoCatalogoCedis('');
+      vinculosCedisOnceRef.current = false;
+      return;
+    }
+    let cancel = false;
+    (async () => {
+      const base = inventarioCompleto || inventario || [];
+      if (!base.length) return;
+      if (vinculosCedisOnceRef.current) return;
+      vinculosCedisOnceRef.current = true;
+      const res = await asegurarVinculosCatalogoCedis(supabase, base);
+      if (cancel) return;
+      if (!res.ok) {
+        setAvisoCatalogoCedis(res.error || 'No se pudieron vincular productos a CEDIS LAS 3B.');
+        return;
+      }
+      setProveedorCedisId(res.proveedorId || null);
+      if (res.vinculados > 0) {
+        setAvisoCatalogoCedis(
+          `Catálogo CEDIS: ${res.vinculados} producto(s) vinculados a «${PROVEEDOR_CEDIS_NOMBRE}».`,
+        );
+      } else {
+        setAvisoCatalogoCedis(
+          `Catálogo CEDIS: solo ${listarDepartamentosCatalogoCedis().join(', ')} · proveedor «${PROVEEDOR_CEDIS_NOMBRE}».`,
+        );
+      }
+      await cargarMapaProveedores();
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [filtroCatalogoCedis, supabase, inventarioCompleto, inventario]);
+
   const rows = useMemo(() => {
     const t = q.trim();
-    let list = inventario || [];
+    let list = inventarioVista || [];
     if (t) {
       list = list.filter((p) => productoCoincideBusqueda(p, t));
     }
     if (filtros.departamento) {
-      list = list.filter((p) => String(p.cat || '').toUpperCase() === filtros.departamento.toUpperCase());
+      list = list.filter((p) =>
+        filtroCatalogoCedis
+          ? departamentoFiltroCoincideCedis(p.cat, filtros.departamento)
+          : String(p.cat || '').toUpperCase() === filtros.departamento.toUpperCase(),
+      );
     }
     if (filtros.proveedor === '__ninguno__') {
       list = list.filter((p) => !idsConProveedor.has(String(p.id)));
@@ -274,14 +347,18 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
     if (filtros.disponible === 'si') list = list.filter((p) => p.en_venta !== false);
     if (filtros.disponible === 'no') list = list.filter((p) => p.en_venta === false);
     return list;
-  }, [inventario, q, filtros, productosPorProveedor, idsConProveedor, enCentral, verNegativos]);
+  }, [inventarioVista, q, filtros, productosPorProveedor, idsConProveedor, enCentral, verNegativos, filtroCatalogoCedis]);
 
   const rowsPrecios = useMemo(() => {
     const t = preciosQ.trim();
-    let list = inventario || [];
+    let list = inventarioVista || [];
     if (t) list = list.filter((p) => productoCoincideBusqueda(p, t));
     if (preciosDepto) {
-      list = list.filter((p) => String(p.cat || '').toUpperCase() === preciosDepto.toUpperCase());
+      list = list.filter((p) =>
+        filtroCatalogoCedis
+          ? departamentoFiltroCoincideCedis(p.cat, preciosDepto)
+          : String(p.cat || '').toUpperCase() === preciosDepto.toUpperCase(),
+      );
     }
     if (preciosProveedor === '__ninguno__') {
       list = list.filter((p) => !idsConProveedor.has(String(p.id)));
@@ -290,7 +367,7 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
       list = list.filter((p) => ids?.has(String(p.id)));
     }
     return list;
-  }, [inventario, preciosQ, preciosDepto, preciosProveedor, productosPorProveedor, idsConProveedor]);
+  }, [inventarioVista, preciosQ, preciosDepto, preciosProveedor, productosPorProveedor, idsConProveedor, filtroCatalogoCedis]);
 
   const preciosFiltrosActivos = Boolean(preciosQ.trim() || preciosDepto || preciosProveedor);
 
@@ -312,16 +389,16 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   };
 
   const productoSeleccionado = useMemo(() => {
-    if (!productoSelId) return rows[0] || inventario?.[0] || null;
-    return (inventario || []).find((p) => p.id === productoSelId) || rows[0] || null;
-  }, [inventario, productoSelId, rows]);
+    if (!productoSelId) return rows[0] || inventarioVista?.[0] || null;
+    return (inventarioVista || []).find((p) => p.id === productoSelId) || rows[0] || null;
+  }, [inventarioVista, productoSelId, rows]);
 
   useEffect(() => {
     if (!productoSelId && rows[0]) setProductoSelId(rows[0].id);
-    else if (productoSelId && !(inventario || []).some((p) => p.id === productoSelId) && rows[0]) {
+    else if (productoSelId && !(inventarioVista || []).some((p) => p.id === productoSelId) && rows[0]) {
       setProductoSelId(rows[0].id);
     }
-  }, [rows, inventario, productoSelId]);
+  }, [rows, inventarioVista, productoSelId]);
 
   const filtrosActivos = useMemo(() => {
     let n = 0;
@@ -884,8 +961,11 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
           </h2>
           {vista === 'lista' && (
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-              {inventario.length} producto(s) · piso en <strong>{tiendaLabel}</strong>
-              {enCentral && ' · CEDIS central en MAIN'}
+              {filtroCatalogoCedis ? inventarioVista.length : inventario.length} producto(s)
+              {filtroCatalogoCedis
+                ? ` · catálogo CEDIS · ${PROVEEDOR_CEDIS_NOMBRE}`
+                : <> · piso en <strong>{tiendaLabel}</strong></>}
+              {enCentral && !filtroCatalogoCedis && ' · CEDIS central en MAIN'}
               {consolaCentral && resumenInv && (
                 <>
                   {' · '}
@@ -895,6 +975,11 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
                   )}
                 </>
               )}
+            </p>
+          )}
+          {filtroCatalogoCedis && avisoCatalogoCedis && (
+            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.78rem' }}>
+              {avisoCatalogoCedis}
             </p>
           )}
         </div>
