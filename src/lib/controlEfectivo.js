@@ -398,6 +398,14 @@ function servicioEnVigencia(srv, fechaClave) {
   return srv.activo !== false;
 }
 
+function sucursalesEquivalentesControlEfectivo(tienda) {
+  const raw = String(tienda || '').trim();
+  const c = normalizarCodigoTienda(raw) || raw;
+  const nombre = sucursalParaControlEfectivo(c) || raw;
+  const etiqueta = etiquetaTienda(c);
+  return [...new Set([raw, c, nombre, etiqueta].filter(Boolean))];
+}
+
 export async function consultarRegistrosServicioTienda(supabase, tienda, clave, frecuencia = 'Diario') {
   const { inicio, fin } = inicioFinPeriodoServicio(frecuencia);
   const { desde, hasta } = isoRangoDia(inicio, fin);
@@ -405,13 +413,16 @@ export async function consultarRegistrosServicioTienda(supabase, tienda, clave, 
     claveRegistroCobro(clave),
     claveRegistroPendiente(clave),
     `${clave}-FIJO`,
+    `${clave}-COBRO`,
     'CFE-FIJO',
+    'CFE-COBRO',
     'CFE-PENDIENTE',
   ];
+  const sucs = sucursalesEquivalentesControlEfectivo(tienda);
   const { data, error } = await supabase
     .from('transito_efectivo')
     .select('id, num_traspaso, monto, fecha_hora, estatus, foto_url, cajero_nombre')
-    .eq('sucursal_origen', tienda)
+    .in('sucursal_origen', sucs)
     .eq('tipo_movimiento', 'Cobro Servicio')
     .in('num_traspaso', [...new Set(claves)])
     .gte('fecha_hora', desde)
@@ -470,8 +481,7 @@ export function construirDatosCobroServicio({
 }
 
 export async function registrarCobroServicio(supabase, { tienda, repartidorId, cajero, srv, monto, pin, repartidores }) {
-  const fuera = errorSiVentanaRecoleccionCerrada();
-  if (fuera) return fuera;
+  // CFE y demás servicios se pueden cobrar a cualquier hora; la ventana 8–20 aplica a efectivo de mercancía.
   if (!pinRepartidorValido(pin, repartidorId, repartidores)) {
     return { ok: false, error: 'PIN de recolector incorrecto.' };
   }
@@ -489,13 +499,17 @@ export async function registrarCobroServicio(supabase, { tienda, repartidorId, c
   });
   const { data: inserted, error } = await supabase.from('transito_efectivo').insert(datos).select('id').single();
   if (error) return { ok: false, error: error.message };
-  await notificarCobroPostLiquidacion(supabase, {
-    repartidorId,
-    tienda,
-    monto: m,
-    detalle: `cobro ${srv.nombre}`,
-    refId: inserted?.id,
-  });
+  try {
+    await notificarCobroPostLiquidacion(supabase, {
+      repartidorId,
+      tienda,
+      monto: m,
+      detalle: `cobro ${srv.nombre}`,
+      refId: inserted?.id,
+    });
+  } catch {
+    /* el cobro ya quedó; la notificación no debe bloquear CFE */
+  }
   return { ok: true };
 }
 

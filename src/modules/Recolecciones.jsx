@@ -200,22 +200,30 @@ export default function Recolecciones({ supabase, sucursal, user }) {
   const serviciosBloqueanTraspaso = pendientesSrv.length > 0;
 
   const confirmarCobroServicio = async (srv) => {
-    if (!pinRepartidorValido(pinTraspaso, repTraspaso, repartidores)) return alert('PIN de recolector incorrecto.');
+    if (!pinRepartidorValido(pinTraspaso, repTraspaso, repartidores)) {
+      return alert('Escribe el PIN del recolector (arriba) para cobrar CFE / servicios.');
+    }
     setGuardando(true);
-    const res = await registrarCobroServicio(supabase, {
-      tienda: tiendaSesion,
-      repartidorId: repTraspaso,
-      cajero: user?.nombre || 'Cajero',
-      srv,
-      monto: montosSrv[srv.clave] ?? srv.monto_default,
-      pin: pinTraspaso,
-      repartidores,
-    });
-    setGuardando(false);
-    if (!res.ok) return alert(res.error);
-    alert(`✅ Cobro de ${srv.nombre} registrado.`);
-    setMostrarNoCobro((m) => ({ ...m, [srv.clave]: false }));
-    cargarEstadoServicios();
+    try {
+      const res = await registrarCobroServicio(supabase, {
+        tienda: tiendaSesion,
+        repartidorId: repTraspaso,
+        cajero: user?.nombre || 'Cajero',
+        srv,
+        monto: montosSrv[srv.clave] ?? srv.monto_default,
+        pin: pinTraspaso,
+        repartidores,
+      });
+      if (!res.ok) return alert(res.error);
+      alert(`✅ Cobro de ${srv.nombre} registrado.`);
+      setMostrarNoCobro((m) => ({ ...m, [srv.clave]: false }));
+      setPendientesSrv((prev) => prev.filter((p) => p.clave !== srv.clave));
+      await cargarEstadoServicios();
+    } catch (e) {
+      alert(e?.message || String(e));
+    } finally {
+      setGuardando(false);
+    }
   };
 
   const confirmarNoCobroServicio = async (srv) => {
@@ -353,8 +361,8 @@ export default function Recolecciones({ supabase, sucursal, user }) {
         </strong>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
           {ventana.abierta
-            ? 'Abierta: puedes cobrar CFE, efectivo y créditos. Tras el cobro de CFE puedes seguir con traspasos o reparto.'
-            : ventana.mensaje}
+            ? 'Abierta: cobra CFE aquí y luego registra el traspaso de mercancía.'
+            : `${ventana.mensaje} CFE sí se puede cobrar ahora; el efectivo de folios no.`}
         </p>
       </div>
 
@@ -403,12 +411,13 @@ export default function Recolecciones({ supabase, sucursal, user }) {
               </label>
             </div>
             <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
-              Debes registrar el cobro de servicios (CFE, etc.) antes de entregar mercancía o registrar traspaso en{' '}
-              <strong>{tiendaSesion}</strong>. Tras registrar CFE puedes seguir traspasando o repartiendo producto.
-              {!ventana.abierta && ' Fuera de horario solo se registran servicios no cobrados / pendientes.'}
+              Primero cobra CFE (u otros servicios) en esta tarjeta: PIN del recolector + monto +{' '}
+              <strong>Cobrar CFE</strong>. Eso desbloquea el traspaso de mercancía en <strong>{tiendaSesion}</strong>.
+              {!ventana.abierta &&
+                ' Fuera de horario igual puedes cobrar CFE; el efectivo de folios de mercancía sí espera a la ventana.'}
             </p>
 
-            {servicios.map((srv) => {
+            {(servicios.length ? servicios : pendientesSrv).map((srv) => {
               const res = estadoSrv[srv.clave];
               const yaCobrado = res?.cobrado?.length > 0;
               const reportado = res?.reportadoNoCobro?.length > 0;
@@ -467,7 +476,7 @@ export default function Recolecciones({ supabase, sucursal, user }) {
                         />
                       </label>
                       <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-                        <button type="button" className="btn btn-success" disabled={guardando || !ventana.abierta} onClick={() => confirmarCobroServicio(srv)}>
+                        <button type="button" className="btn btn-success" disabled={guardando} onClick={() => confirmarCobroServicio(srv)}>
                           Cobrar {srv.clave}
                         </button>
                         <button
