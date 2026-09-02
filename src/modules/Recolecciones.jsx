@@ -23,6 +23,7 @@ import {
   sucursalParaControlEfectivo,
   estadoVentanaRecoleccion,
   EVENTO_VENTANA_RECOLECCION,
+  recolectorLiquidoHoy,
 } from '../lib/controlEfectivo.js';
 
 function TabBtn({ active, onClick, children }) {
@@ -69,8 +70,12 @@ export default function Recolecciones({ supabase, sucursal, user }) {
   const [gastosPendientes, setGastosPendientes] = useState([]);
   const [selGasto, setSelGasto] = useState({});
   const [tickVentana, setTickVentana] = useState(0);
+  const [liquidoHoyTraspaso, setLiquidoHoyTraspaso] = useState(false);
+  const [liquidoHoyCobro, setLiquidoHoyCobro] = useState(false);
 
   const ventana = useMemo(() => estadoVentanaRecoleccion(), [tickVentana]);
+  const soloCreditoTraspaso = !ventana.abierta || liquidoHoyTraspaso;
+  const soloCreditoCobro = !ventana.abierta || liquidoHoyCobro;
 
   useEffect(() => {
     const id = setInterval(() => setTickVentana((n) => n + 1), 60_000);
@@ -83,8 +88,46 @@ export default function Recolecciones({ supabase, sucursal, user }) {
   }, []);
 
   useEffect(() => {
-    if (!ventana.abierta && esEfectivo) setEsEfectivo(false);
-  }, [ventana.abierta, esEfectivo]);
+    if (soloCreditoTraspaso && esEfectivo) setEsEfectivo(false);
+  }, [soloCreditoTraspaso, esEfectivo]);
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      if (!supabase || !repTraspaso) {
+        setLiquidoHoyTraspaso(false);
+        return;
+      }
+      try {
+        const liq = await recolectorLiquidoHoy(supabase, repTraspaso);
+        if (!cancel) setLiquidoHoyTraspaso(liq);
+      } catch {
+        if (!cancel) setLiquidoHoyTraspaso(false);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [supabase, repTraspaso, tickVentana]);
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      if (!supabase || !repCobro) {
+        setLiquidoHoyCobro(false);
+        return;
+      }
+      try {
+        const liq = await recolectorLiquidoHoy(supabase, repCobro);
+        if (!cancel) setLiquidoHoyCobro(liq);
+      } catch {
+        if (!cancel) setLiquidoHoyCobro(false);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [supabase, repCobro, tickVentana]);
 
   const cargarCatalogos = useCallback(async () => {
     if (!supabase) return;
@@ -361,8 +404,10 @@ export default function Recolecciones({ supabase, sucursal, user }) {
         </strong>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
           {ventana.abierta
-            ? 'Abierta: cobra CFE aquí y luego registra el traspaso de mercancía.'
-            : `${ventana.mensaje} CFE sí se puede cobrar ahora; el efectivo de folios no.`}
+            ? liquidoHoyTraspaso
+              ? 'El recolector ya liquidó hoy: solo traspasos a crédito. El efectivo se cobra en otra visita o mañana.'
+              : 'Abierta: cobra CFE y puedes registrar traspaso en efectivo o a crédito.'
+            : `${ventana.mensaje} CFE sí se puede registrar. Los folios de mercancía solo a crédito.`}
         </p>
       </div>
 
@@ -414,7 +459,9 @@ export default function Recolecciones({ supabase, sucursal, user }) {
               Primero cobra CFE (u otros servicios) en esta tarjeta: PIN del recolector + monto +{' '}
               <strong>Cobrar CFE</strong>. Eso desbloquea el traspaso de mercancía en <strong>{tiendaSesion}</strong>.
               {!ventana.abierta &&
-                ' Fuera de horario igual puedes cobrar CFE; el efectivo de folios de mercancía sí espera a la ventana.'}
+                ' Fuera de horario igual puedes registrar CFE; los folios de mercancía solo a crédito.'}
+              {liquidoHoyTraspaso &&
+                ' Este recolector ya liquidó hoy: no se acepta más efectivo, solo crédito.'}
             </p>
 
             {(servicios.length ? servicios : pendientesSrv).map((srv) => {
@@ -476,8 +523,8 @@ export default function Recolecciones({ supabase, sucursal, user }) {
                         />
                       </label>
                       <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-                        <button type="button" className="btn btn-success" disabled={guardando} onClick={() => confirmarCobroServicio(srv)}>
-                          Cobrar {srv.clave}
+                        <button type="button" className="btn btn-success" disabled={guardando || liquidoHoyTraspaso} onClick={() => confirmarCobroServicio(srv)}>
+                          {liquidoHoyTraspaso ? 'Ya liquidó — no efectivo' : `Cobrar ${srv.clave}`}
                         </button>
                         <button
                           type="button"
@@ -521,21 +568,33 @@ export default function Recolecciones({ supabase, sucursal, user }) {
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nuevo traspaso</h3>
             <p className="muted" style={{ fontSize: '0.85rem' }}>
               Cajero: <strong>{user?.nombre}</strong>. Si es a crédito, el recolector lo cobra después en «Cobrar crédito».
+              {soloCreditoTraspaso && (
+                <span style={{ display: 'block', marginTop: '0.35rem', color: 'var(--brand-red)' }}>
+                  {liquidoHoyTraspaso
+                    ? 'Ya liquidó hoy: solo crédito.'
+                    : `Fuera de ventana ${ventana.etiqueta}: solo crédito.`}
+                </span>
+              )}
             </p>
 
             <fieldset style={{ border: 'none', padding: 0, margin: '0.75rem 0' }}>
               <legend className="muted" style={{ fontSize: '0.85rem' }}>
                 Forma de pago
               </legend>
-              <label style={{ display: 'block', marginTop: '0.35rem', opacity: ventana.abierta ? 1 : 0.5 }}>
+              <label style={{ display: 'block', marginTop: '0.35rem', opacity: soloCreditoTraspaso ? 0.5 : 1 }}>
                 <input
                   type="radio"
                   checked={esEfectivo}
-                  disabled={!ventana.abierta}
+                  disabled={soloCreditoTraspaso}
                   onChange={() => setEsEfectivo(true)}
                 />{' '}
                 Efectivo (cobrado ahora)
-                {!ventana.abierta && <span className="muted"> — fuera de ventana {ventana.etiqueta}</span>}
+                {soloCreditoTraspaso && (
+                  <span className="muted">
+                    {' '}
+                    — {liquidoHoyTraspaso ? 'ya liquidó hoy' : `fuera de ventana ${ventana.etiqueta}`}
+                  </span>
+                )}
               </label>
               <label style={{ display: 'block', marginTop: '0.25rem' }}>
                 <input type="radio" checked={!esEfectivo} onChange={() => setEsEfectivo(false)} /> Crédito (pendiente de cobro)
@@ -695,8 +754,14 @@ export default function Recolecciones({ supabase, sucursal, user }) {
                 PIN recolector
                 <InputPin value={pinCobro} onChange={(e) => setPinCobro(e.target.value)} placeholder="PIN" style={{ marginBottom: 0 }} />
               </label>
-              <button type="button" className="btn btn-success" style={{ marginTop: '1rem' }} disabled={guardando || totalCobroSel <= 0 || !ventana.abierta} onClick={confirmarCobro}>
-                {guardando ? 'Procesando…' : !ventana.abierta ? `Fuera de ventana ${ventana.etiqueta}` : `Confirmar cobro · ${fmtMonto(totalCobroSel)}`}
+              <button type="button" className="btn btn-success" style={{ marginTop: '1rem' }} disabled={guardando || totalCobroSel <= 0 || soloCreditoCobro} onClick={confirmarCobro}>
+                {guardando
+                  ? 'Procesando…'
+                  : liquidoHoyCobro
+                    ? 'Ya liquidó hoy — solo crédito'
+                    : !ventana.abierta
+                      ? `Fuera de ventana ${ventana.etiqueta}`
+                      : `Confirmar cobro · ${fmtMonto(totalCobroSel)}`}
               </button>
             </>
           )}

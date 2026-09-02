@@ -86,11 +86,49 @@ export function hoyClaveNogales() {
   return new Date().toLocaleDateString('en-CA', { timeZone: TZ });
 }
 
-/** Bloqueo de cobros de efectivo fuera de 9:00–20:00. */
+/** Bloqueo de cobros de efectivo fuera de 8:00–20:00. */
 function errorSiVentanaRecoleccionCerrada() {
   const v = estadoVentanaRecoleccion();
   if (v.abierta) return null;
   return { ok: false, error: v.mensaje, fueraDeVentana: true };
+}
+
+/** Última liquidación sellada del recolector (cualquier día). */
+export async function ultimaLiquidacionRepartidor(supabase, repartidorId) {
+  if (!supabase || !repartidorId) return null;
+  const { data, error } = await supabase
+    .from('transito_efectivo')
+    .select('fecha_liquidacion')
+    .eq('repartidor_id', repartidorId)
+    .eq('estatus', 'Liquidado')
+    .neq('tipo_movimiento', 'Gasto')
+    .not('fecha_liquidacion', 'is', null)
+    .order('fecha_liquidacion', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !data?.fecha_liquidacion) return null;
+  return data.fecha_liquidacion;
+}
+
+/** Ya selló liquidación hoy (hora Sonora): no más efectivo, solo crédito. */
+export async function recolectorLiquidoHoy(supabase, repartidorId) {
+  const iso = await ultimaLiquidacionRepartidor(supabase, repartidorId);
+  if (!iso) return false;
+  return fechaClaveDesdeIso(iso) === hoyClaveNogales();
+}
+
+export async function errorSiEfectivoNoPermitido(supabase, repartidorId) {
+  const fuera = errorSiVentanaRecoleccionCerrada();
+  if (fuera) return fuera;
+  if (repartidorId && (await recolectorLiquidoHoy(supabase, repartidorId))) {
+    return {
+      ok: false,
+      error:
+        'Este recolector ya liquidó hoy. Ya no se cobra en efectivo: registra el traspaso a crédito (se cobra en otra visita o al día siguiente).',
+      postLiquidacion: true,
+    };
+  }
+  return null;
 }
 
 /**
@@ -481,7 +519,13 @@ export function construirDatosCobroServicio({
 }
 
 export async function registrarCobroServicio(supabase, { tienda, repartidorId, cajero, srv, monto, pin, repartidores }) {
-  // CFE y demás servicios se pueden cobrar a cualquier hora; la ventana 8–20 aplica a efectivo de mercancía.
+  // CFE se puede cobrar fuera de ventana; si ya liquidó hoy, no entra más efectivo.
+  if (repartidorId && (await recolectorLiquidoHoy(supabase, repartidorId))) {
+    return {
+      ok: false,
+      error: 'Este recolector ya liquidó hoy. No se cobra CFE en efectivo; registra no cobro o espera al día siguiente.',
+    };
+  }
   if (!pinRepartidorValido(pin, repartidorId, repartidores)) {
     return { ok: false, error: 'PIN de recolector incorrecto.' };
   }
@@ -595,10 +639,10 @@ export async function registrarTraspasos(supabase, filas, opts) {
   if (!validas.length) return { ok: false, error: 'Agrega al menos un folio con monto.' };
   if (!cajero?.trim()) return { ok: false, error: 'Escribe el nombre del cajero.' };
 
-  // Efectivo = recolección: solo en ventana 9–20. Crédito / reparto sí fuera de horario.
+  // Efectivo: solo en ventana y si el recolector aún no liquidó hoy. Crédito sí fuera de horario / post-liq.
   if (esEfectivo) {
-    const fuera = errorSiVentanaRecoleccionCerrada();
-    if (fuera) return fuera;
+    const bloqueo = await errorSiEfectivoNoPermitido(supabase, repartidorId);
+    if (bloqueo) return bloqueo;
   }
 
   const pendientesSrv = await serviciosObligatoriosPendientesTienda(supabase, tienda);
@@ -686,8 +730,8 @@ export async function listarCreditosPendientes(supabase, tienda) {
 }
 
 export async function cobrarCreditosSeleccionados(supabase, { ids, repartidorId, cajero, pendientes }) {
-  const fuera = errorSiVentanaRecoleccionCerrada();
-  if (fuera) return fuera;
+  const bloqueo = await errorSiEfectivoNoPermitido(supabase, repartidorId);
+  if (bloqueo) return bloqueo;
   if (!ids?.length) return { ok: false, error: 'Selecciona al menos un folio.' };
   if (!cajero?.trim()) return { ok: false, error: 'Escribe el nombre del cajero.' };
 
