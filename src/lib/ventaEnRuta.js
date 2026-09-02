@@ -376,11 +376,15 @@ export async function registrarVentaRuta(supabase, {
   articulos,
   vendedorNombre,
   vendedorId,
+  montoEfectivo: optsMontoEfectivo = 0,
+  montoCredito: optsMontoCredito = 0,
 } = {}) {
   if (!cargaId) return { ok: false, error: 'Elige una carga en ruta.' };
   if (!supabase) return { ok: false, error: 'Se requiere conexión.' };
   const mp = String(metodoPago || '').toLowerCase();
-  if (mp !== 'efectivo' && mp !== 'credito') return { ok: false, error: 'Método: efectivo o crédito.' };
+  if (mp !== 'efectivo' && mp !== 'credito' && mp !== 'mixto') {
+    return { ok: false, error: 'Método: efectivo, crédito o mixto.' };
+  }
   const tipoCli = String(clienteTipo || '') === 'externo' ? 'externo' : 'sucursal';
   if (!clienteId) return { ok: false, error: 'Elige sucursal o cliente.' };
 
@@ -395,6 +399,27 @@ export async function registrarVentaRuta(supabase, {
     .map((a) => ({ ...a, importe: round2(a.precio * a.cantidad) }));
   if (!arts.length) return { ok: false, error: 'Agrega productos a la venta.' };
   const total = round2(arts.reduce((s, a) => s + a.importe, 0));
+
+  let montoEfe = round2(optsMontoEfectivo);
+  let montoCre = round2(optsMontoCredito);
+  if (mp === 'efectivo') {
+    montoEfe = total;
+    montoCre = 0;
+  } else if (mp === 'credito') {
+    montoEfe = 0;
+    montoCre = total;
+  } else {
+    // mixto
+    if (!(montoEfe >= 0) || !(montoCre >= 0)) {
+      return { ok: false, error: 'En mixto indica montos de efectivo y crédito.' };
+    }
+    if (Math.abs(round2(montoEfe + montoCre) - total) > 0.02) {
+      return { ok: false, error: `Mixto debe sumar ${total.toFixed(2)} (efectivo + crédito).` };
+    }
+    if (montoEfe <= 0 && montoCre <= 0) {
+      return { ok: false, error: 'Mixto: al menos un monto debe ser mayor a 0.' };
+    }
+  }
 
   const linRes = await lineasDeCarga(supabase, cargaId);
   const lineas = linRes.data || [];
@@ -416,9 +441,11 @@ export async function registrarVentaRuta(supabase, {
     cliente_nombre: clienteNombre || String(clienteId),
     metodo_pago: mp,
     total,
-    articulos: arts,
+    articulos: mp === 'mixto'
+      ? [...arts, { _pago_mixto: true, efectivo: montoEfe, credito: montoCre }]
+      : arts,
     vendedor_nombre: vendedorNombre || null,
-    estado_credito: mp === 'credito' ? 'pendiente' : null,
+    estado_credito: montoCre > 0 ? 'pendiente' : null,
   };
 
   const { data: ventaRow, error } = await supabase
@@ -474,14 +501,14 @@ export async function registrarVentaRuta(supabase, {
     await enlazarVenta();
   }
 
-  if (mp === 'efectivo') {
+  if (montoEfe > 0) {
     const tr = await registrarEfectivoTransitoVentaRuta(supabase, {
       sucursalOrigen: tipoCli === 'sucursal' ? clienteId : ALMACEN_CENTRAL,
-      monto: total,
+      monto: montoEfe,
       folioVenta: folio,
       vendedorId,
       vendedorNombre,
-      nota: `Venta ruta ${folio} · efectivo · ${clienteNombre || clienteId}`,
+      nota: `Venta ruta ${folio} · ${mp === 'mixto' ? `mixto efectivo ${montoEfe}` : 'efectivo'} · ${clienteNombre || clienteId}`,
     });
     if (!tr.ok) {
       await enlazarVenta();
@@ -494,17 +521,21 @@ export async function registrarVentaRuta(supabase, {
       };
     }
     transitoId = tr.id;
-  } else {
+  }
+
+  if (montoCre > 0) {
     const cxc = await registrarCargoCreditoRuta(supabase, {
       clienteTipo: tipoCli,
       clienteId,
       clienteNombre: clienteNombre || String(clienteId),
-      monto: total,
+      monto: montoCre,
       ventaId: venta.id,
       cargaId,
       folioVenta: folio,
       usuarioNombre: vendedorNombre,
-      notas: `Venta ${folio}`,
+      notas: mp === 'mixto'
+        ? `Venta ${folio} · mixto crédito ${montoCre}`
+        : `Venta ${folio}`,
     });
     if (!cxc.ok) {
       await enlazarVenta();
@@ -523,9 +554,11 @@ export async function registrarVentaRuta(supabase, {
   return {
     ok: true,
     venta: { ...venta, compra_id: compraId, transito_id: transitoId },
-    cuenta: mp === 'credito' ? 'credito' : 'efectivo',
+    cuenta: mp === 'mixto' ? 'mixto' : mp === 'credito' ? 'credito' : 'efectivo',
     compraId,
     transitoId,
+    montoEfectivo: montoEfe,
+    montoCredito: montoCre,
     avisos: avisos.length ? avisos : undefined,
   };
 }

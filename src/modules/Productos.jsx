@@ -105,8 +105,22 @@ const TITULOS_VISTA = {
   eliminar: 'Eliminar productos',
 };
 
-export default function Productos({ supabase, inventario, inventarioCompleto, cargarDatos, fusionarProducto, user, sucursal, consolaCentral = false }) {
+export default function Productos({
+  supabase,
+  inventario,
+  inventarioCompleto,
+  cargarDatos,
+  fusionarProducto,
+  user,
+  sucursal,
+  consolaCentral = false,
+  vistaInicial = null,
+  destinoTraspasoInicial = null,
+  onVistaInicialConsumida,
+}) {
   const [vista, setVista] = useState('lista');
+  const [permitirTraspasoDesdeRuta, setPermitirTraspasoDesdeRuta] = useState(false);
+  const [destinoTraspasoLocal, setDestinoTraspasoLocal] = useState(null);
   const [form, setForm] = useState(empty);
   const [q, setQ] = useState('');
   const [proveedores, setProveedores] = useState([]);
@@ -157,8 +171,9 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   const esCajero = esRolMostradorRestringido(user?.rol);
   const puedeGestionCatalogo = puedeEditarCatalogoProductos(user?.rol);
   const puedeAjustes = puedeAjustarInventario(user?.rol);
-  /** En MAIN/CEDIS el surtido va por Venta en Ruta — se ocultan traspasos en este flujo. */
-  const puedeTraspasos = puedeTraspasarInventario(user?.rol) && !esAlmacenCentral(sucursal);
+  /** En MAIN/CEDIS el surtido va por Venta en Ruta — se ocultan traspasos, salvo llegada desde POS ruta. */
+  const puedeTraspasos =
+    puedeTraspasarInventario(user?.rol) && (!esAlmacenCentral(sucursal) || permitirTraspasoDesdeRuta);
   const puedePreinventario = puedeHacerPreinventario(user?.rol);
   const verNegativos = puedeVerStockNegativo(user?.rol);
   const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : 'MAIN';
@@ -213,6 +228,16 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
   useEffect(() => {
     if (vista === 'traspaso' && !puedeTraspasos) setVista('lista');
   }, [vista, puedeTraspasos]);
+
+  useEffect(() => {
+    if (!vistaInicial) return;
+    if (vistaInicial === 'traspaso' && puedeTraspasarInventario(user?.rol)) {
+      setPermitirTraspasoDesdeRuta(true);
+      setDestinoTraspasoLocal(destinoTraspasoInicial || null);
+      setVista('traspaso');
+    }
+    onVistaInicialConsumida?.();
+  }, [vistaInicial]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!esCajero) return;
@@ -1427,17 +1452,18 @@ export default function Productos({ supabase, inventario, inventarioCompleto, ca
       )}
 
       {vista === 'traspaso' && puedeTraspasos && (
-        <Traspasos
-          supabase={supabase}
-          inventario={inventario}
-          inventarioCompleto={inventarioCompleto || inventario}
-          cargarDatos={cargarDatos}
-          fusionarProducto={fusionarProducto}
-          user={user}
-          sucursal={sucursal}
-          onVolver={irLista}
-        />
-      )}
+          <Traspasos
+            supabase={supabase}
+            inventario={inventario}
+            inventarioCompleto={inventarioCompleto || inventario}
+            cargarDatos={cargarDatos}
+            fusionarProducto={fusionarProducto}
+            user={user}
+            sucursal={sucursal}
+            onVolver={irLista}
+            destinoInicial={destinoTraspasoLocal || undefined}
+          />
+        )}
 
       {vista === 'preinventario' && puedePreinventario && (
         <div className="card">
