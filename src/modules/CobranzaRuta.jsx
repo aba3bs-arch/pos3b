@@ -5,10 +5,11 @@ import { fmtMonto } from '../lib/consultasUi.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 
 /**
- * Contabilidad → Cobranza: el cajero paga créditos de Venta en Ruta con PIN.
+ * Contabilidad → Cobranza / Venta en Ruta → Créditos por pagar:
+ * el cajero paga créditos de Venta en Ruta con PIN.
  * Al pagar: gasto en corte abarrotes «credito liquidado» + efectivo a tránsito.
  */
-export default function CobranzaRuta({ supabase, user, sucursal }) {
+export default function CobranzaRuta({ supabase, user, sucursal, embedded = false, titulo }) {
   const [aviso, setAviso] = useState('');
   const [rows, setRows] = useState([]);
   const [sel, setSel] = useState(() => new Set());
@@ -69,10 +70,16 @@ export default function CobranzaRuta({ supabase, user, sucursal }) {
     await cargar();
   };
 
+  const heading = titulo || (embedded ? 'Créditos por pagar' : 'Cobranza · créditos ruta');
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
-        <h2 style={{ margin: 0, color: '#0f766e' }}>Cobranza · créditos ruta</h2>
+        {embedded ? (
+          <h3 style={{ margin: 0, color: '#0f766e' }}>{heading}</h3>
+        ) : (
+          <h2 style={{ margin: 0, color: '#0f766e' }}>{heading}</h2>
+        )}
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
           Solo cajero (PIN). Filtra por folio, fecha y monto. Al pagar: gasto abarrotes «credito liquidado» + efectivo en tránsito.
           {sucActiva && sucActiva !== 'MAIN' ? ` · Tienda: ${etiquetaTienda(sucActiva)}` : ''}
