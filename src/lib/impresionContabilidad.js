@@ -2,6 +2,7 @@ import { abrirVentanaImpresion, estilosImpresion } from './impresion.js';
 import { leerNombreNegocio, leerLogoUrl } from './branding.js';
 import { leerConfigImpresion } from './posConfig.js';
 import { ETIQUETA_AREA, etiquetaCategoriaVale, etiquetaEstadoPrestamo } from './contabilidadConstants.js';
+import { desgloseNominaLinea } from './nominaCalculos.js';
 
 function esc(s) {
   return String(s ?? '')
@@ -157,10 +158,6 @@ export function htmlPrestamoSucursal(p) {
   </body></html>`;
 }
 
-function fmtNom(n) {
-  return Math.round((Number(n) || 0) * 100) / 100;
-}
-
 function estilosReciboNomina(ancho) {
   const base = estilosImpresion(ancho);
   const esTicket = ancho === '58mm' || ancho === '80mm';
@@ -291,45 +288,46 @@ export function htmlReciboNominaIndividual(linea, opts = {}) {
   });
   const horaPago = ahora.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
   const periodo = `${fmtFechaCorta(opts.periodo_inicio)} — ${fmtFechaCorta(opts.periodo_fin)}`;
-  const salarioDia = Number(linea.salario_dia ?? linea.sueldo_tarifa) || 0;
-  const dias = Number(linea.dias_trabajados) || 0;
-  const sueldo = fmtNom(salarioDia * dias);
-  const bono = Number(linea.bonificacion) || 0;
-  const bruto = fmtNom(sueldo + bono);
-  const dedInv = Number(linea.deduccion_inventario) || 0;
-  const dedCons = Number(linea.deduccion_consumos) || Number(linea.deduccion_gastos) || 0;
-  const dedPrest = Number(linea.deduccion_prestamos) || 0;
-  const dedArrastre = Number(linea.deduccion_arrastre) || 0;
-  const dedFaltas = Number(linea.deduccion_faltas) || 0;
-  const dedOtras = (Number(linea.deducciones) || 0) + dedFaltas;
-  const neto =
-    linea.pago != null && linea.pago !== ''
-      ? Number(linea.pago)
-      : linea.total != null && linea.total !== ''
-        ? Number(linea.total)
-        : fmtNom(bruto - dedInv - dedCons - dedPrest - dedArrastre - (Number(linea.deducciones) || 0) - dedFaltas);
+  const d = desgloseNominaLinea(linea);
+  const {
+    salarioDia,
+    dias,
+    sueldo,
+    bono,
+    bruto,
+    consumo: dedCons,
+    inventario: dedInv,
+    prestamos: dedPrest,
+    arrastre: dedArrastre,
+    faltas: dedFaltas,
+    otrosManual,
+    totalDescuentos,
+    neto,
+    notasOtros,
+  } = d;
 
   const labelDias =
     linea.vales_gasolina > 0 && linea.es_indirecto ? 'Vales cobrados' : 'Días trabajados';
 
   const filasDed = [
-    dedInv > 0 ? filaTicket('Inventario', `− ${fmt(dedInv)}`, { danger: true }) : '',
     dedCons > 0 ? filaTicket('Consumos', `− ${fmt(dedCons)}`, { danger: true }) : '',
+    dedInv > 0 ? filaTicket('Inventario', `− ${fmt(dedInv)}`, { danger: true }) : '',
     dedPrest > 0 ? filaTicket('Préstamos', `− ${fmt(dedPrest)}`, { danger: true }) : '',
     dedArrastre > 0 ? filaTicket('Arrastre ant.', `− ${fmt(dedArrastre)}`, { danger: true }) : '',
     dedFaltas > 0 ? filaTicket('Faltas gasolina', `− ${fmt(dedFaltas)}`, { danger: true }) : '',
-    Number(linea.deducciones) > 0
+    otrosManual > 0
       ? filaTicket(
-          linea.notas_otros ? `Otros (${String(linea.notas_otros).slice(0, 18)})` : 'Otros',
-          `− ${fmt(Number(linea.deducciones))}`,
+          notasOtros ? `Otros (${String(notasOtros).slice(0, 18)})` : 'Otros',
+          `− ${fmt(otrosManual)}`,
           { danger: true },
         )
       : '',
+    totalDescuentos > 0 ? filaTicket('Total descuentos', `− ${fmt(totalDescuentos)}`, { bold: true }) : '',
   ]
     .filter(Boolean)
     .join('');
 
-  const sinDescuentos = dedInv + dedCons + dedPrest + dedArrastre + dedOtras === 0;
+  const sinDescuentos = totalDescuentos === 0;
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Recibo nómina — ${esc(linea.nombre)}</title>
   <style>${estilosReciboNomina(ancho)}</style></head><body>

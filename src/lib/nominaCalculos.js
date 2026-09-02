@@ -93,6 +93,44 @@ export function pagoAntesArrastreLinea(linea) {
   return round2(sueldo + bono - consumo - inventario - prestamos - otros);
 }
 
+/**
+ * Desglose único para pantalla e impresión del recibo.
+ * Evita que `deduccion_consumos` (legado/desfasado) no coincida con el neto.
+ */
+export function desgloseNominaLinea(linea) {
+  const salarioDia = salarioDiaLinea(linea);
+  const dias = normalizarDiasNomina(linea?.dias_trabajados);
+  const sueldo = sueldoBrutoLinea(linea);
+  const bono = round2(Number(linea?.bonificacion) || 0);
+  const consumo = round2(Number(linea?.deduccion_gastos) || 0);
+  const inventario = round2(Number(linea?.deduccion_inventario) || 0);
+  const prestamos = round2(Number(linea?.deduccion_prestamos) || 0);
+  const arrastre = round2(Number(linea?.deduccion_arrastre) || 0);
+  const faltas = round2(Number(linea?.deduccion_faltas) || 0);
+  const otrosManual = round2(Number(linea?.deducciones) || 0);
+  const otros = otrosDeudasLinea(linea);
+  const bruto = round2(sueldo + bono);
+  const totalDescuentos = round2(consumo + inventario + prestamos + otros + arrastre);
+  const neto = pagoNominaLinea(linea);
+  return {
+    salarioDia,
+    dias,
+    sueldo,
+    bono,
+    bruto,
+    consumo,
+    inventario,
+    prestamos,
+    arrastre,
+    faltas,
+    otrosManual,
+    otros,
+    totalDescuentos,
+    neto,
+    notasOtros: String(linea?.notas_otros || '').trim(),
+  };
+}
+
 /** Deuda que se carga a la próxima nómina cuando el pago queda negativo. */
 export function saldoPendienteDesdePago(pago) {
   const p = Number(pago) || 0;
@@ -124,6 +162,8 @@ export function recalcularLineaNomina(linea) {
     l.deduccion_faltas = sueldoPorSalarioDia(salarioDiaLinea(l), l.faltas_gasolina);
   }
   l.sueldo_base = sueldoBrutoLinea(l);
+  // Mantener alias legado alineado con lo que usa el cálculo del neto.
+  l.deduccion_consumos = round2(Number(l.deduccion_gastos) || 0);
   l.pago = pagoNominaLinea(l);
   l.total = l.pago;
   l.saldo_pendiente = saldoPendienteDesdePago(l.pago);
@@ -229,7 +269,10 @@ export function fusionarLineasNomina(anteriores, nuevas) {
       merged.sueldo_tarifa = merged.salario_dia;
       merged.sueldo_manual = ant.sueldo_manual || Number(ant.salario_dia ?? ant.sueldo_tarifa) > 0;
     }
-    if (ant.gastos_manual) merged.deduccion_gastos = ant.deduccion_gastos;
+    if (ant.gastos_manual) {
+      merged.deduccion_gastos = ant.deduccion_gastos;
+      merged.deduccion_consumos = ant.deduccion_gastos;
+    }
     if (ant.inventario_manual) merged.deduccion_inventario = ant.deduccion_inventario;
     if (ant.prestamos_manual) merged.deduccion_prestamos = ant.deduccion_prestamos;
 
@@ -252,9 +295,13 @@ export function fusionarLineasNomina(anteriores, nuevas) {
       .filter((p) => p && !/asistencia|checador|retardos?/i.test(p));
     merged.notas = [...new Set(notasLimpias)].join(' · ') || nueva.notas || '';
 
-    merged.total = totalLineaNominaImport(recalcularLineaNomina(merged));
-    merged.pago = merged.total;
-    merged.saldo_pendiente = merged.saldo_pendiente ?? saldoPendienteDesdePago(merged.pago);
+    const calc = recalcularLineaNomina(merged);
+    merged.sueldo_base = calc.sueldo_base;
+    merged.deduccion_consumos = calc.deduccion_consumos;
+    merged.deduccion_faltas = calc.deduccion_faltas;
+    merged.total = calc.pago;
+    merged.pago = calc.pago;
+    merged.saldo_pendiente = calc.saldo_pendiente ?? saldoPendienteDesdePago(merged.pago);
 
     merged.pagador_manual = ant.pagador_manual;
     merged.dias_manual = ant.dias_manual;
