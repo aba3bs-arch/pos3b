@@ -3,12 +3,65 @@ import { tieneAutorizacionFueraHorario } from './autorizacionTurnoFueraHorario.j
 import { esUsuarioCubreTurno } from './cubreTurno.js';
 import { esPersonalCentralAdmin } from './usuariosAuth.js';
 import { extensionSesionActiva, tieneExtensionSesionTurno } from './extensionSesionTurno.js';
+import { LS_SUCURSAL, normalizarCodigoTienda } from '../constants/sucursales.js';
 
 export const LS_TURNOS = 'pos3b_turnos_caja';
 export const LS_TIPO_HORARIO = 'pos3b_tipo_horario';
 export const LS_PATRONES_ROTACION_3 = 'pos3b_patrones_rotacion_3';
 export const LS_TOLERANCIA_TURNOS = 'pos3b_tolerancia_turnos';
 export const EVENTO_TURNOS = 'pos3b-turnos-actualizados';
+
+/** Prefijo de cache local por tienda: pos3b_turnos_caja__FUSION */
+export const LS_TURNOS_SUCURSAL_PREFIX = `${LS_TURNOS}__`;
+
+/**
+ * Sucursal cuyos turnos usa esta caja (activa en localStorage, o la indicada).
+ * MAIN/CEDIS caen a GLOBAL como fallback de plantilla.
+ */
+export function sucursalTurnosActiva(override = null) {
+  const raw = override != null && String(override).trim() !== '' ? override : null;
+  let suc = normalizarCodigoTienda(raw);
+  if (!suc) {
+    try {
+      suc = normalizarCodigoTienda(localStorage.getItem(LS_SUCURSAL));
+    } catch {
+      suc = '';
+    }
+  }
+  if (!suc || suc === 'MAIN' || suc === 'CEDIS') return 'GLOBAL';
+  return suc;
+}
+
+function claveLsTurnos(base, sucursal = null) {
+  return `${base}__${sucursalTurnosActiva(sucursal)}`;
+}
+
+function leerJsonLs(clave, legacyClave = null) {
+  try {
+    const raw = localStorage.getItem(clave);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    /* ignore */
+  }
+  if (legacyClave) {
+    try {
+      const raw = localStorage.getItem(legacyClave);
+      if (raw) return JSON.parse(raw);
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
+function escribirJsonLs(clave, valor, legacyClave = null, sucursal = null) {
+  const json = JSON.stringify(valor);
+  localStorage.setItem(clave, json);
+  // Espejo legacy cuando es la tienda activa (compat con código viejo / otras pestañas).
+  if (legacyClave && sucursalTurnosActiva(sucursal) === sucursalTurnosActiva()) {
+    localStorage.setItem(legacyClave, json);
+  }
+}
 
 export const TOLERANCIA_TURNOS_DEFAULT = {
   minutos_antes: 30,
@@ -179,35 +232,34 @@ export function plantillaTurnos8x24(inicioPrimer = '06:00') {
   ];
 }
 
-export function leerConfigHorario() {
+export function leerConfigHorario(sucursal = null) {
+  const parsed = leerJsonLs(claveLsTurnos(LS_TIPO_HORARIO, sucursal), LS_TIPO_HORARIO);
   try {
-    const raw = localStorage.getItem(LS_TIPO_HORARIO);
-    if (!raw) return { tipo: '12x12', inicio: TIPOS_HORARIO['12x12'].inicioDefault, subtipo: null };
-    const cfg = JSON.parse(raw);
-    const tipo = TIPOS_HORARIO[cfg.tipo] ? cfg.tipo : '12x12';
+    if (!parsed) return { tipo: '12x12', inicio: TIPOS_HORARIO['12x12'].inicioDefault, subtipo: null };
+    const tipo = TIPOS_HORARIO[parsed.tipo] ? parsed.tipo : '12x12';
     const meta = TIPOS_HORARIO[tipo];
     return {
       tipo,
-      subtipo: cfg.subtipo || null,
-      inicio: normalizarHora(cfg.inicio) || meta.inicioDefault,
+      subtipo: parsed.subtipo || null,
+      inicio: normalizarHora(parsed.inicio) || meta.inicioDefault,
     };
   } catch {
     return { tipo: '12x12', inicio: TIPOS_HORARIO['12x12'].inicioDefault, subtipo: null };
   }
 }
 
-export function guardarConfigHorario(cfg) {
+export function guardarConfigHorario(cfg, sucursal = null, opts = {}) {
   const tipo = TIPOS_HORARIO[cfg?.tipo] ? cfg.tipo : '8x24';
   const meta = TIPOS_HORARIO[tipo];
-  const prev = leerConfigHorario();
+  const prev = leerConfigHorario(sucursal);
   const next = {
     tipo,
     subtipo: cfg?.subtipo !== undefined ? cfg.subtipo : prev.subtipo || null,
     inicio: normalizarHora(cfg?.inicio) || meta.inicioDefault,
   };
   if (tipo !== 'personalizado') next.subtipo = null;
-  localStorage.setItem(LS_TIPO_HORARIO, JSON.stringify(next));
-  emitTurnos();
+  escribirJsonLs(claveLsTurnos(LS_TIPO_HORARIO, sucursal), next, LS_TIPO_HORARIO, sucursal);
+  if (!opts.silent) emitTurnos();
   return next;
 }
 
@@ -271,11 +323,9 @@ export function resumenDiasPatron(dias) {
   return partes.join(' · ') || 'Sin días asignados';
 }
 
-export function leerPatronesRotacion3() {
+export function leerPatronesRotacion3(sucursal = null) {
   try {
-    const raw = localStorage.getItem(LS_PATRONES_ROTACION_3);
-    if (!raw) return PATRONES_ROTACION_3_DEFAULT.map((p) => normalizarPatron(p));
-    const list = JSON.parse(raw);
+    const list = leerJsonLs(claveLsTurnos(LS_PATRONES_ROTACION_3, sucursal), LS_PATRONES_ROTACION_3);
     if (!Array.isArray(list) || !list.length) return PATRONES_ROTACION_3_DEFAULT.map((p) => normalizarPatron(p));
     return list.map((p) => normalizarPatron(p));
   } catch {
@@ -283,20 +333,20 @@ export function leerPatronesRotacion3() {
   }
 }
 
-export function guardarPatronesRotacion3(lista) {
+export function guardarPatronesRotacion3(lista, sucursal = null, opts = {}) {
   const next = (lista || []).map((p) => normalizarPatron(p)).filter((p) => p.id);
   if (next.length < 3) return { ok: false, error: 'Deben existir 3 patrones de rotación.' };
-  localStorage.setItem(LS_PATRONES_ROTACION_3, JSON.stringify(next));
-  emitTurnos();
+  escribirJsonLs(claveLsTurnos(LS_PATRONES_ROTACION_3, sucursal), next, LS_PATRONES_ROTACION_3, sucursal);
+  if (!opts.silent) emitTurnos();
   return { ok: true, patrones: next };
 }
 
-export function restaurarPatronesRotacion3Default() {
-  return guardarPatronesRotacion3(PATRONES_ROTACION_3_DEFAULT);
+export function restaurarPatronesRotacion3Default(sucursal = null) {
+  return guardarPatronesRotacion3(PATRONES_ROTACION_3_DEFAULT, sucursal);
 }
 
-export function actualizarDiaPatronRotacion(patronId, diaId, valor) {
-  const list = leerPatronesRotacion3();
+export function actualizarDiaPatronRotacion(patronId, diaId, valor, sucursal = null) {
+  const list = leerPatronesRotacion3(sucursal);
   const idx = list.findIndex((p) => p.id === patronId);
   if (idx < 0) return { ok: false, error: 'Patrón no encontrado.' };
   const dias = { ...list[idx].dias };
@@ -304,7 +354,7 @@ export function actualizarDiaPatronRotacion(patronId, diaId, valor) {
   if (v) dias[String(diaId)] = v;
   else delete dias[String(diaId)];
   list[idx] = { ...list[idx], dias, subtitulo: resumenDiasPatron(dias) };
-  return guardarPatronesRotacion3(list);
+  return guardarPatronesRotacion3(list, sucursal);
 }
 
 export function patronRotacionPorId(patronId) {
@@ -338,16 +388,16 @@ export function grillaSemanaPatron(diasMap) {
   }));
 }
 
-export function aplicarRotacion3Empleados(inicioDiurno = '07:00') {
+export function aplicarRotacion3Empleados(inicioDiurno = '07:00', sucursal = null) {
   const ini = normalizarInicioPlantilla12x12(inicioDiurno);
   const lista = plantillaTurnos12x12(ini).map((t) => ({
     ...t,
     nombre: t.id === 'diurno' ? 'Turno diurno' : 'Turno nocturno',
   }));
-  guardarConfigHorario({ tipo: 'personalizado', subtipo: 'rotacion_3', inicio: ini });
-  restaurarPatronesRotacion3Default();
-  const r = guardarTurnos(lista);
-  return { ...r, config: leerConfigHorario(), patrones: leerPatronesRotacion3() };
+  guardarConfigHorario({ tipo: 'personalizado', subtipo: 'rotacion_3', inicio: ini }, sucursal, { silent: true });
+  guardarPatronesRotacion3(PATRONES_ROTACION_3_DEFAULT, sucursal, { silent: true });
+  const r = guardarTurnos(lista, sucursal);
+  return { ...r, config: leerConfigHorario(sucursal), patrones: leerPatronesRotacion3(sucursal) };
 }
 
 /** Actualiza en Supabase a quienes tengan asignado ese patrón. */
@@ -385,29 +435,34 @@ export function turnosParaTipo(tipo, inicio) {
   return leerTurnos();
 }
 
-export function aplicarPlantillaHorario(tipo, inicio) {
+export function aplicarPlantillaHorario(tipo, inicio, sucursal = null) {
   if (tipo === 'personalizado') {
-    guardarConfigHorario({ tipo: 'personalizado', inicio });
-    return { ok: true, config: leerConfigHorario(), turnos: leerTurnos() };
+    guardarConfigHorario({ tipo: 'personalizado', inicio }, sucursal);
+    return { ok: true, config: leerConfigHorario(sucursal), turnos: leerTurnos(sucursal) };
   }
   const inicioNorm = tipo === '12x12' ? normalizarInicioPlantilla12x12(inicio) : inicio;
   const lista = turnosParaTipo(tipo, inicioNorm);
-  guardarConfigHorario({ tipo, inicio: inicioNorm });
-  const r = guardarTurnos(lista);
-  return { ...r, config: leerConfigHorario(), inicioAjustado: inicioNorm !== normalizarHora(inicio) };
+  // turnosParaTipo for personalizado calls leerTurnos() - for 12x12/8x24 returns plantilla
+  const listaFinal =
+    tipo === '12x12'
+      ? plantillaTurnos12x12(inicioNorm)
+      : tipo === '8x24'
+        ? plantillaTurnos8x24(inicioNorm)
+        : lista;
+  guardarConfigHorario({ tipo, inicio: inicioNorm }, sucursal, { silent: true });
+  const r = guardarTurnos(listaFinal, sucursal);
+  return { ...r, config: leerConfigHorario(sucursal), inicioAjustado: inicioNorm !== normalizarHora(inicio) };
 }
 
-export function leerTurnos() {
+export function leerTurnos(sucursal = null) {
   try {
-    const raw = localStorage.getItem(LS_TURNOS);
-    if (!raw) {
-      const cfg = leerConfigHorario();
+    const list = leerJsonLs(claveLsTurnos(LS_TURNOS, sucursal), LS_TURNOS);
+    if (!Array.isArray(list) || !list.length) {
+      const cfg = leerConfigHorario(sucursal);
       if (cfg.tipo === '12x12') return plantillaTurnos12x12(normalizarInicioPlantilla12x12(cfg.inicio));
       if (cfg.tipo === '8x24') return plantillaTurnos8x24(cfg.inicio);
       return [...TURNOS_POR_DEFECTO];
     }
-    const list = JSON.parse(raw);
-    if (!Array.isArray(list) || !list.length) return [...TURNOS_POR_DEFECTO];
     const mapped = list.map((t) => ({
       id: String(t.id || '').trim() || 'turno',
       nombre: String(t.nombre || t.id || 'Turno').trim(),
@@ -418,7 +473,7 @@ export function leerTurnos() {
     const fixed = corregirTurnosDiurnoNocturno(mapped);
     if (fixed.corregido) {
       try {
-        localStorage.setItem(LS_TURNOS, JSON.stringify(fixed.turnos));
+        escribirJsonLs(claveLsTurnos(LS_TURNOS, sucursal), fixed.turnos, LS_TURNOS, sucursal);
         emitTurnos();
       } catch {
         /* ignore */
@@ -431,7 +486,7 @@ export function leerTurnos() {
   }
 }
 
-export function guardarTurnos(lista) {
+export function guardarTurnos(lista, sucursal = null, opts = {}) {
   const next = (lista || [])
     .map((t) => ({
       id: String(t.id || '')
@@ -445,8 +500,8 @@ export function guardarTurnos(lista) {
     }))
     .filter((t) => t.id && t.nombre);
   if (!next.length) return { ok: false, error: 'Debe haber al menos un turno.' };
-  localStorage.setItem(LS_TURNOS, JSON.stringify(next));
-  emitTurnos();
+  escribirJsonLs(claveLsTurnos(LS_TURNOS, sucursal), next, LS_TURNOS, sucursal);
+  if (!opts.silent) emitTurnos();
   return { ok: true, turnos: next };
 }
 
@@ -485,11 +540,10 @@ function clampMinutosTolerancia(val, fallback) {
   return Math.min(180, Math.max(0, n));
 }
 
-export function leerToleranciaTurnos() {
+export function leerToleranciaTurnos(sucursal = null) {
   try {
-    const raw = localStorage.getItem(LS_TOLERANCIA_TURNOS);
-    if (!raw) return { ...TOLERANCIA_TURNOS_DEFAULT };
-    const t = JSON.parse(raw);
+    const t = leerJsonLs(claveLsTurnos(LS_TOLERANCIA_TURNOS, sucursal), LS_TOLERANCIA_TURNOS);
+    if (!t) return { ...TOLERANCIA_TURNOS_DEFAULT };
     return {
       minutos_antes: clampMinutosTolerancia(t.minutos_antes, TOLERANCIA_TURNOS_DEFAULT.minutos_antes),
       minutos_despues_fin: clampMinutosTolerancia(t.minutos_despues_fin, TOLERANCIA_TURNOS_DEFAULT.minutos_despues_fin),
@@ -499,14 +553,53 @@ export function leerToleranciaTurnos() {
   }
 }
 
-export function guardarToleranciaTurnos(cfg) {
+export function guardarToleranciaTurnos(cfg, sucursal = null, opts = {}) {
   const next = {
     minutos_antes: clampMinutosTolerancia(cfg?.minutos_antes, TOLERANCIA_TURNOS_DEFAULT.minutos_antes),
     minutos_despues_fin: clampMinutosTolerancia(cfg?.minutos_despues_fin, TOLERANCIA_TURNOS_DEFAULT.minutos_despues_fin),
   };
-  localStorage.setItem(LS_TOLERANCIA_TURNOS, JSON.stringify(next));
-  emitTurnos();
+  escribirJsonLs(claveLsTurnos(LS_TOLERANCIA_TURNOS, sucursal), next, LS_TOLERANCIA_TURNOS, sucursal);
+  if (!opts.silent) emitTurnos();
   return next;
+}
+
+/** Paquete completo de horarios de una tienda (para sync nube / UI). */
+export function leerPaqueteTurnos(sucursal = null) {
+  const suc = sucursalTurnosActiva(sucursal);
+  return {
+    sucursal_id: suc,
+    turnos: leerTurnos(suc),
+    config: leerConfigHorario(suc),
+    tolerancia: leerToleranciaTurnos(suc),
+    patrones: leerPatronesRotacion3(suc),
+  };
+}
+
+/** Aplica un paquete al cache local de una tienda (sin tocar otras). */
+export function aplicarPaqueteTurnosLocal(sucursal, paquete, opts = {}) {
+  const suc = sucursalTurnosActiva(sucursal);
+  const silent = { silent: true };
+  if (paquete?.config) guardarConfigHorario(paquete.config, suc, silent);
+  if (Array.isArray(paquete?.turnos) && paquete.turnos.length) {
+    const r = guardarTurnos(paquete.turnos, suc, silent);
+    if (!r.ok) return r;
+  }
+  if (paquete?.tolerancia) guardarToleranciaTurnos(paquete.tolerancia, suc, silent);
+  if (Array.isArray(paquete?.patrones) && paquete.patrones.length >= 3) {
+    guardarPatronesRotacion3(paquete.patrones, suc, silent);
+  }
+  if (!opts.silent) emitTurnos();
+  return { ok: true, sucursal_id: suc, paquete: leerPaqueteTurnos(suc) };
+}
+
+export function plantillaPaquete12x12(inicioDiurno = '07:00') {
+  const ini = normalizarInicioPlantilla12x12(inicioDiurno);
+  return {
+    config: { tipo: '12x12', subtipo: null, inicio: ini },
+    turnos: plantillaTurnos12x12(ini),
+    tolerancia: { ...TOLERANCIA_TURNOS_DEFAULT },
+    patrones: PATRONES_ROTACION_3_DEFAULT.map((p) => normalizarPatron(p)),
+  };
 }
 
 /** Turno con ventana ampliada para login (entrada anticipada y gracia al cierre). */
