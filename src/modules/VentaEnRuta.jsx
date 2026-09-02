@@ -30,6 +30,8 @@ import {
 } from '../lib/catalogoCedis.js';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 import { esRolRepartidor } from '../lib/roles.js';
+import CorteRuta from './CorteRuta.jsx';
+import PreinventarioRuta from './PreinventarioRuta.jsx';
 import './VentaEnRuta.css';
 
 const COLOR = '#0f766e';
@@ -60,12 +62,26 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
         { id: 'consultas', label: 'Consultas', desc: 'Cargas y ventas', icon: 'search' },
       );
     }
-    items.push({
-      id: 'venta',
-      label: 'POS venta en ruta',
-      desc: 'Escanear · efectivo o crédito',
-      icon: 'cart',
-    });
+    items.push(
+      {
+        id: 'venta',
+        label: 'POS venta en ruta',
+        desc: 'Departamentos · carrito · cobro',
+        icon: 'cart',
+      },
+      {
+        id: 'corte',
+        label: 'Corte de caja',
+        desc: 'Arqueo de ventas del camión',
+        icon: 'dollar',
+      },
+      {
+        id: 'preinventario',
+        label: 'Preinventario',
+        desc: 'Plantillas y conteo del camión',
+        icon: 'package',
+      },
+    );
     return items;
   }, [esAdmin]);
 
@@ -113,6 +129,19 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           inventario={inventario}
           setAviso={setAviso}
           onNavigate={onNavigate}
+        />
+      )}
+      {vista === 'corte' && (
+        <CorteRuta supabase={supabase} user={user} setAviso={setAviso} />
+      )}
+      {vista === 'preinventario' && (
+        <PreinventarioRuta
+          supabase={supabase}
+          user={user}
+          inventario={inventario}
+          productoPorId={productoPorId}
+          setAviso={setAviso}
+          onVolver={() => ir('hub')}
         />
       )}
       {vista === 'consultas' && esAdmin && <VistaConsultas supabase={supabase} setAviso={setAviso} />}

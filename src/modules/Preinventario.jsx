@@ -15,7 +15,16 @@ import { imprimirPreinventario } from '../lib/impresion.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import { BtnLabel } from '../components/Icon.jsx';
 
-export default function Preinventario({ supabase, inventario, user, sucursal, onVolver }) {
+export default function Preinventario({
+  supabase,
+  inventario,
+  user,
+  sucursal,
+  onVolver,
+  teoricoFn = null,
+  titulo = null,
+  ayudaExtra = null,
+}) {
   const [plantillas, setPlantillas] = useState([]);
   const [aviso, setAviso] = useState('');
   const [msg, setMsg] = useState('');
@@ -59,8 +68,8 @@ export default function Preinventario({ supabase, inventario, user, sucursal, on
     const prods = (plantillaActiva.productos || [])
       .map((ref) => mapaProd.get(String(ref.id)))
       .filter(Boolean);
-    return construirLineasDesdeProductos(prods, sucursal, conteos);
-  }, [plantillaActiva, mapaProd, sucursal, conteos]);
+    return construirLineasDesdeProductos(prods, sucursal, conteos, teoricoFn);
+  }, [plantillaActiva, mapaProd, sucursal, conteos, teoricoFn]);
 
   const resumen = useMemo(() => resumenPreinventario(lineas), [lineas]);
 
@@ -171,9 +180,10 @@ export default function Preinventario({ supabase, inventario, user, sucursal, on
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
         <div>
-          <h3 style={{ margin: 0, color: 'var(--brand-blue-dark)' }}>Preinventario</h3>
+          <h3 style={{ margin: 0, color: 'var(--brand-blue-dark)' }}>{titulo || 'Preinventario'}</h3>
           <p className="muted" style={{ margin: '0.25rem 0 0' }}>
-            {etiquetaTienda(sucursal)} · control interno de mercancía · no modifica el inventario teórico
+            {ayudaExtra
+              || `${etiquetaTienda(sucursal)} · control interno de mercancía · no modifica el inventario teórico`}
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
