@@ -30,6 +30,11 @@ function parseFoliosInventario(raw) {
     .filter(Boolean);
 }
 
+function esUuidLike(txt) {
+  const s = String(txt || '').trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
+}
+
 function esProveedorSmokingGasto(gasto) {
   const sub = gasto?.subcategoria || '';
   const com = gasto?.comentario || '';
@@ -177,7 +182,7 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
     String(modulo || '').toLowerCase() === 'abarrotes' &&
     esCatProveedor &&
     esProveedorSmokingGasto(gasto);
-  const foliosInventario = esSmoking
+  let foliosInventario = esSmoking
     ? parseFoliosInventario(gasto.folios_inventario || gasto.foliosInventario)
     : [];
 
@@ -195,16 +200,77 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
     if (supabase) {
       const sid = sucursal || 'MAIN';
       // 1) Validar que los folios existan como recibida y sumen el monto exacto.
-      const { data: compras, error: eCompras } = await supabase
-        .from('compras')
-        .select('id,total,estado,proveedores(nombre)')
-        .eq('sucursal_id', sid)
-        .in('id', foliosInventario);
+      // Soportamos 2 formatos de entrada:
+      // - UUID completo de compras.id (ideal)
+      // - prefijo (ej. solo números) del UUID, para evitar el error “invalid input syntax for type uuid”.
 
-      if (eCompras) return { ok: false, error: eCompras.message };
+      const foliosInput = [...foliosInventario];
+      const foliosUuid = foliosInput.filter((x) => esUuidLike(x));
+      const foliosPrefijos = foliosInput.filter((x) => !esUuidLike(x));
 
-      const comprasById = new Map((compras || []).map((c) => [String(c.id), c]));
-      const missing = foliosInventario.filter((id) => !comprasById.has(String(id)));
+      // Primer intento: UUIDs completos.
+      const comprasById = new Map();
+      if (foliosUuid.length) {
+        const { data: compras, error: eCompras } = await supabase
+          .from('compras')
+          .select('id,total,estado,proveedores(nombre)')
+          .eq('sucursal_id', sid)
+          .in('id', foliosUuid);
+        if (eCompras) return { ok: false, error: eCompras.message };
+        for (const c of compras || []) comprasById.set(String(c.id), c);
+      }
+
+      // Segundo intento: prefijos. Resolvemos cada prefijo a 1 UUID real.
+      // Usamos ilike sobre id para evitar el casteo UUID de `.in('id', ...)`.
+      for (const pref of foliosPrefijos) {
+        const pattern = `${pref}%`;
+        const { data: matches, error: ePref } = await supabase
+          .from('compras')
+          .select('id,total,estado,proveedores(nombre)')
+          .eq('sucursal_id', sid)
+          .ilike('id', pattern)
+          .limit(6);
+        if (ePref) {
+          return {
+            ok: false,
+            error:
+              `No se pudo resolver el folio “${pref}”.\n\n` +
+              `Mensaje técnico: ${ePref.message}\n\n` +
+              'Si estás copiando de un ticket impreso, usa el UUID completo (incluye guiones) de Compras → Historial.',
+          };
+        }
+        if (!Array.isArray(matches) || matches.length === 0) {
+          return {
+            ok: false,
+            error:
+              'No se encontraron folios de inventario en Compras.\n\n' +
+              `No resolvió el prefijo: ${pref}\n\n` +
+              'Ve a Compras → Historial y copia el UUID completo de la compra (id).',
+          };
+        }
+        const unique = matches.length === 1 ? matches[0] : null;
+        if (!unique) {
+          return {
+            ok: false,
+            error:
+              'El prefijo del folio es ambiguo (coincide con más de un UUID).\n\n' +
+              `Prefijo: ${pref}\n\n` +
+              'Copia el UUID completo de la compra para evitar duplicados/fantasmas.',
+          };
+        }
+        comprasById.set(String(unique.id), unique);
+      }
+
+      // Canonical: convertimos entradas (UUID o prefijo) a UUID real (compras.id).
+      const foliosCanon = foliosInput.map((x) => {
+        if (esUuidLike(x)) return String(x);
+        // Prefijo: buscamos la coincidencia única que ya resolvimos a comprasById.
+        const found = [...comprasById.keys()].find((id) => String(id).startsWith(String(x)));
+        return found || String(x);
+      });
+
+      // Validar existencia tras resolución.
+      const missing = foliosCanon.filter((id) => !comprasById.has(String(id)));
       if (missing.length) {
         return {
           ok: false,
@@ -214,6 +280,8 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
             'Ve a Compras → Historial (estado “recibida”) para obtener los IDs del ticket.',
         };
       }
+
+      foliosInventario = foliosCanon;
 
       const noRecibida = foliosInventario.filter((id) => {
         const c = comprasById.get(String(id));
