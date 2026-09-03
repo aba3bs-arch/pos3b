@@ -37,6 +37,7 @@ import Ayuda from './modules/Ayuda.jsx';
 import Tutorial from './modules/Tutorial.jsx';
 import Recolecciones from './modules/Recolecciones.jsx';
 import LiquidacionRecolecciones from './modules/LiquidacionRecolecciones.jsx';
+import Conciliaciones from './modules/Conciliaciones.jsx';
 import RcVirtual from './modules/RcVirtual.jsx';
 import RhAba3b from './modules/RhAba3b.jsx';
 import {
@@ -1298,6 +1299,12 @@ function App() {
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
               <LiquidacionRecolecciones supabase={supabase} user={user} />
+            </>
+          )}
+          {vista === 'Conciliaciones' && (
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <Conciliaciones supabase={supabase} user={user} />
             </>
           )}
           {vista === 'RC Virtual' && (

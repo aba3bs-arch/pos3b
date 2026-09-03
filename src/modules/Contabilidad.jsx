@@ -16,6 +16,10 @@ const DESCRIPCIONES = {
     desc: 'Sellar efectivo en tránsito por tienda y día',
     ayuda: 'También en Venta en Ruta → Liquidación. Cierra y sella el efectivo recolectado (incl. ventas de camión) por tienda/día.',
   },
+  Conciliaciones: {
+    desc: 'Recolecciones + créditos vs compras proveedor efectivo',
+    ayuda: 'Cuadra lo que colecta el repartidor (recolecciones y cobros de crédito) con los gastos PROVEEDORES de Corte Abarrotes (cigarro, tecnología, ropa, etc.).',
+  },
   'RC Virtual': {
     desc: 'Custodia Virtual/Garage → cuenta admin → ABB',
     ayuda: 'Recibe recolecciones de cortes Virtual y Garage a tu cuenta y entrégalas a ABB.',
