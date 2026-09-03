@@ -18,7 +18,7 @@ const DESCRIPCIONES = {
   },
   Conciliaciones: {
     desc: 'Smoking (cortes) vs cobros del repartidor',
-    ayuda: 'Exclusivo Smoking: cobros del repartidor en Recolecciones vs gastos Smoking de Corte Abarrotes.',
+    ayuda: 'Smoking vs cobros Recolección. Filtra En Tránsito/Por Cobrar, marca tiendas sin recolección y muestra ticket de corte.',
   },
   'RC Virtual': {
     desc: 'Custodia Virtual/Garage → cuenta admin → ABB',
