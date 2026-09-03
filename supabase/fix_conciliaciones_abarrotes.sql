@@ -85,7 +85,6 @@ grant select, insert, update, delete on table public.conciliaciones_abarrotes to
 grant all on table public.conciliaciones_abarrotes to service_role, postgres;
 
 alter table public.conciliaciones_abarrotes enable row level security;
-alter table public.conciliaciones_abarrotes force row level security;
 
 drop policy if exists "conciliaciones_abarrotes_anon_rw" on public.conciliaciones_abarrotes;
 drop policy if exists conciliaciones_abarrotes_anon_all on public.conciliaciones_abarrotes;
