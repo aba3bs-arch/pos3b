@@ -9,9 +9,8 @@ import {
   marcarNotificacionAtendida,
 } from '../contabilidadNotificaciones.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../../constants/sucursales.js';
-import { nombreProveedorDesdeGasto, normalizarNombreProveedorClave, registrarEntregaDesdeGastoAbarrotes } from '../proveedorEntregas.js';
+import { normalizarNombreProveedorClave, registrarEntregaDesdeGastoAbarrotes } from '../proveedorEntregas.js';
 
-const MARKER_TICKET_INV = 'TICKET_INV:';
 const MARKER_TRP_INV = 'TRP_INV:';
 
 function round2(n) {
@@ -22,28 +21,13 @@ function fmtMonto(n) {
   return `$${round2(n).toFixed(2)}`;
 }
 
-function parseFoliosInventario(raw) {
+function parseFoliosLista(raw) {
   if (Array.isArray(raw)) return raw.map((x) => String(x || '').trim()).filter(Boolean);
   if (raw == null) return [];
   return String(raw)
     .split(/[\s,;\n]+/g)
     .map((x) => String(x || '').trim())
     .filter(Boolean);
-}
-
-function esUuidLike(txt) {
-  const s = String(txt || '').trim();
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
-}
-
-function esProveedorSmokingGasto(gasto) {
-  const sub = gasto?.subcategoria || '';
-  const com = gasto?.comentario || '';
-  const prov1 = nombreProveedorDesdeGasto(sub);
-  const prov2 = nombreProveedorDesdeGasto(com);
-  const raw = `${prov1 || sub} ${prov2 || com} ${sub} ${com}`;
-  const k = normalizarNombreProveedorClave(raw);
-  return /(SMOKING|MARLBORO|CIGARR|CIGARRO)/.test(k);
 }
 
 /** Folio trp-0020 (inventario_traspasos.folio). */
@@ -64,8 +48,7 @@ function normalizarFolioTrp(raw) {
 }
 
 function parseFoliosTraspaso(raw) {
-  const base = parseFoliosInventario(raw);
-  const out = base.map((x) => normalizarFolioTrp(x)).filter(Boolean);
+  const out = parseFoliosLista(raw).map((x) => normalizarFolioTrp(x)).filter(Boolean);
   return [...new Set(out)];
 }
 
@@ -85,21 +68,6 @@ function totalTraspasoLineas(lineas, campo = 'precio') {
       return a + val * qty;
     }, 0),
   );
-}
-
-/** Evita `.ilike` sobre uuid (rompe PostgREST y puede tumbar la app en algunas tiendas). */
-async function buscarComprasPorPrefijoId(supabase, sucursalId, pref) {
-  const p = String(pref || '').trim().toLowerCase();
-  if (!p) return { ok: true, matches: [] };
-  const { data, error } = await supabase
-    .from('compras')
-    .select('id,total,estado,proveedores(nombre),created_at')
-    .eq('sucursal_id', sucursalId)
-    .order('created_at', { ascending: false })
-    .limit(500);
-  if (error) return { ok: false, error: error.message };
-  const matches = (data || []).filter((c) => String(c.id).toLowerCase().startsWith(p));
-  return { ok: true, matches };
 }
 
 export const AVISO_FALTA_CORTES =
@@ -228,199 +196,7 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
   // Gastos de corte: sin aprobación. Solo vales y préstamos (otros módulos) requieren admin.
   const estadoAprobacion = 'aprobado';
 
-  // Seguridad para PROVEEDORES Smoking (Abarrotes): exigir folios del ticket de inventario
-  // y bloquear gastos fantasma/duplicados cuando:
-  // - el folio no existe como compra “recibida”
-  // - la suma de totales no coincide con el monto del gasto
-  // - el folio ya se usó antes en otro gasto Smoking
   let comentarioFinal = String(gasto.comentario || '');
-  const esCatProveedor = catUpper.includes('PROVEEDOR');
-  const esSmoking =
-    String(modulo || '').toLowerCase() === 'abarrotes' &&
-    esCatProveedor &&
-    esProveedorSmokingGasto(gasto);
-  let foliosInventario = esSmoking
-    ? parseFoliosInventario(gasto.folios_inventario || gasto.foliosInventario)
-    : [];
-
-  if (esSmoking) {
-    if (!foliosInventario.length) {
-      return {
-        ok: false,
-        error:
-          'Smoking requiere Folio(s) del ticket de inventario.\n\n' +
-          'En Supabase/Compras ese folio es el ID de la recepción (estado “recibida”).\n' +
-          'Ve a la app: Compras → Historial y usa el ID del ticket.',
-      };
-    }
-
-    if (supabase) {
-      const sid = sucursal || 'MAIN';
-      // 1) Validar que los folios existan como recibida y sumen el monto exacto.
-      // Soportamos 2 formatos de entrada:
-      // - UUID completo de compras.id (ideal)
-      // - prefijo (ej. solo números) del UUID, para evitar el error “invalid input syntax for type uuid”.
-
-      const foliosInput = [...foliosInventario];
-      const foliosUuid = foliosInput.filter((x) => esUuidLike(x));
-      const foliosPrefijos = foliosInput.filter((x) => !esUuidLike(x));
-
-      // Primer intento: UUIDs completos.
-      const comprasById = new Map();
-      if (foliosUuid.length) {
-        const { data: compras, error: eCompras } = await supabase
-          .from('compras')
-          .select('id,total,estado,proveedores(nombre)')
-          .eq('sucursal_id', sid)
-          .in('id', foliosUuid);
-        if (eCompras) return { ok: false, error: eCompras.message };
-        for (const c of compras || []) comprasById.set(String(c.id), c);
-      }
-
-      // Segundo intento: prefijos del UUID (sin ilike sobre uuid — evita errores PostgREST).
-      for (const pref of foliosPrefijos) {
-        const rPref = await buscarComprasPorPrefijoId(supabase, sid, pref);
-        if (!rPref.ok) {
-          return {
-            ok: false,
-            error:
-              `No se pudo resolver el folio “${pref}”.\n\n` +
-              `Mensaje técnico: ${rPref.error}\n\n` +
-              'Si estás copiando de un ticket impreso, usa el UUID completo (incluye guiones) de Compras → Historial.',
-          };
-        }
-        const matches = rPref.matches || [];
-        if (!matches.length) {
-          return {
-            ok: false,
-            error:
-              'No se encontraron folios de inventario en Compras.\n\n' +
-              `No resolvió el prefijo: ${pref}\n\n` +
-              'Ve a Compras → Historial y copia el UUID completo de la compra (id).',
-          };
-        }
-        const unique = matches.length === 1 ? matches[0] : null;
-        if (!unique) {
-          return {
-            ok: false,
-            error:
-              'El prefijo del folio es ambiguo (coincide con más de un UUID).\n\n' +
-              `Prefijo: ${pref}\n\n` +
-              'Copia el UUID completo de la compra para evitar duplicados/fantasmas.',
-          };
-        }
-        comprasById.set(String(unique.id), unique);
-      }
-
-      // Canonical: convertimos entradas (UUID o prefijo) a UUID real (compras.id).
-      const foliosCanon = foliosInput.map((x) => {
-        if (esUuidLike(x)) return String(x);
-        // Prefijo: buscamos la coincidencia única que ya resolvimos a comprasById.
-        const found = [...comprasById.keys()].find((id) => String(id).startsWith(String(x)));
-        return found || String(x);
-      });
-
-      // Validar existencia tras resolución.
-      const missing = foliosCanon.filter((id) => !comprasById.has(String(id)));
-      if (missing.length) {
-        return {
-          ok: false,
-          error:
-            'No se encontraron folios de inventario en Compras.\n\n' +
-            `Faltan: ${missing.join(', ')}\n\n` +
-            'Ve a Compras → Historial (estado “recibida”) para obtener los IDs del ticket.',
-        };
-      }
-
-      foliosInventario = foliosCanon;
-
-      const noRecibida = foliosInventario.filter((id) => {
-        const c = comprasById.get(String(id));
-        return String(c?.estado || '').toLowerCase() !== 'recibida';
-      });
-      if (noRecibida.length) {
-        return {
-          ok: false,
-          error:
-            'Algunos folios no están como “recibida” en Compras.\n\n' +
-            `Revisa: ${noRecibida.join(', ')}\n\n` +
-            'Solo los tickets recibidos/inventario-aplicado pueden usarse para generar el gasto.',
-        };
-      }
-
-      for (const id of foliosInventario) {
-        const c = comprasById.get(String(id));
-        const nombreProv = c?.proveedores?.nombre || '';
-        const k = normalizarNombreProveedorClave(nombreProv);
-        if (!/(SMOKING|MARLBORO|CIGARR|CIGARRO)/.test(k)) {
-          return {
-            ok: false,
-            error:
-              'El folio no corresponde a un proveedor Smoking (según Compras).\n\n' +
-              `Folio ${id} · proveedor: ${nombreProv}\n\n` +
-              'Captura el/los folios del proveedor correcto (compras recibidas).',
-          };
-        }
-      }
-
-      const montoGasto = round2(Number(gasto.monto) || 0);
-      const sumTickets = round2(
-        foliosInventario.reduce((a, id) => a + (Number(comprasById.get(String(id))?.total) || 0), 0),
-      );
-
-      if (Math.abs(sumTickets - montoGasto) > 0.01) {
-        return {
-          ok: false,
-          error:
-            'Folio(s) incompletos o monto no coincide.\n\n' +
-            `Los folios ingresados suman ${fmtMonto(sumTickets)} y el gasto es ${fmtMonto(montoGasto)}.\n\n` +
-            'Si el ingreso fue parcial, captura todos los folios involucrados hasta que la suma coincida.',
-        };
-      }
-
-      // 2) Duplicados: el mismo folio no debe usarse en otro gasto Smoking.
-      const { data: gastosPrevios, error: ePrev } = await supabase
-        .from('cortes_contabilidad_gastos')
-        .select('id,comentario')
-        .eq('sucursal_id', sid)
-        .eq('modulo', modulo)
-        .ilike('categoria', '%PROVEEDOR%')
-        .ilike('comentario', `%${MARKER_TICKET_INV}%`)
-        .limit(2000);
-
-      if (ePrev) return { ok: false, error: ePrev.message };
-
-      const foliosUsados = new Map(); // folio -> gastoId
-      for (const g of gastosPrevios || []) {
-        const str = String(g?.comentario || '');
-        const up = str.toUpperCase();
-        const idx = up.indexOf(MARKER_TICKET_INV);
-        if (idx < 0) continue;
-        const rest = str.slice(idx + MARKER_TICKET_INV.length);
-        const usados = parseFoliosInventario(rest);
-        for (const f of usados) if (!foliosUsados.has(f)) foliosUsados.set(f, g.id);
-      }
-
-      const repetidos = foliosInventario.filter((id) => foliosUsados.has(String(id)));
-      if (repetidos.length) {
-        const first = foliosUsados.get(String(repetidos[0]));
-        return {
-          ok: false,
-          error:
-            'Folio(s) ya usados en un gasto Smoking anterior.\n\n' +
-            `Repite: ${repetidos.join(', ')}\n` +
-            (first ? `Gasto existente: ${first}\n\n` : '\n\n') +
-            'No se puede generar el gasto duplicado para evitar “fantasmas”.',
-        };
-      }
-    }
-
-    // Marca el comentario para auditoría y para que duplicados se detecten incluso sin columnas nuevas.
-    const markerTxt = `${MARKER_TICKET_INV}${foliosInventario.join(',')}`;
-    comentarioFinal = comentarioFinal.trim()
-      ? `${comentarioFinal.trim()} · ${markerTxt}`.toUpperCase()
-      : markerTxt.toUpperCase();
-  }
 
   // Traspaso (Abarrotes): exigir folio trp-XXXX del módulo Productos → Traspasos.
   const esTraspaso =

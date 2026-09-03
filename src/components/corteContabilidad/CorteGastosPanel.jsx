@@ -35,11 +35,6 @@ function normalizarParaTokens(txt) {
     .trim();
 }
 
-function esProveedorSmokingTxt(txt) {
-  const k = normalizarParaTokens(txt);
-  return /(SMOKING|MARLBORO|CIGARR|CIGARRO)/.test(k);
-}
-
 function esGastoTraspasoTxt(txt) {
   const k = normalizarParaTokens(txt);
   return k.includes('TRASPASO') || k.includes('ENVIO MAIN');
@@ -48,7 +43,7 @@ function esGastoTraspasoTxt(txt) {
 function normalizarFolioTrpInput(raw) {
   const s = String(raw || '').trim().toLowerCase().replace(/\s+/g, '');
   if (!s) return '';
-  const m = s.match(/^trp-?(\d+)$/i) || ( /^\d+$/.test(s) ? [null, s] : null );
+  const m = s.match(/^trp-?(\d+)$/i) || (/^\d+$/.test(s) ? [null, s] : null);
   if (m) {
     const digits = m[1];
     const ancho = digits.length <= 4 ? 4 : digits.length;
@@ -58,18 +53,13 @@ function normalizarFolioTrpInput(raw) {
 }
 
 function parseFoliosTraspasoInput(raw) {
-  return parseFoliosInventario(raw).map((x) => normalizarFolioTrpInput(x)).filter(Boolean);
-}
-
-function parseFoliosInventario(raw) {
   const s = String(raw || '');
   return s
     .split(/[\s,;\n]+/g)
     .map((x) => String(x || '').trim())
     .filter(Boolean)
-    // Mantén formato original (si lleva guiones/ceros) pero normaliza espacios
-    .map((x) => x.replace(/\s+/g, ''))
-    // Evita duplicados
+    .map((x) => normalizarFolioTrpInput(x.replace(/\s+/g, '')))
+    .filter(Boolean)
     .filter((x, i, arr) => arr.indexOf(x) === i);
 }
 
@@ -93,7 +83,6 @@ export default function CorteGastosPanel({
   const [sub, setSub] = useState('');
   const [monto, setMonto] = useState('');
   const [comentario, setComentario] = useState('');
-  const [foliosInventario, setFoliosInventario] = useState('');
   const [folioTraspaso, setFolioTraspaso] = useState('');
   const [usuarioId, setUsuarioId] = useState('');
   const [mostrarCat, setMostrarCat] = useState(false);
@@ -170,8 +159,6 @@ export default function CorteGastosPanel({
     ? [cat || null, empSeleccionado?.nombre || 'Empleado', sub || null].filter(Boolean).join(' · ')
     : [cat || null, sub || null].filter(Boolean).join(' · ');
 
-  const esCatProveedor = String(cat || '').toUpperCase().includes('PROVEEDOR');
-  const esSmokingProveedor = esCatProveedor && esProveedorSmokingTxt(`${sub} ${comentario}`);
   const esGastoTraspaso =
     String(modulo || '').toLowerCase() === 'abarrotes' && esGastoTraspasoTxt(`${cat} ${sub} ${comentario}`);
 
@@ -206,16 +193,6 @@ export default function CorteGastosPanel({
     if (requiereEmpleado && !usuarioId) {
       return alert('Selecciona el empleado a quien se descontará el consumo en nómina.');
     }
-    if (esSmokingProveedor) {
-      const folios = parseFoliosInventario(foliosInventario);
-      if (!folios.length) {
-        return alert(
-          'Smoking requiere Folio(s) del ticket de inventario.\n\n' +
-            'Ve a Compras → Historial, busca el proveedor Smoking (estado “recibida”) y usa el ID del ticket.\n' +
-            'Si fue parcial, captura varios folios separados por coma hasta que el total coincida con el monto del gasto.',
-        );
-      }
-    }
     if (esGastoTraspaso) {
       const folios = parseFoliosTraspasoInput(folioTraspaso);
       if (!folios.length) {
@@ -227,7 +204,7 @@ export default function CorteGastosPanel({
     }
     const authTxt = await asegurarCamposSinReservadoOPin(
       supabase,
-      [cat, sub, comentario, folioTraspaso, foliosInventario],
+      [cat, sub, comentario, folioTraspaso],
       { user, sucursal },
     );
     if (!authTxt.ok) return alert(authTxt.error);
@@ -243,7 +220,6 @@ export default function CorteGastosPanel({
         comentario: comentario.trim().toUpperCase(),
         usuario_id: requiereEmpleado && uid && !uid.startsWith('indirect:') ? uid : null,
         usuario_nombre: emp?.nombre || '',
-        folios_inventario: esSmokingProveedor ? parseFoliosInventario(foliosInventario) : [],
         folio_traspaso: esGastoTraspaso ? parseFoliosTraspasoInput(folioTraspaso) : [],
       });
       if (res && res.ok === false) return;
@@ -252,7 +228,6 @@ export default function CorteGastosPanel({
     }
     setMonto('');
     setComentario('');
-    setFoliosInventario('');
     setFolioTraspaso('');
     if (!requiereEmpleado) setUsuarioId('');
   };
@@ -546,20 +521,6 @@ export default function CorteGastosPanel({
               <strong>indirecto</strong> (MAIN). Los administradores no aparecen aquí.
             </p>
           ) : null}
-          {esSmokingProveedor && (
-            <div style={{ marginBottom: '0.75rem' }}>
-              <label className="muted" style={{ display: 'block', fontSize: '0.78rem', marginBottom: '0.25rem' }}>
-                Folio(s) del ticket de inventario (Compras) · Smoking
-              </label>
-              <input
-                className="input"
-                style={{ width: '100%' }}
-                placeholder="Ej. UUID completo o prefijo del ticket Compras"
-                value={foliosInventario}
-                onChange={(e) => setFoliosInventario(e.target.value)}
-              />
-            </div>
-          )}
           {esGastoTraspaso && (
             <div style={{ marginBottom: '0.75rem' }}>
               <label className="muted" style={{ display: 'block', fontSize: '0.78rem', marginBottom: '0.25rem' }}>
