@@ -491,6 +491,261 @@ export async function cancelarTraspaso(supabase, { traspasoId, usuario } = {}) {
   return upsertTraspaso(supabase, updated);
 }
 
+function normalizarLineasTraspaso(lineas) {
+  const arr = Array.isArray(lineas) ? lineas : [];
+  // Normaliza para stock/edición: producto_id + cantidad + (precio/costo opcionales).
+  const out = arr
+    .map((l) => ({
+      producto_id: String(l?.producto_id || l?.id || '').trim(),
+      nombre: String(l?.nombre || l?.producto_nombre || l?.producto || '').trim(),
+      cantidad: Math.floor(Number(l?.cantidad) || 0),
+      precio: Number(l?.precio) || 0,
+      costo: Number(l?.costo) || 0,
+    }))
+    .filter((l) => l.producto_id && l.cantidad > 0);
+
+  // Evita duplicados sumando cantidades por producto_id.
+  const map = new Map();
+  for (const l of out) {
+    const prev = map.get(l.producto_id);
+    if (!prev) map.set(l.producto_id, l);
+    else map.set(l.producto_id, { ...prev, cantidad: prev.cantidad + l.cantidad });
+  }
+  return [...map.values()];
+}
+
+function mapCantidadesPorProducto(lineas) {
+  const map = new Map();
+  for (const l of normalizarLineasTraspaso(lineas)) {
+    map.set(l.producto_id, (map.get(l.producto_id) || 0) + l.cantidad);
+  }
+  return map;
+}
+
+async function aplicarOperacionesStockAdmin(supabase, operations = []) {
+  if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
+  const applied = [];
+  for (const op of operations) {
+    const r = await aplicarDeltaProductoVerificado(supabase, {
+      productoId: op.producto_id,
+      sucursal: op.sucursal,
+      ubicacion: op.ubicacion,
+      delta: op.delta,
+    });
+    if (!r.ok) {
+      await revertirDeltasAtomicos(supabase, applied);
+      return { ok: false, error: r.error || 'No se pudo ajustar stock.' };
+    }
+    applied.push({
+      producto_id: op.producto_id,
+      revertDelta: r.revertDelta,
+      revertSucursal: r.revertSucursal,
+      revertUbicacion: r.revertUbicacion,
+    });
+  }
+  return { ok: true };
+}
+
+async function cargarDocTraspaso(supabase, traspasoId) {
+  let doc = null;
+  if (supabase) {
+    const { data, error } = await supabase.from('inventario_traspasos').select('*').eq('id', traspasoId).maybeSingle();
+    if (!error) doc = data;
+    else if (!faltaTabla(error)) throw new Error(error.message || String(error));
+  }
+  if (!doc) doc = leerLocal().find((t) => t.id === traspasoId);
+  return doc || null;
+}
+
+/**
+ * Admin: cancela (revertiendo stock si el envío ya fue enviado/recibido).
+ */
+export async function cancelarTraspasoAdmin(supabase, { traspasoId, usuario } = {}) {
+  const doc = await cargarDocTraspaso(supabase, traspasoId);
+  if (!doc) return { ok: false, error: 'No encontrado.' };
+
+  if (doc.tipo === 'envio' && (doc.estado === 'enviado' || doc.estado === 'recibido')) {
+    if (!supabase) {
+      return {
+        ok: false,
+        error: 'Para cancelar envíos con impacto en stock se requiere Supabase.',
+      };
+    }
+    const oldMap = mapCantidadesPorProducto(doc.lineas);
+    const operations = [];
+    for (const [producto_id, qty] of oldMap.entries()) {
+      // En “enviado” ya se descontó del origen.
+      if (doc.estado === 'enviado') {
+        operations.push({
+          producto_id,
+          sucursal: doc.origen_id,
+          ubicacion: doc.ubicacion_origen,
+          delta: qty, // regresar
+        });
+      }
+      // En “recibido” ya se descontó del origen y se sumó en destino.
+      if (doc.estado === 'recibido') {
+        operations.push({
+          producto_id,
+          sucursal: doc.origen_id,
+          ubicacion: doc.ubicacion_origen,
+          delta: qty, // regresar
+        });
+        operations.push({
+          producto_id,
+          sucursal: doc.destino_id,
+          ubicacion: doc.ubicacion_destino,
+          delta: -qty, // quitar lo agregado en destino
+        });
+      }
+    }
+    const r = await aplicarOperacionesStockAdmin(supabase, operations);
+    if (!r.ok) return r;
+  }
+
+  const updated = {
+    ...doc,
+    estado: 'cancelado',
+    notas: `${doc.notas || ''} · canceló ${usuario || ''}`.trim(),
+  };
+  return upsertTraspaso(supabase, updated);
+}
+
+/**
+ * Admin: elimina (revirtiendo stock si el envío ya afectó inventario).
+ */
+export async function eliminarTraspasoAdmin(supabase, { traspasoId, usuario } = {}) {
+  const doc = await cargarDocTraspaso(supabase, traspasoId);
+  if (!doc) return { ok: false, error: 'No encontrado.' };
+
+  if (doc.tipo === 'envio' && (doc.estado === 'enviado' || doc.estado === 'recibido')) {
+    if (!supabase) {
+      return {
+        ok: false,
+        error: 'Para eliminar envíos con impacto en stock se requiere Supabase.',
+      };
+    }
+    const oldMap = mapCantidadesPorProducto(doc.lineas);
+    const operations = [];
+    for (const [producto_id, qty] of oldMap.entries()) {
+      if (doc.estado === 'enviado') {
+        operations.push({
+          producto_id,
+          sucursal: doc.origen_id,
+          ubicacion: doc.ubicacion_origen,
+          delta: qty,
+        });
+      }
+      if (doc.estado === 'recibido') {
+        operations.push({
+          producto_id,
+          sucursal: doc.origen_id,
+          ubicacion: doc.ubicacion_origen,
+          delta: qty,
+        });
+        operations.push({
+          producto_id,
+          sucursal: doc.destino_id,
+          ubicacion: doc.ubicacion_destino,
+          delta: -qty,
+        });
+      }
+    }
+    const r = await aplicarOperacionesStockAdmin(supabase, operations);
+    if (!r.ok) return r;
+  }
+
+  // Nube.
+  if (supabase) {
+    const { error } = await supabase.from('inventario_traspasos').delete().eq('id', traspasoId);
+    if (error && !faltaTabla(error)) return { ok: false, error: error.message };
+  }
+  // Local.
+  const list = leerLocal().filter((t) => t.id !== traspasoId);
+  guardarLocal(list);
+
+  return { ok: true, mensaje: `Eliminado por admin${usuario ? ` (${usuario})` : ''}.` };
+}
+
+/**
+ * Admin: edita solicitud/envío, ajustando stock si el envío ya fue enviado/recibido.
+ */
+export async function editarTraspasoAdmin(supabase, { traspasoId, usuario, lineas = [], notas } = {}) {
+  const doc = await cargarDocTraspaso(supabase, traspasoId);
+  if (!doc) return { ok: false, error: 'No encontrado.' };
+
+  const nuevasLineas = normalizarLineasTraspaso(lineas);
+  if (!nuevasLineas.length) return { ok: false, error: 'La edición requiere al menos un producto.' };
+
+  if (doc.tipo === 'envio' && (doc.estado === 'enviado' || doc.estado === 'recibido')) {
+    if (!supabase) return { ok: false, error: 'Para editar envíos con impacto en stock se requiere Supabase.' };
+
+    const oldMap = mapCantidadesPorProducto(doc.lineas);
+    const newMap = mapCantidadesPorProducto(nuevasLineas);
+    const ids = new Set([...oldMap.keys(), ...newMap.keys()]);
+
+    const operations = [];
+    for (const producto_id of ids) {
+      const oldQty = oldMap.get(producto_id) || 0;
+      const newQty = newMap.get(producto_id) || 0;
+
+      // “enviado”: solo hubo impacto en origen (stock -old → stock -new => aplicar old - new).
+      if (doc.estado === 'enviado') {
+        const deltaOrigen = oldQty - newQty;
+        if (deltaOrigen !== 0) {
+          operations.push({
+            producto_id,
+            sucursal: doc.origen_id,
+            ubicacion: doc.ubicacion_origen,
+            delta: deltaOrigen,
+          });
+        }
+      }
+
+      // “recibido”: hubo impacto en origen y destino:
+      // - origen: stock -old → stock -new  => aplicar old - new
+      // - destino: stock +old → stock +new => aplicar new - old
+      if (doc.estado === 'recibido') {
+        const deltaOrigen = oldQty - newQty;
+        const deltaDestino = newQty - oldQty;
+        if (deltaOrigen !== 0) {
+          operations.push({
+            producto_id,
+            sucursal: doc.origen_id,
+            ubicacion: doc.ubicacion_origen,
+            delta: deltaOrigen,
+          });
+        }
+        if (deltaDestino !== 0) {
+          operations.push({
+            producto_id,
+            sucursal: doc.destino_id,
+            ubicacion: doc.ubicacion_destino,
+            delta: deltaDestino,
+          });
+        }
+      }
+    }
+
+    const r = await aplicarOperacionesStockAdmin(supabase, operations);
+    if (!r.ok) return r;
+  }
+
+  const notasFinal = String(notas ?? '').trim();
+  const updatedNotas = notasFinal
+    ? `${(doc.notas || '').trim()}${doc.notas ? ' · ' : ''}${notasFinal}${usuario ? ` · editó ${usuario}` : ''}`.trim()
+    : usuario
+      ? `${(doc.notas || '').trim()}${doc.notas ? ' · ' : ''}editó ${usuario}`.trim()
+      : doc.notas;
+
+  const updated = {
+    ...doc,
+    lineas: nuevasLineas,
+    notas: updatedNotas || null,
+  };
+  return upsertTraspaso(supabase, updated);
+}
+
 export function stockOrigenDisponible(producto, origenId) {
   const o = normalizarCodigoTienda(origenId);
   const ubi = esAlmacenCentral(o) ? 'cedis' : 'piso';

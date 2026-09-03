@@ -12,6 +12,9 @@ import {
   crearSolicitudTraspaso,
   destinosPermitidosPara,
   enviarTraspaso,
+  cancelarTraspasoAdmin,
+  eliminarTraspasoAdmin,
+  editarTraspasoAdmin,
   etiquetaOrigenTraspaso,
   filtrarMisSolicitudes,
   filtrarParaRecibir,
@@ -21,6 +24,7 @@ import {
   stockDestinoDisponible,
   stockOrigenDisponible,
 } from '../lib/traspasosInventario.js';
+import { normalizarRol } from '../lib/roles.js';
 
 const TABS = [
   { id: 'enviar', label: 'Enviar productos', icon: 'truck' },
@@ -78,6 +82,8 @@ export default function Traspasos({
   const sucursalOp = normalizarCodigoTienda(sucursal) || 'MAIN';
   const enCentral = esAlmacenCentral(sucursalOp);
   const usuario = user?.nombre || user?.email || '—';
+  const rol = normalizarRol(user?.rol);
+  const esAdmin = rol === 'Administrador';
 
   const [tab, setTab] = useState(enCentral ? 'enviar' : 'recibir');
   const [lista, setLista] = useState([]);
@@ -96,6 +102,9 @@ export default function Traspasos({
   const [notas, setNotas] = useState('');
   const [solicitudOrigen, setSolicitudOrigen] = useState(null);
   const [detalleRecibir, setDetalleRecibir] = useState(null);
+  const [adminEditarDoc, setAdminEditarDoc] = useState(null);
+  const [adminLineas, setAdminLineas] = useState([]);
+  const [adminNotas, setAdminNotas] = useState('');
 
   const destinos = useMemo(() => destinosPermitidosPara(sucursalOp), [sucursalOp]);
   // Para solicitar: origen = quien debe enviarme (MAIN u otra sucursal)
@@ -143,6 +152,27 @@ export default function Traspasos({
     setNotas('');
     setSolicitudOrigen(null);
     setModoFlujo('envio');
+  };
+
+  const abrirAdminEdicion = (doc) => {
+    setAdminEditarDoc(doc);
+    setAdminNotas(doc.notas || '');
+    const lineas = (doc.lineas || [])
+      .map((l) => ({
+        producto_id: String(l.producto_id || l.id || '').trim(),
+        nombre: String(l.nombre || l.producto_nombre || l.producto || '').trim() || String(l.producto_id || l.id || ''),
+        cantidad: Math.max(1, Math.floor(Number(l.cantidad) || 0)),
+        precio: Number(l.precio) || 0,
+        costo: Number(l.costo) || 0,
+      }))
+      .filter((l) => l.producto_id && l.cantidad > 0);
+    setAdminLineas(lineas);
+  };
+
+  const cerrarAdminEdicion = () => {
+    setAdminEditarDoc(null);
+    setAdminLineas([]);
+    setAdminNotas('');
   };
 
   const abrirNuevoEnvio = () => {
@@ -204,6 +234,63 @@ export default function Traspasos({
     ]);
     setBusqueda('');
     setCodigo('');
+  };
+
+  const confirmarAccionAdmin = (doc, accion) => {
+    if (!doc) return false;
+    if (accion === 'editar') return true;
+    const tipoTxt = doc.tipo === 'solicitud' ? 'solicitud' : 'envío';
+    const estadoTxt = doc.estado ? ` (${doc.estado})` : '';
+    const impactoStock =
+      doc.tipo === 'envio' && (doc.estado === 'enviado' || doc.estado === 'recibido')
+        ? ' Se revertirá/ajustará el stock.'
+        : '';
+    if (accion === 'cancelar') {
+      return window.confirm(`¿Cancelar ${tipoTxt} ${doc.folio}?${estadoTxt}.${impactoStock}`);
+    }
+    if (accion === 'eliminar') {
+      return window.confirm(`¿Eliminar ${tipoTxt} ${doc.folio}?${estadoTxt}.${impactoStock} Esta acción no se puede deshacer.`);
+    }
+    return false;
+  };
+
+  const adminCancelar = async (doc) => {
+    if (!confirmarAccionAdmin(doc, 'cancelar')) return;
+    setBusy(true);
+    const r = await cancelarTraspasoAdmin(supabase, { traspasoId: doc.id, usuario });
+    setBusy(false);
+    if (!r.ok) return alert(r.error || 'Error al cancelar');
+    await reload();
+    if (adminEditarDoc?.id === doc.id) cerrarAdminEdicion();
+    alert('Cancelado.');
+  };
+
+  const adminEliminar = async (doc) => {
+    if (!confirmarAccionAdmin(doc, 'eliminar')) return;
+    setBusy(true);
+    const r = await eliminarTraspasoAdmin(supabase, { traspasoId: doc.id, usuario });
+    setBusy(false);
+    if (!r.ok) return alert(r.error || 'Error al eliminar');
+    await reload();
+    if (adminEditarDoc?.id === doc.id) cerrarAdminEdicion();
+    alert(r.mensaje || 'Eliminado.');
+  };
+
+  const adminGuardarEdicion = async () => {
+    if (!adminEditarDoc) return;
+    if (!adminLineas.length) return alert('La edición requiere al menos un producto.');
+    setBusy(true);
+    const r = await editarTraspasoAdmin(supabase, {
+      traspasoId: adminEditarDoc.id,
+      usuario,
+      lineas: adminLineas,
+      notas: adminNotas,
+    });
+    setBusy(false);
+    if (!r.ok) return alert(r.error || 'Error al editar');
+    await reload();
+    cerrarAdminEdicion();
+    alert('Editado.');
   };
 
   const procesarEscaneo = (raw) => {
@@ -610,6 +697,127 @@ export default function Traspasos({
     );
   }
 
+  if (adminEditarDoc) {
+    const doc = adminEditarDoc;
+    const res = resumenPiezas(adminLineas);
+    const mostrarImpacto =
+      doc.tipo === 'envio' && (doc.estado === 'enviado' || doc.estado === 'recibido');
+    return (
+      <div className="trp-shell trp-shell-wide">
+        <header className="trp-header">
+          <button type="button" className="trp-icon-btn" onClick={cerrarAdminEdicion} aria-label="Volver">
+            <Icon name="x" size={22} />
+          </button>
+          <h2>Editar {doc.folio}</h2>
+          <span style={{ width: 40 }} />
+        </header>
+
+        <div className="trp-body trp-editor">
+          <p className="muted" style={{ marginTop: 0 }}>
+            {doc.tipo === 'solicitud' ? 'Solicitud' : 'Envío'} · {doc.estado}
+          </p>
+          <p className="muted">
+            De <strong>{etiquetaOrigenTraspaso(doc.origen_id)}</strong> → {etiquetaOrigenTraspaso(doc.destino_id)}
+          </p>
+          {mostrarImpacto && (
+            <p className="trp-aviso" style={{ marginTop: '0.9rem' }}>
+              Cambiar líneas ajustará el stock en inventario.
+            </p>
+          )}
+
+          <div style={{ marginTop: '1rem', marginBottom: '0.75rem' }}>
+            <label className="muted" style={{ display: 'block' }}>
+              Notas
+              <input
+                className="input"
+                style={{ marginTop: 4 }}
+                value={adminNotas}
+                onChange={(e) => setAdminNotas(e.target.value)}
+                placeholder="Opcional"
+              />
+            </label>
+          </div>
+
+          <div className="trp-table-wrap trp-table-desktop">
+            <table className="trp-table">
+              <thead>
+                <tr>
+                  <th>Piezas</th>
+                  <th>Producto</th>
+                  <th>Precio</th>
+                  <th>Costo</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {adminLineas.map((l) => (
+                  <tr key={l.producto_id}>
+                    <td>
+                      <input
+                        className="input trp-qty"
+                        type="number"
+                        min={1}
+                        value={l.cantidad}
+                        onChange={(e) => {
+                          const v = Math.max(1, Math.floor(Number(e.target.value) || 1));
+                          setAdminLineas((prev) => prev.map((x) => (x.producto_id === l.producto_id ? { ...x, cantidad: v } : x)));
+                        }}
+                      />
+                    </td>
+                    <td>
+                      <strong>{l.nombre || l.producto_id}</strong>
+                      <div className="muted" style={{ fontSize: '0.75rem' }}>{l.producto_id}</div>
+                    </td>
+                    <td>{monetario(l.precio)}</td>
+                    <td>{monetario(l.costo)}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        aria-label="Quitar"
+                        onClick={() => setAdminLineas((prev) => prev.filter((x) => x.producto_id !== l.producto_id))}
+                      >
+                        <Icon name="trash" size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="trp-footer trp-footer-bar" style={{ marginTop: '1rem' }}>
+            <div className="trp-totals">
+              <span>
+                Productos: <strong>{res.productos}</strong>
+              </span>
+              <span className="trp-totales-piezas">
+                Piezas: <strong>{res.piezas}</strong>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <footer className="trp-footer">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem' }}>
+            <button type="button" className="trp-btn-green" disabled={busy || !adminLineas.length} onClick={adminGuardarEdicion}>
+              {busy ? 'Guardando…' : `GUARDAR · ${res.piezas} pza`}
+            </button>
+            <button
+              type="button"
+              className="trp-btn"
+              disabled={busy}
+              onClick={cerrarAdminEdicion}
+              style={{ background: 'rgba(59, 102, 181, 0.06)', border: '1px dashed rgba(59, 102, 181, 0.35)', color: 'var(--brand-blue)', borderRadius: 10 }}
+            >
+              Cancelar
+            </button>
+          </div>
+        </footer>
+      </div>
+    );
+  }
+
   if (detalleRecibir) {
     const doc = detalleRecibir;
     const res = resumenPiezas(doc.lineas);
@@ -685,6 +893,11 @@ export default function Traspasos({
   }
 
   // —— Hub principal ——
+  const tabs = [
+    ...TABS,
+    ...(esAdmin ? [{ id: 'administrar', label: 'Administrar', icon: 'settings' }] : []),
+  ];
+
   return (
     <div className="trp-shell">
       <header className="trp-header">
@@ -699,7 +912,7 @@ export default function Traspasos({
 
       <div className="trp-layout">
         <nav className="trp-sidebar">
-          {TABS.map((t) => {
+          {tabs.map((t) => {
             if (t.id === 'solicitar' && enCentral) return null;
             return (
               <button
@@ -795,6 +1008,83 @@ export default function Traspasos({
                       </button>
                     </li>
                   ))}
+                </ul>
+              )}
+            </>
+          )}
+
+          {tab === 'administrar' && esAdmin && (
+            <>
+              <div className="trp-section-head">
+                <p className="trp-section-label" style={{ margin: 0 }}>
+                  GESTIÓN DE TRASPASOS
+                </p>
+                <button type="button" className="trp-icon-btn trp-icon-btn-sm" onClick={() => void reload()} aria-label="Actualizar">
+                  <Icon name="refresh" size={18} style={{ color: 'var(--brand-blue)' }} />
+                </button>
+              </div>
+
+              {lista.length === 0 ? (
+                <EmptyFolder texto="No hay traspasos para este equipo/sucursal." />
+              ) : (
+                <ul className="trp-list">
+                  {lista.map((d) => {
+                    const esCancelado = d.estado === 'cancelado' || d.estado === 'rechazado';
+                    const esEnvio = d.tipo === 'envio';
+                    const puedeEditar = true;
+                    const puedeCancelar = !esCancelado;
+                    const mostrarImpacto =
+                      esEnvio && (d.estado === 'enviado' || d.estado === 'recibido');
+                    return (
+                      <li key={d.id}>
+                        <div className="trp-list-item" style={{ cursor: 'default' }}>
+                          <div className="trp-list-item-body">
+                            <strong>{d.folio}</strong>
+                            <div className="muted">
+                              {d.tipo === 'solicitud' ? 'Solicitud' : 'Envío'} · {d.estado}
+                              {mostrarImpacto ? ' · stock' : ''}
+                            </div>
+                            <div className="trp-list-meta">{textoResumenLineas(d.lineas)}</div>
+                            <div className="muted" style={{ fontSize: '0.82rem' }}>
+                              De {etiquetaOrigenTraspaso(d.origen_id)} → {etiquetaOrigenTraspaso(d.destino_id)}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', gap: '0.45rem', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ fontSize: '0.75rem', padding: '0.25rem 0.45rem' }}
+                              disabled={!puedeEditar}
+                              onClick={() => abrirAdminEdicion(d)}
+                            >
+                              <Icon name="settings" size={14} /> Editar
+                            </button>
+                            {puedeCancelar && (
+                              <button
+                                type="button"
+                                className="btn btn-ghost"
+                                style={{ fontSize: '0.75rem', padding: '0.25rem 0.45rem', color: 'var(--brand-gold)' }}
+                                disabled={busy}
+                                onClick={() => void adminCancelar(d)}
+                              >
+                                <Icon name="x" size={14} /> Cancelar
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ fontSize: '0.75rem', padding: '0.25rem 0.45rem', color: 'var(--brand-red)' }}
+                              disabled={busy}
+                              onClick={() => void adminEliminar(d)}
+                            >
+                              <Icon name="trash" size={14} /> Eliminar
+                            </button>
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </>
