@@ -26,6 +26,32 @@ function contarReales(lista) {
   return (lista || []).filter((e) => e && !String(e.id).startsWith('indirect:')).length;
 }
 
+function normalizarParaTokens(txt) {
+  return String(txt || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .trim();
+}
+
+function esProveedorSmokingTxt(txt) {
+  const k = normalizarParaTokens(txt);
+  return /(SMOKING|MARLBORO|CIGARR|CIGARRO)/.test(k);
+}
+
+function parseFoliosInventario(raw) {
+  const s = String(raw || '');
+  return s
+    .split(/[\s,;\n]+/g)
+    .map((x) => String(x || '').trim())
+    .filter(Boolean)
+    // Mantén formato original (si lleva guiones/ceros) pero normaliza espacios
+    .map((x) => x.replace(/\s+/g, ''))
+    // Evita duplicados
+    .filter((x, i, arr) => arr.indexOf(x) === i);
+}
+
 export default function CorteGastosPanel({
   modulo,
   supabase,
@@ -46,6 +72,7 @@ export default function CorteGastosPanel({
   const [sub, setSub] = useState('');
   const [monto, setMonto] = useState('');
   const [comentario, setComentario] = useState('');
+  const [foliosInventario, setFoliosInventario] = useState('');
   const [usuarioId, setUsuarioId] = useState('');
   const [mostrarCat, setMostrarCat] = useState(false);
   const [usuariosRaw, setUsuariosRaw] = useState([]);
@@ -121,6 +148,9 @@ export default function CorteGastosPanel({
     ? [cat || null, empSeleccionado?.nombre || 'Empleado', sub || null].filter(Boolean).join(' · ')
     : [cat || null, sub || null].filter(Boolean).join(' · ');
 
+  const esCatProveedor = String(cat || '').toUpperCase().includes('PROVEEDOR');
+  const esSmokingProveedor = esCatProveedor && esProveedorSmokingTxt(`${sub} ${comentario}`);
+
   useEffect(() => {
     if (!habilitado || !catalogo.length) return;
     setCat((prev) => {
@@ -152,6 +182,16 @@ export default function CorteGastosPanel({
     if (requiereEmpleado && !usuarioId) {
       return alert('Selecciona el empleado a quien se descontará el consumo en nómina.');
     }
+    if (esSmokingProveedor) {
+      const folios = parseFoliosInventario(foliosInventario);
+      if (!folios.length) {
+        return alert(
+          'Smoking requiere Folio(s) del ticket de inventario.\n\n' +
+            'Ve a Compras → Historial, busca el proveedor Smoking (estado “recibida”) y usa el ID del ticket.\n' +
+            'Si fue parcial, captura varios folios separados por coma hasta que el total coincida con el monto del gasto.',
+        );
+      }
+    }
     const authTxt = await asegurarCamposSinReservadoOPin(
       supabase,
       [cat, sub, comentario],
@@ -169,9 +209,11 @@ export default function CorteGastosPanel({
       comentario: comentario.trim().toUpperCase(),
       usuario_id: requiereEmpleado && uid && !uid.startsWith('indirect:') ? uid : null,
       usuario_nombre: emp?.nombre || '',
+      folios_inventario: esSmokingProveedor ? parseFoliosInventario(foliosInventario) : [],
     });
     setMonto('');
     setComentario('');
+    setFoliosInventario('');
     if (!requiereEmpleado) setUsuarioId('');
   };
 
@@ -464,6 +506,20 @@ export default function CorteGastosPanel({
               <strong>indirecto</strong> (MAIN). Los administradores no aparecen aquí.
             </p>
           ) : null}
+          {esSmokingProveedor && (
+            <div style={{ marginBottom: '0.75rem' }}>
+              <label className="muted" style={{ display: 'block', fontSize: '0.78rem', marginBottom: '0.25rem' }}>
+                Folio(s) del ticket de inventario (Compras) · Smoking
+              </label>
+              <input
+                className="input"
+                style={{ width: '100%' }}
+                placeholder="Ej. 123, 124 (separados por coma)"
+                value={foliosInventario}
+                onChange={(e) => setFoliosInventario(e.target.value)}
+              />
+            </div>
+          )}
           <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
             <input
               className="input"
