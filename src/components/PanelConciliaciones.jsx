@@ -9,7 +9,10 @@ import {
   anularConciliacion,
   inicializarSeleccion,
   totalesSeleccion,
+  imprimirTicketCorteGasto,
   fmtMonto,
+  PROVEEDOR_CONCILIACION,
+  OPCIONES_ESTATUS_COBRO,
 } from '../lib/conciliacionesAbarrotes.js';
 import { fmtFechaCorta } from '../lib/fechas.js';
 import { fmtFechaHora } from '../lib/controlEfectivo.js';
@@ -87,16 +90,14 @@ function TablaMovs({ titulo, color, rows, sel, onSel, columnas }) {
   );
 }
 
-/** Panel principal de Conciliaciones Abarrotes. */
+/** Panel: Smoking (cortes) vs cobros Recolección del repartidor. */
 export default function PanelConciliaciones({ supabase, user }) {
   const [preset, setPreset] = useState('hoy');
   const [desde, setDesde] = useState(() => rangoDesdePreset('hoy')?.desde || '');
   const [hasta, setHasta] = useState(() => rangoDesdePreset('hoy')?.hasta || '');
   const [sucursal, setSucursal] = useState('');
   const [repartidorId, setRepartidorId] = useState('');
-  const [proveedorFiltro, setProveedorFiltro] = useState('');
-  const [incluirGastosRecolector, setIncluirGastosRecolector] = useState(true);
-  const [incluirEnTransito, setIncluirEnTransito] = useState(true);
+  const [filtroEstatus, setFiltroEstatus] = useState('pendientes');
 
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState(null);
@@ -106,6 +107,7 @@ export default function PanelConciliaciones({ supabase, user }) {
   const [selSal, setSelSal] = useState({});
   const [notas, setNotas] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [imprimiendoId, setImprimiendoId] = useState(null);
   const [historial, setHistorial] = useState([]);
   const [tab, setTab] = useState('conciliar');
 
@@ -136,9 +138,7 @@ export default function PanelConciliaciones({ supabase, user }) {
         hasta,
         sucursal: sucursal || null,
         repartidorId: repartidorId || null,
-        proveedorFiltro,
-        incluirGastosRecolector,
-        incluirEnTransito,
+        filtroEstatus,
       });
       if (!res.ok) {
         setError(res.error);
@@ -158,16 +158,7 @@ export default function PanelConciliaciones({ supabase, user }) {
     } finally {
       setCargando(false);
     }
-  }, [
-    supabase,
-    desde,
-    hasta,
-    sucursal,
-    repartidorId,
-    proveedorFiltro,
-    incluirGastosRecolector,
-    incluirEnTransito,
-  ]);
+  }, [supabase, desde, hasta, sucursal, repartidorId, filtroEstatus]);
 
   useEffect(() => {
     void cargar();
@@ -178,17 +169,34 @@ export default function PanelConciliaciones({ supabase, user }) {
     [datos, selEnt, selSal],
   );
 
+  const verTicket = async (row) => {
+    if (!row?.cierre_id && row?.corte_folio === 'ABIERTO') {
+      alert('Ese gasto Smoking aún está en un corte abierto: no hay ticket cerrado.');
+      return;
+    }
+    if (!row?.cierre_id) {
+      alert('No se encontró el ticket de corte ligado a este gasto.');
+      return;
+    }
+    setImprimiendoId(row.id);
+    const r = await imprimirTicketCorteGasto(supabase, { cierreId: row.cierre_id });
+    setImprimiendoId(null);
+    if (!r.ok) alert(r.error);
+  };
+
   const sellar = async () => {
     if (!tot.entradas.length && !tot.salidas.length) {
       alert('Selecciona movimientos para sellar.');
       return;
     }
+    const sinRec = datos?.tiendasSinRecoleccion?.length || 0;
     const msg =
-      `¿Sellar conciliación?\n\n` +
-      `Entradas (colectado): ${fmtMonto(tot.totalEntradas)}\n` +
-      `Salidas (proveedor/gastos): ${fmtMonto(tot.totalSalidas)}\n` +
-      `Diferencia: ${fmtMonto(tot.diferencia)}\n\n` +
-      `${tot.entradas.length} entradas · ${tot.salidas.length} salidas`;
+      `¿Sellar conciliación Smoking?\n\n` +
+      `Cobros recolección: ${fmtMonto(tot.totalEntradas)}\n` +
+      `Gastos Smoking (cortes): ${fmtMonto(tot.totalSalidas)}\n` +
+      `Diferencia: ${fmtMonto(tot.diferencia)}\n` +
+      (sinRec ? `Tiendas sin recolección anotada: ${sinRec}\n` : '') +
+      `\n${tot.entradas.length} cobros · ${tot.salidas.length} gastos Smoking`;
     if (!confirm(msg)) return;
     setGuardando(true);
     const r = await sellarConciliacion(supabase, {
@@ -196,12 +204,13 @@ export default function PanelConciliaciones({ supabase, user }) {
       hasta,
       sucursal: sucursal || null,
       repartidorId: repartidorId || null,
-      proveedorFiltro,
+      filtroEstatus,
       entradas: tot.entradas,
       salidas: tot.salidas,
       totalEntradas: tot.totalEntradas,
       totalSalidas: tot.totalSalidas,
       diferencia: tot.diferencia,
+      porTienda: datos?.porTienda || [],
       notas,
       user,
     });
@@ -227,7 +236,6 @@ export default function PanelConciliaciones({ supabase, user }) {
   const colsEntrada = [
     { key: 'ymd', label: 'Fecha', render: (r) => fmtFechaCorta(r.ymd) },
     { key: 'tienda', label: 'Tienda', render: (r) => etiquetaTienda(r.tienda) || r.tienda },
-    { key: 'etiqueta', label: 'Tipo' },
     { key: 'folio', label: 'Folio' },
     { key: 'repartidor', label: 'Repartidor' },
     { key: 'estatus', label: 'Estatus' },
@@ -237,10 +245,30 @@ export default function PanelConciliaciones({ supabase, user }) {
   const colsSalida = [
     { key: 'ymd', label: 'Fecha', render: (r) => fmtFechaCorta(r.ymd) },
     { key: 'tienda', label: 'Tienda', render: (r) => etiquetaTienda(r.tienda) || r.tienda },
-    { key: 'etiqueta', label: 'Tipo' },
-    { key: 'proveedor', label: 'Proveedor / detalle', render: (r) => r.proveedor || r.detalle || '—' },
-    { key: 'folio', label: 'Subcat / folio' },
+    { key: 'proveedor', label: 'Proveedor', render: (r) => r.proveedor || 'Smoking' },
+    {
+      key: 'corte_folio',
+      label: 'Ticket corte',
+      render: (r) => r.corte_folio || '—',
+    },
+    { key: 'detalle', label: 'Comentario', render: (r) => r.detalle || '—' },
     { key: 'monto', label: 'Monto', align: 'right', render: (r) => fmtMonto(r.monto) },
+    {
+      key: 'ticket',
+      label: 'Evidencia',
+      render: (r) => (
+        <button
+          type="button"
+          className="btn btn-ghost"
+          style={{ fontSize: '0.72rem', padding: '0.15rem 0.4rem' }}
+          disabled={imprimiendoId === r.id || (!r.cierre_id && r.corte_folio !== 'ABIERTO')}
+          onClick={() => void verTicket(r)}
+          title={r.cierre_id ? `Reimprimir ${r.corte_folio}` : 'Sin ticket ligado'}
+        >
+          {imprimiendoId === r.id ? '…' : r.cierre_id ? 'Ver ticket' : r.corte_folio === 'ABIERTO' ? 'Abierto' : 'Sin ticket'}
+        </button>
+      ),
+    },
   ];
 
   return (
@@ -264,7 +292,15 @@ export default function PanelConciliaciones({ supabase, user }) {
 
       {tab === 'conciliar' && (
         <>
-          <div className="card" style={{ padding: '0.9rem', display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+          <div
+            className="card"
+            style={{
+              padding: '0.9rem',
+              display: 'grid',
+              gap: '0.75rem',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+            }}
+          >
             <FiltroPeriodo
               preset={preset}
               onPresetChange={cambiarPreset}
@@ -276,7 +312,12 @@ export default function PanelConciliaciones({ supabase, user }) {
             />
             <label className="muted" style={{ display: 'block' }}>
               Tienda
-              <select className="select" style={{ marginTop: '0.35rem', width: '100%' }} value={sucursal} onChange={(e) => setSucursal(e.target.value)}>
+              <select
+                className="select"
+                style={{ marginTop: '0.35rem', width: '100%' }}
+                value={sucursal}
+                onChange={(e) => setSucursal(e.target.value)}
+              >
                 <option value="">Todas</option>
                 {tiendas.map((t) => (
                   <option key={t} value={t}>
@@ -300,33 +341,22 @@ export default function PanelConciliaciones({ supabase, user }) {
               </select>
             </label>
             <label className="muted" style={{ display: 'block' }}>
-              Proveedor (filtro salidas)
-              <input
-                className="input"
+              Estatus cobro (Recolecciones)
+              <select
+                className="select"
                 style={{ marginTop: '0.35rem', width: '100%' }}
-                list="conc-prov-list"
-                value={proveedorFiltro}
-                onChange={(e) => setProveedorFiltro(e.target.value)}
-                placeholder="Ej. cigarro, tecnología…"
-              />
-              <datalist id="conc-prov-list">
-                {(datos?.proveedoresCatalogo || []).map((p) => (
-                  <option key={p.id} value={p.nombre} />
+                value={filtroEstatus}
+                onChange={(e) => setFiltroEstatus(e.target.value)}
+              >
+                {OPCIONES_ESTATUS_COBRO.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
-                {(datos?.porProveedor || []).map((p) => (
-                  <option key={`pp-${p.nombre}`} value={p.nombre} />
-                ))}
-              </datalist>
+              </select>
             </label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', justifyContent: 'flex-end' }}>
-              <label style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', fontSize: '0.85rem' }}>
-                <input type="checkbox" checked={incluirEnTransito} onChange={(e) => setIncluirEnTransito(e.target.checked)} />
-                Incluir en tránsito
-              </label>
-              <label style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', fontSize: '0.85rem' }}>
-                <input type="checkbox" checked={incluirGastosRecolector} onChange={(e) => setIncluirGastosRecolector(e.target.checked)} />
-                Incluir gastos del recolector
-              </label>
+              <div className="muted" style={{ fontSize: '0.82rem' }}>
+                Proveedor fijo: <strong>{PROVEEDOR_CONCILIACION}</strong>
+              </div>
               <button type="button" className="btn btn-ghost" onClick={() => void cargar()} disabled={cargando}>
                 {cargando ? 'Cargando…' : 'Actualizar'}
               </button>
@@ -355,17 +385,21 @@ export default function PanelConciliaciones({ supabase, user }) {
                 }}
               >
                 <div>
-                  <div className="muted" style={{ fontSize: '0.75rem' }}>Colectado (entradas)</div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f766e' }}>{fmtMonto(tot.totalEntradas)}</div>
+                  <div className="muted" style={{ fontSize: '0.75rem' }}>Cobros recolección</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f766e' }}>
+                    {fmtMonto(tot.totalEntradas)}
+                  </div>
                   <div className="muted" style={{ fontSize: '0.72rem' }}>
-                    Rec {fmtMonto(datos.resumenEntradas.recoleccion)} · Créd. tienda {fmtMonto(datos.resumenEntradas.credito_tienda)} · Créd. ruta {fmtMonto(datos.resumenEntradas.credito_ruta)}
+                    {datos.resumenEntradas.count} mov. · {OPCIONES_ESTATUS_COBRO.find((o) => o.value === filtroEstatus)?.label}
                   </div>
                 </div>
                 <div>
-                  <div className="muted" style={{ fontSize: '0.75rem' }}>Pagado proveedor (salidas)</div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#b45309' }}>{fmtMonto(tot.totalSalidas)}</div>
+                  <div className="muted" style={{ fontSize: '0.75rem' }}>Gastos Smoking (cortes)</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#b45309' }}>
+                    {fmtMonto(tot.totalSalidas)}
+                  </div>
                   <div className="muted" style={{ fontSize: '0.72rem' }}>
-                    Proveedor {fmtMonto(datos.resumenSalidas.proveedor)} · Gasto recol. {fmtMonto(datos.resumenSalidas.gasto_recolector)}
+                    {datos.resumenSalidas.count} mov. · Corte Abarrotes
                   </div>
                 </div>
                 <div>
@@ -377,35 +411,125 @@ export default function PanelConciliaciones({ supabase, user }) {
                     {Math.abs(tot.diferencia) < 0.01
                       ? 'Cuadra'
                       : tot.diferencia > 0
-                        ? 'Sobra colectado vs compras'
-                        : 'Falta colectado vs compras'}
+                        ? 'Sobra cobrado vs Smoking'
+                        : 'Falta cobrado vs Smoking'}
                   </div>
                 </div>
               </div>
 
-              {datos.porProveedor?.length > 0 && (
-                <div className="card" style={{ padding: '0.75rem' }}>
-                  <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem', color: '#b5a642' }}>Pagos por proveedor</h4>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-                    {datos.porProveedor.slice(0, 12).map((p) => (
-                      <button
-                        key={p.nombre}
-                        type="button"
-                        className="btn btn-ghost"
-                        style={{ fontSize: '0.78rem', padding: '0.25rem 0.55rem' }}
-                        onClick={() => setProveedorFiltro(p.nombre)}
-                        title={`${p.count} pagos`}
-                      >
-                        {p.nombre}: <strong>{fmtMonto(p.total)}</strong>
-                      </button>
-                    ))}
+              {(datos.tiendasSinRecoleccion?.length > 0 || datos.tiendasConDiscrepancia?.length > 0) && (
+                <div
+                  className="card"
+                  style={{
+                    padding: '0.9rem',
+                    borderColor: datos.tiendasSinRecoleccion?.length ? '#b45309' : '#0f766e',
+                    background: datos.tiendasSinRecoleccion?.length ? '#fff7ed' : '#f0fdfa',
+                  }}
+                >
+                  <h3 style={{ margin: '0 0 0.35rem', fontSize: '0.95rem', color: '#92400e' }}>
+                    Dónde está la discrepancia
+                  </h3>
+                  <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.8rem' }}>
+                    Tiendas con gasto Smoking en corte pero <strong>sin recolección anotada</strong> en el
+                    estatus seleccionado, o con diferencia de montos.
+                  </p>
+
+                  {datos.tiendasSinRecoleccion?.length > 0 && (
+                    <div style={{ marginBottom: '0.75rem' }}>
+                      <div style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: '0.35rem', color: '#b45309' }}>
+                        Sin recolección anotada ({datos.tiendasSinRecoleccion.length})
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                        {datos.tiendasSinRecoleccion.map((t) => (
+                          <button
+                            key={`sin-${t.tienda}`}
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ fontSize: '0.78rem', padding: '0.3rem 0.55rem', borderColor: '#fdba74' }}
+                            onClick={() => setSucursal(t.tienda)}
+                            title={`${t.countSmoking} gasto(s) Smoking`}
+                          >
+                            {etiquetaTienda(t.tienda) || t.tienda}: Smoking <strong>{fmtMonto(t.smoking)}</strong>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ overflow: 'auto' }}>
+                    <table className="table" style={{ fontSize: '0.82rem', width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th>Tienda</th>
+                          <th style={{ textAlign: 'right' }}>Smoking</th>
+                          <th style={{ textAlign: 'right' }}>Cobros</th>
+                          <th style={{ textAlign: 'right' }}>Diff</th>
+                          <th>Estado</th>
+                          <th>Tickets</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(datos.porTienda || [])
+                          .filter((t) => t.sinRecoleccion || t.conDiscrepancia)
+                          .map((t) => (
+                            <tr key={t.tienda} style={t.sinRecoleccion ? { background: '#fff7ed' } : undefined}>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost"
+                                  style={{ fontSize: '0.78rem', padding: '0.1rem 0.35rem' }}
+                                  onClick={() => setSucursal(t.tienda)}
+                                >
+                                  {etiquetaTienda(t.tienda) || t.tienda}
+                                </button>
+                              </td>
+                              <td style={{ textAlign: 'right' }}>{fmtMonto(t.smoking)}</td>
+                              <td style={{ textAlign: 'right' }}>{fmtMonto(t.cobros)}</td>
+                              <td style={{ textAlign: 'right', color: colorDiff(t.diff), fontWeight: 700 }}>
+                                {fmtMonto(t.diff)}
+                              </td>
+                              <td>
+                                {t.sinRecoleccion
+                                  ? 'No anotó recolección'
+                                  : Math.abs(t.diff) < 0.01
+                                    ? 'Cuadra'
+                                    : t.diff > 0
+                                      ? 'Sobra cobro'
+                                      : 'Falta cobro'}
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}>
+                                  {(t.gastos || [])
+                                    .filter((g) => g.cierre_id)
+                                    .slice(0, 4)
+                                    .map((g) => (
+                                      <button
+                                        key={g.id}
+                                        type="button"
+                                        className="btn btn-ghost"
+                                        style={{ fontSize: '0.7rem', padding: '0.1rem 0.35rem' }}
+                                        disabled={imprimiendoId === g.id}
+                                        onClick={() => void verTicket(g)}
+                                      >
+                                        {g.corte_folio || 'Ticket'}
+                                      </button>
+                                    ))}
+                                  {(t.gastos || []).every((g) => !g.cierre_id) && (
+                                    <span className="muted" style={{ fontSize: '0.75rem' }}>—</span>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}
 
               <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
                 <TablaMovs
-                  titulo="Lo que colecta el repartidor"
+                  titulo="Cobros del repartidor (Recolecciones)"
                   color="#0f766e"
                   rows={datos.entradas}
                   sel={selEnt}
@@ -413,7 +537,7 @@ export default function PanelConciliaciones({ supabase, user }) {
                   columnas={colsEntrada}
                 />
                 <TablaMovs
-                  titulo="Gastos abarrotes en efectivo (proveedor)"
+                  titulo="Gastos Smoking de cortes"
                   color="#b45309"
                   rows={datos.salidas}
                   sel={selSal}
@@ -431,7 +555,7 @@ export default function PanelConciliaciones({ supabase, user }) {
                     style={{ marginTop: '0.35rem', width: '100%', resize: 'vertical' }}
                     value={notas}
                     onChange={(e) => setNotas(e.target.value)}
-                    placeholder="Ej. conciliación diaria cigarro / tecnología / ropa…"
+                    placeholder="Ej. faltó anotar recolección en 3B2…"
                   />
                 </label>
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -439,7 +563,10 @@ export default function PanelConciliaciones({ supabase, user }) {
                     {guardando ? 'Sellando…' : 'Sellar conciliación'}
                   </button>
                   <span className="muted" style={{ fontSize: '0.8rem' }}>
-                    Selección: {tot.entradas.length} entradas · {tot.salidas.length} salidas · diff {fmtMonto(tot.diferencia)}
+                    Selección: {tot.entradas.length} cobros · {tot.salidas.length} Smoking · diff {fmtMonto(tot.diferencia)}
+                    {datos.tiendasSinRecoleccion?.length
+                      ? ` · ${datos.tiendasSinRecoleccion.length} tienda(s) sin recolección`
+                      : ''}
                   </span>
                 </div>
               </div>
@@ -450,7 +577,9 @@ export default function PanelConciliaciones({ supabase, user }) {
 
       {tab === 'historial' && (
         <div className="card" style={{ padding: '0.9rem', overflow: 'auto' }}>
-          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)', fontSize: '1rem' }}>Conciliaciones selladas</h3>
+          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)', fontSize: '1rem' }}>
+            Conciliaciones Smoking selladas
+          </h3>
           {!historial.length ? (
             <p className="muted" style={{ margin: 0 }}>Aún no hay conciliaciones guardadas.</p>
           ) : (
@@ -459,36 +588,57 @@ export default function PanelConciliaciones({ supabase, user }) {
                 <tr>
                   <th>Folio</th>
                   <th>Periodo</th>
-                  <th>Entradas</th>
-                  <th>Salidas</th>
+                  <th>Cobros</th>
+                  <th>Smoking</th>
                   <th>Diff</th>
+                  <th>Sin recolección</th>
                   <th>Usuario</th>
                   <th>Estado</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {historial.map((h) => (
-                  <tr key={h.id} style={h.estatus === 'anulada' ? { opacity: 0.55 } : undefined}>
-                    <td>
-                      <div>{h.folio}</div>
-                      <div className="muted" style={{ fontSize: '0.72rem' }}>{fmtFechaHora(h.created_at)}</div>
-                    </td>
-                    <td>{fmtFechaCorta(h.desde)} — {fmtFechaCorta(h.hasta)}</td>
-                    <td style={{ textAlign: 'right' }}>{fmtMonto(h.total_entradas)}</td>
-                    <td style={{ textAlign: 'right' }}>{fmtMonto(h.total_salidas)}</td>
-                    <td style={{ textAlign: 'right', color: colorDiff(h.diferencia), fontWeight: 600 }}>{fmtMonto(h.diferencia)}</td>
-                    <td>{h.usuario_nombre || '—'}</td>
-                    <td>{h.estatus}</td>
-                    <td>
-                      {h.estatus === 'sellada' && (
-                        <button type="button" className="btn btn-ghost" style={{ fontSize: '0.75rem' }} onClick={() => void anular(h)}>
-                          Anular
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {historial.map((h) => {
+                  const sinRec = Array.isArray(h?.detalle?.tiendasSinRecoleccion)
+                    ? h.detalle.tiendasSinRecoleccion
+                    : [];
+                  return (
+                    <tr key={h.id} style={h.estatus === 'anulada' ? { opacity: 0.55 } : undefined}>
+                      <td>
+                        <div>{h.folio}</div>
+                        <div className="muted" style={{ fontSize: '0.72rem' }}>{fmtFechaHora(h.created_at)}</div>
+                        {h.proveedor_filtro && (
+                          <div className="muted" style={{ fontSize: '0.72rem' }}>{h.proveedor_filtro}</div>
+                        )}
+                      </td>
+                      <td>{fmtFechaCorta(h.desde)} — {fmtFechaCorta(h.hasta)}</td>
+                      <td style={{ textAlign: 'right' }}>{fmtMonto(h.total_entradas)}</td>
+                      <td style={{ textAlign: 'right' }}>{fmtMonto(h.total_salidas)}</td>
+                      <td style={{ textAlign: 'right', color: colorDiff(h.diferencia), fontWeight: 600 }}>
+                        {fmtMonto(h.diferencia)}
+                      </td>
+                      <td style={{ fontSize: '0.78rem' }}>
+                        {sinRec.length
+                          ? sinRec.map((t) => etiquetaTienda(t.tienda) || t.tienda).join(', ')
+                          : '—'}
+                      </td>
+                      <td>{h.usuario_nombre || '—'}</td>
+                      <td>{h.estatus}</td>
+                      <td>
+                        {h.estatus === 'sellada' && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ fontSize: '0.75rem' }}
+                            onClick={() => void anular(h)}
+                          >
+                            Anular
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
