@@ -1,7 +1,10 @@
 -- =============================================================================
--- POS 3B — Conciliaciones Abarrotes
--- Sella recolecciones + cobros de crédito vs gastos PROVEEDORES (efectivo).
--- Seguro re-ejecutar.
+-- POS 3B — Conciliaciones Abarrotes (Smoking)
+-- Ejecutar en Supabase → SQL Editor → pegar todo → Run
+-- Seguro re-ejecutar (IF NOT EXISTS).
+-- =============================================================================
+-- Sella cobros del repartidor (Recolección) vs gastos Smoking de Corte Abarrotes.
+-- Sin esta tabla el módulo calcula bien, pero no puede sellar ni guardar historial.
 -- =============================================================================
 
 create table if not exists public.conciliaciones_abarrotes (
@@ -41,4 +44,4 @@ create policy "conciliaciones_abarrotes_anon_rw" on public.conciliaciones_abarro
   for all using (true) with check (true);
 
 comment on table public.conciliaciones_abarrotes is
-  'Conciliación Contabilidad: lo que colecta el repartidor (recolecciones + créditos) vs gastos PROVEEDORES de Corte Abarrotes en efectivo.';
+  'Conciliación Contabilidad: cobros Recolección del repartidor vs gastos Smoking de Corte Abarrotes.';

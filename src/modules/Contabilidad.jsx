@@ -18,7 +18,7 @@ const DESCRIPCIONES = {
   },
   Conciliaciones: {
     desc: 'Recolecciones + créditos vs compras proveedor efectivo',
-    ayuda: 'Cuadra lo que colecta el repartidor (recolecciones y cobros de crédito) con los gastos PROVEEDORES de Corte Abarrotes (cigarro, tecnología, ropa, etc.).',
+    ayuda: 'Exclusivo Smoking: cobros del repartidor en Recolecciones vs gastos Smoking de Corte Abarrotes.',
   },
   'RC Virtual': {
     desc: 'Custodia Virtual/Garage → cuenta admin → ABB',
