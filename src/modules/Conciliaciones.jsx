@@ -18,11 +18,11 @@ export default function Conciliaciones({ supabase, user }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
-        <h2 style={{ margin: 0, color: '#b5a642' }}>Conciliaciones</h2>
+        <h2 style={{ margin: 0, color: '#b5a642' }}>Conciliaciones · Smoking</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
-          Compara lo que colecta el repartidor (recolecciones + cobros de crédito) contra los gastos
-          de Corte Abarrotes por compras de proveedor en efectivo (cigarro, sopletes, tecnología,
-          encendedores, ropa, etc.) y sella la diferencia.
+          Exclusivo Smoking: cobros del repartidor en Recolecciones (En Tránsito / Por Cobrar / Liquidado)
+          vs gastos Smoking de Corte Abarrotes. Señala tiendas sin recolección anotada y permite ver el
+          ticket del corte como evidencia.
         </p>
       </div>
       <PanelConciliaciones supabase={supabase} user={user} />
