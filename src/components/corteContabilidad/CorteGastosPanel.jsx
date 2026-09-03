@@ -40,6 +40,27 @@ function esProveedorSmokingTxt(txt) {
   return /(SMOKING|MARLBORO|CIGARR|CIGARRO)/.test(k);
 }
 
+function esGastoTraspasoTxt(txt) {
+  const k = normalizarParaTokens(txt);
+  return k.includes('TRASPASO') || k.includes('ENVIO MAIN');
+}
+
+function normalizarFolioTrpInput(raw) {
+  const s = String(raw || '').trim().toLowerCase().replace(/\s+/g, '');
+  if (!s) return '';
+  const m = s.match(/^trp-?(\d+)$/i) || ( /^\d+$/.test(s) ? [null, s] : null );
+  if (m) {
+    const digits = m[1];
+    const ancho = digits.length <= 4 ? 4 : digits.length;
+    return `trp-${digits.padStart(ancho, '0')}`;
+  }
+  return s.startsWith('trp-') ? s : `trp-${s}`;
+}
+
+function parseFoliosTraspasoInput(raw) {
+  return parseFoliosInventario(raw).map((x) => normalizarFolioTrpInput(x)).filter(Boolean);
+}
+
 function parseFoliosInventario(raw) {
   const s = String(raw || '');
   return s
@@ -73,6 +94,7 @@ export default function CorteGastosPanel({
   const [monto, setMonto] = useState('');
   const [comentario, setComentario] = useState('');
   const [foliosInventario, setFoliosInventario] = useState('');
+  const [folioTraspaso, setFolioTraspaso] = useState('');
   const [usuarioId, setUsuarioId] = useState('');
   const [mostrarCat, setMostrarCat] = useState(false);
   const [usuariosRaw, setUsuariosRaw] = useState([]);
@@ -150,6 +172,8 @@ export default function CorteGastosPanel({
 
   const esCatProveedor = String(cat || '').toUpperCase().includes('PROVEEDOR');
   const esSmokingProveedor = esCatProveedor && esProveedorSmokingTxt(`${sub} ${comentario}`);
+  const esGastoTraspaso =
+    String(modulo || '').toLowerCase() === 'abarrotes' && esGastoTraspasoTxt(`${cat} ${sub} ${comentario}`);
 
   useEffect(() => {
     if (!habilitado || !catalogo.length) return;
@@ -192,9 +216,18 @@ export default function CorteGastosPanel({
         );
       }
     }
+    if (esGastoTraspaso) {
+      const folios = parseFoliosTraspasoInput(folioTraspaso);
+      if (!folios.length) {
+        return alert(
+          'Traspaso requiere el folio del envío (ej. trp-0020).\n\n' +
+            'Ve a Productos → Traspasos y copia el folio trp-XXXX del traspaso recibido o enviado a esta tienda.',
+        );
+      }
+    }
     const authTxt = await asegurarCamposSinReservadoOPin(
       supabase,
-      [cat, sub, comentario],
+      [cat, sub, comentario, folioTraspaso, foliosInventario],
       { user, sucursal },
     );
     if (!authTxt.ok) return alert(authTxt.error);
@@ -202,18 +235,25 @@ export default function CorteGastosPanel({
       ? (empleadosEfectivos || []).find((e) => String(e.id) === String(usuarioId))
       : null;
     const uid = emp?.id != null ? String(emp.id) : '';
-    onAgregar?.({
-      categoria: cat.trim().toUpperCase(),
-      subcategoria: sub.trim().toUpperCase(),
-      monto: m,
-      comentario: comentario.trim().toUpperCase(),
-      usuario_id: requiereEmpleado && uid && !uid.startsWith('indirect:') ? uid : null,
-      usuario_nombre: emp?.nombre || '',
-      folios_inventario: esSmokingProveedor ? parseFoliosInventario(foliosInventario) : [],
-    });
+    try {
+      const res = await onAgregar?.({
+        categoria: cat.trim().toUpperCase(),
+        subcategoria: sub.trim().toUpperCase(),
+        monto: m,
+        comentario: comentario.trim().toUpperCase(),
+        usuario_id: requiereEmpleado && uid && !uid.startsWith('indirect:') ? uid : null,
+        usuario_nombre: emp?.nombre || '',
+        folios_inventario: esSmokingProveedor ? parseFoliosInventario(foliosInventario) : [],
+        folio_traspaso: esGastoTraspaso ? parseFoliosTraspasoInput(folioTraspaso) : [],
+      });
+      if (res && res.ok === false) return;
+    } catch (e) {
+      return alert(e?.message || 'Error al agregar el gasto.');
+    }
     setMonto('');
     setComentario('');
     setFoliosInventario('');
+    setFolioTraspaso('');
     if (!requiereEmpleado) setUsuarioId('');
   };
 
@@ -514,9 +554,23 @@ export default function CorteGastosPanel({
               <input
                 className="input"
                 style={{ width: '100%' }}
-                placeholder="Ej. 123, 124 (separados por coma)"
+                placeholder="Ej. UUID completo o prefijo del ticket Compras"
                 value={foliosInventario}
                 onChange={(e) => setFoliosInventario(e.target.value)}
+              />
+            </div>
+          )}
+          {esGastoTraspaso && (
+            <div style={{ marginBottom: '0.75rem' }}>
+              <label className="muted" style={{ display: 'block', fontSize: '0.78rem', marginBottom: '0.25rem' }}>
+                Folio del traspaso (Productos → Traspasos)
+              </label>
+              <input
+                className="input"
+                style={{ width: '100%' }}
+                placeholder="Ej. trp-0020 (varios separados por coma)"
+                value={folioTraspaso}
+                onChange={(e) => setFolioTraspaso(e.target.value)}
               />
             </div>
           )}

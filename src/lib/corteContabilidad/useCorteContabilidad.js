@@ -652,10 +652,14 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       rolActor: user?.rol,
       nombreActor: user?.nombre,
     });
-    if (!res.ok) return alert(res.error);
+    if (!res.ok) {
+      alert(res.error);
+      return { ok: false, error: res.error };
+    }
     await cargar();
     const gas = await listarGastosTurno(supabase, sucursal, modulo);
     setGastos(gas.data || []);
+    return { ok: true };
   };
 
   const quitarGasto = async (id) => {

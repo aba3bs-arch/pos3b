@@ -8,10 +8,11 @@ import {
   crearNotificacion,
   marcarNotificacionAtendida,
 } from '../contabilidadNotificaciones.js';
-import { etiquetaTienda } from '../../constants/sucursales.js';
+import { etiquetaTienda, normalizarCodigoTienda } from '../../constants/sucursales.js';
 import { nombreProveedorDesdeGasto, normalizarNombreProveedorClave, registrarEntregaDesdeGastoAbarrotes } from '../proveedorEntregas.js';
 
 const MARKER_TICKET_INV = 'TICKET_INV:';
+const MARKER_TRP_INV = 'TRP_INV:';
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -43,6 +44,62 @@ function esProveedorSmokingGasto(gasto) {
   const raw = `${prov1 || sub} ${prov2 || com} ${sub} ${com}`;
   const k = normalizarNombreProveedorClave(raw);
   return /(SMOKING|MARLBORO|CIGARR|CIGARRO)/.test(k);
+}
+
+/** Folio trp-0020 (inventario_traspasos.folio). */
+function normalizarFolioTrp(raw) {
+  const s = String(raw || '').trim().toLowerCase().replace(/\s+/g, '');
+  if (!s) return '';
+  const mTrp = s.match(/^trp-?(\d+)$/i);
+  if (mTrp) {
+    const digits = mTrp[1];
+    const ancho = digits.length <= 4 ? 4 : digits.length;
+    return `trp-${digits.padStart(ancho, '0')}`;
+  }
+  if (/^\d+$/.test(s)) {
+    const ancho = s.length <= 4 ? 4 : s.length;
+    return `trp-${s.padStart(ancho, '0')}`;
+  }
+  return s.startsWith('trp-') ? s : `trp-${s}`;
+}
+
+function parseFoliosTraspaso(raw) {
+  const base = parseFoliosInventario(raw);
+  const out = base.map((x) => normalizarFolioTrp(x)).filter(Boolean);
+  return [...new Set(out)];
+}
+
+function esGastoTraspasoAbarrotes(modulo, gasto) {
+  if (String(modulo || '').toLowerCase() !== 'abarrotes') return false;
+  const raw = `${gasto?.categoria || ''} ${gasto?.subcategoria || ''} ${gasto?.comentario || ''}`;
+  const k = normalizarNombreProveedorClave(raw);
+  return k.includes('TRASPASO') || k.includes('ENVIO MAIN');
+}
+
+function totalTraspasoLineas(lineas, campo = 'precio') {
+  const arr = Array.isArray(lineas) ? lineas : [];
+  return round2(
+    arr.reduce((a, l) => {
+      const qty = Math.max(0, Math.floor(Number(l?.cantidad) || 0));
+      const val = Number(l?.[campo]) || 0;
+      return a + val * qty;
+    }, 0),
+  );
+}
+
+/** Evita `.ilike` sobre uuid (rompe PostgREST y puede tumbar la app en algunas tiendas). */
+async function buscarComprasPorPrefijoId(supabase, sucursalId, pref) {
+  const p = String(pref || '').trim().toLowerCase();
+  if (!p) return { ok: true, matches: [] };
+  const { data, error } = await supabase
+    .from('compras')
+    .select('id,total,estado,proveedores(nombre),created_at')
+    .eq('sucursal_id', sucursalId)
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) return { ok: false, error: error.message };
+  const matches = (data || []).filter((c) => String(c.id).toLowerCase().startsWith(p));
+  return { ok: true, matches };
 }
 
 export const AVISO_FALTA_CORTES =
@@ -220,26 +277,20 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
         for (const c of compras || []) comprasById.set(String(c.id), c);
       }
 
-      // Segundo intento: prefijos. Resolvemos cada prefijo a 1 UUID real.
-      // Usamos ilike sobre id para evitar el casteo UUID de `.in('id', ...)`.
+      // Segundo intento: prefijos del UUID (sin ilike sobre uuid — evita errores PostgREST).
       for (const pref of foliosPrefijos) {
-        const pattern = `${pref}%`;
-        const { data: matches, error: ePref } = await supabase
-          .from('compras')
-          .select('id,total,estado,proveedores(nombre)')
-          .eq('sucursal_id', sid)
-          .ilike('id', pattern)
-          .limit(6);
-        if (ePref) {
+        const rPref = await buscarComprasPorPrefijoId(supabase, sid, pref);
+        if (!rPref.ok) {
           return {
             ok: false,
             error:
               `No se pudo resolver el folio “${pref}”.\n\n` +
-              `Mensaje técnico: ${ePref.message}\n\n` +
+              `Mensaje técnico: ${rPref.error}\n\n` +
               'Si estás copiando de un ticket impreso, usa el UUID completo (incluye guiones) de Compras → Historial.',
           };
         }
-        if (!Array.isArray(matches) || matches.length === 0) {
+        const matches = rPref.matches || [];
+        if (!matches.length) {
           return {
             ok: false,
             error:
@@ -369,6 +420,134 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
     comentarioFinal = comentarioFinal.trim()
       ? `${comentarioFinal.trim()} · ${markerTxt}`.toUpperCase()
       : markerTxt.toUpperCase();
+  }
+
+  // Traspaso (Abarrotes): exigir folio trp-XXXX del módulo Productos → Traspasos.
+  const esTraspaso =
+    String(modulo || '').toLowerCase() === 'abarrotes' && esGastoTraspasoAbarrotes(modulo, gasto);
+  let foliosTraspaso = esTraspaso
+    ? parseFoliosTraspaso(gasto.folio_traspaso || gasto.foliosTraspaso || gasto.folios_traspaso)
+    : [];
+
+  if (esTraspaso) {
+    if (!foliosTraspaso.length) {
+      return {
+        ok: false,
+        error:
+          'Traspaso requiere el folio del envío (ej. trp-0020).\n\n' +
+          'Ve a Productos → Traspasos → Recibir (o historial del traspaso) y copia el folio trp-XXXX.',
+      };
+    }
+
+    if (supabase) {
+      const sid = normalizarCodigoTienda(sucursal) || 'MAIN';
+      const traspasosByFolio = new Map();
+
+      for (const folioTrp of foliosTraspaso) {
+        const { data: doc, error: eTrp } = await supabase
+          .from('inventario_traspasos')
+          .select('id,folio,estado,tipo,origen_id,destino_id,lineas')
+          .eq('folio', folioTrp)
+          .maybeSingle();
+        if (eTrp) return { ok: false, error: eTrp.message };
+        if (!doc) {
+          return {
+            ok: false,
+            error:
+              `No existe traspaso ${folioTrp} en inventario.\n\n` +
+              'Confirma en Productos → Traspasos que el folio trp-XXXX esté en la nube (estado enviado o recibido).',
+          };
+        }
+        if (String(doc.tipo || '') !== 'envio') {
+          return {
+            ok: false,
+            error:
+              `El folio ${folioTrp} no es un envío despachado.\n\n` +
+              'Solo traspasos enviados/recibidos pueden ligarse al gasto.',
+          };
+        }
+        const est = String(doc.estado || '').toLowerCase();
+        if (est !== 'enviado' && est !== 'recibido') {
+          return {
+            ok: false,
+            error:
+              `Traspaso ${folioTrp} no está listo (estado: ${doc.estado}).\n\n` +
+              'Debe estar enviado o recibido antes de registrar el gasto.',
+          };
+        }
+        const dest = normalizarCodigoTienda(doc.destino_id);
+        if (dest !== sid) {
+          return {
+            ok: false,
+            error:
+              `Traspaso ${folioTrp} es para ${etiquetaTienda(dest)}, no para esta tienda (${etiquetaTienda(sid)}).\n\n` +
+              'Usa el folio del traspaso recibido en esta sucursal.',
+          };
+        }
+        traspasosByFolio.set(folioTrp, doc);
+      }
+
+      const montoGastoTrp = round2(Number(gasto.monto) || 0);
+      const sumPrecio = round2(
+        foliosTraspaso.reduce((a, f) => a + totalTraspasoLineas(traspasosByFolio.get(f)?.lineas, 'precio'), 0),
+      );
+      const sumCosto = round2(
+        foliosTraspaso.reduce((a, f) => a + totalTraspasoLineas(traspasosByFolio.get(f)?.lineas, 'costo'), 0),
+      );
+      const cuadra =
+        Math.abs(sumPrecio - montoGastoTrp) <= 0.01 || Math.abs(sumCosto - montoGastoTrp) <= 0.01;
+      if (!cuadra) {
+        return {
+          ok: false,
+          error:
+            'Monto del gasto no coincide con el traspaso.\n\n' +
+            `Folio(s): ${foliosTraspaso.join(', ')}\n` +
+            `Valor traspaso (precio): ${fmtMonto(sumPrecio)} · costo: ${fmtMonto(sumCosto)}\n` +
+            `Gasto capturado: ${fmtMonto(montoGastoTrp)}\n\n` +
+            'Si fueron varios traspasos parciales, captura todos los folios trp-XXXX hasta que cuadre.',
+        };
+      }
+
+      const { data: gastosTrpPrev, error: eTrpPrev } = await supabase
+        .from('cortes_contabilidad_gastos')
+        .select('id,comentario')
+        .eq('sucursal_id', sid)
+        .eq('modulo', modulo)
+        .ilike('comentario', `%${MARKER_TRP_INV}%`)
+        .limit(500);
+
+      if (eTrpPrev) return { ok: false, error: eTrpPrev.message };
+
+      const foliosTrpUsados = new Map();
+      for (const g of gastosTrpPrev || []) {
+        const str = String(g?.comentario || '');
+        const up = str.toUpperCase();
+        const idx = up.indexOf(MARKER_TRP_INV);
+        if (idx < 0) continue;
+        const rest = str.slice(idx + MARKER_TRP_INV.length);
+        for (const f of parseFoliosTraspaso(rest)) {
+          if (!foliosTrpUsados.has(f)) foliosTrpUsados.set(f, g.id);
+        }
+      }
+
+      const trpRepetidos = foliosTraspaso.filter((f) => foliosTrpUsados.has(f));
+      if (trpRepetidos.length) {
+        const first = foliosTrpUsados.get(trpRepetidos[0]);
+        return {
+          ok: false,
+          error:
+            'Folio(s) trp-XXXX ya usados en otro gasto de traspaso.\n\n' +
+            `Repite: ${trpRepetidos.join(', ')}\n` +
+            (first ? `Gasto existente: ${first}\n\n` : '\n\n') +
+            'No se puede duplicar el gasto del mismo traspaso.',
+        };
+      }
+    }
+
+    const markerTrp = `${MARKER_TRP_INV}${foliosTraspaso.join(',')}`;
+    comentarioFinal = comentarioFinal.trim()
+      ? `${comentarioFinal.trim()} · ${markerTrp}`.toUpperCase()
+      : markerTrp.toUpperCase();
   }
 
   const row = {
