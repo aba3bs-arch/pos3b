@@ -17,7 +17,7 @@ const DESCRIPCIONES = {
     ayuda: 'También en Venta en Ruta → Liquidación. Cierra y sella el efectivo recolectado (incl. ventas de camión) por tienda/día.',
   },
   Conciliaciones: {
-    desc: 'Recolecciones + créditos vs compras proveedor efectivo',
+    desc: 'Smoking (cortes) vs cobros del repartidor',
     ayuda: 'Exclusivo Smoking: cobros del repartidor en Recolecciones vs gastos Smoking de Corte Abarrotes.',
   },
   'RC Virtual': {

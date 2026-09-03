@@ -20,8 +20,9 @@ export default function Conciliaciones({ supabase, user }) {
       <div>
         <h2 style={{ margin: 0, color: '#b5a642' }}>Conciliaciones · Smoking</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
-          Exclusivo: cobros del repartidor en Recolecciones vs gastos Smoking capturados en Corte
-          Abarrotes. Sella la diferencia del periodo.
+          Exclusivo Smoking: cobros del repartidor en Recolecciones (En Tránsito / Por Cobrar / Liquidado)
+          vs gastos Smoking de Corte Abarrotes. Señala tiendas sin recolección anotada y permite ver el
+          ticket del corte como evidencia.
         </p>
       </div>
       <PanelConciliaciones supabase={supabase} user={user} />
