@@ -75,7 +75,7 @@ export default function AjusteInventario({
 }) {
   const sucursalOp = sucursalOperacion || sucursal;
   const enCentral = esAlmacenCentral(sucursalOp);
-  const verNegativos = puedeVerStockNegativo(user?.rol);
+  const verNegativos = puedeVerStockNegativo(user?.rol, user?.id);
   const puedeVsVentas = puedeConsolidarVentasInventario(user?.rol);
   const catalogoCompleto = inventarioCompleto || inventario;
   const [modo, setModo] = useState(modoInicial);

@@ -554,11 +554,25 @@ export function puedeGestionarInventarioMultitienda(rol) {
 
 /**
  * Ver inventario teórico negativo (ventas sin existencia).
- * Solo Administrador: cajero/repartidor y demás roles ven 0 en pantalla.
+ * Por defecto: Administrador y Auditor. Se otorga o quita en
+ * Configuración → Privilegios → Productos — menú ⋮.
  * El descuento real en BD sigue pudiendo ir a negativo.
  */
-export function puedeVerStockNegativo(rol) {
-  return rolSistemaEfectivo(rol) === 'Administrador';
+export function puedeVerStockNegativo(rol, userId = null) {
+  const r = rolSistemaEfectivo(rol);
+  if (r === 'Administrador') return true;
+  const p = leerPrivilegios();
+  const acc = p.acciones?.prod_negativos;
+  if (acc) {
+    const uid = userId != null ? String(userId) : '';
+    if (uid && Object.prototype.hasOwnProperty.call(acc.porUsuario || {}, uid)) {
+      return Boolean(acc.porUsuario[uid]);
+    }
+    if (Object.prototype.hasOwnProperty.call(acc.porRol || {}, r)) {
+      return Boolean(acc.porRol[r]);
+    }
+  }
+  return r === 'Auditor';
 }
 
 /** Consolidar ventas vs piso: Admin, Gerente y Repartidor (no vaciar). */
@@ -572,7 +586,7 @@ export function descripcionRol(rol) {
   const textos = {
     Cajero: 'Mostrador: ventas, cortes, checador, compras, cobranza créditos ruta (PIN), consultas, reportes, ingreso/ajuste de inventario, traspasos y preinventario; catálogo solo consulta',
     Repartidor: 'Ruta: recolecciones, Venta en Ruta (POS camión), productos; sin cobranza (la paga el cajero con PIN)',
-    Auditor: 'Consultas, reportes, inventario e incidencias en todas las tiendas desde central MAIN',
+    Auditor: 'Consultas, reportes, inventario e incidencias en todas las tiendas desde central MAIN; ve existencias negativas en Productos',
     Supervisor: 'Operación de tienda sin configuración ni usuarios',
     Gerente: 'Operación, configuración y gestión de incidencias en todas las tiendas',
     Técnico: 'Soporte e incidencias en todas las tiendas desde central MAIN',

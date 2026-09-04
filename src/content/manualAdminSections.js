@@ -246,7 +246,7 @@ Si ves error de columnas \`stock_cedis\` o \`stock_sucursales\`, ejecuta \`supab
   {
     id: 'productos',
     title: '7. Catálogo de productos',
-    keywords: ['productos', 'catalogo', 'codigo barras', 'precio', 'departamento', 'importar', 'csv', 'etiquetas'],
+    keywords: ['productos', 'catalogo', 'codigo barras', 'precio', 'departamento', 'importar', 'csv', 'etiquetas', 'negativos', 'privilegios'],
     body: `Módulo: **Productos** (menú ⋮ en la lista)
 
 ### 7.1 Campos importantes
@@ -260,11 +260,12 @@ Si ves error de columnas \`stock_cedis\` o \`stock_sucursales\`, ejecuta \`supab
 
 ### 7.2 Menú de operaciones (⋮)
 
-- Ajuste de inventario
-- Traspasos
-- Etiquetas de estante (imprimir)
-- Importar / Exportar CSV
-- Administrador de precios (cambio masivo)
+Cada ítem se activa o quita en **Configuración → Privilegios → Productos — menú ⋮**:
+
+- Nuevo producto, ajuste de inventario, traspasos, preinventario
+- Mover productos, etiquetas, importar / exportar, fotos
+- Vaciar inventario, administrador de precios, inventario vs ventas
+- **Ver inventario negativo** (existencias teóricas en rojo). **Auditor** lo tiene por defecto; otros roles se marcan en privilegios
 - Eliminar productos
 
 ### 7.3 Importar catálogo
@@ -405,6 +406,8 @@ Nombre del negocio, logo, pie de ticket.
 ### 12.3 Privilegios (solo admin)
 
 Personaliza módulos visibles por **rol** o por **usuario**.
+
+En **Productos — menú ⋮** configuras cada opción del menú de tres puntos (ajuste, traspasos, negativos, precios, etc.). El **Auditor** ve inventario negativo por defecto.
 
 ### 12.4 Métodos de pago
 
