@@ -324,7 +324,7 @@ export default function AjusteInventario({
       alert(r.error);
       return;
     }
-    alert(r.mensaje);
+    alert(r.mensaje + (r.aviso ? `\n\n⚠ ${r.aviso}` : ''));
     setHistorial(r.log || leerMovimientosLocal());
     if (r.producto) fusionarProducto?.(r.producto);
     else if (r.patch && productoOrigen?.id) fusionarProducto?.({ ...productoOrigen, ...r.patch });
