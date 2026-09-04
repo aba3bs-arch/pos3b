@@ -382,6 +382,8 @@ Pedido y recepción desde el módulo si la impresión está activa en Configurac
 
 Gráficas, descarga CSV de inventario, listados imprimibles.
 
+En **Reportes → Reporte de inventario**, el **campo 2 (faltante)** se divide entre **3** y se descuenta en **Nómina** a cada empleado de esa tienda (la tercera parte corresponde al cubre turnos). Hay que **guardar** el resultado en el reporte para que la nómina de esa semana lo tome.
+
 ### 11.3 Checador
 
 - **Precios**: escanea → precio y stock (cliente en piso)
