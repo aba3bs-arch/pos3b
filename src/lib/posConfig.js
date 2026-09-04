@@ -423,6 +423,20 @@ export const ACCIONES_PRIVILEGIO = [
   { id: 'ruta_preinventario', label: 'Venta en Ruta — Preinventario' },
   { id: 'ruta_creditos', label: 'Venta en Ruta — Créditos por pagar' },
   { id: 'ruta_liquidacion', label: 'Venta en Ruta — Liquidación' },
+  { id: 'prod_alta', label: 'Productos — Nuevo producto' },
+  { id: 'prod_ajuste', label: 'Productos — Ajuste de inventario' },
+  { id: 'prod_traspaso', label: 'Productos — Traspasos' },
+  { id: 'prod_preinventario', label: 'Productos — Preinventario' },
+  { id: 'prod_mover', label: 'Productos — Mover productos (proveedor / depto)' },
+  { id: 'prod_etiquetas', label: 'Productos — Imprimir etiquetas' },
+  { id: 'prod_importar', label: 'Productos — Importar archivo .xls' },
+  { id: 'prod_exportar', label: 'Productos — Exportar productos' },
+  { id: 'prod_fotos', label: 'Productos — Jalar fotos de internet' },
+  { id: 'prod_vaciar', label: 'Productos — Vaciar inventario' },
+  { id: 'prod_precios', label: 'Productos — Administrador de precios' },
+  { id: 'prod_consolidar', label: 'Productos — Inventario vs ventas del día' },
+  { id: 'prod_negativos', label: 'Productos — Ver inventario negativo' },
+  { id: 'prod_eliminar', label: 'Productos — Eliminar productos' },
 ];
 
 /** Acciones del Panel RT (y recolección en cortes). */
@@ -432,6 +446,9 @@ export const ACCIONES_PRIVILEGIO_PANEL_RT = ACCIONES_PRIVILEGIO.filter(
 
 /** Acciones del hub Venta en Ruta. */
 export const ACCIONES_PRIVILEGIO_VENTA_RUTA = ACCIONES_PRIVILEGIO.filter((a) => a.id.startsWith('ruta_'));
+
+/** Acciones del menú ⋮ de Productos. */
+export const ACCIONES_PRIVILEGIO_PRODUCTOS = ACCIONES_PRIVILEGIO.filter((a) => a.id.startsWith('prod_'));
 
 
 const LS_VALES_TIENDAS = 'pos3b_vales_tiendas_permitidas';
@@ -481,6 +498,17 @@ export function guardarAccionPrivilegio(accionId, modo, key, activo) {
     delete next[key];
     acc[store] = next;
   }
+  acciones[accionId] = acc;
+  return guardarPrivilegios({ ...p, acciones });
+}
+
+/** Guarda true/false (no borra la clave) para poder quitar un privilegio que el rol trae por defecto. */
+export function guardarAccionPrivilegioExplicit(accionId, modo, key, activo) {
+  const p = leerPrivilegios();
+  const acciones = { ...p.acciones };
+  const acc = { porRol: {}, porUsuario: {}, ...(acciones[accionId] || {}) };
+  const store = modo === 'usuario' ? 'porUsuario' : 'porRol';
+  acc[store] = { ...acc[store], [key]: Boolean(activo) };
   acciones[accionId] = acc;
   return guardarPrivilegios({ ...p, acciones });
 }

@@ -83,7 +83,7 @@ export default function Ventas({
   forzarOffline,
   onVentaOfflineLocal,
 }) {
-  const verNegativos = puedeVerStockNegativo(user?.rol);
+  const verNegativos = puedeVerStockNegativo(user?.rol, user?.id);
   const [carrito, setCarrito] = useState(() => leerCarritoVenta(sucursal));
   const [pagoCon, setPagoCon] = useState('');
   const [refPago, setRefPago] = useState('');

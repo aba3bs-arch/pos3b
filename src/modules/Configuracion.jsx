@@ -32,6 +32,7 @@ import {
   ACCIONES_PRIVILEGIO_VENTA_RUTA,
   leerAccionPrivilegio,
   guardarAccionPrivilegio,
+  guardarAccionPrivilegioExplicit,
   persistirTipoCambio,
   leerTiendasValesPermitidas,
   guardarTiendasValesPermitidas,
@@ -147,6 +148,12 @@ import {
   DESCRIPCION_MODULO_INCIDENCIAS,
   tieneAccionIncidencia,
 } from '../lib/incidenciasPrivilegios.js';
+import {
+  ACCIONES_PRODUCTOS_PRIVILEGIO,
+  ACCIONES_DEFAULT_PRODUCTOS_POR_ROL,
+  DESCRIPCION_MODULO_PRODUCTOS,
+  tieneAccionProducto,
+} from '../lib/productosAcciones.js';
 import {
   leerVentanaRecoleccion,
   guardarVentanaRecoleccion,
@@ -1728,6 +1735,11 @@ export default function Configuracion({
                           {DESCRIPCION_MODULO_INCIDENCIAS} Configure el detalle en <strong>Incidencias — acciones</strong> más abajo.
                         </p>
                       )}
+                      {mod === 'Productos' && (
+                        <p className="muted" style={{ margin: '0.2rem 0 0 1.45rem', fontSize: '0.78rem', lineHeight: 1.35 }}>
+                          {DESCRIPCION_MODULO_PRODUCTOS}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1898,6 +1910,54 @@ export default function Configuracion({
                         />
                         {acc.label}
                       </label>
+                    );
+                  })}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: '1rem',
+                    padding: '0.85rem',
+                    borderRadius: '10px',
+                    background: 'rgba(25,118,210,0.06)',
+                    border: '1px solid rgba(25,118,210,0.22)',
+                    borderLeft: '4px solid var(--brand-blue)',
+                  }}
+                >
+                  <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--brand-blue)' }}>Productos — menú ⋮</h4>
+                  <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
+                    Cada opción del menú de tres puntos en <strong>Productos</strong> (ajuste, traspasos, negativos, precios, etc.).
+                    El administrador siempre tiene acceso. <strong>Auditor</strong> ve inventario negativo por defecto.
+                    Marca o desmarca para otorgar o quitar al rol / empleado.
+                  </p>
+                  {ACCIONES_PRODUCTOS_PRIVILEGIO.map((acc) => {
+                    const uidPriv = privModo === 'usuario' ? privKey : null;
+                    const checked = privKey ? tieneAccionProducto(acc.id, rolBase, uidPriv, privilegios) : false;
+                    const esDefecto = privKey && (ACCIONES_DEFAULT_PRODUCTOS_POR_ROL[normalizarRol(rolBase)] || []).includes(acc.id);
+                    const explicito = privKey ? leerAccionPrivilegio(acc.id, privModo, privKey) : false;
+                    return (
+                      <div key={acc.id} style={{ marginBottom: '0.5rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem', fontSize: '0.88rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={!privKey}
+                            style={{ marginTop: '0.2rem' }}
+                            onChange={(e) => {
+                              if (!privKey) return;
+                              const next = guardarAccionPrivilegioExplicit(acc.id, privModo, privKey, e.target.checked);
+                              setPrivilegios(next);
+                            }}
+                          />
+                          <span>
+                            <strong>{acc.label}</strong>
+                            {esDefecto && !explicito && checked && (
+                              <span className="muted" style={{ marginLeft: '0.35rem', fontSize: '0.72rem' }}>(por defecto del rol)</span>
+                            )}
+                            <div className="muted" style={{ fontSize: '0.78rem', marginTop: '0.15rem', lineHeight: 1.35 }}>{acc.desc}</div>
+                          </span>
+                        </label>
+                      </div>
                     );
                   })}
                 </div>

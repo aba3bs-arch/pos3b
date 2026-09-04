@@ -25,16 +25,11 @@ import { mensajeErrorColumnasProducto, productoDesdeDb, productoParaGuardar, pro
 import { codigoOcupadoPorOtro, normalizarCodigosAlt } from '../lib/buscarProductoTexto.js';
 import {
   puedeCrearProveedor,
-  puedeEliminarProductosCatalogo,
-  puedeGestionarInventarioMultitienda,
-  puedeConsolidarVentasInventario,
   puedeEditarCatalogoProductos,
-  puedeAjustarInventario,
-  puedeTraspasarInventario,
-  puedeHacerPreinventario,
   esRolMostradorRestringido,
   puedeVerStockNegativo,
 } from '../lib/roles.js';
+import { tieneAccionProducto } from '../lib/productosAcciones.js';
 import FormularioProducto from '../components/FormularioProducto.jsx';
 import MenuPuntos from '../components/MenuPuntos.jsx';
 import Icon from '../components/Icon.jsx';
@@ -164,17 +159,17 @@ export default function Productos({
   const [progresoFotos, setProgresoFotos] = useState(null);
   const fileImportRef = useRef(null);
   const puedeAltaProveedor = puedeCrearProveedor(user?.rol);
-  const puedeVaciarInventario = puedeGestionarInventarioMultitienda(user?.rol);
-  const puedeConsolidar = puedeConsolidarVentasInventario(user?.rol);
-  const puedeEliminarCatalogo = puedeEliminarProductosCatalogo(user?.rol);
-  /** Cajero: consulta de catálogo + ingreso/ajuste, traspasos y preinventario (sin editar productos). */
+  const puedeVaciarInventario = tieneAccionProducto('prod_vaciar', user?.rol, user?.id);
+  const puedeConsolidar = tieneAccionProducto('prod_consolidar', user?.rol, user?.id);
+  const puedeEliminarCatalogo = tieneAccionProducto('prod_eliminar', user?.rol, user?.id);
+  /** Cajero: consulta de catálogo + ingreso/ajuste, traspasos y preinventario (sin editar productos), salvo privilegio extra. */
   const esCajero = esRolMostradorRestringido(user?.rol);
-  const puedeGestionCatalogo = puedeEditarCatalogoProductos(user?.rol);
-  const puedeAjustes = puedeAjustarInventario(user?.rol);
+  const puedeGestionCatalogo = puedeEditarCatalogoProductos(user?.rol) || tieneAccionProducto('prod_alta', user?.rol, user?.id);
+  const puedeAjustes = tieneAccionProducto('prod_ajuste', user?.rol, user?.id);
   /** Enviar / recibir traspaso con selector de tiendas (también en MAIN/CEDIS). */
-  const puedeTraspasos = puedeTraspasarInventario(user?.rol);
-  const puedePreinventario = puedeHacerPreinventario(user?.rol);
-  const verNegativos = puedeVerStockNegativo(user?.rol);
+  const puedeTraspasos = tieneAccionProducto('prod_traspaso', user?.rol, user?.id);
+  const puedePreinventario = tieneAccionProducto('prod_preinventario', user?.rol, user?.id);
+  const verNegativos = puedeVerStockNegativo(user?.rol, user?.id);
   const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : 'MAIN';
   const enCentral = esAlmacenCentral(sucursal);
   /** Solo CEDIS: recorta la vista. Tiendas y MAIN siguen con catálogo completo. */
@@ -230,7 +225,7 @@ export default function Productos({
 
   useEffect(() => {
     if (!vistaInicial) return;
-    if (vistaInicial === 'traspaso' && puedeTraspasarInventario(user?.rol)) {
+    if (vistaInicial === 'traspaso' && tieneAccionProducto('prod_traspaso', user?.rol, user?.id)) {
       setPermitirTraspasoDesdeRuta(true);
       setDestinoTraspasoLocal(destinoTraspasoInicial || null);
       setVista('traspaso');
@@ -239,10 +234,23 @@ export default function Productos({
   }, [vistaInicial]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!esCajero) return;
-    const vistasCajero = new Set(['lista', 'historial', 'ajustes', 'traspaso', 'preinventario']);
-    if (!vistasCajero.has(vista)) setVista('lista');
-  }, [esCajero, vista]);
+    const permitidas = new Set(['lista', 'historial']);
+    if (tieneAccionProducto('prod_ajuste', user?.rol, user?.id)) permitidas.add('ajustes');
+    if (tieneAccionProducto('prod_traspaso', user?.rol, user?.id)) permitidas.add('traspaso');
+    if (tieneAccionProducto('prod_preinventario', user?.rol, user?.id)) permitidas.add('preinventario');
+    if (tieneAccionProducto('prod_alta', user?.rol, user?.id)) {
+      permitidas.add('alta');
+      permitidas.add('editar');
+    }
+    if (tieneAccionProducto('prod_mover', user?.rol, user?.id)) permitidas.add('mover');
+    if (tieneAccionProducto('prod_etiquetas', user?.rol, user?.id)) permitidas.add('etiquetas');
+    if (tieneAccionProducto('prod_importar', user?.rol, user?.id)) permitidas.add('importexport');
+    if (tieneAccionProducto('prod_vaciar', user?.rol, user?.id)) permitidas.add('vaciarinventario');
+    if (tieneAccionProducto('prod_precios', user?.rol, user?.id)) permitidas.add('precios');
+    if (tieneAccionProducto('prod_consolidar', user?.rol, user?.id)) permitidas.add('consolidar');
+    if (tieneAccionProducto('prod_eliminar', user?.rol, user?.id)) permitidas.add('eliminar');
+    if (!permitidas.has(vista)) setVista('lista');
+  }, [vista, user?.rol, user?.id]);
 
   useEffect(() => {
     if (verNegativos) return;
@@ -581,7 +589,7 @@ export default function Productos({
 
   const eliminar = async (id) => {
     if (!supabase) return;
-    if (!puedeEliminarCatalogo) return alert('Solo un administrador puede eliminar productos del catálogo global.');
+    if (!puedeEliminarCatalogo) return alert('No tienes privilegio para eliminar productos del catálogo.');
     if (!confirm('¿Eliminar producto del catálogo global? Desaparecerá en todas las tiendas.')) return;
     const { error } = await supabase.from('productos').delete().eq('id', id);
     if (error) return alert(error.message);
@@ -594,7 +602,7 @@ export default function Productos({
   };
 
   const eliminarSeleccionados = async () => {
-    if (!puedeEliminarCatalogo) return alert('Solo un administrador puede eliminar productos del catálogo global.');
+    if (!puedeEliminarCatalogo) return alert('No tienes privilegio para eliminar productos del catálogo.');
     const ids = [...seleccionEliminar];
     if (!ids.length) return alert('Marca al menos un producto.');
     if (!confirm(`¿Eliminar ${ids.length} producto(s) del catálogo global? Desaparecerán en todas las tiendas.`)) return;
@@ -752,7 +760,7 @@ export default function Productos({
   const opcionesVaciadoTienda = useMemo(() => opcionesVaciado(sucursal), [sucursal]);
 
   const ejecutarVaciado = async () => {
-    if (!puedeVaciarInventario) return alert('Solo Gerente o Administrador pueden vaciar inventario.');
+    if (!puedeVaciarInventario) return alert('No tienes privilegio para vaciar inventario.');
     const nProds = inventarioCompleto?.length || inventario.length;
     const opcion = opcionesVaciadoTienda.find((o) => o.id === alcanceVaciado);
     const msg =
@@ -819,81 +827,73 @@ export default function Productos({
     cargarDatos();
   };
 
-  const menuItems = esCajero
-    ? [
-        ...(puedeAjustes
-          ? [{ id: 'ajustes', label: 'Ajuste de inventario', icon: 'refresh', onClick: () => setModalAjusteOpen(true) }]
-          : []),
-        ...(puedeTraspasos
-          ? [{ id: 'traspaso', label: 'Traspasos', icon: 'truck', onClick: () => setVista('traspaso') }]
-          : []),
-        ...(puedePreinventario
-          ? [{ id: 'preinventario', label: 'Preinventario', icon: 'package', onClick: () => setVista('preinventario') }]
-          : []),
-      ]
-    : [
-        ...(puedeGestionCatalogo
-          ? [{ id: 'alta', label: 'Nuevo producto', icon: 'plus', onClick: () => { setForm(empty); setEsEdicionProducto(false); setVista('alta'); } }]
-          : []),
-        ...(puedeAjustes
-          ? [{ id: 'ajustes', label: 'Ajuste de inventario', icon: 'refresh', onClick: () => setModalAjusteOpen(true) }]
-          : []),
-        ...(puedeTraspasos
-          ? [{ id: 'traspaso', label: 'Traspasos', icon: 'truck', onClick: () => setVista('traspaso') }]
-          : []),
-        ...(puedePreinventario
-          ? [{ id: 'preinventario', label: 'Preinventario', icon: 'package', onClick: () => setVista('preinventario') }]
-          : []),
-        ...(puedeGestionCatalogo
-          ? [{ id: 'mover', label: 'Mover productos (proveedor / depto)', icon: 'refresh', onClick: () => setVista('mover') }]
-          : []),
-        { id: 'etiquetas', label: 'Imprimir etiquetas', icon: 'print', onClick: () => { setEtiquetasSel(new Set()); setVista('etiquetas'); } },
-        ...(puedeGestionCatalogo
-          ? [
-              { id: 'importexport', label: 'Importar archivo .xls', icon: 'download', onClick: () => setVista('importexport') },
-              { id: 'exportar', label: 'Exportar productos', icon: 'download', onClick: () => exportarCatalogoCsv(inventario) },
-              {
-                id: 'fotos',
-                label: sincronizandoFotos
-                  ? `Jalar fotos… ${progresoFotos ? `${progresoFotos.actual}/${progresoFotos.total}` : ''}`
-                  : `Jalar fotos de internet${sinFotoCount ? ` (${sinFotoCount})` : ''}`,
-                icon: 'camera',
-                onClick: () => {
-                  if (!sincronizandoFotos) jalarFotosInternet();
-                },
-              },
-            ]
-          : []),
-        ...(puedeVaciarInventario
-          ? [{ id: 'vaciarinventario', label: `Vaciar inventario · ${tiendaLabel}`, icon: 'trash', onClick: () => setVista('vaciarinventario') }]
-          : []),
-        ...(puedeGestionCatalogo
-          ? [{ id: 'precios', label: 'Administrador de precios', icon: 'dollar', onClick: () => { initPreciosDraft(); setVista('precios'); } }]
-          : []),
-        ...(puedeConsolidar
-          ? [{ id: 'consolidar', label: 'Inventario vs ventas del día', icon: 'refresh', onClick: () => setVista('consolidar') }]
-          : []),
-        ...(verNegativos
-          ? [
-              {
-                id: 'negativos',
-                label: negativosCount > 0 ? `Inventario negativo (${negativosCount})` : 'Inventario negativo',
-                icon: 'package',
-                onClick: () => {
-                  const next = { ...FILTROS_VACIOS, existencia: 'negativa' };
-                  setFiltros(next);
-                  setFiltrosDraft(next);
-                  setQ('');
-                  setMostrarFiltros(false);
-                  setVista('lista');
-                },
-              },
-            ]
-          : []),
-        ...(puedeEliminarCatalogo
-          ? [{ id: 'eliminar', label: 'Eliminar productos', icon: 'trash', onClick: () => { setSeleccionEliminar(new Set()); setVista('eliminar'); } }]
-          : []),
-      ];
+  const menuItems = [
+    ...(tieneAccionProducto('prod_alta', user?.rol, user?.id)
+      ? [{ id: 'alta', label: 'Nuevo producto', icon: 'plus', onClick: () => { setForm(empty); setEsEdicionProducto(false); setVista('alta'); } }]
+      : []),
+    ...(tieneAccionProducto('prod_ajuste', user?.rol, user?.id)
+      ? [{ id: 'ajustes', label: 'Ajuste de inventario', icon: 'refresh', onClick: () => setModalAjusteOpen(true) }]
+      : []),
+    ...(tieneAccionProducto('prod_traspaso', user?.rol, user?.id)
+      ? [{ id: 'traspaso', label: 'Traspasos', icon: 'truck', onClick: () => setVista('traspaso') }]
+      : []),
+    ...(tieneAccionProducto('prod_preinventario', user?.rol, user?.id)
+      ? [{ id: 'preinventario', label: 'Preinventario', icon: 'package', onClick: () => setVista('preinventario') }]
+      : []),
+    ...(tieneAccionProducto('prod_mover', user?.rol, user?.id)
+      ? [{ id: 'mover', label: 'Mover productos (proveedor / depto)', icon: 'refresh', onClick: () => setVista('mover') }]
+      : []),
+    ...(tieneAccionProducto('prod_etiquetas', user?.rol, user?.id)
+      ? [{ id: 'etiquetas', label: 'Imprimir etiquetas', icon: 'print', onClick: () => { setEtiquetasSel(new Set()); setVista('etiquetas'); } }]
+      : []),
+    ...(tieneAccionProducto('prod_importar', user?.rol, user?.id)
+      ? [{ id: 'importexport', label: 'Importar archivo .xls', icon: 'download', onClick: () => setVista('importexport') }]
+      : []),
+    ...(tieneAccionProducto('prod_exportar', user?.rol, user?.id)
+      ? [{ id: 'exportar', label: 'Exportar productos', icon: 'download', onClick: () => exportarCatalogoCsv(inventario) }]
+      : []),
+    ...(tieneAccionProducto('prod_fotos', user?.rol, user?.id)
+      ? [{
+          id: 'fotos',
+          label: sincronizandoFotos
+            ? `Jalar fotos… ${progresoFotos ? `${progresoFotos.actual}/${progresoFotos.total}` : ''}`
+            : `Jalar fotos de internet${sinFotoCount ? ` (${sinFotoCount})` : ''}`,
+          icon: 'camera',
+          onClick: () => {
+            if (!sincronizandoFotos) jalarFotosInternet();
+          },
+        }]
+      : []),
+    ...(tieneAccionProducto('prod_vaciar', user?.rol, user?.id)
+      ? [{ id: 'vaciarinventario', label: `Vaciar inventario · ${tiendaLabel}`, icon: 'trash', onClick: () => setVista('vaciarinventario') }]
+      : []),
+    ...(tieneAccionProducto('prod_precios', user?.rol, user?.id)
+      ? [{ id: 'precios', label: 'Administrador de precios', icon: 'dollar', onClick: () => { initPreciosDraft(); setVista('precios'); } }]
+      : []),
+    ...(tieneAccionProducto('prod_consolidar', user?.rol, user?.id)
+      ? [{ id: 'consolidar', label: 'Inventario vs ventas del día', icon: 'refresh', onClick: () => setVista('consolidar') }]
+      : []),
+    ...(verNegativos
+      ? [
+          {
+            id: 'negativos',
+            label: negativosCount > 0 ? `Inventario negativo (${negativosCount})` : 'Inventario negativo',
+            icon: 'package',
+            onClick: () => {
+              const next = { ...FILTROS_VACIOS, existencia: 'negativa' };
+              setFiltros(next);
+              setFiltrosDraft(next);
+              setQ('');
+              setMostrarFiltros(false);
+              setVista('lista');
+            },
+          },
+        ]
+      : []),
+    ...(tieneAccionProducto('prod_eliminar', user?.rol, user?.id)
+      ? [{ id: 'eliminar', label: 'Eliminar productos', icon: 'trash', onClick: () => { setSeleccionEliminar(new Set()); setVista('eliminar'); } }]
+      : []),
+  ];
 
   const tablaProductos = (opts = {}) => {
     const { selectable, onSelect, selected, onRowClick, showActions = true } = opts;
@@ -1043,7 +1043,7 @@ export default function Productos({
             </button>
           )}
           {menuItems.length > 0 && <MenuPuntos items={menuItems} />}
-          {esCajero && (
+          {esCajero && !tieneAccionProducto('prod_alta', user?.rol, user?.id) && (
             <span className="muted" style={{ fontSize: '0.8rem' }}>
               Catálogo solo consulta · sí a ingreso, traspasos y preinventario
             </span>
