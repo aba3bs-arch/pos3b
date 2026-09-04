@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   agruparEmpleadosParaSelectPrestamo,
+  empleadosParaNominaGlobal,
   empleadosParaPrestamosEmpleado,
   prestamoEmpleadoOmiteCorte,
 } from './empleadosVisibles.js';
@@ -42,6 +43,13 @@ const empleados = [
   assert.equal(g.main.length, 1);
   assert.equal(g.main[0].id, 2);
   assert.equal(g.tienda.length, 2);
+}
+
+{
+  const list = empleadosParaNominaGlobal(empleados);
+  assert.ok(!list.some((e) => e.id === 4), 'bajas no van a nómina');
+  assert.ok(list.some((e) => e.id === 1));
+  assert.ok(!list.some((e) => e.rol === 'Administrador'));
 }
 
 console.log('empleadosVisibles.prestamosMain.test.mjs OK');

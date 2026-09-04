@@ -18,13 +18,19 @@ import {
 } from '../lib/dispositivoUsuario.js';
 import InputPin from '../components/InputPin.jsx';
 import { pinEsCubreTurnoDeSucursal } from '../lib/cubreTurnoSync.js';
+import {
+  MOTIVOS_BAJA_RH,
+  consultarRestriccionReingresoRh,
+  darDeBajaUsuarioPosYRh,
+  reactivarUsuarioPosYRh,
+} from '../lib/rhAba3b.js';
 
 const emptyForm = (sucursalDefault) => ({
   nombre: '',
   pin: '',
   rol: 'Cajero',
   tipo_empleado: 'tienda',
-  sucursal_id: normalizarCodigoTienda(sucursalDefault) || listarSucursalesOperativas()[0] || 'MAIN',
+  sucursal_id: normalizarCodigoTienda(sucursalDefault) || listarSucursales().filter((s) => !esCentralAdmin(s))[0] || 'MAIN',
   nomina_pagador: 'abarrotes',
   turno_id: '',
 });
@@ -45,6 +51,17 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
   });
   const [filtroSucursal, setFiltroSucursal] = useState('');
   const [mostrarBajas, setMostrarBajas] = useState(false);
+  const [bajaTarget, setBajaTarget] = useState(null);
+  const [bajaForm, setBajaForm] = useState({
+    motivo_baja: MOTIVOS_BAJA_RH[0],
+    fecha_baja: new Date().toISOString().slice(0, 10),
+    notas_baja: '',
+    recontratable: true,
+    motivo_no_recontratable: '',
+  });
+  const [reactivarTarget, setReactivarTarget] = useState(null);
+  const [pinReingreso, setPinReingreso] = useState('');
+  const [trabajandoBaja, setTrabajandoBaja] = useState(false);
   const [turnos, setTurnos] = useState(() => leerTurnos());
   const [configHorario, setConfigHorario] = useState(() => leerConfigHorario());
   const [rolesLista, setRolesLista] = useState(() => listarTodosLosRoles());
@@ -307,37 +324,70 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     load();
   };
 
-  const darDeBaja = async (r) => {
+  const abrirBaja = (r) => {
     if (!supabase || !esAdmin || !r?.id) return;
     if (actor?.id === r.id) return alert('No puedes darte de baja a ti mismo.');
-    if (!confirm(`¿Dar de baja a ${r.nombre}?\n\nNo podrá iniciar sesión ni aparecerá en nómina, vales o cortes. Puedes reactivarlo después.`)) return;
-    const { error } = await supabase.from('usuarios').update({ activo: false }).eq('id', r.id);
-    if (error) {
-      if (String(error.message).includes('activo')) {
-        return alert('Ejecuta supabase/fix_usuarios_activo.sql en Supabase para habilitar bajas.');
-      }
-      return alert(error.message);
-    }
-    load();
-    alert(`${r.nombre} quedó dado de baja.`);
+    setBajaTarget(r);
+    setBajaForm({
+      motivo_baja: MOTIVOS_BAJA_RH[0],
+      fecha_baja: new Date().toISOString().slice(0, 10),
+      notas_baja: '',
+      recontratable: true,
+      motivo_no_recontratable: '',
+    });
   };
 
-  const reactivar = async (r) => {
+  const confirmarBaja = async () => {
+    if (!supabase || !esAdmin || !bajaTarget?.id) return;
+    if (!bajaForm.recontratable && !String(bajaForm.motivo_no_recontratable || '').trim()) {
+      return alert('Si no es recontratable, indica el motivo.');
+    }
+    setTrabajandoBaja(true);
+    const res = await darDeBajaUsuarioPosYRh(supabase, bajaTarget, bajaForm, { user: actor });
+    setTrabajandoBaja(false);
+    if (!res.ok) return alert(res.error);
+    setBajaTarget(null);
+    load();
+    alert(res.mensaje || `${bajaTarget.nombre} quedó dado de baja.`);
+  };
+
+  const abrirReactivar = async (r) => {
     if (!supabase || !esAdmin || !r?.id) return;
     if (resolverTipoEmpleado(r) === 'tienda' && normalizarRol(r.rol) !== 'Administrador') {
       const cupo = puedeAgregarEmpleadoTienda(rows, r.sucursal_id, { excluirId: r.id });
       if (!cupo.ok) return alert(cupo.error);
     }
-    if (!confirm(`¿Reactivar a ${r.nombre}?`)) return;
-    const { error } = await supabase.from('usuarios').update({ activo: true }).eq('id', r.id);
-    if (error) {
-      if (String(error.message).includes('activo')) {
-        return alert('Ejecuta supabase/fix_usuarios_activo.sql en Supabase.');
-      }
-      return alert(error.message);
+    const rest = await consultarRestriccionReingresoRh(supabase, r);
+    if (!rest.ok) return alert(rest.error);
+    if (rest.requierePinPrincipal) {
+      setReactivarTarget(r);
+      setPinReingreso('');
+      return;
     }
+    if (!confirm(`¿Reactivar a ${r.nombre}? Volverá a nómina, turnos y Usuarios.`)) return;
+    setTrabajandoBaja(true);
+    const res = await reactivarUsuarioPosYRh(supabase, r, {}, { user: actor });
+    setTrabajandoBaja(false);
+    if (!res.ok) return alert(res.error);
     load();
-    alert(`${r.nombre} reactivado.`);
+    alert(res.mensaje || `${r.nombre} reactivado.`);
+  };
+
+  const confirmarReingresoConPin = async () => {
+    if (!reactivarTarget) return;
+    setTrabajandoBaja(true);
+    const res = await reactivarUsuarioPosYRh(
+      supabase,
+      reactivarTarget,
+      { pinAdminPrincipal: pinReingreso },
+      { user: actor },
+    );
+    setTrabajandoBaja(false);
+    if (!res.ok) return alert(res.error);
+    setReactivarTarget(null);
+    setPinReingreso('');
+    load();
+    alert(res.mensaje || `${reactivarTarget.nombre} reactivado.`);
   };
 
   const borrar = async (id) => {
@@ -491,9 +541,9 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                 </button>
               )}
               {r.activo === false ? (
-                <button type="button" className="btn btn-success" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => reactivar(r)}>Reactivar</button>
+                <button type="button" className="btn btn-success" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => abrirReactivar(r)}>Reactivar</button>
               ) : (
-                <button type="button" className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => darDeBaja(r)}>Dar de baja</button>
+                <button type="button" className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => abrirBaja(r)}>Dar de baja</button>
               )}
               {mostrarBajas && r.activo === false && (
                 <button type="button" className="btn btn-ghost" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => borrar(r.id)}>Eliminar</button>
@@ -518,6 +568,78 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {bajaTarget && (
+        <div className="card" style={{ borderLeft: '4px solid var(--danger)' }}>
+          <h3 style={{ margin: '0 0 0.5rem' }}>Dar de baja · {bajaTarget.nombre}</h3>
+          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+            Dejará de aparecer en nómina, en empleados por turno (Configuración) y en esta lista.
+            La baja se registra en <strong>RH ABA3B</strong>. Si es recontratable, podrás reingresar su alta después.
+          </p>
+          <div className="grid-2">
+            <select className="select" value={bajaForm.motivo_baja} onChange={(e) => setBajaForm({ ...bajaForm, motivo_baja: e.target.value })}>
+              {MOTIVOS_BAJA_RH.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <input className="input" type="date" value={bajaForm.fecha_baja} onChange={(e) => setBajaForm({ ...bajaForm, fecha_baja: e.target.value })} />
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={bajaForm.recontratable}
+                onChange={(e) => setBajaForm({ ...bajaForm, recontratable: e.target.checked })}
+              />
+              Puede reingresar (recontratable)
+            </label>
+            {!bajaForm.recontratable && (
+              <input
+                className="input"
+                placeholder="Motivo por el que NO es recontratable"
+                value={bajaForm.motivo_no_recontratable}
+                onChange={(e) => setBajaForm({ ...bajaForm, motivo_no_recontratable: e.target.value })}
+              />
+            )}
+            <input
+              className="input"
+              style={{ gridColumn: '1 / -1' }}
+              placeholder="Notas de baja (opcional)"
+              value={bajaForm.notas_baja}
+              onChange={(e) => setBajaForm({ ...bajaForm, notas_baja: e.target.value })}
+            />
+          </div>
+          {!bajaForm.recontratable && (
+            <p className="muted" style={{ fontSize: '0.82rem', marginTop: '0.65rem' }}>
+              Sin reingreso: para volver a darlo de alta se necesita el <strong>PIN del administrador principal</strong>.
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem' }}>
+            <button type="button" className="btn btn-danger" disabled={trabajandoBaja} onClick={confirmarBaja}>
+              {trabajandoBaja ? 'Guardando…' : 'Confirmar baja'}
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => setBajaTarget(null)}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {reactivarTarget && (
+        <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)' }}>
+          <h3 style={{ margin: '0 0 0.5rem' }}>Reingreso · {reactivarTarget.nombre}</h3>
+          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+            Este empleado está marcado <strong>no recontratable</strong> en RH ABA3B.
+            Captura el PIN del <strong>administrador principal</strong> para volver a darlo de alta.
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
+            <div>
+              <label className="muted" style={{ fontSize: '0.78rem' }}>PIN del administrador principal</label>
+              <InputPin value={pinReingreso} onChange={(e) => setPinReingreso(e.target.value)} />
+            </div>
+            <button type="button" className="btn btn-primary" disabled={trabajandoBaja || !pinReingreso} onClick={confirmarReingresoConPin}>
+              {trabajandoBaja ? 'Validando…' : 'Reingresar alta'}
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => { setReactivarTarget(null); setPinReingreso(''); }}>
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nuevo empleado</h3>
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
@@ -529,6 +651,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
           {esPersonalizado
             ? ' Con horario personalizado, asigna turnos por día en Configuración → Turnos.'
             : ' Asigna un turno fijo para el corte de caja.'}
+          {' '}La <strong>baja</strong> lo quita de nómina, turnos y esta lista, y queda en <strong>RH ABA3B</strong> (con opción de reingreso).
         </p>
         <div className="grid-2">
           <input className="input" placeholder="Nombre completo" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />

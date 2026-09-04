@@ -123,4 +123,4 @@ drop policy if exists "rh_recontrata_pins_auth_rw" on public.rh_recontratacion_p
 create policy "rh_recontrata_pins_auth_rw" on public.rh_recontratacion_pins for all to authenticated using (true) with check (true);
 
 comment on table public.rh_empleados is 'RH ABA3B: expediente de altas/bajas (tienda, cubre turno, indirectos).';
-comment on column public.rh_empleados.recontratable is 'Si false, recontratación exige PIN de todos los administradores + admin principal (aunque esté de baja).';
+comment on column public.rh_empleados.recontratable is 'Si false, reingreso exige PIN del administrador principal (AMR).';

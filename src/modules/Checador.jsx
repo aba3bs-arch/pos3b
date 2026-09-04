@@ -177,12 +177,15 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     (async () => {
       const tienda = filtroTiendaHist || sucursal;
       if (!tienda) return;
-      const { data } = await supabase
+      const res = await supabase
         .from('usuarios')
-        .select('id,nombre,rol,sucursal_id')
+        .select('id,nombre,rol,sucursal_id,activo')
         .eq('sucursal_id', tienda)
         .order('nombre');
-      if (ok) setEmpleadosTienda(data || []);
+      const data = res.error && String(res.error.message || '').includes('activo')
+        ? (await supabase.from('usuarios').select('id,nombre,rol,sucursal_id').eq('sucursal_id', tienda).order('nombre')).data
+        : res.data;
+      if (ok) setEmpleadosTienda((data || []).filter((e) => e?.activo !== false));
     })();
     return () => {
       ok = false;

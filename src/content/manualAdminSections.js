@@ -1,5 +1,5 @@
 /** Contenido del manual del administrador — Ayuda → Manual administrador */
-export const MANUAL_ADMIN_VERSION = '2.1 · POS CONTROL 3B';
+export const MANUAL_ADMIN_VERSION = '2.2 · POS CONTROL 3B';
 
 export const MANUAL_ADMIN_SECCIONES = [
   {
@@ -114,7 +114,7 @@ En el **header** (arriba a la derecha) verás un **selector de tienda** si eres 
   {
     id: 'usuarios',
     title: '4. Usuarios y roles',
-    keywords: ['usuarios', 'pin', 'empleado', 'alta', 'baja', 'rol', 'sucursal asignada'],
+    keywords: ['usuarios', 'pin', 'empleado', 'alta', 'baja', 'rol', 'sucursal asignada', 'reingreso', 'recontratable', 'rh aba3b'],
     body: `Módulo: **Usuarios** (solo Administrador)
 
 ### 4.1 Alta de empleado
@@ -148,7 +148,24 @@ En **Configuración → Privilegios por rol o usuario** puedes restringir o ampl
 
 - \`usuarios_rol_check\` → \`fix_usuarios_rol_check.sql\`
 - \`turno_horario\` → \`fix_turnos_seguridad.sql\`
-- PIN duplicado en la misma sucursal → usa otro PIN`,
+- PIN duplicado en la misma sucursal → usa otro PIN
+
+### 4.6 Baja de empleado (nómina, turnos, usuarios y RH ABA3B)
+
+La baja se hace en **Usuarios → Dar de baja** o en **RH ABA3B → Perfil → Dar de baja**. En ambos casos:
+
+1. Elige **motivo** y si **puede reingresar** (recontratable)
+2. Confirma. El empleado **deja de aparecer** en:
+   - **Nómina**
+   - **Configuración → Empleados por turno**
+   - **Usuarios** (salvo que marques *Ver dados de baja*)
+3. El expediente queda en **RH ABA3B → Inactivos / bajas**
+4. Ya no puede iniciar sesión con su PIN
+
+**Reingreso (alta de nuevo):**
+
+- Si es **recontratable**: en RH ABA3B o Usuarios usa **Reingresar alta / Reactivar**. Vuelve a nómina, turnos y Usuarios.
+- Si **no es recontratable** (o ya no puede ser contratado): hace falta el **PIN del administrador principal** para volver a darlo de alta.`,`,
   },
   {
     id: 'turnos',
