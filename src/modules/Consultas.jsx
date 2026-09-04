@@ -16,7 +16,9 @@ import {
   fmtMonto,
   folioNumerico,
   inicialesNombre,
+  mapaCostoInventarioPorProducto,
 } from '../lib/consultasUi.js';
+import { importeUnitarioMovimientoInventario } from '../lib/valorInventario.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
 import ReportePreciosVentas from '../components/ReportePreciosVentas.jsx';
 import './Consultas.css';
@@ -112,11 +114,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
   const tiendas = sucursalesLista?.length ? sucursalesLista : [sucursal || 'MAIN'].filter(Boolean);
 
-  const precioPorId = useMemo(() => {
-    const map = new Map();
-    for (const p of inventario || []) map.set(String(p.id), Number(p.precio) || 0);
-    return map;
-  }, [inventario]);
+  // Costo de compra/proveedor (NO precio de venta al cliente ni ruta).
+  const precioPorId = useMemo(() => mapaCostoInventarioPorProducto(inventario), [inventario]);
 
   const productoPorId = useMemo(() => {
     const map = new Map();
@@ -470,7 +469,10 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     const opDoc = sel?.operacion || '';
     return (sel.lineas || []).map((m) => {
       const prod = productoPorId.get(String(m.producto_id));
-      const precio = Number(m.precio) || Number(prod?.precio) || 0;
+      // Costo proveedor (para gasto / valorizar compra). No es precio de venta.
+      const costoUnitario = importeUnitarioMovimientoInventario(m, prod);
+      // Precio al público (catálogo).
+      const ventaUnitario = Math.max(0, Number(prod?.precio) || 0);
       const qty = Math.abs(Number(m.cantidad) || 0);
       const existenciaRaw = m.stock_antes != null ? Number(m.stock_antes) : 0;
       const existencia = Number.isFinite(existenciaRaw) ? existenciaRaw : 0;
@@ -495,9 +497,6 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
       }
       if (!(invPiso >= 0)) invPiso = Math.max(0, invPiso);
 
-      // Contado:
-      // - Ajuste/conteo: lo contado en piso (= inv. piso final).
-      // - Ingreso/retiro/traspaso: piezas de la operación (15+8=23).
       const contado = esAjuste
         ? (m.contada != null && m.contada !== ''
             ? Math.max(0, Number(m.contada))
@@ -506,20 +505,29 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
               : qty)
         : qty;
 
-      const precioTotal =
+      const piezasValor = qty > 0 ? qty : Math.abs(Number(contado) || 0);
+      const precCompra =
         m.subtotal != null && Number.isFinite(Number(m.subtotal)) && Number(m.subtotal) !== 0
           ? Math.abs(Number(m.subtotal))
-          : Math.round(qty * precio * 100) / 100 || Math.abs(Number(invPiso) - Math.max(0, existencia)) * precio;
+          : Math.round(piezasValor * costoUnitario * 100) / 100;
+      const ventaTotal = Math.round(piezasValor * ventaUnitario * 100) / 100;
+      const utilidadBruta = Math.round((ventaTotal - precCompra) * 100) / 100;
+
       return {
         ...m,
         prod,
-        precio,
+        precio: costoUnitario,
+        costoUnitario,
+        ventaUnitario,
         qty,
         existencia,
         contado,
         invPiso,
-        precioTotal,
-        difValor: precioTotal,
+        precCompra,
+        ventaTotal,
+        utilidadBruta,
+        precioTotal: precCompra,
+        difValor: utilidadBruta,
       };
     });
   }, [enDetalleInv, sel, productoPorId]);
@@ -529,9 +537,17 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     () => lineasDetalleInv.reduce((s, m) => s + (Math.abs(Number(m.qty) || 0)), 0),
     [lineasDetalleInv],
   );
-  const precioTotalOperacionInv = useMemo(
-    () => lineasDetalleInv.reduce((s, m) => s + (Number(m.precioTotal) || 0), 0),
+  const costoCompraOperacionInv = useMemo(
+    () => lineasDetalleInv.reduce((s, m) => s + (Number(m.precCompra) || 0), 0),
     [lineasDetalleInv],
+  );
+  const ventaTotalOperacionInv = useMemo(
+    () => lineasDetalleInv.reduce((s, m) => s + (Number(m.ventaTotal) || 0), 0),
+    [lineasDetalleInv],
+  );
+  const utilidadBrutaOperacionInv = useMemo(
+    () => Math.round((ventaTotalOperacionInv - costoCompraOperacionInv) * 100) / 100,
+    [ventaTotalOperacionInv, costoCompraOperacionInv],
   );
 
   return (
@@ -724,7 +740,9 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                     <th>Existencia</th>
                     <th>Contado</th>
                     <th>Inv. piso</th>
-                    <th>Precio total</th>
+                    <th>Prec. compra</th>
+                    <th>Venta total</th>
+                    <th>Utilidad</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -738,7 +756,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                             <div style={{ fontWeight: 600 }}>{m.producto_nombre || m.producto_id}</div>
                             {!esDetalleTraspaso && (
                               <div className="muted" style={{ fontSize: '0.72rem' }}>
-                                {m.qty ? `${m.qty} pza · ` : ''}{fmtMonto(m.precio)} c/u
+                                {m.qty ? `${m.qty} pza · ` : ''}
+                                compra {fmtMonto(m.costoUnitario)} · venta {fmtMonto(m.ventaUnitario)}
                               </div>
                             )}
                           </div>
@@ -750,16 +769,43 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                       <td>{m.existencia}</td>
                       <td style={{ fontWeight: 700 }}>{m.contado}</td>
                       <td style={{ fontWeight: 700 }}>{m.invPiso}</td>
-                      <td style={{ color: '#1e5bb8', fontWeight: 600 }}>{fmtMonto(m.precioTotal)}</td>
+                      <td style={{ color: '#1e5bb8', fontWeight: 600 }}>{fmtMonto(m.precCompra)}</td>
+                      <td style={{ fontWeight: 600 }}>{fmtMonto(m.ventaTotal)}</td>
+                      <td
+                        style={{
+                          fontWeight: 700,
+                          color: Number(m.utilidadBruta) >= 0 ? '#2e7d32' : 'var(--danger)',
+                        }}
+                      >
+                        {fmtMonto(m.utilidadBruta)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <div className="consultas-inv-total">
-              {esDetalleTraspaso
-                ? `Total operación (${lineasDetalleInv.length} producto${lineasDetalleInv.length === 1 ? '' : 's'} · ${piezasDetalleInv} pza) ${fmtMonto(precioTotalOperacionInv || sel.total)}`
-                : `Total operación (${lineasDetalleInv.length}) ${fmtMonto(precioTotalOperacionInv || sel.total)}`}
+            <div className="consultas-inv-total consultas-inv-total--desglose">
+              <div className="consultas-inv-tot-line">
+                <span>
+                  {esDetalleTraspaso
+                    ? `${lineasDetalleInv.length} producto${lineasDetalleInv.length === 1 ? '' : 's'} · ${piezasDetalleInv} pza`
+                    : `${lineasDetalleInv.length} producto${lineasDetalleInv.length === 1 ? '' : 's'}`}
+                </span>
+              </div>
+              <div className="consultas-inv-tot-line">
+                <span>Costo de compra (proveedor · para gasto)</span>
+                <strong>{fmtMonto(costoCompraOperacionInv)}</strong>
+              </div>
+              <div className="consultas-inv-tot-line">
+                <span>Venta total (precio al público)</span>
+                <strong>{fmtMonto(ventaTotalOperacionInv)}</strong>
+              </div>
+              <div className="consultas-inv-tot-line consultas-inv-tot-line--utilidad">
+                <span>Utilidad bruta (venta − compra)</span>
+                <strong style={{ color: utilidadBrutaOperacionInv >= 0 ? '#2e7d32' : 'var(--danger)' }}>
+                  {fmtMonto(utilidadBrutaOperacionInv)}
+                </strong>
+              </div>
             </div>
           </div>
         )}

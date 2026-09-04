@@ -523,6 +523,37 @@
   color: #1e5bb8;
 }
 
+.consultas-inv-total--desglose {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  text-align: left;
+  font-weight: 500;
+  color: #334155;
+}
+
+.consultas-inv-tot-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  font-size: 0.9rem;
+}
+
+.consultas-inv-tot-line strong {
+  font-weight: 800;
+  color: #1e5bb8;
+  white-space: nowrap;
+}
+
+.consultas-inv-tot-line--utilidad {
+  margin-top: 0.25rem;
+  padding-top: 0.45rem;
+  border-top: 1px dashed #e2e8f0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
 .consultas-saldos {
   display: flex;
   flex-direction: column;

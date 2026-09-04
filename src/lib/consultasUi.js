@@ -142,11 +142,26 @@ export function fmtRangoFechas(desde, hasta) {
   return `${ad}/${am}/${ay}-${bd}/${bm}/${by}`;
 }
 
+import { costoProveedorUnitario } from './valorInventario.js';
+
 function precioDeLinea(m, precioPorId) {
-  if (m.subtotal != null && Number(m.cantidad)) return Number(m.subtotal) / Number(m.cantidad);
-  if (m.precio != null) return Number(m.precio) || 0;
+  if (m.subtotal != null && Number(m.cantidad)) {
+    const u = Math.abs(Number(m.subtotal)) / Math.abs(Number(m.cantidad) || 1);
+    if (u > 0) return u;
+  }
+  if (m.precio != null && Number(m.precio) > 0) return Number(m.precio) || 0;
+  // Mapa debe traer costo de compra (no precio de venta al público).
   const p = precioPorId?.get(String(m.producto_id));
   return Number(p) || 0;
+}
+
+/** Mapa producto_id → costo proveedor para valorizar Consultas → Inventario. */
+export function mapaCostoInventarioPorProducto(inventario = []) {
+  const map = new Map();
+  for (const p of inventario || []) {
+    map.set(String(p.id), costoProveedorUnitario(p));
+  }
+  return map;
 }
 
 function valorMovimiento(m, precioPorId) {
