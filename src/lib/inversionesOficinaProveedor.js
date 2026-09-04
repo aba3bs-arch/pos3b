@@ -176,7 +176,7 @@ export async function cobrarInversionEnCorte(supabase, inversion, montoCobro, op
       comentario: `INV ${String(inversion.id).slice(0, 8)} · ${inversion.proveedor_nombre || 'Proveedor'}${inversion.notas ? ` · ${inversion.notas}` : ''}`.toUpperCase(),
       monto,
     },
-    { rolActor: opts.rolActor, nombreActor: opts.nombreActor, autoAprobar: true },
+    { rolActor: opts.rolActor, nombreActor: opts.nombreActor, autoAprobar: true, omitirChequeoDuplicado: true },
   );
   if (!gastoRes.ok) return { ok: false, error: gastoRes.error || 'No se pudo cargar el gasto al corte.' };
 

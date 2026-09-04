@@ -7,6 +7,8 @@ import {
 } from './inventarioMultitienda.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { hoyYmdNogales } from './corteCaja.js';
+import { costoProveedorUnitario } from './valorInventario.js';
+import { cargarProductoIdsCostoPrecioRuta } from './proveedoresCostoRuta.js';
 
 const LS_MOVIMIENTOS = 'pos3b_movimientos_inventario';
 const LS_PENDIENTES_NUBE = 'pos3b_movimientos_inventario_pendientes';
@@ -628,6 +630,8 @@ export async function aplicarMovimientoInventario(supabase, opts) {
     modo,
     folio: folioMov,
     meta: metaMov,
+    precio: metaMov.precio != null ? Number(metaMov.precio) : null,
+    subtotal: metaMov.subtotal != null ? Number(metaMov.subtotal) : null,
     departamento: departamento || productoOrigen.cat || productoDb.cat,
     producto_id: productoOrigen.id,
     producto_nombre: productoOrigen.nombre || productoDb.nombre,
@@ -714,6 +718,7 @@ export async function aplicarEntradasMasivas(supabase, opts) {
   const avisos = [];
   const detalle = [];
   const productosVivos = new Map(catalogo.map((p) => [String(p.id), { ...p }]));
+  const productoIdsCostoRuta = new Set(await cargarProductoIdsCostoPrecioRuta(supabase));
 
   for (const { productoId, cantidad } of lista) {
     let productoOrigen =
@@ -723,6 +728,7 @@ export async function aplicarEntradasMasivas(supabase, opts) {
       errores.push(`${productoId}: no encontrado`);
       continue;
     }
+    const costoU = costoProveedorUnitario(productoOrigen, { productoIdsCostoRuta });
     const r = await aplicarMovimientoInventario(supabase, {
       tipo,
       productoOrigen,
@@ -735,7 +741,12 @@ export async function aplicarEntradasMasivas(supabase, opts) {
       // Departamento del SKU se guarda en la línea; el folio une el documento.
       departamento: productoOrigen.cat,
       folio: folioLote,
-      meta: { folio: folioLote, lote: true },
+      meta: {
+        folio: folioLote,
+        lote: true,
+        precio: costoU > 0 ? costoU : null,
+        subtotal: costoU > 0 ? costoU * cantidad : null,
+      },
     });
     if (!r.ok) {
       errores.push(`${productoOrigen.nombre}: ${r.error}`);

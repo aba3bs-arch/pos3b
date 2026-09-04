@@ -150,16 +150,29 @@ function precioDeLinea(m, precioPorId) {
     if (u > 0) return u;
   }
   if (m.precio != null && Number(m.precio) > 0) return Number(m.precio) || 0;
+  const metaPrecio = Number(m?.meta?.precio);
+  if (Number.isFinite(metaPrecio) && metaPrecio > 0) return metaPrecio;
   // Mapa debe traer costo de compra (no precio de venta al público).
   const p = precioPorId?.get(String(m.producto_id));
   return Number(p) || 0;
 }
 
-/** Mapa producto_id → costo proveedor para valorizar Consultas → Inventario. */
-export function mapaCostoInventarioPorProducto(inventario = []) {
+/**
+ * Mapa producto_id → costo proveedor para valorizar Consultas → Inventario.
+ * @param {object[]} inventario
+ * @param {{ productoIdsCostoRuta?: Set<string> }} [opts]
+ */
+export function mapaCostoInventarioPorProducto(inventario = [], opts = {}) {
+  const idsRuta = opts.productoIdsCostoRuta instanceof Set ? opts.productoIdsCostoRuta : null;
   const map = new Map();
   for (const p of inventario || []) {
-    map.set(String(p.id), costoProveedorUnitario(p));
+    map.set(
+      String(p.id),
+      costoProveedorUnitario(p, {
+        usarPrecioRuta: idsRuta ? idsRuta.has(String(p.id)) : false,
+        productoIdsCostoRuta: idsRuta || undefined,
+      }),
+    );
   }
   return map;
 }

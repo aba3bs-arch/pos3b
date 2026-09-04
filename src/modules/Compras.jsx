@@ -40,7 +40,12 @@ async function aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, 
       sucursal,
       sucursalOperacion: sucursal,
       folio: folioCompra,
-      meta: { folio: folioCompra, compra: true },
+      meta: {
+        folio: folioCompra,
+        compra: true,
+        precio: Number(l.costo ?? l.costo_est) || null,
+        subtotal: (Number(l.qty) || 0) * (Number(l.costo ?? l.costo_est) || 0) || null,
+      },
     });
     if (!r.ok) {
       errores.push(`${l.nombre || l.id}: ${r.error}`);
@@ -237,6 +242,10 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     };
   }, [supabase, proveedorId]);
 
+  const proveedorNombre = useMemo(() => proveedores.find((p) => p.id === proveedorId)?.nombre || '', [proveedores, proveedorId]);
+  const proveedorSeleccionado = useMemo(() => proveedores.find((p) => p.id === proveedorId) || null, [proveedores, proveedorId]);
+  const proveedorEsDirecta = useMemo(() => proveedorUsaEntregaDirecta(proveedorSeleccionado), [proveedorSeleccionado]);
+
   const construirLineas = useCallback(
     (pedidoExistente = null) => {
       const idsSet = new Set(vinculoProductoIds);
@@ -261,7 +270,9 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
           teorico: Number(p.stock) || 0,
           sugerido,
           vendido14,
-          costo_est: ref ? Number(ref.costo_est) || costoEstimadoProducto(p) : costoEstimadoProducto(p),
+          costo_est: ref
+            ? Number(ref.costo_est) || costoEstimadoProducto(p, { proveedorNombre })
+            : costoEstimadoProducto(p, { proveedorNombre }),
           qty_pedido: ref ? Number(ref.qty_pedido) || 0 : 0,
           qty_recibido: 0,
         };
@@ -288,7 +299,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
 
       return rows;
     },
-    [inventario, vinculoProductoIds, verTodoInventario, proveedorId, umbralCatalogo, ventasPorProducto],
+    [inventario, vinculoProductoIds, verTodoInventario, proveedorId, umbralCatalogo, ventasPorProducto, proveedorNombre],
   );
 
   useEffect(() => {
@@ -302,10 +313,6 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     if (modoRecepcion) return lineas.filter((l) => Number(l.qty_pedido) > 0 || Number(l.qty_recibido) > 0);
     return lineas.filter((l) => l.sugerido > 0 || Number(l.qty_pedido) > 0);
   }, [lineas, verTodoInventario, modoRecepcion, modoEntregaDirecta]);
-
-  const proveedorNombre = useMemo(() => proveedores.find((p) => p.id === proveedorId)?.nombre || '', [proveedores, proveedorId]);
-  const proveedorSeleccionado = useMemo(() => proveedores.find((p) => p.id === proveedorId) || null, [proveedores, proveedorId]);
-  const proveedorEsDirecta = useMemo(() => proveedorUsaEntregaDirecta(proveedorSeleccionado), [proveedorSeleccionado]);
 
   const pedidosDelProveedor = useMemo(
     () => pedidosPendientes.filter((p) => String(p.proveedor_id || '') === String(proveedorId || '')),

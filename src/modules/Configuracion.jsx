@@ -37,6 +37,11 @@ import {
   guardarTiendasValesPermitidas,
 } from '../lib/posConfig.js';
 import {
+  leerProveedoresCostoPrecioRuta,
+  guardarProveedoresCostoPrecioRuta,
+  PROVEEDORES_COSTO_PRECIO_RUTA_DEFAULT,
+} from '../lib/proveedoresCostoRuta.js';
+import {
   EVENTO_HORA_LIMITE_VALE,
   HORA_LIMITE_VALE_DEFAULT_ETIQUETA,
   etiquetaHoraLimiteVale,
@@ -341,6 +346,8 @@ export default function Configuracion({
   const [filtroUsuariosTurno, setFiltroUsuariosTurno] = useState('');
   const [valesTiendas, setValesTiendas] = useState(() => leerTiendasValesPermitidas() || listarSucursalesParaUI());
   const [horaLimiteValeCfg, setHoraLimiteValeCfg] = useState(() => etiquetaHoraLimiteVale());
+  const [proveedoresCostoRuta, setProveedoresCostoRuta] = useState(() => leerProveedoresCostoPrecioRuta());
+  const [listaProveedoresCfg, setListaProveedoresCfg] = useState([]);
   const puedeAsignarTurnoEmpleados = puedeAsignarTurnos(user?.rol);
 
   const cargarEstadoTurnosTienda = useCallback((tienda) => {
@@ -383,6 +390,20 @@ export default function Configuracion({
       window.removeEventListener(EVENTO_HORA_LIMITE_VALE, onHoraVale);
     };
   }, [supabase]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!supabase || !esAdmin) return;
+      const { data } = await supabase.from('proveedores').select('id, nombre').order('nombre');
+      if (cancelled) return;
+      setListaProveedoresCfg(Array.isArray(data) ? data : []);
+      setProveedoresCostoRuta(leerProveedoresCostoPrecioRuta());
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, esAdmin, panelCfg]);
 
   useEffect(() => {
     const sync = () => cargarEstadoTurnosTienda(turnosTienda);
@@ -949,6 +970,14 @@ export default function Configuracion({
         ayuda: 'Marca qué sucursales pueden generar vales desde el módulo Vales y Préstamos.',
         icon: 'dollar',
         color: '#b45309',
+      },
+      esAdmin && {
+        id: 'costo_precio_ruta',
+        label: 'Costo compra · precio ruta',
+        desc: 'Proveedores que usan Precio Venta en Ruta',
+        ayuda: 'Para estos proveedores el costo de compra (gasto / consultas) toma el Precio Venta en Ruta del producto. Empieza con Smoking; ve sumando otros cuando sus precios estén listos.',
+        icon: 'dollar',
+        color: '#0d9488',
       },
       {
         id: 'tiendas',
@@ -2068,6 +2097,76 @@ export default function Configuracion({
               }}
             >
               Guardar hora límite (todas las cajas)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {panelCfg === 'costo_precio_ruta' && esAdmin && (
+        <div className="card" style={{ borderTop: '4px solid #0d9488' }}>
+          <h3 style={{ margin: '0 0 0.5rem', color: '#0d9488' }}>Costo de compra · Precio Venta en Ruta</h3>
+          <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+            Marca los proveedores cuya <strong>compra / gasto en Abarrotes</strong> debe tomar el campo
+            {' '}<em>Precio Venta en Ruta</em> del producto (no el precio de compra estándar).
+            Aplica a Compras, ingresos y Consultas → Inventario. Virtual y Garage no usan este flujo (no generan compras).
+            Por defecto está <strong>Smoking</strong>. Cuando ajustes precios de otros proveedores, actívalos aquí.
+          </p>
+          {!listaProveedoresCfg.length ? (
+            <p className="muted" style={{ fontSize: '0.85rem' }}>
+              No hay proveedores cargados. Revisa el módulo Proveedores o la conexión a la nube.
+              Mientras tanto se usa el default: {PROVEEDORES_COSTO_PRECIO_RUTA_DEFAULT.join(', ')}.
+            </p>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.35rem', marginTop: '0.75rem' }}>
+              {listaProveedoresCfg.map((p) => {
+                const nom = String(p.nombre || '').trim();
+                if (!nom) return null;
+                const activa = proveedoresCostoRuta.some(
+                  (x) => String(x).trim().toLowerCase() === nom.toLowerCase(),
+                );
+                return (
+                  <label key={p.id || nom} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem' }}>
+                    <input
+                      type="checkbox"
+                      checked={activa}
+                      onChange={() => {
+                        setProveedoresCostoRuta((prev) => {
+                          const tiene = prev.some((x) => String(x).trim().toLowerCase() === nom.toLowerCase());
+                          if (tiene) return prev.filter((x) => String(x).trim().toLowerCase() !== nom.toLowerCase());
+                          return [...prev, nom];
+                        });
+                      }}
+                    />
+                    {nom}
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.85rem' }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                const saved = guardarProveedoresCostoPrecioRuta(proveedoresCostoRuta);
+                setProveedoresCostoRuta(saved);
+                alert(
+                  saved.length
+                    ? `Proveedores con costo = precio ruta:\n• ${saved.join('\n• ')}`
+                    : 'Lista vacía: se restaurará Smoking al recargar. Marca al menos uno.',
+                );
+              }}
+            >
+              Guardar proveedores
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setProveedoresCostoRuta([...PROVEEDORES_COSTO_PRECIO_RUTA_DEFAULT]);
+              }}
+            >
+              Restaurar default (Smoking)
             </button>
           </div>
         </div>

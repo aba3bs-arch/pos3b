@@ -648,10 +648,21 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       const sesion = snapshotTurno();
       if (sesion) patchEstado({ turno_sesion: sesion });
     }
-    const res = await agregarGastoTurno(supabase, sucursal, modulo, gasto, {
+    const optsBase = {
       rolActor: user?.rol,
       nombreActor: user?.nombre,
-    });
+    };
+    let res = await agregarGastoTurno(supabase, sucursal, modulo, gasto, optsBase);
+    if (res?.duplicado) {
+      const forzar = window.confirm(
+        `${res.error}\n\n¿Registrar de todos modos en este corte?`,
+      );
+      if (!forzar) return { ok: false, cancelado: true, duplicado: true };
+      res = await agregarGastoTurno(supabase, sucursal, modulo, gasto, {
+        ...optsBase,
+        forzarDuplicado: true,
+      });
+    }
     if (!res.ok) {
       alert(res.error);
       return { ok: false, error: res.error };
