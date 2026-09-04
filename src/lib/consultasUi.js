@@ -142,20 +142,7 @@ export function fmtRangoFechas(desde, hasta) {
   return `${ad}/${am}/${ay}-${bd}/${bm}/${by}`;
 }
 
-import { costoProveedorUnitario } from './valorInventario.js';
-
-function precioDeLinea(m, precioPorId) {
-  if (m.subtotal != null && Number(m.cantidad)) {
-    const u = Math.abs(Number(m.subtotal)) / Math.abs(Number(m.cantidad) || 1);
-    if (u > 0) return u;
-  }
-  if (m.precio != null && Number(m.precio) > 0) return Number(m.precio) || 0;
-  const metaPrecio = Number(m?.meta?.precio);
-  if (Number.isFinite(metaPrecio) && metaPrecio > 0) return metaPrecio;
-  // Mapa debe traer costo de compra (no precio de venta al público).
-  const p = precioPorId?.get(String(m.producto_id));
-  return Number(p) || 0;
-}
+import { costoProveedorUnitario, importeUnitarioMovimientoInventario } from './valorInventario.js';
 
 /**
  * Mapa producto_id → costo proveedor para valorizar Consultas → Inventario.
@@ -164,27 +151,44 @@ function precioDeLinea(m, precioPorId) {
  */
 export function mapaCostoInventarioPorProducto(inventario = [], opts = {}) {
   const idsRuta = opts.productoIdsCostoRuta instanceof Set ? opts.productoIdsCostoRuta : null;
+  const catalogo = inventario || [];
   const map = new Map();
-  for (const p of inventario || []) {
+  for (const p of catalogo) {
     map.set(
       String(p.id),
       costoProveedorUnitario(p, {
         usarPrecioRuta: idsRuta ? idsRuta.has(String(p.id)) : false,
         productoIdsCostoRuta: idsRuta || undefined,
+        catalogo,
       }),
     );
   }
   return map;
 }
 
-function valorMovimiento(m, precioPorId) {
+function precioDeLinea(m, precioPorId, catalogo = []) {
+  const prod =
+    (catalogo || []).find((p) => String(p?.id) === String(m?.producto_id)) ||
+    { id: m?.producto_id, nombre: m?.producto_nombre };
+  // Catálogo / precio_ruta efectivo (con herencia de marca) manda sobre sello del movimiento.
+  const unitCat = importeUnitarioMovimientoInventario(m, prod, {
+    catalogo,
+    productoNombre: m?.producto_nombre,
+  });
+  if (unitCat > 0) return unitCat;
+  const fromMap = Number(precioPorId?.get(String(m.producto_id))) || 0;
+  if (fromMap > 0) return fromMap;
+  return 0;
+}
+
+function valorMovimiento(m, precioPorId, catalogo = []) {
+  const qty = Math.abs(Number(m.cantidad) || 0);
+  const unit = precioDeLinea(m, precioPorId, catalogo);
+  if (unit > 0 && qty > 0) return qty * unit;
+  // Solo si no hay costo de catálogo/ruta, usar subtotal sellado.
   if (m.subtotal != null && Number.isFinite(Number(m.subtotal)) && Number(m.subtotal) !== 0) {
     return Math.abs(Number(m.subtotal));
   }
-  const qty = Math.abs(Number(m.cantidad) || 0);
-  const unit = precioDeLinea(m, precioPorId);
-  if (unit > 0) return qty * unit;
-  // Fallback: si no hay precio, al menos cuenta unidades como $1 para no quedar en cero visual.
   return 0;
 }
 
@@ -273,7 +277,7 @@ function esMovimientoVenta(m) {
  * Por defecto NO incluye egresos por venta (van en la pestaña Ventas).
  */
 export function agruparDocumentosInventario(movimientos, opts = {}) {
-  const { precioPorId = new Map(), incluirVentas = false } = opts;
+  const { precioPorId = new Map(), incluirVentas = false, catalogo = [] } = opts;
   const map = new Map();
 
   for (const m of movimientos || []) {
@@ -346,7 +350,7 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
     if (new Date(m.created_at || 0) > new Date(doc.created_at || 0)) doc.created_at = m.created_at;
     if (!doc.traspaso_origen && rutaOrigen) doc.traspaso_origen = rutaOrigen;
     if (!doc.traspaso_destino && rutaDestino) doc.traspaso_destino = rutaDestino;
-    const valor = valorMovimiento(m, precioPorId);
+    const valor = valorMovimiento(m, precioPorId, catalogo);
     const esEntrada =
       m.tipo === 'entrada' ||
       m.modo === 'cancelacion' ||

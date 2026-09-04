@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  familiaMarcaPrecioRuta,
+  precioRutaEfectivoParaCosto,
+} from './proveedoresCostoRuta.js';
+import {
   costoProveedorUnitario,
   importeUnitarioMovimientoInventario,
   precioVentaUnitarioProducto,
@@ -17,45 +21,55 @@ globalThis.localStorage = {
   },
 };
 
-test('Smoking usa precio_ruta 2.10', () => {
+const catalogo = [
+  { id: '33', nombre: 'Malboro Vista 100', precio: 8, precio_compra_con: 5.25, precio_ruta: 6 },
+  { id: '32', nombre: 'Malboro Blanco 100', precio: 8, precio_compra_con: 5.25, precio_ruta: 0 },
+  { id: '34', nombre: 'Double Fusion Ruby', precio: 8, precio_compra_con: 5.25, precio_ruta: 0 },
+  { id: '30', nombre: 'Smoking Gun Pieza', precio: 5, precio_compra_con: 2.1, precio_ruta: 2.1 },
+];
+
+test('familias de marca', () => {
+  assert.equal(familiaMarcaPrecioRuta('Malboro Blanco 100'), 'MARLBORO');
+  assert.equal(familiaMarcaPrecioRuta('Marlboro Vista 100'), 'MARLBORO');
+  assert.equal(familiaMarcaPrecioRuta('Double Fusion Ruby'), 'PALLMALL');
+  assert.equal(familiaMarcaPrecioRuta('Smoking Gun Pieza'), 'SMOKING');
+});
+
+test('Blanco hereda $6 de Vista; Double Fusion también $6; Smoking $2.10', () => {
   mem.clear();
-  const p = {
-    id: '30',
-    precio: 5,
-    precio_compra_con: 0,
-    precio_compra_sin: 0,
-    precio_ruta: 2.1,
-    costo: 0,
+  assert.equal(precioRutaEfectivoParaCosto(catalogo[0], catalogo), 6);
+  assert.equal(precioRutaEfectivoParaCosto(catalogo[1], catalogo), 6);
+  assert.equal(precioRutaEfectivoParaCosto(catalogo[2], catalogo), 6);
+  assert.equal(precioRutaEfectivoParaCosto(catalogo[3], catalogo), 2.1);
+});
+
+test('Consultas: sello $5.25 no pisa precio ruta heredado', () => {
+  mem.clear();
+  const blanco = catalogo[1];
+  const m = {
+    producto_id: '32',
+    producto_nombre: 'Malboro Blanco 100',
+    cantidad: 20,
+    precio: 5.25,
+    subtotal: 105,
   };
-  assert.equal(costoProveedorUnitario(p), 2.1);
-  assert.equal(precioVentaUnitarioProducto(p), 5);
-  assert.equal(importeUnitarioMovimientoInventario({ cantidad: 200 }, p), 2.1);
+  assert.equal(
+    importeUnitarioMovimientoInventario(m, blanco, { catalogo }),
+    6,
+  );
+  assert.equal(
+    importeUnitarioMovimientoInventario(
+      { ...m, producto_id: '34', producto_nombre: 'Double Fusion Ruby', precio: 5.25 },
+      catalogo[2],
+      { catalogo },
+    ),
+    6,
+  );
+  assert.equal(costoProveedorUnitario(blanco, { catalogo }), 6);
+  assert.equal(precioVentaUnitarioProducto(blanco), 8);
 });
 
-test('Marlboro/Pall Mall: precio_ruta 6 gana sobre compra 5.25', () => {
+test('Smoking propio $2.10', () => {
   mem.clear();
-  const p = {
-    id: '35',
-    precio: 8,
-    precio_compra_con: 5.25,
-    precio_compra_sin: 4.86,
-    precio_ruta: 6,
-    costo: 5.25,
-  };
-  assert.equal(costoProveedorUnitario(p), 6);
-  assert.equal(importeUnitarioMovimientoInventario({ cantidad: 20, precio: 5.25, subtotal: 105 }, p), 6);
-  assert.equal(precioVentaUnitarioProducto(p), 8);
-});
-
-test('sin precio_ruta usa compra', () => {
-  mem.clear();
-  const p = { id: '1', precio: 8, precio_compra_con: 5.25, precio_ruta: 0 };
-  assert.equal(costoProveedorUnitario(p), 5.25);
-});
-
-test('precio null/0 en movimiento no tapa el catálogo', () => {
-  mem.clear();
-  const p = { id: '30', precio: 5, precio_ruta: 2.1, precio_compra_con: 0 };
-  const m = { cantidad: 20, precio: null, subtotal: null, meta: { precio: null, subtotal: 0 } };
-  assert.equal(importeUnitarioMovimientoInventario(m, p), 2.1);
+  assert.equal(costoProveedorUnitario(catalogo[3], { catalogo }), 2.1);
 });

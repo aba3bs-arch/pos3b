@@ -532,9 +532,13 @@ export async function aplicarMovimientoInventario(supabase, opts) {
   if (!frescoOrigen.ok) return frescoOrigen;
   const productoDb = frescoOrigen.producto;
 
-  // Sellar costo de compra en el movimiento (entradas/retiros) para Consultas.
+  // Sellar costo CEDIS→sucursal (precio_ruta, con herencia de marca) en el movimiento.
   if ((tipo === 'entrada' || tipo === 'retiro') && !(Number(metaMov.precio) > 0)) {
-    const costoU = costoProveedorUnitario(productoDb);
+    const catalogo = inventarioCompleto || [];
+    const costoU = costoProveedorUnitario(
+      { ...productoDb, nombre: productoDb.nombre || productoOrigen.nombre },
+      { catalogo },
+    );
     if (costoU > 0) {
       metaMov.precio = costoU;
       metaMov.subtotal = round2(costoU * qty);
@@ -743,7 +747,10 @@ export async function aplicarEntradasMasivas(supabase, opts) {
       errores.push(`${productoId}: no encontrado`);
       continue;
     }
-    const costoU = costoProveedorUnitario(productoOrigen, { productoIdsCostoRuta });
+    const costoU = costoProveedorUnitario(productoOrigen, {
+      productoIdsCostoRuta,
+      catalogo,
+    });
     const metaLote = { folio: folioLote, lote: true };
     if (costoU > 0) {
       metaLote.precio = costoU;
@@ -758,10 +765,10 @@ export async function aplicarEntradasMasivas(supabase, opts) {
       sucursal,
       sucursalOperacion: tienda,
       modo: 'masivo',
-      // Departamento del SKU se guarda en la línea; el folio une el documento.
       departamento: productoOrigen.cat,
       folio: folioLote,
       meta: metaLote,
+      inventarioCompleto: catalogo,
     });
     if (!r.ok) {
       errores.push(`${productoOrigen.nombre}: ${r.error}`);
