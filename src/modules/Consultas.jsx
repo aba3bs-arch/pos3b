@@ -217,8 +217,12 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     } else if (r.avisos?.length) {
       setAviso(r.avisos[0] || '');
     }
-    return agruparDocumentosInventario(r.data || [], { precioPorId, incluirVentas: false });
-  }, [supabase, desde, hasta, filtroSucursal, precioPorId]);
+    return agruparDocumentosInventario(r.data || [], {
+      precioPorId,
+      incluirVentas: false,
+      catalogo: inventario || [],
+    });
+  }, [supabase, desde, hasta, filtroSucursal, precioPorId, inventario]);
 
   const buscarCortes = useCallback(async () => {
     const { data, error, aviso: av } = await consultarCortes(supabase, {
@@ -500,12 +504,17 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const lineasDetalleInv = useMemo(() => {
     if (!enDetalleInv) return [];
     const opDoc = sel?.operacion || '';
-    const optsCosto = { productoIdsCostoRuta };
+    const catalogo = inventario || [];
+    const optsCosto = { productoIdsCostoRuta, catalogo };
     return (sel.lineas || []).map((m) => {
       const pid = String(m.producto_id ?? '');
       const prod = productoPorId.get(pid) || productoPorId.get(pid.toLowerCase()) || null;
-      // Costo proveedor (para gasto / valorizar compra). Smoking → precio_ruta si aplica.
-      let costoUnitario = importeUnitarioMovimientoInventario(m, prod, optsCosto);
+      // Siempre Precio Venta en Ruta (propio o heredado por marca Marlboro/Pall Mall/Smoking).
+      const prodParaCosto = prod || { id: m.producto_id, nombre: m.producto_nombre };
+      let costoUnitario = importeUnitarioMovimientoInventario(m, prodParaCosto, {
+        ...optsCosto,
+        productoNombre: m.producto_nombre,
+      });
       if (!(costoUnitario > 0)) {
         const fromMap = Number(precioPorId.get(pid)) || 0;
         if (fromMap > 0) costoUnitario = fromMap;
@@ -545,10 +554,9 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
         : qty;
 
       const piezasValor = qty > 0 ? qty : Math.abs(Number(contado) || 0);
-      const precCompra =
-        m.subtotal != null && Number.isFinite(Number(m.subtotal)) && Number(m.subtotal) !== 0
-          ? Math.abs(Number(m.subtotal))
-          : Math.round(piezasValor * costoUnitario * 100) / 100;
+      // Recalcular con costoUnitario del catálogo (precio_ruta CEDIS→sucursal).
+      // No usar subtotal sellado del movimiento si venía de precio_compra viejo.
+      const precCompra = Math.round(piezasValor * costoUnitario * 100) / 100;
       const ventaTotal = Math.round(piezasValor * ventaUnitario * 100) / 100;
       const utilidadBruta = Math.round((ventaTotal - precCompra) * 100) / 100;
 
@@ -569,7 +577,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
         difValor: utilidadBruta,
       };
     });
-  }, [enDetalleInv, sel, productoPorId, productoIdsCostoRuta, precioPorId]);
+  }, [enDetalleInv, sel, productoPorId, productoIdsCostoRuta, precioPorId, inventario]);
 
   const esDetalleTraspaso = Boolean(enDetalleInv && sel?.esTraspaso);
   const piezasDetalleInv = useMemo(

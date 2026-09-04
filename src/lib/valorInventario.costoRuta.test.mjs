@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  familiaMarcaPrecioRuta,
+  precioRutaEfectivoParaCosto,
+} from './proveedoresCostoRuta.js';
+import {
   costoProveedorUnitario,
   importeUnitarioMovimientoInventario,
-  precioVentaUnitarioProducto,
 } from './valorInventario.js';
 
 const mem = new Map();
@@ -17,32 +20,55 @@ globalThis.localStorage = {
   },
 };
 
-test('Smoking sin compra usa precio_ruta como costo', () => {
+test('PallMall junto y separado = PALLMALL', () => {
+  assert.equal(familiaMarcaPrecioRuta('PallMall Hawaii'), 'PALLMALL');
+  assert.equal(familiaMarcaPrecioRuta('PallMall Alaska'), 'PALLMALL');
+  assert.equal(familiaMarcaPrecioRuta('Pall Mall Tokio'), 'PALLMALL');
+  assert.equal(familiaMarcaPrecioRuta('Double Fusion Ruby'), 'PALLMALL');
+  assert.equal(familiaMarcaPrecioRuta('Malboro Blanco 100'), 'MARLBORO');
+  assert.equal(familiaMarcaPrecioRuta('Smoking Gun Pieza'), 'SMOKING');
+});
+
+test('usa precio_ruta del SKU cuando está capturado (\$6)', () => {
   mem.clear();
-  const p = {
-    id: '30',
-    precio: 5,
-    precio_compra_con: 0,
-    precio_compra_sin: 0,
-    precio_ruta: 2.1,
-    costo: 0,
+  const p = { id: '42', nombre: 'PallMall Hawaii', precio_ruta: 6, precio_compra_con: 5.25 };
+  assert.equal(precioRutaEfectivoParaCosto(p, []), 6);
+  assert.equal(
+    importeUnitarioMovimientoInventario(
+      { producto_nombre: 'PallMall Hawaii', precio: 5.25, subtotal: 105, cantidad: 20 },
+      p,
+      { catalogo: [p] },
+    ),
+    6,
+  );
+});
+
+test('sin precio_ruta: tarifa CEDIS fija PallMall/Marlboro \$6 y Smoking \$2.10', () => {
+  mem.clear();
+  assert.equal(
+    precioRutaEfectivoParaCosto({ id: '39', nombre: 'PallMall Alaska', precio_ruta: 0, precio_compra_con: 5.25 }, []),
+    6,
+  );
+  assert.equal(
+    precioRutaEfectivoParaCosto({ id: '32', nombre: 'Malboro Blanco 100', precio_ruta: 0, precio_compra_con: 5.25 }, []),
+    6,
+  );
+  assert.equal(
+    precioRutaEfectivoParaCosto({ id: '30', nombre: 'Smoking Gun Pieza', precio_ruta: 0, precio_compra_con: 2.1 }, []),
+    2.1,
+  );
+});
+
+test('nunca usa el \$5.25 sellado del movimiento para PallMall', () => {
+  mem.clear();
+  const p = { id: '42', nombre: 'PallMall Hawaii', precio_ruta: 6, precio_compra_con: 5.25, precio: 8 };
+  const m = {
+    producto_id: '42',
+    producto_nombre: 'PallMall Hawaii',
+    cantidad: 20,
+    precio: 5.25,
+    subtotal: 105,
   };
-  assert.equal(costoProveedorUnitario(p), 2.1);
-  assert.equal(precioVentaUnitarioProducto(p), 5);
-  assert.equal(importeUnitarioMovimientoInventario({ cantidad: 200 }, p), 2.1);
-});
-
-test('precio null/0 en movimiento no tapa el catálogo', () => {
-  mem.clear();
-  const p = { id: '30', precio: 5, precio_ruta: 2.1, precio_compra_con: 0 };
-  const m = { cantidad: 20, precio: null, subtotal: null, meta: { precio: null, subtotal: 0 } };
-  assert.equal(importeUnitarioMovimientoInventario(m, p), 2.1);
-  assert.equal(importeUnitarioMovimientoInventario({ ...m, precio: 0, subtotal: 0 }, p), 2.1);
-});
-
-test('compra normal sigue priorizando precio_compra_con', () => {
-  mem.clear();
-  const p = { id: '1', precio: 8, precio_compra_con: 6, precio_ruta: 2.1 };
-  assert.equal(costoProveedorUnitario(p), 6);
-  assert.equal(costoProveedorUnitario(p, { usarPrecioRuta: true }), 2.1);
+  assert.equal(importeUnitarioMovimientoInventario(m, p, { catalogo: [p] }), 6);
+  assert.equal(costoProveedorUnitario(p, { catalogo: [p] }), 6);
 });

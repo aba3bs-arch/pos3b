@@ -2,8 +2,9 @@ import { etiquetaDepartamento, normalizarDepartamento } from './departamentos.js
 import { round2, sinImpuesto } from './productoForm.js';
 import {
   precioRutaComoCostoCompra,
+  precioRutaEfectivoParaCosto,
+  productoUsaCostoPrecioRutaPorMarca,
   proveedorUsaCostoPrecioRuta,
-  leerProveedoresCostoPrecioRuta,
 } from './proveedoresCostoRuta.js';
 
 function debeUsarCostoPrecioRuta(p, opts = {}) {
@@ -12,15 +13,21 @@ function debeUsarCostoPrecioRuta(p, opts = {}) {
   if (opts.productoIdsCostoRuta instanceof Set && p?.id != null) {
     return opts.productoIdsCostoRuta.has(String(p.id));
   }
+  if (productoUsaCostoPrecioRutaPorMarca(p) || productoUsaCostoPrecioRutaPorMarca({ nombre: opts.productoNombre })) {
+    return true;
+  }
   return false;
+}
+
+function catalogoDeOpts(opts = {}) {
+  return Array.isArray(opts.catalogo) ? opts.catalogo : [];
 }
 
 /** Costo unitario sin IVA para valorizar inventario. */
 export function costoUnitarioInventario(p, opts = {}) {
-  if (debeUsarCostoPrecioRuta(p, opts)) {
-    const ruta = precioRutaComoCostoCompra(p);
-    if (ruta != null) return ruta;
-  }
+  const ruta = precioRutaEfectivoParaCosto(p, catalogoDeOpts(opts));
+  if (ruta != null) return ruta;
+  if (debeUsarCostoPrecioRuta(p, opts)) return 0;
   const compraSin = Number(p?.precio_compra_sin);
   if (compraSin > 0) return compraSin;
   const compraCon = Number(p?.precio_compra_con);
@@ -32,28 +39,25 @@ export function costoUnitarioInventario(p, opts = {}) {
 }
 
 /**
- * Costo unitario que se paga al proveedor (con IVA si está capturado).
- * Usar en Consultas → Inventario para ingresos/compras (NO es precio de venta).
- * Para proveedores configurados (p. ej. Smoking) usa precio_ruta.
+ * Costo unitario para gasto / Consultas → Inventario (NO es precio de venta al público).
+ * CEDIS → sucursales: Precio Venta en Ruta (Marlboro/Pall Mall $6, Smoking $2.10).
+ * Nunca usa precio_compra_* cuando la marca es de tarifa ruta.
  */
 export function costoProveedorUnitario(p, opts = {}) {
-  if (!p) return 0;
-  if (debeUsarCostoPrecioRuta(p, opts)) {
-    const ruta = precioRutaComoCostoCompra(p);
-    if (ruta != null) return ruta;
+  if (!p && !opts.productoNombre) return 0;
+  const prod = p || { nombre: opts.productoNombre };
+  const ruta = precioRutaEfectivoParaCosto(prod, catalogoDeOpts(opts));
+  if (ruta != null) return ruta;
+  if (debeUsarCostoPrecioRuta(prod, opts)) {
+    // Marca ruta sin precio capturado ni heredable: no inventar compra proveedor.
+    return 0;
   }
-  const compraCon = Number(p?.precio_compra_con);
+  const compraCon = Number(prod?.precio_compra_con);
   if (compraCon > 0) return round2(compraCon);
-  const compraSin = Number(p?.precio_compra_sin);
+  const compraSin = Number(prod?.precio_compra_sin);
   if (compraSin > 0) return round2(compraSin);
-  const costo = Number(p?.costo);
+  const costo = Number(prod?.costo);
   if (costo > 0) return round2(costo);
-  // Sin compra capturada: si hay precio_ruta, úsalo (Smoking / proveedores cfg suelen
-  // capturar solo «Precio Venta en Ruta» como costo de compra).
-  if (leerProveedoresCostoPrecioRuta().length > 0) {
-    const ruta = precioRutaComoCostoCompra(p);
-    if (ruta != null) return ruta;
-  }
   return 0;
 }
 
@@ -71,10 +75,31 @@ export function precioVentaUnitarioProducto(p) {
 
 /**
  * Precio/costo a mostrar en una línea de Consultas → Inventario.
- * Prioridad: costo del movimiento/compra → costo de catálogo → nunca precio de venta al cliente.
+ * Siempre prioriza Precio Venta en Ruta (propio o heredado por marca).
+ * Nunca usa el sello del movimiento si la marca es Marlboro/Pall Mall/Smoking.
  */
 export function importeUnitarioMovimientoInventario(m, producto = null, opts = {}) {
-  // Ignorar 0/null sellados por error: no bloquear el fallback al catálogo.
+  const nombreMov = m?.producto_nombre || opts.productoNombre || '';
+  const prod = producto || (nombreMov ? { nombre: nombreMov } : null);
+  const optsFull = {
+    ...opts,
+    productoNombre: nombreMov || opts.productoNombre,
+  };
+
+  const ruta = precioRutaEfectivoParaCosto(
+    prod?.nombre ? prod : { ...(prod || {}), nombre: nombreMov },
+    catalogoDeOpts(optsFull),
+  );
+  if (ruta != null) return ruta;
+
+  // Marca de tarifa ruta: no caer al precio_compra sellado en el movimiento ($5.25).
+  if (debeUsarCostoPrecioRuta(prod, optsFull) || productoUsaCostoPrecioRutaPorMarca({ nombre: nombreMov })) {
+    return 0;
+  }
+
+  const deCatalogo = costoProveedorUnitario(producto, optsFull);
+  if (deCatalogo > 0) return deCatalogo;
+
   if (m?.precio != null && Number(m.precio) > 0) return round2(Number(m.precio));
   const metaPrecio = Number(m?.meta?.precio);
   if (Number.isFinite(metaPrecio) && metaPrecio > 0) return round2(metaPrecio);
@@ -83,7 +108,7 @@ export function importeUnitarioMovimientoInventario(m, producto = null, opts = {
     const u = Math.abs(Number(m.subtotal)) / qty;
     if (u > 0) return round2(u);
   }
-  return costoProveedorUnitario(producto, opts);
+  return 0;
 }
 
 export function resumirValorInventario(inventario = []) {
@@ -97,7 +122,7 @@ export function resumirValorInventario(inventario = []) {
 
   for (const p of inventario) {
     const stock = Math.max(0, Number(p.stock) || 0);
-    const costoU = costoUnitarioInventario(p);
+    const costoU = costoUnitarioInventario(p, { catalogo: inventario });
     const ventaU = Number(p.precio) || 0;
     const dept = normalizarDepartamento(p.cat) || 'GENERAL';
 
