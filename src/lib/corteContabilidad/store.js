@@ -10,6 +10,11 @@ import {
 } from '../contabilidadNotificaciones.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../../constants/sucursales.js';
 import { normalizarNombreProveedorClave, registrarEntregaDesdeGastoAbarrotes } from '../proveedorEntregas.js';
+import {
+  aplicarMarkerSmokingComentario,
+  esGastoSmokingAbarrotes,
+  validarSustentoSmokingGasto,
+} from './smokingSustentoInventario.js';
 
 const MARKER_TRP_INV = 'TRP_INV:';
 
@@ -197,6 +202,19 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
   const estadoAprobacion = 'aprobado';
 
   let comentarioFinal = String(gasto.comentario || '');
+
+  // Smoking (Abarrotes): exigir folio de inventario real (ING/CMP/trp) para evitar fantasmas.
+  const esSmoking = esGastoSmokingAbarrotes(modulo, gasto);
+  if (esSmoking && !opts.omitirSustentoSmoking) {
+    const sustento = await validarSustentoSmokingGasto(supabase, {
+      sucursal,
+      modulo,
+      gasto,
+      foliosRaw: gasto.folios_inventario || gasto.foliosInventario || gasto.folio_inventario,
+    });
+    if (!sustento.ok) return { ok: false, error: sustento.error, smokingSinSustento: true };
+    comentarioFinal = aplicarMarkerSmokingComentario(comentarioFinal, sustento.marker);
+  }
 
   // Traspaso (Abarrotes): exigir folio trp-XXXX del módulo Productos → Traspasos.
   const esTraspaso =

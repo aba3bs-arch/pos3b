@@ -15,6 +15,7 @@ import {
 import { esCategoriaEmpleado } from '../../lib/catalogoEmpleadoGastos.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../../constants/sucursales.js';
 import { asegurarCamposSinReservadoOPin } from '../../lib/reservadoAdminPrincipal.js';
+import { esGastoSmokingAbarrotes } from '../../lib/corteContabilidad/smokingSustentoInventario.js';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -84,6 +85,7 @@ export default function CorteGastosPanel({
   const [monto, setMonto] = useState('');
   const [comentario, setComentario] = useState('');
   const [folioTraspaso, setFolioTraspaso] = useState('');
+  const [folioInventarioSmoking, setFolioInventarioSmoking] = useState('');
   const [usuarioId, setUsuarioId] = useState('');
   const [mostrarCat, setMostrarCat] = useState(false);
   const [usuariosRaw, setUsuariosRaw] = useState([]);
@@ -162,6 +164,12 @@ export default function CorteGastosPanel({
   const esGastoTraspaso =
     String(modulo || '').toLowerCase() === 'abarrotes' && esGastoTraspasoTxt(`${cat} ${sub} ${comentario}`);
 
+  const esGastoSmoking = esGastoSmokingAbarrotes(modulo, {
+    categoria: cat,
+    subcategoria: sub,
+    comentario,
+  });
+
   useEffect(() => {
     if (!habilitado || !catalogo.length) return;
     setCat((prev) => {
@@ -202,9 +210,22 @@ export default function CorteGastosPanel({
         );
       }
     }
+    if (esGastoSmoking) {
+      const folios = String(folioInventarioSmoking || '')
+        .split(/[\s,;\n]+/g)
+        .map((x) => x.trim())
+        .filter(Boolean);
+      if (!folios.length) {
+        return alert(
+          'Smoking requiere folio de inventario (CMP-…, ING-… o trp-…).\n\n' +
+            'Así se evita registrar el mismo ticket varias veces sin mercancía.\n' +
+            'Cópialo de Compras (recepción/entrega) o de Consultas → Inventario.',
+        );
+      }
+    }
     const authTxt = await asegurarCamposSinReservadoOPin(
       supabase,
-      [cat, sub, comentario, folioTraspaso],
+      [cat, sub, comentario, folioTraspaso, folioInventarioSmoking],
       { user, sucursal },
     );
     if (!authTxt.ok) return alert(authTxt.error);
@@ -221,6 +242,12 @@ export default function CorteGastosPanel({
         usuario_id: requiereEmpleado && uid && !uid.startsWith('indirect:') ? uid : null,
         usuario_nombre: emp?.nombre || '',
         folio_traspaso: esGastoTraspaso ? parseFoliosTraspasoInput(folioTraspaso) : [],
+        folios_inventario: esGastoSmoking
+          ? String(folioInventarioSmoking || '')
+              .split(/[\s,;\n]+/g)
+              .map((x) => x.trim())
+              .filter(Boolean)
+          : [],
       });
       if (res && res.ok === false) return;
     } catch (e) {
@@ -229,6 +256,7 @@ export default function CorteGastosPanel({
     setMonto('');
     setComentario('');
     setFolioTraspaso('');
+    setFolioInventarioSmoking('');
     if (!requiereEmpleado) setUsuarioId('');
   };
 
@@ -309,7 +337,7 @@ export default function CorteGastosPanel({
       <p className="muted" style={{ fontSize: '0.75rem', margin: '0.35rem 0 0.5rem' }}>
         {notaNomina ||
           (modulo === 'abarrotes'
-            ? 'Categorías de IE Abarrotes (+ PROVEEDORES). Gastos del corte no requieren aprobación. CUBRE TURNO va a IE Abarrotes (nómina). Solo CONSUMO/RECARGAS/ANTICIPOS/FALTANTE descuentan al empleado.'
+            ? 'Categorías de IE Abarrotes (+ PROVEEDORES). Smoking exige folio CMP-/ING-/trp de la recepción para no duplicar gastos fantasma. CUBRE TURNO va a IE Abarrotes (nómina). Solo CONSUMO/RECARGAS/ANTICIPOS/FALTANTE descuentan al empleado.'
             : 'Categorías de IE Virtual. Gastos del corte no requieren aprobación. CUBRE TURNO va a IE (nómina). Solo CONSUMO/RECARGAS/ANTICIPOS/FALTANTE descuentan al empleado. Vales y préstamos sí requieren admin.')}
       </p>
 
@@ -533,6 +561,23 @@ export default function CorteGastosPanel({
                 value={folioTraspaso}
                 onChange={(e) => setFolioTraspaso(e.target.value)}
               />
+            </div>
+          )}
+          {esGastoSmoking && !esGastoTraspaso && (
+            <div style={{ marginBottom: '0.75rem' }}>
+              <label className="muted" style={{ display: 'block', fontSize: '0.78rem', marginBottom: '0.25rem' }}>
+                Folio de inventario Smoking (obligatorio · evita gastos fantasma)
+              </label>
+              <input
+                className="input"
+                style={{ width: '100%' }}
+                placeholder="Ej. CMP-A1B2C3D4 · ING-20260903-0007 · trp-0020"
+                value={folioInventarioSmoking}
+                onChange={(e) => setFolioInventarioSmoking(e.target.value)}
+              />
+              <p className="muted" style={{ fontSize: '0.72rem', margin: '0.25rem 0 0' }}>
+                Debe existir recepción/compra o traspaso con ese folio y el monto debe cuadrar. Un folio no se puede reusar.
+              </p>
             </div>
           )}
           <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '0.5rem', flexWrap: 'wrap' }}>
