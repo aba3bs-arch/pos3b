@@ -18,7 +18,7 @@ import {
   inicialesNombre,
   mapaCostoInventarioPorProducto,
 } from '../lib/consultasUi.js';
-import { importeUnitarioMovimientoInventario } from '../lib/valorInventario.js';
+import { importeUnitarioMovimientoInventario, precioVentaUnitarioProducto } from '../lib/valorInventario.js';
 import {
   cargarProductoIdsCostoPrecioRuta,
   EVENTO_PROVEEDORES_COSTO_RUTA,
@@ -146,7 +146,13 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
   const productoPorId = useMemo(() => {
     const map = new Map();
-    for (const p of inventario || []) map.set(String(p.id), p);
+    for (const p of inventario || []) {
+      if (p?.id == null) continue;
+      const key = String(p.id);
+      map.set(key, p);
+      const low = key.toLowerCase();
+      if (low !== key) map.set(low, p);
+    }
     return map;
   }, [inventario]);
 
@@ -494,12 +500,18 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const lineasDetalleInv = useMemo(() => {
     if (!enDetalleInv) return [];
     const opDoc = sel?.operacion || '';
+    const optsCosto = { productoIdsCostoRuta };
     return (sel.lineas || []).map((m) => {
-      const prod = productoPorId.get(String(m.producto_id));
-      // Costo proveedor (para gasto / valorizar compra). No es precio de venta.
-      const costoUnitario = importeUnitarioMovimientoInventario(m, prod);
+      const pid = String(m.producto_id ?? '');
+      const prod = productoPorId.get(pid) || productoPorId.get(pid.toLowerCase()) || null;
+      // Costo proveedor (para gasto / valorizar compra). Smoking → precio_ruta si aplica.
+      let costoUnitario = importeUnitarioMovimientoInventario(m, prod, optsCosto);
+      if (!(costoUnitario > 0)) {
+        const fromMap = Number(precioPorId.get(pid)) || 0;
+        if (fromMap > 0) costoUnitario = fromMap;
+      }
       // Precio al público (catálogo).
-      const ventaUnitario = Math.max(0, Number(prod?.precio) || 0);
+      const ventaUnitario = precioVentaUnitarioProducto(prod);
       const qty = Math.abs(Number(m.cantidad) || 0);
       const existenciaRaw = m.stock_antes != null ? Number(m.stock_antes) : 0;
       const existencia = Number.isFinite(existenciaRaw) ? existenciaRaw : 0;
@@ -557,7 +569,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
         difValor: utilidadBruta,
       };
     });
-  }, [enDetalleInv, sel, productoPorId]);
+  }, [enDetalleInv, sel, productoPorId, productoIdsCostoRuta, precioPorId]);
 
   const esDetalleTraspaso = Boolean(enDetalleInv && sel?.esTraspaso);
   const piezasDetalleInv = useMemo(

@@ -3,6 +3,7 @@ import { round2, sinImpuesto } from './productoForm.js';
 import {
   precioRutaComoCostoCompra,
   proveedorUsaCostoPrecioRuta,
+  leerProveedoresCostoPrecioRuta,
 } from './proveedoresCostoRuta.js';
 
 function debeUsarCostoPrecioRuta(p, opts = {}) {
@@ -36,6 +37,7 @@ export function costoUnitarioInventario(p, opts = {}) {
  * Para proveedores configurados (p. ej. Smoking) usa precio_ruta.
  */
 export function costoProveedorUnitario(p, opts = {}) {
+  if (!p) return 0;
   if (debeUsarCostoPrecioRuta(p, opts)) {
     const ruta = precioRutaComoCostoCompra(p);
     if (ruta != null) return ruta;
@@ -46,6 +48,24 @@ export function costoProveedorUnitario(p, opts = {}) {
   if (compraSin > 0) return round2(compraSin);
   const costo = Number(p?.costo);
   if (costo > 0) return round2(costo);
+  // Sin compra capturada: si hay precio_ruta, úsalo (Smoking / proveedores cfg suelen
+  // capturar solo «Precio Venta en Ruta» como costo de compra).
+  if (leerProveedoresCostoPrecioRuta().length > 0) {
+    const ruta = precioRutaComoCostoCompra(p);
+    if (ruta != null) return ruta;
+  }
+  return 0;
+}
+
+/**
+ * Precio al público (catálogo) para valorizar venta en Consultas → Inventario.
+ */
+export function precioVentaUnitarioProducto(p) {
+  if (!p) return 0;
+  const venta = Number(p.precio);
+  if (venta > 0) return round2(venta);
+  const ventaCon = Number(p.precio_venta_con);
+  if (ventaCon > 0) return round2(ventaCon);
   return 0;
 }
 
@@ -54,11 +74,12 @@ export function costoProveedorUnitario(p, opts = {}) {
  * Prioridad: costo del movimiento/compra → costo de catálogo → nunca precio de venta al cliente.
  */
 export function importeUnitarioMovimientoInventario(m, producto = null, opts = {}) {
+  // Ignorar 0/null sellados por error: no bloquear el fallback al catálogo.
   if (m?.precio != null && Number(m.precio) > 0) return round2(Number(m.precio));
   const metaPrecio = Number(m?.meta?.precio);
   if (Number.isFinite(metaPrecio) && metaPrecio > 0) return round2(metaPrecio);
   const qty = Math.abs(Number(m?.cantidad) || 0);
-  if (m?.subtotal != null && qty > 0) {
+  if (m?.subtotal != null && Number(m.subtotal) !== 0 && qty > 0) {
     const u = Math.abs(Number(m.subtotal)) / qty;
     if (u > 0) return round2(u);
   }

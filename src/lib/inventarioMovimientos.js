@@ -9,6 +9,7 @@ import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.
 import { hoyYmdNogales } from './corteCaja.js';
 import { costoProveedorUnitario } from './valorInventario.js';
 import { cargarProductoIdsCostoPrecioRuta } from './proveedoresCostoRuta.js';
+import { round2 } from './productoForm.js';
 
 const LS_MOVIMIENTOS = 'pos3b_movimientos_inventario';
 const LS_PENDIENTES_NUBE = 'pos3b_movimientos_inventario_pendientes';
@@ -522,11 +523,23 @@ export async function aplicarMovimientoInventario(supabase, opts) {
     ...(metaOpt && typeof metaOpt === 'object' ? metaOpt : {}),
     folio: folioMov,
   };
+  // No persistir precio/subtotal en 0 o null (bloqueaban el fallback al catálogo).
+  if (!(Number(metaMov.precio) > 0)) delete metaMov.precio;
+  if (!(Number(metaMov.subtotal) > 0)) delete metaMov.subtotal;
 
   // Siempre stock fresco de la nube: el catálogo en memoria puede estar desfasado.
   const frescoOrigen = await leerProductoInventarioFresco(supabase, productoOrigen.id);
   if (!frescoOrigen.ok) return frescoOrigen;
   const productoDb = frescoOrigen.producto;
+
+  // Sellar costo de compra en el movimiento (entradas/retiros) para Consultas.
+  if ((tipo === 'entrada' || tipo === 'retiro') && !(Number(metaMov.precio) > 0)) {
+    const costoU = costoProveedorUnitario(productoDb);
+    if (costoU > 0) {
+      metaMov.precio = costoU;
+      metaMov.subtotal = round2(costoU * qty);
+    }
+  }
 
   if (tipo === 'traspaso') {
     if (!productoDestino?.id) return { ok: false, error: 'Selecciona el producto destino del traspaso.' };
@@ -625,13 +638,15 @@ export async function aplicarMovimientoInventario(supabase, opts) {
   if (!atom.ok) return atom;
 
   const donde = etiquetaUbicacionMovimiento(tipo, tienda, modo);
+  const rowPrecio = Number(metaMov.precio) > 0 ? Number(metaMov.precio) : undefined;
+  const rowSubtotal = Number(metaMov.subtotal) > 0 ? Number(metaMov.subtotal) : undefined;
   const reg = await registrarMovimientoInventario(supabase, {
     tipo,
     modo,
     folio: folioMov,
     meta: metaMov,
-    precio: metaMov.precio != null ? Number(metaMov.precio) : null,
-    subtotal: metaMov.subtotal != null ? Number(metaMov.subtotal) : null,
+    ...(rowPrecio != null ? { precio: rowPrecio } : {}),
+    ...(rowSubtotal != null ? { subtotal: rowSubtotal } : {}),
     departamento: departamento || productoOrigen.cat || productoDb.cat,
     producto_id: productoOrigen.id,
     producto_nombre: productoOrigen.nombre || productoDb.nombre,
@@ -729,6 +744,11 @@ export async function aplicarEntradasMasivas(supabase, opts) {
       continue;
     }
     const costoU = costoProveedorUnitario(productoOrigen, { productoIdsCostoRuta });
+    const metaLote = { folio: folioLote, lote: true };
+    if (costoU > 0) {
+      metaLote.precio = costoU;
+      metaLote.subtotal = round2(costoU * cantidad);
+    }
     const r = await aplicarMovimientoInventario(supabase, {
       tipo,
       productoOrigen,
@@ -741,12 +761,7 @@ export async function aplicarEntradasMasivas(supabase, opts) {
       // Departamento del SKU se guarda en la línea; el folio une el documento.
       departamento: productoOrigen.cat,
       folio: folioLote,
-      meta: {
-        folio: folioLote,
-        lote: true,
-        precio: costoU > 0 ? costoU : null,
-        subtotal: costoU > 0 ? costoU * cantidad : null,
-      },
+      meta: metaLote,
     });
     if (!r.ok) {
       errores.push(`${productoOrigen.nombre}: ${r.error}`);

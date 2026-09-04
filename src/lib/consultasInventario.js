@@ -145,8 +145,9 @@ function fromCloudRow(r) {
     sucursal_destino: meta.sucursal_destino || null,
     ubicacion_origen: meta.ubicacion_origen || null,
     ubicacion_destino: meta.ubicacion_destino || null,
-    precio: meta.precio != null ? Number(meta.precio) : null,
-    subtotal: meta.subtotal != null ? Number(meta.subtotal) : null,
+    // Solo adjuntar costo si viene positivo (null/0 no debe tapar el fallback al catálogo).
+    ...(Number(meta.precio) > 0 ? { precio: Number(meta.precio) } : {}),
+    ...(Number(meta.subtotal) > 0 ? { subtotal: Number(meta.subtotal) } : {}),
     meta,
     created_at: r.created_at,
     origen: 'nube',
