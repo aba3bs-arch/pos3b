@@ -1,4 +1,4 @@
-import { normalizarCodigoTienda, etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
+import { normalizarCodigoTienda, etiquetaTienda, listarSucursalesOperativas, equivalentesCodigoTienda } from '../constants/sucursales.js';
 import { normalizarRol } from './roles.js';
 import { enRangoYmd } from './fechas.js';
 import { estadoVentanaRecoleccion } from './ventanaRecoleccion.js';
@@ -19,11 +19,13 @@ const SERVICIO_CFE_DEFAULT = {
   activo: true,
 };
 
-/** Nombre de tienda en control_efectivo (Streamlit) desde código POS. */
+/**
+ * Código de tienda en control_efectivo / recolecciones.
+ * Canónico sin acento: FUSION (no "Fusión"), para cuadrar con cortes y Conciliaciones.
+ */
 export function sucursalParaControlEfectivo(codigo) {
   const c = normalizarCodigoTienda(codigo);
   if (!c || c === 'MAIN') return null;
-  if (c === 'FUSION') return 'Fusión';
   return c;
 }
 
@@ -441,7 +443,13 @@ function sucursalesEquivalentesControlEfectivo(tienda) {
   const c = normalizarCodigoTienda(raw) || raw;
   const nombre = sucursalParaControlEfectivo(c) || raw;
   const etiqueta = etiquetaTienda(c);
-  return [...new Set([raw, c, nombre, etiqueta].filter(Boolean))];
+  return [...new Set([
+    ...equivalentesCodigoTienda(c),
+    raw,
+    c,
+    nombre,
+    etiqueta,
+  ].filter(Boolean))];
 }
 
 export async function consultarRegistrosServicioTienda(supabase, tienda, clave, frecuencia = 'Diario') {
@@ -718,10 +726,11 @@ export async function registrarTraspasos(supabase, filas, opts) {
 
 export async function listarCreditosPendientes(supabase, tienda) {
   if (!supabase || !tienda) return [];
+  const sucs = sucursalesEquivalentesControlEfectivo(tienda);
   const { data, error } = await supabase
     .from('transito_efectivo')
     .select('id, num_traspaso, monto, cajero_nombre, fecha_hora, descripcion_gasto, sucursal_origen')
-    .eq('sucursal_origen', tienda)
+    .in('sucursal_origen', sucs)
     .eq('estatus', 'Por Cobrar')
     .eq('tipo_movimiento', 'Entrega Crédito')
     .order('fecha_hora', { ascending: true });
@@ -830,11 +839,12 @@ export function etiquetaMesYmd(ym) {
 export function resumenPorTiendaConCatalogo(movimientos, tiendasCatalogo = []) {
   const map = new Map();
   for (const t of tiendasCatalogo) {
-    const nombre = typeof t === 'string' ? t : t.nombre;
-    if (nombre) map.set(nombre, { tienda: nombre, codigo: t.codigo || nombre, total: 0, count: 0, items: [] });
+    const codigo = normalizarCodigoTienda(typeof t === 'string' ? t : t.codigo || t.nombre)
+      || (typeof t === 'string' ? t : t.codigo || t.nombre);
+    if (codigo) map.set(codigo, { tienda: codigo, codigo, total: 0, count: 0, items: [] });
   }
   for (const m of movimientos || []) {
-    const tienda = m.sucursal_origen || 'Sin tienda';
+    const tienda = normalizarCodigoTienda(m.sucursal_origen) || m.sucursal_origen || 'Sin tienda';
     if (!map.has(tienda)) map.set(tienda, { tienda, codigo: tienda, total: 0, count: 0, items: [] });
     const row = map.get(tienda);
     row.total += Number(m.monto || 0);
@@ -883,7 +893,7 @@ export function agruparMovimientosPorPeriodo(movimientos, periodo, { diaDe = 're
 export function agruparEnTransitoPorTiendaYDia(movimientos, { diaDe = 'recoleccion' } = {}) {
   const porTienda = {};
   for (const m of movimientos || []) {
-    const tienda = m.sucursal_origen || 'Sin tienda';
+    const tienda = normalizarCodigoTienda(m.sucursal_origen) || m.sucursal_origen || 'Sin tienda';
     const dia = claveDiaReporte(m, diaDe);
     if (!porTienda[tienda]) porTienda[tienda] = {};
     if (!porTienda[tienda][dia]) porTienda[tienda][dia] = [];
@@ -1217,7 +1227,7 @@ export async function listarMovimientosRecoleccionContabilidad(supabase, { desde
   if (hasta) q = q.lte('fecha_hora', `${hasta}T23:59:59-07:00`);
   if (estatus) q = q.eq('estatus', estatus);
   if (repartidorId) q = q.eq('repartidor_id', repartidorId);
-  if (tienda) q = q.eq('sucursal_origen', tienda);
+  if (tienda) q = q.in('sucursal_origen', sucursalesEquivalentesControlEfectivo(tienda));
   const { data, error } = await q;
   if (error) throw error;
   return data || [];
@@ -1227,7 +1237,7 @@ export async function listarMovimientosRecoleccionContabilidad(supabase, { desde
 export function reporteGeneralPorTienda(movimientos, tiendasCatalogo = null) {
   const porTienda = {};
   for (const m of movimientos || []) {
-    const t = m.sucursal_origen || 'Sin tienda';
+    const t = normalizarCodigoTienda(m.sucursal_origen) || m.sucursal_origen || 'Sin tienda';
     if (!porTienda[t]) porTienda[t] = filaTiendaVacia(t);
     const r = porTienda[t];
     const monto = Number(m.monto || 0);
@@ -1250,7 +1260,8 @@ export function reporteGeneralPorTienda(movimientos, tiendasCatalogo = null) {
 
   if (tiendasCatalogo?.length) {
     for (const t of tiendasCatalogo) {
-      const nombre = typeof t === 'string' ? t : t.nombre;
+      const nombre = normalizarCodigoTienda(typeof t === 'string' ? t : t.codigo || t.nombre)
+        || (typeof t === 'string' ? t : t.nombre);
       if (nombre && !porTienda[nombre]) porTienda[nombre] = filaTiendaVacia(nombre);
     }
   }
