@@ -1,4 +1,4 @@
-import { precioRutaComoCostoCompra, proveedorUsaCostoPrecioRuta } from './proveedoresCostoRuta.js';
+import { precioRutaEfectivoParaCosto, proveedorUsaCostoPrecioRuta } from './proveedoresCostoRuta.js';
 
 /** Cantidad sugerida según stock actual y mínimo configurado. */
 export function sugerirQtyPedido(p, umbralCatalogo, vendidoPeriodo = 0) {
@@ -18,10 +18,10 @@ export function sugerirQtyPedido(p, umbralCatalogo, vendidoPeriodo = 0) {
 
 /**
  * Costo estimado para pedidos/recepción.
- * Si hay precio_ruta (precio CEDIS→sucursal), ese manda; si no, compra o 70% venta.
+ * Precio Venta en Ruta (propio o heredado por marca) manda sobre compra.
  */
 export function costoEstimadoProducto(p, opts = {}) {
-  const ruta = precioRutaComoCostoCompra(p);
+  const ruta = precioRutaEfectivoParaCosto(p, opts.catalogo || []);
   if (ruta != null) return ruta;
   const usarRuta =
     opts.usarPrecioRuta === true ||
