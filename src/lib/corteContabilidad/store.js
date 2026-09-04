@@ -78,7 +78,7 @@ export const AVISO_FALTA_SOFT_DELETE_CIERRES =
 
 const PREFIJOS = { virtual: 'V', abarrotes: 'AB', garage: 'G' };
 
-/** Los tres cortes contables (un gasto real no debe repetirse entre ellos). */
+/** Módulos de corte contable (referencia). El anti-duplicado de gastos aplica solo a Abarrotes. */
 export const MODULOS_CORTE = ['virtual', 'abarrotes', 'garage'];
 
 const ETIQUETA_MODULO_CORTE = {
@@ -101,7 +101,7 @@ function normalizarTxtGasto(s) {
     .trim();
 }
 
-/** Huella para detectar el mismo gasto capturado en otro módulo. */
+/** Huella para detectar el mismo gasto capturado dos veces en Abarrotes. */
 export function huellaGastoCorte(gasto) {
   return {
     categoria: normalizarTxtGasto(gasto?.categoria),
@@ -122,8 +122,9 @@ function mismoGastoHuella(a, b) {
 }
 
 /**
- * Busca el mismo gasto (monto + cat + sub [+ empleado]) abierto en OTRO módulo
- * de la misma tienda (ventana reciente), para evitar doble conteo en caja/IE.
+ * Solo Corte Abarrotes: busca el mismo gasto (monto + cat + sub [+ empleado])
+ * ya abierto en Abarrotes (ventana reciente).
+ * Virtual y Garage no generan compras/proveedores ni folios ING/CMP — no aplica ahí.
  */
 export async function buscarGastosDuplicadosEntreModulos(supabase, {
   sucursal,
@@ -131,34 +132,33 @@ export async function buscarGastosDuplicadosEntreModulos(supabase, {
   gasto,
   horasVentana = 48,
 } = {}) {
-  const sid = normalizarCodigoTienda(sucursal) || 'MAIN';
   const origen = String(moduloOrigen || '').toLowerCase();
+  if (origen !== 'abarrotes') return [];
+
+  const sid = normalizarCodigoTienda(sucursal) || 'MAIN';
   const huella = huellaGastoCorte(gasto);
   if (!(huella.monto > 0) || !huella.categoria) return [];
 
   const desde = new Date(Date.now() - Math.max(1, horasVentana) * 60 * 60 * 1000).toISOString();
-  const otros = MODULOS_CORTE.filter((m) => m !== origen);
-
   const candidatos = [];
+
   if (!supabase) {
-    for (const m of otros) {
-      try {
-        const raw = localStorage.getItem(lsKey(sid, m, 'gastos'));
-        const list = raw ? JSON.parse(raw) : [];
-        for (const g of list || []) {
-          if (g?.cerrado === true) continue;
-          candidatos.push({ ...g, modulo: g.modulo || m });
-        }
-      } catch {
-        /* ignore */
+    try {
+      const raw = localStorage.getItem(lsKey(sid, 'abarrotes', 'gastos'));
+      const list = raw ? JSON.parse(raw) : [];
+      for (const g of list || []) {
+        if (g?.cerrado === true) continue;
+        candidatos.push({ ...g, modulo: g.modulo || 'abarrotes' });
       }
+    } catch {
+      /* ignore */
     }
   } else {
     const { data, error } = await supabase
       .from('cortes_contabilidad_gastos')
       .select('id,modulo,categoria,subcategoria,monto,comentario,usuario_id,usuario_nombre,created_at,cerrado')
       .eq('sucursal_id', sid)
-      .in('modulo', otros)
+      .eq('modulo', 'abarrotes')
       .gte('created_at', desde)
       .order('created_at', { ascending: false })
       .limit(500);
@@ -186,12 +186,12 @@ function mensajeGastoDuplicado(duplicados, moduloDestino) {
         })
       : '—';
     const emp = g.usuario_nombre ? ` · ${g.usuario_nombre}` : '';
-    return `• ${etiquetaModuloCorte(g.modulo)} · ${g.categoria || '—'}${g.subcategoria ? ` / ${g.subcategoria}` : ''} · ${fmtMonto(g.monto)}${emp} · ${cuando}`;
+    return `• ${g.categoria || '—'}${g.subcategoria ? ` / ${g.subcategoria}` : ''} · ${fmtMonto(g.monto)}${emp} · ${cuando}`;
   });
   return (
-    `Este gasto ya está en otro corte de la misma tienda.\n\n` +
+    `Este gasto ya está registrado en Corte Abarrotes.\n\n` +
     `${lineas.join('\n')}\n\n` +
-    `No lo registres otra vez en ${etiquetaModuloCorte(moduloDestino)}: se contaría doble en caja e IE.\n\n` +
+    `No lo registres otra vez: se contaría doble en caja e IE Abarrotes.\n\n` +
     `Si realmente es otro gasto distinto, confirma para forzarlo.`
   );
 }
@@ -314,8 +314,13 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
   // Gastos de corte: sin aprobación. Solo vales y préstamos (otros módulos) requieren admin.
   const estadoAprobacion = 'aprobado';
 
-  // Evitar el mismo gasto en Virtual + Abarrotes + Garage (doble conteo).
-  if (!opts.forzarDuplicado && !opts.omitirChequeoDuplicado) {
+  // Solo Abarrotes: evita el mismo gasto (proveedores/compras) dos veces en el corte.
+  // Virtual y Garage no manejan compras ni folios de inventario.
+  if (
+    !opts.forzarDuplicado &&
+    !opts.omitirChequeoDuplicado &&
+    String(modulo || '').toLowerCase() === 'abarrotes'
+  ) {
     const duplicados = await buscarGastosDuplicadosEntreModulos(supabase, {
       sucursal,
       moduloOrigen: modulo,

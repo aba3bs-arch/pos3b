@@ -6,6 +6,11 @@ test('MODULOS_CORTE tiene los tres cortes', () => {
   assert.deepEqual(MODULOS_CORTE, ['virtual', 'abarrotes', 'garage']);
 });
 
+test('anti-duplicado solo aplica conceptualmente a Abarrotes', () => {
+  assert.ok(MODULOS_CORTE.includes('abarrotes'));
+  assert.equal(etiquetaModuloCorte('abarrotes'), 'Corte Abarrotes');
+});
+
 test('etiquetaModuloCorte', () => {
   assert.equal(etiquetaModuloCorte('abarrotes'), 'Corte Abarrotes');
   assert.equal(etiquetaModuloCorte('virtual'), 'Corte Virtual');
