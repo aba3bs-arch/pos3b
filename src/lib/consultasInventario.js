@@ -1,4 +1,4 @@
-import { leerMovimientosLocal, AVISO_FALTA_MOVIMIENTOS_SQL, reintentarMovimientosPendientes } from './inventarioMovimientos.js';
+import { leerMovimientosLocal, AVISO_FALTA_MOVIMIENTOS_SQL, reintentarMovimientosPendientes, folioDesdeCompraId } from './inventarioMovimientos.js';
 import { filtrarProductosPorTexto } from './buscarProductoTexto.js';
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
 import { consultarVentas } from './ventasQuery.js';
@@ -265,6 +265,9 @@ function movimientosDesdeCompras(compras) {
     if (estado && estado !== 'recibida' && estado !== 'recibido' && estado !== 'cerrada') continue;
     const suc = c.sucursal_id || c.sucursal || '';
     const created = c.created_at || c.fecha;
+    const notas = String(c.notas || '');
+    const folioNotas = (notas.match(/Folio inv\s+([A-Z0-9-]+)/i) || [])[1];
+    const folioCompra = folioNotas || folioDesdeCompraId(c.id);
     for (const a of itemsCompra(c)) {
       const qty = Number(a.qty ?? a.cantidad ?? a.qty_recibido) || 0;
       if (qty <= 0) continue;
@@ -272,6 +275,7 @@ function movimientosDesdeCompras(compras) {
         id: `compra_${c.id}_${a.id}`,
         tipo: 'entrada',
         modo: 'compra',
+        folio: folioCompra,
         producto_id: a.id,
         producto_nombre: a.nombre || a.id,
         cantidad: qty,
@@ -284,6 +288,7 @@ function movimientosDesdeCompras(compras) {
         sucursal: suc,
         created_at: created,
         origen: 'compras',
+        meta: { folio: folioCompra, compra_id: c.id },
       });
     }
   }
@@ -325,22 +330,25 @@ function dedupeMovimientos(list) {
   const out = [];
   for (const m of list) {
     const origenLocal = m.meta?.origen_local_id || (m.origen === 'local' || m.pendiente_nube ? m.id : null);
+    const folio = m.folio || m.meta?.folio || '';
     const suc = normalizarCodigoTienda(m.sucursal || '') || '';
     const pid = String(m.producto_id || '');
     const t = new Date(m.created_at || 0).getTime();
     const bucket = Math.floor(t / 120000); // 2 min
-    const folio = m.folio || m.meta?.folio || '';
-    // Identidad estable primero (nube / origen local) para no perder ni duplicar.
+    const folioKey = folio ? `folio|${folio}|${pid}|${m.tipo || ''}|${Number(m.cantidad) || 0}` : null;
+    // Identidad estable primero (nube / origen local / folio de lote) para no perder ni duplicar.
     const key =
       m.cloudId ||
       (m.origen === 'nube' ? m.id : null) ||
       (origenLocal ? `local|${origenLocal}` : null) ||
+      folioKey ||
       (m.tipo === 'traspaso'
         ? `trp|${folio}|${pid}|${m.sucursal_origen || ''}|${m.sucursal_destino || ''}|${Number(m.cantidad) || 0}|${bucket}`
         : `${m.tipo}|${m.modo || ''}|${pid}|${suc}|${Number(m.cantidad) || 0}|${bucket}`);
     if (seen.has(key)) continue;
     seen.add(key);
     if (origenLocal) seen.add(`local|${origenLocal}`);
+    if (folioKey) seen.add(folioKey);
     out.push(m);
   }
   return out;

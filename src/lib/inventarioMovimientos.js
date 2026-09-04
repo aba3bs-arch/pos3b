@@ -9,8 +9,38 @@ import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.
 
 const LS_MOVIMIENTOS = 'pos3b_movimientos_inventario';
 const LS_PENDIENTES_NUBE = 'pos3b_movimientos_inventario_pendientes';
+const LS_FOLIO_ING = 'pos3b_folio_ingreso_seq';
+const LS_FOLIO_RET = 'pos3b_folio_retiro_seq';
 const MAX_LOCAL = 800;
 const MAX_PENDIENTES = 500;
+
+/**
+ * Folio único por operación (lista completa = un solo folio).
+ * No depende del departamento de cada artículo.
+ */
+export function generarFolioMovimiento(tipo = 'entrada') {
+  const esRetiro = String(tipo || '').toLowerCase() === 'retiro';
+  const prefix = esRetiro ? 'RET' : 'ING';
+  const lsKey = esRetiro ? LS_FOLIO_RET : LS_FOLIO_ING;
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  let seq = 1;
+  try {
+    const raw = localStorage.getItem(lsKey);
+    const prev = raw ? JSON.parse(raw) : {};
+    if (prev.fecha === today) seq = (Number(prev.seq) || 0) + 1;
+    localStorage.setItem(lsKey, JSON.stringify({ fecha: today, seq }));
+  } catch {
+    seq = Math.floor(Math.random() * 9000) + 1;
+  }
+  return `${prefix}-${today}-${String(seq).padStart(4, '0')}`;
+}
+
+/** Folio estable ligado a una compra (misma recepción = mismo folio). */
+export function folioDesdeCompraId(compraId) {
+  const raw = String(compraId || '').replace(/-/g, '').trim();
+  if (!raw) return generarFolioMovimiento('entrada');
+  return `CMP-${raw.slice(0, 8).toUpperCase()}`;
+}
 
 /**
  * Cantidad de inventario: solo enteros ≥ 1.
@@ -458,6 +488,8 @@ export async function aplicarMovimientoInventario(supabase, opts) {
     modo,
     departamento,
     inventarioCompleto,
+    folio: folioOpt,
+    meta: metaOpt,
   } = opts;
   const tienda = sucursalOperacion || sucursal;
   const qty = parseCantidadInventario(cantidad);
@@ -469,6 +501,16 @@ export async function aplicarMovimientoInventario(supabase, opts) {
       error: `Cantidad inválida («${cantidad}»). Debe ser un número entero de piezas ≥ 1 (ej. 12).`,
     };
   }
+
+  // Folio de la operación: si viene en opts (lote/compra/traspaso) se reutiliza;
+  // si no, se genera uno. Nunca se parte por departamento.
+  const folioMov =
+    (folioOpt && String(folioOpt).trim()) ||
+    generarFolioMovimiento(tipo === 'retiro' ? 'retiro' : 'entrada');
+  const metaMov = {
+    ...(metaOpt && typeof metaOpt === 'object' ? metaOpt : {}),
+    folio: folioMov,
+  };
 
   // Siempre stock fresco de la nube: el catálogo en memoria puede estar desfasado.
   const frescoOrigen = await leerProductoInventarioFresco(supabase, productoOrigen.id);
@@ -516,6 +558,8 @@ export async function aplicarMovimientoInventario(supabase, opts) {
     const reg = await registrarMovimientoInventario(supabase, {
       tipo,
       modo,
+      folio: folioMov,
+      meta: metaMov,
       departamento: departamento || productoOrigen.cat || productoDb.cat,
       producto_id: productoOrigen.id,
       producto_nombre: productoOrigen.nombre || productoDb.nombre,
@@ -535,6 +579,7 @@ export async function aplicarMovimientoInventario(supabase, opts) {
       ok: true,
       mensaje: `Traspaso: ${qty} uds. de "${productoOrigen.nombre || productoDb.nombre}" → "${productoDestino.nombre || productoDestDb.nombre}".`,
       log: reg.log,
+      folio: folioMov,
       cloudId: reg.cloudId,
       aviso: reg.aviso || null,
       pendienteNube: !!reg.pendienteNube,
@@ -572,6 +617,8 @@ export async function aplicarMovimientoInventario(supabase, opts) {
   const reg = await registrarMovimientoInventario(supabase, {
     tipo,
     modo,
+    folio: folioMov,
+    meta: metaMov,
     departamento: departamento || productoOrigen.cat || productoDb.cat,
     producto_id: productoOrigen.id,
     producto_nombre: productoOrigen.nombre || productoDb.nombre,
@@ -598,6 +645,7 @@ export async function aplicarMovimientoInventario(supabase, opts) {
     ok: true,
     mensaje: `${tipo === 'entrada' ? 'Entrada' : 'Retiro'} (${etiquetaTienda(tienda)}): ${tipo === 'entrada' ? '+' : '−'}${qty} uds. en "${productoOrigen.nombre || productoDb.nombre}" · ${donde}. Stock: ${atom.antes} → ${atom.despues}.${avisoMain}${notaNegativo}`,
     log: reg.log,
+    folio: folioMov,
     cloudId: reg.cloudId,
     aviso: avisoNube,
     pendienteNube: !!reg.pendienteNube,
@@ -621,6 +669,7 @@ export async function aplicarEntradasMasivas(supabase, opts) {
     sucursal,
     sucursalOperacion,
     tipo: tipoMov = 'entrada',
+    folio: folioOpt,
   } = opts;
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
   const tipo = tipoMov === 'retiro' ? 'retiro' : 'entrada';
@@ -641,6 +690,10 @@ export async function aplicarEntradasMasivas(supabase, opts) {
     lista.push({ productoId: String(l.productoId), cantidad: qty });
   }
   if (!lista.length) return { ok: false, error: 'Agrega al menos un producto con cantidad.' };
+
+  // Un solo folio para toda la lista (aunque haya varios departamentos).
+  const folioLote =
+    (folioOpt && String(folioOpt).trim()) || generarFolioMovimiento(tipo);
 
   const catalogo = inventarioCompleto || inventario || [];
   const tienda = sucursalOperacion || sucursal;
@@ -670,7 +723,10 @@ export async function aplicarEntradasMasivas(supabase, opts) {
       sucursal,
       sucursalOperacion: tienda,
       modo: 'masivo',
+      // Departamento del SKU se guarda en la línea; el folio une el documento.
       departamento: productoOrigen.cat,
+      folio: folioLote,
+      meta: { folio: folioLote, lote: true },
     });
     if (!r.ok) {
       errores.push(`${productoOrigen.nombre}: ${r.error}`);
@@ -690,6 +746,7 @@ export async function aplicarEntradasMasivas(supabase, opts) {
       patch: r.patch || null,
       cloudId: r.cloudId || null,
       pendienteNube: !!r.pendienteNube,
+      folio: folioLote,
     });
     log = r.log || log;
     if (r.producto) productosVivos.set(String(productoId), r.producto);
@@ -715,12 +772,13 @@ export async function aplicarEntradasMasivas(supabase, opts) {
     errores,
     avisos,
     pendientesNube,
+    folio: folioLote,
     aviso: avisos[0] || (pendientesNube ? avisoNube.trim() : null),
     log,
     mensaje:
       (errores.length > 0
-        ? `${etiquetaOk}: ${aplicados} producto(s) / ${piezas} pieza(s) OK. ${errores.length} con error.\n`
-        : `${etiquetaOk} OK en ${etiquetaTienda(tienda)}: ${aplicados} producto(s), ${piezas} pieza(s) ${verbo} al stock.\n`) +
+        ? `${etiquetaOk} ${folioLote}: ${aplicados} producto(s) / ${piezas} pieza(s) OK. ${errores.length} con error.\n`
+        : `${etiquetaOk} ${folioLote} OK en ${etiquetaTienda(tienda)}: ${aplicados} producto(s), ${piezas} pieza(s) ${verbo} al stock.\n`) +
       lineasTxt +
       avisoNube,
   };

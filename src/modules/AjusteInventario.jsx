@@ -324,7 +324,7 @@ export default function AjusteInventario({
       alert(r.error);
       return;
     }
-    alert(r.mensaje + (r.aviso ? `\n\n⚠ ${r.aviso}` : ''));
+    alert(r.mensaje + (r.folio ? `\nFolio: ${r.folio}` : '') + (r.aviso ? `\n\n⚠ ${r.aviso}` : ''));
     setHistorial(r.log || leerMovimientosLocal());
     if (r.producto) fusionarProducto?.(r.producto);
     else if (r.patch && productoOrigen?.id) fusionarProducto?.({ ...productoOrigen, ...r.patch });
@@ -507,6 +507,7 @@ export default function AjusteInventario({
       sucursal: sucursalOp,
       usuario: user?.nombre,
       motivo,
+      folio: r.folio || null,
       lineas: lineasPrint,
     });
     setLineasMasivas([]);
@@ -566,6 +567,7 @@ export default function AjusteInventario({
       sucursal: sucursalOp,
       usuario: user?.nombre,
       motivo,
+      folio: r.folio || null,
       lineas: lineasPrint,
     });
     setLineasTraspaso([]);
