@@ -6,6 +6,7 @@ import {
   ubicacionEntradaDefault,
 } from './inventarioMultitienda.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
+import { hoyYmdNogales } from './corteCaja.js';
 
 const LS_MOVIMIENTOS = 'pos3b_movimientos_inventario';
 const LS_PENDIENTES_NUBE = 'pos3b_movimientos_inventario_pendientes';
@@ -16,23 +17,31 @@ const MAX_PENDIENTES = 500;
 
 /**
  * Folio único por operación (lista completa = un solo folio).
+ * Formato corto: ING-DDMM-0003 / RET-DDMM-0003 (día de negocio Hermosillo, no UTC).
  * No depende del departamento de cada artículo.
  */
 export function generarFolioMovimiento(tipo = 'entrada') {
   const esRetiro = String(tipo || '').toLowerCase() === 'retiro';
   const prefix = esRetiro ? 'RET' : 'ING';
   const lsKey = esRetiro ? LS_FOLIO_RET : LS_FOLIO_ING;
-  const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  // Día de negocio Sonora (evita que de noche el folio “salte” a mañana por UTC).
+  const ymd = hoyYmdNogales(); // YYYY-MM-DD
+  const todayKey = String(ymd || '').replace(/-/g, ''); // YYYYMMDD (contador diario)
+  const parts = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const mes = parts?.[2] || '';
+  const dia = parts?.[3] || '';
+  const fechaCorta = `${dia}${mes}`; // DDMM — más fácil de memorizar que YYYYMMDD
   let seq = 1;
   try {
     const raw = localStorage.getItem(lsKey);
     const prev = raw ? JSON.parse(raw) : {};
-    if (prev.fecha === today) seq = (Number(prev.seq) || 0) + 1;
-    localStorage.setItem(lsKey, JSON.stringify({ fecha: today, seq }));
+    const prevFecha = String(prev.fecha || '').replace(/-/g, '');
+    if (prevFecha === todayKey) seq = (Number(prev.seq) || 0) + 1;
+    localStorage.setItem(lsKey, JSON.stringify({ fecha: todayKey, seq }));
   } catch {
     seq = Math.floor(Math.random() * 9000) + 1;
   }
-  return `${prefix}-${today}-${String(seq).padStart(4, '0')}`;
+  return `${prefix}-${fechaCorta || todayKey.slice(4) || '0000'}-${String(seq).padStart(4, '0')}`;
 }
 
 /** Folio estable ligado a una compra (misma recepción = mismo folio). */
