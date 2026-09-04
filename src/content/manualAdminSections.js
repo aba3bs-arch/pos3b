@@ -165,7 +165,7 @@ La baja se hace en **Usuarios → Dar de baja** o en **RH ABA3B → Perfil → D
 **Reingreso (alta de nuevo):**
 
 - Si es **recontratable**: en RH ABA3B o Usuarios usa **Reingresar alta / Reactivar**. Vuelve a nómina, turnos y Usuarios.
-- Si **no es recontratable** (o ya no puede ser contratado): hace falta el **PIN del administrador principal** para volver a darlo de alta.`,`,
+- Si **no es recontratable** (o ya no puede ser contratado): hace falta el **PIN del administrador principal** para volver a darlo de alta.`,
   },
   {
     id: 'turnos',
