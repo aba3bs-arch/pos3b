@@ -574,12 +574,12 @@ export default function CorteGastosPanel({
               <input
                 className="input"
                 style={{ width: '100%' }}
-                placeholder="Ej. CMP-A1B2C3D4 · ING-20260903-0007 · trp-0020"
+                placeholder="Ej. ING-0309-0001 · CMP-A1B2C3D4 · trp-0020"
                 value={folioInventarioSmoking}
                 onChange={(e) => setFolioInventarioSmoking(e.target.value)}
               />
               <p className="muted" style={{ fontSize: '0.72rem', margin: '0.25rem 0 0' }}>
-                Debe existir recepción/compra o traspaso con ese folio y el monto debe cuadrar. Un folio no se puede reusar.
+                Vale ingreso libre (ING-… en Inventario), recepción CMP-… o traspaso trp-…. El monto debe cuadrar; un folio no se reusa.
               </p>
             </div>
           )}
