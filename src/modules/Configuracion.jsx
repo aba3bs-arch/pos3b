@@ -155,6 +155,12 @@ import {
   tieneAccionProducto,
 } from '../lib/productosAcciones.js';
 import {
+  ACCIONES_CHECADOR_PRIVILEGIO,
+  ACCIONES_DEFAULT_CHECADOR_POR_ROL,
+  DESCRIPCION_MODULO_CHECADOR,
+  tieneAccionPlanHorario,
+} from '../lib/planHorarioAcciones.js';
+import {
   leerVentanaRecoleccion,
   guardarVentanaRecoleccion,
   etiquetaVentanaRecoleccion,
@@ -1740,6 +1746,11 @@ export default function Configuracion({
                           {DESCRIPCION_MODULO_PRODUCTOS}
                         </p>
                       )}
+                      {mod === 'Checador' && (
+                        <p className="muted" style={{ margin: '0.2rem 0 0 1.45rem', fontSize: '0.78rem', lineHeight: 1.35 }}>
+                          {DESCRIPCION_MODULO_CHECADOR}
+                        </p>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1934,6 +1945,53 @@ export default function Configuracion({
                     const uidPriv = privModo === 'usuario' ? privKey : null;
                     const checked = privKey ? tieneAccionProducto(acc.id, rolBase, uidPriv, privilegios) : false;
                     const esDefecto = privKey && (ACCIONES_DEFAULT_PRODUCTOS_POR_ROL[normalizarRol(rolBase)] || []).includes(acc.id);
+                    const explicito = privKey ? leerAccionPrivilegio(acc.id, privModo, privKey) : false;
+                    return (
+                      <div key={acc.id} style={{ marginBottom: '0.5rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem', fontSize: '0.88rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={!privKey}
+                            style={{ marginTop: '0.2rem' }}
+                            onChange={(e) => {
+                              if (!privKey) return;
+                              const next = guardarAccionPrivilegioExplicit(acc.id, privModo, privKey, e.target.checked);
+                              setPrivilegios(next);
+                            }}
+                          />
+                          <span>
+                            <strong>{acc.label}</strong>
+                            {esDefecto && !explicito && checked && (
+                              <span className="muted" style={{ marginLeft: '0.35rem', fontSize: '0.72rem' }}>(por defecto del rol)</span>
+                            )}
+                            <div className="muted" style={{ fontSize: '0.78rem', marginTop: '0.15rem', lineHeight: 1.35 }}>{acc.desc}</div>
+                          </span>
+                        </label>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div
+                  style={{
+                    marginTop: '1rem',
+                    padding: '0.85rem',
+                    borderRadius: '10px',
+                    background: 'rgba(196,127,21,0.08)',
+                    border: '1px solid rgba(196,127,21,0.28)',
+                    borderLeft: '4px solid var(--brand-gold)',
+                  }}
+                >
+                  <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--brand-gold-dark)' }}>Checador — Plan horario</h4>
+                  <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
+                    Calendario semanal de todas las tiendas (turnos, descansos, colores y cubre turnos).
+                    El <strong>administrador</strong> siempre lo ve. Marca el privilegio para Gerente u otros roles / empleados.
+                  </p>
+                  {ACCIONES_CHECADOR_PRIVILEGIO.map((acc) => {
+                    const uidPriv = privModo === 'usuario' ? privKey : null;
+                    const checked = privKey ? tieneAccionPlanHorario(rolBase, uidPriv, privilegios) : false;
+                    const esDefecto = privKey && (ACCIONES_DEFAULT_CHECADOR_POR_ROL[normalizarRol(rolBase)] || []).includes(acc.id);
                     const explicito = privKey ? leerAccionPrivilegio(acc.id, privModo, privKey) : false;
                     return (
                       <div key={acc.id} style={{ marginBottom: '0.5rem' }}>

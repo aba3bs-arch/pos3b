@@ -437,6 +437,7 @@ export const ACCIONES_PRIVILEGIO = [
   { id: 'prod_consolidar', label: 'Productos — Inventario vs ventas del día' },
   { id: 'prod_negativos', label: 'Productos — Ver inventario negativo' },
   { id: 'prod_eliminar', label: 'Productos — Eliminar productos' },
+  { id: 'chec_plan_horario', label: 'Checador — Plan horario (calendario)' },
 ];
 
 /** Acciones del Panel RT (y recolección en cortes). */
@@ -449,6 +450,9 @@ export const ACCIONES_PRIVILEGIO_VENTA_RUTA = ACCIONES_PRIVILEGIO.filter((a) => 
 
 /** Acciones del menú ⋮ de Productos. */
 export const ACCIONES_PRIVILEGIO_PRODUCTOS = ACCIONES_PRIVILEGIO.filter((a) => a.id.startsWith('prod_'));
+
+/** Acciones del Checador (plan horario). */
+export const ACCIONES_PRIVILEGIO_CHECADOR = ACCIONES_PRIVILEGIO.filter((a) => a.id.startsWith('chec_'));
 
 
 const LS_VALES_TIENDAS = 'pos3b_vales_tiendas_permitidas';
