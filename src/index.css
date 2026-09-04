@@ -5594,3 +5594,93 @@ table.data th {
 .modo-offline-banner__btn:hover {
   background: rgba(255, 255, 255, 0.28) !important;
 }
+
+/* Plan horario (Checador) */
+.plan-horario-wrap {
+  overflow-x: auto;
+  border: 1px solid #c5c5c5;
+  border-radius: 8px;
+  background: #fff;
+}
+.plan-horario {
+  width: 100%;
+  min-width: 920px;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+.plan-horario th,
+.plan-horario td {
+  border: 1px solid #bdbdbd;
+  padding: 0.38rem 0.4rem;
+  text-align: center;
+  vertical-align: middle;
+}
+.plan-horario th.ph-nombre,
+.plan-horario td.ph-nombre {
+  text-align: left;
+  min-width: 168px;
+  max-width: 240px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  background: #fafafa;
+}
+.plan-horario thead th {
+  background: #ececec;
+  color: #c62828;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  font-size: 0.72rem;
+}
+.plan-horario thead .ph-fecha {
+  color: #555;
+  font-weight: 600;
+  letter-spacing: 0;
+  font-size: 0.68rem;
+  margin-top: 0.15rem;
+  text-transform: none;
+}
+.plan-horario .ph-tienda td {
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-align: center;
+  font-size: 0.82rem;
+  padding: 0.45rem 0.5rem;
+}
+.plan-horario .ph-celda {
+  cursor: grab;
+  min-width: 108px;
+  min-height: 44px;
+  user-select: none;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.plan-horario .ph-celda:active {
+  cursor: grabbing;
+}
+.plan-horario .ph-celda.ph-activa {
+  outline: 2px solid var(--brand-blue);
+  outline-offset: -2px;
+}
+.plan-horario .ph-celda.ph-dragover {
+  outline: 2px dashed var(--brand-gold);
+  outline-offset: -2px;
+}
+.plan-horario .ph-celda.ph-descanso {
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+.ph-editor {
+  margin-top: 0.9rem;
+  padding: 0.85rem;
+  border-radius: 10px;
+  background: rgba(25, 118, 210, 0.05);
+  border: 1px solid rgba(25, 118, 210, 0.2);
+}
+@media (max-width: 720px) {
+  .plan-horario td.ph-nombre,
+  .plan-horario th.ph-nombre {
+    white-space: normal;
+    max-width: 140px;
+  }
+}

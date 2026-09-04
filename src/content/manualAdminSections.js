@@ -385,7 +385,8 @@ Gráficas, descarga CSV de inventario, listados imprimibles.
 ### 11.3 Checador
 
 - **Precios**: escanea → precio y stock (cliente en piso)
-- **Reloj**: entrada/salida con PIN`,
+- **Reloj**: entrada/salida con PIN
+- **Plan horario**: calendario semanal de todas las tiendas (admin, o privilegio en Configuración). Arrastra bloques, cambia color, marca descansos y asígnalos a un **CT** (cubre turnos). Los nombres salen de **Usuarios**. Requiere \`supabase/fix_plan_horario.sql\` para sincronizar entre cajas.`,
   },
   {
     id: 'configuracion',
@@ -408,6 +409,8 @@ Nombre del negocio, logo, pie de ticket.
 Personaliza módulos visibles por **rol** o por **usuario**.
 
 En **Productos — menú ⋮** configuras cada opción del menú de tres puntos (ajuste, traspasos, negativos, precios, etc.). El **Auditor** ve inventario negativo por defecto.
+
+En **Checador — Plan horario** otorgas el calendario semanal de turnos/descansos/CT a roles que no sean administrador.
 
 ### 12.4 Métodos de pago
 
@@ -444,6 +447,7 @@ Plantillas 12×12, rotación, asignación masiva — ver sección 5.`,
 | \`fix_usuarios_sucursal.sql\` | sucursal_id en usuarios |
 | \`fix_cancelaciones.sql\` | Cancelaciones en corte |
 | \`fix_proyeccion_faltante.sql\` | Remociones de carrito + consultas de precio (proyección faltante) |
+| \`fix_plan_horario.sql\` | Plan horario del Checador (turnos, descansos y CT) |
 | \`fix_movimientos_inventario.sql\` | Bitácora de movimientos de inventario (Consultas) |
 | \`migracion_completa.sql\` | Instalación desde cero |
 

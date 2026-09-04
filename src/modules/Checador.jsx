@@ -28,6 +28,8 @@ import {
   validarDatosCubreTurno,
 } from '../lib/cubreTurno.js';
 import { registrarConsultaPrecio } from '../lib/proyeccionFaltante.js';
+import { tieneAccionPlanHorario } from '../lib/planHorarioAcciones.js';
+import PlanHorarioCalendario from '../components/PlanHorarioCalendario.jsx';
 
 function inicioDiaLocal() {
   const d = new Date();
@@ -91,12 +93,21 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
   const [codigo, setCodigo] = useState('');
 
   const esAdmin = puedeGestionarUsuarios(user?.rol);
+  const puedePlanHorario = esAdmin || tieneAccionPlanHorario(user?.rol, user?.id);
   const tiendas = sucursalesLista?.length ? sucursalesLista : listarSucursalesParaUI();
 
   useEffect(() => {
     if (!pestanaInicial) return;
+    if (pestanaInicial === 'plan' && !(puedeGestionarUsuarios(user?.rol) || tieneAccionPlanHorario(user?.rol, user?.id))) {
+      setPestana('precios');
+      return;
+    }
     setPestana(pestanaInicial);
-  }, [pestanaInicial]);
+  }, [pestanaInicial, user?.rol, user?.id]);
+
+  useEffect(() => {
+    if (pestana === 'plan' && !puedePlanHorario) setPestana('precios');
+  }, [pestana, puedePlanHorario]);
 
   useEffect(() => {
     if (pestana !== 'reloj') return undefined;
@@ -487,7 +498,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
   });
 
   return (
-    <div style={{ maxWidth: '900px' }}>
+    <div style={{ maxWidth: pestana === 'plan' ? '100%' : '900px' }}>
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <button
           type="button"
@@ -529,6 +540,18 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
         >
           Historial entradas/salidas
         </button>
+        {puedePlanHorario && (
+          <button
+            type="button"
+            className={pestana === 'plan' ? 'btn btn-primary' : 'btn btn-ghost'}
+            onClick={() => {
+              setPestana('plan');
+              setMsg('');
+            }}
+          >
+            Plan horario
+          </button>
+        )}
       </div>
 
       {pestana === 'precios' && (
@@ -1010,6 +1033,10 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
             </table>
           </div>
         </div>
+      )}
+
+      {pestana === 'plan' && puedePlanHorario && (
+        <PlanHorarioCalendario supabase={supabase} user={user} />
       )}
     </div>
   );
