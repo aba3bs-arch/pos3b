@@ -19,6 +19,10 @@ import {
   mapaCostoInventarioPorProducto,
 } from '../lib/consultasUi.js';
 import { importeUnitarioMovimientoInventario } from '../lib/valorInventario.js';
+import {
+  cargarProductoIdsCostoPrecioRuta,
+  EVENTO_PROVEEDORES_COSTO_RUTA,
+} from '../lib/proveedoresCostoRuta.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
 import ReportePreciosVentas from '../components/ReportePreciosVentas.jsx';
 import './Consultas.css';
@@ -111,11 +115,34 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
   const [saldos, setSaldos] = useState([]);
   const [sel, setSel] = useState(null);
   const [selSaldo, setSelSaldo] = useState(null);
+  const [productoIdsCostoRuta, setProductoIdsCostoRuta] = useState(() => new Set());
 
   const tiendas = sucursalesLista?.length ? sucursalesLista : [sucursal || 'MAIN'].filter(Boolean);
 
-  // Costo de compra/proveedor (NO precio de venta al cliente ni ruta).
-  const precioPorId = useMemo(() => mapaCostoInventarioPorProducto(inventario), [inventario]);
+  useEffect(() => {
+    let cancelled = false;
+    const cargar = async () => {
+      if (!supabase) {
+        if (!cancelled) setProductoIdsCostoRuta(new Set());
+        return;
+      }
+      const ids = await cargarProductoIdsCostoPrecioRuta(supabase);
+      if (!cancelled) setProductoIdsCostoRuta(new Set(ids));
+    };
+    void cargar();
+    const onCfg = () => void cargar();
+    window.addEventListener(EVENTO_PROVEEDORES_COSTO_RUTA, onCfg);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(EVENTO_PROVEEDORES_COSTO_RUTA, onCfg);
+    };
+  }, [supabase]);
+
+  // Costo de compra/proveedor (NO precio de venta al público). Smoking (y otros en cfg) → precio_ruta.
+  const precioPorId = useMemo(
+    () => mapaCostoInventarioPorProducto(inventario, { productoIdsCostoRuta }),
+    [inventario, productoIdsCostoRuta],
+  );
 
   const productoPorId = useMemo(() => {
     const map = new Map();

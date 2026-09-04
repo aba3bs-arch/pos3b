@@ -1,3 +1,5 @@
+import { precioRutaComoCostoCompra, proveedorUsaCostoPrecioRuta } from './proveedoresCostoRuta.js';
+
 /** Cantidad sugerida según stock actual y mínimo configurado. */
 export function sugerirQtyPedido(p, umbralCatalogo, vendidoPeriodo = 0) {
   const stock = Number(p.stock) || 0;
@@ -14,7 +16,20 @@ export function sugerirQtyPedido(p, umbralCatalogo, vendidoPeriodo = 0) {
   return Math.max(1, Math.round(objetivo - stock));
 }
 
-export function costoEstimadoProducto(p) {
+/**
+ * Costo estimado para pedidos/recepción.
+ * Si el proveedor usa precio ruta (p. ej. Smoking), prioriza productos.precio_ruta.
+ */
+export function costoEstimadoProducto(p, opts = {}) {
+  const usarRuta =
+    opts.usarPrecioRuta === true ||
+    (opts.proveedorNombre && proveedorUsaCostoPrecioRuta(opts.proveedorNombre));
+  if (usarRuta) {
+    const ruta = precioRutaComoCostoCompra(p);
+    if (ruta != null) return ruta;
+    const compraCon = Number(p?.precio_compra_con || p?.costo) || 0;
+    if (compraCon > 0) return Math.round(compraCon * 100) / 100;
+  }
   const pr = Number(p.precio) || 0;
   return Math.round(pr * 0.7 * 100) / 100;
 }

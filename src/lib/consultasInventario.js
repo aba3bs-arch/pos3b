@@ -145,6 +145,8 @@ function fromCloudRow(r) {
     sucursal_destino: meta.sucursal_destino || null,
     ubicacion_origen: meta.ubicacion_origen || null,
     ubicacion_destino: meta.ubicacion_destino || null,
+    precio: meta.precio != null ? Number(meta.precio) : null,
+    subtotal: meta.subtotal != null ? Number(meta.subtotal) : null,
     meta,
     created_at: r.created_at,
     origen: 'nube',

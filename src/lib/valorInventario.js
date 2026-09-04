@@ -1,8 +1,25 @@
 import { etiquetaDepartamento, normalizarDepartamento } from './departamentos.js';
 import { round2, sinImpuesto } from './productoForm.js';
+import {
+  precioRutaComoCostoCompra,
+  proveedorUsaCostoPrecioRuta,
+} from './proveedoresCostoRuta.js';
+
+function debeUsarCostoPrecioRuta(p, opts = {}) {
+  if (opts.usarPrecioRuta === true || p?.usa_costo_precio_ruta === true) return true;
+  if (opts.proveedorNombre && proveedorUsaCostoPrecioRuta(opts.proveedorNombre)) return true;
+  if (opts.productoIdsCostoRuta instanceof Set && p?.id != null) {
+    return opts.productoIdsCostoRuta.has(String(p.id));
+  }
+  return false;
+}
 
 /** Costo unitario sin IVA para valorizar inventario. */
-export function costoUnitarioInventario(p) {
+export function costoUnitarioInventario(p, opts = {}) {
+  if (debeUsarCostoPrecioRuta(p, opts)) {
+    const ruta = precioRutaComoCostoCompra(p);
+    if (ruta != null) return ruta;
+  }
   const compraSin = Number(p?.precio_compra_sin);
   if (compraSin > 0) return compraSin;
   const compraCon = Number(p?.precio_compra_con);
@@ -16,8 +33,13 @@ export function costoUnitarioInventario(p) {
 /**
  * Costo unitario que se paga al proveedor (con IVA si está capturado).
  * Usar en Consultas → Inventario para ingresos/compras (NO es precio de venta).
+ * Para proveedores configurados (p. ej. Smoking) usa precio_ruta.
  */
-export function costoProveedorUnitario(p) {
+export function costoProveedorUnitario(p, opts = {}) {
+  if (debeUsarCostoPrecioRuta(p, opts)) {
+    const ruta = precioRutaComoCostoCompra(p);
+    if (ruta != null) return ruta;
+  }
   const compraCon = Number(p?.precio_compra_con);
   if (compraCon > 0) return round2(compraCon);
   const compraSin = Number(p?.precio_compra_sin);
@@ -31,14 +53,16 @@ export function costoProveedorUnitario(p) {
  * Precio/costo a mostrar en una línea de Consultas → Inventario.
  * Prioridad: costo del movimiento/compra → costo de catálogo → nunca precio de venta al cliente.
  */
-export function importeUnitarioMovimientoInventario(m, producto = null) {
+export function importeUnitarioMovimientoInventario(m, producto = null, opts = {}) {
   if (m?.precio != null && Number(m.precio) > 0) return round2(Number(m.precio));
+  const metaPrecio = Number(m?.meta?.precio);
+  if (Number.isFinite(metaPrecio) && metaPrecio > 0) return round2(metaPrecio);
   const qty = Math.abs(Number(m?.cantidad) || 0);
   if (m?.subtotal != null && qty > 0) {
     const u = Math.abs(Number(m.subtotal)) / qty;
     if (u > 0) return round2(u);
   }
-  return costoProveedorUnitario(producto);
+  return costoProveedorUnitario(producto, opts);
 }
 
 export function resumirValorInventario(inventario = []) {
