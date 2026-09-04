@@ -2106,10 +2106,10 @@ export default function Configuracion({
         <div className="card" style={{ borderTop: '4px solid #0d9488' }}>
           <h3 style={{ margin: '0 0 0.5rem', color: '#0d9488' }}>Costo de compra · Precio Venta en Ruta</h3>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-            El <em>Precio Venta en Ruta</em> es lo que <strong>CEDIS cobra a las sucursales</strong>
-            {' '}(ej. Marlboro/Pall Mall $6, Smoking $2.10). Cuando el producto lo tiene capturado,
-            Consultas / ingresos / gasto usan ese valor (no el precio de compra al proveedor externo).
-            La lista de abajo sirve para ir marcando proveedores al ajustar precios; Smoking viene por defecto.
+            El <em>Precio Venta en Ruta</em> es lo que <strong>CEDIS / Smoking cobran por el cigarro</strong>
+            {' '}a la tienda (Marlboro y Pall Mall <strong>$6</strong>, Smoking <strong>$2.10</strong>).
+            Consultas e ingresos usan siempre ese precio — nunca el costo de compra al proveedor ($5.25).
+            Captúralo en cada producto; si falta, el sistema aplica la tarifa de la marca.
           </p>
           {!listaProveedoresCfg.length ? (
             <p className="muted" style={{ fontSize: '0.85rem' }}>
