@@ -14,7 +14,7 @@ import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
 import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import { enRangoYmd, parseYmd, toYmd } from '../lib/fechas.js';
 import { productoIdsDesdeProveedor } from '../lib/proveedorCatalogo.js';
-import { aplicarMovimientoInventario } from '../lib/inventarioMovimientos.js';
+import { aplicarMovimientoInventario, folioDesdeCompraId, generarFolioMovimiento } from '../lib/inventarioMovimientos.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import {
   MODOS_COMPRA_PROVEEDOR,
@@ -23,11 +23,12 @@ import {
   proveedorUsaEntregaDirecta,
 } from '../lib/comprasProveedor.js';
 
-async function aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, user }) {
+async function aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, user, folio }) {
   const errores = [];
   const avisos = [];
   let aplicados = 0;
   let pendientesNube = 0;
+  const folioCompra = (folio && String(folio).trim()) || generarFolioMovimiento('entrada');
   for (const l of items) {
     const r = await aplicarMovimientoInventario(supabase, {
       tipo: 'entrada',
@@ -38,17 +39,21 @@ async function aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, 
       usuario: user?.nombre || '—',
       sucursal,
       sucursalOperacion: sucursal,
+      folio: folioCompra,
+      meta: { folio: folioCompra, compra: true },
     });
     if (!r.ok) {
       errores.push(`${l.nombre || l.id}: ${r.error}`);
-      if (r.faltaRpc) return { aplicados, errores, avisos, pendientesNube, faltaRpc: true, error: r.error };
+      if (r.faltaRpc) {
+        return { aplicados, errores, avisos, pendientesNube, folio: folioCompra, faltaRpc: true, error: r.error };
+      }
       continue;
     }
     aplicados += 1;
     if (r.pendienteNube) pendientesNube += 1;
     if (r.aviso) avisos.push(r.aviso);
   }
-  return { aplicados, errores, avisos, pendientesNube, faltaRpc: false };
+  return { aplicados, errores, avisos, pendientesNube, folio: folioCompra, faltaRpc: false };
 }
 
 function totalPedido(lines) {
@@ -460,8 +465,13 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     const errores = [];
     let aplicados = 0;
     const motivoBase = `Compra/recepción · ${compraActiva.id}${compraActiva.notas ? ` · ${compraActiva.notas}` : ''}`;
+    const folioCompra = folioDesdeCompraId(compraActiva.id);
 
-    const inv = await aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, user });
+    const inv = await aplicarInventarioCompra(supabase, items, motivoBase, {
+      sucursal,
+      user,
+      folio: folioCompra,
+    });
     if (inv.faltaRpc) {
       alert(inv.error);
       return;
@@ -480,7 +490,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
         estado: 'recibida',
         items,
         total: totalTicket,
-        notas: `${compraActiva.notas || ''} · Ticket proveedor: $${totalTicket.toFixed(2)}`.trim(),
+        notas: `${compraActiva.notas || ''} · Ticket proveedor: $${totalTicket.toFixed(2)} · Folio inv ${folioCompra}`.trim(),
       })
       .eq('id', compraActiva.id);
     if (error) {
@@ -495,7 +505,9 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
       inv.pendientesNube > 0
         ? `\n\n⚠ ${inv.pendientesNube} movimiento(s) quedaron pendientes de subir a la nube. El stock ya cambió; se reintentarán al abrir Consultas → Inventario. No borres la caché local.`
         : '';
-    alert(`Mercancía recibida. Ticket: $${totalTicket.toFixed(2)} MXN. Inventario actualizado (${aplicados} producto(s)).${msgExtra}${msgNube}`);
+    alert(
+      `Mercancía recibida. Folio ${folioCompra}. Ticket: $${totalTicket.toFixed(2)} MXN. Inventario actualizado (${aplicados} producto(s)).${msgExtra}${msgNube}`,
+    );
     await imprimirRecepcionCompra({
       sucursal,
       proveedor: compraActiva.proveedores?.nombre || proveedorNombre,
@@ -534,7 +546,12 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     if (Number.isNaN(totalTicket) || totalTicket < 0) return alert('Total no válido.');
 
     const notas = `Entrega directa · ${notasPedido || proveedorNombre}`.trim();
-    const invPreview = await aplicarInventarioCompra(supabase, items, notas, { sucursal, user });
+    const folioCompra = generarFolioMovimiento('entrada');
+    const invPreview = await aplicarInventarioCompra(supabase, items, `${notas} · ${folioCompra}`, {
+      sucursal,
+      user,
+      folio: folioCompra,
+    });
     if (invPreview.faltaRpc) {
       alert(invPreview.error);
       return;
@@ -559,7 +576,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
           proveedor_id: proveedorId,
           sucursal_id: sucursal,
           total: totalTicket,
-          notas,
+          notas: `${notas} · Folio inv ${folioCompra}`,
           estado: 'recibida',
           items_pedido,
           items,
@@ -580,7 +597,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
         ? `\n\n⚠ ${invPreview.pendientesNube} movimiento(s) quedaron pendientes de subir a la nube. El stock ya cambió; se reintentarán al abrir Consultas → Inventario. No borres la caché local.`
         : '';
     alert(
-      `Entrega directa registrada. Inventario actualizado (${invPreview.aplicados} producto(s)). Ticket: $${totalTicket.toFixed(2)} MXN.${msgExtra}${msgNube}`,
+      `Entrega directa registrada. Folio ${folioCompra}. Inventario actualizado (${invPreview.aplicados} producto(s)). Ticket: $${totalTicket.toFixed(2)} MXN.${msgExtra}${msgNube}`,
     );
     await imprimirRecepcionCompra({
       sucursal,

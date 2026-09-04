@@ -254,6 +254,7 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
 
     const esTraspaso = m.tipo === 'traspaso' || m.modo === 'ubicacion';
     const folioRaw = m.folio || m.meta?.folio || null;
+    // Un folio = un documento. No se parte por departamento del artículo.
     const folio =
       folioRaw ||
       (esVenta
@@ -271,7 +272,13 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
     const rutaOrigen = m.traspaso_origen || m.meta?.traspaso_origen || null;
     const rutaDestino = m.traspaso_destino || m.meta?.traspaso_destino || null;
     const faseTrp = esTraspaso ? faseTraspasoMovimiento(m) : null;
+    const compraId =
+      m.meta?.compra_id ||
+      (m.origen === 'compras' || m.modo === 'compra'
+        ? String(m.id || '').replace(/^compra_/, '').split('_')[0]
+        : null);
     // Mismo folio: envío y recepción van en documentos distintos.
+    // Prioridad: folio compartido de la operación (compra/ingreso/traspaso).
     const key =
       folioRaw && esTraspaso
         ? `folio:${folioRaw}:${faseTrp || 'traspaso'}`
@@ -281,8 +288,8 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
             ? `trp:${faseTrp || 'x'}:${usuario}|${bucket}|${m.sucursal_origen || m.meta?.sucursal_origen || ''}|${m.sucursal_destino || m.meta?.sucursal_destino || ''}|${m.ubicacion_origen || ''}|${m.ubicacion_destino || ''}|${m.subtipo || ''}`
             : esVenta
               ? `venta:${String(m.id).replace(/^venta_/, '').split('_')[0]}`
-              : m.origen === 'compras' || m.modo === 'compra'
-                ? `compra:${String(m.id).replace(/^compra_/, '').split('_')[0]}`
+              : compraId
+                ? `compra:${compraId}`
                 : m.origen === 'cancelaciones' || m.modo === 'cancelacion'
                   ? `cancel:${String(m.id).replace(/^cancel_/, '').split('_')[0]}`
                   : `${titulo}|${usuario}|${bucket}|${m.sucursal || ''}`;
