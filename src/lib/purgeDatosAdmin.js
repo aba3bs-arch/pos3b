@@ -9,20 +9,26 @@ export const TIPOS_PURGA = [
   { id: 'ie_egresos', label: 'IE Virtual / IE Abarrotes', desc: 'Libro de egresos e ingresos de prueba en Cont Virtual (cont_virtual_egresos).' },
   { id: 'recolecciones_rt', label: 'Recolecciones RT / tránsito', desc: 'Movimientos de efectivo en tránsito y liquidaciones de recolector.' },
   { id: 'notificaciones', label: 'Notificaciones / buzón', desc: 'Avisos pendientes e historial de bandeja de contabilidad.' },
-  { id: 'inventario', label: 'Inventario', desc: 'Pone en cero el stock (no borra el catálogo de productos).' },
-  { id: 'cache_local', label: 'Caché local', desc: 'Cortes locales, egresos IE locales, movimientos y ajustes en este navegador.' },
+  { id: 'inventario', label: 'Inventario', desc: 'Pone en cero el stock (no borra el catálogo ni la bitácora de movimientos en la nube).' },
+  { id: 'cache_local', label: 'Caché local', desc: 'Cortes locales y egresos IE de este navegador. Conserva movimientos de inventario locales pendientes de subir a la nube.' },
 ];
 
+/** Claves de caché que SÍ se pueden vaciar sin perder historial de inventario. */
 const LS_PURGA_KEYS = [
   'pos3b_cortes_caja',
-  'pos3b_movimientos_inventario',
-  'pos3b_ajustes_inventario',
   'pos3b_cancelaciones',
   'pos3b_carrito_remociones',
   'pos3b_consultas_precio',
   'pos3b_folio_ajuste_seq',
   'pos3b_cont_virtual_egresos',
   'pos3b_cont_virtual_notas',
+];
+
+/** Bitácora local: nunca se borra en «caché local» (evita perder ingresos/compras no sincronizados). */
+const LS_MOVIMIENTOS_PROTEGIDOS = [
+  'pos3b_movimientos_inventario',
+  'pos3b_movimientos_inventario_pendientes',
+  'pos3b_ajustes_inventario',
 ];
 
 function toDateStart(ymd) {
@@ -104,6 +110,7 @@ function limpiarCacheLocal() {
     for (let i = 0; i < localStorage.length; i += 1) {
       const k = localStorage.key(i);
       if (!k) continue;
+      if (LS_MOVIMIENTOS_PROTEGIDOS.includes(k)) continue;
       if (
         k.startsWith('pos3b_corte_')
         || k.startsWith('pos3b_cont_virtual')
@@ -116,7 +123,11 @@ function limpiarCacheLocal() {
   } catch {
     /* ignore */
   }
-  return { ok: true, detalle: 'Caché local de reportes y movimientos limpiada.' };
+  return {
+    ok: true,
+    detalle:
+      'Caché local de reportes limpiada. Se conservaron movimientos/ajustes de inventario (bitácora) para que Consultas no pierda ingresos ni compras.',
+  };
 }
 
 async function borrarIeEgresos(supabase, { sucursales, desde, hasta }) {

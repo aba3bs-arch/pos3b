@@ -35,9 +35,20 @@ alter table public.movimientos_inventario
   add column if not exists meta jsonb default '{}'::jsonb;
 
 alter table public.movimientos_inventario enable row level security;
+
+-- Solo lectura + alta. La bitácora NO se edita ni se borra desde el POS.
 drop policy if exists "movimientos_inventario_anon_rw" on public.movimientos_inventario;
-create policy "movimientos_inventario_anon_rw" on public.movimientos_inventario
-  for all using (true) with check (true);
+drop policy if exists "movimientos_inventario_anon_select" on public.movimientos_inventario;
+drop policy if exists "movimientos_inventario_anon_insert" on public.movimientos_inventario;
+
+create policy "movimientos_inventario_anon_select" on public.movimientos_inventario
+  for select using (true);
+
+create policy "movimientos_inventario_anon_insert" on public.movimientos_inventario
+  for insert with check (true);
+
+revoke update, delete on public.movimientos_inventario from anon, authenticated;
+grant select, insert on public.movimientos_inventario to anon, authenticated;
 
 create index if not exists idx_mov_inv_modo_fecha
   on public.movimientos_inventario (modo, sucursal_id, created_at desc);

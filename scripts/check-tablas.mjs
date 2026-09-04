@@ -32,7 +32,8 @@ const TABLAS = [
   { nombre: 'proveedor_producto', select: 'id,proveedor_id,producto_id', modulo: 'Proveedores ↔ Productos' },
   { nombre: 'asistencias', select: 'id,nombre,tipo,sucursal_id', modulo: 'Checador' },
   { nombre: 'cortes_caja', select: 'id,sucursal_id,fecha,turno_id,turno_nombre', modulo: 'Corte de caja' },
-  { nombre: 'cancelaciones', select: 'id,sucursal_id,total', modulo: 'Cancelaciones caja' },
+    { nombre: 'movimientos_inventario', select: 'id,tipo,modo,producto_id,sucursal_id,created_at', modulo: 'Consultas / Inventario' },
+    { nombre: 'cancelaciones', select: 'id,sucursal_id,total', modulo: 'Cancelaciones caja' },
 ];
 
 const env = loadEnv();
@@ -57,6 +58,8 @@ async function probarTabla(t) {
       fix = ' → Ejecuta supabase/fix_productos_campos.sql o supabase/fix_supabase_todas_columnas.sql';
     } else if (t.nombre === 'compras' && msg.includes('items')) {
       fix = ' → Ejecuta supabase/fix_compras_items.sql';
+    } else if (t.nombre === 'movimientos_inventario') {
+      fix = ' → Ejecuta supabase/fix_movimientos_inventario.sql';
     } else if (t.nombre === 'cancelaciones') {
       fix = ' → Ejecuta supabase/fix_cancelaciones.sql';
     } else if (t.nombre === 'cortes_caja' && !msg.includes('turno')) {

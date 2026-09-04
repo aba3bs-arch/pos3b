@@ -8,7 +8,9 @@ import {
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 
 const LS_MOVIMIENTOS = 'pos3b_movimientos_inventario';
+const LS_PENDIENTES_NUBE = 'pos3b_movimientos_inventario_pendientes';
 const MAX_LOCAL = 800;
+const MAX_PENDIENTES = 500;
 
 /**
  * Cantidad de inventario: solo enteros ≥ 1.
@@ -227,9 +229,65 @@ function toCloudPayload(row) {
   };
 }
 
+function leerPendientesNube() {
+  try {
+    const raw = localStorage.getItem(LS_PENDIENTES_NUBE);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+function escribirPendientesNube(list) {
+  try {
+    localStorage.setItem(LS_PENDIENTES_NUBE, JSON.stringify((list || []).slice(0, MAX_PENDIENTES)));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Encola un movimiento local que aún no llegó a la nube (no se pierde al fallar red). */
+function encolarPendienteNube(row) {
+  if (!row?.id) return;
+  const prev = leerPendientesNube().filter((m) => String(m.id) !== String(row.id));
+  escribirPendientesNube([{ ...row, pendiente_nube: true }, ...prev]);
+}
+
+function marcarMovimientoLocalCloud(localId, cloudId) {
+  if (!localId) return;
+  try {
+    const cur = leerMovimientosLocal().map((m) =>
+      String(m.id) === String(localId) ? { ...m, cloudId, pendiente_nube: false } : m,
+    );
+    localStorage.setItem(LS_MOVIMIENTOS, JSON.stringify(cur));
+  } catch {
+    /* ignore */
+  }
+  escribirPendientesNube(leerPendientesNube().filter((m) => String(m.id) !== String(localId)));
+}
+
 async function syncMovimientoNube(supabase, row) {
-  if (!supabase || !row) return { ok: false };
+  if (!supabase || !row) return { ok: false, error: 'Sin conexión o movimiento vacío.' };
   const payload = toCloudPayload(row);
+  const origenLocal = payload.meta?.origen_local_id ? String(payload.meta.origen_local_id) : null;
+
+  // Idempotencia: si ya existe por origen_local_id, no insertar de nuevo (reintentos).
+  if (origenLocal) {
+    try {
+      const { data: existentes, error: errBusca } = await supabase
+        .from('movimientos_inventario')
+        .select('id')
+        .contains('meta', { origen_local_id: origenLocal })
+        .limit(1);
+      if (!errBusca && existentes?.length) {
+        return { ok: true, id: existentes[0].id, yaExistia: true };
+      }
+    } catch {
+      /* si falla el contains, sigue con insert */
+    }
+  }
+
   const { data, error } = await supabase.from('movimientos_inventario').insert([payload]).select('id').single();
   if (error) {
     if (faltaTablaMovimientos(error)) return { ok: false, aviso: AVISO_FALTA_MOVIMIENTOS_SQL };
@@ -240,7 +298,7 @@ async function syncMovimientoNube(supabase, row) {
 
 /**
  * Guarda en este equipo. Si pasas `supabase`, también intenta subir a la nube
- * (fire-and-forget) para que Consultas vea el movimiento en otras cajas.
+ * (fire-and-forget) y, si falla, deja el movimiento en cola de reintento.
  */
 export function guardarMovimientoLocal(row, supabase = null) {
   const prev = leerMovimientosLocal();
@@ -258,36 +316,93 @@ export function guardarMovimientoLocal(row, supabase = null) {
   if (supabase) {
     void syncMovimientoNube(supabase, saved).then((r) => {
       if (r?.id) {
-        try {
-          const cur = leerMovimientosLocal().map((m) =>
-            String(m.id) === String(saved.id) ? { ...m, cloudId: r.id } : m,
-          );
-          localStorage.setItem(LS_MOVIMIENTOS, JSON.stringify(cur));
-        } catch {
-          /* ignore */
-        }
+        marcarMovimientoLocalCloud(saved.id, r.id);
+      } else {
+        encolarPendienteNube(saved);
       }
     });
   }
   return next;
 }
 
-/** Guarda local + nube (espera confirmación de nube). */
+/** Guarda local + nube (espera confirmación). Si la nube falla, encola para reintento. */
 export async function registrarMovimientoInventario(supabase, row) {
   const next = guardarMovimientoLocal(row, null);
   const saved = next[0];
   const sync = await syncMovimientoNube(supabase, saved);
   if (sync.ok && sync.id) {
-    try {
-      const cur = leerMovimientosLocal().map((m) =>
-        String(m.id) === String(saved.id) ? { ...m, cloudId: sync.id } : m,
-      );
-      localStorage.setItem(LS_MOVIMIENTOS, JSON.stringify(cur));
-    } catch {
-      /* ignore */
+    marcarMovimientoLocalCloud(saved.id, sync.id);
+    return { log: leerMovimientosLocal(), cloudId: sync.id, aviso: null, error: null };
+  }
+  encolarPendienteNube(saved);
+  try {
+    const cur = leerMovimientosLocal().map((m) =>
+      String(m.id) === String(saved.id) ? { ...m, pendiente_nube: true } : m,
+    );
+    localStorage.setItem(LS_MOVIMIENTOS, JSON.stringify(cur));
+  } catch {
+    /* ignore */
+  }
+  return {
+    log: leerMovimientosLocal(),
+    cloudId: null,
+    aviso: sync.aviso || null,
+    error: sync.error || null,
+    pendienteNube: true,
+  };
+}
+
+/**
+ * Reintenta subir movimientos pendientes a la nube (Consultas / arranque).
+ * No borra el registro local: solo marca cloudId cuando el insert tiene éxito.
+ */
+export async function reintentarMovimientosPendientes(supabase, { limite = 80 } = {}) {
+  if (!supabase) return { ok: false, subidos: 0, restantes: leerPendientesNube().length };
+
+  const porId = new Map();
+  for (const m of leerPendientesNube()) {
+    if (m?.id) porId.set(String(m.id), m);
+  }
+  for (const m of leerMovimientosLocal()) {
+    if (m?.id && !m.cloudId && m.pendiente_nube && !porId.has(String(m.id))) {
+      porId.set(String(m.id), m);
     }
   }
-  return { log: next, cloudId: sync.id || null, aviso: sync.aviso || null, error: sync.error || null };
+
+  const cola = [...porId.values()];
+  if (!cola.length) return { ok: true, subidos: 0, restantes: 0 };
+
+  let subidos = 0;
+  let aviso = null;
+  let error = null;
+  const fallidos = [];
+  const batch = cola.slice(0, Math.max(1, limite));
+  const resto = cola.slice(batch.length);
+
+  for (const row of batch) {
+    const sync = await syncMovimientoNube(supabase, row);
+    if (sync.ok && sync.id) {
+      marcarMovimientoLocalCloud(row.id, sync.id);
+      subidos += 1;
+    } else {
+      if (sync.aviso) aviso = sync.aviso;
+      if (sync.error) error = sync.error;
+      fallidos.push(row);
+    }
+  }
+
+  escribirPendientesNube([...fallidos, ...resto]);
+  return {
+    ok: !aviso && !error,
+    subidos,
+    restantes: fallidos.length + resto.length,
+    aviso,
+    error,
+  };
+}
+
+export function contarMovimientosPendientesNube() {
+  return leerPendientesNube().length;
 }
 
 export async function registrarCambioPrecio(supabase, opts) {
@@ -398,31 +513,32 @@ export async function aplicarMovimientoInventario(supabase, opts) {
       return { ok: false, error: `Error en destino: ${rD.error}. Se revirtió el origen.` };
     }
 
-    const log = guardarMovimientoLocal(
-      {
-        tipo,
-        modo,
-        departamento: departamento || productoOrigen.cat || productoDb.cat,
-        producto_id: productoOrigen.id,
-        producto_nombre: productoOrigen.nombre || productoDb.nombre,
-        producto_destino_id: productoDestino.id,
-        producto_destino_nombre: productoDestino.nombre || productoDestDb.nombre,
-        cantidad: qty,
-        stock_antes: rO.antes,
-        stock_despues: rO.despues,
-        stock_dest_antes: rD.antes,
-        stock_dest_despues: rD.despues,
-        motivo: motivo?.trim() || '',
-        usuario: usuario || '—',
-        sucursal: tienda || '',
-        created_at: new Date().toISOString(),
-      },
-      supabase,
-    );
+    const reg = await registrarMovimientoInventario(supabase, {
+      tipo,
+      modo,
+      departamento: departamento || productoOrigen.cat || productoDb.cat,
+      producto_id: productoOrigen.id,
+      producto_nombre: productoOrigen.nombre || productoDb.nombre,
+      producto_destino_id: productoDestino.id,
+      producto_destino_nombre: productoDestino.nombre || productoDestDb.nombre,
+      cantidad: qty,
+      stock_antes: rO.antes,
+      stock_despues: rO.despues,
+      stock_dest_antes: rD.antes,
+      stock_dest_despues: rD.despues,
+      motivo: motivo?.trim() || '',
+      usuario: usuario || '—',
+      sucursal: tienda || '',
+      created_at: new Date().toISOString(),
+    });
     return {
       ok: true,
       mensaje: `Traspaso: ${qty} uds. de "${productoOrigen.nombre || productoDb.nombre}" → "${productoDestino.nombre || productoDestDb.nombre}".`,
-      log,
+      log: reg.log,
+      cloudId: reg.cloudId,
+      aviso: reg.aviso || null,
+      pendienteNube: !!reg.pendienteNube,
+      errorNube: reg.error || null,
       cantidad: qty,
       stock_antes: rO.antes,
       stock_despues: rO.despues,
@@ -453,34 +569,39 @@ export async function aplicarMovimientoInventario(supabase, opts) {
   if (!atom.ok) return atom;
 
   const donde = etiquetaUbicacionMovimiento(tipo, tienda, modo);
-  const log = guardarMovimientoLocal(
-    {
-      tipo,
-      modo,
-      departamento: departamento || productoOrigen.cat || productoDb.cat,
-      producto_id: productoOrigen.id,
-      producto_nombre: productoOrigen.nombre || productoDb.nombre,
-      cantidad: qty,
-      stock_antes: atom.antes,
-      stock_despues: atom.despues,
-      ubicacion,
-      sucursal_operacion: tienda,
-      motivo: motivo?.trim() || '',
-      usuario: usuario || '—',
-      sucursal: tienda || '',
-      created_at: new Date().toISOString(),
-    },
-    supabase,
-  );
+  const reg = await registrarMovimientoInventario(supabase, {
+    tipo,
+    modo,
+    departamento: departamento || productoOrigen.cat || productoDb.cat,
+    producto_id: productoOrigen.id,
+    producto_nombre: productoOrigen.nombre || productoDb.nombre,
+    cantidad: qty,
+    stock_antes: atom.antes,
+    stock_despues: atom.despues,
+    ubicacion,
+    sucursal_operacion: tienda,
+    motivo: motivo?.trim() || '',
+    usuario: usuario || '—',
+    sucursal: tienda || '',
+    created_at: new Date().toISOString(),
+  });
 
   const avisoMain =
     tipo === 'entrada' && esAlmacenCentral(tienda) && ubicacion === 'cedis'
       ? ' (CEDIS central)'
       : '';
+  const avisoNube = reg.aviso
+    || (reg.pendienteNube
+      ? `El stock se actualizó, pero el movimiento quedó pendiente de subir a la nube (${reg.error || 'sin confirmación'}). Se reintentará automáticamente; no borres la caché local hasta que aparezca en Consultas.`
+      : null);
   return {
     ok: true,
     mensaje: `${tipo === 'entrada' ? 'Entrada' : 'Retiro'} (${etiquetaTienda(tienda)}): ${tipo === 'entrada' ? '+' : '−'}${qty} uds. en "${productoOrigen.nombre || productoDb.nombre}" · ${donde}. Stock: ${atom.antes} → ${atom.despues}.${avisoMain}${notaNegativo}`,
-    log,
+    log: reg.log,
+    cloudId: reg.cloudId,
+    aviso: avisoNube,
+    pendienteNube: !!reg.pendienteNube,
+    errorNube: reg.error || null,
     cantidad: qty,
     stock_antes: atom.antes,
     stock_despues: atom.despues,
@@ -526,7 +647,9 @@ export async function aplicarEntradasMasivas(supabase, opts) {
   let log = leerMovimientosLocal();
   let aplicados = 0;
   let piezas = 0;
+  let pendientesNube = 0;
   const errores = [];
+  const avisos = [];
   const detalle = [];
   const productosVivos = new Map(catalogo.map((p) => [String(p.id), { ...p }]));
 
@@ -555,6 +678,8 @@ export async function aplicarEntradasMasivas(supabase, opts) {
     }
     aplicados += 1;
     piezas += cantidad;
+    if (r.pendienteNube) pendientesNube += 1;
+    if (r.aviso) avisos.push(r.aviso);
     detalle.push({
       productoId,
       nombre: productoOrigen.nombre,
@@ -563,6 +688,8 @@ export async function aplicarEntradasMasivas(supabase, opts) {
       stock_despues: r.stock_despues,
       producto: r.producto || null,
       patch: r.patch || null,
+      cloudId: r.cloudId || null,
+      pendienteNube: !!r.pendienteNube,
     });
     log = r.log || log;
     if (r.producto) productosVivos.set(String(productoId), r.producto);
@@ -576,17 +703,25 @@ export async function aplicarEntradasMasivas(supabase, opts) {
   const lineasTxt = detalle
     .map((d) => `• ${d.nombre}: ${signoTxt}${d.cantidad} (${d.stock_antes} → ${d.stock_despues})`)
     .join('\n');
+  const avisoNube =
+    pendientesNube > 0
+      ? `\n\n⚠ ${pendientesNube} movimiento(s) quedaron pendientes de subir a la nube. El stock ya cambió; se reintentará al abrir Consultas → Inventario. No borres la caché local.`
+      : '';
   return {
     ok: true,
     aplicados,
     piezas,
     detalle,
     errores,
+    avisos,
+    pendientesNube,
+    aviso: avisos[0] || (pendientesNube ? avisoNube.trim() : null),
     log,
     mensaje:
       (errores.length > 0
         ? `${etiquetaOk}: ${aplicados} producto(s) / ${piezas} pieza(s) OK. ${errores.length} con error.\n`
         : `${etiquetaOk} OK en ${etiquetaTienda(tienda)}: ${aplicados} producto(s), ${piezas} pieza(s) ${verbo} al stock.\n`) +
-      lineasTxt,
+      lineasTxt +
+      avisoNube,
   };
 }

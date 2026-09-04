@@ -25,7 +25,9 @@ import {
 
 async function aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, user }) {
   const errores = [];
+  const avisos = [];
   let aplicados = 0;
+  let pendientesNube = 0;
   for (const l of items) {
     const r = await aplicarMovimientoInventario(supabase, {
       tipo: 'entrada',
@@ -39,12 +41,14 @@ async function aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, 
     });
     if (!r.ok) {
       errores.push(`${l.nombre || l.id}: ${r.error}`);
-      if (r.faltaRpc) return { aplicados, errores, faltaRpc: true, error: r.error };
+      if (r.faltaRpc) return { aplicados, errores, avisos, pendientesNube, faltaRpc: true, error: r.error };
       continue;
     }
     aplicados += 1;
+    if (r.pendienteNube) pendientesNube += 1;
+    if (r.aviso) avisos.push(r.aviso);
   }
-  return { aplicados, errores, faltaRpc: false };
+  return { aplicados, errores, avisos, pendientesNube, faltaRpc: false };
 }
 
 function totalPedido(lines) {
@@ -487,7 +491,11 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     const msgExtra = errores.length
       ? `\n\nAdvertencia: ${errores.length} línea(s) no entraron al inventario:\n${errores.join('\n')}`
       : '';
-    alert(`Mercancía recibida. Ticket: $${totalTicket.toFixed(2)} MXN. Inventario actualizado (${aplicados} producto(s)).${msgExtra}`);
+    const msgNube =
+      inv.pendientesNube > 0
+        ? `\n\n⚠ ${inv.pendientesNube} movimiento(s) quedaron pendientes de subir a la nube. El stock ya cambió; se reintentarán al abrir Consultas → Inventario. No borres la caché local.`
+        : '';
+    alert(`Mercancía recibida. Ticket: $${totalTicket.toFixed(2)} MXN. Inventario actualizado (${aplicados} producto(s)).${msgExtra}${msgNube}`);
     await imprimirRecepcionCompra({
       sucursal,
       proveedor: compraActiva.proveedores?.nombre || proveedorNombre,
@@ -567,8 +575,12 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     const msgExtra = invPreview.errores.length
       ? `\n\nAdvertencia: ${invPreview.errores.length} línea(s) no entraron:\n${invPreview.errores.join('\n')}`
       : '';
+    const msgNube =
+      invPreview.pendientesNube > 0
+        ? `\n\n⚠ ${invPreview.pendientesNube} movimiento(s) quedaron pendientes de subir a la nube. El stock ya cambió; se reintentarán al abrir Consultas → Inventario. No borres la caché local.`
+        : '';
     alert(
-      `Entrega directa registrada. Inventario actualizado (${invPreview.aplicados} producto(s)). Ticket: $${totalTicket.toFixed(2)} MXN.${msgExtra}`,
+      `Entrega directa registrada. Inventario actualizado (${invPreview.aplicados} producto(s)). Ticket: $${totalTicket.toFixed(2)} MXN.${msgExtra}${msgNube}`,
     );
     await imprimirRecepcionCompra({
       sucursal,

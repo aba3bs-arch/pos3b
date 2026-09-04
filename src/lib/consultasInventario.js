@@ -1,4 +1,4 @@
-import { leerMovimientosLocal, AVISO_FALTA_MOVIMIENTOS_SQL } from './inventarioMovimientos.js';
+import { leerMovimientosLocal, AVISO_FALTA_MOVIMIENTOS_SQL, reintentarMovimientosPendientes } from './inventarioMovimientos.js';
 import { filtrarProductosPorTexto } from './buscarProductoTexto.js';
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
 import { consultarVentas } from './ventasQuery.js';
@@ -32,6 +32,7 @@ export function etiquetaTipoMovimiento(tipo, modo) {
   if (tipo === 'cancelacion' || (tipo === 'entrada' && modo === 'cancelacion')) return 'Entrada (cancelación)';
   if (tipo === 'entrada') {
     if (modo === 'compra') return 'Entrada (compra)';
+    if (modo === 'masivo') return 'Ingreso de inventario';
     if (modo === 'conteo_departamento') return 'Ajuste (+ conteo)';
     return 'Entrada';
   }
@@ -323,19 +324,23 @@ function dedupeMovimientos(list) {
   const seen = new Set();
   const out = [];
   for (const m of list) {
+    const origenLocal = m.meta?.origen_local_id || (m.origen === 'local' || m.pendiente_nube ? m.id : null);
     const suc = normalizarCodigoTienda(m.sucursal || '') || '';
     const pid = String(m.producto_id || '');
     const t = new Date(m.created_at || 0).getTime();
     const bucket = Math.floor(t / 120000); // 2 min
     const folio = m.folio || m.meta?.folio || '';
+    // Identidad estable primero (nube / origen local) para no perder ni duplicar.
     const key =
       m.cloudId ||
       (m.origen === 'nube' ? m.id : null) ||
+      (origenLocal ? `local|${origenLocal}` : null) ||
       (m.tipo === 'traspaso'
         ? `trp|${folio}|${pid}|${m.sucursal_origen || ''}|${m.sucursal_destino || ''}|${Number(m.cantidad) || 0}|${bucket}`
         : `${m.tipo}|${m.modo || ''}|${pid}|${suc}|${Number(m.cantidad) || 0}|${bucket}`);
     if (seen.has(key)) continue;
     seen.add(key);
+    if (origenLocal) seen.add(`local|${origenLocal}`);
     out.push(m);
   }
   return out;
@@ -372,6 +377,23 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
   const avisos = [];
   const stats = { nube: 0, local: 0, ventas: 0, cancelaciones: 0, compras: 0, ajustes: 0 };
   let faltaTablaNube = false;
+
+  // Antes de armar el reporte: sube pendientes para que Consultas vea compras/ingresos.
+  if (supabase) {
+    try {
+      const sync = await reintentarMovimientosPendientes(supabase, { limite: 100 });
+      if (sync.aviso) avisos.push(sync.aviso);
+      if (sync.subidos > 0 && sync.restantes > 0) {
+        avisos.push(`Se subieron ${sync.subidos} movimiento(s) pendientes; quedan ${sync.restantes} por sincronizar.`);
+      } else if (sync.restantes > 0) {
+        avisos.push(
+          `Hay ${sync.restantes} movimiento(s) de inventario pendientes de subir a la nube. El stock ya cambió; no borres la caché local.`,
+        );
+      }
+    } catch (e) {
+      avisos.push(`Reintento de movimientos: ${e?.message || e}`);
+    }
+  }
 
   try {
     let nube = [];
