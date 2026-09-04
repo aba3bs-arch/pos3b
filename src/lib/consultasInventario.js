@@ -326,8 +326,11 @@ function movimientosDesdeAjustesLocales() {
 }
 
 function dedupeMovimientos(list) {
-  const seen = new Set();
+  const seen = new Map(); // key -> index in out
   const out = [];
+  const mark = (key, idx) => {
+    if (key) seen.set(key, idx);
+  };
   for (const m of list) {
     const origenLocal = m.meta?.origen_local_id || (m.origen === 'local' || m.pendiente_nube ? m.id : null);
     const folio = m.folio || m.meta?.folio || '';
@@ -345,11 +348,27 @@ function dedupeMovimientos(list) {
       (m.tipo === 'traspaso'
         ? `trp|${folio}|${pid}|${m.sucursal_origen || ''}|${m.sucursal_destino || ''}|${Number(m.cantidad) || 0}|${bucket}`
         : `${m.tipo}|${m.modo || ''}|${pid}|${suc}|${Number(m.cantidad) || 0}|${bucket}`);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    if (origenLocal) seen.add(`local|${origenLocal}`);
-    if (folioKey) seen.add(folioKey);
+
+    if (seen.has(key)) {
+      const idx = seen.get(key);
+      const prev = out[idx];
+      // Si el movimiento de nube no trae costo, hereda el de compras (costo_est del ticket).
+      const prevSinPrecio = !(Number(prev?.precio) > 0) && !(Number(prev?.subtotal) > 0);
+      const nuevoConPrecio = Number(m?.precio) > 0 || Number(m?.subtotal) > 0;
+      if (prevSinPrecio && nuevoConPrecio) {
+        out[idx] = {
+          ...prev,
+          precio: m.precio != null ? m.precio : prev.precio,
+          subtotal: m.subtotal != null ? m.subtotal : prev.subtotal,
+        };
+      }
+      continue;
+    }
+    const idx = out.length;
     out.push(m);
+    mark(key, idx);
+    if (origenLocal) mark(`local|${origenLocal}`, idx);
+    if (folioKey) mark(folioKey, idx);
   }
   return out;
 }

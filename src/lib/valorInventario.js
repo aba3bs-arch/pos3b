@@ -13,6 +13,34 @@ export function costoUnitarioInventario(p) {
   return 0;
 }
 
+/**
+ * Costo unitario que se paga al proveedor (con IVA si está capturado).
+ * Usar en Consultas → Inventario para ingresos/compras (NO es precio de venta).
+ */
+export function costoProveedorUnitario(p) {
+  const compraCon = Number(p?.precio_compra_con);
+  if (compraCon > 0) return round2(compraCon);
+  const compraSin = Number(p?.precio_compra_sin);
+  if (compraSin > 0) return round2(compraSin);
+  const costo = Number(p?.costo);
+  if (costo > 0) return round2(costo);
+  return 0;
+}
+
+/**
+ * Precio/costo a mostrar en una línea de Consultas → Inventario.
+ * Prioridad: costo del movimiento/compra → costo de catálogo → nunca precio de venta al cliente.
+ */
+export function importeUnitarioMovimientoInventario(m, producto = null) {
+  if (m?.precio != null && Number(m.precio) > 0) return round2(Number(m.precio));
+  const qty = Math.abs(Number(m?.cantidad) || 0);
+  if (m?.subtotal != null && qty > 0) {
+    const u = Math.abs(Number(m.subtotal)) / qty;
+    if (u > 0) return round2(u);
+  }
+  return costoProveedorUnitario(producto);
+}
+
 export function resumirValorInventario(inventario = []) {
   let unidades = 0;
   let skusConStock = 0;

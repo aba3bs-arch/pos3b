@@ -16,7 +16,9 @@ import {
   fmtMonto,
   folioNumerico,
   inicialesNombre,
+  mapaCostoInventarioPorProducto,
 } from '../lib/consultasUi.js';
+import { importeUnitarioMovimientoInventario } from '../lib/valorInventario.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
 import ReportePreciosVentas from '../components/ReportePreciosVentas.jsx';
 import './Consultas.css';
@@ -112,11 +114,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
   const tiendas = sucursalesLista?.length ? sucursalesLista : [sucursal || 'MAIN'].filter(Boolean);
 
-  const precioPorId = useMemo(() => {
-    const map = new Map();
-    for (const p of inventario || []) map.set(String(p.id), Number(p.precio) || 0);
-    return map;
-  }, [inventario]);
+  // Costo de compra/proveedor (NO precio de venta al cliente ni ruta).
+  const precioPorId = useMemo(() => mapaCostoInventarioPorProducto(inventario), [inventario]);
 
   const productoPorId = useMemo(() => {
     const map = new Map();
@@ -470,7 +469,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     const opDoc = sel?.operacion || '';
     return (sel.lineas || []).map((m) => {
       const prod = productoPorId.get(String(m.producto_id));
-      const precio = Number(m.precio) || Number(prod?.precio) || 0;
+      // Ingresos/compras: costo proveedor. Nunca usar precio de venta de mostrador/ruta.
+      const precio = importeUnitarioMovimientoInventario(m, prod);
       const qty = Math.abs(Number(m.cantidad) || 0);
       const existenciaRaw = m.stock_antes != null ? Number(m.stock_antes) : 0;
       const existencia = Number.isFinite(existenciaRaw) ? existenciaRaw : 0;
@@ -509,7 +509,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
       const precioTotal =
         m.subtotal != null && Number.isFinite(Number(m.subtotal)) && Number(m.subtotal) !== 0
           ? Math.abs(Number(m.subtotal))
-          : Math.round(qty * precio * 100) / 100 || Math.abs(Number(invPiso) - Math.max(0, existencia)) * precio;
+          : Math.round(qty * precio * 100) / 100;
       return {
         ...m,
         prod,
@@ -724,7 +724,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                     <th>Existencia</th>
                     <th>Contado</th>
                     <th>Inv. piso</th>
-                    <th>Precio total</th>
+                    <th>Costo total</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -738,7 +738,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                             <div style={{ fontWeight: 600 }}>{m.producto_nombre || m.producto_id}</div>
                             {!esDetalleTraspaso && (
                               <div className="muted" style={{ fontSize: '0.72rem' }}>
-                                {m.qty ? `${m.qty} pza · ` : ''}{fmtMonto(m.precio)} c/u
+                                {m.qty ? `${m.qty} pza · ` : ''}
+                                {fmtMonto(m.precio)} c/u costo
                               </div>
                             )}
                           </div>
