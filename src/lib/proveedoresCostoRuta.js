@@ -19,6 +19,16 @@ export const PROVEEDORES_COSTO_PRECIO_RUTA_DEFAULT = ['Smoking'];
 /** Familias que comparten tarifa CEDIS $6 (Marlboro + Pall Mall). */
 const FAMILIAS_TARIFA_CEDIS_6 = new Set(['MARLBORO', 'PALLMALL']);
 
+/**
+ * Tarifa CEDIS → sucursales por marca (último recurso si no hay precio_ruta en el SKU).
+ * Es el precio real de venta del cigarro desde CEDIS / Smoking.
+ */
+export const TARIFA_CEDIS_POR_MARCA = {
+  MARLBORO: 6,
+  PALLMALL: 6,
+  SMOKING: 2.1,
+};
+
 export function leerProveedoresCostoPrecioRuta() {
   try {
     const raw = localStorage.getItem(LS_KEY);
@@ -62,14 +72,16 @@ function normalizarNombreMarca(nombre) {
 
 /**
  * Familia de marca para heredar precio_ruta entre SKUs.
- * Double Fusion = Pall Mall. Malboro/Marlboro = misma familia.
+ * PallMall / Pall Mall / Double Fusion = Pall Mall.
+ * Malboro / Marlboro = Marlboro.
  */
 export function familiaMarcaPrecioRuta(nombre) {
   const n = normalizarNombreMarca(nombre);
   if (!n) return null;
   if (/\bSMOKING\b/.test(n)) return 'SMOKING';
   if (/MALBORO|MARLBORO/.test(n)) return 'MARLBORO';
-  if (/PALL\s*MALL|DOUBLE\s*FUSION/.test(n)) return 'PALLMALL';
+  // PallMall (junto), Pall Mall, Double Fusion
+  if (/PALL\s*MALL|PALLMALL|DOUBLE\s*FUSION/.test(n)) return 'PALLMALL';
   return null;
 }
 
@@ -81,20 +93,25 @@ export function precioRutaComoCostoCompra(producto) {
 }
 
 /**
- * Precio ruta efectivo para costo CEDIS→sucursal.
- * 1) precio_ruta del propio SKU
- * 2) hereda de otro SKU de la misma familia con precio_ruta
- * 3) Marlboro ↔ Pall Mall comparten tarifa ($6) si alguna de las dos lo tiene
+ * Precio que CEDIS / Smoking cobra por el cigarro (Precio Venta en Ruta).
+ * Orden:
+ * 1) precio_ruta del SKU
+ * 2) hereda de otro SKU de la misma marca con precio_ruta
+ * 3) Marlboro ↔ Pall Mall comparten tarifa
+ * 4) tarifa CEDIS fija por marca (Marlboro/Pall Mall $6, Smoking $2.10)
  *
- * @param {object|null} producto
- * @param {object[]} [catalogo] inventario completo para heredar
+ * Nunca usa precio_compra_* ($5.25).
  */
 export function precioRutaEfectivoParaCosto(producto, catalogo = []) {
+  const nombre = producto?.nombre || producto?.producto_nombre || '';
   const propia = precioRutaComoCostoCompra(producto);
   if (propia != null) return propia;
 
-  const fam = familiaMarcaPrecioRuta(producto?.nombre || producto?.producto_nombre);
-  if (!fam) return null;
+  const fam = familiaMarcaPrecioRuta(nombre);
+  if (!fam) {
+    // Departamento CIGARROS sin marca reconocida: si el catálogo trae precio_ruta, úsalo.
+    return null;
+  }
 
   const lista = Array.isArray(catalogo) ? catalogo : [];
   const buscarEn = (familias) => {
@@ -111,17 +128,22 @@ export function precioRutaEfectivoParaCosto(producto, catalogo = []) {
   const misma = buscarEn(new Set([fam]));
   if (misma != null) return misma;
 
-  // Marlboro y Pall Mall (Double Fusion) usan la misma tarifa CEDIS.
   if (FAMILIAS_TARIFA_CEDIS_6.has(fam)) {
     const compartida = buscarEn(FAMILIAS_TARIFA_CEDIS_6);
     if (compartida != null) return compartida;
   }
+
+  // Tarifa operativa CEDIS (lo que cobran por pieza a las sucursales).
+  const fija = TARIFA_CEDIS_POR_MARCA[fam];
+  if (fija != null && fija > 0) return round2(fija);
   return null;
 }
 
-/** True si el producto es de marca que debe costearse con precio ruta (no compra proveedor). */
+/** True si el producto debe costearse con precio ruta (no compra proveedor $5.25). */
 export function productoUsaCostoPrecioRutaPorMarca(producto) {
-  return Boolean(familiaMarcaPrecioRuta(producto?.nombre || producto?.producto_nombre));
+  if (familiaMarcaPrecioRuta(producto?.nombre || producto?.producto_nombre)) return true;
+  const cat = String(producto?.cat || '').toUpperCase().trim();
+  return cat === 'CIGARROS' || cat === 'CIGARRO';
 }
 
 /**
