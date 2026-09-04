@@ -1980,6 +1980,7 @@ export async function registrarEnvioMainATienda(supabase, row, opts = {}) {
       nombreActor: created_by,
       autoAprobar: true,
       omitirIe: true,
+      omitirChequeoDuplicado: true,
     },
   );
   if (!gastoRes.ok) {

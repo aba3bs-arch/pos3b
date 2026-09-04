@@ -311,6 +311,8 @@ export default function CorteGastosPanel({
           (modulo === 'abarrotes'
             ? 'Categorías de IE Abarrotes (+ PROVEEDORES). Gastos del corte no requieren aprobación. CUBRE TURNO va a IE Abarrotes (nómina). Solo CONSUMO/RECARGAS/ANTICIPOS/FALTANTE descuentan al empleado.'
             : 'Categorías de IE Virtual. Gastos del corte no requieren aprobación. CUBRE TURNO va a IE (nómina). Solo CONSUMO/RECARGAS/ANTICIPOS/FALTANTE descuentan al empleado. Vales y préstamos sí requieren admin.')}
+        {' '}
+        No registres el mismo gasto en Virtual, Abarrotes y Garage: el sistema avisa si ya existe en otro corte.
       </p>
 
       {mostrarCat && puedeCatalogo && (
