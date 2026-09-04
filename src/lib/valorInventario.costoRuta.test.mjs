@@ -17,7 +17,7 @@ globalThis.localStorage = {
   },
 };
 
-test('Smoking sin compra usa precio_ruta como costo', () => {
+test('Smoking usa precio_ruta 2.10', () => {
   mem.clear();
   const p = {
     id: '30',
@@ -32,17 +32,30 @@ test('Smoking sin compra usa precio_ruta como costo', () => {
   assert.equal(importeUnitarioMovimientoInventario({ cantidad: 200 }, p), 2.1);
 });
 
+test('Marlboro/Pall Mall: precio_ruta 6 gana sobre compra 5.25', () => {
+  mem.clear();
+  const p = {
+    id: '35',
+    precio: 8,
+    precio_compra_con: 5.25,
+    precio_compra_sin: 4.86,
+    precio_ruta: 6,
+    costo: 5.25,
+  };
+  assert.equal(costoProveedorUnitario(p), 6);
+  assert.equal(importeUnitarioMovimientoInventario({ cantidad: 20, precio: 5.25, subtotal: 105 }, p), 6);
+  assert.equal(precioVentaUnitarioProducto(p), 8);
+});
+
+test('sin precio_ruta usa compra', () => {
+  mem.clear();
+  const p = { id: '1', precio: 8, precio_compra_con: 5.25, precio_ruta: 0 };
+  assert.equal(costoProveedorUnitario(p), 5.25);
+});
+
 test('precio null/0 en movimiento no tapa el catálogo', () => {
   mem.clear();
   const p = { id: '30', precio: 5, precio_ruta: 2.1, precio_compra_con: 0 };
   const m = { cantidad: 20, precio: null, subtotal: null, meta: { precio: null, subtotal: 0 } };
   assert.equal(importeUnitarioMovimientoInventario(m, p), 2.1);
-  assert.equal(importeUnitarioMovimientoInventario({ ...m, precio: 0, subtotal: 0 }, p), 2.1);
-});
-
-test('compra normal sigue priorizando precio_compra_con', () => {
-  mem.clear();
-  const p = { id: '1', precio: 8, precio_compra_con: 6, precio_ruta: 2.1 };
-  assert.equal(costoProveedorUnitario(p), 6);
-  assert.equal(costoProveedorUnitario(p, { usarPrecioRuta: true }), 2.1);
 });

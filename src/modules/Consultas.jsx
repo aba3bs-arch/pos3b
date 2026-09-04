@@ -545,10 +545,9 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
         : qty;
 
       const piezasValor = qty > 0 ? qty : Math.abs(Number(contado) || 0);
-      const precCompra =
-        m.subtotal != null && Number.isFinite(Number(m.subtotal)) && Number(m.subtotal) !== 0
-          ? Math.abs(Number(m.subtotal))
-          : Math.round(piezasValor * costoUnitario * 100) / 100;
+      // Recalcular con costoUnitario del catálogo (precio_ruta CEDIS→sucursal).
+      // No usar subtotal sellado del movimiento si venía de precio_compra viejo.
+      const precCompra = Math.round(piezasValor * costoUnitario * 100) / 100;
       const ventaTotal = Math.round(piezasValor * ventaUnitario * 100) / 100;
       const utilidadBruta = Math.round((ventaTotal - precCompra) * 100) / 100;
 

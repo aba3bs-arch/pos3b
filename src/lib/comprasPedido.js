@@ -18,18 +18,20 @@ export function sugerirQtyPedido(p, umbralCatalogo, vendidoPeriodo = 0) {
 
 /**
  * Costo estimado para pedidos/recepción.
- * Si el proveedor usa precio ruta (p. ej. Smoking), prioriza productos.precio_ruta.
+ * Si hay precio_ruta (precio CEDIS→sucursal), ese manda; si no, compra o 70% venta.
  */
 export function costoEstimadoProducto(p, opts = {}) {
+  const ruta = precioRutaComoCostoCompra(p);
+  if (ruta != null) return ruta;
   const usarRuta =
     opts.usarPrecioRuta === true ||
     (opts.proveedorNombre && proveedorUsaCostoPrecioRuta(opts.proveedorNombre));
   if (usarRuta) {
-    const ruta = precioRutaComoCostoCompra(p);
-    if (ruta != null) return ruta;
     const compraCon = Number(p?.precio_compra_con || p?.costo) || 0;
     if (compraCon > 0) return Math.round(compraCon * 100) / 100;
   }
+  const compraCon = Number(p?.precio_compra_con || p?.costo) || 0;
+  if (compraCon > 0) return Math.round(compraCon * 100) / 100;
   const pr = Number(p.precio) || 0;
   return Math.round(pr * 0.7 * 100) / 100;
 }

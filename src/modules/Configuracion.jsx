@@ -2106,10 +2106,10 @@ export default function Configuracion({
         <div className="card" style={{ borderTop: '4px solid #0d9488' }}>
           <h3 style={{ margin: '0 0 0.5rem', color: '#0d9488' }}>Costo de compra · Precio Venta en Ruta</h3>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-            Marca los proveedores cuya <strong>compra / gasto en Abarrotes</strong> debe tomar el campo
-            {' '}<em>Precio Venta en Ruta</em> del producto (no el precio de compra estándar).
-            Aplica a Compras, ingresos y Consultas → Inventario. Virtual y Garage no usan este flujo (no generan compras).
-            Por defecto está <strong>Smoking</strong>. Cuando ajustes precios de otros proveedores, actívalos aquí.
+            El <em>Precio Venta en Ruta</em> es lo que <strong>CEDIS cobra a las sucursales</strong>
+            {' '}(ej. Marlboro/Pall Mall $6, Smoking $2.10). Cuando el producto lo tiene capturado,
+            Consultas / ingresos / gasto usan ese valor (no el precio de compra al proveedor externo).
+            La lista de abajo sirve para ir marcando proveedores al ajustar precios; Smoking viene por defecto.
           </p>
           {!listaProveedoresCfg.length ? (
             <p className="muted" style={{ fontSize: '0.85rem' }}>

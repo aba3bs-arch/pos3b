@@ -3,7 +3,6 @@ import { round2, sinImpuesto } from './productoForm.js';
 import {
   precioRutaComoCostoCompra,
   proveedorUsaCostoPrecioRuta,
-  leerProveedoresCostoPrecioRuta,
 } from './proveedoresCostoRuta.js';
 
 function debeUsarCostoPrecioRuta(p, opts = {}) {
@@ -17,10 +16,10 @@ function debeUsarCostoPrecioRuta(p, opts = {}) {
 
 /** Costo unitario sin IVA para valorizar inventario. */
 export function costoUnitarioInventario(p, opts = {}) {
-  if (debeUsarCostoPrecioRuta(p, opts)) {
-    const ruta = precioRutaComoCostoCompra(p);
-    if (ruta != null) return ruta;
-  }
+  // Misma regla CEDIS→sucursal: precio_ruta manda cuando está capturado.
+  const ruta = precioRutaComoCostoCompra(p);
+  if (ruta != null) return ruta;
+  if (debeUsarCostoPrecioRuta(p, opts)) return 0;
   const compraSin = Number(p?.precio_compra_sin);
   if (compraSin > 0) return compraSin;
   const compraCon = Number(p?.precio_compra_con);
@@ -32,15 +31,17 @@ export function costoUnitarioInventario(p, opts = {}) {
 }
 
 /**
- * Costo unitario que se paga al proveedor (con IVA si está capturado).
- * Usar en Consultas → Inventario para ingresos/compras (NO es precio de venta).
- * Para proveedores configurados (p. ej. Smoking) usa precio_ruta.
+ * Costo unitario para gasto / Consultas → Inventario (NO es precio de venta al público).
+ * En CEDIS el precio a sucursales es «Precio Venta en Ruta» (Marlboro/Pall Mall $6, Smoking $2.10).
+ * Si el producto tiene precio_ruta > 0, ese valor manda sobre precio_compra_*.
  */
 export function costoProveedorUnitario(p, opts = {}) {
   if (!p) return 0;
+  const ruta = precioRutaComoCostoCompra(p);
+  if (ruta != null) return ruta;
   if (debeUsarCostoPrecioRuta(p, opts)) {
-    const ruta = precioRutaComoCostoCompra(p);
-    if (ruta != null) return ruta;
+    // Config marcó el proveedor, pero aún no hay precio_ruta capturado.
+    return 0;
   }
   const compraCon = Number(p?.precio_compra_con);
   if (compraCon > 0) return round2(compraCon);
@@ -48,12 +49,6 @@ export function costoProveedorUnitario(p, opts = {}) {
   if (compraSin > 0) return round2(compraSin);
   const costo = Number(p?.costo);
   if (costo > 0) return round2(costo);
-  // Sin compra capturada: si hay precio_ruta, úsalo (Smoking / proveedores cfg suelen
-  // capturar solo «Precio Venta en Ruta» como costo de compra).
-  if (leerProveedoresCostoPrecioRuta().length > 0) {
-    const ruta = precioRutaComoCostoCompra(p);
-    if (ruta != null) return ruta;
-  }
   return 0;
 }
 
@@ -71,10 +66,13 @@ export function precioVentaUnitarioProducto(p) {
 
 /**
  * Precio/costo a mostrar en una línea de Consultas → Inventario.
- * Prioridad: costo del movimiento/compra → costo de catálogo → nunca precio de venta al cliente.
+ * Prioridad: precio_ruta del catálogo → costo sellado del movimiento → compra catálogo.
  */
 export function importeUnitarioMovimientoInventario(m, producto = null, opts = {}) {
-  // Ignorar 0/null sellados por error: no bloquear el fallback al catálogo.
+  // precio_ruta del producto manda (corrige sellos viejos con precio_compra).
+  const ruta = precioRutaComoCostoCompra(producto);
+  if (ruta != null) return ruta;
+
   if (m?.precio != null && Number(m.precio) > 0) return round2(Number(m.precio));
   const metaPrecio = Number(m?.meta?.precio);
   if (Number.isFinite(metaPrecio) && metaPrecio > 0) return round2(metaPrecio);
