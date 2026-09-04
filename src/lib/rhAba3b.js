@@ -1,6 +1,7 @@
 import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
 import { nombreEsAdminPrincipal, verificarAdminPrincipal } from './adminPrincipal.js';
 import { verificarPinAdministradorGlobal } from './autorizacionTurnoFueraHorario.js';
+import { nombresMismaPersona, resolverTipoEmpleado } from './empleadosVisibles.js';
 import { armarExtrasDesdeForm } from './rhIneOcr.js';
 import { normalizarRol } from './roles.js';
 
@@ -70,6 +71,19 @@ export function nombreCompletoRh(row) {
   return [row?.nombre, row?.apellidos].filter(Boolean).join(' ').trim() || 'Sin nombre';
 }
 
+/** Baja no recontratable: el reingreso exige PIN del administrador principal (AMR). */
+export function requierePinAdminPrincipalParaAlta(emp) {
+  if (!emp) return false;
+  return emp.estado === 'baja' && emp.recontratable === false;
+}
+
+export function usuarioCoincideConEmpleadoRh(usuario, emp) {
+  if (!usuario || !emp) return false;
+  if (emp.usuario_id && String(usuario.id) === String(emp.usuario_id)) return true;
+  const nomRh = nombreCompletoRh(emp);
+  return nombresMismaPersona(usuario.nombre, nomRh) || nombresMismaPersona(usuario.nombre, emp.nombre);
+}
+
 function armarNombreCompleto(patch = {}) {
   if (patch.nombre_completo) return String(patch.nombre_completo).trim();
   return [patch.nombre, patch.apellidos].filter(Boolean).join(' ').trim();
@@ -90,6 +104,157 @@ function sucursalParaTipo(tipo, sucursalId) {
 export function puedeGestionarRh(user) {
   const r = normalizarRol(user?.rol);
   return r === 'Administrador' || r === 'Gerente';
+}
+
+function errorMencionaActivo(error) {
+  return String(error?.message || '').toLowerCase().includes('activo');
+}
+
+export async function buscarExpedienteRhDeUsuario(supabase, usuario) {
+  if (!supabase || !usuario?.id) return { ok: true, empleado: null };
+  const { data: byIdRows, error: eId } = await supabase
+    .from('rh_empleados')
+    .select('*')
+    .eq('usuario_id', usuario.id)
+    .limit(5);
+  if (eId) {
+    if (esErrorTablaRh(eId)) return { ok: false, error: AVISO_FALTA_RH_ABA3B, empleado: null };
+    return { ok: false, error: eId.message, empleado: null };
+  }
+  if (byIdRows?.length) return { ok: true, empleado: byIdRows[0] };
+
+  const { data: list, error: eList } = await supabase
+    .from('rh_empleados')
+    .select('*')
+    .order('updated_at', { ascending: false })
+    .limit(500);
+  if (eList) {
+    if (esErrorTablaRh(eList)) return { ok: false, error: AVISO_FALTA_RH_ABA3B, empleado: null };
+    return { ok: false, error: eList.message, empleado: null };
+  }
+  const hits = (list || []).filter((e) => usuarioCoincideConEmpleadoRh(usuario, e));
+  if (hits.length === 0) return { ok: true, empleado: null };
+  const activo = hits.find((e) => e.estado === 'activo');
+  return { ok: true, empleado: activo || hits[0] };
+}
+
+export async function consultarRestriccionReingresoRh(supabase, usuario) {
+  const res = await buscarExpedienteRhDeUsuario(supabase, usuario);
+  if (!res.ok) {
+    if (res.error === AVISO_FALTA_RH_ABA3B) {
+      return { ok: true, requierePinPrincipal: false, empleado: null };
+    }
+    return { ok: false, error: res.error, requierePinPrincipal: false, empleado: null };
+  }
+  return {
+    ok: true,
+    requierePinPrincipal: requierePinAdminPrincipalParaAlta(res.empleado),
+    empleado: res.empleado,
+  };
+}
+
+async function listarUsuariosPosParaMatch(supabase) {
+  const { data, error } = await supabase
+    .from('usuarios')
+    .select('id, nombre, activo, sucursal_id, rol, tipo_empleado');
+  if (error) return { ok: false, error: error.message, usuarios: [] };
+  return { ok: true, usuarios: data || [] };
+}
+
+/**
+ * Activa o desactiva el usuario POS ligado (por id o por nombre).
+ * Así la baja de RH deja de verse en nómina, turnos y Usuarios.
+ */
+async function sincronizarUsuarioPosActivo(supabase, emp, activo) {
+  if (!supabase || !emp) return { ok: true, ids: [] };
+  const list = await listarUsuariosPosParaMatch(supabase);
+  if (!list.ok) return { ok: false, error: list.error, ids: [] };
+
+  const ids = [];
+  const seen = new Set();
+  const push = (id) => {
+    const k = String(id || '');
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    ids.push(k);
+  };
+  if (emp.usuario_id) push(emp.usuario_id);
+  for (const u of list.usuarios) {
+    if (usuarioCoincideConEmpleadoRh(u, emp)) push(u.id);
+  }
+  if (ids.length === 0) return { ok: true, ids: [] };
+
+  const { error } = await supabase.from('usuarios').update({ activo }).in('id', ids);
+  if (error) {
+    if (errorMencionaActivo(error)) {
+      return { ok: true, ids: [], aviso: 'Ejecuta supabase/fix_usuarios_activo.sql para ocultar bajas en POS.' };
+    }
+    return { ok: false, error: error.message, ids: [] };
+  }
+
+  if (!emp.usuario_id && ids.length === 1) {
+    await supabase.from('rh_empleados').update({ usuario_id: ids[0] }).eq('id', emp.id);
+  }
+  return { ok: true, ids };
+}
+
+function partirNombreUsuario(nombreCompleto) {
+  const nombre = String(nombreCompleto || '').trim();
+  const partes = nombre.split(/\s+/).filter(Boolean);
+  if (partes.length <= 1) return { nombre: nombre || 'Sin nombre', apellidos: null };
+  return { nombre: partes[0], apellidos: partes.slice(1).join(' ') };
+}
+
+export async function asegurarExpedienteRhDesdeUsuario(supabase, usuario, { user, estadoInicial = 'activo' } = {}) {
+  if (!supabase || !usuario?.id) return { ok: false, error: 'Usuario inválido.', empleado: null };
+  const prev = await buscarExpedienteRhDeUsuario(supabase, usuario);
+  if (!prev.ok) return prev;
+  if (prev.empleado) {
+    if (!prev.empleado.usuario_id) {
+      await supabase.from('rh_empleados').update({ usuario_id: usuario.id }).eq('id', prev.empleado.id);
+      return { ok: true, empleado: { ...prev.empleado, usuario_id: usuario.id }, creado: false };
+    }
+    return { ok: true, empleado: prev.empleado, creado: false };
+  }
+
+  const { nombre, apellidos } = partirNombreUsuario(usuario.nombre);
+  const tipoPos = resolverTipoEmpleado(usuario);
+  const tipo = tipoPos === 'indirecto' ? 'indirecto' : 'tienda';
+  const sucursal_id = sucursalParaTipo(tipo, usuario.sucursal_id);
+  const row = {
+    usuario_id: usuario.id,
+    nombre,
+    apellidos,
+    nombre_completo: String(usuario.nombre || '').trim() || nombre,
+    tipo_empleado: tipo,
+    estado: estadoInicial === 'baja' ? 'baja' : 'activo',
+    sucursal_id,
+    puesto: null,
+    rol_sistema: String(usuario.rol || '').trim() || null,
+    fecha_alta: hoyYmd(),
+    recontratable: true,
+    documentos: {},
+    extras: {},
+    created_by: user?.nombre || null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabase.from('rh_empleados').insert([row]).select('*').single();
+  if (error) {
+    if (esErrorTablaRh(error)) return { ok: false, error: AVISO_FALTA_RH_ABA3B, empleado: null };
+    return { ok: false, error: error.message, empleado: null };
+  }
+  const folio = `RH-${String(data.id).replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+  await supabase.from('rh_empleados').update({ folio }).eq('id', data.id);
+  await registrarMovimiento(supabase, {
+    empleadoId: data.id,
+    tipo: estadoInicial === 'baja' ? 'baja' : 'alta',
+    titulo: estadoInicial === 'baja' ? 'Baja desde Usuarios (expediente creado)' : 'Alta ligada a usuario POS',
+    detalle: `${etiquetaTipoEmpleadoRh(tipo)} · ${sucursal_id ? etiquetaTienda(sucursal_id) : '—'}`,
+    payload: { origen: 'usuarios', usuario_id: usuario.id },
+    actor: user,
+  });
+  return { ok: true, empleado: { ...data, folio }, creado: true };
 }
 
 async function registrarMovimiento(supabase, {
@@ -405,30 +570,29 @@ export async function darDeBajaEmpleadoRh(supabase, empleadoId, opts = {}, { use
     .single();
   if (error) return { ok: false, error: error.message };
 
-  // Si tiene usuario POS ligado, desactivarlo (queda como ex-empleado).
-  if (data.usuario_id) {
-    try {
-      await supabase.from('usuarios').update({ activo: false }).eq('id', data.usuario_id);
-    } catch {
-      /* no bloquear baja RH */
-    }
-  }
+  const sync = await sincronizarUsuarioPosActivo(supabase, data, false);
 
   await registrarMovimiento(supabase, {
     empleadoId,
     tipo: 'baja',
     titulo: 'Baja de empleado',
     detalle: `${motivo}${recontratable ? ' · recontratable' : ' · NO recontratable'}`,
-    payload: { ...upd },
+    payload: { ...upd, usuarios_desactivados: sync.ids || [] },
     actor: user,
   });
+
+  const extraPos = (sync.ids || []).length
+    ? ' Dejó de aparecer en nómina, empleados por turno y Usuarios.'
+    : ' Expediente en RH actualizado. Si aún aparece en nómina, ejecuta supabase/fix_usuarios_activo.sql.';
 
   return {
     ok: true,
     empleado: data,
-    mensaje: recontratable
+    avisoPos: sync.aviso || null,
+    mensaje: (recontratable
       ? 'Baja registrada. Queda como ex-empleado recontratable.'
-      : 'Baja registrada. NO recontratable: reingreso solo con PIN de todos los administradores.',
+      : 'Baja registrada. NO recontratable: reingreso solo con PIN del administrador principal.')
+      + extraPos,
   };
 }
 
@@ -448,9 +612,132 @@ export async function agregarNotaRh(supabase, empleadoId, texto, { user } = {}) 
 }
 
 /**
- * Recontratación directa (solo si recontratable=true).
+ * Baja desde el módulo Usuarios: oculta el PIN/POS y registra la baja en RH ABA3B.
  */
-export async function recontratarEmpleadoRh(supabase, empleadoId, form = {}, { user } = {}) {
+export async function darDeBajaUsuarioPosYRh(supabase, usuario, opts = {}, { user } = {}) {
+  if (!supabase || !usuario?.id) return { ok: false, error: 'Usuario inválido.' };
+  const motivo = String(opts.motivo_baja || '').trim();
+  if (!motivo) return { ok: false, error: 'Indica el motivo de baja.' };
+  const recontratable = opts.recontratable !== false;
+  const motivoNo = String(opts.motivo_no_recontratable || '').trim();
+  if (!recontratable && !motivoNo) {
+    return { ok: false, error: 'Si no es recontratable, indica el motivo.' };
+  }
+
+  const { error } = await supabase.from('usuarios').update({ activo: false }).eq('id', usuario.id);
+  if (error) {
+    if (errorMencionaActivo(error)) {
+      return { ok: false, error: 'Ejecuta supabase/fix_usuarios_activo.sql en Supabase para habilitar bajas.' };
+    }
+    return { ok: false, error: error.message };
+  }
+
+  const ens = await asegurarExpedienteRhDesdeUsuario(supabase, usuario, { user, estadoInicial: 'baja' });
+  if (!ens.ok) {
+    if (ens.error === AVISO_FALTA_RH_ABA3B) {
+      return {
+        ok: true,
+        mensaje: `${usuario.nombre} quedó dado de baja en Usuarios (ya no aparece en nómina ni turnos). Ejecuta supabase/fix_rh_aba3b.sql para reflejarlo en RH ABA3B.`,
+      };
+    }
+    return {
+      ok: true,
+      mensaje: `${usuario.nombre} quedó dado de baja en Usuarios. RH: ${ens.error}`,
+    };
+  }
+
+  if (ens.empleado.estado === 'baja' && !ens.creado) {
+    return {
+      ok: true,
+      empleado: ens.empleado,
+      mensaje: `${usuario.nombre} quedó dado de baja. Ya no aparece en nómina, empleados por turno ni Usuarios.`,
+    };
+  }
+
+  if (ens.creado && ens.empleado.estado === 'baja') {
+    const recontratable = opts.recontratable !== false;
+    const upd = {
+      estado: 'baja',
+      fecha_baja: opts.fecha_baja || hoyYmd(),
+      motivo_baja: String(opts.motivo_baja || '').trim() || 'Baja desde Usuarios',
+      notas_baja: String(opts.notas_baja || '').trim() || null,
+      recontratable,
+      motivo_no_recontratable: recontratable ? null : (String(opts.motivo_no_recontratable || '').trim() || null),
+      updated_at: new Date().toISOString(),
+    };
+    if (!recontratable && !upd.motivo_no_recontratable) {
+      return { ok: false, error: 'Si no es recontratable, indica el motivo.' };
+    }
+    await supabase.from('rh_empleados').update(upd).eq('id', ens.empleado.id);
+    return {
+      ok: true,
+      empleado: { ...ens.empleado, ...upd },
+      mensaje: recontratable
+        ? `${usuario.nombre} dado de baja. Expediente en RH ABA3B (recontratable).`
+        : `${usuario.nombre} dado de baja y marcado NO recontratable. Reingreso solo con PIN del administrador principal.`,
+    };
+  }
+
+  const baja = await darDeBajaEmpleadoRh(supabase, ens.empleado.id, opts, { user });
+  if (!baja.ok) {
+    return {
+      ok: true,
+      mensaje: `${usuario.nombre} quedó inactivo en Usuarios. RH: ${baja.error}`,
+    };
+  }
+  return baja;
+}
+
+/**
+ * Reactiva usuario POS. Si en RH no es recontratable, exige PIN del admin principal.
+ */
+export async function reactivarUsuarioPosYRh(supabase, usuario, { pinAdminPrincipal, form } = {}, { user } = {}) {
+  if (!supabase || !usuario?.id) return { ok: false, error: 'Usuario inválido.' };
+
+  const rest = await consultarRestriccionReingresoRh(supabase, usuario);
+  if (!rest.ok) return rest;
+
+  if (rest.requierePinPrincipal) {
+    const pin = String(pinAdminPrincipal || '').trim();
+    if (!pin) {
+      return {
+        ok: false,
+        error: 'Este empleado no es recontratable. Se necesita el PIN del administrador principal.',
+        requierePinPrincipal: true,
+        empleado: rest.empleado,
+      };
+    }
+    const rec = await recontratarEmpleadoRh(supabase, rest.empleado.id, form || {}, {
+      user,
+      pinAdminPrincipal: pin,
+    });
+    if (!rec.ok) return rec;
+    return rec;
+  }
+
+  if (rest.empleado && rest.empleado.estado === 'baja') {
+    const rec = await recontratarEmpleadoRh(supabase, rest.empleado.id, form || {}, { user });
+    if (!rec.ok) return rec;
+    return rec;
+  }
+
+  const { error } = await supabase.from('usuarios').update({ activo: true }).eq('id', usuario.id);
+  if (error) {
+    if (errorMencionaActivo(error)) {
+      return { ok: false, error: 'Ejecuta supabase/fix_usuarios_activo.sql en Supabase.' };
+    }
+    return { ok: false, error: error.message };
+  }
+  if (rest.empleado && rest.empleado.estado === 'activo') {
+    await sincronizarUsuarioPosActivo(supabase, rest.empleado, true);
+  }
+  return { ok: true, mensaje: `${usuario.nombre} reactivado.` };
+}
+
+/**
+ * Recontratación. Si no es recontratable, exige PIN del administrador principal.
+ */
+export async function recontratarEmpleadoRh(supabase, empleadoId, form = {}, { user, pinAdminPrincipal } = {}) {
   if (!puedeGestionarRh(user)) {
     return { ok: false, error: 'Solo administrador o gerente pueden recontratar.' };
   }
@@ -459,11 +746,17 @@ export async function recontratarEmpleadoRh(supabase, empleadoId, form = {}, { u
   const emp = prev.empleado;
   if (emp.estado !== 'baja') return { ok: false, error: 'El empleado no está de baja.' };
   if (!emp.recontratable) {
-    return {
-      ok: false,
-      error: 'No es recontratable. Debes iniciar solicitud con PIN de todos los administradores.',
-      requiereAprobacion: true,
-    };
+    const pin = String(pinAdminPrincipal || '').trim();
+    if (!pin) {
+      return {
+        ok: false,
+        error: 'No es recontratable. Captura el PIN del administrador principal para dar de alta.',
+        requierePinPrincipal: true,
+      };
+    }
+    const principal = await verificarAdminPrincipal(supabase, pin);
+    if (!principal.ok) return { ...principal, requierePinPrincipal: true };
+    form = { ...form, autorizadoPorAdminPrincipal: principal.user?.nombre || 'AMR' };
   }
   return aplicarRecontratacion(supabase, emp, form, user);
 }
@@ -501,24 +794,32 @@ async function aplicarRecontratacion(supabase, emp, form, user) {
     .single();
   if (error) return { ok: false, error: error.message };
 
-  if (data.usuario_id) {
-    try {
-      await supabase.from('usuarios').update({ activo: true }).eq('id', data.usuario_id);
-    } catch {
-      /* ignore */
-    }
+  await sincronizarUsuarioPosActivo(supabase, data, true);
+
+  try {
+    await supabase
+      .from('rh_recontratacion_solicitudes')
+      .update({ estatus: 'cancelada' })
+      .eq('empleado_id', emp.id)
+      .eq('estatus', 'pendiente');
+  } catch {
+    /* tabla opcional */
   }
+
+  const extraAuth = form.autorizadoPorAdminPrincipal
+    ? ` · autorizado por ${form.autorizadoPorAdminPrincipal}`
+    : '';
 
   await registrarMovimiento(supabase, {
     empleadoId: emp.id,
     tipo: 'recontratacion',
     titulo: 'Recontratación',
-    detalle: `Reingreso ${upd.fecha_alta} · ${etiquetaTipoEmpleadoRh(tipo)} · ${sucursal_id ? etiquetaTienda(sucursal_id) : '—'}`,
+    detalle: `Reingreso ${upd.fecha_alta} · ${etiquetaTipoEmpleadoRh(tipo)} · ${sucursal_id ? etiquetaTienda(sucursal_id) : '—'}${extraAuth}`,
     payload: { ...upd },
     actor: user,
   });
 
-  return { ok: true, empleado: data, mensaje: 'Empleado recontratado y activo.' };
+  return { ok: true, empleado: data, mensaje: 'Empleado recontratado y activo. Ya aparece en nómina, turnos y Usuarios.' };
 }
 
 /**

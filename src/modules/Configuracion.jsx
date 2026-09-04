@@ -433,15 +433,29 @@ export default function Configuracion({
     }
     const { data, error } = await supabase
       .from('usuarios')
-      .select('id,nombre,rol,sucursal_id,turno_id,turno_horario')
+      .select('id,nombre,rol,sucursal_id,turno_id,turno_horario,activo')
       .order('sucursal_id')
       .order('nombre');
     if (error) {
+      if (String(error.message || '').includes('activo')) {
+        const retry = await supabase
+          .from('usuarios')
+          .select('id,nombre,rol,sucursal_id,turno_id,turno_horario')
+          .order('sucursal_id')
+          .order('nombre');
+        if (retry.error) {
+          console.error(retry.error);
+          setUsuariosTurno([]);
+          return;
+        }
+        setUsuariosTurno(retry.data || []);
+        return;
+      }
       console.error(error);
       setUsuariosTurno([]);
       return;
     }
-    setUsuariosTurno(data || []);
+    setUsuariosTurno((data || []).filter((u) => u?.activo !== false));
   }, [supabase]);
 
   useEffect(() => {
@@ -2862,6 +2876,7 @@ export default function Configuracion({
             : esPersonalizado
               ? 'Asigna por día de la semana qué turno le corresponde a cada empleado.'
               : 'Asigna Diurno o Nocturno a cada cajero. Solo el administrador puede modificar estas asignaciones.'}
+          {' '}Los dados de baja no aparecen aquí (ni en nómina ni en Usuarios).
         </p>
         {!puedeAsignarTurnoEmpleados && (
           <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem', color: 'var(--brand-red)' }}>

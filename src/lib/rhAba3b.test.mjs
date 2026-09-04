@@ -4,7 +4,9 @@ import {
   etiquetaTipoEmpleadoRh,
   nombreCompletoRh,
   puedeGestionarRh,
+  requierePinAdminPrincipalParaAlta,
   resumenProgresoRecontratacion,
+  usuarioCoincideConEmpleadoRh,
 } from './rhAba3b.js';
 
 assert.equal(etiquetaTipoEmpleadoRh('tienda'), 'Empleado de tienda');
@@ -25,5 +27,15 @@ const prog = resumenProgresoRecontratacion(
 );
 assert.equal(prog.listos, 1);
 assert.equal(prog.completo, false);
+
+assert.equal(requierePinAdminPrincipalParaAlta({ estado: 'baja', recontratable: false }), true);
+assert.equal(requierePinAdminPrincipalParaAlta({ estado: 'baja', recontratable: true }), false);
+assert.equal(requierePinAdminPrincipalParaAlta({ estado: 'activo', recontratable: false }), false);
+
+const empRh = { id: 'rh1', usuario_id: 'u1', nombre: 'Ana', apellidos: 'Pérez', nombre_completo: 'Ana Pérez' };
+assert.equal(usuarioCoincideConEmpleadoRh({ id: 'u1', nombre: 'Otra' }, empRh), true);
+assert.equal(usuarioCoincideConEmpleadoRh({ id: 'u9', nombre: 'Ana Pérez' }, empRh), true);
+assert.equal(usuarioCoincideConEmpleadoRh({ id: 'u9', nombre: 'Ana' }, empRh), true);
+assert.equal(usuarioCoincideConEmpleadoRh({ id: 'u9', nombre: 'Luis Soto' }, empRh), false);
 
 console.log('rhAba3b.test.mjs OK');

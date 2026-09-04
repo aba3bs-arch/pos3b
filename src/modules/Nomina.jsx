@@ -94,16 +94,22 @@ export default function Nomina({ supabase, sucursal, user }) {
       const { fusionar = true, lineasBase = null, excluidosIds = excluidos } = opts;
       setCargando(true);
       setErr('');
-      const { data: empleados, error } = await supabase
+      let empleadosRes = await supabase
         .from('usuarios')
-        .select('id, nombre, rol, sucursal_id, tipo_empleado, nomina_pagador, turno_id, turno_horario')
+        .select('id, nombre, rol, sucursal_id, tipo_empleado, nomina_pagador, turno_id, turno_horario, activo')
         .order('nombre');
-      if (error) {
-        setErr(error.message);
+      if (empleadosRes.error && String(empleadosRes.error.message || '').includes('activo')) {
+        empleadosRes = await supabase
+          .from('usuarios')
+          .select('id, nombre, rol, sucursal_id, tipo_empleado, nomina_pagador, turno_id, turno_horario')
+          .order('nombre');
+      }
+      if (empleadosRes.error) {
+        setErr(empleadosRes.error.message);
         setCargando(false);
         return;
       }
-      const lista = empleadosParaNominaGlobal(empleados || []);
+      const lista = empleadosParaNominaGlobal(empleadosRes.data || []);
       const { gastosRes, prestRes, cortesRes, valesRes, asistenciasRes } = await cargarDatosNomina(supabase, {
         desde: inicio,
         hasta: fin,

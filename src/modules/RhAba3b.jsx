@@ -8,21 +8,17 @@ import {
   TIPOS_EMPLEADO_RH,
   altaEmpleadoRh,
   agregarNotaRh,
-  aprobarPinRecontratacionRh,
   darDeBajaEmpleadoRh,
   editarEmpleadoRh,
   etiquetaEstadoRh,
   etiquetaTipoEmpleadoRh,
-  iniciarSolicitudRecontratacionRh,
-  listarAdminsParaRecontratacion,
   listarEmpleadosRh,
   listarHistorialRh,
   nombreCompletoRh,
   obtenerEmpleadoRh,
-  obtenerSolicitudRecontratacionPendiente,
   puedeGestionarRh,
   recontratarEmpleadoRh,
-  resumenProgresoRecontratacion,
+  requierePinAdminPrincipalParaAlta,
 } from '../lib/rhAba3b.js';
 import {
   fusionarDatosIneEnForm,
@@ -108,9 +104,6 @@ export default function RhAba3b({ supabase, user, sucursal }) {
     motivo_no_recontratable: '',
   });
   const [nota, setNota] = useState('');
-  const [solicitud, setSolicitud] = useState(null);
-  const [pins, setPins] = useState([]);
-  const [adminsReq, setAdminsReq] = useState([]);
   const [pinAdmin, setPinAdmin] = useState('');
   const [trabajando, setTrabajando] = useState(false);
 
@@ -147,17 +140,7 @@ export default function RhAba3b({ supabase, user, sucursal }) {
     setSeleccionadoId(id);
     const hist = await listarHistorialRh(supabase, id);
     setHistorial(hist.data || []);
-    if (res.empleado.estado === 'baja' && !res.empleado.recontratable) {
-      const sol = await obtenerSolicitudRecontratacionPendiente(supabase, id);
-      setSolicitud(sol.solicitud || null);
-      setPins(sol.pins || []);
-      const adm = await listarAdminsParaRecontratacion(supabase);
-      setAdminsReq(adm.admins || sol.solicitud?.payload?.admins_requeridos || []);
-    } else {
-      setSolicitud(null);
-      setPins([]);
-      setAdminsReq([]);
-    }
+    setPinAdmin('');
     setForm({
       ...FORM_VACIO,
       ...res.empleado,
@@ -199,7 +182,7 @@ export default function RhAba3b({ supabase, user, sucursal }) {
 
   const confirmarBaja = async () => {
     if (!puede || !seleccionadoId) return;
-    if (!confirm('¿Confirmar baja? El empleado pasará a Inactivos (ex-empleado).')) return;
+    if (!confirm('¿Confirmar baja? Dejará de aparecer en nómina, empleados por turno y Usuarios. El expediente queda en Inactivos de RH ABA3B.')) return;
     setTrabajando(true);
     const res = await darDeBajaEmpleadoRh(supabase, seleccionadoId, bajaForm, { user });
     setTrabajando(false);
@@ -212,7 +195,14 @@ export default function RhAba3b({ supabase, user, sucursal }) {
 
   const recontratarDirecto = async () => {
     if (!puede || !seleccionadoId) return;
-    if (!confirm('¿Recontratar a este ex-empleado?')) return;
+    const necesitaPin = requierePinAdminPrincipalParaAlta(empleado);
+    if (necesitaPin && !String(pinAdmin || '').trim()) {
+      setVista('recontrata');
+      return;
+    }
+    if (!confirm(necesitaPin
+      ? '¿Reingresar alta con PIN del administrador principal?'
+      : '¿Recontratar a este ex-empleado? Volverá a nómina, turnos y Usuarios.')) return;
     setTrabajando(true);
     const res = await recontratarEmpleadoRh(
       supabase,
@@ -224,60 +214,21 @@ export default function RhAba3b({ supabase, user, sucursal }) {
         salario_diario: form.salario_diario,
         fecha_alta: new Date().toISOString().slice(0, 10),
       },
-      { user },
+      { user, pinAdminPrincipal: pinAdmin },
     );
     setTrabajando(false);
     if (!res.ok) {
-      if (res.requiereAprobacion) {
+      if (res.requierePinPrincipal) {
         setVista('recontrata');
-        return;
+        return alert(res.error);
       }
       return alert(res.error);
     }
     setMsg(res.mensaje);
+    setPinAdmin('');
     setPestana('activos');
     await abrirDetalle(seleccionadoId);
     await cargarListas();
-  };
-
-  const iniciarSolicitud = async () => {
-    if (!puede || !seleccionadoId) return;
-    setTrabajando(true);
-    const res = await iniciarSolicitudRecontratacionRh(supabase, seleccionadoId, {
-      user,
-      motivo: 'Recontratación excepcional — requiere PIN de todos los administradores',
-      form: {
-        tipo_empleado: form.tipo_empleado,
-        sucursal_id: form.sucursal_id,
-        puesto: form.puesto,
-        salario_diario: form.salario_diario,
-        fecha_alta: new Date().toISOString().slice(0, 10),
-      },
-    });
-    setTrabajando(false);
-    if (!res.ok) return alert(res.error);
-    setSolicitud(res.solicitud);
-    setAdminsReq(res.admins || []);
-    setPins([]);
-    setMsg(res.mensaje);
-    setVista('recontrata');
-  };
-
-  const registrarPin = async () => {
-    if (!solicitud?.id) return alert('No hay solicitud pendiente.');
-    setTrabajando(true);
-    const res = await aprobarPinRecontratacionRh(supabase, solicitud.id, pinAdmin, { user });
-    setTrabajando(false);
-    setPinAdmin('');
-    if (!res.ok) return alert(res.error);
-    setPins(res.pins || []);
-    setMsg(res.mensaje);
-    if (res.completada) {
-      setPestana('activos');
-      await abrirDetalle(seleccionadoId);
-      await cargarListas();
-      setVista('detalle');
-    }
   };
 
   const guardarNota = async () => {
@@ -288,11 +239,6 @@ export default function RhAba3b({ supabase, user, sucursal }) {
     const hist = await listarHistorialRh(supabase, seleccionadoId);
     setHistorial(hist.data || []);
   };
-
-  const progreso = useMemo(
-    () => resumenProgresoRecontratacion(adminsReq, pins),
-    [adminsReq, pins],
-  );
 
   if (!puede) {
     return (
@@ -308,7 +254,7 @@ export default function RhAba3b({ supabase, user, sucursal }) {
       <div>
         <h2 style={{ margin: 0, color: '#0f766e' }}>RH ABA3B</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
-          Altas y bajas de personal: tienda, cubre turnos e indirectos. Expediente, historial y recontratación controlada.
+          Altas y bajas de personal: tienda, cubre turnos e indirectos. La baja se refleja en nómina, turnos y Usuarios; el reingreso no recontratable pide PIN del administrador principal.
         </p>
       </div>
 
@@ -464,11 +410,11 @@ export default function RhAba3b({ supabase, user, sucursal }) {
                   <button type="button" className="btn btn-danger" onClick={() => setVista('baja')}>Dar de baja</button>
                 )}
                 {empleado.estado === 'baja' && empleado.recontratable && (
-                  <button type="button" className="btn btn-primary" onClick={recontratarDirecto}>Recontratar</button>
+                  <button type="button" className="btn btn-primary" onClick={recontratarDirecto}>Reingresar alta</button>
                 )}
                 {empleado.estado === 'baja' && !empleado.recontratable && (
-                  <button type="button" className="btn btn-primary" onClick={() => (solicitud ? setVista('recontrata') : iniciarSolicitud())}>
-                    {solicitud ? 'Continuar aprobaciones PIN' : 'Solicitar recontratación (PINs)'}
+                  <button type="button" className="btn btn-primary" onClick={() => setVista('recontrata')}>
+                    Reingresar con PIN del admin principal
                   </button>
                 )}
               </div>
@@ -499,7 +445,7 @@ export default function RhAba3b({ supabase, user, sucursal }) {
               {!empleado.recontratable && (
                 <p style={{ margin: '0.5rem 0 0', color: 'var(--danger)', fontSize: '0.88rem' }}>
                   No recontratable: {empleado.motivo_no_recontratable || '—'}
-                  {' '}· Requiere PIN de todos los administradores (incluido el creador de la app, aunque ya no labore).
+                  {' '}· Reingreso solo con PIN del administrador principal.
                 </p>
               )}
             </div>
@@ -571,8 +517,7 @@ export default function RhAba3b({ supabase, user, sucursal }) {
           </div>
           {!bajaForm.recontratable && (
             <p className="muted" style={{ fontSize: '0.82rem', marginTop: '0.65rem' }}>
-              Si marcas no recontratable, un futuro reingreso exigirá el PIN de <strong>todos</strong> los administradores,
-              incluido el administrador creador de la app (AMR), aunque ya no esté activo en la empresa.
+              Si marcas no recontratable, un futuro reingreso exigirá el <strong>PIN del administrador principal</strong>.
             </p>
           )}
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem' }}>
@@ -589,44 +534,20 @@ export default function RhAba3b({ supabase, user, sucursal }) {
           <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => setVista('detalle')}>
             ← Volver al perfil
           </button>
-          <h3 style={{ margin: '0.5rem 0' }}>Recontratación con aprobación de administradores</h3>
+          <h3 style={{ margin: '0.5rem 0' }}>Reingreso con PIN del administrador principal</h3>
           <p className="muted" style={{ fontSize: '0.88rem' }}>
-            {nombreCompletoRh(empleado)} no es recontratable. Se requiere el PIN de cada administrador
-            (activos e inactivos). Sin el PIN del <strong>administrador principal (AMR)</strong> no se puede recontratar.
+            {nombreCompletoRh(empleado)} no es recontratable. Para volver a darlo de alta se necesita el PIN del{' '}
+            <strong>administrador principal</strong>.
           </p>
-
-          {!solicitud && (
-            <button type="button" className="btn btn-primary" disabled={trabajando} onClick={iniciarSolicitud}>
-              Iniciar solicitud de PINs
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
+            <div>
+              <label className="muted" style={{ fontSize: '0.78rem' }}>PIN del administrador principal</label>
+              <InputPin value={pinAdmin} onChange={(e) => setPinAdmin(e.target.value)} />
+            </div>
+            <button type="button" className="btn btn-primary" disabled={trabajando || !pinAdmin} onClick={recontratarDirecto}>
+              {trabajando ? 'Validando…' : 'Reingresar alta'}
             </button>
-          )}
-
-          {solicitud && (
-            <>
-              <p style={{ fontSize: '0.88rem' }}>
-                Progreso: <strong>{progreso.listos} / {progreso.total}</strong>
-              </p>
-              <ul style={{ margin: '0 0 0.75rem', paddingLeft: '1.1rem' }}>
-                {progreso.items.map((a) => (
-                  <li key={`${a.nombre}-${a.id || 'x'}`} style={{ marginBottom: 4 }}>
-                    {a.aprobado ? '✓' : '○'}{' '}
-                    <strong>{a.nombre}</strong>
-                    {a.esPrincipal ? ' · admin principal' : ''}
-                    {!a.activo ? ' · (ya no labora / baja)' : ''}
-                  </li>
-                ))}
-              </ul>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
-                <div>
-                  <label className="muted" style={{ fontSize: '0.78rem' }}>PIN del siguiente administrador</label>
-                  <InputPin value={pinAdmin} onChange={(e) => setPinAdmin(e.target.value)} />
-                </div>
-                <button type="button" className="btn btn-primary" disabled={trabajando || !pinAdmin} onClick={registrarPin}>
-                  Registrar PIN
-                </button>
-              </div>
-            </>
-          )}
+          </div>
         </div>
       )}
     </div>
