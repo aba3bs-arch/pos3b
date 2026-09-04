@@ -27,6 +27,11 @@ import {
 } from './nominaAsistencias.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { leerTurnos } from './turnos.js';
+import { listarResultadosInventario } from './resultadoInventario.js';
+import {
+  combinarDeduccionInventario,
+  mapaCuotasFaltantePorEmpleado,
+} from './nominaInventario.js';
 
 const LS_SUELDOS = 'pos3b_nomina_salario_dia';
 const LS_SUELDOS_LEGACY = 'pos3b_nomina_sueldos_default';
@@ -83,7 +88,7 @@ function splitGastosNomina(detalle = []) {
   };
 }
 
-function notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas) {
+function notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas, notaFaltanteInv = '') {
   const notas = [];
   if (indirecto) {
     if (valesGas > 0) notas.push(`Vales cobrados: ${valesGas}`);
@@ -116,6 +121,7 @@ function notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, falt
     const partes = Object.entries(porSucInv).map(([s, m]) => `${etiquetaTienda(s)}: $${m.toFixed(2)}`);
     notas.push(`Inventario (${partes.join(' · ')})`);
   }
+  if (notaFaltanteInv) notas.push(notaFaltanteInv);
 
   if (prestEmp?.detalle?.length) {
     const porSuc = prestEmp.porSucursal;
@@ -148,9 +154,18 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
     pagadorFiltro = '',
     tipoFiltro = '',
     arrastreMap = {},
+    inventarioRegistros = [],
+    periodoDesde = '',
+    periodoHasta = '',
   } = opts;
 
   const turnos = leerTurnos();
+  const cuotasInv = mapaCuotasFaltantePorEmpleado({
+    registros: inventarioRegistros,
+    empleados,
+    desde: periodoDesde,
+    hasta: periodoHasta,
+  });
   let lista = empleados || [];
   if (pagadorFiltro) {
     lista = lista.filter((u) => empleadoIncluidoEnPagadorFiltro(u, pagadorFiltro));
@@ -164,7 +179,9 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
     const salarioDia = salarioDiaEmpleado(u, sueldosMap);
     const gastosEmp = gastosMap[String(u.id)] || { total: 0, detalle: [], porSucursal: {} };
     const prestEmp = prestamosMap[String(u.id)] || { total: 0, detalle: [], porSucursal: {} };
-    const { deduccion_inventario, deduccion_consumos } = splitGastosNomina(gastosEmp.detalle);
+    const { deduccion_inventario: invCorte, deduccion_consumos } = splitGastosNomina(gastosEmp.detalle);
+    const cuotaReporte = cuotasInv[String(u.id)] || null;
+    const deduccion_inventario = combinarDeduccionInventario(invCorte, cuotaReporte?.cuota);
     const dedGastos = Number(deduccion_consumos) || 0;
     const dedPrestamos = Number(prestEmp.total) || 0;
 
@@ -217,7 +234,9 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       deduccion_arrastre: round2(arrastreMap[String(u.id)] || 0),
       deducciones: 0,
       notas_otros: '',
-      notas: notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas),
+      notas: notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, faltasGas, cuotaReporte?.nota),
+      cuota_inventario: cuotaReporte?.cuota || 0,
+      faltante_inventario_tienda: cuotaReporte?.faltante || 0,
       pagador_manual: false,
       dias_manual: false,
       sueldo_manual: false,
@@ -237,14 +256,15 @@ export function recalcularSueldoLinea(linea) {
 /** Carga gastos (3 cortes), préstamos, cierres, vales e asistencias del checador. */
 export async function cargarDatosNomina(supabase, { desde, hasta, empleados, todasSucursales = true, sucursal }) {
   const opts = { desde, hasta, empleados, todasSucursales, sucursal };
-  const [gastosRes, prestRes, cortesRes, valesRes, asistenciasRes] = await Promise.all([
+  const [gastosRes, prestRes, cortesRes, valesRes, asistenciasRes, inventarioRes] = await Promise.all([
     gastosDeduccionPorEmpleado(supabase, opts),
     prestamosDeduccionPorEmpleado(supabase, opts),
     cortesPorEmpleado(supabase, opts),
     valesGasolinaPorEmpleado(supabase, opts),
     asistenciasPorEmpleado(supabase, opts),
+    listarResultadosInventario(supabase, { desde: opts.desde, hasta: opts.hasta, limit: 200 }),
   ]);
-  return { gastosRes, prestRes, cortesRes, valesRes, asistenciasRes };
+  return { gastosRes, prestRes, cortesRes, valesRes, asistenciasRes, inventarioRes };
 }
 
 export function faltaTablaNomina(error) {

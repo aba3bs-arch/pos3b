@@ -1014,6 +1014,9 @@ export default function ReporteInventario({
                 readOnly={!puedeCapturarBono}
                 disabled={guardandoResultado || !tiendaResultado || !puedeCapturarBono}
               />
+              <span style={{ display: 'block', fontSize: '0.68rem', marginTop: 2 }}>
+                En nómina: este monto ÷ 3 se descuenta a cada empleado de la tienda
+              </span>
             </label>
             <label className="muted" style={{ display: 'block', fontSize: '0.82rem' }}>
               Bonificación ($)

@@ -110,7 +110,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         return;
       }
       const lista = empleadosParaNominaGlobal(empleadosRes.data || []);
-      const { gastosRes, prestRes, cortesRes, valesRes, asistenciasRes } = await cargarDatosNomina(supabase, {
+      const { gastosRes, prestRes, cortesRes, valesRes, asistenciasRes, inventarioRes } = await cargarDatosNomina(supabase, {
         desde: inicio,
         hasta: fin,
         empleados: lista,
@@ -122,6 +122,7 @@ export default function Nomina({ supabase, sucursal, user }) {
       if (cortesRes.error) setErr(cortesRes.error);
       if (valesRes.error) setErr(valesRes.error);
       if (asistenciasRes?.error) setErr(asistenciasRes.error);
+      if (inventarioRes?.aviso && inventarioRes.sinTabla) setAviso(inventarioRes.aviso);
 
       const lineasNuevas = lineasDesdeEmpleados(lista, {
         gastosMap: gastosRes.map,
@@ -133,6 +134,9 @@ export default function Nomina({ supabase, sucursal, user }) {
         pagadorFiltro,
         tipoFiltro,
         arrastreMap: saldosArrastre,
+        inventarioRegistros: inventarioRes?.registros || [],
+        periodoDesde: inicio,
+        periodoHasta: fin,
       }).filter((l) => !excluidosIds.has(String(l.usuario_id)));
 
       setLineas((prev) => {
@@ -256,7 +260,7 @@ export default function Nomina({ supabase, sucursal, user }) {
             'Se cargarán del sábado al viernes:\n' +
             '• Días desde el reloj checador (retardos: los primeros 4 cuentan; desde el 5º ese día no se paga)\n' +
             '• Consumos, recargas, anticipos y faltantes de empleados directos e indirectos\n' +
-            '• Inventario y préstamos aplicables',
+            '• Inventario (faltante del reporte ÷ 3 por empleado de la tienda) y préstamos',
         )
       ) {
         return;
@@ -607,7 +611,7 @@ export default function Nomina({ supabase, sucursal, user }) {
             />
           )}
         </td>
-        <td style={{ color: l.deduccion_inventario > 0 ? 'var(--danger)' : undefined }}>
+        <td style={{ color: l.deduccion_inventario > 0 ? 'var(--danger)' : undefined }} title={l.notas}>
           {historial || autoBloqueado ? (
             fmt(l.deduccion_inventario)
           ) : (
@@ -617,6 +621,9 @@ export default function Nomina({ supabase, sucursal, user }) {
               min="0"
               step="0.01"
               style={{ width: '72px' }}
+              title={l.cuota_inventario > 0
+                ? `Faltante tienda ÷ 3 = ${fmt(l.cuota_inventario)}${l.faltante_inventario_tienda ? ` (faltante ${fmt(l.faltante_inventario_tienda)})` : ''}`
+                : 'Inventario'}
               value={l.deduccion_inventario ?? 0}
               onChange={(e) => actualizarLinea(i, 'deduccion_inventario', e.target.value)}
             />
@@ -830,7 +837,12 @@ export default function Nomina({ supabase, sucursal, user }) {
             <thead>
               <tr>
                 {COLS.map((c) => (
-                  <th key={c || 'act'}>{c}</th>
+                  <th
+                    key={c || 'act'}
+                    title={c === 'Inventario' ? 'Faltante de inventario (Reportes, campo 2) ÷ 3, por empleado de esa tienda' : undefined}
+                  >
+                    {c}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -887,7 +899,7 @@ export default function Nomina({ supabase, sucursal, user }) {
                     'Se cargarán del sábado al viernes:\n' +
                     '• Asistencias del reloj checador\n' +
                     '• Consumos, recargas, anticipos y faltantes (directos e indirectos)\n' +
-                    '• Inventario y préstamos\n\n' +
+                    '• Inventario (faltante del reporte ÷ 3 por empleado de la tienda) y préstamos\n\n' +
                     'Los salarios por día guardados se conservan; bonos y “otros” del borrador se pierden.',
                 )
               ) {
@@ -1028,7 +1040,12 @@ export default function Nomina({ supabase, sucursal, user }) {
                 <thead>
                   <tr>
                     {COLS.map((c) => (
-                      <th key={c || 'act'}>{c}</th>
+                      <th
+                        key={c || 'act'}
+                        title={c === 'Inventario' ? 'Faltante de inventario (Reportes, campo 2) ÷ 3, por empleado de esa tienda' : undefined}
+                      >
+                        {c}
+                      </th>
                     ))}
                   </tr>
                 </thead>
