@@ -12,6 +12,13 @@ export const CENTRAL_ADMIN = 'MAIN';
 /** Almacén / CEDIS de la empresa (inventario central). */
 export const ALMACEN_CENTRAL = 'CEDIS';
 
+/** Quita acentos/diacríticos (FUSIÓN → FUSION) para códigos de tienda. */
+export function sinAcentosTexto(s) {
+  return String(s ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 /** Alias de captura → código canónico. */
 const ALIAS_A_CODIGO = {
   CEDIS_CENTRAL: 'CEDIS',
@@ -20,15 +27,34 @@ const ALIAS_A_CODIGO = {
   CENTRAL: 'MAIN',
   CENTRAL_ADMIN: 'MAIN',
   ADMINISTRACION: 'MAIN',
+  // Histórico: recolecciones guardaban "Fusión" / "FUSIÓN" y no cuadraban con FUSION.
+  FUSION: 'FUSION',
 };
 
 export function normalizarCodigoTienda(s) {
-  const c = String(s ?? '')
+  const c = sinAcentosTexto(s)
     .trim()
     .toUpperCase()
     .replace(/\s+/g, '_');
   if (!c) return '';
   return ALIAS_A_CODIGO[c] || c;
+}
+
+/**
+ * Variantes históricas del mismo código (p. ej. Fusión vs FUSION)
+ * para consultas .in() sobre datos ya guardados.
+ */
+export function equivalentesCodigoTienda(codigo) {
+  const c = normalizarCodigoTienda(codigo);
+  if (!c) return [];
+  const out = new Set([c, String(codigo || '').trim()].filter(Boolean));
+  if (c === 'FUSION') {
+    out.add('Fusión');
+    out.add('FUSIÓN');
+    out.add('Fusion');
+    out.add('fusion');
+  }
+  return [...out];
 }
 
 /** Central de administración (MAIN). */

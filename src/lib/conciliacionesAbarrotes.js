@@ -3,7 +3,7 @@
  * cobros del repartidor (Recolección en módulo Recolecciones)
  * vs gastos Smoking de Corte Abarrotes.
  */
-import { normalizarCodigoTienda, esAlmacenCentral } from '../constants/sucursales.js';
+import { normalizarCodigoTienda, esAlmacenCentral, equivalentesCodigoTienda } from '../constants/sucursales.js';
 import { inicioDia, finDia, hoyYmdNogales } from './corteCaja.js';
 import { esCategoriaProveedores } from './corteContabilidad/catalogoGastos.js';
 import { proveedorDesdeGastoCorte } from './ieAbarrotesProveedores.js';
@@ -185,7 +185,7 @@ export async function cargarDatosConciliacion(supabase, {
         .order('fecha_hora', { ascending: false })
         .limit(8000);
       if (repartidorId) q = q.eq('repartidor_id', repartidorId);
-      if (suc) q = q.eq('sucursal_origen', suc);
+      if (suc) q = q.in('sucursal_origen', equivalentesCodigoTienda(suc));
       return q;
     })(),
     (async () => {
@@ -264,7 +264,7 @@ export async function cargarDatosConciliacion(supabase, {
       monto: round2(m.monto),
       fecha: m.fecha_hora,
       ymd,
-      tienda: m.sucursal_origen || '—',
+      tienda: normalizarCodigoTienda(m.sucursal_origen) || m.sucursal_origen || '—',
       folio: m.num_traspaso || '—',
       repartidor_id: m.repartidor_id || null,
       repartidor: m.repartidores?.nombre || m.cajero_nombre || '—',
@@ -292,7 +292,7 @@ export async function cargarDatosConciliacion(supabase, {
       monto: round2(g.monto),
       fecha: g.created_at,
       ymd,
-      tienda: g.sucursal_id || '—',
+      tienda: normalizarCodigoTienda(g.sucursal_id) || g.sucursal_id || '—',
       folio: g.subcategoria || '—',
       proveedor,
       categoria: g.categoria,
