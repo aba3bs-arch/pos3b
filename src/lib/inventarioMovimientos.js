@@ -6,53 +6,17 @@ import {
   ubicacionEntradaDefault,
 } from './inventarioMultitienda.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
-import { hoyYmdNogales } from './corteCaja.js';
 import { costoProveedorUnitario } from './valorInventario.js';
 import { cargarProductoIdsCostoPrecioRuta } from './proveedoresCostoRuta.js';
 import { round2 } from './productoForm.js';
+import { generarFolioMovimiento, folioDesdeCompraId } from './foliosInventario.js';
+
+export { generarFolioMovimiento, folioDesdeCompraId };
 
 const LS_MOVIMIENTOS = 'pos3b_movimientos_inventario';
 const LS_PENDIENTES_NUBE = 'pos3b_movimientos_inventario_pendientes';
-const LS_FOLIO_ING = 'pos3b_folio_ingreso_seq';
-const LS_FOLIO_RET = 'pos3b_folio_retiro_seq';
 const MAX_LOCAL = 800;
 const MAX_PENDIENTES = 500;
-
-/**
- * Folio único por operación (lista completa = un solo folio).
- * Formato corto: ING-DDMM-0003 / RET-DDMM-0003 (día de negocio Hermosillo, no UTC).
- * No depende del departamento de cada artículo.
- */
-export function generarFolioMovimiento(tipo = 'entrada') {
-  const esRetiro = String(tipo || '').toLowerCase() === 'retiro';
-  const prefix = esRetiro ? 'RET' : 'ING';
-  const lsKey = esRetiro ? LS_FOLIO_RET : LS_FOLIO_ING;
-  // Día de negocio Sonora (evita que de noche el folio “salte” a mañana por UTC).
-  const ymd = hoyYmdNogales(); // YYYY-MM-DD
-  const todayKey = String(ymd || '').replace(/-/g, ''); // YYYYMMDD (contador diario)
-  const parts = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  const mes = parts?.[2] || '';
-  const dia = parts?.[3] || '';
-  const fechaCorta = `${dia}${mes}`; // DDMM — más fácil de memorizar que YYYYMMDD
-  let seq = 1;
-  try {
-    const raw = localStorage.getItem(lsKey);
-    const prev = raw ? JSON.parse(raw) : {};
-    const prevFecha = String(prev.fecha || '').replace(/-/g, '');
-    if (prevFecha === todayKey) seq = (Number(prev.seq) || 0) + 1;
-    localStorage.setItem(lsKey, JSON.stringify({ fecha: todayKey, seq }));
-  } catch {
-    seq = Math.floor(Math.random() * 9000) + 1;
-  }
-  return `${prefix}-${fechaCorta || todayKey.slice(4) || '0000'}-${String(seq).padStart(4, '0')}`;
-}
-
-/** Folio estable ligado a una compra (misma recepción = mismo folio). */
-export function folioDesdeCompraId(compraId) {
-  const raw = String(compraId || '').replace(/-/g, '').trim();
-  if (!raw) return generarFolioMovimiento('entrada');
-  return `CMP-${raw.slice(0, 8).toUpperCase()}`;
-}
 
 /**
  * Cantidad de inventario: solo enteros ≥ 1.
@@ -518,7 +482,7 @@ export async function aplicarMovimientoInventario(supabase, opts) {
   // si no, se genera uno. Nunca se parte por departamento.
   const folioMov =
     (folioOpt && String(folioOpt).trim()) ||
-    generarFolioMovimiento(tipo === 'retiro' ? 'retiro' : 'entrada');
+    generarFolioMovimiento(tipo === 'retiro' ? 'retiro' : 'entrada', tienda);
   const metaMov = {
     ...(metaOpt && typeof metaOpt === 'object' ? metaOpt : {}),
     folio: folioMov,
@@ -723,12 +687,11 @@ export async function aplicarEntradasMasivas(supabase, opts) {
   }
   if (!lista.length) return { ok: false, error: 'Agrega al menos un producto con cantidad.' };
 
-  // Un solo folio para toda la lista (aunque haya varios departamentos).
-  const folioLote =
-    (folioOpt && String(folioOpt).trim()) || generarFolioMovimiento(tipo);
-
   const catalogo = inventarioCompleto || inventario || [];
   const tienda = sucursalOperacion || sucursal;
+  // Un solo folio para toda la lista (aunque haya varios departamentos).
+  const folioLote =
+    (folioOpt && String(folioOpt).trim()) || generarFolioMovimiento(tipo, tienda);
   let log = leerMovimientosLocal();
   let aplicados = 0;
   let piezas = 0;
