@@ -20,6 +20,7 @@ import InputPin from '../components/InputPin.jsx';
 import { pinEsCubreTurnoDeSucursal } from '../lib/cubreTurnoSync.js';
 import {
   MOTIVOS_BAJA_RH,
+  asegurarExpedienteRhDesdeUsuario,
   consultarRestriccionReingresoRh,
   darDeBajaUsuarioPosYRh,
   reactivarUsuarioPosYRh,
@@ -53,6 +54,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
   const [filtroSucursal, setFiltroSucursal] = useState('');
   const [qEquipo, setQEquipo] = useState('');
   const [bajaPickId, setBajaPickId] = useState('');
+  const [reingresoPickId, setReingresoPickId] = useState('');
   const [mostrarBajas, setMostrarBajas] = useState(false);
   const [bajaTarget, setBajaTarget] = useState(null);
   const [bajaForm, setBajaForm] = useState({
@@ -120,6 +122,14 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       .slice()
       .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es')),
     [rows, actor?.id],
+  );
+
+  const bajasParaReingreso = useMemo(
+    () => rows
+      .filter((r) => r.activo === false)
+      .slice()
+      .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es')),
+    [rows],
   );
 
   const catalogoGrupos = useMemo(
@@ -227,7 +237,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
         `Ese PIN es el de cubre turno de ${etiquetaTienda(payload.sucursal_id)}. Elige otro PIN para el empleado fijo.`,
       );
     }
-    const { error } = await supabase.from('usuarios').insert([payload]);
+    const { data, error } = await supabase.from('usuarios').insert([payload]).select('*').single();
     if (error) {
       if (error.code === '23505' || String(error.message).includes('duplicate')) {
         return alert(`Ya existe un usuario con PIN ${payload.pin} en ${payload.sucursal_id}.`);
@@ -251,8 +261,18 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       }
       return alert(error.message);
     }
+    const creado = data?.id
+      ? data
+      : (await supabase.from('usuarios').select('*').eq('pin', payload.pin).eq('sucursal_id', payload.sucursal_id).maybeSingle()).data;
+    const rh = creado?.id
+      ? await asegurarExpedienteRhDesdeUsuario(supabase, creado, { user: actor, estadoInicial: 'activo' })
+      : { ok: false, error: 'Usuario creado; abre RH ABA3B si no aparece el expediente.' };
     setForm(emptyForm(sucursal));
     load();
+    const extraRh = rh?.ok
+      ? ' Expediente creado en RH ABA3B.'
+      : (rh?.error ? ` RH: ${rh.error}` : '');
+    alert(`${payload.nombre} dado de alta. Ya puede entrar con su PIN.${extraRh}`);
   };
 
   const actualizarTipoEmpleado = async (id, tipoRaw) => {
@@ -379,6 +399,8 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       const cupo = puedeAgregarEmpleadoTienda(rows, r.sucursal_id, { excluirId: r.id });
       if (!cupo.ok) return alert(cupo.error);
     }
+    setMostrarBajas(true);
+    setReingresoPickId(String(r.id));
     const rest = await consultarRestriccionReingresoRh(supabase, r);
     if (!rest.ok) return alert(rest.error);
     if (rest.requierePinPrincipal) {
@@ -386,13 +408,21 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       setPinReingreso('');
       return;
     }
-    if (!confirm(`¿Reactivar a ${r.nombre}? Volverá a nómina, turnos y Usuarios.`)) return;
+    if (!confirm(`¿Reingresar alta de ${r.nombre}?\n\nVolverá a nómina, turnos y Usuarios. Podrá entrar con su PIN.`)) return;
     setTrabajandoBaja(true);
     const res = await reactivarUsuarioPosYRh(supabase, r, {}, { user: actor });
     setTrabajandoBaja(false);
     if (!res.ok) return alert(res.error);
+    setReingresoPickId('');
     load();
-    alert(res.mensaje || `${r.nombre} reactivado.`);
+    alert(res.mensaje || `${r.nombre} reingresado.`);
+  };
+
+  const continuarReingresoDesdeSelector = () => {
+    const r = rows.find((x) => String(x.id) === String(reingresoPickId));
+    if (!r) return alert('Elige el empleado dado de baja.');
+    if (r.activo !== false) return alert('Ese empleado ya está activo. Para uno nuevo usa el alta de arriba.');
+    void abrirReactivar(r);
   };
 
   const confirmarReingresoConPin = async () => {
@@ -408,8 +438,9 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     if (!res.ok) return alert(res.error);
     setReactivarTarget(null);
     setPinReingreso('');
+    setReingresoPickId('');
     load();
-    alert(res.mensaje || `${reactivarTarget.nombre} reactivado.`);
+    alert(res.mensaje || `${reactivarTarget.nombre} reingresado.`);
   };
 
   const borrar = async (id) => {
@@ -563,7 +594,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                 </button>
               )}
               {r.activo === false ? (
-                <button type="button" className="btn btn-success" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => abrirReactivar(r)}>Reactivar</button>
+                <button type="button" className="btn btn-success" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => abrirReactivar(r)}>Reingresar alta</button>
               ) : (
                 <button type="button" className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => abrirBaja(r)}>Dar de baja</button>
               )}
@@ -590,7 +621,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      {bajaTarget ? (
+      {bajaTarget && (
         <FormularioBajaEmpleado
           nombre={bajaTarget.nombre}
           form={bajaForm}
@@ -604,40 +635,6 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
             La baja se registra en <strong>RH ABA3B</strong>. Si es recontratable, podrás reingresar su alta después.
           </p>
         </FormularioBajaEmpleado>
-      ) : (
-        <div className="card" style={{ borderLeft: '4px solid var(--danger)' }}>
-          <h3 style={{ margin: '0 0 0.5rem' }}>Cómo dar de baja un empleado</h3>
-          <ol style={{ margin: '0 0 0.85rem', paddingLeft: '1.25rem', fontSize: '0.9rem', lineHeight: 1.55 }}>
-            <li>Elige el nombre aquí, o en <strong>Equipo registrado</strong> pulsa el botón rojo <strong>Dar de baja</strong>.</li>
-            <li>Indica <strong>motivo</strong>, <strong>fecha</strong> y si <strong>puede reingresar</strong>.</li>
-            <li>Pulsa <strong>Confirmar baja</strong>. El PIN deja de funcionar; sale de nómina y de turnos.</li>
-          </ol>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
-            <label className="muted" style={{ flex: '1 1 220px', fontSize: '0.8rem' }}>
-              Empleado activo
-              <select
-                className="select"
-                style={{ marginTop: '0.35rem' }}
-                value={bajaPickId}
-                onChange={(e) => setBajaPickId(e.target.value)}
-              >
-                <option value="">— Elige nombre —</option>
-                {activosParaBaja.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.nombre} · {etiquetaTienda(r.sucursal_id)} · {normalizarRol(r.rol)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button type="button" className="btn btn-danger" onClick={continuarBajaDesdeSelector}>
-              Dar de baja
-            </button>
-          </div>
-          <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
-            Gerente también puede dar de baja en <strong>RH ABA3B → Activos → Dar de baja</strong>.
-            Para ver a alguien ya dado de baja, marca <strong>Ver dados de baja</strong> y usa <strong>Reactivar</strong>.
-          </p>
-        </div>
       )}
 
       {reactivarTarget && (
@@ -662,18 +659,20 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
         </div>
       )}
 
-      <div className="card">
-        <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nuevo empleado</h3>
+      <div className="card" style={{ borderLeft: '4px solid var(--brand-green, #15803d)' }}>
+        <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Cómo dar de alta un empleado</h3>
+        <ol style={{ margin: '0 0 0.85rem', paddingLeft: '1.25rem', fontSize: '0.9rem', lineHeight: 1.55 }}>
+          <li>Llena <strong>nombre</strong>, <strong>PIN</strong>, tipo, sucursal, rol y turno.</li>
+          <li>Pulsa <strong>Añadir empleado</strong>. Ya puede entrar al POS con ese PIN.</li>
+          <li>El expediente queda también en <strong>RH ABA3B</strong>.</li>
+        </ol>
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
           Catálogo: <strong>Empleados por tienda</strong> (máx. {MAX_EMPLEADOS_POR_TIENDA} activos por sucursal) e{' '}
           <strong>Indirectos / MAIN</strong> (aparecen en todas las sucursales y en cortes Virtual, Abarrotes y Garage).
-          El rol <strong>Administrador</strong> no se ancla a dispositivo. El <strong>Cajero</strong> puede anclar hasta{' '}
-          <strong>2 dispositivos</strong>. <strong>Repartidor, Técnico y Auditor</strong> solo 1 dispositivo; un 2.º requiere
-          autorización de administrador al entrar en una tienda fijada.
           {esPersonalizado
             ? ' Con horario personalizado, asigna turnos por día en Configuración → Turnos.'
             : ' Asigna un turno fijo para el corte de caja.'}
-          {' '}La <strong>baja</strong> lo quita de nómina, turnos y esta lista, y queda en <strong>RH ABA3B</strong> (con opción de reingreso).
+          {' '}Si ya había trabajado aquí, no lo des de alta otra vez: usa <strong>reingreso</strong> abajo.
         </p>
         <div className="grid-2">
           <input className="input" placeholder="Nombre completo" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} />
@@ -761,6 +760,76 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
           Añadir empleado
         </button>
       </div>
+
+      <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)' }}>
+        <h3 style={{ margin: '0 0 0.5rem' }}>Cómo reingresar un empleado</h3>
+        <ol style={{ margin: '0 0 0.85rem', paddingLeft: '1.25rem', fontSize: '0.9rem', lineHeight: 1.55 }}>
+          <li>Elige a alguien ya dado de baja (no crees un usuario nuevo).</li>
+          <li>Pulsa <strong>Reingresar alta</strong>. Vuelve a nómina, turnos y esta lista.</li>
+          <li>Si está marcado <strong>no recontratable</strong>, pide el PIN del administrador principal.</li>
+        </ol>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
+          <label className="muted" style={{ flex: '1 1 220px', fontSize: '0.8rem' }}>
+            Empleado dado de baja
+            <select
+              className="select"
+              style={{ marginTop: '0.35rem' }}
+              value={reingresoPickId}
+              onChange={(e) => setReingresoPickId(e.target.value)}
+            >
+              <option value="">— Elige nombre —</option>
+              {bajasParaReingreso.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.nombre} · {etiquetaTienda(r.sucursal_id)} · {normalizarRol(r.rol)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className="btn btn-primary" disabled={trabajandoBaja} onClick={continuarReingresoDesdeSelector}>
+            Reingresar alta
+          </button>
+        </div>
+        <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
+          {bajasParaReingreso.length === 0
+            ? 'No hay empleados dados de baja. El reingreso es solo para quien ya tuvo baja.'
+            : 'También: marca Ver dados de baja y pulsa Reingresar alta en su fila. Gerente: RH ABA3B → Inactivos / bajas.'}
+        </p>
+      </div>
+
+      {!bajaTarget && (
+        <div className="card" style={{ borderLeft: '4px solid var(--danger)' }}>
+          <h3 style={{ margin: '0 0 0.5rem' }}>Cómo dar de baja un empleado</h3>
+          <ol style={{ margin: '0 0 0.85rem', paddingLeft: '1.25rem', fontSize: '0.9rem', lineHeight: 1.55 }}>
+            <li>Elige el nombre aquí, o en <strong>Equipo registrado</strong> pulsa el botón rojo <strong>Dar de baja</strong>.</li>
+            <li>Indica <strong>motivo</strong>, <strong>fecha</strong> y si <strong>puede reingresar</strong>.</li>
+            <li>Pulsa <strong>Confirmar baja</strong>. El PIN deja de funcionar; sale de nómina y de turnos.</li>
+          </ol>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
+            <label className="muted" style={{ flex: '1 1 220px', fontSize: '0.8rem' }}>
+              Empleado activo
+              <select
+                className="select"
+                style={{ marginTop: '0.35rem' }}
+                value={bajaPickId}
+                onChange={(e) => setBajaPickId(e.target.value)}
+              >
+                <option value="">— Elige nombre —</option>
+                {activosParaBaja.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.nombre} · {etiquetaTienda(r.sucursal_id)} · {normalizarRol(r.rol)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button type="button" className="btn btn-danger" onClick={continuarBajaDesdeSelector}>
+              Dar de baja
+            </button>
+          </div>
+          <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
+            Gerente también puede dar de baja en <strong>RH ABA3B → Activos → Dar de baja</strong>.
+          </p>
+        </div>
+      )}
 
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>

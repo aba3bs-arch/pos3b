@@ -12,6 +12,38 @@ import { puedeGestionarUsuarios } from '../lib/roles.js';
 
 const SECCIONES = [
   {
+    id: 'alta-empleado',
+    title: 'Cómo dar de alta o reingresar un empleado',
+    body: (
+      <>
+        <p style={{ margin: '0 0 0.5rem' }}>
+          <strong>Alta</strong> = persona nueva. <strong>Reingreso</strong> = alguien que ya tuvo baja. No crees un usuario duplicado para reingresar.
+        </p>
+        <p style={{ margin: '0 0 0.35rem' }}><strong>Alta nueva — Usuarios (Administrador)</strong></p>
+        <ol style={{ margin: '0 0 0.65rem', paddingLeft: '1.2rem' }}>
+          <li>Menú <strong>Usuarios</strong> → recuadro <strong>Cómo dar de alta un empleado</strong>.</li>
+          <li>Nombre, PIN, sucursal, rol y turno. Pulsa <strong>Añadir empleado</strong>.</li>
+          <li>Ya entra al POS con ese PIN. El expediente queda en RH ABA3B.</li>
+        </ol>
+        <p style={{ margin: '0 0 0.35rem' }}><strong>Alta de expediente — RH ABA3B (Gerente o Admin)</strong></p>
+        <ol style={{ margin: '0 0 0.65rem', paddingLeft: '1.2rem' }}>
+          <li>Menú <strong>RH ABA3B</strong> → <strong>+ Alta de empleado</strong>.</li>
+          <li>Nombre, tipo, sucursal, puesto. <strong>Registrar alta</strong>.</li>
+          <li>Si debe cobrar en caja, el Admin le crea el PIN en <strong>Usuarios</strong>.</li>
+        </ol>
+        <p style={{ margin: '0 0 0.35rem' }}><strong>Reingreso</strong></p>
+        <ol style={{ margin: '0 0 0.65rem', paddingLeft: '1.2rem' }}>
+          <li>Usuarios: recuadro <strong>Cómo reingresar</strong> → elige el nombre dado de baja → <strong>Reingresar alta</strong>.</li>
+          <li>O RH ABA3B → <strong>Inactivos / bajas</strong> → <strong>Reingresar alta</strong> en la fila.</li>
+          <li>Si está marcado no recontratable, pide el PIN del administrador principal.</li>
+        </ol>
+        <p style={{ margin: 0 }}>
+          Vuelve a nómina, turnos y Usuarios. Puede entrar otra vez con su PIN.
+        </p>
+      </>
+    ),
+  },
+  {
     id: 'baja-empleado',
     title: 'Cómo dar de baja un empleado',
     body: (
@@ -87,7 +119,10 @@ const SECCIONES = [
       <>
         <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
           <li>
-            <strong>¿Cómo doy de baja un empleado?</strong> Menú <strong>Usuarios</strong> (arriba: elige el nombre → Dar de baja → Confirmar) o <strong>RH ABA3B → Activos → Dar de baja</strong>. No borres el usuario.
+            <strong>¿Cómo doy de alta o reingreso a un empleado?</strong> Alta nueva: <strong>Usuarios</strong> → nombre + PIN → Añadir empleado. Reingreso (ya tuvo baja): Usuarios → <strong>Cómo reingresar</strong> o <strong>RH ABA3B → Inactivos / bajas → Reingresar alta</strong>. No crees un usuario duplicado.
+          </li>
+          <li>
+            <strong>¿Cómo doy de baja un empleado?</strong> Menú <strong>Usuarios</strong> (elige el nombre → Dar de baja → Confirmar) o <strong>RH ABA3B → Activos → Dar de baja</strong>. No borres el usuario.
           </li>
           <li>
             <strong>Columnas faltantes en Supabase:</strong> ejecuta <code>supabase/fix_supabase_todas_columnas.sql</code> en el SQL Editor.
@@ -198,7 +233,8 @@ export default function Ayuda({ user }) {
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Centro de ayuda</h3>
         <p className="muted" style={{ marginTop: 0 }}>
           Guías rápidas, turnos y solución de problemas del POS CONTROL 3B.
-          Para <strong>dar de baja un empleado</strong>: Usuarios o RH ABA3B (elige el nombre y Confirmar baja).
+          Para <strong>dar de alta o reingresar</strong>: Usuarios (nombre + PIN, o Reingresar alta).
+          Para <strong>dar de baja</strong>: Usuarios o RH ABA3B (elige el nombre y Confirmar baja).
           Abre también el módulo <strong>Tutorial</strong> del menú para las guías ilustradas
           (incluye <strong>Corte Abarrotes</strong> con captura real de pantalla).
           (<strong>Cómo cobrar en el POS</strong>, ingreso de compras, negativos / pagaré / abonos).

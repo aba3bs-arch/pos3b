@@ -106,7 +106,7 @@ Módulo **Usuarios** (solo Administrador):
 | Gerente | Operación + Configuración |
 | Administrador | Todo |
 
-Alta: nombre, PIN, sucursal, rol, turno (cajeros). Solo admin cambia turnos.
+Alta: Usuarios → *Cómo dar de alta* (nombre, PIN, sucursal, rol, turno → Añadir empleado). Si ya tuvo baja: *Cómo reingresar* (elige nombre → Reingresar alta). Gerente: **RH ABA3B → + Alta** o **Inactivos → Reingresar alta**.
 
 **Baja de empleado:** Usuarios → *Cómo dar de baja un empleado* (elige nombre → Confirmar baja). Gerente: **RH ABA3B → Activos → Dar de baja**. El PIN deja de funcionar; sale de nómina y turnos. No borres el usuario.
 

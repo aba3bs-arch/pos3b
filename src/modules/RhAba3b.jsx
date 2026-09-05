@@ -109,6 +109,8 @@ export default function RhAba3b({ supabase, user, sucursal }) {
   const [trabajando, setTrabajando] = useState(false);
   const [bajaPickId, setBajaPickId] = useState('');
   const [bajaOrigen, setBajaOrigen] = useState('lista');
+  const [reingresoPickId, setReingresoPickId] = useState('');
+  const [reingresoOrigen, setReingresoOrigen] = useState('lista');
 
   const sucOperativas = useMemo(() => listarSucursalesOperativas(), []);
 
@@ -221,25 +223,29 @@ export default function RhAba3b({ supabase, user, sucursal }) {
     await cargarListas();
   };
 
-  const recontratarDirecto = async () => {
-    if (!puede || !seleccionadoId) return;
-    const necesitaPin = requierePinAdminPrincipalParaAlta(empleado);
+  const recontratarDirecto = async (empOverride = null) => {
+    const emp = empOverride?.id ? empOverride : empleado;
+    const id = emp?.id || seleccionadoId;
+    if (!puede || !id || !emp) return;
+    setSeleccionadoId(id);
+    setEmpleado(emp);
+    const necesitaPin = requierePinAdminPrincipalParaAlta(emp);
     if (necesitaPin && !String(pinAdmin || '').trim()) {
       setVista('recontrata');
       return;
     }
     if (!confirm(necesitaPin
-      ? '¿Reingresar alta con PIN del administrador principal?'
-      : '¿Recontratar a este ex-empleado? Volverá a nómina, turnos y Usuarios.')) return;
+      ? `¿Reingresar alta de ${nombreCompletoRh(emp)} con PIN del administrador principal?`
+      : `¿Reingresar alta de ${nombreCompletoRh(emp)}?\n\nVolverá a nómina, turnos y Usuarios.`)) return;
     setTrabajando(true);
     const res = await recontratarEmpleadoRh(
       supabase,
-      seleccionadoId,
+      id,
       {
-        tipo_empleado: form.tipo_empleado,
-        sucursal_id: form.sucursal_id,
-        puesto: form.puesto,
-        salario_diario: form.salario_diario,
+        tipo_empleado: form.tipo_empleado || emp.tipo_empleado,
+        sucursal_id: form.sucursal_id || emp.sucursal_id,
+        puesto: form.puesto || emp.puesto,
+        salario_diario: form.salario_diario !== '' && form.salario_diario != null ? form.salario_diario : emp.salario_diario,
         fecha_alta: new Date().toISOString().slice(0, 10),
       },
       { user, pinAdminPrincipal: pinAdmin },
@@ -254,9 +260,31 @@ export default function RhAba3b({ supabase, user, sucursal }) {
     }
     setMsg(res.mensaje);
     setPinAdmin('');
+    setReingresoPickId('');
     setPestana('activos');
-    await abrirDetalle(seleccionadoId);
+    await abrirDetalle(id);
     await cargarListas();
+  };
+
+  const continuarReingresoDesdeSelector = () => {
+    const e = inactivos.find((x) => String(x.id) === String(reingresoPickId));
+    if (!e) return alert('Elige el empleado dado de baja.');
+    setReingresoOrigen('lista');
+    void recontratarDirecto(e);
+  };
+
+  const abrirReingresoDesdeLista = (e) => {
+    if (!puede || !e?.id) return;
+    if (e.estado !== 'baja') return alert('Este empleado ya está activo.');
+    setReingresoOrigen('lista');
+    setReingresoPickId(String(e.id));
+    setForm({
+      ...FORM_VACIO,
+      ...e,
+      salario_diario: e.salario_diario ?? '',
+      fecha_alta: new Date().toISOString().slice(0, 10),
+    });
+    void recontratarDirecto(e);
   };
 
   const guardarNota = async () => {
@@ -282,9 +310,10 @@ export default function RhAba3b({ supabase, user, sucursal }) {
       <div>
         <h2 style={{ margin: 0, color: '#0f766e' }}>RH ABA3B</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
-          Altas y bajas de personal: tienda, cubre turnos e indirectos.
-          Para dar de baja: elige el nombre abajo o pulsa <strong>Dar de baja</strong> en la fila.
-          La baja se refleja en nómina, turnos y Usuarios; el reingreso no recontratable pide PIN del administrador principal.
+          Altas, reingresos y bajas de personal.
+          Alta nueva: pulsa <strong>+ Alta de empleado</strong> (o el recuadro verde).
+          Reingreso: elige a un inactivo abajo.
+          Baja: elige un activo o pulsa <strong>Dar de baja</strong> en la fila.
         </p>
       </div>
 
@@ -307,6 +336,67 @@ export default function RhAba3b({ supabase, user, sucursal }) {
 
       {vista === 'lista' && (
         <>
+          <div className="card" style={{ borderLeft: '4px solid var(--brand-green, #15803d)' }}>
+            <h3 style={{ margin: '0 0 0.5rem' }}>Cómo dar de alta un empleado</h3>
+            <ol style={{ margin: '0 0 0.85rem', paddingLeft: '1.25rem', fontSize: '0.9rem', lineHeight: 1.55 }}>
+              <li>Pulsa <strong>+ Alta de empleado</strong>.</li>
+              <li>Nombre, tipo (tienda / cubre / indirecto), sucursal y puesto. Opcional: CURP, RFC, salario.</li>
+              <li>Pulsa <strong>Registrar alta</strong>. Queda en Activos de RH y en nómina.</li>
+            </ol>
+            <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.85rem' }}>
+              Para que <strong>entre al POS con PIN</strong>, el Administrador también lo da de alta en <strong>Usuarios</strong> (nombre + PIN).
+              Si ya había trabajado aquí, no hagas un alta nueva: usa <strong>reingreso</strong> abajo.
+            </p>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={!puede}
+              onClick={() => {
+                setForm({ ...FORM_VACIO, sucursal_id: sucursal && sucursal !== 'MAIN' ? sucursal : (sucOperativas[0] || '') });
+                setVista('alta');
+                setMsg('');
+              }}
+            >
+              + Alta de empleado
+            </button>
+          </div>
+
+          <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)' }}>
+            <h3 style={{ margin: '0 0 0.5rem' }}>Cómo reingresar un empleado</h3>
+            <ol style={{ margin: '0 0 0.85rem', paddingLeft: '1.25rem', fontSize: '0.9rem', lineHeight: 1.55 }}>
+              <li>Elige a alguien en <strong>Inactivos / bajas</strong> (no crees un expediente nuevo).</li>
+              <li>Pulsa <strong>Reingresar alta</strong>. Vuelve a nómina, turnos y Usuarios.</li>
+              <li>Si está <strong>no recontratable</strong>, captura el PIN del administrador principal.</li>
+            </ol>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
+              <label className="muted" style={{ flex: '1 1 220px', fontSize: '0.8rem' }}>
+                Empleado dado de baja
+                <select
+                  className="select"
+                  style={{ marginTop: '0.35rem' }}
+                  value={reingresoPickId}
+                  onChange={(e) => setReingresoPickId(e.target.value)}
+                >
+                  <option value="">— Elige nombre —</option>
+                  {inactivos.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {nombreCompletoRh(e)} · {e.sucursal_id ? etiquetaTienda(e.sucursal_id) : '—'}
+                      {e.recontratable === false ? ' · no recontratable' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" className="btn btn-primary" disabled={!puede} onClick={continuarReingresoDesdeSelector}>
+                Reingresar alta
+              </button>
+            </div>
+            <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
+              {inactivos.length === 0
+                ? 'No hay inactivos. El reingreso es solo para quien ya tuvo baja.'
+                : 'También puedes pulsar Reingresar alta en la fila (pestaña Inactivos / bajas).'}
+            </p>
+          </div>
+
           <div className="card" style={{ borderLeft: '4px solid var(--danger)' }}>
             <h3 style={{ margin: '0 0 0.5rem' }}>Cómo dar de baja un empleado</h3>
             <ol style={{ margin: '0 0 0.85rem', paddingLeft: '1.25rem', fontSize: '0.9rem', lineHeight: 1.55 }}>
@@ -432,6 +522,11 @@ export default function RhAba3b({ supabase, user, sucursal }) {
                               Dar de baja
                             </button>
                           )}
+                          {e.estado === 'baja' && puede && (
+                            <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.5rem' }} onClick={() => abrirReingresoDesdeLista(e)}>
+                              Reingresar alta
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -444,11 +539,16 @@ export default function RhAba3b({ supabase, user, sucursal }) {
       )}
 
       {vista === 'alta' && (
-        <div className="card">
+        <div className="card" style={{ borderLeft: '4px solid var(--brand-green, #15803d)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
             <h3 style={{ margin: 0 }}>Alta de empleado</h3>
             <button type="button" className="btn btn-ghost" onClick={() => setVista('lista')}>Cancelar</button>
           </div>
+          <p className="muted" style={{ margin: '0.5rem 0 0.85rem', fontSize: '0.85rem' }}>
+            Completa nombre y sucursal, luego <strong>Registrar alta</strong>.
+            Si debe entrar al POS, el Administrador le crea el PIN en <strong>Usuarios</strong>.
+            Si es un reingreso, cancela y usa <strong>Cómo reingresar</strong>.
+          </p>
           <FormularioRh
             form={form}
             setForm={setForm}
@@ -496,10 +596,10 @@ export default function RhAba3b({ supabase, user, sucursal }) {
                   </button>
                 )}
                 {empleado.estado === 'baja' && empleado.recontratable && (
-                  <button type="button" className="btn btn-primary" onClick={recontratarDirecto}>Reingresar alta</button>
+                  <button type="button" className="btn btn-primary" onClick={() => { setReingresoOrigen('detalle'); void recontratarDirecto(empleado); }}>Reingresar alta</button>
                 )}
                 {empleado.estado === 'baja' && !empleado.recontratable && (
-                  <button type="button" className="btn btn-primary" onClick={() => setVista('recontrata')}>
+                  <button type="button" className="btn btn-primary" onClick={() => { setReingresoOrigen('detalle'); setVista('recontrata'); }}>
                     Reingresar con PIN del admin principal
                   </button>
                 )}
@@ -583,8 +683,8 @@ export default function RhAba3b({ supabase, user, sucursal }) {
 
       {vista === 'recontrata' && empleado && (
         <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)' }}>
-          <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => setVista('detalle')}>
-            ← Volver al perfil
+          <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => setVista(reingresoOrigen === 'detalle' ? 'detalle' : 'lista')}>
+            ← Volver
           </button>
           <h3 style={{ margin: '0.5rem 0' }}>Reingreso con PIN del administrador principal</h3>
           <p className="muted" style={{ fontSize: '0.88rem' }}>
@@ -596,7 +696,7 @@ export default function RhAba3b({ supabase, user, sucursal }) {
               <label className="muted" style={{ fontSize: '0.78rem' }}>PIN del administrador principal</label>
               <InputPin value={pinAdmin} onChange={(e) => setPinAdmin(e.target.value)} />
             </div>
-            <button type="button" className="btn btn-primary" disabled={trabajando || !pinAdmin} onClick={recontratarDirecto}>
+            <button type="button" className="btn btn-primary" disabled={trabajando || !pinAdmin} onClick={() => recontratarDirecto()}>
               {trabajando ? 'Validando…' : 'Reingresar alta'}
             </button>
           </div>

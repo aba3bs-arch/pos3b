@@ -7,6 +7,61 @@ export const TUTORIALES = [
   TUTORIAL_CORTE_ABARROTES,
   TUTORIAL_VALES_MAIN,
   {
+    id: 'alta-reingreso-empleado',
+    titulo: 'Cómo dar de alta o reingresar un empleado',
+    resumen:
+      'Alta nueva: Usuarios (nombre + PIN). Reingreso: elige a quien ya tuvo baja y pulsa Reingresar alta. No dupliques el usuario.',
+    secciones: [
+      {
+        id: 'diferencia',
+        titulo: '1. Alta vs reingreso',
+        cuerpo: [
+          '**Alta** = persona que **nunca** ha estado en el sistema (o no tiene usuario).',
+          '**Reingreso** = alguien que ya se dio de **baja**. Usa su expediente; no lo des de alta otra vez.',
+        ],
+      },
+      {
+        id: 'alta-usuarios',
+        titulo: '2. Alta nueva en Usuarios (Administrador)',
+        cuerpo: [
+          'Menú **Usuarios** → recuadro verde **Cómo dar de alta un empleado**.',
+          'Captura **nombre**, **PIN**, tipo, sucursal, rol y turno.',
+          'Pulsa **Añadir empleado**. Ya puede entrar al POS. El expediente se crea en **RH ABA3B**.',
+        ],
+      },
+      {
+        id: 'alta-rh',
+        titulo: '3. Alta de expediente en RH ABA3B',
+        cuerpo: [
+          'Menú **RH ABA3B** → **+ Alta de empleado**.',
+          'Nombre, tipo (tienda / cubre / indirecto), sucursal, puesto. Opcional: CURP, RFC, salario.',
+          '**Registrar alta**. Si debe cobrar en caja, el Admin le crea el PIN en **Usuarios**.',
+        ],
+      },
+      {
+        id: 'reingreso',
+        titulo: '4. Reingreso (ex-empleado)',
+        cuerpo: [
+          '**Usuarios:** recuadro **Cómo reingresar un empleado** → elige el nombre dado de baja → **Reingresar alta**.',
+          '**RH ABA3B:** pestaña **Inactivos / bajas** → **Reingresar alta** en la fila (o Perfil).',
+          'Si está **no recontratable**, captura el PIN del administrador principal.',
+        ],
+      },
+      {
+        id: 'efecto',
+        titulo: '5. Qué pasa al reingresar',
+        cuerpo: [
+          'Vuelve a **nómina**, **empleados por turno** y **Usuarios**.',
+          'Puede entrar otra vez con su PIN.',
+          'El expediente pasa de Inactivos a **Activos** en RH ABA3B.',
+        ],
+        notas: [
+          'Frase: **Persona nueva → Usuarios (PIN). Ya trabajó aquí → Reingresar alta. Nunca dupliques.**',
+        ],
+      },
+    ],
+  },
+  {
     id: 'baja-empleado',
     titulo: 'Cómo dar de baja un empleado',
     resumen:
@@ -61,8 +116,8 @@ export const TUTORIALES = [
         id: 'reingreso',
         titulo: '6. Cómo reactivar / reingresar',
         cuerpo: [
-          'En **Usuarios**, marca **Ver dados de baja** y pulsa **Reactivar**.',
-          'En **RH ABA3B**, pestaña **Inactivos / bajas** → **Perfil** → **Reingresar alta**.',
+          'En **Usuarios**, recuadro **Cómo reingresar un empleado** (o marca **Ver dados de baja** y pulsa **Reingresar alta**).',
+          'En **RH ABA3B**, pestaña **Inactivos / bajas** → **Reingresar alta**.',
           'Si estaba marcado **no recontratable**, hace falta el PIN del administrador principal.',
         ],
         notas: [
