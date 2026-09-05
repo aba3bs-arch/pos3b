@@ -1,9 +1,10 @@
-import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
+import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { nombreEsAdminPrincipal, verificarAdminPrincipal } from './adminPrincipal.js';
 import { verificarPinAdministradorGlobal } from './autorizacionTurnoFueraHorario.js';
-import { nombresMismaPersona, resolverTipoEmpleado } from './empleadosVisibles.js';
+import { nombresMismaPersona, resolverTipoEmpleado, puedeAgregarEmpleadoTienda } from './empleadosVisibles.js';
 import { armarExtrasDesdeForm } from './rhIneOcr.js';
 import { normalizarRol } from './roles.js';
+import { pinEsCubreTurnoDeSucursal } from './cubreTurnoSync.js';
 
 export const AVISO_FALTA_RH_ABA3B =
   'Ejecuta en Supabase: supabase/fix_rh_aba3b.sql para el módulo RH ABA3B.';
@@ -154,11 +155,19 @@ export async function consultarRestriccionReingresoRh(supabase, usuario) {
 }
 
 async function listarUsuariosPosParaMatch(supabase) {
-  const { data, error } = await supabase
-    .from('usuarios')
-    .select('id, nombre, activo, sucursal_id, rol, tipo_empleado');
-  if (error) return { ok: false, error: error.message, usuarios: [] };
-  return { ok: true, usuarios: data || [] };
+  const intentos = [
+    'id, nombre, pin, activo, sucursal_id, rol, tipo_empleado, dispositivo_id, dispositivo_id_2',
+    'id, nombre, pin, activo, sucursal_id, rol, tipo_empleado',
+    'id, nombre, activo, sucursal_id, rol, tipo_empleado',
+  ];
+  for (const cols of intentos) {
+    const { data, error } = await supabase.from('usuarios').select(cols);
+    if (!error) return { ok: true, usuarios: data || [] };
+    if (!String(error.message || '').includes('column')) {
+      return { ok: false, error: error.message, usuarios: [] };
+    }
+  }
+  return { ok: false, error: 'No se pudieron leer usuarios.', usuarios: [] };
 }
 
 /**
@@ -196,6 +205,176 @@ async function sincronizarUsuarioPosActivo(supabase, emp, activo) {
     await supabase.from('rh_empleados').update({ usuario_id: ids[0] }).eq('id', emp.id);
   }
   return { ok: true, ids };
+}
+
+function idsUsuariosLigadosARh(emp, usuarios) {
+  const ids = [];
+  const seen = new Set();
+  const push = (id) => {
+    const k = String(id || '');
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    ids.push(k);
+  };
+  if (emp?.usuario_id) push(emp.usuario_id);
+  for (const u of usuarios || []) {
+    if (usuarioCoincideConEmpleadoRh(u, emp)) push(u.id);
+  }
+  return ids;
+}
+
+async function sincronizarUsuarioPosSucursal(supabase, emp, sucursal_id) {
+  if (!supabase || !emp) return { ok: true, ids: [] };
+  const list = await listarUsuariosPosParaMatch(supabase);
+  if (!list.ok) return { ok: false, error: list.error, ids: [] };
+  const ids = idsUsuariosLigadosARh(emp, list.usuarios);
+  if (ids.length === 0) return { ok: true, ids: [] };
+  const tipo = emp.tipo_empleado === 'indirecto' ? 'indirecto' : 'tienda';
+  const { error } = await supabase
+    .from('usuarios')
+    .update({ sucursal_id, tipo_empleado: tipo })
+    .in('id', ids);
+  if (error) {
+    if (error.code === '23505') {
+      return { ok: false, error: `PIN duplicado en ${etiquetaTienda(sucursal_id)}. Cambia el PIN en Usuarios antes de moverlo.`, ids: [] };
+    }
+    return { ok: false, error: error.message, ids: [] };
+  }
+  return { ok: true, ids };
+}
+
+/**
+ * Mueve a un empleado de tienda a otra sucursal (POS + expediente RH).
+ * Indirectos / MAIN no aplican. Máx. 2 empleados de tienda activos por sucursal.
+ */
+export async function cambiarTiendaEmpleadoPosYRh(supabase, usuario, sucursalNueva, { user } = {}) {
+  if (!puedeGestionarRh(user)) {
+    return { ok: false, error: 'Solo administrador o gerente pueden cambiar de tienda a un empleado.' };
+  }
+  if (!supabase || !usuario?.id) return { ok: false, error: 'Usuario inválido.' };
+  if (resolverTipoEmpleado(usuario) === 'indirecto') {
+    return {
+      ok: false,
+      error: 'Los indirectos / MAIN no se asignan a una tienda (aparecen en todas). Cambia el tipo a «De tienda» si debe quedar en una sucursal.',
+    };
+  }
+  const suc = normalizarCodigoTienda(sucursalNueva);
+  if (!suc || suc === 'MAIN') {
+    return { ok: false, error: 'Elige una sucursal operativa (no MAIN). Para MAIN usa tipo Indirecto.' };
+  }
+  const origen = normalizarCodigoTienda(usuario.sucursal_id) || '';
+  if (origen === suc) {
+    return { ok: false, error: `${usuario.nombre || 'El empleado'} ya está en ${etiquetaTienda(suc)}.` };
+  }
+
+  const list = await listarUsuariosPosParaMatch(supabase);
+  if (!list.ok) return { ok: false, error: list.error };
+  if (usuario.activo !== false && normalizarRol(usuario.rol) !== 'Administrador') {
+    const cupo = puedeAgregarEmpleadoTienda(list.usuarios, suc, { excluirId: usuario.id });
+    if (!cupo.ok) return cupo;
+  }
+
+  const pin = String(usuario.pin || '').trim();
+  if (pin) {
+    const pinDup = (list.usuarios || []).some((u) => (
+      String(u.id) !== String(usuario.id)
+      && u.activo !== false
+      && String(u.pin || '') === pin
+      && normalizarCodigoTienda(u.sucursal_id) === suc
+    ));
+    if (pinDup) {
+      return { ok: false, error: `El PIN ya lo usa otro empleado en ${etiquetaTienda(suc)}. Cambia el PIN antes de moverlo.` };
+    }
+    const cubre = await pinEsCubreTurnoDeSucursal(supabase, pin, suc);
+    if (cubre.coincide) {
+      return { ok: false, error: `Ese PIN es el de cubre turno de ${etiquetaTienda(suc)}. Cambia el PIN antes de moverlo.` };
+    }
+  }
+
+  const { error } = await supabase
+    .from('usuarios')
+    .update({ sucursal_id: suc, tipo_empleado: 'tienda' })
+    .eq('id', usuario.id);
+  if (error) {
+    if (error.code === '23505' || String(error.message || '').includes('duplicate')) {
+      return { ok: false, error: `PIN duplicado en ${etiquetaTienda(suc)}. Cambia el PIN antes de moverlo.` };
+    }
+    if (String(error.message || '').includes('sucursal_id')) {
+      return { ok: false, error: 'Ejecuta supabase/fix_usuarios_sucursal.sql en Supabase.' };
+    }
+    return { ok: false, error: error.message };
+  }
+
+  const rh = await buscarExpedienteRhDeUsuario(supabase, { ...usuario, sucursal_id: suc });
+  if (rh.ok && rh.empleado && rh.empleado.tipo_empleado !== 'indirecto') {
+    await supabase
+      .from('rh_empleados')
+      .update({ sucursal_id: suc, updated_at: new Date().toISOString() })
+      .eq('id', rh.empleado.id);
+    await registrarMovimiento(supabase, {
+      empleadoId: rh.empleado.id,
+      tipo: 'edicion',
+      titulo: 'Cambio de sucursal',
+      detalle: `${etiquetaTienda(origen || '—')} → ${etiquetaTienda(suc)}`,
+      payload: { origen, destino: suc, usuario_id: usuario.id },
+      actor: user,
+    });
+  } else if (rh.error === AVISO_FALTA_RH_ABA3B) {
+    /* POS ya quedó actualizado */
+  }
+
+  return {
+    ok: true,
+    sucursal_id: suc,
+    teniaDispositivo: !!(usuario.dispositivo_id || usuario.dispositivo_id_2),
+    mensaje: `${usuario.nombre} pasó de ${etiquetaTienda(origen || '—')} a ${etiquetaTienda(suc)}. Su PIN ahora vale en esa tienda.`,
+  };
+}
+
+/** Cambia sucursal desde un expediente RH (actualiza POS si hay usuario ligado). */
+export async function cambiarTiendaDesdeRh(supabase, empleadoRh, sucursalNueva, { user } = {}) {
+  if (!empleadoRh) return { ok: false, error: 'Empleado inválido.' };
+  const suc = normalizarCodigoTienda(sucursalNueva);
+  const list = await listarUsuariosPosParaMatch(supabase);
+  if (!list.ok) return { ok: false, error: list.error };
+  const usuario = (list.usuarios || []).find((u) => usuarioCoincideConEmpleadoRh(u, empleadoRh))
+    || (empleadoRh.usuario_id
+      ? (list.usuarios || []).find((u) => String(u.id) === String(empleadoRh.usuario_id))
+      : null);
+  if (usuario) {
+    return cambiarTiendaEmpleadoPosYRh(supabase, usuario, suc, { user });
+  }
+  if (!puedeGestionarRh(user)) {
+    return { ok: false, error: 'Solo administrador o gerente pueden cambiar de tienda.' };
+  }
+  if (empleadoRh.tipo_empleado === 'indirecto') {
+    return { ok: false, error: 'Los indirectos quedan en MAIN (todas las sucursales).' };
+  }
+  if (!suc || suc === 'MAIN') {
+    return { ok: false, error: 'Elige una sucursal operativa (no MAIN).' };
+  }
+  const origen = normalizarCodigoTienda(empleadoRh.sucursal_id) || '';
+  if (origen === suc) {
+    return { ok: false, error: `${nombreCompletoRh(empleadoRh)} ya está en ${etiquetaTienda(suc)}.` };
+  }
+  const { error } = await supabase
+    .from('rh_empleados')
+    .update({ sucursal_id: suc, updated_at: new Date().toISOString() })
+    .eq('id', empleadoRh.id);
+  if (error) return { ok: false, error: error.message };
+  await registrarMovimiento(supabase, {
+    empleadoId: empleadoRh.id,
+    tipo: 'edicion',
+    titulo: 'Cambio de sucursal',
+    detalle: `${etiquetaTienda(origen || '—')} → ${etiquetaTienda(suc)} (solo RH; sin usuario POS)`,
+    payload: { origen, destino: suc },
+    actor: user,
+  });
+  return {
+    ok: true,
+    sucursal_id: suc,
+    mensaje: `${nombreCompletoRh(empleadoRh)} quedó en ${etiquetaTienda(suc)} en RH. Si debe entrar al POS, asígnalo también en Usuarios.`,
+  };
 }
 
 function partirNombreUsuario(nombreCompleto) {
@@ -490,6 +669,8 @@ export async function editarEmpleadoRh(supabase, empleadoId, patch = {}, { user 
   }
   if (patch.tipo_empleado != null) upd.tipo_empleado = tipo;
   if (patch.sucursal_id != null || patch.tipo_empleado != null) upd.sucursal_id = sucursal_id;
+  const sucursalCambio = upd.sucursal_id != null
+    && String(upd.sucursal_id || '') !== String(prev.empleado.sucursal_id || '');
   if (patch.salario_diario !== undefined) {
     upd.salario_diario = patch.salario_diario === '' || patch.salario_diario == null
       ? null
@@ -526,13 +707,22 @@ export async function editarEmpleadoRh(supabase, empleadoId, patch = {}, { user 
   await registrarMovimiento(supabase, {
     empleadoId,
     tipo: 'edicion',
-    titulo: 'Actualización de expediente',
-    detalle: 'Se actualizaron datos del perfil / personales.',
+    titulo: sucursalCambio ? 'Cambio de sucursal' : 'Actualización de expediente',
+    detalle: sucursalCambio
+      ? `${etiquetaTienda(prev.empleado.sucursal_id || '—')} → ${etiquetaTienda(data.sucursal_id)}`
+      : 'Se actualizaron datos del perfil / personales.',
     payload: { campos: Object.keys(upd) },
     actor: user,
   });
 
-  return { ok: true, empleado: data, mensaje: 'Expediente actualizado.' };
+  let extraPos = '';
+  if (sucursalCambio && data.tipo_empleado !== 'indirecto') {
+    const sync = await sincronizarUsuarioPosSucursal(supabase, data, data.sucursal_id);
+    if (!sync.ok) extraPos = ` POS: ${sync.error}`;
+    else if ((sync.ids || []).length) extraPos = ' También se actualizó en Usuarios / POS.';
+  }
+
+  return { ok: true, empleado: data, mensaje: `Expediente actualizado.${extraPos}` };
 }
 
 export async function darDeBajaEmpleadoRh(supabase, empleadoId, opts = {}, { user } = {}) {
