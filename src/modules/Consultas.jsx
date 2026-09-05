@@ -23,6 +23,8 @@ import {
   cargarProductoIdsCostoPrecioRuta,
   EVENTO_PROVEEDORES_COSTO_RUTA,
 } from '../lib/proveedoresCostoRuta.js';
+import { folioVisibleCompra } from '../lib/foliosInventario.js';
+import { pedirFolioEditado, renombrarFolioInventario } from '../lib/folioInventarioEditar.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
 import ReportePreciosVentas from '../components/ReportePreciosVentas.jsx';
 import './Consultas.css';
@@ -291,6 +293,50 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
       setLoading(false);
     }
   }, [esLista, seccion, buscarVentas, buscarCompras, buscarInventarios, buscarCortes, buscarSaldos]);
+
+  const editarFolioDocumento = async (opts = {}) => {
+    const folioActual = String(opts.folioActual || '').trim();
+    const sucDoc = opts.sucursal || filtroSucursal || sucursal;
+    const pedido = pedirFolioEditado({
+      folioActual,
+      sucursal: sucDoc,
+      etiqueta: opts.etiqueta || 'ticket',
+    });
+    if (!pedido.ok) {
+      if (pedido.error) alert(pedido.error);
+      return;
+    }
+    const r = await renombrarFolioInventario(supabase, {
+      sucursal: sucDoc,
+      folioOld: folioActual,
+      folioNew: pedido.folioNew,
+      compraId: opts.compraId || '',
+    });
+    if (!r.ok) {
+      alert(r.error || 'No se pudo cambiar el folio.');
+      return;
+    }
+    alert(`Folio actualizado: ${r.folio}` + (r.aviso ? `\n\n${r.aviso}` : ''));
+    try {
+      if (seccion === 'inventarios') {
+        const docs = await buscarInventarios();
+        setDocsInv(docs);
+        const next = docs.find(
+          (d) =>
+            String(d.folio) === String(r.folio) &&
+            (!sucDoc || String(d.sucursal || '') === String(sucDoc)),
+        );
+        setSel(next || null);
+      } else if (seccion === 'compras') {
+        const list = await buscarCompras();
+        setCompras(list);
+        const next = (list || []).find((c) => String(c.id) === String(opts.compraId || sel?.id));
+        setSel(next || null);
+      }
+    } catch (e) {
+      setAviso(e?.message || String(e));
+    }
+  };
 
   useEffect(() => {
     void refrescar();
@@ -745,7 +791,30 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                   ) : null}
                 </div>
                 <div className="muted" style={{ fontSize: '0.75rem', marginTop: '0.15rem' }}>
-                  {sel.titulo} · Folio {sel.folio} · {sel.usuario || '—'}
+                  {sel.titulo} · Folio {sel.folio} · {sel.usuario || '—'}{' '}
+                  {sel.folio && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ fontSize: '0.72rem', padding: '0.1rem 0.4rem', marginLeft: '0.35rem' }}
+                      onClick={() => {
+                        const linea = (sel.lineas || [])[0] || {};
+                        const compraId =
+                          linea.meta?.compra_id ||
+                          (String(linea.id || '').startsWith('compra_')
+                            ? String(linea.id).replace(/^compra_/, '').split('_')[0]
+                            : '');
+                        void editarFolioDocumento({
+                          folioActual: sel.folio,
+                          sucursal: sel.sucursal || filtroSucursal || sucursal,
+                          etiqueta: sel.esTraspaso ? 'traspaso' : 'ingreso',
+                          compraId,
+                        });
+                      }}
+                    >
+                      Editar folio
+                    </button>
+                  )}
                 </div>
                 {sel.esTraspaso && (sel.ruta || (sel.traspaso_origen && sel.traspaso_destino)) && (
                   <div style={{ fontSize: '0.8rem', marginTop: '0.35rem', color: '#1e5bb8', fontWeight: 600 }}>
@@ -1375,7 +1444,24 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
 
             {sel && seccion === 'compras' && (
               <div className="consultas-detail">
-                <h4>Compra {folioNumerico(sel.id, 5)}</h4>
+                <h4>
+                  Compra {folioVisibleCompra(sel) || folioNumerico(sel.id, 5)}{' '}
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ fontSize: '0.75rem', padding: '0.15rem 0.45rem', marginLeft: '0.35rem' }}
+                    onClick={() =>
+                      void editarFolioDocumento({
+                        folioActual: folioVisibleCompra(sel),
+                        sucursal: sel.sucursal_id || sel.sucursal || filtroSucursal || sucursal,
+                        etiqueta: 'compra',
+                        compraId: sel.id,
+                      })
+                    }
+                  >
+                    Editar folio
+                  </button>
+                </h4>
                 <table className="consultas-table">
                   <thead>
                     <tr>

@@ -7,6 +7,9 @@ import {
   normalizarFolioIngRet,
   normalizarFolioInventario,
   normalizarFolioTrp,
+  notasConFolioInv,
+  sugerirFolioConSucursal,
+  variantesFolioInventario,
 } from './foliosInventario.js';
 
 const store = new Map();
@@ -60,5 +63,14 @@ assert.equal(normalizarFolioIngRet('ING-5-0309-1'), 'ING-5-0309-0001');
 assert.equal(normalizarFolioInventario('ing-5-0309-1'), 'ING-5-0309-0001');
 assert.equal(normalizarFolioInventario('trp-10-3'), 'trp-10-0003');
 assert.equal(normalizarFolioInventario('CMP-5-a1b2c3d4'), 'CMP-5-A1B2C3D4');
+
+assert.deepEqual(
+  variantesFolioInventario('ING-5-0309-0001', '3B5').includes('ING-0309-0001'),
+  true,
+);
+assert.equal(sugerirFolioConSucursal('ING-0309-0001', '3B5'), 'ING-5-0309-0001');
+assert.equal(sugerirFolioConSucursal('trp-0020', '3B10'), 'trp-10-0020');
+assert.equal(sugerirFolioConSucursal('CMP-AABBCCDD', 'FUSION'), 'CMP-FUS-AABBCCDD');
+assert.equal(notasConFolioInv('Ticket $10 · Folio inv ING-0309-0001', 'ING-5-0309-0001'), 'Ticket $10 · Folio inv ING-5-0309-0001');
 
 console.log('foliosInventario.test.mjs ok');

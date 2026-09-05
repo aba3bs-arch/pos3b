@@ -120,6 +120,9 @@ function mockSupabaseMovimientos(rowsByContains) {
           if (col === 'tipo') this._tipo = val;
           return this;
         },
+        in() {
+          return this;
+        },
         contains(_col, obj) {
           this._folio = obj?.folio;
           return this;
@@ -187,4 +190,51 @@ test('resolverFolioSustentoSmoking falla si ING es de otra tienda (no MAIN/CEDIS
   });
   assert.equal(r.ok, false);
   assert.match(String(r.error), /otra sucursal/i);
+});
+
+test('mismo folio en otra tienda no bloquea el gasto de esta sucursal', async () => {
+  const supabase = mockSupabaseMovimientos([
+    {
+      id: 'm5',
+      tipo: 'entrada',
+      producto_nombre: 'Smoking',
+      cantidad: 10,
+      sucursal_id: '3B5',
+      meta: { folio: 'ING-0309-0001', precio: 2.1 },
+    },
+    {
+      id: 'm2',
+      tipo: 'entrada',
+      producto_nombre: 'Smoking',
+      cantidad: 100,
+      sucursal_id: '3B2',
+      meta: { folio: 'ING-0309-0001', precio: 2.1 },
+    },
+  ]);
+  const r = await resolverFolioSustentoSmoking(supabase, {
+    folio: 'ING-0309-0001',
+    sucursal: '3B2',
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.total, 210);
+  assert.equal(r.sucursal, '3B2');
+});
+
+test('acepta folio ING-2-… contra ingreso viejo sin sucursal', async () => {
+  const supabase = mockSupabaseMovimientos([
+    {
+      id: 'm3',
+      tipo: 'entrada',
+      producto_nombre: 'Smoking',
+      cantidad: 50,
+      sucursal_id: '3B2',
+      meta: { folio: 'ING-0309-0001', precio: 2.1 },
+    },
+  ]);
+  const r = await resolverFolioSustentoSmoking(supabase, {
+    folio: 'ING-2-0309-0001',
+    sucursal: '3B2',
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.total, 105);
 });

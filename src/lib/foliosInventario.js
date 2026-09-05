@@ -163,3 +163,80 @@ export function normalizarFolioInventario(raw) {
   if (/^\d+$/.test(s)) return normalizarFolioTrp(s);
   return s.toUpperCase();
 }
+
+function addUniq(out, v) {
+  const s = String(v || '').trim();
+  if (s && !out.includes(s)) out.push(s);
+}
+
+/**
+ * Formas equivalentes de un folio (con y sin número de sucursal).
+ * ING-5-0309-0001 ↔ ING-0309-0001 · trp-5-0020 ↔ trp-0020 · CMP-5-AABBCCDD ↔ CMP-AABBCCDD
+ */
+export function variantesFolioInventario(raw, sucursal = '') {
+  const n = normalizarFolioInventario(raw);
+  const token = tokenFolioSucursal(sucursal);
+  const out = [];
+  addUniq(out, n);
+  addUniq(out, String(raw || '').trim());
+
+  const mIngNew = n.match(/^(ING|RET)-([A-Z0-9]+)-(\d{4}|\d{8})-(\d+)$/i);
+  if (mIngNew) addUniq(out, `${mIngNew[1].toUpperCase()}-${mIngNew[3]}-${mIngNew[4]}`);
+
+  const mIngOld = n.match(/^(ING|RET)-(\d{4}|\d{8})-(\d+)$/i);
+  if (mIngOld && token && token !== 'X') {
+    addUniq(out, `${mIngOld[1].toUpperCase()}-${token}-${mIngOld[2]}-${mIngOld[3]}`);
+  }
+
+  const mTrpNew = n.match(/^trp-([A-Za-z0-9]+)-(\d+)$/i);
+  if (mTrpNew) addUniq(out, `trp-${padSeq(mTrpNew[2])}`);
+
+  const mTrpOld = n.match(/^trp-(\d+)$/i);
+  if (mTrpOld && token && token !== 'X') {
+    addUniq(out, `trp-${token}-${padSeq(mTrpOld[1])}`);
+  }
+
+  const mCmpNew = n.match(/^CMP-([A-Z0-9]+)-([A-F0-9]{6,})$/i);
+  if (mCmpNew) addUniq(out, `CMP-${mCmpNew[2].toUpperCase()}`);
+
+  const mCmpOld = n.match(/^CMP-([A-F0-9]{6,})$/i);
+  if (mCmpOld && token && token !== 'X') {
+    addUniq(out, `CMP-${token}-${mCmpOld[1].toUpperCase()}`);
+  }
+
+  return out;
+}
+
+/** Si el folio es el formato viejo (sin sucursal), le pone el número de tienda. */
+export function sugerirFolioConSucursal(raw, sucursal) {
+  const n = normalizarFolioInventario(raw);
+  const token = tokenFolioSucursal(sucursal);
+  if (!n || !token || token === 'X') return n;
+  const mIng = n.match(/^(ING|RET)-(\d{4}|\d{8})-(\d+)$/i);
+  if (mIng) return `${mIng[1].toUpperCase()}-${token}-${mIng[2]}-${mIng[3]}`;
+  const mTrp = n.match(/^trp-(\d+)$/i);
+  if (mTrp) return `trp-${token}-${padSeq(mTrp[1])}`;
+  const mCmp = n.match(/^CMP-([A-F0-9]{6,})$/i);
+  if (mCmp) return `CMP-${token}-${mCmp[1].toUpperCase()}`;
+  return n;
+}
+
+export function folioInvDesdeNotas(notas) {
+  return (String(notas || '').match(/Folio inv\s+([A-Z0-9-]+)/i) || [])[1] || '';
+}
+
+export function notasConFolioInv(notas, folioNuevo) {
+  const folio = String(folioNuevo || '').trim();
+  const s = String(notas || '').trim();
+  if (!folio) return s;
+  if (/Folio inv\s+[A-Z0-9-]+/i.test(s)) {
+    return s.replace(/Folio inv\s+[A-Z0-9-]+/gi, `Folio inv ${folio}`);
+  }
+  return s ? `${s} · Folio inv ${folio}` : `Folio inv ${folio}`;
+}
+
+export function folioVisibleCompra(compra) {
+  const fromNotas = folioInvDesdeNotas(compra?.notas);
+  if (fromNotas) return fromNotas;
+  return folioDesdeCompraId(compra?.id, compra?.sucursal_id || compra?.sucursal);
+}
