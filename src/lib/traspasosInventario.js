@@ -8,9 +8,9 @@ import {
   esAlmacenCentral,
   stockEnUbicacion,
 } from './inventarioMultitienda.js';
-import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, equivalentesCodigoTienda, listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { guardarMovimientoLocal, aplicarDeltaStockAtomico } from './inventarioMovimientos.js';
-import { generarFolioTrp } from './foliosInventario.js';
+import { generarFolioTrp, variantesFolioInventario } from './foliosInventario.js';
 
 const LS = 'pos3b_inventario_traspasos';
 
@@ -27,6 +27,54 @@ function faltaTabla(error) {
 }
 
 export { generarFolioTrp };
+
+/** Busca un envío por folio en ESTA sucursal (acepta trp-0020 y trp-5-0020). Evita maybeSingle con folios repetidos. */
+export async function buscarTraspasoParaGasto(supabase, folio, sucursalDestino) {
+  const sid = normalizarCodigoTienda(sucursalDestino);
+  const variantes = variantesFolioInventario(folio, sid);
+  if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
+  const destinos = equivalentesCodigoTienda(sid);
+  const { data, error } = await supabase
+    .from('inventario_traspasos')
+    .select('id,folio,estado,tipo,origen_id,destino_id,lineas')
+    .eq('tipo', 'envio')
+    .in('destino_id', destinos.length ? destinos : [sid])
+    .in('folio', variantes)
+    .limit(20);
+  if (error) return { ok: false, error: error.message };
+  const list = data || [];
+  const listo = list.find((d) => {
+    const est = String(d.estado || '').toLowerCase();
+    return est === 'enviado' || est === 'recibido';
+  });
+  if (listo) return { ok: true, doc: listo };
+  if (list.length) {
+    return {
+      ok: false,
+      error: `Traspaso ${folio} no está listo (estado: ${list[0].estado}).`,
+    };
+  }
+  const { data: otros, error: e2 } = await supabase
+    .from('inventario_traspasos')
+    .select('id,folio,destino_id,tipo,estado')
+    .eq('tipo', 'envio')
+    .in('folio', variantes)
+    .limit(8);
+  if (e2) return { ok: false, error: e2.message };
+  if (otros?.length) {
+    const dest = normalizarCodigoTienda(otros[0].destino_id);
+    return {
+      ok: false,
+      error:
+        `Traspaso ${folio} es para ${etiquetaTienda(dest)}, no para ${etiquetaTienda(sid)}.\n` +
+        'Usa el folio del traspaso recibido en esta sucursal, o edítalo en Consultas → Inventarios.',
+    };
+  }
+  return {
+    ok: false,
+    error: `No existe traspaso ${folio}. Confirma en Productos → Traspasos.`,
+  };
+}
 
 function leerLocal() {
   try {

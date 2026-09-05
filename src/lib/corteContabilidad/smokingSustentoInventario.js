@@ -14,7 +14,8 @@
  */
 import { etiquetaTienda, esSucursalNoVenta, normalizarCodigoTienda } from '../../constants/sucursales.js';
 import { leerMovimientosLocal } from '../inventarioMovimientos.js';
-import { coincideFolioCompra, normalizarFolioInventario } from '../foliosInventario.js';
+import { coincideFolioCompra, normalizarFolioInventario, variantesFolioInventario } from '../foliosInventario.js';
+import { buscarTraspasoParaGasto } from '../traspasosInventario.js';
 import { normalizarNombreProveedorClave, nombreProveedorDesdeGasto } from '../proveedorEntregas.js';
 import { importeUnitarioMovimientoInventario } from '../valorInventario.js';
 import { productoUsaCostoPrecioRutaPorMarca } from '../proveedoresCostoRuta.js';
@@ -150,19 +151,20 @@ async function listarComprasRecientes(supabase, sid, { dias = 21, limit = 400 } 
   return { ok: true, data: data || [] };
 }
 
-function matchCompraPorFolio(compras, folio) {
+function matchCompraPorFolio(compras, folio, sid) {
   const f = String(folio || '');
   const fUp = f.toUpperCase();
   const fLow = f.toLowerCase().replace(/-/g, '');
+  const variantes = variantesFolioInventario(folio, sid).map((x) => x.toUpperCase());
 
   for (const c of compras || []) {
     if (!c?.id) continue;
     if (String(c.id).toLowerCase() === f.toLowerCase()) return c;
     if (coincideFolioCompra(c, fUp)) return c;
-    const notas = String(c.notas || '');
-    if (notas.toUpperCase().includes(`FOLIO INV ${fUp}`)) return c;
-    if (notas.toUpperCase().includes(fUp) && /^(ING|CMP)-/i.test(fUp)) return c;
-    // Prefijo hex del UUID (sin guiones)
+    if (variantes.some((v) => coincideFolioCompra(c, v))) return c;
+    const notas = String(c.notas || '').toUpperCase();
+    if (variantes.some((v) => notas.includes(`FOLIO INV ${v}`))) return c;
+    if (notas.includes(fUp) && /^(ING|CMP)-/i.test(fUp)) return c;
     const idCompact = String(c.id).toLowerCase().replace(/-/g, '');
     if (fLow.length >= 8 && idCompact.startsWith(fLow)) return c;
   }
@@ -170,36 +172,13 @@ function matchCompraPorFolio(compras, folio) {
 }
 
 async function resolverTraspaso(supabase, folio, sid) {
-  const { data: doc, error } = await supabase
-    .from('inventario_traspasos')
-    .select('id,folio,estado,tipo,origen_id,destino_id,lineas')
-    .eq('folio', folio)
-    .maybeSingle();
-  if (error) return { ok: false, error: error.message };
-  if (!doc) {
-    return {
-      ok: false,
-      error: `No existe traspaso ${folio}. Confirma en Productos → Traspasos.`,
-    };
-  }
-  if (String(doc.tipo || '') !== 'envio') {
-    return { ok: false, error: `${folio} no es un envío despachado.` };
-  }
-  const est = String(doc.estado || '').toLowerCase();
-  if (est !== 'enviado' && est !== 'recibido') {
-    return { ok: false, error: `Traspaso ${folio} no está listo (estado: ${doc.estado}).` };
-  }
-  const dest = normalizarCodigoTienda(doc.destino_id);
-  if (dest !== sid) {
-    return {
-      ok: false,
-      error: `Traspaso ${folio} es para ${etiquetaTienda(dest)}, no para ${etiquetaTienda(sid)}.`,
-    };
-  }
+  const r = await buscarTraspasoParaGasto(supabase, folio, sid);
+  if (!r.ok) return r;
+  const doc = r.doc;
   return {
     ok: true,
     tipo: 'traspaso',
-    folio,
+    folio: doc.folio || folio,
     totalPrecio: totalTraspasoLineas(doc.lineas, 'precio'),
     totalCosto: totalTraspasoLineas(doc.lineas, 'costo'),
     total: totalTraspasoLineas(doc.lineas, 'costo') || totalTraspasoLineas(doc.lineas, 'precio'),
@@ -213,35 +192,44 @@ async function resolverTraspaso(supabase, folio, sid) {
 async function resolverIngresoInventario(supabase, folio, sid) {
   const folioN = normalizarFolioSustentoSmoking(folio);
   const tipoMov = /^RET-/i.test(folioN) ? 'retiro' : 'entrada';
+  const variantes = variantesFolioInventario(folioN, sid);
   const rows = [];
+  const sucsPreferidas = [sid, 'MAIN', 'CEDIS'].filter(Boolean);
 
-  // Nube: contains(meta, {folio}) — un lote = varias filas con el mismo folio.
+  const meter = (list) => {
+    for (const r of list || []) {
+      const f = folioDeFilaMovimiento(r) || folioN;
+      const already = rows.some((x) => String(x.id) === String(r.id));
+      if (!already) rows.push({ ...r, folio: f });
+    }
+  };
+
+  // Primero esta tienda (+ MAIN/CEDIS). Así un folio repetido en otra sucursal no tapa el ticket local.
   if (supabase?.from) {
     try {
-      const { data, error } = await supabase
-        .from('movimientos_inventario')
-        .select(
-          'id,tipo,producto_id,producto_nombre,cantidad,departamento,sucursal_id,meta,created_at,motivo',
-        )
-        .eq('tipo', tipoMov)
-        .contains('meta', { folio: folioN })
-        .order('created_at', { ascending: false })
-        .limit(200);
-      if (!error && Array.isArray(data)) {
-        for (const r of data) rows.push({ ...r, folio: folioDeFilaMovimiento(r) || folioN });
-      }
-      // Fallback: a veces el folio quedó solo en texto / formato sin pad.
-      if (!rows.length) {
-        const { data: data2 } = await supabase
+      for (const fVar of variantes) {
+        const { data, error } = await supabase
           .from('movimientos_inventario')
           .select(
             'id,tipo,producto_id,producto_nombre,cantidad,departamento,sucursal_id,meta,created_at,motivo',
           )
           .eq('tipo', tipoMov)
-          .filter('meta->>folio', 'eq', folioN)
+          .in('sucursal_id', sucsPreferidas)
+          .contains('meta', { folio: fVar })
+          .order('created_at', { ascending: false })
           .limit(200);
-        for (const r of data2 || []) {
-          rows.push({ ...r, folio: folioDeFilaMovimiento(r) || folioN });
+        if (!error && Array.isArray(data) && data.length) meter(data);
+        if (!data?.length) {
+          const { data: data2 } = await supabase
+            .from('movimientos_inventario')
+            .select(
+              'id,tipo,producto_id,producto_nombre,cantidad,departamento,sucursal_id,meta,created_at,motivo',
+            )
+            .eq('tipo', tipoMov)
+            .in('sucursal_id', sucsPreferidas)
+            .filter('meta->>folio', 'eq', fVar)
+            .limit(200);
+          meter(data2);
         }
       }
     } catch {
@@ -249,12 +237,12 @@ async function resolverIngresoInventario(supabase, folio, sid) {
     }
   }
 
-  // Local (misma caja, aún no sincronizado o sin contains).
   try {
     const locales = leerMovimientosLocal() || [];
     for (const m of locales) {
       if (String(m.tipo || '').toLowerCase() !== tipoMov) continue;
-      if (folioDeFilaMovimiento(m) !== folioN) continue;
+      const fLoc = folioDeFilaMovimiento(m);
+      if (!variantes.some((v) => String(v).toUpperCase() === String(fLoc).toUpperCase())) continue;
       const already = rows.some(
         (r) =>
           String(r.id) === String(m.id) ||
@@ -265,7 +253,7 @@ async function resolverIngresoInventario(supabase, folio, sid) {
         rows.push({
           ...m,
           sucursal_id: m.sucursal_id || m.sucursal,
-          folio: folioN,
+          folio: fLoc || folioN,
         });
       }
     }
@@ -274,6 +262,31 @@ async function resolverIngresoInventario(supabase, folio, sid) {
   }
 
   if (!rows.length) {
+    // ¿El folio existe pero en otra tienda?
+    if (supabase?.from) {
+      try {
+        const { data: ajenos } = await supabase
+          .from('movimientos_inventario')
+          .select('sucursal_id,meta')
+          .eq('tipo', tipoMov)
+          .contains('meta', { folio: folioN })
+          .limit(20);
+        const otras = [
+          ...new Set((ajenos || []).map((r) => etiquetaTienda(r.sucursal_id)).filter(Boolean)),
+        ];
+        if (otras.length) {
+          return {
+            ok: false,
+            error:
+              `El ingreso ${folioN} está en otra sucursal (${otras.join(', ')}), ` +
+              `no en ${etiquetaTienda(sid)} ni en MAIN/CEDIS.\n\n` +
+              'Edita el folio en Compras → Historial o Consultas → Inventarios para esta tienda.',
+          };
+        }
+      } catch {
+        /* ignore */
+      }
+    }
     return {
       ok: false,
       error:
@@ -297,7 +310,8 @@ async function resolverIngresoInventario(supabase, folio, sid) {
       ok: false,
       error:
         `El ingreso ${folioN} está en otra sucursal (${otras.join(', ') || '—'}), ` +
-        `no en ${etiquetaTienda(sid)} ni en MAIN/CEDIS.`,
+        `no en ${etiquetaTienda(sid)} ni en MAIN/CEDIS.\n\n` +
+        'Edita el folio en Compras → Historial para diferenciarlo.',
     };
   }
 
@@ -332,7 +346,7 @@ async function resolverIngresoInventario(supabase, folio, sid) {
 }
 
 async function resolverCompra(supabase, folio, sid, comprasCache) {
-  let compra = matchCompraPorFolio(comprasCache, folio);
+  let compra = matchCompraPorFolio(comprasCache, folio, sid);
   if (!compra && /^[0-9a-f-]{36}$/i.test(folio)) {
     const { data, error } = await supabase
       .from('compras')

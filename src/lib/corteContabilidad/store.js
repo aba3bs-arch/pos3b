@@ -16,6 +16,7 @@ import {
   validarSustentoSmokingGasto,
 } from './smokingSustentoInventario.js';
 import { normalizarFolioTrp } from '../foliosInventario.js';
+import { buscarTraspasoParaGasto } from '../traspasosInventario.js';
 
 const MARKER_TRP_INV = 'TRP_INV:';
 
@@ -364,47 +365,9 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
       const traspasosByFolio = new Map();
 
       for (const folioTrp of foliosTraspaso) {
-        const { data: doc, error: eTrp } = await supabase
-          .from('inventario_traspasos')
-          .select('id,folio,estado,tipo,origen_id,destino_id,lineas')
-          .eq('folio', folioTrp)
-          .maybeSingle();
-        if (eTrp) return { ok: false, error: eTrp.message };
-        if (!doc) {
-          return {
-            ok: false,
-            error:
-              `No existe traspaso ${folioTrp} en inventario.\n\n` +
-              'Confirma en Productos → Traspasos que el folio trp-{suc}-XXXX esté en la nube (estado enviado o recibido).',
-          };
-        }
-        if (String(doc.tipo || '') !== 'envio') {
-          return {
-            ok: false,
-            error:
-              `El folio ${folioTrp} no es un envío despachado.\n\n` +
-              'Solo traspasos enviados/recibidos pueden ligarse al gasto.',
-          };
-        }
-        const est = String(doc.estado || '').toLowerCase();
-        if (est !== 'enviado' && est !== 'recibido') {
-          return {
-            ok: false,
-            error:
-              `Traspaso ${folioTrp} no está listo (estado: ${doc.estado}).\n\n` +
-              'Debe estar enviado o recibido antes de registrar el gasto.',
-          };
-        }
-        const dest = normalizarCodigoTienda(doc.destino_id);
-        if (dest !== sid) {
-          return {
-            ok: false,
-            error:
-              `Traspaso ${folioTrp} es para ${etiquetaTienda(dest)}, no para esta tienda (${etiquetaTienda(sid)}).\n\n` +
-              'Usa el folio del traspaso recibido en esta sucursal.',
-          };
-        }
-        traspasosByFolio.set(folioTrp, doc);
+        const hallado = await buscarTraspasoParaGasto(supabase, folioTrp, sid);
+        if (!hallado.ok) return { ok: false, error: hallado.error };
+        traspasosByFolio.set(folioTrp, hallado.doc);
       }
 
       const montoGastoTrp = round2(Number(gasto.monto) || 0);

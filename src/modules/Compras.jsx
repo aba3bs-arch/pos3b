@@ -15,6 +15,9 @@ import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import { enRangoYmd, parseYmd, toYmd } from '../lib/fechas.js';
 import { productoIdsDesdeProveedor } from '../lib/proveedorCatalogo.js';
 import { aplicarMovimientoInventario, folioDesdeCompraId, generarFolioMovimiento } from '../lib/inventarioMovimientos.js';
+import { folioVisibleCompra } from '../lib/foliosInventario.js';
+import { pedirFolioEditado, renombrarFolioInventario } from '../lib/folioInventarioEditar.js';
+import { etiquetaTienda, esSucursalNoVenta } from '../constants/sucursales.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import {
   MODOS_COMPRA_PROVEEDOR,
@@ -177,9 +180,15 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
 
   const loadProveedoresYHistorial = async () => {
     if (!supabase) return;
+    let qCompras = supabase
+      .from('compras')
+      .select('*, proveedores(nombre)')
+      .order('created_at', { ascending: false })
+      .limit(80);
+    if (sucursal && !esSucursalNoVenta(sucursal)) qCompras = qCompras.eq('sucursal_id', sucursal);
     const [pr, co] = await Promise.all([
       supabase.from('proveedores').select('*').order('nombre'),
-      supabase.from('compras').select('*, proveedores(nombre)').order('created_at', { ascending: false }).limit(40),
+      qCompras,
     ]);
     if (!pr.error) setProveedores(pr.data || []);
     if (!co.error) {
@@ -205,10 +214,36 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     setErr('');
   };
 
+  const editarFolioHistorial = async (compra) => {
+    const sucDoc = compra.sucursal_id || sucursal;
+    const actual = folioVisibleCompra(compra);
+    const pedido = pedirFolioEditado({ folioActual: actual, sucursal: sucDoc, etiqueta: 'compra' });
+    if (!pedido.ok) {
+      if (pedido.error) alert(pedido.error);
+      return;
+    }
+    const r = await renombrarFolioInventario(supabase, {
+      sucursal: sucDoc,
+      folioOld: actual,
+      folioNew: pedido.folioNew,
+      compraId: compra.id,
+    });
+    if (!r.ok) {
+      alert(r.error || 'No se pudo cambiar el folio.');
+      return;
+    }
+    alert(
+      `Folio actualizado: ${r.folio}` +
+        (r.aviso ? `\n\n${r.aviso}` : '') +
+        '\n\nYa puedes usar este folio en el gasto de esta tienda.',
+    );
+    await loadProveedoresYHistorial();
+  };
+
   useEffect(() => {
     loadProveedoresYHistorial();
     loadPedidosPendientes();
-  }, [supabase]);
+  }, [supabase, sucursal]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1064,6 +1099,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
               <thead>
                 <tr>
                   <th>Fecha</th>
+                  <th>Folio</th>
                   <th>Estado</th>
                   <th>Proveedor</th>
                   <th>Total</th>
@@ -1074,7 +1110,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
               <tbody>
                 {historialFiltrado.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="muted">
+                    <td colSpan={7} className="muted">
                       Sin movimientos.
                     </td>
                   </tr>
@@ -1083,6 +1119,14 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                     <tr key={c.id}>
                       <td>{c.created_at ? new Date(c.created_at).toLocaleString('es-MX') : '—'}</td>
                       <td>
+                        <div style={{ fontWeight: 700 }}>{folioVisibleCompra(c)}</div>
+                        {esSucursalNoVenta(sucursal) && c.sucursal_id ? (
+                          <div className="muted" style={{ fontSize: '0.75rem' }}>
+                            {etiquetaTienda(c.sucursal_id)}
+                          </div>
+                        ) : null}
+                      </td>
+                      <td>
                         <span className="badge">{c.estado || 'recibida'}</span>
                       </td>
                       <td>{c.proveedores?.nombre || '—'}</td>
@@ -1090,6 +1134,16 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
                       <td>{c.notas}</td>
                       <td>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                          {(c.estado === 'recibida' || c.estado === 'recibido' || c.estado === 'cerrada') && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ fontSize: '0.8rem' }}
+                              onClick={() => editarFolioHistorial(c)}
+                            >
+                              Editar folio
+                            </button>
+                          )}
                           {c.estado === 'pedido' && (
                             <button
                               type="button"
