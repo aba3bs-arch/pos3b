@@ -7,6 +7,8 @@ import {
   guardarSueldoDefault,
   lineasDesdeEmpleados,
   listarPeriodosNomina,
+  periodoNominaMasReciente,
+  esPeriodoNominaMasReciente,
   totalLineaNomina,
 } from '../lib/nomina.js';
 import { fusionarLineasNomina, otrosDeudasLinea, recalcularLineaNomina, sueldoBrutoLinea, pagoNominaLinea, TIPOS_FILTRO_NOMINA } from '../lib/nominaCalculos.js';
@@ -87,6 +89,8 @@ export default function Nomina({ supabase, sucursal, user }) {
   const modoManual = modoNomina === 'manual';
   const totalGeneral = useMemo(() => lineas.reduce((a, l) => a + totalLineaNomina(l), 0), [lineas]);
   const enSemanaCalendario = esSemanaNominaActual(inicio, fin);
+  const ultimoPeriodo = useMemo(() => periodoNominaMasReciente(periodos), [periodos]);
+  const puedeEditarUltimaNomina = puedeEliminarNomina && Boolean(ultimoPeriodo);
 
   const cargarEmpleadosYGastos = useCallback(
     async (opts = {}) => {
@@ -375,35 +379,32 @@ export default function Nomina({ supabase, sucursal, user }) {
     setLineasHist(res.data || []);
   };
 
-  const reabrirPeriodo = async () => {
-    if (!esAdmin) return alert('Solo el administrador puede reabrir nóminas cerradas.');
-    if (!periodoSel?.id || !supabase) return;
+  const editarPeriodoCerrado = async (periodo) => {
+    if (!puedeEliminarNomina) return alert('Inicia sesión para editar la nómina.');
+    const p = periodo || periodoSel || ultimoPeriodo;
+    if (!p?.id || !supabase) return;
+    if (!esPeriodoNominaMasReciente(periodos, p.id)) {
+      return alert('Solo se puede editar la última nómina cerrada.');
+    }
+
+    const hayBorradorOtro = lineas.length > 0 && (inicio !== p.periodo_inicio || fin !== p.periodo_fin);
     if (
       !window.confirm(
-        `¿Reabrir la nómina del ${periodoSel.periodo_inicio} al ${periodoSel.periodo_fin}?\n\n` +
-          'Se revertirán gastos y abonos de préstamos de ese cierre, se quitará el arrastre generado y podrás editar de nuevo.\n' +
-          'Solo funciona con la nómina más reciente cerrada.',
+        `¿Editar la última nómina (${p.periodo_inicio} — ${p.periodo_fin})?\n\n` +
+          'Se revertirán gastos y abonos de préstamos de ese cierre, se quitará el arrastre generado y las cifras quedarán en la tabla para corregirlas.\n' +
+          'Cuando termines, vuelve a usar «Cerrar nómina».\n' +
+          (hayBorradorOtro ? '\nEl borrador de la semana que estás capturando ahora se reemplazará.\n' : ''),
       )
     ) {
       return;
     }
     setCargando(true);
     setErr('');
-    const res = await reabrirPeriodoNomina(supabase, periodoSel.id);
+    const res = await reabrirPeriodoNomina(supabase, p.id);
     setCargando(false);
-    if (!res.ok) return alert(res.error || 'No se pudo reabrir.');
+    if (!res.ok) return alert(res.error || 'No se pudo reabrir la nómina.');
 
-    setInicio(res.periodo.periodo_inicio);
-    setFin(res.periodo.periodo_fin);
-    setPagadorFiltro(res.periodo.pagador_filtro || '');
-    setTipoFiltro('');
-    setNotasPeriodo(res.periodo.notas || '');
-    setLineas(res.lineas || []);
-    setSaldosArrastre(res.arrastreMap || {});
-    setExcluidos(new Set());
-    setPeriodoSel(null);
-    setLineasHist([]);
-    guardarBorradorNomina({
+    const draft = {
       inicio: res.periodo.periodo_inicio,
       fin: res.periodo.periodo_fin,
       pagadorFiltro: res.periodo.pagador_filtro || '',
@@ -412,13 +413,24 @@ export default function Nomina({ supabase, sucursal, user }) {
       lineas: res.lineas || [],
       excluidos: [],
       modo: 'manual',
-    });
+    };
+    guardarBorradorNomina(draft);
     setModoNomina('manual');
+    setPagadorFiltro(draft.pagadorFiltro);
+    setTipoFiltro('');
+    setNotasPeriodo(draft.notasPeriodo);
+    setLineas(draft.lineas);
+    setSaldosArrastre(res.arrastreMap || {});
+    setExcluidos(new Set());
+    setPeriodoSel(null);
+    setLineasHist([]);
+    setInicio(draft.inicio);
+    setFin(draft.fin);
     cargarPeriodos();
     alert(
-      `Nómina reabierta para corrección.\n` +
+      `Nómina lista para editar.\n` +
         `Gastos desmarcados: ${res.gastosRevertidos || 0}.\n` +
-        'Edita los datos y vuelve a usar «Cerrar nómina» cuando esté lista.',
+        'Corrige los datos y vuelve a usar «Cerrar nómina» cuando esté lista.',
     );
   };
 
@@ -874,6 +886,17 @@ export default function Nomina({ supabase, sucursal, user }) {
           <button type="button" className="btn btn-primary" disabled={cargando || lineas.length === 0} onClick={guardar}>
             Cerrar nómina
           </button>
+          {puedeEditarUltimaNomina && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={cargando}
+              onClick={() => editarPeriodoCerrado(ultimoPeriodo)}
+              title={`Editar ${ultimoPeriodo.periodo_inicio} — ${ultimoPeriodo.periodo_fin}`}
+            >
+              Editar última nómina
+            </button>
+          )}
           <button type="button" className="btn btn-ghost" disabled={lineas.length === 0} onClick={imprimir}>
             Imprimir nómina
           </button>
@@ -924,15 +947,9 @@ export default function Nomina({ supabase, sucursal, user }) {
 
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Historial</h3>
-        <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Historial</h3>
         <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.65rem' }}>
-          Usa <strong>Eliminar</strong> si cerraste una nómina duplicada o incorrecta.
-          {esAdmin && (
-            <>
-              {' '}
-              Como administrador también puedes <strong>Reabrir</strong> la más reciente para corregirla.
-            </>
-          )}
+          Usa <strong>Editar</strong> en la última nómina si hay que corregir cifras. Usa <strong>Eliminar</strong> si
+          cerraste una nómina duplicada o incorrecta.
         </p>
         <div className="table-wrap">
           <table className="data">
@@ -966,6 +983,18 @@ export default function Nomina({ supabase, sucursal, user }) {
                         <button type="button" className="btn btn-ghost" style={{ padding: '0.25rem 0.5rem' }} onClick={() => verPeriodo(p)}>
                           Ver
                         </button>
+                        {puedeEliminarNomina && esPeriodoNominaMasReciente(periodos, p.id) && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ padding: '0.25rem 0.5rem', color: 'var(--brand-gold-dark)' }}
+                            disabled={cargando}
+                            onClick={() => editarPeriodoCerrado(p)}
+                            title="Carga esta nómina en la tabla para corregirla"
+                          >
+                            Editar
+                          </button>
+                        )}
                         {puedeEliminarNomina && (
                           <button
                             type="button"
@@ -1010,16 +1039,16 @@ export default function Nomina({ supabase, sucursal, user }) {
                 >
                   Recibos por empleado
                 </button>
-                {esAdmin && (
+                {puedeEliminarNomina && esPeriodoNominaMasReciente(periodos, periodoSel.id) && (
                   <button
                     type="button"
                     className="btn btn-ghost"
                     style={{ color: 'var(--brand-gold-dark)' }}
                     disabled={cargando}
-                    onClick={reabrirPeriodo}
+                    onClick={() => editarPeriodoCerrado(periodoSel)}
                     title="Solo la nómina más reciente. Revierte gastos y préstamos aplicados."
                   >
-                    Reabrir para corregir
+                    Editar esta nómina
                   </button>
                 )}
                 {puedeEliminarNomina && (
