@@ -10,25 +10,7 @@ import {
   sucursalParaUbicacion,
 } from './inventarioMultitienda.js';
 import { guardarMovimientoLocal, leerMovimientosLocal, parseCantidadInventario, leerProductoInventarioFresco, aplicarDeltaStockAtomico } from './inventarioMovimientos.js';
-
-const LS_FOLIO_TRP = 'pos3b_folio_traspaso_seq';
-
-function generarFolioTraspaso() {
-  const PREFIX = 'trp';
-  let seq = 1;
-  try {
-    const raw = localStorage.getItem(LS_FOLIO_TRP);
-    const o = raw ? JSON.parse(raw) : {};
-    // Soporta formato nuevo { seq } y el viejo { ymd, seq }.
-    seq = Math.max(1, (Number(o.seq) || 0) + 1);
-    localStorage.setItem(LS_FOLIO_TRP, JSON.stringify({ seq }));
-  } catch {
-    seq = Math.floor(Math.random() * 9000) + 1;
-  }
-  // trp-0001 … trp-9999; desde 10000 ya no rellena a 4 dígitos.
-  const ancho = seq <= 9999 ? 4 : String(seq).length;
-  return `${PREFIX}-${String(seq).padStart(ancho, '0')}`;
-}
+import { generarFolioTrp } from './foliosInventario.js';
 
 export function stockEnUbicacion(producto, sucursal, ubicacion, sucursalContext) {
   return stockEnUbicacionMt(producto, sucursal, ubicacion, sucursalContext || sucursal);
@@ -237,7 +219,7 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
 
   const origenTxt = `${etiquetaUbicacion(ruta.ubicacionOrigen, ruta.sucursalOrigen)} · ${etiquetaSucursal(ruta.sucursalOrigen)}`;
   const destTxt = `${etiquetaUbicacion(ruta.ubicacionDestino, ruta.sucursalDestino)} · ${etiquetaSucursal(ruta.sucursalDestino)}`;
-  const folioTrp = folio || generarFolioTraspaso();
+  const folioTrp = folio || generarFolioTrp(ruta.sucursalOrigen || sucursalActiva);
 
   const log = guardarMovimientoLocal({
     tipo: 'traspaso',
@@ -286,7 +268,7 @@ export async function aplicarTraspasosMasivos(supabase, opts) {
   }
   if (!lista.length) return { ok: false, error: 'Agrega al menos un producto con cantidad.' };
 
-  const folio = generarFolioTraspaso();
+  const folio = generarFolioTrp(sucursalOrigen || sucursalActiva);
   let log = leerMovimientosLocal();
   let aplicados = 0;
   const errores = [];

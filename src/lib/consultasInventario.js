@@ -270,7 +270,7 @@ function movimientosDesdeCompras(compras) {
     const created = c.created_at || c.fecha;
     const notas = String(c.notas || '');
     const folioNotas = (notas.match(/Folio inv\s+([A-Z0-9-]+)/i) || [])[1];
-    const folioCompra = folioNotas || folioDesdeCompraId(c.id);
+    const folioCompra = folioNotas || folioDesdeCompraId(c.id, suc);
     for (const a of itemsCompra(c)) {
       const qty = Number(a.qty ?? a.cantidad ?? a.qty_recibido) || 0;
       if (qty <= 0) continue;
@@ -341,7 +341,9 @@ function dedupeMovimientos(list) {
     const pid = String(m.producto_id || '');
     const t = new Date(m.created_at || 0).getTime();
     const bucket = Math.floor(t / 120000); // 2 min
-    const folioKey = folio ? `folio|${folio}|${pid}|${m.tipo || ''}|${Number(m.cantidad) || 0}` : null;
+    const folioKey = folio
+      ? `folio|${folio}|${suc}|${pid}|${m.tipo || ''}|${Number(m.cantidad) || 0}`
+      : null;
     // Identidad estable primero (nube / origen local / folio de lote) para no perder ni duplicar.
     const key =
       m.cloudId ||

@@ -260,3 +260,20 @@ export function sucursalInicial() {
   if (loc) return loc;
   return leerSucursalGuardada();
 }
+
+/**
+ * Token corto para folios de inventario (ingresos, compras, traspasos).
+ * 3B5 → 5, 3B10 → 10, FUSION → FUS, CEDIS → CED, MAIN → M.
+ * Así cada sucursal tiene folios distintos aunque el consecutivo coincida.
+ */
+export function tokenFolioSucursal(codigo) {
+  const c = normalizarCodigoTienda(codigo);
+  if (!c) return 'X';
+  const m3b = c.match(/^3B(\d+)$/i);
+  if (m3b) return m3b[1];
+  if (c === 'FUSION') return 'FUS';
+  if (c === 'CEDIS') return 'CED';
+  if (c === 'MAIN') return 'M';
+  const compacto = c.replace(/[^A-Z0-9]/g, '').slice(0, 8);
+  return compacto || 'X';
+}

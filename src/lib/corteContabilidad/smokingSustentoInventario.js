@@ -3,17 +3,18 @@
  * Evita gastos “fantasma” (mismo monto varias veces sin ingreso real).
  *
  * Folios aceptados (los que ve el operador):
- * - ING-DDMM-#### / ING-YYYYMMDD-####  → ingreso libre o entrega (movimientos_inventario)
- * - CMP-XXXXXXXX                       → recepción de compra
- * - RET-DDMM-####                      → retorno (mismo ledger)
- * - trp-XXXX                           → traspaso recibido en la tienda
- * - UUID de compra                     → legacy (historial)
+ * - ING-{suc}-DDMM-#### / ING-DDMM-####  → ingreso libre o entrega
+ * - CMP-{suc}-XXXXXXXX / CMP-XXXXXXXX     → recepción de compra
+ * - RET-{suc}-DDMM-####                   → retorno
+ * - trp-{suc}-XXXX / trp-XXXX             → traspaso recibido en la tienda
+ * - UUID de compra                        → legacy (historial)
  *
  * El ingreso libre (botón Inventario → Ingreso) NO crea fila en `compras`;
  * vive en `movimientos_inventario` (a menudo en MAIN/CEDIS) con meta.folio.
  */
 import { etiquetaTienda, esSucursalNoVenta, normalizarCodigoTienda } from '../../constants/sucursales.js';
-import { folioDesdeCompraId, leerMovimientosLocal } from '../inventarioMovimientos.js';
+import { leerMovimientosLocal } from '../inventarioMovimientos.js';
+import { coincideFolioCompra, normalizarFolioInventario } from '../foliosInventario.js';
 import { normalizarNombreProveedorClave, nombreProveedorDesdeGasto } from '../proveedorEntregas.js';
 import { importeUnitarioMovimientoInventario } from '../valorInventario.js';
 import { productoUsaCostoPrecioRutaPorMarca } from '../proveedoresCostoRuta.js';
@@ -46,33 +47,7 @@ export function parseFoliosInventarioSmoking(raw) {
 }
 
 export function normalizarFolioSustentoSmoking(raw) {
-  const s0 = String(raw || '').trim();
-  if (!s0) return '';
-  const s = s0.replace(/\s+/g, '');
-  // trp-0020
-  const mTrp = s.match(/^trp-?(\d+)$/i);
-  if (mTrp) {
-    const digits = mTrp[1];
-    const ancho = digits.length <= 4 ? 4 : digits.length;
-    return `trp-${digits.padStart(ancho, '0')}`;
-  }
-  // ING- / RET- corto (DDMM) o largo (YYYYMMDD); pad del consecutivo a 4.
-  const mIng = s.match(/^(ING|RET)-(\d{4}|\d{8})-(\d{1,6})$/i);
-  if (mIng) {
-    return `${mIng[1].toUpperCase()}-${mIng[2]}-${mIng[3].padStart(4, '0')}`;
-  }
-  // CMP-XXXXXXXX
-  if (/^CMP-/i.test(s)) return s.toUpperCase();
-  if (/^(ING|RET)-/i.test(s)) return s.toUpperCase();
-  // UUID compra
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) {
-    return s.toLowerCase();
-  }
-  // Prefijo corto de UUID (8+ hex) → se resuelve contra compras
-  if (/^[0-9a-f]{8,32}$/i.test(s) && !/^(ing|cmp|ret|trp)/i.test(s)) {
-    return s.toLowerCase();
-  }
-  return s.toUpperCase();
+  return normalizarFolioInventario(raw);
 }
 
 function folioDeFilaMovimiento(m) {
@@ -183,7 +158,7 @@ function matchCompraPorFolio(compras, folio) {
   for (const c of compras || []) {
     if (!c?.id) continue;
     if (String(c.id).toLowerCase() === f.toLowerCase()) return c;
-    if (folioDesdeCompraId(c.id).toUpperCase() === fUp) return c;
+    if (coincideFolioCompra(c, fUp)) return c;
     const notas = String(c.notas || '');
     if (notas.toUpperCase().includes(`FOLIO INV ${fUp}`)) return c;
     if (notas.toUpperCase().includes(fUp) && /^(ING|CMP)-/i.test(fUp)) return c;
@@ -373,9 +348,9 @@ async function resolverCompra(supabase, folio, sid, comprasCache) {
       error:
         `No encontré inventario/compra para ${folio}.\n\n` +
         'Usa el folio que sale al recibir mercancía:\n' +
-        '• ING-DDMM-#### (ingreso libre / Inventario → Ingreso)\n' +
-        '• CMP-XXXXXXXX (pedido + recepción)\n' +
-        '• trp-XXXX (traspaso)\n' +
+        '• ING-{suc}-DDMM-#### (ingreso libre / Inventario → Ingreso)\n' +
+        '• CMP-{suc}-XXXXXXXX (pedido + recepción)\n' +
+        '• trp-{suc}-XXXX (traspaso)\n' +
         '• o el UUID del historial de Compras.',
     };
   }
@@ -420,7 +395,7 @@ export async function resolverFolioSustentoSmoking(supabase, { folio, sucursal, 
   if (!f) return { ok: false, error: 'Folio vacío.' };
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
 
-  if (/^trp-\d+/i.test(f)) {
+  if (/^trp-/i.test(f)) {
     return resolverTraspaso(supabase, f, sid);
   }
 
@@ -476,9 +451,9 @@ export async function validarSustentoSmokingGasto(supabase, {
         'Smoking requiere folio de inventario (sustento).\n\n' +
         'Sin folio se pueden crear gastos fantasma ($1080 varias veces sin mercancía).\n\n' +
         'Copia el folio de:\n' +
-        '• Inventario → Ingreso (ING-DDMM-####, ej. ING-0309-0001)\n' +
+        '• Inventario → Ingreso (ING-{suc}-DDMM-####, ej. ING-5-0309-0001)\n' +
         '• Compras → recepción (CMP-…)\n' +
-        '• o Traspaso recibido (trp-…)\n\n' +
+        '• o Traspaso recibido (trp-{suc}-…)\n\n' +
         'Lo ves en Consultas → Inventario o al confirmar el ingreso.',
     };
   }

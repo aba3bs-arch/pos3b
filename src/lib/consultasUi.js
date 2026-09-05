@@ -143,6 +143,7 @@ export function fmtRangoFechas(desde, hasta) {
 }
 
 import { costoProveedorUnitario, importeUnitarioMovimientoInventario } from './valorInventario.js';
+import { normalizarCodigoTienda } from '../constants/sucursales.js';
 
 /**
  * Mapa producto_id → costo proveedor para valorizar Consultas → Inventario.
@@ -286,7 +287,9 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
 
     const esTraspaso = m.tipo === 'traspaso' || m.modo === 'ubicacion';
     const folioRaw = m.folio || m.meta?.folio || null;
-    // Un folio = un documento. No se parte por departamento del artículo.
+    const sucDoc = normalizarCodigoTienda(m.sucursal || m.sucursal_id || '') || '';
+    // Un folio = un ticket/documento completo (Coca junta, pan en otro folio).
+    // La sucursal entra en la clave para que 3B5 y 3B2 no mezclen tickets con el mismo consecutivo.
     const folio =
       folioRaw ||
       (esVenta
@@ -309,13 +312,12 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
       (m.origen === 'compras' || m.modo === 'compra'
         ? String(m.id || '').replace(/^compra_/, '').split('_')[0]
         : null);
-    // Mismo folio: envío y recepción van en documentos distintos.
-    // Prioridad: folio compartido de la operación (compra/ingreso/traspaso).
+    // Mismo folio + misma sucursal = mismo ticket. Envío y recepción van aparte.
     const key =
       folioRaw && esTraspaso
-        ? `folio:${folioRaw}:${faseTrp || 'traspaso'}`
+        ? `folio:${folioRaw}:${faseTrp || 'traspaso'}:${sucDoc}`
         : folioRaw
-          ? `folio:${folioRaw}`
+          ? `folio:${folioRaw}:${sucDoc}`
           : esTraspaso
             ? `trp:${faseTrp || 'x'}:${usuario}|${bucket}|${m.sucursal_origen || m.meta?.sucursal_origen || ''}|${m.sucursal_destino || m.meta?.sucursal_destino || ''}|${m.ubicacion_origen || ''}|${m.ubicacion_destino || ''}|${m.subtipo || ''}`
             : esVenta
@@ -324,7 +326,7 @@ export function agruparDocumentosInventario(movimientos, opts = {}) {
                 ? `compra:${compraId}`
                 : m.origen === 'cancelaciones' || m.modo === 'cancelacion'
                   ? `cancel:${String(m.id).replace(/^cancel_/, '').split('_')[0]}`
-                  : `${titulo}|${usuario}|${bucket}|${m.sucursal || ''}`;
+                  : `${titulo}|${usuario}|${bucket}|${sucDoc}`;
 
     if (!map.has(key)) {
       map.set(key, {

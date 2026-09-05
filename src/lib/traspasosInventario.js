@@ -10,9 +10,9 @@ import {
 } from './inventarioMultitienda.js';
 import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { guardarMovimientoLocal, aplicarDeltaStockAtomico } from './inventarioMovimientos.js';
+import { generarFolioTrp } from './foliosInventario.js';
 
 const LS = 'pos3b_inventario_traspasos';
-const LS_FOLIO = 'pos3b_folio_traspaso_seq';
 
 export const AVISO_SQL_TRASPASOS =
   'Para sincronizar traspasos entre equipos ejecuta supabase/fix_inventario_traspasos.sql en Supabase.';
@@ -26,19 +26,7 @@ function faltaTabla(error) {
   );
 }
 
-export function generarFolioTrp() {
-  let seq = 1;
-  try {
-    const raw = localStorage.getItem(LS_FOLIO);
-    const o = raw ? JSON.parse(raw) : {};
-    seq = Math.max(1, (Number(o.seq) || 0) + 1);
-    localStorage.setItem(LS_FOLIO, JSON.stringify({ seq }));
-  } catch {
-    seq = Math.floor(Math.random() * 9000) + 1;
-  }
-  const ancho = seq <= 9999 ? 4 : String(seq).length;
-  return `trp-${String(seq).padStart(ancho, '0')}`;
-}
+export { generarFolioTrp };
 
 function leerLocal() {
   try {
@@ -217,7 +205,7 @@ export async function crearSolicitudTraspaso(supabase, opts = {}) {
 
   const row = {
     id: crypto.randomUUID?.() || `loc-${Date.now()}`,
-    folio: generarFolioTrp(),
+    folio: generarFolioTrp(ruta.destino_id),
     tipo: 'solicitud',
     estado: 'solicitud',
     origen_id: ruta.origen_id,
@@ -286,7 +274,7 @@ export async function enviarTraspaso(supabase, opts = {}) {
     item._productoActualizado = r.producto;
   }
 
-  const folio = generarFolioTrp();
+  const folio = generarFolioTrp(ruta.origen_id);
   const row = {
     id: crypto.randomUUID?.() || `loc-${Date.now()}`,
     folio,

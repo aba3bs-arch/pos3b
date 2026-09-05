@@ -28,7 +28,7 @@ async function aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, 
   const avisos = [];
   let aplicados = 0;
   let pendientesNube = 0;
-  const folioCompra = (folio && String(folio).trim()) || generarFolioMovimiento('entrada');
+  const folioCompra = (folio && String(folio).trim()) || generarFolioMovimiento('entrada', sucursal);
   for (const l of items) {
     const r = await aplicarMovimientoInventario(supabase, {
       tipo: 'entrada',
@@ -472,7 +472,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     const errores = [];
     let aplicados = 0;
     const motivoBase = `Compra/recepción · ${compraActiva.id}${compraActiva.notas ? ` · ${compraActiva.notas}` : ''}`;
-    const folioCompra = folioDesdeCompraId(compraActiva.id);
+    const folioCompra = folioDesdeCompraId(compraActiva.id, sucursal);
 
     const inv = await aplicarInventarioCompra(supabase, items, motivoBase, {
       sucursal,
@@ -553,7 +553,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     if (Number.isNaN(totalTicket) || totalTicket < 0) return alert('Total no válido.');
 
     const notas = `Entrega directa · ${notasPedido || proveedorNombre}`.trim();
-    const folioCompra = generarFolioMovimiento('entrada');
+    const folioCompra = generarFolioMovimiento('entrada', sucursal);
     const invPreview = await aplicarInventarioCompra(supabase, items, `${notas} · ${folioCompra}`, {
       sucursal,
       user,

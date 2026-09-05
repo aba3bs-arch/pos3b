@@ -39,6 +39,10 @@ test('normaliza folios ING corto, CMP y trp', () => {
   assert.equal(normalizarFolioSustentoSmoking('CMP-a1b2c3d4'), 'CMP-A1B2C3D4');
   assert.equal(normalizarFolioSustentoSmoking('trp-20'), 'trp-0020');
   assert.equal(normalizarFolioSustentoSmoking('trp0020'), 'trp-0020');
+  assert.equal(normalizarFolioSustentoSmoking('ING-5-0309-1'), 'ING-5-0309-0001');
+  assert.equal(normalizarFolioSustentoSmoking('trp-5-20'), 'trp-5-0020');
+  assert.equal(normalizarFolioSustentoSmoking('trp-FUS-7'), 'trp-FUS-0007');
+  assert.equal(normalizarFolioSustentoSmoking('CMP-5-a1b2c3d4'), 'CMP-5-A1B2C3D4');
 });
 
 test('parseFoliosInventarioSmoking', () => {

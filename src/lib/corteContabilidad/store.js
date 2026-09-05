@@ -15,6 +15,7 @@ import {
   esGastoSmokingAbarrotes,
   validarSustentoSmokingGasto,
 } from './smokingSustentoInventario.js';
+import { normalizarFolioTrp } from '../foliosInventario.js';
 
 const MARKER_TRP_INV = 'TRP_INV:';
 
@@ -35,22 +36,7 @@ function parseFoliosLista(raw) {
     .filter(Boolean);
 }
 
-/** Folio trp-0020 (inventario_traspasos.folio). */
-function normalizarFolioTrp(raw) {
-  const s = String(raw || '').trim().toLowerCase().replace(/\s+/g, '');
-  if (!s) return '';
-  const mTrp = s.match(/^trp-?(\d+)$/i);
-  if (mTrp) {
-    const digits = mTrp[1];
-    const ancho = digits.length <= 4 ? 4 : digits.length;
-    return `trp-${digits.padStart(ancho, '0')}`;
-  }
-  if (/^\d+$/.test(s)) {
-    const ancho = s.length <= 4 ? 4 : s.length;
-    return `trp-${s.padStart(ancho, '0')}`;
-  }
-  return s.startsWith('trp-') ? s : `trp-${s}`;
-}
+/** Folio trp-{suc}-0020 (inventario_traspasos.folio). */
 
 function parseFoliosTraspaso(raw) {
   const out = parseFoliosLista(raw).map((x) => normalizarFolioTrp(x)).filter(Boolean);
@@ -356,7 +342,7 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
     comentarioFinal = aplicarMarkerSmokingComentario(comentarioFinal, sustento.marker);
   }
 
-  // Traspaso (Abarrotes): exigir folio trp-XXXX del módulo Productos → Traspasos.
+  // Traspaso (Abarrotes): exigir folio trp-{suc}-XXXX del módulo Productos → Traspasos.
   const esTraspaso =
     String(modulo || '').toLowerCase() === 'abarrotes' && esGastoTraspasoAbarrotes(modulo, gasto);
   let foliosTraspaso = esTraspaso
@@ -368,8 +354,8 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
       return {
         ok: false,
         error:
-          'Traspaso requiere el folio del envío (ej. trp-0020).\n\n' +
-          'Ve a Productos → Traspasos → Recibir (o historial del traspaso) y copia el folio trp-XXXX.',
+          'Traspaso requiere el folio del envío (ej. trp-5-0020).\n\n' +
+          'Ve a Productos → Traspasos → Recibir (o historial del traspaso) y copia el folio trp-{suc}-XXXX.',
       };
     }
 
@@ -389,7 +375,7 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
             ok: false,
             error:
               `No existe traspaso ${folioTrp} en inventario.\n\n` +
-              'Confirma en Productos → Traspasos que el folio trp-XXXX esté en la nube (estado enviado o recibido).',
+              'Confirma en Productos → Traspasos que el folio trp-{suc}-XXXX esté en la nube (estado enviado o recibido).',
           };
         }
         if (String(doc.tipo || '') !== 'envio') {
@@ -438,7 +424,7 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
             `Folio(s): ${foliosTraspaso.join(', ')}\n` +
             `Valor traspaso (precio): ${fmtMonto(sumPrecio)} · costo: ${fmtMonto(sumCosto)}\n` +
             `Gasto capturado: ${fmtMonto(montoGastoTrp)}\n\n` +
-            'Si fueron varios traspasos parciales, captura todos los folios trp-XXXX hasta que cuadre.',
+            'Si fueron varios traspasos parciales, captura todos los folios trp-{suc}-XXXX hasta que cuadre.',
         };
       }
 
@@ -470,7 +456,7 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
         return {
           ok: false,
           error:
-            'Folio(s) trp-XXXX ya usados en otro gasto de traspaso.\n\n' +
+            'Folio(s) trp-{suc}-XXXX ya usados en otro gasto de traspaso.\n\n' +
             `Repite: ${trpRepetidos.join(', ')}\n` +
             (first ? `Gasto existente: ${first}\n\n` : '\n\n') +
             'No se puede duplicar el gasto del mismo traspaso.',

@@ -11,6 +11,7 @@ import {
   listarSucursales,
   listarSucursalesOperativas,
   agregarSucursalExtra,
+  tokenFolioSucursal,
 } from './sucursales.js';
 import {
   normalizarMapaStockCedisUnico,
@@ -65,5 +66,12 @@ assert.equal(dup.ok, false);
   assert.equal(map.CEDIS.cedis, 12);
   assert.equal(map.MAIN.cedis, 0);
 }
+
+assert.equal(tokenFolioSucursal('3B5'), '5');
+assert.equal(tokenFolioSucursal('3B10'), '10');
+assert.equal(tokenFolioSucursal('3B2'), '2');
+assert.equal(tokenFolioSucursal('FUSION'), 'FUS');
+assert.equal(tokenFolioSucursal('CEDIS'), 'CED');
+assert.equal(tokenFolioSucursal('MAIN'), 'M');
 
 console.log('sucursales.cedis.test.mjs ok');

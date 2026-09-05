@@ -16,6 +16,7 @@ import { esCategoriaEmpleado } from '../../lib/catalogoEmpleadoGastos.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../../constants/sucursales.js';
 import { asegurarCamposSinReservadoOPin } from '../../lib/reservadoAdminPrincipal.js';
 import { esGastoSmokingAbarrotes } from '../../lib/corteContabilidad/smokingSustentoInventario.js';
+import { normalizarFolioTrp } from '../../lib/foliosInventario.js';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -41,25 +42,13 @@ function esGastoTraspasoTxt(txt) {
   return k.includes('TRASPASO') || k.includes('ENVIO MAIN');
 }
 
-function normalizarFolioTrpInput(raw) {
-  const s = String(raw || '').trim().toLowerCase().replace(/\s+/g, '');
-  if (!s) return '';
-  const m = s.match(/^trp-?(\d+)$/i) || (/^\d+$/.test(s) ? [null, s] : null);
-  if (m) {
-    const digits = m[1];
-    const ancho = digits.length <= 4 ? 4 : digits.length;
-    return `trp-${digits.padStart(ancho, '0')}`;
-  }
-  return s.startsWith('trp-') ? s : `trp-${s}`;
-}
-
 function parseFoliosTraspasoInput(raw) {
   const s = String(raw || '');
   return s
     .split(/[\s,;\n]+/g)
     .map((x) => String(x || '').trim())
     .filter(Boolean)
-    .map((x) => normalizarFolioTrpInput(x.replace(/\s+/g, '')))
+    .map((x) => normalizarFolioTrp(x.replace(/\s+/g, '')))
     .filter(Boolean)
     .filter((x, i, arr) => arr.indexOf(x) === i);
 }
@@ -205,8 +194,8 @@ export default function CorteGastosPanel({
       const folios = parseFoliosTraspasoInput(folioTraspaso);
       if (!folios.length) {
         return alert(
-          'Traspaso requiere el folio del envío (ej. trp-0020).\n\n' +
-            'Ve a Productos → Traspasos y copia el folio trp-XXXX del traspaso recibido o enviado a esta tienda.',
+          'Traspaso requiere el folio del envío (ej. trp-5-0020).\n\n' +
+            'Ve a Productos → Traspasos y copia el folio trp-{suc}-XXXX del traspaso recibido o enviado a esta tienda.',
         );
       }
     }
@@ -560,7 +549,7 @@ export default function CorteGastosPanel({
               <input
                 className="input"
                 style={{ width: '100%' }}
-                placeholder="Ej. trp-0020 (varios separados por coma)"
+                placeholder="Ej. trp-5-0020 (varios separados por coma)"
                 value={folioTraspaso}
                 onChange={(e) => setFolioTraspaso(e.target.value)}
               />
@@ -574,7 +563,7 @@ export default function CorteGastosPanel({
               <input
                 className="input"
                 style={{ width: '100%' }}
-                placeholder="Ej. ING-0309-0001 · CMP-A1B2C3D4 · trp-0020"
+                placeholder="Ej. ING-5-0309-0001 · CMP-5-A1B2C3D4 · trp-5-0020"
                 value={folioInventarioSmoking}
                 onChange={(e) => setFolioInventarioSmoking(e.target.value)}
               />
