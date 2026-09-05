@@ -12,6 +12,34 @@ import { puedeGestionarUsuarios } from '../lib/roles.js';
 
 const SECCIONES = [
   {
+    id: 'baja-empleado',
+    title: 'Cómo dar de baja un empleado',
+    body: (
+      <>
+        <p style={{ margin: '0 0 0.5rem' }}>
+          Solo <strong>Administrador</strong> (módulo <strong>Usuarios</strong>) o <strong>Gerente / Administrador</strong> (módulo <strong>RH ABA3B</strong>).
+          No borres el usuario: la baja conserva el historial y permite reingreso.
+        </p>
+        <p style={{ margin: '0 0 0.35rem' }}><strong>Opción A — Usuarios</strong></p>
+        <ol style={{ margin: '0 0 0.65rem', paddingLeft: '1.2rem' }}>
+          <li>Menú <strong>Usuarios</strong>.</li>
+          <li>Arriba, en <strong>Cómo dar de baja un empleado</strong>, elige el nombre y pulsa <strong>Dar de baja</strong>.</li>
+          <li>Elige motivo, fecha y si puede reingresar. Pulsa <strong>Confirmar baja</strong>.</li>
+        </ol>
+        <p style={{ margin: '0 0 0.35rem' }}><strong>Opción B — RH ABA3B</strong></p>
+        <ol style={{ margin: '0 0 0.65rem', paddingLeft: '1.2rem' }}>
+          <li>Menú <strong>RH ABA3B</strong> → pestaña <strong>Activos</strong>.</li>
+          <li>Elige el nombre arriba o pulsa <strong>Dar de baja</strong> en la fila.</li>
+          <li>Confirma motivo y reingreso.</li>
+        </ol>
+        <p style={{ margin: 0 }}>
+          El empleado <strong>ya no entra con su PIN</strong> y sale de nómina y turnos.
+          El expediente queda en <strong>RH ABA3B → Inactivos / bajas</strong>. Para reactivar: <strong>Reactivar</strong> en Usuarios o <strong>Reingresar alta</strong> en RH.
+        </p>
+      </>
+    ),
+  },
+  {
     id: 'acceso',
     title: 'Primer acceso y PIN',
     body: (
@@ -58,6 +86,9 @@ const SECCIONES = [
     body: (
       <>
         <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
+          <li>
+            <strong>¿Cómo doy de baja un empleado?</strong> Menú <strong>Usuarios</strong> (arriba: elige el nombre → Dar de baja → Confirmar) o <strong>RH ABA3B → Activos → Dar de baja</strong>. No borres el usuario.
+          </li>
           <li>
             <strong>Columnas faltantes en Supabase:</strong> ejecuta <code>supabase/fix_supabase_todas_columnas.sql</code> en el SQL Editor.
           </li>
@@ -167,6 +198,7 @@ export default function Ayuda({ user }) {
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Centro de ayuda</h3>
         <p className="muted" style={{ marginTop: 0 }}>
           Guías rápidas, turnos y solución de problemas del POS CONTROL 3B.
+          Para <strong>dar de baja un empleado</strong>: Usuarios o RH ABA3B (elige el nombre y Confirmar baja).
           Abre también el módulo <strong>Tutorial</strong> del menú para las guías ilustradas
           (incluye <strong>Corte Abarrotes</strong> con captura real de pantalla).
           (<strong>Cómo cobrar en el POS</strong>, ingreso de compras, negativos / pagaré / abonos).

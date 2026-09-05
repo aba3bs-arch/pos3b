@@ -7,6 +7,71 @@ export const TUTORIALES = [
   TUTORIAL_CORTE_ABARROTES,
   TUTORIAL_VALES_MAIN,
   {
+    id: 'baja-empleado',
+    titulo: 'Cómo dar de baja un empleado',
+    resumen:
+      'Usuarios o RH ABA3B: elige el nombre, motivo y Confirmar baja. El PIN deja de funcionar; sale de nómina y turnos.',
+    secciones: [
+      {
+        id: 'quien',
+        titulo: '1. Quién puede dar de baja',
+        cuerpo: [
+          '**Administrador:** menú **Usuarios** (el camino más directo).',
+          '**Gerente o Administrador:** menú **RH ABA3B**.',
+          'No uses «eliminar» el usuario: la **baja** conserva historial y permite reingreso.',
+        ],
+      },
+      {
+        id: 'usuarios',
+        titulo: '2. Desde Usuarios (Administrador)',
+        cuerpo: [
+          'Abre **Usuarios**. Arriba verás **Cómo dar de baja un empleado**.',
+          'Elige el nombre en la lista y pulsa **Dar de baja**.',
+          'También puedes buscarlo en **Equipo registrado** y pulsar el botón rojo **Dar de baja** de su fila.',
+        ],
+      },
+      {
+        id: 'rh',
+        titulo: '3. Desde RH ABA3B (Gerente o Admin)',
+        cuerpo: [
+          'Abre **RH ABA3B** → pestaña **Activos**.',
+          'Elige el nombre arriba o pulsa **Dar de baja** en la fila (o abre **Perfil** y luego **Dar de baja**).',
+        ],
+      },
+      {
+        id: 'formulario',
+        titulo: '4. Motivo, fecha y reingreso',
+        cuerpo: [
+          '**Motivo:** renuncia, despido, abandono, fin de contrato, etc.',
+          '**Fecha** de baja.',
+          'Marca si **puede reingresar** (recontratable). Si no, escribe el motivo: un futuro alta pedirá el **PIN del administrador principal**.',
+          'Pulsa **Confirmar baja**.',
+        ],
+      },
+      {
+        id: 'efecto',
+        titulo: '5. Qué pasa al confirmar',
+        cuerpo: [
+          'El empleado **ya no entra** al POS con su PIN.',
+          'Desaparece de **nómina**, **empleados por turno** y de la lista de Usuarios (salvo que marques *Ver dados de baja*).',
+          'El expediente queda en **RH ABA3B → Inactivos / bajas**.',
+        ],
+      },
+      {
+        id: 'reingreso',
+        titulo: '6. Cómo reactivar / reingresar',
+        cuerpo: [
+          'En **Usuarios**, marca **Ver dados de baja** y pulsa **Reactivar**.',
+          'En **RH ABA3B**, pestaña **Inactivos / bajas** → **Perfil** → **Reingresar alta**.',
+          'Si estaba marcado **no recontratable**, hace falta el PIN del administrador principal.',
+        ],
+        notas: [
+          'Frase para capacitar: **Usuarios o RH ABA3B → elegir nombre → Dar de baja → Confirmar baja.**',
+        ],
+      },
+    ],
+  },
+  {
     id: 'cobrar-pos',
     titulo: 'Cómo cobrar en el POS',
     resumen:

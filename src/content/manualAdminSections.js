@@ -150,22 +150,34 @@ En **Configuración → Privilegios por rol o usuario** puedes restringir o ampl
 - \`turno_horario\` → \`fix_turnos_seguridad.sql\`
 - PIN duplicado en la misma sucursal → usa otro PIN
 
-### 4.6 Baja de empleado (nómina, turnos, usuarios y RH ABA3B)
+### 4.6 Cómo dar de baja un empleado
 
-La baja se hace en **Usuarios → Dar de baja** o en **RH ABA3B → Perfil → Dar de baja**. En ambos casos:
+**No borres** el usuario. Usa **Dar de baja** para conservar historial y poder reingresar.
 
-1. Elige **motivo** y si **puede reingresar** (recontratable)
-2. Confirma. El empleado **deja de aparecer** en:
-   - **Nómina**
-   - **Configuración → Empleados por turno**
-   - **Usuarios** (salvo que marques *Ver dados de baja*)
-3. El expediente queda en **RH ABA3B → Inactivos / bajas**
-4. Ya no puede iniciar sesión con su PIN
+**Opción A — Usuarios (solo Administrador)**
+
+1. Menú **Usuarios**
+2. Arriba, **Cómo dar de baja un empleado**: elige el nombre y pulsa **Dar de baja**
+3. También: en **Equipo registrado** busca el nombre y pulsa el botón rojo **Dar de baja**
+4. Elige **motivo**, **fecha** y si **puede reingresar** (recontratable)
+5. **Confirmar baja**
+
+**Opción B — RH ABA3B (Administrador o Gerente)**
+
+1. Menú **RH ABA3B** → pestaña **Activos**
+2. Elige el nombre arriba o pulsa **Dar de baja** en la fila (o **Perfil → Dar de baja**)
+3. Confirma motivo y reingreso
+
+**Al confirmar, el empleado:**
+
+1. **Ya no entra** con su PIN
+2. Deja de aparecer en **Nómina**, **Configuración → Empleados por turno** y **Usuarios** (salvo *Ver dados de baja*)
+3. Queda en **RH ABA3B → Inactivos / bajas**
 
 **Reingreso (alta de nuevo):**
 
 - Si es **recontratable**: en RH ABA3B o Usuarios usa **Reingresar alta / Reactivar**. Vuelve a nómina, turnos y Usuarios.
-- Si **no es recontratable** (o ya no puede ser contratado): hace falta el **PIN del administrador principal** para volver a darlo de alta.`,
+- Si **no es recontratable**: hace falta el **PIN del administrador principal** para volver a darlo de alta.`,
   },
   {
     id: 'turnos',

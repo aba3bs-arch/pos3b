@@ -54,6 +54,7 @@ import {
 } from '../lib/inversionesOficinaProveedor.js';
 import { cargarReporteProveedoresIeAbarrotes } from '../lib/ieAbarrotesProveedores.js';
 import { hoyYmdNogales, ymdNegocioDesdeIso, fmtYmdEs } from '../lib/corteCaja.js';
+import { darDeBajaUsuarioPosYRh } from '../lib/rhAba3b.js';
 import BarraDiasMes, { etiquetaPeriodoDias, ymdDiaMes } from '../components/BarraDiasMes.jsx';
 import './ContVirtual.css';
 
@@ -1657,19 +1658,29 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     if (!esAdmin || !emp?.usuario_id || !supabase) return;
     if (
       !confirm(
-        `¿Dar de baja a ${emp.nombre}?\n\nNo podrá iniciar sesión ni aparecerá en cortes/nómina. Puedes reactivarlo en Empleados.`,
+        `¿Dar de baja a ${emp.nombre}?\n\nNo podrá iniciar sesión ni aparecerá en cortes/nómina. Queda en RH ABA3B como recontratable (motivo: Otro).\n\nSi quieres elegir el motivo o marcarlo NO recontratable, cancela y usa Usuarios o RH ABA3B.`,
       )
     ) {
       return;
     }
-    const { error } = await supabase.from('usuarios').update({ activo: false }).eq('id', emp.usuario_id);
-    if (error) {
-      if (String(error.message).includes('activo')) {
-        return alert('Ejecuta supabase/fix_usuarios_activo.sql en Supabase.');
-      }
-      return alert(error.message);
-    }
+    const usuario = usuariosCat.find((u) => String(u.id) === String(emp.usuario_id)) || {
+      id: emp.usuario_id,
+      nombre: emp.nombre,
+    };
+    const res = await darDeBajaUsuarioPosYRh(
+      supabase,
+      usuario,
+      {
+        motivo_baja: 'Otro',
+        fecha_baja: hoyYmd(),
+        notas_baja: `Baja desde catálogo ${tituloLibro}`,
+        recontratable: true,
+      },
+      { user },
+    );
+    if (!res.ok) return alert(res.error);
     await cargarUsuariosCat();
+    alert(res.mensaje || `${emp.nombre} quedó dado de baja.`);
   };
 
   const nuevoDetalleEnSub = async (subcategoriaId, subNombre) => {
@@ -2525,7 +2536,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                 <div style={{ marginTop: '0.75rem', paddingTop: '0.65rem', borderTop: '1px dashed var(--border, #ddd)' }}>
                   <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.45rem' }}>
                     Personal que puede recibir estos gastos: <strong>Main</strong> (todas las tiendas) y <strong>tienda</strong> (solo la sucursal).
-                    Al capturar en corte o egreso manual se elige la persona. Puedes dar de alta empleados Main aquí; tienda también en Empleados.
+                    Al capturar en corte o egreso manual se elige la persona. Alta de Main aquí; baja de personal en <strong>Usuarios</strong> o <strong>RH ABA3B</strong>.
                   </p>
                   <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
                     Sucursal tienda
@@ -2556,7 +2567,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                         {esAdmin && (
                           <span className="cv-cat-actions">
                             <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarEmpleadoCat({ usuario_id: e.id, nombre: e.nombre })}>Editar</button>
-                            <button type="button" className="cv-row-del" onClick={() => eliminarEmpleadoCat({ usuario_id: e.id, nombre: e.nombre })}>Eliminar</button>
+                            <button type="button" className="cv-row-del" onClick={() => eliminarEmpleadoCat({ usuario_id: e.id, nombre: e.nombre })}>Dar de baja</button>
                           </span>
                         )}
                       </li>
@@ -2575,7 +2586,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                             {esAdmin && (
                               <span className="cv-cat-actions">
                                 <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarEmpleadoCat({ usuario_id: e.id, nombre: e.nombre })}>Editar</button>
-                                <button type="button" className="cv-row-del" onClick={() => eliminarEmpleadoCat({ usuario_id: e.id, nombre: e.nombre })}>Eliminar</button>
+                                <button type="button" className="cv-row-del" onClick={() => eliminarEmpleadoCat({ usuario_id: e.id, nombre: e.nombre })}>Dar de baja</button>
                               </span>
                             )}
                           </li>
