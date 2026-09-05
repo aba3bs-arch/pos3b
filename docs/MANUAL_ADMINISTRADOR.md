@@ -108,6 +108,8 @@ Módulo **Usuarios** (solo Administrador):
 
 Alta: nombre, PIN, sucursal, rol, turno (cajeros). Solo admin cambia turnos.
 
+**Baja de empleado:** Usuarios → *Cómo dar de baja un empleado* (elige nombre → Confirmar baja). Gerente: **RH ABA3B → Activos → Dar de baja**. El PIN deja de funcionar; sale de nómina y turnos. No borres el usuario.
+
 ---
 
 ## 5. Turnos diurno y nocturno

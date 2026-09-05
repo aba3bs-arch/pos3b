@@ -24,6 +24,7 @@ import {
   darDeBajaUsuarioPosYRh,
   reactivarUsuarioPosYRh,
 } from '../lib/rhAba3b.js';
+import FormularioBajaEmpleado from '../components/FormularioBajaEmpleado.jsx';
 
 const emptyForm = (sucursalDefault) => ({
   nombre: '',
@@ -50,6 +51,8 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     nomina_pagador: 'abarrotes',
   });
   const [filtroSucursal, setFiltroSucursal] = useState('');
+  const [qEquipo, setQEquipo] = useState('');
+  const [bajaPickId, setBajaPickId] = useState('');
   const [mostrarBajas, setMostrarBajas] = useState(false);
   const [bajaTarget, setBajaTarget] = useState(null);
   const [bajaForm, setBajaForm] = useState({
@@ -103,10 +106,21 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     };
   }, []);
 
+  const qEquipoNorm = qEquipo.trim().toLowerCase();
   const filas = (esAdmin
     ? filtrarEmpleadosAdmin(rows, filtroSucursal)
     : empleadosVisiblesParaTienda(rows, sucursal, actor?.rol)
-  ).filter((r) => (mostrarBajas ? true : r.activo !== false));
+  )
+    .filter((r) => (mostrarBajas ? true : r.activo !== false))
+    .filter((r) => !qEquipoNorm || String(r.nombre || '').toLowerCase().includes(qEquipoNorm));
+
+  const activosParaBaja = useMemo(
+    () => rows
+      .filter((r) => r.activo !== false && String(r.id) !== String(actor?.id || ''))
+      .slice()
+      .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es')),
+    [rows, actor?.id],
+  );
 
   const catalogoGrupos = useMemo(
     () => agruparEmpleadosCatalogo(filas, { incluirBajas: mostrarBajas }),
@@ -328,6 +342,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     if (!supabase || !esAdmin || !r?.id) return;
     if (actor?.id === r.id) return alert('No puedes darte de baja a ti mismo.');
     setBajaTarget(r);
+    setBajaPickId(String(r.id));
     setBajaForm({
       motivo_baja: MOTIVOS_BAJA_RH[0],
       fecha_baja: new Date().toISOString().slice(0, 10),
@@ -335,6 +350,12 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       recontratable: true,
       motivo_no_recontratable: '',
     });
+  };
+
+  const continuarBajaDesdeSelector = () => {
+    const r = rows.find((x) => String(x.id) === String(bajaPickId));
+    if (!r) return alert('Elige el empleado de la lista.');
+    abrirBaja(r);
   };
 
   const confirmarBaja = async () => {
@@ -347,6 +368,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     setTrabajandoBaja(false);
     if (!res.ok) return alert(res.error);
     setBajaTarget(null);
+    setBajaPickId('');
     load();
     alert(res.mensaje || `${bajaTarget.nombre} quedó dado de baja.`);
   };
@@ -568,53 +590,53 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      {bajaTarget && (
-        <div className="card" style={{ borderLeft: '4px solid var(--danger)' }}>
-          <h3 style={{ margin: '0 0 0.5rem' }}>Dar de baja · {bajaTarget.nombre}</h3>
+      {bajaTarget ? (
+        <FormularioBajaEmpleado
+          nombre={bajaTarget.nombre}
+          form={bajaForm}
+          setForm={setBajaForm}
+          onConfirm={confirmarBaja}
+          onCancel={() => { setBajaTarget(null); setBajaPickId(''); }}
+          trabajando={trabajandoBaja}
+        >
           <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
             Dejará de aparecer en nómina, en empleados por turno (Configuración) y en esta lista.
             La baja se registra en <strong>RH ABA3B</strong>. Si es recontratable, podrás reingresar su alta después.
           </p>
-          <div className="grid-2">
-            <select className="select" value={bajaForm.motivo_baja} onChange={(e) => setBajaForm({ ...bajaForm, motivo_baja: e.target.value })}>
-              {MOTIVOS_BAJA_RH.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
-            <input className="input" type="date" value={bajaForm.fecha_baja} onChange={(e) => setBajaForm({ ...bajaForm, fecha_baja: e.target.value })} />
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={bajaForm.recontratable}
-                onChange={(e) => setBajaForm({ ...bajaForm, recontratable: e.target.checked })}
-              />
-              Puede reingresar (recontratable)
+        </FormularioBajaEmpleado>
+      ) : (
+        <div className="card" style={{ borderLeft: '4px solid var(--danger)' }}>
+          <h3 style={{ margin: '0 0 0.5rem' }}>Cómo dar de baja un empleado</h3>
+          <ol style={{ margin: '0 0 0.85rem', paddingLeft: '1.25rem', fontSize: '0.9rem', lineHeight: 1.55 }}>
+            <li>Elige el nombre aquí, o en <strong>Equipo registrado</strong> pulsa el botón rojo <strong>Dar de baja</strong>.</li>
+            <li>Indica <strong>motivo</strong>, <strong>fecha</strong> y si <strong>puede reingresar</strong>.</li>
+            <li>Pulsa <strong>Confirmar baja</strong>. El PIN deja de funcionar; sale de nómina y de turnos.</li>
+          </ol>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
+            <label className="muted" style={{ flex: '1 1 220px', fontSize: '0.8rem' }}>
+              Empleado activo
+              <select
+                className="select"
+                style={{ marginTop: '0.35rem' }}
+                value={bajaPickId}
+                onChange={(e) => setBajaPickId(e.target.value)}
+              >
+                <option value="">— Elige nombre —</option>
+                {activosParaBaja.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.nombre} · {etiquetaTienda(r.sucursal_id)} · {normalizarRol(r.rol)}
+                  </option>
+                ))}
+              </select>
             </label>
-            {!bajaForm.recontratable && (
-              <input
-                className="input"
-                placeholder="Motivo por el que NO es recontratable"
-                value={bajaForm.motivo_no_recontratable}
-                onChange={(e) => setBajaForm({ ...bajaForm, motivo_no_recontratable: e.target.value })}
-              />
-            )}
-            <input
-              className="input"
-              style={{ gridColumn: '1 / -1' }}
-              placeholder="Notas de baja (opcional)"
-              value={bajaForm.notas_baja}
-              onChange={(e) => setBajaForm({ ...bajaForm, notas_baja: e.target.value })}
-            />
-          </div>
-          {!bajaForm.recontratable && (
-            <p className="muted" style={{ fontSize: '0.82rem', marginTop: '0.65rem' }}>
-              Sin reingreso: para volver a darlo de alta se necesita el <strong>PIN del administrador principal</strong>.
-            </p>
-          )}
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem' }}>
-            <button type="button" className="btn btn-danger" disabled={trabajandoBaja} onClick={confirmarBaja}>
-              {trabajandoBaja ? 'Guardando…' : 'Confirmar baja'}
+            <button type="button" className="btn btn-danger" onClick={continuarBajaDesdeSelector}>
+              Dar de baja
             </button>
-            <button type="button" className="btn btn-ghost" onClick={() => setBajaTarget(null)}>Cancelar</button>
           </div>
+          <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
+            Gerente también puede dar de baja en <strong>RH ABA3B → Activos → Dar de baja</strong>.
+            Para ver a alguien ya dado de baja, marca <strong>Ver dados de baja</strong> y usa <strong>Reactivar</strong>.
+          </p>
         </div>
       )}
 
@@ -744,6 +766,13 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
           <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Equipo registrado</h3>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
+            <input
+              className="input"
+              placeholder="Buscar por nombre…"
+              value={qEquipo}
+              onChange={(e) => setQEquipo(e.target.value)}
+              style={{ minWidth: '180px', maxWidth: '240px', marginBottom: 0 }}
+            />
             <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
               <input type="checkbox" checked={mostrarBajas} onChange={(e) => setMostrarBajas(e.target.checked)} />
               Ver dados de baja
@@ -780,7 +809,9 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
               {filas.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="muted">
-                    Sin usuarios. Ejecuta el SQL de sucursal y el seed si es la primera vez.
+                    {qEquipoNorm
+                      ? 'Ningún empleado coincide con la búsqueda.'
+                      : 'Sin usuarios. Ejecuta el SQL de sucursal y el seed si es la primera vez.'}
                   </td>
                 </tr>
               ) : (

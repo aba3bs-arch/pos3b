@@ -26,6 +26,7 @@ import {
   mapearExtrasAFormDocs,
 } from '../lib/rhIneOcr.js';
 import { ROLES } from '../lib/roles.js';
+import FormularioBajaEmpleado from '../components/FormularioBajaEmpleado.jsx';
 
 const FORM_VACIO = {
   nombre: '',
@@ -106,6 +107,8 @@ export default function RhAba3b({ supabase, user, sucursal }) {
   const [nota, setNota] = useState('');
   const [pinAdmin, setPinAdmin] = useState('');
   const [trabajando, setTrabajando] = useState(false);
+  const [bajaPickId, setBajaPickId] = useState('');
+  const [bajaOrigen, setBajaOrigen] = useState('lista');
 
   const sucOperativas = useMemo(() => listarSucursalesOperativas(), []);
 
@@ -153,6 +156,30 @@ export default function RhAba3b({ supabase, user, sucursal }) {
     setTrabajando(false);
   };
 
+  const abrirBajaDesdeLista = (e) => {
+    if (!puede || !e?.id) return;
+    if (e.estado === 'baja') return alert('Ya está dado de baja.');
+    setMsg('');
+    setSeleccionadoId(e.id);
+    setEmpleado(e);
+    setBajaPickId(String(e.id));
+    setBajaForm({
+      motivo_baja: MOTIVOS_BAJA_RH[0],
+      fecha_baja: new Date().toISOString().slice(0, 10),
+      notas_baja: '',
+      recontratable: true,
+      motivo_no_recontratable: '',
+    });
+    setVista('baja');
+    setBajaOrigen('lista');
+  };
+
+  const continuarBajaDesdeSelector = () => {
+    const e = activos.find((x) => String(x.id) === String(bajaPickId));
+    if (!e) return alert('Elige el empleado de la lista.');
+    abrirBajaDesdeLista(e);
+  };
+
   const lista = pestana === 'activos' ? activos : inactivos;
 
   const guardarAlta = async () => {
@@ -189,6 +216,7 @@ export default function RhAba3b({ supabase, user, sucursal }) {
     if (!res.ok) return alert(res.error);
     setMsg(res.mensaje);
     setPestana('inactivos');
+    setBajaPickId('');
     await abrirDetalle(seleccionadoId);
     await cargarListas();
   };
@@ -254,7 +282,9 @@ export default function RhAba3b({ supabase, user, sucursal }) {
       <div>
         <h2 style={{ margin: 0, color: '#0f766e' }}>RH ABA3B</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
-          Altas y bajas de personal: tienda, cubre turnos e indirectos. La baja se refleja en nómina, turnos y Usuarios; el reingreso no recontratable pide PIN del administrador principal.
+          Altas y bajas de personal: tienda, cubre turnos e indirectos.
+          Para dar de baja: elige el nombre abajo o pulsa <strong>Dar de baja</strong> en la fila.
+          La baja se refleja en nómina, turnos y Usuarios; el reingreso no recontratable pide PIN del administrador principal.
         </p>
       </div>
 
@@ -277,6 +307,39 @@ export default function RhAba3b({ supabase, user, sucursal }) {
 
       {vista === 'lista' && (
         <>
+          <div className="card" style={{ borderLeft: '4px solid var(--danger)' }}>
+            <h3 style={{ margin: '0 0 0.5rem' }}>Cómo dar de baja un empleado</h3>
+            <ol style={{ margin: '0 0 0.85rem', paddingLeft: '1.25rem', fontSize: '0.9rem', lineHeight: 1.55 }}>
+              <li>Elige el nombre aquí, o en la tabla pulsa <strong>Dar de baja</strong> (también puedes abrir <strong>Perfil</strong>).</li>
+              <li>Indica <strong>motivo</strong>, <strong>fecha</strong> y si <strong>puede reingresar</strong>.</li>
+              <li>Pulsa <strong>Confirmar baja</strong>. El PIN deja de funcionar; sale de nómina y de turnos.</li>
+            </ol>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
+              <label className="muted" style={{ flex: '1 1 220px', fontSize: '0.8rem' }}>
+                Empleado activo
+                <select
+                  className="select"
+                  style={{ marginTop: '0.35rem' }}
+                  value={bajaPickId}
+                  onChange={(e) => setBajaPickId(e.target.value)}
+                >
+                  <option value="">— Elige nombre —</option>
+                  {activos.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {nombreCompletoRh(e)} · {e.sucursal_id ? etiquetaTienda(e.sucursal_id) : '—'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" className="btn btn-danger" disabled={!puede} onClick={continuarBajaDesdeSelector}>
+                Dar de baja
+              </button>
+            </div>
+            <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
+              Administrador también puede hacerlo en <strong>Usuarios</strong>. Los inactivos están en la pestaña <strong>Inactivos / bajas</strong>.
+            </p>
+          </div>
+
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
             <button
               type="button"
@@ -360,9 +423,16 @@ export default function RhAba3b({ supabase, user, sucursal }) {
                         )}
                       </td>
                       <td>
-                        <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.5rem' }} onClick={() => abrirDetalle(e.id)}>
-                          Perfil
-                        </button>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', justifyContent: 'flex-end' }}>
+                          <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.5rem' }} onClick={() => abrirDetalle(e.id)}>
+                            Perfil
+                          </button>
+                          {e.estado !== 'baja' && puede && (
+                            <button type="button" className="btn btn-danger" style={{ padding: '0.2rem 0.5rem' }} onClick={() => abrirBajaDesdeLista(e)}>
+                              Dar de baja
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -407,7 +477,23 @@ export default function RhAba3b({ supabase, user, sucursal }) {
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
                 {empleado.estado === 'activo' && (
-                  <button type="button" className="btn btn-danger" onClick={() => setVista('baja')}>Dar de baja</button>
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    onClick={() => {
+                      setBajaOrigen('detalle');
+                      setBajaForm({
+                        motivo_baja: MOTIVOS_BAJA_RH[0],
+                        fecha_baja: new Date().toISOString().slice(0, 10),
+                        notas_baja: '',
+                        recontratable: true,
+                        motivo_no_recontratable: '',
+                      });
+                      setVista('baja');
+                    }}
+                  >
+                    Dar de baja
+                  </button>
                 )}
                 {empleado.estado === 'baja' && empleado.recontratable && (
                   <button type="button" className="btn btn-primary" onClick={recontratarDirecto}>Reingresar alta</button>
@@ -484,49 +570,15 @@ export default function RhAba3b({ supabase, user, sucursal }) {
       )}
 
       {vista === 'baja' && empleado && (
-        <div className="card">
-          <h3 style={{ margin: '0 0 0.75rem' }}>Dar de baja · {nombreCompletoRh(empleado)}</h3>
-          <div className="grid-2">
-            <select className="select" value={bajaForm.motivo_baja} onChange={(e) => setBajaForm({ ...bajaForm, motivo_baja: e.target.value })}>
-              {MOTIVOS_BAJA_RH.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
-            <input className="input" type="date" value={bajaForm.fecha_baja} onChange={(e) => setBajaForm({ ...bajaForm, fecha_baja: e.target.value })} />
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input
-                type="checkbox"
-                checked={bajaForm.recontratable}
-                onChange={(e) => setBajaForm({ ...bajaForm, recontratable: e.target.checked })}
-              />
-              Recontratable
-            </label>
-            {!bajaForm.recontratable && (
-              <input
-                className="input"
-                placeholder="Motivo por el que NO es recontratable"
-                value={bajaForm.motivo_no_recontratable}
-                onChange={(e) => setBajaForm({ ...bajaForm, motivo_no_recontratable: e.target.value })}
-              />
-            )}
-            <input
-              className="input"
-              style={{ gridColumn: '1 / -1' }}
-              placeholder="Notas de liquidación / entrega de equipo / observaciones"
-              value={bajaForm.notas_baja}
-              onChange={(e) => setBajaForm({ ...bajaForm, notas_baja: e.target.value })}
-            />
-          </div>
-          {!bajaForm.recontratable && (
-            <p className="muted" style={{ fontSize: '0.82rem', marginTop: '0.65rem' }}>
-              Si marcas no recontratable, un futuro reingreso exigirá el <strong>PIN del administrador principal</strong>.
-            </p>
-          )}
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.85rem' }}>
-            <button type="button" className="btn btn-danger" disabled={trabajando} onClick={confirmarBaja}>
-              Confirmar baja
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={() => setVista('detalle')}>Cancelar</button>
-          </div>
-        </div>
+        <FormularioBajaEmpleado
+          nombre={nombreCompletoRh(empleado)}
+          form={bajaForm}
+          setForm={setBajaForm}
+          onConfirm={confirmarBaja}
+          onCancel={() => setVista(bajaOrigen === 'detalle' ? 'detalle' : 'lista')}
+          trabajando={trabajando}
+          notasPlaceholder="Notas de liquidación / entrega de equipo / observaciones"
+        />
       )}
 
       {vista === 'recontrata' && empleado && (
