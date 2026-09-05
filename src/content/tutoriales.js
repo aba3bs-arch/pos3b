@@ -62,6 +62,52 @@ export const TUTORIALES = [
     ],
   },
   {
+    id: 'cambio-tienda-empleado',
+    titulo: 'Cómo cambiar de tienda a un empleado',
+    resumen:
+      'Usuarios o RH ABA3B: elige el empleado y la tienda destino. El PIN pasa a valer ahí. Máx. 2 por sucursal; indirectos/MAIN no se mueven.',
+    secciones: [
+      {
+        id: 'quien',
+        titulo: '1. Quién puede y límites',
+        cuerpo: [
+          '**Administrador:** menú **Usuarios**.',
+          '**Gerente o Administrador:** menú **RH ABA3B**.',
+          'Máximo **2** empleados de tienda activos por sucursal. Los **indirectos / MAIN** aparecen en todas las tiendas: no se les cambia sucursal.',
+        ],
+      },
+      {
+        id: 'usuarios',
+        titulo: '2. Desde Usuarios',
+        cuerpo: [
+          'Menú **Usuarios** → recuadro **Cómo cambiar de tienda a un empleado**.',
+          'Elige el nombre y la **tienda destino**. Pulsa **Cambiar de tienda**.',
+          'También: en **Equipo registrado**, columna **Sucursal**.',
+        ],
+      },
+      {
+        id: 'rh',
+        titulo: '3. Desde RH ABA3B',
+        cuerpo: [
+          'Elige empleado y tienda destino → **Cambiar de tienda**.',
+          'O abre **Perfil**, cambia sucursal y **Guardar cambios**.',
+        ],
+      },
+      {
+        id: 'efecto',
+        titulo: '4. Qué pasa',
+        cuerpo: [
+          'El PIN **solo vale** en la tienda nueva.',
+          'El expediente de RH queda con esa sucursal.',
+          'Si tenía equipo anclado, se **libera** para que ancle en la tienda nueva. Si no puede entrar, pulsa **Liberar equipo**.',
+        ],
+        notas: [
+          'Si el PIN ya existe en la tienda destino, cámbialo antes de moverlo.',
+        ],
+      },
+    ],
+  },
+  {
     id: 'baja-empleado',
     titulo: 'Cómo dar de baja un empleado',
     resumen:

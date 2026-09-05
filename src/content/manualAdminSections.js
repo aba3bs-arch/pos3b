@@ -114,7 +114,7 @@ En el **header** (arriba a la derecha) verás un **selector de tienda** si eres 
   {
     id: 'usuarios',
     title: '4. Usuarios y roles',
-    keywords: ['usuarios', 'pin', 'empleado', 'alta', 'baja', 'rol', 'sucursal asignada', 'reingreso', 'recontratable', 'rh aba3b'],
+    keywords: ['usuarios', 'pin', 'empleado', 'alta', 'baja', 'rol', 'sucursal asignada', 'cambiar tienda', 'traslado', 'reingreso', 'recontratable', 'rh aba3b'],
     body: `Módulo: **Usuarios** (solo Administrador)
 
 ### 4.1 Cómo dar de alta un empleado
@@ -194,7 +194,15 @@ En **Configuración → Privilegios por rol o usuario** puedes restringir o ampl
 3. **RH ABA3B:** pestaña **Inactivos / bajas** → **Reingresar alta** en la fila (o Perfil).
 4. Si está marcado **no recontratable**, captura el PIN del administrador principal.
 
-Al confirmar, vuelve a nómina, turnos y Usuarios; puede entrar otra vez con su PIN.`,
+Al confirmar, vuelve a nómina, turnos y Usuarios; puede entrar otra vez con su PIN.
+
+### 4.8 Cómo cambiar de tienda a un empleado
+
+1. Menú **Usuarios** → recuadro **Cómo cambiar de tienda a un empleado**: elige nombre y **tienda destino** → **Cambiar de tienda**
+2. También: **Equipo registrado** → columna **Sucursal**
+3. Gerente: **RH ABA3B** → mismo recuadro, o **Perfil** → sucursal → Guardar
+
+**Límites:** máx. 2 empleados de tienda activos por sucursal. **Indirectos / MAIN** no se mueven. El PIN pasa a valer en la tienda nueva; si no entra, **Liberar equipo**. Si el PIN ya existe en el destino, cámbialo antes.`,
   },
   {
     id: 'turnos',

@@ -21,6 +21,7 @@ import { pinEsCubreTurnoDeSucursal } from '../lib/cubreTurnoSync.js';
 import {
   MOTIVOS_BAJA_RH,
   asegurarExpedienteRhDesdeUsuario,
+  cambiarTiendaEmpleadoPosYRh,
   consultarRestriccionReingresoRh,
   darDeBajaUsuarioPosYRh,
   reactivarUsuarioPosYRh,
@@ -55,6 +56,8 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
   const [qEquipo, setQEquipo] = useState('');
   const [bajaPickId, setBajaPickId] = useState('');
   const [reingresoPickId, setReingresoPickId] = useState('');
+  const [trasladoPickId, setTrasladoPickId] = useState('');
+  const [trasladoDestino, setTrasladoDestino] = useState('');
   const [mostrarBajas, setMostrarBajas] = useState(false);
   const [bajaTarget, setBajaTarget] = useState(null);
   const [bajaForm, setBajaForm] = useState({
@@ -127,6 +130,14 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
   const bajasParaReingreso = useMemo(
     () => rows
       .filter((r) => r.activo === false)
+      .slice()
+      .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es')),
+    [rows],
+  );
+
+  const empleadosParaTraslado = useMemo(
+    () => rows
+      .filter((r) => r.activo !== false && resolverTipoEmpleado(r) !== 'indirecto')
       .slice()
       .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es')),
     [rows],
@@ -300,25 +311,39 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     load();
   };
 
-  const actualizarSucursal = async (id, nueva) => {
+  const actualizarSucursal = async (id, nueva, { confirmar = true } = {}) => {
     if (!supabase || !esAdmin) return;
     const row = rows.find((r) => r.id === id);
-    const tipo = resolverTipoEmpleado(row || {});
-    if (tipo === 'indirecto') {
-      return alert('Los empleados indirectos / MAIN no cambian de sucursal (aparecen en todas).');
-    }
+    if (!row) return;
     const sucursal_id = normalizarCodigoTienda(nueva) || 'MAIN';
-    if (sucursal_id === 'MAIN') {
-      return alert('Para MAIN usa el tipo «Indirecto / MAIN».');
+    if (confirmar) {
+      const origen = etiquetaTienda(row.sucursal_id);
+      const destino = etiquetaTienda(sucursal_id);
+      if (!confirm(`¿Mover a ${row.nombre} de ${origen} a ${destino}?\n\nEl PIN pasará a valer en ${destino}. Máx. ${MAX_EMPLEADOS_POR_TIENDA} empleados de tienda por sucursal.`)) {
+        return;
+      }
     }
-    if (row && row.activo !== false && normalizarRol(row.rol) !== 'Administrador') {
-      const cupo = puedeAgregarEmpleadoTienda(rows, sucursal_id, { excluirId: id });
-      if (!cupo.ok) return alert(cupo.error);
+    setTrabajandoBaja(true);
+    const res = await cambiarTiendaEmpleadoPosYRh(supabase, row, sucursal_id, { user: actor });
+    if (res.ok && res.teniaDispositivo) {
+      await liberarDispositivoUsuario(supabase, row.id);
     }
-    const { error } = await supabase.from('usuarios').update({ sucursal_id, tipo_empleado: 'tienda' }).eq('id', id);
-    if (error) return alert(error.message);
-    if (actor?.id === id) onUsuarioActualizado?.({ ...actor, sucursal_id, tipo_empleado: 'tienda' });
+    setTrabajandoBaja(false);
+    if (!res.ok) return alert(res.error);
+    if (actor?.id === id) onUsuarioActualizado?.({ ...actor, sucursal_id: res.sucursal_id, tipo_empleado: 'tienda' });
+    setTrasladoPickId('');
+    setTrasladoDestino('');
     load();
+    alert(res.teniaDispositivo
+      ? `${res.mensaje} Se liberó el equipo anclado para que ancle en la tienda nueva.`
+      : res.mensaje);
+  };
+
+  const continuarTrasladoDesdeSelector = () => {
+    const r = rows.find((x) => String(x.id) === String(trasladoPickId));
+    if (!r) return alert('Elige el empleado.');
+    if (!trasladoDestino) return alert('Elige la tienda destino.');
+    void actualizarSucursal(r.id, trasladoDestino);
   };
 
   const actualizarPagadorNomina = async (id, pagador) => {
@@ -793,6 +818,55 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
           {bajasParaReingreso.length === 0
             ? 'No hay empleados dados de baja. El reingreso es solo para quien ya tuvo baja.'
             : 'También: marca Ver dados de baja y pulsa Reingresar alta en su fila. Gerente: RH ABA3B → Inactivos / bajas.'}
+        </p>
+      </div>
+
+      <div className="card" style={{ borderLeft: '4px solid var(--brand-blue)' }}>
+        <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Cómo cambiar de tienda a un empleado</h3>
+        <ol style={{ margin: '0 0 0.85rem', paddingLeft: '1.25rem', fontSize: '0.9rem', lineHeight: 1.55 }}>
+          <li>Elige al empleado de tienda (no a un indirecto / MAIN).</li>
+          <li>Elige la <strong>tienda destino</strong>. Máx. {MAX_EMPLEADOS_POR_TIENDA} empleados de tienda activos por sucursal.</li>
+          <li>Pulsa <strong>Cambiar de tienda</strong>. El PIN pasa a valer ahí; el expediente en RH se actualiza.</li>
+        </ol>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
+          <label className="muted" style={{ flex: '1 1 200px', fontSize: '0.8rem' }}>
+            Empleado
+            <select
+              className="select"
+              style={{ marginTop: '0.35rem' }}
+              value={trasladoPickId}
+              onChange={(e) => setTrasladoPickId(e.target.value)}
+            >
+              <option value="">— Elige nombre —</option>
+              {empleadosParaTraslado.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.nombre} · ahora en {etiquetaTienda(r.sucursal_id)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="muted" style={{ flex: '1 1 160px', fontSize: '0.8rem' }}>
+            Tienda destino
+            <select
+              className="select"
+              style={{ marginTop: '0.35rem' }}
+              value={trasladoDestino}
+              onChange={(e) => setTrasladoDestino(e.target.value)}
+            >
+              <option value="">— Elige tienda —</option>
+              {tiendasAsignables.map((s) => (
+                <option key={s} value={s}>{etiquetaTienda(s)}</option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className="btn btn-primary" disabled={trabajandoBaja} onClick={continuarTrasladoDesdeSelector}>
+            Cambiar de tienda
+          </button>
+        </div>
+        <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
+          También puedes cambiar la columna <strong>Sucursal</strong> en Equipo registrado.
+          Si no puede entrar en la tienda nueva, pulsa <strong>Liberar equipo</strong> en su fila.
+          Gerente: <strong>RH ABA3B</strong> (misma acción).
         </p>
       </div>
 

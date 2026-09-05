@@ -44,6 +44,33 @@ const SECCIONES = [
     ),
   },
   {
+    id: 'cambio-tienda-empleado',
+    title: 'Cómo cambiar de tienda a un empleado',
+    body: (
+      <>
+        <p style={{ margin: '0 0 0.5rem' }}>
+          Solo <strong>Administrador</strong> (Usuarios) o <strong>Gerente / Administrador</strong> (RH ABA3B).
+          Máximo <strong>2</strong> empleados de tienda activos por sucursal. Los <strong>indirectos / MAIN</strong> no se mueven (aparecen en todas).
+        </p>
+        <p style={{ margin: '0 0 0.35rem' }}><strong>Usuarios (Administrador)</strong></p>
+        <ol style={{ margin: '0 0 0.65rem', paddingLeft: '1.2rem' }}>
+          <li>Menú <strong>Usuarios</strong> → recuadro <strong>Cómo cambiar de tienda a un empleado</strong>.</li>
+          <li>Elige el nombre y la <strong>tienda destino</strong>. Pulsa <strong>Cambiar de tienda</strong>.</li>
+          <li>También: en Equipo registrado, columna <strong>Sucursal</strong>.</li>
+        </ol>
+        <p style={{ margin: '0 0 0.35rem' }}><strong>RH ABA3B</strong></p>
+        <ol style={{ margin: '0 0 0.65rem', paddingLeft: '1.2rem' }}>
+          <li>Menú <strong>RH ABA3B</strong> → elige empleado y tienda destino → <strong>Cambiar de tienda</strong>.</li>
+          <li>O <strong>Perfil</strong> → cambia sucursal → Guardar cambios.</li>
+        </ol>
+        <p style={{ margin: 0 }}>
+          El PIN pasa a valer en la tienda nueva y el expediente de RH se actualiza.
+          Si no puede entrar, pulsa <strong>Liberar equipo</strong> en Usuarios.
+        </p>
+      </>
+    ),
+  },
+  {
     id: 'baja-empleado',
     title: 'Cómo dar de baja un empleado',
     body: (
@@ -120,6 +147,9 @@ const SECCIONES = [
         <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
           <li>
             <strong>¿Cómo doy de alta o reingreso a un empleado?</strong> Alta nueva: <strong>Usuarios</strong> → nombre + PIN → Añadir empleado. Reingreso (ya tuvo baja): Usuarios → <strong>Cómo reingresar</strong> o <strong>RH ABA3B → Inactivos / bajas → Reingresar alta</strong>. No crees un usuario duplicado.
+          </li>
+          <li>
+            <strong>¿Cómo cambio de tienda a un empleado?</strong> <strong>Usuarios</strong> → recuadro <strong>Cómo cambiar de tienda</strong> (nombre + tienda destino). O columna Sucursal en Equipo registrado. Gerente: <strong>RH ABA3B</strong>. Máx. 2 por sucursal. Indirectos/MAIN no se mueven.
           </li>
           <li>
             <strong>¿Cómo doy de baja un empleado?</strong> Menú <strong>Usuarios</strong> (elige el nombre → Dar de baja → Confirmar) o <strong>RH ABA3B → Activos → Dar de baja</strong>. No borres el usuario.
@@ -234,6 +264,7 @@ export default function Ayuda({ user }) {
         <p className="muted" style={{ marginTop: 0 }}>
           Guías rápidas, turnos y solución de problemas del POS CONTROL 3B.
           Para <strong>dar de alta o reingresar</strong>: Usuarios (nombre + PIN, o Reingresar alta).
+          Para <strong>cambiar de tienda</strong>: Usuarios o RH ABA3B → Cómo cambiar de tienda.
           Para <strong>dar de baja</strong>: Usuarios o RH ABA3B (elige el nombre y Confirmar baja).
           Abre también el módulo <strong>Tutorial</strong> del menú para las guías ilustradas
           (incluye <strong>Corte Abarrotes</strong> con captura real de pantalla).

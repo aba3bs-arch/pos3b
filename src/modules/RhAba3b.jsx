@@ -8,6 +8,7 @@ import {
   TIPOS_EMPLEADO_RH,
   altaEmpleadoRh,
   agregarNotaRh,
+  cambiarTiendaDesdeRh,
   darDeBajaEmpleadoRh,
   editarEmpleadoRh,
   etiquetaEstadoRh,
@@ -111,6 +112,8 @@ export default function RhAba3b({ supabase, user, sucursal }) {
   const [bajaOrigen, setBajaOrigen] = useState('lista');
   const [reingresoPickId, setReingresoPickId] = useState('');
   const [reingresoOrigen, setReingresoOrigen] = useState('lista');
+  const [trasladoPickId, setTrasladoPickId] = useState('');
+  const [trasladoDestino, setTrasladoDestino] = useState('');
 
   const sucOperativas = useMemo(() => listarSucursalesOperativas(), []);
 
@@ -180,6 +183,23 @@ export default function RhAba3b({ supabase, user, sucursal }) {
     const e = activos.find((x) => String(x.id) === String(bajaPickId));
     if (!e) return alert('Elige el empleado de la lista.');
     abrirBajaDesdeLista(e);
+  };
+
+  const continuarTrasladoDesdeSelector = async () => {
+    const e = activos.find((x) => String(x.id) === String(trasladoPickId));
+    if (!e) return alert('Elige el empleado.');
+    if (!trasladoDestino) return alert('Elige la tienda destino.');
+    if (!confirm(`¿Mover a ${nombreCompletoRh(e)} a ${etiquetaTienda(trasladoDestino)}?\n\nEl PIN pasará a valer en esa tienda (máx. 2 empleados de tienda por sucursal).`)) {
+      return;
+    }
+    setTrabajando(true);
+    const res = await cambiarTiendaDesdeRh(supabase, e, trasladoDestino, { user });
+    setTrabajando(false);
+    if (!res.ok) return alert(res.error);
+    setTrasladoPickId('');
+    setTrasladoDestino('');
+    setMsg(res.mensaje);
+    await cargarListas();
   };
 
   const lista = pestana === 'activos' ? activos : inactivos;
@@ -310,10 +330,9 @@ export default function RhAba3b({ supabase, user, sucursal }) {
       <div>
         <h2 style={{ margin: 0, color: '#0f766e' }}>RH ABA3B</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
-          Altas, reingresos y bajas de personal.
-          Alta nueva: pulsa <strong>+ Alta de empleado</strong> (o el recuadro verde).
-          Reingreso: elige a un inactivo abajo.
-          Baja: elige un activo o pulsa <strong>Dar de baja</strong> en la fila.
+          Altas, reingresos, cambio de tienda y bajas de personal.
+          Alta: <strong>+ Alta de empleado</strong>. Reingreso: elige un inactivo.
+          Cambiar de tienda: recuadro azul. Baja: elige un activo o pulsa <strong>Dar de baja</strong>.
         </p>
       </div>
 
@@ -394,6 +413,54 @@ export default function RhAba3b({ supabase, user, sucursal }) {
               {inactivos.length === 0
                 ? 'No hay inactivos. El reingreso es solo para quien ya tuvo baja.'
                 : 'También puedes pulsar Reingresar alta en la fila (pestaña Inactivos / bajas).'}
+            </p>
+          </div>
+
+          <div className="card" style={{ borderLeft: '4px solid var(--brand-blue)' }}>
+            <h3 style={{ margin: '0 0 0.5rem' }}>Cómo cambiar de tienda a un empleado</h3>
+            <ol style={{ margin: '0 0 0.85rem', paddingLeft: '1.25rem', fontSize: '0.9rem', lineHeight: 1.55 }}>
+              <li>Elige al empleado activo (no indirecto / MAIN).</li>
+              <li>Elige la <strong>tienda destino</strong>. Máx. 2 empleados de tienda por sucursal.</li>
+              <li>Pulsa <strong>Cambiar de tienda</strong>. Se actualiza RH y el PIN en Usuarios.</li>
+            </ol>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
+              <label className="muted" style={{ flex: '1 1 200px', fontSize: '0.8rem' }}>
+                Empleado
+                <select
+                  className="select"
+                  style={{ marginTop: '0.35rem' }}
+                  value={trasladoPickId}
+                  onChange={(e) => setTrasladoPickId(e.target.value)}
+                >
+                  <option value="">— Elige nombre —</option>
+                  {activos.filter((e) => e.tipo_empleado !== 'indirecto').map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {nombreCompletoRh(e)} · ahora en {e.sucursal_id ? etiquetaTienda(e.sucursal_id) : '—'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="muted" style={{ flex: '1 1 160px', fontSize: '0.8rem' }}>
+                Tienda destino
+                <select
+                  className="select"
+                  style={{ marginTop: '0.35rem' }}
+                  value={trasladoDestino}
+                  onChange={(e) => setTrasladoDestino(e.target.value)}
+                >
+                  <option value="">— Elige tienda —</option>
+                  {sucOperativas.map((s) => (
+                    <option key={s} value={s}>{etiquetaTienda(s)}</option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" className="btn btn-primary" disabled={!puede || trabajando} onClick={continuarTrasladoDesdeSelector}>
+                Cambiar de tienda
+              </button>
+            </div>
+            <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
+              También: abre <strong>Perfil</strong>, cambia sucursal y pulsa Guardar cambios.
+              Administrador: mismo recuadro en <strong>Usuarios</strong>.
             </p>
           </div>
 

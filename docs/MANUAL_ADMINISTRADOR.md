@@ -108,6 +108,8 @@ Módulo **Usuarios** (solo Administrador):
 
 Alta: Usuarios → *Cómo dar de alta* (nombre, PIN, sucursal, rol, turno → Añadir empleado). Si ya tuvo baja: *Cómo reingresar* (elige nombre → Reingresar alta). Gerente: **RH ABA3B → + Alta** o **Inactivos → Reingresar alta**.
 
+**Cambiar de tienda:** Usuarios → *Cómo cambiar de tienda* (nombre + destino). O columna Sucursal. Gerente: RH ABA3B. Máx. 2 por sucursal; indirectos/MAIN no se mueven.
+
 **Baja de empleado:** Usuarios → *Cómo dar de baja un empleado* (elige nombre → Confirmar baja). Gerente: **RH ABA3B → Activos → Dar de baja**. El PIN deja de funcionar; sale de nómina y turnos. No borres el usuario.
 
 ---
