@@ -117,7 +117,7 @@ export function lineasReabiertasParaEdicion(lineas) {
 
 /**
  * Reabre la nómina más reciente cerrada: revierte gastos/préstamos/arrastre y elimina el registro.
- * Solo administrador (validar en UI).
+ * Quien puede cerrar nómina puede editar solo la última (el backend rechaza periodos posteriores).
  */
 export async function reabrirPeriodoNomina(supabase, periodoId) {
   if (!supabase || !periodoId) return { ok: false, error: 'Periodo inválido.' };

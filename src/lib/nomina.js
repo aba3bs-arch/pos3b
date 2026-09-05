@@ -280,16 +280,40 @@ export function faltaTablaNomina(error) {
 export const AVISO_FALTA_NOMINA =
   'Faltan tablas de nómina. En Supabase → SQL Editor ejecuta: supabase/fix_contabilidad.sql';
 
+/** Más reciente primero: periodo_fin y, si empatan, created_at. */
+export function compararPeriodosNominaReciente(a, b) {
+  const fin = String(b?.periodo_fin || '').localeCompare(String(a?.periodo_fin || ''));
+  if (fin !== 0) return fin;
+  return String(b?.created_at || '').localeCompare(String(a?.created_at || ''));
+}
+
+export function periodoNominaMasReciente(periodos) {
+  if (!Array.isArray(periodos) || periodos.length === 0) return null;
+  return [...periodos].sort(compararPeriodosNominaReciente)[0];
+}
+
+export function esPeriodoNominaMasReciente(periodos, periodoId) {
+  const u = periodoNominaMasReciente(periodos);
+  return Boolean(u && periodoId && String(u.id) === String(periodoId));
+}
+
 export async function listarPeriodosNomina(supabase, opts = {}) {
   if (!supabase) return { data: [], error: null, soloLocal: true };
   const { sucursal, limit = 30, todasSucursales = true } = opts;
-  let q = supabase.from('nomina_periodos').select('*').order('periodo_fin', { ascending: false }).limit(limit);
+  let q = supabase
+    .from('nomina_periodos')
+    .select('*')
+    .order('periodo_fin', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(limit);
   if (!todasSucursales && sucursal) q = q.eq('sucursal_id', sucursal);
   const { data, error } = await q;
   if (error && faltaTablaNomina(error)) {
     return { data: [], error: null, aviso: AVISO_FALTA_NOMINA, soloLocal: true };
   }
-  return { data: data || [], error: error?.message || null, soloLocal: false };
+  const lista = data || [];
+  lista.sort(compararPeriodosNominaReciente);
+  return { data: lista, error: error?.message || null, soloLocal: false };
 }
 
 export async function guardarPeriodoNomina(supabase, payload) {
