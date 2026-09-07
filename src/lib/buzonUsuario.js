@@ -48,6 +48,9 @@ export function notificacionEsDeMiBuzon(n, user) {
   const tipo = n.tipo;
 
   if (tipo === T.INCIDENCIA) {
+    const r = normalizarRol(user.rol);
+    // Admin / gerente ven el icono y la bandeja de reportes del formulario.
+    if (r === 'Administrador' || r === 'Gerente') return true;
     const resp = responsableDesdeMensajeNotif(n.mensaje);
     if (resp && esResponsableIncidencia(user.nombre, resp)) return true;
     return false;
@@ -85,6 +88,11 @@ export function filtrarNotificacionesMiBuzon(lista, user, { verTodo = false } = 
   const esAdminOGerente = rol === 'Administrador' || rol === 'Gerente';
   if (verTodo && esAdminOGerente) return lista || [];
   return (lista || []).filter((n) => notificacionEsDeMiBuzon(n, user));
+}
+
+export function filtrarNotificacionesFormularioIncidencia(lista, user, opts = {}) {
+  const soloForm = (lista || []).filter((n) => String(n?.tipo || '') === T.INCIDENCIA);
+  return filtrarNotificacionesMiBuzon(soloForm, user, opts);
 }
 
 export function incidenciaEsDeMiBuzon(inc, user) {

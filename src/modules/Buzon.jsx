@@ -43,7 +43,7 @@ import {
   puedeRedirigirIncidenciaPrivilegio,
   tieneAccionIncidencia,
 } from '../lib/incidenciasPrivilegios.js';
-import { esAprobadorRecoleccionIe, esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
+import { esAprobadorRecoleccionIe } from '../lib/contabilidadConstants.js';
 import {
   aprobarGastoTurno,
   aprobarRecoleccionCorteIe,
@@ -62,7 +62,7 @@ import {
   incidenciaPerteneceABuzon,
   notificacionPerteneceABuzon,
 } from '../lib/buzonAreas.js';
-import { filtrarIncidenciasMiBuzon, filtrarNotificacionesMiBuzon } from '../lib/buzonUsuario.js';
+import { filtrarIncidenciasMiBuzon, filtrarNotificacionesFormularioIncidencia } from '../lib/buzonUsuario.js';
 
 const PRESETS_INCIDENCIAS = [{ id: 'todos', label: 'Todas las fechas' }, ...PRESETS_FECHA_PRODUCTO];
 
@@ -87,7 +87,6 @@ export default function Buzon({
   const rol = normalizarRol(user?.rol);
   const esAdmin = rol === 'Administrador';
   const esGerente = rol === 'Gerente';
-  const esSocio = esSocioAprobadorPrestamo(user?.nombre);
   const esAprobadorRecIe = esAprobadorRecoleccionIe(user?.nombre);
   const modoVista = modoVistaIncidencias(rol, user?.id);
   const veTodasTiendas = puedeVerTodasIncidencias(rol, user?.id, sucursal) || esAprobadorRecIe;
@@ -100,7 +99,7 @@ export default function Buzon({
   const [pestana, setPestana] = useState(soloIncidencias ? 'incidencias' : pestanaInicial);
   const [buzonArea, setBuzonArea] = useState('todos');
   /** false = Mi buzón (asignado a mí); true = todo el buzón (solo admin/gerente). */
-  const [verTodoBuzon, setVerTodoBuzon] = useState(false);
+  const [verTodoBuzon, setVerTodoBuzon] = useState(() => rol === 'Administrador' || rol === 'Gerente');
   const [aviso, setAviso] = useState('');
   const [pendientes, setPendientes] = useState([]);
   const [historial, setHistorial] = useState([]);
@@ -152,22 +151,12 @@ export default function Buzon({
 
   const filtrarPendientes = useCallback(
     (lista) => {
-      let base = lista || [];
-      if (!(esAdmin || esGerente)) {
-        if (esSocio || esAprobadorRecIe) {
-          base = base.filter((n) =>
-            (esSocio && n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO)
-            || (esAprobadorRecIe && n.tipo === TIPOS_NOTIF.RECOLECCION_CORTE_IE),
-          );
-        } else if (!veTodasTiendas) {
-          base = base.filter((n) => n.tipo === TIPOS_NOTIF.INCIDENCIA || n.sucursal_id === sucursal);
-        }
-      }
-      return filtrarNotificacionesMiBuzon(base, user, {
-        verTodo: Boolean(verTodoBuzon && (esAdmin || esGerente)),
+      const soloForm = (lista || []).filter((n) => n.tipo === TIPOS_NOTIF.INCIDENCIA);
+      return filtrarNotificacionesFormularioIncidencia(soloForm, user, {
+        verTodo: Boolean(esAdmin || esGerente),
       });
     },
-    [esAdmin, esGerente, esSocio, esAprobadorRecIe, sucursal, veTodasTiendas, user, verTodoBuzon],
+    [esAdmin, esGerente, user],
   );
 
   const recargar = useCallback(async () => {
@@ -176,10 +165,10 @@ export default function Buzon({
     const [pRes, hRes, iRes] = await Promise.all([
       soloIncidencias || !puedeBandejaPendientes
         ? Promise.resolve({ data: [] })
-        : listarNotificacionesPendientes(supabase, { ...opts, limit: 100 }),
+        : listarNotificacionesPendientes(supabase, { ...opts, limit: 100, tipos: [TIPOS_NOTIF.INCIDENCIA] }),
       soloIncidencias || !puedeHistorial
         ? Promise.resolve({ data: [] })
-        : listarHistorialNotificaciones(supabase, { ...opts, limit: 60 }),
+        : listarHistorialNotificaciones(supabase, { ...opts, limit: 60, tipos: [TIPOS_NOTIF.INCIDENCIA] }),
       listarIncidencias(supabase, {
         sucursal: veTodasTiendas ? undefined : sucursal,
         limit: 100,
@@ -569,9 +558,9 @@ export default function Buzon({
             ? `Tienda ${etiquetaTienda(sucursal)} · levanta un reporte; el responsable lo atiende en su buzón`
             : (esAdmin || esGerente)
               ? (verTodoBuzon
-                ? `Vista completa · todas las pendientes e incidencias${veTodasTiendas ? ' (todas las sucursales)' : ''}`
-                : 'Tu bandeja: lo asignado a ti (incidencias) y pendientes de tu rol. Activa «Ver todo» para el buzón completo.')
-              : 'Abre tu buzón para atender lo que te asignaron. Las alertas también llegan a usuarios MAIN.'}
+                ? `Vista completa · incidencias reportadas desde el formulario${veTodasTiendas ? ' (todas las sucursales)' : ''}`
+                : 'Tu bandeja de reportes del formulario de incidencias. Activa «Ver todo» para ver todas las sucursales.')
+              : 'Abre tu buzón para atender los reportes de incidencias que te asignaron.'}
         </p>
       </div>
 
@@ -594,7 +583,11 @@ export default function Buzon({
         </div>
       )}
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+      <div>
+        <p className="muted" style={{ margin: '0 0 0.4rem', fontSize: '0.82rem' }}>
+          Área del reporte (formulario). No incluye recolecciones ni cortes.
+        </p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
         <button
           type="button"
           className={`btn ${buzonArea === 'todos' ? 'btn-primary' : 'btn-ghost'}`}
@@ -612,6 +605,7 @@ export default function Buzon({
             {b.label}
           </button>
         ))}
+        </div>
       </div>
 
       {aviso && (
