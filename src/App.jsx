@@ -66,6 +66,7 @@ import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGI
 import { sincronizarPrivilegiosDesdeNube } from './lib/privilegiosSync.js';
 import { sincronizarTipoCambioDesdeNube } from './lib/tipoCambioSync.js';
 import { sincronizarVentanaRecoleccionDesdeNube } from './lib/ventanaRecoleccionSync.js';
+import { sincronizarCandadoPostLiquidacionDesdeNube } from './lib/candadoPostLiquidacionSync.js';
 import { sincronizarTurnosDesdeNube } from './lib/turnosSync.js';
 import { sincronizarHoraLimiteValeDesdeNube } from './lib/horaLimiteValeSync.js';
 import { sincronizarBonosConfigDesdeNube } from './lib/bonosConfig.js';
@@ -480,6 +481,7 @@ function App() {
     });
     sincronizarTipoCambioDesdeNube(supabase);
     sincronizarVentanaRecoleccionDesdeNube(supabase, sucursal);
+    sincronizarCandadoPostLiquidacionDesdeNube(supabase);
     sincronizarTurnosDesdeNube(supabase, sucursal);
     sincronizarHoraLimiteValeDesdeNube(supabase);
     sincronizarBonosConfigDesdeNube(supabase);
@@ -497,6 +499,7 @@ function App() {
         });
         sincronizarTipoCambioDesdeNube(supabase);
         sincronizarVentanaRecoleccionDesdeNube(supabase, sucursal);
+        sincronizarCandadoPostLiquidacionDesdeNube(supabase);
         sincronizarTurnosDesdeNube(supabase, sucursal);
         sincronizarHoraLimiteValeDesdeNube(supabase);
         sincronizarBonosConfigDesdeNube(supabase);

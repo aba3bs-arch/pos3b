@@ -2,12 +2,19 @@ import { normalizarCodigoTienda, etiquetaTienda, listarSucursalesOperativas, equ
 import { normalizarRol } from './roles.js';
 import { enRangoYmd } from './fechas.js';
 import { estadoVentanaRecoleccion } from './ventanaRecoleccion.js';
+import { leerCandadoPostLiquidacion } from './candadoPostLiquidacion.js';
 import { crearNotificacion, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
 
 const TIPOS_TRASPASO = ['Recolección', 'Entrega Crédito'];
 const TZ = 'America/Hermosillo';
 
 export { estadoVentanaRecoleccion, ventanaRecoleccionAbierta, EVENTO_VENTANA_RECOLECCION, leerVentanaRecoleccion, guardarVentanaRecoleccion, etiquetaVentanaRecoleccion } from './ventanaRecoleccion.js';
+export {
+  leerCandadoPostLiquidacion,
+  guardarCandadoPostLiquidacion,
+  EVENTO_CANDADO_POST_LIQUIDACION,
+  etiquetaCandadoPostLiquidacion,
+} from './candadoPostLiquidacion.js';
 
 const SERVICIO_CFE_DEFAULT = {
   clave: 'CFE',
@@ -112,17 +119,24 @@ export async function ultimaLiquidacionRepartidor(supabase, repartidorId) {
   return data.fecha_liquidacion;
 }
 
-/** Ya selló liquidación hoy (hora Sonora): no más efectivo, solo crédito. */
+/** Ya selló liquidación hoy (hora Sonora): no más efectivo, solo crédito (si el candado está ON). */
 export async function recolectorLiquidoHoy(supabase, repartidorId) {
   const iso = await ultimaLiquidacionRepartidor(supabase, repartidorId);
   if (!iso) return false;
   return fechaClaveDesdeIso(iso) === hoyClaveNogales();
 }
 
+/** Candado activo y el recolector ya liquidó hoy → bloquear efectivo. */
+export async function efectivoBloqueadoPorLiquidacionHoy(supabase, repartidorId) {
+  if (!leerCandadoPostLiquidacion()) return false;
+  if (!repartidorId) return false;
+  return recolectorLiquidoHoy(supabase, repartidorId);
+}
+
 export async function errorSiEfectivoNoPermitido(supabase, repartidorId) {
   const fuera = errorSiVentanaRecoleccionCerrada();
   if (fuera) return fuera;
-  if (repartidorId && (await recolectorLiquidoHoy(supabase, repartidorId))) {
+  if (await efectivoBloqueadoPorLiquidacionHoy(supabase, repartidorId)) {
     return {
       ok: false,
       error:
@@ -527,8 +541,8 @@ export function construirDatosCobroServicio({
 }
 
 export async function registrarCobroServicio(supabase, { tienda, repartidorId, cajero, srv, monto, pin, repartidores }) {
-  // CFE se puede cobrar fuera de ventana; si ya liquidó hoy, no entra más efectivo.
-  if (repartidorId && (await recolectorLiquidoHoy(supabase, repartidorId))) {
+  // CFE se puede cobrar fuera de ventana; si el candado está ON y ya liquidó hoy, no entra más efectivo.
+  if (await efectivoBloqueadoPorLiquidacionHoy(supabase, repartidorId)) {
     return {
       ok: false,
       error: 'Este recolector ya liquidó hoy. No se cobra CFE en efectivo; registra no cobro o espera al día siguiente.',

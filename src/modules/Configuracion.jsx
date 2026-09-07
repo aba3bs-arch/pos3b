@@ -172,6 +172,16 @@ import {
   sincronizarVentanaRecoleccionDesdeNube,
   AVISO_FALTA_VENTANA_RECOLECCION,
 } from '../lib/ventanaRecoleccionSync.js';
+import {
+  leerCandadoPostLiquidacion,
+  etiquetaCandadoPostLiquidacion,
+  EVENTO_CANDADO_POST_LIQUIDACION,
+} from '../lib/candadoPostLiquidacion.js';
+import {
+  aplicarCandadoPostLiquidacionNube,
+  sincronizarCandadoPostLiquidacionDesdeNube,
+  AVISO_FALTA_CANDADO_POST_LIQUIDACION,
+} from '../lib/candadoPostLiquidacionSync.js';
 import PanelBonosConfig from '../components/PanelBonosConfig.jsx';
 
 export default function Configuracion({
@@ -222,6 +232,8 @@ export default function Configuracion({
   const [ventanaRec, setVentanaRec] = useState(() => leerVentanaRecoleccion());
   const [ventanaTiendas, setVentanaTiendas] = useState(() => listarSucursalesOperativas());
   const [ventanaGuardando, setVentanaGuardando] = useState(false);
+  const [candadoPostLiq, setCandadoPostLiq] = useState(() => leerCandadoPostLiquidacion());
+  const [candadoGuardando, setCandadoGuardando] = useState(false);
   const [panelCfg, setPanelCfg] = useState(null);
   const esAdmin = puedeGestionarUsuarios(user?.rol);
   const puedePrivilegios = puedeGestionarPrivilegios(user?.rol);
@@ -389,18 +401,24 @@ export default function Configuracion({
       setSerialActivo(puertoSerialConectado());
     };
     const onHoraVale = () => setHoraLimiteValeCfg(etiquetaHoraLimiteVale());
+    const onCandado = () => setCandadoPostLiq(leerCandadoPostLiquidacion());
     window.addEventListener(EVENTO_BRANDING, onBrand);
     window.addEventListener(EVENTO_PERIFERICOS, onPeriph);
     window.addEventListener(EVENTO_HORA_LIMITE_VALE, onHoraVale);
+    window.addEventListener(EVENTO_CANDADO_POST_LIQUIDACION, onCandado);
     if (supabase) {
       sincronizarHoraLimiteValeDesdeNube(supabase).then((r) => {
         if (r.cambio) setHoraLimiteValeCfg(etiquetaHoraLimiteVale());
+      });
+      sincronizarCandadoPostLiquidacionDesdeNube(supabase).then((r) => {
+        if (r.cambio) setCandadoPostLiq(leerCandadoPostLiquidacion());
       });
     }
     return () => {
       window.removeEventListener(EVENTO_BRANDING, onBrand);
       window.removeEventListener(EVENTO_PERIFERICOS, onPeriph);
       window.removeEventListener(EVENTO_HORA_LIMITE_VALE, onHoraVale);
+      window.removeEventListener(EVENTO_CANDADO_POST_LIQUIDACION, onCandado);
     };
   }, [supabase]);
 
@@ -937,8 +955,8 @@ export default function Configuracion({
       {
         id: 'operacion',
         label: 'Operación',
-        desc: 'Tipo de cambio, recolección y tienda',
-        ayuda: 'Configura tipo de cambio USD→MXN, ventana de recolección y la tienda activa de esta caja.',
+        desc: 'Tipo de cambio, recolección, candado y tienda',
+        ayuda: 'Configura tipo de cambio USD→MXN, ventana de recolección, candado post-liquidación y la tienda activa de esta caja.',
         icon: 'settings',
         color: 'var(--brand-blue)',
       },
@@ -1346,6 +1364,98 @@ export default function Configuracion({
             </button>
           )}
         </div>
+
+        <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '1.25rem 0' }} />
+        <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Candado post-liquidación</h4>
+        <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
+          Si el recolector ya liquidó hoy, el candado <strong>ON</strong> bloquea más cobros de efectivo (solo crédito).
+          Con <strong>OFF</strong> se puede seguir cobrando efectivo; el administrador sigue recibiendo el aviso.
+          Se sincroniza en todas las cajas.
+        </p>
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '0.75rem',
+            alignItems: 'center',
+            marginTop: '0.65rem',
+            padding: '0.85rem',
+            borderRadius: 8,
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+          }}
+        >
+          <strong style={{ fontSize: '0.9rem', minWidth: '7rem' }}>
+            Estado: {candadoPostLiq ? 'ON' : 'OFF'}
+          </strong>
+          <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className={candadoPostLiq ? 'btn btn-success' : 'btn btn-ghost'}
+              style={{ padding: '0.35rem 0.85rem', fontSize: '0.85rem', fontWeight: 700 }}
+              disabled={candadoGuardando}
+              onClick={async () => {
+                if (candadoPostLiq) return;
+                setCandadoGuardando(true);
+                try {
+                  const r = await aplicarCandadoPostLiquidacionNube(supabase, true);
+                  setCandadoPostLiq(r.activo !== false);
+                  if (r.sinTabla) alert(AVISO_FALTA_CANDADO_POST_LIQUIDACION);
+                  else if (r.soloLocal) alert(r.aviso || 'Guardado solo en este equipo.');
+                  else alert(`Candado ${etiquetaCandadoPostLiquidacion(true)}. Sincronizado en todas las cajas.`);
+                } finally {
+                  setCandadoGuardando(false);
+                }
+              }}
+            >
+              ON
+            </button>
+            <button
+              type="button"
+              className={!candadoPostLiq ? 'btn btn-danger' : 'btn btn-ghost'}
+              style={{ padding: '0.35rem 0.85rem', fontSize: '0.85rem', fontWeight: 700 }}
+              disabled={candadoGuardando}
+              onClick={async () => {
+                if (!candadoPostLiq) return;
+                if (!confirm('¿Apagar el candado?\n\nLos recolectores podrán cobrar efectivo aunque ya hayan liquidado hoy.')) {
+                  return;
+                }
+                setCandadoGuardando(true);
+                try {
+                  const r = await aplicarCandadoPostLiquidacionNube(supabase, false);
+                  setCandadoPostLiq(r.activo !== false);
+                  if (r.sinTabla) alert(AVISO_FALTA_CANDADO_POST_LIQUIDACION);
+                  else if (r.soloLocal) alert(r.aviso || 'Guardado solo en este equipo.');
+                  else alert(`Candado ${etiquetaCandadoPostLiquidacion(false)}. Sincronizado en todas las cajas.`);
+                } finally {
+                  setCandadoGuardando(false);
+                }
+              }}
+            >
+              OFF
+            </button>
+          </div>
+          {supabase && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+              disabled={candadoGuardando}
+              onClick={async () => {
+                const r = await sincronizarCandadoPostLiquidacionDesdeNube(supabase);
+                if (r.aviso) alert(r.aviso);
+                setCandadoPostLiq(leerCandadoPostLiquidacion());
+                alert(r.cambio ? 'Candado actualizado desde la nube.' : 'Sin cambios en la nube.');
+              }}
+            >
+              Descargar de la nube
+            </button>
+          )}
+        </div>
+        <p className="muted" style={{ fontSize: '0.82rem', margin: '0.5rem 0 0' }}>
+          Actual: <strong>{etiquetaCandadoPostLiquidacion(candadoPostLiq)}</strong>
+          {candadoGuardando ? ' · Guardando…' : ''}
+        </p>
 
         <div style={{ marginTop: '0.75rem' }}>
           <label className="muted" style={{ display: 'block' }}>
