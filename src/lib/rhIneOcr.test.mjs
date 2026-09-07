@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  corregirCurpOcr,
   estadoDesdeCurp,
   extraerCurpDeTexto,
   fechaNacimientoDesdeCurp,
@@ -14,6 +15,8 @@ import {
 const CURP = 'PEGJ850315HDFRRN09';
 assert.equal(extraerCurpDeTexto(`CURP ${CURP}`), CURP);
 assert.equal(extraerCurpDeTexto(`C U R P\n${CURP.slice(0, 9)} ${CURP.slice(9)}`), CURP);
+assert.equal(corregirCurpOcr('PEGJ85O315HDFRRN09'), CURP);
+assert.equal(extraerCurpDeTexto('CURP PEGJ85O315HDFRRN09'), CURP);
 assert.equal(fechaNacimientoDesdeCurp(CURP), '1985-03-15');
 assert.equal(rfcDesdeCurp(CURP), 'PEGJ850315XXX');
 assert.equal(estadoDesdeCurp(CURP), 'Ciudad de México');
@@ -35,6 +38,14 @@ DOMICILIO
 `);
 assert.equal(visual.nombre, 'Juan Carlos');
 assert.equal(visual.apellidos, 'Perez Garcia');
+
+const visualOcr = parsearNombreVisual(`
+N0MBRE PEREZ GARCIA
+JUAN CARLOS
+DOMICILIO
+`);
+assert.equal(visualOcr.nombre, 'Juan Carlos');
+assert.equal(visualOcr.apellidos, 'Perez Garcia');
 
 const dom = parsearDomicilioVisual(`
 DOMICILIO
@@ -66,6 +77,9 @@ assert.equal(parsed.patch.nombre, 'Ana Maria');
 assert.equal(parsed.patch.apellidos, 'Lopez Martinez');
 assert.equal(parsed.patch.fecha_nacimiento, '1985-03-15');
 assert.equal(parsed.patch.doc_ine, true);
+
+const sinDatos = parsearTextoIne('INSTITUTO NACIONAL ELECTORAL\nCREDENCIAL PARA VOTAR');
+assert.equal(sinDatos.ok, false, 'sin CURP/nombre no debe marcarse como leído');
 
 const merged = fusionarDatosIneEnForm(
   { nombre: 'X', telefono: '555' },

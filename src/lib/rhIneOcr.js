@@ -49,7 +49,41 @@ export function extraerCurpDeTexto(texto) {
   pushAll(continuous);
   // OCR a veces inserta espacios dentro de la CURP
   pushAll(spaced.replace(/([A-Z0-9])\s+(?=[A-Z0-9])/g, '$1'));
+
+  if (!candidatos.length && continuous.length >= 18) {
+    for (let i = 0; i <= continuous.length - 18; i += 1) {
+      const corr = corregirCurpOcr(continuous.slice(i, i + 18));
+      if (/^[A-Z][AEIOUX][A-Z]{2}\d{6}[HM][A-Z]{2}[BCDFGHJKLMNPQRSTVWXYZ]{3}[A-Z0-9]\d$/.test(corr)) {
+        candidatos.push(corr);
+        break;
+      }
+    }
+  }
   return candidatos[0] || null;
+}
+
+/** Corrige O/0, I/1, etc. en posiciones típicas de una CURP leída por OCR. */
+export function corregirCurpOcr(raw) {
+  const s = String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (s.length < 18) return s;
+  const chars = s.slice(0, 18).split('');
+  const aDig = { O: '0', D: '0', Q: '0', I: '1', L: '1', Z: '2', S: '5', B: '8', G: '6' };
+  const aLet = { 0: 'O', 1: 'I', 5: 'S', 8: 'B', 6: 'G', 2: 'Z' };
+  for (let i = 0; i < 4; i += 1) {
+    if (aLet[chars[i]]) chars[i] = aLet[chars[i]];
+  }
+  for (let i = 4; i < 10; i += 1) {
+    if (aDig[chars[i]]) chars[i] = aDig[chars[i]];
+  }
+  if (chars[10] !== 'H' && chars[10] !== 'M') {
+    if (chars[10] === 'N') chars[10] = 'M';
+    else if (aLet[chars[10]] === 'H' || chars[10] === '4') chars[10] = 'H';
+  }
+  for (let i = 11; i < 16; i += 1) {
+    if (aLet[chars[i]]) chars[i] = aLet[chars[i]];
+  }
+  if (aDig[chars[17]]) chars[17] = aDig[chars[17]];
+  return chars.join('');
 }
 
 export function fechaNacimientoDesdeCurp(curp) {
@@ -140,16 +174,19 @@ export function tituloCaseNombre(s) {
  */
 export function parsearNombreVisual(texto) {
   const lines = lineasLimpias(texto);
-  const idx = lines.findIndex((l) => /^NOMBRE\b/.test(l) || l === 'NOMBRE');
+  const esEtiquetaNombre = (l) => /^N[O0]MBRE\b/.test(l) || l === 'NOMBRE' || l === 'N0MBRE';
+  const idx = lines.findIndex((l) => esEtiquetaNombre(l));
   if (idx >= 0) {
     const bloque = [];
+    const restoPrimera = lines[idx].replace(/^N[O0]MBRE\s*/, '').trim();
+    if (restoPrimera.length >= 3 && !esLineaRuido(restoPrimera)) bloque.push(restoPrimera);
     for (let i = idx + 1; i < Math.min(idx + 5, lines.length); i += 1) {
       const l = lines[i];
       if (/^(DOMICILIO|CURP|CLAVE|SECCION|SECCIÓN|SEXO|FECHA|VIGENCIA)\b/.test(l)) break;
       if (esLineaRuido(l)) continue;
       if (/^\d{4,}/.test(l)) continue;
       if (l.length < 3) continue;
-      bloque.push(l.replace(/^NOMBRE\s*/, '').trim());
+      bloque.push(l.replace(/^N[O0]MBRE\s*/, '').trim());
     }
     const limpio = bloque.filter(Boolean);
     if (limpio.length >= 2) {
@@ -260,10 +297,11 @@ export function parsearTextoIne(textoOcr) {
   };
 
   const campos = Object.entries(patch).filter(([, v]) => v !== '' && v !== false).map(([k]) => k);
+  const camposUtiles = campos.filter((c) => c !== 'doc_ine');
   return {
-    ok: campos.length > 0,
+    ok: camposUtiles.length > 0,
     patch,
-    campos,
+    campos: camposUtiles,
     curp,
     textoNormalizado: normalizarTextoOcr(texto).slice(0, 2000),
   };
@@ -286,21 +324,206 @@ export function fusionarDatosIneEnForm(form, patch, { sobrescribir = true } = {}
   return next;
 }
 
-async function ocrConTesseract(dataUrl, onProgress) {
-  const { createWorker } = await import('tesseract.js');
-  const worker = await createWorker('spa+eng', 1, {
-    logger: (m) => {
-      if (typeof onProgress === 'function' && m?.status === 'recognizing text') {
-        onProgress(Math.round((m.progress || 0) * 100));
-      }
-    },
+const OCR_INE_TIMEOUT_MS = 90_000;
+const IMG_INE_TIMEOUT_MS = 20_000;
+
+function urlPublica(rel) {
+  const base = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL) || '/';
+  const r = String(rel || '').replace(/^\//, '');
+  return `${String(base).endsWith('/') ? base : `${base}/`}${r}`;
+}
+
+function conTimeout(promise, ms, mensaje) {
+  let id;
+  const timeout = new Promise((_, reject) => {
+    id = setTimeout(() => reject(new Error(mensaje)), ms);
   });
-  try {
-    const { data } = await worker.recognize(dataUrl);
-    return String(data?.text || '');
-  } finally {
-    await worker.terminate();
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(id));
+}
+
+function emitirProgreso(onProgress, pct, etapa) {
+  if (typeof onProgress === 'function') onProgress(pct, etapa);
+}
+
+function esHeic(file) {
+  const t = String(file?.type || '').toLowerCase();
+  const n = String(file?.name || '').toLowerCase();
+  return t.includes('heic') || t.includes('heif') || /\.heic$|\.heif$/.test(n);
+}
+
+function archivoPareceImagen(file) {
+  const t = String(file?.type || '').toLowerCase();
+  if (!t || t === 'application/octet-stream') return true;
+  return t.startsWith('image/');
+}
+
+function cargarImagenDesdeSrc(src, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const id = setTimeout(() => {
+      img.src = '';
+      reject(new Error('La foto tardó demasiado en abrirse. Prueba JPG o una toma más liviana.'));
+    }, timeoutMs);
+    img.onload = () => {
+      clearTimeout(id);
+      resolve(img);
+    };
+    img.onerror = () => {
+      clearTimeout(id);
+      reject(new Error('No se pudo leer la imagen.'));
+    };
+    img.src = src;
+  });
+}
+
+function canvasToJpeg(canvas, quality) {
+  return canvas.toDataURL('image/jpeg', quality);
+}
+
+function pintarIneParaOcr(img) {
+  let w = img.naturalWidth || img.width;
+  let h = img.naturalHeight || img.height;
+  if (!w || !h) throw new Error('No se pudo leer la imagen.');
+  const maxSide = 1800;
+  const scale = Math.min(1, maxSide / Math.max(w, h));
+  w = Math.max(1, Math.round(w * scale));
+  h = Math.max(1, Math.round(h * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('No se pudo procesar la imagen.');
+  ctx.drawImage(img, 0, 0, w, h);
+  const imageData = ctx.getImageData(0, 0, w, h);
+  const d = imageData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const g = Math.round(d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114);
+    const c = g < 128 ? Math.max(0, Math.round((g - 40) * 1.25)) : Math.min(255, Math.round((g + 20) * 1.1));
+    d[i] = d[i + 1] = d[i + 2] = c;
   }
+  ctx.putImageData(imageData, 0, 0);
+  return canvasToJpeg(canvas, 0.88);
+}
+
+async function prepararImagenIneParaOcr(file) {
+  if (!file) throw new Error('No se eligió archivo.');
+  if (!archivoPareceImagen(file)) {
+    throw new Error('El archivo debe ser una imagen (JPG, PNG o WebP).');
+  }
+  if (esHeic(file)) {
+    throw new Error('Este teléfono envió HEIC. Toma la foto de nuevo o súbela como JPG/PNG.');
+  }
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await conTimeout(
+      cargarImagenDesdeSrc(objectUrl, IMG_INE_TIMEOUT_MS),
+      IMG_INE_TIMEOUT_MS + 500,
+      'La foto tardó demasiado en abrirse.',
+    );
+    return pintarIneParaOcr(img);
+  } catch {
+    const reader = new FileReader();
+    const dataUrl = await conTimeout(
+      new Promise((resolve, reject) => {
+        reader.onload = () => resolve(String(reader.result || ''));
+        reader.onerror = () => reject(new Error('No se pudo leer el archivo.'));
+        reader.readAsDataURL(file);
+      }),
+      12_000,
+      'No se pudo leer el archivo.',
+    );
+    const img = await cargarImagenDesdeSrc(dataUrl, IMG_INE_TIMEOUT_MS);
+    return pintarIneParaOcr(img);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+function progresoDesdeLoggerTesseract(m) {
+  const status = String(m?.status || '');
+  const p = Number(m?.progress);
+  const frac = Number.isFinite(p) ? Math.max(0, Math.min(1, p)) : 0;
+  if (status.includes('loading tesseract core') || status === 'loading tesseract core') {
+    return { pct: 8 + Math.round(frac * 10), etapa: 'Cargando motor de lectura…' };
+  }
+  if (status.includes('initializing tesseract')) {
+    return { pct: 18 + Math.round(frac * 8), etapa: 'Iniciando OCR…' };
+  }
+  if (status.includes('loading language')) {
+    return { pct: 28 + Math.round(frac * 22), etapa: 'Cargando español (INE)…' };
+  }
+  if (status.includes('initializing api')) {
+    return { pct: 52 + Math.round(frac * 8), etapa: 'Preparando lectura…' };
+  }
+  if (status.includes('recognizing text')) {
+    return { pct: 62 + Math.round(frac * 33), etapa: 'Leyendo texto del INE…' };
+  }
+  if (status) {
+    return { pct: null, etapa: 'Leyendo INE…' };
+  }
+  return null;
+}
+
+let workerIne = null;
+let workerIneCreando = null;
+
+async function crearWorkerIne(onProgress) {
+  const { createWorker } = await import('tesseract.js');
+  const workerPath = urlPublica('tesseract/worker.min.js');
+  const corePath = urlPublica('tesseract/core');
+  const langPath = urlPublica('tessdata').replace(/\/$/, '');
+
+  return createWorker('spa', 1, {
+    workerPath,
+    corePath,
+    langPath,
+    gzip: true,
+    logger: (m) => {
+      const info = progresoDesdeLoggerTesseract(m);
+      if (info?.pct != null) emitirProgreso(onProgress, info.pct, info.etapa);
+    },
+    errorHandler: (err) => {
+      console.warn('[INE OCR]', err);
+    },
+  }, {
+    tessedit_pageseg_mode: '6',
+    preserve_interword_spaces: '1',
+  });
+}
+
+async function ocrConTesseract(dataUrl, onProgress) {
+  emitirProgreso(onProgress, 8, 'Cargando motor de lectura…');
+  if (!workerIne) {
+    if (!workerIneCreando) {
+      workerIneCreando = crearWorkerIne(onProgress).then((w) => {
+        workerIne = w;
+        return w;
+      }).catch((err) => {
+        workerIneCreando = null;
+        throw err;
+      });
+    }
+    try {
+      workerIne = await conTimeout(
+        workerIneCreando,
+        OCR_INE_TIMEOUT_MS,
+        'El lector del INE tardó demasiado (motor OCR). Revisa la conexión o captura los datos a mano.',
+      );
+    } catch (err) {
+      workerIne = null;
+      workerIneCreando = null;
+      throw err;
+    }
+  }
+
+  emitirProgreso(onProgress, 62, 'Leyendo texto del INE…');
+  const { data } = await conTimeout(
+    workerIne.recognize(dataUrl),
+    OCR_INE_TIMEOUT_MS,
+    'La lectura del INE se detuvo. Toma una foto más nítida del anverso o captura los datos a mano.',
+  );
+  return String(data?.text || '');
 }
 
 /**
@@ -310,34 +533,27 @@ export async function leerIneDesdeArchivo(file, { onProgress } = {}) {
   if (!file) return { ok: false, error: 'No se eligió archivo.' };
   let dataUrl;
   try {
-    // Mayor resolución ayuda al OCR de CURP
-    dataUrl = await leerImagenProductoComoDataUrl(file, {
-      maxSide: 1600,
-      quality: 0.85,
-      maxBytes: 1.4 * 1024 * 1024,
-    });
+    emitirProgreso(onProgress, 3, 'Preparando foto…');
+    dataUrl = await prepararImagenIneParaOcr(file);
   } catch (err) {
     return { ok: false, error: err?.message || 'No se pudo leer la imagen.' };
   }
 
-  if (typeof onProgress === 'function') onProgress(5);
+  emitirProgreso(onProgress, 6, 'Iniciando lectura…');
 
   let texto;
   try {
-    texto = await ocrConTesseract(dataUrl, (p) => {
-      if (typeof onProgress === 'function') onProgress(Math.min(95, 5 + Math.round(p * 0.9)));
-    });
+    texto = await ocrConTesseract(dataUrl, onProgress);
   } catch (err) {
     return {
       ok: false,
-      error: `No se pudo leer el texto del INE (${err?.message || 'OCR'}). Revisa la conexión o intenta con otra foto más nítida.`,
+      error: `No se pudo leer el texto del INE (${err?.message || 'OCR'}). Prueba otra foto más nítida del anverso (CURP y nombre) o captura los datos a mano.`,
       ine_foto: dataUrl,
     };
   }
 
-  if (typeof onProgress === 'function') onProgress(100);
+  emitirProgreso(onProgress, 98, 'Completando datos…');
 
-  // Versión más liviana para guardar en expediente
   let fotoGuardar = dataUrl;
   try {
     const blob = await (await fetch(dataUrl)).blob();
@@ -353,12 +569,13 @@ export async function leerIneDesdeArchivo(file, { onProgress } = {}) {
   if (!parsed.ok) {
     return {
       ok: false,
-      error: 'No se detectaron datos del INE. Sube una foto más clara del anverso (donde se ve CURP y nombre) o captura los datos a mano.',
+      error: 'No se detectaron nombre o CURP. Sube una foto más clara del anverso (frente, no el reverso) o captura los datos a mano.',
       ine_foto: fotoGuardar,
       textoOcr: parsed.textoNormalizado,
     };
   }
 
+  emitirProgreso(onProgress, 100, 'Listo');
   return {
     ok: true,
     patch: {
@@ -368,7 +585,7 @@ export async function leerIneDesdeArchivo(file, { onProgress } = {}) {
     campos: parsed.campos,
     curp: parsed.curp,
     textoOcr: parsed.textoNormalizado,
-    mensaje: `Se cargaron: ${parsed.campos.filter((c) => c !== 'doc_ine').join(', ') || 'datos del INE'}. Revisa y completa lo que falte.`,
+    mensaje: `Se cargaron: ${parsed.campos.join(', ')}. Revisa y completa lo que falte.`,
   };
 }
 

@@ -7,3 +7,6 @@ dist
 release
 
 supabase/.vapid_secrets.local
+
+# Generado en build/dev desde node_modules (OCR INE).
+public/tesseract/

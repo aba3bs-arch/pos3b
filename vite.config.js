@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { generarVersionApp } from './scripts/generate-app-version.mjs';
+import { copyTesseractAssets } from './scripts/copy-tesseract-assets.mjs';
 
 function appVersionPlugin() {
   return {
@@ -18,9 +19,21 @@ function appVersionPlugin() {
   };
 }
 
+function tesseractAssetsPlugin() {
+  return {
+    name: 'pos3b-tesseract-assets',
+    buildStart() {
+      copyTesseractAssets();
+    },
+    configureServer() {
+      copyTesseractAssets();
+    },
+  };
+}
+
 // Web: base '/'. Electron portable: VITE_BASE_PATH=./ al compilar.
 export default defineConfig({
-  plugins: [appVersionPlugin(), react()],
+  plugins: [appVersionPlugin(), tesseractAssetsPlugin(), react()],
   base: process.env.VITE_BASE_PATH || '/',
   server: {
     host: true,
