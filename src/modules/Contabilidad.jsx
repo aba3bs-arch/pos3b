@@ -26,7 +26,7 @@ const DESCRIPCIONES = {
   },
   'RC Garage': {
     desc: 'Registro de recolecciones Garage: qué y quién',
-    ayuda: 'Lista recolecciones de Corte Garage (definitivas y temporales) con monto y recolector. Recibe a tu cuenta y entrega a ABB.',
+    ayuda: 'Lista recolecciones pendientes de Corte Garage (no agosto 2026 ni las ya en IE VIRTUAL) con monto y recolector.',
   },
   'IE VIRTUAL': {
     desc: 'Antonio · ingresos y egresos Virtual + Garage',
