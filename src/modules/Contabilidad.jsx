@@ -21,8 +21,12 @@ const DESCRIPCIONES = {
     ayuda: 'Smoking vs cobros Recolección. Filtra En Tránsito/Por Cobrar, marca tiendas sin recolección y muestra ticket de corte.',
   },
   'RC Virtual': {
-    desc: 'Custodia Virtual/Garage → cuenta admin → ABB',
-    ayuda: 'Recibe recolecciones de cortes Virtual y Garage a tu cuenta y entrégalas a ABB.',
+    desc: 'Custodia Virtual → cuenta admin → ABB',
+    ayuda: 'Recibe recolecciones de Corte Virtual a tu cuenta y entrégalas a ABB. Garage está en RC Garage.',
+  },
+  'RC Garage': {
+    desc: 'Registro de recolecciones Garage: qué y quién',
+    ayuda: 'Lista recolecciones de Corte Garage (definitivas y temporales) con monto y recolector. Recibe a tu cuenta y entrega a ABB.',
   },
   'IE VIRTUAL': {
     desc: 'Antonio · ingresos y egresos Virtual + Garage',

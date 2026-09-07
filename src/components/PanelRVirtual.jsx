@@ -58,17 +58,22 @@ function ResumenGastosLinea({ gastos }) {
   );
 }
 
-export default function PanelRVirtual({ supabase, user }) {
+export default function PanelRVirtual({ supabase, user, area = 'virtual', pestanaInicial } = {}) {
+  const areaInicial = area === 'garage' ? 'garage' : 'virtual';
   const adminNombre = user?.nombre || '';
   const adminEsAbb = esAbb(adminNombre);
   const adminEsAmr = esUsuarioAmr(adminNombre);
   const miClave = claveRecolectorRVirtual(adminNombre);
-  const [pestana, setPestana] = useState('recolecciones');
+  const [pestana, setPestana] = useState(
+    pestanaInicial || (areaInicial === 'garage' ? 'garage' : 'recolecciones'),
+  );
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
-  const [recolectores, setRecolectores] = useState([]);
-  const [porEntregarAbb, setPorEntregarAbb] = useState([]);
+  const [recolectoresVirtual, setRecolectoresVirtual] = useState([]);
+  const [recolectoresGarage, setRecolectoresGarage] = useState([]);
+  const [porEntregarVirtual, setPorEntregarVirtual] = useState([]);
+  const [porEntregarGarage, setPorEntregarGarage] = useState([]);
   const [pagares, setPagares] = useState([]);
   const [abierto, setAbierto] = useState(null);
   const [abiertoAbb, setAbiertoAbb] = useState(null);
@@ -78,17 +83,25 @@ export default function PanelRVirtual({ supabase, user }) {
   const [gastoMonto, setGastoMonto] = useState('');
   const [gastoDesc, setGastoDesc] = useState('');
 
+  const areaActiva = pestana === 'garage' ? 'garage' : 'virtual';
+  const recolectores = pestana === 'garage' ? recolectoresGarage : recolectoresVirtual;
+  const porEntregarAbb = pestana === 'garage' ? porEntregarGarage : porEntregarVirtual;
+  const esPestanaRecolecciones = pestana === 'recolecciones' || pestana === 'garage';
+
   const cargar = useCallback(async () => {
     if (!supabase) return;
     setCargando(true);
-    const [res, pagRes] = await Promise.all([
-      listarBandejaRVirtual(supabase),
+    const [resV, resG, pagRes] = await Promise.all([
+      listarBandejaRVirtual(supabase, { area: 'virtual' }),
+      listarBandejaRVirtual(supabase, { area: 'garage' }),
       listarPagares(supabase, { limit: 200 }),
     ]);
-    setRecolectores(res.recolectores || []);
-    setPorEntregarAbb(res.porEntregarAbb || []);
+    setRecolectoresVirtual(resV.recolectores || []);
+    setRecolectoresGarage(resG.recolectores || []);
+    setPorEntregarVirtual(resV.porEntregarAbb || []);
+    setPorEntregarGarage(resG.porEntregarAbb || []);
     setPagares(pagRes.data || []);
-    setError(res.error || (pagRes.faltaTabla ? AVISO_FALTA_PAGARES : '') || pagRes.error || '');
+    setError(resV.error || resG.error || (pagRes.faltaTabla ? AVISO_FALTA_PAGARES : '') || pagRes.error || '');
     setCargando(false);
   }, [supabase]);
 
@@ -99,7 +112,9 @@ export default function PanelRVirtual({ supabase, user }) {
   const recibir = async (grupo) => {
     const n = (grupo.items || []).filter((it) => it.receivable).length;
     if (!n) {
-      setMsg('No hay recolecciones de Virtual/Garage pendientes de recibir.');
+      setMsg(areaActiva === 'garage'
+        ? 'No hay recolecciones de Garage pendientes de recibir a cuenta.'
+        : 'No hay recolecciones de Virtual pendientes de recibir.');
       return;
     }
     if (!confirm(
@@ -127,7 +142,7 @@ export default function PanelRVirtual({ supabase, user }) {
     // Registra en pestaña Pagaré los negativos pendientes del área virtual.
     try {
       await registrarPagaresEnRcVirtual(supabase, {
-        area: 'virtual',
+        area: areaActiva,
         adminNombre,
       });
     } catch {
@@ -147,6 +162,7 @@ export default function PanelRVirtual({ supabase, user }) {
     const res = await entregarCustodiaAAbb(supabase, {
       recibidoPor: grupo.nombre,
       abbNombre: adminNombre,
+      area: areaActiva,
     });
     setTrabajando('');
     if (!res.ok) {
@@ -174,9 +190,11 @@ export default function PanelRVirtual({ supabase, user }) {
 
   const liquidarItem = async (it) => {
     if (!it?.origenId || it.origen !== 'corte') return;
-    const ieTxt = it.aprobadoIe
-      ? 'Ya está en IE VIRTUAL; solo se quitará de esta bandeja.'
-      : 'Los ingresos y egresos pendientes se registrarán ahora en IE VIRTUAL.';
+    const ieTxt = it.temporal
+      ? 'Recolección temporal de Garage: se quita de esta bandeja. Los gastos siguen en el corte hasta máquinas en cero.'
+      : it.aprobadoIe
+        ? 'Ya está en IE VIRTUAL; solo se quitará de esta bandeja.'
+        : 'Los ingresos y egresos pendientes se registrarán ahora en IE VIRTUAL.';
     if (!confirm(
       `¿Liquidar / borrar la recolección ${it.folio || it.origenId} (${fmtMonto(it.monto)})?\n\n${ieTxt}`,
     )) return;
@@ -200,6 +218,8 @@ export default function PanelRVirtual({ supabase, user }) {
         + (res.egresosLiberados ? ` · ${res.egresosLiberados} egreso(s) liberado(s)` : '')
         + '.',
       );
+    } else if (res.temporal) {
+      setMsg(`Liquidada ${it.folio || ''}: se quitó de RC Garage (temporal, no va a IE).`);
     } else {
       setMsg(`Liquidada ${it.folio || ''}: ya estaba en IE; se quitó de la bandeja.`);
     }
@@ -241,11 +261,25 @@ export default function PanelRVirtual({ supabase, user }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div className="card">
-        <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>RC Virtual</h3>
+        <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
+          {pestana === 'garage' ? 'RC Garage' : 'RC Virtual'}
+        </h3>
         <p className="muted" style={{ margin: 0, fontSize: '0.88rem' }}>
-          Solo recolecciones de cortes Virtual y Garage (AMR, Luis Enrique, etc.).
-          ABB, FJBB y JLBB van directo a IE Virtual y no aparecen aquí.
-          No incluye abarrotes ni traspasos a crédito.
+          {pestana === 'garage' ? (
+            <>
+              Registro de recolecciones de <strong>Corte Garage</strong>: qué se recolectó y quién lo hizo
+              (definitivas y temporales). ABB / FJBB / JLBB aparecen como registro (no se vuelven a cargar a cuenta).
+              El resto se recibe a tu cuenta y se entrega a ABB.
+              Las temporales no van a IE hasta máquinas en cero.
+            </>
+          ) : (
+            <>
+              Recolecciones de <strong>Corte Virtual</strong> (AMR, Luis Enrique, etc.).
+              ABB, FJBB y JLBB van directo a IE Virtual y no aparecen aquí.
+              Garage tiene su propia pestaña <strong>RC Garage</strong>.
+              No incluye abarrotes ni traspasos a crédito.
+            </>
+          )}
           <strong> Liquidar / borrar</strong> en cada línea: si aún no pasó a IE VIRTUAL, registra ingresos y egresos pendientes; luego sale de la bandeja.
           {adminEsAmr
             ? ' Como AMR puedes Generar gasto sobre una recolección: se descuenta del efectivo y queda registrado en la misma línea.'
@@ -260,9 +294,22 @@ export default function PanelRVirtual({ supabase, user }) {
         <button
           type="button"
           className={`btn ${pestana === 'recolecciones' ? 'btn-primary' : 'btn-ghost'}`}
-          onClick={() => setPestana('recolecciones')}
+          onClick={() => { setPestana('recolecciones'); setAbierto(null); setAbiertoAbb(null); }}
         >
-          Recolecciones
+          RC Virtual
+          {recolectoresVirtual.reduce((n, g) => n + (g.items?.length || 0), 0) > 0
+            ? ` (${recolectoresVirtual.reduce((n, g) => n + (g.items?.length || 0), 0)})`
+            : ''}
+        </button>
+        <button
+          type="button"
+          className={`btn ${pestana === 'garage' ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => { setPestana('garage'); setAbierto(null); setAbiertoAbb(null); }}
+        >
+          RC Garage
+          {recolectoresGarage.reduce((n, g) => n + (g.items?.length || 0), 0) > 0
+            ? ` (${recolectoresGarage.reduce((n, g) => n + (g.items?.length || 0), 0)})`
+            : ''}
         </button>
         <button
           type="button"
@@ -279,7 +326,7 @@ export default function PanelRVirtual({ supabase, user }) {
             Pagarés · dinero en negativo pendiente de cobro
           </h4>
           <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.84rem' }}>
-            Se registran al generar Pagaré en el corte (Virtual / Garage / Abarrotes) y al recibir recolecciones en RC Virtual.
+            Se registran al generar Pagaré en el corte (Virtual / Garage / Abarrotes) y al recibir recolecciones en RC Virtual o RC Garage.
           </p>
           {cargando ? (
             <p className="muted">Cargando…</p>
@@ -344,7 +391,7 @@ export default function PanelRVirtual({ supabase, user }) {
         </div>
       )}
 
-      {pestana === 'recolecciones' && error && (
+      {esPestanaRecolecciones && error && (
         <div className="card" style={{ borderLeft: '4px solid var(--danger)', padding: '0.75rem 1rem' }}>
           <p style={{ margin: 0, fontSize: '0.88rem' }}>{error}</p>
         </div>
@@ -409,7 +456,7 @@ export default function PanelRVirtual({ supabase, user }) {
         </div>
       )}
 
-      {pestana === 'recolecciones' && (cargando ? (
+      {esPestanaRecolecciones && (cargando ? (
         <p className="muted">Cargando recolecciones…</p>
       ) : (
         <>
@@ -509,11 +556,13 @@ export default function PanelRVirtual({ supabase, user }) {
 
           <div className="card">
             <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue-dark)' }}>
-              Recolectores
+              {pestana === 'garage' ? 'Recolectores · Garage' : 'Recolectores · Virtual'}
             </h4>
             {recolectores.length === 0 ? (
               <p className="muted" style={{ margin: 0 }}>
-                No hay recolecciones pendientes de cortes Virtual o Garage.
+                {pestana === 'garage'
+                  ? 'No hay recolecciones de Corte Garage pendientes. Al recolectar (definitiva o temporal) aparecen aquí el monto y quién las recolectó.'
+                  : 'No hay recolecciones pendientes de Corte Virtual.'}
               </p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -547,7 +596,7 @@ export default function PanelRVirtual({ supabase, user }) {
                                   <th>Tipo</th>
                                   <th>Folio</th>
                                   <th>Sucursal</th>
-                                  <th>Módulo</th>
+                                  <th>Recolector</th>
                                   <th>Efectivo</th>
                                   <th>Gastos</th>
                                   <th>IE</th>
@@ -561,13 +610,15 @@ export default function PanelRVirtual({ supabase, user }) {
                                     <td>{it.tipoItem}</td>
                                     <td>{it.folio || '—'}</td>
                                     <td>{it.sucursal || '—'}</td>
-                                    <td>{it.tipoItem?.includes('Garage') ? 'Garage' : 'Virtual'}</td>
+                                    <td>{it.recolectorEtiqueta || it.recolectorNombre || '—'}</td>
                                     <td>{fmtMonto(it.monto)}</td>
                                     <td>
                                       <ResumenGastosLinea gastos={it.gastosRc} />
                                     </td>
                                     <td style={{ fontSize: '0.78rem' }}>
-                                      {it.aprobadoIe ? (
+                                      {it.temporal ? (
+                                        <span className="muted">Temporal</span>
+                                      ) : it.aprobadoIe ? (
                                         <span style={{ color: 'var(--brand-blue)' }}>En IE</span>
                                       ) : (
                                         <span className="muted">Pendiente</span>
@@ -631,7 +682,9 @@ export default function PanelRVirtual({ supabase, user }) {
                             </button>
                           ) : (
                             <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.85rem' }}>
-                              No hay monto por recibir en estas recolecciones.
+                              {pestana === 'garage'
+                                ? 'Registro de quién recolectó. ABB/FJBB/JLBB no se vuelven a cargar a cuenta; usa Liquidar para quitar de la bandeja.'
+                                : 'No hay monto por recibir en estas recolecciones.'}
                             </p>
                           )}
                         </div>

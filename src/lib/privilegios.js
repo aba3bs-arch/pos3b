@@ -26,6 +26,7 @@ export const MODULOS_IDS = [
   'Nómina',
   'Panel RT',
   'RC Virtual',
+  'RC Garage',
   'IE VIRTUAL',
   'IE ABARROTES',
   'Auto Fin',
@@ -51,6 +52,7 @@ const ALIAS_MODULO = {
   'Corte de Caja': 'Corte de caja',
   'Cont Virtual': 'IE VIRTUAL',
   'R Virtual': 'RC Virtual',
+  'R Garage': 'RC Garage',
 };
 
 export function normalizarListaModulos(lista) {
@@ -86,6 +88,12 @@ function conModulosMigrados(lista) {
   return MODULOS_IDS.filter((m) => set.has(m));
 }
 
+function aplicarMigraRcGarage(lista) {
+  const set = new Set(lista);
+  if (set.has('RC Virtual')) set.add('RC Garage');
+  return MODULOS_IDS.filter((m) => set.has(m));
+}
+
 export function sanitizarPrivilegios(data) {
   const porRol = {};
   const porUsuario = {};
@@ -93,24 +101,28 @@ export function sanitizarPrivilegios(data) {
     Array.isArray(data?._migratedModulos) ? data._migratedModulos.map(String) : [],
   );
   const faltaMigra = MODULOS_MIGRA_PRIVILEGIOS.some((m) => !migrados.has(m));
+  const faltaRcGarage = !migrados.has('RC Garage');
 
   if (data?.porRol && typeof data.porRol === 'object') {
     for (const [rol, lista] of Object.entries(data.porRol)) {
       if (Array.isArray(lista)) {
-        porRol[rol] = faltaMigra ? conModulosMigrados(lista) : normalizarListaModulos(lista);
+        const base = faltaMigra ? conModulosMigrados(lista) : normalizarListaModulos(lista);
+        porRol[rol] = faltaRcGarage ? aplicarMigraRcGarage(base) : base;
       }
     }
   }
   if (data?.porUsuario && typeof data.porUsuario === 'object') {
     for (const [uid, lista] of Object.entries(data.porUsuario)) {
       if (Array.isArray(lista)) {
-        porUsuario[String(uid)] = faltaMigra
+        const base = faltaMigra
           ? conModulosMigrados(lista)
           : normalizarListaModulos(lista);
+        porUsuario[String(uid)] = faltaRcGarage ? aplicarMigraRcGarage(base) : base;
       }
     }
   }
   for (const m of MODULOS_MIGRA_PRIVILEGIOS) migrados.add(m);
+  migrados.add('RC Garage');
   return {
     porRol,
     porUsuario,
