@@ -1310,7 +1310,13 @@ function App() {
           {vista === 'RC Virtual' && (
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
-              <RcVirtual supabase={supabase} user={user} />
+              <RcVirtual supabase={supabase} user={user} area="virtual" />
+            </>
+          )}
+          {vista === 'RC Garage' && (
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <RcVirtual supabase={supabase} user={user} area="garage" />
             </>
           )}
           {vista === 'Venta en Ruta' && (

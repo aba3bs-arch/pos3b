@@ -114,6 +114,7 @@ export const SUBMODULOS_CONTABILIDAD = [
   'Liquidación recolecciones',
   'Conciliaciones',
   'RC Virtual',
+  'RC Garage',
   'IE VIRTUAL',
   'IE ABARROTES',
   'Auto Fin',
@@ -280,6 +281,7 @@ const ACCESO_POR_ROL = {
     'Liquidación recolecciones',
     'Conciliaciones',
     'RC Virtual',
+    'RC Garage',
     'IE VIRTUAL',
     'IE ABARROTES',
     'Auto Fin',
@@ -325,6 +327,7 @@ export function normalizarIdModulo(moduloId) {
   if (moduloId === 'Recolecciones y traspasos') return 'Panel RT';
   if (moduloId === 'Cont Virtual') return 'IE VIRTUAL';
   if (moduloId === 'R Virtual') return 'RC Virtual';
+  if (moduloId === 'R Garage') return 'RC Garage';
   return moduloId;
 }
 
@@ -479,6 +482,7 @@ export const MODULOS_BLOQUEADOS_MOSTRADOR = new Set([
   'Panel RT',
   'Liquidación recolecciones',
   'RC Virtual',
+  'RC Garage',
   'IE VIRTUAL',
   'IE ABARROTES',
   'Auto Fin',

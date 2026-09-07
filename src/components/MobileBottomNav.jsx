@@ -12,6 +12,7 @@ function etiquetaCorta(modulo) {
     Recolecciones: 'Recol.',
     'Panel RT': 'Panel RT',
     'RC Virtual': 'RC Virt.',
+    'RC Garage': 'RC Gar.',
     'Corte Virtual': 'Virtual',
     'Corte Abarrotes': 'Abarrotes',
     'Corte Garage': 'Garage',
