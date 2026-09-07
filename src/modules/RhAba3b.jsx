@@ -777,6 +777,7 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
   const set = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
   const esIndirecto = form.tipo_empleado === 'indirecto';
   const [ocrProg, setOcrProg] = useState(null);
+  const [ocrEtapa, setOcrEtapa] = useState('');
   const [ocrMsg, setOcrMsg] = useState('');
   const ineInputRef = React.useRef(null);
 
@@ -788,17 +789,29 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
     if (!file) return;
     setOcrMsg('');
     setOcrProg(0);
-    const res = await leerIneDesdeArchivo(file, { onProgress: setOcrProg });
-    setOcrProg(null);
-    if (res.ine_foto) {
-      setForm((prev) => ({ ...prev, ine_foto: res.ine_foto, doc_ine: true }));
+    setOcrEtapa('Preparando foto…');
+    try {
+      const res = await leerIneDesdeArchivo(file, {
+        onProgress: (pct, etapa) => {
+          if (typeof pct === 'number') setOcrProg(pct);
+          if (etapa) setOcrEtapa(etapa);
+        },
+      });
+      if (res.ine_foto) {
+        setForm((prev) => ({ ...prev, ine_foto: res.ine_foto, doc_ine: true }));
+      }
+      if (!res.ok) {
+        setOcrMsg(res.error || 'No se pudo leer el INE.');
+        return;
+      }
+      setForm((prev) => fusionarDatosIneEnForm(prev, res.patch, { sobrescribir: true }));
+      setOcrMsg(res.mensaje || 'Datos del INE aplicados. Revisa el formulario.');
+    } catch (err) {
+      setOcrMsg(err?.message || 'No se pudo leer el INE. Captura los datos a mano.');
+    } finally {
+      setOcrProg(null);
+      setOcrEtapa('');
     }
-    if (!res.ok) {
-      setOcrMsg(res.error || 'No se pudo leer el INE.');
-      return;
-    }
-    setForm((prev) => fusionarDatosIneEnForm(prev, res.patch, { sobrescribir: true }));
-    setOcrMsg(res.mensaje || 'Datos del INE aplicados. Revisa el formulario.');
   };
 
   return (
@@ -814,8 +827,9 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
       >
         <strong style={{ color: 'var(--brand-blue)' }}>Cargar desde foto del INE</strong>
         <p className="muted" style={{ margin: '0.35rem 0 0.65rem', fontSize: '0.85rem' }}>
-          Sube o toma una foto del <strong>anverso</strong> (nombre, CURP y domicilio). Se rellenan automáticamente
-          para ahorrar tiempo; revisa y completa teléfono, NSS, banco, etc.
+          Sube o toma una foto del <strong>anverso</strong> (frente: nombre, CURP y domicilio), nítida y de cerca.
+          Evita el reverso y fotos HEIC. Se rellenan nombre, apellidos, CURP, RFC, fecha de nacimiento y domicilio;
+          revisa y completa teléfono, NSS, banco, etc.
         </p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
           <input
@@ -836,7 +850,7 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
             disabled={ocrProg != null}
             onClick={() => ineInputRef.current?.click()}
           >
-            {ocrProg != null ? `Leyendo INE… ${ocrProg}%` : 'Subir / tomar foto del INE'}
+            {ocrProg != null ? (ocrEtapa || `Leyendo INE… ${ocrProg}%`) : 'Subir / tomar foto del INE'}
           </button>
           {form.ine_foto && (
             <button
@@ -852,16 +866,20 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
           )}
         </div>
         {ocrProg != null && (
-          <div
-            style={{
-              marginTop: '0.65rem',
-              height: 8,
-              borderRadius: 999,
-              background: 'rgba(0,0,0,0.08)',
-              overflow: 'hidden',
-            }}
-          >
-            <div style={{ width: `${ocrProg}%`, height: '100%', background: 'var(--brand-blue)', transition: 'width 0.2s' }} />
+          <div style={{ marginTop: '0.65rem' }}>
+            <div
+              style={{
+                height: 8,
+                borderRadius: 999,
+                background: 'rgba(0,0,0,0.08)',
+                overflow: 'hidden',
+              }}
+            >
+              <div style={{ width: `${Math.max(4, ocrProg)}%`, height: '100%', background: 'var(--brand-blue)', transition: 'width 0.2s' }} />
+            </div>
+            {ocrEtapa && (
+              <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.8rem' }}>{ocrEtapa}</p>
+            )}
           </div>
         )}
         {ocrMsg && (
