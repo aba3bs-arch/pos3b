@@ -23,6 +23,8 @@ import {
   sucursalParaControlEfectivo,
   estadoVentanaRecoleccion,
   EVENTO_VENTANA_RECOLECCION,
+  EVENTO_CANDADO_POST_LIQUIDACION,
+  leerCandadoPostLiquidacion,
   recolectorLiquidoHoy,
 } from '../lib/controlEfectivo.js';
 
@@ -72,18 +74,24 @@ export default function Recolecciones({ supabase, sucursal, user }) {
   const [tickVentana, setTickVentana] = useState(0);
   const [liquidoHoyTraspaso, setLiquidoHoyTraspaso] = useState(false);
   const [liquidoHoyCobro, setLiquidoHoyCobro] = useState(false);
+  const [candadoPostLiq, setCandadoPostLiq] = useState(() => leerCandadoPostLiquidacion());
 
   const ventana = useMemo(() => estadoVentanaRecoleccion(), [tickVentana]);
-  const soloCreditoTraspaso = !ventana.abierta || liquidoHoyTraspaso;
-  const soloCreditoCobro = !ventana.abierta || liquidoHoyCobro;
+  const bloqueoLiqTraspaso = candadoPostLiq && liquidoHoyTraspaso;
+  const bloqueoLiqCobro = candadoPostLiq && liquidoHoyCobro;
+  const soloCreditoTraspaso = !ventana.abierta || bloqueoLiqTraspaso;
+  const soloCreditoCobro = !ventana.abierta || bloqueoLiqCobro;
 
   useEffect(() => {
     const id = setInterval(() => setTickVentana((n) => n + 1), 60_000);
     const onCfg = () => setTickVentana((n) => n + 1);
+    const onCandado = () => setCandadoPostLiq(leerCandadoPostLiquidacion());
     window.addEventListener(EVENTO_VENTANA_RECOLECCION, onCfg);
+    window.addEventListener(EVENTO_CANDADO_POST_LIQUIDACION, onCandado);
     return () => {
       clearInterval(id);
       window.removeEventListener(EVENTO_VENTANA_RECOLECCION, onCfg);
+      window.removeEventListener(EVENTO_CANDADO_POST_LIQUIDACION, onCandado);
     };
   }, []);
 
@@ -404,9 +412,11 @@ export default function Recolecciones({ supabase, sucursal, user }) {
         </strong>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
           {ventana.abierta
-            ? liquidoHoyTraspaso
+            ? bloqueoLiqTraspaso
               ? 'El recolector ya liquidó hoy: solo traspasos a crédito. El efectivo se cobra en otra visita o mañana.'
-              : 'Abierta: cobra CFE y puedes registrar traspaso en efectivo o a crédito.'
+              : liquidoHoyTraspaso && !candadoPostLiq
+                ? 'Abierta. Candado post-liquidación OFF: puedes cobrar efectivo aunque el recolector ya haya liquidado hoy.'
+                : 'Abierta: cobra CFE y puedes registrar traspaso en efectivo o a crédito.'
             : `${ventana.mensaje} CFE sí se puede registrar. Los folios de mercancía solo a crédito.`}
         </p>
       </div>
@@ -460,8 +470,10 @@ export default function Recolecciones({ supabase, sucursal, user }) {
               <strong>Cobrar CFE</strong>. Eso desbloquea el traspaso de mercancía en <strong>{tiendaSesion}</strong>.
               {!ventana.abierta &&
                 ' Fuera de horario igual puedes registrar CFE; los folios de mercancía solo a crédito.'}
-              {liquidoHoyTraspaso &&
+              {bloqueoLiqTraspaso &&
                 ' Este recolector ya liquidó hoy: no se acepta más efectivo, solo crédito.'}
+              {liquidoHoyTraspaso && !candadoPostLiq &&
+                ' Este recolector ya liquidó hoy, pero el candado está OFF: sí se acepta efectivo.'}
             </p>
 
             {(servicios.length ? servicios : pendientesSrv).map((srv) => {
@@ -523,8 +535,8 @@ export default function Recolecciones({ supabase, sucursal, user }) {
                         />
                       </label>
                       <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-                        <button type="button" className="btn btn-success" disabled={guardando || liquidoHoyTraspaso} onClick={() => confirmarCobroServicio(srv)}>
-                          {liquidoHoyTraspaso ? 'Ya liquidó — no efectivo' : `Cobrar ${srv.clave}`}
+                        <button type="button" className="btn btn-success" disabled={guardando || bloqueoLiqTraspaso} onClick={() => confirmarCobroServicio(srv)}>
+                          {bloqueoLiqTraspaso ? 'Ya liquidó — no efectivo' : `Cobrar ${srv.clave}`}
                         </button>
                         <button
                           type="button"
@@ -570,7 +582,7 @@ export default function Recolecciones({ supabase, sucursal, user }) {
               Cajero: <strong>{user?.nombre}</strong>. Si es a crédito, el recolector lo cobra después en «Cobrar crédito».
               {soloCreditoTraspaso && (
                 <span style={{ display: 'block', marginTop: '0.35rem', color: 'var(--brand-red)' }}>
-                  {liquidoHoyTraspaso
+                  {bloqueoLiqTraspaso
                     ? 'Ya liquidó hoy: solo crédito.'
                     : `Fuera de ventana ${ventana.etiqueta}: solo crédito.`}
                 </span>
@@ -592,7 +604,7 @@ export default function Recolecciones({ supabase, sucursal, user }) {
                 {soloCreditoTraspaso && (
                   <span className="muted">
                     {' '}
-                    — {liquidoHoyTraspaso ? 'ya liquidó hoy' : `fuera de ventana ${ventana.etiqueta}`}
+                    — {bloqueoLiqTraspaso ? 'ya liquidó hoy' : `fuera de ventana ${ventana.etiqueta}`}
                   </span>
                 )}
               </label>
@@ -757,7 +769,7 @@ export default function Recolecciones({ supabase, sucursal, user }) {
               <button type="button" className="btn btn-success" style={{ marginTop: '1rem' }} disabled={guardando || totalCobroSel <= 0 || soloCreditoCobro} onClick={confirmarCobro}>
                 {guardando
                   ? 'Procesando…'
-                  : liquidoHoyCobro
+                  : bloqueoLiqCobro
                     ? 'Ya liquidó hoy — solo crédito'
                     : !ventana.abierta
                       ? `Fuera de ventana ${ventana.etiqueta}`
