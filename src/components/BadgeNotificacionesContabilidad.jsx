@@ -2,17 +2,17 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   contarNotificacionesPendientes,
   EVENTO_NOTIFICACIONES,
+  TIPOS_NOTIF,
 } from '../lib/contabilidadNotificaciones.js';
 import { normalizarRol, puedeVerBandejaPendientesIncidencias, puedeVerTodasIncidencias } from '../lib/roles.js';
-import { esAprobadorRecoleccionIe, esSocioAprobadorPrestamo } from '../lib/contabilidadConstants.js';
-import { esUsuarioMainNotificable, filtrarNotificacionesMiBuzon } from '../lib/buzonUsuario.js';
+import { esAprobadorRecoleccionIe } from '../lib/contabilidadConstants.js';
+import { esUsuarioMainNotificable, filtrarNotificacionesFormularioIncidencia } from '../lib/buzonUsuario.js';
 
 export default function BadgeNotificacionesContabilidad({ supabase, sucursal, user, onClick }) {
   const [count, setCount] = useState(0);
   const rol = normalizarRol(user?.rol);
   const esAdmin = rol === 'Administrador';
   const esGerente = rol === 'Gerente';
-  const esSocio = esSocioAprobadorPrestamo(user?.nombre);
   const esAprobadorRecIe = esAprobadorRecoleccionIe(user?.nombre);
   const veTodasTiendas = puedeVerTodasIncidencias(rol, user?.id, sucursal) || esAdmin || esGerente || esAprobadorRecIe;
   const puedeVer =
@@ -27,11 +27,14 @@ export default function BadgeNotificacionesContabilidad({ supabase, sucursal, us
     const nRes = await contarNotificacionesPendientes(supabase, {
       sucursal: veTodasTiendas ? undefined : sucursal,
       todasTiendas: veTodasTiendas,
+      tipos: [TIPOS_NOTIF.INCIDENCIA],
     });
-    // Badge = Mi buzón (lo que este usuario debe atender).
-    const lista = filtrarNotificacionesMiBuzon(nRes.data || [], user, { verTodo: false });
+    // Icono admin: reportes del formulario de incidencias (no recolecciones ni cortes).
+    const lista = filtrarNotificacionesFormularioIncidencia(nRes.data || [], user, {
+      verTodo: esAdmin || esGerente,
+    });
     setCount(lista.length);
-  }, [supabase, sucursal, puedeVer, veTodasTiendas, user]);
+  }, [supabase, sucursal, puedeVer, veTodasTiendas, user, esAdmin, esGerente]);
 
   useEffect(() => {
     refrescar();
@@ -51,7 +54,7 @@ export default function BadgeNotificacionesContabilidad({ supabase, sucursal, us
       type="button"
       className="btn btn-ghost"
       onClick={onClick}
-      title="Abrir Incidencias · pendientes a tu cargo"
+      title="Incidencias reportadas pendientes"
       style={{ position: 'relative', padding: '0.4rem 0.65rem' }}
     >
       📬

@@ -11,15 +11,8 @@ import { esAprobadorRecoleccionIe, esSocioAprobadorPrestamo } from '../lib/conta
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { BtnLabel } from './Icon.jsx';
 
-function filtrarParaUsuario(notifs, { esAdmin, esGerente, esSocio, esAprobadorRecIe }) {
-  if (esAdmin || esGerente) return notifs;
-  if (esSocio || esAprobadorRecIe) {
-    return notifs.filter((n) =>
-      (esSocio && n.tipo === TIPOS_NOTIF.PRESTAMO_SOCIO)
-      || (esAprobadorRecIe && n.tipo === TIPOS_NOTIF.RECOLECCION_CORTE_IE),
-    );
-  }
-  return notifs;
+function filtrarParaUsuario(notifs) {
+  return (notifs || []).filter((n) => n.tipo === TIPOS_NOTIF.INCIDENCIA);
 }
 
 export default function PanelNotificacionesInicio({ supabase, sucursal, user, onNavigate, puedeModulo }) {
@@ -42,11 +35,12 @@ export default function PanelNotificacionesInicio({ supabase, sucursal, user, on
     const nRes = await contarNotificacionesPendientes(supabase, {
       sucursal: veTodasTiendas ? undefined : sucursal,
       todasTiendas: veTodasTiendas,
+      tipos: [TIPOS_NOTIF.INCIDENCIA],
     });
     if (nRes.aviso) setAviso(nRes.aviso);
     else setAviso('');
-    setNotifs(filtrarParaUsuario(nRes.data || [], { esAdmin, esGerente, esSocio, esAprobadorRecIe }));
-  }, [supabase, sucursal, puedeVer, veTodasTiendas, esAdmin, esGerente, esSocio, esAprobadorRecIe]);
+    setNotifs(filtrarParaUsuario(nRes.data || []));
+  }, [supabase, sucursal, puedeVer, veTodasTiendas]);
 
   useEffect(() => {
     refrescar();
@@ -74,7 +68,6 @@ export default function PanelNotificacionesInicio({ supabase, sucursal, user, on
   if (!puedeVer || total === 0) return null;
 
   const puedeIncidencias = typeof puedeModulo === 'function' ? puedeModulo('Incidencias') : true;
-  const puedeVales = typeof puedeModulo === 'function' ? puedeModulo('Vales y Préstamos') : false;
 
   return (
     <div
@@ -91,18 +84,13 @@ export default function PanelNotificacionesInicio({ supabase, sucursal, user, on
             {veTodasTiendas ? ' · todas las tiendas' : ` · ${etiquetaTienda(sucursal)}`}
           </h3>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
-            Vales, préstamos e incidencias que requieren atención.
+            Reportes del formulario de incidencias pendientes de atender.
           </p>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
           {puedeAbrirBandejaIncidencias(rol, user?.id) && puedeIncidencias && (
             <button type="button" className="btn btn-primary" onClick={() => onNavigate('Incidencias')}>
               <BtnLabel icon="alert">Abrir incidencias</BtnLabel>
-            </button>
-          )}
-          {puedeVales && (notifs.some((n) => n.tipo !== TIPOS_NOTIF.INCIDENCIA) || !(puedeAbrirBandejaIncidencias(rol, user?.id) && puedeIncidencias)) && (
-            <button type="button" className="btn btn-gold" onClick={() => onNavigate('Vales y Préstamos', { pestana: 'pendientes' })}>
-              Vales y préstamos
             </button>
           )}
         </div>

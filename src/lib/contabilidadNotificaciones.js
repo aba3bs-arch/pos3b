@@ -121,13 +121,14 @@ export async function marcarNotificacionAtendidaPorId(supabase, id, atendidaPor)
 
 export async function listarHistorialNotificaciones(supabase, opts = {}) {
   if (!supabase) return { data: [], error: null };
-  const { sucursal, todasTiendas = false, limit = 80 } = opts;
+  const { sucursal, todasTiendas = false, limit = 80, tipos } = opts;
   let q = supabase
     .from('contabilidad_notificaciones')
     .select('*')
     .order('created_at', { ascending: false })
     .limit(limit);
   if (sucursal && !todasTiendas) q = q.eq('sucursal_id', sucursal);
+  if (tipos?.length) q = q.in('tipo', tipos);
   const { data, error } = await q;
   if (error && faltaTabla(error)) return { data: [], aviso: AVISO_FALTA_NOTIF };
   if (error) return { data: [], error: error.message };
@@ -160,6 +161,11 @@ export const TIPOS_NOTIF = {
   RIF_LIQUIDADO: 'rif_liquidado',
   RIF_VENCIDO: 'rif_vencido',
 };
+
+/** Solo reportes del formulario de Incidencias (no recolecciones, cortes ni vales). */
+export function esNotificacionFormularioIncidencia(n) {
+  return String(n?.tipo || '') === TIPOS_NOTIF.INCIDENCIA;
+}
 
 export function etiquetaTipoNotificacion(tipo) {
   switch (tipo) {
@@ -220,6 +226,7 @@ export function iniciarMonitorNotificacionesDispositivo(supabase, opts = {}) {
     const res = await listarNotificacionesPendientes(supabase, {
       sucursal: veTodasTiendas ? undefined : sucursal,
       todasTiendas: veTodasTiendas,
+      tipos: opts.tipos,
       limit: 50,
     });
     const lista = res.data || [];

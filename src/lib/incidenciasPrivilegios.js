@@ -15,7 +15,7 @@ export const ACCIONES_INCIDENCIAS_PRIVILEGIO = [
   {
     id: 'inc_bandeja_pendientes',
     label: 'Bandeja de pendientes',
-    desc: 'Ver la pestaña Pendientes con avisos de vales, préstamos e incidencias nuevas de todas las tiendas (uso en central MAIN).',
+    desc: 'Ver la pestaña Pendientes con avisos de incidencias reportadas desde el formulario (todas las tiendas en central MAIN).',
   },
   {
     id: 'inc_ver_todas_tiendas',

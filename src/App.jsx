@@ -380,6 +380,7 @@ function App() {
       user,
       rol: user?.rol,
       veTodasTiendas: true,
+      tipos: [TIPOS_NOTIF.INCIDENCIA],
       onClickNotificacion: abrirPendientes,
     });
 
@@ -391,14 +392,14 @@ function App() {
         (payload) => {
           const row = payload.new;
           if (!row || row.estado !== 'pendiente') return;
-          // Avisa a todos los usuarios MAIN notificables: deben abrir Incidencias.
+          window.dispatchEvent(new CustomEvent(EVENTO_NOTIFICACIONES));
+          if (row.tipo !== TIPOS_NOTIF.INCIDENCIA) return;
           void mostrarNotificacionDispositivo({
             id: row.id,
             titulo: row.titulo,
-            mensaje: row.mensaje || 'Hay un pendiente nuevo en Incidencias.',
+            mensaje: row.mensaje || 'Hay un reporte nuevo en Incidencias.',
             onClick: () => abrirPendientes(row),
           });
-          window.dispatchEvent(new CustomEvent(EVENTO_NOTIFICACIONES));
         },
       )
       .subscribe();
@@ -406,6 +407,7 @@ function App() {
     const onLocal = (e) => {
       const row = e.detail;
       if (!row?.titulo) return;
+      if (row.tipo && row.tipo !== TIPOS_NOTIF.INCIDENCIA) return;
       void mostrarNotificacionDispositivo({
         id: row.id,
         titulo: row.titulo,
@@ -1143,7 +1145,7 @@ function App() {
                 sucursal={sucursal}
                 user={user}
                 onClick={() => {
-                  // Campanita = Incidencias (recolecciones, incidencias, vales). No van en Inicio.
+                  // Campanita = solo incidencias del formulario de reporte.
                   if (puedeAbrirBandejaIncidencias(user?.rol, user?.id) && puedeVerModulo(user?.rol, 'Incidencias', user?.id)) {
                     setBuzonPestana('pendientes');
                     irAModulo('Incidencias');
