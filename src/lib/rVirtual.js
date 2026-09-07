@@ -93,6 +93,53 @@ export function esCierreRecoleccionRc(row, area = 'virtual') {
   return true;
 }
 
+const TZ_RC = 'America/Hermosillo';
+
+/** YYYY-MM-DD en hora Nogales. */
+export function ymdNogalesDesdeIso(iso) {
+  if (!iso) return '';
+  const d = iso instanceof Date ? iso : new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso).slice(0, 10);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ_RC,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(d);
+  const y = parts.find((p) => p.type === 'year')?.value;
+  const m = parts.find((p) => p.type === 'month')?.value;
+  const day = parts.find((p) => p.type === 'day')?.value;
+  return y && m && day ? `${y}-${m}-${day}` : String(iso).slice(0, 10);
+}
+
+/** Agosto 2026: mes ya cerrado en IE; no se vuelve a listar en RC Garage. */
+export function esRecoleccionGarageDeAgosto(row) {
+  const ymd = ymdNogalesDesdeIso(row?.created_at);
+  return ymd >= '2026-08-01' && ymd <= '2026-08-31';
+}
+
+/** Ya está en el libro IE VIRTUAL (aprobada o legado sin campo). Las temporales no cuentan. */
+export function esRecoleccionYaEnIeVirtual(row) {
+  if (esRecoleccionTemporalGarage(row)) return false;
+  return recoleccionAprobadaParaIe(row);
+}
+
+/**
+ * Garage: no listar en la bandeja si es de agosto 2026 o si ya está en IE VIRTUAL.
+ */
+export function omitirRecoleccionBandejaGarage(row) {
+  if (String(row?.modulo || '').toLowerCase() !== 'garage') return false;
+  if (esRecoleccionGarageDeAgosto(row)) return true;
+  if (esRecoleccionYaEnIeVirtual(row)) return true;
+  return false;
+}
+
+export function esPendienteBandejaRc(row, area = 'virtual') {
+  if (!esCierreRecoleccionRc(row, area)) return false;
+  if (normalizarAreaRc(area) === 'garage' && omitirRecoleccionBandejaGarage(row)) return false;
+  return true;
+}
+
 function montoCorteRecoleccion(row) {
   const d = row?.detalle || {};
   return Number(d.recoleccion_efectivo ?? d.recoleccion ?? d.recoleccion_turno ?? 0) || 0;
@@ -143,7 +190,7 @@ async function listarRecoleccionesCorteRVirtual(supabase, area = 'virtual') {
     .order('created_at', { ascending: false })
     .limit(500);
   if (error) throw error;
-  return (data || []).filter((row) => esCierreRecoleccionRc(row, areaNorm));
+  return (data || []).filter((row) => esPendienteBandejaRc(row, areaNorm));
 }
 
 function gastosRcDesdeDetalle(detalle = {}) {
@@ -258,7 +305,7 @@ function agruparCustodiaPorAdmin(rows) {
 /**
  * Bandeja RC Virtual o RC Garage.
  * Virtual: AMR / Luis Enrique (ABB/FJBB/JLBB van directo a IE).
- * Garage: todas las recolecciones (definitivas y temporales) con recolector y monto.
+ * Garage: pendientes (no agosto 2026, no ya en IE VIRTUAL) con recolector y monto.
  * Lo ya recibido en custodia no aparece.
  */
 export async function listarBandejaRVirtual(supabase, { area = 'virtual' } = {}) {
@@ -276,6 +323,7 @@ export async function listarBandejaRVirtual(supabase, { area = 'virtual' } = {})
       // Mostrar aunque el efectivo ya se gastó (gastos RC), para poder liquidar → IE.
       if (!(it.monto > 0) && !(it.gastosRcTotal > 0)) continue;
       if (yaRecibidos.has(claveItem(it.origen, it.origenId))) continue;
+      if (it.modulo === 'garage' && (it.aprobadoIe || esRecoleccionGarageDeAgosto(row))) continue;
       pendientes.push(it);
     }
     const porEntregarAbb = agruparCustodiaPorAdmin(

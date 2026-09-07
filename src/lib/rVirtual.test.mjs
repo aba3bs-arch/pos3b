@@ -3,9 +3,13 @@ import {
   areaCustodiaRc,
   custodiaEsDeArea,
   esCierreRecoleccionRc,
+  esPendienteBandejaRc,
+  esRecoleccionGarageDeAgosto,
   esRecoleccionTemporalGarage,
+  esRecoleccionYaEnIeVirtual,
   itemBandejaDesdeCorte,
   normalizarAreaRc,
+  omitirRecoleccionBandejaGarage,
 } from './rVirtual.js';
 
 assert.equal(normalizarAreaRc('garage'), 'garage');
@@ -33,7 +37,12 @@ const recGarageAmrDef = {
   sucursal_id: 'MAIN',
   folio: 'REC-G-1',
   created_at: '2026-09-07T12:00:00Z',
-  detalle: { tipo_cierre: 'recoleccion', recoleccion: 800, maquinas_en_cero: true },
+  detalle: {
+    tipo_cierre: 'recoleccion',
+    recoleccion: 800,
+    maquinas_en_cero: true,
+    estado_aprobacion: 'pendiente_admin',
+  },
 };
 const recGarageTemporal = {
   id: 'g2',
@@ -53,7 +62,37 @@ const recGarageAbb = {
   sucursal_id: 'MAIN',
   folio: 'REC-G-3',
   created_at: '2026-09-07T14:00:00Z',
-  detalle: { tipo_cierre: 'recoleccion', recoleccion: 100, maquinas_en_cero: true },
+  detalle: {
+    tipo_cierre: 'recoleccion',
+    recoleccion: 100,
+    maquinas_en_cero: true,
+    estado_aprobacion: 'aprobado',
+  },
+};
+const recGarageAgosto = {
+  id: 'g-ago',
+  modulo: 'garage',
+  turno: 'RECOLECCION',
+  usuario_nombre: 'AMR',
+  sucursal_id: 'MAIN',
+  folio: 'REC-G-AGO',
+  created_at: '2026-08-15T18:00:00Z',
+  detalle: {
+    tipo_cierre: 'recoleccion',
+    recoleccion: 400,
+    maquinas_en_cero: true,
+    estado_aprobacion: 'pendiente_admin',
+  },
+};
+const recGarageAgostoTemporal = {
+  id: 'g-ago-t',
+  modulo: 'garage',
+  turno: 'RECOLECCION',
+  usuario_nombre: 'Luis Enrique Ozuna',
+  sucursal_id: 'MAIN',
+  folio: 'REC-G-AGO-T',
+  created_at: '2026-08-20T18:00:00Z',
+  detalle: { tipo_cierre: 'recoleccion_temporal', recoleccion: 90, maquinas_en_cero: false },
 };
 const recGarageYaRecibida = {
   ...recGarageAmrDef,
@@ -71,7 +110,19 @@ assert.equal(esCierreRecoleccionRc(recVirtualAbb, 'virtual'), false, 'virtual AB
 assert.equal(esCierreRecoleccionRc(recGarageAmrDef, 'virtual'), false, 'garage no se mezcla en RC Virtual');
 assert.equal(esCierreRecoleccionRc(recGarageAmrDef, 'garage'), true, 'garage definitiva entra a RC Garage');
 assert.equal(esCierreRecoleccionRc(recGarageTemporal, 'garage'), true, 'garage temporal entra a RC Garage');
-assert.equal(esCierreRecoleccionRc(recGarageAbb, 'garage'), true, 'garage ABB se registra en RC Garage');
+assert.equal(esCierreRecoleccionRc(recGarageAbb, 'garage'), true, 'garage ABB es recolección de garage');
+assert.equal(esPendienteBandejaRc(recGarageAbb, 'garage'), false, 'ABB aprobado ya está en IE: no bandeja');
+assert.equal(esPendienteBandejaRc(recGarageAmrDef, 'garage'), true, 'AMR pendiente septiembre sí entra');
+assert.equal(esPendienteBandejaRc(recGarageTemporal, 'garage'), true, 'temporal septiembre sí entra');
+assert.equal(esPendienteBandejaRc(recGarageAgosto, 'garage'), false, 'agosto 2026 no entra aunque esté pendiente');
+assert.equal(esPendienteBandejaRc(recGarageAgostoTemporal, 'garage'), false, 'temporal de agosto 2026 no entra');
+assert.equal(esRecoleccionYaEnIeVirtual(recGarageAbb), true);
+assert.equal(esRecoleccionYaEnIeVirtual(recGarageAmrDef), false);
+assert.equal(esRecoleccionGarageDeAgosto(recGarageAgosto), true);
+assert.equal(esRecoleccionGarageDeAgosto(recGarageAmrDef), false);
+assert.equal(omitirRecoleccionBandejaGarage(recGarageAbb), true);
+assert.equal(omitirRecoleccionBandejaGarage(recGarageAgosto), true);
+assert.equal(omitirRecoleccionBandejaGarage(recGarageTemporal), false);
 assert.equal(esCierreRecoleccionRc(recGarageYaRecibida, 'garage'), false, 'ya recibida no se lista');
 assert.equal(esCierreRecoleccionRc(recAbarrotes, 'garage'), false, 'abarrotes no va a RC Garage');
 assert.equal(esCierreRecoleccionRc(recAbarrotes, 'virtual'), false);
@@ -90,6 +141,7 @@ assert.equal(itemTmp.monto, 250);
 
 const itemAbb = itemBandejaDesdeCorte(recGarageAbb);
 assert.equal(itemAbb.receivable, false, 'ABB garage es registro, no se recarga a cuenta');
+assert.equal(itemAbb.aprobadoIe, true, 'ABB definitiva ya está en IE');
 assert.equal(itemAbb.recolectorEtiqueta, 'ABB');
 assert.equal(itemAbb.monto, 100);
 

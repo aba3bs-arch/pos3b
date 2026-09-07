@@ -267,10 +267,9 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
         <p className="muted" style={{ margin: 0, fontSize: '0.88rem' }}>
           {pestana === 'garage' ? (
             <>
-              Registro de recolecciones de <strong>Corte Garage</strong>: qué se recolectó y quién lo hizo
-              (definitivas y temporales). ABB / FJBB / JLBB aparecen como registro (no se vuelven a cargar a cuenta).
-              El resto se recibe a tu cuenta y se entrega a ABB.
-              Las temporales no van a IE hasta máquinas en cero.
+              Registro de recolecciones de <strong>Corte Garage</strong> pendientes: qué se recolectó y quién.
+              No se listan las de <strong>agosto 2026</strong> ni las que ya están en <strong>IE VIRTUAL</strong>.
+              Temporales (máquinas sin cero) sí aparecen hasta que se liquiden o se recolecte en definitivo.
             </>
           ) : (
             <>
@@ -561,7 +560,7 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
             {recolectores.length === 0 ? (
               <p className="muted" style={{ margin: 0 }}>
                 {pestana === 'garage'
-                  ? 'No hay recolecciones de Corte Garage pendientes. Al recolectar (definitiva o temporal) aparecen aquí el monto y quién las recolectó.'
+                  ? 'No hay recolecciones de Corte Garage pendientes. No se muestran las de agosto 2026 ni las ya registradas en IE VIRTUAL.'
                   : 'No hay recolecciones pendientes de Corte Virtual.'}
               </p>
             ) : (
