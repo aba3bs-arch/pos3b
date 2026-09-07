@@ -2,10 +2,12 @@
 
 import { TUTORIAL_CORTE_ABARROTES } from './tutorialCorteAbarrotes.js';
 import { TUTORIAL_VALES_MAIN } from './tutorialValesMain.js';
+import { TUTORIAL_CONFIG_OPERACION } from './tutorialConfigOperacion.js';
 
 export const TUTORIALES = [
   TUTORIAL_CORTE_ABARROTES,
   TUTORIAL_VALES_MAIN,
+  TUTORIAL_CONFIG_OPERACION,
   {
     id: 'alta-reingreso-empleado',
     titulo: 'Cómo dar de alta o reingresar un empleado',
