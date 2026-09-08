@@ -47,8 +47,7 @@ export const SOCIOS_APROBADORES_PRESTAMO = [
   { id: 'jose-luis', etiqueta: 'José Luis', patrones: ['jose luis', 'josé luis', 'jose luis'] },
 ];
 
-/**
- * ABB / FJBB / JLBB: aprueban recolecciones de corte hacia IE (y autoaprueban si ellos recolectan).
+/** ABB / FJBB / JLBB: aprueban recolecciones de corte hacia IE (y autoaprueban si ellos recolectan).
  * Patrones incluyen iniciales y nombres habituales.
  */
 export const APROBADORES_RECOLECCION_IE = [
@@ -57,6 +56,11 @@ export const APROBADORES_RECOLECCION_IE = [
   { id: 'jlbb', etiqueta: 'JLBB', patrones: ['jlbb', 'jose luis', 'josé luis'] },
   { id: 'cheche', etiqueta: 'Cheche', patrones: ['cheche'] },
 ];
+
+/** Quién puede editar/eliminar ingresos y egresos en IE VIRTUAL / IE ABARROTES (no incluye Cheche). */
+export const ADMINISTRADORES_IE_MOVIMIENTOS = APROBADORES_RECOLECCION_IE.filter((s) =>
+  s.id === 'abb' || s.id === 'fjbb' || s.id === 'jlbb',
+);
 
 /** Si recolectan ellos, la transferencia a IE queda pendiente hasta ABB/FJBB/JLBB. */
 export const RECOLECTORES_REQUIEREN_APROBACION_IE = [
@@ -280,6 +284,11 @@ export function esSocioAprobadorPrestamo(nombre) {
 /** ABB, FJBB o JLBB (o Antonio / Francisco / José Luis). */
 export function esAprobadorRecoleccionIe(nombre) {
   return APROBADORES_RECOLECCION_IE.some((s) => nombreCoincidePatrones(nombre, s.patrones));
+}
+
+/** ABB / FJBB / JLBB: editar y eliminar movimientos en el panel IE. */
+export function esAdministradorIeMovimientos(nombre) {
+  return ADMINISTRADORES_IE_MOVIMIENTOS.some((s) => nombreCoincidePatrones(nombre, s.patrones));
 }
 
 /** Antonio / ABB: destino final de R Virtual. */

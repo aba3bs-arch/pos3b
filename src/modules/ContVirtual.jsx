@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { listarSucursales, listarSucursalesOperativas, etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { puedeGestionarUsuarios, normalizarRol, listarTodosLosRoles } from '../lib/roles.js';
+import { puedeGestionarMovimientosIe } from '../lib/ieVirtualPermisos.js';
 import { pinEsCubreTurnoDeSucursal } from '../lib/cubreTurnoSync.js';
 import { estiloPastel } from '../lib/estadisticasData.js';
 import {
@@ -129,9 +130,15 @@ function tituloMovimientoIe(it) {
   return `${it.categoria || 'Gasto'}${it.subcategoria ? ` · ${it.subcategoria}` : ''}`;
 }
 
-function ModalDesgloseMovimiento({ item, onClose }) {
+function ModalDesgloseMovimiento({ item, onClose, puedeEditar = false, onEditar, onEliminar }) {
   if (!item) return null;
   const esGasto = item.tipo === 'gasto';
+  const puedeEditarEste =
+    puedeEditar
+    && (
+      (item.tipo === 'ingreso' && (item.manual || item.tipo_mov === 'manual' || item.tipo_mov === 'recoleccion' || item.tipo_mov === 'venta_cierre'))
+      || item.tipo === 'gasto'
+    );
   const filas = [
     { label: 'Tipo', value: esGasto ? 'Gasto / egreso' : 'Ingreso' },
     { label: 'Monto', value: fmtMoney(item.monto), strong: true, className: esGasto ? 'gasto' : 'ingreso' },
@@ -214,6 +221,32 @@ function ModalDesgloseMovimiento({ item, onClose }) {
                 <strong className="gasto">{fmtMoney(g.monto)}</strong>
               </div>
             ))}
+          </div>
+        ) : null}
+        {puedeEditarEste ? (
+          <div className="cv-modal-actions" style={{ marginTop: '1rem' }}>
+            {!esGasto && typeof onEditar === 'function' ? (
+              <button
+                type="button"
+                className="cv-btn ghost"
+                onClick={() => {
+                  onClose?.();
+                  onEditar(item);
+                }}
+              >
+                Editar
+              </button>
+            ) : null}
+            {typeof onEliminar === 'function' ? (
+              <button
+                type="button"
+                className="cv-btn"
+                style={{ background: 'var(--cv-gasto)' }}
+                onClick={() => onEliminar(item)}
+              >
+                Eliminar
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -844,6 +877,8 @@ function buildCalendarCells(anio, mes, byFecha) {
 
 export default function ContVirtual({ supabase, user, libro = 'antonio', sucursal: sucursalProp = '' }) {
   const esAdmin = puedeGestionarUsuarios(user?.rol);
+  /** Editar/eliminar movimientos IE: solo ABB, FJBB, JLBB + admin principal. */
+  const puedeMovimientosIe = puedeGestionarMovimientosIe(user);
   const esFrancisco = libro === 'francisco';
   const tituloLibro = esFrancisco ? 'IE ABARROTES' : 'IE VIRTUAL';
   const subtituloLibro = esFrancisco
@@ -1312,10 +1347,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
   const guardarManual = async () => {
     const esIngreso = manualTipo === 'ingreso';
-    if (!esAdmin) {
+    if (!puedeMovimientosIe) {
       return alert(esIngreso
-        ? 'Solo el administrador puede capturar ingresos manuales.'
-        : 'Solo el administrador puede capturar egresos manuales.');
+        ? 'Solo ABB, FJBB, JLBB o el administrador principal pueden capturar ingresos.'
+        : 'Solo ABB, FJBB, JLBB o el administrador principal pueden capturar egresos.');
     }
     const monto = Number(manual.monto);
     if (!(monto > 0)) return alert('Indica un monto válido.');
@@ -1422,7 +1457,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   };
 
   const abrirEditarManual = (row) => {
-    if (!esAdmin || !row) return;
+    if (!puedeMovimientosIe || !row) return;
     setEditandoManualId(row.id);
     setManualTipo('ingreso');
     setManual({
@@ -1441,7 +1476,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   };
 
   const abrirEditarCierreIe = (row) => {
-    if (!esAdmin || !row?.cierre_id) return;
+    if (!puedeMovimientosIe || !row?.cierre_id) return;
     const esRec = row.tipo_mov === 'recoleccion';
     const esVenta = row.tipo_mov === 'venta_cierre';
     if (!esRec && !esVenta) return;
@@ -1460,7 +1495,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   };
 
   const guardarEditCierreIe = async () => {
-    if (!esAdmin || !editCierre?.cierre_id) return;
+    if (!puedeMovimientosIe || !editCierre?.cierre_id) return;
     const modulo = editCierre.cuenta === 'garage'
       ? 'garage'
       : editCierre.cuenta === 'abarrotes'
@@ -1498,7 +1533,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   };
 
   const borrarIngresoCierreIe = async (row) => {
-    if (!esAdmin || !row?.cierre_id) return;
+    if (!puedeMovimientosIe || !row?.cierre_id) return;
     const esRec = row.tipo_mov === 'recoleccion';
     const etiqueta = esRec ? 'recolección' : 'cierre / ventas';
     if (!confirm(
@@ -1515,6 +1550,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     });
     if (!res.ok) return alert(res.error || 'No se pudo eliminar.');
     if (res.aviso) alert(res.aviso);
+    setDesgloseMov(null);
     cargar();
   };
 
@@ -1555,23 +1591,27 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   };
 
   const borrarEgreso = async (row) => {
-    if (!esAdmin) return;
+    if (!puedeMovimientosIe) {
+      return alert('Solo ABB, FJBB, JLBB o el administrador principal pueden eliminar movimientos.');
+    }
     if (row?.tipo === 'ingreso') {
       if (row.tipo_mov === 'recoleccion' || row.tipo_mov === 'venta_cierre') {
         return borrarIngresoCierreIe(row);
       }
       if (!row.manual && row.tipo_mov !== 'manual' && !String(row.id || '').startsWith('local-ing')) {
-        return; // otros ingresos de sistema
+        return alert('Este ingreso de sistema no se puede eliminar desde aquí.');
       }
       if (!confirm(`¿Eliminar este ingreso de ${tituloLibro}?\n\n${row.comentario || ''}\n${fmt(row.monto)}`)) return;
       const res = await eliminarIngresoContVirtual(supabase, row.id);
       if (!res.ok) return alert(res.error || 'No se pudo eliminar.');
+      setDesgloseMov(null);
       cargar();
       return;
     }
     if (!confirm(`¿Eliminar este egreso de ${tituloLibro}?\n\n${row.categoria || ''}${row.subcategoria ? ` · ${row.subcategoria}` : ''}\n${fmt(row.monto)}`)) return;
     const res = await eliminarEgresoDesdePanelIe(supabase, row);
     if (!res.ok) return alert(res.error || 'No se pudo eliminar.');
+    setDesgloseMov(null);
     cargar();
   };
 
@@ -1941,19 +1981,19 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
               {fmt(it.monto)}
             </span>
             <span className="cv-row-chev" aria-hidden>›</span>
-            {esAdmin && it.tipo === 'ingreso' && (it.manual || it.tipo_mov === 'manual') && (
+            {puedeMovimientosIe && it.tipo === 'ingreso' && (it.manual || it.tipo_mov === 'manual') && (
               <>
                 <button type="button" className="cv-row-edit" title="Editar ingreso" onClick={(e) => { e.stopPropagation(); abrirEditarManual(it); }}>✎</button>
                 <button type="button" className="cv-row-del" title="Eliminar ingreso" onClick={(e) => { e.stopPropagation(); borrarEgreso(it); }}>✕</button>
               </>
             )}
-            {esAdmin && it.tipo === 'ingreso' && (it.tipo_mov === 'recoleccion' || it.tipo_mov === 'venta_cierre') && (
+            {puedeMovimientosIe && it.tipo === 'ingreso' && (it.tipo_mov === 'recoleccion' || it.tipo_mov === 'venta_cierre') && (
               <>
                 <button type="button" className="cv-row-edit" title={it.tipo_mov === 'recoleccion' ? 'Editar recolección' : 'Editar ventas de cierre'} onClick={(e) => { e.stopPropagation(); abrirEditarCierreIe(it); }}>✎</button>
                 <button type="button" className="cv-row-del" title={it.tipo_mov === 'recoleccion' ? 'Eliminar recolección' : 'Eliminar cierre'} onClick={(e) => { e.stopPropagation(); borrarEgreso(it); }}>✕</button>
               </>
             )}
-            {esAdmin && it.tipo === 'gasto' && (
+            {puedeMovimientosIe && it.tipo === 'gasto' && (
               <button type="button" className="cv-row-del" title="Eliminar egreso" onClick={(e) => { e.stopPropagation(); borrarEgreso(it); }}>✕</button>
             )}
           </div>
@@ -2891,7 +2931,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
         {nav === 'mas' && renderMas()}
       </div>
 
-      {showFab && esAdmin && (
+      {showFab && puedeMovimientosIe && (
         <div className="cv-fab-group">
           <button type="button" className="cv-fab ingreso" aria-label="Agregar ingreso" title="Ingreso manual" onClick={() => abrirManual('ingreso')}>＋I</button>
           <button type="button" className="cv-fab" aria-label="Agregar egreso" title="Egreso manual" onClick={() => abrirManual('egreso')}>＋E</button>
@@ -2923,7 +2963,21 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       </nav>
 
       {desgloseMov ? (
-        <ModalDesgloseMovimiento item={desgloseMov} onClose={() => setDesgloseMov(null)} />
+        <ModalDesgloseMovimiento
+          item={desgloseMov}
+          onClose={() => setDesgloseMov(null)}
+          puedeEditar={puedeMovimientosIe}
+          onEditar={(row) => {
+            if (row?.tipo === 'ingreso' && (row.manual || row.tipo_mov === 'manual')) {
+              abrirEditarManual(row);
+              return;
+            }
+            if (row?.tipo_mov === 'recoleccion' || row?.tipo_mov === 'venta_cierre') {
+              abrirEditarCierreIe(row);
+            }
+          }}
+          onEliminar={borrarEgreso}
+        />
       ) : null}
 
       {showInversion && (
@@ -3022,8 +3076,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       )}
 
       {showManual && (
-        <div className="cv-modal-backdrop" onClick={() => { setShowManual(false); setEditandoManualId(null); }} role="presentation">
-          <div className="cv-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Captura manual">
+        <div className="cv-modal-backdrop cv-modal-backdrop-float" onClick={() => { setShowManual(false); setEditandoManualId(null); }} role="presentation">
+          <div className="cv-modal cv-modal-float" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Captura manual">
             <h3>
               {editandoManualId
                 ? 'Editar ingreso'
@@ -3167,8 +3221,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       )}
 
       {editCierre && (
-        <div className="cv-modal-backdrop" onClick={() => setEditCierre(null)} role="presentation">
-          <div className="cv-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Editar ingreso de corte">
+        <div className="cv-modal-backdrop cv-modal-backdrop-float" onClick={() => setEditCierre(null)} role="presentation">
+          <div className="cv-modal cv-modal-float" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Editar ingreso de corte">
             <h3>
               {editCierre.tipo_mov === 'recoleccion' ? 'Editar recolección' : 'Editar ventas de cierre'}
             </h3>
