@@ -423,9 +423,16 @@ export function enriquecerEmpleadosNominaIndirectos(empleados) {
   return dedupeEmpleadosPorNombre(out);
 }
 
-/** Lista global para nómina: operativos + placeholders de indirectos (vales). */
+/** Lista global para nómina: operativos + placeholders de indirectos (vales). Sin socios 3B. */
 export function empleadosParaNominaGlobal(empleados) {
-  const base = (empleados || []).filter((e) => e?.activo !== false && normalizarRol(e.rol) !== 'Administrador');
+  const base = (empleados || []).filter((e) => {
+    if (e?.activo === false) return false;
+    const rol = normalizarRol(e.rol);
+    if (rol === 'Administrador') return false;
+    if (rol === 'Cliente') return false;
+    if (e?.excluir_nomina || e?.socio_3b || e?.tipo_empleado === 'socio_3b') return false;
+    return true;
+  });
   return enriquecerEmpleadosNominaIndirectos(base);
 }
 

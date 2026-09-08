@@ -13,7 +13,7 @@ import {
   inyectarMonedaVirtualCliente,
   listarClientesMaquinas,
   listarMonedaCliente,
-  obtenerClientePorUsuarioId,
+  obtenerClienteParaSesion,
 } from '../lib/clientesMaquinas.js';
 
 const COLOR = '#1d4ed8';
@@ -44,7 +44,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
     if (!tieneAcceso) return;
     setCargando(true);
     if (esCliente) {
-      const r = await obtenerClientePorUsuarioId(supabase, user?.id);
+      const r = await obtenerClienteParaSesion(supabase, user);
       setCargando(false);
       if (r.error) setError(r.error);
       if (r.aviso) setAviso(r.aviso);
@@ -55,7 +55,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
       } else {
         setClientes([]);
         setClienteId(null);
-        setError('Tu usuario no está vinculado a un cliente de máquinas. Pide a Contabilidad que te dé de alta.');
+        setError('Tu usuario no está vinculado a un socio 3B. Pide a Contabilidad que te dé de alta.');
       }
       return;
     }
@@ -146,7 +146,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
     }
     if (r.aviso) setAviso(r.aviso);
     setMsg(
-      `Moneda inyectada: empresa ${fmtMonedaCliente(r.calc.monto_empresa)} · cliente ${fmtMonedaCliente(r.calc.monto_cliente)}. Registrado en IE VIRTUAL · Clientes.`,
+      `Moneda inyectada: empresa ${fmtMonedaCliente(r.calc.monto_empresa)} · socio ${fmtMonedaCliente(r.calc.monto_cliente)}. Registrado en IE VIRTUAL · Socios 3B.`,
     );
     const h = await listarMonedaCliente(supabase, cliente.id);
     setHistMoneda(h.data || []);
@@ -156,7 +156,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
     if (!cliente || esCliente) return;
     if (
       !confirm(
-        `¿Eliminar el cliente «${cliente.nombre}»?\nDejará de aparecer en la lista. Si tiene usuario de acceso (rol Cliente), se desactivará.`,
+        `¿Eliminar el socio «${cliente.nombre}»?\nDejará de aparecer en la lista. Si tiene usuario de acceso (rol Cliente), se desactivará.`,
       )
     ) {
       return;
@@ -170,7 +170,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
       return;
     }
     if (r.aviso) setAviso(r.aviso);
-    setMsg(`Cliente «${cliente.nombre}» eliminado.`);
+    setMsg(`Socio «${cliente.nombre}» eliminado.`);
     setClienteId(null);
     setTab('resumen');
     await cargar();
@@ -193,7 +193,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
     }
     if (r.aviso) setAviso(r.aviso);
     setMsg(
-      `Usuario rol Cliente creado. Entra en MAIN con PIN ${altaPin}. Solo verá este módulo (Corte Virtual y Garage).`,
+      `PIN de acceso guardado. El socio entra en MAIN con ese PIN → solo Socio 3B (cortes V/G). No va a nómina ni RH.`,
     );
     setAltaPin('');
     if (r.cliente) {
@@ -222,13 +222,13 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
           {!esCliente ? (
             <button type="button" className="btn btn-ghost" onClick={() => { setClienteId(null); setTab('resumen'); }}>
-              ← Todos los clientes
+              ← Todos los socios
             </button>
           ) : null}
           <h2 style={{ margin: 0, color: COLOR, flex: 1 }}>{cliente.nombre}</h2>
           {!esCliente ? (
             <button type="button" className="btn btn-ghost" style={{ color: 'var(--brand-red)' }} disabled={guardando} onClick={eliminar}>
-              Eliminar cliente
+              Eliminar socio
             </button>
           ) : null}
         </div>
@@ -258,7 +258,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
 
         {tab === 'resumen' && !esCliente ? (
           <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
-            <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>Espacio del cliente</h3>
+            <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>Espacio del socio</h3>
             <ul className="muted" style={{ margin: 0, paddingLeft: '1.1rem', lineHeight: 1.55 }}>
               <li>
                 <strong>Corte Virtual</strong> y <strong>Corte Garage</strong>: mismo formato que 3B, sin alertas.
@@ -313,20 +313,20 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
 
         {tab === 'acceso' && !esCliente ? (
           <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
-            <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>Usuario rol Cliente</h3>
+            <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>PIN de acceso (sin nómina)</h3>
             <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-              Privilegios fijos: solo el módulo <strong>Socio 3B</strong>, y dentro solo Corte Virtual y Corte
-              Garage de este cliente. Login en tienda <strong>MAIN</strong> con el PIN.
+              El PIN se guarda en el socio (no crea empleado RH ni entra a nómina). También puedes gestionarlo en{' '}
+              <strong>Configuración → PIN Socio 3B</strong>. Login en <strong>MAIN</strong> → solo Corte Virtual y Garage.
             </p>
-            {cliente.usuario_id ? (
-              <p style={{ margin: 0, fontWeight: 600, color: '#047857' }}>
-                Ya tiene usuario vinculado (id {String(cliente.usuario_id).slice(0, 8)}…). Cambia el PIN en Usuarios si
-                lo necesita.
+            {cliente.pin_acceso ? (
+              <p style={{ margin: '0 0 0.75rem', fontWeight: 600, color: '#047857' }}>
+                PIN activo. Puedes cambiarlo abajo o en Configuración.
               </p>
-            ) : esAdminGestion ? (
+            ) : null}
+            {esAdminGestion ? (
               <form onSubmit={darAlta} style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', maxWidth: 360 }}>
                 <label className="muted">
-                  Nombre en el POS
+                  Nombre del socio
                   <input
                     className="input"
                     required
@@ -349,12 +349,12 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
                   />
                 </label>
                 <button type="submit" className="btn btn-success" disabled={guardando}>
-                  {guardando ? 'Creando…' : 'Dar de alta como Cliente'}
+                  {guardando ? 'Guardando…' : cliente.pin_acceso ? 'Actualizar PIN' : 'Guardar PIN de acceso'}
                 </button>
               </form>
             ) : (
               <p className="muted" style={{ margin: 0 }}>
-                Solo un administrador puede crear el usuario. Pídeselo o abre Usuarios con rol Administrador.
+                Solo administrador/gerente pueden asignar el PIN. Usa Configuración → PIN Socio 3B.
               </p>
             )}
           </div>
@@ -432,7 +432,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
         {error ? <p style={{ color: 'var(--brand-red)' }}>{error}</p> : null}
         {aviso ? <p style={{ color: '#b45309' }}>{aviso}</p> : null}
         {!cargando && !error ? (
-          <p className="muted" style={{ margin: 0 }}>No hay cliente vinculado a tu usuario.</p>
+          <p className="muted" style={{ margin: 0 }}>No hay socio vinculado a tu usuario.</p>
         ) : null}
       </div>
     );
@@ -526,7 +526,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
               </div>
               <p className="muted subcmd-hub-desc">
                 {c.negocio || 'Sin negocio'} · {codigoSucursalClienteMaquinas(c)}
-                {c.usuario_id ? ' · Acceso Cliente' : ''}
+                {c.pin_acceso ? ' · PIN activo' : ''}
               </p>
             </button>
           ))}

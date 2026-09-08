@@ -80,6 +80,11 @@ import {
 } from './lib/cubreTurnoSync.js';
 import { buscarUsuarioPorPinYSucursal, buscarUsuarioPorId, mensajePinSucursalIncorrecta, esAdministradorSinAnclaje } from './lib/usuariosAuth.js';
 import {
+  buscarSocioPorPinAcceso,
+  esUsuarioSocio3B,
+  usuarioSesionDesdeSocio3B,
+} from './lib/clientesMaquinas.js';
+import {
   autenticarConBiometria,
   convieneOfrecerBiometria,
   hayBiometriaParaSucursal,
@@ -585,51 +590,56 @@ function App() {
   }, [irAModulo]);
 
   const completarLogin = useCallback(
-    async (data, { ajustarSucursal, autorizacionAdmin = false, autorizacionAdminDispositivo = false, cubreTurno = false } = {}) => {
+    async (data, { ajustarSucursal, autorizacionAdmin = false, autorizacionAdminDispositivo = false, cubreTurno = false, socio3b = false } = {}) => {
+      const esSocioSesion = socio3b || esUsuarioSocio3B(data);
       const terminalFijada = Boolean(CAJA_FISICA_FIJA_ENV || tiendaFijadaParaAcceso);
-      const vinculo = evaluarVinculoDispositivo(data, {
-        terminalFijada,
-        autorizacionAdminDispositivo,
-      });
-      if (vinculo.requiereAutorizacionAdminDispositivo) {
-        setPendienteAutorizacionDispositivo({ user: data, ajustarSucursal, error: vinculo.error });
-        setPin('');
-        return false;
-      }
-      if (!vinculo.ok) {
-        alert(vinculo.error);
-        setPin('');
-        return false;
-      }
-      // Administrador: nunca anclar a dispositivo; liberar vínculo residual si existiera.
-      if (esAdministradorSinAnclaje(data.rol) && data.id && data.dispositivo_id) {
-        void liberarDispositivoUsuario(supabase, data.id);
-        data.dispositivo_id = null;
-      }
       let sucursalLogin = sucursal;
-      // No mover la caja a la sucursal del admin: el admin entra en la tienda seleccionada.
-      if (
-        !esAdministradorSinAnclaje(data.rol) &&
-        ajustarSucursal &&
-        normalizarCodigoTienda(ajustarSucursal) !== normalizarCodigoTienda(sucursal)
-      ) {
-        sucursalLogin = ajustarSucursal;
-        setSucursal(ajustarSucursal);
-        guardarSucursalLocal(ajustarSucursal);
-        if (tiendaFijadaParaAcceso) bloquearTiendaEnEsteEquipo(ajustarSucursal);
-      }
-      if (vinculo.vincular && data.id && !esAdministradorSinAnclaje(data.rol)) {
-        const resVinculo = await vincularDispositivoUsuario(supabase, data.id, vinculo.deviceId, data, {
+
+      if (!esSocioSesion) {
+        const vinculo = evaluarVinculoDispositivo(data, {
+          terminalFijada,
           autorizacionAdminDispositivo,
         });
-        if (!resVinculo.ok) {
-          alert(resVinculo.error);
+        if (vinculo.requiereAutorizacionAdminDispositivo) {
+          setPendienteAutorizacionDispositivo({ user: data, ajustarSucursal, error: vinculo.error });
           setPin('');
           return false;
         }
-        if (resVinculo.dispositivo_id) data.dispositivo_id = resVinculo.dispositivo_id;
-        if (resVinculo.dispositivo_id_2) data.dispositivo_id_2 = resVinculo.dispositivo_id_2;
+        if (!vinculo.ok) {
+          alert(vinculo.error);
+          setPin('');
+          return false;
+        }
+        // Administrador: nunca anclar a dispositivo; liberar vínculo residual si existiera.
+        if (esAdministradorSinAnclaje(data.rol) && data.id && data.dispositivo_id) {
+          void liberarDispositivoUsuario(supabase, data.id);
+          data.dispositivo_id = null;
+        }
+        // No mover la caja a la sucursal del admin: el admin entra en la tienda seleccionada.
+        if (
+          !esAdministradorSinAnclaje(data.rol) &&
+          ajustarSucursal &&
+          normalizarCodigoTienda(ajustarSucursal) !== normalizarCodigoTienda(sucursal)
+        ) {
+          sucursalLogin = ajustarSucursal;
+          setSucursal(ajustarSucursal);
+          guardarSucursalLocal(ajustarSucursal);
+          if (tiendaFijadaParaAcceso) bloquearTiendaEnEsteEquipo(ajustarSucursal);
+        }
+        if (vinculo.vincular && data.id && !esAdministradorSinAnclaje(data.rol)) {
+          const resVinculo = await vincularDispositivoUsuario(supabase, data.id, vinculo.deviceId, data, {
+            autorizacionAdminDispositivo,
+          });
+          if (!resVinculo.ok) {
+            alert(resVinculo.error);
+            setPin('');
+            return false;
+          }
+          if (resVinculo.dispositivo_id) data.dispositivo_id = resVinculo.dispositivo_id;
+          if (resVinculo.dispositivo_id_2) data.dispositivo_id_2 = resVinculo.dispositivo_id_2;
+        }
       }
+
       setUser(data);
       setSesion(true);
       setPin('');
@@ -641,7 +651,7 @@ function App() {
       setNombreCubre('');
       setTelefonoCubre('');
       limpiarAnunciosVistos();
-      if (esRolCliente(data.rol)) {
+      if (esRolCliente(data.rol) || esSocioSesion) {
         setVista('Socio 3B');
       } else if (puedeVerModulo(data.rol, 'Checador', data.id)) {
         setChecadorPestana('reloj');
@@ -650,14 +660,16 @@ function App() {
         setVista('Inicio');
       }
       const loginRow = {
-        usuario_id: data.id || null,
+        usuario_id: typeof data.id === 'string' && data.id.startsWith('socio-') ? null : (data.id || null),
         nombre: data.nombre,
         sucursal: sucursalLogin,
-        evento: cubreTurno
-          ? 'CUBRE_TURNO'
-          : autorizacionAdmin || autorizacionAdminDispositivo
-            ? 'ENTRADA_AUTORIZADA'
-            : 'ENTRADA',
+        evento: esSocioSesion
+          ? 'SOCIO_3B'
+          : cubreTurno
+            ? 'CUBRE_TURNO'
+            : autorizacionAdmin || autorizacionAdminDispositivo
+              ? 'ENTRADA_AUTORIZADA'
+              : 'ENTRADA',
         turno_id: turnoActual()?.id || null,
       };
       if (cubreTurno && data.telefono) loginRow.telefono = data.telefono;
@@ -668,9 +680,10 @@ function App() {
         }
       });
 
-      // Tras PIN exitoso en móvil/PWA: ofrecer Face ID / huella (modal con gesto real; no cubre turno).
+      // Tras PIN exitoso en móvil/PWA: ofrecer Face ID / huella (modal con gesto real; no cubre turno / socio).
       if (
         !cubreTurno
+        && !esSocioSesion
         && data.id
         && convieneOfrecerBiometria()
         && !usuarioTieneBiometriaEnEquipo(data.id, sucursalLogin)
@@ -738,6 +751,18 @@ function App() {
       setPendienteAutorizacionTurno(null);
       setPendienteAutorizacionDispositivo(null);
       setPin('');
+      return;
+    }
+
+    // PIN Socio 3B (Configuración): acceso sin nómina / sin RH
+    const socioPin = await buscarSocioPorPinAcceso(supabase, p);
+    if (socioPin.aviso && !socioPin.data) {
+      // columna faltante: no bloquear login normal
+      console.warn(socioPin.aviso);
+    }
+    if (socioPin.data) {
+      const u = usuarioSesionDesdeSocio3B(socioPin.data);
+      await completarLogin(u, { socio3b: true });
       return;
     }
 
