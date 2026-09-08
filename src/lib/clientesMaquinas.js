@@ -110,109 +110,109 @@ export function calcularMonedaVirtualCliente({
 
 /**
  * Desglose Socio 3B en cada recolección (ticket + IE).
- * - Virtual: recolección → −15% → Socio 40% / Ganancia 60% → IE VIRTUAL
- * - Garage (máquinas en cero): recolección + recolección anterior → Socio 40% / Ganancia 60% → IE VIRTUAL · Garage
+ * - Virtual: recolección → −15% → − gastos → Socio 40% / Ganancia 60%
+ * - Garage: recolección (+ anterior) → − gastos → Socio 40% / Ganancia 60% (sin −15%)
  */
 export function calcularPagoClienteRecoleccion({
   modulo = 'virtual',
   venta = 0,
   recoleccion = 0,
   recoleccionAnterior = 0,
+  gastos = 0,
   pctDescuento = 0.15,
   pctCliente = 0.4,
   pctEmpresa = 0.6,
 } = {}) {
   const mod = String(modulo || 'virtual').toLowerCase();
+  const esGarage = mod === 'garage';
   const ventaN = round2(venta);
   const recN = round2(recoleccion);
-  const antN = round2(recoleccionAnterior);
+  const antN = esGarage ? round2(recoleccionAnterior) : 0;
+  const gastosN = Math.max(0, round2(gastos));
   const pc = Number(pctCliente) || 0.4;
   const pe = Number(pctEmpresa) > 0 ? Number(pctEmpresa) : Math.max(0, round2(1 - pc));
-  const desc = Number(pctDescuento) || 0.15;
+  // Garage no aplica descuento 15%; Virtual sí.
+  const desc = esGarage ? 0 : (Number(pctDescuento) > 0 ? Number(pctDescuento) : 0.15);
 
-  if (mod === 'garage') {
-    // Garage: sin descuento 15%; al liquidar en ceros se suma recolección anterior.
-    const recBase = recN > 0 || antN > 0 ? recN : ventaN;
-    const base = round2(recBase + antN);
-    const pago = round2(base * pc);
-    const ganancia = round2(base * pe);
-    const formula =
-      antN > 0
-        ? `Rec ${fmtMonedaCliente(recBase)} + ant ${fmtMonedaCliente(antN)} = ${fmtMonedaCliente(base)} → Socio 40% / Ganancia 60% → IE VIRTUAL · Garage`
-        : `Socio 40% / Ganancia 60% de ${fmtMonedaCliente(base)} → IE VIRTUAL · Garage`;
-    return {
-      modulo: 'garage',
-      base,
-      base_etiqueta: antN > 0 ? 'Total (actual + anterior)' : 'Recolección',
-      recoleccion_actual: recBase,
-      recoleccion_anterior: antN,
-      pct_descuento: 0,
-      descuento_monto: 0,
-      tras_descuento: base,
-      pct_cliente: pc,
-      pct_empresa: pe,
-      pago_cliente: pago,
-      ganancia_empresa: ganancia,
-      ie_destino: 'IE VIRTUAL · Garage',
-      formula,
-    };
-  }
-
-  // Virtual: recolección → −15% → 40% socio / 60% ganancia → IE VIRTUAL
-  const base = recN > 0 ? recN : ventaN;
+  const recBase = recN > 0 || antN > 0 ? recN : ventaN;
+  const base = round2(recBase + antN);
   const descuentoMonto = round2(base * desc);
-  const tras = round2(base - descuentoMonto);
-  const pago = round2(tras * pc);
-  const ganancia = round2(tras * pe);
+  const trasDescuento = round2(base - descuentoMonto);
+  const trasGastos = round2(Math.max(0, trasDescuento - gastosN));
+  const pago = round2(trasGastos * pc);
+  const ganancia = round2(trasGastos * pe);
+  const ieDestino = esGarage ? 'IE VIRTUAL · Garage' : 'IE VIRTUAL';
+
+  const partesFormula = [];
+  if (antN > 0) {
+    partesFormula.push(`Rec ${fmtMonedaCliente(recBase)} + ant ${fmtMonedaCliente(antN)}`);
+  } else {
+    partesFormula.push(fmtMonedaCliente(base));
+  }
+  if (desc > 0) partesFormula.push(`−${Math.round(desc * 100)}%`);
+  if (gastosN > 0) partesFormula.push(`− gastos ${fmtMonedaCliente(gastosN)}`);
+  partesFormula.push(`→ Socio 40% / Ganancia 60% de ${fmtMonedaCliente(trasGastos)} → ${ieDestino}`);
+
   return {
-    modulo: 'virtual',
+    modulo: esGarage ? 'garage' : 'virtual',
     base,
-    base_etiqueta: 'Recolección',
+    base_etiqueta: antN > 0 ? 'Total (actual + anterior)' : 'Recolección',
+    recoleccion_actual: recBase,
+    recoleccion_anterior: antN,
     pct_descuento: desc,
     descuento_monto: descuentoMonto,
-    tras_descuento: tras,
+    tras_descuento: trasDescuento,
+    gastos: gastosN,
+    tras_gastos: trasGastos,
+    base_reparto: trasGastos,
     pct_cliente: pc,
     pct_empresa: pe,
     pago_cliente: pago,
     ganancia_empresa: ganancia,
-    ie_destino: 'IE VIRTUAL',
-    formula: `−${Math.round(desc * 100)}% luego Socio 40% / Ganancia 60% → IE VIRTUAL`,
+    ie_destino: ieDestino,
+    formula: partesFormula.join(' '),
   };
 }
 
 /**
  * Pie del ticket Socio 3B:
- * Recolección · Descuento 15% (solo Virtual) · Rec con descuento · Socio 40% · Ganancia 60% · firma.
+ * Virtual: Recolección · −15% · Gastos · Base 40/60 · Socio · Ganancia · firma.
+ * Garage: Recolección · Gastos · Base 40/60 · Socio · Ganancia · firma (sin −15%).
  */
 export function htmlBloquePagoClienteTicket(pago) {
-  if (!pago || !(Number(pago.pago_cliente) > 0 || Number(pago.base) > 0)) return '';
+  if (!pago || !(Number(pago.pago_cliente) > 0 || Number(pago.base) > 0 || Number(pago.tras_gastos) > 0)) return '';
   const pct = Math.round((Number(pago.pct_cliente) || 0.4) * 100);
   const pctEmp = Math.round((Number(pago.pct_empresa) || 0.6) * 100);
   const descPct = Math.round((Number(pago.pct_descuento) || 0) * 100);
+  const tieneDescuento = Number(pago.pct_descuento) > 0 || Number(pago.descuento_monto) > 0;
   const esGarage = String(pago.modulo || '').toLowerCase() === 'garage';
   const ieDestino = pago.ie_destino || (esGarage ? 'IE VIRTUAL · Garage' : 'IE VIRTUAL');
-
-  const lineasVirtual = `
-      <tr><td>Recolección</td><td class="r"><strong>${fmtMonedaCliente(pago.base)}</strong></td></tr>
-      <tr><td>Descuento ${descPct}%</td><td class="r">${fmtMonedaCliente(pago.descuento_monto ?? round2((pago.base || 0) * (pago.pct_descuento || 0)))}</td></tr>
-      <tr><td>Rec con descuento</td><td class="r"><strong>${fmtMonedaCliente(pago.tras_descuento)}</strong></td></tr>
-      <tr><td>Socio 3B ${pct}%</td><td class="r"><strong>${fmtMonedaCliente(pago.pago_cliente)}</strong></td></tr>
-      <tr><td>Ganancia ${pctEmp}%</td><td class="r"><strong>${fmtMonedaCliente(pago.ganancia_empresa)}</strong></td></tr>`;
-
   const antGarage = round2(pago.recoleccion_anterior);
   const recGarage = round2(
     pago.recoleccion_actual != null ? pago.recoleccion_actual : round2((pago.base || 0) - antGarage),
   );
-  const lineasGarage =
-    antGarage > 0
+  const gastosN = round2(pago.gastos);
+  const trasGastos = round2(pago.tras_gastos != null ? pago.tras_gastos : pago.tras_descuento);
+  const cabecera =
+    esGarage && antGarage > 0
       ? `
       <tr><td>Recolección (turno)</td><td class="r"><strong>${fmtMonedaCliente(recGarage)}</strong></td></tr>
       <tr><td>+ Recolección anterior</td><td class="r"><strong>${fmtMonedaCliente(antGarage)}</strong></td></tr>
-      <tr><td>Total a desglose</td><td class="r"><strong>${fmtMonedaCliente(pago.base)}</strong></td></tr>
-      <tr><td>Socio 3B ${pct}%</td><td class="r"><strong>${fmtMonedaCliente(pago.pago_cliente)}</strong></td></tr>
-      <tr><td>Ganancia ${pctEmp}%</td><td class="r"><strong>${fmtMonedaCliente(pago.ganancia_empresa)}</strong></td></tr>`
+      <tr><td>Total recolección</td><td class="r"><strong>${fmtMonedaCliente(pago.base)}</strong></td></tr>`
       : `
-      <tr><td>Recolección</td><td class="r"><strong>${fmtMonedaCliente(pago.base)}</strong></td></tr>
+      <tr><td>Recolección</td><td class="r"><strong>${fmtMonedaCliente(pago.base)}</strong></td></tr>`;
+
+  const lineasDesc = tieneDescuento
+    ? `
+      <tr><td>Descuento ${descPct}%</td><td class="r">${fmtMonedaCliente(pago.descuento_monto ?? 0)}</td></tr>
+      <tr><td>Rec con descuento</td><td class="r"><strong>${fmtMonedaCliente(pago.tras_descuento)}</strong></td></tr>`
+    : '';
+
+  const lineas = `
+      ${cabecera}
+      ${lineasDesc}
+      <tr><td>Gastos del periodo</td><td class="r">${fmtMonedaCliente(gastosN)}</td></tr>
+      <tr><td>Base 40/60</td><td class="r"><strong>${fmtMonedaCliente(trasGastos)}</strong></td></tr>
       <tr><td>Socio 3B ${pct}%</td><td class="r"><strong>${fmtMonedaCliente(pago.pago_cliente)}</strong></td></tr>
       <tr><td>Ganancia ${pctEmp}%</td><td class="r"><strong>${fmtMonedaCliente(pago.ganancia_empresa)}</strong></td></tr>`;
 
@@ -220,7 +220,7 @@ export function htmlBloquePagoClienteTicket(pago) {
     <div class="sep"></div>
     <div style="border:3px solid #1d4ed8;padding:10px 8px;background:#eff6ff;margin:10px 0">
       <p style="margin:0 0 8px;font-size:12px;font-weight:900;color:#1d4ed8;text-align:center">DESGLOSE SOCIO 3B</p>
-      <table style="margin:0">${esGarage ? lineasGarage : lineasVirtual}</table>
+      <table style="margin:0">${lineas}</table>
       <p style="margin:8px 0 0;font-size:10px;font-weight:700;color:#334155;text-align:center">
         Ganancia ${pctEmp}% → ${escHtml(ieDestino)}
       </p>
