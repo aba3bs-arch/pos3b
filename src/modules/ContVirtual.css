@@ -1107,24 +1107,51 @@
   height: 22px;
 }
 
-/* Modal captura */
+/* Modal captura — fixed al viewport (no al fondo del scroll) */
 .cv-modal-backdrop {
-  position: absolute;
+  position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.55);
-  z-index: 20;
+  z-index: 1200;
   display: flex;
   align-items: flex-end;
   justify-content: center;
+  padding: 0;
+}
+
+/* Desglose al tocar un gasto/ingreso: ventana flotante centrada */
+.cv-modal-backdrop-float {
+  align-items: center;
+  padding: 1rem;
 }
 
 .cv-modal {
   background: var(--cv-bg2);
   border-radius: 16px 16px 0 0;
   width: 100%;
+  max-width: 420px;
   max-height: 85%;
   overflow-y: auto;
   padding: 1rem 1rem 1.25rem;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+
+.cv-modal-float {
+  border-radius: 16px;
+  max-height: min(85vh, 640px);
+  width: min(100%, 400px);
+  animation: cv-modal-float-in 0.18s ease;
+}
+
+@keyframes cv-modal-float-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .cv-modal h3 {
@@ -1154,7 +1181,7 @@
 }
 
 .cv-modal-desglose {
-  max-height: 90%;
+  max-height: min(85vh, 640px);
 }
 
 .cv-desglose-hd {

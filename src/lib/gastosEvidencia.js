@@ -4,7 +4,7 @@
 import { hoyYmdNogales } from './corteCaja.js';
 import { registrarEgresoContVirtual } from './contVirtualEgresos.js';
 import { crearNotificacion, TIPOS_NOTIF, marcarNotificacionAtendida } from './contabilidadNotificaciones.js';
-import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
+import { etiquetaTienda } from '../constants/sucursales.js';
 import { leerImagenProductoComoDataUrl } from './imagenProducto.js';
 import { puedeGestionarUsuarios, normalizarRol } from './roles.js';
 import { esAdministradorPrincipal, nombreEsAdminPrincipal } from './adminPrincipal.js';
@@ -188,7 +188,8 @@ export async function registrarGastoEvidencia(supabase, row, user) {
   const payload = {
     usuario_id: usuarioId,
     usuario_nombre: user?.nombre || row?.usuario_nombre || '—',
-    sucursal_id: normalizarCodigoTienda(row?.sucursal_id || user?.sucursal_id) || 'MAIN',
+    // Contabilidad → Registro de gastos: siempre central MAIN
+    sucursal_id: 'MAIN',
     fecha: String(row?.fecha || hoyYmdNogales()).slice(0, 10),
     monto,
     descripcion,
