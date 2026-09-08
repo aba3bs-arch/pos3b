@@ -34,9 +34,18 @@ export const TOL_MONTO = 0.51;
 export const TOL_SOFT_ABS = 50;
 export const TOL_SOFT_REL = 0.2;
 
+/**
+ * Días permitidos entre ingreso (lunes) y pago/gasto (viernes u otro día).
+ * Compras a crédito: la mercancía entra antes; el gasto se captura al pagar.
+ */
+export const DIAS_MATCH_CREDITO = 14;
+
 export const ESTADOS = {
   OK: 'ok',
-  SIN_GASTO: 'sin_gasto',
+  /** Ingreso/compra sin gasto aún — normal en compras a crédito (pendiente de pago). */
+  CREDITO_PENDIENTE: 'credito_pendiente',
+  /** @deprecated prefer CREDITO_PENDIENTE */
+  SIN_GASTO: 'credito_pendiente',
   GASTO_DUPLICADO: 'gasto_duplicado',
   GASTO_SIN_INGRESO: 'gasto_sin_ingreso',
   SIN_INVENTARIO: 'sin_inventario',
@@ -46,7 +55,8 @@ export const ESTADOS = {
 
 export const ETIQUETA_ESTADO = {
   [ESTADOS.OK]: 'Cuadrado',
-  [ESTADOS.SIN_GASTO]: 'Sin gasto',
+  [ESTADOS.CREDITO_PENDIENTE]: 'Crédito · pendiente de pago',
+  credito_pendiente: 'Crédito · pendiente de pago',
   [ESTADOS.GASTO_DUPLICADO]: 'Gasto duplicado',
   [ESTADOS.GASTO_SIN_INGRESO]: 'Gasto sin ingreso',
   [ESTADOS.SIN_INVENTARIO]: 'Sin inventario',
@@ -56,13 +66,20 @@ export const ETIQUETA_ESTADO = {
 
 export const COLOR_ESTADO = {
   [ESTADOS.OK]: '#0f766e',
-  [ESTADOS.SIN_GASTO]: '#b45309',
+  [ESTADOS.CREDITO_PENDIENTE]: '#a16207',
+  credito_pendiente: '#a16207',
   [ESTADOS.GASTO_DUPLICADO]: '#b91c1c',
   [ESTADOS.GASTO_SIN_INGRESO]: '#7c3aed',
   [ESTADOS.SIN_INVENTARIO]: '#dc2626',
   [ESTADOS.PRODUCTOS_FALTANTES]: '#c2410c',
   [ESTADOS.MONTO_DESCUADRADO]: '#0369a1',
 };
+
+/** Estados que sí cuentan como discrepancia operativa (no el crédito pendiente). */
+export function esDiscrepanciaEstado(estado) {
+  const e = String(estado || '');
+  return e && e !== ESTADOS.OK && e !== ESTADOS.CREDITO_PENDIENTE && e !== 'sin_gasto';
+}
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -286,6 +303,7 @@ function clavesFolio(folio, sucursal = '') {
 
 /**
  * Clasifica el estado de una fila consolidada (prioridad de alertas).
+ * Ingreso sin gasto = crédito pendiente de pago (no es falla automática).
  */
 export function clasificarEstadoFila(fila) {
   if (fila?.origen === 'gasto_huerfano') return ESTADOS.GASTO_SIN_INGRESO;
@@ -299,7 +317,7 @@ export function clasificarEstadoFila(fila) {
   if (!tieneInv && (fila?.tipo === 'compra' || ticket > 0)) return ESTADOS.SIN_INVENTARIO;
   if (faltantes.length) return ESTADOS.PRODUCTOS_FALTANTES;
   if (nGastos > 1) return ESTADOS.GASTO_DUPLICADO;
-  if (nGastos === 0) return ESTADOS.SIN_GASTO;
+  if (nGastos === 0) return ESTADOS.CREDITO_PENDIENTE;
 
   const ref = ticket > 0 ? ticket : inv;
   if (ref > 0 && !montosCuadran(ref, gasto)) return ESTADOS.MONTO_DESCUADRADO;
@@ -604,8 +622,9 @@ export function consolidarEventos({
         const d1 = Date.parse(`${ymd}T12:00:00`);
         if (!Number.isNaN(d0) && !Number.isNaN(d1)) {
           const dias = Math.abs(d0 - d1) / 86400000;
-          if (dias > 2) continue;
-          score += Math.max(0, 5 - dias);
+          // Crédito: ingreso lunes / pago viernes (u hasta ~2 semanas).
+          if (dias > DIAS_MATCH_CREDITO) continue;
+          score += Math.max(0, 8 - Math.min(dias, 7));
         }
       } else {
         score += 1;
@@ -699,6 +718,7 @@ export function resumirConsolidacion(filas) {
   const resumen = {
     n_eventos: 0,
     n_ok: 0,
+    n_credito_pendiente: 0,
     n_discrepancias: 0,
     por_estado: {},
     monto_ticket: 0,
@@ -709,7 +729,8 @@ export function resumirConsolidacion(filas) {
     por_tienda: [],
   };
 
-  for (const e of Object.values(ESTADOS)) {
+  const estadosUnicos = [...new Set([...Object.values(ESTADOS), 'credito_pendiente', 'sin_gasto'])];
+  for (const e of estadosUnicos) {
     resumen.por_estado[e] = 0;
   }
 
@@ -719,7 +740,8 @@ export function resumirConsolidacion(filas) {
     const est = f.estado || ESTADOS.OK;
     resumen.por_estado[est] = (resumen.por_estado[est] || 0) + 1;
     if (est === ESTADOS.OK) resumen.n_ok += 1;
-    else resumen.n_discrepancias += 1;
+    else if (est === ESTADOS.CREDITO_PENDIENTE || est === 'sin_gasto') resumen.n_credito_pendiente += 1;
+    else if (esDiscrepanciaEstado(est)) resumen.n_discrepancias += 1;
 
     resumen.monto_ticket = round2(resumen.monto_ticket + (Number(f.monto_ticket) || 0));
     resumen.monto_inventario = round2(resumen.monto_inventario + (Number(f.monto_inventario) || 0));
@@ -733,6 +755,7 @@ export function resumirConsolidacion(filas) {
         label: f.tienda || etiquetaTienda(tid),
         n_eventos: 0,
         n_ok: 0,
+        n_credito_pendiente: 0,
         n_discrepancias: 0,
         por_estado: {},
         monto_ticket: 0,
@@ -746,7 +769,8 @@ export function resumirConsolidacion(filas) {
     t.n_eventos += 1;
     t.por_estado[est] = (t.por_estado[est] || 0) + 1;
     if (est === ESTADOS.OK) t.n_ok += 1;
-    else t.n_discrepancias += 1;
+    else if (est === ESTADOS.CREDITO_PENDIENTE || est === 'sin_gasto') t.n_credito_pendiente += 1;
+    else if (esDiscrepanciaEstado(est)) t.n_discrepancias += 1;
     t.monto_ticket = round2(t.monto_ticket + (Number(f.monto_ticket) || 0));
     t.monto_inventario = round2(t.monto_inventario + (Number(f.monto_inventario) || 0));
     t.monto_gasto = round2(t.monto_gasto + (Number(f.monto_gasto) || 0));
@@ -755,8 +779,25 @@ export function resumirConsolidacion(filas) {
   }
 
   resumen.diferencia_ticket_gasto = round2(resumen.monto_ticket - resumen.monto_gasto);
-  resumen.por_tienda = [...tiendas.values()].sort((a, b) => b.n_discrepancias - a.n_discrepancias || a.label.localeCompare(b.label, 'es'));
+  resumen.por_tienda = [...tiendas.values()].sort(
+    (a, b) => b.n_discrepancias - a.n_discrepancias || a.label.localeCompare(b.label, 'es'),
+  );
   return resumen;
+}
+
+function addDaysYmd(ymd, days) {
+  const m = String(ymd || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return ymd;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function ymdEnPeriodo(ymd, desde, hasta) {
+  if (!ymd) return false;
+  if (desde && ymd < desde) return false;
+  if (hasta && ymd > hasta) return false;
+  return true;
 }
 
 export function tiendasFiltroConsolidacionCompras() {
@@ -803,6 +844,7 @@ async function fetchAllPages(buildQuery, { pageSize = 1000, maxPages = 20 } = {}
 
 /**
  * Carga datos del periodo y consolida.
+ * Amplía ±DIAS_MATCH_CREDITO para cruzar ingreso lunes ↔ pago viernes (crédito).
  */
 export async function cargarConsolidacionComprasInventario(
   supabase,
@@ -812,8 +854,11 @@ export async function cargarConsolidacionComprasInventario(
   if (!desde || !hasta) return { filas: [], resumen: resumirConsolidacion([]), error: 'Indica el periodo.' };
 
   const suc = sucursal ? normalizarCodigoTienda(sucursal) : '';
-  const desdeDt = inicioDia(desde);
-  const hastaDt = finDia(hasta);
+  // Margen para compras a crédito: ingreso en el periodo, gasto días después (o al revés).
+  const desdeMatch = addDaysYmd(desde, -DIAS_MATCH_CREDITO);
+  const hastaMatch = addDaysYmd(hasta, DIAS_MATCH_CREDITO);
+  const desdeDt = inicioDia(desdeMatch);
+  const hastaDt = finDia(hastaMatch);
   const avisos = [];
 
   const selectMov =
@@ -932,15 +977,23 @@ export async function cargarConsolidacionComprasInventario(
     productoAProveedor,
   });
 
-  const filasFiltradas = suc
-    ? filas.filter((f) => {
-        if (f.sucursal_id === suc) return true;
-        if (['MAIN', 'CEDIS'].includes(f.sucursal_id) && (f.gastos || []).some((g) => g.sucursal_id === suc)) {
-          return true;
-        }
-        return false;
-      })
-    : filas;
+  let filasFiltradas = filas.filter((f) => {
+    // Visible si el ingreso/compra/traspaso cae en el periodo…
+    if (ymdEnPeriodo(f.fecha_ymd, desde, hasta)) return true;
+    // …o el pago (gasto) cayó en el periodo (crédito pagado esta semana).
+    if ((f.gastos || []).some((g) => ymdEnPeriodo(g.fecha_ymd, desde, hasta))) return true;
+    return false;
+  });
+
+  if (suc) {
+    filasFiltradas = filasFiltradas.filter((f) => {
+      if (f.sucursal_id === suc) return true;
+      if (['MAIN', 'CEDIS'].includes(f.sucursal_id) && (f.gastos || []).some((g) => g.sucursal_id === suc)) {
+        return true;
+      }
+      return false;
+    });
+  }
 
   const resumen = resumirConsolidacion(filasFiltradas);
   return {
@@ -953,6 +1006,7 @@ export async function cargarConsolidacionComprasInventario(
       n_movimientos: movimientos.length,
       n_traspasos: (trpRes.data || []).length,
       n_gastos: (gastosRes.data || []).length,
+      margen_credito_dias: DIAS_MATCH_CREDITO,
     },
   };
 }

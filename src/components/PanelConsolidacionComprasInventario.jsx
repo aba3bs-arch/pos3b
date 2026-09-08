@@ -5,8 +5,10 @@ import {
   COLOR_ESTADO,
   ETIQUETA_ESTADO,
   ESTADOS,
+  DIAS_MATCH_CREDITO,
   cargarConsolidacionComprasInventario,
   columnasCsvConsolidacionCompras,
+  esDiscrepanciaEstado,
   fmtMonto,
   tiendasFiltroConsolidacionCompras,
 } from '../lib/consolidacionComprasInventario.js';
@@ -127,9 +129,11 @@ function TablaFilas({ filas, vacio = 'Sin datos en el periodo.' }) {
                       .slice(0, 3)
                       .map((p) => `${p.nombre} (−${p.qty_faltante})`)
                       .join(', ') + ((f.productos_faltantes || []).length > 3 ? '…' : '')
-                  : f.n_gastos > 1
-                    ? `${f.n_gastos} gastos`
-                    : '—'}
+                  : f.estado === ESTADOS.CREDITO_PENDIENTE
+                    ? 'Espera pago en corte'
+                    : f.n_gastos > 1
+                      ? `${f.n_gastos} gastos`
+                      : '—'}
               </td>
             </tr>
           ))}
@@ -156,7 +160,8 @@ function PanelTienda({ grupo }) {
         <div>
           <strong style={{ color: COLOR }}>{grupo.label}</strong>
           <span className="muted" style={{ marginLeft: '0.5rem', fontSize: '0.82rem' }}>
-            {grupo.n_eventos} evento(s) · {grupo.n_ok} OK · {grupo.n_discrepancias} discrepancia(s)
+            {grupo.n_eventos} evento(s) · {grupo.n_ok} OK · {grupo.n_credito_pendiente || 0} crédito ·{' '}
+            {grupo.n_discrepancias} discrepancia(s)
           </span>
         </div>
         <span style={{ fontWeight: 800, fontSize: '0.9rem' }}>
@@ -231,7 +236,7 @@ export default function PanelConsolidacionComprasInventario({ supabase }) {
 
   const filasVista = useMemo(() => {
     let list = filas;
-    if (vista === 'discrepancias') list = list.filter((f) => f.estado !== ESTADOS.OK);
+    if (vista === 'discrepancias') list = list.filter((f) => esDiscrepanciaEstado(f.estado));
     if (filtroEstado) list = list.filter((f) => f.estado === filtroEstado);
     return list;
   }, [filas, vista, filtroEstado]);
@@ -282,7 +287,7 @@ export default function PanelConsolidacionComprasInventario({ supabase }) {
               onChange={(e) => setFiltroEstado(e.target.value)}
             >
               <option value="">Todos</option>
-              {Object.values(ESTADOS).map((e) => (
+              {[...new Set(Object.values(ESTADOS))].map((e) => (
                 <option key={e} value={e}>
                   {ETIQUETA_ESTADO[e]}
                 </option>
@@ -298,11 +303,10 @@ export default function PanelConsolidacionComprasInventario({ supabase }) {
           </button>
         </div>
         <p className="muted" style={{ margin: '0.75rem 0 0', fontSize: '0.82rem' }}>
-          Cruza <strong>compras/tickets</strong> (CMP), <strong>ingresos de inventario</strong> (ING o lotes sin
-          folio) y <strong>traspasos</strong> (trp) con los <strong>gastos PROVEEDORES</strong> del corte Abarrotes.
-          Primero por folio en el comentario del gasto; si no hay, por proveedor + monto cercano el mismo día. Si el
-          gasto y el ingreso existen pero el monto no cuadra (ej. $100 vs $108), aparece como{' '}
-          <strong>Monto descuadrado</strong>, no como «gasto sin ingreso».
+          Cruza compras/tickets, ingresos y traspasos con gastos PROVEEDORES. Si la compra es{' '}
+          <strong>a crédito</strong>, el ingreso puede ser el lunes y el gasto el viernes: eso se marca como{' '}
+          <strong>Crédito · pendiente de pago</strong> (no es falla). Al pagar, cruza hasta {DIAS_MATCH_CREDITO} días.
+          Si montos no cuadran → Monto descuadrado.
         </p>
         {meta ? (
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.75rem' }}>
@@ -334,6 +338,12 @@ export default function PanelConsolidacionComprasInventario({ supabase }) {
           <Kpi label="Eventos" value={resumen.n_eventos} accent={COLOR} />
           <Kpi label="Cuadrados" value={resumen.n_ok} accent={COLOR_ESTADO[ESTADOS.OK]} />
           <Kpi
+            label="Crédito pendiente"
+            value={resumen.n_credito_pendiente || 0}
+            accent={COLOR_ESTADO[ESTADOS.CREDITO_PENDIENTE]}
+            sub="Ingreso sin pago aún"
+          />
+          <Kpi
             label="Discrepancias"
             value={resumen.n_discrepancias}
             accent={resumen.n_discrepancias ? COLOR_ESTADO[ESTADOS.GASTO_DUPLICADO] : COLOR_ESTADO[ESTADOS.OK]}
@@ -362,12 +372,31 @@ export default function PanelConsolidacionComprasInventario({ supabase }) {
         </div>
       ) : null}
 
-      {resumen && resumen.n_discrepancias > 0 ? (
+      {resumen && ((resumen.n_discrepancias || 0) > 0 || (resumen.n_credito_pendiente || 0) > 0) ? (
         <div className="card" style={{ padding: '0.75rem 0.9rem' }}>
-          <strong style={{ color: COLOR }}>Panorama de discrepancias</strong>
+          <strong style={{ color: COLOR }}>Panorama</strong>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem', marginTop: '0.55rem' }}>
+            {(resumen.n_credito_pendiente || 0) > 0 ? (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{
+                  padding: '0.35rem 0.65rem',
+                  borderColor: COLOR_ESTADO[ESTADOS.CREDITO_PENDIENTE],
+                  color: COLOR_ESTADO[ESTADOS.CREDITO_PENDIENTE],
+                  fontWeight: 700,
+                  fontSize: '0.8rem',
+                }}
+                onClick={() => {
+                  setVista('detalle');
+                  setFiltroEstado(ESTADOS.CREDITO_PENDIENTE);
+                }}
+              >
+                {ETIQUETA_ESTADO[ESTADOS.CREDITO_PENDIENTE]}: {resumen.n_credito_pendiente}
+              </button>
+            ) : null}
             {Object.entries(resumen.por_estado || {})
-              .filter(([est, n]) => est !== ESTADOS.OK && n > 0)
+              .filter(([est, n]) => esDiscrepanciaEstado(est) && n > 0)
               .map(([est, n]) => (
                 <button
                   key={est}
@@ -411,7 +440,13 @@ export default function PanelConsolidacionComprasInventario({ supabase }) {
           <p style={{ margin: '0 0 0.65rem' }}>
             En el periodo hay <strong>{resumen.n_eventos}</strong> eventos de compra/ingreso/traspaso/gasto.
             {resumen.n_discrepancias === 0 ? (
-              <> Todo cuadra: tickets, inventario y gastos alineados.</>
+              <>
+                {' '}
+                Sin discrepancias operativas
+                {(resumen.n_credito_pendiente || 0) > 0
+                  ? ` (${resumen.n_credito_pendiente} a crédito pendientes de pago).`
+                  : ': tickets, inventario y gastos alineados.'}
+              </>
             ) : (
               <>
                 {' '}
@@ -425,8 +460,9 @@ export default function PanelConsolidacionComprasInventario({ supabase }) {
           </p>
           <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.88rem' }}>
             <li>
-              Sin gasto: <strong>{resumen.por_estado[ESTADOS.SIN_GASTO] || 0}</strong> — mercancía ingresada sin gasto
-              capturado en corte.
+              Crédito · pendiente de pago:{' '}
+              <strong>{resumen.por_estado[ESTADOS.CREDITO_PENDIENTE] || 0}</strong> — mercancía ya ingresada; el gasto
+              se captura cuando se paga (no es falla).
             </li>
             <li>
               Gasto duplicado: <strong>{resumen.por_estado[ESTADOS.GASTO_DUPLICADO] || 0}</strong> — más de un gasto ligado

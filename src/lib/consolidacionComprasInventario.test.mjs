@@ -41,7 +41,7 @@ describe('compararProductosTicketVsInventario', () => {
 });
 
 describe('consolidarEventos', () => {
-  it('marca sin_gasto cuando hay compra+inventario sin gasto', () => {
+  it('marca credito_pendiente cuando hay compra+inventario sin gasto', () => {
     const compraId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     const filas = consolidarEventos({
       compras: [
@@ -73,8 +73,47 @@ describe('consolidarEventos', () => {
       gastos: [],
     });
     assert.equal(filas.length, 1);
-    assert.equal(filas[0].estado, ESTADOS.SIN_GASTO);
+    assert.equal(filas[0].estado, ESTADOS.CREDITO_PENDIENTE);
     assert.equal(filas[0].monto_ticket, 100);
+    const r = resumirConsolidacion(filas);
+    assert.equal(r.n_credito_pendiente, 1);
+    assert.equal(r.n_discrepancias, 0);
+  });
+
+  it('liga ingreso lunes con gasto viernes (crédito pagado)', () => {
+    const filas = consolidarEventos({
+      compras: [],
+      movimientos: [
+        {
+          id: 'm-lun',
+          tipo: 'entrada',
+          modo: 'masivo',
+          producto_id: 'p1',
+          producto_nombre: 'Bimbo mediano',
+          cantidad: 10,
+          sucursal_id: '3B2',
+          meta: { folio: 'ING-2-0109-0008', precio: 20 },
+          created_at: '2026-09-01T16:00:00.000Z',
+        },
+      ],
+      gastos: [
+        {
+          id: 'g-vie',
+          sucursal_id: '3B2',
+          categoria: 'PROVEEDORES',
+          subcategoria: 'BIMBO',
+          comentario: 'pago credito',
+          monto: 200,
+          created_at: '2026-09-05T20:00:00.000Z',
+        },
+      ],
+      productoAProveedor: new Map([['p1', { id: 'b', nombre: 'bimbo' }]]),
+    });
+    assert.equal(filas.filter((f) => f.estado === ESTADOS.GASTO_SIN_INGRESO).length, 0);
+    const ing = filas.find((f) => f.tipo === 'ingreso');
+    assert.ok(ing);
+    assert.equal(ing.n_gastos, 1);
+    assert.equal(ing.estado, ESTADOS.OK);
   });
 
   it('detecta gasto duplicado y productos faltantes', () => {
