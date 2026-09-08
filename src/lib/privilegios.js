@@ -9,6 +9,7 @@ export const MODULOS_IDS = [
   'Liquidación recolecciones',
   'Conciliaciones',
   'Consolidación',
+  'Gastos evidencia',
   'Corte Virtual',
   'Corte Abarrotes',
   'Corte Garage',
@@ -80,14 +81,14 @@ export function normalizarListaModulos(lista) {
 }
 
 /** Módulos nuevos que se agregan a listas personalizadas si faltan (una vez). */
-const MODULOS_MIGRA_PRIVILEGIOS = ['Check List', 'Evaluación operativa', 'Consolidación', 'Conciliaciones'];
+const MODULOS_MIGRA_PRIVILEGIOS = ['Check List', 'Evaluación operativa', 'Consolidación', 'Conciliaciones', 'Gastos evidencia'];
 
 function conModulosMigrados(lista) {
   const set = new Set(normalizarListaModulos(lista));
   for (const m of MODULOS_MIGRA_PRIVILEGIOS) {
     if (VALIDOS.has(m)) set.add(m);
   }
-  // Consolidación: si ya opera Contabilidad de cortes/IE, habilitarla.
+  // Consolidación / Gastos evidencia: si ya opera Contabilidad de cortes/IE, habilitarlas.
   if (
     set.has('IE VIRTUAL') ||
     set.has('IE ABARROTES') ||
@@ -95,6 +96,7 @@ function conModulosMigrados(lista) {
     set.has('Conciliaciones')
   ) {
     if (VALIDOS.has('Consolidación')) set.add('Consolidación');
+    if (VALIDOS.has('Gastos evidencia')) set.add('Gastos evidencia');
   }
   return MODULOS_IDS.filter((m) => set.has(m));
 }
