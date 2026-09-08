@@ -7,7 +7,8 @@ import { crearNotificacion, TIPOS_NOTIF, marcarNotificacionAtendida } from './co
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { leerImagenProductoComoDataUrl } from './imagenProducto.js';
 import { puedeGestionarUsuarios, normalizarRol } from './roles.js';
-import { esAdministradorPrincipal, verificarAdminPrincipal } from './adminPrincipal.js';
+import { esAdministradorPrincipal, nombreEsAdminPrincipal } from './adminPrincipal.js';
+import { esAprobadorRecoleccionIe } from './contabilidadConstants.js';
 
 export const AVISO_FALTA_GASTOS_EVIDENCIA =
   'Ejecuta supabase/fix_gastos_evidencia.sql en Supabase para habilitar Registro de gastos.';
@@ -67,27 +68,76 @@ function normalizarCuenta(raw) {
   return 'virtual';
 }
 
-/** Historial: admin/gerente podían sellar sin PIN. Hoy la aprobación es solo AMR + PIN. */
+/** Adjuntos / ayuda: admin o gerente. */
 export function puedeSellarGastosEvidencia(rol) {
   const r = normalizarRol(rol);
   return r === 'Administrador' || r === 'Gerente' || puedeGestionarUsuarios(rol);
 }
 
-/** Bandeja de aprobación: solo el espacio de AMR / Andrés. */
+/** Gasto registrado por AMR / Andrés. */
+export function gastoEvidenciaEsDeAmr(gasto) {
+  return nombreEsAdminPrincipal(gasto?.usuario_nombre);
+}
+
+/** ABB, JLBB o FJBB: aprueban gastos de empleados (no AMR). */
+export function esAprobadorGastosSocio(user) {
+  return esAprobadorRecoleccionIe(user?.nombre);
+}
+
+/** Puede ver bandeja de aprobación en su dispositivo. */
+export function puedeVerBandejaAprobacionGastos(user) {
+  return esAprobadorGastosSocio(user) || esAdministradorPrincipal(user);
+}
+
+/**
+ * ¿Este usuario (sesión en su celular/dispositivo) puede aprobar este gasto?
+ * - Gastos de AMR → solo AMR
+ * - Resto → ABB, JLBB o FJBB
+ */
+export function puedeAprobarGastoEvidencia(user, gasto) {
+  if (!user || !gasto) return false;
+  if (gastoEvidenciaEsDeAmr(gasto)) return esAdministradorPrincipal(user);
+  return esAprobadorGastosSocio(user);
+}
+
+/** @deprecated usar puedeVerBandejaAprobacionGastos / puedeAprobarGastoEvidencia */
 export function puedeAprobarGastosEvidenciaAmr(user) {
   return esAdministradorPrincipal(user);
 }
 
-async function autenticarPinAmr(supabase, pin, actor) {
+/**
+ * Valida el PIN de la sesión actual (mismo dispositivo/usuario logueado).
+ * No permite usar el PIN de otra persona.
+ */
+async function autenticarPinPropioSesion(supabase, pin, actor) {
   const p = String(pin || '').trim();
-  if (!p) return { ok: false, error: 'Indica el PIN de AMR para aprobar.' };
-  if (!supabase) {
-    if (!esAdministradorPrincipal(actor)) {
-      return { ok: false, error: 'Solo AMR puede aprobar gastos (se requiere conexión para validar PIN).' };
-    }
-    return { ok: true, user: actor, nombre: actor?.nombre || 'AMR' };
+  if (!p) return { ok: false, error: 'Indica tu PIN para aprobar desde este dispositivo.' };
+  if (!actor?.id && !actor?.nombre) {
+    return { ok: false, error: 'Sesión no identificada. Entra con tu usuario en este dispositivo.' };
   }
-  return verificarAdminPrincipal(supabase, p);
+
+  if (!supabase) {
+    return { ok: true, user: actor, nombre: actor?.nombre || '—' };
+  }
+
+  const { data, error } = await supabase.from('usuarios').select('*').eq('pin', p);
+  if (error) return { ok: false, error: error.message };
+  const candidatos = data || [];
+  if (!candidatos.length) return { ok: false, error: 'PIN incorrecto.' };
+
+  const actorId = String(actor.id || '');
+  const match =
+    candidatos.find((u) => actorId && String(u.id) === actorId) ||
+    candidatos.find((u) => String(u.nombre || '').toLowerCase() === String(actor.nombre || '').toLowerCase());
+
+  if (!match) {
+    return {
+      ok: false,
+      error: 'Ese PIN no es el de tu sesión. Aprueba desde tu propio dispositivo o celular con tu usuario.',
+    };
+  }
+
+  return { ok: true, user: match, nombre: match.nombre };
 }
 
 export function fmtMontoGastoEvidencia(n) {
@@ -404,17 +454,27 @@ async function sellarUno(supabase, gasto, actor) {
 
 /**
  * Sella uno o varios gastos pendientes → IE VIRTUAL.
- * Requiere PIN de AMR; la aprobación es desde su espacio.
+ * PIN del usuario en sesión (su dispositivo):
+ * - Gastos de empleados → ABB / JLBB / FJBB
+ * - Gastos de AMR → solo PIN de AMR
  * @param {{ pin?: string }} opts
  */
 export async function sellarGastosEvidencia(supabase, gastoIds, actor, opts = {}) {
-  if (!puedeAprobarGastosEvidenciaAmr(actor)) {
-    return { ok: false, error: 'La aprobación de gastos es solo desde el espacio de AMR (con PIN).' };
+  if (!puedeVerBandejaAprobacionGastos(actor)) {
+    return {
+      ok: false,
+      error: 'Solo ABB, JLBB, FJBB (gastos de empleados) o AMR (sus gastos) pueden aprobar, desde su dispositivo.',
+    };
   }
-  const auth = await autenticarPinAmr(supabase, opts.pin, actor);
-  if (!auth.ok) return { ok: false, error: auth.error || 'PIN de AMR incorrecto.' };
+
+  const auth = await autenticarPinPropioSesion(supabase, opts.pin, actor);
+  if (!auth.ok) return { ok: false, error: auth.error || 'PIN incorrecto.' };
 
   const aprobador = auth.user || actor;
+  if (!puedeVerBandejaAprobacionGastos(aprobador)) {
+    return { ok: false, error: 'Tu usuario no está autorizado para aprobar estos gastos.' };
+  }
+
   const ids = (gastoIds || []).map((x) => String(x)).filter(Boolean);
   if (!ids.length) return { ok: false, error: 'Selecciona al menos un gasto pendiente.' };
 
@@ -429,6 +489,13 @@ export async function sellarGastosEvidencia(supabase, gastoIds, actor, opts = {}
     }
     if (!gasto) {
       resultados.push({ id, ok: false, error: 'No encontrado' });
+      continue;
+    }
+    if (!puedeAprobarGastoEvidencia(aprobador, gasto)) {
+      const msg = gastoEvidenciaEsDeAmr(gasto)
+        ? 'Los gastos de AMR solo los aprueba AMR con su PIN en su dispositivo.'
+        : 'Este gasto lo aprueban ABB, JLBB o FJBB con su PIN en su dispositivo.';
+      resultados.push({ id, ok: false, error: msg });
       continue;
     }
     const r = await sellarUno(supabase, gasto, aprobador);
@@ -448,21 +515,40 @@ export async function sellarGastosEvidencia(supabase, gastoIds, actor, opts = {}
 }
 
 /**
- * Rechaza un gasto pendiente. Requiere PIN de AMR.
+ * Rechaza un gasto pendiente. Mismas reglas de PIN / quién puede.
  * @param {{ pin?: string }} opts
  */
 export async function rechazarGastoEvidencia(supabase, gastoId, actor, motivo = '', opts = {}) {
-  if (!puedeAprobarGastosEvidenciaAmr(actor)) {
-    return { ok: false, error: 'El rechazo de gastos es solo desde el espacio de AMR (con PIN).' };
+  if (!puedeVerBandejaAprobacionGastos(actor)) {
+    return { ok: false, error: 'Sin permiso para rechazar gastos.' };
   }
-  const auth = await autenticarPinAmr(supabase, opts.pin, actor);
-  if (!auth.ok) return { ok: false, error: auth.error || 'PIN de AMR incorrecto.' };
+
+  const auth = await autenticarPinPropioSesion(supabase, opts.pin, actor);
+  if (!auth.ok) return { ok: false, error: auth.error || 'PIN incorrecto.' };
 
   const aprobador = auth.user || actor;
+
+  let gasto = null;
+  if (!supabase || String(gastoId).startsWith('local-')) {
+    gasto = leerLocalGastos().find((g) => String(g.id) === String(gastoId));
+  } else {
+    const { data } = await supabase.from('gastos_evidencia').select('*').eq('id', gastoId).maybeSingle();
+    gasto = data;
+  }
+  if (!gasto) return { ok: false, error: 'Gasto no encontrado.' };
+  if (!puedeAprobarGastoEvidencia(aprobador, gasto)) {
+    return {
+      ok: false,
+      error: gastoEvidenciaEsDeAmr(gasto)
+        ? 'Los gastos de AMR solo los rechaza AMR.'
+        : 'Este gasto lo rechazan ABB, JLBB o FJBB.',
+    };
+  }
+
   const patch = {
     estado: 'rechazado',
     motivo_rechazo: String(motivo || '').trim() || 'Rechazado',
-    rechazado_por: aprobador?.nombre || auth.nombre || 'AMR',
+    rechazado_por: aprobador?.nombre || auth.nombre || '—',
     rechazado_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
