@@ -1,5 +1,7 @@
 /**
- * Ticket Socio 3B — desglose: rec → −15% → −gastos → 40/60.
+ * Ticket Socio 3B — desglose pago.
+ * Virtual: rec → −15% → −gastos → 40/60
+ * Garage: rec → −gastos → 40/60 (sin −15%)
  * Ejecutar: node --test src/lib/clientesMaquinas.pagoTicket.test.mjs
  */
 import { describe, it } from 'node:test';
@@ -40,34 +42,36 @@ describe('calcularPagoClienteRecoleccion · Virtual', () => {
 });
 
 describe('calcularPagoClienteRecoleccion · Garage', () => {
-  it('igual que Virtual: −15% luego −gastos luego 40/60', () => {
+  it('sin −15%: 3000 − gastos → 40/60', () => {
     const p = calcularPagoClienteRecoleccion({
       modulo: 'garage',
       recoleccion: 3000,
       venta: 5000,
     });
     assert.equal(p.base, 3000);
-    assert.equal(p.descuento_monto, 450);
-    assert.equal(p.tras_descuento, 2550);
-    assert.equal(p.pago_cliente, 1020);
-    assert.equal(p.ganancia_empresa, 1530);
+    assert.equal(p.pct_descuento, 0);
+    assert.equal(p.descuento_monto, 0);
+    assert.equal(p.tras_descuento, 3000);
+    assert.equal(p.pago_cliente, 1200);
+    assert.equal(p.ganancia_empresa, 1800);
     assert.equal(p.ie_destino, 'IE VIRTUAL · Garage');
   });
 
-  it('suma recolección anterior antes de −15% y gastos', () => {
+  it('suma anterior, resta gastos, sin −15%', () => {
     const p = calcularPagoClienteRecoleccion({
       modulo: 'garage',
       recoleccion: 2000,
       recoleccionAnterior: 1000,
-      gastos: 550,
+      gastos: 500,
     });
     assert.equal(p.recoleccion_actual, 2000);
     assert.equal(p.recoleccion_anterior, 1000);
     assert.equal(p.base, 3000);
-    assert.equal(p.tras_descuento, 2550);
-    assert.equal(p.tras_gastos, 2000);
-    assert.equal(p.pago_cliente, 800);
-    assert.equal(p.ganancia_empresa, 1200);
+    assert.equal(p.descuento_monto, 0);
+    assert.equal(p.tras_descuento, 3000);
+    assert.equal(p.tras_gastos, 2500);
+    assert.equal(p.pago_cliente, 1000);
+    assert.equal(p.ganancia_empresa, 1500);
   });
 
   it('gastos no bajan de cero la base 40/60', () => {
@@ -76,7 +80,8 @@ describe('calcularPagoClienteRecoleccion · Garage', () => {
       recoleccion: 1000,
       gastos: 5000,
     });
-    assert.equal(p.tras_descuento, 850);
+    assert.equal(p.descuento_monto, 0);
+    assert.equal(p.tras_descuento, 1000);
     assert.equal(p.tras_gastos, 0);
     assert.equal(p.pago_cliente, 0);
     assert.equal(p.ganancia_empresa, 0);
@@ -98,10 +103,11 @@ describe('htmlBloquePagoClienteTicket', () => {
     assert.match(html, /Firma del socio/);
   });
 
-  it('garage también muestra descuento 15% y gastos', () => {
+  it('garage no muestra descuento 15%; sí gastos y 40/60', () => {
     const p = calcularPagoClienteRecoleccion({ modulo: 'garage', recoleccion: 3000, gastos: 50 });
     const html = htmlBloquePagoClienteTicket(p);
-    assert.match(html, /Descuento 15%/);
+    assert.doesNotMatch(html, /Descuento 15%/);
+    assert.doesNotMatch(html, /Rec con descuento/);
     assert.match(html, /Gastos del periodo/);
     assert.match(html, /Socio 3B 40%/);
     assert.match(html, /IE VIRTUAL · Garage/);

@@ -110,8 +110,8 @@ export function calcularMonedaVirtualCliente({
 
 /**
  * Desglose Socio 3B en cada recolección (ticket + IE).
- * Virtual y Garage (igual):
- *   recolección (+ anterior en Garage) → −15% → − gastos → Socio 40% / Ganancia 60%.
+ * - Virtual: recolección → −15% → − gastos → Socio 40% / Ganancia 60%
+ * - Garage: recolección (+ anterior) → − gastos → Socio 40% / Ganancia 60% (sin −15%)
  */
 export function calcularPagoClienteRecoleccion({
   modulo = 'virtual',
@@ -131,7 +131,8 @@ export function calcularPagoClienteRecoleccion({
   const gastosN = Math.max(0, round2(gastos));
   const pc = Number(pctCliente) || 0.4;
   const pe = Number(pctEmpresa) > 0 ? Number(pctEmpresa) : Math.max(0, round2(1 - pc));
-  const desc = Number(pctDescuento) > 0 ? Number(pctDescuento) : 0.15;
+  // Garage no aplica descuento 15%; Virtual sí.
+  const desc = esGarage ? 0 : (Number(pctDescuento) > 0 ? Number(pctDescuento) : 0.15);
 
   const recBase = recN > 0 || antN > 0 ? recN : ventaN;
   const base = round2(recBase + antN);
@@ -148,7 +149,7 @@ export function calcularPagoClienteRecoleccion({
   } else {
     partesFormula.push(fmtMonedaCliente(base));
   }
-  partesFormula.push(`−${Math.round(desc * 100)}%`);
+  if (desc > 0) partesFormula.push(`−${Math.round(desc * 100)}%`);
   if (gastosN > 0) partesFormula.push(`− gastos ${fmtMonedaCliente(gastosN)}`);
   partesFormula.push(`→ Socio 40% / Ganancia 60% de ${fmtMonedaCliente(trasGastos)} → ${ieDestino}`);
 
@@ -175,13 +176,15 @@ export function calcularPagoClienteRecoleccion({
 
 /**
  * Pie del ticket Socio 3B:
- * Recolección · Descuento 15% · Gastos · Base 40/60 · Socio 40% · Ganancia 60% · firma.
+ * Virtual: Recolección · −15% · Gastos · Base 40/60 · Socio · Ganancia · firma.
+ * Garage: Recolección · Gastos · Base 40/60 · Socio · Ganancia · firma (sin −15%).
  */
 export function htmlBloquePagoClienteTicket(pago) {
   if (!pago || !(Number(pago.pago_cliente) > 0 || Number(pago.base) > 0 || Number(pago.tras_gastos) > 0)) return '';
   const pct = Math.round((Number(pago.pct_cliente) || 0.4) * 100);
   const pctEmp = Math.round((Number(pago.pct_empresa) || 0.6) * 100);
-  const descPct = Math.round((Number(pago.pct_descuento) || 0.15) * 100);
+  const descPct = Math.round((Number(pago.pct_descuento) || 0) * 100);
+  const tieneDescuento = Number(pago.pct_descuento) > 0 || Number(pago.descuento_monto) > 0;
   const esGarage = String(pago.modulo || '').toLowerCase() === 'garage';
   const ieDestino = pago.ie_destino || (esGarage ? 'IE VIRTUAL · Garage' : 'IE VIRTUAL');
   const antGarage = round2(pago.recoleccion_anterior);
@@ -199,10 +202,15 @@ export function htmlBloquePagoClienteTicket(pago) {
       : `
       <tr><td>Recolección</td><td class="r"><strong>${fmtMonedaCliente(pago.base)}</strong></td></tr>`;
 
+  const lineasDesc = tieneDescuento
+    ? `
+      <tr><td>Descuento ${descPct}%</td><td class="r">${fmtMonedaCliente(pago.descuento_monto ?? 0)}</td></tr>
+      <tr><td>Rec con descuento</td><td class="r"><strong>${fmtMonedaCliente(pago.tras_descuento)}</strong></td></tr>`
+    : '';
+
   const lineas = `
       ${cabecera}
-      <tr><td>Descuento ${descPct}%</td><td class="r">${fmtMonedaCliente(pago.descuento_monto ?? 0)}</td></tr>
-      <tr><td>Rec con descuento</td><td class="r"><strong>${fmtMonedaCliente(pago.tras_descuento)}</strong></td></tr>
+      ${lineasDesc}
       <tr><td>Gastos del periodo</td><td class="r">${fmtMonedaCliente(gastosN)}</td></tr>
       <tr><td>Base 40/60</td><td class="r"><strong>${fmtMonedaCliente(trasGastos)}</strong></td></tr>
       <tr><td>Socio 3B ${pct}%</td><td class="r"><strong>${fmtMonedaCliente(pago.pago_cliente)}</strong></td></tr>

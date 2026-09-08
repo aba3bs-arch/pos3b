@@ -61,8 +61,8 @@ describe('datosImpresionDesdeHistorial · Socio 3B', () => {
       'garage',
     );
     assert.equal(data.etiqueta_cliente, 'Garage Socio');
-    assert.equal(data.pago_cliente.pago_cliente, 1020);
-    assert.equal(data.pago_cliente.descuento_monto, 450);
+    assert.equal(data.pago_cliente.pago_cliente, 1200);
+    assert.equal(data.pago_cliente.descuento_monto, 0);
     assert.equal(data.pago_cliente.ie_destino, 'IE VIRTUAL · Garage');
   });
 });
