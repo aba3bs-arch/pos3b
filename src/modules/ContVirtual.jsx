@@ -87,6 +87,139 @@ function fmtFechaCorta(ymd) {
   return fmtYmdEs(ymdNegocioDesdeIso(ymd) || ymd);
 }
 
+function fmtFechaHoraIe(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function etiquetaFuenteIe(fuente) {
+  const f = String(fuente || '').toLowerCase();
+  if (f === 'vale') return 'Vale';
+  if (f === 'corte' || f === 'nom_corte') return 'Gasto de corte';
+  if (f === 'prestamo' || f === 'préstamo') return 'Préstamo';
+  if (f === 'payroll') return 'Payroll';
+  if (f === 'manual') return 'Captura manual';
+  return fuente || '—';
+}
+
+function etiquetaCuentaIeUi(cuenta) {
+  if (cuenta === 'garage') return 'Garage';
+  if (cuenta === 'abarrotes') return 'Abarrotes';
+  if (cuenta === 'virtual') return 'Virtual';
+  return cuenta || '—';
+}
+
+function tituloMovimientoIe(it) {
+  if (!it) return 'Movimiento';
+  if (it.tipo === 'ingreso') {
+    if (it.tipo_mov === 'recoleccion') return it.comentario || 'Recolección';
+    if (it.tipo_mov === 'venta_cierre') return it.comentario || 'Ventas de cierre';
+    return it.comentario || 'Ingreso';
+  }
+  return `${it.categoria || 'Gasto'}${it.subcategoria ? ` · ${it.subcategoria}` : ''}`;
+}
+
+function ModalDesgloseMovimiento({ item, onClose }) {
+  if (!item) return null;
+  const esGasto = item.tipo === 'gasto';
+  const filas = [
+    { label: 'Tipo', value: esGasto ? 'Gasto / egreso' : 'Ingreso' },
+    { label: 'Monto', value: fmtMoney(item.monto), strong: true, className: esGasto ? 'gasto' : 'ingreso' },
+    { label: 'Fecha de negocio', value: item.fecha ? fmtFechaCorta(item.fecha) : '—' },
+    { label: 'Fecha y hora', value: fmtFechaHoraIe(item.created_at) },
+    { label: 'Tienda', value: etiquetaTienda(item.tienda || 'MAIN') },
+    { label: 'Cuenta', value: etiquetaCuentaIeUi(item.cuenta) },
+    esGasto || item.categoria ? { label: 'Categoría', value: item.categoria || '—' } : null,
+    esGasto || item.subcategoria ? { label: 'Subcategoría', value: item.subcategoria || '—' } : null,
+    item.detalle ? { label: 'Detalle', value: item.detalle } : null,
+    item.categoria_raw ? { label: 'Categoría original (corte)', value: item.categoria_raw } : null,
+    item.subcategoria_raw ? { label: 'Subcategoría original (corte)', value: item.subcategoria_raw } : null,
+    { label: 'Comentario / descripción', value: item.comentario || item.descripcion || '—' },
+    { label: 'Empleado / capturó', value: item.empleado || item.solicitado_por || '—' },
+    item.solicitado_por && item.solicitado_por !== item.empleado
+      ? { label: 'Solicitado por', value: item.solicitado_por }
+      : null,
+    { label: 'Fuente', value: etiquetaFuenteIe(item.fuente || item.tipo_mov) },
+    item.tipo_mov ? { label: 'Tipo de movimiento', value: item.tipo_mov } : null,
+    item.turno ? { label: 'Turno', value: item.turno } : null,
+    item.folio ? { label: 'Folio', value: item.folio } : null,
+    item.efectivo != null && item.tipo === 'ingreso'
+      ? { label: 'Efectivo', value: fmtMoney(item.efectivo) }
+      : null,
+    item.gastos_total != null && item.tipo === 'ingreso' && Number(item.gastos_total) > 0
+      ? { label: 'Gastos en recolección', value: fmtMoney(item.gastos_total) }
+      : null,
+    item.estado_aprobacion || item.estado
+      ? { label: 'Estado', value: item.estado_aprobacion || item.estado }
+      : null,
+    item.ref_tabla ? { label: 'Origen', value: `${item.ref_tabla}${item.ref_id ? ` · ${item.ref_id}` : ''}` } : null,
+    item.gasto_id ? { label: 'ID gasto corte', value: String(item.gasto_id) } : null,
+    item.cierre_id ? { label: 'ID cierre', value: String(item.cierre_id) } : null,
+    { label: 'ID registro', value: String(item.id || '—') },
+  ].filter(Boolean);
+
+  return (
+    <div className="cv-modal-backdrop" onClick={onClose} role="presentation">
+      <div
+        className="cv-modal cv-modal-desglose"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-label="Desglose del movimiento"
+      >
+        <div className="cv-desglose-hd">
+          <div>
+            <div className={`cv-desglose-badge ${esGasto ? 'gasto' : 'ingreso'}`}>
+              {esGasto ? 'Gasto' : 'Ingreso'}
+            </div>
+            <h3 style={{ margin: '0.35rem 0 0' }}>{tituloMovimientoIe(item)}</h3>
+          </div>
+          <button type="button" className="cv-btn ghost" onClick={onClose}>
+            Cerrar
+          </button>
+        </div>
+        <dl className="cv-desglose-dl">
+          {filas.map((f) => (
+            <div key={f.label} className="cv-desglose-row">
+              <dt>{f.label}</dt>
+              <dd className={f.className || undefined} style={f.strong ? { fontWeight: 800 } : undefined}>
+                {f.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        {Array.isArray(item.gastos) && item.gastos.length > 0 ? (
+          <div className="cv-desglose-gastos-emb">
+            <div className="cv-desglose-gastos-hd">Gastos embebidos en esta recolección</div>
+            {item.gastos.map((g) => (
+              <div key={g.id} className="cv-desglose-gasto-emb">
+                <div>
+                  <strong>
+                    {g.categoria}
+                    {g.subcategoria ? ` · ${g.subcategoria}` : ''}
+                  </strong>
+                  <div className="muted" style={{ fontSize: '0.75rem' }}>
+                    {[g.empleado, g.comentario].filter(Boolean).join(' · ') || '—'}
+                  </div>
+                </div>
+                <strong className="gasto">{fmtMoney(g.monto)}</strong>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function fmtRangoCorto(desde, hasta) {
   const a = String(desde).slice(5).replace('-', '.');
   const b = String(hasta).slice(5).replace('-', '.');
@@ -740,6 +873,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const [manualTipo, setManualTipo] = useState('egreso'); // egreso | ingreso
   const [editandoManualId, setEditandoManualId] = useState(null);
   const [editCierre, setEditCierre] = useState(null); // { tipo_mov, cierre_id, cuenta, ... }
+  const [desgloseMov, setDesgloseMov] = useState(null);
   const [showInversion, setShowInversion] = useState(false);
   const [masVista, setMasVista] = useState('menu'); // menu | catalogo | inversiones
   const [catalogoFlujo, setCatalogoFlujo] = useState('egreso'); // egreso | ingreso
@@ -1762,7 +1896,20 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           </span>
         </div>
         {(dia.items || []).map((it) => (
-          <div key={`${it.tipo}-${it.id}`} className="cv-row">
+          <div
+            key={`${it.tipo}-${it.id}`}
+            className="cv-row cv-row-click"
+            role="button"
+            tabIndex={0}
+            title="Ver desglose"
+            onClick={() => setDesgloseMov(it)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setDesgloseMov(it);
+              }
+            }}
+          >
             <span className={`cv-row-dot ${it.tipo === 'ingreso' ? 'ingreso' : 'gasto'}`} />
             <div className="cv-row-main">
               <div className="title">
@@ -1786,20 +1933,21 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             <span className={`cv-row-amt ${it.tipo === 'ingreso' ? 'ingreso' : 'gasto'}`}>
               {fmt(it.monto)}
             </span>
+            <span className="cv-row-chev" aria-hidden>›</span>
             {esAdmin && it.tipo === 'ingreso' && (it.manual || it.tipo_mov === 'manual') && (
               <>
-                <button type="button" className="cv-row-edit" title="Editar ingreso" onClick={() => abrirEditarManual(it)}>✎</button>
-                <button type="button" className="cv-row-del" title="Eliminar ingreso" onClick={() => borrarEgreso(it)}>✕</button>
+                <button type="button" className="cv-row-edit" title="Editar ingreso" onClick={(e) => { e.stopPropagation(); abrirEditarManual(it); }}>✎</button>
+                <button type="button" className="cv-row-del" title="Eliminar ingreso" onClick={(e) => { e.stopPropagation(); borrarEgreso(it); }}>✕</button>
               </>
             )}
             {esAdmin && it.tipo === 'ingreso' && (it.tipo_mov === 'recoleccion' || it.tipo_mov === 'venta_cierre') && (
               <>
-                <button type="button" className="cv-row-edit" title={it.tipo_mov === 'recoleccion' ? 'Editar recolección' : 'Editar ventas de cierre'} onClick={() => abrirEditarCierreIe(it)}>✎</button>
-                <button type="button" className="cv-row-del" title={it.tipo_mov === 'recoleccion' ? 'Eliminar recolección' : 'Eliminar cierre'} onClick={() => borrarEgreso(it)}>✕</button>
+                <button type="button" className="cv-row-edit" title={it.tipo_mov === 'recoleccion' ? 'Editar recolección' : 'Editar ventas de cierre'} onClick={(e) => { e.stopPropagation(); abrirEditarCierreIe(it); }}>✎</button>
+                <button type="button" className="cv-row-del" title={it.tipo_mov === 'recoleccion' ? 'Eliminar recolección' : 'Eliminar cierre'} onClick={(e) => { e.stopPropagation(); borrarEgreso(it); }}>✕</button>
               </>
             )}
             {esAdmin && it.tipo === 'gasto' && (
-              <button type="button" className="cv-row-del" title="Eliminar egreso" onClick={() => borrarEgreso(it)}>✕</button>
+              <button type="button" className="cv-row-del" title="Eliminar egreso" onClick={(e) => { e.stopPropagation(); borrarEgreso(it); }}>✕</button>
             )}
           </div>
         ))}
@@ -2732,6 +2880,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           Más
         </button>
       </nav>
+
+      {desgloseMov ? (
+        <ModalDesgloseMovimiento item={desgloseMov} onClose={() => setDesgloseMov(null)} />
+      ) : null}
 
       {showInversion && (
         <div className="cv-modal-backdrop" onClick={() => setShowInversion(false)} role="presentation">
