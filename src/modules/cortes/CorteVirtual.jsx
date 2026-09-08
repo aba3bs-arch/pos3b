@@ -215,7 +215,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
         `Inyectado: ${fmtCorte(res.monedaInyectar ?? inyectar)}.\n` +
         `Moneda inicial del próximo corte: ${fmtCorte(res.miSiguiente ?? miSiguiente)}.` +
         (pagoCliente?.pago_cliente
-          ? `\n\nPago del cliente (ticket): ${fmtCorte(pagoCliente.pago_cliente)}\n${pagoCliente.formula}`
+          ? `\n\nSocio 3B ${fmtCorte(pagoCliente.pago_cliente)} · Ganancia ${fmtCorte(pagoCliente.ganancia_empresa)} → IE VIRTUAL\n${pagoCliente.formula}`
           : '') +
         (res.pendienteIe
           ? '\n\n⚠️ Transferencia a IE (ingresos + gastos) pendiente de aprobación por ABB, FJBB o JLBB.'

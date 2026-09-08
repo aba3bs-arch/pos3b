@@ -179,7 +179,7 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
         : `Recolección ${res.folio}: ${fmtCorte(res.recoleccion)}.\n` +
             `Máquinas en ceros. Gastos/faltantes en cero.\n` +
             (pagoCliente?.pago_cliente
-              ? `Pago del cliente (ticket): ${fmtCorte(pagoCliente.pago_cliente)} · ${pagoCliente.formula}\n`
+              ? `Socio 3B ${fmtCorte(pagoCliente.pago_cliente)} · Ganancia ${fmtCorte(pagoCliente.ganancia_empresa)} → IE VIRTUAL · Garage\n`
               : '') +
             (res.pendienteIe
               ? 'Transferencia a IE pendiente de aprobación (ABB/FJBB/JLBB).'

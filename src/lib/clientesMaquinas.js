@@ -109,9 +109,9 @@ export function calcularMonedaVirtualCliente({
 }
 
 /**
- * Pago al cliente en cada recolección (aparece en el ticket).
- * - Garage: 40% del total de la venta
- * - Virtual: 40% después del descuento del 15% sobre la base (recolección / venta)
+ * Desglose Socio 3B en cada recolección (ticket + IE).
+ * - Virtual: recolección → −15% → Socio 40% / Ganancia 60% → IE VIRTUAL
+ * - Garage: base (venta o recolección) → Socio 40% / Ganancia 60% → IE VIRTUAL · Garage
  */
 export function calcularPagoClienteRecoleccion({
   modulo = 'virtual',
@@ -119,65 +119,96 @@ export function calcularPagoClienteRecoleccion({
   recoleccion = 0,
   pctDescuento = 0.15,
   pctCliente = 0.4,
+  pctEmpresa = 0.6,
 } = {}) {
   const mod = String(modulo || 'virtual').toLowerCase();
   const ventaN = round2(venta);
   const recN = round2(recoleccion);
   const pc = Number(pctCliente) || 0.4;
+  const pe = Number(pctEmpresa) > 0 ? Number(pctEmpresa) : Math.max(0, round2(1 - pc));
   const desc = Number(pctDescuento) || 0.15;
 
   if (mod === 'garage') {
-    const base = ventaN > 0 ? ventaN : recN;
+    // Garage: sin descuento 15%; 40% socio / 60% ganancia → IE Virtual-Garage
+    const base = recN > 0 ? recN : ventaN;
     const pago = round2(base * pc);
+    const ganancia = round2(base * pe);
     return {
       modulo: 'garage',
       base,
-      base_etiqueta: 'Venta',
+      base_etiqueta: 'Recolección',
       pct_descuento: 0,
+      descuento_monto: 0,
       tras_descuento: base,
       pct_cliente: pc,
+      pct_empresa: pe,
       pago_cliente: pago,
-      formula: `40% de la venta (${fmtMonedaCliente(base)})`,
+      ganancia_empresa: ganancia,
+      ie_destino: 'IE VIRTUAL · Garage',
+      formula: `Socio 40% / Ganancia 60% de ${fmtMonedaCliente(base)} → IE VIRTUAL · Garage`,
     };
   }
 
-  // Virtual: base → −15% → 40% al cliente
+  // Virtual: recolección → −15% → 40% socio / 60% ganancia → IE VIRTUAL
   const base = recN > 0 ? recN : ventaN;
-  const tras = round2(base * (1 - desc));
+  const descuentoMonto = round2(base * desc);
+  const tras = round2(base - descuentoMonto);
   const pago = round2(tras * pc);
+  const ganancia = round2(tras * pe);
   return {
     modulo: 'virtual',
     base,
-    base_etiqueta: recN > 0 ? 'Recolección' : 'Venta',
+    base_etiqueta: 'Recolección',
     pct_descuento: desc,
+    descuento_monto: descuentoMonto,
     tras_descuento: tras,
     pct_cliente: pc,
+    pct_empresa: pe,
     pago_cliente: pago,
-    formula: `40% después de −${Math.round(desc * 100)}% sobre ${fmtMonedaCliente(base)}`,
+    ganancia_empresa: ganancia,
+    ie_destino: 'IE VIRTUAL',
+    formula: `−${Math.round(desc * 100)}% luego Socio 40% / Ganancia 60% → IE VIRTUAL`,
   };
 }
 
-/** HTML compacto para el ticket de recolección (solo si hay pago_cliente). */
+/**
+ * Pie del ticket Socio 3B:
+ * Recolección · Descuento 15% (solo Virtual) · Rec con descuento · Socio 40% · Ganancia 60% · firma.
+ */
 export function htmlBloquePagoClienteTicket(pago) {
-  if (!pago || !(Number(pago.pago_cliente) > 0)) return '';
+  if (!pago || !(Number(pago.pago_cliente) > 0 || Number(pago.base) > 0)) return '';
   const pct = Math.round((Number(pago.pct_cliente) || 0.4) * 100);
+  const pctEmp = Math.round((Number(pago.pct_empresa) || 0.6) * 100);
   const descPct = Math.round((Number(pago.pct_descuento) || 0) * 100);
-  const lineas =
-    pago.modulo === 'garage'
-      ? `<tr><td>${escHtml(pago.base_etiqueta || 'Venta')}</td><td class="r">${fmtMonedaCliente(pago.base)}</td></tr>
-         <tr><td>Participación cliente</td><td class="r">${pct}%</td></tr>`
-      : `<tr><td>${escHtml(pago.base_etiqueta || 'Base')}</td><td class="r">${fmtMonedaCliente(pago.base)}</td></tr>
-         <tr><td>Descuento</td><td class="r">−${descPct}%</td></tr>
-         <tr><td>Tras descuento</td><td class="r">${fmtMonedaCliente(pago.tras_descuento)}</td></tr>
-         <tr><td>Participación cliente</td><td class="r">${pct}%</td></tr>`;
+  const esGarage = String(pago.modulo || '').toLowerCase() === 'garage';
+  const ieDestino = pago.ie_destino || (esGarage ? 'IE VIRTUAL · Garage' : 'IE VIRTUAL');
+
+  const lineasVirtual = `
+      <tr><td>Recolección</td><td class="r"><strong>${fmtMonedaCliente(pago.base)}</strong></td></tr>
+      <tr><td>Descuento ${descPct}%</td><td class="r">${fmtMonedaCliente(pago.descuento_monto ?? round2((pago.base || 0) * (pago.pct_descuento || 0)))}</td></tr>
+      <tr><td>Rec con descuento</td><td class="r"><strong>${fmtMonedaCliente(pago.tras_descuento)}</strong></td></tr>
+      <tr><td>Socio 3B ${pct}%</td><td class="r"><strong>${fmtMonedaCliente(pago.pago_cliente)}</strong></td></tr>
+      <tr><td>Ganancia ${pctEmp}%</td><td class="r"><strong>${fmtMonedaCliente(pago.ganancia_empresa)}</strong></td></tr>`;
+
+  const lineasGarage = `
+      <tr><td>Recolección</td><td class="r"><strong>${fmtMonedaCliente(pago.base)}</strong></td></tr>
+      <tr><td>Socio 3B ${pct}%</td><td class="r"><strong>${fmtMonedaCliente(pago.pago_cliente)}</strong></td></tr>
+      <tr><td>Ganancia ${pctEmp}%</td><td class="r"><strong>${fmtMonedaCliente(pago.ganancia_empresa)}</strong></td></tr>`;
+
   return `
     <div class="sep"></div>
-    <div style="border:3px solid #1d4ed8;padding:10px 8px;background:#eff6ff;text-align:center;margin:10px 0">
-      <p style="margin:0 0 4px;font-size:12px;font-weight:900;color:#1d4ed8">PAGO DEL CLIENTE</p>
-      <p style="margin:0;font-size:18px;font-weight:900">${fmtMonedaCliente(pago.pago_cliente)}</p>
-      <p style="margin:6px 0 0;font-size:10px;font-weight:700;color:#334155">${escHtml(pago.formula || '')}</p>
+    <div style="border:3px solid #1d4ed8;padding:10px 8px;background:#eff6ff;margin:10px 0">
+      <p style="margin:0 0 8px;font-size:12px;font-weight:900;color:#1d4ed8;text-align:center">DESGLOSE SOCIO 3B</p>
+      <table style="margin:0">${esGarage ? lineasGarage : lineasVirtual}</table>
+      <p style="margin:8px 0 0;font-size:10px;font-weight:700;color:#334155;text-align:center">
+        Ganancia ${pctEmp}% → ${escHtml(ieDestino)}
+      </p>
     </div>
-    <table>${lineas}</table>`;
+    <div style="margin:18px 8px 6px;text-align:center">
+      <div style="border-bottom:2px solid #000;height:36px;margin:0 12px"></div>
+      <p style="margin:6px 0 0;font-size:11px;font-weight:800">Firma del socio</p>
+      <p style="margin:2px 0 0;font-size:9px;color:#475569">Al recolectar · Socio 3B ${pct}%</p>
+    </div>`;
 }
 
 function escHtml(s) {
