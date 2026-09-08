@@ -177,10 +177,16 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
 
     let pagoCliente = null;
     if (esSucursalClienteMaquinas(sucursal)) {
+      const gastosPeriodo = Number(res.calcImpresion?.gastosTotal);
+      const gastosLista = Array.isArray(res.gastosImpresion) ? res.gastosImpresion : [];
+      const gastosMonto = Number.isFinite(gastosPeriodo)
+        ? gastosPeriodo
+        : gastosLista.reduce((a, g) => a + (Number(g.monto) || 0), 0);
       pagoCliente = calcularPagoClienteRecoleccion({
         modulo: 'virtual',
         venta: res.calcImpresion?.venta ?? calc?.venta,
         recoleccion: res.recoleccion,
+        gastos: gastosMonto,
       });
       const etiqueta = etiquetaCliente || slugDesdeSucursalCliente(sucursal);
       // Guardar desglose en el cierre para reimprimir el mismo ticket después.

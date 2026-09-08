@@ -2,6 +2,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { listarSucursales, listarSucursalesOperativas, etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { puedeGestionarUsuarios, normalizarRol, listarTodosLosRoles } from '../lib/roles.js';
 import { puedeGestionarMovimientosIe } from '../lib/ieVirtualPermisos.js';
+import {
+  listarClientesMaquinas,
+  codigoSucursalClienteMaquinas,
+  esSucursalClienteMaquinas,
+} from '../lib/clientesMaquinas.js';
 import { pinEsCubreTurnoDeSucursal } from '../lib/cubreTurnoSync.js';
 import { estiloPastel } from '../lib/estadisticasData.js';
 import {
@@ -901,6 +906,9 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   }, []);
   const [filtroTienda, setFiltroTienda] = useState('');
   const [filtroCuenta, setFiltroCuenta] = useState(''); // '' | virtual | garage
+  /** Filtro por socio 3B (código CE-…); no es sucursal real. */
+  const [filtroSocio, setFiltroSocio] = useState('');
+  const [sociosActivos, setSociosActivos] = useState([]);
   const [showFiltro, setShowFiltro] = useState(true);
   const [showBuscar, setShowBuscar] = useState(false);
   const [qBusqueda, setQBusqueda] = useState('');
@@ -1071,6 +1079,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     if (!supabase || !rango?.desde || !rango?.hasta) return;
     setCargando(true);
     setError('');
+    const sucursalFiltro = filtroSocio || filtroTienda || null;
     const res = esFrancisco
       ? await cargarContAbarrotes(supabase, {
           desde: rango.desde,
@@ -1080,7 +1089,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       : await cargarContVirtual(supabase, {
           desde: rango.desde,
           hasta: rango.hasta,
-          sucursal: filtroTienda || null,
+          sucursal: sucursalFiltro,
           cuenta: filtroCuenta || null,
         });
     setCargando(false);
@@ -1092,7 +1101,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     setDatos(res);
     if (res.catalogo?.length) setCatalogo(res.catalogo.filter((c) => c.activo !== false));
     if (res.avisoCatalogo) setAvisoSql(res.avisoCatalogo);
-  }, [supabase, rango, filtroTienda, filtroCuenta, esFrancisco]);
+  }, [supabase, rango, filtroTienda, filtroCuenta, filtroSocio, esFrancisco]);
 
   useEffect(() => {
     cargarCatalogo();
@@ -1103,8 +1112,62 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   }, [cargarUsuariosCat]);
 
   useEffect(() => {
+    if (esFrancisco || !supabase) {
+      setSociosActivos([]);
+      return undefined;
+    }
+    let cancelado = false;
+    (async () => {
+      const res = await listarClientesMaquinas(supabase, { soloActivos: true });
+      if (!cancelado) setSociosActivos(Array.isArray(res.data) ? res.data : []);
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [supabase, esFrancisco]);
+
+  useEffect(() => {
     cargar();
   }, [cargar]);
+
+  const sociosFilas = useMemo(() => {
+    const movs = datos?.porCuenta?.clientes || {};
+    const mapa = {};
+    for (const c of sociosActivos) {
+      const key = codigoSucursalClienteMaquinas(c);
+      mapa[key] = {
+        id: key,
+        slug: c.slug || '',
+        label: c.nombre || `Socio 3B · ${c.slug || key}`,
+        ingresos: 0,
+        egresos: 0,
+        neto: 0,
+        recolecciones: 0,
+        cierres: 0,
+        activo: true,
+      };
+    }
+    for (const [key, m] of Object.entries(movs)) {
+      const prev = mapa[key];
+      mapa[key] = {
+        ...(prev || {}),
+        ...m,
+        id: key,
+        label: prev?.label || m.label || key,
+        activo: prev?.activo ?? false,
+      };
+    }
+    return Object.values(mapa).sort((a, b) => String(a.label).localeCompare(String(b.label), 'es'));
+  }, [sociosActivos, datos?.porCuenta?.clientes]);
+
+  const aplicarFiltroSocio = (codigoCe) => {
+    const code = String(codigoCe || '').trim();
+    setFiltroSocio(code);
+    if (code) setFiltroTienda('');
+    setShowFiltro(true);
+    setNav('trans');
+    setTransTab('diario');
+  };
 
   const cargarProveedores = useCallback(async () => {
     if (!esFrancisco || !supabase || !rango?.desde || !rango?.hasta) {
@@ -2160,12 +2223,36 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       </div>
       {(showFiltro || showBuscar) && (
         <div className="cv-filter-bar">
-          <select value={filtroTienda} onChange={(e) => setFiltroTienda(e.target.value)} title="Sucursal">
+          <select
+            value={filtroTienda}
+            onChange={(e) => {
+              setFiltroTienda(e.target.value);
+              if (e.target.value) setFiltroSocio('');
+            }}
+            title="Sucursal"
+          >
             <option value="">Todas las sucursales</option>
-            {tiendas.map((t) => (
+            {tiendas.filter((t) => !esSucursalClienteMaquinas(t)).map((t) => (
               <option key={t} value={t}>{etiquetaTienda(t)}</option>
             ))}
           </select>
+          {!esFrancisco && (
+            <select
+              value={filtroSocio}
+              onChange={(e) => aplicarFiltroSocio(e.target.value)}
+              title="Socio 3B"
+            >
+              <option value="">Todos los socios 3B</option>
+              {sociosActivos.map((c) => {
+                const code = codigoSucursalClienteMaquinas(c);
+                return (
+                  <option key={c.id || code} value={code}>
+                    {c.nombre || c.slug || code}
+                  </option>
+                );
+              })}
+            </select>
+          )}
           {!esFrancisco && (
             <select value={filtroCuenta} onChange={(e) => setFiltroCuenta(e.target.value)}>
               <option value="">Cuentas: Virtual + Garage</option>
@@ -2246,12 +2333,36 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
         </select>
       </div>
       <div className="cv-filter-bar">
-        <select value={filtroTienda} onChange={(e) => setFiltroTienda(e.target.value)} title="Sucursal">
+        <select
+          value={filtroTienda}
+          onChange={(e) => {
+            setFiltroTienda(e.target.value);
+            if (e.target.value) setFiltroSocio('');
+          }}
+          title="Sucursal"
+        >
           <option value="">Todas las sucursales</option>
-          {tiendas.map((t) => (
+          {tiendas.filter((t) => !esSucursalClienteMaquinas(t)).map((t) => (
             <option key={t} value={t}>{etiquetaTienda(t)}</option>
           ))}
         </select>
+        {!esFrancisco && (
+          <select
+            value={filtroSocio}
+            onChange={(e) => aplicarFiltroSocio(e.target.value)}
+            title="Socio 3B"
+          >
+            <option value="">Todos los socios 3B</option>
+            {sociosActivos.map((c) => {
+              const code = codigoSucursalClienteMaquinas(c);
+              return (
+                <option key={c.id || code} value={code}>
+                  {c.nombre || c.slug || code}
+                </option>
+              );
+            })}
+          </select>
+        )}
         {!esFrancisco && (
           <select value={filtroCuenta} onChange={(e) => setFiltroCuenta(e.target.value)}>
             <option value="">Virtual + Garage</option>
@@ -2533,34 +2644,49 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           <div className="hd">
             <span>Socios 3B</span>
             <span className="amt">
-              {fmtMoney(
-                Object.values(pc.clientes || {}).reduce((a, c) => a + (Number(c.neto) || 0), 0),
-              )}
+              {fmtMoney(sociosFilas.reduce((a, c) => a + (Number(c.neto) || 0), 0))}
             </span>
           </div>
           <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
-            Se forma con los socios de Contabilidad → Socio 3B. Recolecciones y moneda virtual aparecen aquí.
+            Un renglón por socio activo. Toca uno para filtrar sus movimientos (no son sucursales).
           </p>
-          {!Object.keys(pc.clientes || {}).length ? (
+          {!sociosFilas.length ? (
             <div className="item">
-              <span className="muted">Sin movimientos de socios aún</span>
+              <span className="muted">Sin socios activos en Contabilidad → Socio 3B</span>
               <span className="amt">—</span>
             </div>
           ) : (
-            Object.values(pc.clientes || {})
-              .sort((a, b) => String(a.label).localeCompare(String(b.label), 'es'))
-              .map((c) => (
-                <div key={c.id} className="item" style={{ flexWrap: 'wrap' }}>
-                  <span style={{ flex: '1 1 140px' }}>{c.label}</span>
-                  <span className="amt" style={{ marginRight: '0.75rem' }} title="Ingresos">
-                    +{fmtMoney(c.ingresos)}
-                  </span>
-                  <span className="amt" style={{ color: 'var(--cv-gasto)', marginRight: '0.75rem' }} title="Egresos">
-                    −{fmtMoney(c.egresos)}
-                  </span>
-                  <span className="amt">{fmtMoney(c.neto)}</span>
-                </div>
-              ))
+            sociosFilas.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className="item"
+                style={{
+                  flexWrap: 'wrap',
+                  width: '100%',
+                  textAlign: 'left',
+                  background: filtroSocio === c.id ? 'var(--cv-bg3)' : 'transparent',
+                  border: 'none',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                  padding: '0.45rem 0',
+                }}
+                onClick={() => aplicarFiltroSocio(filtroSocio === c.id ? '' : c.id)}
+                title={filtroSocio === c.id ? 'Quitar filtro de este socio' : 'Filtrar por este socio'}
+              >
+                <span style={{ flex: '1 1 140px' }}>
+                  {c.label}
+                  {!c.activo ? <span className="muted"> · inactivo</span> : null}
+                </span>
+                <span className="amt" style={{ marginRight: '0.75rem' }} title="Ingresos">
+                  +{fmtMoney(c.ingresos)}
+                </span>
+                <span className="amt" style={{ color: 'var(--cv-gasto)', marginRight: '0.75rem' }} title="Egresos">
+                  −{fmtMoney(c.egresos)}
+                </span>
+                <span className="amt">{fmtMoney(c.neto)}</span>
+              </button>
+            ))
           )}
         </div>
         <div className="cv-cuenta-group">

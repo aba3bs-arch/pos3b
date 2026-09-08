@@ -148,13 +148,19 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
     }
 
     let pagoCliente = null;
-    // Solo recolección definitiva (máquinas + DSCH en ceros): 40/60 sobre actual + anterior.
+    // Solo recolección definitiva (máquinas + DSCH en ceros): −15% − gastos → 40/60.
     if (!res.temporal && esSucursalClienteMaquinas(sucursal)) {
+      const gastosLista = Array.isArray(res.gastosImpresion) ? res.gastosImpresion : [];
+      const gastosMonto = gastosLista.reduce((a, g) => a + (Number(g.monto) || 0), 0)
+        || Number(res.calcImpresion?.gastosTotal)
+        || Number(calc?.gastosTotal)
+        || 0;
       pagoCliente = calcularPagoClienteRecoleccion({
         modulo: 'garage',
         venta: res.calcImpresion?.venta ?? calc?.venta,
         recoleccion: res.recoleccionActual ?? montoRec,
         recoleccionAnterior: res.recoleccionAnteriorIncluida ?? 0,
+        gastos: gastosMonto,
       });
       const etiqueta = etiquetaCliente || slugDesdeSucursalCliente(sucursal);
       // Guardar desglose en el cierre para reimprimir el mismo ticket después.
