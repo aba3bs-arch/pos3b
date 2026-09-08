@@ -191,6 +191,88 @@ describe('consolidarEventos', () => {
     assert.equal(ing.gastos[0].via, 'monto');
     assert.equal(ing.estado, ESTADOS.OK);
   });
+
+  it('Snacky: gasto $100 liga ingreso $108 sin folio ING (no es gasto sin ingreso)', () => {
+    const filas = consolidarEventos({
+      compras: [],
+      movimientos: [
+        {
+          id: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+          tipo: 'entrada',
+          modo: 'masivo',
+          producto_id: 'p1',
+          producto_nombre: 'Máx Mix Chile limon',
+          cantidad: 1,
+          sucursal_id: '3B2',
+          usuario: 'KATHARA LOPEZ',
+          meta: { precio: 27 },
+          created_at: '2026-09-02T17:54:00.000Z',
+        },
+        {
+          id: 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee',
+          tipo: 'entrada',
+          modo: 'masivo',
+          producto_id: 'p2',
+          producto_nombre: 'Max Mix limon sal',
+          cantidad: 1,
+          sucursal_id: '3B2',
+          usuario: 'KATHARA LOPEZ',
+          meta: { precio: 27 },
+          created_at: '2026-09-02T17:54:10.000Z',
+        },
+        {
+          id: 'cccccccc-bbbb-cccc-dddd-eeeeeeeeeeee',
+          tipo: 'entrada',
+          modo: 'masivo',
+          producto_id: 'p3',
+          producto_nombre: 'Max mix 330g',
+          cantidad: 1,
+          sucursal_id: '3B2',
+          usuario: 'KATHARA LOPEZ',
+          meta: { precio: 27 },
+          created_at: '2026-09-02T17:54:20.000Z',
+        },
+        {
+          id: 'dddddddd-bbbb-cccc-dddd-eeeeeeeeeeee',
+          tipo: 'entrada',
+          modo: 'masivo',
+          producto_id: 'p4',
+          producto_nombre: 'Max Mix otro',
+          cantidad: 1,
+          sucursal_id: '3B2',
+          usuario: 'KATHARA LOPEZ',
+          meta: { precio: 27 },
+          created_at: '2026-09-02T17:54:30.000Z',
+        },
+      ],
+      gastos: [
+        {
+          id: 'gx-snacky',
+          sucursal_id: '3B2',
+          categoria: 'PROVEEDORES',
+          subcategoria: 'SNACKY PARTY',
+          comentario: '',
+          monto: 100,
+          created_at: '2026-09-02T16:21:00.000Z',
+        },
+      ],
+      productoAProveedor: new Map([
+        ['p1', { id: 'prov1', nombre: 'Snacky' }],
+        ['p2', { id: 'prov1', nombre: 'Snacky' }],
+        ['p3', { id: 'prov1', nombre: 'Snacky' }],
+        ['p4', { id: 'prov1', nombre: 'Snacky' }],
+      ]),
+    });
+    const huerfanos = filas.filter((f) => f.estado === ESTADOS.GASTO_SIN_INGRESO);
+    assert.equal(huerfanos.length, 0);
+    const ing = filas.find((f) => f.tipo === 'ingreso');
+    assert.ok(ing);
+    assert.equal(ing.n_gastos, 1);
+    assert.equal(ing.monto_inventario, 108);
+    assert.equal(ing.monto_gasto, 100);
+    // $108 vs $100 → ligado pero descuadrado
+    assert.equal(ing.estado, ESTADOS.MONTO_DESCUADRADO);
+  });
 });
 
 describe('resumirConsolidacion', () => {

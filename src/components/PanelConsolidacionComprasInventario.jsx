@@ -298,9 +298,11 @@ export default function PanelConsolidacionComprasInventario({ supabase }) {
           </button>
         </div>
         <p className="muted" style={{ margin: '0.75rem 0 0', fontSize: '0.82rem' }}>
-          Cruza <strong>compras/tickets</strong> (CMP), <strong>ingresos de inventario</strong> (ING) y{' '}
-          <strong>traspasos</strong> (trp) con los <strong>gastos PROVEEDORES</strong> del corte Abarrotes. Sirve para ver
-          mercancía no ingresada, gastos faltantes o duplicados, y montos que no cuadran.
+          Cruza <strong>compras/tickets</strong> (CMP), <strong>ingresos de inventario</strong> (ING o lotes sin
+          folio) y <strong>traspasos</strong> (trp) con los <strong>gastos PROVEEDORES</strong> del corte Abarrotes.
+          Primero por folio en el comentario del gasto; si no hay, por proveedor + monto cercano el mismo día. Si el
+          gasto y el ingreso existen pero el monto no cuadra (ej. $100 vs $108), aparece como{' '}
+          <strong>Monto descuadrado</strong>, no como «gasto sin ingreso».
         </p>
         {meta ? (
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.75rem' }}>

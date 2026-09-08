@@ -27,8 +27,12 @@ import {
 
 export const MARKER_TRP_INV = 'TRP_INV:';
 
-/** Tolerancia de monto (centavos) para considerar “cuadra”. */
+/** Tolerancia estricta (centavos) para considerar montos “cuadrados”. */
 export const TOL_MONTO = 0.51;
+
+/** Soft-match gasto↔ingreso: hasta $50 o 20% de diferencia. */
+export const TOL_SOFT_ABS = 50;
+export const TOL_SOFT_REL = 0.2;
 
 export const ESTADOS = {
   OK: 'ok',
@@ -117,9 +121,47 @@ function montosCuadran(a, b, tol = TOL_MONTO) {
   return Math.abs(round2(a) - round2(b)) <= tol;
 }
 
+/** Soft-match: $100 vs $108 (Snacky) sí acerca; no exige centavo exacto. */
+export function montosCercanos(a, b, { absTol = TOL_SOFT_ABS, relTol = TOL_SOFT_REL } = {}) {
+  const x = round2(a);
+  const y = round2(b);
+  if (!(x > 0) || !(y > 0)) return false;
+  const diff = Math.abs(x - y);
+  if (diff <= absTol) return true;
+  return diff / Math.max(x, y) <= relTol;
+}
+
 function compraRecibida(c) {
   const est = String(c?.estado || '').toLowerCase();
   return !est || est === 'recibida' || est === 'recibido' || est === 'cerrada';
+}
+
+/** Folio visible tipo Consultas cuando no hay ING-/CMP- en meta. */
+function folioDisplayMovimiento(m) {
+  const raw = folioDeMovimiento(m);
+  if (raw) return raw;
+  const id = String(m?.id || m?.cloudId || '').replace(/[^a-fA-F0-9]/g, '');
+  if (!id) return '';
+  const hex = id.slice(-8) || id;
+  const n = parseInt(hex, 16);
+  if (!Number.isFinite(n)) return String(m.id).slice(0, 5);
+  return String(n % 100000).padStart(5, '0');
+}
+
+/** Agrupa ingresos sin folio como en Consultas (misma tienda + usuario + ventana 3 min). */
+function claveBucketSinFolio(m) {
+  const t = new Date(m?.created_at || 0).getTime();
+  const bucket = Number.isFinite(t) ? Math.floor(t / 180000) : 0;
+  const sid = normalizarCodigoTienda(m?.sucursal_id) || '';
+  const user = String(m?.usuario || '').trim() || '—';
+  return `sinfolio:${sid}:${user}:${bucket}`;
+}
+
+function proveedoresCoinciden(a, b) {
+  const ka = normalizarNombreProveedorClave(a);
+  const kb = normalizarNombreProveedorClave(b);
+  if (!ka || !kb) return false;
+  return ka === kb || ka.includes(kb) || kb.includes(ka);
 }
 
 /** Extrae folios ligados a un gasto (SMOK_INV / TICKET_INV / TRP_INV / folios sueltos). */
@@ -268,8 +310,16 @@ export function clasificarEstadoFila(fila) {
 /**
  * Une compras + movimientos + traspasos + gastos en filas por folio / evento.
  * Función pura (sin I/O) — útil para tests.
+ * @param {object} opts
+ * @param {Map<string,{id:string,nombre:string}>} [opts.productoAProveedor] producto_id → proveedor
  */
-export function consolidarEventos({ compras = [], movimientos = [], traspasos = [], gastos = [] } = {}) {
+export function consolidarEventos({
+  compras = [],
+  movimientos = [],
+  traspasos = [],
+  gastos = [],
+  productoAProveedor = null,
+} = {}) {
   /** @type {Map<string, object>} clave canónica → evento */
   const eventos = new Map();
   /** folio upper → clave canónica del evento */
@@ -286,6 +336,27 @@ export function consolidarEventos({ compras = [], movimientos = [], traspasos = 
     return eventos.get(clave);
   };
 
+  const proveedorDeLineas = (lineas) => {
+    if (!productoAProveedor || !(productoAProveedor instanceof Map)) return '';
+    const counts = new Map();
+    for (const l of lineas || []) {
+      const pid = String(l.producto_id || l.id || '').trim();
+      if (!pid) continue;
+      const p = productoAProveedor.get(pid);
+      const nom = p?.nombre || '';
+      const k = normalizarNombreProveedorClave(nom);
+      if (!k) continue;
+      const prev = counts.get(k) || { n: 0, nombre: nom };
+      prev.n += 1;
+      counts.set(k, prev);
+    }
+    let best = null;
+    for (const v of counts.values()) {
+      if (!best || v.n > best.n) best = v;
+    }
+    return best?.nombre || '';
+  };
+
   // 1) Compras recibidas
   for (const c of compras || []) {
     if (!compraRecibida(c)) continue;
@@ -298,7 +369,7 @@ export function consolidarEventos({ compras = [], movimientos = [], traspasos = 
       qty: qtyDeLinea(l),
       costo: Number(l.costo ?? l.costo_est) || 0,
     }));
-    const ev = ensureEvento(clave, {
+    ensureEvento(clave, {
       id: clave,
       origen: 'compra',
       tipo: 'compra',
@@ -323,27 +394,27 @@ export function consolidarEventos({ compras = [], movimientos = [], traspasos = 
     if (c.id) registrarFolios(clave, String(c.id), sid);
   }
 
-  // 2) Movimientos de entrada agrupados por folio
-  const movPorFolio = new Map();
+  // 2) Movimientos de entrada agrupados por folio (o bucket 3 min si no hay folio)
+  const movPorGrupo = new Map();
   for (const m of movimientos || []) {
     const tipo = String(m.tipo || '').toLowerCase();
     if (tipo && tipo !== 'entrada') continue;
-    const folio = folioDeMovimiento(m);
-    if (!folio) continue;
-    // Solo ingresos de compra / masivo (no retiros disfrazados)
     const modo = String(m.modo || m.meta?.modo || '').toLowerCase();
-    if (modo && !['compra', 'masivo', 'entrada', ''].includes(modo) && modo === 'retiro') continue;
-    if (/^RET-/i.test(folio)) continue;
-
-    const key = folio.toUpperCase();
-    if (!movPorFolio.has(key)) movPorFolio.set(key, []);
-    movPorFolio.get(key).push(m);
+    if (modo === 'retiro') continue;
+    const folio = folioDeMovimiento(m);
+    if (folio && /^RET-/i.test(folio)) continue;
+    const key = folio ? `folio:${folio.toUpperCase()}` : claveBucketSinFolio(m);
+    if (!movPorGrupo.has(key)) movPorGrupo.set(key, []);
+    movPorGrupo.get(key).push(m);
   }
 
-  for (const [folioUp, rows] of movPorFolio) {
-    const folio = folioDeMovimiento(rows[0]) || folioUp;
+  for (const [grupoKey, rows] of movPorGrupo) {
+    const folioRaw = folioDeMovimiento(rows[0]);
+    const folio = folioRaw || folioDisplayMovimiento(rows[0]) || grupoKey;
     const sid =
-      normalizarCodigoTienda(rows.find((r) => !['MAIN', 'CEDIS'].includes(normalizarCodigoTienda(r.sucursal_id)))?.sucursal_id) ||
+      normalizarCodigoTienda(
+        rows.find((r) => !['MAIN', 'CEDIS'].includes(normalizarCodigoTienda(r.sucursal_id)))?.sucursal_id,
+      ) ||
       normalizarCodigoTienda(rows[0]?.sucursal_id) ||
       'MAIN';
 
@@ -354,19 +425,27 @@ export function consolidarEventos({ compras = [], movimientos = [], traspasos = 
       producto_nombre: m.producto_nombre || m.nombre,
       qty: Math.abs(Number(m.cantidad) || 0),
       cantidad: Math.abs(Number(m.cantidad) || 0),
-      costo: Number(m.meta?.precio) || Number(m.precio) || 0,
-      precio: Number(m.meta?.precio) || Number(m.precio) || 0,
+      costo: (() => {
+        const u = Number(m.meta?.precio) || 0;
+        if (u > 0) return u;
+        const qty = Math.abs(Number(m.cantidad) || 0);
+        const sub = Number(m.meta?.subtotal) || 0;
+        return qty > 0 && sub > 0 ? sub / qty : 0;
+      })(),
+      precio: Number(m.meta?.precio) || 0,
       meta: m.meta,
     }));
     const montoInv = totalLineas(lineas);
     const fecha = rows.map((r) => r.created_at).filter(Boolean).sort()[0] || null;
+    const proveedorInf = proveedorDeLineas(lineas);
 
-    // ¿Ya hay evento de compra con este folio?
     let claveExistente = null;
-    for (const k of clavesFolio(folio, sid)) {
-      if (folioIndex.has(k)) {
-        claveExistente = folioIndex.get(k);
-        break;
+    if (folioRaw) {
+      for (const k of clavesFolio(folioRaw, sid)) {
+        if (folioIndex.has(k)) {
+          claveExistente = folioIndex.get(k);
+          break;
+        }
       }
     }
 
@@ -375,22 +454,23 @@ export function consolidarEventos({ compras = [], movimientos = [], traspasos = 
       ev.lineas_inventario = [...(ev.lineas_inventario || []), ...lineas];
       ev.monto_inventario = round2(totalLineas(ev.lineas_inventario));
       if (!ev.fecha) ev.fecha = fecha;
-      registrarFolios(claveExistente, folio, sid);
+      if (!ev.proveedor && proveedorInf) ev.proveedor = proveedorInf;
+      if (folioRaw) registrarFolios(claveExistente, folioRaw, sid);
       continue;
     }
 
-    const clave = `ingreso:${folioUp}`;
+    const clave = folioRaw ? `ingreso:${String(folioRaw).toUpperCase()}` : `ingreso:${grupoKey}`;
     ensureEvento(clave, {
       id: clave,
       origen: 'ingreso',
-      tipo: /^CMP-/i.test(folio) ? 'compra' : 'ingreso',
+      tipo: folioRaw && /^CMP-/i.test(folioRaw) ? 'compra' : 'ingreso',
       folio,
       compra_id: null,
       sucursal_id: sid,
       tienda: etiquetaTienda(sid),
       fecha,
       fecha_ymd: ymdDeIso(fecha),
-      proveedor: '',
+      proveedor: proveedorInf,
       proveedor_id: null,
       monto_ticket: 0,
       monto_inventario: montoInv,
@@ -401,7 +481,7 @@ export function consolidarEventos({ compras = [], movimientos = [], traspasos = 
       gastos: [],
       notas: rows[0]?.motivo || '',
     });
-    registrarFolios(clave, folio, sid);
+    if (folioRaw) registrarFolios(clave, folioRaw, sid);
   }
 
   // 3) Traspasos recibidos
@@ -430,8 +510,8 @@ export function consolidarEventos({ compras = [], movimientos = [], traspasos = 
       traspaso_id: t.id,
       sucursal_id: sid,
       tienda: etiquetaTienda(sid),
-      fecha: t.recibido_at || t.updated_at || t.created_at || null,
-      fecha_ymd: ymdDeIso(t.recibido_at || t.updated_at || t.created_at),
+      fecha: t.recibido_at || t.created_at || null,
+      fecha_ymd: ymdDeIso(t.recibido_at || t.created_at),
       proveedor: `Traspaso ${etiquetaTienda(t.origen_id)} → ${etiquetaTienda(sid)}`,
       proveedor_id: null,
       monto_ticket: montoCosto || montoPrecio,
@@ -468,6 +548,7 @@ export function consolidarEventos({ compras = [], movimientos = [], traspasos = 
       usuario: g.usuario_nombre || '',
     });
     gastosUsados.add(String(g.id));
+    if (!ev.proveedor) ev.proveedor = proveedorDesdeGasto(g);
   };
 
   for (const g of gastos || []) {
@@ -488,23 +569,36 @@ export function consolidarEventos({ compras = [], movimientos = [], traspasos = 
     }
   }
 
-  // Soft-match: gasto sin folio → ingreso sin gasto, misma tienda, monto ±tol, ±1 día
+  // Soft-match: gasto sin folio → ingreso sin gasto
+  // 1) monto exacto  2) proveedor + monto cercano  3) proveedor + mismo día
   const gastosPendientes = (gastos || []).filter((g) => !gastosUsados.has(String(g.id)));
   for (const g of gastosPendientes) {
     const sid = normalizarCodigoTienda(g.sucursal_id) || '';
     const monto = round2(g.monto);
     const ymd = ymdDeIso(g.created_at);
-    const provGasto = normalizarNombreProveedorClave(proveedorDesdeGasto(g));
+    const provGasto = proveedorDesdeGasto(g);
 
     let mejor = null;
     let mejorScore = -1;
+    let via = 'monto';
     for (const ev of eventos.values()) {
       if ((ev.gastos || []).length) continue;
       if (sid && ev.sucursal_id && ev.sucursal_id !== sid) continue;
       const ref = Number(ev.monto_ticket) > 0 ? Number(ev.monto_ticket) : Number(ev.monto_inventario);
-      if (!(ref > 0) || !montosCuadran(ref, monto)) continue;
+      if (!(ref > 0) && !(ev.lineas_inventario || []).length) continue;
 
-      let score = 10;
+      let score = 0;
+      const mismoProv = proveedoresCoinciden(provGasto, ev.proveedor);
+      const exacto = ref > 0 && montosCuadran(ref, monto);
+      const cercano = ref > 0 && montosCercanos(ref, monto);
+
+      if (exacto) score += 20;
+      else if (cercano) score += 12;
+      else if (mismoProv) score += 6; // proveedor sin monto cercano: aún se liga (quedará descuadrado)
+      else continue;
+
+      if (mismoProv) score += 10;
+
       if (ev.fecha_ymd && ymd) {
         const d0 = Date.parse(`${ev.fecha_ymd}T12:00:00`);
         const d1 = Date.parse(`${ymd}T12:00:00`);
@@ -513,24 +607,23 @@ export function consolidarEventos({ compras = [], movimientos = [], traspasos = 
           if (dias > 2) continue;
           score += Math.max(0, 5 - dias);
         }
+      } else {
+        score += 1;
       }
-      if (provGasto && ev.proveedor) {
-        const pk = normalizarNombreProveedorClave(ev.proveedor);
-        if (pk && (pk === provGasto || pk.includes(provGasto) || provGasto.includes(pk))) score += 8;
-      }
+
       if (score > mejorScore) {
         mejorScore = score;
         mejor = ev;
+        via = exacto ? 'monto' : cercano ? 'monto_cercano' : 'proveedor';
       }
     }
-    if (mejor) vincularGasto(mejor, g, 'monto');
+    if (mejor && mejorScore >= 12) vincularGasto(mejor, g, via);
   }
 
   // 5) Finalizar filas: faltantes, montos gasto, estado
   const filas = [];
   for (const ev of eventos.values()) {
     const cmp = compararProductosTicketVsInventario(ev.lineas_ticket, ev.lineas_inventario);
-    // Solo marcar faltantes si había ticket/pedido con líneas
     ev.productos_faltantes = (ev.lineas_ticket || []).length ? cmp.faltantes : [];
     if (!(Number(ev.monto_inventario) > 0) && (ev.lineas_inventario || []).length) {
       ev.monto_inventario = totalLineas(ev.lineas_inventario);
@@ -723,7 +816,12 @@ export async function cargarConsolidacionComprasInventario(
   const hastaDt = finDia(hasta);
   const avisos = [];
 
-  const [comprasRes, movRes, trpRes, gastosRes] = await Promise.all([
+  const selectMov =
+    'id,tipo,modo,producto_id,producto_nombre,cantidad,sucursal_id,meta,created_at,motivo,usuario';
+  const selectTrp =
+    'id,folio,tipo,estado,origen_id,destino_id,lineas,notas,created_at,enviado_at,recibido_at';
+
+  const [comprasRes, movRes, trpRes, gastosRes, vinculosRes, provRes] = await Promise.all([
     fetchAllPages(() => {
       let q = supabase
         .from('compras')
@@ -737,13 +835,12 @@ export async function cargarConsolidacionComprasInventario(
     fetchAllPages(() => {
       let q = supabase
         .from('movimientos_inventario')
-        .select('id,tipo,modo,producto_id,producto_nombre,cantidad,sucursal_id,meta,created_at,motivo,precio')
+        .select(selectMov)
         .eq('tipo', 'entrada')
         .gte('created_at', desdeDt.toISOString())
         .lte('created_at', hastaDt.toISOString())
         .order('created_at', { ascending: false });
       if (suc) {
-        // Incluye MAIN/CEDIS: ingresos libres a menudo se capturan allá.
         q = q.in('sucursal_id', [suc, 'MAIN', 'CEDIS']);
       }
       return q;
@@ -751,7 +848,7 @@ export async function cargarConsolidacionComprasInventario(
     fetchAllPages(() => {
       let q = supabase
         .from('inventario_traspasos')
-        .select('id,folio,tipo,estado,origen_id,destino_id,lineas,notas,created_at,updated_at,recibido_at')
+        .select(selectTrp)
         .gte('created_at', desdeDt.toISOString())
         .lte('created_at', hastaDt.toISOString())
         .order('created_at', { ascending: false });
@@ -770,6 +867,8 @@ export async function cargarConsolidacionComprasInventario(
       if (suc) q = q.eq('sucursal_id', suc);
       return q;
     }),
+    supabase.from('proveedor_producto').select('proveedor_id, producto_id').limit(20000),
+    supabase.from('proveedores').select('id, nombre').order('nombre'),
   ]);
 
   if (comprasRes.error && !/does not exist|schema cache|compras/i.test(String(comprasRes.error.message || ''))) {
@@ -779,16 +878,44 @@ export async function cargarConsolidacionComprasInventario(
     avisos.push(`Inventario: ${movRes.error.message}`);
   }
   if (trpRes.error && trpRes.error.code !== '42P01') {
-    avisos.push(`Traspasos: ${trpRes.error.message}`);
+    // Reintento sin columnas opcionales si el esquema es más viejo
+    if (/updated_at|recibido_at|enviado_at|column/i.test(String(trpRes.error.message || ''))) {
+      const trp2 = await fetchAllPages(() => {
+        let q = supabase
+          .from('inventario_traspasos')
+          .select('id,folio,tipo,estado,origen_id,destino_id,lineas,notas,created_at')
+          .gte('created_at', desdeDt.toISOString())
+          .lte('created_at', hastaDt.toISOString())
+          .order('created_at', { ascending: false });
+        if (suc) q = q.eq('destino_id', suc);
+        return q;
+      });
+      if (!trp2.error) {
+        trpRes.data = trp2.data;
+        trpRes.error = null;
+      } else {
+        avisos.push(`Traspasos: ${trpRes.error.message}`);
+      }
+    } else {
+      avisos.push(`Traspasos: ${trpRes.error.message}`);
+    }
   }
   if (gastosRes.error && gastosRes.error.code !== '42P01') {
     avisos.push(`Gastos: ${gastosRes.error.message}`);
   }
 
+  const productoAProveedor = new Map();
+  const provById = new Map((provRes.data || []).map((p) => [String(p.id), p]));
+  for (const v of vinculosRes.data || []) {
+    const pid = String(v.producto_id || '').trim();
+    const prid = String(v.proveedor_id || '').trim();
+    if (!pid || !prid || productoAProveedor.has(pid)) continue;
+    const p = provById.get(prid);
+    if (p) productoAProveedor.set(pid, { id: prid, nombre: p.nombre });
+  }
+
   let movimientos = movRes.data || [];
   if (suc) {
-    // Si filtramos tienda, solo conservar MAIN/CEDIS cuando el folio “parece” de esa tienda
-    // o ya hay compra/traspaso local — se resuelve al consolidar; aquí no recortamos agresivo.
     movimientos = movimientos.filter((m) => {
       const ms = normalizarCodigoTienda(m.sucursal_id);
       if (ms === suc) return true;
@@ -802,13 +929,12 @@ export async function cargarConsolidacionComprasInventario(
     movimientos,
     traspasos: trpRes.data || [],
     gastos: gastosRes.data || [],
+    productoAProveedor,
   });
 
-  // Si hay filtro de tienda, ocultar eventos de otras (p.ej. traspasos/ingresos MAIN puros sin vínculo)
   const filasFiltradas = suc
     ? filas.filter((f) => {
         if (f.sucursal_id === suc) return true;
-        // Ingreso en MAIN/CEDIS ligado a gasto de la tienda
         if (['MAIN', 'CEDIS'].includes(f.sucursal_id) && (f.gastos || []).some((g) => g.sucursal_id === suc)) {
           return true;
         }
