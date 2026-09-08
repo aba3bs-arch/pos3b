@@ -40,6 +40,7 @@ import LiquidacionRecolecciones from './modules/LiquidacionRecolecciones.jsx';
 import Conciliaciones from './modules/Conciliaciones.jsx';
 import Consolidacion from './modules/Consolidacion.jsx';
 import GastosEvidencia from './modules/GastosEvidencia.jsx';
+import ClientesMaquinas from './modules/ClientesMaquinas.jsx';
 import RcVirtual from './modules/RcVirtual.jsx';
 import RhAba3b from './modules/RhAba3b.jsx';
 import {
@@ -1324,6 +1325,12 @@ function App() {
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
               <GastosEvidencia supabase={supabase} user={user} sucursal={sucursal} />
+            </>
+          )}
+          {vista === 'Clientes máquinas' && (
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <ClientesMaquinas supabase={supabase} user={user} sucursal={sucursal} />
             </>
           )}
           {vista === 'RC Virtual' && (

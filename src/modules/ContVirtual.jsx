@@ -2484,6 +2484,40 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
         </div>
         <div className="cv-cuenta-group">
           <div className="hd">
+            <span>Clientes</span>
+            <span className="amt">
+              {fmtMoney(
+                Object.values(pc.clientes || {}).reduce((a, c) => a + (Number(c.neto) || 0), 0),
+              )}
+            </span>
+          </div>
+          <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
+            Se forma con los clientes de Contabilidad → Clientes máquinas. Recolecciones y moneda virtual aparecen aquí.
+          </p>
+          {!Object.keys(pc.clientes || {}).length ? (
+            <div className="item">
+              <span className="muted">Sin movimientos de clientes aún</span>
+              <span className="amt">—</span>
+            </div>
+          ) : (
+            Object.values(pc.clientes || {})
+              .sort((a, b) => String(a.label).localeCompare(String(b.label), 'es'))
+              .map((c) => (
+                <div key={c.id} className="item" style={{ flexWrap: 'wrap' }}>
+                  <span style={{ flex: '1 1 140px' }}>{c.label}</span>
+                  <span className="amt" style={{ marginRight: '0.75rem' }} title="Ingresos">
+                    +{fmtMoney(c.ingresos)}
+                  </span>
+                  <span className="amt" style={{ color: 'var(--cv-gasto)', marginRight: '0.75rem' }} title="Egresos">
+                    −{fmtMoney(c.egresos)}
+                  </span>
+                  <span className="amt">{fmtMoney(c.neto)}</span>
+                </div>
+              ))
+          )}
+        </div>
+        <div className="cv-cuenta-group">
+          <div className="hd">
             <span>Por tienda (ingresos)</span>
             <span className="amt">{fmtMoney(ingresos)}</span>
           </div>

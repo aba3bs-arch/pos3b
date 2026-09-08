@@ -30,6 +30,12 @@ import {
   listarGastosPendientesAprobacion,
 } from '../../lib/corteContabilidad/store.js';
 import { normalizarRol } from '../../lib/roles.js';
+import {
+  calcularPagoClienteRecoleccion,
+  esSucursalClienteMaquinas,
+  registrarPagoClienteRecoleccionIe,
+  slugDesdeSucursalCliente,
+} from '../../lib/clientesMaquinas.js';
 
 const ACCENT = '#6c3483';
 
@@ -39,7 +45,7 @@ function moneyNum(v) {
   return Number.isFinite(n) ? n : '';
 }
 
-export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
+export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sinAlertas = false, etiquetaCliente = '' }) {
   const [mostrarDesglose, setMostrarDesglose] = useState(false);
   const [aprobando, setAprobando] = useState(false);
 
@@ -167,6 +173,25 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
       if (res?.error) alert(res.error);
       return;
     }
+
+    let pagoCliente = null;
+    if (esSucursalClienteMaquinas(sucursal)) {
+      pagoCliente = calcularPagoClienteRecoleccion({
+        modulo: 'virtual',
+        venta: res.calcImpresion?.venta ?? calc?.venta,
+        recoleccion: res.recoleccion,
+      });
+      await registrarPagoClienteRecoleccionIe(supabase, {
+        clienteNombre: etiquetaCliente || slugDesdeSucursalCliente(sucursal),
+        clienteSlug: slugDesdeSucursalCliente(sucursal),
+        sucursalId: sucursal,
+        pago: pagoCliente,
+        folio: res.folio,
+        user,
+        modulo: 'virtual',
+      });
+    }
+
     imprimirRecoleccionVirtual(
       datosImpresionRecoleccionVirtual({
         sucursal,
@@ -180,6 +205,8 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         moneda_tope: res.monedaTope ?? monedaOperacion,
         moneda_final: res.monedaFinal ?? mfActual,
         moneda_inyectar: res.monedaInyectar ?? inyectar,
+        pago_cliente: pagoCliente,
+        etiqueta_cliente: etiquetaCliente || null,
       }),
     );
     alert(
@@ -187,6 +214,9 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         `Caja chica en $0.00.\n` +
         `Inyectado: ${fmtCorte(res.monedaInyectar ?? inyectar)}.\n` +
         `Moneda inicial del próximo corte: ${fmtCorte(res.miSiguiente ?? miSiguiente)}.` +
+        (pagoCliente?.pago_cliente
+          ? `\n\nPago del cliente (ticket): ${fmtCorte(pagoCliente.pago_cliente)}\n${pagoCliente.formula}`
+          : '') +
         (res.pendienteIe
           ? '\n\n⚠️ Transferencia a IE (ingresos + gastos) pendiente de aprobación por ABB, FJBB o JLBB.'
           : '\n\nTransferencia a IE aplicada (ingresos y gastos del periodo).'),
@@ -257,6 +287,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
   return (
     <CorteConTeclado accent={ACCENT}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }} data-corte-form="virtual">
+      {!sinAlertas ? (
       <CorteNegativoRecuperacion
         etiqueta="Virtual"
         negativo={vistaRecuperacion?.negativo}
@@ -274,12 +305,14 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         onLiquidar={liquidarPrestamoDesdeCorte}
         onGenerarPagare={generarPagareDesdeCorte}
       />
+      ) : null}
       <div className="card" style={{ borderTop: `3px solid ${ACCENT}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           <div>
-            <h3 style={{ margin: 0, color: ACCENT }}>Corte Virtual</h3>
+            <h3 style={{ margin: 0, color: ACCENT }}>Corte Virtual{etiquetaCliente ? ` · ${etiquetaCliente}` : ''}</h3>
             <p className="muted" style={{ margin: '0.3rem 0 0', fontSize: '0.84rem' }}>
-              {etiquetaTienda(sucursal)} · Folio {folio} · {turno}
+              {etiquetaCliente ? `Cliente · ${etiquetaCliente}` : etiquetaTienda(sucursal)} · Folio {folio} · {turno}
+              {sinAlertas ? ' · Sin alertas' : ''}
             </p>
             <div style={{ marginTop: '0.65rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
               <span style={{ fontSize: '0.78rem', fontWeight: 700, color: ACCENT, letterSpacing: '0.02em' }}>

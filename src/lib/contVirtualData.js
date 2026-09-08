@@ -364,6 +364,27 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
   const porCuenta = {
     virtual: { id: 'virtual', label: 'Virtual', ingresos: 0, egresos: 0, neto: 0, recolecciones: 0, cierres: 0 },
     garage: { id: 'garage', label: 'Garage', ingresos: 0, egresos: 0, neto: 0, recolecciones: 0, cierres: 0 },
+    clientes: {},
+  };
+
+  const asegurarClienteCuenta = (sucursalId) => {
+    const sid = String(sucursalId || '');
+    if (!sid.toUpperCase().startsWith('CE-')) return null;
+    const key = sid.toUpperCase();
+    if (!porCuenta.clientes[key]) {
+      const slug = key.slice(3).toLowerCase();
+      porCuenta.clientes[key] = {
+        id: key,
+        slug,
+        label: `Cliente · ${slug}`,
+        ingresos: 0,
+        egresos: 0,
+        neto: 0,
+        recolecciones: 0,
+        cierres: 0,
+      };
+    }
+    return porCuenta.clientes[key];
   };
 
   let ingresosTotal = 0;
@@ -378,6 +399,8 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     }
     // Cierres Virtual/Garage: solo contadores. El ingreso a IE es la recolección (bruta).
     porCuenta[mod].cierres += 1;
+    const cli = asegurarClienteCuenta(t);
+    if (cli) cli.cierres += 1;
     ingresosPorTienda[t].cierres += 1;
   }
 
@@ -392,6 +415,13 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     ingresosTotal = round2(ingresosTotal + item.monto);
     porCuenta[mod].ingresos = round2(porCuenta[mod].ingresos + item.monto);
     porCuenta[mod].recolecciones = round2(porCuenta[mod].recolecciones + item.monto);
+    const cli = asegurarClienteCuenta(t);
+    if (cli) {
+      cli.ingresos = round2(cli.ingresos + item.monto);
+      cli.recolecciones = round2(cli.recolecciones + item.monto);
+      item.cuentaCliente = cli.id;
+      item.labelCuenta = cli.label;
+    }
     if (ingresosPorTienda[t]) {
       ingresosPorTienda[t].recolecciones = round2((ingresosPorTienda[t].recolecciones || 0) + item.monto);
       ingresosPorTienda[t].ingresos = round2(ingresosPorTienda[t].ingresos + item.monto);
@@ -418,6 +448,11 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
     const t = item.tienda || 'MAIN';
     ingresosTotal = round2(ingresosTotal + item.monto);
     porCuenta[mod].ingresos = round2(porCuenta[mod].ingresos + item.monto);
+    const cli = asegurarClienteCuenta(t);
+    if (cli) {
+      cli.ingresos = round2(cli.ingresos + item.monto);
+      item.labelCuenta = cli.label;
+    }
     if (!ingresosPorTienda[t]) {
       ingresosPorTienda[t] = { id: t, label: etiquetaTienda(t), ingresos: 0, cierres: 0, recolecciones: 0 };
     }
@@ -463,9 +498,14 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
   for (const d of unificado.detalle) {
     const mod = String(d.cuenta || 'virtual').toLowerCase() === 'garage' ? 'garage' : 'virtual';
     porCuenta[mod].egresos = round2(porCuenta[mod].egresos + d.monto);
+    const cli = asegurarClienteCuenta(d.tienda);
+    if (cli) cli.egresos = round2(cli.egresos + d.monto);
   }
   porCuenta.virtual.neto = round2(porCuenta.virtual.ingresos - porCuenta.virtual.egresos);
   porCuenta.garage.neto = round2(porCuenta.garage.ingresos - porCuenta.garage.egresos);
+  for (const cli of Object.values(porCuenta.clientes)) {
+    cli.neto = round2((cli.ingresos || 0) - (cli.egresos || 0));
+  }
 
   const egresosPorTienda = {};
   for (const t of tiendasFiltro) {

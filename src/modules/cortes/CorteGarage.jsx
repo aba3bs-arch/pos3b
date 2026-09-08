@@ -23,10 +23,16 @@ import {
   imprimirRecoleccionGarage,
 } from '../../lib/impresionCorteContabilidad.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
+import {
+  calcularPagoClienteRecoleccion,
+  esSucursalClienteMaquinas,
+  registrarPagoClienteRecoleccionIe,
+  slugDesdeSucursalCliente,
+} from '../../lib/clientesMaquinas.js';
 
 const COLOR = '#7f8c8d';
 
-export default function CorteGarage({ supabase, sucursal, user }) {
+export default function CorteGarage({ supabase, sucursal, user, sinAlertas = false, etiquetaCliente = '' }) {
   const prepararTrasCierre = useCallback((estado, calc, detalleExtra) => {
     return prepararTrasCierreGarage(estado, calc, detalleExtra);
   }, []);
@@ -131,6 +137,25 @@ export default function CorteGarage({ supabase, sucursal, user }) {
       return;
     }
 
+    let pagoCliente = null;
+    // Solo recolección definitiva de cliente máquinas: 40% de la venta
+    if (!res.temporal && esSucursalClienteMaquinas(sucursal)) {
+      pagoCliente = calcularPagoClienteRecoleccion({
+        modulo: 'garage',
+        venta: res.calcImpresion?.venta ?? calc?.venta,
+        recoleccion: res.recoleccion,
+      });
+      await registrarPagoClienteRecoleccionIe(supabase, {
+        clienteNombre: etiquetaCliente || slugDesdeSucursalCliente(sucursal),
+        clienteSlug: slugDesdeSucursalCliente(sucursal),
+        sucursalId: sucursal,
+        pago: pagoCliente,
+        folio: res.folio,
+        user,
+        modulo: 'garage',
+      });
+    }
+
     imprimirRecoleccionGarage(
       datosImpresionRecoleccionGarage({
         sucursal,
@@ -141,6 +166,8 @@ export default function CorteGarage({ supabase, sucursal, user }) {
         calc: res.calcImpresion,
         recoleccion: res.recoleccion,
         temporal: res.temporal,
+        pago_cliente: pagoCliente,
+        etiqueta_cliente: etiquetaCliente || null,
       }),
     );
 
@@ -151,6 +178,9 @@ export default function CorteGarage({ supabase, sucursal, user }) {
             `Lecturas en cero. Gastos/faltantes siguen abiertos. No va a IE.`
         : `Recolección ${res.folio}: ${fmtCorte(res.recoleccion)}.\n` +
             `Máquinas en ceros. Gastos/faltantes en cero.\n` +
+            (pagoCliente?.pago_cliente
+              ? `Pago del cliente (ticket): ${fmtCorte(pagoCliente.pago_cliente)} · ${pagoCliente.formula}\n`
+              : '') +
             (res.pendienteIe
               ? 'Transferencia a IE pendiente de aprobación (ABB/FJBB/JLBB).'
               : 'Recolección registrada en Contabilidad/IE.'),
@@ -168,6 +198,7 @@ export default function CorteGarage({ supabase, sucursal, user }) {
   return (
     <CorteConTeclado accent={COLOR}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {!sinAlertas ? (
       <CorteNegativoRecuperacion
         etiqueta="Garage"
         negativo={vistaRecuperacion?.negativo}
@@ -185,12 +216,14 @@ export default function CorteGarage({ supabase, sucursal, user }) {
         onLiquidar={liquidarPrestamoDesdeCorte}
         onGenerarPagare={generarPagareDesdeCorte}
       />
+      ) : null}
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h3 style={{ margin: 0, color: COLOR }}>Corte Garage</h3>
+            <h3 style={{ margin: 0, color: COLOR }}>Corte Garage{etiquetaCliente ? ` · ${etiquetaCliente}` : ''}</h3>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-              Lectura de máquinas · Folio {folio} · {turno}
+              {etiquetaCliente ? `Cliente · ${etiquetaCliente}` : 'Lectura de máquinas'} · Folio {folio} · {turno}
+              {sinAlertas ? ' · Sin alertas' : ''}
             </p>
           </div>
           {perm.guardar && (
