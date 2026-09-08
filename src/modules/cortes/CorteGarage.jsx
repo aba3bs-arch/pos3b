@@ -117,17 +117,26 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
     if (!perm.recoleccion) {
       return alert('Solo administrador o recolector autorizado puede generar la recolección.');
     }
-    if (!(montoRec > 0)) {
-      return alert('Indica primero el monto en el campo Recolección.');
+    if (!(montoRec > 0) && !(montoAnt > 0)) {
+      return alert('Indica un monto en Recolección o debe existir recolección anterior.');
     }
 
+    const totalSiCeros = round2(montoRec + montoAnt);
     const maquinasEnCero = confirm(
       `¿Las máquinas y la dispensadora de chamoy y salsa quedaron en cero?\n\n` +
-        `Monto a recolectar: ${fmtCorte(montoRec)}\n` +
+        `Recolección actual: ${fmtCorte(montoRec)}\n` +
+        `Recolección anterior: ${fmtCorte(montoAnt)}\n` +
+        (montoAnt > 0
+          ? `Total a liquidar si aceptas (actual + anterior): ${fmtCorte(totalSiCeros)}\n`
+          : '') +
         `Gastos/faltantes acumulados: ${fmtCorte(calc.gastosTotal)}\n\n` +
-        `• Aceptar = SÍ → recolección definitiva: gastos en cero y escala a Contabilidad/IE.\n` +
-        `• Cancelar = NO → temporal: el monto pasa a recolección anterior; gastos siguen; NO va a IE.`,
+        `• Aceptar = SÍ → definitiva: se suma la anterior al monto actual, desglose 60/40, gastos en cero y escala a Contabilidad/IE.\n` +
+        `• Cancelar = NO → temporal: el monto actual pasa a recolección anterior; gastos siguen; NO va a IE.`,
     );
+
+    if (!maquinasEnCero && !(montoRec > 0)) {
+      return alert('Para recolección temporal indica un monto en el campo Recolección.');
+    }
 
     const res = await registrarRecoleccion({
       montoRecoleccion: montoRec,
@@ -139,12 +148,13 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
     }
 
     let pagoCliente = null;
-    // Solo recolección definitiva de cliente máquinas: 40% de la venta
+    // Solo recolección definitiva (máquinas + DSCH en ceros): 40/60 sobre actual + anterior.
     if (!res.temporal && esSucursalClienteMaquinas(sucursal)) {
       pagoCliente = calcularPagoClienteRecoleccion({
         modulo: 'garage',
         venta: res.calcImpresion?.venta ?? calc?.venta,
-        recoleccion: res.recoleccion,
+        recoleccion: res.recoleccionActual ?? montoRec,
+        recoleccionAnterior: res.recoleccionAnteriorIncluida ?? 0,
       });
       const etiqueta = etiquetaCliente || slugDesdeSucursalCliente(sucursal);
       // Guardar desglose en el cierre para reimprimir el mismo ticket después.
@@ -198,11 +208,15 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
 
     alert(
       res.temporal
-        ? `Recolección temporal ${res.folio}: ${fmtCorte(res.recoleccion)}.\n` +
+        ? `Recolección temporal ${res.folio}: ${fmtCorte(res.recoleccionActual ?? res.recoleccion)}.\n` +
             `Queda en recolección anterior: ${fmtCorte(res.recoleccionAnteriorTras)}.\n` +
             `Lecturas en cero. Gastos/faltantes siguen abiertos. No va a IE.`
-        : `Recolección ${res.folio}: ${fmtCorte(res.recoleccion)}.\n` +
-            `Máquinas en ceros. Gastos/faltantes en cero.\n` +
+        : `Recolección ${res.folio}: ${fmtCorte(res.recoleccion)}` +
+            (res.recoleccionAnteriorIncluida > 0
+              ? ` (actual ${fmtCorte(res.recoleccionActual)} + anterior ${fmtCorte(res.recoleccionAnteriorIncluida)})`
+              : '') +
+            `.\n` +
+            `Máquinas y dispensadora en ceros. Gastos/faltantes en cero.\n` +
             (pagoCliente?.pago_cliente
               ? `Socio 3B ${fmtCorte(pagoCliente.pago_cliente)} · Ganancia ${fmtCorte(pagoCliente.ganancia_empresa)} → IE VIRTUAL · Garage\n`
               : '') +

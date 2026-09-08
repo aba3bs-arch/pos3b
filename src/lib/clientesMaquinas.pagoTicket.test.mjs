@@ -38,6 +38,31 @@ describe('calcularPagoClienteRecoleccion · Garage', () => {
     assert.equal(p.ganancia_empresa, 1800);
     assert.equal(p.ie_destino, 'IE VIRTUAL · Garage');
   });
+
+  it('al liquidar en ceros suma recolección anterior al total 40/60', () => {
+    const p = calcularPagoClienteRecoleccion({
+      modulo: 'garage',
+      recoleccion: 2000,
+      recoleccionAnterior: 1000,
+    });
+    assert.equal(p.recoleccion_actual, 2000);
+    assert.equal(p.recoleccion_anterior, 1000);
+    assert.equal(p.base, 3000);
+    assert.equal(p.pago_cliente, 1200);
+    assert.equal(p.ganancia_empresa, 1800);
+    assert.match(p.formula, /ant/);
+  });
+
+  it('sin anterior: solo la recolección actual entra al desglose', () => {
+    const p = calcularPagoClienteRecoleccion({
+      modulo: 'garage',
+      recoleccion: 2500,
+      recoleccionAnterior: 0,
+    });
+    assert.equal(p.base, 2500);
+    assert.equal(p.pago_cliente, 1000);
+    assert.equal(p.ganancia_empresa, 1500);
+  });
 });
 
 describe('htmlBloquePagoClienteTicket', () => {
@@ -62,5 +87,19 @@ describe('htmlBloquePagoClienteTicket', () => {
     assert.match(html, /Ganancia 60%/);
     assert.match(html, /IE VIRTUAL · Garage/);
     assert.match(html, /Firma del socio/);
+  });
+
+  it('garage con anterior muestra suma en el ticket', () => {
+    const p = calcularPagoClienteRecoleccion({
+      modulo: 'garage',
+      recoleccion: 2000,
+      recoleccionAnterior: 1000,
+    });
+    const html = htmlBloquePagoClienteTicket(p);
+    assert.match(html, /Recolección \(turno\)/);
+    assert.match(html, /Recolección anterior/);
+    assert.match(html, /Total a desglose/);
+    assert.match(html, /Socio 3B 40%/);
+    assert.match(html, /Ganancia 60%/);
   });
 });
