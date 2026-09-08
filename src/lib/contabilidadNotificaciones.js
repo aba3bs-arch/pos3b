@@ -199,7 +199,7 @@ export function etiquetaTipoNotificacion(tipo) {
     case TIPOS_NOTIF.RIF_VENCIDO:
       return 'RIF vencido → corte';
     case TIPOS_NOTIF.GASTO_EVIDENCIA:
-      return 'Gasto evidencia pendiente';
+      return 'Gasto pendiente de aprobación';
     default:
       return tipo || 'Notificación';
   }

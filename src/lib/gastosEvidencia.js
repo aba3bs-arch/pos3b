@@ -9,7 +9,7 @@ import { leerImagenProductoComoDataUrl } from './imagenProducto.js';
 import { puedeGestionarUsuarios, normalizarRol } from './roles.js';
 
 export const AVISO_FALTA_GASTOS_EVIDENCIA =
-  'Ejecuta supabase/fix_gastos_evidencia.sql en Supabase para habilitar Gastos evidencia.';
+  'Ejecuta supabase/fix_gastos_evidencia.sql en Supabase para habilitar Registro de gastos.';
 
 export const ESTADOS_GASTO_EVIDENCIA = ['pendiente', 'sellado', 'rechazado'];
 export const MAX_ARCHIVOS_POR_GASTO = 4;
