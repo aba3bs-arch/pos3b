@@ -25,11 +25,17 @@ create table if not exists public.gastos_evidencia (
   motivo_rechazo text,
   rechazado_por text,
   rechazado_at timestamptz,
+  admin_aprobado_por text,
+  admin_aprobado_at timestamptz,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
 
--- estados: pendiente | sellado | rechazado
+-- estados: pendiente | pendiente_amr | sellado | rechazado
+-- Gastos AMR: 1.º PIN ABB/JLBB/FJBB → pendiente_amr; 2.º PIN AMR → sellado
+
+alter table public.gastos_evidencia add column if not exists admin_aprobado_por text;
+alter table public.gastos_evidencia add column if not exists admin_aprobado_at timestamptz;
 
 create index if not exists idx_gastos_evidencia_usuario
   on public.gastos_evidencia (usuario_id, created_at desc);
