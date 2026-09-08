@@ -29,8 +29,8 @@ const DESCRIPCIONES = {
     ayuda: 'Empleados registran gastos con evidencia. Al aprobar van a IE VIRTUAL y quedan en el espacio de AMR como «Gasto aprobado» para marcar Pago recibido.',
   },
   'Clientes máquinas': {
-    desc: 'Externos · moneda 60/40 · cortes V/G → IE Clientes',
-    ayuda: 'Clientes externos con máquinas. Agrega clientes; cada uno tiene Corte Virtual y Garage (sin alertas), moneda virtual (−15% luego 60/40) y recolección a IE VIRTUAL · Clientes.',
+    desc: 'Externos · rol Cliente · cortes V/G · moneda 60/40',
+    ayuda: 'Clientes externos con máquinas. Agrega, elimina y da de alta con rol Cliente (PIN en MAIN). El cliente solo ve este módulo: Corte Virtual y Garage. Moneda virtual (−15% luego 60/40) y recolección a IE VIRTUAL · Clientes.',
   },
   'RC Virtual': {
     desc: 'Custodia Virtual → cuenta admin → ABB',

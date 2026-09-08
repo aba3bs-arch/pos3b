@@ -1,7 +1,7 @@
 import { normalizarRol } from '../roles.js';
 import { leerPrivilegios } from '../posConfig.js';
 
-const ROLES_OPERACION = new Set(['Cajero', 'Supervisor', 'Repartidor', 'Técnico']);
+const ROLES_OPERACION = new Set(['Cajero', 'Supervisor', 'Repartidor', 'Técnico', 'Cliente']);
 
 /** Permisos de cortes contabilidad — aislados del Corte de caja del POS. */
 export function permisosCorteContabilidad(rol, userId = null) {

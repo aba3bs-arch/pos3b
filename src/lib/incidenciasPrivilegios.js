@@ -1,7 +1,7 @@
 import { leerPrivilegios } from './posConfig.js';
 import { esResponsableIncidencia } from './incidenciasPos.js';
 
-const ROLES_SISTEMA = ['Cajero', 'Auditor', 'Repartidor', 'Supervisor', 'Gerente', 'Técnico', 'Administrador'];
+const ROLES_SISTEMA = ['Cajero', 'Auditor', 'Repartidor', 'Supervisor', 'Gerente', 'Técnico', 'Administrador', 'Cliente'];
 
 function normRol(rol) {
   const r = String(rol ?? '').trim();

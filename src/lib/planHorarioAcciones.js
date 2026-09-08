@@ -26,7 +26,7 @@ export const ACCIONES_DEFAULT_CHECADOR_POR_ROL = {
 export const DESCRIPCION_MODULO_CHECADOR =
   'Precios, reloj y asistencia. El plan horario tipo calendario se activa abajo en Checador — Plan horario (admin siempre; el resto con privilegio).';
 
-const ROLES_SISTEMA = ['Cajero', 'Auditor', 'Repartidor', 'Supervisor', 'Gerente', 'Técnico', 'Administrador'];
+const ROLES_SISTEMA = ['Cajero', 'Auditor', 'Repartidor', 'Supervisor', 'Gerente', 'Técnico', 'Administrador', 'Cliente'];
 
 function normRol(rol) {
   const r = String(rol ?? '').trim();

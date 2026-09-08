@@ -62,7 +62,7 @@ import {
   esCentralAdmin,
   sucursalFijaEsCajaFisica,
 } from './constants/sucursales.js';
-import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, submodulosEstadisticasVisibles, puedeVerSeccionEstadisticas, SUBMODULOS_ESTADISTICAS, VISTA_HUB_ESTADISTICAS, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias } from './lib/roles.js';
+import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, submodulosEstadisticasVisibles, puedeVerSeccionEstadisticas, SUBMODULOS_ESTADISTICAS, VISTA_HUB_ESTADISTICAS, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias, esRolCliente } from './lib/roles.js';
 import { inventarioParaSucursal } from './lib/inventarioMultitienda.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
@@ -641,7 +641,9 @@ function App() {
       setNombreCubre('');
       setTelefonoCubre('');
       limpiarAnunciosVistos();
-      if (puedeVerModulo(data.rol, 'Checador', data.id)) {
+      if (esRolCliente(data.rol)) {
+        setVista('Clientes máquinas');
+      } else if (puedeVerModulo(data.rol, 'Checador', data.id)) {
         setChecadorPestana('reloj');
         setVista('Checador');
       } else {
@@ -1329,7 +1331,9 @@ function App() {
           )}
           {vista === 'Clientes máquinas' && (
             <>
-              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              {!esRolCliente(user?.rol) ? (
+                <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              ) : null}
               <ClientesMaquinas supabase={supabase} user={user} sucursal={sucursal} />
             </>
           )}

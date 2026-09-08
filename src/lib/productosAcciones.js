@@ -122,7 +122,7 @@ export const ACCIONES_DEFAULT_PRODUCTOS_POR_ROL = {
 export const DESCRIPCION_MODULO_PRODUCTOS =
   'Catálogo y existencias. El menú ⋮ se configura abajo en Productos — menú ⋮ (ajuste, traspasos, negativos, etc.).';
 
-const ROLES_SISTEMA = ['Cajero', 'Auditor', 'Repartidor', 'Supervisor', 'Gerente', 'Técnico', 'Administrador'];
+const ROLES_SISTEMA = ['Cajero', 'Auditor', 'Repartidor', 'Supervisor', 'Gerente', 'Técnico', 'Administrador', 'Cliente'];
 
 function normRol(rol) {
   const r = String(rol ?? '').trim();

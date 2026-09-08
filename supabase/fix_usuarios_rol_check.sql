@@ -13,6 +13,7 @@ update public.usuarios set rol = 'Supervisor' where lower(trim(rol)) in ('superv
 update public.usuarios set rol = 'Gerente' where lower(trim(rol)) in ('gerente');
 update public.usuarios set rol = 'Técnico' where lower(trim(rol)) in ('tecnico', 'técnico', 'technical');
 update public.usuarios set rol = 'Administrador' where lower(trim(rol)) in ('administrador', 'admin');
+update public.usuarios set rol = 'Cliente' where lower(trim(rol)) in ('cliente');
 
 alter table public.usuarios drop constraint if exists usuarios_rol_check;
 
@@ -24,7 +25,8 @@ alter table public.usuarios add constraint usuarios_rol_check
     'Supervisor',
     'Gerente',
     'Técnico',
-    'Administrador'
+    'Administrador',
+    'Cliente'
   ));
 
 comment on constraint usuarios_rol_check on public.usuarios is

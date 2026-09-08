@@ -335,6 +335,144 @@ export async function actualizarClienteMaquinas(supabase, id, patch = {}) {
   return { ok: true, data };
 }
 
+/** Baja lógica del cliente (activo=false). Opcionalmente desactiva el usuario vinculado. */
+export async function eliminarClienteMaquinas(supabase, cliente, { desactivarUsuario = true } = {}) {
+  if (!cliente?.id) return { ok: false, error: 'Cliente inválido.' };
+  const id = cliente.id;
+
+  if (desactivarUsuario && cliente.usuario_id && supabase && !String(cliente.usuario_id).startsWith('local-')) {
+    await supabase.from('usuarios').update({ activo: false }).eq('id', cliente.usuario_id);
+  }
+
+  if (!supabase || String(id).startsWith('local-')) {
+    const lista = leerLocalClientes().map((c) =>
+      String(c.id) === String(id)
+        ? { ...c, activo: false, updated_at: new Date().toISOString() }
+        : c,
+    );
+    guardarLocalClientes(lista);
+    return { ok: true, data: lista.find((c) => String(c.id) === String(id)), aviso: !supabase ? AVISO_FALTA_CLIENTES_MAQUINAS : null };
+  }
+
+  const { data, error } = await supabase
+    .from('clientes_maquinas')
+    .update({ activo: false, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) {
+    if (faltaTabla(error)) {
+      const lista = leerLocalClientes().map((c) =>
+        String(c.id) === String(id) ? { ...c, activo: false, updated_at: new Date().toISOString() } : c,
+      );
+      guardarLocalClientes(lista);
+      return { ok: true, data: lista.find((c) => String(c.id) === String(id)), aviso: AVISO_FALTA_CLIENTES_MAQUINAS };
+    }
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, data };
+}
+
+export async function obtenerClientePorUsuarioId(supabase, usuarioId) {
+  const uid = String(usuarioId || '').trim();
+  if (!uid) return { data: null };
+  if (!supabase || uid.startsWith('local-')) {
+    const found = leerLocalClientes().find((c) => String(c.usuario_id) === uid && c.activo !== false);
+    return { data: found || null };
+  }
+  const { data, error } = await supabase
+    .from('clientes_maquinas')
+    .select('*')
+    .eq('usuario_id', uid)
+    .eq('activo', true)
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    if (faltaTabla(error)) {
+      const found = leerLocalClientes().find((c) => String(c.usuario_id) === uid && c.activo !== false);
+      return { data: found || null, aviso: AVISO_FALTA_CLIENTES_MAQUINAS };
+    }
+    // Columna usuario_id aún no existe
+    if (String(error.message || '').toLowerCase().includes('usuario_id')) {
+      return { data: null, aviso: 'Ejecuta supabase/fix_clientes_maquinas_usuario.sql en Supabase.' };
+    }
+    return { data: null, error: error.message };
+  }
+  return { data: data || null };
+}
+
+/**
+ * Alta de usuario POS con rol Cliente ligado a este cliente máquinas.
+ * Sucursal MAIN · tipo indirecto. Solo ve Clientes máquinas (cortes V/G).
+ */
+export async function darAltaUsuarioClienteMaquinas(supabase, cliente, { pin, nombre } = {}) {
+  if (!cliente?.id) return { ok: false, error: 'Cliente inválido.' };
+  const pinStr = String(pin || '').trim();
+  if (pinStr.length < 4) return { ok: false, error: 'El PIN debe tener al menos 4 caracteres.' };
+  const nom = String(nombre || cliente.nombre || '').trim();
+  if (!nom) return { ok: false, error: 'Indica el nombre del usuario.' };
+
+  if (cliente.usuario_id) {
+    return { ok: false, error: 'Este cliente ya tiene un usuario de acceso. Cámbiale el PIN en Usuarios si hace falta.' };
+  }
+
+  const payload = {
+    nombre: nom,
+    pin: pinStr,
+    rol: 'Cliente',
+    tipo_empleado: 'indirecto',
+    sucursal_id: 'MAIN',
+    activo: true,
+  };
+
+  if (!supabase) {
+    const uid = `local-u-${Date.now()}`;
+    const lista = leerLocalClientes().map((c) =>
+      String(c.id) === String(cliente.id) ? { ...c, usuario_id: uid, updated_at: new Date().toISOString() } : c,
+    );
+    guardarLocalClientes(lista);
+    return {
+      ok: true,
+      data: { ...payload, id: uid },
+      cliente: lista.find((c) => String(c.id) === String(cliente.id)),
+      soloLocal: true,
+      aviso: AVISO_FALTA_CLIENTES_MAQUINAS,
+    };
+  }
+
+  const { data: userRow, error } = await supabase.from('usuarios').insert([payload]).select('*').single();
+  if (error) {
+    if (error.code === '23505' || String(error.message).toLowerCase().includes('duplicate')) {
+      return { ok: false, error: `Ya existe un usuario con PIN ${pinStr} en MAIN.` };
+    }
+    if (String(error.message || '').includes('usuarios_rol_check')) {
+      return {
+        ok: false,
+        error: 'El rol «Cliente» no está permitido en Supabase. Ejecuta supabase/fix_clientes_maquinas_usuario.sql (o fix_usuarios_rol_check.sql).',
+      };
+    }
+    return { ok: false, error: error.message };
+  }
+
+  const link = await actualizarClienteMaquinas(supabase, cliente.id, { usuario_id: userRow.id });
+  if (!link.ok) {
+    return {
+      ok: false,
+      error: link.error || 'Usuario creado pero no se pudo vincular. Ejecuta fix_clientes_maquinas_usuario.sql.',
+      data: userRow,
+    };
+  }
+  if (String(link.error || '').toLowerCase().includes('usuario_id') || String(link.error || '').includes('column')) {
+    return {
+      ok: false,
+      error: 'Falta la columna usuario_id. Ejecuta supabase/fix_clientes_maquinas_usuario.sql en Supabase.',
+      data: userRow,
+    };
+  }
+
+  return { ok: true, data: userRow, cliente: link.data };
+}
+
 /** Inyecta moneda virtual y registra split en IE VIRTUAL (categoría Clientes). */
 export async function inyectarMonedaVirtualCliente(supabase, cliente, { montoBase, notas, user } = {}) {
   if (!cliente?.id) return { ok: false, error: 'Cliente inválido.' };
