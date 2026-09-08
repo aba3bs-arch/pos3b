@@ -113,6 +113,7 @@ export const SUBMODULOS_CONTABILIDAD = [
   'Panel RT',
   'Liquidación recolecciones',
   'Conciliaciones',
+  'Consolidación',
   'RC Virtual',
   'RC Garage',
   'IE VIRTUAL',
@@ -280,6 +281,7 @@ const ACCESO_POR_ROL = {
     'Panel RT',
     'Liquidación recolecciones',
     'Conciliaciones',
+    'Consolidación',
     'RC Virtual',
     'RC Garage',
     'IE VIRTUAL',
@@ -488,6 +490,8 @@ export const MODULOS_BLOQUEADOS_MOSTRADOR = new Set([
   'Auto Fin',
   'Crédito',
   'Evaluación operativa',
+  'Consolidación',
+  'Conciliaciones',
   ...SUBMODULOS_ESTADISTICAS,
 ]);
 

@@ -20,6 +20,10 @@ const DESCRIPCIONES = {
     desc: 'Smoking (cortes) vs cobros del repartidor',
     ayuda: 'Smoking vs cobros Recolección. Filtra En Tránsito/Por Cobrar, marca tiendas sin recolección y muestra ticket de corte.',
   },
+  Consolidación: {
+    desc: 'Gastos por turno · Virtual / Garage / Abarrotes',
+    ayuda: 'Consolida gastos de corte por turno. Selector de área independiente: Abarrotes, Virtual o Garage (no se mezclan).',
+  },
   'RC Virtual': {
     desc: 'Custodia Virtual → cuenta admin → ABB',
     ayuda: 'Recibe recolecciones de Corte Virtual a tu cuenta y entrégalas a ABB. Garage está en RC Garage.',
