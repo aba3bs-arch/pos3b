@@ -34,7 +34,7 @@ const DESCRIPCIONES = {
   },
   'Socio 3B': {
     desc: 'Socios externos · rol Cliente · cortes V/G · moneda 60/40',
-    ayuda: 'Socios externos con máquinas. Agrega, elimina y da de alta con rol Cliente (PIN en MAIN). El socio solo ve este módulo: Corte Virtual y Garage. Moneda virtual (−15% luego 60/40) y recolección a IE VIRTUAL · Socios 3B.',
+    ayuda: 'Socios externos con máquinas. Ticket de recolección: Virtual (−15% luego Socio 40% / Ganancia 60% → IE VIRTUAL) · Garage (Socio 40% / Ganancia 60% → IE VIRTUAL · Garage) con firma del socio.',
   },
   'RC Virtual': {
     desc: 'Custodia Virtual → cuenta admin → ABB',
