@@ -23,6 +23,12 @@ import {
   imprimirRecoleccionGarage,
 } from '../../lib/impresionCorteContabilidad.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
+import {
+  calcularPagoClienteRecoleccion,
+  esSucursalClienteMaquinas,
+  registrarPagoClienteRecoleccionIe,
+  slugDesdeSucursalCliente,
+} from '../../lib/clientesMaquinas.js';
 
 const COLOR = '#7f8c8d';
 
@@ -131,6 +137,25 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
       return;
     }
 
+    let pagoCliente = null;
+    // Solo recolección definitiva de cliente máquinas: 40% de la venta
+    if (!res.temporal && esSucursalClienteMaquinas(sucursal)) {
+      pagoCliente = calcularPagoClienteRecoleccion({
+        modulo: 'garage',
+        venta: res.calcImpresion?.venta ?? calc?.venta,
+        recoleccion: res.recoleccion,
+      });
+      await registrarPagoClienteRecoleccionIe(supabase, {
+        clienteNombre: etiquetaCliente || slugDesdeSucursalCliente(sucursal),
+        clienteSlug: slugDesdeSucursalCliente(sucursal),
+        sucursalId: sucursal,
+        pago: pagoCliente,
+        folio: res.folio,
+        user,
+        modulo: 'garage',
+      });
+    }
+
     imprimirRecoleccionGarage(
       datosImpresionRecoleccionGarage({
         sucursal,
@@ -141,6 +166,8 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
         calc: res.calcImpresion,
         recoleccion: res.recoleccion,
         temporal: res.temporal,
+        pago_cliente: pagoCliente,
+        etiqueta_cliente: etiquetaCliente || null,
       }),
     );
 
@@ -151,6 +178,9 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
             `Lecturas en cero. Gastos/faltantes siguen abiertos. No va a IE.`
         : `Recolección ${res.folio}: ${fmtCorte(res.recoleccion)}.\n` +
             `Máquinas en ceros. Gastos/faltantes en cero.\n` +
+            (pagoCliente?.pago_cliente
+              ? `Pago del cliente (ticket): ${fmtCorte(pagoCliente.pago_cliente)} · ${pagoCliente.formula}\n`
+              : '') +
             (res.pendienteIe
               ? 'Transferencia a IE pendiente de aprobación (ABB/FJBB/JLBB).'
               : 'Recolección registrada en Contabilidad/IE.'),

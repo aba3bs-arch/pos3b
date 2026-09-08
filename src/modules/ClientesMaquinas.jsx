@@ -171,6 +171,10 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
                 recolecciones van directo a <strong>IE VIRTUAL → Clientes</strong>.
               </li>
               <li>
+                En cada <strong>recolección</strong> el ticket muestra el <strong>pago del cliente</strong>: Garage = 40%
+                de la venta; Virtual = 40% después del −15%.
+              </li>
+              <li>
                 <strong>Moneda virtual</strong>: se ponen {fmtMonedaCliente(cliente.moneda_base || 10000)}, se descuenta{' '}
                 {Math.round((cliente.pct_descuento ?? 0.15) * 100)}%; del resto empresa{' '}
                 {Math.round((cliente.pct_empresa ?? 0.6) * 100)}% / cliente{' '}

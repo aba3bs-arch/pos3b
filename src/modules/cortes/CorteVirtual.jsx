@@ -30,6 +30,12 @@ import {
   listarGastosPendientesAprobacion,
 } from '../../lib/corteContabilidad/store.js';
 import { normalizarRol } from '../../lib/roles.js';
+import {
+  calcularPagoClienteRecoleccion,
+  esSucursalClienteMaquinas,
+  registrarPagoClienteRecoleccionIe,
+  slugDesdeSucursalCliente,
+} from '../../lib/clientesMaquinas.js';
 
 const ACCENT = '#6c3483';
 
@@ -167,6 +173,25 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
       if (res?.error) alert(res.error);
       return;
     }
+
+    let pagoCliente = null;
+    if (esSucursalClienteMaquinas(sucursal)) {
+      pagoCliente = calcularPagoClienteRecoleccion({
+        modulo: 'virtual',
+        venta: res.calcImpresion?.venta ?? calc?.venta,
+        recoleccion: res.recoleccion,
+      });
+      await registrarPagoClienteRecoleccionIe(supabase, {
+        clienteNombre: etiquetaCliente || slugDesdeSucursalCliente(sucursal),
+        clienteSlug: slugDesdeSucursalCliente(sucursal),
+        sucursalId: sucursal,
+        pago: pagoCliente,
+        folio: res.folio,
+        user,
+        modulo: 'virtual',
+      });
+    }
+
     imprimirRecoleccionVirtual(
       datosImpresionRecoleccionVirtual({
         sucursal,
@@ -180,6 +205,8 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
         moneda_tope: res.monedaTope ?? monedaOperacion,
         moneda_final: res.monedaFinal ?? mfActual,
         moneda_inyectar: res.monedaInyectar ?? inyectar,
+        pago_cliente: pagoCliente,
+        etiqueta_cliente: etiquetaCliente || null,
       }),
     );
     alert(
@@ -187,6 +214,9 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
         `Caja chica en $0.00.\n` +
         `Inyectado: ${fmtCorte(res.monedaInyectar ?? inyectar)}.\n` +
         `Moneda inicial del próximo corte: ${fmtCorte(res.miSiguiente ?? miSiguiente)}.` +
+        (pagoCliente?.pago_cliente
+          ? `\n\nPago del cliente (ticket): ${fmtCorte(pagoCliente.pago_cliente)}\n${pagoCliente.formula}`
+          : '') +
         (res.pendienteIe
           ? '\n\n⚠️ Transferencia a IE (ingresos + gastos) pendiente de aprobación por ABB, FJBB o JLBB.'
           : '\n\nTransferencia a IE aplicada (ingresos y gastos del periodo).'),

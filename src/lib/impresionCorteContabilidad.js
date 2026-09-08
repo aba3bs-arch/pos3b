@@ -5,6 +5,7 @@ import { etiquetaTienda } from '../constants/sucursales.js';
 import { etiquetaTipoCierre } from './corteContabilidad/permisos.js';
 import { gastoDescuentaNomina } from './corteContabilidad/catalogoGastos.js';
 import { nombreTurnoLegible } from './turnos.js';
+import { htmlBloquePagoClienteTicket } from './clientesMaquinas.js';
 
 function estilosCortePos() {
   return `
@@ -449,10 +450,10 @@ export function htmlRecoleccionVirtual(data) {
   </style></head><body>
     <img class="logo" src="${esc(logo)}" alt=""/>
     <h1>${esc(negocio)}</h1>
-    <div class="sub">RECOLECCIÓN · VIRTUAL</div>
+    <div class="sub">RECOLECCIÓN · VIRTUAL${data.etiqueta_cliente ? ` · ${esc(data.etiqueta_cliente)}` : ''}</div>
     <div class="banner">RECOLECCIÓN</div>
     <table>
-      <tr><td>Tienda</td><td class="r"><strong>${esc(etiquetaTienda(data.sucursal))}</strong></td></tr>
+      <tr><td>Tienda</td><td class="r"><strong>${esc(data.etiqueta_cliente ? `Cliente · ${data.etiqueta_cliente}` : etiquetaTienda(data.sucursal))}</strong></td></tr>
       <tr><td>Folio</td><td class="r"><strong>${esc(data.folio || '—')}</strong></td></tr>
       <tr><td>Fecha</td><td class="r">${esc(fecha)}</td></tr>
       <tr><td>Usuario</td><td class="r">${esc(data.usuario_nombre || '—')}</td></tr>
@@ -477,6 +478,7 @@ export function htmlRecoleccionVirtual(data) {
       <p class="recolectado-label">Cantidad recolectada</p>
       <p class="recolectado-monto">${fmt(rec)}</p>
     </div>
+    ${htmlBloquePagoClienteTicket(data.pago_cliente || data.pagoCliente)}
   </body></html>`;
 }
 
@@ -493,6 +495,8 @@ export function datosImpresionRecoleccionVirtual({
   moneda_tope,
   moneda_final,
   fecha,
+  pago_cliente = null,
+  etiqueta_cliente = null,
 }) {
   const e = estado || {};
   const tope = round2(moneda_tope ?? e.moneda_tope ?? e.moneda_inicial);
@@ -529,6 +533,8 @@ export function datosImpresionRecoleccionVirtual({
     moneda_final: mf,
     moneda_inyectar: inyectar,
     es_borrador: false,
+    pago_cliente: pago_cliente || null,
+    etiqueta_cliente: etiqueta_cliente || null,
   };
 }
 
@@ -560,7 +566,7 @@ export function htmlRecoleccionGarage(data) {
   </style></head><body>
     <img class="logo" src="${esc(logo)}" alt=""/>
     <h1>${esc(negocio)}</h1>
-    <div class="sub">TICKET DE RECOLECCIÓN · GARAGE</div>
+    <div class="sub">TICKET DE RECOLECCIÓN · GARAGE${data.etiqueta_cliente ? ` · ${esc(data.etiqueta_cliente)}` : ''}</div>
     <div class="banner">${esc(titulo)}</div>
     ${htmlEncabezadoCorte({
       ...data,
@@ -576,6 +582,7 @@ export function htmlRecoleccionGarage(data) {
       <tr><td>Recolección anterior (queda)</td><td class="r">${fmt(antTras)}</td></tr>
       <tr><td>Máquinas / DSCH en ceros</td><td class="r"><strong>${temporal ? 'NO' : 'SÍ'}</strong></td></tr>
     </table>
+    ${htmlBloquePagoClienteTicket(data.pago_cliente || data.pagoCliente)}
     <div class="sep"></div>
     <p class="muted">${
       temporal
@@ -596,6 +603,8 @@ export function datosImpresionRecoleccionGarage({
   recoleccion,
   temporal = false,
   fecha,
+  pago_cliente = null,
+  etiqueta_cliente = null,
 }) {
   return {
     modulo: 'garage',
@@ -615,6 +624,8 @@ export function datosImpresionRecoleccionGarage({
     recoleccion: recoleccion ?? 0,
     recoleccion_anterior_tras: estado?.recoleccion_anterior_tras,
     es_borrador: false,
+    pago_cliente: pago_cliente || null,
+    etiqueta_cliente: etiqueta_cliente || null,
   };
 }
 

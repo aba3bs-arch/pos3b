@@ -41,8 +41,8 @@ const DESCRIPCIONES = {
     ayuda: 'Lista recolecciones pendientes de Corte Garage (no agosto 2026 ni las ya en IE VIRTUAL) con monto y recolector.',
   },
   'IE VIRTUAL': {
-    desc: 'Antonio · ingresos y egresos Virtual + Garage',
-    ayuda: 'Ingresos y egresos de Virtual y Garage (cuenta Antonio). Incluye liberar recolecciones a IE.',
+    desc: 'Antonio · Virtual + Garage + Clientes máquinas',
+    ayuda: 'Ingresos y egresos de Virtual, Garage y Clientes máquinas (cuenta Antonio). Incluye liberar recolecciones a IE.',
   },
   'IE ABARROTES': {
     desc: 'Francisco · ingresos, egresos, proveedores y utilidades',

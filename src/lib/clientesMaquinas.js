@@ -108,6 +108,117 @@ export function calcularMonedaVirtualCliente({
   };
 }
 
+/**
+ * Pago al cliente en cada recolección (aparece en el ticket).
+ * - Garage: 40% del total de la venta
+ * - Virtual: 40% después del descuento del 15% sobre la base (recolección / venta)
+ */
+export function calcularPagoClienteRecoleccion({
+  modulo = 'virtual',
+  venta = 0,
+  recoleccion = 0,
+  pctDescuento = 0.15,
+  pctCliente = 0.4,
+} = {}) {
+  const mod = String(modulo || 'virtual').toLowerCase();
+  const ventaN = round2(venta);
+  const recN = round2(recoleccion);
+  const pc = Number(pctCliente) || 0.4;
+  const desc = Number(pctDescuento) || 0.15;
+
+  if (mod === 'garage') {
+    const base = ventaN > 0 ? ventaN : recN;
+    const pago = round2(base * pc);
+    return {
+      modulo: 'garage',
+      base,
+      base_etiqueta: 'Venta',
+      pct_descuento: 0,
+      tras_descuento: base,
+      pct_cliente: pc,
+      pago_cliente: pago,
+      formula: `40% de la venta (${fmtMonedaCliente(base)})`,
+    };
+  }
+
+  // Virtual: base → −15% → 40% al cliente
+  const base = recN > 0 ? recN : ventaN;
+  const tras = round2(base * (1 - desc));
+  const pago = round2(tras * pc);
+  return {
+    modulo: 'virtual',
+    base,
+    base_etiqueta: recN > 0 ? 'Recolección' : 'Venta',
+    pct_descuento: desc,
+    tras_descuento: tras,
+    pct_cliente: pc,
+    pago_cliente: pago,
+    formula: `40% después de −${Math.round(desc * 100)}% sobre ${fmtMonedaCliente(base)}`,
+  };
+}
+
+/** HTML compacto para el ticket de recolección (solo si hay pago_cliente). */
+export function htmlBloquePagoClienteTicket(pago) {
+  if (!pago || !(Number(pago.pago_cliente) > 0)) return '';
+  const pct = Math.round((Number(pago.pct_cliente) || 0.4) * 100);
+  const descPct = Math.round((Number(pago.pct_descuento) || 0) * 100);
+  const lineas =
+    pago.modulo === 'garage'
+      ? `<tr><td>${escHtml(pago.base_etiqueta || 'Venta')}</td><td class="r">${fmtMonedaCliente(pago.base)}</td></tr>
+         <tr><td>Participación cliente</td><td class="r">${pct}%</td></tr>`
+      : `<tr><td>${escHtml(pago.base_etiqueta || 'Base')}</td><td class="r">${fmtMonedaCliente(pago.base)}</td></tr>
+         <tr><td>Descuento</td><td class="r">−${descPct}%</td></tr>
+         <tr><td>Tras descuento</td><td class="r">${fmtMonedaCliente(pago.tras_descuento)}</td></tr>
+         <tr><td>Participación cliente</td><td class="r">${pct}%</td></tr>`;
+  return `
+    <div class="sep"></div>
+    <div style="border:3px solid #1d4ed8;padding:10px 8px;background:#eff6ff;text-align:center;margin:10px 0">
+      <p style="margin:0 0 4px;font-size:12px;font-weight:900;color:#1d4ed8">PAGO DEL CLIENTE</p>
+      <p style="margin:0;font-size:18px;font-weight:900">${fmtMonedaCliente(pago.pago_cliente)}</p>
+      <p style="margin:6px 0 0;font-size:10px;font-weight:700;color:#334155">${escHtml(pago.formula || '')}</p>
+    </div>
+    <table>${lineas}</table>`;
+}
+
+function escHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** Registra en IE el egreso «Pago cliente» tras recolección de un cliente máquinas. */
+export async function registrarPagoClienteRecoleccionIe(supabase, {
+  clienteNombre,
+  clienteSlug,
+  sucursalId,
+  pago,
+  folio,
+  user,
+  modulo,
+} = {}) {
+  const monto = round2(pago?.pago_cliente);
+  if (!(monto > 0)) return { ok: true, skipped: true };
+  return registrarEgresoContVirtual(supabase, {
+    sucursal_id: sucursalId || 'MAIN',
+    fecha: hoyYmdNogales(),
+    categoria_id: 'clientes-maquinas',
+    categoria_nombre: 'Clientes máquinas',
+    subcategoria_id: clienteSlug || 'pago-cliente',
+    subcategoria_nombre: clienteNombre || 'Cliente',
+    detalle_id: 'pago-recoleccion',
+    detalle_nombre: 'Pago cliente recolección',
+    monto,
+    descripcion: `Pago cliente ${modulo || ''} · ${clienteNombre || '—'} · folio ${folio || '—'} · ${pago?.formula || ''}`.trim(),
+    fuente: 'cliente_maquinas_recoleccion',
+    ref_tabla: 'cortes_contabilidad_cierres',
+    ref_id: folio || null,
+    usuario_nombre: user?.nombre || null,
+    cuenta: String(modulo || '').toLowerCase() === 'garage' ? 'garage' : 'virtual',
+  });
+}
+
 export function fmtMonedaCliente(n) {
   return `$${round2(n).toFixed(2)}`;
 }
