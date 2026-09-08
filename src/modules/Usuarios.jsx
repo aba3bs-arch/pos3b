@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { listarTodosLosRoles, normalizarRol, puedeGestionarUsuarios, EVENTO_ROLES } from '../lib/roles.js';
 import { ETIQUETA_AREA, PAGADORES_NOMINA } from '../lib/contabilidadConstants.js';
 import { etiquetaTienda, listarSucursales, normalizarCodigoTienda, esCentralAdmin } from '../constants/sucursales.js';
@@ -78,6 +78,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
   const [pinReingreso, setPinReingreso] = useState('');
   const [trabajandoBaja, setTrabajandoBaja] = useState(false);
   const [depurandoDup, setDepurandoDup] = useState(false);
+  const autoUnificarHecho = useRef(false);
   const [turnos, setTurnos] = useState(() => leerTurnos());
   const [configHorario, setConfigHorario] = useState(() => leerConfigHorario());
   const [rolesLista, setRolesLista] = useState(() => listarTodosLosRoles());
@@ -249,29 +250,47 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     alert(n === 1 ? 'Equipo liberado.' : 'Equipos liberados.');
   };
 
-  const depurarDuplicados = async () => {
-    if (!supabase || !esAdmin || depurandoDup) return;
+  const depurarDuplicados = useCallback(async ({ skipConfirm = false } = {}) => {
+    if (!supabase || !esAdmin || depurandoDup) return false;
     const grupos = encontrarGruposDuplicadosActivos(rows);
-    if (!grupos.length) return alert('No hay empleados repetidos activos.');
+    if (!grupos.length) {
+      if (!skipConfirm) alert('No hay empleados repetidos activos.');
+      return false;
+    }
     const detalle = resumenGruposDuplicados(grupos);
     if (
-      !confirm(
-        `Se encontraron ${grupos.length} persona(s) con más de un registro activo en la misma tienda.\n\n`
+      !skipConfirm
+      && !confirm(
+        `Hay ${grupos.length} persona(s) repetida(s) en la misma tienda (ej. Sandra Lourdes, Gabriela).\n\n`
         + `${detalle}\n\n`
-        + 'Se conserva una ficha por persona/tienda y se dan de baja las demás (deja de funcionar su PIN).\n\n¿Depurar ahora?',
+        + 'Se deja UNA sola ficha activa (la que tiene equipos vinculados, si aplica). '
+        + 'Las otras quedan de baja y su PIN deja de valer.\n\n¿Unificar ahora?',
       )
     ) {
-      return;
+      return false;
     }
     setDepurandoDup(true);
     try {
       const res = await depurarUsuariosDuplicados(supabase, rows, { user: actor });
       await load();
-      alert(res.mensaje || (res.ok ? 'Listo.' : res.error || 'No se pudo depurar.'));
+      alert(res.mensaje || (res.ok ? 'Listo: ya no hay duplicados activos.' : res.error || 'No se pudo unificar.'));
+      return Boolean(res.ok);
     } finally {
       setDepurandoDup(false);
     }
-  };
+  }, [supabase, esAdmin, depurandoDup, rows, actor, load]);
+
+  // Al abrir Usuarios, si hay duplicados (Sandra, Gabriela, etc.) pedir unificar de inmediato.
+  useEffect(() => {
+    if (!esAdmin || !supabase || !rows.length || autoUnificarHecho.current || depurandoDup) return;
+    const grupos = encontrarGruposDuplicadosActivos(rows);
+    if (!grupos.length) return;
+    autoUnificarHecho.current = true;
+    const t = window.setTimeout(() => {
+      void depurarDuplicados({ skipConfirm: false });
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [esAdmin, supabase, rows, depurandoDup, depurarDuplicados]);
 
   const crear = async () => {
     if (!supabase || !esAdmin) return;
@@ -594,9 +613,20 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
           </span>
         )}
         {idsDuplicadosActivos.has(String(r.id)) && r.activo !== false && (
-          <span className="badge" style={{ marginLeft: '0.35rem', background: '#fef3c7', color: '#92400e' }}>
-            Duplicado
-          </span>
+          <>
+            <span className="badge" style={{ marginLeft: '0.35rem', background: '#fef3c7', color: '#92400e' }}>
+              Duplicado
+            </span>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ marginLeft: '0.4rem', padding: '0.15rem 0.5rem', fontSize: '0.75rem' }}
+              disabled={depurandoDup}
+              onClick={() => void depurarDuplicados()}
+            >
+              Unificar
+            </button>
+          </>
         )}
       </td>
       <td>
@@ -1057,10 +1087,10 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
           <div
             style={{
               marginBottom: '0.85rem',
-              padding: '0.75rem 0.9rem',
+              padding: '0.85rem 1rem',
               borderRadius: 8,
-              border: '1px solid #f0c36d',
-              background: '#fff8e8',
+              border: '2px solid #d97706',
+              background: '#fff7ed',
               display: 'flex',
               flexWrap: 'wrap',
               gap: '0.75rem',
@@ -1069,23 +1099,23 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
             }}
           >
             <div style={{ flex: '1 1 240px' }}>
-              <strong style={{ color: '#8a5a00' }}>
-                {gruposDuplicados.length} empleado{gruposDuplicados.length === 1 ? '' : 's'} repetido{gruposDuplicados.length === 1 ? '' : 's'}
+              <strong style={{ color: '#9a3412', fontSize: '1rem' }}>
+                Estos empleados están dos veces — hay que unificarlos
               </strong>
-              <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.82rem' }}>
-                Misma persona activa más de una vez en la misma tienda
-                {gruposDuplicados.slice(0, 3).map((g) => ` · ${g.nombre} (${etiquetaTienda(g.ambito)})`).join('')}
-                {gruposDuplicados.length > 3 ? '…' : ''}.
-                Depura para dejar una sola ficha (las demás quedan de baja).
+              <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', color: '#7c2d12' }}>
+                Ejemplos: {gruposDuplicados.slice(0, 4).map((g) => `${g.nombre} (${etiquetaTienda(g.ambito)})`).join(' · ')}
+                {gruposDuplicados.length > 4 ? '…' : ''}.
+                Se conserva la ficha con equipos vinculados; la otra queda de baja.
               </p>
             </div>
             <button
               type="button"
               className="btn btn-primary"
+              style={{ fontWeight: 700, padding: '0.65rem 1.1rem' }}
               disabled={depurandoDup}
-              onClick={depurarDuplicados}
+              onClick={() => void depurarDuplicados()}
             >
-              {depurandoDup ? 'Depurando…' : 'Depurar duplicados'}
+              {depurandoDup ? 'Unificando…' : 'Unificar ahora'}
             </button>
           </div>
         )}
