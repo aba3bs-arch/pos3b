@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { puedeVerModulo, puedeGestionarUsuarios } from '../lib/roles.js';
 import { listarCatalogoContVirtual, filtrarCatalogoPorFlujo } from '../lib/contVirtualCatalogo.js';
 import { hoyYmdNogales } from '../lib/corteCaja.js';
-import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
+import { etiquetaTienda } from '../constants/sucursales.js';
 import {
   adjuntarEvidenciaGasto,
   eliminarArchivoGastoEvidencia,
@@ -175,7 +175,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
         subcategoria_id: sub?.id || form.subcategoria_id || null,
         subcategoria_nombre: sub?.nombre || null,
         cuenta: form.cuenta,
-        sucursal_id: normalizarCodigoTienda(sucursal || user?.sucursal_id) || 'MAIN',
+        sucursal_id: 'MAIN',
         fecha: hoyYmdNogales(),
       },
       user,
@@ -328,7 +328,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
           <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Registrar gasto</h3>
           <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.82rem' }}>
             Fecha automática: <strong>{hoyYmdNogales()}</strong> · Tienda:{' '}
-            <strong>{etiquetaTienda(sucursal || user?.sucursal_id || 'MAIN')}</strong>
+            <strong>{etiquetaTienda('MAIN')}</strong> (central)
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.65rem' }}>
             <label className="muted">
