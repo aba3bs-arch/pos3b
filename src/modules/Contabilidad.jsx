@@ -25,8 +25,8 @@ const DESCRIPCIONES = {
     ayuda: 'Consolida gastos de corte por turno. Selector de área independiente: Abarrotes, Virtual o Garage (no se mezclan).',
   },
   'Registro de gastos': {
-    desc: 'Evidencia · PIN admin · AMR con 2 PIN → IE',
-    ayuda: 'Empleados: ABB/JLBB/FJBB aprueban con su PIN → IE. Gastos de AMR: 1.º PIN admin + 2.º PIN AMR (cada uno en su dispositivo).',
+    desc: 'Evidencia · aprobar → IE · AMR marca pago recibido',
+    ayuda: 'Empleados registran gastos con evidencia. Al aprobar van a IE VIRTUAL y quedan en el espacio de AMR como «Gasto aprobado» para marcar Pago recibido.',
   },
   'RC Virtual': {
     desc: 'Custodia Virtual → cuenta admin → ABB',
