@@ -30,7 +30,7 @@ function colorEstado(estado) {
 }
 
 export default function GastosEvidencia({ supabase, user, sucursal }) {
-  const tieneAcceso = puedeVerModulo(user?.rol, 'Gastos evidencia', user?.id);
+  const tieneAcceso = puedeVerModulo(user?.rol, 'Registro de gastos', user?.id);
   const esAdmin = puedeSellarGastosEvidencia(user?.rol);
   const esGestor = puedeGestionarUsuarios(user?.rol) || esAdmin;
   const miId = String(user?.id || '');
@@ -120,7 +120,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
     return (
       <div className="card">
         <p>
-          No tienes acceso a Gastos evidencia. Pide al administrador que active el submódulo en Configuración →
+          No tienes acceso a Registro de gastos. Pide al administrador que active el submódulo en Configuración →
           Privilegios → Contabilidad.
         </p>
       </div>
@@ -225,7 +225,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
-        <h2 style={{ margin: 0, color: COLOR }}>Gastos evidencia</h2>
+        <h2 style={{ margin: 0, color: COLOR }}>Registro de gastos</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
           Cada empleado registra sus gastos con foto, captura o PDF. Quedan <strong>pendientes</strong> hasta que un
           admin/gerente los <strong>selle</strong> y pasen a <strong>IE VIRTUAL</strong> con la categoría elegida.

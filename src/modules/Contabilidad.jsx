@@ -24,7 +24,7 @@ const DESCRIPCIONES = {
     desc: 'Gastos por turno · Virtual / Garage / Abarrotes',
     ayuda: 'Consolida gastos de corte por turno. Selector de área independiente: Abarrotes, Virtual o Garage (no se mezclan).',
   },
-  'Gastos evidencia': {
+  'Registro de gastos': {
     desc: 'Gastos con foto/PDF · pendientes → IE VIRTUAL',
     ayuda: 'Cada empleado registra sus gastos con evidencia. Se acumulan pendientes hasta que admin/gerente selle y pasen a IE VIRTUAL.',
   },
