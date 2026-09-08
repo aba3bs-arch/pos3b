@@ -52,13 +52,13 @@ export default function AppSidebarNav({
       {subContabilidad.length > 0 && (
         <button
           type="button"
-          onClick={() => ir(VISTA_HUB_CONTABILIDAD)}
+          onClick={() => ir(subContabilidad.length === 1 ? subContabilidad[0] : VISTA_HUB_CONTABILIDAD)}
           onMouseEnter={() => vista !== VISTA_HUB_CONTABILIDAD && !contabilidadActiva && sonidoMenuNavegacion()}
           className={`btn btn-ghost nav-btn${contabilidadActiva ? ' nav-btn-active' : ''}`}
           style={{ color: contabilidadActiva ? COLOR_CONTABILIDAD : 'var(--muted)' }}
         >
-          <Icon name="dollar" size={20} style={{ color: COLOR_CONTABILIDAD }} />
-          <span>Contabilidad</span>
+          <Icon name={subContabilidad.length === 1 ? iconoDeModulo(subContabilidad[0]) : 'dollar'} size={20} style={{ color: subContabilidad.length === 1 ? colorDeModulo(subContabilidad[0]) : COLOR_CONTABILIDAD }} />
+          <span>{subContabilidad.length === 1 ? etiquetaModuloSidebar(null, subContabilidad[0]) : 'Contabilidad'}</span>
         </button>
       )}
     </nav>

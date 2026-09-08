@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { puedeVerModulo } from '../lib/roles.js';
+import { puedeVerModulo, esRolCliente, puedeGestionarUsuarios, normalizarRol } from '../lib/roles.js';
 import CorteVirtual from './cortes/CorteVirtual.jsx';
 import CorteGarage from './cortes/CorteGarage.jsx';
 import {
@@ -7,40 +7,64 @@ import {
   calcularMonedaVirtualCliente,
   codigoSucursalClienteMaquinas,
   crearClienteMaquinas,
+  darAltaUsuarioClienteMaquinas,
+  eliminarClienteMaquinas,
   fmtMonedaCliente,
   inyectarMonedaVirtualCliente,
   listarClientesMaquinas,
   listarMonedaCliente,
+  obtenerClientePorUsuarioId,
 } from '../lib/clientesMaquinas.js';
 
 const COLOR = '#1d4ed8';
 
 /**
  * Módulo exclusivo: clientes externos con máquinas + moneda virtual + cortes Virtual/Garage.
+ * Rol Cliente: solo ve su propio espacio (cortes V/G).
  */
 export default function ClientesMaquinas({ supabase, user, sucursal }) {
-  const tieneAcceso = puedeVerModulo(user?.rol, 'Clientes máquinas', user?.id);
+  const tieneAcceso = puedeVerModulo(user?.rol, 'Socio 3B', user?.id);
+  const esCliente = esRolCliente(user?.rol);
+  const esAdminGestion = puedeGestionarUsuarios(user?.rol) || normalizarRol(user?.rol) === 'Gerente';
   const [clientes, setClientes] = useState([]);
   const [aviso, setAviso] = useState('');
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   const [cargando, setCargando] = useState(false);
   const [clienteId, setClienteId] = useState(null);
-  const [tab, setTab] = useState('resumen'); // resumen | virtual | garage | moneda
+  const [tab, setTab] = useState(esCliente ? 'virtual' : 'resumen'); // resumen | virtual | garage | moneda | acceso
   const [form, setForm] = useState({ nombre: '', negocio: '', contacto: '', telefono: '' });
   const [montoBase, setMontoBase] = useState('10000');
   const [histMoneda, setHistMoneda] = useState([]);
   const [guardando, setGuardando] = useState(false);
+  const [altaPin, setAltaPin] = useState('');
+  const [altaNombre, setAltaNombre] = useState('');
 
   const cargar = useCallback(async () => {
     if (!tieneAcceso) return;
     setCargando(true);
+    if (esCliente) {
+      const r = await obtenerClientePorUsuarioId(supabase, user?.id);
+      setCargando(false);
+      if (r.error) setError(r.error);
+      if (r.aviso) setAviso(r.aviso);
+      if (r.data) {
+        setClientes([r.data]);
+        setClienteId(r.data.id);
+        setTab((t) => (t === 'resumen' || t === 'moneda' || t === 'acceso' ? 'virtual' : t));
+      } else {
+        setClientes([]);
+        setClienteId(null);
+        setError('Tu usuario no está vinculado a un cliente de máquinas. Pide a Contabilidad que te dé de alta.');
+      }
+      return;
+    }
     const res = await listarClientesMaquinas(supabase, { soloActivos: true });
     setCargando(false);
     if (res.error) setError(res.error);
     if (res.aviso) setAviso(res.aviso);
     setClientes(res.data || []);
-  }, [supabase, tieneAcceso]);
+  }, [supabase, tieneAcceso, esCliente, user?.id]);
 
   useEffect(() => {
     void cargar();
@@ -64,19 +88,23 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
   }, [cliente, montoBase]);
 
   useEffect(() => {
-    if (!cliente || tab !== 'moneda') return;
+    if (!cliente || tab !== 'moneda' || esCliente) return;
     void (async () => {
       const r = await listarMonedaCliente(supabase, cliente.id);
       setHistMoneda(r.data || []);
       if (r.aviso) setAviso(r.aviso);
     })();
-  }, [cliente, tab, supabase]);
+  }, [cliente, tab, supabase, esCliente]);
+
+  useEffect(() => {
+    if (cliente?.id) setAltaNombre(cliente.nombre || '');
+  }, [cliente?.id, cliente?.nombre]);
 
   if (!tieneAcceso) {
     return (
       <div className="card">
         <p>
-          No tienes acceso a Clientes máquinas. Pide al administrador que active el módulo en Configuración →
+          No tienes acceso a Socio 3B. Pide al administrador que active el módulo en Configuración →
           Privilegios → Contabilidad.
         </p>
       </div>
@@ -85,6 +113,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
 
   const crear = async (e) => {
     e?.preventDefault?.();
+    if (esCliente) return;
     setGuardando(true);
     setError('');
     setMsg('');
@@ -103,7 +132,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
   };
 
   const inyectar = async () => {
-    if (!cliente) return;
+    if (!cliente || esCliente) return;
     if (!confirm(`¿Inyectar moneda virtual ${fmtMonedaCliente(Number(montoBase) || 10000)} a ${cliente.nombre}?`)) return;
     setGuardando(true);
     const r = await inyectarMonedaVirtualCliente(supabase, cliente, {
@@ -123,31 +152,99 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
     setHistMoneda(h.data || []);
   };
 
+  const eliminar = async () => {
+    if (!cliente || esCliente) return;
+    if (
+      !confirm(
+        `¿Eliminar el cliente «${cliente.nombre}»?\nDejará de aparecer en la lista. Si tiene usuario de acceso (rol Cliente), se desactivará.`,
+      )
+    ) {
+      return;
+    }
+    setGuardando(true);
+    setError('');
+    const r = await eliminarClienteMaquinas(supabase, cliente);
+    setGuardando(false);
+    if (!r.ok) {
+      setError(r.error || 'No se pudo eliminar.');
+      return;
+    }
+    if (r.aviso) setAviso(r.aviso);
+    setMsg(`Cliente «${cliente.nombre}» eliminado.`);
+    setClienteId(null);
+    setTab('resumen');
+    await cargar();
+  };
+
+  const darAlta = async (e) => {
+    e?.preventDefault?.();
+    if (!cliente || esCliente || !esAdminGestion) return;
+    setGuardando(true);
+    setError('');
+    setMsg('');
+    const r = await darAltaUsuarioClienteMaquinas(supabase, cliente, {
+      pin: altaPin,
+      nombre: altaNombre || cliente.nombre,
+    });
+    setGuardando(false);
+    if (!r.ok) {
+      setError(r.error || 'No se pudo dar de alta.');
+      return;
+    }
+    if (r.aviso) setAviso(r.aviso);
+    setMsg(
+      `Usuario rol Cliente creado. Entra en MAIN con PIN ${altaPin}. Solo verá este módulo (Corte Virtual y Garage).`,
+    );
+    setAltaPin('');
+    if (r.cliente) {
+      setClientes((prev) => prev.map((c) => (String(c.id) === String(r.cliente.id) ? r.cliente : c)));
+    } else {
+      await cargar();
+    }
+  };
+
+  const tabsCliente = [
+    { id: 'virtual', label: 'Corte Virtual' },
+    { id: 'garage', label: 'Corte Garage' },
+  ];
+  const tabsAdmin = [
+    { id: 'resumen', label: 'Resumen' },
+    { id: 'virtual', label: 'Corte Virtual' },
+    { id: 'garage', label: 'Corte Garage' },
+    { id: 'moneda', label: 'Moneda virtual' },
+    { id: 'acceso', label: 'Acceso Cliente' },
+  ];
+  const tabs = esCliente ? tabsCliente : tabsAdmin;
+
   if (cliente) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
-          <button type="button" className="btn btn-ghost" onClick={() => { setClienteId(null); setTab('resumen'); }}>
-            ← Todos los clientes
-          </button>
+          {!esCliente ? (
+            <button type="button" className="btn btn-ghost" onClick={() => { setClienteId(null); setTab('resumen'); }}>
+              ← Todos los clientes
+            </button>
+          ) : null}
           <h2 style={{ margin: 0, color: COLOR, flex: 1 }}>{cliente.nombre}</h2>
+          {!esCliente ? (
+            <button type="button" className="btn btn-ghost" style={{ color: 'var(--brand-red)' }} disabled={guardando} onClick={eliminar}>
+              Eliminar cliente
+            </button>
+          ) : null}
         </div>
         <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
           {cliente.negocio ? `${cliente.negocio} · ` : ''}
-          Corte en sucursal sintética <strong>{sucursalCliente}</strong> · Sin alertas de recuperación · Recolección →
-          IE VIRTUAL · Clientes
+          Corte en sucursal sintética <strong>{sucursalCliente}</strong>
+          {esCliente
+            ? ' · Tus cortes Virtual y Garage'
+            : ' · Sin alertas de recuperación · Recolección → IE VIRTUAL · Clientes'}
         </p>
         {aviso ? <p style={{ color: '#b45309', margin: 0 }}>{aviso}</p> : null}
         {error ? <p style={{ color: 'var(--brand-red)', margin: 0 }}>{error}</p> : null}
         {msg ? <p style={{ color: COLOR, fontWeight: 600, margin: 0 }}>{msg}</p> : null}
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-          {[
-            { id: 'resumen', label: 'Resumen' },
-            { id: 'virtual', label: 'Corte Virtual' },
-            { id: 'garage', label: 'Corte Garage' },
-            { id: 'moneda', label: 'Moneda virtual' },
-          ].map((t) => (
+          {tabs.map((t) => (
             <button
               key={t.id}
               type="button"
@@ -159,7 +256,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
           ))}
         </div>
 
-        {tab === 'resumen' ? (
+        {tab === 'resumen' && !esCliente ? (
           <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
             <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>Espacio del cliente</h3>
             <ul className="muted" style={{ margin: 0, paddingLeft: '1.1rem', lineHeight: 1.55 }}>
@@ -167,12 +264,8 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
                 <strong>Corte Virtual</strong> y <strong>Corte Garage</strong>: mismo formato que 3B, sin alertas.
               </li>
               <li>
-                El cliente cierra y recolecta aquí. Si recolectan <strong>Antonio, Cheche o Francisco</strong>, gastos y
-                recolecciones van directo a <strong>IE VIRTUAL → Clientes</strong>.
-              </li>
-              <li>
-                En cada <strong>recolección</strong> el ticket muestra el <strong>pago del cliente</strong>: Garage = 40%
-                de la venta; Virtual = 40% después del −15%.
+                En <strong>Acceso Cliente</strong> puedes dar de alta un usuario con rol <strong>Cliente</strong> (PIN)
+                para que entre solo a este módulo y haga sus cortes.
               </li>
               <li>
                 <strong>Moneda virtual</strong>: se ponen {fmtMonedaCliente(cliente.moneda_base || 10000)}, se descuenta{' '}
@@ -187,6 +280,9 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
               </button>
               <button type="button" className="btn btn-ghost" onClick={() => setTab('garage')}>
                 Ir a Corte Garage
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => setTab('acceso')}>
+                Acceso Cliente
               </button>
               <button type="button" className="btn btn-ghost" onClick={() => setTab('moneda')}>
                 Moneda virtual
@@ -215,7 +311,56 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
           />
         ) : null}
 
-        {tab === 'moneda' && previewMoneda ? (
+        {tab === 'acceso' && !esCliente ? (
+          <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
+            <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>Usuario rol Cliente</h3>
+            <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+              Privilegios fijos: solo el módulo <strong>Socio 3B</strong>, y dentro solo Corte Virtual y Corte
+              Garage de este cliente. Login en tienda <strong>MAIN</strong> con el PIN.
+            </p>
+            {cliente.usuario_id ? (
+              <p style={{ margin: 0, fontWeight: 600, color: '#047857' }}>
+                Ya tiene usuario vinculado (id {String(cliente.usuario_id).slice(0, 8)}…). Cambia el PIN en Usuarios si
+                lo necesita.
+              </p>
+            ) : esAdminGestion ? (
+              <form onSubmit={darAlta} style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem', maxWidth: 360 }}>
+                <label className="muted">
+                  Nombre en el POS
+                  <input
+                    className="input"
+                    required
+                    value={altaNombre}
+                    onChange={(e) => setAltaNombre(e.target.value)}
+                    style={{ marginTop: '0.25rem' }}
+                  />
+                </label>
+                <label className="muted">
+                  PIN de acceso *
+                  <input
+                    className="input"
+                    required
+                    minLength={4}
+                    value={altaPin}
+                    onChange={(e) => setAltaPin(e.target.value)}
+                    style={{ marginTop: '0.25rem', fontFamily: 'ui-monospace, monospace', letterSpacing: '0.08em' }}
+                    placeholder="Mín. 4 caracteres"
+                    autoComplete="off"
+                  />
+                </label>
+                <button type="submit" className="btn btn-success" disabled={guardando}>
+                  {guardando ? 'Creando…' : 'Dar de alta como Cliente'}
+                </button>
+              </form>
+            ) : (
+              <p className="muted" style={{ margin: 0 }}>
+                Solo un administrador puede crear el usuario. Pídeselo o abre Usuarios con rol Administrador.
+              </p>
+            )}
+          </div>
+        ) : null}
+
+        {tab === 'moneda' && previewMoneda && !esCliente ? (
           <div className="card" style={{ borderTop: '4px solid #0f766e' }}>
             <h3 style={{ margin: '0 0 0.5rem', color: '#0f766e' }}>Inyectar moneda virtual</h3>
             <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
@@ -280,13 +425,27 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
     );
   }
 
+  if (esCliente) {
+    return (
+      <div className="card">
+        {cargando ? <p className="muted">Cargando…</p> : null}
+        {error ? <p style={{ color: 'var(--brand-red)' }}>{error}</p> : null}
+        {aviso ? <p style={{ color: '#b45309' }}>{aviso}</p> : null}
+        {!cargando && !error ? (
+          <p className="muted" style={{ margin: 0 }}>No hay cliente vinculado a tu usuario.</p>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
-        <h2 style={{ margin: 0, color: COLOR }}>Clientes máquinas</h2>
+        <h2 style={{ margin: 0, color: COLOR }}>Socio 3B</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
-          Clientes externos: renta e instalación de máquinas + moneda virtual. Cada cliente tiene su espacio con Corte
-          Virtual, Corte Garage (sin alertas) y recolección hacia IE VIRTUAL · Clientes.
+          Socios externos: renta e instalación de máquinas + moneda virtual. Cada socio tiene su espacio con Corte
+          Virtual, Corte Garage (sin alertas). Puedes eliminar socios y darlos de alta con rol <strong>Cliente</strong>{' '}
+          para que entren solo a sus cortes.
         </p>
       </div>
 
@@ -299,7 +458,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
       {msg ? <p style={{ color: COLOR, fontWeight: 600, margin: 0 }}>{msg}</p> : null}
 
       <form className="card" style={{ borderTop: `4px solid ${COLOR}` }} onSubmit={crear}>
-        <h3 style={{ margin: '0 0 0.65rem', color: COLOR }}>Agregar cliente</h3>
+        <h3 style={{ margin: '0 0 0.65rem', color: COLOR }}>Agregar socio</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.55rem' }}>
           <label className="muted">
             Nombre *
@@ -309,7 +468,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
               value={form.nombre}
               onChange={(e) => setForm({ ...form, nombre: e.target.value })}
               style={{ marginTop: '0.25rem' }}
-              placeholder="Nombre del cliente"
+              placeholder="Nombre del socio"
             />
           </label>
           <label className="muted">
@@ -342,16 +501,16 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
           </label>
         </div>
         <button type="submit" className="btn btn-success" style={{ marginTop: '0.75rem' }} disabled={guardando}>
-          {guardando ? 'Guardando…' : 'Crear cliente'}
+          {guardando ? 'Guardando…' : 'Crear socio'}
         </button>
       </form>
 
       <div>
-        <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>Clientes ({clientes.length})</h3>
+        <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>Socios ({clientes.length})</h3>
         {cargando ? <p className="muted">Cargando…</p> : null}
         {!cargando && !clientes.length ? (
           <div className="card">
-            <p className="muted" style={{ margin: 0 }}>Aún no hay clientes. Agrega el primero arriba.</p>
+            <p className="muted" style={{ margin: 0 }}>Aún no hay socios. Agrega el primero arriba.</p>
           </div>
         ) : null}
         <div className="subcmd-hub-grid">
@@ -360,13 +519,14 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
               key={c.id}
               type="button"
               className="card subcmd-hub-btn"
-              onClick={() => { setClienteId(c.id); setTab('resumen'); setMsg(''); }}
+              onClick={() => { setClienteId(c.id); setTab('resumen'); setMsg(''); setError(''); }}
             >
               <div className="subcmd-hub-btn-head">
                 <strong style={{ color: COLOR }}>{c.nombre}</strong>
               </div>
               <p className="muted subcmd-hub-desc">
                 {c.negocio || 'Sin negocio'} · {codigoSucursalClienteMaquinas(c)}
+                {c.usuario_id ? ' · Acceso Cliente' : ''}
               </p>
             </button>
           ))}

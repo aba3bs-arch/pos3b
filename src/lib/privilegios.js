@@ -10,7 +10,7 @@ export const MODULOS_IDS = [
   'Conciliaciones',
   'Consolidación',
   'Registro de gastos',
-  'Clientes máquinas',
+  'Socio 3B',
   'Corte Virtual',
   'Corte Abarrotes',
   'Corte Garage',
@@ -58,6 +58,7 @@ const ALIAS_MODULO = {
   'R Virtual': 'RC Virtual',
   'R Garage': 'RC Garage',
   'Gastos evidencia': 'Registro de gastos',
+  'Clientes máquinas': 'Socio 3B',
 };
 
 export function normalizarListaModulos(lista) {
@@ -83,14 +84,14 @@ export function normalizarListaModulos(lista) {
 }
 
 /** Módulos nuevos que se agregan a listas personalizadas si faltan (una vez). */
-const MODULOS_MIGRA_PRIVILEGIOS = ['Check List', 'Evaluación operativa', 'Consolidación', 'Conciliaciones', 'Registro de gastos', 'Clientes máquinas'];
+const MODULOS_MIGRA_PRIVILEGIOS = ['Check List', 'Evaluación operativa', 'Consolidación', 'Conciliaciones', 'Registro de gastos', 'Socio 3B'];
 
 function conModulosMigrados(lista) {
   const set = new Set(normalizarListaModulos(lista));
   for (const m of MODULOS_MIGRA_PRIVILEGIOS) {
     if (VALIDOS.has(m)) set.add(m);
   }
-  // Consolidación / Registro de gastos / Clientes máquinas: si ya opera Contabilidad de cortes/IE, habilitarlas.
+  // Consolidación / Registro de gastos / Socio 3B: si ya opera Contabilidad de cortes/IE, habilitarlas.
   if (
     set.has('IE VIRTUAL') ||
     set.has('IE ABARROTES') ||
@@ -99,7 +100,7 @@ function conModulosMigrados(lista) {
   ) {
     if (VALIDOS.has('Consolidación')) set.add('Consolidación');
     if (VALIDOS.has('Registro de gastos')) set.add('Registro de gastos');
-    if (VALIDOS.has('Clientes máquinas')) set.add('Clientes máquinas');
+    if (VALIDOS.has('Socio 3B')) set.add('Socio 3B');
   }
   return MODULOS_IDS.filter((m) => set.has(m));
 }

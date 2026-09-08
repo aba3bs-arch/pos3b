@@ -16,12 +16,17 @@ create table if not exists public.clientes_maquinas (
   pct_descuento numeric(6,4) not null default 0.15,
   pct_empresa numeric(6,4) not null default 0.60,
   pct_cliente numeric(6,4) not null default 0.40,
+  usuario_id uuid references public.usuarios (id) on delete set null,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
 
 create index if not exists idx_clientes_maquinas_activo
   on public.clientes_maquinas (activo, nombre);
+
+create index if not exists idx_clientes_maquinas_usuario
+  on public.clientes_maquinas (usuario_id)
+  where usuario_id is not null;
 
 create table if not exists public.clientes_maquinas_moneda (
   id uuid primary key default gen_random_uuid(),

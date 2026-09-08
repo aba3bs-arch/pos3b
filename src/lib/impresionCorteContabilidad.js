@@ -453,7 +453,7 @@ export function htmlRecoleccionVirtual(data) {
     <div class="sub">RECOLECCIÓN · VIRTUAL${data.etiqueta_cliente ? ` · ${esc(data.etiqueta_cliente)}` : ''}</div>
     <div class="banner">RECOLECCIÓN</div>
     <table>
-      <tr><td>Tienda</td><td class="r"><strong>${esc(data.etiqueta_cliente ? `Cliente · ${data.etiqueta_cliente}` : etiquetaTienda(data.sucursal))}</strong></td></tr>
+      <tr><td>Tienda</td><td class="r"><strong>${esc(data.etiqueta_cliente ? `Socio 3B · ${data.etiqueta_cliente}` : etiquetaTienda(data.sucursal))}</strong></td></tr>
       <tr><td>Folio</td><td class="r"><strong>${esc(data.folio || '—')}</strong></td></tr>
       <tr><td>Fecha</td><td class="r">${esc(fecha)}</td></tr>
       <tr><td>Usuario</td><td class="r">${esc(data.usuario_nombre || '—')}</td></tr>

@@ -20,7 +20,7 @@ export {
   describeOrigenPrivilegios,
 } from './privilegios.js';
 
-export const ROLES = ['Cajero', 'Auditor', 'Repartidor', 'Supervisor', 'Gerente', 'Técnico', 'Administrador'];
+export const ROLES = ['Cajero', 'Auditor', 'Repartidor', 'Supervisor', 'Gerente', 'Técnico', 'Administrador', 'Cliente'];
 
 /** Roles fijos del sistema (no eliminables). */
 export const ROLES_SISTEMA = [...ROLES];
@@ -115,7 +115,7 @@ export const SUBMODULOS_CONTABILIDAD = [
   'Conciliaciones',
   'Consolidación',
   'Registro de gastos',
-  'Clientes máquinas',
+  'Socio 3B',
   'RC Virtual',
   'RC Garage',
   'IE VIRTUAL',
@@ -286,7 +286,7 @@ const ACCESO_POR_ROL = {
     'Conciliaciones',
     'Consolidación',
     'Registro de gastos',
-    'Clientes máquinas',
+    'Socio 3B',
     'RC Virtual',
     'RC Garage',
     'IE VIRTUAL',
@@ -302,6 +302,8 @@ const ACCESO_POR_ROL = {
   ],
   Técnico: ['Inicio', 'Incidencias', 'Checador', 'Check List', 'Tutorial', 'Ayuda'],
   Administrador: [...MODULOS_ORDEN],
+  /** Externos de Contabilidad → Socio 3B: solo su módulo (cortes V/G dentro). */
+  Cliente: ['Socio 3B'],
 };
 
 /** Compatibilidad con filas antiguas en `usuarios.rol` */
@@ -315,6 +317,7 @@ const ALIAS_ROL = {
   tecnico: 'Técnico',
   técnico: 'Técnico',
   administrador: 'Administrador',
+  cliente: 'Cliente',
 };
 
 export function normalizarRol(rol) {
@@ -335,6 +338,7 @@ export function normalizarIdModulo(moduloId) {
   if (moduloId === 'Cont Virtual') return 'IE VIRTUAL';
   if (moduloId === 'R Virtual') return 'RC Virtual';
   if (moduloId === 'R Garage') return 'RC Garage';
+  if (moduloId === 'Clientes máquinas') return 'Socio 3B';
   return moduloId;
 }
 
@@ -356,6 +360,8 @@ export function puedeVerModulo(rol, moduloId, userId = null) {
   const m = normalizarIdModulo(moduloId);
   const r = normalizarRol(rol);
   if (r === 'Administrador') return true;
+  // Cliente máquinas: solo ese módulo (bloqueo duro).
+  if (esRolCliente(rol)) return m === 'Socio 3B';
   // Cajero (y roles con plantilla Cajero): bloqueo duro aunque alguien les asigne privilegios.
   if (esRolMostradorRestringido(rol) && MODULOS_BLOQUEADOS_MOSTRADOR.has(m)) return false;
   // Repartidor: bloqueo duro de módulos de caja/oficina (aunque haya privilegios personalizados).
@@ -390,6 +396,8 @@ export function modulosParaSidebar(rol, userId = null) {
     (m) => !MODULOS_AGRUPADOS_CONTABILIDAD.has(m) && !MODULOS_AGRUPADOS_ESTADISTICAS.has(m),
   );
   const r = normalizarRol(rol);
+  // Cliente: el hub Contabilidad aparece por subContabilidad; sin módulos sueltos.
+  if (esRolCliente(rol)) return [];
   if (r === 'Administrador') return filtrar(MODULOS_ORDEN);
 
   const permitidos = listaModulosEfectiva(rol, userId);
@@ -476,6 +484,11 @@ export function esRolMostradorRestringido(rol) {
 
 export function esRolRepartidor(rol) {
   return rolSistemaEfectivo(rol) === 'Repartidor';
+}
+
+/** Cliente externo (máquinas): solo Contabilidad → Socio 3B / cortes V·G. */
+export function esRolCliente(rol) {
+  return rolSistemaEfectivo(rol) === 'Cliente';
 }
 
 /** Módulos que el cajero nunca puede abrir (bloqueo duro). */
