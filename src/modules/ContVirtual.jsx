@@ -168,9 +168,9 @@ function ModalDesgloseMovimiento({ item, onClose }) {
   ].filter(Boolean);
 
   return (
-    <div className="cv-modal-backdrop" onClick={onClose} role="presentation">
+    <div className="cv-modal-backdrop cv-modal-backdrop-float" onClick={onClose} role="presentation">
       <div
-        className="cv-modal cv-modal-desglose"
+        className="cv-modal cv-modal-desglose cv-modal-float"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-label="Desglose del movimiento"
