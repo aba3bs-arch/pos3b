@@ -1,22 +1,23 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import InputPin from '../components/InputPin.jsx';
 import { puedeVerModulo, puedeGestionarUsuarios } from '../lib/roles.js';
 import { listarCatalogoContVirtual, filtrarCatalogoPorFlujo } from '../lib/contVirtualCatalogo.js';
 import { hoyYmdNogales } from '../lib/corteCaja.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import {
-  accionAprobacionGasto,
   adjuntarEvidenciaGasto,
   eliminarArchivoGastoEvidencia,
   eliminarGastoEvidencia,
   etiquetaEstadoGastoEvidencia,
   fmtMontoGastoEvidencia,
-  gastoEvidenciaEsDeAmr,
+  gastoEsperaPagoRecibido,
   gastoPendienteDeAprobacion,
   leerEvidenciaArchivo,
   listarArchivosGastoEvidencia,
+  listarGastosAprobadosAmr,
   listarGastosEvidencia,
+  marcarPagoRecibidoGasto,
   puedeAprobarGastoEvidencia,
+  puedeMarcarPagoRecibidoAmr,
   puedeVerBandejaAprobacionGastos,
   rechazarGastoEvidencia,
   registrarGastoEvidencia,
@@ -28,22 +29,25 @@ import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
 
 const COLOR = '#0f766e';
 
-function colorEstado(estado) {
-  if (estado === 'sellado') return '#047857';
+function colorEstado(estado, gasto = null) {
+  if (estado === 'sellado') return gasto?.pago_recibido ? '#047857' : '#0369a1';
   if (estado === 'rechazado') return '#b45309';
-  if (estado === 'pendiente_amr') return '#0369a1';
   return '#b5a642';
 }
 
 export default function GastosEvidencia({ supabase, user, sucursal }) {
   const tieneAcceso = puedeVerModulo(user?.rol, 'Registro de gastos', user?.id);
   const esAprobador = puedeVerBandejaAprobacionGastos(user);
-  const esAmr = esAdministradorPrincipal(user);
+  const esAmr = puedeMarcarPagoRecibidoAmr(user) || esAdministradorPrincipal(user);
   const esGestor = puedeGestionarUsuarios(user?.rol) || esAprobador;
   const miId = String(user?.id || '');
   const fileRefs = useRef({});
 
-  const [vista, setVista] = useState(() => (puedeVerBandejaAprobacionGastos(user) ? 'pendientes' : 'mios')); // mios | pendientes
+  const [vista, setVista] = useState(() => {
+    if (esAdministradorPrincipal(user)) return 'pagos';
+    if (puedeVerBandejaAprobacionGastos(user)) return 'pendientes';
+    return 'mios';
+  });
   const [catalogo, setCatalogo] = useState([]);
   const [gastos, setGastos] = useState([]);
   const [archivosPorGasto, setArchivosPorGasto] = useState({});
@@ -54,7 +58,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
   const [msg, setMsg] = useState('');
   const [sel, setSel] = useState({});
   const [preview, setPreview] = useState(null);
-  const [pinPropio, setPinPropio] = useState('');
+  const [mostrarPagados, setMostrarPagados] = useState(false);
 
   const [form, setForm] = useState({
     monto: '',
@@ -79,21 +83,34 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
     if (!user?.id && !esGestor) return;
     setCargando(true);
     setError('');
-    const soloMios = vista === 'mios' || !esAprobador;
-    const res = await listarGastosEvidencia(supabase, {
-      usuarioId: soloMios ? miId : '',
-      soloPendientes: vista === 'pendientes',
-      limite: 250,
-    });
-    setCargando(false);
-    if (res.error) setError(res.error);
-    if (res.aviso) setAviso(res.aviso);
 
-    let lista = res.data || [];
-    // En bandeja: cada aprobador solo ve lo que le toca sellar
-    if (vista === 'pendientes' && esAprobador) {
-      lista = lista.filter((g) => puedeAprobarGastoEvidencia(user, g));
+    let lista = [];
+    let avisoRes = null;
+    let errorRes = null;
+
+    if (vista === 'pagos' && esAmr) {
+      const res = await listarGastosAprobadosAmr(supabase, {
+        soloSinPago: !mostrarPagados,
+        limite: 250,
+      });
+      lista = res.data || [];
+      avisoRes = res.aviso;
+      errorRes = res.error;
+    } else {
+      const soloMios = vista === 'mios' || !esAprobador;
+      const res = await listarGastosEvidencia(supabase, {
+        usuarioId: soloMios ? miId : '',
+        soloPendientes: vista === 'pendientes',
+        limite: 250,
+      });
+      lista = res.data || [];
+      avisoRes = res.aviso;
+      errorRes = res.error;
     }
+
+    setCargando(false);
+    if (errorRes) setError(errorRes);
+    if (avisoRes) setAviso(avisoRes);
     setGastos(lista);
 
     const map = {};
@@ -104,7 +121,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
       }),
     );
     setArchivosPorGasto(map);
-  }, [supabase, user, miId, vista, esAprobador, esGestor, tieneAcceso]);
+  }, [supabase, user?.id, miId, vista, esAprobador, esAmr, esGestor, tieneAcceso, mostrarPagados]);
 
   useEffect(() => {
     if (!tieneAcceso) return;
@@ -127,6 +144,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
   }, [catSel, subs, form.subcategoria_id]);
 
   const pendientes = useMemo(() => (gastos || []).filter((g) => gastoPendienteDeAprobacion(g)), [gastos]);
+  const porPagar = useMemo(() => (gastos || []).filter((g) => gastoEsperaPagoRecibido(g)), [gastos]);
   const totalPend = useMemo(() => totalPendienteGastos(gastos), [gastos]);
   const idsSel = useMemo(() => Object.keys(sel).filter((id) => sel[id]), [sel]);
 
@@ -168,7 +186,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
       return;
     }
     if (r.aviso) setAviso(r.aviso);
-    setMsg('Gasto registrado como pendiente. Adjunta evidencia y espera el sellado.');
+    setMsg('Gasto registrado como pendiente. Adjunta evidencia y espera la aprobación.');
     setForm((f) => ({ ...f, monto: '', descripcion: '' }));
     void cargar();
   };
@@ -214,63 +232,54 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
   const sellarSel = async () => {
     const ids = idsSel.length ? idsSel : pendientes.map((g) => g.id);
     if (!ids.length) return alert('No hay gastos pendientes para aprobar.');
-    if (!String(pinPropio || '').trim()) return alert('Indica tu PIN en este dispositivo para aprobar.');
-    if (!confirm(`¿Procesar ${ids.length} gasto(s) con tu PIN?`)) return;
+    if (!confirm(`¿Aprobar ${ids.length} gasto(s)? Irán a IE VIRTUAL y quedarán en el espacio de AMR como «Gasto aprobado».`)) return;
     setGuardando(true);
-    const r = await sellarGastosEvidencia(supabase, ids, user, { pin: pinPropio });
+    const r = await sellarGastosEvidencia(supabase, ids, user);
     setGuardando(false);
-    if (!r.ok && !r.procesados) {
+    if (!r.ok && !r.sellados) {
       setError(r.error || 'No se pudo aprobar.');
       return;
     }
-    setPinPropio('');
-    const partes = [];
-    if (r.firmasAdmin) partes.push(`PIN admin: ${r.firmasAdmin} (falta PIN AMR)`);
-    if (r.sellados) partes.push(`A IE: ${r.sellados}`);
-    if (r.fallidos) partes.push(`fallidos: ${r.fallidos}`);
-    setMsg(partes.join(' · ') || 'Listo.');
+    setMsg(`Aprobados: ${r.sellados}${r.fallidos ? ` · fallidos: ${r.fallidos}` : ''}. Registro enviado al espacio de AMR.`);
     setSel({});
     void cargar();
   };
 
+  const aprobarUno = async (g) => {
+    if (!confirm('¿Aprobar este gasto? Pasará a IE VIRTUAL y al espacio de AMR.')) return;
+    setGuardando(true);
+    const r = await sellarGastosEvidencia(supabase, [g.id], user);
+    setGuardando(false);
+    if (!r.ok && !r.sellados) return alert(r.error);
+    setMsg('Gasto aprobado → IE VIRTUAL · registro en espacio AMR.');
+    void cargar();
+  };
+
   const rechazarUno = async (g) => {
-    if (!String(pinPropio || '').trim()) return alert('Indica tu PIN en este dispositivo para rechazar.');
     const motivo = prompt('Motivo del rechazo:', 'Falta evidencia o monto incorrecto');
     if (motivo == null) return;
-    const r = await rechazarGastoEvidencia(supabase, g.id, user, motivo, { pin: pinPropio });
+    const r = await rechazarGastoEvidencia(supabase, g.id, user, motivo);
     if (!r.ok) return alert(r.error);
-    setPinPropio('');
     setMsg('Gasto rechazado.');
     void cargar();
   };
 
-  const aprobarUno = async (g) => {
-    if (!String(pinPropio || '').trim()) return alert('Indica tu PIN en este dispositivo para aprobar.');
-    const accion = accionAprobacionGasto(user, g);
+  const marcarPago = async (g, recibido = true) => {
     setGuardando(true);
-    const r = await sellarGastosEvidencia(supabase, [g.id], user, { pin: pinPropio });
+    const r = await marcarPagoRecibidoGasto(supabase, g.id, user, recibido);
     setGuardando(false);
-    if (!r.ok && !r.procesados) return alert(r.error);
-    setPinPropio('');
-    if (accion === 'firmar_admin') {
-      setMsg('1.º PIN admin registrado. Falta el PIN de AMR en su dispositivo para ir a IE.');
-    } else {
-      setMsg('Gasto sellado → IE VIRTUAL.');
-    }
+    if (!r.ok) return alert(r.error);
+    setMsg(recibido ? 'Marcado como pago recibido.' : 'Se quitó la marca de pago recibido.');
     void cargar();
   };
-
-  const etiquetaPin = esAmr
-    ? 'Tu PIN de AMR (2.º PIN de tus gastos)'
-    : 'Tu PIN (ABB / JLBB / FJBB)';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
         <h2 style={{ margin: 0, color: COLOR }}>Registro de gastos</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
-          Empleados: aprueba <strong>ABB, JLBB o FJBB</strong> con su PIN → IE. Gastos de <strong>AMR</strong>:
-          requieren <strong>dos PIN</strong> (1.º admin ABB/JLBB/FJBB, 2.º AMR), cada uno en su dispositivo.
+          Registra gastos con evidencia. Al <strong>aprobarlos</strong> van a <strong>IE VIRTUAL</strong> y queda un
+          registro en el espacio de <strong>AMR</strong> para marcar <strong>Pago recibido</strong>.
         </p>
       </div>
 
@@ -293,12 +302,20 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.65rem' }}>
         <div className="card" style={{ padding: '0.75rem', borderTop: `3px solid ${COLOR}` }}>
-          <div className="muted" style={{ fontSize: '0.72rem' }}>PENDIENTES</div>
-          <div style={{ fontSize: '1.25rem', fontWeight: 800 }}>{pendientes.length}</div>
+          <div className="muted" style={{ fontSize: '0.72rem' }}>
+            {vista === 'pagos' ? 'POR CONFIRMAR PAGO' : 'PENDIENTES'}
+          </div>
+          <div style={{ fontSize: '1.25rem', fontWeight: 800 }}>
+            {vista === 'pagos' ? porPagar.length : pendientes.length}
+          </div>
         </div>
         <div className="card" style={{ padding: '0.75rem', borderTop: '3px solid #b5a642' }}>
-          <div className="muted" style={{ fontSize: '0.72rem' }}>MONTO PENDIENTE</div>
-          <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#b5a642' }}>{fmtMontoGastoEvidencia(totalPend)}</div>
+          <div className="muted" style={{ fontSize: '0.72rem' }}>MONTO</div>
+          <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#b5a642' }}>
+            {fmtMontoGastoEvidencia(
+              vista === 'pagos' ? porPagar.reduce((a, g) => a + (Number(g.monto) || 0), 0) : totalPend,
+            )}
+          </div>
         </div>
         <div className="card" style={{ padding: '0.75rem' }}>
           <div className="muted" style={{ fontSize: '0.72rem' }}>MI ESPACIO</div>
@@ -306,100 +323,97 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
         </div>
       </div>
 
-      <form className="card" style={{ borderTop: `4px solid ${COLOR}` }} onSubmit={registrar}>
-        <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Registrar gasto</h3>
-        <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.82rem' }}>
-          Fecha automática: <strong>{hoyYmdNogales()}</strong> · Tienda:{' '}
-          <strong>{etiquetaTienda(sucursal || user?.sucursal_id || 'MAIN')}</strong>
-        </p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.65rem' }}>
-          <label className="muted">
-            Monto (MXN)
-            <input
+      {vista !== 'pagos' ? (
+        <form className="card" style={{ borderTop: `4px solid ${COLOR}` }} onSubmit={registrar}>
+          <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Registrar gasto</h3>
+          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.82rem' }}>
+            Fecha automática: <strong>{hoyYmdNogales()}</strong> · Tienda:{' '}
+            <strong>{etiquetaTienda(sucursal || user?.sucursal_id || 'MAIN')}</strong>
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.65rem' }}>
+            <label className="muted">
+              Monto (MXN)
+              <input
+                className="input"
+                type="number"
+                min="0.01"
+                step="0.01"
+                required
+                value={form.monto}
+                onChange={(e) => setForm({ ...form, monto: e.target.value })}
+                style={{ marginTop: '0.3rem', fontWeight: 700, fontSize: '1.1rem' }}
+                placeholder="0.00"
+              />
+            </label>
+            <label className="muted">
+              Categoría IE VIRTUAL
+              <select
+                className="input"
+                value={catSel?.id || form.categoria_id}
+                onChange={(e) => setForm({ ...form, categoria_id: e.target.value })}
+                style={{ marginTop: '0.3rem' }}
+              >
+                {catsEgreso.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre || c.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="muted">
+              Subcategoría
+              <select
+                className="input"
+                value={form.subcategoria_id}
+                onChange={(e) => setForm({ ...form, subcategoria_id: e.target.value })}
+                style={{ marginTop: '0.3rem' }}
+              >
+                {subs.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.nombre || s.id}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="muted">
+              Cuenta
+              <select
+                className="input"
+                value={form.cuenta}
+                onChange={(e) => setForm({ ...form, cuenta: e.target.value })}
+                style={{ marginTop: '0.3rem' }}
+              >
+                <option value="virtual">Virtual</option>
+                <option value="garage">Garage</option>
+                <option value="abarrotes">Abarrotes</option>
+              </select>
+            </label>
+          </div>
+          <label className="muted" style={{ display: 'block', marginTop: '0.65rem' }}>
+            Descripción
+            <textarea
               className="input"
-              type="number"
-              min="0.01"
-              step="0.01"
               required
-              value={form.monto}
-              onChange={(e) => setForm({ ...form, monto: e.target.value })}
-              style={{ marginTop: '0.3rem', fontWeight: 700, fontSize: '1.1rem' }}
-              placeholder="0.00"
+              rows={2}
+              value={form.descripcion}
+              onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
+              style={{ marginTop: '0.3rem' }}
+              placeholder="Ej. Taxi a proveedor, material de limpieza, etc."
             />
           </label>
-          <label className="muted">
-            Categoría IE VIRTUAL
-            <select
-              className="select"
-              style={{ marginTop: '0.3rem' }}
-              value={form.categoria_id}
-              onChange={(e) => setForm({ ...form, categoria_id: e.target.value })}
-            >
-              {catsEgreso.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nombre}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="muted">
-            Subcategoría
-            <select
-              className="select"
-              style={{ marginTop: '0.3rem' }}
-              value={form.subcategoria_id}
-              onChange={(e) => setForm({ ...form, subcategoria_id: e.target.value })}
-            >
-              {subs.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.nombre}
-                </option>
-              ))}
-              {!subs.length ? <option value="">—</option> : null}
-            </select>
-          </label>
-          <label className="muted">
-            Cuenta IE
-            <select
-              className="select"
-              style={{ marginTop: '0.3rem' }}
-              value={form.cuenta}
-              onChange={(e) => setForm({ ...form, cuenta: e.target.value })}
-            >
-              <option value="virtual">Virtual</option>
-              <option value="garage">Garage</option>
-              <option value="abarrotes">Abarrotes</option>
-            </select>
-          </label>
-        </div>
-        <label className="muted" style={{ display: 'block', marginTop: '0.65rem' }}>
-          Descripción
-          <textarea
-            className="input"
-            required
-            rows={2}
-            value={form.descripcion}
-            onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
-            style={{ marginTop: '0.3rem' }}
-            placeholder="Ej. Taxi a proveedor, material de limpieza, etc."
-          />
-        </label>
-        <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button type="submit" className="btn btn-success" disabled={guardando}>
-            {guardando ? 'Guardando…' : 'Agregar a mi lista'}
-          </button>
-          <button type="button" className="btn btn-ghost" onClick={cargar} disabled={cargando}>
-            {cargando ? 'Actualizando…' : 'Actualizar lista'}
-          </button>
-        </div>
-      </form>
+          <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button type="submit" className="btn btn-success" disabled={guardando}>
+              {guardando ? 'Guardando…' : 'Agregar a mi lista'}
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={cargar} disabled={cargando}>
+              {cargando ? 'Actualizando…' : 'Actualizar lista'}
+            </button>
+          </div>
+        </form>
+      ) : null}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem', alignItems: 'center' }}>
-        <button
-          type="button"
-          className={vista === 'mios' ? 'btn btn-primary' : 'btn btn-ghost'}
-          onClick={() => setVista('mios')}
-        >
+        <button type="button" className={vista === 'mios' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setVista('mios')}>
           Mis gastos
         </button>
         {esAprobador ? (
@@ -408,48 +422,47 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
             className={vista === 'pendientes' ? 'btn btn-primary' : 'btn btn-ghost'}
             onClick={() => setVista('pendientes')}
           >
-            {esAmr ? 'Por aprobar (2.º PIN AMR)' : 'Por aprobar'}
+            Por aprobar
           </button>
+        ) : null}
+        {esAmr ? (
+          <button
+            type="button"
+            className={vista === 'pagos' ? 'btn btn-primary' : 'btn btn-ghost'}
+            onClick={() => setVista('pagos')}
+          >
+            Mi espacio · pagos
+          </button>
+        ) : null}
+        {esAprobador && vista === 'pendientes' && pendientes.length > 0 ? (
+          <button type="button" className="btn btn-success" onClick={sellarSel} disabled={guardando}>
+            {guardando ? 'Aprobando…' : `Aprobar ${idsSel.length ? `(${idsSel.length})` : 'pendientes'} → IE`}
+          </button>
+        ) : null}
+        {esAmr && vista === 'pagos' ? (
+          <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.85rem' }}>
+            <input type="checkbox" checked={mostrarPagados} onChange={(e) => setMostrarPagados(e.target.checked)} />
+            Ver también ya pagados
+          </label>
         ) : null}
       </div>
 
-      {esAprobador ? (
-        <div className="card" style={{ borderTop: '4px solid #0f766e', background: '#f0fdfa' }}>
-          <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>
-            {esAmr ? '2.º PIN · AMR' : 'PIN admin · ABB / JLBB / FJBB'}
-          </h3>
-          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-            {esAmr
-              ? 'Después del PIN de un admin, firma aquí con tu PIN para mandar tus gastos a IE VIRTUAL.'
-              : 'Tu PIN en este dispositivo sella gastos de empleados → IE. En gastos de AMR es el 1.º PIN; luego falta el de AMR.'}
+      {esAmr && vista === 'pagos' ? (
+        <div className="card" style={{ borderTop: '4px solid #0369a1', background: '#f0f9ff' }}>
+          <h3 style={{ margin: '0 0 0.35rem', color: '#0369a1' }}>Espacio AMR · gastos aprobados</h3>
+          <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
+            Cuando aprueban un gasto, aparece aquí como <strong>Gasto aprobado</strong>. Usa{' '}
+            <strong>Pago recibido</strong> para recordar si ya te pagaron.
           </p>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem', alignItems: 'flex-end' }}>
-            <label className="muted" style={{ minWidth: 160, flex: '1 1 160px' }}>
-              {etiquetaPin}
-              <InputPin
-                value={pinPropio}
-                onChange={(e) => setPinPropio(e.target.value)}
-                placeholder="••••"
-                style={{ marginTop: '0.3rem' }}
-              />
-            </label>
-            {pendientes.length > 0 ? (
-              <button type="button" className="btn btn-success" onClick={sellarSel} disabled={guardando || !pinPropio.trim()}>
-                {guardando ? 'Aprobando…' : `Aprobar ${idsSel.length ? `(${idsSel.length})` : 'pendientes'} → IE`}
-              </button>
-            ) : (
-              <span className="muted" style={{ fontSize: '0.85rem' }}>
-                No hay pendientes que te correspondan aprobar.
-              </span>
-            )}
-          </div>
         </div>
       ) : null}
 
       {!gastos.length && !cargando ? (
         <div className="card">
           <p className="muted" style={{ margin: 0 }}>
-            Aún no hay gastos en esta vista. Registra el primero arriba.
+            {vista === 'pagos'
+              ? 'No hay gastos aprobados pendientes de pago recibido.'
+              : 'Aún no hay gastos en esta vista. Registra el primero arriba.'}
           </p>
         </div>
       ) : null}
@@ -459,17 +472,15 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
           const archivos = archivosPorGasto[g.id] || [];
           const mios = String(g.usuario_id) === miId;
           const puedeEditar = gastoPendienteDeAprobacion(g) && (mios || esAprobador);
-          const puedoAprobarEste = esAprobador && puedeAprobarGastoEvidencia(user, g);
-          const accion = puedoAprobarEste ? accionAprobacionGasto(user, g) : null;
-          const textoBoton =
-            accion === 'firmar_admin' ? '1.º PIN admin' : accion === 'firmar_amr' ? '2.º PIN AMR → IE' : 'Aprobar → IE';
+          const puedoAprobarEste = vista === 'pendientes' && puedeAprobarGastoEvidencia(user, g);
+          const esperaPago = gastoEsperaPagoRecibido(g);
           return (
             <div
               key={g.id}
               className="card"
               style={{
                 padding: '0.85rem',
-                borderLeft: `4px solid ${colorEstado(g.estado)}`,
+                borderLeft: `4px solid ${colorEstado(g.estado, g)}`,
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', flexWrap: 'wrap' }}>
@@ -484,16 +495,11 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
                       />
                     ) : null}
                     <strong style={{ fontSize: '1.15rem', color: COLOR }}>{fmtMontoGastoEvidencia(g.monto)}</strong>
-                    {gastoEvidenciaEsDeAmr(g) ? (
-                      <span className="badge" style={{ background: '#0f766e22', color: COLOR }}>
-                        AMR · 2 PIN
-                      </span>
-                    ) : null}
                     <span
                       className="badge"
-                      style={{ background: `${colorEstado(g.estado)}22`, color: colorEstado(g.estado) }}
+                      style={{ background: `${colorEstado(g.estado, g)}22`, color: colorEstado(g.estado, g) }}
                     >
-                      {etiquetaEstadoGastoEvidencia(g.estado)}
+                      {etiquetaEstadoGastoEvidencia(g.estado, g)}
                     </span>
                   </div>
                   <div style={{ marginTop: '0.35rem', fontWeight: 600 }}>{g.descripcion}</div>
@@ -514,17 +520,13 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
                       Rechazo: {g.motivo_rechazo}
                     </div>
                   ) : null}
-                  {g.estado === 'pendiente_amr' && g.admin_aprobado_por ? (
-                    <div className="muted" style={{ marginTop: '0.35rem', fontSize: '0.78rem' }}>
-                      1.º PIN admin: {g.admin_aprobado_por}
-                      {g.admin_aprobado_at ? ` · ${new Date(g.admin_aprobado_at).toLocaleString('es-MX')}` : ''}
-                      {' · '}falta PIN AMR
-                    </div>
-                  ) : null}
                   {g.estado === 'sellado' ? (
                     <div className="muted" style={{ marginTop: '0.35rem', fontSize: '0.78rem' }}>
-                      Sellado por {g.sellado_por || '—'}
+                      Aprobado por {g.sellado_por || '—'}
                       {g.sellado_at ? ` · ${new Date(g.sellado_at).toLocaleString('es-MX')}` : ''}
+                      {g.pago_recibido
+                        ? ` · Pago recibido${g.pago_recibido_at ? ` ${new Date(g.pago_recibido_at).toLocaleString('es-MX')}` : ''}`
+                        : ' · Esperando pago recibido'}
                     </div>
                   ) : null}
                 </div>
@@ -550,12 +552,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
                       >
                         📷 Evidencia
                       </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        style={{ fontSize: '0.78rem' }}
-                        onClick={() => borrarGasto(g)}
-                      >
+                      <button type="button" className="btn btn-ghost" style={{ fontSize: '0.78rem' }} onClick={() => borrarGasto(g)}>
                         Eliminar
                       </button>
                     </>
@@ -566,21 +563,37 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
                         type="button"
                         className="btn btn-success"
                         style={{ fontSize: '0.78rem' }}
-                        disabled={guardando || !pinPropio.trim()}
+                        disabled={guardando}
                         onClick={() => aprobarUno(g)}
                       >
-                        {textoBoton}
+                        Aprobar → IE
                       </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        style={{ fontSize: '0.78rem' }}
-                        disabled={!pinPropio.trim()}
-                        onClick={() => rechazarUno(g)}
-                      >
+                      <button type="button" className="btn btn-ghost" style={{ fontSize: '0.78rem' }} onClick={() => rechazarUno(g)}>
                         Rechazar
                       </button>
                     </>
+                  ) : null}
+                  {esAmr && vista === 'pagos' && esperaPago ? (
+                    <button
+                      type="button"
+                      className="btn btn-success"
+                      style={{ fontSize: '0.78rem' }}
+                      disabled={guardando}
+                      onClick={() => marcarPago(g, true)}
+                    >
+                      Pago recibido
+                    </button>
+                  ) : null}
+                  {esAmr && vista === 'pagos' && g.pago_recibido ? (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ fontSize: '0.78rem' }}
+                      disabled={guardando}
+                      onClick={() => marcarPago(g, false)}
+                    >
+                      Desmarcar pago
+                    </button>
                   ) : null}
                 </div>
               </div>
@@ -608,7 +621,11 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
                           📄 {a.nombre_archivo || 'PDF'}
                         </button>
                       ) : (
-                        <button type="button" onClick={() => setPreview(a)} style={{ border: 0, background: 'transparent', padding: 0, cursor: 'pointer' }}>
+                        <button
+                          type="button"
+                          onClick={() => setPreview(a)}
+                          style={{ border: 0, background: 'transparent', padding: 0, cursor: 'pointer' }}
+                        >
                           <img
                             src={a.contenido}
                             alt={a.nombre_archivo || 'Evidencia'}
@@ -657,10 +674,10 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
         >
           <div
             className="card"
-            style={{ maxWidth: 'min(920px, 100%)', maxHeight: '90vh', overflow: 'auto' }}
+            style={{ maxWidth: 'min(920px, 100%)', maxHeight: '90vh', overflow: 'auto', width: '100%' }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.75rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.5rem' }}>
               <strong>{preview.nombre_archivo || 'Evidencia'}</strong>
               <button type="button" className="btn btn-ghost" onClick={() => setPreview(null)}>
                 Cerrar
@@ -669,7 +686,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
             {preview.tipo === 'pdf' || preview.mime === 'application/pdf' ? (
               <iframe title="PDF evidencia" src={preview.contenido} style={{ width: '100%', height: '70vh', border: 0 }} />
             ) : (
-              <img src={preview.contenido} alt="" style={{ maxWidth: '100%', borderRadius: 8 }} />
+              <img src={preview.contenido} alt="" style={{ width: '100%', height: 'auto', borderRadius: 8 }} />
             )}
           </div>
         </div>
