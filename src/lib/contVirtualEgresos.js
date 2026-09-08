@@ -649,11 +649,13 @@ export function unificarEgresosParaPanel({
     detalle.push({
       id: e.id,
       fecha: String(e.fecha || '').slice(0, 10),
+      created_at: e.created_at || e.updated_at || null,
       tienda: e.sucursal_id,
       categoria: e.categoria_nombre || e.categoria_id,
       categoria_id: e.categoria_id,
       subcategoria: detNom ? `${subNom}${subNom ? ' › ' : ''}${detNom}` : subNom,
       subcategoria_id: e.subcategoria_id,
+      subcategoria_nombre: subNom || null,
       detalle: detNom,
       detalle_id: e.detalle_id,
       comentario: e.descripcion,
@@ -662,6 +664,9 @@ export function unificarEgresosParaPanel({
       fuente: e.fuente || 'manual',
       borrable: true,
       cuenta: normalizarCuentaIe(e.cuenta, 'virtual'),
+      ref_tabla: e.ref_tabla || null,
+      ref_id: e.ref_id || null,
+      usuario_id: e.usuario_id || null,
     });
   }
 
@@ -681,18 +686,28 @@ export function unificarEgresosParaPanel({
     const esNomCorte = esGastoNominaEmpleadoCorte(g);
     detalle.push({
       id: `corte-${g.id}`,
+      gasto_id: g.id,
       fecha: fechaEfectivaGastoCorte(g),
+      created_at: g.created_at || null,
       tienda: g.sucursal_id,
       categoria: nombres.categoria_nombre,
       categoria_id: map.categoriaId,
+      categoria_raw: g.categoria || null,
       subcategoria: esNomCorte ? 'Nom corte' : nombres.subcategoria_nombre,
       subcategoria_id: map.subcategoriaId,
+      subcategoria_raw: g.subcategoria || null,
       comentario: g.comentario,
       empleado: g.usuario_nombre,
+      solicitado_por: g.solicitado_por || null,
       monto: round2(g.monto),
       fuente: esNomCorte ? 'nom_corte' : 'corte',
       borrable: true,
       cuenta: normalizarCuentaIe(g.modulo || g.cuenta, modGasto === 'abarrotes' ? 'abarrotes' : 'virtual'),
+      modulo: modGasto || null,
+      estado_aprobacion: g.estado_aprobacion || 'aprobado',
+      ref_tabla: 'cortes_contabilidad_gastos',
+      ref_id: g.id,
+      usuario_id: g.usuario_id || null,
     });
   }
 
@@ -702,6 +717,7 @@ export function unificarEgresosParaPanel({
     detalle.push({
       id: `prestamo-${p.id}`,
       fecha: ymdNegocioDesdeIso(p.created_at || p.aprobado_admin_at) || hoyYmdNogales(),
+      created_at: p.created_at || p.aprobado_admin_at || null,
       tienda: p.sucursal_id,
       categoria: nombres.categoria_nombre,
       categoria_id: 'prestamos',
@@ -713,6 +729,9 @@ export function unificarEgresosParaPanel({
       fuente: 'prestamo',
       borrable: true,
       cuenta: normalizarCuentaIe(p.area_corte, 'virtual'),
+      ref_tabla: 'prestamos',
+      ref_id: p.id,
+      estado: p.estado || null,
     });
   }
 
@@ -904,16 +923,23 @@ export function itemIngresoManualDesdeFila(row) {
   return {
     id: row.id,
     fecha: String(row.fecha || '').slice(0, 10),
+    created_at: row.created_at || null,
     monto: round2(row.monto),
     comentario: `${partes.join(' · ')}${row.descripcion ? ` · ${row.descripcion}` : ''}`.trim() || 'Ingreso manual',
+    descripcion: row.descripcion || null,
     cuenta,
     cuenta_label: cuentaLbl,
     tienda: row.sucursal_id || 'MAIN',
     tipo_mov: 'manual',
     fuente: row.fuente || 'manual',
     categoria: row.categoria_nombre || row.categoria_id,
+    categoria_id: row.categoria_id || null,
     subcategoria: row.subcategoria_nombre || null,
+    subcategoria_id: row.subcategoria_id || null,
+    detalle: row.detalle_nombre || null,
+    detalle_id: row.detalle_id || null,
     empleado: row.usuario_nombre || null,
+    usuario_id: row.usuario_id || null,
     manual: true,
   };
 }

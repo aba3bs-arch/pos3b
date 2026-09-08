@@ -426,6 +426,29 @@
   border-bottom: none;
 }
 
+.cv-row-click {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cv-row-click:hover,
+.cv-row-click:focus-visible {
+  background: rgba(255, 255, 255, 0.04);
+  outline: none;
+}
+
+.cv-row-click:active {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.cv-row-chev {
+  color: var(--cv-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
 .cv-row-dot {
   width: 10px;
   height: 10px;
@@ -1123,11 +1146,105 @@
 .cv-modal-actions {
   display: flex;
   gap: 0.5rem;
-  margin-top: 0.5rem;
+  margin-top: 0.75rem;
 }
 
 .cv-modal-actions .cv-btn {
   flex: 1;
+}
+
+.cv-modal-desglose {
+  max-height: 90%;
+}
+
+.cv-desglose-hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.cv-desglose-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+}
+
+.cv-desglose-badge.gasto {
+  background: rgba(232, 93, 76, 0.18);
+  color: var(--cv-gasto);
+}
+
+.cv-desglose-badge.ingreso {
+  background: rgba(78, 168, 245, 0.18);
+  color: var(--cv-ingreso);
+}
+
+.cv-desglose-dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.cv-desglose-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 38%) 1fr;
+  gap: 0.5rem;
+  padding-bottom: 0.45rem;
+  border-bottom: 1px solid rgba(51, 51, 60, 0.55);
+}
+
+.cv-desglose-row dt {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--cv-muted);
+}
+
+.cv-desglose-row dd {
+  margin: 0;
+  font-size: 0.88rem;
+  word-break: break-word;
+}
+
+.cv-desglose-row dd.gasto {
+  color: var(--cv-gasto);
+}
+
+.cv-desglose-row dd.ingreso {
+  color: var(--cv-ingreso);
+}
+
+.cv-desglose-gastos-emb {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(51, 51, 60, 0.7);
+}
+
+.cv-desglose-gastos-hd {
+  font-size: 0.78rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  color: var(--cv-muted);
+}
+
+.cv-desglose-gasto-emb {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid rgba(51, 51, 60, 0.4);
+  font-size: 0.82rem;
+}
+
+.cv-desglose-gasto-emb .gasto {
+  color: var(--cv-gasto);
+  flex-shrink: 0;
 }
 
 .cv-loading {

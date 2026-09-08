@@ -191,6 +191,7 @@ function itemIngresoRecoleccion(r, { desde, etiquetaCuentaFn } = {}) {
     cierre_id: r.id,
     folio: r.folio || '',
     fecha: f || desde,
+    created_at: r.created_at || null,
     monto: round2(monto),
     efectivo,
     gastos_total: gastosEmb,
@@ -201,6 +202,8 @@ function itemIngresoRecoleccion(r, { desde, etiquetaCuentaFn } = {}) {
     cuenta: mod === 'garage' ? 'garage' : mod === 'abarrotes' ? 'abarrotes' : 'virtual',
     tienda: t,
     tipo_mov: 'recoleccion',
+    empleado: r.usuario_nombre || null,
+    turno: r.turno || detalle.turno_sesion || null,
   };
 }
 
@@ -234,6 +237,7 @@ function itemIngresoVentaCierreAbarrotes(c, { desde } = {}) {
     cierre_id: c.id,
     folio: c.folio || '',
     fecha: f || desde,
+    created_at: c.created_at || null,
     monto: venta,
     efectivo: venta,
     gastos_total: gastosEmb,
@@ -242,6 +246,8 @@ function itemIngresoVentaCierreAbarrotes(c, { desde } = {}) {
     cuenta: 'abarrotes',
     tienda: t,
     tipo_mov: 'venta_cierre',
+    empleado: c.usuario_nombre || null,
+    turno: c.turno || detalle.turno_sesion || null,
   };
 }
 
