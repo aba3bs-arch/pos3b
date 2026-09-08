@@ -552,10 +552,19 @@ export function htmlRecoleccionGarage(data) {
   const fecha = data.fecha ? new Date(data.fecha).toLocaleString('es-MX') : new Date().toLocaleString('es-MX');
   const e = data.estado || {};
   const temporal = data.tipo_cierre === 'recoleccion_temporal' || data.temporal;
-  const rec = round2(data.recoleccion ?? e.recoleccion ?? 0);
   const antAntes = round2(e.recoleccion_anterior);
+  const recTotal = round2(data.recoleccion ?? e.recoleccion ?? 0);
+  const recActual = round2(
+    e.recoleccion_actual != null
+      ? e.recoleccion_actual
+      : temporal
+        ? recTotal
+        : antAntes > 0
+          ? round2(recTotal - antAntes)
+          : recTotal,
+  );
   const antTras = round2(
-    data.recoleccion_anterior_tras ?? e.recoleccion_anterior_tras ?? (temporal ? antAntes + rec : 0),
+    data.recoleccion_anterior_tras ?? e.recoleccion_anterior_tras ?? (temporal ? antAntes + recActual : 0),
   );
   const venta = round2(data.venta ?? e.venta ?? 0);
   const gastos = round2(data.gastos_total ?? 0);
@@ -580,8 +589,13 @@ export function htmlRecoleccionGarage(data) {
     <table>
       <tr><td>Venta actual (lectura)</td><td class="r">${fmt(venta)}</td></tr>
       <tr><td>Gastos turno</td><td class="r">${fmt(gastos)}</td></tr>
-      <tr><td class="rec">Monto recolectado</td><td class="r rec">${fmt(rec)}</td></tr>
+      <tr><td class="rec">Monto recolectado (turno)</td><td class="r rec">${fmt(recActual)}</td></tr>
       <tr><td>Recolección anterior (antes)</td><td class="r">${fmt(antAntes)}</td></tr>
+      ${
+        !temporal && antAntes > 0
+          ? `<tr><td class="rec">Total liquidado (actual + anterior)</td><td class="r rec">${fmt(recTotal)}</td></tr>`
+          : ''
+      }
       <tr><td>Recolección anterior (queda)</td><td class="r">${fmt(antTras)}</td></tr>
       <tr><td>Máquinas / DSCH en ceros</td><td class="r"><strong>${temporal ? 'NO' : 'SÍ'}</strong></td></tr>
     </table>
@@ -590,7 +604,9 @@ export function htmlRecoleccionGarage(data) {
     <p class="muted">${
       temporal
         ? 'Temporal: el monto pasa a recolección anterior y las lecturas quedan en cero. El corte sigue abierto.'
-        : 'Definitiva: máquinas y dispensadora en ceros. Recolección anterior limpia.'
+        : antAntes > 0
+          ? 'Definitiva: máquinas y dispensadora en ceros. Recolección anterior sumada al total y liquidada.'
+          : 'Definitiva: máquinas y dispensadora en ceros. Recolección anterior limpia.'
     }</p>
     ${data.comentarios ? `<p class="muted"><strong>Comentarios:</strong> ${esc(data.comentarios)}</p>` : ''}
   </body></html>`;

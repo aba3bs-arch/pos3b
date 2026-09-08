@@ -111,12 +111,13 @@ export function calcularMonedaVirtualCliente({
 /**
  * Desglose Socio 3B en cada recolección (ticket + IE).
  * - Virtual: recolección → −15% → Socio 40% / Ganancia 60% → IE VIRTUAL
- * - Garage: base (venta o recolección) → Socio 40% / Ganancia 60% → IE VIRTUAL · Garage
+ * - Garage (máquinas en cero): recolección + recolección anterior → Socio 40% / Ganancia 60% → IE VIRTUAL · Garage
  */
 export function calcularPagoClienteRecoleccion({
   modulo = 'virtual',
   venta = 0,
   recoleccion = 0,
+  recoleccionAnterior = 0,
   pctDescuento = 0.15,
   pctCliente = 0.4,
   pctEmpresa = 0.6,
@@ -124,19 +125,27 @@ export function calcularPagoClienteRecoleccion({
   const mod = String(modulo || 'virtual').toLowerCase();
   const ventaN = round2(venta);
   const recN = round2(recoleccion);
+  const antN = round2(recoleccionAnterior);
   const pc = Number(pctCliente) || 0.4;
   const pe = Number(pctEmpresa) > 0 ? Number(pctEmpresa) : Math.max(0, round2(1 - pc));
   const desc = Number(pctDescuento) || 0.15;
 
   if (mod === 'garage') {
-    // Garage: sin descuento 15%; 40% socio / 60% ganancia → IE Virtual-Garage
-    const base = recN > 0 ? recN : ventaN;
+    // Garage: sin descuento 15%; al liquidar en ceros se suma recolección anterior.
+    const recBase = recN > 0 || antN > 0 ? recN : ventaN;
+    const base = round2(recBase + antN);
     const pago = round2(base * pc);
     const ganancia = round2(base * pe);
+    const formula =
+      antN > 0
+        ? `Rec ${fmtMonedaCliente(recBase)} + ant ${fmtMonedaCliente(antN)} = ${fmtMonedaCliente(base)} → Socio 40% / Ganancia 60% → IE VIRTUAL · Garage`
+        : `Socio 40% / Ganancia 60% de ${fmtMonedaCliente(base)} → IE VIRTUAL · Garage`;
     return {
       modulo: 'garage',
       base,
-      base_etiqueta: 'Recolección',
+      base_etiqueta: antN > 0 ? 'Total (actual + anterior)' : 'Recolección',
+      recoleccion_actual: recBase,
+      recoleccion_anterior: antN,
       pct_descuento: 0,
       descuento_monto: 0,
       tras_descuento: base,
@@ -145,7 +154,7 @@ export function calcularPagoClienteRecoleccion({
       pago_cliente: pago,
       ganancia_empresa: ganancia,
       ie_destino: 'IE VIRTUAL · Garage',
-      formula: `Socio 40% / Ganancia 60% de ${fmtMonedaCliente(base)} → IE VIRTUAL · Garage`,
+      formula,
     };
   }
 
@@ -190,7 +199,19 @@ export function htmlBloquePagoClienteTicket(pago) {
       <tr><td>Socio 3B ${pct}%</td><td class="r"><strong>${fmtMonedaCliente(pago.pago_cliente)}</strong></td></tr>
       <tr><td>Ganancia ${pctEmp}%</td><td class="r"><strong>${fmtMonedaCliente(pago.ganancia_empresa)}</strong></td></tr>`;
 
-  const lineasGarage = `
+  const antGarage = round2(pago.recoleccion_anterior);
+  const recGarage = round2(
+    pago.recoleccion_actual != null ? pago.recoleccion_actual : round2((pago.base || 0) - antGarage),
+  );
+  const lineasGarage =
+    antGarage > 0
+      ? `
+      <tr><td>Recolección (turno)</td><td class="r"><strong>${fmtMonedaCliente(recGarage)}</strong></td></tr>
+      <tr><td>+ Recolección anterior</td><td class="r"><strong>${fmtMonedaCliente(antGarage)}</strong></td></tr>
+      <tr><td>Total a desglose</td><td class="r"><strong>${fmtMonedaCliente(pago.base)}</strong></td></tr>
+      <tr><td>Socio 3B ${pct}%</td><td class="r"><strong>${fmtMonedaCliente(pago.pago_cliente)}</strong></td></tr>
+      <tr><td>Ganancia ${pctEmp}%</td><td class="r"><strong>${fmtMonedaCliente(pago.ganancia_empresa)}</strong></td></tr>`
+      : `
       <tr><td>Recolección</td><td class="r"><strong>${fmtMonedaCliente(pago.base)}</strong></td></tr>
       <tr><td>Socio 3B ${pct}%</td><td class="r"><strong>${fmtMonedaCliente(pago.pago_cliente)}</strong></td></tr>
       <tr><td>Ganancia ${pctEmp}%</td><td class="r"><strong>${fmtMonedaCliente(pago.ganancia_empresa)}</strong></td></tr>`;

@@ -792,12 +792,17 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         opts.montoRecoleccion != null
           ? round2(opts.montoRecoleccion)
           : round2(estado.recoleccion);
-      if (!(calcRec > 0)) {
+      const maquinasEnCero = opts.maquinasEnCero === true;
+      const antAntes = round2(estado.recoleccion_anterior);
+      const totalDefinitivo = round2(calcRec + antAntes);
+      if (maquinasEnCero) {
+        if (!(totalDefinitivo > 0)) {
+          return alert('Indique monto de recolección o debe existir recolección anterior.');
+        }
+      } else if (!(calcRec > 0)) {
         return alert('Indique el monto de recolección.');
       }
-      const maquinasEnCero = opts.maquinasEnCero === true;
       const tipo = maquinasEnCero ? 'recoleccion' : 'recoleccion_temporal';
-      const antAntes = round2(estado.recoleccion_anterior);
       const antTras = maquinasEnCero ? 0 : round2(antAntes + calcRec);
       const folioRec = `REC-${folio || 'G'}`;
       // Gastos abiertos del periodo (persisten entre cierres); no sumar historial o se duplican.
@@ -807,6 +812,8 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       const estadoAprob = maquinasEnCero
         ? estadoAprobacionRecoleccionInicial(user?.nombre)
         : null;
+      // Definitiva (máquinas + DSCH en ceros): actual + anterior → IE y desglose 60/40.
+      const efectivoIe = maquinasEnCero ? totalDefinitivo : calcRec;
 
       const extrasBase = {
         ...estado,
@@ -816,9 +823,11 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         subtotal: calc.subtotal,
         venta_neta: calc.ventaNeta,
         venta: calc.venta,
-        recoleccion: calcRec,
+        recoleccion: efectivoIe,
+        recoleccion_actual: calcRec,
         recoleccion_anterior: antAntes,
         recoleccion_anterior_tras: antTras,
+        recoleccion_total: maquinasEnCero ? totalDefinitivo : round2(calcRec + antAntes),
         maquinas_en_cero: maquinasEnCero,
         tipo_cierre: tipo,
         comentarios: estado.comentarios || '',
@@ -826,7 +835,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
 
       const detalle = maquinasEnCero
         ? detalleRecoleccionParaIe({
-            efectivo: calcRec,
+            efectivo: efectivoIe,
             gastosTotal,
             extras: {
               ...extrasBase,
@@ -889,7 +898,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
         ok: true,
         folio: folioRec,
         cierreId: res.data?.id || null,
-        recoleccion: calcRec,
+        recoleccion: efectivoIe,
+        recoleccionActual: calcRec,
+        recoleccionAnteriorIncluida: maquinasEnCero ? antAntes : 0,
         temporal: !maquinasEnCero,
         maquinasEnCero,
         recoleccionAnteriorTras: antTras,
