@@ -39,7 +39,7 @@ function moneyNum(v) {
   return Number.isFinite(n) ? n : '';
 }
 
-export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
+export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sinAlertas = false, etiquetaCliente = '' }) {
   const [mostrarDesglose, setMostrarDesglose] = useState(false);
   const [aprobando, setAprobando] = useState(false);
 
@@ -257,6 +257,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
   return (
     <CorteConTeclado accent={ACCENT}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }} data-corte-form="virtual">
+      {!sinAlertas ? (
       <CorteNegativoRecuperacion
         etiqueta="Virtual"
         negativo={vistaRecuperacion?.negativo}
@@ -274,12 +275,14 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate }) {
         onLiquidar={liquidarPrestamoDesdeCorte}
         onGenerarPagare={generarPagareDesdeCorte}
       />
+      ) : null}
       <div className="card" style={{ borderTop: `3px solid ${ACCENT}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           <div>
-            <h3 style={{ margin: 0, color: ACCENT }}>Corte Virtual</h3>
+            <h3 style={{ margin: 0, color: ACCENT }}>Corte Virtual{etiquetaCliente ? ` · ${etiquetaCliente}` : ''}</h3>
             <p className="muted" style={{ margin: '0.3rem 0 0', fontSize: '0.84rem' }}>
-              {etiquetaTienda(sucursal)} · Folio {folio} · {turno}
+              {etiquetaCliente ? `Cliente · ${etiquetaCliente}` : etiquetaTienda(sucursal)} · Folio {folio} · {turno}
+              {sinAlertas ? ' · Sin alertas' : ''}
             </p>
             <div style={{ marginTop: '0.65rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
               <span style={{ fontSize: '0.78rem', fontWeight: 700, color: ACCENT, letterSpacing: '0.02em' }}>

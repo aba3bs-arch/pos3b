@@ -28,6 +28,10 @@ const DESCRIPCIONES = {
     desc: 'Evidencia · aprobar → IE · AMR marca pago recibido',
     ayuda: 'Empleados registran gastos con evidencia. Al aprobar van a IE VIRTUAL y quedan en el espacio de AMR como «Gasto aprobado» para marcar Pago recibido.',
   },
+  'Clientes máquinas': {
+    desc: 'Externos · moneda 60/40 · cortes V/G → IE Clientes',
+    ayuda: 'Clientes externos con máquinas. Agrega clientes; cada uno tiene Corte Virtual y Garage (sin alertas), moneda virtual (−15% luego 60/40) y recolección a IE VIRTUAL · Clientes.',
+  },
   'RC Virtual': {
     desc: 'Custodia Virtual → cuenta admin → ABB',
     ayuda: 'Recibe recolecciones de Corte Virtual a tu cuenta y entrégalas a ABB. Garage está en RC Garage.',

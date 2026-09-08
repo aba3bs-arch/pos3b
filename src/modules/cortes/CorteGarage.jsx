@@ -26,7 +26,7 @@ import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useC
 
 const COLOR = '#7f8c8d';
 
-export default function CorteGarage({ supabase, sucursal, user }) {
+export default function CorteGarage({ supabase, sucursal, user, sinAlertas = false, etiquetaCliente = '' }) {
   const prepararTrasCierre = useCallback((estado, calc, detalleExtra) => {
     return prepararTrasCierreGarage(estado, calc, detalleExtra);
   }, []);
@@ -168,6 +168,7 @@ export default function CorteGarage({ supabase, sucursal, user }) {
   return (
     <CorteConTeclado accent={COLOR}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {!sinAlertas ? (
       <CorteNegativoRecuperacion
         etiqueta="Garage"
         negativo={vistaRecuperacion?.negativo}
@@ -185,12 +186,14 @@ export default function CorteGarage({ supabase, sucursal, user }) {
         onLiquidar={liquidarPrestamoDesdeCorte}
         onGenerarPagare={generarPagareDesdeCorte}
       />
+      ) : null}
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
-            <h3 style={{ margin: 0, color: COLOR }}>Corte Garage</h3>
+            <h3 style={{ margin: 0, color: COLOR }}>Corte Garage{etiquetaCliente ? ` · ${etiquetaCliente}` : ''}</h3>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-              Lectura de máquinas · Folio {folio} · {turno}
+              {etiquetaCliente ? `Cliente · ${etiquetaCliente}` : 'Lectura de máquinas'} · Folio {folio} · {turno}
+              {sinAlertas ? ' · Sin alertas' : ''}
             </p>
           </div>
           {perm.guardar && (

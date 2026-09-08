@@ -55,6 +55,7 @@ export const APROBADORES_RECOLECCION_IE = [
   { id: 'abb', etiqueta: 'ABB', patrones: ['abb', 'antonio'] },
   { id: 'fjbb', etiqueta: 'FJBB', patrones: ['fjbb', 'francisco'] },
   { id: 'jlbb', etiqueta: 'JLBB', patrones: ['jlbb', 'jose luis', 'josé luis'] },
+  { id: 'cheche', etiqueta: 'Cheche', patrones: ['cheche'] },
 ];
 
 /** Si recolectan ellos, la transferencia a IE queda pendiente hasta ABB/FJBB/JLBB. */
