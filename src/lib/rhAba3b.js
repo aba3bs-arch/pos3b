@@ -921,7 +921,30 @@ export async function reactivarUsuarioPosYRh(supabase, usuario, { pinAdminPrinci
   if (rest.empleado && rest.empleado.estado === 'activo') {
     await sincronizarUsuarioPosActivo(supabase, rest.empleado, true);
   }
-  return { ok: true, mensaje: `${usuario.nombre} reactivado.` };
+  // Si reactivan indicando otra tienda sin pasar por baja RH completa:
+  if (form?.sucursal_id) {
+    const suc = sucursalParaTipo(
+      form.tipo_empleado || resolverTipoEmpleado(usuario),
+      form.sucursal_id,
+    );
+    if (suc && rest.empleado) {
+      await sincronizarUsuarioPosSucursal(supabase, { ...rest.empleado, tipo_empleado: form.tipo_empleado || rest.empleado.tipo_empleado }, suc);
+    } else if (suc) {
+      await supabase
+        .from('usuarios')
+        .update({
+          sucursal_id: suc,
+          tipo_empleado: form.tipo_empleado === 'indirecto' ? 'indirecto' : 'tienda',
+        })
+        .eq('id', usuario.id);
+    }
+  }
+  return {
+    ok: true,
+    mensaje: form?.sucursal_id
+      ? `${usuario.nombre} reactivado en ${etiquetaTienda(form.sucursal_id)}.`
+      : `${usuario.nombre} reactivado.`,
+  };
 }
 
 /**
@@ -986,6 +1009,17 @@ async function aplicarRecontratacion(supabase, emp, form, user) {
 
   await sincronizarUsuarioPosActivo(supabase, data, true);
 
+  let extraPos = '';
+  // Reingreso a otra tienda: actualizar también usuarios.sucursal_id (antes solo RH).
+  if (data.tipo_empleado !== 'cubre_turno') {
+    const syncSuc = await sincronizarUsuarioPosSucursal(supabase, data, sucursal_id);
+    if (!syncSuc.ok) {
+      extraPos = ` Aviso POS: ${syncSuc.error}`;
+    } else if ((syncSuc.ids || []).length) {
+      extraPos = ` POS actualizado a ${etiquetaTienda(sucursal_id)}.`;
+    }
+  }
+
   try {
     await supabase
       .from('rh_recontratacion_solicitudes')
@@ -1009,7 +1043,11 @@ async function aplicarRecontratacion(supabase, emp, form, user) {
     actor: user,
   });
 
-  return { ok: true, empleado: data, mensaje: 'Empleado recontratado y activo. Ya aparece en nómina, turnos y Usuarios.' };
+  return {
+    ok: true,
+    empleado: data,
+    mensaje: `Empleado recontratado y activo en ${etiquetaTienda(sucursal_id) || 'su sucursal'}. Ya aparece en nómina, turnos y Usuarios.${extraPos}`,
+  };
 }
 
 /**

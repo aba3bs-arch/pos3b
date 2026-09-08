@@ -56,6 +56,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
   const [qEquipo, setQEquipo] = useState('');
   const [bajaPickId, setBajaPickId] = useState('');
   const [reingresoPickId, setReingresoPickId] = useState('');
+  const [reingresoDestino, setReingresoDestino] = useState('');
   const [trasladoPickId, setTrasladoPickId] = useState('');
   const [trasladoDestino, setTrasladoDestino] = useState('');
   const [mostrarBajas, setMostrarBajas] = useState(false);
@@ -418,36 +419,46 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     alert(res.mensaje || `${bajaTarget.nombre} quedó dado de baja.`);
   };
 
-  const abrirReactivar = async (r) => {
+  const abrirReactivar = async (r, destinoOverride = '') => {
     if (!supabase || !esAdmin || !r?.id) return;
+    const destino = normalizarCodigoTienda(destinoOverride || reingresoDestino || r.sucursal_id) || r.sucursal_id;
     if (resolverTipoEmpleado(r) === 'tienda' && normalizarRol(r.rol) !== 'Administrador') {
-      const cupo = puedeAgregarEmpleadoTienda(rows, r.sucursal_id, { excluirId: r.id });
+      const cupo = puedeAgregarEmpleadoTienda(rows, destino, { excluirId: r.id });
       if (!cupo.ok) return alert(cupo.error);
     }
     setMostrarBajas(true);
     setReingresoPickId(String(r.id));
     const rest = await consultarRestriccionReingresoRh(supabase, r);
     if (!rest.ok) return alert(rest.error);
+    const formReingreso = {
+      sucursal_id: destino,
+      tipo_empleado: resolverTipoEmpleado(r) === 'indirecto' ? 'indirecto' : 'tienda',
+    };
     if (rest.requierePinPrincipal) {
-      setReactivarTarget(r);
+      setReactivarTarget({ ...r, _formReingreso: formReingreso });
       setPinReingreso('');
       return;
     }
-    if (!confirm(`¿Reingresar alta de ${r.nombre}?\n\nVolverá a nómina, turnos y Usuarios. Podrá entrar con su PIN.`)) return;
+    const tiendaTxt = etiquetaTienda(destino);
+    if (!confirm(`¿Reingresar alta de ${r.nombre} en ${tiendaTxt}?\n\nVolverá a nómina, turnos y Usuarios. Podrá entrar con su PIN en esa tienda.`)) return;
     setTrabajandoBaja(true);
-    const res = await reactivarUsuarioPosYRh(supabase, r, {}, { user: actor });
+    const res = await reactivarUsuarioPosYRh(supabase, r, { form: formReingreso }, { user: actor });
     setTrabajandoBaja(false);
     if (!res.ok) return alert(res.error);
     setReingresoPickId('');
+    setReingresoDestino('');
     load();
-    alert(res.mensaje || `${r.nombre} reingresado.`);
+    alert(res.mensaje || `${r.nombre} reingresado en ${tiendaTxt}.`);
   };
 
   const continuarReingresoDesdeSelector = () => {
     const r = rows.find((x) => String(x.id) === String(reingresoPickId));
     if (!r) return alert('Elige el empleado dado de baja.');
     if (r.activo !== false) return alert('Ese empleado ya está activo. Para uno nuevo usa el alta de arriba.');
-    void abrirReactivar(r);
+    if (resolverTipoEmpleado(r) !== 'indirecto' && !reingresoDestino) {
+      return alert('Elige la tienda destino del reingreso.');
+    }
+    void abrirReactivar(r, reingresoDestino);
   };
 
   const confirmarReingresoConPin = async () => {
@@ -456,7 +467,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     const res = await reactivarUsuarioPosYRh(
       supabase,
       reactivarTarget,
-      { pinAdminPrincipal: pinReingreso },
+      { pinAdminPrincipal: pinReingreso, form: reactivarTarget._formReingreso || { sucursal_id: reingresoDestino || reactivarTarget.sucursal_id } },
       { user: actor },
     );
     setTrabajandoBaja(false);
@@ -464,6 +475,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     setReactivarTarget(null);
     setPinReingreso('');
     setReingresoPickId('');
+    setReingresoDestino('');
     load();
     alert(res.mensaje || `${reactivarTarget.nombre} reingresado.`);
   };
@@ -619,7 +631,20 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
                 </button>
               )}
               {r.activo === false ? (
-                <button type="button" className="btn btn-success" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => abrirReactivar(r)}>Reingresar alta</button>
+                <button
+                  type="button"
+                  className="btn btn-success"
+                  style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                  onClick={() => {
+                    if (resolverTipoEmpleado(r) !== 'indirecto' && !reingresoDestino) {
+                      setReingresoPickId(String(r.id));
+                      return alert('Elige la tienda destino en «Cómo reingresar un empleado» (arriba) y luego pulsa Reingresar alta.');
+                    }
+                    void abrirReactivar(r, reingresoDestino);
+                  }}
+                >
+                  Reingresar alta
+                </button>
               ) : (
                 <button type="button" className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }} onClick={() => abrirBaja(r)}>Dar de baja</button>
               )}
@@ -790,7 +815,8 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
         <h3 style={{ margin: '0 0 0.5rem' }}>Cómo reingresar un empleado</h3>
         <ol style={{ margin: '0 0 0.85rem', paddingLeft: '1.25rem', fontSize: '0.9rem', lineHeight: 1.55 }}>
           <li>Elige a alguien ya dado de baja (no crees un usuario nuevo).</li>
-          <li>Pulsa <strong>Reingresar alta</strong>. Vuelve a nómina, turnos y esta lista.</li>
+          <li>Elige la <strong>tienda destino</strong> (puede ser distinta a la última donde estuvo).</li>
+          <li>Pulsa <strong>Reingresar alta</strong>. Vuelve a nómina, turnos y esta lista solo en esa tienda.</li>
           <li>Si está marcado <strong>no recontratable</strong>, pide el PIN del administrador principal.</li>
         </ol>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
@@ -800,13 +826,33 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
               className="select"
               style={{ marginTop: '0.35rem' }}
               value={reingresoPickId}
-              onChange={(e) => setReingresoPickId(e.target.value)}
+              onChange={(e) => {
+                setReingresoPickId(e.target.value);
+                const r = rows.find((x) => String(x.id) === String(e.target.value));
+                if (r && resolverTipoEmpleado(r) !== 'indirecto' && !reingresoDestino) {
+                  setReingresoDestino('');
+                }
+              }}
             >
               <option value="">— Elige nombre —</option>
               {bajasParaReingreso.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {r.nombre} · {etiquetaTienda(r.sucursal_id)} · {normalizarRol(r.rol)}
+                  {r.nombre} · última: {etiquetaTienda(r.sucursal_id)} · {normalizarRol(r.rol)}
                 </option>
+              ))}
+            </select>
+          </label>
+          <label className="muted" style={{ flex: '1 1 160px', fontSize: '0.8rem' }}>
+            Tienda destino
+            <select
+              className="select"
+              style={{ marginTop: '0.35rem' }}
+              value={reingresoDestino}
+              onChange={(e) => setReingresoDestino(e.target.value)}
+            >
+              <option value="">— Elige tienda —</option>
+              {tiendasAsignables.map((s) => (
+                <option key={s} value={s}>{etiquetaTienda(s)}</option>
               ))}
             </select>
           </label>
