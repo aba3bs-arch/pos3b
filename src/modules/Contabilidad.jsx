@@ -25,8 +25,8 @@ const DESCRIPCIONES = {
     ayuda: 'Consolida gastos de corte por turno. Selector de área independiente: Abarrotes, Virtual o Garage (no se mezclan).',
   },
   'Registro de gastos': {
-    desc: 'Gastos con foto/PDF · pendientes → IE VIRTUAL',
-    ayuda: 'Cada empleado registra sus gastos con evidencia. Se acumulan pendientes hasta que admin/gerente selle y pasen a IE VIRTUAL.',
+    desc: 'Gastos con foto/PDF · aprueba AMR con PIN → IE',
+    ayuda: 'Cada empleado registra gastos con evidencia. Quedan pendientes hasta que AMR los apruebe con su PIN desde su espacio y pasen a IE VIRTUAL.',
   },
   'RC Virtual': {
     desc: 'Custodia Virtual → cuenta admin → ABB',
