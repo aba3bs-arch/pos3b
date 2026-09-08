@@ -1320,7 +1320,7 @@ function App() {
               <Consolidacion supabase={supabase} user={user} />
             </>
           )}
-          {vista === 'Gastos evidencia' && (
+          {vista === 'Registro de gastos' && (
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
               <GastosEvidencia supabase={supabase} user={user} sucursal={sucursal} />
