@@ -160,6 +160,7 @@ export const TIPOS_NOTIF = {
   RIF_ABIERTO: 'rif_abierto',
   RIF_LIQUIDADO: 'rif_liquidado',
   RIF_VENCIDO: 'rif_vencido',
+  GASTO_EVIDENCIA: 'gasto_evidencia_pendiente',
 };
 
 /** Solo reportes del formulario de Incidencias (no recolecciones, cortes ni vales). */
@@ -197,6 +198,8 @@ export function etiquetaTipoNotificacion(tipo) {
       return 'RIF liquidado';
     case TIPOS_NOTIF.RIF_VENCIDO:
       return 'RIF vencido → corte';
+    case TIPOS_NOTIF.GASTO_EVIDENCIA:
+      return 'Gasto evidencia pendiente';
     default:
       return tipo || 'Notificación';
   }
