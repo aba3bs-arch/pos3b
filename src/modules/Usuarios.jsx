@@ -26,6 +26,12 @@ import {
   darDeBajaUsuarioPosYRh,
   reactivarUsuarioPosYRh,
 } from '../lib/rhAba3b.js';
+import {
+  detectarConflictoAltaUsuario,
+  depurarUsuariosDuplicados,
+  encontrarGruposDuplicadosActivos,
+  resumenGruposDuplicados,
+} from '../lib/usuariosDuplicados.js';
 import FormularioBajaEmpleado from '../components/FormularioBajaEmpleado.jsx';
 
 const emptyForm = (sucursalDefault) => ({
@@ -71,6 +77,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
   const [reactivarTarget, setReactivarTarget] = useState(null);
   const [pinReingreso, setPinReingreso] = useState('');
   const [trabajandoBaja, setTrabajandoBaja] = useState(false);
+  const [depurandoDup, setDepurandoDup] = useState(false);
   const [turnos, setTurnos] = useState(() => leerTurnos());
   const [configHorario, setConfigHorario] = useState(() => leerConfigHorario());
   const [rolesLista, setRolesLista] = useState(() => listarTodosLosRoles());
@@ -149,6 +156,19 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     [filas, mostrarBajas],
   );
 
+  const gruposDuplicados = useMemo(
+    () => (esAdmin ? encontrarGruposDuplicadosActivos(rows) : []),
+    [esAdmin, rows],
+  );
+
+  const idsDuplicadosActivos = useMemo(() => {
+    const s = new Set();
+    for (const g of gruposDuplicados) {
+      for (const u of g.todos) s.add(String(u.id));
+    }
+    return s;
+  }, [gruposDuplicados]);
+
   /** Tiendas de venta + CEDIS (almacén). MAIN solo vía tipo Indirecto. */
   const tiendasAsignables = listarSucursales().filter((s) => !esCentralAdmin(s));
 
@@ -181,6 +201,13 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     const sucursal_id = tipo === 'indirecto'
       ? 'MAIN'
       : (normalizarCodigoTienda(editForm.sucursal_id) || tiendasAsignables[0] || 'CEDIS');
+    const conflicto = detectarConflictoAltaUsuario(rows, {
+      nombre,
+      sucursal_id,
+      tipo_empleado: tipo,
+      excluirId: editandoId,
+    });
+    if (!conflicto.ok && conflicto.tipo === 'activo') return alert(conflicto.error);
     if (tipo === 'tienda' && normalizarRol(editForm.rol) !== 'Administrador') {
       const cupo = puedeAgregarEmpleadoTienda(rows, sucursal_id, { excluirId: editandoId });
       if (!cupo.ok) return alert(cupo.error);
@@ -222,6 +249,30 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     alert(n === 1 ? 'Equipo liberado.' : 'Equipos liberados.');
   };
 
+  const depurarDuplicados = async () => {
+    if (!supabase || !esAdmin || depurandoDup) return;
+    const grupos = encontrarGruposDuplicadosActivos(rows);
+    if (!grupos.length) return alert('No hay empleados repetidos activos.');
+    const detalle = resumenGruposDuplicados(grupos);
+    if (
+      !confirm(
+        `Se encontraron ${grupos.length} persona(s) con más de un registro activo en la misma tienda.\n\n`
+        + `${detalle}\n\n`
+        + 'Se conserva una ficha por persona/tienda y se dan de baja las demás (deja de funcionar su PIN).\n\n¿Depurar ahora?',
+      )
+    ) {
+      return;
+    }
+    setDepurandoDup(true);
+    try {
+      const res = await depurarUsuariosDuplicados(supabase, rows, { user: actor });
+      await load();
+      alert(res.mensaje || (res.ok ? 'Listo.' : res.error || 'No se pudo depurar.'));
+    } finally {
+      setDepurandoDup(false);
+    }
+  };
+
   const crear = async () => {
     if (!supabase || !esAdmin) return;
     if (!form.nombre.trim() || !String(form.pin).trim()) return alert('Nombre y PIN obligatorios');
@@ -229,6 +280,12 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     const sucursal_id = tipo === 'indirecto'
       ? 'MAIN'
       : (normalizarCodigoTienda(form.sucursal_id) || tiendasAsignables[0] || 'CEDIS');
+    const conflicto = detectarConflictoAltaUsuario(rows, {
+      nombre: form.nombre.trim(),
+      sucursal_id,
+      tipo_empleado: tipo,
+    });
+    if (!conflicto.ok) return alert(conflicto.error);
     if (tipo === 'tienda' && normalizarRol(form.rol) !== 'Administrador') {
       const cupo = puedeAgregarEmpleadoTienda(rows, sucursal_id);
       if (!cupo.ok) return alert(cupo.error);
@@ -249,8 +306,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
         `Ese PIN es el de cubre turno de ${etiquetaTienda(payload.sucursal_id)}. Elige otro PIN para el empleado fijo.`,
       );
     }
-    const { data, error } = await supabase.from('usuarios').insert([payload]).select('*').single();
-    if (error) {
+    const { data, error } = await supabase.from('usuarios').insert([payload]).select('*').single();    if (error) {
       if (error.code === '23505' || String(error.message).includes('duplicate')) {
         return alert(`Ya existe un usuario con PIN ${payload.pin} en ${payload.sucursal_id}.`);
       }
@@ -317,6 +373,13 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     const row = rows.find((r) => r.id === id);
     if (!row) return;
     const sucursal_id = normalizarCodigoTienda(nueva) || 'MAIN';
+    const conflicto = detectarConflictoAltaUsuario(rows, {
+      nombre: row.nombre,
+      sucursal_id,
+      tipo_empleado: 'tienda',
+      excluirId: id,
+    });
+    if (!conflicto.ok && conflicto.tipo === 'activo') return alert(conflicto.error);
     if (confirmar) {
       const origen = etiquetaTienda(row.sucursal_id);
       const destino = etiquetaTienda(sucursal_id);
@@ -516,12 +579,23 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
   };
 
   const renderFilaEmpleado = (r, { soloMain = false } = {}) => (
-    <tr key={r.id} style={r.activo === false ? { opacity: 0.72 } : undefined}>
+    <tr
+      key={r.id}
+      style={{
+        ...(r.activo === false ? { opacity: 0.72 } : {}),
+        ...(idsDuplicadosActivos.has(String(r.id)) ? { background: '#fff8e8' } : {}),
+      }}
+    >
       <td>
         {r.nombre}
         {r.activo === false && (
           <span className="badge" style={{ marginLeft: '0.35rem', background: '#fee2e2', color: '#991b1b' }}>
             Baja
+          </span>
+        )}
+        {idsDuplicadosActivos.has(String(r.id)) && r.activo !== false && (
+          <span className="badge" style={{ marginLeft: '0.35rem', background: '#fef3c7', color: '#92400e' }}>
+            Duplicado
           </span>
         )}
       </td>
@@ -979,6 +1053,42 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
             </label>
           </div>
         </div>
+        {esAdmin && gruposDuplicados.length > 0 && (
+          <div
+            style={{
+              marginBottom: '0.85rem',
+              padding: '0.75rem 0.9rem',
+              borderRadius: 8,
+              border: '1px solid #f0c36d',
+              background: '#fff8e8',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '0.75rem',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div style={{ flex: '1 1 240px' }}>
+              <strong style={{ color: '#8a5a00' }}>
+                {gruposDuplicados.length} empleado{gruposDuplicados.length === 1 ? '' : 's'} repetido{gruposDuplicados.length === 1 ? '' : 's'}
+              </strong>
+              <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.82rem' }}>
+                Misma persona activa más de una vez en la misma tienda
+                {gruposDuplicados.slice(0, 3).map((g) => ` · ${g.nombre} (${etiquetaTienda(g.ambito)})`).join('')}
+                {gruposDuplicados.length > 3 ? '…' : ''}.
+                Depura para dejar una sola ficha (las demás quedan de baja).
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={depurandoDup}
+              onClick={depurarDuplicados}
+            >
+              {depurandoDup ? 'Depurando…' : 'Depurar duplicados'}
+            </button>
+          </div>
+        )}
         <div className="table-wrap">
           <table className="data">
             <thead>

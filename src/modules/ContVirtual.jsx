@@ -55,6 +55,7 @@ import {
 import { cargarReporteProveedoresIeAbarrotes } from '../lib/ieAbarrotesProveedores.js';
 import { hoyYmdNogales, ymdNegocioDesdeIso, fmtYmdEs } from '../lib/corteCaja.js';
 import { darDeBajaUsuarioPosYRh } from '../lib/rhAba3b.js';
+import { detectarConflictoAltaUsuario } from '../lib/usuariosDuplicados.js';
 import BarraDiasMes, { etiquetaPeriodoDias, ymdDiaMes } from '../components/BarraDiasMes.jsx';
 import './ContVirtual.css';
 
@@ -1726,6 +1727,12 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     if (nombre == null) return;
     const n = String(nombre).trim();
     if (!n) return alert('Nombre obligatorio.');
+    const conflicto = detectarConflictoAltaUsuario(usuariosCat || [], {
+      nombre: n,
+      sucursal_id: 'MAIN',
+      tipo_empleado: 'indirecto',
+    });
+    if (!conflicto.ok) return alert(conflicto.error);
     const pin = prompt('PIN de acceso (obligatorio):');
     if (pin == null) return;
     const p = String(pin).trim();
