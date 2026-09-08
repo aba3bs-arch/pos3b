@@ -27,15 +27,21 @@ create table if not exists public.gastos_evidencia (
   rechazado_at timestamptz,
   admin_aprobado_por text,
   admin_aprobado_at timestamptz,
+  pago_recibido boolean default false,
+  pago_recibido_at timestamptz,
+  pago_recibido_por text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
 
--- estados: pendiente | pendiente_amr | sellado | rechazado
--- Gastos AMR: 1.º PIN ABB/JLBB/FJBB → pendiente_amr; 2.º PIN AMR → sellado
+-- estados: pendiente | sellado | rechazado
+-- Al sellar → IE VIRTUAL + registro «Gasto aprobado» para que AMR marque pago recibido
 
 alter table public.gastos_evidencia add column if not exists admin_aprobado_por text;
 alter table public.gastos_evidencia add column if not exists admin_aprobado_at timestamptz;
+alter table public.gastos_evidencia add column if not exists pago_recibido boolean default false;
+alter table public.gastos_evidencia add column if not exists pago_recibido_at timestamptz;
+alter table public.gastos_evidencia add column if not exists pago_recibido_por text;
 
 create index if not exists idx_gastos_evidencia_usuario
   on public.gastos_evidencia (usuario_id, created_at desc);
@@ -45,6 +51,9 @@ create index if not exists idx_gastos_evidencia_estado
 
 create index if not exists idx_gastos_evidencia_fecha
   on public.gastos_evidencia (fecha desc);
+
+create index if not exists idx_gastos_evidencia_pago
+  on public.gastos_evidencia (estado, pago_recibido);
 
 create table if not exists public.gastos_evidencia_archivos (
   id uuid primary key default gen_random_uuid(),
