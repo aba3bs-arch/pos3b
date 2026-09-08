@@ -24,6 +24,10 @@ const DESCRIPCIONES = {
     desc: 'Gastos por turno · Virtual / Garage / Abarrotes',
     ayuda: 'Consolida gastos de corte por turno. Selector de área independiente: Abarrotes, Virtual o Garage (no se mezclan).',
   },
+  'Compras vs inventario': {
+    desc: 'Tickets · ingresos · gastos PROVEEDORES por tienda',
+    ayuda: 'Cruza compras/tickets, ingresos ING/CMP y traspasos trp con gastos de corte. Detecta mercancía no ingresada, gastos faltantes o duplicados y montos descuadrados.',
+  },
   'Registro de gastos': {
     desc: 'Evidencia · aprobar → IE · AMR marca pago recibido',
     ayuda: 'Empleados registran gastos con evidencia. Al aprobar van a IE VIRTUAL y quedan en el espacio de AMR como «Gasto aprobado» para marcar Pago recibido.',

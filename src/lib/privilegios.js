@@ -9,6 +9,7 @@ export const MODULOS_IDS = [
   'Liquidación recolecciones',
   'Conciliaciones',
   'Consolidación',
+  'Compras vs inventario',
   'Registro de gastos',
   'Socio 3B',
   'Corte Virtual',
@@ -84,7 +85,15 @@ export function normalizarListaModulos(lista) {
 }
 
 /** Módulos nuevos que se agregan a listas personalizadas si faltan (una vez). */
-const MODULOS_MIGRA_PRIVILEGIOS = ['Check List', 'Evaluación operativa', 'Consolidación', 'Conciliaciones', 'Registro de gastos', 'Socio 3B'];
+const MODULOS_MIGRA_PRIVILEGIOS = [
+  'Check List',
+  'Evaluación operativa',
+  'Consolidación',
+  'Compras vs inventario',
+  'Conciliaciones',
+  'Registro de gastos',
+  'Socio 3B',
+];
 
 function conModulosMigrados(lista) {
   const set = new Set(normalizarListaModulos(lista));
@@ -96,9 +105,11 @@ function conModulosMigrados(lista) {
     set.has('IE VIRTUAL') ||
     set.has('IE ABARROTES') ||
     set.has('Panel RT') ||
-    set.has('Conciliaciones')
+    set.has('Conciliaciones') ||
+    set.has('Consolidación')
   ) {
     if (VALIDOS.has('Consolidación')) set.add('Consolidación');
+    if (VALIDOS.has('Compras vs inventario')) set.add('Compras vs inventario');
     if (VALIDOS.has('Registro de gastos')) set.add('Registro de gastos');
     if (VALIDOS.has('Socio 3B')) set.add('Socio 3B');
   }
