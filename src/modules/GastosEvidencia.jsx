@@ -5,12 +5,14 @@ import { listarCatalogoContVirtual, filtrarCatalogoPorFlujo } from '../lib/contV
 import { hoyYmdNogales } from '../lib/corteCaja.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import {
+  accionAprobacionGasto,
   adjuntarEvidenciaGasto,
   eliminarArchivoGastoEvidencia,
   eliminarGastoEvidencia,
   etiquetaEstadoGastoEvidencia,
   fmtMontoGastoEvidencia,
   gastoEvidenciaEsDeAmr,
+  gastoPendienteDeAprobacion,
   leerEvidenciaArchivo,
   listarArchivosGastoEvidencia,
   listarGastosEvidencia,
@@ -29,6 +31,7 @@ const COLOR = '#0f766e';
 function colorEstado(estado) {
   if (estado === 'sellado') return '#047857';
   if (estado === 'rechazado') return '#b45309';
+  if (estado === 'pendiente_amr') return '#0369a1';
   return '#b5a642';
 }
 
@@ -123,7 +126,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
     }
   }, [catSel, subs, form.subcategoria_id]);
 
-  const pendientes = useMemo(() => (gastos || []).filter((g) => g.estado === 'pendiente'), [gastos]);
+  const pendientes = useMemo(() => (gastos || []).filter((g) => gastoPendienteDeAprobacion(g)), [gastos]);
   const totalPend = useMemo(() => totalPendienteGastos(gastos), [gastos]);
   const idsSel = useMemo(() => Object.keys(sel).filter((id) => sel[id]), [sel]);
 
@@ -212,16 +215,20 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
     const ids = idsSel.length ? idsSel : pendientes.map((g) => g.id);
     if (!ids.length) return alert('No hay gastos pendientes para aprobar.');
     if (!String(pinPropio || '').trim()) return alert('Indica tu PIN en este dispositivo para aprobar.');
-    if (!confirm(`¿Aprobar ${ids.length} gasto(s) con tu PIN y mandarlos a IE VIRTUAL?`)) return;
+    if (!confirm(`¿Procesar ${ids.length} gasto(s) con tu PIN?`)) return;
     setGuardando(true);
     const r = await sellarGastosEvidencia(supabase, ids, user, { pin: pinPropio });
     setGuardando(false);
-    if (!r.ok && !r.sellados) {
+    if (!r.ok && !r.procesados) {
       setError(r.error || 'No se pudo aprobar.');
       return;
     }
     setPinPropio('');
-    setMsg(`Aprobados: ${r.sellados}${r.fallidos ? ` · fallidos: ${r.fallidos}` : ''}. Ya aparecen en IE VIRTUAL.`);
+    const partes = [];
+    if (r.firmasAdmin) partes.push(`PIN admin: ${r.firmasAdmin} (falta PIN AMR)`);
+    if (r.sellados) partes.push(`A IE: ${r.sellados}`);
+    if (r.fallidos) partes.push(`fallidos: ${r.fallidos}`);
+    setMsg(partes.join(' · ') || 'Listo.');
     setSel({});
     void cargar();
   };
@@ -239,17 +246,22 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
 
   const aprobarUno = async (g) => {
     if (!String(pinPropio || '').trim()) return alert('Indica tu PIN en este dispositivo para aprobar.');
+    const accion = accionAprobacionGasto(user, g);
     setGuardando(true);
     const r = await sellarGastosEvidencia(supabase, [g.id], user, { pin: pinPropio });
     setGuardando(false);
-    if (!r.ok && !r.sellados) return alert(r.error);
+    if (!r.ok && !r.procesados) return alert(r.error);
     setPinPropio('');
-    setMsg('Gasto aprobado → IE VIRTUAL.');
+    if (accion === 'firmar_admin') {
+      setMsg('1.º PIN admin registrado. Falta el PIN de AMR en su dispositivo para ir a IE.');
+    } else {
+      setMsg('Gasto sellado → IE VIRTUAL.');
+    }
     void cargar();
   };
 
   const etiquetaPin = esAmr
-    ? 'Tu PIN de AMR (solo tus gastos)'
+    ? 'Tu PIN de AMR (2.º PIN de tus gastos)'
     : 'Tu PIN (ABB / JLBB / FJBB)';
 
   return (
@@ -257,9 +269,8 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
       <div>
         <h2 style={{ margin: 0, color: COLOR }}>Registro de gastos</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
-          Cada empleado registra gastos con evidencia. Quedan <strong>pendientes</strong> hasta que{' '}
-          <strong>ABB, JLBB o FJBB</strong> los aprueben con su PIN en su dispositivo. Los gastos de{' '}
-          <strong>AMR</strong> solo los aprueba AMR con su PIN.
+          Empleados: aprueba <strong>ABB, JLBB o FJBB</strong> con su PIN → IE. Gastos de <strong>AMR</strong>:
+          requieren <strong>dos PIN</strong> (1.º admin ABB/JLBB/FJBB, 2.º AMR), cada uno en su dispositivo.
         </p>
       </div>
 
@@ -397,7 +408,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
             className={vista === 'pendientes' ? 'btn btn-primary' : 'btn btn-ghost'}
             onClick={() => setVista('pendientes')}
           >
-            {esAmr ? 'Por aprobar (gastos AMR)' : 'Por aprobar (empleados)'}
+            {esAmr ? 'Por aprobar (2.º PIN AMR)' : 'Por aprobar'}
           </button>
         ) : null}
       </div>
@@ -405,12 +416,12 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
       {esAprobador ? (
         <div className="card" style={{ borderTop: '4px solid #0f766e', background: '#f0fdfa' }}>
           <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>
-            {esAmr ? 'Aprobación AMR' : 'Aprobación ABB / JLBB / FJBB'}
+            {esAmr ? '2.º PIN · AMR' : 'PIN admin · ABB / JLBB / FJBB'}
           </h3>
           <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
             {esAmr
-              ? 'Entra con tu usuario en este celular o dispositivo, revisa tus gastos pendientes, escribe tu PIN y aprueba.'
-              : 'Entra con tu usuario (ABB, JLBB o FJBB) en este celular o dispositivo. Escribe tu PIN para sellar gastos de empleados → IE VIRTUAL. Los de AMR los aprueba solo AMR.'}
+              ? 'Después del PIN de un admin, firma aquí con tu PIN para mandar tus gastos a IE VIRTUAL.'
+              : 'Tu PIN en este dispositivo sella gastos de empleados → IE. En gastos de AMR es el 1.º PIN; luego falta el de AMR.'}
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem', alignItems: 'flex-end' }}>
             <label className="muted" style={{ minWidth: 160, flex: '1 1 160px' }}>
@@ -447,8 +458,11 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
         {gastos.map((g) => {
           const archivos = archivosPorGasto[g.id] || [];
           const mios = String(g.usuario_id) === miId;
-          const puedeEditar = g.estado === 'pendiente' && (mios || esAprobador);
-          const puedoAprobarEste = esAprobador && g.estado === 'pendiente' && puedeAprobarGastoEvidencia(user, g);
+          const puedeEditar = gastoPendienteDeAprobacion(g) && (mios || esAprobador);
+          const puedoAprobarEste = esAprobador && puedeAprobarGastoEvidencia(user, g);
+          const accion = puedoAprobarEste ? accionAprobacionGasto(user, g) : null;
+          const textoBoton =
+            accion === 'firmar_admin' ? '1.º PIN admin' : accion === 'firmar_amr' ? '2.º PIN AMR → IE' : 'Aprobar → IE';
           return (
             <div
               key={g.id}
@@ -472,7 +486,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
                     <strong style={{ fontSize: '1.15rem', color: COLOR }}>{fmtMontoGastoEvidencia(g.monto)}</strong>
                     {gastoEvidenciaEsDeAmr(g) ? (
                       <span className="badge" style={{ background: '#0f766e22', color: COLOR }}>
-                        AMR
+                        AMR · 2 PIN
                       </span>
                     ) : null}
                     <span
@@ -498,6 +512,13 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
                   {g.estado === 'rechazado' && g.motivo_rechazo ? (
                     <div style={{ marginTop: '0.35rem', color: '#b45309', fontSize: '0.82rem' }}>
                       Rechazo: {g.motivo_rechazo}
+                    </div>
+                  ) : null}
+                  {g.estado === 'pendiente_amr' && g.admin_aprobado_por ? (
+                    <div className="muted" style={{ marginTop: '0.35rem', fontSize: '0.78rem' }}>
+                      1.º PIN admin: {g.admin_aprobado_por}
+                      {g.admin_aprobado_at ? ` · ${new Date(g.admin_aprobado_at).toLocaleString('es-MX')}` : ''}
+                      {' · '}falta PIN AMR
                     </div>
                   ) : null}
                   {g.estado === 'sellado' ? (
@@ -548,7 +569,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
                         disabled={guardando || !pinPropio.trim()}
                         onClick={() => aprobarUno(g)}
                       >
-                        Aprobar → IE
+                        {textoBoton}
                       </button>
                       <button
                         type="button"
