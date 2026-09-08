@@ -2,6 +2,7 @@ import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda } fr
 import { nombreEsAdminPrincipal, verificarAdminPrincipal } from './adminPrincipal.js';
 import { verificarPinAdministradorGlobal } from './autorizacionTurnoFueraHorario.js';
 import { nombresMismaPersona, resolverTipoEmpleado, puedeAgregarEmpleadoTienda } from './empleadosVisibles.js';
+import { detectarConflictoAltaUsuario } from './usuariosDuplicados.js';
 import { armarExtrasDesdeForm } from './rhIneOcr.js';
 import { normalizarRol } from './roles.js';
 import { pinEsCubreTurnoDeSucursal } from './cubreTurnoSync.js';
@@ -581,6 +582,57 @@ export async function altaEmpleadoRh(supabase, form = {}, { user } = {}) {
   }
 
   const nombre_completo = armarNombreCompleto({ ...form, nombre }) || nombre;
+
+  // Evitar doble expediente activo misma persona/tienda (y alta nueva si ya hay baja → reingreso).
+  {
+    const { data: rhExistentes, error: eRh } = await supabase
+      .from('rh_empleados')
+      .select('id, nombre, apellidos, nombre_completo, estado, sucursal_id, tipo_empleado')
+      .limit(500);
+    if (!eRh && Array.isArray(rhExistentes)) {
+      const ambitoNuevo = tipo === 'indirecto' ? 'MAIN' : sucursal_id;
+      const mismoAmbito = (e) => {
+        const t = normalizarTipo(e.tipo_empleado, e.sucursal_id);
+        const amb = t === 'indirecto' ? 'MAIN' : String(e.sucursal_id || '').toUpperCase();
+        return amb === String(ambitoNuevo || '').toUpperCase();
+      };
+      const hits = rhExistentes.filter(
+        (e) => mismoAmbito(e) && (
+          nombresMismaPersona(nombre_completo, nombreCompletoRh(e))
+          || nombresMismaPersona(nombre, e.nombre)
+        ),
+      );
+      const activo = hits.find((e) => e.estado === 'activo');
+      if (activo) {
+        return {
+          ok: false,
+          error:
+            `Ya existe un expediente activo de ${nombreCompletoRh(activo)} en `
+            + `${etiquetaTienda(ambitoNuevo)}. No crees otro: edita ese o usa Reingreso si estaba de baja.`,
+        };
+      }
+      const baja = hits.find((e) => e.estado === 'baja');
+      if (baja) {
+        return {
+          ok: false,
+          error:
+            `${nombreCompletoRh(baja)} ya tiene expediente (baja). Usa Reingreso en RH ABA3B o Usuarios; no crees un segundo alta.`,
+        };
+      }
+    }
+  }
+
+  const listPos = await listarUsuariosPosParaMatch(supabase);
+  if (listPos.ok) {
+    const conflicto = detectarConflictoAltaUsuario(
+      listPos.usuarios,
+      { nombre: nombre_completo, sucursal_id, tipo_empleado: tipo === 'cubre_turno' ? 'tienda' : tipo },
+    );
+    if (!conflicto.ok) {
+      return { ok: false, error: conflicto.error };
+    }
+  }
+
   const row = {
     nombre,
     apellidos: String(form.apellidos || '').trim() || null,
