@@ -376,8 +376,12 @@ export async function eliminarClienteMaquinas(supabase, cliente, { desactivarUsu
 export async function obtenerClientePorUsuarioId(supabase, usuarioId) {
   const uid = String(usuarioId || '').trim();
   if (!uid) return { data: null };
-  if (!supabase || uid.startsWith('local-')) {
-    const found = leerLocalClientes().find((c) => String(c.usuario_id) === uid && c.activo !== false);
+  if (!supabase || uid.startsWith('local-') || uid.startsWith('socio-')) {
+    const found = leerLocalClientes().find(
+      (c) =>
+        (String(c.usuario_id) === uid || String(c.id) === uid.replace(/^socio-/, '')) &&
+        c.activo !== false,
+    );
     return { data: found || null };
   }
   const { data, error } = await supabase
@@ -401,76 +405,183 @@ export async function obtenerClientePorUsuarioId(supabase, usuarioId) {
   return { data: data || null };
 }
 
-/**
- * Alta de usuario POS con rol Cliente ligado a este cliente máquinas.
- * Sucursal MAIN · tipo indirecto. Solo ve Socio 3B (cortes V/G).
- */
-export async function darAltaUsuarioClienteMaquinas(supabase, cliente, { pin, nombre } = {}) {
-  if (!cliente?.id) return { ok: false, error: 'Cliente inválido.' };
-  const pinStr = String(pin || '').trim();
-  if (pinStr.length < 4) return { ok: false, error: 'El PIN debe tener al menos 4 caracteres.' };
-  const nom = String(nombre || cliente.nombre || '').trim();
-  if (!nom) return { ok: false, error: 'Indica el nombre del usuario.' };
-
-  if (cliente.usuario_id) {
-    return { ok: false, error: 'Este cliente ya tiene un usuario de acceso. Cámbiale el PIN en Usuarios si hace falta.' };
+/** Resuelve el socio ligado a la sesión (por socio_3b_id o usuario_id). */
+export async function obtenerClienteParaSesion(supabase, user) {
+  const socioId = String(user?.socio_3b_id || '').trim();
+  if (socioId) {
+    const r = await obtenerClienteMaquinas(supabase, socioId);
+    if (r.data) return r;
   }
+  return obtenerClientePorUsuarioId(supabase, user?.id);
+}
 
-  const payload = {
-    nombre: nom,
-    pin: pinStr,
+export function esUsuarioSocio3B(user) {
+  if (!user) return false;
+  if (user.socio_3b === true || user.excluir_nomina === true) return true;
+  if (user.socio_3b_id) return true;
+  return String(user?.rol || '').trim().toLowerCase() === 'cliente';
+}
+
+/** Usuario de sesión para login con PIN de Socio 3B (sin RH / sin nómina). */
+export function usuarioSesionDesdeSocio3B(cliente) {
+  if (!cliente?.id) return null;
+  return {
+    id: cliente.usuario_id || `socio-${cliente.id}`,
+    nombre: cliente.nombre || 'Socio 3B',
     rol: 'Cliente',
-    tipo_empleado: 'indirecto',
     sucursal_id: 'MAIN',
     activo: true,
+    tipo_empleado: 'socio_3b',
+    socio_3b: true,
+    socio_3b_id: cliente.id,
+    excluir_nomina: true,
+    pin: cliente.pin_acceso || null,
   };
+}
 
-  if (!supabase) {
-    const uid = `local-u-${Date.now()}`;
+function normalizarPinAcceso(pin) {
+  return String(pin || '').trim().replace(/\s+/g, '');
+}
+
+/**
+ * Guarda PIN de acceso del socio (Configuración → PIN Socio 3B).
+ * No crea usuario RH ni lo mete a nómina.
+ */
+export async function guardarPinAccesoSocio(supabase, clienteId, pinRaw) {
+  if (!clienteId) return { ok: false, error: 'Socio inválido.' };
+  const pin = normalizarPinAcceso(pinRaw);
+  if (pin && pin.length < 4) return { ok: false, error: 'El PIN debe tener al menos 4 caracteres (o vacío para quitarlo).' };
+
+  if (pin && supabase) {
+    const choque = await supabase
+      .from('clientes_maquinas')
+      .select('id,nombre')
+      .eq('pin_acceso', pin)
+      .neq('id', clienteId)
+      .limit(1)
+      .maybeSingle();
+    if (!choque.error && choque.data) {
+      return { ok: false, error: `Ese PIN ya lo usa el socio «${choque.data.nombre}».` };
+    }
+    // También no chocar con usuarios MAIN
+    try {
+      const { pinUsuarioOcupadoEnSucursal } = await import('./usuariosAuth.js');
+      const u = await pinUsuarioOcupadoEnSucursal(supabase, pin, 'MAIN');
+      if (u.ocupado) {
+        return {
+          ok: false,
+          error: `Ese PIN ya lo usa el empleado «${u.usuario?.nombre || 'usuario'}» en MAIN.`,
+        };
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const patch = { pin_acceso: pin || null, updated_at: new Date().toISOString() };
+
+  if (!supabase || String(clienteId).startsWith('local-')) {
     const lista = leerLocalClientes().map((c) =>
-      String(c.id) === String(cliente.id) ? { ...c, usuario_id: uid, updated_at: new Date().toISOString() } : c,
+      String(c.id) === String(clienteId) ? { ...c, ...patch } : c,
     );
     guardarLocalClientes(lista);
     return {
       ok: true,
-      data: { ...payload, id: uid },
-      cliente: lista.find((c) => String(c.id) === String(cliente.id)),
-      soloLocal: true,
-      aviso: AVISO_FALTA_CLIENTES_MAQUINAS,
+      data: lista.find((c) => String(c.id) === String(clienteId)),
+      aviso: !supabase ? AVISO_FALTA_CLIENTES_MAQUINAS : null,
     };
   }
 
-  const { data: userRow, error } = await supabase.from('usuarios').insert([payload]).select('*').single();
+  const { data, error } = await supabase
+    .from('clientes_maquinas')
+    .update(patch)
+    .eq('id', clienteId)
+    .select('*')
+    .single();
   if (error) {
-    if (error.code === '23505' || String(error.message).toLowerCase().includes('duplicate')) {
-      return { ok: false, error: `Ya existe un usuario con PIN ${pinStr} en MAIN.` };
-    }
-    if (String(error.message || '').includes('usuarios_rol_check')) {
+    if (String(error.message || '').toLowerCase().includes('pin_acceso')) {
       return {
         ok: false,
-        error: 'El rol «Cliente» no está permitido en Supabase. Ejecuta supabase/fix_clientes_maquinas_usuario.sql (o fix_usuarios_rol_check.sql).',
+        error: 'Falta la columna pin_acceso. Ejecuta supabase/fix_clientes_maquinas_pin.sql en Supabase.',
+      };
+    }
+    if (error.code === '23505' || String(error.message || '').toLowerCase().includes('duplicate')) {
+      return { ok: false, error: 'Ese PIN ya está asignado a otro socio.' };
+    }
+    if (faltaTabla(error)) {
+      const lista = leerLocalClientes().map((c) =>
+        String(c.id) === String(clienteId) ? { ...c, ...patch } : c,
+      );
+      guardarLocalClientes(lista);
+      return {
+        ok: true,
+        data: lista.find((c) => String(c.id) === String(clienteId)),
+        aviso: AVISO_FALTA_CLIENTES_MAQUINAS,
       };
     }
     return { ok: false, error: error.message };
   }
+  return { ok: true, data };
+}
 
-  const link = await actualizarClienteMaquinas(supabase, cliente.id, { usuario_id: userRow.id });
-  if (!link.ok) {
-    return {
-      ok: false,
-      error: link.error || 'Usuario creado pero no se pudo vincular. Ejecuta fix_clientes_maquinas_usuario.sql.',
-      data: userRow,
-    };
-  }
-  if (String(link.error || '').toLowerCase().includes('usuario_id') || String(link.error || '').includes('column')) {
-    return {
-      ok: false,
-      error: 'Falta la columna usuario_id. Ejecuta supabase/fix_clientes_maquinas_usuario.sql en Supabase.',
-      data: userRow,
-    };
+/** Busca socio activo por PIN de acceso (login). */
+export async function buscarSocioPorPinAcceso(supabase, pinRaw) {
+  const pin = normalizarPinAcceso(pinRaw);
+  if (!pin) return { data: null };
+
+  if (!supabase) {
+    const found = leerLocalClientes().find(
+      (c) => c.activo !== false && normalizarPinAcceso(c.pin_acceso) === pin,
+    );
+    return { data: found || null };
   }
 
-  return { ok: true, data: userRow, cliente: link.data };
+  const { data, error } = await supabase
+    .from('clientes_maquinas')
+    .select('*')
+    .eq('pin_acceso', pin)
+    .eq('activo', true)
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    if (faltaTabla(error)) {
+      const found = leerLocalClientes().find(
+        (c) => c.activo !== false && normalizarPinAcceso(c.pin_acceso) === pin,
+      );
+      return { data: found || null, aviso: AVISO_FALTA_CLIENTES_MAQUINAS };
+    }
+    if (String(error.message || '').toLowerCase().includes('pin_acceso')) {
+      return {
+        data: null,
+        aviso: 'Ejecuta supabase/fix_clientes_maquinas_pin.sql en Supabase para habilitar PIN Socio 3B.',
+      };
+    }
+    return { data: null, error: error.message };
+  }
+  return { data: data || null };
+}
+
+/**
+ * Define PIN de acceso del socio (sin crear usuario de nómina/RH).
+ * Sustituye el alta con rol Cliente en tabla usuarios.
+ */
+export async function darAltaUsuarioClienteMaquinas(supabase, cliente, { pin, nombre } = {}) {
+  if (!cliente?.id) return { ok: false, error: 'Socio inválido.' };
+  const pinStr = normalizarPinAcceso(pin);
+  if (pinStr.length < 4) return { ok: false, error: 'El PIN debe tener al menos 4 caracteres.' };
+  const nom = String(nombre || cliente.nombre || '').trim();
+  if (nom && nom !== cliente.nombre) {
+    await actualizarClienteMaquinas(supabase, cliente.id, { nombre: nom });
+  }
+  const r = await guardarPinAccesoSocio(supabase, cliente.id, pinStr);
+  if (!r.ok) return r;
+  return {
+    ok: true,
+    data: usuarioSesionDesdeSocio3B(r.data),
+    cliente: r.data,
+    aviso: r.aviso || null,
+    sinNomina: true,
+  };
 }
 
 /** Inyecta moneda virtual y registra split en IE VIRTUAL (categoría Clientes). */

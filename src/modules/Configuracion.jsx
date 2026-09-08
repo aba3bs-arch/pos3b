@@ -138,6 +138,12 @@ import SelectorTemaInterfaz from '../components/SelectorTemaInterfaz.jsx';
 import PanelCatalogoIncidencias from '../components/PanelCatalogoIncidencias.jsx';
 import PanelNotificacionesAlertas from '../components/PanelNotificacionesAlertas.jsx';
 import InputPin from '../components/InputPin.jsx';
+import {
+  AVISO_FALTA_CLIENTES_MAQUINAS,
+  codigoSucursalClienteMaquinas,
+  guardarPinAccesoSocio,
+  listarClientesMaquinas,
+} from '../lib/clientesMaquinas.js';
 import SelectorSucursal from '../components/SelectorSucursal.jsx';
 import AdminInventarioCentral from './AdminInventarioCentral.jsx';
 import {
@@ -227,6 +233,13 @@ export default function Configuracion({
   const [pinsCubreCargando, setPinsCubreCargando] = useState(false);
   const [pinCubreEnEdicion, setPinCubreEnEdicion] = useState(null);
   const [nuevoPinCubreDraft, setNuevoPinCubreDraft] = useState('');
+  const [socios3b, setSocios3b] = useState([]);
+  const [socios3bCargando, setSocios3bCargando] = useState(false);
+  const [socios3bAviso, setSocios3bAviso] = useState('');
+  const [pinSocioEnEdicion, setPinSocioEnEdicion] = useState(null);
+  const [nuevoPinSocioDraft, setNuevoPinSocioDraft] = useState('');
+  const [pinsSocioGuardando, setPinsSocioGuardando] = useState(null);
+  const [pinsSocioVisibles, setPinsSocioVisibles] = useState(() => new Set());
   const [pedirPinDesbloqueo, setPedirPinDesbloqueo] = useState(false);
   const [pinDesbloqueoTienda, setPinDesbloqueoTienda] = useState('');
   const [ventanaRec, setVentanaRec] = useState(() => leerVentanaRecoleccion());
@@ -270,6 +283,42 @@ export default function Configuracion({
       ok = false;
     };
   }, [esAdmin, supabase]);
+
+  useEffect(() => {
+    if (!esAdmin || panelCfg !== 'pin_socio_3b') return;
+    let ok = true;
+    setSocios3bCargando(true);
+    listarClientesMaquinas(supabase, { soloActivos: true }).then((r) => {
+      if (!ok) return;
+      setSocios3bCargando(false);
+      setSocios3b(r.data || []);
+      if (r.aviso) setSocios3bAviso(r.aviso);
+      else if (r.error) setSocios3bAviso(r.error);
+      else setSocios3bAviso('');
+    });
+    return () => {
+      ok = false;
+    };
+  }, [esAdmin, supabase, panelCfg]);
+
+  const guardarPinSocio3b = async (socioId, pinRaw) => {
+    setPinsSocioGuardando(socioId);
+    const r = await guardarPinAccesoSocio(supabase, socioId, pinRaw);
+    setPinsSocioGuardando(null);
+    if (!r.ok) {
+      alert(r.error || 'No se pudo guardar el PIN.');
+      return;
+    }
+    if (r.aviso) setSocios3bAviso(r.aviso);
+    setSocios3b((prev) => prev.map((s) => (String(s.id) === String(socioId) ? { ...s, ...r.data } : s)));
+    setPinSocioEnEdicion(null);
+    setNuevoPinSocioDraft('');
+    alert(
+      String(pinRaw || '').trim()
+        ? 'PIN Socio 3B guardado. El socio entra en MAIN con ese PIN (sin nómina).'
+        : 'PIN Socio 3B desactivado.',
+    );
+  };
 
   const guardarPinCubreYSubir = async (tienda, pinRaw) => {
     const p = String(pinRaw ?? '').trim();
@@ -1047,6 +1096,14 @@ export default function Configuracion({
         ayuda: 'Configura el PIN de cubre turno por sucursal (sincronizado en la nube).',
         icon: 'lock',
         color: 'var(--brand-gold)',
+      },
+      esAdmin && {
+        id: 'pin_socio_3b',
+        label: 'PIN Socio 3B',
+        desc: 'PIN de acceso por socio',
+        ayuda: 'PIN para socios externos. Entran solo a Socio 3B (cortes V/G). No van a nómina ni RH.',
+        icon: 'building',
+        color: '#1d4ed8',
       },
       {
         id: 'turnos',
@@ -2685,6 +2742,134 @@ export default function Configuracion({
             <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.82rem' }}>
               Esta tienda ({etiquetaTienda(sucursal)}) tiene PIN de cubre turno activo en la nube.
             </p>
+          )}
+        </div>
+      )}
+
+      {panelCfg === 'pin_socio_3b' && esAdmin && (
+        <div className="card" style={{ borderTop: '4px solid #1d4ed8' }}>
+          <h3 style={{ margin: '0 0 0.5rem', color: '#1d4ed8' }}>PIN Socio 3B</h3>
+          <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
+            PIN de acceso por socio (Contabilidad → Socio 3B). Entran al POS con ese PIN (en MAIN), ven solo sus cortes
+            Virtual y Garage. <strong>No van a nómina ni RH</strong>. Vacío = sin acceso.
+          </p>
+          {socios3bAviso ? (
+            <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.82rem', color: 'var(--brand-gold)' }}>
+              {socios3bAviso}
+            </p>
+          ) : null}
+          {socios3bCargando ? (
+            <p className="muted">Cargando socios…</p>
+          ) : !socios3b.length ? (
+            <p className="muted" style={{ margin: 0 }}>
+              Aún no hay socios. Créalos en Contabilidad → Socio 3B.
+            </p>
+          ) : (
+            <div className="table-wrap" style={{ marginTop: '0.75rem' }}>
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Socio</th>
+                    <th>Espacio</th>
+                    <th>PIN acceso</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {socios3b.map((s) => (
+                    <tr key={s.id}>
+                      <td>
+                        <strong>{s.nombre}</strong>
+                        {s.negocio ? <div className="muted" style={{ fontSize: '0.78rem' }}>{s.negocio}</div> : null}
+                      </td>
+                      <td className="muted" style={{ fontSize: '0.82rem' }}>{codigoSucursalClienteMaquinas(s)}</td>
+                      <td>
+                        {pinSocioEnEdicion === s.id ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
+                            <InputPin
+                              value={nuevoPinSocioDraft}
+                              onChange={(e) => setNuevoPinSocioDraft(e.target.value)}
+                              placeholder="Nuevo PIN o vacío"
+                              autoComplete="off"
+                              name={`pin-socio-edit-${s.id}`}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') void guardarPinSocio3b(s.id, nuevoPinSocioDraft);
+                              }}
+                              style={{ width: '160px', fontSize: '0.95rem', letterSpacing: '0.1em', marginBottom: 0 }}
+                              disabled={pinsSocioGuardando === s.id}
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              style={{ padding: '0.35rem 0.55rem', fontSize: '0.8rem' }}
+                              disabled={Boolean(pinsSocioGuardando)}
+                              onClick={() => void guardarPinSocio3b(s.id, nuevoPinSocioDraft)}
+                            >
+                              {pinsSocioGuardando === s.id ? 'Guardando…' : 'Guardar'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ padding: '0.35rem 0.55rem', fontSize: '0.8rem' }}
+                              disabled={pinsSocioGuardando === s.id}
+                              onClick={() => { setPinSocioEnEdicion(null); setNuevoPinSocioDraft(''); }}
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        ) : (
+                          <span
+                            style={{
+                              fontFamily: 'ui-monospace, monospace',
+                              letterSpacing: pinsSocioVisibles.has(s.id) ? '0.05em' : '0.15em',
+                            }}
+                          >
+                            {s.pin_acceso
+                              ? pinsSocioVisibles.has(s.id)
+                                ? s.pin_acceso
+                                : '••••••'
+                              : '—'}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        {pinSocioEnEdicion !== s.id ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+                            <button
+                              type="button"
+                              className="btn btn-gold"
+                              style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                              onClick={() => {
+                                setPinsSocioVisibles((prev) => {
+                                  const n = new Set(prev);
+                                  if (n.has(s.id)) n.delete(s.id);
+                                  else n.add(s.id);
+                                  return n;
+                                });
+                              }}
+                              disabled={!s.pin_acceso}
+                            >
+                              {pinsSocioVisibles.has(s.id) ? 'Ocultar' : 'Ver PIN'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                              onClick={() => {
+                                setPinSocioEnEdicion(s.id);
+                                setNuevoPinSocioDraft(s.pin_acceso || '');
+                              }}
+                            >
+                              Editar
+                            </button>
+                          </div>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       )}
