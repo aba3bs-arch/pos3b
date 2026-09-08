@@ -377,6 +377,7 @@ En Configuración puedes activar sonido al escanear en Ventas y al pasar el mous
 - Admin, gerente y supervisor pueden cortar cualquier turno
 - Un corte por tienda + fecha + turno
 - **Cancelaciones** devuelven stock al piso y restan del corte
+- Capacitación: menú **Tutorial → Cómo cerrar el corte de caja** (también `docs/TUTORIAL_CORTE_CAJA_POS.md`)
 
 ### 9.4 Inicio — panel operativo
 

@@ -76,6 +76,9 @@ Duración ideal: **2 a 5 minutos** por video.
 
 **Título sugerido:** `02-corte-de-caja.mp4`
 
+> **También en el POS:** Tutorial → *Cómo cerrar el corte de caja* (interactivo).  
+> **Doc con imágenes:** [TUTORIAL_CORTE_CAJA_POS.md](./TUTORIAL_CORTE_CAJA_POS.md)
+
 ### Antes de grabar
 - Ideal: turno con algunas ventas de prueba.
 - Ten el efectivo de caja contado (puede ser un monto inventado para la demo).
