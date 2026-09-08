@@ -153,6 +153,9 @@ export function datosImpresionDesdeHistorial(h, modulo) {
     })(),
     gastos: Array.isArray(d.gastos) ? d.gastos : [],
     es_borrador: false,
+    // Socio 3B: desglose guardado al recolectar (reimpresión con el mismo ticket).
+    pago_cliente: d.pago_cliente || null,
+    etiqueta_cliente: d.etiqueta_cliente || null,
   };
 }
 
