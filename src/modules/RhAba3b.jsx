@@ -9,6 +9,7 @@ import {
   altaEmpleadoRh,
   agregarNotaRh,
   cambiarTiendaDesdeRh,
+  crearOVincularUsuarioPosDesdeRh,
   darDeBajaEmpleadoRh,
   editarEmpleadoRh,
   etiquetaEstadoRh,
@@ -36,6 +37,8 @@ const FORM_VACIO = {
   sucursal_id: '',
   puesto: 'Cajero',
   rol_sistema: 'Cajero',
+  pin: '',
+  nomina_pagador: 'abarrotes',
   fecha_nacimiento: '',
   curp: '',
   rfc: '',
@@ -107,6 +110,7 @@ export default function RhAba3b({ supabase, user, sucursal }) {
   });
   const [nota, setNota] = useState('');
   const [pinAdmin, setPinAdmin] = useState('');
+  const [pinPosReparar, setPinPosReparar] = useState('');
   const [trabajando, setTrabajando] = useState(false);
   const [bajaPickId, setBajaPickId] = useState('');
   const [bajaOrigen, setBajaOrigen] = useState('lista');
@@ -150,6 +154,7 @@ export default function RhAba3b({ supabase, user, sucursal }) {
     const hist = await listarHistorialRh(supabase, id);
     setHistorial(hist.data || []);
     setPinAdmin('');
+    setPinPosReparar('');
     setForm({
       ...FORM_VACIO,
       ...res.empleado,
@@ -207,6 +212,9 @@ export default function RhAba3b({ supabase, user, sucursal }) {
 
   const guardarAlta = async () => {
     if (!puede) return alert('Sin permiso.');
+    if (form.tipo_empleado !== 'cubre_turno' && !String(form.pin || '').trim()) {
+      return alert('Indica el PIN de acceso al POS. Sin PIN no aparece en Usuarios ni en nómina.');
+    }
     setTrabajando(true);
     const res = await altaEmpleadoRh(supabase, form, { user });
     setTrabajando(false);
@@ -215,6 +223,27 @@ export default function RhAba3b({ supabase, user, sucursal }) {
     setVista('lista');
     setForm({ ...FORM_VACIO, sucursal_id: sucursal || '' });
     await cargarListas();
+  };
+
+  const crearAccesoPosDesdeDetalle = async () => {
+    if (!puede || !empleado?.id) return;
+    if (!String(pinPosReparar || '').trim()) {
+      return alert('Escribe el PIN que usará en el POS.');
+    }
+    setTrabajando(true);
+    const res = await crearOVincularUsuarioPosDesdeRh(supabase, empleado, {
+      pin: pinPosReparar,
+      rol: form.rol_sistema || empleado.rol_sistema || 'Cajero',
+      nomina_pagador: form.nomina_pagador || 'abarrotes',
+      user,
+    });
+    setTrabajando(false);
+    if (!res.ok) return alert(res.error);
+    setPinPosReparar('');
+    setMsg(res.mensaje);
+    const refreshed = await obtenerEmpleadoRh(supabase, empleado.id);
+    if (refreshed.ok) setEmpleado(refreshed.empleado);
+    alert(res.mensaje);
   };
 
   const guardarEdicion = async () => {
@@ -650,8 +679,8 @@ export default function RhAba3b({ supabase, user, sucursal }) {
             <button type="button" className="btn btn-ghost" onClick={() => setVista('lista')}>Cancelar</button>
           </div>
           <p className="muted" style={{ margin: '0.5rem 0 0.85rem', fontSize: '0.85rem' }}>
-            Completa nombre y sucursal, luego <strong>Registrar alta</strong>.
-            Si debe entrar al POS, el Administrador le crea el PIN en <strong>Usuarios</strong>.
+            Completa nombre, sucursal y <strong>PIN de acceso POS</strong>, luego <strong>Registrar alta</strong>.
+            Así aparece en <strong>Usuarios</strong> y <strong>nómina</strong>.
             Si es un reingreso, cancela y usa <strong>Cómo reingresar</strong>.
           </p>
           <FormularioRh
@@ -659,6 +688,7 @@ export default function RhAba3b({ supabase, user, sucursal }) {
             setForm={setForm}
             sucursales={form.tipo_empleado === 'indirecto' ? ['MAIN', ...sucOperativas] : sucOperativas}
             roles={ROLES}
+            pedirPinAcceso
           />
           <button type="button" className="btn btn-primary" disabled={trabajando} onClick={guardarAlta} style={{ marginTop: '0.75rem' }}>
             {trabajando ? 'Guardando…' : 'Registrar alta'}
@@ -678,6 +708,11 @@ export default function RhAba3b({ supabase, user, sucursal }) {
                 <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
                   {empleado.folio || '—'} · {etiquetaTipoEmpleadoRh(empleado.tipo_empleado)} · {etiquetaEstadoRh(empleado.estado)}
                   {empleado.estado === 'baja' ? ` · ${empleado.recontratable ? 'Recontratable' : 'No recontratable'}` : ''}
+                  {empleado.estado === 'activo' && empleado.tipo_empleado !== 'cubre_turno' && (
+                    empleado.usuario_id
+                      ? ' · Acceso POS vinculado'
+                      : ' · Sin acceso POS (no aparece en Usuarios/nómina)'
+                  )}
                 </p>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
@@ -711,6 +746,39 @@ export default function RhAba3b({ supabase, user, sucursal }) {
               </div>
             </div>
           </div>
+
+          {empleado.estado === 'activo'
+            && empleado.tipo_empleado !== 'cubre_turno'
+            && !empleado.usuario_id && (
+            <div
+              className="card"
+              style={{ borderLeft: '4px solid #d97706', background: '#fff7ed' }}
+            >
+              <h4 style={{ margin: '0 0 0.35rem', color: '#9a3412' }}>Crear acceso POS</h4>
+              <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: '#7c2d12' }}>
+                Este expediente (p. ej. Angela Esmeralda) está en RH pero <strong>no tiene usuario POS</strong>,
+                por eso no sale en Usuarios ni en nómina. Asigna un PIN y créalo aquí.
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem', alignItems: 'flex-end' }}>
+                <label className="muted" style={{ fontSize: '0.8rem', flex: '1 1 160px' }}>
+                  PIN de acceso
+                  <InputPin
+                    value={pinPosReparar}
+                    onChange={(e) => setPinPosReparar(e.target.value)}
+                    style={{ marginTop: '0.35rem' }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={trabajando || !String(pinPosReparar || '').trim()}
+                  onClick={() => void crearAccesoPosDesdeDetalle()}
+                >
+                  {trabajando ? 'Creando…' : 'Crear acceso POS'}
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="card">
             <h4 style={{ margin: '0 0 0.75rem' }}>Información personal y laboral</h4>
@@ -811,9 +879,10 @@ export default function RhAba3b({ supabase, user, sucursal }) {
   );
 }
 
-function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable = false }) {
+function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable = false, pedirPinAcceso = false }) {
   const set = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
   const esIndirecto = form.tipo_empleado === 'indirecto';
+  const esCubre = form.tipo_empleado === 'cubre_turno';
   const [ocrProg, setOcrProg] = useState(null);
   const [ocrEtapa, setOcrEtapa] = useState('');
   const [ocrMsg, setOcrMsg] = useState('');
@@ -969,6 +1038,22 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
         <option value="">— Rol sistema (opcional) —</option>
         {(roles || []).map((r) => <option key={r} value={r}>{r}</option>)}
       </select>
+      {pedirPinAcceso && !esCubre && (
+        <div>
+          <label className="muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '0.25rem' }}>
+            PIN acceso POS *
+          </label>
+          <InputPin value={form.pin || ''} onChange={(e) => set('pin', e.target.value)} />
+          <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.75rem' }}>
+            Obligatorio: con este PIN entra al sistema y aparece en Usuarios / nómina.
+          </p>
+        </div>
+      )}
+      {pedirPinAcceso && esCubre && (
+        <p className="muted" style={{ margin: 0, fontSize: '0.8rem', gridColumn: '1 / -1' }}>
+          Cubre turnos usa el PIN de cubre de la tienda (Configuración); no se crea usuario POS individual.
+        </p>
+      )}
       <input className="input" type="date" title="Fecha de nacimiento" value={form.fecha_nacimiento || ''} onChange={(e) => set('fecha_nacimiento', e.target.value)} />
       <input className="input" type="date" title="Fecha de alta" value={form.fecha_alta || ''} onChange={(e) => set('fecha_alta', e.target.value)} />
       <input className="input" placeholder="CURP" value={form.curp || ''} onChange={(e) => set('curp', e.target.value)} />
