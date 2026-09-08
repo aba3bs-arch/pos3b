@@ -77,6 +77,91 @@ function MapaHotspots({ imagen, hotspots, activo, onSelect, alt }) {
   );
 }
 
+function EjemploArqueo({ ejemplo }) {
+  const [esperado, setEsperado] = useState(Number(ejemplo.esperado) || 0);
+  const [contado, setContado] = useState(Number(ejemplo.contado) || 0);
+  const diferencia = round2(contado - esperado);
+  const cuadra = Math.abs(diferencia) < 0.01;
+  const sobra = diferencia > 0.01;
+
+  useEffect(() => {
+    setEsperado(Number(ejemplo.esperado) || 0);
+    setContado(Number(ejemplo.contado) || 0);
+  }, [ejemplo]);
+
+  const colorDif = cuadra ? '#2ecc71' : sobra ? '#3b69b5' : '#e74c3c';
+  const etiqueta = cuadra ? '¡Cuadra! Bien hecho.' : sobra ? 'Sobra dinero — anótalo y avisa.' : 'Falta dinero — anótalo y avisa.';
+
+  return (
+    <div className="tut-ejemplo">
+      <h4 className="tut-ejemplo__titulo">{ejemplo.titulo}</h4>
+      <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.85rem' }}>
+        Igual que en pantalla: diferencia = efectivo contado − efectivo esperado.
+      </p>
+      {(ejemplo.presets || []).length > 0 ? (
+        <div className="tut-ejemplo__tabs" role="tablist">
+          {ejemplo.presets.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className="btn btn-ghost"
+              style={{ fontSize: '0.78rem', padding: '0.35rem 0.65rem' }}
+              onClick={() => {
+                setEsperado(Number(p.esperado) || 0);
+                setContado(Number(p.contado) || 0);
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <div className="tut-ejemplo__grid">
+        <div className="tut-ejemplo__campos">
+          <label className="tut-ejemplo__campo">
+            <span>Efectivo esperado (sistema)</span>
+            <input
+              className="input"
+              type="number"
+              step="1"
+              value={esperado}
+              onChange={(e) => setEsperado(e.target.value === '' ? 0 : Number(e.target.value))}
+            />
+          </label>
+          <label className="tut-ejemplo__campo">
+            <span>Efectivo contado (tú)</span>
+            <input
+              className="input"
+              type="number"
+              step="1"
+              value={contado}
+              onChange={(e) => setContado(e.target.value === '' ? 0 : Number(e.target.value))}
+            />
+          </label>
+        </div>
+        <div className="tut-ejemplo__resultado">
+          <div style={{ fontSize: '0.8rem', opacity: 0.9 }}>Diferencia</div>
+          <div style={{ fontSize: '1.9rem', fontWeight: 800, color: colorDif }}>{fmtMx(diferencia)}</div>
+          <p
+            className={cuadra ? undefined : 'tut-ejemplo__alerta'}
+            role="status"
+            style={
+              cuadra
+                ? { margin: '0.5rem 0 0', fontSize: '0.85rem', color: '#2ecc71', fontWeight: 700 }
+                : undefined
+            }
+          >
+            {etiqueta}
+          </p>
+        </div>
+      </div>
+      {ejemplo.explicacion ? (
+        <p className="tut-ejemplo__nota">{renderTexto(ejemplo.explicacion)}</p>
+      ) : null}
+    </div>
+  );
+}
+
 function EjemploCaja({ ejemplo }) {
   const [campos, setCampos] = useState({ ...(ejemplo.campos || {}) });
   const { caja, subtotal } = calcCaja(campos);
@@ -285,6 +370,7 @@ function Seccion({ seccion, tutorial, onHotspot }) {
       ) : null}
 
       {seccion.ejemplo?.tipo === 'caja' ? <EjemploCaja ejemplo={seccion.ejemplo} /> : null}
+      {seccion.ejemplo?.tipo === 'arqueo' ? <EjemploArqueo ejemplo={seccion.ejemplo} /> : null}
       {seccion.quiz?.length ? <QuizBloque quiz={seccion.quiz} /> : null}
 
       {(seccion.notas || []).length > 0 ? (

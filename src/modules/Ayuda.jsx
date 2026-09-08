@@ -127,7 +127,18 @@ const SECCIONES = [
   {
     id: 'corte',
     title: 'Corte de caja',
-    body: 'Al terminar tu turno haz el corte. Solo puedes cerrar el turno que te corresponde (diurno o nocturno). Gerente, supervisor y administrador pueden cortar cualquier turno. Un corte por tienda, fecha y turno.',
+    body: (
+      <>
+        <p style={{ margin: '0 0 0.5rem' }}>
+          Al terminar tu turno haz el corte. Solo puedes cerrar el turno que te corresponde (diurno o nocturno).
+          Gerente, supervisor y administrador pueden cortar cualquier turno. Un corte por tienda, fecha y turno.
+        </p>
+        <p style={{ margin: 0, fontSize: '0.9rem' }}>
+          Guía con imágenes y práctica: menú <strong>Tutorial</strong> → <em>Cómo cerrar el corte de caja</em>.
+          También en docs: <code>TUTORIAL_CORTE_CAJA_POS.md</code>.
+        </p>
+      </>
+    ),
   },
   {
     id: 'productos',

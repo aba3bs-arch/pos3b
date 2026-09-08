@@ -583,6 +583,9 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
             </>
           )}
         </p>
+        <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
+          ¿Primera vez? Abre <strong>Tutorial</strong> → <em>Cómo cerrar el corte de caja</em> (paso a paso con imágenes y práctica).
+        </p>
         {opcionesTurnoConsulta.length > 0 && (
           <div style={{ marginTop: '0.65rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
             <label className="muted" style={{ fontSize: '0.85rem' }}>
