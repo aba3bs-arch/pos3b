@@ -111,6 +111,7 @@ export default function RhAba3b({ supabase, user, sucursal }) {
   const [bajaPickId, setBajaPickId] = useState('');
   const [bajaOrigen, setBajaOrigen] = useState('lista');
   const [reingresoPickId, setReingresoPickId] = useState('');
+  const [reingresoDestino, setReingresoDestino] = useState('');
   const [reingresoOrigen, setReingresoOrigen] = useState('lista');
   const [trasladoPickId, setTrasladoPickId] = useState('');
   const [trasladoDestino, setTrasladoDestino] = useState('');
@@ -254,16 +255,17 @@ export default function RhAba3b({ supabase, user, sucursal }) {
       setVista('recontrata');
       return;
     }
+    const destino = form.sucursal_id || reingresoDestino || emp.sucursal_id;
     if (!confirm(necesitaPin
-      ? `¿Reingresar alta de ${nombreCompletoRh(emp)} con PIN del administrador principal?`
-      : `¿Reingresar alta de ${nombreCompletoRh(emp)}?\n\nVolverá a nómina, turnos y Usuarios.`)) return;
+      ? `¿Reingresar alta de ${nombreCompletoRh(emp)} en ${etiquetaTienda(destino)} con PIN del administrador principal?`
+      : `¿Reingresar alta de ${nombreCompletoRh(emp)} en ${etiquetaTienda(destino)}?\n\nVolverá a nómina, turnos y Usuarios en esa tienda.`)) return;
     setTrabajando(true);
     const res = await recontratarEmpleadoRh(
       supabase,
       id,
       {
         tipo_empleado: form.tipo_empleado || emp.tipo_empleado,
-        sucursal_id: form.sucursal_id || emp.sucursal_id,
+        sucursal_id: destino,
         puesto: form.puesto || emp.puesto,
         salario_diario: form.salario_diario !== '' && form.salario_diario != null ? form.salario_diario : emp.salario_diario,
         fecha_alta: new Date().toISOString().slice(0, 10),
@@ -281,6 +283,7 @@ export default function RhAba3b({ supabase, user, sucursal }) {
     setMsg(res.mensaje);
     setPinAdmin('');
     setReingresoPickId('');
+    setReingresoDestino('');
     setPestana('activos');
     await abrirDetalle(id);
     await cargarListas();
@@ -289,13 +292,32 @@ export default function RhAba3b({ supabase, user, sucursal }) {
   const continuarReingresoDesdeSelector = () => {
     const e = inactivos.find((x) => String(x.id) === String(reingresoPickId));
     if (!e) return alert('Elige el empleado dado de baja.');
+    if (e.tipo_empleado !== 'indirecto' && !reingresoDestino) {
+      return alert('Elige la tienda destino del reingreso.');
+    }
+    const destino = reingresoDestino || e.sucursal_id;
     setReingresoOrigen('lista');
-    void recontratarDirecto(e);
+    setForm((f) => ({
+      ...f,
+      ...e,
+      salario_diario: e.salario_diario ?? '',
+      fecha_alta: new Date().toISOString().slice(0, 10),
+      sucursal_id: destino,
+      tipo_empleado: e.tipo_empleado || 'tienda',
+    }));
+    void recontratarDirecto({
+      ...e,
+      sucursal_id: destino,
+    });
   };
 
   const abrirReingresoDesdeLista = (e) => {
     if (!puede || !e?.id) return;
     if (e.estado !== 'baja') return alert('Este empleado ya está activo.');
+    if (e.tipo_empleado !== 'indirecto' && !reingresoDestino) {
+      setReingresoPickId(String(e.id));
+      return alert('Elige la tienda destino en «Cómo reingresar un empleado» y luego pulsa Reingresar alta.');
+    }
     setReingresoOrigen('lista');
     setReingresoPickId(String(e.id));
     setForm({
@@ -303,8 +325,9 @@ export default function RhAba3b({ supabase, user, sucursal }) {
       ...e,
       salario_diario: e.salario_diario ?? '',
       fecha_alta: new Date().toISOString().slice(0, 10),
+      sucursal_id: reingresoDestino || e.sucursal_id,
     });
-    void recontratarDirecto(e);
+    void recontratarDirecto({ ...e, sucursal_id: reingresoDestino || e.sucursal_id });
   };
 
   const guardarNota = async () => {
@@ -384,7 +407,8 @@ export default function RhAba3b({ supabase, user, sucursal }) {
             <h3 style={{ margin: '0 0 0.5rem' }}>Cómo reingresar un empleado</h3>
             <ol style={{ margin: '0 0 0.85rem', paddingLeft: '1.25rem', fontSize: '0.9rem', lineHeight: 1.55 }}>
               <li>Elige a alguien en <strong>Inactivos / bajas</strong> (no crees un expediente nuevo).</li>
-              <li>Pulsa <strong>Reingresar alta</strong>. Vuelve a nómina, turnos y Usuarios.</li>
+              <li>Elige la <strong>tienda destino</strong> (puede ser distinta a la última donde estuvo).</li>
+              <li>Pulsa <strong>Reingresar alta</strong>. Vuelve a nómina, turnos y Usuarios solo en esa tienda.</li>
               <li>Si está <strong>no recontratable</strong>, captura el PIN del administrador principal.</li>
             </ol>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
@@ -399,9 +423,23 @@ export default function RhAba3b({ supabase, user, sucursal }) {
                   <option value="">— Elige nombre —</option>
                   {inactivos.map((e) => (
                     <option key={e.id} value={e.id}>
-                      {nombreCompletoRh(e)} · {e.sucursal_id ? etiquetaTienda(e.sucursal_id) : '—'}
+                      {nombreCompletoRh(e)} · última: {e.sucursal_id ? etiquetaTienda(e.sucursal_id) : '—'}
                       {e.recontratable === false ? ' · no recontratable' : ''}
                     </option>
+                  ))}
+                </select>
+              </label>
+              <label className="muted" style={{ flex: '1 1 160px', fontSize: '0.8rem' }}>
+                Tienda destino
+                <select
+                  className="select"
+                  style={{ marginTop: '0.35rem' }}
+                  value={reingresoDestino}
+                  onChange={(e) => setReingresoDestino(e.target.value)}
+                >
+                  <option value="">— Elige tienda —</option>
+                  {sucOperativas.map((s) => (
+                    <option key={s} value={s}>{etiquetaTienda(s)}</option>
                   ))}
                 </select>
               </label>
