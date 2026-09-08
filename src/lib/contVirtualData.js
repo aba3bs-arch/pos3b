@@ -335,6 +335,8 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
   }
 
   const todosCierres = (cierresRes.data || []).filter((c) => {
+    // Soft-delete: no reaparecer en IE tras eliminar desde el panel.
+    if (c.deleted_at) return false;
     if (!cuentaFiltro) return true;
     return String(c.modulo || '').toLowerCase() === cuentaFiltro;
   });
