@@ -115,7 +115,7 @@ export const SUBMODULOS_CONTABILIDAD = [
   'Conciliaciones',
   'Consolidación',
   'Registro de gastos',
-  'Clientes máquinas',
+  'Socio 3B',
   'RC Virtual',
   'RC Garage',
   'IE VIRTUAL',
@@ -286,7 +286,7 @@ const ACCESO_POR_ROL = {
     'Conciliaciones',
     'Consolidación',
     'Registro de gastos',
-    'Clientes máquinas',
+    'Socio 3B',
     'RC Virtual',
     'RC Garage',
     'IE VIRTUAL',
@@ -302,8 +302,8 @@ const ACCESO_POR_ROL = {
   ],
   Técnico: ['Inicio', 'Incidencias', 'Checador', 'Check List', 'Tutorial', 'Ayuda'],
   Administrador: [...MODULOS_ORDEN],
-  /** Externos de Contabilidad → Clientes máquinas: solo su módulo (cortes V/G dentro). */
-  Cliente: ['Clientes máquinas'],
+  /** Externos de Contabilidad → Socio 3B: solo su módulo (cortes V/G dentro). */
+  Cliente: ['Socio 3B'],
 };
 
 /** Compatibilidad con filas antiguas en `usuarios.rol` */
@@ -338,6 +338,7 @@ export function normalizarIdModulo(moduloId) {
   if (moduloId === 'Cont Virtual') return 'IE VIRTUAL';
   if (moduloId === 'R Virtual') return 'RC Virtual';
   if (moduloId === 'R Garage') return 'RC Garage';
+  if (moduloId === 'Clientes máquinas') return 'Socio 3B';
   return moduloId;
 }
 
@@ -360,7 +361,7 @@ export function puedeVerModulo(rol, moduloId, userId = null) {
   const r = normalizarRol(rol);
   if (r === 'Administrador') return true;
   // Cliente máquinas: solo ese módulo (bloqueo duro).
-  if (esRolCliente(rol)) return m === 'Clientes máquinas';
+  if (esRolCliente(rol)) return m === 'Socio 3B';
   // Cajero (y roles con plantilla Cajero): bloqueo duro aunque alguien les asigne privilegios.
   if (esRolMostradorRestringido(rol) && MODULOS_BLOQUEADOS_MOSTRADOR.has(m)) return false;
   // Repartidor: bloqueo duro de módulos de caja/oficina (aunque haya privilegios personalizados).
@@ -485,7 +486,7 @@ export function esRolRepartidor(rol) {
   return rolSistemaEfectivo(rol) === 'Repartidor';
 }
 
-/** Cliente externo (máquinas): solo Contabilidad → Clientes máquinas / cortes V·G. */
+/** Cliente externo (máquinas): solo Contabilidad → Socio 3B / cortes V·G. */
 export function esRolCliente(rol) {
   return rolSistemaEfectivo(rol) === 'Cliente';
 }

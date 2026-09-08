@@ -311,7 +311,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
           <div>
             <h3 style={{ margin: 0, color: ACCENT }}>Corte Virtual{etiquetaCliente ? ` · ${etiquetaCliente}` : ''}</h3>
             <p className="muted" style={{ margin: '0.3rem 0 0', fontSize: '0.84rem' }}>
-              {etiquetaCliente ? `Cliente · ${etiquetaCliente}` : etiquetaTienda(sucursal)} · Folio {folio} · {turno}
+              {etiquetaCliente ? `Socio 3B · ${etiquetaCliente}` : etiquetaTienda(sucursal)} · Folio {folio} · {turno}
               {sinAlertas ? ' · Sin alertas' : ''}
             </p>
             <div style={{ marginTop: '0.65rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>

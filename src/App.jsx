@@ -642,7 +642,7 @@ function App() {
       setTelefonoCubre('');
       limpiarAnunciosVistos();
       if (esRolCliente(data.rol)) {
-        setVista('Clientes máquinas');
+        setVista('Socio 3B');
       } else if (puedeVerModulo(data.rol, 'Checador', data.id)) {
         setChecadorPestana('reloj');
         setVista('Checador');
@@ -1329,7 +1329,7 @@ function App() {
               <GastosEvidencia supabase={supabase} user={user} sucursal={sucursal} />
             </>
           )}
-          {vista === 'Clientes máquinas' && (
+          {vista === 'Socio 3B' && (
             <>
               {!esRolCliente(user?.rol) ? (
                 <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />

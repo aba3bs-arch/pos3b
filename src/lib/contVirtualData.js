@@ -376,7 +376,7 @@ export async function cargarContVirtual(supabase, { desde, hasta, sucursal = nul
       porCuenta.clientes[key] = {
         id: key,
         slug,
-        label: `Cliente · ${slug}`,
+        label: `Socio 3B · ${slug}`,
         ingresos: 0,
         egresos: 0,
         neto: 0,

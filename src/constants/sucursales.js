@@ -129,6 +129,10 @@ export function etiquetaTienda(codigo) {
   if (esCentralAdmin(s)) return 'Central de administración (MAIN)';
   if (esAlmacenCentral(s)) return 'CEDIS · almacén central';
   if (s === 'FUSION') return s;
+  if (/^CE-/i.test(s)) {
+    const slug = s.slice(3);
+    return slug ? `Socio 3B · ${slug}` : 'Socio 3B';
+  }
   if (/^3B\d+$/i.test(s)) return `Sucursal ${s}`;
   return s || String(codigo || '');
 }

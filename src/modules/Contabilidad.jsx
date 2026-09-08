@@ -28,9 +28,9 @@ const DESCRIPCIONES = {
     desc: 'Evidencia · aprobar → IE · AMR marca pago recibido',
     ayuda: 'Empleados registran gastos con evidencia. Al aprobar van a IE VIRTUAL y quedan en el espacio de AMR como «Gasto aprobado» para marcar Pago recibido.',
   },
-  'Clientes máquinas': {
-    desc: 'Externos · rol Cliente · cortes V/G · moneda 60/40',
-    ayuda: 'Clientes externos con máquinas. Agrega, elimina y da de alta con rol Cliente (PIN en MAIN). El cliente solo ve este módulo: Corte Virtual y Garage. Moneda virtual (−15% luego 60/40) y recolección a IE VIRTUAL · Clientes.',
+  'Socio 3B': {
+    desc: 'Socios externos · rol Cliente · cortes V/G · moneda 60/40',
+    ayuda: 'Socios externos con máquinas. Agrega, elimina y da de alta con rol Cliente (PIN en MAIN). El socio solo ve este módulo: Corte Virtual y Garage. Moneda virtual (−15% luego 60/40) y recolección a IE VIRTUAL · Socios 3B.',
   },
   'RC Virtual': {
     desc: 'Custodia Virtual → cuenta admin → ABB',
@@ -41,8 +41,8 @@ const DESCRIPCIONES = {
     ayuda: 'Lista recolecciones pendientes de Corte Garage (no agosto 2026 ni las ya en IE VIRTUAL) con monto y recolector.',
   },
   'IE VIRTUAL': {
-    desc: 'Antonio · Virtual + Garage + Clientes máquinas',
-    ayuda: 'Ingresos y egresos de Virtual, Garage y Clientes máquinas (cuenta Antonio). Incluye liberar recolecciones a IE.',
+    desc: 'Antonio · Virtual + Garage + Socio 3B',
+    ayuda: 'Ingresos y egresos de Virtual, Garage y Socio 3B (cuenta Antonio). Incluye liberar recolecciones a IE.',
   },
   'IE ABARROTES': {
     desc: 'Francisco · ingresos, egresos, proveedores y utilidades',

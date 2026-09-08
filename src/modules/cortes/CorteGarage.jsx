@@ -222,7 +222,7 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
           <div>
             <h3 style={{ margin: 0, color: COLOR }}>Corte Garage{etiquetaCliente ? ` · ${etiquetaCliente}` : ''}</h3>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
-              {etiquetaCliente ? `Cliente · ${etiquetaCliente}` : 'Lectura de máquinas'} · Folio {folio} · {turno}
+              {etiquetaCliente ? `Socio 3B · ${etiquetaCliente}` : 'Lectura de máquinas'} · Folio {folio} · {turno}
               {sinAlertas ? ' · Sin alertas' : ''}
             </p>
           </div>

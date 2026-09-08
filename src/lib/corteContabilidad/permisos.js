@@ -82,6 +82,8 @@ export function puedeRecoleccionCortes(rol, userId = null) {
   if (r === 'Administrador') return true;
   // Repartidor (= Recolector) siempre puede recolectar; no depende de quitar privilegios al cajero.
   if (r === 'Repartidor') return true;
+  // Socio 3B (rol Cliente): opera cierre y recolección en su espacio CE-*.
+  if (r === 'Cliente') return true;
   const p = leerPrivilegios();
   const acc = p.acciones?.recoleccion_cortes || {};
   const uid = userId != null ? String(userId) : '';

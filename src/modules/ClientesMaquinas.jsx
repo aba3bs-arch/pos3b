@@ -23,7 +23,7 @@ const COLOR = '#1d4ed8';
  * Rol Cliente: solo ve su propio espacio (cortes V/G).
  */
 export default function ClientesMaquinas({ supabase, user, sucursal }) {
-  const tieneAcceso = puedeVerModulo(user?.rol, 'Clientes máquinas', user?.id);
+  const tieneAcceso = puedeVerModulo(user?.rol, 'Socio 3B', user?.id);
   const esCliente = esRolCliente(user?.rol);
   const esAdminGestion = puedeGestionarUsuarios(user?.rol) || normalizarRol(user?.rol) === 'Gerente';
   const [clientes, setClientes] = useState([]);
@@ -104,7 +104,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
     return (
       <div className="card">
         <p>
-          No tienes acceso a Clientes máquinas. Pide al administrador que active el módulo en Configuración →
+          No tienes acceso a Socio 3B. Pide al administrador que active el módulo en Configuración →
           Privilegios → Contabilidad.
         </p>
       </div>
@@ -315,7 +315,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
           <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
             <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>Usuario rol Cliente</h3>
             <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-              Privilegios fijos: solo el módulo <strong>Clientes máquinas</strong>, y dentro solo Corte Virtual y Corte
+              Privilegios fijos: solo el módulo <strong>Socio 3B</strong>, y dentro solo Corte Virtual y Corte
               Garage de este cliente. Login en tienda <strong>MAIN</strong> con el PIN.
             </p>
             {cliente.usuario_id ? (
@@ -441,10 +441,10 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
-        <h2 style={{ margin: 0, color: COLOR }}>Clientes máquinas</h2>
+        <h2 style={{ margin: 0, color: COLOR }}>Socio 3B</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0' }}>
-          Clientes externos: renta e instalación de máquinas + moneda virtual. Cada cliente tiene su espacio con Corte
-          Virtual, Corte Garage (sin alertas). Puedes eliminar clientes y darlos de alta con rol <strong>Cliente</strong>{' '}
+          Socios externos: renta e instalación de máquinas + moneda virtual. Cada socio tiene su espacio con Corte
+          Virtual, Corte Garage (sin alertas). Puedes eliminar socios y darlos de alta con rol <strong>Cliente</strong>{' '}
           para que entren solo a sus cortes.
         </p>
       </div>
@@ -458,7 +458,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
       {msg ? <p style={{ color: COLOR, fontWeight: 600, margin: 0 }}>{msg}</p> : null}
 
       <form className="card" style={{ borderTop: `4px solid ${COLOR}` }} onSubmit={crear}>
-        <h3 style={{ margin: '0 0 0.65rem', color: COLOR }}>Agregar cliente</h3>
+        <h3 style={{ margin: '0 0 0.65rem', color: COLOR }}>Agregar socio</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.55rem' }}>
           <label className="muted">
             Nombre *
@@ -468,7 +468,7 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
               value={form.nombre}
               onChange={(e) => setForm({ ...form, nombre: e.target.value })}
               style={{ marginTop: '0.25rem' }}
-              placeholder="Nombre del cliente"
+              placeholder="Nombre del socio"
             />
           </label>
           <label className="muted">
@@ -501,16 +501,16 @@ export default function ClientesMaquinas({ supabase, user, sucursal }) {
           </label>
         </div>
         <button type="submit" className="btn btn-success" style={{ marginTop: '0.75rem' }} disabled={guardando}>
-          {guardando ? 'Guardando…' : 'Crear cliente'}
+          {guardando ? 'Guardando…' : 'Crear socio'}
         </button>
       </form>
 
       <div>
-        <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>Clientes ({clientes.length})</h3>
+        <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>Socios ({clientes.length})</h3>
         {cargando ? <p className="muted">Cargando…</p> : null}
         {!cargando && !clientes.length ? (
           <div className="card">
-            <p className="muted" style={{ margin: 0 }}>Aún no hay clientes. Agrega el primero arriba.</p>
+            <p className="muted" style={{ margin: 0 }}>Aún no hay socios. Agrega el primero arriba.</p>
           </div>
         ) : null}
         <div className="subcmd-hub-grid">

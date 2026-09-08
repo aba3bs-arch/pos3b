@@ -1,5 +1,5 @@
 /**
- * Clientes máquinas (externos): renta, moneda virtual 60/40, cortes por cliente.
+ * Socio 3B (externos): renta, moneda virtual 60/40, cortes por cliente.
  * Sucursal sintética CE-{slug} aísla Corte Virtual/Garage sin mezclar con tiendas 3B.
  */
 import { hoyYmdNogales } from './corteCaja.js';
@@ -7,7 +7,7 @@ import { registrarEgresoContVirtual } from './contVirtualEgresos.js';
 import { registrarIngresoContVirtual } from './contVirtualIngresos.js';
 
 export const AVISO_FALTA_CLIENTES_MAQUINAS =
-  'Ejecuta supabase/fix_clientes_maquinas.sql en Supabase para habilitar Clientes máquinas.';
+  'Ejecuta supabase/fix_clientes_maquinas.sql en Supabase para habilitar Socio 3B.';
 
 export const PREFIJO_SUCURSAL_CLIENTE = 'CE-';
 
@@ -204,7 +204,7 @@ export async function registrarPagoClienteRecoleccionIe(supabase, {
     sucursal_id: sucursalId || 'MAIN',
     fecha: hoyYmdNogales(),
     categoria_id: 'clientes-maquinas',
-    categoria_nombre: 'Clientes máquinas',
+    categoria_nombre: 'Socio 3B',
     subcategoria_id: clienteSlug || 'pago-cliente',
     subcategoria_nombre: clienteNombre || 'Cliente',
     detalle_id: 'pago-recoleccion',
@@ -403,7 +403,7 @@ export async function obtenerClientePorUsuarioId(supabase, usuarioId) {
 
 /**
  * Alta de usuario POS con rol Cliente ligado a este cliente máquinas.
- * Sucursal MAIN · tipo indirecto. Solo ve Clientes máquinas (cortes V/G).
+ * Sucursal MAIN · tipo indirecto. Solo ve Socio 3B (cortes V/G).
  */
 export async function darAltaUsuarioClienteMaquinas(supabase, cliente, { pin, nombre } = {}) {
   if (!cliente?.id) return { ok: false, error: 'Cliente inválido.' };
@@ -492,7 +492,7 @@ export async function inyectarMonedaVirtualCliente(supabase, cliente, { montoBas
     sucursal_id: suc,
     fecha,
     categoria_id: 'clientes-maquinas',
-    categoria_nombre: 'Clientes máquinas',
+    categoria_nombre: 'Socio 3B',
     subcategoria_id: cliente.slug,
     subcategoria_nombre: cliente.nombre,
     monto: calc.monto_empresa,
@@ -508,7 +508,7 @@ export async function inyectarMonedaVirtualCliente(supabase, cliente, { montoBas
     sucursal_id: suc,
     fecha,
     categoria_id: 'ing-clientes-maquinas',
-    categoria_nombre: 'Clientes máquinas',
+    categoria_nombre: 'Socio 3B',
     subcategoria_id: cliente.slug,
     subcategoria_nombre: cliente.nombre,
     monto: calc.monto_cliente,
@@ -587,5 +587,5 @@ export function etiquetaSucursalClienteMaquinas(codigo, clientes = []) {
   const slug = slugDesdeSucursalCliente(codigo);
   if (!slug) return null;
   const found = (clientes || []).find((c) => String(c.slug).toLowerCase() === slug);
-  return found ? `Cliente · ${found.nombre}` : `Cliente · ${slug}`;
+  return found ? `Socio 3B · ${found.nombre}` : `Socio 3B · ${slug}`;
 }

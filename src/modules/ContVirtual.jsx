@@ -2484,7 +2484,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
         </div>
         <div className="cv-cuenta-group">
           <div className="hd">
-            <span>Clientes</span>
+            <span>Socios 3B</span>
             <span className="amt">
               {fmtMoney(
                 Object.values(pc.clientes || {}).reduce((a, c) => a + (Number(c.neto) || 0), 0),
@@ -2492,11 +2492,11 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             </span>
           </div>
           <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
-            Se forma con los clientes de Contabilidad → Clientes máquinas. Recolecciones y moneda virtual aparecen aquí.
+            Se forma con los socios de Contabilidad → Socio 3B. Recolecciones y moneda virtual aparecen aquí.
           </p>
           {!Object.keys(pc.clientes || {}).length ? (
             <div className="item">
-              <span className="muted">Sin movimientos de clientes aún</span>
+              <span className="muted">Sin movimientos de socios aún</span>
               <span className="amt">—</span>
             </div>
           ) : (
