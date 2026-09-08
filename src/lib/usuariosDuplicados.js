@@ -21,15 +21,39 @@ export function scoreUsuarioParaConservar(u) {
   let s = 0;
   if (!u) return s;
   if (u.activo !== false) s += 100;
-  if (u.dispositivo_id || u.dispositivo_id_2) s += 40;
+  // Preferir la ficha con equipos vinculados (la que usa la cajera en tienda).
+  if (u.dispositivo_id) s += 50;
+  if (u.dispositivo_id_2) s += 50;
   if (u.pin) s += 10;
-  s += Math.min(String(u.nombre || '').trim().length, 80);
+  const nom = String(u.nombre || '').trim();
+  s += Math.min(nom.length, 80);
+  // Preferir mayúsculas/título y acentos (mejor ortografía) frente a todo minúsculas.
+  if (nom && nom !== nom.toLowerCase()) s += 8;
+  if (/[áéíóúÁÉÍÓÚñÑ]/.test(nom)) s += 4;
   if (u.turno_id || u.turno_horario) s += 5;
   if (u.updated_at) {
     const t = Date.parse(u.updated_at);
     if (!Number.isNaN(t)) s += Math.min(Math.floor(t / 1e10), 20);
   }
   return s;
+}
+
+/** Elige el nombre con mejor presentación entre el grupo (acentos / mayúsculas). */
+export function mejorNombreDelGrupo(usuarios = []) {
+  let best = '';
+  let bestScore = -1;
+  for (const u of usuarios || []) {
+    const nom = String(u?.nombre || '').trim();
+    if (!nom) continue;
+    let s = nom.length;
+    if (nom !== nom.toLowerCase()) s += 20;
+    if (/[áéíóúÁÉÍÓÚñÑ]/.test(nom)) s += 10;
+    if (s > bestScore) {
+      bestScore = s;
+      best = nom;
+    }
+  }
+  return best;
 }
 
 /**
@@ -151,6 +175,16 @@ export async function depurarUsuariosDuplicados(supabase, usuarios = [], { user 
   const errores = [];
 
   for (const g of grupos) {
+    const nombreCanon = mejorNombreDelGrupo(g.todos) || g.conservar.nombre;
+    if (nombreCanon && nombreCanon !== g.conservar.nombre) {
+      const { error: eNom } = await supabase
+        .from('usuarios')
+        .update({ nombre: nombreCanon })
+        .eq('id', g.conservar.id);
+      if (eNom) errores.push(`Nombre ${g.conservar.nombre}: ${eNom.message}`);
+      else g.conservar = { ...g.conservar, nombre: nombreCanon };
+    }
+
     for (const dup of g.duplicados) {
       const { error } = await supabase
         .from('usuarios')
@@ -228,8 +262,9 @@ export function resumenGruposDuplicados(grupos = []) {
   if (!grupos.length) return '';
   return grupos
     .map((g) => {
-      const extras = g.duplicados.map((d) => d.nombre).join(', ');
-      return `${g.nombre} ×${g.todos.length} en ${etiquetaTienda(g.ambito)} (se conserva 1; sobran: ${extras})`;
+      const eq = [g.conservar.dispositivo_id, g.conservar.dispositivo_id_2].filter(Boolean).length;
+      const eqTxt = eq ? ` · se conserva la de ${eq} equipo${eq === 1 ? '' : 's'}` : '';
+      return `${mejorNombreDelGrupo(g.todos) || g.nombre} ×${g.todos.length} en ${etiquetaTienda(g.ambito)}${eqTxt}`;
     })
     .join('\n');
 }
