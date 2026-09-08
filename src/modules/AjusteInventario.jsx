@@ -43,15 +43,28 @@ function claveBorradorMasivo(tipoMov) {
   return tipoMov === 'retiro' ? 'masivo-retiro' : 'masivo';
 }
 
-function lineasMasivasIniciales(modoInicial, sucursalOp, borradorInicial, tipoMov = 'entrada') {
+/**
+ * Líneas iniciales del ingreso/retiro masivo.
+ * Solo restaura borrador si el usuario abrió explícitamente «en espera».
+ * Así cada «Ingreso de inventario» nuevo empieza ticket vacío (otro folio al aplicar).
+ */
+function lineasMasivasIniciales(modoInicial, _sucursalOp, borradorInicial, tipoMov = 'entrada') {
   if (modoInicial !== 'masivo') return [];
   const clave = claveBorradorMasivo(tipoMov);
-  const base =
-    borradorInicial?.tipo === 'masivo' || borradorInicial?.tipo === clave
-      ? borradorInicial
-      : leerBorradorAuto(clave, sucursalOp);
-  if (borradorTieneDatos(base) && Array.isArray(base.lineasMasivas)) return base.lineasMasivas.map((l) => ({ ...l }));
+  if (
+    borradorInicial &&
+    (borradorInicial.tipo === 'masivo' || borradorInicial.tipo === clave) &&
+    Array.isArray(borradorInicial.lineasMasivas)
+  ) {
+    return borradorInicial.lineasMasivas.map((l) => ({ ...l }));
+  }
   return [];
+}
+
+function borradorAutoPendiente(modoInicial, sucursalOp, borradorInicial, tipoMov = 'entrada') {
+  if (modoInicial !== 'masivo' || borradorInicial) return null;
+  const draft = leerBorradorAuto(claveBorradorMasivo(tipoMov), sucursalOp);
+  return borradorTieneDatos(draft) ? draft : null;
 }
 
 export default function AjusteInventario({
@@ -93,10 +106,10 @@ export default function AjusteInventario({
   const [lineasMasivas, setLineasMasivas] = useState(() =>
     lineasMasivasIniciales(modoInicial, sucursalOp, borradorInicial, tipoInicial || 'entrada'),
   );
-  const [avisoMasivoRecuperado, setAvisoMasivoRecuperado] = useState(() => {
-    if (modoInicial !== 'masivo' || borradorInicial) return false;
-    return borradorTieneDatos(leerBorradorAuto(claveBorradorMasivo(tipoInicial || 'entrada'), sucursalOp));
-  });
+  const [avisoMasivoRecuperado, setAvisoMasivoRecuperado] = useState(() => Boolean(borradorInicial));
+  const [borradorPendiente, setBorradorPendiente] = useState(() =>
+    borradorAutoPendiente(modoInicial, sucursalOp, borradorInicial, tipoInicial || 'entrada'),
+  );
   const [busquedaMasiva, setBusquedaMasiva] = useState('');
   const [productoMasivoId, setProductoMasivoId] = useState('');
   const [modalIngreso, setModalIngreso] = useState(null); // { producto, sumarA }
@@ -498,6 +511,7 @@ export default function AjusteInventario({
     }
     eliminarAjusteEnEspera(idAutoBorrador(claveBorradorMasivo(tipoMov), sucursalOp));
     setAvisoMasivoRecuperado(false);
+    setBorradorPendiente(null);
     const lineasPrint = validas.map((l) => {
       const p = (inventario || []).find((x) => String(x.id) === String(l.productoId));
       return { id: l.productoId, nombre: p?.nombre || l.productoId, cantidad: l.cantidad, tipo: tipoMov };
@@ -693,8 +707,58 @@ export default function AjusteInventario({
               <>
                 <strong>SUMAN</strong> al stock actual (0 + 12 = 12; 10 + 12 = 22). No reemplazan la existencia.
                 En MAIN el ingreso va a <strong>CEDIS</strong>; en tienda, al piso.
+                <br />
+                Cada vez que pulsas <strong>Aplicar</strong> se cierra un ticket con su propio folio (ING-…).
+                El siguiente ingreso (otro proveedor / otra hora) genera <strong>otro folio</strong>.
               </>
             )}
+          </p>
+        )}
+        {modo === 'masivo' && borradorPendiente && lineasMasivas.length === 0 && (
+          <p
+            style={{
+              margin: '0.65rem 0 0',
+              padding: '0.55rem 0.65rem',
+              borderRadius: 8,
+              background: 'rgba(180,83,9,0.1)',
+              border: '1px solid rgba(180,83,9,0.4)',
+              fontSize: '0.85rem',
+            }}
+          >
+            Hay {esRetiroMasivo ? 'un retiro' : 'un ingreso'} en espera (
+            {(borradorPendiente.lineasMasivas || []).length} producto(s)
+            {borradorPendiente.savedAt
+              ? ` · ${new Date(borradorPendiente.savedAt).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}`
+              : ''}
+            ). Si lo continúas, todo irá en el <strong>mismo folio</strong>. Para un ticket nuevo, descártalo.
+            <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: '0.35rem', marginLeft: '0.5rem' }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ padding: '0.2rem 0.55rem', fontSize: '0.8rem' }}
+                onClick={() => {
+                  const lines = Array.isArray(borradorPendiente.lineasMasivas)
+                    ? borradorPendiente.lineasMasivas.map((l) => ({ ...l }))
+                    : [];
+                  setLineasMasivas(lines);
+                  setBorradorPendiente(null);
+                  setAvisoMasivoRecuperado(true);
+                }}
+              >
+                Continuar ese ticket
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ padding: '0.2rem 0.55rem', fontSize: '0.8rem' }}
+                onClick={() => {
+                  eliminarAjusteEnEspera(idAutoBorrador(claveBorradorMasivo(tipo), sucursalOp));
+                  setBorradorPendiente(null);
+                }}
+              >
+                Descartar y ticket nuevo
+              </button>
+            </span>
           </p>
         )}
         {modo === 'masivo' && avisoMasivoRecuperado && lineasMasivas.length > 0 && (
@@ -708,7 +772,7 @@ export default function AjusteInventario({
               fontSize: '0.85rem',
             }}
           >
-            Se recuperó {esRetiroMasivo ? 'el retiro' : 'el ingreso'} ({lineasMasivas.length} línea(s)).
+            Continuando ticket en espera ({lineasMasivas.length} línea(s)) — al aplicar compartirán el mismo folio.
             <button type="button" className="btn btn-ghost" style={{ marginLeft: '0.5rem', padding: '0.2rem 0.45rem', fontSize: '0.8rem' }} onClick={() => setAvisoMasivoRecuperado(false)}>
               Entendido
             </button>
@@ -928,8 +992,17 @@ export default function AjusteInventario({
                 : `Aplicar ${esRetiroMasivo ? '−' : '+'}${lineasMasivas.reduce((s, l) => s + (parseCantidadInventario(l.cantidad) || 0), 0)} pieza(s)`}
             </button>
             {lineasMasivas.length > 0 && (
-              <button type="button" className="btn btn-ghost" onClick={() => setLineasMasivas([])}>
-                Vaciar lista
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setLineasMasivas([]);
+                  eliminarAjusteEnEspera(idAutoBorrador(claveBorradorMasivo(tipo), sucursalOp));
+                  setAvisoMasivoRecuperado(false);
+                  setBorradorPendiente(null);
+                }}
+              >
+                Vaciar lista (ticket nuevo)
               </button>
             )}
           </div>

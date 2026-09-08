@@ -14,19 +14,19 @@ const ACCIONES = [
     id: 'ingreso',
     icon: 'plus',
     label: 'Ingreso de inventario',
-    desc: 'Dar entrada a productos en almacén.',
+    desc: 'Dar entrada · cada Aplicar = un folio nuevo (ticket separado).',
   },
   {
     id: 'retiro',
     icon: 'trash',
     label: 'Retiro de inventario',
-    desc: 'Dar salida a productos en almacén.',
+    desc: 'Dar salida · cada Aplicar = un folio nuevo.',
   },
   {
     id: 'espera',
     icon: 'file',
     label: 'Abrir ajuste en espera',
-    desc: 'Continuar ejecutando Ajustes de inventario inconclusos.',
+    desc: 'Continuar un ingreso/retiro inconcluso (mismo ticket/folio).',
   },
 ];
 

@@ -14,8 +14,8 @@ import FiltroPeriodo from '../components/FiltroPeriodo.jsx';
 import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import { enRangoYmd, parseYmd, toYmd } from '../lib/fechas.js';
 import { productoIdsDesdeProveedor } from '../lib/proveedorCatalogo.js';
-import { aplicarMovimientoInventario, folioDesdeCompraId, generarFolioMovimiento } from '../lib/inventarioMovimientos.js';
-import { folioVisibleCompra } from '../lib/foliosInventario.js';
+import { aplicarMovimientoInventario, folioDesdeCompraId } from '../lib/inventarioMovimientos.js';
+import { folioVisibleCompra, generarFolioMovimientoUnico } from '../lib/foliosInventario.js';
 import { pedirFolioEditado, renombrarFolioInventario } from '../lib/folioInventarioEditar.js';
 import { etiquetaTienda, esSucursalNoVenta } from '../constants/sucursales.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
@@ -31,7 +31,8 @@ async function aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, 
   const avisos = [];
   let aplicados = 0;
   let pendientesNube = 0;
-  const folioCompra = (folio && String(folio).trim()) || generarFolioMovimiento('entrada', sucursal);
+  const folioCompra =
+    (folio && String(folio).trim()) || (await generarFolioMovimientoUnico(supabase, 'entrada', sucursal));
   for (const l of items) {
     const r = await aplicarMovimientoInventario(supabase, {
       tipo: 'entrada',
@@ -588,7 +589,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     if (Number.isNaN(totalTicket) || totalTicket < 0) return alert('Total no válido.');
 
     const notas = `Entrega directa · ${notasPedido || proveedorNombre}`.trim();
-    const folioCompra = generarFolioMovimiento('entrada', sucursal);
+    const folioCompra = await generarFolioMovimientoUnico(supabase, 'entrada', sucursal);
     const invPreview = await aplicarInventarioCompra(supabase, items, `${notas} · ${folioCompra}`, {
       sucursal,
       user,

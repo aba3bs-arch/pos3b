@@ -43,6 +43,7 @@ function leerSeqLocal(lsKey, { resetKey = null } = {}) {
 /**
  * Folio único de ingreso/retiro. Incluye el número de sucursal.
  * Formato: ING-5-DDMM-0003 / RET-FUS-DDMM-0003 (día de negocio Hermosillo).
+ * Cada llamada incrementa el consecutivo → un Aplicar = un folio nuevo.
  */
 export function generarFolioMovimiento(tipo = 'entrada', sucursal = '') {
   const esRetiro = String(tipo || '').toLowerCase() === 'retiro';
@@ -57,6 +58,38 @@ export function generarFolioMovimiento(tipo = 'entrada', sucursal = '') {
   const fechaCorta = `${dia}${mes}`;
   const seq = leerSeqLocal(`${baseKey}:${token}`, { resetKey: todayKey });
   return `${prefix}-${token}-${fechaCorta || todayKey.slice(4) || '0000'}-${padSeq(seq)}`;
+}
+
+/**
+ * Genera un folio ING/RET que no exista ya en movimientos_inventario (evita mezclar tickets).
+ * Si no hay supabase, equivale a generarFolioMovimiento.
+ */
+export async function generarFolioMovimientoUnico(supabase, tipo = 'entrada', sucursal = '', { maxIntentos = 25 } = {}) {
+  let folio = generarFolioMovimiento(tipo, sucursal);
+  if (!supabase?.from) return folio;
+
+  for (let i = 0; i < maxIntentos; i += 1) {
+    const variantes = variantesFolioInventario(folio, sucursal);
+    let ocupado = false;
+    for (const v of variantes) {
+      try {
+        const { data, error } = await supabase
+          .from('movimientos_inventario')
+          .select('id')
+          .filter('meta->>folio', 'eq', v)
+          .limit(1);
+        if (!error && Array.isArray(data) && data.length) {
+          ocupado = true;
+          break;
+        }
+      } catch {
+        /* si falla la consulta, usamos el folio local */
+      }
+    }
+    if (!ocupado) return folio;
+    folio = generarFolioMovimiento(tipo, sucursal);
+  }
+  return folio;
 }
 
 /** Folio estable ligado a una compra (misma recepción = mismo folio), distinto por sucursal. */

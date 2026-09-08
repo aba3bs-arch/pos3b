@@ -9,7 +9,7 @@ import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.
 import { costoProveedorUnitario } from './valorInventario.js';
 import { cargarProductoIdsCostoPrecioRuta } from './proveedoresCostoRuta.js';
 import { round2 } from './productoForm.js';
-import { generarFolioMovimiento, folioDesdeCompraId } from './foliosInventario.js';
+import { generarFolioMovimiento, generarFolioMovimientoUnico, folioDesdeCompraId } from './foliosInventario.js';
 
 export { generarFolioMovimiento, folioDesdeCompraId };
 
@@ -689,9 +689,10 @@ export async function aplicarEntradasMasivas(supabase, opts) {
 
   const catalogo = inventarioCompleto || inventario || [];
   const tienda = sucursalOperacion || sucursal;
-  // Un solo folio para toda la lista (aunque haya varios departamentos).
+  // Un folio NUEVO por cada Aplicar (todo el lote comparte ese folio; el siguiente Aplicar otro).
   const folioLote =
-    (folioOpt && String(folioOpt).trim()) || generarFolioMovimiento(tipo, tienda);
+    (folioOpt && String(folioOpt).trim()) ||
+    (await generarFolioMovimientoUnico(supabase, tipo, tienda));
   let log = leerMovimientosLocal();
   let aplicados = 0;
   let piezas = 0;
@@ -701,6 +702,7 @@ export async function aplicarEntradasMasivas(supabase, opts) {
   const detalle = [];
   const productosVivos = new Map(catalogo.map((p) => [String(p.id), { ...p }]));
   const productoIdsCostoRuta = new Set(await cargarProductoIdsCostoPrecioRuta(supabase));
+  const loteId = `lote-${Date.now()}`;
 
   for (const { productoId, cantidad } of lista) {
     let productoOrigen =
@@ -714,7 +716,7 @@ export async function aplicarEntradasMasivas(supabase, opts) {
       productoIdsCostoRuta,
       catalogo,
     });
-    const metaLote = { folio: folioLote, lote: true };
+    const metaLote = { folio: folioLote, lote: true, lote_id: loteId };
     if (costoU > 0) {
       metaLote.precio = costoU;
       metaLote.subtotal = round2(costoU * cantidad);
