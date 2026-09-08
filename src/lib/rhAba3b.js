@@ -562,6 +562,192 @@ export async function listarAdminsParaRecontratacion(supabase) {
   return { ok: true, admins };
 }
 
+/**
+ * Crea o reactiva el usuario POS ligado a un expediente RH.
+ * Sin esto el empleado no aparece en Usuarios ni en nómina.
+ * Cubre turnos: no crea ficha individual (usan PIN de cubre).
+ */
+export async function crearOVincularUsuarioPosDesdeRh(supabase, emp, {
+  pin,
+  rol,
+  nomina_pagador = 'abarrotes',
+  user,
+} = {}) {
+  if (!supabase || !emp?.id) return { ok: false, error: 'Empleado inválido.' };
+  const tipoRh = normalizarTipo(emp.tipo_empleado, emp.sucursal_id);
+  if (tipoRh === 'cubre_turno') {
+    return {
+      ok: true,
+      omitido: true,
+      mensaje: 'Cubre turnos no crea usuario POS individual (usa el PIN de cubre de la tienda).',
+    };
+  }
+
+  const pinNorm = String(pin || '').trim();
+  if (!pinNorm) {
+    return { ok: false, error: 'Indica el PIN de acceso al POS (obligatorio para aparecer en Usuarios y nómina).' };
+  }
+
+  const tipoPos = tipoRh === 'indirecto' ? 'indirecto' : 'tienda';
+  const sucursal_id = sucursalParaTipo(tipoPos, emp.sucursal_id);
+  if (tipoPos === 'tienda' && !sucursal_id) {
+    return { ok: false, error: 'Indica la sucursal del empleado.' };
+  }
+
+  const nombre = nombreCompletoRh(emp);
+  const rolNorm = normalizarRol(rol || emp.rol_sistema || 'Cajero') || 'Cajero';
+
+  const list = await listarUsuariosPosParaMatch(supabase);
+  if (!list.ok) return { ok: false, error: list.error };
+
+  if (emp.usuario_id) {
+    const payload = {
+      nombre,
+      pin: pinNorm,
+      rol: rolNorm,
+      tipo_empleado: tipoPos,
+      sucursal_id,
+      nomina_pagador: nomina_pagador || 'abarrotes',
+      activo: true,
+    };
+    const cubre = await pinEsCubreTurnoDeSucursal(supabase, pinNorm, sucursal_id);
+    if (cubre.coincide) {
+      return {
+        ok: false,
+        error: `Ese PIN es el de cubre turno de ${etiquetaTienda(sucursal_id)}. Elige otro PIN.`,
+      };
+    }
+    const { error } = await supabase.from('usuarios').update(payload).eq('id', emp.usuario_id);
+    if (error) {
+      if (error.code === '23505' || String(error.message).includes('duplicate')) {
+        return { ok: false, error: `Ya existe un usuario con PIN ${pinNorm} en ${etiquetaTienda(sucursal_id)}.` };
+      }
+      return { ok: false, error: error.message };
+    }
+    return {
+      ok: true,
+      usuario: { id: emp.usuario_id, ...payload },
+      creado: false,
+      mensaje: `${nombre} ya tiene acceso POS activo. Aparece en Usuarios y nómina.`,
+    };
+  }
+
+  const conflicto = detectarConflictoAltaUsuario(list.usuarios, {
+    nombre,
+    sucursal_id,
+    tipo_empleado: tipoPos,
+  });
+  if (!conflicto.ok && conflicto.tipo === 'activo') {
+    const match = conflicto.matches?.[0];
+    if (match?.id) {
+      await supabase.from('rh_empleados').update({ usuario_id: match.id, updated_at: new Date().toISOString() }).eq('id', emp.id);
+      await supabase.from('usuarios').update({
+        activo: true,
+        nombre,
+        tipo_empleado: tipoPos,
+        sucursal_id,
+        rol: rolNorm,
+      }).eq('id', match.id);
+      return {
+        ok: true,
+        usuario: match,
+        creado: false,
+        vinculado: true,
+        mensaje: `${nombre} vinculado al usuario POS existente. Ya aparece en Usuarios y nómina.`,
+      };
+    }
+    return { ok: false, error: conflicto.error };
+  }
+
+  if (!conflicto.ok && conflicto.tipo === 'baja' && conflicto.matches?.[0]) {
+    const baja = conflicto.matches[0];
+    const cubre = await pinEsCubreTurnoDeSucursal(supabase, pinNorm, sucursal_id);
+    if (cubre.coincide) {
+      return {
+        ok: false,
+        error: `Ese PIN es el de cubre turno de ${etiquetaTienda(sucursal_id)}. Elige otro PIN.`,
+      };
+    }
+    const { error } = await supabase.from('usuarios').update({
+      nombre,
+      pin: pinNorm,
+      rol: rolNorm,
+      tipo_empleado: tipoPos,
+      sucursal_id,
+      nomina_pagador: nomina_pagador || 'abarrotes',
+      activo: true,
+    }).eq('id', baja.id);
+    if (error) {
+      if (error.code === '23505' || String(error.message).includes('duplicate')) {
+        return { ok: false, error: `Ya existe un usuario con PIN ${pinNorm} en ${etiquetaTienda(sucursal_id)}.` };
+      }
+      return { ok: false, error: error.message };
+    }
+    await supabase.from('rh_empleados').update({ usuario_id: baja.id, updated_at: new Date().toISOString() }).eq('id', emp.id);
+    return {
+      ok: true,
+      usuario: { ...baja, activo: true, pin: pinNorm },
+      creado: false,
+      reactivado: true,
+      mensaje: `${nombre} reactivada en POS. Ya aparece en Usuarios y nómina.`,
+    };
+  }
+
+  if (tipoPos === 'tienda' && rolNorm !== 'Administrador') {
+    const cupo = puedeAgregarEmpleadoTienda(list.usuarios, sucursal_id);
+    if (!cupo.ok) return { ok: false, error: cupo.error };
+  }
+
+  const cubre = await pinEsCubreTurnoDeSucursal(supabase, pinNorm, sucursal_id);
+  if (cubre.coincide) {
+    return {
+      ok: false,
+      error: `Ese PIN es el de cubre turno de ${etiquetaTienda(sucursal_id)}. Elige otro PIN.`,
+    };
+  }
+
+  const payload = {
+    nombre,
+    pin: pinNorm,
+    rol: rolNorm,
+    tipo_empleado: tipoPos,
+    sucursal_id,
+    nomina_pagador: nomina_pagador || 'abarrotes',
+    activo: true,
+  };
+  const { data, error } = await supabase.from('usuarios').insert([payload]).select('*').single();
+  if (error) {
+    if (error.code === '23505' || String(error.message).includes('duplicate')) {
+      return { ok: false, error: `Ya existe un usuario con PIN ${pinNorm} en ${etiquetaTienda(sucursal_id)}.` };
+    }
+    if (String(error.message).includes('activo')) {
+      return { ok: false, error: 'Ejecuta supabase/fix_usuarios_activo.sql en Supabase.' };
+    }
+    return { ok: false, error: error.message };
+  }
+
+  await supabase.from('rh_empleados').update({
+    usuario_id: data.id,
+    updated_at: new Date().toISOString(),
+  }).eq('id', emp.id);
+
+  await registrarMovimiento(supabase, {
+    empleadoId: emp.id,
+    tipo: 'alta',
+    titulo: 'Acceso POS creado desde RH',
+    detalle: `Usuario POS · ${etiquetaTienda(sucursal_id)} · rol ${rolNorm}`,
+    payload: { usuario_id: data.id, sucursal_id, rol: rolNorm },
+    actor: user,
+  });
+
+  return {
+    ok: true,
+    usuario: data,
+    creado: true,
+    mensaje: `${nombre} dado de alta en POS. Ya aparece en Usuarios y nómina.`,
+  };
+}
+
 export async function altaEmpleadoRh(supabase, form = {}, { user } = {}) {
   if (!puedeGestionarRh(user)) {
     return { ok: false, error: 'Solo administrador o gerente pueden dar de alta.' };
@@ -582,6 +768,13 @@ export async function altaEmpleadoRh(supabase, form = {}, { user } = {}) {
   }
 
   const nombre_completo = armarNombreCompleto({ ...form, nombre }) || nombre;
+  const pinAlta = String(form.pin || form.pin_acceso || '').trim();
+  if (tipo !== 'cubre_turno' && !pinAlta) {
+    return {
+      ok: false,
+      error: 'Indica el PIN de acceso al POS. Sin PIN no aparece en Usuarios ni en nómina.',
+    };
+  }
 
   // Evitar doble expediente activo misma persona/tienda (y alta nueva si ya hay baja → reingreso).
   {
@@ -686,7 +879,38 @@ export async function altaEmpleadoRh(supabase, form = {}, { user } = {}) {
     actor: user,
   });
 
-  return { ok: true, empleado: { ...data, folio }, mensaje: `Alta registrada · ${nombre_completo}` };
+  const empConFolio = { ...data, folio };
+  let extraPos = '';
+  if (tipo !== 'cubre_turno') {
+    const pos = await crearOVincularUsuarioPosDesdeRh(supabase, empConFolio, {
+      pin: pinAlta,
+      rol: form.rol_sistema || row.rol_sistema || 'Cajero',
+      nomina_pagador: form.nomina_pagador || 'abarrotes',
+      user,
+    });
+    if (!pos.ok) {
+      return {
+        ok: false,
+        error:
+          `Expediente RH creado (${folio}), pero no se pudo crear el acceso POS: ${pos.error}. `
+          + 'Abre el perfil del empleado y pulsa «Crear acceso POS» con un PIN.',
+        empleado: empConFolio,
+        folio,
+      };
+    }
+    if (pos.usuario?.id) {
+      empConFolio.usuario_id = pos.usuario.id;
+    }
+    extraPos = pos.omitido
+      ? ''
+      : ' Ya aparece en Usuarios y nómina.';
+  }
+
+  return {
+    ok: true,
+    empleado: empConFolio,
+    mensaje: `Alta registrada · ${nombre_completo}.${extraPos}`,
+  };
 }
 
 export async function editarEmpleadoRh(supabase, empleadoId, patch = {}, { user } = {}) {
