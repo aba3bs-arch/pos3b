@@ -23,6 +23,7 @@ import {
   imprimirRecoleccionGarage,
 } from '../../lib/impresionCorteContabilidad.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
+import { actualizarDetalleCierre } from '../../lib/corteContabilidad/store.js';
 import {
   calcularPagoClienteRecoleccion,
   esSucursalClienteMaquinas,
@@ -145,8 +146,32 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
         venta: res.calcImpresion?.venta ?? calc?.venta,
         recoleccion: res.recoleccion,
       });
+      const etiqueta = etiquetaCliente || slugDesdeSucursalCliente(sucursal);
+      // Guardar desglose en el cierre para reimprimir el mismo ticket después.
+      if (res.cierreId) {
+        try {
+          await actualizarDetalleCierre(
+            supabase,
+            res.cierreId,
+            {
+              pago_cliente: pagoCliente,
+              etiqueta_cliente: etiqueta,
+              ticket_socio_3b_guardado_at: new Date().toISOString(),
+            },
+            sucursal,
+            'garage',
+          );
+          if (res.estadoImpresion && typeof res.estadoImpresion === 'object') {
+            res.estadoImpresion.pago_cliente = pagoCliente;
+            res.estadoImpresion.etiqueta_cliente = etiqueta;
+          }
+          await recargar?.();
+        } catch (errDetalle) {
+          console.warn('No se pudo guardar el desglose Socio 3B en el cierre:', errDetalle);
+        }
+      }
       await registrarPagoClienteRecoleccionIe(supabase, {
-        clienteNombre: etiquetaCliente || slugDesdeSucursalCliente(sucursal),
+        clienteNombre: etiqueta,
         clienteSlug: slugDesdeSucursalCliente(sucursal),
         sucursalId: sucursal,
         pago: pagoCliente,
