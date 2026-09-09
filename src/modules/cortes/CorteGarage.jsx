@@ -2,7 +2,6 @@ import React, { useCallback } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
-import CorteNegativoRecuperacion from '../../components/corteContabilidad/CorteNegativoRecuperacion.jsx';
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
 import CampoCorte, { InputCorteInline } from '../../components/corteContabilidad/CampoCorte.jsx';
 import CorteConTeclado from '../../components/corteContabilidad/CorteConTeclado.jsx';
@@ -34,7 +33,7 @@ import {
 
 const COLOR = '#7f8c8d';
 
-export default function CorteGarage({ supabase, sucursal, user, sinAlertas = false, etiquetaCliente = '' }) {
+export default function CorteGarage({ supabase, sucursal, user, sinAlertas: _sinAlertas = false, etiquetaCliente = '' }) {
   const prepararTrasCierre = useCallback((estado, calc, detalleExtra) => {
     return prepararTrasCierreGarage(estado, calc, detalleExtra);
   }, []);
@@ -65,12 +64,6 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
     editarCierreHistorial,
     restaurarCierreHistorial,
     recargar,
-    vistaRecuperacion,
-    puedeAbonarLiquidarPrestamo,
-    puedeGenerarPagareCorte,
-    abonarPrestamoDesdeCorte,
-    liquidarPrestamoDesdeCorte,
-    generarPagareDesdeCorte,
   } = useCorteContabilidad({
     supabase,
     sucursal,
@@ -239,32 +232,12 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
   return (
     <CorteConTeclado accent={COLOR}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      {!sinAlertas ? (
-      <CorteNegativoRecuperacion
-        etiqueta="Garage"
-        negativo={vistaRecuperacion?.negativo}
-        recuperado={vistaRecuperacion?.recuperado}
-        deuda={vistaRecuperacion?.deuda}
-        cajaActual={vistaRecuperacion?.cajaActual ?? calc.cajaActual}
-        visible={vistaRecuperacion?.visible}
-        cubiertoPorVenta={vistaRecuperacion?.cubiertoPorVenta}
-        pendienteCajaRecuperada={vistaRecuperacion?.pendienteCajaRecuperada}
-        avisoEntregarTurno={vistaRecuperacion?.avisoEntregarTurno}
-        esCubreTurno={vistaRecuperacion?.esCubreTurno}
-        puedeAbonarLiquidar={puedeAbonarLiquidarPrestamo}
-        puedeGenerarPagare={puedeGenerarPagareCorte}
-        onAbonar={abonarPrestamoDesdeCorte}
-        onLiquidar={liquidarPrestamoDesdeCorte}
-        onGenerarPagare={generarPagareDesdeCorte}
-      />
-      ) : null}
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <h3 style={{ margin: 0, color: COLOR }}>Corte Garage{etiquetaCliente ? ` · ${etiquetaCliente}` : ''}</h3>
             <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
               {etiquetaCliente ? `Socio 3B · ${etiquetaCliente}` : 'Lectura de máquinas'} · Folio {folio} · {turno}
-              {sinAlertas ? ' · Sin alertas' : ''}
             </p>
           </div>
           {perm.guardar && (

@@ -325,7 +325,7 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
             Pagarés · dinero en negativo pendiente de cobro
           </h4>
           <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.84rem' }}>
-            Se registran al generar Pagaré en el corte (Virtual / Garage / Abarrotes) y al recibir recolecciones en RC Virtual o RC Garage.
+            Se registran al generar Pagaré en Vales y Préstamos → Pagaré, y al recibir recolecciones en RC Virtual o RC Garage.
           </p>
           {cargando ? (
             <p className="muted">Cargando…</p>
