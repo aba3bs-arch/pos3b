@@ -40,6 +40,7 @@ import LiquidacionRecolecciones from './modules/LiquidacionRecolecciones.jsx';
 import Conciliaciones from './modules/Conciliaciones.jsx';
 import Consolidacion from './modules/Consolidacion.jsx';
 import ConsolidacionComprasInventario from './modules/ConsolidacionComprasInventario.jsx';
+import RevisionCompras from './modules/RevisionCompras.jsx';
 import GastosEvidencia from './modules/GastosEvidencia.jsx';
 import ClientesMaquinas from './modules/ClientesMaquinas.jsx';
 import RcVirtual from './modules/RcVirtual.jsx';
@@ -1353,6 +1354,12 @@ function App() {
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
               <ConsolidacionComprasInventario supabase={supabase} user={user} />
+            </>
+          )}
+          {vista === 'Revisión de compras' && (
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <RevisionCompras supabase={supabase} user={user} />
             </>
           )}
           {vista === 'Registro de gastos' && (

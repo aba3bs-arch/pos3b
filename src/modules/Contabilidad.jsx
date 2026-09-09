@@ -28,6 +28,10 @@ const DESCRIPCIONES = {
     desc: 'Tickets · ingresos · gastos PROVEEDORES por tienda',
     ayuda: 'Cruza compras/tickets, ingresos ING/CMP y traspasos trp con gastos de corte. Detecta mercancía no ingresada, gastos faltantes o duplicados y montos descuadrados.',
   },
+  'Revisión de compras': {
+    desc: 'Ticket por ticket · cantidades vs inventario',
+    ayuda: 'Elige un rango de fechas y revisa cada compra: productos del ticket contra lo ingresado. Marca OK o con diferencias.',
+  },
   'Registro de gastos': {
     desc: 'Evidencia · aprobar → IE · AMR marca pago recibido',
     ayuda: 'Empleados registran gastos con evidencia. Al aprobar van a IE VIRTUAL y quedan en el espacio de AMR como «Gasto aprobado» para marcar Pago recibido.',

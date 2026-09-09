@@ -10,6 +10,7 @@ export const MODULOS_IDS = [
   'Conciliaciones',
   'Consolidación',
   'Compras vs inventario',
+  'Revisión de compras',
   'Registro de gastos',
   'Socio 3B',
   'Corte Virtual',
@@ -90,6 +91,7 @@ const MODULOS_MIGRA_PRIVILEGIOS = [
   'Evaluación operativa',
   'Consolidación',
   'Compras vs inventario',
+  'Revisión de compras',
   'Conciliaciones',
   'Registro de gastos',
   'Socio 3B',
@@ -110,6 +112,7 @@ function conModulosMigrados(lista) {
   ) {
     if (VALIDOS.has('Consolidación')) set.add('Consolidación');
     if (VALIDOS.has('Compras vs inventario')) set.add('Compras vs inventario');
+    if (VALIDOS.has('Revisión de compras')) set.add('Revisión de compras');
     if (VALIDOS.has('Registro de gastos')) set.add('Registro de gastos');
     if (VALIDOS.has('Socio 3B')) set.add('Socio 3B');
   }
