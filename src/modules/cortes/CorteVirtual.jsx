@@ -1,7 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
-import CorteNegativoRecuperacion from '../../components/corteContabilidad/CorteNegativoRecuperacion.jsx';
 import CampoCorte from '../../components/corteContabilidad/CampoCorte.jsx';
 import CorteConTeclado from '../../components/corteContabilidad/CorteConTeclado.jsx';
 import CorteVirtualDesgloseModal from '../../components/corteContabilidad/CorteVirtualDesgloseModal.jsx';
@@ -47,7 +46,7 @@ function moneyNum(v) {
   return Number.isFinite(n) ? n : '';
 }
 
-export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sinAlertas = false, etiquetaCliente = '' }) {
+export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sinAlertas: _sinAlertas = false, etiquetaCliente = '' }) {
   const [mostrarDesglose, setMostrarDesglose] = useState(false);
   const [aprobando, setAprobando] = useState(false);
 
@@ -83,12 +82,6 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
     editarGastoEnCierre,
     eliminarGastoEnCierre,
     recargar,
-    vistaRecuperacion,
-    puedeAbonarLiquidarPrestamo,
-    puedeGenerarPagareCorte,
-    abonarPrestamoDesdeCorte,
-    liquidarPrestamoDesdeCorte,
-    generarPagareDesdeCorte,
   } = useCorteContabilidad({
     supabase,
     sucursal,
@@ -315,32 +308,12 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
   return (
     <CorteConTeclado accent={ACCENT}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }} data-corte-form="virtual">
-      {!sinAlertas ? (
-      <CorteNegativoRecuperacion
-        etiqueta="Virtual"
-        negativo={vistaRecuperacion?.negativo}
-        recuperado={vistaRecuperacion?.recuperado}
-        deuda={vistaRecuperacion?.deuda}
-        cajaActual={vistaRecuperacion?.cajaActual ?? calc.cajaActual}
-        visible={vistaRecuperacion?.visible}
-        cubiertoPorVenta={vistaRecuperacion?.cubiertoPorVenta}
-        pendienteCajaRecuperada={vistaRecuperacion?.pendienteCajaRecuperada}
-        avisoEntregarTurno={vistaRecuperacion?.avisoEntregarTurno}
-        esCubreTurno={vistaRecuperacion?.esCubreTurno}
-        puedeAbonarLiquidar={puedeAbonarLiquidarPrestamo}
-        puedeGenerarPagare={puedeGenerarPagareCorte}
-        onAbonar={abonarPrestamoDesdeCorte}
-        onLiquidar={liquidarPrestamoDesdeCorte}
-        onGenerarPagare={generarPagareDesdeCorte}
-      />
-      ) : null}
       <div className="card" style={{ borderTop: `3px solid ${ACCENT}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-start', justifyContent: 'space-between' }}>
           <div>
             <h3 style={{ margin: 0, color: ACCENT }}>Corte Virtual{etiquetaCliente ? ` · ${etiquetaCliente}` : ''}</h3>
             <p className="muted" style={{ margin: '0.3rem 0 0', fontSize: '0.84rem' }}>
               {etiquetaCliente ? `Socio 3B · ${etiquetaCliente}` : etiquetaTienda(sucursal)} · Folio {folio} · {turno}
-              {sinAlertas ? ' · Sin alertas' : ''}
             </p>
             <div style={{ marginTop: '0.65rem', display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
               <span style={{ fontSize: '0.78rem', fontWeight: 700, color: ACCENT, letterSpacing: '0.02em' }}>

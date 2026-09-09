@@ -1299,8 +1299,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Pagarés</h3>
             <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.86rem' }}>
               Registro del dinero en negativo pendiente de cobro por recolectores.
-              El botón <strong>Pagaré</strong> en la alerta de Virtual / Garage / Abarrotes genera el folio y 2 tickets.
-              El cajero solo abona o liquida (sin ticket ni préstamo).
+              Genera el pagaré aquí (folio + 2 tickets). El cajero solo abona o liquida (sin ticket ni préstamo).
+              Ya no hay alerta de recuperación en los cortes Virtual / Garage / Abarrotes.
             </p>
             {puedeGenerarPagare(user?.rol) && (
               <form

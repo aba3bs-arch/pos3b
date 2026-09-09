@@ -2,7 +2,6 @@ import React, { useCallback, useEffect } from 'react';
 import CorteGastosPanel from '../../components/corteContabilidad/CorteGastosPanel.jsx';
 import CorteInversionesPanel from '../../components/corteContabilidad/CorteInversionesPanel.jsx';
 import CorteSucursalAviso from '../../components/corteContabilidad/CorteSucursalAviso.jsx';
-import CorteNegativoRecuperacion from '../../components/corteContabilidad/CorteNegativoRecuperacion.jsx';
 import CorteHistorialImpresion from '../../components/corteContabilidad/CorteHistorialImpresion.jsx';
 import CorteConTeclado from '../../components/corteContabilidad/CorteConTeclado.jsx';
 import { calcularAbarrotes } from '../../lib/corteContabilidad/calc.js';
@@ -35,7 +34,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     caja_actual_manual: '',
   }), []);
 
-  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, historialEliminados, empleados, cerrarCorte, eliminarCierreHistorial, editarCierreHistorial, restaurarCierreHistorial, recargar, vistaRecuperacion, puedeAbonarLiquidarPrestamo, puedeGenerarPagareCorte, abonarPrestamoDesdeCorte, liquidarPrestamoDesdeCorte, generarPagareDesdeCorte } =
+  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, historialEliminados, empleados, cerrarCorte, eliminarCierreHistorial, editarCierreHistorial, restaurarCierreHistorial, recargar } =
     useCorteContabilidad({
     supabase,
     sucursal,
@@ -89,23 +88,6 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
   return (
     <CorteConTeclado accent={COLOR}>
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <CorteNegativoRecuperacion
-        etiqueta="Abarrotes"
-        negativo={vistaRecuperacion?.negativo}
-        recuperado={vistaRecuperacion?.recuperado}
-        deuda={vistaRecuperacion?.deuda}
-        cajaActual={vistaRecuperacion?.cajaActual ?? calc.cajaActual}
-        visible={vistaRecuperacion?.visible}
-        cubiertoPorVenta={vistaRecuperacion?.cubiertoPorVenta}
-        pendienteCajaRecuperada={vistaRecuperacion?.pendienteCajaRecuperada}
-        avisoEntregarTurno={vistaRecuperacion?.avisoEntregarTurno}
-        esCubreTurno={vistaRecuperacion?.esCubreTurno}
-        puedeAbonarLiquidar={puedeAbonarLiquidarPrestamo}
-        puedeGenerarPagare={puedeGenerarPagareCorte}
-        onAbonar={abonarPrestamoDesdeCorte}
-        onLiquidar={liquidarPrestamoDesdeCorte}
-        onGenerarPagare={generarPagareDesdeCorte}
-      />
       <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
