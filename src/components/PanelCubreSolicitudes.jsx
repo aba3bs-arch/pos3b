@@ -6,7 +6,6 @@ import {
   ESTADOS_SOLICITUD_CT,
   aceptarSolicitudCt,
   cancelarSolicitudCt,
-  colorDisponibilidadCt,
   listarCatalogoCt,
   listarSolicitudesCt,
   marcarCumplidaCt,
