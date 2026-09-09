@@ -1051,7 +1051,9 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
       )}
       {pedirPinAcceso && esCubre && (
         <p className="muted" style={{ margin: 0, fontSize: '0.8rem', gridColumn: '1 / -1' }}>
-          Cubre turnos usa el PIN de cubre de la tienda (Configuración); no se crea usuario POS individual.
+          Cubre turnos usa el catálogo independiente (Checador → Cubre turnos).
+          Alta/baja en RH; semáforo verde/rojo; PIN temporal al aceptar una solicitud de tienda.
+          El PIN universal de Configuración sigue como respaldo.
         </p>
       )}
       <input className="input" type="date" title="Fecha de nacimiento" value={form.fecha_nacimiento || ''} onChange={(e) => set('fecha_nacimiento', e.target.value)} />

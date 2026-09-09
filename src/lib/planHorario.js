@@ -397,8 +397,11 @@ function nombreRh(e) {
   return [e?.nombre, e?.apellidos].filter(Boolean).join(' ').trim();
 }
 
-/** CT de RH + empleados de tienda (pueden cubrirse entre sucursales). */
-export function listarCandidatosCt({ usuarios = [], rhCubre = [] } = {}) {
+/** CT de RH (catálogo independiente) — ya no mezcla empleados de planta aquí.
+ * Para disponibilidad verde/rojo usa listarCatalogoCt (cubreSolicitudes.js).
+ * Se mantiene la firma con `usuarios` por compat; se ignoran en el catálogo CT puro.
+ */
+export function listarCandidatosCt({ usuarios = [], rhCubre = [], soloRh = true } = {}) {
   const out = [];
   const seen = new Set();
 
@@ -411,28 +414,32 @@ export function listarCandidatosCt({ usuarios = [], rhCubre = [] } = {}) {
     seen.add(key);
     out.push({
       id: `rh:${e.id}`,
+      rh_id: e.id,
       nombre,
       telefono: String(e.telefono || '').replace(/\D/g, '') || null,
       origen: 'rh',
       sucursal_id: e.sucursal_id || null,
+      extras: e.extras && typeof e.extras === 'object' ? e.extras : {},
     });
   }
 
-  for (const u of usuarios || []) {
-    if (!esEmpleadoDirectoTienda(u)) continue;
-    const nombre = String(u.nombre || '').trim();
-    if (!nombre) continue;
-    const key = nombre.toUpperCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({
-      id: `usr:${u.id}`,
-      nombre,
-      telefono: String(u.telefono || '').replace(/\D/g, '') || null,
-      origen: 'usuario',
-      sucursal_id: u.sucursal_id || null,
-      usuario_id: u.id,
-    });
+  if (!soloRh) {
+    for (const u of usuarios || []) {
+      if (!esEmpleadoDirectoTienda(u)) continue;
+      const nombre = String(u.nombre || '').trim();
+      if (!nombre) continue;
+      const key = nombre.toUpperCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        id: `usr:${u.id}`,
+        nombre,
+        telefono: String(u.telefono || '').replace(/\D/g, '') || null,
+        origen: 'usuario',
+        sucursal_id: u.sucursal_id || null,
+        usuario_id: u.id,
+      });
+    }
   }
 
   out.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
