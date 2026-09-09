@@ -10,7 +10,11 @@ import {
 } from './inventarioMultitienda.js';
 import { etiquetaTienda, equivalentesCodigoTienda, listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { guardarMovimientoLocal, aplicarDeltaStockAtomico } from './inventarioMovimientos.js';
-import { generarFolioTrp, variantesFolioInventario } from './foliosInventario.js';
+import {
+  generarFolioTrp,
+  siguienteFolioTrp,
+  variantesFolioInventario,
+} from './foliosInventario.js';
 
 const LS = 'pos3b_inventario_traspasos';
 
@@ -253,7 +257,7 @@ export async function crearSolicitudTraspaso(supabase, opts = {}) {
 
   const row = {
     id: crypto.randomUUID?.() || `loc-${Date.now()}`,
-    folio: generarFolioTrp(ruta.destino_id),
+    folio: await siguienteFolioTrp(supabase, ruta.destino_id),
     tipo: 'solicitud',
     estado: 'solicitud',
     origen_id: ruta.origen_id,
@@ -322,7 +326,7 @@ export async function enviarTraspaso(supabase, opts = {}) {
     item._productoActualizado = r.producto;
   }
 
-  const folio = generarFolioTrp(ruta.origen_id);
+  const folio = await siguienteFolioTrp(supabase, ruta.origen_id);
   const row = {
     id: crypto.randomUUID?.() || `loc-${Date.now()}`,
     folio,

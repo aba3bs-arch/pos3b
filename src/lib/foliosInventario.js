@@ -2,8 +2,11 @@
  * Folios de inventario por sucursal.
  * Ingresos: ING-{suc}-{DDMM}-####   (3B5 → ING-5-0509-0001)
  * Retiros:  RET-{suc}-{DDMM}-####
- * Compras:  CMP-{suc}-XXXXXXXX
+ * Compras:  CMP-{suc}-XXXXXXXX  (o ING al recibir, mismo consecutivo que ingresos)
  * Traspasos: trp-{suc}-####
+ *
+ * El consecutivo #### es continuo por sucursal (NO reinicia cada día):
+ * si hoy llegaste a 0004, mañana sigue en 0005. Así se puede usar en gastos.
  *
  * Compat: se siguen reconociendo los formatos viejos sin sucursal
  * (ING-DDMM-####, CMP-XXXXXXXX, trp-####).
@@ -22,27 +25,129 @@ function padSeq(n, min = 4) {
   return s.length >= min ? s : s.padStart(min, '0');
 }
 
-function leerSeqLocal(lsKey, { resetKey = null } = {}) {
-  let seq = 1;
+/** Lee el último consecutivo guardado en localStorage (sin incrementar). */
+function peekSeqLocal(lsKey) {
   try {
     const raw = localStorage.getItem(lsKey);
     const prev = raw ? JSON.parse(raw) : {};
-    if (resetKey != null) {
-      if (String(prev.fecha || '') === String(resetKey)) seq = (Number(prev.seq) || 0) + 1;
-    } else {
-      seq = Math.max(1, (Number(prev.seq) || 0) + 1);
+    return Math.max(0, Number(prev.seq) || 0);
+  } catch {
+    return 0;
+  }
+}
+
+/** Fija el consecutivo local a al menos `minSeq` (sin consumir el siguiente). */
+function fijarSeqMinimo(lsKey, minSeq) {
+  const n = Math.max(0, Math.floor(Number(minSeq) || 0));
+  if (n <= 0) return;
+  try {
+    const actual = peekSeqLocal(lsKey);
+    if (n > actual) {
+      localStorage.setItem(lsKey, JSON.stringify({ seq: n }));
     }
-    const payload = resetKey != null ? { fecha: resetKey, seq } : { seq };
-    localStorage.setItem(lsKey, JSON.stringify(payload));
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Consecutivo continuo por llave (sin reinicio diario).
+ * Antes los ingresos/retiros reiniciaban con resetKey=fecha; eso hacía
+ * 0001/0002/0003 todos los días y no servían como referencia en gastos.
+ */
+function leerSeqLocal(lsKey) {
+  let seq = 1;
+  try {
+    const actual = peekSeqLocal(lsKey);
+    seq = actual + 1;
+    localStorage.setItem(lsKey, JSON.stringify({ seq }));
   } catch {
     seq = Math.floor(Math.random() * 9000) + 1;
   }
   return seq;
 }
 
+/** Extrae el número consecutivo de un folio ING/RET/trp (ignora DDMM). */
+export function seqDesdeFolioInventario(folio) {
+  const s = String(folio || '').trim();
+  if (!s) return 0;
+  const mIng = s.match(/^(ING|RET)-(?:[A-Z0-9]+-)?(?:\d{4}|\d{8})-(\d{1,8})$/i);
+  if (mIng) return Math.max(0, parseInt(mIng[2], 10) || 0);
+  const mTrp = s.match(/^trp-(?:[A-Za-z0-9]+-)?(\d{1,8})$/i);
+  if (mTrp) return Math.max(0, parseInt(mTrp[1], 10) || 0);
+  return 0;
+}
+
+/**
+ * Busca en la nube el mayor consecutivo ya usado para ING o RET de esa sucursal.
+ * Así otra caja / caché limpia no vuelve a emitir 0001.
+ */
+async function maxSeqMovimientoNube(supabase, prefix, token) {
+  if (!supabase || !prefix || !token) return 0;
+  let max = 0;
+  const likes = [`${prefix}-${token}-%`, `${prefix}-%`];
+  for (const like of likes) {
+    try {
+      const { data, error } = await supabase
+        .from('movimientos_inventario')
+        .select('meta')
+        .filter('meta->>folio', 'ilike', like)
+        .order('created_at', { ascending: false })
+        .limit(120);
+      if (error) continue;
+      for (const row of data || []) {
+        const folio = String(row?.meta?.folio || '');
+        if (!folio) continue;
+        const up = folio.toUpperCase();
+        const conSuc = up.match(new RegExp(`^${prefix}-${token}-(\\d{4}|\\d{8})-(\\d+)$`, 'i'));
+        if (conSuc) {
+          max = Math.max(max, parseInt(conSuc[2], 10) || 0);
+          continue;
+        }
+        // Formato viejo sin sucursal: ING-DDMM-#### (solo si no trae token de otra tienda)
+        const viejo = up.match(new RegExp(`^${prefix}-(\\d{4}|\\d{8})-(\\d+)$`, 'i'));
+        if (viejo) max = Math.max(max, parseInt(viejo[2], 10) || 0);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return max;
+}
+
+async function maxSeqTraspasoNube(supabase, token) {
+  if (!supabase || !token) return 0;
+  let max = 0;
+  const tok = String(token).toLowerCase();
+  try {
+    const { data, error } = await supabase
+      .from('inventario_traspasos')
+      .select('folio')
+      .ilike('folio', 'trp-%')
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (error || !data) return 0;
+    for (const row of data) {
+      const folio = String(row?.folio || '');
+      const low = folio.toLowerCase();
+      const conSuc = low.match(new RegExp(`^trp-${tok}-(\\d+)$`, 'i'));
+      if (conSuc) {
+        max = Math.max(max, parseInt(conSuc[1], 10) || 0);
+        continue;
+      }
+      const viejo = low.match(/^trp-(\d+)$/i);
+      if (viejo) max = Math.max(max, parseInt(viejo[1], 10) || 0);
+    }
+  } catch {
+    /* ignore */
+  }
+  return max;
+}
+
 /**
  * Folio único de ingreso/retiro. Incluye el número de sucursal.
  * Formato: ING-5-DDMM-0003 / RET-FUS-DDMM-0003 (día de negocio Hermosillo).
+ * El #### es continuo (no reinicia al cambiar de día).
  */
 export function generarFolioMovimiento(tipo = 'entrada', sucursal = '') {
   const esRetiro = String(tipo || '').toLowerCase() === 'retiro';
@@ -55,8 +160,23 @@ export function generarFolioMovimiento(tipo = 'entrada', sucursal = '') {
   const mes = parts?.[2] || '';
   const dia = parts?.[3] || '';
   const fechaCorta = `${dia}${mes}`;
-  const seq = leerSeqLocal(`${baseKey}:${token}`, { resetKey: todayKey });
+  const seq = leerSeqLocal(`${baseKey}:${token}`);
   return `${prefix}-${token}-${fechaCorta || todayKey.slice(4) || '0000'}-${padSeq(seq)}`;
+}
+
+/**
+ * Igual que generarFolioMovimiento, pero primero alinea el consecutivo
+ * con lo ya guardado en la nube (y evita repetir 0001 en otra caja).
+ */
+export async function siguienteFolioMovimiento(supabase, tipo = 'entrada', sucursal = '') {
+  const esRetiro = String(tipo || '').toLowerCase() === 'retiro';
+  const prefix = esRetiro ? 'RET' : 'ING';
+  const token = tokenFolioSucursal(sucursal);
+  const baseKey = esRetiro ? LS_FOLIO_RET : LS_FOLIO_ING;
+  const lsKey = `${baseKey}:${token}`;
+  const maxNube = await maxSeqMovimientoNube(supabase, prefix, token);
+  fijarSeqMinimo(lsKey, maxNube);
+  return generarFolioMovimiento(tipo, sucursal);
 }
 
 /** Folio estable ligado a una compra (misma recepción = mismo folio), distinto por sucursal. */
@@ -91,11 +211,21 @@ export function coincideFolioCompra(compra, folio) {
 /**
  * Folio de traspaso. Incluye el número de la sucursal que lo genera.
  * trp-5-0001 · trp-FUS-0001 · trp-10-0001
+ * Consecutivo continuo (no reinicia por día).
  */
 export function generarFolioTrp(sucursal = '') {
   const token = tokenFolioSucursal(sucursal);
   const seq = leerSeqLocal(`${LS_FOLIO_TRP}:${token}`);
   return `trp-${token}-${padSeq(seq)}`;
+}
+
+/** Alinea el consecutivo de traspaso con la nube y emite el siguiente. */
+export async function siguienteFolioTrp(supabase, sucursal = '') {
+  const token = tokenFolioSucursal(sucursal);
+  const lsKey = `${LS_FOLIO_TRP}:${token}`;
+  const maxNube = await maxSeqTraspasoNube(supabase, token);
+  fijarSeqMinimo(lsKey, maxNube);
+  return generarFolioTrp(sucursal);
 }
 
 /** Normaliza trp-5-20 / trp-20 / 20 → forma canónica. */

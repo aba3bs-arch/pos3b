@@ -10,7 +10,7 @@ import {
   sucursalParaUbicacion,
 } from './inventarioMultitienda.js';
 import { guardarMovimientoLocal, leerMovimientosLocal, parseCantidadInventario, leerProductoInventarioFresco, aplicarDeltaStockAtomico } from './inventarioMovimientos.js';
-import { generarFolioTrp } from './foliosInventario.js';
+import { siguienteFolioTrp } from './foliosInventario.js';
 
 export function stockEnUbicacion(producto, sucursal, ubicacion, sucursalContext) {
   return stockEnUbicacionMt(producto, sucursal, ubicacion, sucursalContext || sucursal);
@@ -219,7 +219,8 @@ export async function aplicarTraspasoUbicacion(supabase, opts) {
 
   const origenTxt = `${etiquetaUbicacion(ruta.ubicacionOrigen, ruta.sucursalOrigen)} · ${etiquetaSucursal(ruta.sucursalOrigen)}`;
   const destTxt = `${etiquetaUbicacion(ruta.ubicacionDestino, ruta.sucursalDestino)} · ${etiquetaSucursal(ruta.sucursalDestino)}`;
-  const folioTrp = folio || generarFolioTrp(ruta.sucursalOrigen || sucursalActiva);
+  const folioTrp =
+    folio || (await siguienteFolioTrp(supabase, ruta.sucursalOrigen || sucursalActiva));
 
   const log = guardarMovimientoLocal({
     tipo: 'traspaso',
@@ -268,7 +269,7 @@ export async function aplicarTraspasosMasivos(supabase, opts) {
   }
   if (!lista.length) return { ok: false, error: 'Agrega al menos un producto con cantidad.' };
 
-  const folio = generarFolioTrp(sucursalOrigen || sucursalActiva);
+  const folio = await siguienteFolioTrp(supabase, sucursalOrigen || sucursalActiva);
   let log = leerMovimientosLocal();
   let aplicados = 0;
   const errores = [];

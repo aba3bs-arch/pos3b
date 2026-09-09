@@ -8,6 +8,7 @@ import {
   normalizarFolioInventario,
   normalizarFolioTrp,
   notasConFolioInv,
+  seqDesdeFolioInventario,
   sugerirFolioConSucursal,
   variantesFolioInventario,
 } from './foliosInventario.js';
@@ -39,6 +40,15 @@ assert.notEqual(ing5a, ing10);
 
 const ret5 = generarFolioMovimiento('retiro', '3B5');
 assert.match(ret5, /^RET-5-\d{4}-0001$/);
+
+// Consecutivo continuo: simula “cambio de día” guardando seq sin fecha de reinicio.
+// Si hoy llegó a 0004, el siguiente debe ser 0005 (no volver a 0001).
+store.set('pos3b_folio_ingreso_seq:5', JSON.stringify({ seq: 4, fecha: '20260101' }));
+const ingContinua = generarFolioMovimiento('entrada', '3B5');
+assert.match(ingContinua, /^ING-5-\d{4}-0005$/);
+assert.equal(seqDesdeFolioInventario(ingContinua), 5);
+assert.equal(seqDesdeFolioInventario('ING-5-0809-0004'), 4);
+assert.equal(seqDesdeFolioInventario('trp-10-0020'), 20);
 
 const id = 'a1b2c3d4-1111-2222-3333-444444444444';
 assert.equal(folioDesdeCompraId(id, '3B5'), 'CMP-5-A1B2C3D4');
