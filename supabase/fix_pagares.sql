@@ -61,6 +61,10 @@ alter table public.pagares add column if not exists rc_monto numeric(12, 2);
 alter table public.pagares add column if not exists notas text;
 
 comment on table public.pagares is
-  'Pagarés por negativo de corte (virtual/garage/abarrotes). Genera ticket x2; abono/liquidación de cajero sin ticket.';
+  'Pagarés por sucursal. Cajero abona/liquida; Luis Enrique/AMR/ABB/JLBB/FBBB recolectan → RC Virtual.';
 comment on column public.pagares.estado is
-  'abierto | parcial | liquidado | por_recolectar | recolectado';
+  'abierto | parcial | por_recolectar | recolectado | liquidado | cancelado';
+comment on column public.pagares.liquidado_por is
+  'Cajero (u admin/gerente) que liquidó y dejó el total listo para recolección.';
+comment on column public.pagares.rc_recibido_por is
+  'Quién recolectó el pagaré (Luis Enrique / AMR / ABB / JLBB / FBBB).';

@@ -78,15 +78,22 @@ import {
   AVISO_FALTA_PAGARES,
   ETIQUETA_AREA_PAGARE,
   abonarPagare,
+  etiquetaEstadoPagare,
   liquidarPagare,
   listarPagares,
+  pagarePendienteCajero,
+  pagarePendienteRecoleccion,
   pagareEstaAbierto,
   puedeAbonarLiquidarPagare,
   puedeGenerarPagare,
+  puedeRecolectarPagare,
+  recolectarPagare,
   registrarPagare,
   saldoPagare,
+  montoPendienteRecoleccion,
   textoPagare,
 } from '../lib/pagares.js';
+import { etiquetaTienda, listarSucursalesOperativas, listarSucursalesParaUI } from '../constants/sucursales.js';
 import {
   AVISO_FALTA_RIFS,
   abonarRif,
@@ -116,7 +123,6 @@ import {
   prestamoEmpleadoOmiteCorte,
 } from '../lib/empleadosVisibles.js';
 import { tiendaPuedeGenerarVales } from '../lib/posConfig.js';
-import { etiquetaTienda, listarSucursalesOperativas } from '../constants/sucursales.js';
 import PanelAsistenciaGasolina from '../components/PanelAsistenciaGasolina.jsx';
 import SelectorCalendario from '../components/SelectorCalendario.jsx';
 import InputPin from '../components/InputPin.jsx';
@@ -198,15 +204,18 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const [horaLimiteVale, setHoraLimiteVale] = useState(() => etiquetaHoraLimiteVale());
   const [pagareForm, setPagareForm] = useState({
     area: 'virtual',
+    sucursal_id: '',
     monto: '',
     cajero_nombre: '',
     turno_nombre: '',
   });
+  const [filtroPagareSucursal, setFiltroPagareSucursal] = useState('');
 
   const rolNorm = normalizarRol(user?.rol);
   const esAdmin = rolNorm === 'Administrador';
   const esGerente = rolNorm === 'Gerente';
   const esRepartidor = rolNorm === 'Repartidor';
+  const esCajero = rolNorm === 'Cajero';
   const esMain = String(sucursal || '').toUpperCase() === 'MAIN';
   const puedeGenerarVales = tiendaPuedeGenerarVales(sucursal);
   const esSocio = esSocioAprobadorPrestamo(user?.nombre);
@@ -221,6 +230,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     && !esUsuarioCubreTurno(user);
   const puedeAbonarLiquidarPagaresUi = puedeAbonarLiquidarPagare(user?.rol, user)
     && !esUsuarioCubreTurno(user);
+  const puedeRecolectarPagaresUi = puedeRecolectarPagare(user);
+  /** Cajero: solo Abonar / Liquidar en pagarés (sin generar ni recolectar). */
+  const puedeGenerarPagaresUi = puedeGenerarPagare(user?.rol) && !esCajero;
   /** Recolectar préstamo área → RC Virtual: admin, gerente o repartidor. */
   const puedeRecolectarPrestamoArea = puedeRecolectarPrestamoInterareaRc(user?.rol);
   /** Eliminar RIF/préstamos: admin o gerente (corte abierto validado en lib). */
@@ -245,6 +257,21 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   /** El admin elige siempre el corte; ya no se toma del beneficiario. */
   const areaCorteVale = valeForm.areaCorte || null;
   const sucursalesDestinoVale = useMemo(() => listarSucursalesOperativas(), []);
+  const sucursalesPagare = useMemo(() => listarSucursalesParaUI(), []);
+  const filtroPagareEfectivo = filtroPagareSucursal || (esMain || vePendientesTodasTiendas ? '' : sucursal);
+  const pagaresPorSucursal = useMemo(() => {
+    const rows = (pagares || []).filter((p) => {
+      if (!filtroPagareEfectivo) return true;
+      return String(p.sucursal_id || '').toUpperCase() === String(filtroPagareEfectivo).toUpperCase();
+    });
+    const map = new Map();
+    for (const p of rows) {
+      const key = String(p.sucursal_id || 'SIN').toUpperCase();
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(p);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [pagares, filtroPagareEfectivo]);
   const empPrestamoSel = useMemo(
     () => empleadosPrestamo.find((e) => String(e.id) === String(prestEmpForm.usuarioId)) || null,
     [empleadosPrestamo, prestEmpForm.usuarioId],
@@ -1283,7 +1310,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           <button key={p} type="button" className={`btn ${pestana === p ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPestana(p)}>
             {p === 'vales' && 'Vales'}
             {p === 'rif' && `RIF · fondos (${rifs.filter((r) => r.estado === 'abierto').length})`}
-            {p === 'pagare' && `Pagaré (${pagares.filter((x) => pagareEstaAbierto(x)).length})`}
+            {p === 'pagare' && `Pagaré (${pagares.filter((x) => pagareEstaAbierto(x) || pagarePendienteRecoleccion(x)).length})`}
             {p === 'prestamos' && 'Préstamos área / sucursal'}
             {p === 'prestamos_emp' && 'Préstamos empleados'}
             {p === 'tipos' && 'Tipos de vale'}
@@ -1296,24 +1323,45 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       {pestana === 'pagare' && (
         <>
           <div className="card">
-            <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Pagarés</h3>
+            <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Pagarés por sucursal</h3>
             <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.86rem' }}>
-              Registro del dinero en negativo pendiente de cobro por recolectores.
-              Genera el pagaré aquí (folio + 2 tickets). El cajero solo abona o liquida (sin ticket ni préstamo).
-              Ya no hay alerta de recuperación en los cortes Virtual / Garage / Abarrotes.
+              1) Generar pagaré (admin / gerente / recolector) · 2) Cajero <strong>Abona</strong> (descuenta)
+              o <strong>Liquida</strong> (deja el total listo) · 3) Luis Enrique / AMR / ABB / JLBB / FBBB
+              pulsan <strong>Recolectar</strong> → queda en RC Virtual → Pagaré.
             </p>
-            {puedeGenerarPagare(user?.rol) && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: '0.85rem' }}>
+              <label className="muted" style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                Sucursal
+                <select
+                  className="select"
+                  value={filtroPagareEfectivo || ''}
+                  onChange={(e) => setFiltroPagareSucursal(e.target.value)}
+                >
+                  {(esMain || vePendientesTodasTiendas) && <option value="">Todas</option>}
+                  {sucursalesPagare.map((s) => (
+                    <option key={s} value={s}>{etiquetaTienda(s)}</option>
+                  ))}
+                </select>
+              </label>
+              <span className="muted" style={{ fontSize: '0.8rem' }}>
+                {pagaresPorSucursal.reduce((n, [, list]) => n + list.length, 0)} registro(s)
+                {filtroPagareEfectivo ? ` · ${etiquetaTienda(filtroPagareEfectivo)}` : ''}
+              </span>
+            </div>
+            {puedeGenerarPagaresUi && (
               <form
-                style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', marginBottom: '1rem' }}
+                style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', marginBottom: '1rem' }}
                 onSubmit={async (e) => {
                   e.preventDefault();
                   const monto = parseFloat(String(pagareForm.monto).replace(',', '.'));
                   if (!(monto > 0)) return alert('Monto inválido.');
+                  const sucPag = pagareForm.sucursal_id || filtroPagareEfectivo || sucursal;
+                  if (!sucPag) return alert('Elige la sucursal del pagaré.');
                   const res = await registrarPagare(
                     supabase,
                     {
                       area: pagareForm.area,
-                      sucursal_id: sucursal,
+                      sucursal_id: sucPag,
                       monto,
                       cajero_nombre: pagareForm.cajero_nombre.trim() || user?.nombre || null,
                       turno_nombre: pagareForm.turno_nombre.trim() || null,
@@ -1327,11 +1375,31 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   } catch {
                     /* ignore */
                   }
-                  setPagareForm({ area: pagareForm.area, monto: '', cajero_nombre: '', turno_nombre: '' });
+                  setPagareForm({
+                    area: pagareForm.area,
+                    sucursal_id: pagareForm.sucursal_id,
+                    monto: '',
+                    cajero_nombre: '',
+                    turno_nombre: '',
+                  });
                   alert(res.mensaje || 'Pagaré registrado.');
                   recargarTodo();
                 }}
               >
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Sucursal
+                  <select
+                    className="select"
+                    style={{ marginTop: 4 }}
+                    value={pagareForm.sucursal_id || filtroPagareEfectivo || sucursal || ''}
+                    onChange={(e) => setPagareForm({ ...pagareForm, sucursal_id: e.target.value })}
+                    required
+                  >
+                    {sucursalesPagare.map((s) => (
+                      <option key={s} value={s}>{etiquetaTienda(s)}</option>
+                    ))}
+                  </select>
+                </label>
                 <label className="muted" style={{ fontSize: '0.8rem' }}>
                   Área
                   <select
@@ -1383,97 +1451,161 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 </div>
               </form>
             )}
-            <div className="table-wrap">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>Folio</th>
-                    <th>Área</th>
-                    <th>Sucursal</th>
-                    <th>Cajero</th>
-                    <th>Monto</th>
-                    <th>Saldo</th>
-                    <th>Estado</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {pagares.length === 0 ? (
-                    <tr><td colSpan={8} className="muted">Sin pagarés. Ejecuta supabase/fix_pagares.sql si falta la tabla.</td></tr>
-                  ) : (
-                    pagares.map((p) => (
-                      <tr key={p.id}>
-                        <td>{p.folio || '—'}</td>
-                        <td>{ETIQUETA_AREA_PAGARE[p.area] || p.area}</td>
-                        <td>{etiquetaTienda(p.sucursal_id)}</td>
-                        <td>
-                          {p.cajero_nombre || '—'}
-                          {p.turno_nombre ? <span className="muted"> · {p.turno_nombre}</span> : null}
-                        </td>
-                        <td>{fmt(p.monto)}</td>
-                        <td>{fmt(saldoPagare(p))}</td>
-                        <td>{p.estado || '—'}</td>
-                        <td style={{ whiteSpace: 'nowrap' }}>
-                          <button
-                            type="button"
-                            className="btn btn-ghost"
-                            style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }}
-                            onClick={() => imprimirPagare(p, { copias: 2 })}
-                          >
-                            Reimprimir ×2
-                          </button>
-                          {puedeAbonarLiquidarPagaresUi && pagareEstaAbierto(p) && (
-                            <>
-                              <button
-                                type="button"
-                                className="btn btn-ghost"
-                                style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }}
-                                onClick={async () => {
-                                  const saldo = saldoPagare(p);
-                                  const raw = prompt(`Abonar pagaré ${p.folio}\nSaldo: $${saldo.toFixed(2)}`, String(saldo));
-                                  if (raw === null) return;
-                                  const monto = parseFloat(String(raw).replace(',', '.'));
-                                  if (!(monto > 0)) return alert('Monto inválido.');
-                                  const res = await abonarPagare(supabase, p, monto, {
-                                    nombreActor: user?.nombre,
-                                    rolActor: user?.rol,
-                                    user,
-                                  });
-                                  if (!res.ok) return alert(res.error);
-                                  alert(res.mensaje);
-                                  recargarTodo();
-                                }}
-                              >
-                                Abonar
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-primary"
-                                style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }}
-                                onClick={async () => {
-                                  const saldo = saldoPagare(p);
-                                  if (!confirm(`¿Liquidar pagaré ${p.folio} por $${saldo.toFixed(2)}? Sin ticket.`)) return;
-                                  const res = await liquidarPagare(supabase, p, {
-                                    nombreActor: user?.nombre,
-                                    rolActor: user?.rol,
-                                    user,
-                                  });
-                                  if (!res.ok) return alert(res.error);
-                                  alert(res.mensaje);
-                                  recargarTodo();
-                                }}
-                              >
-                                Liquidar
-                              </button>
-                            </>
-                          )}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+            {esCajero && (
+              <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.84rem' }}>
+                Como cajero solo ves <strong>Abonar</strong> (pide cantidad y descuenta) y <strong>Liquidar</strong>
+                (deja el total listo para recolección en RC Virtual).
+              </p>
+            )}
+            {pagaresPorSucursal.length === 0 ? (
+              <p className="muted" style={{ margin: 0 }}>
+                Sin pagarés{filtroPagareEfectivo ? ` en ${etiquetaTienda(filtroPagareEfectivo)}` : ''}.
+                Ejecuta <code>supabase/fix_pagares.sql</code> si falta la tabla.
+              </p>
+            ) : (
+              pagaresPorSucursal.map(([sucKey, lista]) => (
+                <div key={sucKey} style={{ marginBottom: '1.1rem' }}>
+                  <h4 style={{ margin: '0 0 0.45rem', color: 'var(--brand-blue-dark)' }}>
+                    {etiquetaTienda(sucKey)}
+                    <span className="muted" style={{ fontWeight: 500, fontSize: '0.82rem', marginLeft: '0.4rem' }}>
+                      ({lista.length})
+                    </span>
+                  </h4>
+                  <div className="table-wrap">
+                    <table className="data">
+                      <thead>
+                        <tr>
+                          <th>Folio</th>
+                          <th>Área</th>
+                          <th>Cajero</th>
+                          <th>Monto</th>
+                          <th>Saldo</th>
+                          <th>Estado</th>
+                          <th>Liquidó / Recolectó</th>
+                          <th />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lista.map((p) => {
+                          const pendienteCajero = pagarePendienteCajero(p);
+                          const pendienteRec = pagarePendienteRecoleccion(p);
+                          return (
+                            <tr key={p.id}>
+                              <td>{p.folio || '—'}</td>
+                              <td>{ETIQUETA_AREA_PAGARE[p.area] || p.area}</td>
+                              <td>
+                                {p.cajero_nombre || '—'}
+                                {p.turno_nombre ? <span className="muted"> · {p.turno_nombre}</span> : null}
+                              </td>
+                              <td>{fmt(p.monto)}</td>
+                              <td>{fmt(pendienteRec ? montoPendienteRecoleccion(p) : saldoPagare(p))}</td>
+                              <td>{etiquetaEstadoPagare(p.estado)}</td>
+                              <td className="muted" style={{ fontSize: '0.78rem' }}>
+                                {p.liquidado_por ? `Liquidó: ${p.liquidado_por}` : '—'}
+                                {p.rc_recibido_por ? (
+                                  <>
+                                    <br />
+                                    Recolectó: {p.rc_recibido_por}
+                                  </>
+                                ) : null}
+                              </td>
+                              <td style={{ whiteSpace: 'nowrap' }}>
+                                {!esCajero && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-ghost"
+                                    style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }}
+                                    onClick={() => imprimirPagare(p, { copias: 2 })}
+                                  >
+                                    Reimprimir ×2
+                                  </button>
+                                )}
+                                {puedeAbonarLiquidarPagaresUi && pendienteCajero && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="btn btn-ghost"
+                                      style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }}
+                                      onClick={async () => {
+                                        const saldo = saldoPagare(p);
+                                        const raw = prompt(
+                                          `Abonar pagaré ${p.folio || ''}\nSucursal: ${etiquetaTienda(p.sucursal_id)}\nSaldo: $${saldo.toFixed(2)}\n\n¿Cuánto abonas?`,
+                                          String(saldo),
+                                        );
+                                        if (raw === null) return;
+                                        const monto = parseFloat(String(raw).replace(',', '.'));
+                                        if (!(monto > 0)) return alert('Monto inválido.');
+                                        const res = await abonarPagare(supabase, p, monto, {
+                                          nombreActor: user?.nombre,
+                                          rolActor: user?.rol,
+                                          user,
+                                        });
+                                        if (!res.ok) return alert(res.error);
+                                        alert(res.mensaje);
+                                        recargarTodo();
+                                      }}
+                                    >
+                                      Abonar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="btn btn-primary"
+                                      style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }}
+                                      onClick={async () => {
+                                        const saldo = saldoPagare(p);
+                                        if (!confirm(
+                                          `¿Liquidar pagaré ${p.folio || ''} por $${saldo.toFixed(2)}?\n\n`
+                                          + `Sucursal: ${etiquetaTienda(p.sucursal_id)}\n`
+                                          + 'Confirma que ya tienes el total. Quedará solo para recolección en RC Virtual → Pagaré.',
+                                        )) return;
+                                        const res = await liquidarPagare(supabase, p, {
+                                          nombreActor: user?.nombre,
+                                          rolActor: user?.rol,
+                                          user,
+                                        });
+                                        if (!res.ok) return alert(res.error);
+                                        alert(res.mensaje);
+                                        recargarTodo();
+                                      }}
+                                    >
+                                      Liquidar
+                                    </button>
+                                  </>
+                                )}
+                                {puedeRecolectarPagaresUi && pendienteRec && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-gold"
+                                    style={{ padding: '0.2rem 0.4rem', fontSize: '0.8rem' }}
+                                    onClick={async () => {
+                                      const monto = montoPendienteRecoleccion(p);
+                                      if (!confirm(
+                                        `¿Recolectar pagaré ${p.folio || ''} por $${monto.toFixed(2)}?\n\n`
+                                        + `Sucursal: ${etiquetaTienda(p.sucursal_id)}\n`
+                                        + `Se registrará a tu nombre (${user?.nombre || '—'}) en RC Virtual → Pagaré.`,
+                                      )) return;
+                                      const res = await recolectarPagare(supabase, p, {
+                                        nombreActor: user?.nombre,
+                                        user,
+                                      });
+                                      if (!res.ok) return alert(res.error);
+                                      alert(res.mensaje);
+                                      recargarTodo();
+                                    }}
+                                  >
+                                    Recolectar
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </>
       )}

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { esAbb } from '../lib/contabilidadConstants.js';
 import {
   claveRecolectorRVirtual,
@@ -15,9 +15,10 @@ import { etiquetaCuentaRt } from '../lib/rtCuentas.js';
 import {
   AVISO_FALTA_PAGARES,
   ETIQUETA_AREA_PAGARE,
+  etiquetaEstadoPagare,
   listarPagares,
-  pagareEstaAbierto,
-  registrarPagaresEnRcVirtual,
+  montoPendienteRecoleccion,
+  pagarePendienteRecoleccion,
   saldoPagare,
 } from '../lib/pagares.js';
 import { imprimirPagare } from '../lib/impresionContabilidad.js';
@@ -88,6 +89,21 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
   const porEntregarAbb = pestana === 'garage' ? porEntregarGarage : porEntregarVirtual;
   const esPestanaRecolecciones = pestana === 'recolecciones' || pestana === 'garage';
 
+  const pagaresRcPorSucursal = useMemo(() => {
+    const relevantes = (pagares || []).filter((p) => {
+      const est = String(p.estado || '').toLowerCase();
+      return est === 'por_recolectar' || est === 'recolectado' || pagarePendienteRecoleccion(p);
+    });
+    const map = new Map();
+    for (const p of relevantes) {
+      const key = String(p.sucursal_id || 'SIN').toUpperCase();
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(p);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [pagares]);
+  const totalPagaresRc = pagaresRcPorSucursal.reduce((n, [, list]) => n + list.length, 0);
+
   const cargar = useCallback(async () => {
     if (!supabase) return;
     setCargando(true);
@@ -139,15 +155,6 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
         ? `Recibido ${fmtMonto(res.total)} de ${grupo.etiqueta}. Entregado a: ABB (tu cuenta).`
         : `Recibido ${fmtMonto(res.total)} de ${grupo.etiqueta} en tu cuenta. Pendiente de entregar a ABB.`,
     );
-    // Registra en pestaña Pagaré los negativos pendientes del área virtual.
-    try {
-      await registrarPagaresEnRcVirtual(supabase, {
-        area: areaActiva,
-        adminNombre,
-      });
-    } catch {
-      /* no bloquea la recepción */
-    }
     await cargar();
   };
 
@@ -315,77 +322,88 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
           className={`btn ${pestana === 'pagare' ? 'btn-primary' : 'btn-ghost'}`}
           onClick={() => setPestana('pagare')}
         >
-          Pagaré ({pagares.filter((p) => pagareEstaAbierto(p) || String(p.estado || '').includes('recolect')).length})
+          Pagaré ({totalPagaresRc})
         </button>
       </div>
 
       {pestana === 'pagare' && (
         <div className="card">
           <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue-dark)' }}>
-            Pagarés · dinero en negativo pendiente de cobro
+            Pagaré · RC Virtual (por sucursal)
           </h4>
           <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.84rem' }}>
-            Se registran al generar Pagaré en Vales y Préstamos → Pagaré, y al recibir recolecciones en RC Virtual o RC Garage.
+            Aquí llegan los pagarés que el cajero ya <strong>liquidó</strong> en Vales → Pagaré
+            (quedan «Por recolectar»). Al <strong>Recolectar</strong> (Luis Enrique / AMR / ABB / JLBB / FBBB)
+            queda registrado quién cobró.
           </p>
           {cargando ? (
             <p className="muted">Cargando…</p>
+          ) : totalPagaresRc === 0 ? (
+            <p className="muted" style={{ margin: 0 }}>
+              Sin pagarés pendientes ni recolectados. Ejecuta <code>supabase/fix_pagares.sql</code> si falta la tabla.
+            </p>
           ) : (
-            <div className="table-wrap">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>Folio</th>
-                    <th>Área</th>
-                    <th>Sucursal</th>
-                    <th>Cajero</th>
-                    <th>Monto</th>
-                    <th>Saldo</th>
-                    <th>Estado</th>
-                    <th>RC</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {pagares.length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className="muted">
-                        Sin pagarés. Ejecuta <code>supabase/fix_pagares.sql</code> si falta la tabla.
-                      </td>
-                    </tr>
-                  ) : (
-                    pagares.map((p) => (
-                      <tr key={p.id}>
-                        <td>{p.folio || '—'}</td>
-                        <td>{ETIQUETA_AREA_PAGARE[p.area] || p.area}</td>
-                        <td>{etiquetaTienda(p.sucursal_id)}</td>
-                        <td>
-                          {p.cajero_nombre || '—'}
-                          {p.turno_nombre ? <span className="muted"> · {p.turno_nombre}</span> : null}
-                        </td>
-                        <td>{fmtMonto(p.monto)}</td>
-                        <td>{fmtMonto(saldoPagare(p))}</td>
-                        <td>{p.estado || '—'}</td>
-                        <td className="muted" style={{ fontSize: '0.78rem' }}>
-                          {p.rc_recibido_por
-                            ? `${p.rc_recibido_por}${p.rc_recibido_at ? ` · ${fmtFecha(p.rc_recibido_at)}` : ''}`
-                            : '—'}
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            className="btn btn-ghost"
-                            style={{ fontSize: '0.78rem', padding: '0.2rem 0.4rem' }}
-                            onClick={() => imprimirPagare(p, { copias: 2 })}
-                          >
-                            Ticket ×2
-                          </button>
-                        </td>
+            pagaresRcPorSucursal.map(([sucKey, lista]) => (
+              <div key={sucKey} style={{ marginBottom: '1rem' }}>
+                <h4 style={{ margin: '0 0 0.4rem', color: 'var(--brand-blue-dark)' }}>
+                  {etiquetaTienda(sucKey)}
+                  <span className="muted" style={{ fontWeight: 500, fontSize: '0.82rem', marginLeft: '0.35rem' }}>
+                    ({lista.length})
+                  </span>
+                </h4>
+                <div className="table-wrap">
+                  <table className="data">
+                    <thead>
+                      <tr>
+                        <th>Folio</th>
+                        <th>Área</th>
+                        <th>Cajero</th>
+                        <th>Monto</th>
+                        <th>A recolectar</th>
+                        <th>Estado</th>
+                        <th>Liquidó / Recolectó</th>
+                        <th />
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {lista.map((p) => (
+                        <tr key={p.id}>
+                          <td>{p.folio || '—'}</td>
+                          <td>{ETIQUETA_AREA_PAGARE[p.area] || p.area}</td>
+                          <td>
+                            {p.cajero_nombre || '—'}
+                            {p.turno_nombre ? <span className="muted"> · {p.turno_nombre}</span> : null}
+                          </td>
+                          <td>{fmtMonto(p.monto)}</td>
+                          <td>{fmtMonto(montoPendienteRecoleccion(p) || saldoPagare(p))}</td>
+                          <td>{etiquetaEstadoPagare(p.estado)}</td>
+                          <td className="muted" style={{ fontSize: '0.78rem' }}>
+                            {p.liquidado_por ? `Liquidó: ${p.liquidado_por}` : '—'}
+                            {p.rc_recibido_por ? (
+                              <>
+                                <br />
+                                Recolectó: {p.rc_recibido_por}
+                                {p.rc_recibido_at ? ` · ${fmtFecha(p.rc_recibido_at)}` : ''}
+                              </>
+                            ) : null}
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ fontSize: '0.78rem', padding: '0.2rem 0.4rem' }}
+                              onClick={() => imprimirPagare(p, { copias: 2 })}
+                            >
+                              Ticket ×2
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))
           )}
         </div>
       )}

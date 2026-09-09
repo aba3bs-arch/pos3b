@@ -1,4 +1,5 @@
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
+import { nombreCoincidePatrones } from './contabilidadConstants.js';
 import { normalizarRol } from './roles.js';
 import { nombreTurnoLegible, turnoActual } from './turnos.js';
 import { esUsuarioCubreTurno } from './cubreTurno.js';
@@ -11,10 +12,39 @@ export const ETIQUETA_AREA_PAGARE = {
   abarrotes: 'Abarrotes',
 };
 
+export const ETIQUETA_ESTADO_PAGARE = {
+  abierto: 'Abierto',
+  parcial: 'Parcial (abonado)',
+  por_recolectar: 'Por recolectar → RC Virtual',
+  recolectado: 'Recolectado',
+  liquidado: 'Liquidado',
+  cancelado: 'Cancelado',
+};
+
 export const AVISO_FALTA_PAGARES =
   'Falta la tabla pagares. Ejecuta supabase/fix_pagares.sql en Supabase → SQL Editor.';
 
-const ESTADOS_ABIERTOS = new Set(['abierto', 'parcial', 'por_recolectar']);
+/** Quién puede pulsar Recolectar en Vales → Pagaré (por nombre, no solo rol). */
+export const RECOLECTORES_PAGARE = [
+  {
+    id: 'luis-enrique',
+    etiqueta: 'Luis Enrique Osuna Mada',
+    patrones: [
+      'luis enrique osuna mada',
+      'luis enrique mada osuna',
+      'luis enrique mada',
+      'luis enrique osuna',
+      'luis enrique',
+    ],
+  },
+  { id: 'amr', etiqueta: 'AMR', patrones: ['amr', 'andres', 'andrés', 'marrero'] },
+  { id: 'abb', etiqueta: 'ABB', patrones: ['abb', 'antonio'] },
+  { id: 'jlbb', etiqueta: 'JLBB', patrones: ['jlbb', 'jose luis', 'josé luis'] },
+  { id: 'fbbb', etiqueta: 'FBBB', patrones: ['fbbb', 'fjbb', 'francisco'] },
+];
+
+const ESTADOS_PENDIENTE_CAJERO = new Set(['abierto', 'parcial']);
+const ESTADOS_PENDIENTE_RECOLECCION = new Set(['por_recolectar']);
 
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
@@ -44,17 +74,31 @@ export function normalizarAreaPagare(area) {
   return null;
 }
 
+export function etiquetaEstadoPagare(estado) {
+  const e = String(estado || '').toLowerCase();
+  return ETIQUETA_ESTADO_PAGARE[e] || estado || '—';
+}
+
 /** Admin, gerente o repartidor (recolector) generan el pagaré + ticket. */
 export function puedeGenerarPagare(rol) {
   const r = normalizarRol(rol);
   return r === 'Administrador' || r === 'Gerente' || r === 'Repartidor';
 }
 
-/** Cajero / admin / gerente abonan o liquidan (sin ticket ni préstamo). Cubre turno: no. */
+/** Cajero / admin / gerente abonan o liquidan (sin ticket). Cubre turno: no. */
 export function puedeAbonarLiquidarPagare(rol, user = null) {
   if (esUsuarioCubreTurno(user)) return false;
   const r = normalizarRol(rol ?? user?.rol ?? user?.role);
   return r === 'Administrador' || r === 'Gerente' || r === 'Cajero';
+}
+
+/** Luis Enrique, AMR, ABB, JLBB, FBBB (FJBB). */
+export function puedeRecolectarPagare(userOrNombre) {
+  const nombre = typeof userOrNombre === 'string'
+    ? userOrNombre
+    : (userOrNombre?.nombre || userOrNombre?.name || '');
+  if (!nombre) return false;
+  return RECOLECTORES_PAGARE.some((r) => nombreCoincidePatrones(nombre, r.patrones));
 }
 
 export function saldoPagare(p) {
@@ -63,10 +107,33 @@ export function saldoPagare(p) {
   return round2(p.monto);
 }
 
+export function montoPendienteRecoleccion(p) {
+  if (!p) return 0;
+  const rc = Number(p.rc_monto);
+  if (Number.isFinite(rc) && rc > 0.001) return round2(rc);
+  return saldoPagare(p);
+}
+
+/** Abierto para cajero (abonar / liquidar). */
+export function pagarePendienteCajero(p) {
+  if (!p) return false;
+  const est = String(p.estado || '').toLowerCase();
+  if (!ESTADOS_PENDIENTE_CAJERO.has(est)) return false;
+  return saldoPagare(p) > 0.001;
+}
+
+/** Ya liquidado por cajero; espera Recolectar → RC Virtual. */
+export function pagarePendienteRecoleccion(p) {
+  if (!p) return false;
+  const est = String(p.estado || '').toLowerCase();
+  return ESTADOS_PENDIENTE_RECOLECCION.has(est) && montoPendienteRecoleccion(p) > 0.001;
+}
+
 export function pagareEstaAbierto(p) {
   if (!p) return false;
   const est = String(p.estado || '').toLowerCase();
-  if (ESTADOS_ABIERTOS.has(est)) return saldoPagare(p) > 0.001;
+  if (ESTADOS_PENDIENTE_CAJERO.has(est)) return saldoPagare(p) > 0.001;
+  if (ESTADOS_PENDIENTE_RECOLECCION.has(est)) return montoPendienteRecoleccion(p) > 0.001;
   return saldoPagare(p) > 0.001 && !['liquidado', 'recolectado', 'cancelado'].includes(est);
 }
 
@@ -81,7 +148,7 @@ function folioPagare() {
 
 /**
  * Lista pagarés (más recientes primero).
- * @param {{ area?: string, sucursal?: string, soloAbiertos?: boolean, limit?: number }} [opts]
+ * @param {{ area?: string, sucursal?: string, soloAbiertos?: boolean, soloPorRecolectar?: boolean, limit?: number }} [opts]
  */
 export async function listarPagares(supabase, opts = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.', data: [] };
@@ -90,7 +157,8 @@ export async function listarPagares(supabase, opts = {}) {
   const area = normalizarAreaPagare(opts.area);
   if (area) q = q.eq('area', area);
   if (opts.sucursal) q = q.eq('sucursal_id', normalizarCodigoTienda(opts.sucursal));
-  if (opts.soloAbiertos) q = q.in('estado', ['abierto', 'parcial', 'por_recolectar']);
+  if (opts.soloPorRecolectar) q = q.eq('estado', 'por_recolectar');
+  else if (opts.soloAbiertos) q = q.in('estado', ['abierto', 'parcial', 'por_recolectar']);
   const { data, error } = await q;
   if (error) {
     if (faltaTablaPagares(error)) return { ok: false, error: AVISO_FALTA_PAGARES, data: [], faltaTabla: true };
@@ -98,6 +166,7 @@ export async function listarPagares(supabase, opts = {}) {
   }
   let rows = data || [];
   if (opts.soloAbiertos) rows = rows.filter(pagareEstaAbierto);
+  if (opts.soloPorRecolectar) rows = rows.filter(pagarePendienteRecoleccion);
   return { ok: true, data: rows };
 }
 
@@ -109,8 +178,7 @@ export async function listarPagaresAbiertosParaCorte(supabase, { sucursal, modul
 }
 
 /**
- * Genera pagaré desde la alerta de negativo (o formulario).
- * Imprime ticket 2 veces vía callback de impresión en el caller.
+ * Genera pagaré (folio + tickets en el caller).
  */
 export async function registrarPagare(supabase, payload = {}, opts = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
@@ -156,9 +224,13 @@ export async function registrarPagare(supabase, payload = {}, opts = {}) {
     if (faltaTablaPagares(error)) return { ok: false, error: AVISO_FALTA_PAGARES, faltaTabla: true };
     return { ok: false, error: error.message };
   }
-  return { ok: true, pagare: data, mensaje: `Pagaré ${folio} por $${monto.toFixed(2)} registrado.` };
+  return { ok: true, pagare: data, mensaje: `Pagaré ${folio} · ${sucursal_id} · $${monto.toFixed(2)} registrado.` };
 }
 
+/**
+ * Abono parcial: pregunta monto y descuenta del saldo.
+ * Si el abono deja saldo en 0 sin liquidar formal, queda liquidado (nada que recolectar).
+ */
 export async function abonarPagare(supabase, pagare, montoAbono, opts = {}) {
   if (!supabase || !pagare?.id) return { ok: false, error: 'Pagaré inválido.' };
   if (esUsuarioCubreTurno(opts.user)) {
@@ -167,20 +239,25 @@ export async function abonarPagare(supabase, pagare, montoAbono, opts = {}) {
   if (!puedeAbonarLiquidarPagare(opts.rolActor ?? opts.user?.rol, opts.user)) {
     return { ok: false, error: 'Solo administrador, gerente o cajero pueden abonar un pagaré.' };
   }
+  if (!pagarePendienteCajero(pagare)) {
+    return { ok: false, error: 'Este pagaré ya no admite abonos (está por recolectar o cerrado).' };
+  }
   const saldo = saldoPagare(pagare);
   const monto = round2(montoAbono);
   if (!(monto > 0.001)) return { ok: false, error: 'Monto inválido.' };
-  if (monto > saldo + 0.001) return { ok: false, error: `El abono ($${monto.toFixed(2)}) supera el saldo ($${saldo.toFixed(2)}).` };
+  if (monto > saldo + 0.001) {
+    return { ok: false, error: `El abono ($${monto.toFixed(2)}) supera el saldo ($${saldo.toFixed(2)}).` };
+  }
 
   const nuevoSaldo = round2(Math.max(0, saldo - monto));
   const nuevoAbono = round2((Number(pagare.abono) || 0) + monto);
-  const liquidado = nuevoSaldo < 0.001;
+  const cerrado = nuevoSaldo < 0.001;
   const patch = {
     saldo: nuevoSaldo,
     abono: nuevoAbono,
-    estado: liquidado ? 'liquidado' : 'parcial',
+    estado: cerrado ? 'liquidado' : 'parcial',
   };
-  if (liquidado) {
+  if (cerrado) {
     patch.liquidado_por = opts.nombreActor || opts.user?.nombre || null;
     patch.liquidado_at = new Date().toISOString();
   }
@@ -194,19 +271,108 @@ export async function abonarPagare(supabase, pagare, montoAbono, opts = {}) {
     ok: true,
     pagare: data,
     saldo: nuevoSaldo,
-    mensaje: liquidado
-      ? 'Pagaré liquidado. La alerta se elimina.'
-      : `Abono registrado. Saldo restante: $${nuevoSaldo.toFixed(2)}.`,
+    mensaje: cerrado
+      ? 'Pagaré cerrado por abonos (saldo $0). No queda nada por recolectar.'
+      : `Abono de $${monto.toFixed(2)} registrado. Saldo restante: $${nuevoSaldo.toFixed(2)}.`,
   };
 }
 
+/**
+ * Liquidar: el cajero ya tiene el total pendiente.
+ * Queda solo para recolección y aparece en RC Virtual → Pagaré.
+ */
 export async function liquidarPagare(supabase, pagare, opts = {}) {
+  if (!supabase || !pagare?.id) return { ok: false, error: 'Pagaré inválido.' };
+  if (esUsuarioCubreTurno(opts.user)) {
+    return { ok: false, error: 'Cubre turno no puede liquidar. Solo el cajero en su sesión.' };
+  }
+  if (!puedeAbonarLiquidarPagare(opts.rolActor ?? opts.user?.rol, opts.user)) {
+    return { ok: false, error: 'Solo administrador, gerente o cajero pueden liquidar un pagaré.' };
+  }
+  if (!pagarePendienteCajero(pagare)) {
+    return { ok: false, error: 'Este pagaré no está pendiente de liquidar.' };
+  }
   const saldo = saldoPagare(pagare);
-  if (!(saldo > 0.001)) return { ok: false, error: 'El pagaré ya está liquidado.' };
-  return abonarPagare(supabase, pagare, saldo, opts);
+  if (!(saldo > 0.001)) return { ok: false, error: 'El pagaré ya no tiene saldo.' };
+
+  const ahora = new Date().toISOString();
+  const patch = {
+    estado: 'por_recolectar',
+    saldo,
+    rc_monto: saldo,
+    liquidado_por: opts.nombreActor || opts.user?.nombre || null,
+    liquidado_at: ahora,
+  };
+
+  const { data, error } = await supabase.from('pagares').update(patch).eq('id', pagare.id).select('*').single();
+  if (error) {
+    if (faltaTablaPagares(error)) return { ok: false, error: AVISO_FALTA_PAGARES, faltaTabla: true };
+    return { ok: false, error: error.message };
+  }
+  return {
+    ok: true,
+    pagare: data,
+    saldo,
+    mensaje: (
+      `Pagaré ${pagare.folio || ''} liquidado por $${saldo.toFixed(2)}. `
+      + 'Queda pendiente de recolección → RC Virtual · Pagaré.'
+    ).trim(),
+  };
 }
 
-/** Marca pagarés abiertos como recibidos en RC Virtual (recolección). */
+/**
+ * Recolectar en Vales → Pagaré. Solo Luis Enrique / AMR / ABB / JLBB / FBBB.
+ * Registra quién recolectó y marca recolectado (visible en RC Virtual).
+ */
+export async function recolectarPagare(supabase, pagare, opts = {}) {
+  if (!supabase || !pagare?.id) return { ok: false, error: 'Pagaré inválido.' };
+  const nombre = opts.nombreActor || opts.user?.nombre || '';
+  if (!puedeRecolectarPagare(opts.user || nombre)) {
+    return {
+      ok: false,
+      error: 'Solo Luis Enrique Osuna Mada, AMR, ABB, JLBB o FBBB pueden recolectar pagarés.',
+    };
+  }
+  if (!pagarePendienteRecoleccion(pagare)) {
+    return {
+      ok: false,
+      error: 'Solo se recolectan pagarés ya liquidados por el cajero (estado «Por recolectar»).',
+    };
+  }
+  const monto = montoPendienteRecoleccion(pagare);
+  const ahora = new Date().toISOString();
+  const patch = {
+    estado: 'recolectado',
+    saldo: 0,
+    rc_monto: monto,
+    rc_recibido_por: nombre || null,
+    rc_recibido_at: ahora,
+  };
+
+  const { data, error } = await supabase.from('pagares').update(patch).eq('id', pagare.id).select('*').single();
+  if (error) {
+    if (faltaTablaPagares(error)) return { ok: false, error: AVISO_FALTA_PAGARES, faltaTabla: true };
+    return { ok: false, error: error.message };
+  }
+  return {
+    ok: true,
+    pagare: data,
+    monto,
+    mensaje: (
+      `Recolectado ${pagare.folio || ''} · $${monto.toFixed(2)} · ${etiquetaTiendaSegura(pagare.sucursal_id)} `
+      + `por ${nombre || '—'}. Registrado en RC Virtual → Pagaré.`
+    ).trim(),
+  };
+}
+
+function etiquetaTiendaSegura(codigo) {
+  return String(codigo || '').trim() || '—';
+}
+
+/**
+ * Compat: marca pagarés abiertos como por_recolectar (flujo antiguo al recibir en RC).
+ * Preferir liquidarPagare (cajero) + recolectarPagare (autorizados).
+ */
 export async function registrarPagaresEnRcVirtual(supabase, { area, items, adminNombre } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.', data: [] };
   const areaNorm = normalizarAreaPagare(area) || 'virtual';
@@ -214,24 +380,24 @@ export async function registrarPagaresEnRcVirtual(supabase, { area, items, admin
   const ahora = new Date().toISOString();
   const out = [];
 
-  // Si no hay ítems explícitos, toma pagarés abiertos del área.
   let pagares = list;
   if (!pagares.length) {
     const res = await listarPagares(supabase, { area: areaNorm, soloAbiertos: true, limit: 100 });
     if (!res.ok) return res;
-    pagares = res.data || [];
+    pagares = (res.data || []).filter(pagarePendienteCajero);
   }
 
   for (const p of pagares) {
-    if (!p?.id || !pagareEstaAbierto(p)) continue;
+    if (!p?.id || !pagarePendienteCajero(p)) continue;
     const monto = saldoPagare(p);
     const { data, error } = await supabase
       .from('pagares')
       .update({
         estado: 'por_recolectar',
-        rc_recibido_por: adminNombre || null,
-        rc_recibido_at: ahora,
-        rc_monto: round2((Number(p.rc_monto) || 0) + monto),
+        saldo: monto,
+        rc_monto: monto,
+        liquidado_por: adminNombre || p.liquidado_por || null,
+        liquidado_at: ahora,
       })
       .eq('id', p.id)
       .select('*')
