@@ -88,6 +88,113 @@ function movimientoTocaSucursal(m, suc) {
   return candidatos.includes(s);
 }
 
+/** Tope de filas nube: por tienda se puede pedir más; «Todas» sigue acotado. */
+export const LIMITE_MOV_NUBE_POR_TIENDA = 10000;
+export const LIMITE_MOV_NUBE_TODAS = 8000;
+export const TAM_PAGINA_MOV_NUBE = 1000;
+
+export function limiteFilasMovimientosNube({ sucursal, productoId } = {}) {
+  if (productoId) return 4000;
+  return sucursal ? LIMITE_MOV_NUBE_POR_TIENDA : LIMITE_MOV_NUBE_TODAS;
+}
+
+/** Texto tipo folio de inventario (ING-/RET-/CMP-/trp-). */
+export function pareceFolioInventarioConsulta(q) {
+  const s = String(q || '').trim();
+  if (s.length < 5) return false;
+  return /^(ING|RET|CMP|TRP)[-_/]/i.test(s) || /^trp[-_/]/i.test(s);
+}
+
+function sanitizarTokenFiltro(v) {
+  return String(v || '').replace(/[(),]/g, '').trim();
+}
+
+/**
+ * Carga paginada de movimientos_inventario.
+ * Si hay sucursal, filtra en servidor (el tope cuenta por tienda, no global).
+ */
+export async function fetchMovimientosInventarioNube(supabase, opts = {}) {
+  const {
+    ini = null,
+    fin = null,
+    sucursal = null,
+    productoId = null,
+    folioQ = null,
+  } = opts;
+  const suc = sucursal ? normalizarCodigoTienda(sucursal) : null;
+  const maxRows = limiteFilasMovimientosNube({ sucursal: suc, productoId });
+  const pageSize = productoId ? Math.min(2000, TAM_PAGINA_MOV_NUBE) : TAM_PAGINA_MOV_NUBE;
+  const out = [];
+  let truncado = false;
+  let error = null;
+
+  // Búsqueda directa por folio: no depende del tope semanal.
+  const folio = sanitizarTokenFiltro(folioQ);
+  if (folio && pareceFolioInventarioConsulta(folio)) {
+    let qFolio = supabase
+      .from('movimientos_inventario')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(500);
+    qFolio = qFolio.filter('meta->>folio', 'ilike', `%${folio}%`);
+    if (suc) {
+      qFolio = qFolio.or(
+        `sucursal_id.eq.${suc},meta->>sucursal_origen.eq.${suc},meta->>sucursal_destino.eq.${suc}`,
+      );
+    }
+    const { data, error: errF } = await qFolio;
+    if (errF) {
+      return { data: [], error: errF, truncado: false, statsFetch: { paginas: 0, maxRows } };
+    }
+    return {
+      data: data || [],
+      error: null,
+      truncado: false,
+      statsFetch: { paginas: 1, maxRows, porFolio: true },
+    };
+  }
+
+  for (let offset = 0; offset < maxRows; offset += pageSize) {
+    const hasta = Math.min(offset + pageSize - 1, maxRows - 1);
+    let query = supabase
+      .from('movimientos_inventario')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(offset, hasta);
+    if (ini) query = query.gte('created_at', ini.toISOString());
+    if (fin) query = query.lte('created_at', fin.toISOString());
+    if (suc) {
+      // Ingresos/retiros en la tienda + traspasos donde figura en meta.
+      query = query.or(
+        `sucursal_id.eq.${suc},meta->>sucursal_origen.eq.${suc},meta->>sucursal_destino.eq.${suc}`,
+      );
+    }
+    if (productoId) {
+      const pid = sanitizarTokenFiltro(productoId);
+      if (pid) query = query.or(`producto_id.eq.${pid},producto_destino_id.eq.${pid}`);
+    }
+    const { data, error: err } = await query;
+    if (err) {
+      error = err;
+      break;
+    }
+    const batch = data || [];
+    out.push(...batch);
+    if (batch.length < pageSize) break;
+    if (out.length >= maxRows) {
+      truncado = true;
+      break;
+    }
+  }
+
+  return {
+    data: out,
+    error,
+    truncado,
+    statsFetch: { paginas: Math.ceil(out.length / pageSize) || 0, maxRows, filas: out.length },
+  };
+}
+
 export function listarMovimientosInventario(opts = {}) {
   const { desde, hasta, productoId, tipo, sucursal } = opts;
   let list = leerMovimientosLocal();
@@ -430,23 +537,16 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
   try {
     let nube = [];
     if (supabase) {
-      let query = supabase
-        .from('movimientos_inventario')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(productoId ? 2000 : 3000);
-      // Filtro de sucursal en cliente (incluye traspasos origen/destino en meta).
-      if (ini) query = query.gte('created_at', ini.toISOString());
-      if (fin) query = query.lte('created_at', fin.toISOString());
-      if (productoId) {
-        const pid = String(productoId).replace(/[(),]/g, '');
-        if (pid) {
-          query = query.or(`producto_id.eq.${pid},producto_destino_id.eq.${pid}`);
-        }
-      }
-      const { data, error } = await query;
-      if (error) {
-        const msg = String(error.message || '');
+      const folioBusqueda = pareceFolioInventarioConsulta(q) ? String(q).trim() : null;
+      const fetched = await fetchMovimientosInventarioNube(supabase, {
+        ini,
+        fin,
+        sucursal: suc,
+        productoId,
+        folioQ: folioBusqueda,
+      });
+      if (fetched.error) {
+        const msg = String(fetched.error.message || '');
         if (/movimientos_inventario|schema cache|does not exist|could not find/i.test(msg)) {
           faltaTablaNube = true;
           avisos.push(AVISO_FALTA_MOVIMIENTOS_SQL);
@@ -454,9 +554,17 @@ export async function cargarReporteMovimientosInventario(supabase, opts = {}) {
           avisos.push(`Nube: ${msg}`);
         }
       } else {
-        nube = (data || []).map(fromCloudRow);
+        nube = (fetched.data || []).map(fromCloudRow);
+        // Red de seguridad: traspasos / históricos incompletos.
         if (suc) nube = nube.filter((m) => movimientoTocaSucursal(m, suc));
         stats.nube = nube.length;
+        if (fetched.truncado) {
+          avisos.push(
+            suc
+              ? `Se alcanzó el tope de ${fetched.statsFetch?.maxRows || LIMITE_MOV_NUBE_POR_TIENDA} movimientos de esta tienda en el periodo. Acorta fechas o busca el folio ING-/RET- concreto.`
+              : `Se alcanzó el tope de ${fetched.statsFetch?.maxRows || LIMITE_MOV_NUBE_TODAS} movimientos (todas las tiendas). Elige una tienda al checar inventario semanal, o acorta el periodo.`,
+          );
+        }
       }
     }
 

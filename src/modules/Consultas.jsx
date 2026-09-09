@@ -3,7 +3,7 @@ import { consultarVentas } from '../lib/ventasQuery.js';
 import { consultarCortes, consultarTarjetasAbarrotes } from '../lib/corteCaja.js';
 import { cargarSaldosCajaEnCurso } from '../lib/movimientosCaja.js';
 import { etiquetaTienda, esSucursalNoVenta } from '../constants/sucursales.js';
-import { cargarReporteMovimientosInventario, PRESETS_CONSULTAS_INVENTARIO, rangoDesdePreset } from '../lib/consultasInventario.js';
+import { cargarReporteMovimientosInventario, PRESETS_CONSULTAS_INVENTARIO, pareceFolioInventarioConsulta, rangoDesdePreset } from '../lib/consultasInventario.js';
 import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from '../lib/departamentos.js';
 import { esAlmacenCentral as esCentralInv, stockEnUbicacion, ubicacionEntradaDefault } from '../lib/inventarioMultitienda.js';
 import {
@@ -208,16 +208,19 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
     return data || [];
   }, [supabase, desde, hasta, filtroSucursal]);
 
-  const buscarInventarios = useCallback(async () => {
+  const buscarInventarios = useCallback(async (opts = {}) => {
+    const texto = opts.q != null ? opts.q : '';
+    const folioQ = pareceFolioInventarioConsulta(texto) ? String(texto).trim() : '';
     const r = await cargarReporteMovimientosInventario(supabase, {
       desde,
       hasta,
       sucursal: filtroSucursal || null,
+      q: folioQ || undefined,
     });
-    if (r.faltaTablaNube) {
-      setAviso((r.avisos || []).join(' · '));
-    } else if (r.avisos?.length) {
-      setAviso(r.avisos[0] || '');
+    if (r.avisos?.length) {
+      setAviso(r.avisos.join(' · '));
+    } else {
+      setAviso('');
     }
     return agruparDocumentosInventario(r.data || [], {
       precioPorId,
@@ -534,7 +537,7 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
             : seccion === 'cajas_saldos'
               ? 'Buscar caja o turno'
               : seccion === 'inventarios'
-                ? 'Buscar folio o monto'
+                ? 'Folio ING-/RET-… (Enter busca en nube)'
                 : seccion === 'precios_vs_inv'
                   ? 'Buscar código o nombre'
                   : 'Buscar…';
@@ -931,7 +934,26 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
             <div className="consultas-toolbar">
               <div className="consultas-search">
                 <span aria-hidden>🔍</span>
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholderBusqueda} />
+                <input
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  placeholder={placeholderBusqueda}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter' || seccion !== 'inventarios') return;
+                    if (!pareceFolioInventarioConsulta(q)) return;
+                    e.preventDefault();
+                    void (async () => {
+                      setLoading(true);
+                      try {
+                        setDocsInv(await buscarInventarios({ q }));
+                      } catch (err) {
+                        setAviso(err?.message || String(err));
+                      } finally {
+                        setLoading(false);
+                      }
+                    })();
+                  }}
+                />
               </div>
               <button type="button" className="consultas-icon-btn" title="Actualizar" onClick={() => void refrescar()} disabled={loading}>
                 ↻
@@ -1227,7 +1249,8 @@ export default function Consultas({ supabase, inventario, sucursal, sucursalesLi
                 ) : (
                   <>
                     <p className="muted" style={{ margin: '0 0 0.35rem', fontSize: '0.8rem' }}>
-                      Verifica por ticket: ingresos, ajustes, retiros, traspasos y cancelaciones. (Las ventas se consultan en Ventas.) Abre uno y usa ‹ › para navegar.
+                      Para inventario semanal: elige la tienda (no «Todas»), periodo Semana/rango, y abre cada ingreso.
+                      Si no aparece un folio, pégalo arriba y pulsa Enter. (Las ventas van en Ventas.)
                     </p>
                     <table className="consultas-table">
                       <thead>
