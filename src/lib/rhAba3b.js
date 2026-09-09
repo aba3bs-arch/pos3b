@@ -756,7 +756,7 @@ export async function altaEmpleadoRh(supabase, form = {}, { user } = {}) {
   const nombre = String(form.nombre || '').trim();
   if (!nombre) return { ok: false, error: 'Indica el nombre.' };
   const tipo = normalizarTipo(form.tipo_empleado, form.sucursal_id);
-  const sucursal_id = sucursalParaTipo(tipo, form.sucursal_id);
+  let sucursal_id = sucursalParaTipo(tipo, form.sucursal_id);
   if (tipo === 'tienda' && !sucursal_id) {
     return { ok: false, error: 'Indica la sucursal del empleado de tienda.' };
   }
@@ -764,7 +764,12 @@ export async function altaEmpleadoRh(supabase, form = {}, { user } = {}) {
     // permitir cualquier código operativo o MAIN
   }
   if (tipo === 'cubre_turno' && !sucursal_id) {
-    return { ok: false, error: 'Indica la sucursal del cubre turnos.' };
+    // Pool multi-tienda: si no eligen base, usa la primera habilitada o FUSION.
+    const lista = Array.isArray(form.ct_sucursales) ? form.ct_sucursales.filter(Boolean) : [];
+    if (!lista.length) {
+      return { ok: false, error: 'Indica en qué sucursales puede cubrir el CT (al menos una).' };
+    }
+    sucursal_id = String(lista[0] || 'FUSION').toUpperCase();
   }
 
   const nombre_completo = armarNombreCompleto({ ...form, nombre }) || nombre;
@@ -881,6 +886,7 @@ export async function altaEmpleadoRh(supabase, form = {}, { user } = {}) {
 
   const empConFolio = { ...data, folio };
   let extraPos = '';
+  let extraCt = '';
   if (tipo !== 'cubre_turno') {
     const pos = await crearOVincularUsuarioPosDesdeRh(supabase, empConFolio, {
       pin: pinAlta,
@@ -904,12 +910,28 @@ export async function altaEmpleadoRh(supabase, form = {}, { user } = {}) {
     extraPos = pos.omitido
       ? ''
       : ' Ya aparece en Usuarios y nómina.';
+  } else {
+    // CT: sin usuario POS ni nómina. PIN = el universal de Configuración.
+    // Nombre → catálogo gastos CUBRE TURNO; se notifica el PIN a usar.
+    try {
+      const { postAltaCubreTurno } = await import('./cubreTurnoAlta.js');
+      const extrasCt = row.extras && typeof row.extras === 'object' ? row.extras : {};
+      const post = await postAltaCubreTurno(supabase, empConFolio, extrasCt);
+      if (post.ok) extraCt = ` ${post.mensaje}`;
+      else if (post.error) extraCt = ` (Gasto/PIN: ${post.error})`;
+    } catch (err) {
+      extraCt = ` (Aviso CT: ${err?.message || 'revisar gastos/PIN'})`;
+    }
   }
 
   return {
     ok: true,
     empleado: empConFolio,
-    mensaje: `Alta registrada · ${nombre_completo}.${extraPos}`,
+    mensaje: (
+      tipo === 'cubre_turno'
+        ? `Alta CT · ${nombre_completo} (sin nómina).${extraCt}`
+        : `Alta registrada · ${nombre_completo}.${extraPos}`
+    ),
   };
 }
 
@@ -966,10 +988,13 @@ export async function editarEmpleadoRh(supabase, empleadoId, patch = {}, { user 
     return { ok: false, error: 'Indica el motivo por el que no es recontratable.' };
   }
 
-  const docsTouched = ['doc_ine', 'doc_comprobante', 'doc_acta', 'doc_csf', 'doc_contrato', 'doc_foto', 'notas', 'ine_foto']
+  const docsTouched = ['doc_ine', 'doc_comprobante', 'doc_acta', 'doc_csf', 'doc_contrato', 'doc_foto', 'notas', 'ine_foto', 'ct_sucursales', 'ct_solo_dia', 'tipo_empleado']
     .some((k) => patch[k] !== undefined);
   if (docsTouched || patch.extras != null) {
-    upd.extras = armarExtrasDesdeForm(patch, prev.empleado.extras || {});
+    upd.extras = armarExtrasDesdeForm(
+      { ...patch, tipo_empleado: tipo },
+      prev.empleado.extras || {},
+    );
   }
 
   const { data, error } = await supabase
@@ -992,10 +1017,20 @@ export async function editarEmpleadoRh(supabase, empleadoId, patch = {}, { user 
   });
 
   let extraPos = '';
-  if (sucursalCambio && data.tipo_empleado !== 'indirecto') {
+  if (sucursalCambio && data.tipo_empleado !== 'indirecto' && data.tipo_empleado !== 'cubre_turno') {
     const sync = await sincronizarUsuarioPosSucursal(supabase, data, data.sucursal_id);
     if (!sync.ok) extraPos = ` POS: ${sync.error}`;
     else if ((sync.ids || []).length) extraPos = ' También se actualizó en Usuarios / POS.';
+  }
+
+  // Si es CT y cambió el nombre, asegurar subcategoría de gasto.
+  if (data.tipo_empleado === 'cubre_turno' && upd.nombre_completo) {
+    try {
+      const { asegurarCategoriaGastoCt } = await import('./cubreTurnoAlta.js');
+      await asegurarCategoriaGastoCt(supabase, data.nombre_completo || data.nombre);
+    } catch {
+      /* best-effort */
+    }
   }
 
   return { ok: true, empleado: data, mensaje: `Expediente actualizado.${extraPos}` };

@@ -600,12 +600,14 @@ export function mapearExtrasAFormDocs(empleado) {
     doc_foto: Boolean(ex.foto),
     ine_foto: ex.ine_foto || '',
     notas: ex.notas_alta || empleado?.notas || '',
+    ct_sucursales: Array.isArray(ex.ct_sucursales) ? ex.ct_sucursales : undefined,
+    ct_solo_dia: Boolean(ex.ct_solo_dia),
   };
 }
 
 export function armarExtrasDesdeForm(form, extrasPrev = {}) {
   const prev = extrasPrev && typeof extrasPrev === 'object' ? extrasPrev : {};
-  return {
+  const base = {
     ...prev,
     ine: Boolean(form.doc_ine),
     comprobante_domicilio: Boolean(form.doc_comprobante),
@@ -616,4 +618,28 @@ export function armarExtrasDesdeForm(form, extrasPrev = {}) {
     notas_alta: String(form.notas || '').trim() || null,
     ...(form.ine_foto ? { ine_foto: form.ine_foto } : {}),
   };
+
+  // Campos exclusivos de Cubre Turno (no nómina / multi-tienda / solo día).
+  if (String(form.tipo_empleado || '') === 'cubre_turno') {
+    const ops = typeof form.ct_sucursales !== 'undefined'
+      ? form.ct_sucursales
+      : prev.ct_sucursales;
+    const lista = Array.isArray(ops)
+      ? [...new Set(ops.map((s) => String(s || '').trim().toUpperCase()).filter(Boolean))]
+      : [];
+    // Sin lista explícita → las 7 operativas (legado / alta incompleta).
+    base.ct_sucursales = lista.length
+      ? lista
+      : (Array.isArray(prev.ct_sucursales) && prev.ct_sucursales.length
+        ? prev.ct_sucursales
+        : null);
+    base.ct_solo_dia = form.ct_solo_dia != null
+      ? Boolean(form.ct_solo_dia)
+      : Boolean(prev.ct_solo_dia);
+    base.ct_disponibilidad = prev.ct_disponibilidad || 'disponible';
+    base.sin_nomina = true;
+    base.pago_via = 'gasto_cubre_turno';
+  }
+
+  return base;
 }

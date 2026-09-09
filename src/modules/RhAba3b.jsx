@@ -39,6 +39,10 @@ const FORM_VACIO = {
   rol_sistema: 'Cajero',
   pin: '',
   nomina_pagador: 'abarrotes',
+  /** CT: tiendas donde puede cubrir (las 7 operativas por defecto). */
+  ct_sucursales: listarSucursalesOperativas(),
+  /** CT: si true, solo turnos de día (no nocturno). */
+  ct_solo_dia: false,
   fecha_nacimiento: '',
   curp: '',
   rfc: '',
@@ -162,6 +166,10 @@ export default function RhAba3b({ supabase, user, sucursal }) {
       salario_diario: res.empleado.salario_diario ?? '',
       fecha_nacimiento: res.empleado.fecha_nacimiento || '',
       fecha_alta: res.empleado.fecha_alta || '',
+      ct_sucursales: Array.isArray(res.empleado?.extras?.ct_sucursales)
+        ? res.empleado.extras.ct_sucursales
+        : listarSucursalesOperativas(),
+      ct_solo_dia: Boolean(res.empleado?.extras?.ct_solo_dia),
     });
     setVista('detalle');
     setTrabajando(false);
@@ -212,7 +220,12 @@ export default function RhAba3b({ supabase, user, sucursal }) {
 
   const guardarAlta = async () => {
     if (!puede) return alert('Sin permiso.');
-    if (form.tipo_empleado !== 'cubre_turno' && !String(form.pin || '').trim()) {
+    if (form.tipo_empleado === 'cubre_turno') {
+      const tiendas = Array.isArray(form.ct_sucursales) ? form.ct_sucursales.filter(Boolean) : [];
+      if (!tiendas.length) {
+        return alert('Indica en qué sucursales puede cubrir (al menos una de las 7).');
+      }
+    } else if (!String(form.pin || '').trim()) {
       return alert('Indica el PIN de acceso al POS. Sin PIN no aparece en Usuarios ni en nómina.');
     }
     setTrabajando(true);
@@ -220,6 +233,9 @@ export default function RhAba3b({ supabase, user, sucursal }) {
     setTrabajando(false);
     if (!res.ok) return alert(res.error);
     setMsg(res.mensaje);
+    if (form.tipo_empleado === 'cubre_turno' && res.mensaje) {
+      alert(res.mensaje);
+    }
     setVista('lista');
     setForm({ ...FORM_VACIO, sucursal_id: sucursal || '' });
     await cargarListas();
@@ -883,6 +899,7 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
   const set = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
   const esIndirecto = form.tipo_empleado === 'indirecto';
   const esCubre = form.tipo_empleado === 'cubre_turno';
+  const sucOps = useMemo(() => listarSucursalesOperativas(), []);
   const [ocrProg, setOcrProg] = useState(null);
   const [ocrEtapa, setOcrEtapa] = useState('');
   const [ocrMsg, setOcrMsg] = useState('');
@@ -891,6 +908,38 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
   useEffect(() => {
     if (esIndirecto && form.sucursal_id !== 'MAIN') set('sucursal_id', 'MAIN');
   }, [esIndirecto]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!esCubre) return;
+    setForm((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      if (!Array.isArray(prev.ct_sucursales) || !prev.ct_sucursales.length) {
+        next.ct_sucursales = [...sucOps];
+        changed = true;
+      }
+      if (prev.puesto !== 'Cubre turnos' && (!prev.puesto || prev.puesto === 'Cajero')) {
+        next.puesto = 'Cubre turnos';
+        changed = true;
+      }
+      if (prev.rol_sistema) {
+        next.rol_sistema = '';
+        changed = true;
+      }
+      if (prev.pin) {
+        next.pin = '';
+        changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [esCubre]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleCtSucursal = (codigo) => {
+    const cur = Array.isArray(form.ct_sucursales) ? form.ct_sucursales : [];
+    const has = cur.includes(codigo);
+    const next = has ? cur.filter((s) => s !== codigo) : [...cur, codigo];
+    set('ct_sucursales', next);
+  };
 
   const procesarIne = async (file) => {
     if (!file) return;
@@ -1019,25 +1068,83 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
       <select className="select" value={form.tipo_empleado || 'tienda'} onChange={(e) => set('tipo_empleado', e.target.value)}>
         {TIPOS_EMPLEADO_RH.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
       </select>
-      <select
-        className="select"
-        value={esIndirecto ? 'MAIN' : (form.sucursal_id || '')}
-        disabled={esIndirecto}
-        onChange={(e) => set('sucursal_id', e.target.value)}
-      >
-        <option value="">— Sucursal —</option>
-        {(sucursales || []).map((s) => (
-          <option key={s} value={s}>{etiquetaTienda(s)}</option>
-        ))}
-      </select>
-      <select className="select" value={form.puesto || ''} onChange={(e) => set('puesto', e.target.value)}>
-        <option value="">— Puesto —</option>
-        {PUESTOS_RH.map((p) => <option key={p} value={p}>{p}</option>)}
-      </select>
-      <select className="select" value={form.rol_sistema || ''} onChange={(e) => set('rol_sistema', e.target.value)}>
-        <option value="">— Rol sistema (opcional) —</option>
-        {(roles || []).map((r) => <option key={r} value={r}>{r}</option>)}
-      </select>
+
+      {esCubre ? (
+        <div
+          style={{
+            gridColumn: '1 / -1',
+            border: '1px solid rgba(46,125,50,0.35)',
+            borderRadius: 10,
+            padding: '0.85rem 1rem',
+            background: 'rgba(46,125,50,0.06)',
+          }}
+        >
+          <strong style={{ color: '#2e7d32' }}>Alta Cubre turnos (distinta a planta)</strong>
+          <p className="muted" style={{ margin: '0.35rem 0 0.65rem', fontSize: '0.84rem' }}>
+            No entra a nómina ni a Usuarios con PIN personal. Usa el <strong>PIN de cubre turno</strong> ya configurado
+            por tienda (Configuración). Su nombre se agrega en gastos <strong>CUBRE TURNO → su nombre</strong> para
+            capturar el pago. Puede cubrir en las 7 sucursales; marca “solo día” si no cubre nocturno.
+          </p>
+          <div style={{ marginBottom: '0.65rem' }}>
+            <div className="muted" style={{ fontSize: '0.78rem', marginBottom: '0.35rem' }}>
+              Sucursales donde puede cubrir *
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.55rem 1rem' }}>
+              {sucOps.map((s) => (
+                <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.88rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={(form.ct_sucursales || []).includes(s)}
+                    onChange={() => toggleCtSucursal(s)}
+                  />
+                  {etiquetaTienda(s)}
+                </label>
+              ))}
+            </div>
+            <div style={{ marginTop: '0.45rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-ghost" style={{ fontSize: '0.78rem', padding: '0.2rem 0.5rem' }} onClick={() => set('ct_sucursales', [...sucOps])}>
+                Todas
+              </button>
+              <button type="button" className="btn btn-ghost" style={{ fontSize: '0.78rem', padding: '0.2rem 0.5rem' }} onClick={() => set('ct_sucursales', [])}>
+                Ninguna
+              </button>
+            </div>
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.9rem' }}>
+            <input
+              type="checkbox"
+              checked={Boolean(form.ct_solo_dia)}
+              onChange={(e) => set('ct_solo_dia', e.target.checked)}
+            />
+            Solo turnos de día (no cubre nocturno)
+          </label>
+        </div>
+      ) : (
+        <select
+          className="select"
+          value={esIndirecto ? 'MAIN' : (form.sucursal_id || '')}
+          disabled={esIndirecto}
+          onChange={(e) => set('sucursal_id', e.target.value)}
+        >
+          <option value="">— Sucursal —</option>
+          {(sucursales || []).map((s) => (
+            <option key={s} value={s}>{etiquetaTienda(s)}</option>
+          ))}
+        </select>
+      )}
+
+      {!esCubre && (
+        <select className="select" value={form.puesto || ''} onChange={(e) => set('puesto', e.target.value)}>
+          <option value="">— Puesto —</option>
+          {PUESTOS_RH.map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+      )}
+      {!esCubre && (
+        <select className="select" value={form.rol_sistema || ''} onChange={(e) => set('rol_sistema', e.target.value)}>
+          <option value="">— Rol sistema (opcional) —</option>
+          {(roles || []).map((r) => <option key={r} value={r}>{r}</option>)}
+        </select>
+      )}
       {pedirPinAcceso && !esCubre && (
         <div>
           <label className="muted" style={{ fontSize: '0.78rem', display: 'block', marginBottom: '0.25rem' }}>
@@ -1049,13 +1156,6 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
           </p>
         </div>
       )}
-      {pedirPinAcceso && esCubre && (
-        <p className="muted" style={{ margin: 0, fontSize: '0.8rem', gridColumn: '1 / -1' }}>
-          Cubre turnos usa el catálogo independiente (Checador → Cubre turnos).
-          Alta/baja en RH; semáforo verde/rojo; PIN temporal al aceptar una solicitud de tienda.
-          El PIN universal de Configuración sigue como respaldo.
-        </p>
-      )}
       <input className="input" type="date" title="Fecha de nacimiento" value={form.fecha_nacimiento || ''} onChange={(e) => set('fecha_nacimiento', e.target.value)} />
       <input className="input" type="date" title="Fecha de alta" value={form.fecha_alta || ''} onChange={(e) => set('fecha_alta', e.target.value)} />
       <input className="input" placeholder="CURP" value={form.curp || ''} onChange={(e) => set('curp', e.target.value)} />
@@ -1065,9 +1165,13 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
       <input className="input" placeholder="Contacto de emergencia" value={form.contacto_emergencia || ''} onChange={(e) => set('contacto_emergencia', e.target.value)} />
       <input className="input" placeholder="Tel. emergencia" value={form.telefono_emergencia || ''} onChange={(e) => set('telefono_emergencia', e.target.value)} />
       <input className="input" placeholder="Email" value={form.email || ''} onChange={(e) => set('email', e.target.value)} />
-      <input className="input" placeholder="Salario diario" type="number" value={form.salario_diario ?? ''} onChange={(e) => set('salario_diario', e.target.value)} />
-      <input className="input" placeholder="Banco" value={form.banco || ''} onChange={(e) => set('banco', e.target.value)} />
-      <input className="input" placeholder="CLABE" value={form.clabe || ''} onChange={(e) => set('clabe', e.target.value)} />
+      {!esCubre && (
+        <>
+          <input className="input" placeholder="Salario diario" type="number" value={form.salario_diario ?? ''} onChange={(e) => set('salario_diario', e.target.value)} />
+          <input className="input" placeholder="Banco" value={form.banco || ''} onChange={(e) => set('banco', e.target.value)} />
+          <input className="input" placeholder="CLABE" value={form.clabe || ''} onChange={(e) => set('clabe', e.target.value)} />
+        </>
+      )}
       <input className="input" style={{ gridColumn: '1 / -1' }} placeholder="Dirección" value={form.direccion || ''} onChange={(e) => set('direccion', e.target.value)} />
       <input className="input" placeholder="Colonia" value={form.colonia || ''} onChange={(e) => set('colonia', e.target.value)} />
       <input className="input" placeholder="Ciudad" value={form.ciudad || ''} onChange={(e) => set('ciudad', e.target.value)} />
