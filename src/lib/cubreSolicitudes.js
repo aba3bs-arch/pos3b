@@ -49,6 +49,37 @@ function extrasCt(e) {
   return x;
 }
 
+/** Tiendas habilitadas del CT (vacío/null = las 7 / legado). */
+export function ctSucursalesHabilitadas(extras = {}) {
+  const lista = Array.isArray(extras?.ct_sucursales) ? extras.ct_sucursales : null;
+  if (!lista || !lista.length) return null;
+  return [...new Set(lista.map((s) => normalizarCodigoTienda(s)).filter(Boolean))];
+}
+
+export function ctPuedeCubrirSucursal(extras, sucursalId) {
+  const hab = ctSucursalesHabilitadas(extras);
+  if (!hab) return true;
+  const suc = normalizarCodigoTienda(sucursalId);
+  return Boolean(suc && hab.includes(suc));
+}
+
+/** true si el turno es nocturno. */
+export function turnoEsNocturno(turnoId) {
+  const id = String(turnoId || '').toLowerCase();
+  return /nocturno|noche/.test(id);
+}
+
+export function ctPuedeCubrirTurno(extras, turnoId) {
+  if (!extras?.ct_solo_dia) return true;
+  return !turnoEsNocturno(turnoId);
+}
+
+export function ctPuedeCubrirEn(extras, { sucursal_id, turno_id } = {}) {
+  if (sucursal_id && !ctPuedeCubrirSucursal(extras, sucursal_id)) return false;
+  if (turno_id != null && turno_id !== '' && !ctPuedeCubrirTurno(extras, turno_id)) return false;
+  return true;
+}
+
 /** Libera holds vencidos en extras RH (best-effort). */
 export async function liberarHoldsCtVencidos(supabase) {
   if (!supabase) return { ok: true, liberados: 0 };
@@ -149,7 +180,9 @@ export async function listarCatalogoCt(supabase, opts = {}) {
   const rows = (data || [])
     .filter((e) => opts.incluirBajas || e.estado !== 'baja')
     .map((e) => {
+      const ex = extrasCt(e);
       const estadoDisp = estadoDisponibilidadCt(e, solicitudes);
+      const sucursales = ctSucursalesHabilitadas(ex);
       return {
         id: `rh:${e.id}`,
         rh_id: e.id,
@@ -161,11 +194,20 @@ export async function listarCatalogoCt(supabase, opts = {}) {
         disponibilidad_label: etiquetaDisponibilidadCt(estadoDisp),
         color: colorDisponibilidadCt(estadoDisp),
         puede_solicitar: ctPuedeSerSolicitado(estadoDisp),
-        hold_until: extrasCt(e).ct_hold_until || null,
+        hold_until: ex.ct_hold_until || null,
+        ct_sucursales: sucursales,
+        ct_solo_dia: Boolean(ex.ct_solo_dia),
         origen: 'rh',
-        extras: extrasCt(e),
+        extras: ex,
         raw: e,
       };
+    })
+    .filter((r) => {
+      if (opts.sucursal_id && !ctPuedeCubrirSucursal(r.extras, opts.sucursal_id)) return false;
+      if (opts.turno_id != null && opts.turno_id !== '' && !ctPuedeCubrirTurno(r.extras, opts.turno_id)) {
+        return false;
+      }
+      return true;
     });
 
   if (opts.soloDisponibles) {
@@ -248,6 +290,18 @@ export async function solicitarCt(supabase, payload = {}, opts = {}) {
     return {
       ok: false,
       error: `Ese CT no está disponible (${ct.disponibilidad_label}). Elige otro en verde.`,
+    };
+  }
+  if (!ctPuedeCubrirSucursal(ct.extras, sucursal_id)) {
+    return {
+      ok: false,
+      error: `${ct.nombre} no está habilitado para cubrir en ${etiquetaTienda(sucursal_id)}.`,
+    };
+  }
+  if (!ctPuedeCubrirTurno(ct.extras, payload.turno_id)) {
+    return {
+      ok: false,
+      error: `${ct.nombre} solo cubre turnos de día (no nocturno).`,
     };
   }
 

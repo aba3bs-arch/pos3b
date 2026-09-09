@@ -73,8 +73,14 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
     && !esUsuarioCubreTurno(user);
 
   const candidatos = useMemo(() => {
+    const filaSel = sel
+      ? (plan.filas || []).find((f) => f.id === sel.filaId)
+      : null;
+    const sucFiltro = filaSel?.sucursal_id || sucursal || null;
+    const turnoFiltro = filaSel?.turno_id || null;
+    let base;
     if (catalogoCt.length) {
-      return catalogoCt.map((c) => ({
+      base = catalogoCt.map((c) => ({
         id: c.id,
         rh_id: c.rh_id,
         nombre: c.nombre,
@@ -85,10 +91,28 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
         disponibilidad_label: c.disponibilidad_label,
         color: c.color,
         puede_solicitar: c.puede_solicitar,
+        ct_sucursales: c.ct_sucursales,
+        ct_solo_dia: c.ct_solo_dia,
+        extras: c.extras,
       }));
+    } else {
+      base = listarCandidatosCt({ usuarios, rhCubre, soloRh: true });
     }
-    return listarCandidatosCt({ usuarios, rhCubre, soloRh: true });
-  }, [catalogoCt, usuarios, rhCubre]);
+    return base.filter((c) => {
+      const ex = c.extras || {
+        ct_sucursales: c.ct_sucursales,
+        ct_solo_dia: c.ct_solo_dia,
+      };
+      if (sucFiltro && Array.isArray(ex.ct_sucursales) && ex.ct_sucursales.length) {
+        const hab = ex.ct_sucursales.map((s) => String(s).toUpperCase());
+        if (!hab.includes(String(sucFiltro).toUpperCase())) return false;
+      }
+      if (ex.ct_solo_dia && turnoFiltro && /nocturno|noche/i.test(String(turnoFiltro))) {
+        return false;
+      }
+      return true;
+    });
+  }, [catalogoCt, usuarios, rhCubre, sel, plan.filas, sucursal]);
 
   const fechas = useMemo(() => fechasSemanaPlan(semanaOff), [semanaOff]);
   const grupos = useMemo(() => agruparFilasPorTienda(plan), [plan]);
@@ -391,6 +415,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
                 {candidatos.map((c) => (
                   <option key={c.id} value={c.id} disabled={c.puede_solicitar === false}>
                     {c.puede_solicitar === false ? '🔴' : '🟢'} {c.nombre.toUpperCase()}
+                    {c.ct_solo_dia ? ' · solo día' : ''}
                     {c.disponibilidad_label ? ` · ${c.disponibilidad_label}` : ' · CT RH'}
                   </option>
                 ))}

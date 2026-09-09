@@ -108,7 +108,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
           Los CT se dan de alta/baja en <strong>RH ABA3B → Cubre turnos</strong> (no ocupan plaza de planta).
           Semáforo: <span style={{ color: '#2e7d32', fontWeight: 700 }}>verde = disponible</span>,
           {' '}<span style={{ color: '#c62828', fontWeight: 700 }}>rojo = cubriendo / hold / no disponible</span>.
-          La tienda pide el CT que le convenga; al aceptar recibe PIN temporal solo para esa sucursal y fecha.
+          Alta distinta a planta: sin nómina (pago en gastos CUBRE TURNO → nombre). Entran con el PIN CT de Configuración. Pueden cubrir en las 7 tiendas (algunos solo día). La tienda pide el CT que le convenga; al aceptar recibe PIN temporal solo para esa sucursal y fecha.
         </p>
         {aviso && (
           <p style={{ margin: '0.65rem 0 0', color: 'var(--danger)', fontSize: '0.85rem' }}>{aviso}</p>
@@ -133,6 +133,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                 <tr>
                   <th />
                   <th>Nombre</th>
+                  <th>Ámbito</th>
                   <th>Teléfono</th>
                   <th>Estado</th>
                   {esAdmin && <th />}
@@ -154,6 +155,12 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                       />
                     </td>
                     <td style={{ fontWeight: 600 }}>{c.nombre}</td>
+                    <td className="muted" style={{ fontSize: '0.8rem' }}>
+                      {c.ct_solo_dia ? 'Solo día · ' : 'Día/noche · '}
+                      {Array.isArray(c.ct_sucursales) && c.ct_sucursales.length
+                        ? c.ct_sucursales.map((s) => etiquetaTienda(s)).join(', ')
+                        : '7 sucursales'}
+                    </td>
                     <td className="muted">{c.telefono || '—'}</td>
                     <td>
                       {c.disponibilidad_label}
