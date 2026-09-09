@@ -30,6 +30,7 @@ import {
 import { registrarConsultaPrecio } from '../lib/proyeccionFaltante.js';
 import { tieneAccionPlanHorario } from '../lib/planHorarioAcciones.js';
 import PlanHorarioCalendario from '../components/PlanHorarioCalendario.jsx';
+import PanelCubreSolicitudes from '../components/PanelCubreSolicitudes.jsx';
 
 function inicioDiaLocal() {
   const d = new Date();
@@ -94,6 +95,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
 
   const esAdmin = puedeGestionarUsuarios(user?.rol);
   const puedePlanHorario = esAdmin || tieneAccionPlanHorario(user?.rol, user?.id);
+  const puedePanelCt = Boolean(user); // cajero pide CT; admin gestiona; CT acepta desde aquí (v1)
   const tiendas = sucursalesLista?.length ? sucursalesLista : listarSucursalesParaUI();
 
   useEffect(() => {
@@ -550,6 +552,18 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
             }}
           >
             Plan horario
+          </button>
+        )}
+        {puedePanelCt && (
+          <button
+            type="button"
+            className={pestana === 'cubre' ? 'btn btn-primary' : 'btn btn-ghost'}
+            onClick={() => {
+              setPestana('cubre');
+              setMsg('');
+            }}
+          >
+            Cubre turnos
           </button>
         )}
       </div>
@@ -1036,7 +1050,11 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       )}
 
       {pestana === 'plan' && puedePlanHorario && (
-        <PlanHorarioCalendario supabase={supabase} user={user} />
+        <PlanHorarioCalendario supabase={supabase} user={user} sucursal={sucursal} />
+      )}
+
+      {pestana === 'cubre' && puedePanelCt && (
+        <PanelCubreSolicitudes supabase={supabase} user={user} sucursal={sucursal} />
       )}
     </div>
   );

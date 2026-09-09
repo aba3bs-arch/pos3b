@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listarEmpleadosRh } from '../lib/rhAba3b.js';
 import { leerTurnos } from '../lib/turnos.js';
+import { normalizarRol } from '../lib/roles.js';
 import {
   COLORES_PLAN_HORARIO,
   DIAS_PLAN_HORARIO,
@@ -25,6 +26,8 @@ import {
   persistirPlanHorario,
   sincronizarPlanHorarioDesdeNube,
 } from '../lib/planHorarioSync.js';
+import { listarCatalogoCt, solicitarCt } from '../lib/cubreSolicitudes.js';
+import { esUsuarioCubreTurno } from '../lib/cubreTurno.js';
 
 function colorTextoSobre(bg) {
   const hex = String(bg || '#fff').replace('#', '');
@@ -50,10 +53,11 @@ async function cargarUsuariosPlan(supabase) {
   return (res.data || []).filter((u) => u?.activo !== false);
 }
 
-export default function PlanHorarioCalendario({ supabase, user }) {
+export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
   const [plan, setPlan] = useState(() => leerPlanHorarioLocal());
   const [usuarios, setUsuarios] = useState([]);
   const [rhCubre, setRhCubre] = useState([]);
+  const [catalogoCt, setCatalogoCt] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [aviso, setAviso] = useState('');
@@ -64,10 +68,27 @@ export default function PlanHorarioCalendario({ supabase, user }) {
   const dragRef = useRef(null);
   const [dragOver, setDragOver] = useState(null);
 
-  const candidatos = useMemo(
-    () => listarCandidatosCt({ usuarios, rhCubre }),
-    [usuarios, rhCubre],
-  );
+  const rol = normalizarRol(user?.rol);
+  const puedeSolicitarDesdePlan = (rol === 'Cajero' || rol === 'Administrador' || rol === 'Gerente')
+    && !esUsuarioCubreTurno(user);
+
+  const candidatos = useMemo(() => {
+    if (catalogoCt.length) {
+      return catalogoCt.map((c) => ({
+        id: c.id,
+        rh_id: c.rh_id,
+        nombre: c.nombre,
+        telefono: c.telefono,
+        origen: 'rh',
+        sucursal_id: c.sucursal_id,
+        disponibilidad: c.disponibilidad,
+        disponibilidad_label: c.disponibilidad_label,
+        color: c.color,
+        puede_solicitar: c.puede_solicitar,
+      }));
+    }
+    return listarCandidatosCt({ usuarios, rhCubre, soloRh: true });
+  }, [catalogoCt, usuarios, rhCubre]);
 
   const fechas = useMemo(() => fechasSemanaPlan(semanaOff), [semanaOff]);
   const grupos = useMemo(() => agruparFilasPorTienda(plan), [plan]);
@@ -99,14 +120,16 @@ export default function PlanHorarioCalendario({ supabase, user }) {
 
   const cargar = useCallback(async () => {
     setCargando(true);
-    const [us, rhAll, sync] = await Promise.all([
+    const [us, rhAll, sync, cat] = await Promise.all([
       cargarUsuariosPlan(supabase),
       supabase ? listarEmpleadosRh(supabase, { estado: 'activo' }) : Promise.resolve({ data: [] }),
       sincronizarPlanHorarioDesdeNube(supabase),
+      supabase ? listarCatalogoCt(supabase) : Promise.resolve({ data: [] }),
     ]);
     setUsuarios(us);
     const rhList = rhAll.data || [];
     setRhCubre(rhList.filter((e) => String(e.tipo_empleado || '') === 'cubre_turno'));
+    setCatalogoCt(cat.data || []);
     const mapas = mapasRhParaPlan(rhList);
     const base = sync.ok && sync.plan ? sync.plan : leerPlanHorarioLocal();
     setPlan(fusionarPlanConUsuarios(base, us, mapas));
@@ -147,6 +170,45 @@ export default function PlanHorarioCalendario({ supabase, user }) {
     if (!sel) return;
     aplicar(asignarDescansoConCt(plan, sel.filaId, sel.diaId, ct || { nombre: ctManual.trim() || 'DESCANSO' }));
     setCtManual('');
+  };
+
+  const solicitarCtDesdeCelda = async (ct) => {
+    if (!sel || !ct?.rh_id && !String(ct?.id || '').startsWith('rh:')) {
+      return alert('Elige un CT del catálogo (RH).');
+    }
+    const fechaObj = fechas.find((f) => f.diaId === sel.diaId)?.fecha;
+    const ymd = fechaObj ? fechaObj.toISOString().slice(0, 10) : null;
+    if (!ymd) return alert('No se pudo resolver la fecha de esa celda.');
+    const fila = plan.filas?.find((f) => f.id === sel.filaId);
+    const suc = fila?.sucursal_id || sucursal;
+    const rhId = ct.rh_id || String(ct.id).replace(/^rh:/, '');
+    if (ct.puede_solicitar === false) {
+      return alert(`Ese CT no está disponible (${ct.disponibilidad_label || 'ocupado'}). Elige uno en verde.`);
+    }
+    if (!confirm(
+      `¿Solicitar a ${ct.nombre} cubrir ${ymd} en ${suc}?\n\n`
+      + 'Se marcará descanso en el plan y se enviará la solicitud. '
+      + 'Cuando acepte, tendrá PIN temporal solo para esa tienda/fecha.',
+    )) return;
+    marcarDescanso(ct);
+    const res = await solicitarCt(
+      supabase,
+      {
+        sucursal_id: suc,
+        fecha: ymd,
+        ct_rh_id: rhId,
+        empleado_planta_id: fila?.usuario_id || null,
+        empleado_planta_nombre: fila?.nombre || null,
+        plan_fila_id: sel.filaId,
+        plan_dia: sel.diaId,
+        turno_id: fila?.turno_id || null,
+        turno_etiqueta: fila?.turno_id || null,
+      },
+      { user },
+    );
+    if (!res.ok) return alert(res.error);
+    alert(res.mensaje);
+    await cargar();
   };
 
   const actor = user?.nombre ? ` · ${user.nombre}` : '';
@@ -308,12 +370,12 @@ export default function PlanHorarioCalendario({ supabase, user }) {
 
           <div style={{ marginTop: '0.75rem' }}>
             <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.35rem' }}>
-              Relacionar con CT (cubre turnos) o compañero de tienda
+              CT independiente (verde = disponible · rojo = cubriendo/hold). La tienda elige el que le convenga.
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
               <select
                 className="input"
-                style={{ minWidth: 220 }}
+                style={{ minWidth: 260 }}
                 value={celdaSel.celda.ctId || ''}
                 onChange={(e) => {
                   const id = e.target.value;
@@ -325,14 +387,30 @@ export default function PlanHorarioCalendario({ supabase, user }) {
                   marcarDescanso(ct);
                 }}
               >
-                <option value="">— Elegir CT / empleado —</option>
+                <option value="">— Elegir CT —</option>
                 {candidatos.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nombre.toUpperCase()}
-                    {c.origen === 'rh' ? ' · CT RH' : ` · ${c.sucursal_id || 'tienda'}`}
+                  <option key={c.id} value={c.id} disabled={c.puede_solicitar === false}>
+                    {c.puede_solicitar === false ? '🔴' : '🟢'} {c.nombre.toUpperCase()}
+                    {c.disponibilidad_label ? ` · ${c.disponibilidad_label}` : ' · CT RH'}
                   </option>
                 ))}
               </select>
+              {puedeSolicitarDesdePlan && celdaSel.celda.ctId && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => {
+                    const ct = candidatos.find((c) => c.id === celdaSel.celda.ctId);
+                    void solicitarCtDesdeCelda(ct || {
+                      id: celdaSel.celda.ctId,
+                      nombre: celdaSel.celda.ctNombre,
+                      telefono: celdaSel.celda.ctTelefono,
+                    });
+                  }}
+                >
+                  Solicitar este CT
+                </button>
+              )}
               <input
                 className="input"
                 placeholder="Nombre CT (si no está en la lista)"

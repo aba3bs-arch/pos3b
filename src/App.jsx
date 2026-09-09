@@ -744,6 +744,19 @@ function App() {
     const p = pin.trim();
     if (!p) return;
 
+    // PIN temporal de cobertura CT (aceptada: solo esa tienda/fecha).
+    try {
+      const { validarPinTemporalCt, construirUsuarioDesdeSolicitudCt } = await import('./lib/cubreSolicitudes.js');
+      const pinTemp = await validarPinTemporalCt(supabase, p, sucursal);
+      if (pinTemp.ok && pinTemp.solicitud) {
+        const u = construirUsuarioDesdeSolicitudCt(pinTemp.solicitud);
+        await completarLogin(u, { cubreTurno: true });
+        return;
+      }
+    } catch {
+      /* tabla aún no migrada: seguir flujo normal */
+    }
+
     // Siempre refrescar el PIN de esta tienda desde Supabase antes de validar (todas las cajas).
     const syncPin = await refrescarPinCubreTurnoSucursal(supabase, sucursal);
     setTickCubreTurno((n) => n + 1);
