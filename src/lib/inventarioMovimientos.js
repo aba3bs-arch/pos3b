@@ -9,9 +9,13 @@ import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.
 import { costoProveedorUnitario } from './valorInventario.js';
 import { cargarProductoIdsCostoPrecioRuta } from './proveedoresCostoRuta.js';
 import { round2 } from './productoForm.js';
-import { generarFolioMovimiento, folioDesdeCompraId } from './foliosInventario.js';
+import {
+  generarFolioMovimiento,
+  folioDesdeCompraId,
+  siguienteFolioMovimiento,
+} from './foliosInventario.js';
 
-export { generarFolioMovimiento, folioDesdeCompraId };
+export { generarFolioMovimiento, folioDesdeCompraId, siguienteFolioMovimiento };
 
 const LS_MOVIMIENTOS = 'pos3b_movimientos_inventario';
 const LS_PENDIENTES_NUBE = 'pos3b_movimientos_inventario_pendientes';
@@ -479,10 +483,14 @@ export async function aplicarMovimientoInventario(supabase, opts) {
   }
 
   // Folio de la operación: si viene en opts (lote/compra/traspaso) se reutiliza;
-  // si no, se genera uno. Nunca se parte por departamento.
+  // si no, se genera uno continuo (no reinicia cada día). Nunca se parte por departamento.
   const folioMov =
     (folioOpt && String(folioOpt).trim()) ||
-    generarFolioMovimiento(tipo === 'retiro' ? 'retiro' : 'entrada', tienda);
+    (await siguienteFolioMovimiento(
+      supabase,
+      tipo === 'retiro' ? 'retiro' : 'entrada',
+      tienda,
+    ));
   const metaMov = {
     ...(metaOpt && typeof metaOpt === 'object' ? metaOpt : {}),
     folio: folioMov,
@@ -691,7 +699,8 @@ export async function aplicarEntradasMasivas(supabase, opts) {
   const tienda = sucursalOperacion || sucursal;
   // Un solo folio para toda la lista (aunque haya varios departamentos).
   const folioLote =
-    (folioOpt && String(folioOpt).trim()) || generarFolioMovimiento(tipo, tienda);
+    (folioOpt && String(folioOpt).trim()) ||
+    (await siguienteFolioMovimiento(supabase, tipo, tienda));
   let log = leerMovimientosLocal();
   let aplicados = 0;
   let piezas = 0;
