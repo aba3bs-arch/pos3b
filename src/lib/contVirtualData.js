@@ -196,9 +196,15 @@ function itemIngresoRecoleccion(r, { desde, etiquetaCuentaFn } = {}) {
     efectivo,
     gastos_total: gastosEmb,
     gastos,
-    comentario: `Recolección ${cuentaLbl} · ${etiquetaTienda(t)} · ${r.folio || ''}${
-      gastosEmb > 0 ? ` · bruto (efectivo ${efectivo.toFixed(2)} + gastos ${gastosEmb.toFixed(2)})` : ''
-    }`.trim(),
+    comentario: (() => {
+      const base = `Recolección ${cuentaLbl} · ${etiquetaTienda(t)} · ${r.folio || ''}`.trim();
+      if (String(detalle.formula_recoleccion_ie || '') === 'socio_3b_ganancia_60') {
+        return `${base} · ganancia 60% a IE`.trim();
+      }
+      return `${base}${
+        gastosEmb > 0 ? ` · bruto (efectivo ${efectivo.toFixed(2)} + gastos ${gastosEmb.toFixed(2)})` : ''
+      }`.trim();
+    })(),
     cuenta: mod === 'garage' ? 'garage' : mod === 'abarrotes' ? 'abarrotes' : 'virtual',
     tienda: t,
     tipo_mov: 'recoleccion',

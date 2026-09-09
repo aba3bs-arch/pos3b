@@ -34,6 +34,7 @@ import { normalizarRol } from '../../lib/roles.js';
 import {
   calcularPagoClienteRecoleccion,
   esSucursalClienteMaquinas,
+  patchDetalleIeSoloGanancia60,
   registrarPagoClienteRecoleccionIe,
   slugDesdeSucursalCliente,
 } from '../../lib/clientesMaquinas.js';
@@ -177,19 +178,13 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
 
     let pagoCliente = null;
     if (esSucursalClienteMaquinas(sucursal)) {
-      const gastosPeriodo = Number(res.calcImpresion?.gastosTotal);
-      const gastosLista = Array.isArray(res.gastosImpresion) ? res.gastosImpresion : [];
-      const gastosMonto = Number.isFinite(gastosPeriodo)
-        ? gastosPeriodo
-        : gastosLista.reduce((a, g) => a + (Number(g.monto) || 0), 0);
       pagoCliente = calcularPagoClienteRecoleccion({
         modulo: 'virtual',
         venta: res.calcImpresion?.venta ?? calc?.venta,
         recoleccion: res.recoleccion,
-        gastos: gastosMonto,
       });
       const etiqueta = etiquetaCliente || slugDesdeSucursalCliente(sucursal);
-      // Guardar desglose en el cierre para reimprimir el mismo ticket después.
+      // Guardar desglose + IE solo con ganancia 60% (sin 40% ni gastos).
       if (res.cierreId) {
         try {
           await actualizarDetalleCierre(
@@ -199,6 +194,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
               pago_cliente: pagoCliente,
               etiqueta_cliente: etiqueta,
               ticket_socio_3b_guardado_at: new Date().toISOString(),
+              ...patchDetalleIeSoloGanancia60(pagoCliente),
             },
             sucursal,
             'virtual',
@@ -206,6 +202,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
           if (res.estadoImpresion && typeof res.estadoImpresion === 'object') {
             res.estadoImpresion.pago_cliente = pagoCliente;
             res.estadoImpresion.etiqueta_cliente = etiqueta;
+            Object.assign(res.estadoImpresion, patchDetalleIeSoloGanancia60(pagoCliente));
           }
           await recargar?.();
         } catch (errDetalle) {
@@ -245,8 +242,8 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
         `Caja chica en $0.00.\n` +
         `Inyectado: ${fmtCorte(res.monedaInyectar ?? inyectar)}.\n` +
         `Moneda inicial del próximo corte: ${fmtCorte(res.miSiguiente ?? miSiguiente)}.` +
-        (pagoCliente?.pago_cliente
-          ? `\n\nSocio 3B ${fmtCorte(pagoCliente.pago_cliente)} · Ganancia ${fmtCorte(pagoCliente.ganancia_empresa)} → IE VIRTUAL\n${pagoCliente.formula}`
+        (pagoCliente?.ganancia_empresa
+          ? `\n\nIE Virtual solo ganancia 60%: ${fmtCorte(pagoCliente.ganancia_empresa)}\n(Socio 40% ${fmtCorte(pagoCliente.pago_cliente)} no se registra en IE)\n${pagoCliente.formula}`
           : '') +
         (res.pendienteIe
           ? '\n\n⚠️ Transferencia a IE (ingresos + gastos) pendiente de aprobación por ABB, FJBB o JLBB.'

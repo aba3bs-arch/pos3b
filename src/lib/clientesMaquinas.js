@@ -110,15 +110,15 @@ export function calcularMonedaVirtualCliente({
 
 /**
  * Desglose Socio 3B en cada recolección (ticket + IE).
- * - Virtual: recolección → −15% → − gastos → Socio 40% / Ganancia 60%
- * - Garage: recolección (+ anterior) → − gastos → Socio 40% / Ganancia 60% (sin −15%)
+ * - Virtual: recolección → −15% → Socio 40% / Ganancia 60%
+ * - Garage: recolección (+ anterior) → Socio 40% / Ganancia 60% (sin −15%)
+ * A IE Virtual solo va la ganancia 60% (no gastos ni el pago 40% del socio).
  */
 export function calcularPagoClienteRecoleccion({
   modulo = 'virtual',
   venta = 0,
   recoleccion = 0,
   recoleccionAnterior = 0,
-  gastos = 0,
   pctDescuento = 0.15,
   pctCliente = 0.4,
   pctEmpresa = 0.6,
@@ -128,7 +128,6 @@ export function calcularPagoClienteRecoleccion({
   const ventaN = round2(venta);
   const recN = round2(recoleccion);
   const antN = esGarage ? round2(recoleccionAnterior) : 0;
-  const gastosN = Math.max(0, round2(gastos));
   const pc = Number(pctCliente) || 0.4;
   const pe = Number(pctEmpresa) > 0 ? Number(pctEmpresa) : Math.max(0, round2(1 - pc));
   // Garage no aplica descuento 15%; Virtual sí.
@@ -138,9 +137,8 @@ export function calcularPagoClienteRecoleccion({
   const base = round2(recBase + antN);
   const descuentoMonto = round2(base * desc);
   const trasDescuento = round2(base - descuentoMonto);
-  const trasGastos = round2(Math.max(0, trasDescuento - gastosN));
-  const pago = round2(trasGastos * pc);
-  const ganancia = round2(trasGastos * pe);
+  const pago = round2(trasDescuento * pc);
+  const ganancia = round2(trasDescuento * pe);
   const ieDestino = esGarage ? 'IE VIRTUAL · Garage' : 'IE VIRTUAL';
 
   const partesFormula = [];
@@ -150,8 +148,7 @@ export function calcularPagoClienteRecoleccion({
     partesFormula.push(fmtMonedaCliente(base));
   }
   if (desc > 0) partesFormula.push(`−${Math.round(desc * 100)}%`);
-  if (gastosN > 0) partesFormula.push(`− gastos ${fmtMonedaCliente(gastosN)}`);
-  partesFormula.push(`→ Socio 40% / Ganancia 60% de ${fmtMonedaCliente(trasGastos)} → ${ieDestino}`);
+  partesFormula.push(`→ Ganancia 60% ${fmtMonedaCliente(ganancia)} a ${ieDestino} (sin gastos ni 40% socio)`);
 
   return {
     modulo: esGarage ? 'garage' : 'virtual',
@@ -162,25 +159,37 @@ export function calcularPagoClienteRecoleccion({
     pct_descuento: desc,
     descuento_monto: descuentoMonto,
     tras_descuento: trasDescuento,
-    gastos: gastosN,
-    tras_gastos: trasGastos,
-    base_reparto: trasGastos,
+    gastos: 0,
+    tras_gastos: trasDescuento,
+    base_reparto: trasDescuento,
     pct_cliente: pc,
     pct_empresa: pe,
     pago_cliente: pago,
     ganancia_empresa: ganancia,
     ie_destino: ieDestino,
+    ie_solo_ganancia_60: true,
     formula: partesFormula.join(' '),
   };
 }
 
+/** Patch de detalle de cierre: IE solo registra la ganancia 60%. */
+export function patchDetalleIeSoloGanancia60(pago) {
+  const ganancia = round2(pago?.ganancia_empresa);
+  return {
+    recoleccion_contabilidad: ganancia,
+    formula_recoleccion_ie: 'socio_3b_ganancia_60',
+    ie_ingreso_solo_ganancia_60: true,
+    ie_ganancia_60: ganancia,
+    gastos_deducidos_en_ie: false,
+  };
+}
+
 /**
- * Pie del ticket Socio 3B:
- * Virtual: Recolección · −15% · Gastos · Base 40/60 · Socio · Ganancia · firma.
- * Garage: Recolección · Gastos · Base 40/60 · Socio · Ganancia · firma (sin −15%).
+ * Pie del ticket Socio 3B (referencia del reparto).
+ * A IE Virtual solo entra la ganancia 60%; no se registra el 40% ni gastos.
  */
 export function htmlBloquePagoClienteTicket(pago) {
-  if (!pago || !(Number(pago.pago_cliente) > 0 || Number(pago.base) > 0 || Number(pago.tras_gastos) > 0)) return '';
+  if (!pago || !(Number(pago.pago_cliente) > 0 || Number(pago.base) > 0 || Number(pago.ganancia_empresa) > 0)) return '';
   const pct = Math.round((Number(pago.pct_cliente) || 0.4) * 100);
   const pctEmp = Math.round((Number(pago.pct_empresa) || 0.6) * 100);
   const descPct = Math.round((Number(pago.pct_descuento) || 0) * 100);
@@ -191,8 +200,7 @@ export function htmlBloquePagoClienteTicket(pago) {
   const recGarage = round2(
     pago.recoleccion_actual != null ? pago.recoleccion_actual : round2((pago.base || 0) - antGarage),
   );
-  const gastosN = round2(pago.gastos);
-  const trasGastos = round2(pago.tras_gastos != null ? pago.tras_gastos : pago.tras_descuento);
+  const baseReparto = round2(pago.base_reparto != null ? pago.base_reparto : pago.tras_descuento);
   const cabecera =
     esGarage && antGarage > 0
       ? `
@@ -211,10 +219,9 @@ export function htmlBloquePagoClienteTicket(pago) {
   const lineas = `
       ${cabecera}
       ${lineasDesc}
-      <tr><td>Gastos del periodo</td><td class="r">${fmtMonedaCliente(gastosN)}</td></tr>
-      <tr><td>Base 40/60</td><td class="r"><strong>${fmtMonedaCliente(trasGastos)}</strong></td></tr>
-      <tr><td>Socio 3B ${pct}%</td><td class="r"><strong>${fmtMonedaCliente(pago.pago_cliente)}</strong></td></tr>
-      <tr><td>Ganancia ${pctEmp}%</td><td class="r"><strong>${fmtMonedaCliente(pago.ganancia_empresa)}</strong></td></tr>`;
+      <tr><td>Base reparto</td><td class="r"><strong>${fmtMonedaCliente(baseReparto)}</strong></td></tr>
+      <tr><td>Socio 3B ${pct}% (no va a IE)</td><td class="r">${fmtMonedaCliente(pago.pago_cliente)}</td></tr>
+      <tr><td>Ganancia ${pctEmp}% → IE</td><td class="r"><strong>${fmtMonedaCliente(pago.ganancia_empresa)}</strong></td></tr>`;
 
   return `
     <div class="sep"></div>
@@ -222,7 +229,7 @@ export function htmlBloquePagoClienteTicket(pago) {
       <p style="margin:0 0 8px;font-size:12px;font-weight:900;color:#1d4ed8;text-align:center">DESGLOSE SOCIO 3B</p>
       <table style="margin:0">${lineas}</table>
       <p style="margin:8px 0 0;font-size:10px;font-weight:700;color:#334155;text-align:center">
-        Ganancia ${pctEmp}% → ${escHtml(ieDestino)}
+        Solo ganancia ${pctEmp}% → ${escHtml(ieDestino)} · sin gastos ni pago 40%
       </p>
     </div>
     <div style="margin:18px 8px 6px;text-align:center">
@@ -240,35 +247,20 @@ function escHtml(s) {
     .replace(/"/g, '&quot;');
 }
 
-/** Registra en IE el egreso «Pago cliente» tras recolección de un cliente máquinas. */
-export async function registrarPagoClienteRecoleccionIe(supabase, {
-  clienteNombre,
-  clienteSlug,
-  sucursalId,
+/**
+ * Antes registraba el 40% como egreso en IE.
+ * Socio 3B: a IE solo va la ganancia 60% como ingreso de la recolección; no se registra el 40%.
+ */
+export async function registrarPagoClienteRecoleccionIe(_supabase, {
   pago,
-  folio,
-  user,
-  modulo,
 } = {}) {
-  const monto = round2(pago?.pago_cliente);
-  if (!(monto > 0)) return { ok: true, skipped: true };
-  return registrarEgresoContVirtual(supabase, {
-    sucursal_id: sucursalId || 'MAIN',
-    fecha: hoyYmdNogales(),
-    categoria_id: 'clientes-maquinas',
-    categoria_nombre: 'Socio 3B',
-    subcategoria_id: clienteSlug || 'pago-cliente',
-    subcategoria_nombre: clienteNombre || 'Cliente',
-    detalle_id: 'pago-recoleccion',
-    detalle_nombre: 'Pago cliente recolección',
-    monto,
-    descripcion: `Pago cliente ${modulo || ''} · ${clienteNombre || '—'} · folio ${folio || '—'} · ${pago?.formula || ''}`.trim(),
-    fuente: 'cliente_maquinas_recoleccion',
-    ref_tabla: 'cortes_contabilidad_cierres',
-    ref_id: folio || null,
-    usuario_nombre: user?.nombre || null,
-    cuenta: String(modulo || '').toLowerCase() === 'garage' ? 'garage' : 'virtual',
-  });
+  // No crear egreso del 40%: IE solo usa ganancia_empresa vía recoleccion_contabilidad.
+  return {
+    ok: true,
+    skipped: true,
+    reason: 'ie_solo_ganancia_60',
+    ganancia_ie: round2(pago?.ganancia_empresa),
+  };
 }
 
 export function fmtMonedaCliente(n) {

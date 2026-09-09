@@ -27,6 +27,7 @@ import { actualizarDetalleCierre } from '../../lib/corteContabilidad/store.js';
 import {
   calcularPagoClienteRecoleccion,
   esSucursalClienteMaquinas,
+  patchDetalleIeSoloGanancia60,
   registrarPagoClienteRecoleccionIe,
   slugDesdeSucursalCliente,
 } from '../../lib/clientesMaquinas.js';
@@ -148,22 +149,15 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
     }
 
     let pagoCliente = null;
-    // Solo recolección definitiva (máquinas + DSCH en ceros): −15% − gastos → 40/60.
+    // Solo recolección definitiva: a IE Virtual solo la ganancia 60%.
     if (!res.temporal && esSucursalClienteMaquinas(sucursal)) {
-      const gastosLista = Array.isArray(res.gastosImpresion) ? res.gastosImpresion : [];
-      const gastosMonto = gastosLista.reduce((a, g) => a + (Number(g.monto) || 0), 0)
-        || Number(res.calcImpresion?.gastosTotal)
-        || Number(calc?.gastosTotal)
-        || 0;
       pagoCliente = calcularPagoClienteRecoleccion({
         modulo: 'garage',
         venta: res.calcImpresion?.venta ?? calc?.venta,
         recoleccion: res.recoleccionActual ?? montoRec,
         recoleccionAnterior: res.recoleccionAnteriorIncluida ?? 0,
-        gastos: gastosMonto,
       });
       const etiqueta = etiquetaCliente || slugDesdeSucursalCliente(sucursal);
-      // Guardar desglose en el cierre para reimprimir el mismo ticket después.
       if (res.cierreId) {
         try {
           await actualizarDetalleCierre(
@@ -173,6 +167,7 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
               pago_cliente: pagoCliente,
               etiqueta_cliente: etiqueta,
               ticket_socio_3b_guardado_at: new Date().toISOString(),
+              ...patchDetalleIeSoloGanancia60(pagoCliente),
             },
             sucursal,
             'garage',
@@ -180,6 +175,7 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
           if (res.estadoImpresion && typeof res.estadoImpresion === 'object') {
             res.estadoImpresion.pago_cliente = pagoCliente;
             res.estadoImpresion.etiqueta_cliente = etiqueta;
+            Object.assign(res.estadoImpresion, patchDetalleIeSoloGanancia60(pagoCliente));
           }
           await recargar?.();
         } catch (errDetalle) {
@@ -223,8 +219,8 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
               : '') +
             `.\n` +
             `Máquinas y dispensadora en ceros. Gastos/faltantes en cero.\n` +
-            (pagoCliente?.pago_cliente
-              ? `Socio 3B ${fmtCorte(pagoCliente.pago_cliente)} · Ganancia ${fmtCorte(pagoCliente.ganancia_empresa)} → IE VIRTUAL · Garage\n`
+            (pagoCliente?.ganancia_empresa
+              ? `IE Virtual solo ganancia 60%: ${fmtCorte(pagoCliente.ganancia_empresa)}\n(Socio 40% ${fmtCorte(pagoCliente.pago_cliente)} no se registra en IE)\n`
               : '') +
             (res.pendienteIe
               ? 'Transferencia a IE pendiente de aprobación (ABB/FJBB/JLBB).'

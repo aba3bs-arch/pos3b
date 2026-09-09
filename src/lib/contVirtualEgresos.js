@@ -565,6 +565,11 @@ export async function sincronizarValesContVirtual(supabase, { limit = 400 } = {}
  */
 export async function liberarGastosCorteAIeTrasRecoleccion(supabase, cierre) {
   if (!supabase || !cierre) return { ok: true, count: 0 };
+  // Socio 3B: a IE solo va la recolección (ganancia 60%); no liberar gastos.
+  const suc = String(cierre?.sucursal_id || '').toUpperCase();
+  if (suc.startsWith('CE-')) {
+    return { ok: true, count: 0, omitido: 'socio_3b' };
+  }
   const ids = (cierre?.detalle?.gastos_ids || []).map((id) => String(id)).filter(Boolean);
   if (!ids.length) return { ok: true, count: 0 };
 
