@@ -655,6 +655,9 @@ function App() {
       limpiarAnunciosVistos();
       if (esRolCliente(data.rol) || esSocioSesion) {
         setVista('Socio 3B');
+      } else if (data.esCtMovil) {
+        setChecadorPestana('cubre');
+        setVista('Checador');
       } else if (puedeVerModulo(data.rol, 'Checador', data.id)) {
         setChecadorPestana('reloj');
         setVista('Checador');
@@ -755,6 +758,23 @@ function App() {
       }
     } catch {
       /* tabla aún no migrada: seguir flujo normal */
+    }
+
+    // PIN personal CT (solo celular / PWA): bandeja de solicitudes.
+    try {
+      const { validarPinMovilCt } = await import('./lib/cubreTurnoPinMovil.js');
+      const pinMovil = await validarPinMovilCt(supabase, p);
+      if (pinMovil.ok && pinMovil.usuario) {
+        await completarLogin(pinMovil.usuario, { cubreTurno: true });
+        return;
+      }
+      if (pinMovil.soloMovil || pinMovil.dispositivoAjeno) {
+        alert(pinMovil.error);
+        setPin('');
+        return;
+      }
+    } catch {
+      /* best-effort */
     }
 
     // Siempre refrescar el PIN de esta tienda desde Supabase antes de validar (todas las cajas).

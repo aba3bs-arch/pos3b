@@ -26,7 +26,7 @@ import {
   persistirPlanHorario,
   sincronizarPlanHorarioDesdeNube,
 } from '../lib/planHorarioSync.js';
-import { listarCatalogoCt, solicitarCt } from '../lib/cubreSolicitudes.js';
+import { listarCatalogoCt, quitarCoberturaCtPlan, solicitarCt } from '../lib/cubreSolicitudes.js';
 import { esUsuarioCubreTurno } from '../lib/cubreTurno.js';
 
 function colorTextoSobre(bg) {
@@ -196,12 +196,42 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
     setCtManual('');
   };
 
+  const ymdDeSel = () => {
+    const fechaObj = fechas.find((f) => f.diaId === sel?.diaId)?.fecha;
+    return fechaObj ? fechaObj.toISOString().slice(0, 10) : null;
+  };
+
+  /** Quitar descanso y cancelar cualquier solicitud CT activa de la celda (trabajar el descanso). */
+  const quitarDescansoYCt = async () => {
+    if (!sel) return;
+    const fila = plan.filas?.find((f) => f.id === sel.filaId);
+    const ymd = ymdDeSel();
+    const teniaCt = Boolean(celdaSel?.celda?.ctId || celdaSel?.celda?.ctNombre);
+    if (teniaCt && !confirm(
+      '¿Quitar el CT y trabajar este descanso?\n\n'
+      + 'Se cancelará la solicitud activa (si había) y la celda vuelve a turno laboral.',
+    )) return;
+    if (ymd && fila) {
+      const res = await quitarCoberturaCtPlan(supabase, {
+        plan_fila_id: sel.filaId,
+        plan_dia: sel.diaId,
+        fecha: ymd,
+        sucursal_id: fila.sucursal_id || sucursal,
+      });
+      if (!res.ok && !res.faltaTabla) {
+        return alert(res.error || 'No se pudo cancelar la solicitud CT.');
+      }
+      if (res.canceladas) alert(res.mensaje);
+    }
+    aplicar(quitarDescanso(plan, sel.filaId, sel.diaId));
+    setCtManual('');
+  };
+
   const solicitarCtDesdeCelda = async (ct) => {
     if (!sel || !ct?.rh_id && !String(ct?.id || '').startsWith('rh:')) {
       return alert('Elige un CT del catálogo (RH).');
     }
-    const fechaObj = fechas.find((f) => f.diaId === sel.diaId)?.fecha;
-    const ymd = fechaObj ? fechaObj.toISOString().slice(0, 10) : null;
+    const ymd = ymdDeSel();
     if (!ymd) return alert('No se pudo resolver la fecha de esa celda.');
     const fila = plan.filas?.find((f) => f.id === sel.filaId);
     const suc = fila?.sucursal_id || sucursal;
@@ -209,10 +239,16 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
     if (ct.puede_solicitar === false) {
       return alert(`Ese CT no está disponible (${ct.disponibilidad_label || 'ocupado'}). Elige uno en verde.`);
     }
+    const ctActualId = celdaSel?.celda?.ctId
+      ? String(celdaSel.celda.ctId).replace(/^rh:/, '')
+      : '';
+    const esCambio = Boolean(ctActualId && ctActualId !== String(rhId));
     if (!confirm(
       `¿Solicitar a ${ct.nombre} cubrir ${ymd} en ${suc}?\n\n`
-      + 'Se marcará descanso en el plan y se enviará la solicitud. '
-      + 'Cuando acepte, tendrá PIN temporal solo para esa tienda/fecha.',
+      + (esCambio || celdaSel?.celda?.ctNombre
+        ? 'Si había otra solicitud CT en esta celda, se cancela automáticamente. '
+        : '')
+      + 'El CT ve la petición en su celular (PIN móvil). Al aceptar recibe PIN temporal solo para esa tienda/fecha.',
     )) return;
     marcarDescanso(ct);
     const res = await solicitarCt(
@@ -227,6 +263,9 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
         plan_dia: sel.diaId,
         turno_id: fila?.turno_id || null,
         turno_etiqueta: fila?.turno_id || null,
+        notas: esCambio
+          ? `Cambio de CT desde Plan horario · ${fila?.nombre || ''}`
+          : `Solicitado desde Plan horario · ${fila?.nombre || ''}`,
       },
       { user },
     );
@@ -355,7 +394,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
             <button
               type="button"
               className={celdaSel.celda.tipo === 'turno' ? 'btn btn-primary' : 'btn btn-ghost'}
-              onClick={() => aplicar(quitarDescanso(plan, sel.filaId, sel.diaId))}
+              onClick={() => void quitarDescansoYCt()}
             >
               Turno
             </button>
@@ -433,7 +472,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
                     });
                   }}
                 >
-                  Solicitar este CT
+                  {celdaSel.celda.ctNombre ? 'Solicitar / cambiar este CT' : 'Solicitar este CT'}
                 </button>
               )}
               <input
@@ -452,11 +491,23 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
                 Asignar nombre
               </button>
               {celdaSel.celda.tipo === 'descanso' && (
-                <button type="button" className="btn btn-ghost" onClick={() => aplicar(quitarDescanso(plan, sel.filaId, sel.diaId))}>
-                  Quitar descanso
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  title="Cancela la solicitud CT (si hay) y vuelve a turno laboral"
+                  onClick={() => void quitarDescansoYCt()}
+                >
+                  {celdaSel.celda.ctId || celdaSel.celda.ctNombre
+                    ? 'Quitar CT (trabajar descanso)'
+                    : 'Quitar descanso'}
                 </button>
               )}
             </div>
+            <p className="muted" style={{ margin: '0.55rem 0 0', fontSize: '0.78rem', maxWidth: 720 }}>
+              Si te arrepientes del CT: elige otro en la lista y pulsa <strong>Solicitar / cambiar</strong>
+              {' '}(se cancela el anterior). Si decides trabajar tu descanso: <strong>Quitar CT (trabajar descanso)</strong>.
+              El CT recibe la solicitud en su celular con su PIN móvil (no en la caja).
+            </p>
           </div>
         </div>
       )}

@@ -49,10 +49,23 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
   const rol = normalizarRol(user?.rol);
   const esAdmin = rol === 'Administrador' || rol === 'Gerente';
   const esCajero = rol === 'Cajero';
+  const esCtMovil = Boolean(user?.esCtMovil && user?.ctRhId);
+  const ctRhId = esCtMovil ? user.ctRhId : null;
 
   const cargar = useCallback(async () => {
     if (!supabase) return;
     setCargando(true);
+    if (esCtMovil) {
+      const sol = await listarSolicitudesCt(supabase, {
+        ctRhId,
+        limit: 80,
+      });
+      setCatalogo([]);
+      setSolicitudes(sol.data || []);
+      setAviso(sol.faltaTabla ? AVISO_FALTA_CUBRE_SOLICITUDES : (sol.error || ''));
+      setCargando(false);
+      return;
+    }
     const [cat, sol] = await Promise.all([
       listarCatalogoCt(supabase),
       listarSolicitudesCt(supabase, {
@@ -65,7 +78,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
     setAviso(cat.error || sol.faltaTabla ? (sol.error || cat.error || '') : (sol.error || ''));
     if (sol.faltaTabla) setAviso(AVISO_FALTA_CUBRE_SOLICITUDES);
     setCargando(false);
-  }, [supabase, sucursal, esAdmin]);
+  }, [supabase, sucursal, esAdmin, esCtMovil, ctRhId]);
 
   useEffect(() => {
     void cargar();
@@ -79,6 +92,10 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
       return { ymd, corto, diaId: f.diaId };
     });
   }, []);
+  const pendientes = useMemo(
+    () => (solicitudes || []).filter((s) => s.estado === 'solicitada'),
+    [solicitudes],
+  );
 
   const pedir = async (e) => {
     e.preventDefault();
@@ -100,6 +117,128 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
     await cargar();
   };
 
+  if (esCtMovil) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div className="card" style={{ borderTop: '4px solid #2e7d32' }}>
+          <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
+            Mis coberturas · {user?.nombre || 'CT'}
+          </h3>
+          <p className="muted" style={{ margin: 0, fontSize: '0.86rem' }}>
+            Entraste con tu <strong>PIN personal móvil</strong> (solo este celular).
+            Aquí aceptas o rechazas las solicitudes de las tiendas.
+            Al aceptar recibes un <strong>PIN temporal</strong> para marcar en la caja de esa tienda ese día
+            (no uses el PIN móvil en las cajas).
+          </p>
+          {aviso && (
+            <p style={{ margin: '0.65rem 0 0', color: 'var(--danger)', fontSize: '0.85rem' }}>{aviso}</p>
+          )}
+          <div style={{ marginTop: '0.65rem' }}>
+            <button type="button" className="btn btn-ghost" onClick={() => void cargar()} disabled={cargando}>
+              {cargando ? 'Actualizando…' : 'Actualizar'}
+            </button>
+            {pendientes.length > 0 && (
+              <span className="muted" style={{ marginLeft: 10, fontSize: '0.85rem' }}>
+                {pendientes.length} pendiente{pendientes.length === 1 ? '' : 's'}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="card">
+          <h4 style={{ margin: '0 0 0.5rem' }}>Solicitudes para ti</h4>
+          {cargando ? (
+            <p className="muted">Cargando…</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Tienda</th>
+                    <th>Estado</th>
+                    <th>PIN caja</th>
+                    <th>Quién pidió</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {solicitudes.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="muted">
+                        Aún no te han solicitado cobertura. Cuando una tienda te pida desde Plan horario,
+                        aparecerá aquí.
+                      </td>
+                    </tr>
+                  ) : (
+                    solicitudes.map((s) => (
+                      <tr key={s.id}>
+                        <td>
+                          {fmtFecha(s.fecha)}
+                          {s.turno_etiqueta ? (
+                            <div className="muted" style={{ fontSize: '0.75rem' }}>{s.turno_etiqueta}</div>
+                          ) : null}
+                        </td>
+                        <td>{etiquetaTienda(s.sucursal_id)}</td>
+                        <td>{ESTADOS_SOLICITUD_CT[s.estado] || s.estado}</td>
+                        <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                          {s.estado === 'aceptada' && s.pin_temporal ? s.pin_temporal : '—'}
+                        </td>
+                        <td className="muted" style={{ fontSize: '0.8rem' }}>
+                          {s.solicitado_por_nombre || s.empleado_planta_nombre || '—'}
+                        </td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          {s.estado === 'solicitada' && (
+                            <>
+                              <button
+                                type="button"
+                                className="btn btn-gold"
+                                style={{ fontSize: '0.78rem', padding: '0.15rem 0.4rem' }}
+                                onClick={async () => {
+                                  if (!confirm(
+                                    `¿Aceptar cobertura en ${etiquetaTienda(s.sucursal_id)} el ${s.fecha}?`,
+                                  )) return;
+                                  const res = await aceptarSolicitudCt(supabase, s.id, { user });
+                                  if (!res.ok) return alert(res.error);
+                                  alert(res.mensaje);
+                                  await cargar();
+                                }}
+                              >
+                                Aceptar
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-ghost"
+                                style={{ fontSize: '0.78rem', padding: '0.15rem 0.4rem' }}
+                                onClick={async () => {
+                                  if (!confirm('¿Rechazar esta solicitud?')) return;
+                                  const res = await rechazarSolicitudCt(supabase, s.id);
+                                  if (!res.ok) return alert(res.error);
+                                  await cargar();
+                                }}
+                              >
+                                Rechazar
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
+            Tres PINs distintos: (1) PIN móvil = solo tu celular para ver/aceptar;
+            (2) PIN de tienda (Configuración) = marcaje genérico en caja;
+            (3) PIN temporal = tras aceptar, solo esa tienda y fecha.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div className="card" style={{ borderTop: '4px solid #2e7d32' }}>
@@ -108,7 +247,9 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
           Los CT se dan de alta/baja en <strong>RH ABA3B → Cubre turnos</strong> (no ocupan plaza de planta).
           Semáforo: <span style={{ color: '#2e7d32', fontWeight: 700 }}>verde = disponible</span>,
           {' '}<span style={{ color: '#c62828', fontWeight: 700 }}>rojo = cubriendo / hold / no disponible</span>.
-          Alta distinta a planta: sin nómina (pago en gastos CUBRE TURNO → nombre). Entran con el PIN CT de Configuración. Pueden cubrir en las 7 tiendas (algunos solo día). La tienda pide el CT que le convenga; al aceptar recibe PIN temporal solo para esa sucursal y fecha.
+          Alta distinta a planta: sin nómina (pago en gastos CUBRE TURNO → nombre).
+          El CT recibe solicitudes en su <strong>celular con PIN móvil</strong>; en caja usa el PIN de tienda o el PIN temporal al aceptar.
+          Pueden cubrir en las 7 tiendas (algunos solo día). Desde Plan horario puedes cambiar de CT o quitarlo si el empleado trabaja su descanso.
         </p>
         {aviso && (
           <p style={{ margin: '0.65rem 0 0', color: 'var(--danger)', fontSize: '0.85rem' }}>{aviso}</p>
@@ -402,8 +543,8 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
           </table>
         </div>
         <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
-          Base v1: aceptar genera el PIN; el login de tienda reconocerá ese PIN temporal.
-          Después afinamos push individual al CT, horarios exactos de turno y app dedicada.
+          El CT acepta desde su celular (PIN móvil). Aceptar genera el PIN temporal para la caja.
+          En Plan horario: cambiar CT cancela la solicitud anterior; «Quitar CT» si el empleado trabaja su descanso.
         </p>
       </div>
     </div>

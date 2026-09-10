@@ -271,6 +271,69 @@ function ventanaPinParaFecha(fechaYmd, turnoId) {
   };
 }
 
+
+/**
+ * Cancela solicitudes activas (solicitada/aceptada) de una celda del plan horario.
+ * Sirve para cambiar de CT o para quitar la cobertura si el empleado decide trabajar su descanso.
+ */
+export async function cancelarSolicitudesActivasCelda(supabase, {
+  plan_fila_id,
+  plan_dia,
+  fecha,
+  sucursal_id,
+  exceptoId = null,
+} = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.', canceladas: 0 };
+  const suc = normalizarCodigoTienda(sucursal_id);
+  const ymd = String(fecha || '').slice(0, 10);
+  if (!plan_fila_id || plan_dia == null || !ymd) {
+    return { ok: false, error: 'Falta celda/fecha del plan.', canceladas: 0 };
+  }
+  let q = supabase
+    .from('pos_cubre_solicitudes')
+    .select('id, estado, ct_nombre, pin_temporal')
+    .eq('plan_fila_id', plan_fila_id)
+    .eq('plan_dia', Number(plan_dia))
+    .eq('fecha', ymd)
+    .in('estado', ['solicitada', 'aceptada']);
+  if (suc) q = q.eq('sucursal_id', suc);
+  const { data, error } = await q;
+  if (error) {
+    if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CUBRE_SOLICITUDES, faltaTabla: true, canceladas: 0 };
+    return { ok: false, error: error.message, canceladas: 0 };
+  }
+  const ids = (data || [])
+    .map((r) => r.id)
+    .filter((id) => !exceptoId || String(id) !== String(exceptoId));
+  if (!ids.length) return { ok: true, canceladas: 0, data: [] };
+  const ahora = new Date().toISOString();
+  const { data: upd, error: upErr } = await supabase
+    .from('pos_cubre_solicitudes')
+    .update({
+      estado: 'cancelada',
+      pin_temporal: null,
+      updated_at: ahora,
+      notas: 'Cancelada desde plan horario (cambio de CT o se quitó la cobertura).',
+    })
+    .in('id', ids)
+    .select('id, ct_nombre, estado');
+  if (upErr) return { ok: false, error: upErr.message, canceladas: 0 };
+  return { ok: true, canceladas: (upd || []).length, data: upd || [] };
+}
+
+/** Quitar cobertura CT: cancela solicitudes de la celda (el UI además quita el descanso). */
+export async function quitarCoberturaCtPlan(supabase, celda = {}) {
+  const res = await cancelarSolicitudesActivasCelda(supabase, celda);
+  if (!res.ok) return res;
+  return {
+    ok: true,
+    canceladas: res.canceladas,
+    mensaje: res.canceladas
+      ? `Se canceló${res.canceladas === 1 ? '' : 'ron'} ${res.canceladas} solicitud(es) de CT. El descanso queda libre para trabajarlo o pedir otro CT.`
+      : 'No había solicitudes activas de CT en esa celda.',
+  };
+}
+
 /**
  * Cajero/tienda solicita un CT disponible para cubrir un descanso.
  */
@@ -303,6 +366,18 @@ export async function solicitarCt(supabase, payload = {}, opts = {}) {
       ok: false,
       error: `${ct.nombre} solo cubre turnos de día (no nocturno).`,
     };
+  }
+
+  // Si ya había CT en esta celda, cancelar para permitir cambiar / re-solicitar.
+  let canceladasPrevias = 0;
+  if (payload.plan_fila_id != null && payload.plan_dia != null) {
+    const cancel = await cancelarSolicitudesActivasCelda(supabase, {
+      plan_fila_id: payload.plan_fila_id,
+      plan_dia: payload.plan_dia,
+      fecha,
+      sucursal_id,
+    });
+    canceladasPrevias = cancel.canceladas || 0;
   }
 
   const ventana = ventanaPinParaFecha(fecha, payload.turno_id);
@@ -350,9 +425,13 @@ export async function solicitarCt(supabase, payload = {}, opts = {}) {
   return {
     ok: true,
     solicitud: data,
+    canceladasPrevias,
     mensaje: (
-      `Solicitud enviada a ${ct.nombre} para ${etiquetaTienda(sucursal_id)} · ${fecha}. `
-      + 'Cuando acepte, se generará un PIN temporal solo para esa tienda/fecha.'
+      (canceladasPrevias
+        ? `Se canceló la solicitud anterior. Nueva solicitud a ${ct.nombre}`
+        : `Solicitud enviada a ${ct.nombre}`)
+      + ` para ${etiquetaTienda(sucursal_id)} · ${fecha}. `
+      + 'El CT la ve en su celular (PIN móvil). Al aceptar se genera PIN temporal solo para esa tienda/fecha.'
     ),
   };
 }

@@ -12,6 +12,7 @@ import {
   listarCatalogoContVirtual,
 } from './contVirtualCatalogo.js';
 import { refrescarPinCubreTurnoSucursal } from './cubreTurnoSync.js';
+import { asegurarPinMovilCt } from './cubreTurnoPinMovil.js';
 
 export const ID_CAT_CUBRE_TURNO = 'cubre-turno';
 
@@ -79,7 +80,7 @@ export async function leerPinsCtParaNotificar(supabase, sucursales = []) {
   return out;
 }
 
-export function textoNotificacionPinCt({ nombre, pins = [], soloDia = false, sucursales = [] } = {}) {
+export function textoNotificacionPinCt({ nombre, pins = [], soloDia = false, sucursales = [], pinMovil = null } = {}) {
   const quien = String(nombre || 'CT').trim();
   const ambito = soloDia ? 'solo turnos de día' : 'día y noche';
   const tiendas = (sucursales || []).map((s) => etiquetaTienda(s)).join(', ') || 'las 7 sucursales';
@@ -90,12 +91,20 @@ export function textoNotificacionPinCt({ nombre, pins = [], soloDia = false, suc
   );
   if (!pins.length) {
     cuerpo += (
-      'Aún no hay PIN CT configurado en las tiendas. '
-      + 'Configúralo en Configuración → PIN cubre turno y avísale al CT.'
+      'Aún no hay PIN CT de tienda configurado. '
+      + 'Configúralo en Configuración → PIN cubre turno para el marcaje en caja. '
     );
   } else {
     const lineas = pins.map((p) => `${p.etiqueta}: ${p.pin}`).join(' · ');
-    cuerpo += `PIN(es) para entrar al POS (cubre turno): ${lineas}.`;
+    cuerpo += `PIN(es) de tienda (caja/POS al cubrir): ${lineas}. `;
+  }
+  if (pinMovil) {
+    cuerpo += (
+      `PIN personal para su CELULAR: ${pinMovil}. `
+      + 'Solo funciona en su móvil (app/PWA) y se vincula a ese dispositivo. '
+      + 'Ahí ve y acepta solicitudes de cobertura. '
+      + 'No sirve en las cajas de tienda.'
+    );
   }
   return cuerpo;
 }
@@ -113,7 +122,14 @@ export async function postAltaCubreTurno(supabase, empleado, extras = {}) {
 
   const gasto = await asegurarCategoriaGastoCt(supabase, nombre);
   const pins = await leerPinsCtParaNotificar(supabase, sucursales);
-  const mensaje = textoNotificacionPinCt({ nombre, pins, soloDia, sucursales });
+  let pinMovil = null;
+  try {
+    const pinRes = await asegurarPinMovilCt(supabase, empleado);
+    if (pinRes.ok) pinMovil = pinRes.pin;
+  } catch {
+    /* best-effort */
+  }
+  const mensaje = textoNotificacionPinCt({ nombre, pins, soloDia, sucursales, pinMovil });
 
   const notif = await crearNotificacion(supabase, {
     sucursal_id: empleado.sucursal_id || sucursales[0] || 'MAIN',
@@ -129,12 +145,14 @@ export async function postAltaCubreTurno(supabase, empleado, extras = {}) {
     gasto,
     notificacion: notif,
     pins,
+    pinMovil,
     mensaje: (
       `CT ${nombre} listo.`
       + (gasto.ok ? ' Aparece en gastos CUBRE TURNO.' : '')
+      + (pinMovil ? ` PIN móvil ${pinMovil} (solo su celular).` : '')
       + (pins.length
-        ? ` PIN notificado (${pins.length} tienda(s)).`
-        : ' Configura el PIN CT en cada tienda y vuelve a avisar.')
+        ? ` PIN(es) de tienda notificado(s) (${pins.length}).`
+        : ' Configura el PIN CT de tienda en cada sucursal.')
     ),
   };
 }
