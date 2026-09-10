@@ -2047,13 +2047,13 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             {puedeMovimientosIe && it.tipo === 'ingreso' && (it.manual || it.tipo_mov === 'manual') && (
               <>
                 <button type="button" className="cv-row-edit" title="Editar ingreso" onClick={(e) => { e.stopPropagation(); abrirEditarManual(it); }}>✎</button>
-                <button type="button" className="cv-row-del" title="Eliminar ingreso" onClick={(e) => { e.stopPropagation(); borrarEgreso(it); }}>✕</button>
+                <button type="button" className="cv-row-del" title="Eliminar ingreso" onClick={(e) => { e.stopPropagation(); borrarEgreso(it); }}>Eliminar</button>
               </>
             )}
             {puedeMovimientosIe && it.tipo === 'ingreso' && (it.tipo_mov === 'recoleccion' || it.tipo_mov === 'venta_cierre') && (
               <>
                 <button type="button" className="cv-row-edit" title={it.tipo_mov === 'recoleccion' ? 'Editar recolección' : 'Editar ventas de cierre'} onClick={(e) => { e.stopPropagation(); abrirEditarCierreIe(it); }}>✎</button>
-                <button type="button" className="cv-row-del" title={it.tipo_mov === 'recoleccion' ? 'Eliminar recolección' : 'Eliminar cierre'} onClick={(e) => { e.stopPropagation(); borrarEgreso(it); }}>✕</button>
+                <button type="button" className="cv-row-del" title={it.tipo_mov === 'recoleccion' ? 'Eliminar recolección' : 'Eliminar cierre'} onClick={(e) => { e.stopPropagation(); borrarEgreso(it); }}>Eliminar</button>
               </>
             )}
             {puedeMovimientosIe && it.tipo === 'gasto' && (
@@ -2648,7 +2648,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             </span>
           </div>
           <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
-            Un renglón por socio activo. Toca uno para filtrar sus movimientos (no son sucursales).
+            Un renglón por socio activo. Toca uno para filtrar sus movimientos (no son sucursales). AMR / ABB / JLBB / FJBB pueden eliminar ingresos con el botón Eliminar en cada renglón o en el detalle.
           </p>
           {!sociosFilas.length ? (
             <div className="item">

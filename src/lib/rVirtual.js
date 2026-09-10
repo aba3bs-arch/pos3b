@@ -4,6 +4,7 @@ import {
   esAprobadorRecoleccionIe,
   nombreCoincidePatrones,
   normalizarNombreMatch,
+  puedeEliminarRechazarRcVirtual,
   recoleccionAprobadaParaIe,
 } from './contabilidadConstants.js';
 import { fmtMonto } from './controlEfectivo.js';
@@ -671,6 +672,64 @@ export async function liquidarRecoleccionRcVirtual(supabase, { origenId, adminNo
  * El bruto para IE (efectivo + gastos) se mantiene; el gasto queda registrado en la misma línea.
  * Si la recolección ya está aprobada en IE, el egreso aparece al recargar el panel.
  */
+
+/**
+ * Eliminar / rechazar recolección en RC Virtual (AMR, ABB, JLBB, FJBB).
+ * Sale de la bandeja sin registrar ingresos en IE VIRTUAL.
+ */
+export async function eliminarRecoleccionRcVirtual(supabase, { origenId, adminNombre } = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  if (!puedeEliminarRechazarRcVirtual(adminNombre)) {
+    return { ok: false, error: 'Solo AMR, ABB, JLBB o FJBB pueden eliminar o rechazar recolecciones.' };
+  }
+  const id = String(origenId || '').trim();
+  if (!id) return { ok: false, error: 'No se identificó la recolección.' };
+  const actor = String(adminNombre || '').trim() || null;
+
+  const { data: row, error: errGet } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (errGet) return { ok: false, error: errGet.message };
+  if (!row) return { ok: false, error: 'Recolección no encontrada.' };
+
+  const mod = String(row.modulo || '').toLowerCase();
+  if (!MODULOS_R_VIRTUAL.has(mod)) {
+    return { ok: false, error: 'Esa recolección no es de Virtual/Garage.' };
+  }
+  const est = String(row?.detalle?.r_virtual_estado || '');
+  if (est === 'eliminado' || est === 'rechazado') {
+    return { ok: true, yaEliminada: true, origenId: id };
+  }
+
+  const ahora = new Date().toISOString();
+  const detalle = {
+    ...(row.detalle || {}),
+    estado_aprobacion: 'rechazado',
+    aprobado_por: actor,
+    aprobado_at: ahora,
+    r_virtual_estado: 'eliminado',
+    r_virtual_eliminado_por: actor,
+    r_virtual_eliminado_at: ahora,
+  };
+
+  const { error: errUp } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .update({ detalle })
+    .eq('id', id);
+  if (errUp) return { ok: false, error: errUp.message };
+
+  try {
+    const { marcarNotificacionAtendida } = await import('./contabilidadNotificaciones.js');
+    await marcarNotificacionAtendida(supabase, 'cortes_contabilidad_cierres', id, actor);
+  } catch {
+    /* ignore */
+  }
+
+  return { ok: true, origenId: id, monto: montoCorteRecoleccion(row) };
+}
+
 export async function generarGastoRecoleccionRcVirtual(supabase, {
   origenId,
   monto,

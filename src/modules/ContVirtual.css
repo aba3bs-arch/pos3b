@@ -499,14 +499,18 @@
 
 .cv-row-del {
   background: transparent;
-  border: none;
-  color: var(--cv-muted);
+  border: 1px solid rgba(198, 40, 40, 0.45);
+  border-radius: 6px;
+  color: var(--cv-gasto);
   cursor: pointer;
-  font-size: 0.7rem;
-  padding: 0.2rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.2rem 0.45rem;
+  white-space: nowrap;
 }
 
 .cv-row-del:hover {
+  background: rgba(198, 40, 40, 0.1);
   color: var(--cv-gasto);
 }
 

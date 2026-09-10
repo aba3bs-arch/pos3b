@@ -7,6 +7,7 @@ import {
   fmtMonto,
   generarGastoRecoleccionRcVirtual,
   imprimirTicketRcVirtual,
+  eliminarRecoleccionRcVirtual,
   liquidarRecoleccionRcVirtual,
   listarBandejaRVirtual,
   recibirRecoleccionesRVirtual,
@@ -16,9 +17,11 @@ import {
   AVISO_FALTA_PAGARES,
   ETIQUETA_AREA_PAGARE,
   etiquetaEstadoPagare,
+  cancelarPagare,
   listarPagares,
   montoPendienteRecoleccion,
   pagarePendienteRecoleccion,
+  puedeEliminarPagare,
   saldoPagare,
 } from '../lib/pagares.js';
 import { imprimirPagare } from '../lib/impresionContabilidad.js';
@@ -64,6 +67,7 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
   const adminNombre = user?.nombre || '';
   const adminEsAbb = esAbb(adminNombre);
   const adminEsAmr = esUsuarioAmr(adminNombre);
+  const adminPuedeEliminar = puedeEliminarPagare(adminNombre);
   const miClave = claveRecolectorRVirtual(adminNombre);
   const [pestana, setPestana] = useState(
     pestanaInicial || (areaInicial === 'garage' ? 'garage' : 'recolecciones'),
@@ -92,6 +96,7 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
   const pagaresRcPorSucursal = useMemo(() => {
     const relevantes = (pagares || []).filter((p) => {
       const est = String(p.estado || '').toLowerCase();
+      if (est === 'cancelado') return false;
       return est === 'por_recolectar' || est === 'recolectado' || pagarePendienteRecoleccion(p);
     });
     const map = new Map();
@@ -232,6 +237,51 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
     }
     await cargar();
   };
+
+  const eliminarItem = async (it) => {
+    if (!adminPuedeEliminar) return;
+    if (!it?.origenId || it.origen !== 'corte') return;
+    if (!confirm(
+      `¿Eliminar / rechazar la recolección ${it.folio || it.origenId} (${fmtMonto(it.monto)})?\n\n`
+      + 'Se quitará de RC Virtual. No se registrará en IE VIRTUAL.',
+    )) return;
+    setTrabajando(`elim-${it.origenId}`);
+    setMsg('');
+    setError('');
+    const res = await eliminarRecoleccionRcVirtual(supabase, {
+      origenId: it.origenId,
+      adminNombre,
+    });
+    setTrabajando('');
+    if (!res.ok) {
+      setError(res.error || 'No se pudo eliminar.');
+      return;
+    }
+    setMsg(res.yaEliminada
+      ? 'Esa recolección ya estaba eliminada.'
+      : `Eliminada/rechazada ${it.folio || ''}: salió de RC Virtual (sin pasar a IE).`);
+    await cargar();
+  };
+
+  const eliminarPagareItem = async (p) => {
+    if (!adminPuedeEliminar) return;
+    if (!confirm(
+      `¿Eliminar / rechazar el pagaré ${p.folio || ''}?\n\n`
+      + 'Quedará cancelado y dejará de aparecer en RC Virtual → Pagaré.',
+    )) return;
+    setTrabajando(`pag-${p.id}`);
+    setMsg('');
+    setError('');
+    const res = await cancelarPagare(supabase, p, { user: { nombre: adminNombre }, nombreActor: adminNombre });
+    setTrabajando('');
+    if (!res.ok) {
+      setError(res.error || 'No se pudo eliminar el pagaré.');
+      return;
+    }
+    setMsg(res.mensaje || 'Pagaré eliminado.');
+    await cargar();
+  };
+
 
   const abrirGasto = (it) => {
     if (!adminEsAmr || !it?.origenId) return;
@@ -387,7 +437,7 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
                               </>
                             ) : null}
                           </td>
-                          <td>
+                          <td style={{ whiteSpace: 'nowrap' }}>
                             <button
                               type="button"
                               className="btn btn-ghost"
@@ -396,6 +446,23 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
                             >
                               Ticket ×2
                             </button>
+                            {adminPuedeEliminar && String(p.estado || '').toLowerCase() !== 'cancelado' ? (
+                              <button
+                                type="button"
+                                className="btn btn-ghost"
+                                style={{
+                                  fontSize: '0.78rem',
+                                  padding: '0.2rem 0.4rem',
+                                  color: 'var(--danger)',
+                                  border: '1px solid var(--danger)',
+                                  marginLeft: '0.25rem',
+                                }}
+                                disabled={Boolean(trabajando)}
+                                onClick={() => eliminarPagareItem(p)}
+                              >
+                                {trabajando === `pag-${p.id}` ? '…' : 'Eliminar'}
+                              </button>
+                            ) : null}
                           </td>
                         </tr>
                       ))}
@@ -666,15 +733,33 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
                                           </button>
                                         ) : null}
                                         {it.origen === 'corte' && it.origenId ? (
-                                          <button
-                                            type="button"
-                                            className="btn btn-danger"
-                                            style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
-                                            disabled={Boolean(trabajando)}
-                                            onClick={() => liquidarItem(it)}
-                                          >
-                                            {trabajando === `liq-${it.origenId}` ? 'Liquidando…' : 'Liquidar'}
-                                          </button>
+                                          <>
+                                            <button
+                                              type="button"
+                                              className="btn btn-danger"
+                                              style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+                                              disabled={Boolean(trabajando)}
+                                              onClick={() => liquidarItem(it)}
+                                            >
+                                              {trabajando === `liq-${it.origenId}` ? 'Liquidando…' : 'Liquidar'}
+                                            </button>
+                                            {adminPuedeEliminar ? (
+                                              <button
+                                                type="button"
+                                                className="btn btn-ghost"
+                                                style={{
+                                                  padding: '0.2rem 0.5rem',
+                                                  fontSize: '0.75rem',
+                                                  color: 'var(--danger)',
+                                                  border: '1px solid var(--danger)',
+                                                }}
+                                                disabled={Boolean(trabajando)}
+                                                onClick={() => eliminarItem(it)}
+                                              >
+                                                {trabajando === `elim-${it.origenId}` ? 'Eliminando…' : 'Eliminar'}
+                                              </button>
+                                            ) : null}
+                                          </>
                                         ) : (
                                           <span className="muted">—</span>
                                         )}

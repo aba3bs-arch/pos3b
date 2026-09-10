@@ -57,6 +57,14 @@ export const APROBADORES_RECOLECCION_IE = [
   { id: 'cheche', etiqueta: 'Cheche', patrones: ['cheche'] },
 ];
 
+/** AMR / ABB / JLBB / FJBB: pueden Eliminar o Rechazar pagarés y recolecciones en RC Virtual. */
+export const ELIMINADORES_RC_VIRTUAL = [
+  { id: 'amr', etiqueta: 'AMR', patrones: ['amr', 'andres', 'andrés', 'marrero'] },
+  { id: 'abb', etiqueta: 'ABB', patrones: ['abb', 'antonio'] },
+  { id: 'jlbb', etiqueta: 'JLBB', patrones: ['jlbb', 'jose luis', 'josé luis'] },
+  { id: 'fjbb', etiqueta: 'FJBB', patrones: ['fjbb', 'fbbb', 'francisco'] },
+];
+
 /** Quién puede editar/eliminar ingresos y egresos en IE VIRTUAL / IE ABARROTES (no incluye Cheche). */
 export const ADMINISTRADORES_IE_MOVIMIENTOS = APROBADORES_RECOLECCION_IE.filter((s) =>
   s.id === 'abb' || s.id === 'fjbb' || s.id === 'jlbb',
@@ -289,6 +297,15 @@ export function esAprobadorRecoleccionIe(nombre) {
 /** ABB / FJBB / JLBB: editar y eliminar movimientos en el panel IE. */
 export function esAdministradorIeMovimientos(nombre) {
   return ADMINISTRADORES_IE_MOVIMIENTOS.some((s) => nombreCoincidePatrones(nombre, s.patrones));
+}
+
+/** AMR, ABB, JLBB o FJBB: Eliminar / Rechazar en pagarés y recolecciones → RC Virtual. */
+export function puedeEliminarRechazarRcVirtual(userOrNombre) {
+  const nombre = typeof userOrNombre === 'string'
+    ? userOrNombre
+    : (userOrNombre?.nombre || userOrNombre?.name || '');
+  if (!nombre) return false;
+  return ELIMINADORES_RC_VIRTUAL.some((s) => nombreCoincidePatrones(nombre, s.patrones));
 }
 
 /** Antonio / ABB: destino final de R Virtual. */
