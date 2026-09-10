@@ -78,6 +78,7 @@ import {
   AVISO_FALTA_PAGARES,
   ETIQUETA_AREA_PAGARE,
   abonarPagare,
+  cancelarPagare,
   etiquetaEstadoPagare,
   liquidarPagare,
   listarPagares,
@@ -86,6 +87,7 @@ import {
   pagareEstaAbierto,
   puedeAbonarLiquidarPagare,
   puedeGenerarPagare,
+  puedeEliminarPagare,
   puedeRecolectarPagare,
   recolectarPagare,
   registrarPagare,
@@ -231,6 +233,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const puedeAbonarLiquidarPagaresUi = puedeAbonarLiquidarPagare(user?.rol, user)
     && !esUsuarioCubreTurno(user);
   const puedeRecolectarPagaresUi = puedeRecolectarPagare(user);
+  const puedeEliminarPagaresUi = puedeEliminarPagare(user);
   /** Cajero: solo Abonar / Liquidar en pagarés (sin generar ni recolectar). */
   const puedeGenerarPagaresUi = puedeGenerarPagare(user?.rol) && !esCajero;
   /** Recolectar préstamo área → RC Virtual: admin, gerente o repartidor. */
@@ -1594,6 +1597,34 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                                     }}
                                   >
                                     Recolectar
+                                  </button>
+                                )}
+
+                                {puedeEliminarPagaresUi && String(p.estado || '').toLowerCase() !== 'cancelado' && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-ghost"
+                                    style={{
+                                      padding: '0.2rem 0.4rem',
+                                      fontSize: '0.8rem',
+                                      color: 'var(--danger)',
+                                      border: '1px solid var(--danger)',
+                                    }}
+                                    onClick={async () => {
+                                      if (!confirm(
+                                        `¿Eliminar / rechazar el pagaré ${p.folio || ''}?\n\n`
+                                        + 'Quedará cancelado y saldrá de RC Virtual → Pagaré.',
+                                      )) return;
+                                      const res = await cancelarPagare(supabase, p, {
+                                        nombreActor: user?.nombre,
+                                        user,
+                                      });
+                                      if (!res.ok) return alert(res.error);
+                                      alert(res.mensaje);
+                                      recargarTodo();
+                                    }}
+                                  >
+                                    Eliminar
                                   </button>
                                 )}
                               </td>

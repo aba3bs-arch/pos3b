@@ -1,5 +1,5 @@
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
-import { nombreCoincidePatrones } from './contabilidadConstants.js';
+import { nombreCoincidePatrones, puedeEliminarRechazarRcVirtual } from './contabilidadConstants.js';
 import { normalizarRol } from './roles.js';
 import { nombreTurnoLegible, turnoActual } from './turnos.js';
 import { esUsuarioCubreTurno } from './cubreTurno.js';
@@ -100,6 +100,12 @@ export function puedeRecolectarPagare(userOrNombre) {
   if (!nombre) return false;
   return RECOLECTORES_PAGARE.some((r) => nombreCoincidePatrones(nombre, r.patrones));
 }
+
+/** AMR / ABB / JLBB / FJBB: Eliminar o Rechazar pagaré. */
+export function puedeEliminarPagare(userOrNombre) {
+  return puedeEliminarRechazarRcVirtual(userOrNombre);
+}
+
 
 export function saldoPagare(p) {
   if (!p) return 0;
@@ -406,3 +412,42 @@ export async function registrarPagaresEnRcVirtual(supabase, { area, items, admin
   }
   return { ok: true, data: out };
 }
+
+/**
+ * Eliminar / rechazar pagaré (AMR, ABB, JLBB, FJBB).
+ * Cancela abiertos, parciales, por recolectar o ya recolectados (salen de RC Virtual).
+ */
+export async function cancelarPagare(supabase, pagare, opts = {}) {
+  if (!supabase || !pagare?.id) return { ok: false, error: 'Pagaré inválido.' };
+  const nombre = opts.nombreActor || opts.user?.nombre || '';
+  if (!puedeEliminarPagare(opts.user || nombre)) {
+    return {
+      ok: false,
+      error: 'Solo AMR, ABB, JLBB o FJBB pueden eliminar o rechazar pagarés.',
+    };
+  }
+  const est = String(pagare.estado || '').toLowerCase();
+  if (est === 'cancelado') {
+    return { ok: false, error: 'Ese pagaré ya está cancelado.' };
+  }
+  const ahora = new Date().toISOString();
+  const notaLinea = `Cancelado/rechazado por ${nombre || '—'} · ${ahora.slice(0, 16)}`;
+  const notasPrev = String(pagare.notas || '').trim();
+  const patch = {
+    estado: 'cancelado',
+    saldo: 0,
+    rc_monto: 0,
+    notas: notasPrev ? `${notasPrev}\n${notaLinea}` : notaLinea,
+  };
+  const { data, error } = await supabase.from('pagares').update(patch).eq('id', pagare.id).select('*').single();
+  if (error) {
+    if (faltaTablaPagares(error)) return { ok: false, error: AVISO_FALTA_PAGARES, faltaTabla: true };
+    return { ok: false, error: error.message };
+  }
+  return {
+    ok: true,
+    pagare: data,
+    mensaje: `Pagaré ${pagare.folio || ''} eliminado/rechazado por ${nombre || '—'}.`,
+  };
+}
+
