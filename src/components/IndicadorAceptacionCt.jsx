@@ -8,8 +8,9 @@ import {
 /** Badge clicable con % de aceptación del CT. */
 export function IndicadorAceptacionCt({ resumen, onClick, compact = false }) {
   const pct = resumen?.pct;
-  const color = colorNivelAceptacionCt(pct);
-  const label = etiquetaNivelAceptacionCt(pct);
+  const optsNivel = { inicial: Boolean(resumen?.inicial) };
+  const color = colorNivelAceptacionCt(pct, optsNivel);
+  const label = etiquetaNivelAceptacionCt(pct, optsNivel);
   return (
     <button
       type="button"
@@ -30,7 +31,7 @@ export function IndicadorAceptacionCt({ resumen, onClick, compact = false }) {
       }}
     >
       <span style={{ fontSize: compact ? '0.95rem' : '1.45rem', fontWeight: 800, color, lineHeight: 1 }}>
-        {pct == null ? '—' : `${pct}%`}
+        {pct == null ? '100%' : `${pct}%`}
       </span>
       <span style={{ fontSize: '0.75rem', color: '#334155', fontWeight: 600 }}>
         Aceptación · {label}
@@ -38,7 +39,7 @@ export function IndicadorAceptacionCt({ resumen, onClick, compact = false }) {
           <span className="muted" style={{ display: 'block', fontWeight: 400, marginTop: 2 }}>
             {resumen?.n
               ? `${resumen.n} calificación${resumen.n === 1 ? '' : 'es'} · clic por tienda`
-              : 'Aún sin calificaciones · clic'}
+              : 'Arranca en 100% · depende de las calificaciones'}
           </span>
         )}
       </span>
@@ -72,15 +73,18 @@ export function ModalDesgloseAceptacion({ resumen, nombre, onClose }) {
       >
         <h4 style={{ margin: '0 0 0.35rem' }}>Aceptación · {nombre || 'CT'}</h4>
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-          Promedio de calificaciones de planta (1–5 → %). General:{' '}
-          <strong style={{ color: colorNivelAceptacionCt(resumen.pct) }}>
-            {resumen.pct == null ? '—' : `${resumen.pct}%`}
+          Todo cubreturno arranca en <strong>100%</strong>. Las calificaciones de planta (1–5 → %)
+          suben o bajan ese nivel. General:{' '}
+          <strong style={{ color: colorNivelAceptacionCt(resumen.pct, { inicial: resumen.inicial }) }}>
+            {resumen.pct == null ? '100%' : `${resumen.pct}%`}
           </strong>
           {' '}
           (mínimo {UMBRAL_ACEPTACION_CT}% para mantener la app).
         </p>
         {(resumen.porSucursal || []).length === 0 ? (
-          <p className="muted" style={{ margin: 0 }}>Aún no hay calificaciones por tienda.</p>
+          <p className="muted" style={{ margin: 0 }}>
+            Aún no hay calificaciones por tienda — se mantiene el 100% inicial.
+          </p>
         ) : (
           <div className="table-wrap">
             <table className="data">

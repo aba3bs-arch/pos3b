@@ -69,7 +69,7 @@ export const TUTORIAL_SOLICITAR_CT = {
       titulo: '5. Después de la cobertura',
       cuerpo: [
         'Cuando termine el turno, el cajero de planta **evalúa al CT** (consumo, faltantes, quejas, etc.).',
-        'Esa calificación alimenta el **% de aceptación** del CT.',
+        'Todo CT arranca con **100%** de aceptación; esa calificación sube o baja su %.',
         'Si el % baja de **60%**, se bloquea la app del CT hasta que un Administrador lo desbloquee en RH.',
       ],
     },
