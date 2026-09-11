@@ -271,6 +271,69 @@ function ventanaPinParaFecha(fechaYmd, turnoId) {
   };
 }
 
+
+/**
+ * Cancela solicitudes activas (solicitada/aceptada) de una celda del plan horario.
+ * Sirve para cambiar de CT o para quitar la cobertura si el empleado decide trabajar su descanso.
+ */
+export async function cancelarSolicitudesActivasCelda(supabase, {
+  plan_fila_id,
+  plan_dia,
+  fecha,
+  sucursal_id,
+  exceptoId = null,
+} = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.', canceladas: 0 };
+  const suc = normalizarCodigoTienda(sucursal_id);
+  const ymd = String(fecha || '').slice(0, 10);
+  if (!plan_fila_id || plan_dia == null || !ymd) {
+    return { ok: false, error: 'Falta celda/fecha del plan.', canceladas: 0 };
+  }
+  let q = supabase
+    .from('pos_cubre_solicitudes')
+    .select('id, estado, ct_nombre, pin_temporal')
+    .eq('plan_fila_id', plan_fila_id)
+    .eq('plan_dia', Number(plan_dia))
+    .eq('fecha', ymd)
+    .in('estado', ['solicitada', 'aceptada']);
+  if (suc) q = q.eq('sucursal_id', suc);
+  const { data, error } = await q;
+  if (error) {
+    if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CUBRE_SOLICITUDES, faltaTabla: true, canceladas: 0 };
+    return { ok: false, error: error.message, canceladas: 0 };
+  }
+  const ids = (data || [])
+    .map((r) => r.id)
+    .filter((id) => !exceptoId || String(id) !== String(exceptoId));
+  if (!ids.length) return { ok: true, canceladas: 0, data: [] };
+  const ahora = new Date().toISOString();
+  const { data: upd, error: upErr } = await supabase
+    .from('pos_cubre_solicitudes')
+    .update({
+      estado: 'cancelada',
+      pin_temporal: null,
+      updated_at: ahora,
+      notas: 'Cancelada desde plan horario (cambio de CT o se quitó la cobertura).',
+    })
+    .in('id', ids)
+    .select('id, ct_nombre, estado');
+  if (upErr) return { ok: false, error: upErr.message, canceladas: 0 };
+  return { ok: true, canceladas: (upd || []).length, data: upd || [] };
+}
+
+/** Quitar cobertura CT: cancela solicitudes de la celda (el UI además quita el descanso). */
+export async function quitarCoberturaCtPlan(supabase, celda = {}) {
+  const res = await cancelarSolicitudesActivasCelda(supabase, celda);
+  if (!res.ok) return res;
+  return {
+    ok: true,
+    canceladas: res.canceladas,
+    mensaje: res.canceladas
+      ? `Se canceló${res.canceladas === 1 ? '' : 'ron'} ${res.canceladas} solicitud(es) de CT. El descanso queda libre para trabajarlo o pedir otro CT.`
+      : 'No había solicitudes activas de CT en esa celda.',
+  };
+}
+
 /**
  * Cajero/tienda solicita un CT disponible para cubrir un descanso.
  */
@@ -303,6 +366,18 @@ export async function solicitarCt(supabase, payload = {}, opts = {}) {
       ok: false,
       error: `${ct.nombre} solo cubre turnos de día (no nocturno).`,
     };
+  }
+
+  // Si ya había CT en esta celda, cancelar para permitir cambiar / re-solicitar.
+  let canceladasPrevias = 0;
+  if (payload.plan_fila_id != null && payload.plan_dia != null) {
+    const cancel = await cancelarSolicitudesActivasCelda(supabase, {
+      plan_fila_id: payload.plan_fila_id,
+      plan_dia: payload.plan_dia,
+      fecha,
+      sucursal_id,
+    });
+    canceladasPrevias = cancel.canceladas || 0;
   }
 
   const ventana = ventanaPinParaFecha(fecha, payload.turno_id);
@@ -350,9 +425,13 @@ export async function solicitarCt(supabase, payload = {}, opts = {}) {
   return {
     ok: true,
     solicitud: data,
+    canceladasPrevias,
     mensaje: (
-      `Solicitud enviada a ${ct.nombre} para ${etiquetaTienda(sucursal_id)} · ${fecha}. `
-      + 'Cuando acepte, se generará un PIN temporal solo para esa tienda/fecha.'
+      (canceladasPrevias
+        ? `Se canceló la solicitud anterior. Nueva solicitud a ${ct.nombre}`
+        : `Solicitud enviada a ${ct.nombre}`)
+      + ` para ${etiquetaTienda(sucursal_id)} · ${fecha}. `
+      + 'El CT la ve en su celular (PIN móvil). Al aceptar se genera PIN temporal solo para esa tienda/fecha.'
     ),
   };
 }
@@ -425,6 +504,20 @@ export async function aceptarSolicitudCt(supabase, solicitudId, opts = {}) {
 
 export async function rechazarSolicitudCt(supabase, solicitudId, opts = {}) {
   if (!supabase || !solicitudId) return { ok: false, error: 'Solicitud inválida.' };
+  const { data: prev, error: prevErr } = await supabase
+    .from('pos_cubre_solicitudes')
+    .select('*')
+    .eq('id', solicitudId)
+    .maybeSingle();
+  if (prevErr) {
+    if (faltaTabla(prevErr)) return { ok: false, error: AVISO_FALTA_CUBRE_SOLICITUDES, faltaTabla: true };
+    return { ok: false, error: prevErr.message };
+  }
+  if (!prev) return { ok: false, error: 'Solicitud no encontrada.' };
+  if (String(prev.estado) !== 'solicitada') {
+    return { ok: false, error: `La solicitud ya está en estado «${prev.estado}».` };
+  }
+
   const ahora = new Date().toISOString();
   const { data, error } = await supabase
     .from('pos_cubre_solicitudes')
@@ -441,14 +534,52 @@ export async function rechazarSolicitudCt(supabase, solicitudId, opts = {}) {
     if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CUBRE_SOLICITUDES, faltaTabla: true };
     return { ok: false, error: error.message };
   }
-  return { ok: true, solicitud: data, mensaje: 'Solicitud rechazada. La tienda puede pedir otro CT.' };
+
+  await crearNotificacion(supabase, {
+    sucursal_id: prev.sucursal_id,
+    tipo: 'ct_rechazada',
+    ref_tabla: 'pos_cubre_solicitudes',
+    ref_id: data.id,
+    titulo: `CT rechazó · ${etiquetaTienda(prev.sucursal_id)}`,
+    mensaje: (
+      `${prev.ct_nombre} NO aceptó cubrir ${prev.fecha}`
+      + (prev.empleado_planta_nombre ? ` (descanso de ${prev.empleado_planta_nombre})` : '')
+      + ` en ${etiquetaTienda(prev.sucursal_id)}. `
+      + 'Pide otro CT o cancela el descanso. Esta alerta permanece hasta que la atiendas.'
+    ),
+  });
+
+  return {
+    ok: true,
+    solicitud: data,
+    mensaje: 'Solicitud rechazada. Se alertó a la tienda para que pida otro CT.',
+  };
 }
 
-export async function cancelarSolicitudCt(supabase, solicitudId) {
+export async function cancelarSolicitudCt(supabase, solicitudId, opts = {}) {
   if (!supabase || !solicitudId) return { ok: false, error: 'Solicitud inválida.' };
+  const { data: prev, error: prevErr } = await supabase
+    .from('pos_cubre_solicitudes')
+    .select('*')
+    .eq('id', solicitudId)
+    .maybeSingle();
+  if (prevErr) {
+    if (faltaTabla(prevErr)) return { ok: false, error: AVISO_FALTA_CUBRE_SOLICITUDES, faltaTabla: true };
+    return { ok: false, error: prevErr.message };
+  }
+  if (!prev) return { ok: false, error: 'Solicitud no encontrada.' };
+  if (!['solicitada', 'aceptada'].includes(String(prev.estado))) {
+    return { ok: false, error: `No se puede cancelar en estado «${prev.estado}».` };
+  }
+
   const { data, error } = await supabase
     .from('pos_cubre_solicitudes')
-    .update({ estado: 'cancelada', updated_at: new Date().toISOString() })
+    .update({
+      estado: 'cancelada',
+      pin_temporal: null,
+      updated_at: new Date().toISOString(),
+      notas: [prev.notas, opts.motivo || 'Cancelada desde POS (cajero/admin).'].filter(Boolean).join(' · '),
+    })
     .eq('id', solicitudId)
     .in('estado', ['solicitada', 'aceptada'])
     .select('*')
@@ -457,7 +588,25 @@ export async function cancelarSolicitudCt(supabase, solicitudId) {
     if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CUBRE_SOLICITUDES, faltaTabla: true };
     return { ok: false, error: error.message };
   }
-  return { ok: true, solicitud: data };
+
+  await crearNotificacion(supabase, {
+    sucursal_id: prev.sucursal_id,
+    tipo: 'ct_cancelada',
+    ref_tabla: 'pos_cubre_solicitudes',
+    ref_id: data.id,
+    titulo: `CT cancelado · ${etiquetaTienda(prev.sucursal_id)}`,
+    mensaje: (
+      `La tienda canceló la solicitud a ${prev.ct_nombre} para ${prev.fecha} `
+      + `en ${etiquetaTienda(prev.sucursal_id)}.`
+      + (opts.user?.nombre ? ` Canceló: ${opts.user.nombre}.` : '')
+    ),
+  });
+
+  return {
+    ok: true,
+    solicitud: data,
+    mensaje: `Solicitud a ${prev.ct_nombre} cancelada.`,
+  };
 }
 
 /**

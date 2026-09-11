@@ -96,20 +96,26 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
   const esAdmin = puedeGestionarUsuarios(user?.rol);
   const puedePlanHorario = esAdmin || tieneAccionPlanHorario(user?.rol, user?.id);
   const puedePanelCt = Boolean(user); // cajero pide CT; admin gestiona; CT acepta desde aquí (v1)
+  const esCtMovil = Boolean(user?.esCtMovil);
   const tiendas = sucursalesLista?.length ? sucursalesLista : listarSucursalesParaUI();
 
   useEffect(() => {
     if (!pestanaInicial) return;
+    if (esCtMovil) {
+      setPestana('cubre');
+      return;
+    }
     if (pestanaInicial === 'plan' && !(puedeGestionarUsuarios(user?.rol) || tieneAccionPlanHorario(user?.rol, user?.id))) {
       setPestana('precios');
       return;
     }
     setPestana(pestanaInicial);
-  }, [pestanaInicial, user?.rol, user?.id]);
+  }, [pestanaInicial, user?.rol, user?.id, esCtMovil]);
 
   useEffect(() => {
-    if (pestana === 'plan' && !puedePlanHorario) setPestana('precios');
-  }, [pestana, puedePlanHorario]);
+    if (esCtMovil && pestana !== 'cubre') setPestana('cubre');
+    else if (pestana === 'plan' && !puedePlanHorario) setPestana('precios');
+  }, [pestana, puedePlanHorario, esCtMovil]);
 
   useEffect(() => {
     if (pestana !== 'reloj') return undefined;
@@ -502,47 +508,55 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
   return (
     <div style={{ maxWidth: pestana === 'plan' ? '100%' : '900px' }}>
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          className={pestana === 'precios' ? 'btn btn-primary' : 'btn btn-ghost'}
-          onClick={() => {
-            setPestana('precios');
-            setMsg('');
-          }}
-        >
-          Checador de precios
-        </button>
-        <button
-          type="button"
-          className={pestana === 'reloj' ? 'btn btn-primary' : 'btn btn-ghost'}
-          onClick={() => {
-            setPestana('reloj');
-            setMsg('');
-          }}
-        >
-          Reloj empleados
-        </button>
-        <button
-          type="button"
-          className={pestana === 'resumen' ? 'btn btn-primary' : 'btn btn-ghost'}
-          onClick={() => {
-            setPestana('resumen');
-            setMsg('');
-          }}
-        >
-          Resumen días
-        </button>
-        <button
-          type="button"
-          className={pestana === 'historial' ? 'btn btn-primary' : 'btn btn-ghost'}
-          onClick={() => {
-            setPestana('historial');
-            setMsg('');
-          }}
-        >
-          Historial entradas/salidas
-        </button>
-        {puedePlanHorario && (
+        {!esCtMovil && (
+          <button
+            type="button"
+            className={pestana === 'precios' ? 'btn btn-primary' : 'btn btn-ghost'}
+            onClick={() => {
+              setPestana('precios');
+              setMsg('');
+            }}
+          >
+            Checador de precios
+          </button>
+        )}
+        {!esCtMovil && (
+          <button
+            type="button"
+            className={pestana === 'reloj' ? 'btn btn-primary' : 'btn btn-ghost'}
+            onClick={() => {
+              setPestana('reloj');
+              setMsg('');
+            }}
+          >
+            Reloj empleados
+          </button>
+        )}
+        {!esCtMovil && (
+          <button
+            type="button"
+            className={pestana === 'resumen' ? 'btn btn-primary' : 'btn btn-ghost'}
+            onClick={() => {
+              setPestana('resumen');
+              setMsg('');
+            }}
+          >
+            Resumen días
+          </button>
+        )}
+        {!esCtMovil && (
+          <button
+            type="button"
+            className={pestana === 'historial' ? 'btn btn-primary' : 'btn btn-ghost'}
+            onClick={() => {
+              setPestana('historial');
+              setMsg('');
+            }}
+          >
+            Historial entradas/salidas
+          </button>
+        )}
+        {!esCtMovil && puedePlanHorario && (
           <button
             type="button"
             className={pestana === 'plan' ? 'btn btn-primary' : 'btn btn-ghost'}
@@ -563,7 +577,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
               setMsg('');
             }}
           >
-            Cubre turnos
+            {esCtMovil ? 'Mis solicitudes CT' : 'Cubre turnos'}
           </button>
         )}
       </div>

@@ -14,6 +14,17 @@ import {
   setDisponibilidadManualCt,
   solicitarCt,
 } from '../lib/cubreSolicitudes.js';
+import {
+  AVISO_FALTA_CUBRE_EVALUACIONES,
+  CALIFICACIONES_CT,
+  CRITERIOS_EVALUACION_CT,
+  contarProblemasEvaluacion,
+  formEvaluacionCtVacio,
+  guardarEvaluacionCt,
+  mapaEvaluacionesPorSolicitudes,
+  resumenCriteriosEvaluacion,
+  etiquetaCalificacionCt,
+} from '../lib/cubreEvaluaciones.js';
 import { fechasSemanaPlan, etiquetaFechaCorta } from '../lib/planHorario.js';
 
 function fmtFecha(ymd) {
@@ -36,9 +47,11 @@ function fmtFecha(ymd) {
 export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
   const [catalogo, setCatalogo] = useState([]);
   const [solicitudes, setSolicitudes] = useState([]);
+  const [evalsMap, setEvalsMap] = useState({});
   const [cargando, setCargando] = useState(true);
   const [aviso, setAviso] = useState('');
   const [msg, setMsg] = useState('');
+  const [evalModal, setEvalModal] = useState(null); // { solicitud, form, guardando }
   const [form, setForm] = useState({
     ct_rh_id: '',
     fecha: new Date().toISOString().slice(0, 10),
@@ -49,10 +62,25 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
   const rol = normalizarRol(user?.rol);
   const esAdmin = rol === 'Administrador' || rol === 'Gerente';
   const esCajero = rol === 'Cajero';
+  const esCtMovil = Boolean(user?.esCtMovil && user?.ctRhId);
+  const ctRhId = esCtMovil ? user.ctRhId : null;
+  const puedeEvaluar = (esCajero || esAdmin) && !esCtMovil;
 
   const cargar = useCallback(async () => {
     if (!supabase) return;
     setCargando(true);
+    if (esCtMovil) {
+      const sol = await listarSolicitudesCt(supabase, {
+        ctRhId,
+        limit: 80,
+      });
+      setCatalogo([]);
+      setSolicitudes(sol.data || []);
+      setEvalsMap({});
+      setAviso(sol.faltaTabla ? AVISO_FALTA_CUBRE_SOLICITUDES : (sol.error || ''));
+      setCargando(false);
+      return;
+    }
     const [cat, sol] = await Promise.all([
       listarCatalogoCt(supabase),
       listarSolicitudesCt(supabase, {
@@ -64,12 +92,44 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
     setSolicitudes(sol.data || []);
     setAviso(cat.error || sol.faltaTabla ? (sol.error || cat.error || '') : (sol.error || ''));
     if (sol.faltaTabla) setAviso(AVISO_FALTA_CUBRE_SOLICITUDES);
+
+    const ids = (sol.data || []).map((s) => s.id);
+    const ev = await mapaEvaluacionesPorSolicitudes(supabase, ids);
+    setEvalsMap(ev.mapa || {});
+    if (ev.faltaTabla && !sol.faltaTabla) {
+      setAviso((a) => a || AVISO_FALTA_CUBRE_EVALUACIONES);
+    }
     setCargando(false);
-  }, [supabase, sucursal, esAdmin]);
+  }, [supabase, sucursal, esAdmin, esCtMovil, ctRhId]);
 
   useEffect(() => {
     void cargar();
   }, [cargar]);
+
+  const abrirEvaluacion = (solicitud) => {
+    const prev = evalsMap[String(solicitud.id)];
+    const base = formEvaluacionCtVacio();
+    if (prev) {
+      for (const c of CRITERIOS_EVALUACION_CT) base[c.id] = Boolean(prev[c.id]);
+      base.calificacion = prev.calificacion ?? 4;
+      base.comentario = prev.comentario || '';
+    }
+    setEvalModal({ solicitud, form: base, guardando: false });
+  };
+
+  const guardarEvaluacion = async () => {
+    if (!evalModal?.solicitud) return;
+    setEvalModal((m) => (m ? { ...m, guardando: true } : m));
+    const res = await guardarEvaluacionCt(supabase, evalModal.solicitud, evalModal.form, { user });
+    if (!res.ok) {
+      alert(res.error);
+      setEvalModal((m) => (m ? { ...m, guardando: false } : m));
+      return;
+    }
+    setMsg(res.mensaje);
+    setEvalModal(null);
+    await cargar();
+  };
 
   const disponibles = useMemo(() => catalogo.filter((c) => c.puede_solicitar), [catalogo]);
   const fechasSemana = useMemo(() => {
@@ -79,6 +139,10 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
       return { ymd, corto, diaId: f.diaId };
     });
   }, []);
+  const pendientes = useMemo(
+    () => (solicitudes || []).filter((s) => s.estado === 'solicitada'),
+    [solicitudes],
+  );
 
   const pedir = async (e) => {
     e.preventDefault();
@@ -100,6 +164,128 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
     await cargar();
   };
 
+  if (esCtMovil) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <div className="card" style={{ borderTop: '4px solid #2e7d32' }}>
+          <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
+            Mis coberturas · {user?.nombre || 'CT'}
+          </h3>
+          <p className="muted" style={{ margin: 0, fontSize: '0.86rem' }}>
+            Entraste con tu <strong>PIN personal móvil</strong> (solo este celular).
+            Aquí aceptas o rechazas las solicitudes de las tiendas.
+            Al aceptar recibes un <strong>PIN temporal</strong> para marcar en la caja de esa tienda ese día
+            (no uses el PIN móvil en las cajas).
+          </p>
+          {aviso && (
+            <p style={{ margin: '0.65rem 0 0', color: 'var(--danger)', fontSize: '0.85rem' }}>{aviso}</p>
+          )}
+          <div style={{ marginTop: '0.65rem' }}>
+            <button type="button" className="btn btn-ghost" onClick={() => void cargar()} disabled={cargando}>
+              {cargando ? 'Actualizando…' : 'Actualizar'}
+            </button>
+            {pendientes.length > 0 && (
+              <span className="muted" style={{ marginLeft: 10, fontSize: '0.85rem' }}>
+                {pendientes.length} pendiente{pendientes.length === 1 ? '' : 's'}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="card">
+          <h4 style={{ margin: '0 0 0.5rem' }}>Solicitudes para ti</h4>
+          {cargando ? (
+            <p className="muted">Cargando…</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th>Fecha</th>
+                    <th>Tienda</th>
+                    <th>Estado</th>
+                    <th>PIN caja</th>
+                    <th>Quién pidió</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {solicitudes.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="muted">
+                        Aún no te han solicitado cobertura. Cuando una tienda te pida desde Plan horario,
+                        aparecerá aquí.
+                      </td>
+                    </tr>
+                  ) : (
+                    solicitudes.map((s) => (
+                      <tr key={s.id}>
+                        <td>
+                          {fmtFecha(s.fecha)}
+                          {s.turno_etiqueta ? (
+                            <div className="muted" style={{ fontSize: '0.75rem' }}>{s.turno_etiqueta}</div>
+                          ) : null}
+                        </td>
+                        <td>{etiquetaTienda(s.sucursal_id)}</td>
+                        <td>{ESTADOS_SOLICITUD_CT[s.estado] || s.estado}</td>
+                        <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                          {s.estado === 'aceptada' && s.pin_temporal ? s.pin_temporal : '—'}
+                        </td>
+                        <td className="muted" style={{ fontSize: '0.8rem' }}>
+                          {s.solicitado_por_nombre || s.empleado_planta_nombre || '—'}
+                        </td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          {s.estado === 'solicitada' && (
+                            <>
+                              <button
+                                type="button"
+                                className="btn btn-gold"
+                                style={{ fontSize: '0.78rem', padding: '0.15rem 0.4rem' }}
+                                onClick={async () => {
+                                  if (!confirm(
+                                    `¿Aceptar cobertura en ${etiquetaTienda(s.sucursal_id)} el ${s.fecha}?`,
+                                  )) return;
+                                  const res = await aceptarSolicitudCt(supabase, s.id, { user });
+                                  if (!res.ok) return alert(res.error);
+                                  alert(res.mensaje);
+                                  await cargar();
+                                }}
+                              >
+                                Aceptar
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-ghost"
+                                style={{ fontSize: '0.78rem', padding: '0.15rem 0.4rem' }}
+                                onClick={async () => {
+                                  if (!confirm('¿Rechazar esta solicitud?')) return;
+                                  const res = await rechazarSolicitudCt(supabase, s.id);
+                                  if (!res.ok) return alert(res.error);
+                                  await cargar();
+                                }}
+                              >
+                                Rechazar
+                              </button>
+                            </>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
+            Tres PINs distintos: (1) PIN móvil = solo tu celular para ver/aceptar;
+            (2) PIN de tienda (Configuración) = marcaje genérico en caja;
+            (3) PIN temporal = tras aceptar, solo esa tienda y fecha.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div className="card" style={{ borderTop: '4px solid #2e7d32' }}>
@@ -108,7 +294,10 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
           Los CT se dan de alta/baja en <strong>RH ABA3B → Cubre turnos</strong> (no ocupan plaza de planta).
           Semáforo: <span style={{ color: '#2e7d32', fontWeight: 700 }}>verde = disponible</span>,
           {' '}<span style={{ color: '#c62828', fontWeight: 700 }}>rojo = cubriendo / hold / no disponible</span>.
-          Alta distinta a planta: sin nómina (pago en gastos CUBRE TURNO → nombre). Entran con el PIN CT de Configuración. Pueden cubrir en las 7 tiendas (algunos solo día). La tienda pide el CT que le convenga; al aceptar recibe PIN temporal solo para esa sucursal y fecha.
+          Alta distinta a planta: sin nómina (pago en gastos CUBRE TURNO → nombre).
+          El CT recibe solicitudes en su <strong>celular con PIN móvil</strong>; en caja usa el PIN de tienda o el PIN temporal al aceptar.
+          Tras cubrir, el <strong>empleado de planta evalúa al CT</strong> (consumo, faltantes de cigarro/dinero, quejas, etc.).
+          Pueden cubrir en las 7 tiendas (algunos solo día). Desde Plan horario puedes cambiar de CT o quitarlo si el empleado trabaja su descanso.
         </p>
         {aviso && (
           <p style={{ margin: '0.65rem 0 0', color: 'var(--danger)', fontSize: '0.85rem' }}>{aviso}</p>
@@ -358,7 +547,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                             onClick={async () => {
                               const res = await marcarCumplidaCt(supabase, s.id);
                               if (!res.ok) return alert(res.error);
-                              await cargar();
+                              abrirEvaluacion({ ...s, estado: 'cumplida' });
                             }}
                           >
                             Cumplida
@@ -379,19 +568,54 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                           </button>
                         </>
                       )}
+                      {puedeEvaluar && ['aceptada', 'cumplida'].includes(s.estado) && (
+                        <button
+                          type="button"
+                          className="btn btn-gold"
+                          style={{ fontSize: '0.78rem', padding: '0.15rem 0.4rem' }}
+                          title="Evaluación del empleado de planta sobre el CT"
+                          onClick={() => abrirEvaluacion(s)}
+                        >
+                          {evalsMap[String(s.id)] ? 'Ver / editar evaluación' : 'Evaluar CT'}
+                        </button>
+                      )}
+                      {evalsMap[String(s.id)] && (
+                        <span
+                          className="muted"
+                          style={{
+                            display: 'inline-block',
+                            fontSize: '0.72rem',
+                            marginLeft: 4,
+                            color: contarProblemasEvaluacion(evalsMap[String(s.id)])
+                              ? 'var(--danger)'
+                              : '#2e7d32',
+                          }}
+                          title={resumenCriteriosEvaluacion(evalsMap[String(s.id)]).join(' · ') || 'Sin alertas'}
+                        >
+                          {etiquetaCalificacionCt(evalsMap[String(s.id)].calificacion)}
+                          {contarProblemasEvaluacion(evalsMap[String(s.id)])
+                            ? ` · ${contarProblemasEvaluacion(evalsMap[String(s.id)])} alerta(s)`
+                            : ' · OK'}
+                        </span>
+                      )}
                       {['solicitada', 'aceptada'].includes(s.estado) && (esAdmin || esCajero) && (
                         <button
                           type="button"
-                          className="btn btn-ghost"
+                          className="btn btn-danger"
                           style={{ fontSize: '0.78rem', padding: '0.15rem 0.4rem' }}
+                          title="Cancela la solicitud CT (el CT verá la cancelación)"
                           onClick={async () => {
-                            if (!confirm('¿Cancelar solicitud?')) return;
-                            const res = await cancelarSolicitudCt(supabase, s.id);
+                            if (!confirm(
+                              `¿Cancelar la solicitud a ${s.ct_nombre}?\n\n`
+                              + 'Se libera al CT y se notifica. Puedes pedir otro después.',
+                            )) return;
+                            const res = await cancelarSolicitudCt(supabase, s.id, { user });
                             if (!res.ok) return alert(res.error);
+                            alert(res.mensaje || 'Solicitud cancelada.');
                             await cargar();
                           }}
                         >
-                          Cancelar
+                          Cancelar solicitud
                         </button>
                       )}
                     </td>
@@ -402,10 +626,123 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
           </table>
         </div>
         <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
-          Base v1: aceptar genera el PIN; el login de tienda reconocerá ese PIN temporal.
-          Después afinamos push individual al CT, horarios exactos de turno y app dedicada.
+          El cajero puede <strong>Cancelar solicitud</strong> mientras esté solicitada o aceptada.
+          Si el CT rechaza, aparece una <strong>alerta flotante</strong> en cualquier módulo hasta atenderla.
+          Tras cubrir, la planta evalúa al CT (consumo, faltantes, quejas…).
         </p>
       </div>
+
+      {evalModal && (
+        <div
+          className="modal-backdrop"
+          role="presentation"
+          onClick={() => !evalModal.guardando && setEvalModal(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 80,
+            padding: 16,
+          }}
+        >
+          <div
+            className="card"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+            style={{ maxWidth: 480, width: '100%', maxHeight: '90vh', overflow: 'auto' }}
+          >
+            <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
+              Evaluar CT · {evalModal.solicitud.ct_nombre}
+            </h3>
+            <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.84rem' }}>
+              {etiquetaTienda(evalModal.solicitud.sucursal_id)} · {fmtFecha(evalModal.solicitud.fecha)}.
+              Marca lo que falló (si no hubo problemas, deja todo desmarcado y califica).
+            </p>
+
+            <div style={{ display: 'grid', gap: '0.45rem', marginBottom: '0.75rem' }}>
+              {CRITERIOS_EVALUACION_CT.map((c) => (
+                <label
+                  key={c.id}
+                  style={{
+                    display: 'flex',
+                    gap: 8,
+                    alignItems: 'flex-start',
+                    fontSize: '0.88rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={Boolean(evalModal.form[c.id])}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setEvalModal((m) => (
+                        m ? { ...m, form: { ...m.form, [c.id]: checked } } : m
+                      ));
+                    }}
+                  />
+                  <span>{c.label}</span>
+                </label>
+              ))}
+            </div>
+
+            <label className="muted" style={{ fontSize: '0.8rem', display: 'block', marginBottom: '0.65rem' }}>
+              Calificación general
+              <select
+                className="select"
+                style={{ display: 'block', marginTop: 4, width: '100%' }}
+                value={evalModal.form.calificacion ?? 4}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setEvalModal((m) => (m ? { ...m, form: { ...m.form, calificacion: v } } : m));
+                }}
+              >
+                {CALIFICACIONES_CT.map((c) => (
+                  <option key={c.valor} value={c.valor}>{c.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="muted" style={{ fontSize: '0.8rem', display: 'block', marginBottom: '0.85rem' }}>
+              Comentario (opcional)
+              <textarea
+                className="input"
+                rows={3}
+                style={{ display: 'block', marginTop: 4, width: '100%', resize: 'vertical' }}
+                placeholder="Ej. faltó caja chica, cliente se quejó del trato…"
+                value={evalModal.form.comentario || ''}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setEvalModal((m) => (m ? { ...m, form: { ...m.form, comentario: v } } : m));
+                }}
+              />
+            </label>
+
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={evalModal.guardando}
+                onClick={() => setEvalModal(null)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={evalModal.guardando}
+                onClick={() => void guardarEvaluacion()}
+              >
+                {evalModal.guardando ? 'Guardando…' : 'Guardar evaluación'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

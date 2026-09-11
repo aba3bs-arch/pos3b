@@ -129,6 +129,7 @@ import ModalActivarBiometria from './components/ModalActivarBiometria.jsx';
 import { EVENTO_CACHE_LIMPIADO } from './lib/limpiarCache.js';
 import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesContabilidad.jsx';
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
+import AlertaCtOverlay from './components/AlertaCtOverlay.jsx';
 import ActualizacionPendienteOverlay from './components/ActualizacionPendienteOverlay.jsx';
 import ReleaseAvisoOverlay from './components/ReleaseAvisoOverlay.jsx';
 import SelectorSucursal from './components/SelectorSucursal.jsx';
@@ -655,6 +656,9 @@ function App() {
       limpiarAnunciosVistos();
       if (esRolCliente(data.rol) || esSocioSesion) {
         setVista('Socio 3B');
+      } else if (data.esCtMovil) {
+        setChecadorPestana('cubre');
+        setVista('Checador');
       } else if (puedeVerModulo(data.rol, 'Checador', data.id)) {
         setChecadorPestana('reloj');
         setVista('Checador');
@@ -755,6 +759,23 @@ function App() {
       }
     } catch {
       /* tabla aún no migrada: seguir flujo normal */
+    }
+
+    // PIN personal CT (solo celular / PWA): bandeja de solicitudes.
+    try {
+      const { validarPinMovilCt } = await import('./lib/cubreTurnoPinMovil.js');
+      const pinMovil = await validarPinMovilCt(supabase, p);
+      if (pinMovil.ok && pinMovil.usuario) {
+        await completarLogin(pinMovil.usuario, { cubreTurno: true });
+        return;
+      }
+      if (pinMovil.soloMovil || pinMovil.dispositivoAjeno) {
+        alert(pinMovil.error);
+        setPin('');
+        return;
+      }
+    } catch {
+      /* best-effort */
     }
 
     // Siempre refrescar el PIN de esta tienda desde Supabase antes de validar (todas las cajas).
@@ -1032,18 +1053,20 @@ function App() {
 
   const modulosNav = useMemo(() => {
     if (!user) return [];
+    // CT con PIN móvil: solo Checador (solicitudes / notificaciones CT).
+    if (user.esCtMovil) return ['Checador'];
     const all = modulosParaSidebar(user.rol, user.id);
     if (modoOffline) return all.filter((m) => moduloPermitidoOffline(m));
     return all;
   }, [user, modoOffline]);
 
   const subContabilidad = useMemo(() => {
-    if (!user || modoOffline) return [];
+    if (!user || modoOffline || user.esCtMovil) return [];
     return submodulosContabilidadVisibles(user.rol, user.id);
   }, [user, modoOffline]);
 
   const subEstadisticas = useMemo(() => {
-    if (!user || modoOffline) return [];
+    if (!user || modoOffline || user.esCtMovil) return [];
     return submodulosEstadisticasVisibles(user.rol, user.id);
   }, [user, modoOffline]);
 
@@ -1597,6 +1620,14 @@ function App() {
         {user ? <ReleaseAvisoOverlay user={user} /> : null}
         {user ? <ActualizacionPendienteOverlay /> : null}
         <AnuncioPosOverlay supabase={supabase} onIrVentas={() => irAModulo('Ventas')} />
+        {user && !user.esCtMovil ? (
+          <AlertaCtOverlay
+            supabase={supabase}
+            user={user}
+            sucursal={sucursal}
+            onIrCubreTurnos={() => irAModulo('Checador', { pestana: 'cubre' })}
+          />
+        ) : null}
         <ModalActivarBiometria
           open={Boolean(ofertaBiometria)}
           nombre={ofertaBiometria?.user?.nombre}
