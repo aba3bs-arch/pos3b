@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="420" viewBox="0 0 900 420">
+  <rect width="100%" height="100%" fill="#f4f7fb"/>
+  
+  <rect x="30" y="30" width="840" height="360" rx="16" fill="#fff" stroke="#cfd8dc"/>
+  <rect x="30" y="30" width="840" height="52" rx="16" fill="#1b5e20"/>
+  <text x="50" y="64" font-family="Arial" font-size="20" font-weight="700" fill="#fff">RH ABA3B → + Alta de empleado</text>
+  <text x="50" y="120" font-family="Arial" font-size="16" fill="#37474f">1. Tipo de empleado: <tspan font-weight="700" fill="#1b5e20">Cubre turnos</tspan> (no ocupa plaza de planta)</text>
+  <text x="50" y="155" font-family="Arial" font-size="16" fill="#37474f">2. Nombre completo y teléfono</text>
+  <text x="50" y="190" font-family="Arial" font-size="16" fill="#37474f">3. Sucursales donde puede cubrir (las 7 por defecto)</text>
+  <text x="50" y="225" font-family="Arial" font-size="16" fill="#37474f">4. Marca “solo día” si no cubre nocturno</text>
+  <text x="50" y="260" font-family="Arial" font-size="16" fill="#37474f">5. Pulsa <tspan font-weight="700">Registrar alta</tspan></text>
+  <rect x="50" y="300" width="200" height="44" rx="10" fill="#2e7d32"/>
+  <text x="150" y="328" text-anchor="middle" font-family="Arial" font-size="15" font-weight="700" fill="#fff">Registrar alta</text>
+
+</svg>

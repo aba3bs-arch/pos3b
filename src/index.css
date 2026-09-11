@@ -5684,3 +5684,38 @@ table.data th {
     max-width: 140px;
   }
 }
+
+
+/* PIN temporal CT: negrita 16px parpadeante en app móvil */
+@keyframes ct-pin-temporal-parpadeo {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(1.04); }
+}
+.ct-pin-temporal-parpadeo {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1.2;
+  letter-spacing: 0.08em;
+  color: #1b5e20;
+  animation: ct-pin-temporal-parpadeo 1s ease-in-out infinite;
+}
+.ct-pin-temporal-banner {
+  border: 2px solid #2e7d32;
+  background: rgba(46, 125, 50, 0.1);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+}
+.ct-pin-movil-rh {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 1.35rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #1b5e20;
+  background: #e8f5e9;
+  border: 1px solid #a5d6a7;
+  border-radius: 8px;
+  padding: 0.35rem 0.75rem;
+}

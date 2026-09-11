@@ -4,8 +4,12 @@ import { TUTORIAL_CORTE_ABARROTES } from './tutorialCorteAbarrotes.js';
 import { TUTORIAL_CORTE_CAJA } from './tutorialCorteCaja.js';
 import { TUTORIAL_VALES_MAIN } from './tutorialValesMain.js';
 import { TUTORIAL_CONFIG_OPERACION } from './tutorialConfigOperacion.js';
+import { TUTORIAL_SOLICITAR_CT } from './tutorialSolicitarCt.js';
+import { TUTORIAL_ADMIN_CT } from './tutorialAdminCt.js';
 
 export const TUTORIALES = [
+  TUTORIAL_SOLICITAR_CT,
+  TUTORIAL_ADMIN_CT,
   TUTORIAL_CORTE_CAJA,
   TUTORIAL_CORTE_ABARROTES,
   TUTORIAL_VALES_MAIN,
