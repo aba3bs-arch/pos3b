@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="420" viewBox="0 0 900 420">
+  <rect width="100%" height="100%" fill="#f4f7fb"/>
+  
+  <text x="40" y="48" font-family="Arial" font-size="28" font-weight="700" fill="#1b5e20">Tutorial Admin · Cubre turnos (CT)</text>
+  <text x="40" y="82" font-family="Arial" font-size="16" fill="#455a64">Alta en RH · PIN móvil · PIN temporal · bloqueo por aceptación</text>
+  <g font-family="Arial" font-size="14" font-weight="700" fill="#fff">
+    <rect x="40" y="130" width="190" height="80" rx="12" fill="#2e7d32"/><text x="135" y="165" text-anchor="middle">1. Alta CT en RH</text><text x="135" y="185" text-anchor="middle" font-size="12">tipo Cubre turnos</text>
+    <rect x="250" y="130" width="190" height="80" rx="12" fill="#388e3c"/><text x="345" y="165" text-anchor="middle">2. Generar PIN móvil</text><text x="345" y="185" text-anchor="middle" font-size="12">verlo en el perfil</text>
+    <rect x="460" y="130" width="190" height="80" rx="12" fill="#43a047"/><text x="555" y="165" text-anchor="middle">3. Entregar al CT</text><text x="555" y="185" text-anchor="middle" font-size="12">solo su celular</text>
+    <rect x="670" y="130" width="190" height="80" rx="12" fill="#f9a825"/><text x="765" y="165" text-anchor="middle" fill="#212121">4. PIN temporal</text><text x="765" y="185" text-anchor="middle" font-size="12" fill="#212121">se crea al aceptar</text>
+  </g>
+  <text x="40" y="280" font-family="Arial" font-size="15" fill="#37474f">Hay 3 PIN distintos. No los mezcles:</text>
+  <text x="40" y="315" font-family="Arial" font-size="15" fill="#1b5e20">① Móvil (RH) · ② Temporal (al aceptar cobertura) · ③ Tienda (Configuración)</text>
+
+</svg>

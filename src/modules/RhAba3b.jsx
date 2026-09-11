@@ -770,15 +770,19 @@ export default function RhAba3b({ supabase, user, sucursal }) {
           {empleado.estado === 'activo' && empleado.tipo_empleado === 'cubre_turno' && (
             <div className="card" style={{ borderLeft: '4px solid #2e7d32', background: 'rgba(46,125,50,0.06)' }}>
               <h4 style={{ margin: '0 0 0.35rem', color: '#1b5e20' }}>PIN móvil del CT (app)</h4>
-              <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.85rem' }}>
+              <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.85rem' }}>
                 Con este PIN el CT entra solo desde su celular y ve <strong>notificaciones y solicitudes CT</strong>
                 (no el resto del POS). El PIN de tienda (Configuración) es aparte, para marcar en caja.
-                PIN actual:{' '}
-                <strong style={{ fontFamily: 'monospace' }}>
-                  {String(empleado.extras?.ct_pin_movil || '— no generado —')}
-                </strong>
-                {empleado.extras?.ct_dispositivo_id ? ' · dispositivo anclado' : ' · sin dispositivo anclado aún'}
               </p>
+              <div style={{ margin: '0 0 0.65rem' }}>
+                <div className="muted" style={{ fontSize: '0.78rem', marginBottom: 4 }}>PIN del celular (perfil RH)</div>
+                <span className="ct-pin-movil-rh">
+                  {String(empleado.extras?.ct_pin_movil || '— no generado —')}
+                </span>
+                <div className="muted" style={{ fontSize: '0.8rem', marginTop: 6 }}>
+                  {empleado.extras?.ct_dispositivo_id ? 'Dispositivo anclado a su celular' : 'Sin dispositivo anclado aún'}
+                </div>
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem' }}>
                 <button
                   type="button"

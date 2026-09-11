@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="420" viewBox="0 0 900 420">
+  <rect width="100%" height="100%" fill="#f4f7fb"/>
+  
+  <rect x="30" y="30" width="840" height="360" rx="16" fill="#fff" stroke="#cfd8dc"/>
+  <text x="50" y="70" font-family="Arial" font-size="22" font-weight="700" fill="#0d47a1">Cuando el CT acepta → PIN temporal</text>
+  <rect x="50" y="100" width="380" height="240" rx="14" fill="#e8f5e9" stroke="#2e7d32" stroke-width="3"/>
+  <text x="70" y="140" font-family="Arial" font-size="14" font-weight="700" fill="#1b5e20">App del CT (celular)</text>
+  <text x="70" y="175" font-family="Arial" font-size="13" fill="#33691e">Tu PIN temporal de hoy (caja)</text>
+  <text x="70" y="230" font-family="monospace" font-size="48" font-weight="700" fill="#1b5e20">4827</text>
+  <text x="70" y="270" font-family="Arial" font-size="13" fill="#558b2f">Sucursal 3B2 · Tarde · cierra 60 min después del turno</text>
+  <text x="70" y="310" font-family="Arial" font-size="12" fill="#c62828">Parpadea en negrita 16px para que no se le olvide</text>
+  <rect x="470" y="100" width="360" height="240" rx="14" fill="#fff8e1" stroke="#f9a825" stroke-width="2"/>
+  <text x="490" y="140" font-family="Arial" font-size="15" font-weight="700" fill="#e65100">En la caja de la tienda</text>
+  <text x="490" y="180" font-family="Arial" font-size="14" fill="#5d4037">El CT escribe el PIN temporal</text>
+  <text x="490" y="210" font-family="Arial" font-size="14" fill="#5d4037">en la pantalla de login de esa sucursal.</text>
+  <text x="490" y="250" font-family="Arial" font-size="14" fill="#5d4037">No uses el PIN móvil del celular en caja.</text>
+  <text x="490" y="290" font-family="Arial" font-size="14" fill="#5d4037">Tampoco el PIN de Configuración (tienda).</text>
+
+</svg>

@@ -258,17 +258,84 @@ export async function listarSolicitudesCt(supabase, opts = {}) {
   return { ok: true, data: data || [] };
 }
 
-function ventanaPinParaFecha(fechaYmd, turnoId) {
+/** Gracia tras fin de turno: el PIN temporal se cierra 60 min después. */
+export const GRACIA_PIN_TEMPORAL_CT_MIN = 60;
+
+/**
+ * Estima hora de fin del turno a partir de id/etiqueta.
+ * Diurno/mañana/tarde → mismo día; nocturno cruza medianoche.
+ */
+export function estimarFinTurnoCt(fechaYmd, turnoId, turnoEtiqueta) {
   const base = String(fechaYmd || '').slice(0, 10);
-  // Ventana amplia del día de negocio (± gracia). Detallar horarios después.
+  const id = String(turnoId || '').toLowerCase();
+  const et = String(turnoEtiqueta || '').toLowerCase();
+  const rango = String(turnoEtiqueta || '').match(
+    /(\d{1,2}):(\d{2})\s*[–\-aà]\s*(\d{1,2}):(\d{2})/i,
+  );
+  let hFin = 22;
+  let mFin = 0;
+  let nextDay = false;
+  if (rango) {
+    hFin = Number(rango[3]);
+    mFin = Number(rango[4]);
+    const ini = Number(rango[1]) * 60 + Number(rango[2]);
+    const fin = hFin * 60 + mFin;
+    nextDay = fin <= ini;
+  } else if (
+    id.includes('noche') || id.includes('nocturn')
+    || et.includes('noche') || et.includes('nocturn')
+  ) {
+    hFin = 6;
+    mFin = 0;
+    nextDay = true;
+  } else if (id.includes('manana') || id.includes('mañana') || et.includes('mañana') || et.includes('manana')) {
+    hFin = 14;
+    mFin = 0;
+  } else if (id.includes('tarde') || et.includes('tarde')) {
+    hFin = 22;
+    mFin = 0;
+  } else if (id.includes('diurn') || et.includes('diurn')) {
+    hFin = 22;
+    mFin = 0;
+  }
+  const y = Number(base.slice(0, 4));
+  const mo = Number(base.slice(5, 7)) - 1;
+  const d = Number(base.slice(8, 10));
+  const fin = new Date(y, mo, d + (nextDay ? 1 : 0), hFin, mFin, 0, 0);
+  return fin;
+}
+
+/** Ventana del PIN temporal: desde 00:00 del día → fin de turno + 60 min. */
+export function ventanaPinParaFecha(fechaYmd, turnoId, turnoEtiqueta) {
+  const base = String(fechaYmd || '').slice(0, 10);
   const desde = new Date(`${base}T00:00:00-07:00`);
-  const hasta = new Date(`${base}T23:59:59-07:00`);
-  hasta.setHours(hasta.getHours() + 4); // gracia post-turno
+  const finTurno = estimarFinTurnoCt(base, turnoId, turnoEtiqueta);
+  const hasta = new Date(finTurno.getTime() + GRACIA_PIN_TEMPORAL_CT_MIN * 60 * 1000);
   return {
     pin_valido_desde: desde.toISOString(),
     pin_valido_hasta: hasta.toISOString(),
     turno_id: turnoId || null,
   };
+}
+
+/** true si el PIN temporal aún debe mostrarse / usarse. */
+export function pinTemporalCtActivo(solicitud, ahora = new Date()) {
+  if (!solicitud || String(solicitud.estado) !== 'aceptada') return false;
+  const pin = String(solicitud.pin_temporal || '').trim();
+  if (!pin) return false;
+  const t = ahora instanceof Date ? ahora : new Date(ahora);
+  if (solicitud.pin_valido_desde && new Date(solicitud.pin_valido_desde) > t) {
+    // Permitir desde el día de la cobertura (00:00)
+    const dia = String(solicitud.fecha || '').slice(0, 10);
+    if (!dia || dia > t.toISOString().slice(0, 10)) return false;
+  }
+  if (solicitud.pin_valido_hasta && new Date(solicitud.pin_valido_hasta) < t) return false;
+  // Si no hay hasta guardado: estimar fin turno + 60 min
+  if (!solicitud.pin_valido_hasta && solicitud.fecha) {
+    const fin = estimarFinTurnoCt(solicitud.fecha, solicitud.turno_id, solicitud.turno_etiqueta);
+    if (t.getTime() > fin.getTime() + GRACIA_PIN_TEMPORAL_CT_MIN * 60 * 1000) return false;
+  }
+  return true;
 }
 
 
@@ -380,7 +447,7 @@ export async function solicitarCt(supabase, payload = {}, opts = {}) {
     canceladasPrevias = cancel.canceladas || 0;
   }
 
-  const ventana = ventanaPinParaFecha(fecha, payload.turno_id);
+  const ventana = ventanaPinParaFecha(fecha, payload.turno_id, payload.turno_etiqueta);
   const row = {
     sucursal_id,
     fecha,
@@ -466,11 +533,14 @@ export async function aceptarSolicitudCt(supabase, solicitudId, opts = {}) {
   }
 
   const ahora = new Date().toISOString();
+  const ventana = ventanaPinParaFecha(prev.fecha, prev.turno_id, prev.turno_etiqueta);
   const { data, error: upErr } = await supabase
     .from('pos_cubre_solicitudes')
     .update({
       estado: 'aceptada',
       pin_temporal: pin,
+      pin_valido_desde: ventana.pin_valido_desde,
+      pin_valido_hasta: ventana.pin_valido_hasta,
       aceptada_at: ahora,
       updated_at: ahora,
     })
@@ -487,7 +557,7 @@ export async function aceptarSolicitudCt(supabase, solicitudId, opts = {}) {
     titulo: `CT aceptó · ${etiquetaTienda(prev.sucursal_id)}`,
     mensaje: (
       `${prev.ct_nombre} aceptó cubrir ${prev.fecha} en ${etiquetaTienda(prev.sucursal_id)}. `
-      + `PIN temporal: ${pin} (solo esa tienda y fecha).`
+      + `PIN temporal: ${pin} (solo esa tienda/fecha; se cierra 60 min después del turno).`
     ),
   });
 
@@ -497,7 +567,7 @@ export async function aceptarSolicitudCt(supabase, solicitudId, opts = {}) {
     pin,
     mensaje: (
       `Aceptado. PIN temporal ${pin} para ${etiquetaTienda(prev.sucursal_id)} · ${prev.fecha}. `
-      + 'Válido solo ese día/turno.'
+      + 'Válido ese día/turno; se cierra 60 min después del fin del turno.'
     ),
   };
 }
@@ -719,16 +789,7 @@ export async function validarPinTemporalCt(supabase, pin, sucursal) {
     .eq('pin_temporal', p)
     .limit(5);
   if (error || !data?.length) return { ok: false };
-  const viva = data.find((s) => {
-    const desde = s.pin_valido_desde || s.fecha;
-    const hasta = s.pin_valido_hasta;
-    if (hasta && String(hasta) < ahora) return false;
-    if (desde && String(desde) > ahora && s.fecha) {
-      // permitir desde 00:00 del día
-      return String(s.fecha) <= ahora.slice(0, 10);
-    }
-    return true;
-  });
+  const viva = data.find((s) => pinTemporalCtActivo(s, new Date(ahora)));
   if (!viva) return { ok: false };
   return { ok: true, solicitud: viva };
 }

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="420" viewBox="0 0 900 420">
+  <rect width="100%" height="100%" fill="#f4f7fb"/>
+  
+  <text x="40" y="48" font-family="Arial,sans-serif" font-size="28" font-weight="700" fill="#0d47a1">Cómo solicitar un CT (cajero)</text>
+  <text x="40" y="82" font-family="Arial,sans-serif" font-size="16" fill="#455a64">5 pasos claros — desde el Plan horario hasta que el CT acepte</text>
+  <g font-family="Arial,sans-serif" font-size="15" font-weight="700" fill="#fff">
+    <rect x="40" y="120" width="150" height="70" rx="12" fill="#1565c0"/><text x="115" y="160" text-anchor="middle">1. Plan horario</text>
+    <rect x="210" y="120" width="150" height="70" rx="12" fill="#1976d2"/><text x="285" y="160" text-anchor="middle">2. Elige descanso</text>
+    <rect x="380" y="120" width="150" height="70" rx="12" fill="#1e88e5"/><text x="455" y="160" text-anchor="middle">3. Pedir CT</text>
+    <rect x="550" y="120" width="150" height="70" rx="12" fill="#2e7d32"/><text x="625" y="160" text-anchor="middle">4. CT acepta</text>
+    <rect x="720" y="120" width="140" height="70" rx="12" fill="#f9a825"/><text x="790" y="152" text-anchor="middle" fill="#212121">5. PIN temporal</text><text x="790" y="172" text-anchor="middle" fill="#212121" font-size="12">en su celular</text>
+  </g>
+  <path d="M190 155 H210 M360 155 H380 M530 155 H550 M700 155 H720" stroke="#90a4ae" stroke-width="3" fill="none"/>
+  <text x="40" y="250" font-family="Arial,sans-serif" font-size="15" fill="#37474f">El CT recibe la solicitud en su app. Al aceptar, aparece un PIN temporal parpadeante para marcar en caja.</text>
+  <text x="40" y="280" font-family="Arial,sans-serif" font-size="15" fill="#37474f">Ese PIN se cierra 60 minutos después del fin del turno.</text>
+
+</svg>

@@ -12,6 +12,36 @@ import { puedeGestionarUsuarios } from '../lib/roles.js';
 
 const SECCIONES = [
   {
+    id: 'cubre-turnos',
+    title: 'Cubre turnos (CT): solicitar, PIN móvil y PIN temporal',
+    body: (
+      <>
+        <p style={{ margin: '0 0 0.5rem' }}>
+          Hay tutoriales con imágenes en el menú <strong>Tutorial</strong>:
+          {' '}<em>Cómo solicitar un Cubre turno</em> (cajeros) y
+          {' '}<em>Admin: alta de CT, PIN móvil y PIN temporal</em>.
+        </p>
+        <p style={{ margin: '0 0 0.35rem' }}><strong>Solicitar CT (caja / planta)</strong></p>
+        <ol style={{ margin: '0 0 0.65rem', paddingLeft: '1.2rem' }}>
+          <li>Plan horario → día de <strong>descanso</strong> → <strong>Pedir CT</strong>.</li>
+          <li>Elige un CT en <strong>verde</strong> y envía la solicitud.</li>
+          <li>Cuando el CT acepta, se genera un <strong>PIN temporal</strong> (solo esa tienda/día).</li>
+          <li>Ese PIN aparece en la app del CT en negrita 16px parpadeante y se cierra 60 min después del turno.</li>
+        </ol>
+        <p style={{ margin: '0 0 0.35rem' }}><strong>Admin / RH</strong></p>
+        <ol style={{ margin: '0 0 0.65rem', paddingLeft: '1.2rem' }}>
+          <li>RH ABA3B → alta tipo <strong>Cubre turnos</strong>.</li>
+          <li>En el perfil: <strong>Generar PIN móvil</strong> (se ve grande en el expediente).</li>
+          <li>Entrégaselo al CT: solo sirve en su celular para ver/aceptar solicitudes.</li>
+          <li>El PIN temporal <strong>no</strong> lo crea el admin: nace al aceptar la cobertura.</li>
+        </ol>
+        <p style={{ margin: 0 }}>
+          Tres PIN distintos: móvil (celular) · temporal (caja ese día) · tienda (Configuración).
+        </p>
+      </>
+    ),
+  },
+  {
     id: 'alta-empleado',
     title: 'Cómo dar de alta o reingresar un empleado',
     body: (

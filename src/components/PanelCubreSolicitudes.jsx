@@ -4,12 +4,14 @@ import { normalizarRol } from '../lib/roles.js';
 import {
   AVISO_FALTA_CUBRE_SOLICITUDES,
   ESTADOS_SOLICITUD_CT,
+  GRACIA_PIN_TEMPORAL_CT_MIN,
   aceptarSolicitudCt,
   cancelarSolicitudCt,
   listarCatalogoCt,
   listarSolicitudesCt,
   marcarCumplidaCt,
   marcarNoShowCt,
+  pinTemporalCtActivo,
   rechazarSolicitudCt,
   setDisponibilidadManualCt,
   solicitarCt,
@@ -40,6 +42,24 @@ function fmtFecha(ymd) {
   } catch {
     return ymd;
   }
+}
+
+/** PIN temporal en negrita 16px parpadeante (app CT). */
+function PinTemporalParpadeante({ solicitud }) {
+  if (!pinTemporalCtActivo(solicitud)) {
+    return <span className="muted">—</span>;
+  }
+  const hasta = solicitud.pin_valido_hasta
+    ? new Date(solicitud.pin_valido_hasta).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })
+    : null;
+  return (
+    <span
+      className="ct-pin-temporal-parpadeo"
+      title={hasta ? `Válido hasta ~${hasta} (cierra ${GRACIA_PIN_TEMPORAL_CT_MIN} min después del turno)` : `Cierra ${GRACIA_PIN_TEMPORAL_CT_MIN} min después del turno`}
+    >
+      {String(solicitud.pin_temporal).trim()}
+    </span>
+  );
 }
 
 /**
@@ -163,6 +183,10 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
     () => (solicitudes || []).filter((s) => s.estado === 'solicitada'),
     [solicitudes],
   );
+  const pinsTemporalesActivos = useMemo(
+    () => (solicitudes || []).filter((s) => pinTemporalCtActivo(s)),
+    [solicitudes],
+  );
 
   const pedir = async (e) => {
     e.preventDefault();
@@ -203,6 +227,23 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
               onClick={() => setDesgloseAceptacion({ resumen: aceptacionCt, nombre: user?.nombre || 'CT' })}
             />
           </div>
+          {pinsTemporalesActivos.length > 0 && (
+            <div className="ct-pin-temporal-banner" style={{ marginTop: '0.85rem' }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 6, color: '#1b5e20' }}>
+                Tu PIN temporal de hoy (caja) — no lo olvides
+              </div>
+              {pinsTemporalesActivos.map((s) => (
+                <div key={s.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '0.5rem', marginBottom: 4 }}>
+                  <PinTemporalParpadeante solicitud={s} />
+                  <span className="muted" style={{ fontSize: '0.8rem' }}>
+                    {etiquetaTienda(s.sucursal_id)} · {fmtFecha(s.fecha)}
+                    {s.turno_etiqueta ? ` · ${s.turno_etiqueta}` : ''}
+                    {' · cierra '}{GRACIA_PIN_TEMPORAL_CT_MIN} min después del turno
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           {aviso && (
             <p style={{ margin: '0.65rem 0 0', color: 'var(--danger)', fontSize: '0.85rem' }}>{aviso}</p>
           )}
@@ -254,8 +295,8 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                         </td>
                         <td>{etiquetaTienda(s.sucursal_id)}</td>
                         <td>{ESTADOS_SOLICITUD_CT[s.estado] || s.estado}</td>
-                        <td style={{ fontFamily: 'monospace', fontWeight: 700 }}>
-                          {s.estado === 'aceptada' && s.pin_temporal ? s.pin_temporal : '—'}
+                        <td>
+                          <PinTemporalParpadeante solicitud={s} />
                         </td>
                         <td className="muted" style={{ fontSize: '0.8rem' }}>
                           {s.solicitado_por_nombre || s.empleado_planta_nombre || '—'}
@@ -308,8 +349,6 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
             (3) PIN temporal = tras aceptar, solo esa tienda y fecha.
           </p>
         </div>
-      </div>
-
         {desgloseAceptacion && (
           <ModalDesgloseAceptacion
             resumen={desgloseAceptacion.resumen}
@@ -317,6 +356,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
             onClose={() => setDesgloseAceptacion(null)}
           />
         )}
+      </div>
     );
   }
 
@@ -788,7 +828,6 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
           </div>
         </div>
       )}
-    </div>
       {desgloseAceptacion && (
         <ModalDesgloseAceptacion
           resumen={desgloseAceptacion.resumen}
@@ -796,6 +835,6 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
           onClose={() => setDesgloseAceptacion(null)}
         />
       )}
-
+    </div>
   );
 }

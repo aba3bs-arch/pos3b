@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="420" viewBox="0 0 900 420">
+  <rect width="100%" height="100%" fill="#f4f7fb"/>
+  
+  <rect x="30" y="30" width="840" height="360" rx="16" fill="#fff" stroke="#cfd8dc"/>
+  <rect x="30" y="30" width="840" height="56" rx="16" fill="#0d47a1"/>
+  <text x="50" y="66" font-family="Arial,sans-serif" font-size="22" font-weight="700" fill="#fff">Plan horario · Sucursal</text>
+  <text x="50" y="120" font-family="Arial,sans-serif" font-size="16" fill="#455a64">1) Abre el menú <tspan font-weight="700" fill="#0d47a1">Checador / Plan horario</tspan></text>
+  <text x="50" y="150" font-family="Arial,sans-serif" font-size="16" fill="#455a64">2) Localiza el día donde el cajero tiene <tspan font-weight="700" fill="#c62828">descanso</tspan></text>
+  <g>
+    <rect x="50" y="180" width="110" height="70" rx="8" fill="#e3f2fd" stroke="#90caf9"/>
+    <text x="105" y="220" text-anchor="middle" font-family="Arial" font-size="13" fill="#1565c0">Lun · Trabajo</text>
+    <rect x="180" y="180" width="110" height="70" rx="8" fill="#ffebee" stroke="#ef9a9a"/>
+    <text x="235" y="212" text-anchor="middle" font-family="Arial" font-size="13" font-weight="700" fill="#c62828">Mar · Descanso</text>
+    <text x="235" y="232" text-anchor="middle" font-family="Arial" font-size="11" fill="#c62828">← aquí pides CT</text>
+    <rect x="310" y="180" width="110" height="70" rx="8" fill="#e3f2fd" stroke="#90caf9"/>
+    <text x="365" y="220" text-anchor="middle" font-family="Arial" font-size="13" fill="#1565c0">Mié · Trabajo</text>
+  </g>
+  <rect x="50" y="280" width="220" height="48" rx="10" fill="#2e7d32"/>
+  <text x="160" y="310" text-anchor="middle" font-family="Arial" font-size="16" font-weight="700" fill="#fff">Pedir CT</text>
+
+</svg>
