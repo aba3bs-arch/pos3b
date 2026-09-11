@@ -191,13 +191,45 @@ export async function guardarEvaluacionCt(supabase, solicitud, form = {}, opts =
     });
   }
 
+  let bloqueoApp = null;
+  if (row.ct_rh_id) {
+    try {
+      const { sincronizarBloqueoAceptacionCt } = await import('./cubreAceptacionCt.js');
+      bloqueoApp = await sincronizarBloqueoAceptacionCt(supabase, row.ct_rh_id);
+      if (bloqueoApp?.bloqueado && bloqueoApp?.cambio) {
+        await crearNotificacion(supabase, {
+          sucursal_id: row.sucursal_id,
+          tipo: 'ct_acceso_app_bloqueado',
+          ref_tabla: 'rh_empleados',
+          ref_id: row.ct_rh_id,
+          titulo: `App CT bloqueada · ${row.ct_nombre}`,
+          mensaje: (
+            `${row.ct_nombre}: aceptación ${bloqueoApp.resumen?.pct ?? '—'}% `
+            + `(mínimo ${bloqueoApp.resumen?.umbral ?? 60}%). `
+            + 'Solo un Administrador puede desbloquear en RH ABA3B.'
+          ),
+        });
+      }
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  const avisoBloqueo = bloqueoApp?.bloqueado && bloqueoApp?.cambio
+    ? ` Acceso a la app del CT bloqueado (aceptación ${bloqueoApp.resumen?.pct}%).`
+    : '';
+
   return {
     ok: true,
     evaluacion: data,
     solicitud: solicitudActualizada,
     problemas,
-    mensaje: problemas.length
-      ? `Evaluación guardada con ${problemas.length} alerta(s). Se notificó a administración.`
-      : 'Evaluación guardada. Sin alertas de problemas.',
+    bloqueoApp,
+    mensaje: (
+      (problemas.length
+        ? `Evaluación guardada con ${problemas.length} alerta(s). Se notificó a administración.`
+        : 'Evaluación guardada. Sin alertas de problemas.')
+      + avisoBloqueo
+    ),
   };
 }

@@ -27,9 +27,10 @@ import {
   leerIneDesdeArchivo,
   mapearExtrasAFormDocs,
 } from '../lib/rhIneOcr.js';
-import { ROLES } from '../lib/roles.js';
+import { ROLES, normalizarRol, puedeGestionarUsuarios } from '../lib/roles.js';
 import FormularioBajaEmpleado from '../components/FormularioBajaEmpleado.jsx';
 import { asegurarPinMovilCt, liberarDispositivoPinMovilCt } from '../lib/cubreTurnoPinMovil.js';
+import { desbloquearAccesoAppCt, UMBRAL_ACEPTACION_CT } from '../lib/cubreAceptacionCt.js';
 
 const FORM_VACIO = {
   nombre: '',
@@ -93,6 +94,7 @@ function fmtFechaHora(iso) {
 
 export default function RhAba3b({ supabase, user, sucursal }) {
   const puede = puedeGestionarRh(user);
+  const esSoloAdmin = puedeGestionarUsuarios(user?.rol) || normalizarRol(user?.rol) === 'Administrador';
   const [pestana, setPestana] = useState('activos');
   const [aviso, setAviso] = useState('');
   const [msg, setMsg] = useState('');
@@ -806,6 +808,45 @@ export default function RhAba3b({ supabase, user, sucursal }) {
                 >
                   Liberar dispositivo
                 </button>
+              </div>
+              <div style={{ marginTop: '0.75rem', paddingTop: '0.65rem', borderTop: '1px dashed #a5d6a7' }}>
+                <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.85rem' }}>
+                  Nivel de aceptación (calificaciones de planta). Si baja de {UMBRAL_ACEPTACION_CT}%,
+                  se bloquea la app del CT. Solo un <strong>Administrador</strong> puede desbloquear.
+                </p>
+                {empleado.extras?.ct_acceso_app_bloqueado ? (
+                  <p style={{ margin: '0 0 0.5rem', color: '#c62828', fontWeight: 700, fontSize: '0.9rem' }}>
+                    App bloqueada
+                    {empleado.extras?.ct_acceso_app_aceptacion_pct != null
+                      ? ` · ${empleado.extras.ct_acceso_app_aceptacion_pct}%`
+                      : ''}
+                    {empleado.extras?.ct_acceso_app_desbloqueo_gracia ? ' · gracia admin activa' : ''}
+                  </p>
+                ) : (
+                  <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.85rem' }}>
+                    App {empleado.extras?.ct_acceso_app_desbloqueo_gracia ? 'desbloqueada (gracia admin)' : 'habilitada'}
+                    {empleado.extras?.ct_acceso_app_aceptacion_pct != null
+                      ? ` · última aceptación: ${empleado.extras.ct_acceso_app_aceptacion_pct}%`
+                      : ''}
+                  </p>
+                )}
+                {esSoloAdmin && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ background: '#c62828', borderColor: '#c62828' }}
+                    onClick={async () => {
+                      if (!confirm('¿Desbloquear el acceso a la app de este CT?\n\nSolo Administrador. Si la aceptación sigue baja, se volverá a bloquear al guardar una nueva evaluación.')) return;
+                      const res = await desbloquearAccesoAppCt(supabase, empleado.id, { user });
+                      if (!res.ok) return alert(res.error);
+                      alert('Acceso a la app desbloqueado.');
+                      const act = await obtenerEmpleadoRh(supabase, empleado.id);
+                      if (act.ok && act.empleado) setEmpleado(act.empleado);
+                    }}
+                  >
+                    Desbloquear acceso app
+                  </button>
+                )}
               </div>
             </div>
           )}

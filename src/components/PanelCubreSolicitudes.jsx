@@ -26,6 +26,8 @@ import {
   etiquetaCalificacionCt,
 } from '../lib/cubreEvaluaciones.js';
 import { fechasSemanaPlan, etiquetaFechaCorta } from '../lib/planHorario.js';
+import { resumenAceptacionCt } from '../lib/cubreAceptacionCt.js';
+import { IndicadorAceptacionCt, ModalDesgloseAceptacion } from './IndicadorAceptacionCt.jsx';
 
 function fmtFecha(ymd) {
   if (!ymd) return '—';
@@ -48,6 +50,9 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
   const [catalogo, setCatalogo] = useState([]);
   const [solicitudes, setSolicitudes] = useState([]);
   const [evalsMap, setEvalsMap] = useState({});
+  const [aceptacionCt, setAceptacionCt] = useState(null);
+  const [aceptacionCatalogo, setAceptacionCatalogo] = useState({});
+  const [desgloseAceptacion, setDesgloseAceptacion] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [aviso, setAviso] = useState('');
   const [msg, setMsg] = useState('');
@@ -70,13 +75,18 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
     if (!supabase) return;
     setCargando(true);
     if (esCtMovil) {
-      const sol = await listarSolicitudesCt(supabase, {
-        ctRhId,
-        limit: 80,
-      });
+      const [sol, ace] = await Promise.all([
+        listarSolicitudesCt(supabase, {
+          ctRhId,
+          limit: 80,
+        }),
+        resumenAceptacionCt(supabase, ctRhId),
+      ]);
       setCatalogo([]);
       setSolicitudes(sol.data || []);
       setEvalsMap({});
+      setAceptacionCt(ace);
+      setAceptacionCatalogo({});
       setAviso(sol.faltaTabla ? AVISO_FALTA_CUBRE_SOLICITUDES : (sol.error || ''));
       setCargando(false);
       return;
@@ -99,6 +109,16 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
     if (ev.faltaTabla && !sol.faltaTabla) {
       setAviso((a) => a || AVISO_FALTA_CUBRE_EVALUACIONES);
     }
+    const aceMap = {};
+    await Promise.all(
+      (cat.data || []).slice(0, 40).map(async (c) => {
+        const rhId = c.rh_id || c.id;
+        if (!rhId) return;
+        aceMap[String(rhId)] = await resumenAceptacionCt(supabase, rhId);
+      }),
+    );
+    setAceptacionCatalogo(aceMap);
+    setAceptacionCt(null);
     setCargando(false);
   }, [supabase, sucursal, esAdmin, esCtMovil, ctRhId]);
 
@@ -177,6 +197,12 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
             Al aceptar recibes un <strong>PIN temporal</strong> para marcar en la caja de esa tienda ese día
             (no uses el PIN móvil en las cajas).
           </p>
+          <div style={{ marginTop: '0.75rem' }}>
+            <IndicadorAceptacionCt
+              resumen={aceptacionCt}
+              onClick={() => setDesgloseAceptacion({ resumen: aceptacionCt, nombre: user?.nombre || 'CT' })}
+            />
+          </div>
           {aviso && (
             <p style={{ margin: '0.65rem 0 0', color: 'var(--danger)', fontSize: '0.85rem' }}>{aviso}</p>
           )}
@@ -283,6 +309,14 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
           </p>
         </div>
       </div>
+
+        {desgloseAceptacion && (
+          <ModalDesgloseAceptacion
+            resumen={desgloseAceptacion.resumen}
+            nombre={desgloseAceptacion.nombre}
+            onClose={() => setDesgloseAceptacion(null)}
+          />
+        )}
     );
   }
 
@@ -322,6 +356,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                 <tr>
                   <th />
                   <th>Nombre</th>
+                  <th>Aceptación</th>
                   <th>Ámbito</th>
                   <th>Teléfono</th>
                   <th>Estado</th>
@@ -344,6 +379,16 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                       />
                     </td>
                     <td style={{ fontWeight: 600 }}>{c.nombre}</td>
+                    <td>
+                      <IndicadorAceptacionCt
+                        compact
+                        resumen={aceptacionCatalogo[String(c.rh_id || c.id)]}
+                        onClick={() => setDesgloseAceptacion({
+                          resumen: aceptacionCatalogo[String(c.rh_id || c.id)],
+                          nombre: c.nombre,
+                        })}
+                      />
+                    </td>
                     <td className="muted" style={{ fontSize: '0.8rem' }}>
                       {c.ct_solo_dia ? 'Solo día · ' : 'Día/noche · '}
                       {Array.isArray(c.ct_sucursales) && c.ct_sucursales.length
@@ -744,5 +789,13 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
         </div>
       )}
     </div>
+      {desgloseAceptacion && (
+        <ModalDesgloseAceptacion
+          resumen={desgloseAceptacion.resumen}
+          nombre={desgloseAceptacion.nombre}
+          onClose={() => setDesgloseAceptacion(null)}
+        />
+      )}
+
   );
 }

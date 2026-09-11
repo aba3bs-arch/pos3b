@@ -770,7 +770,7 @@ function App() {
         return;
       }
       // Solo bloquear si el PIN sí es de un CT (no cortar login de admin/cajero).
-      if (pinMovil.pinCt && (pinMovil.soloMovil || pinMovil.dispositivoAjeno)) {
+      if (pinMovil.pinCt && (pinMovil.soloMovil || pinMovil.dispositivoAjeno || pinMovil.accesoBloqueado)) {
         alert(pinMovil.error);
         setPin('');
         return;
