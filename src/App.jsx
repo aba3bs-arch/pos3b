@@ -769,7 +769,8 @@ function App() {
         await completarLogin(pinMovil.usuario, { cubreTurno: true });
         return;
       }
-      if (pinMovil.soloMovil || pinMovil.dispositivoAjeno) {
+      // Solo bloquear si el PIN sí es de un CT (no cortar login de admin/cajero).
+      if (pinMovil.pinCt && (pinMovil.soloMovil || pinMovil.dispositivoAjeno)) {
         alert(pinMovil.error);
         setPin('');
         return;

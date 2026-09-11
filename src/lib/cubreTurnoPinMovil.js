@@ -68,16 +68,8 @@ export async function validarPinMovilCt(supabase, pin) {
   const p = normalizarPinComparacion(pin);
   if (!p) return { ok: false };
 
-  if (!esDispositivoMovilCt()) {
-    return {
-      ok: false,
-      error:
-        'El PIN personal del CT solo funciona en tu celular (app o navegador móvil). '
-        + 'En caja de tienda usa el PIN de cubre turno de Configuración o el PIN temporal de la cobertura.',
-      soloMovil: true,
-    };
-  }
-
+  // Primero resolver si el PIN pertenece a un CT. Si no, devolver ok:false
+  // sin banderas especiales para que el login normal (admin/cajero) continúe.
   const { data, error } = await supabase
     .from('rh_empleados')
     .select('id, nombre, apellidos, nombre_completo, telefono, extras, estado, tipo_empleado, sucursal_id')
@@ -88,6 +80,19 @@ export async function validarPinMovilCt(supabase, pin) {
 
   const emp = (data || []).find((e) => normalizarPinComparacion(extrasDe(e).ct_pin_movil) === p);
   if (!emp) return { ok: false };
+
+  // Solo si el PIN es de un CT: exigir celular.
+  if (!esDispositivoMovilCt()) {
+    return {
+      ok: false,
+      error:
+        'Ese PIN es el personal del CT y solo funciona en su celular (app o navegador móvil). '
+        + 'En caja de tienda usa tu PIN de usuario/admin, el PIN de cubre turno de Configuración '
+        + 'o el PIN temporal de la cobertura.',
+      soloMovil: true,
+      pinCt: true,
+    };
+  }
 
   const deviceId = obtenerIdDispositivoLocal();
   const ex = extrasDe(emp);
@@ -100,6 +105,7 @@ export async function validarPinMovilCt(supabase, pin) {
         'Este PIN de CT ya está vinculado a otro celular. '
         + 'Si cambiaste de teléfono, pide en RH que liberen / regeneren tu PIN móvil.',
       dispositivoAjeno: true,
+      pinCt: true,
     };
   }
 
