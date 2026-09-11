@@ -504,6 +504,20 @@ export async function aceptarSolicitudCt(supabase, solicitudId, opts = {}) {
 
 export async function rechazarSolicitudCt(supabase, solicitudId, opts = {}) {
   if (!supabase || !solicitudId) return { ok: false, error: 'Solicitud inválida.' };
+  const { data: prev, error: prevErr } = await supabase
+    .from('pos_cubre_solicitudes')
+    .select('*')
+    .eq('id', solicitudId)
+    .maybeSingle();
+  if (prevErr) {
+    if (faltaTabla(prevErr)) return { ok: false, error: AVISO_FALTA_CUBRE_SOLICITUDES, faltaTabla: true };
+    return { ok: false, error: prevErr.message };
+  }
+  if (!prev) return { ok: false, error: 'Solicitud no encontrada.' };
+  if (String(prev.estado) !== 'solicitada') {
+    return { ok: false, error: `La solicitud ya está en estado «${prev.estado}».` };
+  }
+
   const ahora = new Date().toISOString();
   const { data, error } = await supabase
     .from('pos_cubre_solicitudes')
@@ -520,14 +534,52 @@ export async function rechazarSolicitudCt(supabase, solicitudId, opts = {}) {
     if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CUBRE_SOLICITUDES, faltaTabla: true };
     return { ok: false, error: error.message };
   }
-  return { ok: true, solicitud: data, mensaje: 'Solicitud rechazada. La tienda puede pedir otro CT.' };
+
+  await crearNotificacion(supabase, {
+    sucursal_id: prev.sucursal_id,
+    tipo: 'ct_rechazada',
+    ref_tabla: 'pos_cubre_solicitudes',
+    ref_id: data.id,
+    titulo: `CT rechazó · ${etiquetaTienda(prev.sucursal_id)}`,
+    mensaje: (
+      `${prev.ct_nombre} NO aceptó cubrir ${prev.fecha}`
+      + (prev.empleado_planta_nombre ? ` (descanso de ${prev.empleado_planta_nombre})` : '')
+      + ` en ${etiquetaTienda(prev.sucursal_id)}. `
+      + 'Pide otro CT o cancela el descanso. Esta alerta permanece hasta que la atiendas.'
+    ),
+  });
+
+  return {
+    ok: true,
+    solicitud: data,
+    mensaje: 'Solicitud rechazada. Se alertó a la tienda para que pida otro CT.',
+  };
 }
 
-export async function cancelarSolicitudCt(supabase, solicitudId) {
+export async function cancelarSolicitudCt(supabase, solicitudId, opts = {}) {
   if (!supabase || !solicitudId) return { ok: false, error: 'Solicitud inválida.' };
+  const { data: prev, error: prevErr } = await supabase
+    .from('pos_cubre_solicitudes')
+    .select('*')
+    .eq('id', solicitudId)
+    .maybeSingle();
+  if (prevErr) {
+    if (faltaTabla(prevErr)) return { ok: false, error: AVISO_FALTA_CUBRE_SOLICITUDES, faltaTabla: true };
+    return { ok: false, error: prevErr.message };
+  }
+  if (!prev) return { ok: false, error: 'Solicitud no encontrada.' };
+  if (!['solicitada', 'aceptada'].includes(String(prev.estado))) {
+    return { ok: false, error: `No se puede cancelar en estado «${prev.estado}».` };
+  }
+
   const { data, error } = await supabase
     .from('pos_cubre_solicitudes')
-    .update({ estado: 'cancelada', updated_at: new Date().toISOString() })
+    .update({
+      estado: 'cancelada',
+      pin_temporal: null,
+      updated_at: new Date().toISOString(),
+      notas: [prev.notas, opts.motivo || 'Cancelada desde POS (cajero/admin).'].filter(Boolean).join(' · '),
+    })
     .eq('id', solicitudId)
     .in('estado', ['solicitada', 'aceptada'])
     .select('*')
@@ -536,7 +588,25 @@ export async function cancelarSolicitudCt(supabase, solicitudId) {
     if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CUBRE_SOLICITUDES, faltaTabla: true };
     return { ok: false, error: error.message };
   }
-  return { ok: true, solicitud: data };
+
+  await crearNotificacion(supabase, {
+    sucursal_id: prev.sucursal_id,
+    tipo: 'ct_cancelada',
+    ref_tabla: 'pos_cubre_solicitudes',
+    ref_id: data.id,
+    titulo: `CT cancelado · ${etiquetaTienda(prev.sucursal_id)}`,
+    mensaje: (
+      `La tienda canceló la solicitud a ${prev.ct_nombre} para ${prev.fecha} `
+      + `en ${etiquetaTienda(prev.sucursal_id)}.`
+      + (opts.user?.nombre ? ` Canceló: ${opts.user.nombre}.` : '')
+    ),
+  });
+
+  return {
+    ok: true,
+    solicitud: data,
+    mensaje: `Solicitud a ${prev.ct_nombre} cancelada.`,
+  };
 }
 
 /**

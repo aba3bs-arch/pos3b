@@ -601,16 +601,21 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                       {['solicitada', 'aceptada'].includes(s.estado) && (esAdmin || esCajero) && (
                         <button
                           type="button"
-                          className="btn btn-ghost"
+                          className="btn btn-danger"
                           style={{ fontSize: '0.78rem', padding: '0.15rem 0.4rem' }}
+                          title="Cancela la solicitud CT (el CT verá la cancelación)"
                           onClick={async () => {
-                            if (!confirm('¿Cancelar solicitud?')) return;
-                            const res = await cancelarSolicitudCt(supabase, s.id);
+                            if (!confirm(
+                              `¿Cancelar la solicitud a ${s.ct_nombre}?\n\n`
+                              + 'Se libera al CT y se notifica. Puedes pedir otro después.',
+                            )) return;
+                            const res = await cancelarSolicitudCt(supabase, s.id, { user });
                             if (!res.ok) return alert(res.error);
+                            alert(res.mensaje || 'Solicitud cancelada.');
                             await cargar();
                           }}
                         >
-                          Cancelar
+                          Cancelar solicitud
                         </button>
                       )}
                     </td>
@@ -621,8 +626,9 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
           </table>
         </div>
         <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
-          El CT acepta desde su celular (PIN móvil). Tras cubrir, la planta evalúa al CT
-          (consumo, faltantes, quejas, etc.). «Evaluar CT» guarda el review y, si aún estaba aceptada, la marca cumplida.
+          El cajero puede <strong>Cancelar solicitud</strong> mientras esté solicitada o aceptada.
+          Si el CT rechaza, aparece una <strong>alerta flotante</strong> en cualquier módulo hasta atenderla.
+          Tras cubrir, la planta evalúa al CT (consumo, faltantes, quejas…).
         </p>
       </div>
 

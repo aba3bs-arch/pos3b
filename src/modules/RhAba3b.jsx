@@ -29,6 +29,7 @@ import {
 } from '../lib/rhIneOcr.js';
 import { ROLES } from '../lib/roles.js';
 import FormularioBajaEmpleado from '../components/FormularioBajaEmpleado.jsx';
+import { asegurarPinMovilCt, liberarDispositivoPinMovilCt } from '../lib/cubreTurnoPinMovil.js';
 
 const FORM_VACIO = {
   nombre: '',
@@ -763,6 +764,52 @@ export default function RhAba3b({ supabase, user, sucursal }) {
             </div>
           </div>
 
+
+          {empleado.estado === 'activo' && empleado.tipo_empleado === 'cubre_turno' && (
+            <div className="card" style={{ borderLeft: '4px solid #2e7d32', background: 'rgba(46,125,50,0.06)' }}>
+              <h4 style={{ margin: '0 0 0.35rem', color: '#1b5e20' }}>PIN móvil del CT (app)</h4>
+              <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.85rem' }}>
+                Con este PIN el CT entra solo desde su celular y ve <strong>notificaciones y solicitudes CT</strong>
+                (no el resto del POS). El PIN de tienda (Configuración) es aparte, para marcar en caja.
+                PIN actual:{' '}
+                <strong style={{ fontFamily: 'monospace' }}>
+                  {String(empleado.extras?.ct_pin_movil || '— no generado —')}
+                </strong>
+                {empleado.extras?.ct_dispositivo_id ? ' · dispositivo anclado' : ' · sin dispositivo anclado aún'}
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={async () => {
+                    if (!confirm('¿Generar o regenerar el PIN móvil de este CT?\n\nSi regeneras, se libera el celular anterior.')) return;
+                    const res = await asegurarPinMovilCt(supabase, empleado, { forzar: true });
+                    if (!res.ok) return alert(res.error);
+                    alert(`PIN móvil: ${res.pin}\n\nEntrégaselo al CT. Solo funciona en su celular.`);
+                    const act = await obtenerEmpleadoRh(supabase, empleado.id);
+                    if (act.ok && act.empleado) setEmpleado(act.empleado);
+                  }}
+                >
+                  Generar / regenerar PIN móvil
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={async () => {
+                    if (!confirm('¿Liberar el celular anclado? El CT podrá entrar desde un teléfono nuevo con el mismo PIN.')) return;
+                    const res = await liberarDispositivoPinMovilCt(supabase, empleado.id);
+                    if (!res.ok) return alert(res.error);
+                    alert('Dispositivo liberado.');
+                    const act = await obtenerEmpleadoRh(supabase, empleado.id);
+                    if (act.ok && act.empleado) setEmpleado(act.empleado);
+                  }}
+                >
+                  Liberar dispositivo
+                </button>
+              </div>
+            </div>
+          )}
+
           {empleado.estado === 'activo'
             && empleado.tipo_empleado !== 'cubre_turno'
             && !empleado.usuario_id && (
@@ -1081,9 +1128,11 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
         >
           <strong style={{ color: '#2e7d32' }}>Alta Cubre turnos (distinta a planta)</strong>
           <p className="muted" style={{ margin: '0.35rem 0 0.65rem', fontSize: '0.84rem' }}>
-            No entra a nómina ni a Usuarios con PIN personal. Usa el <strong>PIN de cubre turno</strong> ya configurado
-            por tienda (Configuración). Su nombre se agrega en gastos <strong>CUBRE TURNO → su nombre</strong> para
-            capturar el pago. Puede cubrir en las 7 sucursales; marca “solo día” si no cubre nocturno.
+            No entra a nómina ni a Usuarios POS de planta. Se generan dos PINs distintos:
+            {' '}<strong>PIN de tienda</strong> (Configuración → PIN cubre turno, para marcar en caja) y
+            {' '}<strong>PIN móvil personal</strong> (solo su celular: ve notificaciones y solicitudes CT).
+            Su nombre se agrega en gastos <strong>CUBRE TURNO → su nombre</strong>. Puede cubrir en las 7 sucursales;
+            marca “solo día” si no cubre nocturno.
           </p>
           <div style={{ marginBottom: '0.65rem' }}>
             <div className="muted" style={{ fontSize: '0.78rem', marginBottom: '0.35rem' }}>

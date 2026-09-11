@@ -161,7 +161,24 @@ export const TIPOS_NOTIF = {
   RIF_LIQUIDADO: 'rif_liquidado',
   RIF_VENCIDO: 'rif_vencido',
   GASTO_EVIDENCIA: 'gasto_evidencia_pendiente',
+  CT_SOLICITUD: 'ct_solicitud',
+  CT_ACEPTADA: 'ct_aceptada',
+  CT_RECHAZADA: 'ct_rechazada',
+  CT_CANCELADA: 'ct_cancelada',
+  CT_HOLD: 'ct_hold',
+  CT_EVALUACION_ALERTA: 'ct_evaluacion_alerta',
 };
+
+/** Alertas CT que el cajero debe ver flotantes hasta atenderlas. */
+export const TIPOS_ALERTA_CT_CAJERO = [
+  TIPOS_NOTIF.CT_RECHAZADA,
+  TIPOS_NOTIF.CT_ACEPTADA,
+  TIPOS_NOTIF.CT_EVALUACION_ALERTA,
+];
+
+export function esAlertaCtCajero(n) {
+  return TIPOS_ALERTA_CT_CAJERO.includes(String(n?.tipo || ''));
+}
 
 /** Solo reportes del formulario de Incidencias (no recolecciones, cortes ni vales). */
 export function esNotificacionFormularioIncidencia(n) {
@@ -200,6 +217,18 @@ export function etiquetaTipoNotificacion(tipo) {
       return 'RIF vencido → corte';
     case TIPOS_NOTIF.GASTO_EVIDENCIA:
       return 'Gasto pendiente de aprobación';
+    case TIPOS_NOTIF.CT_SOLICITUD:
+      return 'Solicitud CT';
+    case TIPOS_NOTIF.CT_ACEPTADA:
+      return 'CT aceptó cobertura';
+    case TIPOS_NOTIF.CT_RECHAZADA:
+      return 'CT rechazó cobertura';
+    case TIPOS_NOTIF.CT_CANCELADA:
+      return 'Solicitud CT cancelada';
+    case TIPOS_NOTIF.CT_HOLD:
+      return 'CT en hold';
+    case TIPOS_NOTIF.CT_EVALUACION_ALERTA:
+      return 'Alerta evaluación CT';
     default:
       return tipo || 'Notificación';
   }
