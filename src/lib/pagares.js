@@ -101,8 +101,12 @@ export function puedeRecolectarPagare(userOrNombre) {
   return RECOLECTORES_PAGARE.some((r) => nombreCoincidePatrones(nombre, r.patrones));
 }
 
-/** AMR / ABB / JLBB / FJBB: Eliminar o Rechazar pagaré. */
+/** Administrador (rol) o AMR / ABB / JLBB / FJBB: Eliminar o Rechazar pagaré. */
 export function puedeEliminarPagare(userOrNombre) {
+  if (userOrNombre && typeof userOrNombre === 'object') {
+    const rol = normalizarRol(userOrNombre.rol ?? userOrNombre.role);
+    if (rol === 'Administrador') return true;
+  }
   return puedeEliminarRechazarRcVirtual(userOrNombre);
 }
 
@@ -423,7 +427,7 @@ export async function cancelarPagare(supabase, pagare, opts = {}) {
   if (!puedeEliminarPagare(opts.user || nombre)) {
     return {
       ok: false,
-      error: 'Solo AMR, ABB, JLBB o FJBB pueden eliminar o rechazar pagarés.',
+      error: 'Solo el administrador (o AMR/ABB/JLBB/FJBB) puede eliminar o rechazar pagarés.',
     };
   }
   const est = String(pagare.estado || '').toLowerCase();

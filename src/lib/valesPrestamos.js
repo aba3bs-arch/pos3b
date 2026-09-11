@@ -2057,6 +2057,60 @@ export async function abonarPrestamoSucursal(supabase, prestamo, montoAbono, { n
   return { ok: true, prestamo: data, saldo };
 }
 
+/**
+ * Eliminar préstamo entre sucursales / envío MAIN.
+ * Pendiente de cobro: borra directo. Envío MAIN cargado a corte: solo si el corte sigue abierto.
+ */
+export async function eliminarPrestamoSucursal(supabase, prestamo, { nombre } = {}) {
+  if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
+  const est = String(prestamo.estado || '');
+  if (est === 'cancelado') return { ok: false, error: 'Este préstamo ya está cancelado.' };
+
+  const esEnvioMain = String(prestamo.sucursal_origen || '').toUpperCase() === 'MAIN'
+    || prestamo.tipo === 'main_envio';
+  const cargadoCorte = Boolean(prestamo.cargado_corte || prestamo.gasto_id || (esEnvioMain && est === 'liquidado'));
+
+  if (!esEnvioMain && est === 'liquidado') {
+    return { ok: false, error: 'No se puede eliminar un préstamo entre sucursales ya liquidado.' };
+  }
+
+  if (cargadoCorte) {
+    const area = normalizarAreaCorte(prestamo.area_corte || prestamo.area || 'virtual', 'virtual');
+    const sucDestino = prestamo.sucursal_destino || prestamo.sucursal_id;
+    const check = await corteDocumentoEliminable(supabase, {
+      cargadoCorte: true,
+      sucursal_id: sucDestino,
+      modulo: area,
+      comentarioIlike: `%${TOKEN_PRESTAMO_SUC}${prestamo.id}%`,
+      categoria: 'PRESTAMOS',
+      gastoId: prestamo.gasto_id || null,
+    });
+    if (!check.ok) return check;
+    if (!check.eliminable) return { ok: false, error: check.error || 'El corte ya está cerrado; no se puede eliminar.' };
+    if (check.idsAbiertos?.length) {
+      const { error: eDel } = await supabase.from('cortes_contabilidad_gastos').delete().in('id', check.idsAbiertos);
+      if (eDel) return { ok: false, error: eDel.message };
+    }
+  }
+
+  const { error } = await supabase.from('prestamos_sucursales').delete().eq('id', prestamo.id);
+  if (faltaTablaPrestamosSucursales(error)) return { ok: false, error: AVISO_FALTA_PRESTAMOS_SUCURSALES };
+  if (error) {
+    // Fallback soft-cancel si RLS/FK impide borrado
+    const { data, error: e2 } = await supabase
+      .from('prestamos_sucursales')
+      .update({ estado: 'cancelado', saldo: 0 })
+      .eq('id', prestamo.id)
+      .select('*')
+      .single();
+    if (e2) return { ok: false, error: error.message };
+    await marcarNotificacionAtendida(supabase, 'prestamos_sucursales', prestamo.id, nombre || null);
+    return { ok: true, prestamo: data, mensaje: 'Préstamo cancelado.' };
+  }
+  await marcarNotificacionAtendida(supabase, 'prestamos_sucursales', prestamo.id, nombre || null);
+  return { ok: true, eliminado: true, mensaje: 'Préstamo eliminado.' };
+}
+
 export {
   cargarValeACorte,
   cargarPrestamoEmpleadoACorte,

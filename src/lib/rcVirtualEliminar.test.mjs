@@ -10,4 +10,6 @@ assert.equal(puedeEliminarRechazarRcVirtual('Luis Enrique Osuna Mada'), false);
 assert.equal(puedeEliminarRechazarRcVirtual('Cajero Juan'), false);
 assert.equal(puedeEliminarPagare('AMR'), true);
 assert.equal(puedeEliminarPagare('Luis Enrique'), false);
+assert.equal(puedeEliminarPagare({ rol: 'Administrador', nombre: 'Admin Test' }), true);
+assert.equal(puedeEliminarPagare({ rol: 'Cajero', nombre: 'Cajero Juan' }), false);
 console.log('rcVirtualEliminar.test.mjs ok');

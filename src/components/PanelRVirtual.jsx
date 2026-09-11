@@ -67,7 +67,7 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
   const adminNombre = user?.nombre || '';
   const adminEsAbb = esAbb(adminNombre);
   const adminEsAmr = esUsuarioAmr(adminNombre);
-  const adminPuedeEliminar = puedeEliminarPagare(adminNombre);
+  const adminPuedeEliminar = puedeEliminarPagare(user || adminNombre);
   const miClave = claveRecolectorRVirtual(adminNombre);
   const [pestana, setPestana] = useState(
     pestanaInicial || (areaInicial === 'garage' ? 'garage' : 'recolecciones'),

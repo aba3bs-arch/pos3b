@@ -26,6 +26,7 @@ import {
   liquidarVale,
   eliminarVale,
   abonarPrestamoSucursal,
+  eliminarPrestamoSucursal,
   registrarPrestamo,
   registrarPrestamoInterarea,
   abonarPrestamoInterarea,
@@ -233,13 +234,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const puedeAbonarLiquidarPagaresUi = puedeAbonarLiquidarPagare(user?.rol, user)
     && !esUsuarioCubreTurno(user);
   const puedeRecolectarPagaresUi = puedeRecolectarPagare(user);
-  const puedeEliminarPagaresUi = puedeEliminarPagare(user);
+  /** Admin (rol) o AMR/ABB/JLBB/FJBB por nombre. */
+  const puedeEliminarPagaresUi = esAdmin || puedeEliminarPagare(user);
   /** Cajero: solo Abonar / Liquidar en pagarés (sin generar ni recolectar). */
   const puedeGenerarPagaresUi = puedeGenerarPagare(user?.rol) && !esCajero;
   /** Recolectar préstamo área → RC Virtual: admin, gerente o repartidor. */
   const puedeRecolectarPrestamoArea = puedeRecolectarPrestamoInterareaRc(user?.rol);
-  /** Eliminar RIF/préstamos: admin o gerente (corte abierto validado en lib). */
-  const puedeEliminarDocs = esAdmin || esGerente;
+  /** Eliminar RIF / préstamos (empleado, área, sucursal): privilegio del administrador. */
+  const puedeEliminarDocs = esAdmin;
   /** Eliminar / editar vales: solo administrador. El cajero solo imprime. */
   const puedeEditarVales = esAdmin;
   const puedeEliminarVales = esAdmin;
@@ -937,7 +939,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   };
 
   const eliminarPrestamoEmp = async (p) => {
-    if (!puedeEliminarDocs) return alert('Solo administrador o gerente pueden eliminar.');
+    if (!puedeEliminarDocs) return alert('Solo el administrador puede eliminar.');
     if (!confirm(`¿Eliminar préstamo de ${p.nombre_empleado}? Solo procede si el corte está abierto.`)) return;
     let motivo = null;
     const raw = prompt('Motivo (opcional):');
@@ -1068,7 +1070,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   };
 
   const eliminarRifRow = async (r) => {
-    if (!puedeEliminarDocs) return alert('Solo administrador o gerente pueden eliminar.');
+    if (!puedeEliminarDocs) return alert('Solo el administrador puede eliminar.');
     if (!confirm(`¿Eliminar ${r.folio}? Solo si el corte está abierto.`)) return;
     const res = await eliminarRif(supabase, r, { usuarioNombre: user?.nombre });
     if (!res.ok) return alert(res.error);
@@ -1208,9 +1210,22 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   };
 
   const eliminarInterarea = async (p) => {
-    if (!puedeEliminarDocs) return alert('Solo administrador o gerente pueden eliminar.');
+    if (!puedeEliminarDocs) return alert('Solo el administrador puede eliminar.');
     if (!confirm('¿Eliminar préstamo entre áreas? Solo si el gasto sigue en corte abierto (aún no recolectado).')) return;
     const res = await eliminarPrestamoInterarea(supabase, p);
+    if (!res.ok) return alert(res.error);
+    alert(res.mensaje || 'Eliminado.');
+    recargarTodo();
+  };
+
+  const eliminarSucursal = async (p) => {
+    if (!puedeEliminarDocs) return alert('Solo el administrador puede eliminar.');
+    const esEnvioMain = String(p.sucursal_origen || '').toUpperCase() === 'MAIN' || p.tipo === 'main_envio';
+    const etiqueta = esEnvioMain
+      ? `envío MAIN → ${p.sucursal_destino || ''}`
+      : `préstamo ${p.sucursal_origen || ''} → ${p.sucursal_destino || ''}`;
+    if (!confirm(`¿Eliminar ${etiqueta}?${esEnvioMain ? ' Si ya cargó a corte, solo procede con corte abierto.' : ''}`)) return;
+    const res = await eliminarPrestamoSucursal(supabase, p, { nombre: user?.nombre });
     if (!res.ok) return alert(res.error);
     alert(res.mensaje || 'Eliminado.');
     recargarTodo();
@@ -1295,7 +1310,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <br />
         <strong>Corte</strong> — El admin elige el corte (Virtual / Abarrotes / Garage) al generar el vale. Al aprobarse, se carga ahí.
         <br />
-        <strong>Permisos</strong> — Admin: editar, eliminar e imprimir. Cajero: solo imprimir.
+        <strong>Permisos</strong> — Admin: editar, eliminar e imprimir (vales, préstamos, pagarés, RIF). Cajero: solo imprimir / abonar.
         <br />
         <strong>Préstamos</strong> — Admin aprueba siempre; mayores a ${MONTO_PRESTAMO_REQUIERE_SOCIO} requieren Antonio, Francisco o José Luis.
         Cuota semanal mín. ${CUOTA_SEMANAL_MINIMA} en nómina.
@@ -1950,7 +1965,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                           <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => editarValeRow(v)}>Editar</button>
                         )}
                         {puedeEliminarVales && (
-                          <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => eliminarValeRow(v)}>Eliminar</button>
+                          <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)', border: '1px solid var(--danger)' }} onClick={() => eliminarValeRow(v)}>Eliminar</button>
                         )}
                       </td>
                     </tr>
@@ -2160,7 +2175,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                             </button>
                           )}
                           {puedeEliminarDocs && r.estado !== 'liquidado' && (
-                            <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => eliminarRifRow(r)}>Eliminar</button>
+                            <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)', border: '1px solid var(--danger)' }} onClick={() => eliminarRifRow(r)}>Eliminar</button>
                           )}
                         </td>
                       </tr>
@@ -2338,7 +2353,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                               <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => editarInterarea(p)}>Editar</button>
                             )}
                             {puedeEliminar && (
-                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => eliminarInterarea(p)}>Eliminar</button>
+                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)', border: '1px solid var(--danger)' }} onClick={() => eliminarInterarea(p)}>Eliminar</button>
                             )}
                           </td>
                         </tr>
@@ -2488,6 +2503,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                             )}
                             {esEnvioMain && (
                               <span className="muted" style={{ fontSize: '0.8rem' }}>Sin IE</span>
+                            )}
+                            {puedeEliminarDocs && p.estado !== 'cancelado' && (esEnvioMain || pendiente) && (
+                              <button
+                                type="button"
+                                className="btn btn-ghost"
+                                style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)', border: '1px solid var(--danger)' }}
+                                onClick={() => eliminarSucursal(p)}
+                              >
+                                Eliminar
+                              </button>
                             )}
                           </td>
                         </tr>
@@ -2647,7 +2672,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           <div className="card">
             <h3 style={{ margin: '0 0 0.75rem' }}>Préstamos</h3>
             <p className="muted" style={{ fontSize: '0.82rem', marginTop: 0 }}>
-              Acciones: <strong>Editar</strong>, <strong>Eliminar</strong>, <strong>Abonar</strong> y <strong>Liquidar</strong>.
+              Acciones: <strong>Editar</strong>, <strong>Eliminar</strong> (solo admin), <strong>Abonar</strong> y <strong>Liquidar</strong>.
               La cuota semanal va a <strong>Contabilidad → Nómina</strong> ({fmt(CUOTA_SEMANAL_MINIMA)} o el resto si no alcanza).
             </p>
             <div className="table-wrap">
@@ -2732,7 +2757,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                               <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => abrirEditarPrestamo(p)}>Editar</button>
                             )}
                             {puedeEliminarDocs && !['liquidado', 'cancelado'].includes(p.estado) && (
-                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)' }} onClick={() => eliminarPrestamoEmp(p)}>Eliminar</button>
+                              <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem', color: 'var(--danger)', border: '1px solid var(--danger)' }} onClick={() => eliminarPrestamoEmp(p)}>Eliminar</button>
                             )}
                             {prestamoPuedeImprimir(p) && (
                               <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.4rem' }} onClick={() => imprimirPrestamoSi(p)}>Imprimir (firma)</button>
