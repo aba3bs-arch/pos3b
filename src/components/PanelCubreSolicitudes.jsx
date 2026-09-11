@@ -308,8 +308,6 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
             (3) PIN temporal = tras aceptar, solo esa tienda y fecha.
           </p>
         </div>
-      </div>
-
         {desgloseAceptacion && (
           <ModalDesgloseAceptacion
             resumen={desgloseAceptacion.resumen}
@@ -317,6 +315,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
             onClose={() => setDesgloseAceptacion(null)}
           />
         )}
+      </div>
     );
   }
 
@@ -788,7 +787,6 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
           </div>
         </div>
       )}
-    </div>
       {desgloseAceptacion && (
         <ModalDesgloseAceptacion
           resumen={desgloseAceptacion.resumen}
@@ -796,6 +794,6 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
           onClose={() => setDesgloseAceptacion(null)}
         />
       )}
-
+    </div>
   );
 }
