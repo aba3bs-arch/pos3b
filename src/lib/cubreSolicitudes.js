@@ -318,16 +318,26 @@ export function ventanaPinParaFecha(fechaYmd, turnoId, turnoEtiqueta) {
   };
 }
 
-/** true si el PIN temporal aún debe mostrarse / usarse. */
+/**
+ * true si el PIN temporal aún debe mostrarse / usarse en la sesión del CT.
+ * Visible desde que acepta la solicitud hasta el cierre del turno (+ gracia).
+ * También aplica si ya marcaron «cumplida» pero el PIN sigue vigente.
+ */
 export function pinTemporalCtActivo(solicitud, ahora = new Date()) {
-  if (!solicitud || String(solicitud.estado) !== 'aceptada') return false;
+  if (!solicitud) return false;
+  const est = String(solicitud.estado || '');
+  if (est !== 'aceptada' && est !== 'cumplida') return false;
   const pin = String(solicitud.pin_temporal || '').trim();
   if (!pin) return false;
   const t = ahora instanceof Date ? ahora : new Date(ahora);
-  if (solicitud.pin_valido_desde && new Date(solicitud.pin_valido_desde) > t) {
-    // Permitir desde el día de la cobertura (00:00)
-    const dia = String(solicitud.fecha || '').slice(0, 10);
-    if (!dia || dia > t.toISOString().slice(0, 10)) return false;
+  const dia = String(solicitud.fecha || '').slice(0, 10);
+  if (dia) {
+    const y = t.getFullYear();
+    const m = String(t.getMonth() + 1).padStart(2, '0');
+    const d = String(t.getDate()).padStart(2, '0');
+    const hoyLocal = `${y}-${m}-${d}`;
+    // Cobertura de un día futuro: aún no mostrar
+    if (dia > hoyLocal) return false;
   }
   if (solicitud.pin_valido_hasta && new Date(solicitud.pin_valido_hasta) < t) return false;
   // Si no hay hasta guardado: estimar fin turno + 60 min
@@ -757,9 +767,10 @@ export async function marcarNoShowCt(supabase, solicitudId, opts = {}) {
 
 export async function marcarCumplidaCt(supabase, solicitudId) {
   if (!supabase || !solicitudId) return { ok: false, error: 'Solicitud inválida.' };
+  // No borrar pin_temporal: el CT lo necesita en su sesión hasta el cierre del turno.
   const { data, error } = await supabase
     .from('pos_cubre_solicitudes')
-    .update({ estado: 'cumplida', updated_at: new Date().toISOString(), pin_temporal: null })
+    .update({ estado: 'cumplida', updated_at: new Date().toISOString() })
     .eq('id', solicitudId)
     .eq('estado', 'aceptada')
     .select('*')

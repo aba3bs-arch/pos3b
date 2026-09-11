@@ -5686,7 +5686,7 @@ table.data th {
 }
 
 
-/* PIN temporal CT: negrita 16px parpadeante en app móvil */
+/* PIN temporal CT: negrita 15px parpadeante en sesión móvil (desde aceptar → cierre turno) */
 @keyframes ct-pin-temporal-parpadeo {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.35; transform: scale(1.04); }
@@ -5695,7 +5695,7 @@ table.data th {
   display: inline-block;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-weight: 700;
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.2;
   letter-spacing: 0.08em;
   color: #1b5e20;
@@ -5703,9 +5703,12 @@ table.data th {
 }
 .ct-pin-temporal-banner {
   border: 2px solid #2e7d32;
-  background: rgba(46, 125, 50, 0.1);
+  background: rgba(46, 125, 50, 0.12);
   border-radius: 10px;
-  padding: 0.65rem 0.75rem;
+  padding: 0.75rem 0.85rem;
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }
 .ct-pin-movil-rh {
   display: inline-block;

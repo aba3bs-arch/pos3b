@@ -26,7 +26,7 @@ const SECCIONES = [
           <li>Plan horario → día de <strong>descanso</strong> → <strong>Pedir CT</strong>.</li>
           <li>Elige un CT en <strong>verde</strong> y envía la solicitud.</li>
           <li>Cuando el CT acepta, se genera un <strong>PIN temporal</strong> (solo esa tienda/día).</li>
-          <li>Ese PIN aparece en la app del CT en negrita 16px parpadeante y se cierra 60 min después del turno.</li>
+          <li>Ese PIN aparece en la app del CT en negrita 15px parpadeante desde que acepta hasta el cierre del turno (+60 min).</li>
         </ol>
         <p style={{ margin: '0 0 0.35rem' }}><strong>Admin / RH</strong></p>
         <ol style={{ margin: '0 0 0.65rem', paddingLeft: '1.2rem' }}>

@@ -28,6 +28,9 @@ assert.equal(pinTemporalCtActivo(base, new Date('2026-09-11T20:00:00')), true);
 assert.equal(pinTemporalCtActivo(base, new Date('2026-09-11T23:30:00')), false);
 assert.equal(pinTemporalCtActivo({ ...base, estado: 'solicitada' }, new Date('2026-09-11T20:00:00')), false);
 assert.equal(pinTemporalCtActivo({ ...base, pin_temporal: '' }, new Date('2026-09-11T20:00:00')), false);
+// Cumplida con PIN vigente: sigue visible hasta cierre de turno
+assert.equal(pinTemporalCtActivo({ ...base, estado: 'cumplida' }, new Date('2026-09-11T20:00:00')), true);
+assert.equal(pinTemporalCtActivo({ ...base, estado: 'cumplida' }, new Date('2026-09-11T23:30:00')), false);
 
 const finNoche = estimarFinTurnoCt('2026-09-11', 'noche', 'Nocturno');
 assert.equal(finNoche.getDate(), 12);

@@ -44,7 +44,7 @@ function fmtFecha(ymd) {
   }
 }
 
-/** PIN temporal en negrita 16px parpadeante (app CT). */
+/** PIN temporal en negrita 15px parpadeante (sesión CT: desde aceptar → cierre turno). */
 function PinTemporalParpadeante({ solicitud }) {
   if (!pinTemporalCtActivo(solicitud)) {
     return <span className="muted">—</span>;
@@ -55,7 +55,10 @@ function PinTemporalParpadeante({ solicitud }) {
   return (
     <span
       className="ct-pin-temporal-parpadeo"
-      title={hasta ? `Válido hasta ~${hasta} (cierra ${GRACIA_PIN_TEMPORAL_CT_MIN} min después del turno)` : `Cierra ${GRACIA_PIN_TEMPORAL_CT_MIN} min después del turno`}
+      style={{ fontSize: 15, fontWeight: 700 }}
+      title={hasta
+        ? `Visible hasta ~${hasta} (cierre de turno + ${GRACIA_PIN_TEMPORAL_CT_MIN} min)`
+        : `Visible hasta el cierre del turno (+ ${GRACIA_PIN_TEMPORAL_CT_MIN} min)`}
     >
       {String(solicitud.pin_temporal).trim()}
     </span>
@@ -218,19 +221,14 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
           <p className="muted" style={{ margin: 0, fontSize: '0.86rem' }}>
             Entraste con tu <strong>PIN personal móvil</strong> (solo este celular).
             Aquí aceptas o rechazas las solicitudes de las tiendas.
-            Al aceptar recibes un <strong>PIN temporal</strong> para marcar en la caja de esa tienda ese día
+            Al aceptar recibes un <strong>PIN temporal</strong> (15px, parpadeante) para marcar en la caja.
+            Queda visible en esta sesión desde que aceptas hasta el cierre de tu turno
             (no uses el PIN móvil en las cajas).
           </p>
-          <div style={{ marginTop: '0.75rem' }}>
-            <IndicadorAceptacionCt
-              resumen={aceptacionCt}
-              onClick={() => setDesgloseAceptacion({ resumen: aceptacionCt, nombre: user?.nombre || 'CT' })}
-            />
-          </div>
           {pinsTemporalesActivos.length > 0 && (
             <div className="ct-pin-temporal-banner" style={{ marginTop: '0.85rem' }}>
               <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 6, color: '#1b5e20' }}>
-                Tu PIN temporal de hoy (caja) — no lo olvides
+                Tu PIN temporal (caja) — visible hasta el cierre del turno
               </div>
               {pinsTemporalesActivos.map((s) => (
                 <div key={s.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '0.5rem', marginBottom: 4 }}>
@@ -238,12 +236,18 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                   <span className="muted" style={{ fontSize: '0.8rem' }}>
                     {etiquetaTienda(s.sucursal_id)} · {fmtFecha(s.fecha)}
                     {s.turno_etiqueta ? ` · ${s.turno_etiqueta}` : ''}
-                    {' · cierra '}{GRACIA_PIN_TEMPORAL_CT_MIN} min después del turno
+                    {' · hasta cierre + '}{GRACIA_PIN_TEMPORAL_CT_MIN} min
                   </span>
                 </div>
               ))}
             </div>
           )}
+          <div style={{ marginTop: '0.75rem' }}>
+            <IndicadorAceptacionCt
+              resumen={aceptacionCt}
+              onClick={() => setDesgloseAceptacion({ resumen: aceptacionCt, nombre: user?.nombre || 'CT' })}
+            />
+          </div>
           {aviso && (
             <p style={{ margin: '0.65rem 0 0', color: 'var(--danger)', fontSize: '0.85rem' }}>{aviso}</p>
           )}
