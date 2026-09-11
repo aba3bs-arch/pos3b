@@ -94,6 +94,15 @@ export async function validarPinMovilCt(supabase, pin) {
     };
   }
 
+  // Aceptación de tiendas < 60% → acceso app bloqueado (desbloqueo solo admin en RH).
+  try {
+    const { verificarAccesoAppCtEnLogin } = await import('./cubreAceptacionCt.js');
+    const acceso = await verificarAccesoAppCtEnLogin(supabase, emp);
+    if (!acceso.ok) return acceso;
+  } catch {
+    /* best-effort: no tumbar login por fallo de módulo */
+  }
+
   const deviceId = obtenerIdDispositivoLocal();
   const ex = extrasDe(emp);
   const anclado = String(ex.ct_dispositivo_id || '').trim();
