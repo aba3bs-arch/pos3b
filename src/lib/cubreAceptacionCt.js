@@ -1,5 +1,6 @@
 /**
  * Nivel de aceptación del CT según calificaciones de planta (1–5 → %).
+ * Todo cubreturno arranca en 100%; las evaluaciones de tienda suben o bajan ese %.
  * Si baja del umbral, se bloquea el acceso a la app móvil; solo un Administrador
  * puede desbloquearlo desde RH ABA3B.
  */
@@ -8,6 +9,9 @@ import { listarEvaluacionesCt } from './cubreEvaluaciones.js';
 
 /** Por debajo de esto se bloquea la app del CT. */
 export const UMBRAL_ACEPTACION_CT = 60;
+
+/** Punto de partida: sin calificaciones de planta → 100%. */
+export const ACEPTACION_INICIAL_CT = 100;
 
 /** Mínimo de calificaciones numéricas para aplicar bloqueo automático. */
 export const MIN_EVALS_BLOQUEO_CT = 1;
@@ -25,10 +29,13 @@ export function promedioCalificacionCt(evals = []) {
   return nums.reduce((a, b) => a + b, 0) / nums.length;
 }
 
-/** (promedio / 5) * 100, redondeado a 1 decimal. */
+/**
+ * (promedio / 5) * 100, redondeado a 1 decimal.
+ * Sin calificaciones → 100 (arranque de todo cubreturno).
+ */
 export function aceptacionPctDesdeEvals(evals = []) {
   const avg = promedioCalificacionCt(evals);
-  if (avg == null) return null;
+  if (avg == null) return ACEPTACION_INICIAL_CT;
   return Math.round((avg / 5) * 1000) / 10;
 }
 
@@ -61,14 +68,17 @@ export function construirResumenAceptacionCt(evals = []) {
     const n = Number(e?.calificacion);
     return Number.isFinite(n) && n >= 1 && n <= 5;
   });
+  const inicial = conCal.length === 0;
   const pct = aceptacionPctDesdeEvals(conCal);
-  const promedio = promedioCalificacionCt(conCal);
+  const promedio = inicial ? 5 : promedioCalificacionCt(conCal);
   return {
     n: conCal.length,
     promedio,
     pct,
+    inicial,
     porSucursal: aceptacionPorSucursal(conCal),
-    bajoUmbral: pct != null && conCal.length >= MIN_EVALS_BLOQUEO_CT && pct < UMBRAL_ACEPTACION_CT,
+    // Solo bloquea cuando ya hay calificaciones reales bajo el umbral.
+    bajoUmbral: !inicial && conCal.length >= MIN_EVALS_BLOQUEO_CT && pct < UMBRAL_ACEPTACION_CT,
     umbral: UMBRAL_ACEPTACION_CT,
   };
 }
@@ -101,15 +111,15 @@ export function esAccesoAppCtBloqueado(extras = {}) {
   return Boolean(extras?.ct_acceso_app_bloqueado);
 }
 
-export function etiquetaNivelAceptacionCt(pct) {
-  if (pct == null) return 'Sin calificaciones';
+export function etiquetaNivelAceptacionCt(pct, opts = {}) {
+  if (opts.inicial || pct == null) return 'Inicial · 100%';
   if (pct >= 80) return 'Alto';
   if (pct >= UMBRAL_ACEPTACION_CT) return 'Aceptable';
   return 'Bajo · acceso bloqueado';
 }
 
-export function colorNivelAceptacionCt(pct) {
-  if (pct == null) return '#64748b';
+export function colorNivelAceptacionCt(pct, opts = {}) {
+  if (opts.inicial || pct == null) return '#2e7d32';
   if (pct >= 80) return '#2e7d32';
   if (pct >= UMBRAL_ACEPTACION_CT) return '#f59e0b';
   return '#c62828';

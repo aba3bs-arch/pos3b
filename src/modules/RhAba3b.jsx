@@ -815,8 +815,9 @@ export default function RhAba3b({ supabase, user, sucursal }) {
               </div>
               <div style={{ marginTop: '0.75rem', paddingTop: '0.65rem', borderTop: '1px dashed #a5d6a7' }}>
                 <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.85rem' }}>
-                  Nivel de aceptación (calificaciones de planta). Si baja de {UMBRAL_ACEPTACION_CT}%,
-                  se bloquea la app del CT. Solo un <strong>Administrador</strong> puede desbloquear.
+                  Nivel de aceptación: arranca en <strong>100%</strong> y lo mueven las calificaciones de planta.
+                  Si baja de {UMBRAL_ACEPTACION_CT}%, se bloquea la app del CT.
+                  Solo un <strong>Administrador</strong> puede desbloquear.
                 </p>
                 {empleado.extras?.ct_acceso_app_bloqueado ? (
                   <p style={{ margin: '0 0 0.5rem', color: '#c62828', fontWeight: 700, fontSize: '0.9rem' }}>
