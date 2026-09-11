@@ -1,20 +1,30 @@
 import { leerPrivilegios } from './posConfig.js';
 
 export const ACCION_PLAN_HORARIO = 'chec_plan_horario';
+/** Asignar / quitar descansos en el calendario (privilegio aparte del solo ver el plan). */
+export const ACCION_ASIGNAR_DESCANSOS = 'chec_asignar_descansos';
 
 export const ACCIONES_CHECADOR_PRIVILEGIO = [
   {
     id: ACCION_PLAN_HORARIO,
     label: 'Plan horario (calendario)',
-    desc: 'Ver y editar el plan semanal de todas las tiendas: turnos, descansos, colores y cubre turnos (CT).',
+    desc: 'Ver el plan semanal de todas las tiendas (turnos, colores y cubre turnos). El administrador siempre lo tiene.',
+  },
+  {
+    id: ACCION_ASIGNAR_DESCANSOS,
+    label: 'Asignar descansos (Plan horario)',
+    desc: 'Marcar o quitar descansos en Checador → Plan horario. Solo administrador o quien tenga este privilegio.',
   },
 ];
 
 export const IDS_ACCIONES_CHECADOR = new Set(ACCIONES_CHECADOR_PRIVILEGIO.map((a) => a.id));
 
-/** Sin checkbox: solo Administrador. Gerente/Supervisor se otorgan en Configuración. */
+/**
+ * Sin checkbox: solo Administrador tiene ambos.
+ * Gerente/Supervisor u otros se otorgan en Configuración → Privilegios → Checador.
+ */
 export const ACCIONES_DEFAULT_CHECADOR_POR_ROL = {
-  Administrador: [ACCION_PLAN_HORARIO],
+  Administrador: [ACCION_PLAN_HORARIO, ACCION_ASIGNAR_DESCANSOS],
   Gerente: [],
   Supervisor: [],
   Auditor: [],
@@ -24,7 +34,8 @@ export const ACCIONES_DEFAULT_CHECADOR_POR_ROL = {
 };
 
 export const DESCRIPCION_MODULO_CHECADOR =
-  'Precios, reloj y asistencia. El plan horario tipo calendario se activa abajo en Checador — Plan horario (admin siempre; el resto con privilegio).';
+  'Precios, reloj y asistencia. El plan horario se activa abajo. '
+  + 'Ver el calendario y asignar descansos son privilegios distintos (admin siempre; el resto con checkbox).';
 
 const ROLES_SISTEMA = ['Cajero', 'Auditor', 'Repartidor', 'Supervisor', 'Gerente', 'Técnico', 'Administrador', 'Cliente'];
 
@@ -49,7 +60,7 @@ function lecturaExplicitaAccion(data, accionId, rol, userId) {
 }
 
 /**
- * ¿Puede ver/editar el plan horario del Checador?
+ * ¿Puede ver el plan horario del Checador?
  * Administrador siempre sí. Si hay checkbox en Configuración, manda.
  */
 export function tieneAccionPlanHorario(rol, userId = null, data = null) {
@@ -61,8 +72,22 @@ export function tieneAccionPlanHorario(rol, userId = null, data = null) {
   return (ACCIONES_DEFAULT_CHECADOR_POR_ROL[r] || []).includes(ACCION_PLAN_HORARIO);
 }
 
+/**
+ * ¿Puede marcar / quitar descansos en Plan horario?
+ * Privilegio independiente: lo asigna el admin (o quien gestione privilegios).
+ */
+export function tieneAccionAsignarDescansos(rol, userId = null, data = null) {
+  const r = normRol(rol);
+  if (r === 'Administrador') return true;
+  const privilegios = data || leerPrivilegios();
+  const explicito = lecturaExplicitaAccion(privilegios, ACCION_ASIGNAR_DESCANSOS, r, userId);
+  if (explicito !== null) return explicito;
+  return (ACCIONES_DEFAULT_CHECADOR_POR_ROL[r] || []).includes(ACCION_ASIGNAR_DESCANSOS);
+}
+
 export function tieneAccionChecador(accionId, rol, userId = null, data = null) {
   if (accionId === ACCION_PLAN_HORARIO) return tieneAccionPlanHorario(rol, userId, data);
+  if (accionId === ACCION_ASIGNAR_DESCANSOS) return tieneAccionAsignarDescansos(rol, userId, data);
   if (!IDS_ACCIONES_CHECADOR.has(accionId)) return false;
   const r = normRol(rol);
   if (r === 'Administrador') return true;

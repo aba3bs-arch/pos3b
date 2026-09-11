@@ -28,6 +28,7 @@ import {
 } from '../lib/planHorarioSync.js';
 import { listarCatalogoCt, quitarCoberturaCtPlan, solicitarCt } from '../lib/cubreSolicitudes.js';
 import { esUsuarioCubreTurno } from '../lib/cubreTurno.js';
+import { tieneAccionAsignarDescansos } from '../lib/planHorarioAcciones.js';
 
 function colorTextoSobre(bg) {
   const hex = String(bg || '#fff').replace('#', '');
@@ -69,6 +70,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
   const [dragOver, setDragOver] = useState(null);
 
   const rol = normalizarRol(user?.rol);
+  const puedeAsignarDescansos = tieneAccionAsignarDescansos(user?.rol, user?.id);
   const puedeSolicitarDesdePlan = (rol === 'Cajero' || rol === 'Administrador' || rol === 'Gerente')
     && !esUsuarioCubreTurno(user);
 
@@ -186,12 +188,23 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
     dragRef.current = null;
     setDragOver(null);
     if (!from) return;
+    const filaFrom = plan.filas?.find((f) => f.id === from.filaId);
+    const filaTo = plan.filas?.find((f) => f.id === toFilaId);
+    const celFrom = filaFrom?.celdas?.[String(from.diaId)];
+    const celTo = filaTo?.celdas?.[String(toDia)];
+    const mueveDescanso = celFrom?.tipo === 'descanso' || celTo?.tipo === 'descanso';
+    if (mueveDescanso && !puedeAsignarDescansos) {
+      return alert('No tienes privilegio para mover descansos. Pídelo al administrador (Configuración → Privilegios → Checador).');
+    }
     aplicar(moverCelda(plan, from.filaId, from.diaId, toFilaId, toDia));
     setSel({ filaId: toFilaId, diaId: toDia });
   };
 
   const marcarDescanso = (ct) => {
     if (!sel) return;
+    if (!puedeAsignarDescansos) {
+      return alert('No tienes privilegio para asignar descansos. Pídelo al administrador (Configuración → Privilegios → Checador).');
+    }
     aplicar(asignarDescansoConCt(plan, sel.filaId, sel.diaId, ct || { nombre: ctManual.trim() || 'DESCANSO' }));
     setCtManual('');
   };
@@ -204,6 +217,9 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
   /** Quitar descanso y cancelar cualquier solicitud CT activa de la celda (trabajar el descanso). */
   const quitarDescansoYCt = async () => {
     if (!sel) return;
+    if (!puedeAsignarDescansos) {
+      return alert('No tienes privilegio para quitar/asignar descansos. Pídelo al administrador (Configuración → Privilegios → Checador).');
+    }
     const fila = plan.filas?.find((f) => f.id === sel.filaId);
     const ymd = ymdDeSel();
     const teniaCt = Boolean(celdaSel?.celda?.ctId || celdaSel?.celda?.ctNombre);
@@ -390,10 +406,12 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
             <button type="button" className="btn btn-ghost" onClick={() => setSel(null)}>Cerrar</button>
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.65rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.65rem', alignItems: 'center' }}>
             <button
               type="button"
               className={celdaSel.celda.tipo === 'turno' ? 'btn btn-primary' : 'btn btn-ghost'}
+              disabled={!puedeAsignarDescansos}
+              title={puedeAsignarDescansos ? undefined : 'Requiere privilegio Asignar descansos'}
               onClick={() => void quitarDescansoYCt()}
             >
               Turno
@@ -401,10 +419,17 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
             <button
               type="button"
               className={celdaSel.celda.tipo === 'descanso' ? 'btn btn-primary' : 'btn btn-ghost'}
+              disabled={!puedeAsignarDescansos}
+              title={puedeAsignarDescansos ? undefined : 'Requiere privilegio Asignar descansos'}
               onClick={() => marcarDescanso(candidatos.find((c) => c.id === celdaSel.celda.ctId) || { nombre: celdaSel.celda.ctNombre })}
             >
               Descanso
             </button>
+            {!puedeAsignarDescansos && (
+              <span className="muted" style={{ fontSize: '0.78rem' }}>
+                Solo admin o quien tenga «Asignar descansos» puede marcar/quitar descansos.
+              </span>
+            )}
           </div>
 
           <div style={{ marginTop: '0.7rem' }}>
@@ -440,6 +465,8 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
                 className="input"
                 style={{ minWidth: 260 }}
                 value={celdaSel.celda.ctId || ''}
+                disabled={!puedeAsignarDescansos}
+                title={puedeAsignarDescansos ? undefined : 'Requiere privilegio Asignar descansos'}
                 onChange={(e) => {
                   const id = e.target.value;
                   if (!id) {
@@ -463,6 +490,8 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
                 <button
                   type="button"
                   className="btn btn-primary"
+                  disabled={!puedeAsignarDescansos}
+                  title={puedeAsignarDescansos ? undefined : 'Requiere privilegio Asignar descansos'}
                   onClick={() => {
                     const ct = candidatos.find((c) => c.id === celdaSel.celda.ctId);
                     void solicitarCtDesdeCelda(ct || {
@@ -479,13 +508,15 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
                 className="input"
                 placeholder="Nombre CT (si no está en la lista)"
                 value={ctManual}
+                disabled={!puedeAsignarDescansos}
                 onChange={(e) => setCtManual(e.target.value)}
                 style={{ minWidth: 200 }}
               />
               <button
                 type="button"
                 className="btn btn-gold"
-                disabled={!ctManual.trim()}
+                disabled={!puedeAsignarDescansos || !ctManual.trim()}
+                title={puedeAsignarDescansos ? undefined : 'Requiere privilegio Asignar descansos'}
                 onClick={() => marcarDescanso({ nombre: ctManual.trim() })}
               >
                 Asignar nombre
@@ -494,7 +525,10 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
                 <button
                   type="button"
                   className="btn btn-ghost"
-                  title="Cancela la solicitud CT (si hay) y vuelve a turno laboral"
+                  disabled={!puedeAsignarDescansos}
+                  title={puedeAsignarDescansos
+                    ? 'Cancela la solicitud CT (si hay) y vuelve a turno laboral'
+                    : 'Requiere privilegio Asignar descansos'}
                   onClick={() => void quitarDescansoYCt()}
                 >
                   {celdaSel.celda.ctId || celdaSel.celda.ctNombre

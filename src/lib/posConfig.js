@@ -438,6 +438,7 @@ export const ACCIONES_PRIVILEGIO = [
   { id: 'prod_negativos', label: 'Productos — Ver inventario negativo' },
   { id: 'prod_eliminar', label: 'Productos — Eliminar productos' },
   { id: 'chec_plan_horario', label: 'Checador — Plan horario (calendario)' },
+  { id: 'chec_asignar_descansos', label: 'Checador — Asignar descansos (Plan horario)' },
 ];
 
 /** Acciones del Panel RT (y recolección en cortes). */
