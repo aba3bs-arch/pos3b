@@ -657,8 +657,12 @@ function App() {
       if (esRolCliente(data.rol) || esSocioSesion) {
         setVista('Socio 3B');
       } else if (data.esCtMovil) {
+        // PIN móvil del CT: solo bandeja de solicitudes en el celular.
         setChecadorPestana('cubre');
         setVista('Checador');
+      } else if (cubreTurno || data.esCubreTurno) {
+        // PIN temporal / PIN de tienda cubre: entrar directo a caja (Ventas).
+        setVista('Ventas');
       } else if (puedeVerModulo(data.rol, 'Checador', data.id)) {
         setChecadorPestana('reloj');
         setVista('Checador');
@@ -755,6 +759,12 @@ function App() {
       if (pinTemp.ok && pinTemp.solicitud) {
         const u = construirUsuarioDesdeSolicitudCt(pinTemp.solicitud);
         await completarLogin(u, { cubreTurno: true });
+        return;
+      }
+      // PIN reconocido pero no usable ahora (otra tienda / día futuro / vencido).
+      if (pinTemp.error && pinTemp.razon && pinTemp.razon !== 'falta_tabla') {
+        alert(pinTemp.error);
+        setPin('');
         return;
       }
     } catch {
