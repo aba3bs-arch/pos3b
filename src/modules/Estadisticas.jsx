@@ -7,7 +7,7 @@ import { AREAS_ESTADISTICA, FECHA_INICIO_ESTADISTICAS } from '../lib/estadistica
 const DESCRIPCIONES = {
   'Estadísticas Abarrotes': {
     desc: AREAS_ESTADISTICA.abarrotes.desc,
-    ayuda: 'Ventas de corte Abarrotes, gastos, inventario y mermas en todas las sucursales.',
+    ayuda: 'Ventas de corte Abarrotes (incluye pago con tarjeta), gastos, inventario y mermas en todas las sucursales.',
   },
   'Estadísticas Virtual': {
     desc: AREAS_ESTADISTICA.virtual.desc,
