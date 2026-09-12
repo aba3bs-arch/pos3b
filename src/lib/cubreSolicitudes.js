@@ -303,12 +303,56 @@ export async function listarSolicitudesCt(supabase, opts = {}) {
 /** Gracia tras fin de turno: el PIN temporal se cierra 60 min después. */
 export const GRACIA_PIN_TEMPORAL_CT_MIN = 60;
 
+/** Operación en Sonora (sin DST): anclar ventanas de PIN a -07:00. */
+const TZ_PIN_CT = '-07:00';
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}
+
+/** YYYY-MM-DD estable (evita corrimientos por Date/ISO de Postgres). */
+export function normalizarFechaYmd(fecha) {
+  if (!fecha) return '';
+  if (typeof fecha === 'string') {
+    const m = fecha.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+    if (m) return m[1];
+  }
+  const t = fecha instanceof Date ? fecha : new Date(fecha);
+  if (Number.isNaN(t.getTime())) return '';
+  return ymdHermosillo(t);
+}
+
+/** Día civil en America/Hermosillo. */
+export function ymdHermosillo(date = new Date()) {
+  const t = date instanceof Date ? date : new Date(date);
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Hermosillo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(t);
+  } catch {
+    // Fallback -07:00
+    const ms = t.getTime() - 7 * 60 * 60 * 1000;
+    const u = new Date(ms);
+    return `${u.getUTCFullYear()}-${pad2(u.getUTCMonth() + 1)}-${pad2(u.getUTCDate())}`;
+  }
+}
+
+function sumarDiasYmd(ymd, dias) {
+  const [y, m, d] = String(ymd).split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + dias));
+  return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
+}
+
 /**
  * Estima hora de fin del turno a partir de id/etiqueta.
  * Diurno/mañana/tarde → mismo día; nocturno cruza medianoche.
+ * Siempre en horario Sonora (-07:00), no en la zona del navegador/servidor.
  */
 export function estimarFinTurnoCt(fechaYmd, turnoId, turnoEtiqueta) {
-  const base = String(fechaYmd || '').slice(0, 10);
+  const base = normalizarFechaYmd(fechaYmd);
   const id = String(turnoId || '').toLowerCase();
   const et = String(turnoEtiqueta || '').toLowerCase();
   const rango = String(turnoEtiqueta || '').match(
@@ -340,17 +384,14 @@ export function estimarFinTurnoCt(fechaYmd, turnoId, turnoEtiqueta) {
     hFin = 22;
     mFin = 0;
   }
-  const y = Number(base.slice(0, 4));
-  const mo = Number(base.slice(5, 7)) - 1;
-  const d = Number(base.slice(8, 10));
-  const fin = new Date(y, mo, d + (nextDay ? 1 : 0), hFin, mFin, 0, 0);
-  return fin;
+  const ymdFin = nextDay ? sumarDiasYmd(base, 1) : base;
+  return new Date(`${ymdFin}T${pad2(hFin)}:${pad2(mFin)}:00${TZ_PIN_CT}`);
 }
 
-/** Ventana del PIN temporal: desde 00:00 del día → fin de turno + 60 min. */
+/** Ventana del PIN temporal: desde 00:00 del día → fin de turno + 60 min (Sonora). */
 export function ventanaPinParaFecha(fechaYmd, turnoId, turnoEtiqueta) {
-  const base = String(fechaYmd || '').slice(0, 10);
-  const desde = new Date(`${base}T00:00:00-07:00`);
+  const base = normalizarFechaYmd(fechaYmd);
+  const desde = new Date(`${base}T00:00:00${TZ_PIN_CT}`);
   const finTurno = estimarFinTurnoCt(base, turnoId, turnoEtiqueta);
   const hasta = new Date(finTurno.getTime() + GRACIA_PIN_TEMPORAL_CT_MIN * 60 * 1000);
   return {
@@ -360,12 +401,9 @@ export function ventanaPinParaFecha(fechaYmd, turnoId, turnoEtiqueta) {
   };
 }
 
+/** @deprecated usar ymdHermosillo */
 function ymdLocal(date) {
-  const t = date instanceof Date ? date : new Date(date);
-  const y = t.getFullYear();
-  const m = String(t.getMonth() + 1).padStart(2, '0');
-  const d = String(t.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  return ymdHermosillo(date);
 }
 
 /**
@@ -389,13 +427,18 @@ export function pinTemporalCtVisible(solicitud, ahora = new Date()) {
 }
 
 /**
- * true si el PIN aún sirve para entrar a caja (día de cobertura ya empezó).
+ * true si el PIN aún sirve para entrar a caja.
+ * Usa pin_valido_desde/hasta si existen; si no, el día de cobertura (Sonora).
  */
 export function pinTemporalCtActivo(solicitud, ahora = new Date()) {
   if (!pinTemporalCtVisible(solicitud, ahora)) return false;
   const t = ahora instanceof Date ? ahora : new Date(ahora);
-  const dia = String(solicitud.fecha || '').slice(0, 10);
-  if (dia && dia > ymdLocal(t)) return false;
+  if (solicitud.pin_valido_desde) {
+    if (new Date(solicitud.pin_valido_desde) > t) return false;
+    return true;
+  }
+  const dia = normalizarFechaYmd(solicitud.fecha);
+  if (dia && dia > ymdHermosillo(t)) return false;
   return true;
 }
 
@@ -857,26 +900,109 @@ export async function marcarCumplidaCt(supabase, solicitudId) {
 }
 
 /**
- * Valida PIN temporal activo para una sucursal (login CT).
- * @returns {{ ok: true, solicitud } | { ok: false }}
+ * Valida PIN temporal activo para una sucursal (login en caja).
+ * Devuelve errores claros si el PIN existe pero no aplica (otra tienda, otro día, vencido).
+ * @returns {{ ok: true, solicitud } | { ok: false, error?: string, razon?: string, faltaTabla?: boolean }}
  */
 export async function validarPinTemporalCt(supabase, pin, sucursal) {
   if (!supabase) return { ok: false };
   const p = normalizarPinComparacion(pin);
   const suc = normalizarCodigoTienda(sucursal);
   if (!p || !suc) return { ok: false };
-  const ahora = new Date().toISOString();
+  const ahora = new Date();
+
+  // Buscar por PIN sin filtrar tienda/estado para poder diagnosticar.
   const { data, error } = await supabase
     .from('pos_cubre_solicitudes')
     .select('*')
-    .eq('sucursal_id', suc)
-    .eq('estado', 'aceptada')
     .eq('pin_temporal', p)
-    .limit(5);
-  if (error || !data?.length) return { ok: false };
-  const viva = data.find((s) => pinTemporalCtActivo(s, new Date(ahora)));
-  if (!viva) return { ok: false };
-  return { ok: true, solicitud: viva };
+    .in('estado', ['aceptada', 'cumplida'])
+    .order('aceptada_at', { ascending: false })
+    .limit(10);
+
+  if (error) {
+    if (faltaTabla(error)) {
+      return { ok: false, error: AVISO_FALTA_CUBRE_SOLICITUDES, faltaTabla: true, razon: 'falta_tabla' };
+    }
+    // Columna aceptada_at puede faltar: reintentar sin order
+    const retry = await supabase
+      .from('pos_cubre_solicitudes')
+      .select('*')
+      .eq('pin_temporal', p)
+      .in('estado', ['aceptada', 'cumplida'])
+      .limit(10);
+    if (retry.error) {
+      if (faltaTabla(retry.error)) {
+        return { ok: false, error: AVISO_FALTA_CUBRE_SOLICITUDES, faltaTabla: true, razon: 'falta_tabla' };
+      }
+      return { ok: false };
+    }
+    if (!retry.data?.length) return { ok: false };
+    return resolverPinTemporalEncontrado(retry.data, suc, ahora);
+  }
+
+  if (!data?.length) return { ok: false };
+  return resolverPinTemporalEncontrado(data, suc, ahora);
+}
+
+function resolverPinTemporalEncontrado(rows, sucursalLogin, ahora) {
+  const mismaTienda = (rows || []).filter(
+    (s) => normalizarCodigoTienda(s.sucursal_id) === sucursalLogin,
+  );
+  const candidatas = mismaTienda.length ? mismaTienda : (rows || []);
+
+  const activa = mismaTienda.find((s) => pinTemporalCtActivo(s, ahora));
+  if (activa) return { ok: true, solicitud: activa };
+
+  // Misma tienda pero aún no es el día / ya venció
+  if (mismaTienda.length) {
+    const s = mismaTienda[0];
+    const dia = normalizarFechaYmd(s.fecha);
+    const hoy = ymdHermosillo(ahora);
+    if (dia && dia > hoy) {
+      return {
+        ok: false,
+        razon: 'fecha_futura',
+        error: (
+          `Ese PIN temporal es para el ${dia} en ${etiquetaTienda(sucursalLogin)}. `
+          + 'Hoy aún no se puede usar en caja (sí puedes verlo en tu celular).'
+        ),
+      };
+    }
+    if (s.pin_valido_hasta && new Date(s.pin_valido_hasta) < ahora) {
+      return {
+        ok: false,
+        razon: 'vencido',
+        error: (
+          `Ese PIN temporal ya venció (válido hasta el cierre del turno + ${GRACIA_PIN_TEMPORAL_CT_MIN} min). `
+          + 'Pide una nueva cobertura o usa el PIN de tienda.'
+        ),
+      };
+    }
+    if (!pinTemporalCtVisible(s, ahora)) {
+      return {
+        ok: false,
+        razon: 'inactivo',
+        error: 'Ese PIN temporal ya no está activo para esta cobertura.',
+      };
+    }
+  }
+
+  // PIN de otra tienda
+  const otra = candidatas[0];
+  if (otra && normalizarCodigoTienda(otra.sucursal_id) !== sucursalLogin) {
+    return {
+      ok: false,
+      razon: 'otra_tienda',
+      error: (
+        `Ese PIN temporal es para ${etiquetaTienda(otra.sucursal_id)}`
+        + (otra.fecha ? ` · ${normalizarFechaYmd(otra.fecha)}` : '')
+        + `. En esta caja (${etiquetaTienda(sucursalLogin)}) no aplica.`
+      ),
+    };
+  }
+
+  return { ok: false };
 }
 
 export function construirUsuarioDesdeSolicitudCt(solicitud) {
