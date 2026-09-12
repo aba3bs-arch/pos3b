@@ -318,33 +318,42 @@ export function ventanaPinParaFecha(fechaYmd, turnoId, turnoEtiqueta) {
   };
 }
 
+function ymdLocal(date) {
+  const t = date instanceof Date ? date : new Date(date);
+  const y = t.getFullYear();
+  const m = String(t.getMonth() + 1).padStart(2, '0');
+  const d = String(t.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 /**
- * true si el PIN temporal aún debe mostrarse / usarse en la sesión del CT.
- * Visible desde que acepta la solicitud hasta el cierre del turno (+ gracia).
- * También aplica si ya marcaron «cumplida» pero el PIN sigue vigente.
+ * true si el PIN debe verse en la sesión del CT (pantalla).
+ * Desde que acepta hasta el cierre del turno (+ gracia), aunque la fecha sea futura.
+ * Así el CT puede leer/anotar el NIP apenas acepta.
  */
-export function pinTemporalCtActivo(solicitud, ahora = new Date()) {
+export function pinTemporalCtVisible(solicitud, ahora = new Date()) {
   if (!solicitud) return false;
   const est = String(solicitud.estado || '');
   if (est !== 'aceptada' && est !== 'cumplida') return false;
   const pin = String(solicitud.pin_temporal || '').trim();
   if (!pin) return false;
   const t = ahora instanceof Date ? ahora : new Date(ahora);
-  const dia = String(solicitud.fecha || '').slice(0, 10);
-  if (dia) {
-    const y = t.getFullYear();
-    const m = String(t.getMonth() + 1).padStart(2, '0');
-    const d = String(t.getDate()).padStart(2, '0');
-    const hoyLocal = `${y}-${m}-${d}`;
-    // Cobertura de un día futuro: aún no mostrar
-    if (dia > hoyLocal) return false;
-  }
   if (solicitud.pin_valido_hasta && new Date(solicitud.pin_valido_hasta) < t) return false;
-  // Si no hay hasta guardado: estimar fin turno + 60 min
   if (!solicitud.pin_valido_hasta && solicitud.fecha) {
     const fin = estimarFinTurnoCt(solicitud.fecha, solicitud.turno_id, solicitud.turno_etiqueta);
     if (t.getTime() > fin.getTime() + GRACIA_PIN_TEMPORAL_CT_MIN * 60 * 1000) return false;
   }
+  return true;
+}
+
+/**
+ * true si el PIN aún sirve para entrar a caja (día de cobertura ya empezó).
+ */
+export function pinTemporalCtActivo(solicitud, ahora = new Date()) {
+  if (!pinTemporalCtVisible(solicitud, ahora)) return false;
+  const t = ahora instanceof Date ? ahora : new Date(ahora);
+  const dia = String(solicitud.fecha || '').slice(0, 10);
+  if (dia && dia > ymdLocal(t)) return false;
   return true;
 }
 
@@ -544,20 +553,37 @@ export async function aceptarSolicitudCt(supabase, solicitudId, opts = {}) {
 
   const ahora = new Date().toISOString();
   const ventana = ventanaPinParaFecha(prev.fecha, prev.turno_id, prev.turno_etiqueta);
-  const { data, error: upErr } = await supabase
+  const payloadFull = {
+    estado: 'aceptada',
+    pin_temporal: pin,
+    pin_valido_desde: ventana.pin_valido_desde,
+    pin_valido_hasta: ventana.pin_valido_hasta,
+    aceptada_at: ahora,
+    updated_at: ahora,
+  };
+  let { data, error: upErr } = await supabase
     .from('pos_cubre_solicitudes')
-    .update({
-      estado: 'aceptada',
-      pin_temporal: pin,
-      pin_valido_desde: ventana.pin_valido_desde,
-      pin_valido_hasta: ventana.pin_valido_hasta,
-      aceptada_at: ahora,
-      updated_at: ahora,
-    })
+    .update(payloadFull)
     .eq('id', solicitudId)
     .select('*')
     .single();
+  // Si faltan columnas de ventana, guardar al menos el PIN.
+  if (upErr && /pin_valido|column|schema cache/i.test(String(upErr.message || ''))) {
+    ({ data, error: upErr } = await supabase
+      .from('pos_cubre_solicitudes')
+      .update({
+        estado: 'aceptada',
+        pin_temporal: pin,
+        aceptada_at: ahora,
+        updated_at: ahora,
+      })
+      .eq('id', solicitudId)
+      .select('*')
+      .single());
+  }
   if (upErr) return { ok: false, error: upErr.message };
+  // Garantizar PIN en la respuesta aunque el select no lo traiga.
+  if (data && !data.pin_temporal) data = { ...data, pin_temporal: pin, ...ventana };
 
   await crearNotificacion(supabase, {
     sucursal_id: prev.sucursal_id,

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Demo NIP temporal CT</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; background: #f4f6f8; }
+    .card { background: #fff; border-radius: 12px; padding: 1rem; border-top: 4px solid #2e7d32; max-width: 420px; margin: 0 auto; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+    @keyframes ct-pin-temporal-parpadeo {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.35; transform: scale(1.04); }
+    }
+    .ct-pin-temporal-parpadeo {
+      display: inline-block;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: 0.08em;
+      color: #1b5e20;
+      animation: ct-pin-temporal-parpadeo 1s ease-in-out infinite;
+    }
+    .banner {
+      border: 2px solid #2e7d32;
+      background: rgba(46,125,50,.12);
+      border-radius: 10px;
+      padding: .75rem .85rem;
+      margin-top: .85rem;
+    }
+    .row {
+      display: flex; flex-wrap: wrap; align-items: center; gap: .65rem;
+      margin-bottom: 8px; padding: .55rem .65rem; background: #fff;
+      border-radius: 8px; border: 1px dashed #2e7d32;
+    }
+    .muted { color: #64748b; font-size: .8rem; }
+    button { cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h3 style="margin:0 0 .35rem;color:#1565c0">Mis coberturas · Demo CT</h3>
+    <p class="muted" style="margin:0">Simulación: tras aceptar, el NIP temporal (15px, parpadeante) debe verse aquí.</p>
+    <div class="banner">
+      <div style="font-size:.8rem;font-weight:700;margin-bottom:8px;color:#1b5e20">
+        NIP temporal para caja — anótalo; visible hasta el cierre del turno
+      </div>
+      <div class="row">
+        <span style="font-size:.75rem;font-weight:700;color:#33691e">NIP</span>
+        <span id="nip" class="ct-pin-temporal-parpadeo" style="font-size:15px;font-weight:700">4827</span>
+        <button type="button" onclick="navigator.clipboard.writeText('4827').then(()=>alert('NIP 4827 copiado'))">Copiar</button>
+        <span class="muted">3B5 · hoy · Tarde · hasta cierre + 60 min</span>
+      </div>
+    </div>
+    <p style="margin:.85rem 0 0;font-size:.85rem">
+      Si ves <strong>4827</strong> parpadeando en 15px, el estilo de la sesión CT está bien.
+      En la app real aparece al <strong>Aceptar</strong> una solicitud.
+    </p>
+  </div>
+</body>
+</html>
