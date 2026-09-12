@@ -4,7 +4,9 @@ import InputPin from './InputPin.jsx';
 import SelectorTemaInterfaz from './SelectorTemaInterfaz.jsx';
 import SelectorSucursal from './SelectorSucursal.jsx';
 import Icon, { BtnLabel } from './Icon.jsx';
+import BotonInstalarApp from './BotonInstalarApp.jsx';
 import { etiquetaTienda } from '../constants/sucursales.js';
+import { detectarMobile } from '../lib/notificacionesDispositivo.js';
 
 export default function PantallaLogin({
   brandTitle,
@@ -217,6 +219,14 @@ export default function PantallaLogin({
               <p className="muted login-hint-sm" style={{ marginTop: '0.5rem' }}>
                 Si cubres turno, usa el <strong>PIN de cubre turno</strong> configurado por el administrador en {etiquetaTienda(sucursal)}.
               </p>
+            )}
+            {detectarMobile() && (
+              <div style={{ marginTop: '0.85rem' }}>
+                <BotonInstalarApp
+                  titulo="Cubre turno: instala la app"
+                  texto="Si eres CT, instala POS 3B en tu celular. Luego entra con tu PIN móvil para ver y aceptar coberturas."
+                />
+              </div>
             )}
           </>
         )}

@@ -40,6 +40,7 @@ export const TUTORIAL_ADMIN_CT = {
         'En la tarjeta **PIN móvil del CT (app)** pulsa **Generar / regenerar PIN móvil**.',
         'El PIN se muestra **grande en el perfil** para que se lo entregues.',
         'El CT entra con ese PIN **solo en su celular**. Queda anclado al primer teléfono.',
+        'En el login o en su bandeja CT debe pulsar **Instalar app** para dejarla en la pantalla de inicio.',
         'Si cambia de celular: **Liberar dispositivo** (o regenerar PIN).',
       ],
       imagen: `${IMG}/03-pin-movil.svg`,
