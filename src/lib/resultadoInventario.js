@@ -19,6 +19,48 @@ export const EVENTO_RESULTADO_INVENTARIO = 'pos3b-resultado-inventario-updated';
 export const AVISO_FALTA_RESULTADOS_INV_SQL =
   'Ejecuta supabase/fix_resultados_inventario.sql en Supabase para sincronizar el resultado de inventario entre cajas y usarlo en el bono.';
 
+/** Tres firmas de conformidad (estampa nombre vía PIN). */
+export const FIRMAS_INVENTARIO_COUNT = 3;
+export const ETIQUETAS_FIRMAS_INVENTARIO = ['Firma 1', 'Firma 2', 'Firma 3'];
+
+export function firmaInventarioVacia() {
+  return { nombre: '', usuario_id: null, firmado_at: null };
+}
+
+/** Normaliza 0–3 firmas a exactamente 3 slots (sin PIN). */
+export function normalizarFirmasInventario(raw) {
+  const slots = Array.from({ length: FIRMAS_INVENTARIO_COUNT }, () => firmaInventarioVacia());
+  let lista = [];
+  if (Array.isArray(raw)) {
+    lista = raw;
+  } else if (raw && typeof raw === 'object') {
+    // Compat: columnas sueltas o mapa {0:…, firma_1:…}
+    lista = [
+      raw[0] ?? raw.firma_1 ?? raw.firma1 ?? null,
+      raw[1] ?? raw.firma_2 ?? raw.firma2 ?? null,
+      raw[2] ?? raw.firma_3 ?? raw.firma3 ?? null,
+    ];
+  } else if (typeof raw === 'string' && raw.trim()) {
+    try {
+      return normalizarFirmasInventario(JSON.parse(raw));
+    } catch {
+      return slots;
+    }
+  }
+  for (let i = 0; i < FIRMAS_INVENTARIO_COUNT; i += 1) {
+    const f = lista[i];
+    if (!f || typeof f !== 'object') continue;
+    const nombre = String(f.nombre || f.name || '').trim();
+    if (!nombre) continue;
+    slots[i] = {
+      nombre,
+      usuario_id: f.usuario_id || f.usuarioId || f.user_id || null,
+      firmado_at: f.firmado_at || f.firmadoAt || f.signed_at || null,
+    };
+  }
+  return slots;
+}
+
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
@@ -188,6 +230,8 @@ function normalizarRegistro(row, { sucursal, desde, hasta } = {}) {
     valor_sistema: parseNumInventario(row.valor_sistema ?? row.valorSistema),
     valor_contado_sistema: parseNumInventario(row.valor_contado_sistema ?? row.valorContadoSistema),
     pct_efectividad: parseNumInventario(row.pct_efectividad ?? row.pctEfectividad),
+    /** De conformidad: 3 firmas (nombre estampado vía PIN; nunca se guarda el PIN) */
+    firmas: normalizarFirmasInventario(row.firmas ?? row.firmas_conformidad),
     usuario: row.usuario || null,
     nota: row.nota || null,
     updated_at: row.updated_at || null,
@@ -263,6 +307,7 @@ export async function cargarResultadoInventario(supabase, { sucursal, desde, has
  * @param {string|number} opts.totalInventario — Campo 1 (manual)
  * @param {string|number} opts.faltante — Campo 2 (manual)
  * @param {string|number} [opts.bonificacion] — Bonificación (manual; descuenta del faltante)
+ * @param {Array|{}} [opts.firmas] — 3 firmas de conformidad (nombre / usuario_id / firmado_at)
  */
 export async function guardarResultadoInventario(supabase, {
   sucursal,
@@ -271,6 +316,7 @@ export async function guardarResultadoInventario(supabase, {
   totalInventario,
   faltante,
   bonificacion = 0,
+  firmas = null,
   /** Compat API anterior */
   valorContado,
   valorSistema = null,
@@ -337,6 +383,7 @@ export async function guardarResultadoInventario(supabase, {
   }
 
   const calc = calcularResultadoInventarioCampos(total, fal, bon);
+  const firmasNorm = normalizarFirmasInventario(firmas);
   const updated_at = new Date().toISOString();
   const registro = {
     sucursal_id: suc,
@@ -350,27 +397,23 @@ export async function guardarResultadoInventario(supabase, {
     valor_despues_ajuste: calc.invDespuesAjuste,
     pct_merma: calc.pctMerma,
     pct_efectividad: null,
+    firmas: firmasNorm,
     usuario: usuario || null,
     nota: nota || null,
     updated_at,
   };
 
-  escribirLocal(clave, {
+  const registroLocal = {
     ...registro,
     valor_faltante_neto: calc.faltanteNeto,
     fuente: 'local',
-  });
+  };
+
+  escribirLocal(clave, registroLocal);
 
   if (!supabase) {
-    emitirEvento({ sucursal: suc, desde, hasta, registro });
-    return {
-      ok: true,
-      registro: {
-        ...registro,
-        valor_faltante_neto: calc.faltanteNeto,
-        fuente: 'local',
-      },
-    };
+    emitirEvento({ sucursal: suc, desde, hasta, registro: registroLocal });
+    return { ok: true, registro: registroLocal };
   }
 
   try {
@@ -383,17 +426,32 @@ export async function guardarResultadoInventario(supabase, {
     if (error) {
       const msg = String(error.message || '').toLowerCase();
       // Reintentar sin columnas nuevas si aún no se ejecutó el SQL actualizado
-      if (msg.includes('valor_bonificacion') || msg.includes('valor_despues_ajuste')) {
+      if (
+        msg.includes('valor_bonificacion')
+        || msg.includes('valor_despues_ajuste')
+        || msg.includes('firmas')
+      ) {
         const sinCols = { ...registro };
-        if (msg.includes('valor_bonificacion') || true) {
-          // intentar primero sin bonificacion; luego sin despues_ajuste si hace falta
+        if (msg.includes('firmas') || true) {
+          // intentar sin firmas primero; luego sin bonificacion / despues_ajuste
         }
-        delete sinCols.valor_bonificacion;
+        delete sinCols.firmas;
         let retry = await supabase
           .from('pos_resultados_inventario')
           .upsert(sinCols, { onConflict: 'sucursal_id,desde,hasta' })
           .select('*')
           .maybeSingle();
+        if (retry.error) {
+          const m2 = String(retry.error.message || '').toLowerCase();
+          if (m2.includes('valor_bonificacion')) {
+            delete sinCols.valor_bonificacion;
+            retry = await supabase
+              .from('pos_resultados_inventario')
+              .upsert(sinCols, { onConflict: 'sucursal_id,desde,hasta' })
+              .select('*')
+              .maybeSingle();
+          }
+        }
         if (retry.error && String(retry.error.message || '').toLowerCase().includes('valor_despues_ajuste')) {
           delete sinCols.valor_despues_ajuste;
           retry = await supabase
@@ -404,7 +462,11 @@ export async function guardarResultadoInventario(supabase, {
         }
         if (!retry.error) {
           const guardado = normalizarRegistro(
-            { ...(retry.data || registro), valor_bonificacion: calc.bonificacion },
+            {
+              ...(retry.data || registro),
+              valor_bonificacion: calc.bonificacion,
+              firmas: firmasNorm,
+            },
             { sucursal: suc, desde, hasta },
           );
           escribirLocal(clave, { ...guardado, fuente: 'nube' });
@@ -417,19 +479,15 @@ export async function guardarResultadoInventario(supabase, {
         }
       }
       if (faltaTabla(error)) {
-        emitirEvento({ sucursal: suc, desde, hasta, registro });
+        emitirEvento({ sucursal: suc, desde, hasta, registro: registroLocal });
         return {
           ok: true,
-          registro: {
-            ...registro,
-            valor_faltante_neto: calc.faltanteNeto,
-            fuente: 'local',
-          },
+          registro: registroLocal,
           aviso: AVISO_FALTA_RESULTADOS_INV_SQL,
           sinTabla: true,
         };
       }
-      return { ok: false, error: error.message, registro: { ...registro, fuente: 'local' } };
+      return { ok: false, error: error.message, registro: registroLocal };
     }
 
     const guardado = normalizarRegistro(data || registro, { sucursal: suc, desde, hasta });
@@ -437,15 +495,11 @@ export async function guardarResultadoInventario(supabase, {
     emitirEvento({ sucursal: suc, desde, hasta, registro: guardado });
     return { ok: true, registro: { ...guardado, fuente: 'nube' } };
   } catch (e) {
-    emitirEvento({ sucursal: suc, desde, hasta, registro });
+    emitirEvento({ sucursal: suc, desde, hasta, registro: registroLocal });
     return {
       ok: false,
       error: e?.message || String(e),
-      registro: {
-        ...registro,
-        valor_faltante_neto: calc.faltanteNeto,
-        fuente: 'local',
-      },
+      registro: registroLocal,
     };
   }
 }
