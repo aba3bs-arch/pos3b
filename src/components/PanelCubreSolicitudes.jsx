@@ -174,7 +174,14 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
     await cargar();
   };
 
-  const disponibles = useMemo(() => catalogo.filter((c) => c.puede_solicitar), [catalogo]);
+  const disponibles = useMemo(() => {
+    const ymd = String(form.fecha || '').slice(0, 10);
+    return catalogo.filter((c) => {
+      if (['hold', 'baja', 'no_disponible'].includes(c.disponibilidad)) return false;
+      if (!ymd) return c.puede_solicitar;
+      return !(c.fechas_ocupadas || []).includes(ymd);
+    });
+  }, [catalogo, form.fecha]);
   const fechasSemana = useMemo(() => {
     return fechasSemanaPlan(0).map((f) => {
       const ymd = f.fecha.toISOString().slice(0, 10);
@@ -415,8 +422,9 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
         <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>Cubre turnos · catálogo independiente</h3>
         <p className="muted" style={{ margin: 0, fontSize: '0.86rem' }}>
           Los CT se dan de alta/baja en <strong>RH ABA3B → Cubre turnos</strong> (no ocupan plaza de planta).
-          Semáforo: <span style={{ color: '#2e7d32', fontWeight: 700 }}>verde = disponible</span>,
-          {' '}<span style={{ color: '#c62828', fontWeight: 700 }}>rojo = cubriendo / hold / no disponible</span>.
+          Semáforo: <span style={{ color: '#2e7d32', fontWeight: 700 }}>verde = disponible ese día</span>,
+          {' '}<span style={{ color: '#c62828', fontWeight: 700 }}>rojo = cubriendo ese día / hold / no disponible</span>.
+          {' '}Si el CT ya cubre <strong>otro día</strong>, igual puedes solicitarlo.
           Alta distinta a planta: sin nómina (pago en gastos CUBRE TURNO → nombre).
           El CT recibe solicitudes en su <strong>celular con PIN móvil</strong>; en caja usa el PIN de tienda o el PIN temporal al aceptar.
           Tras cubrir, el <strong>empleado de planta evalúa al CT</strong> (consumo, faltantes de cigarro/dinero, quejas, etc.).
@@ -526,7 +534,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
             Solicitar CT · {etiquetaTienda(sucursal)}
           </h4>
           <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.84rem' }}>
-            El cajero elige el CT disponible que más le convenga para cubrir el descanso.
+            El cajero elige el CT disponible ese día. Si ya cubre otro día, también aparece.
           </p>
           <form
             onSubmit={pedir}
@@ -556,7 +564,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                 style={{ marginTop: 4 }}
                 type="date"
                 value={form.fecha}
-                onChange={(e) => setForm({ ...form, fecha: e.target.value })}
+                onChange={(e) => setForm({ ...form, fecha: e.target.value, ct_rh_id: '' })}
                 required
               />
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem', marginTop: 4 }}>
@@ -566,7 +574,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                     type="button"
                     className="btn btn-ghost"
                     style={{ fontSize: '0.72rem', padding: '0.1rem 0.35rem' }}
-                    onClick={() => setForm({ ...form, fecha: f.ymd })}
+                    onClick={() => setForm({ ...form, fecha: f.ymd, ct_rh_id: '' })}
                   >
                     {f.corto}
                   </button>

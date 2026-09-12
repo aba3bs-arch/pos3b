@@ -38,8 +38,9 @@ export const TUTORIAL_SOLICITAR_CT = {
       id: 'elegir',
       titulo: '3. Elige un CT en verde',
       cuerpo: [
-        'Solo los CT en **verde** se pueden solicitar (disponibles).',
-        '**Rojo** = ya cubre, está en hold o no disponible.',
+        'Solo los CT en **verde** se pueden solicitar (disponibles **ese día**).',
+        '**Rojo** = ya cubre **ese mismo día**, está en hold o no disponible.',
+        'Si el CT ya cubre **otro día**, igual aparece en verde y se puede elegir.',
         'Elige el que más te convenga (día/noche, sucursales) y confirma fecha/turno.',
         'Pulsa **Enviar solicitud**. El CT la verá en su app del celular.',
       ],

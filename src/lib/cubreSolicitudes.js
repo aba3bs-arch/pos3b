@@ -1,7 +1,8 @@
 /**
  * Sistema de coberturas CT (v1 / base).
  * - Catálogo: rh_empleados tipo cubre_turno (independiente de planta).
- * - Disponibilidad: verde disponible / rojo cubriendo o hold.
+ * - Disponibilidad: verde disponible / rojo cubriendo ese día o hold.
+ * - Un CT con cobertura en otro día sí puede solicitarse para la fecha pedida.
  * - Tienda solicita CT para un descanso → CT acepta → PIN temporal.
  * - Si acepta y no cumple → hold 7 días → liberación automática.
  */
@@ -117,22 +118,59 @@ export async function liberarHoldsCtVencidos(supabase) {
   return { ok: true, liberados };
 }
 
+/** Fechas (YYYY-MM-DD) con solicitud activa (solicitada/aceptada) de un CT. */
+export function fechasOcupadasCt(rhId, solicitudesActivas = []) {
+  const id = String(rhId || '');
+  if (!id) return [];
+  const set = new Set();
+  for (const s of solicitudesActivas || []) {
+    if (String(s.ct_rh_id) !== id) continue;
+    if (!ESTADOS_OCUPAN_CT.has(String(s.estado || ''))) continue;
+    const ymd = String(s.fecha || '').slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) set.add(ymd);
+  }
+  return [...set].sort();
+}
+
 /**
  * Estado visual del CT.
+ * Si se pasa `opts.fecha`, solo cuenta como «cubriendo» una cobertura ese mismo día
+ * (puede elegirse el mismo CT para otro día).
  * @returns {'disponible'|'cubriendo'|'hold'|'baja'|'no_disponible'}
  */
-export function estadoDisponibilidadCt(empleadoRh, solicitudesActivas = []) {
+export function estadoDisponibilidadCt(empleadoRh, solicitudesActivas = [], opts = {}) {
   if (!empleadoRh || empleadoRh.estado === 'baja') return 'baja';
   const ex = extrasCt(empleadoRh);
   const until = ex.ct_hold_until ? Date.parse(ex.ct_hold_until) : NaN;
   if (Number.isFinite(until) && until > Date.now()) return 'hold';
   if (String(ex.ct_disponibilidad || '').toLowerCase() === 'no_disponible') return 'no_disponible';
   const id = String(empleadoRh.id);
-  const ocupado = (solicitudesActivas || []).some(
-    (s) => String(s.ct_rh_id) === id && ESTADOS_OCUPAN_CT.has(String(s.estado || '')),
-  );
+  const fechaRef = opts.fecha ? String(opts.fecha).slice(0, 10) : null;
+  const ocupado = (solicitudesActivas || []).some((s) => {
+    if (String(s.ct_rh_id) !== id) return false;
+    if (!ESTADOS_OCUPAN_CT.has(String(s.estado || ''))) return false;
+    if (fechaRef) return String(s.fecha || '').slice(0, 10) === fechaRef;
+    return true;
+  });
   if (ocupado) return 'cubriendo';
   return 'disponible';
+}
+
+/**
+ * ¿Puede pedirse este CT para `fecha`?
+ * Hold / baja / no_disponible bloquean siempre; cobertura solo bloquea el mismo día.
+ */
+export function ctPuedeSolicitarseEnFecha(empleadoOCatalogo, solicitudesActivas = [], fecha) {
+  const ymd = String(fecha || '').slice(0, 10);
+  // Fila de catálogo ya resuelta
+  if (empleadoOCatalogo && empleadoOCatalogo.fechas_ocupadas != null) {
+    const estado = empleadoOCatalogo.disponibilidad;
+    if (estado === 'hold' || estado === 'baja' || estado === 'no_disponible') return false;
+    if (!ymd) return ctPuedeSerSolicitado(estado);
+    return !(empleadoOCatalogo.fechas_ocupadas || []).includes(ymd);
+  }
+  const estado = estadoDisponibilidadCt(empleadoOCatalogo, solicitudesActivas, { fecha: ymd || undefined });
+  return ctPuedeSerSolicitado(estado);
 }
 
 export function etiquetaDisponibilidadCt(estado) {
@@ -177,11 +215,14 @@ export async function listarCatalogoCt(supabase, opts = {}) {
   });
   if (solRes.ok) solicitudes = solRes.data || [];
 
+  const fechaOpts = opts.fecha ? String(opts.fecha).slice(0, 10) : null;
+
   const rows = (data || [])
     .filter((e) => opts.incluirBajas || e.estado !== 'baja')
     .map((e) => {
       const ex = extrasCt(e);
-      const estadoDisp = estadoDisponibilidadCt(e, solicitudes);
+      const ocupadas = fechasOcupadasCt(e.id, solicitudes);
+      const estadoDisp = estadoDisponibilidadCt(e, solicitudes, { fecha: fechaOpts || undefined });
       const sucursales = ctSucursalesHabilitadas(ex);
       return {
         id: `rh:${e.id}`,
@@ -194,6 +235,7 @@ export async function listarCatalogoCt(supabase, opts = {}) {
         disponibilidad_label: etiquetaDisponibilidadCt(estadoDisp),
         color: colorDisponibilidadCt(estadoDisp),
         puede_solicitar: ctPuedeSerSolicitado(estadoDisp),
+        fechas_ocupadas: ocupadas,
         hold_until: ex.ct_hold_until || null,
         ct_sucursales: sucursales,
         ct_solo_dia: Boolean(ex.ct_solo_dia),
@@ -432,13 +474,31 @@ export async function solicitarCt(supabase, payload = {}, opts = {}) {
   const ctRhId = payload.ct_rh_id || String(payload.ctId || '').replace(/^rh:/, '');
   if (!ctRhId) return { ok: false, error: 'Elige un CT del catálogo.' };
 
-  const catalogo = await listarCatalogoCt(supabase);
+  // Si ya había CT en esta celda, cancelar antes de validar disponibilidad
+  // (permite re-solicitar o cambiar CT en la misma celda).
+  let canceladasPrevias = 0;
+  if (payload.plan_fila_id != null && payload.plan_dia != null) {
+    const cancel = await cancelarSolicitudesActivasCelda(supabase, {
+      plan_fila_id: payload.plan_fila_id,
+      plan_dia: payload.plan_dia,
+      fecha,
+      sucursal_id,
+    });
+    canceladasPrevias = cancel.canceladas || 0;
+  }
+
+  // Disponibilidad por fecha: cobertura en otro día no bloquea.
+  const catalogo = await listarCatalogoCt(supabase, { fecha });
   const ct = (catalogo.data || []).find((c) => String(c.rh_id) === String(ctRhId));
   if (!ct) return { ok: false, error: 'CT no encontrado en el catálogo.' };
   if (!ct.puede_solicitar) {
     return {
       ok: false,
-      error: `Ese CT no está disponible (${ct.disponibilidad_label}). Elige otro en verde.`,
+      error: (
+        ct.disponibilidad === 'cubriendo'
+          ? `${ct.nombre} ya cubre o está solicitado ese mismo día (${fecha}). Elige otro CT o otra fecha.`
+          : `Ese CT no está disponible (${ct.disponibilidad_label}). Elige otro en verde.`
+      ),
     };
   }
   if (!ctPuedeCubrirSucursal(ct.extras, sucursal_id)) {
@@ -452,18 +512,6 @@ export async function solicitarCt(supabase, payload = {}, opts = {}) {
       ok: false,
       error: `${ct.nombre} solo cubre turnos de día (no nocturno).`,
     };
-  }
-
-  // Si ya había CT en esta celda, cancelar para permitir cambiar / re-solicitar.
-  let canceladasPrevias = 0;
-  if (payload.plan_fila_id != null && payload.plan_dia != null) {
-    const cancel = await cancelarSolicitudesActivasCelda(supabase, {
-      plan_fila_id: payload.plan_fila_id,
-      plan_dia: payload.plan_dia,
-      fecha,
-      sucursal_id,
-    });
-    canceladasPrevias = cancel.canceladas || 0;
   }
 
   const ventana = ventanaPinParaFecha(fecha, payload.turno_id, payload.turno_etiqueta);

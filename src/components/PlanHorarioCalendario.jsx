@@ -72,29 +72,49 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
   const puedeSolicitarDesdePlan = (rol === 'Cajero' || rol === 'Administrador' || rol === 'Gerente')
     && !esUsuarioCubreTurno(user);
 
+  const fechas = useMemo(() => fechasSemanaPlan(semanaOff), [semanaOff]);
+
   const candidatos = useMemo(() => {
     const filaSel = sel
       ? (plan.filas || []).find((f) => f.id === sel.filaId)
       : null;
     const sucFiltro = filaSel?.sucursal_id || sucursal || null;
     const turnoFiltro = filaSel?.turno_id || null;
+    const fechaSel = sel
+      ? fechas.find((f) => f.diaId === sel.diaId)?.fecha?.toISOString?.().slice(0, 10)
+      : null;
     let base;
     if (catalogoCt.length) {
-      base = catalogoCt.map((c) => ({
-        id: c.id,
-        rh_id: c.rh_id,
-        nombre: c.nombre,
-        telefono: c.telefono,
-        origen: 'rh',
-        sucursal_id: c.sucursal_id,
-        disponibilidad: c.disponibilidad,
-        disponibilidad_label: c.disponibilidad_label,
-        color: c.color,
-        puede_solicitar: c.puede_solicitar,
-        ct_sucursales: c.ct_sucursales,
-        ct_solo_dia: c.ct_solo_dia,
-        extras: c.extras,
-      }));
+      base = catalogoCt.map((c) => {
+        const ocupadas = c.fechas_ocupadas || [];
+        const bloqueadoFijo = ['hold', 'baja', 'no_disponible'].includes(c.disponibilidad);
+        const ocupadoEseDia = Boolean(fechaSel && ocupadas.includes(fechaSel));
+        // Cobertura en otro día no bloquea; solo el mismo día (o hold/baja).
+        const puede = bloqueadoFijo
+          ? false
+          : (fechaSel ? !ocupadoEseDia : true);
+        const estadoDia = bloqueadoFijo
+          ? c.disponibilidad
+          : (ocupadoEseDia ? 'cubriendo' : 'disponible');
+        return {
+          id: c.id,
+          rh_id: c.rh_id,
+          nombre: c.nombre,
+          telefono: c.telefono,
+          origen: 'rh',
+          sucursal_id: c.sucursal_id,
+          disponibilidad: estadoDia,
+          disponibilidad_label: ocupadoEseDia
+            ? 'Cubriendo ese día'
+            : (bloqueadoFijo ? c.disponibilidad_label : 'Disponible'),
+          color: ocupadoEseDia || bloqueadoFijo ? '#c62828' : '#2e7d32',
+          puede_solicitar: puede,
+          fechas_ocupadas: ocupadas,
+          ct_sucursales: c.ct_sucursales,
+          ct_solo_dia: c.ct_solo_dia,
+          extras: c.extras,
+        };
+      });
     } else {
       base = listarCandidatosCt({ usuarios, rhCubre, soloRh: true });
     }
@@ -112,9 +132,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
       }
       return true;
     });
-  }, [catalogoCt, usuarios, rhCubre, sel, plan.filas, sucursal]);
-
-  const fechas = useMemo(() => fechasSemanaPlan(semanaOff), [semanaOff]);
+  }, [catalogoCt, usuarios, rhCubre, sel, plan.filas, sucursal, fechas]);
   const grupos = useMemo(() => agruparFilasPorTienda(plan), [plan]);
 
   const horasPorFila = useMemo(() => {
@@ -433,7 +451,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
 
           <div style={{ marginTop: '0.75rem' }}>
             <div className="muted" style={{ fontSize: '0.75rem', marginBottom: '0.35rem' }}>
-              CT independiente (verde = disponible · rojo = cubriendo/hold). La tienda elige el que le convenga.
+              CT independiente (verde = disponible ese día · rojo = ya cubre ese día / hold). Si ya cubre otro día, sí se puede elegir.
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
               <select
