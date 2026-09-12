@@ -4,6 +4,8 @@ import {
   colorDisponibilidadCt,
   estadoDisponibilidadCt,
   etiquetaDisponibilidadCt,
+  fechasOcupadasCt,
+  ctPuedeSolicitarseEnFecha,
   ctPuedeCubrirSucursal,
   ctPuedeCubrirTurno,
   ctPuedeCubrirEn,
@@ -28,11 +30,76 @@ assert.equal(
 );
 assert.equal(
   estadoDisponibilidadCt({ id: '1', estado: 'activo', extras: {} }, [
-    { ct_rh_id: '1', estado: 'aceptada' },
+    { ct_rh_id: '1', estado: 'aceptada', fecha: '2026-09-15' },
   ]),
   'cubriendo',
 );
 assert.equal(estadoDisponibilidadCt({ id: '2', estado: 'activo', extras: {} }, []), 'disponible');
+
+// Con fecha: solo bloquea el mismo día
+assert.equal(
+  estadoDisponibilidadCt(
+    { id: '1', estado: 'activo', extras: {} },
+    [{ ct_rh_id: '1', estado: 'aceptada', fecha: '2026-09-15' }],
+    { fecha: '2026-09-16' },
+  ),
+  'disponible',
+);
+assert.equal(
+  estadoDisponibilidadCt(
+    { id: '1', estado: 'activo', extras: {} },
+    [{ ct_rh_id: '1', estado: 'solicitada', fecha: '2026-09-15' }],
+    { fecha: '2026-09-15' },
+  ),
+  'cubriendo',
+);
+
+assert.deepEqual(
+  fechasOcupadasCt('1', [
+    { ct_rh_id: '1', estado: 'aceptada', fecha: '2026-09-16' },
+    { ct_rh_id: '1', estado: 'solicitada', fecha: '2026-09-15' },
+    { ct_rh_id: '1', estado: 'cancelada', fecha: '2026-09-14' },
+    { ct_rh_id: '2', estado: 'aceptada', fecha: '2026-09-17' },
+  ]),
+  ['2026-09-15', '2026-09-16'],
+);
+
+assert.equal(
+  ctPuedeSolicitarseEnFecha(
+    { id: '1', estado: 'activo', extras: {} },
+    [{ ct_rh_id: '1', estado: 'aceptada', fecha: '2026-09-15' }],
+    '2026-09-16',
+  ),
+  true,
+);
+assert.equal(
+  ctPuedeSolicitarseEnFecha(
+    { id: '1', estado: 'activo', extras: {} },
+    [{ ct_rh_id: '1', estado: 'aceptada', fecha: '2026-09-15' }],
+    '2026-09-15',
+  ),
+  false,
+);
+assert.equal(
+  ctPuedeSolicitarseEnFecha(
+    {
+      disponibilidad: 'cubriendo',
+      fechas_ocupadas: ['2026-09-15'],
+    },
+    [],
+    '2026-09-16',
+  ),
+  true,
+);
+assert.equal(
+  ctPuedeSolicitarseEnFecha(
+    { disponibilidad: 'hold', fechas_ocupadas: [] },
+    [],
+    '2026-09-16',
+  ),
+  false,
+);
+
 assert.equal(ctPuedeSerSolicitado('disponible'), true);
 assert.equal(ctPuedeSerSolicitado('hold'), false);
 assert.equal(colorDisponibilidadCt('disponible'), '#2e7d32');
