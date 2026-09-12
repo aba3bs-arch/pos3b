@@ -11,7 +11,7 @@ import {
   listarSolicitudesCt,
   marcarCumplidaCt,
   marcarNoShowCt,
-  pinTemporalCtActivo,
+  pinTemporalCtVisible,
   rechazarSolicitudCt,
   setDisponibilidadManualCt,
   solicitarCt,
@@ -46,7 +46,7 @@ function fmtFecha(ymd) {
 
 /** PIN temporal en negrita 15px parpadeante (sesión CT: desde aceptar → cierre turno). */
 function PinTemporalParpadeante({ solicitud }) {
-  if (!pinTemporalCtActivo(solicitud)) {
+  if (!pinTemporalCtVisible(solicitud)) {
     return <span className="muted">—</span>;
   }
   const hasta = solicitud.pin_valido_hasta
@@ -187,7 +187,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
     [solicitudes],
   );
   const pinsTemporalesActivos = useMemo(
-    () => (solicitudes || []).filter((s) => pinTemporalCtActivo(s)),
+    () => (solicitudes || []).filter((s) => pinTemporalCtVisible(s)),
     [solicitudes],
   );
 
@@ -227,12 +227,44 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
           </p>
           {pinsTemporalesActivos.length > 0 && (
             <div className="ct-pin-temporal-banner" style={{ marginTop: '0.85rem' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 6, color: '#1b5e20' }}>
-                Tu PIN temporal (caja) — visible hasta el cierre del turno
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 8, color: '#1b5e20' }}>
+                NIP temporal para caja — anótalo; visible hasta el cierre del turno
               </div>
               {pinsTemporalesActivos.map((s) => (
-                <div key={s.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '0.5rem', marginBottom: 4 }}>
+                <div
+                  key={s.id}
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    alignItems: 'center',
+                    gap: '0.65rem',
+                    marginBottom: 8,
+                    padding: '0.55rem 0.65rem',
+                    background: '#fff',
+                    borderRadius: 8,
+                    border: '1px dashed #2e7d32',
+                  }}
+                >
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#33691e' }}>NIP</span>
                   <PinTemporalParpadeante solicitud={s} />
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ fontSize: '0.75rem', padding: '0.15rem 0.45rem' }}
+                    onClick={() => {
+                      const nip = String(s.pin_temporal || '').trim();
+                      if (navigator?.clipboard?.writeText) {
+                        void navigator.clipboard.writeText(nip).then(
+                          () => alert(`NIP ${nip} copiado`),
+                          () => alert(`NIP temporal: ${nip}`),
+                        );
+                      } else {
+                        alert(`NIP temporal: ${nip}`);
+                      }
+                    }}
+                  >
+                    Copiar
+                  </button>
                   <span className="muted" style={{ fontSize: '0.8rem' }}>
                     {etiquetaTienda(s.sucursal_id)} · {fmtFecha(s.fecha)}
                     {s.turno_etiqueta ? ` · ${s.turno_etiqueta}` : ''}
@@ -318,7 +350,20 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                                   )) return;
                                   const res = await aceptarSolicitudCt(supabase, s.id, { user });
                                   if (!res.ok) return alert(res.error);
-                                  alert(res.mensaje);
+                                  if (res.solicitud) {
+                                    setSolicitudes((prev) => (prev || []).map((x) => (
+                                      String(x.id) === String(s.id) ? { ...x, ...res.solicitud, pin_temporal: res.pin || res.solicitud.pin_temporal } : x
+                                    )));
+                                  }
+                                  const nip = res.pin || res.solicitud?.pin_temporal || '';
+                                  alert(
+                                    `✅ Cobertura aceptada\n\n`
+                                    + `NIP TEMPORAL PARA CAJA: ${nip}\n\n`
+                                    + `Tienda: ${etiquetaTienda(s.sucursal_id)}\n`
+                                    + `Fecha: ${s.fecha}\n\n`
+                                    + 'Este NIP queda visible arriba en tu sesión hasta el cierre del turno.\n'
+                                    + 'Úsalo en el login de la caja de esa tienda.',
+                                  );
                                   await cargar();
                                 }}
                               >
