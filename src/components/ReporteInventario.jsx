@@ -24,10 +24,18 @@ import { puedeAjustarInventario, puedeCapturarResultadoInventarioBono } from '..
 import {
   calcularResultadoInventarioCampos,
   cargarResultadoInventario,
+  ETIQUETAS_FIRMAS_INVENTARIO,
+  FIRMAS_INVENTARIO_COUNT,
+  firmaInventarioVacia,
   guardarResultadoInventario,
   listarResultadosInventario,
+  normalizarFirmasInventario,
   parseNumInventario,
 } from '../lib/resultadoInventario.js';
+import {
+  buscarUsuarioPorPinYSucursal,
+  mensajePinSucursalIncorrecta,
+} from '../lib/usuariosAuth.js';
 
 function toCsv(rows, columns) {
   const esc = (v) => {
@@ -249,6 +257,13 @@ export default function ReporteInventario({
   const [totalInventarioManual, setTotalInventarioManual] = useState('');
   const [faltanteInventarioManual, setFaltanteInventarioManual] = useState('');
   const [bonificacionManual, setBonificacionManual] = useState('');
+  /** Firmas de conformidad: nombre estampado; PIN solo en inputs temporales (nunca persistido). */
+  const [firmasConformidad, setFirmasConformidad] = useState(() =>
+    Array.from({ length: FIRMAS_INVENTARIO_COUNT }, () => firmaInventarioVacia()),
+  );
+  const [pinsFirma, setPinsFirma] = useState(() => Array(FIRMAS_INVENTARIO_COUNT).fill(''));
+  const [firmandoIdx, setFirmandoIdx] = useState(null);
+  const [avisoFirma, setAvisoFirma] = useState('');
   const [guardandoResultado, setGuardandoResultado] = useState(false);
   const [avisoResultado, setAvisoResultado] = useState('');
   const [estadoResultado, setEstadoResultado] = useState('');
@@ -368,6 +383,9 @@ export default function ReporteInventario({
       setTotalInventarioManual('');
       setFaltanteInventarioManual('');
       setBonificacionManual('');
+      setFirmasConformidad(Array.from({ length: FIRMAS_INVENTARIO_COUNT }, () => firmaInventarioVacia()));
+      setPinsFirma(Array(FIRMAS_INVENTARIO_COUNT).fill(''));
+      setAvisoFirma('');
       setMetaResultado(null);
       setAvisoResultado('Elige una tienda operativa para ver/capturar el resultado de inventario.');
       return undefined;
@@ -375,6 +393,7 @@ export default function ReporteInventario({
     let cancel = false;
     setAvisoResultado('');
     setEstadoResultado('');
+    setAvisoFirma('');
     cargarResultadoInventario(supabase, {
       sucursal: tiendaResultado,
       desde: rango.desde,
@@ -392,11 +411,15 @@ export default function ReporteInventario({
             ? String(r.registro.valor_bonificacion)
             : '',
         );
+        setFirmasConformidad(normalizarFirmasInventario(r.registro.firmas));
+        setPinsFirma(Array(FIRMAS_INVENTARIO_COUNT).fill(''));
         setMetaResultado(r.registro);
       } else {
         setTotalInventarioManual('');
         setFaltanteInventarioManual('');
         setBonificacionManual('');
+        setFirmasConformidad(Array.from({ length: FIRMAS_INVENTARIO_COUNT }, () => firmaInventarioVacia()));
+        setPinsFirma(Array(FIRMAS_INVENTARIO_COUNT).fill(''));
         setMetaResultado(null);
       }
     });
@@ -405,6 +428,106 @@ export default function ReporteInventario({
     };
   }, [abierto, supabase, tiendaResultado, rango.desde, rango.hasta]);
 
+  const firmarConPin = async (idx) => {
+    if (!tiendaResultado) {
+      setAvisoFirma('Elige una tienda para firmar.');
+      return;
+    }
+    if (!supabase) {
+      setAvisoFirma('Sin conexión: no se puede validar el PIN.');
+      return;
+    }
+    const pin = String(pinsFirma[idx] || '').trim();
+    if (!pin) {
+      setAvisoFirma(`Escribe el PIN en ${ETIQUETAS_FIRMAS_INVENTARIO[idx]}.`);
+      return;
+    }
+    setFirmandoIdx(idx);
+    setAvisoFirma('');
+    try {
+      const r = await buscarUsuarioPorPinYSucursal(supabase, pin, tiendaResultado, {
+        aceptarPersonalCentral: true,
+      });
+      if (r.error) {
+        setAvisoFirma(r.error);
+        return;
+      }
+      if (r.avisoSucursal || !r.user) {
+        setAvisoFirma(
+          r.avisoSucursal
+            ? mensajePinSucursalIncorrecta(tiendaResultado, r.sucursalReal)
+            : 'PIN no válido.',
+        );
+        return;
+      }
+      const nombre = String(r.user.nombre || r.user.email || '').trim() || 'Usuario';
+      const uid = r.user.id || null;
+      const yaFirmo = firmasConformidad.some(
+        (f, i) => i !== idx && f?.nombre && uid && f.usuario_id && String(f.usuario_id) === String(uid),
+      );
+      if (yaFirmo) {
+        setAvisoFirma(`${nombre} ya firmó en otro campo.`);
+        return;
+      }
+      const firmaNueva = {
+        nombre,
+        usuario_id: uid,
+        firmado_at: new Date().toISOString(),
+      };
+      const firmasNext = firmasConformidad.map((f, i) => (i === idx ? firmaNueva : f));
+      setFirmasConformidad(firmasNext);
+      setPinsFirma((prev) => {
+        const next = [...prev];
+        next[idx] = '';
+        return next;
+      });
+      setEstadoResultado('');
+
+      // Si ya hay totales, persistir firmas de inmediato (no depender de Guardar).
+      const totalNum = parseNumInventario(totalInventarioManual);
+      const falNum = parseNumInventario(faltanteInventarioManual);
+      if (totalNum != null && falNum != null && rango.desde && rango.hasta) {
+        const guard = await guardarResultadoInventario(supabase, {
+          sucursal: tiendaResultado,
+          desde: rango.desde,
+          hasta: rango.hasta,
+          totalInventario: totalInventarioManual,
+          faltante: faltanteInventarioManual,
+          bonificacion: bonificacionManual,
+          firmas: firmasNext,
+          valorSistema: totalesGenerales?.referencia?.valorSistema ?? null,
+          valorContadoSistema: totalesGenerales?.valorContado ?? null,
+          usuario: user?.nombre || user?.email || user?.id || nombre,
+        });
+        if (guard.ok) {
+          setMetaResultado(guard.registro || null);
+          if (guard.aviso) setAvisoResultado(guard.aviso);
+          setEstadoResultado(`Firma de ${nombre} guardada.`);
+        } else if (guard.error) {
+          setAvisoFirma(`Firmado en pantalla, pero no se guardó: ${guard.error}`);
+        }
+      }
+    } catch (e) {
+      setAvisoFirma(e?.message || String(e));
+    } finally {
+      setFirmandoIdx(null);
+    }
+  };
+  const limpiarFirma = (idx) => {
+    if (!puedeCapturarBono) return;
+    setFirmasConformidad((prev) => {
+      const next = [...prev];
+      next[idx] = firmaInventarioVacia();
+      return next;
+    });
+    setPinsFirma((prev) => {
+      const next = [...prev];
+      next[idx] = '';
+      return next;
+    });
+    setAvisoFirma('');
+    setEstadoResultado('');
+  };
   const persistirResultadoManual = async ({ borrar = false } = {}) => {
     if (!puedeCapturarBono) {
       setAvisoResultado('Solo Administrador o Auditor pueden capturar o modificar estos datos.');
@@ -429,6 +552,7 @@ export default function ReporteInventario({
         totalInventario: borrar ? null : totalInventarioManual,
         faltante: borrar ? null : faltanteInventarioManual,
         bonificacion: borrar ? null : bonificacionManual,
+        firmas: borrar ? null : firmasConformidad,
         valorSistema: totalesGenerales?.referencia?.valorSistema ?? null,
         valorContadoSistema: totalesGenerales?.valorContado ?? null,
         usuario: user?.nombre || user?.email || user?.id || '—',
@@ -442,6 +566,8 @@ export default function ReporteInventario({
         setTotalInventarioManual('');
         setFaltanteInventarioManual('');
         setBonificacionManual('');
+        setFirmasConformidad(Array.from({ length: FIRMAS_INVENTARIO_COUNT }, () => firmaInventarioVacia()));
+        setPinsFirma(Array(FIRMAS_INVENTARIO_COUNT).fill(''));
         setMetaResultado(null);
         setEstadoResultado('Resultado borrado.');
       } else {
@@ -456,6 +582,10 @@ export default function ReporteInventario({
           setBonificacionManual(
             Number(r.registro.valor_bonificacion) !== 0 ? String(r.registro.valor_bonificacion) : '',
           );
+        }
+        if (r.registro?.firmas) {
+          setFirmasConformidad(normalizarFirmasInventario(r.registro.firmas));
+          setPinsFirma(Array(FIRMAS_INVENTARIO_COUNT).fill(''));
         }
         setEstadoResultado(
           r.registro?.fuente === 'nube'
@@ -513,6 +643,9 @@ export default function ReporteInventario({
         ? String(reg.valor_bonificacion)
         : '',
     );
+    setFirmasConformidad(normalizarFirmasInventario(reg.firmas));
+    setPinsFirma(Array(FIRMAS_INVENTARIO_COUNT).fill(''));
+    setAvisoFirma('');
     setMetaResultado(reg);
     setEstadoResultado(
       `Cargado · ${etiquetaTienda(reg.sucursal_id)} · ${reg.desde} — ${reg.hasta}`
@@ -1087,6 +1220,131 @@ export default function ReporteInventario({
             </div>
           </div>
 
+          <div
+            style={{
+              marginTop: '0.85rem',
+              paddingTop: '0.75rem',
+              borderTop: '1px dashed var(--border, rgba(0,0,0,0.12))',
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>De conformidad:</div>
+            <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
+              Tres firmas con PIN (el PIN no se muestra ni se guarda). Al firmar se estampa el nombre del usuario.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
+              {ETIQUETAS_FIRMAS_INVENTARIO.map((etiqueta, idx) => {
+                const firma = firmasConformidad[idx] || firmaInventarioVacia();
+                const firmado = Boolean(firma.nombre);
+                return (
+                  <div
+                    key={etiqueta}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'minmax(70px, 90px) 1fr auto',
+                      gap: '0.45rem',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span className="muted" style={{ fontSize: '0.82rem' }}>{etiqueta}</span>
+                    {firmado ? (
+                      <>
+                        <div
+                          style={{
+                            padding: '0.45rem 0.65rem',
+                            borderRadius: 8,
+                            border: '1px solid color-mix(in srgb, var(--brand-blue) 35%, transparent)',
+                            background: 'color-mix(in srgb, var(--brand-blue) 6%, var(--surface))',
+                            fontWeight: 650,
+                            color: 'var(--brand-blue)',
+                            minHeight: '2.1rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                          }}
+                          title={firma.firmado_at
+                            ? `Firmado ${new Date(firma.firmado_at).toLocaleString('es-MX')}`
+                            : undefined}
+                        >
+                          {firma.nombre}
+                        </div>
+                        {puedeCapturarBono ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ padding: '0.35rem 0.55rem', fontSize: '0.75rem' }}
+                            disabled={guardandoResultado || firmandoIdx != null}
+                            onClick={() => limpiarFirma(idx)}
+                          >
+                            Quitar
+                          </button>
+                        ) : (
+                          <span className="muted" style={{ fontSize: '0.72rem' }}>Firmado</span>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          className="input"
+                          type="password"
+                          inputMode="numeric"
+                          autoComplete="new-password"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
+                          name={`inv-firma-pin-${idx}`}
+                          placeholder="PIN"
+                          aria-label={`PIN ${etiqueta}`}
+                          style={{ margin: 0, width: '100%', fontSize: '1rem', letterSpacing: '0.2em' }}
+                          value={pinsFirma[idx] || ''}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setPinsFirma((prev) => {
+                              const next = [...prev];
+                              next[idx] = v;
+                              return next;
+                            });
+                            setAvisoFirma('');
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              void firmarConPin(idx);
+                            }
+                          }}
+                          disabled={
+                            firmandoIdx != null
+                            || guardandoResultado
+                            || !tiendaResultado
+                            || !supabase
+                          }
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          style={{ padding: '0.4rem 0.7rem', fontSize: '0.8rem' }}
+                          disabled={
+                            firmandoIdx != null
+                            || guardandoResultado
+                            || !tiendaResultado
+                            || !supabase
+                            || !String(pinsFirma[idx] || '').trim()
+                          }
+                          onClick={() => void firmarConPin(idx)}
+                        >
+                          {firmandoIdx === idx ? '…' : 'Firmar'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {avisoFirma ? (
+              <p style={{ margin: '0.5rem 0 0', fontSize: '0.8rem', color: 'var(--brand-red, #b45309)' }}>
+                {avisoFirma}
+              </p>
+            ) : null}
+          </div>
+
           {puedeCapturarBono ? (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
               <button
@@ -1105,7 +1363,8 @@ export default function ReporteInventario({
               </button>
               {(totalInventarioManual.trim() !== ''
                 || faltanteInventarioManual.trim() !== ''
-                || bonificacionManual.trim() !== '') ? (
+                || bonificacionManual.trim() !== ''
+                || firmasConformidad.some((f) => f?.nombre)) ? (
                 <button
                   type="button"
                   className="btn btn-ghost"
@@ -1118,7 +1377,7 @@ export default function ReporteInventario({
             </div>
           ) : (
             <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
-              Sin permiso de edición (se requiere Administrador o Auditor).
+              Sin permiso de edición de totales (se requiere Administrador o Auditor). Las firmas con PIN sí están disponibles.
             </p>
           )}
 
