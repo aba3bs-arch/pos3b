@@ -22,7 +22,7 @@ export const AREAS_ESTADISTICA = {
     moduloVista: 'Estadísticas Abarrotes',
     label: 'Abarrotes',
     color: '#b5a642',
-    desc: 'Ventas de corte Abarrotes, gastos, inventario y mermas',
+    desc: 'Ventas de corte Abarrotes (efectivo/tarjeta), gastos, inventario y mermas',
   },
   virtual: {
     id: 'virtual',
@@ -377,6 +377,11 @@ export function sumaVentas(rows) {
   return (rows || []).reduce((a, v) => a + (Number(v.total) || 0), 0);
 }
 
+/** Suma de pagos con tarjeta capturados en cierres de corte (detalle.tarjeta). */
+export function sumaTarjeta(rows) {
+  return (rows || []).reduce((a, v) => a + (Number(v.tarjeta) || 0), 0);
+}
+
 export function sumaGastos(rows) {
   return (rows || []).reduce((a, g) => a + (Number(g.monto) || 0), 0);
 }
@@ -397,6 +402,35 @@ function montoVentaCierre(row) {
   return Number(row?.ventas ?? d.venta ?? d.venta_efectivo ?? d.subtotal ?? 0) || 0;
 }
 
+/** Pago con tarjeta del corte (campo del cierre Abarrotes / detalle). */
+function montoTarjetaCierre(row) {
+  const d = row?.detalle || {};
+  return Number(d.tarjeta ?? d.pago_tarjeta ?? d.tarjeta_abarrotes ?? 0) || 0;
+}
+
+/**
+ * Mix efectivo vs tarjeta a partir de cierres.
+ * Efectivo ≈ venta − tarjeta (la tarjeta se captura aparte en el corte).
+ */
+export function pastelPagoEfectivoTarjeta(rows) {
+  const venta = sumaVentas(rows);
+  const tarjeta = sumaTarjeta(rows);
+  if (venta <= 0 && tarjeta <= 0) return [];
+  const efectivo = Math.max(0, venta - tarjeta);
+  const items = [
+    { id: 'efectivo', label: 'Efectivo (est.)', total: efectivo, color: '#27ae60' },
+    { id: 'tarjeta', label: 'Pago tarjeta', total: tarjeta, color: '#2980b9' },
+  ].filter((x) => x.total > 0);
+  const sum = items.reduce((a, x) => a + x.total, 0) || 1;
+  let start = 0;
+  return items.map((x) => {
+    const pct = (x.total / sum) * 100;
+    const slice = { ...x, pct, pieStart: start, pieEnd: start + pct };
+    start += pct;
+    return slice;
+  });
+}
+
 function ventasDesdeCierres(cierres) {
   return (cierres || [])
     .filter((c) => {
@@ -406,13 +440,14 @@ function ventasDesdeCierres(cierres) {
     .map((c) => ({
       id: c.id,
       total: montoVentaCierre(c),
+      tarjeta: montoTarjetaCierre(c),
       created_at: c.created_at,
       sucursal_id: c.sucursal_id,
       folio: c.folio,
       turno: c.turno || c.detalle?.turno_sesion || '',
       origen: 'cierre',
     }))
-    .filter((v) => v.total > 0);
+    .filter((v) => v.total > 0 || v.tarjeta > 0);
 }
 
 function resumirMerma(movimientos, inventario, tiendas) {

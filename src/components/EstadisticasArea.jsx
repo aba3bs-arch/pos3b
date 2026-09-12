@@ -21,7 +21,9 @@ import {
   pctCambio,
   periodoAnterior,
   rangoDesdePreset,
+  pastelPagoEfectivoTarjeta,
   sumaGastos,
+  sumaTarjeta,
   sumaVentas,
   ticketPromedio,
   tiendasEstadisticas,
@@ -213,6 +215,12 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
   const cambioVentas = useMemo(() => pctCambio(totalVentas, totalVentasAnt), [totalVentas, totalVentasAnt]);
   const insight = useMemo(() => construirInsightCambio(cambioVentas), [cambioVentas]);
 
+  const totalTarjeta = useMemo(() => sumaTarjeta(ventas), [ventas]);
+  const totalTarjetaAnt = useMemo(() => sumaTarjeta(ventasAnt), [ventasAnt]);
+  const cambioTarjeta = useMemo(() => pctCambio(totalTarjeta, totalTarjetaAnt), [totalTarjeta, totalTarjetaAnt]);
+  const pctTarjeta = totalVentas > 0 ? (totalTarjeta / totalVentas) * 100 : 0;
+  const pastelPagos = useMemo(() => pastelPagoEfectivoTarjeta(ventas), [ventas]);
+
   const totalGastos = useMemo(() => sumaGastos(gastos), [gastos]);
   const totalGastosAnt = useMemo(() => sumaGastos(gastosAnt), [gastosAnt]);
   const cambioGastos = useMemo(() => pctCambio(totalGastos, totalGastosAnt), [totalGastos, totalGastosAnt]);
@@ -360,6 +368,15 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
           delta={cambioVentas}
         />
         <Kpi
+          title="Pago tarjeta"
+          value={fmt(totalTarjeta)}
+          sub={totalVentas > 0
+            ? `${pctTarjeta.toFixed(1)}% de la venta · del corte`
+            : 'Capturado en corte (Pago tarjeta −)'}
+          accent="#1e5bb8"
+          delta={cambioTarjeta}
+        />
+        <Kpi
           title="Gastos"
           value={fmt(totalGastos)}
           sub={`${gastos.length} movimientos reales`}
@@ -489,6 +506,13 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
             Solo Diurno (07–19) y Nocturno (19–07) · turnos 12×12
           </p>
           <PastelChart items={pastelTurno} empty="Sin ventas para repartir por turno." />
+        </div>
+        <div className="card">
+          <h4 style={{ margin: '0 0 0.75rem', color: '#1e5bb8' }}>Pago efectivo vs tarjeta</h4>
+          <p className="muted" style={{ marginTop: 0, fontSize: '0.78rem' }}>
+            Tarjeta = campo «Pago tarjeta (−)» del corte. Efectivo estimado = venta − tarjeta.
+          </p>
+          <PastelChart items={pastelPagos} empty="Sin pagos de tarjeta ni ventas en el periodo." />
         </div>
       </div>
 
