@@ -791,7 +791,12 @@ export default function RhAba3b({ supabase, user, sucursal }) {
                     if (!confirm('¿Generar o regenerar el PIN móvil de este CT?\n\nSi regeneras, se libera el celular anterior.')) return;
                     const res = await asegurarPinMovilCt(supabase, empleado, { forzar: true });
                     if (!res.ok) return alert(res.error);
-                    alert(`PIN móvil: ${res.pin}\n\nEntrégaselo al CT. Solo funciona en su celular.`);
+                    alert(
+                      `PIN móvil: ${res.pin}\n\n`
+                      + 'Entrégaselo al CT. Solo funciona en su celular.\n\n'
+                      + 'Indícale que abra el enlace del POS en el celular y pulse «Instalar app» '
+                      + 'para dejarla en la pantalla de inicio; luego entra con este PIN.',
+                    );
                     const act = await obtenerEmpleadoRh(supabase, empleado.id);
                     if (act.ok && act.empleado) setEmpleado(act.empleado);
                   }}

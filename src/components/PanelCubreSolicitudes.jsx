@@ -30,6 +30,7 @@ import {
 import { fechasSemanaPlan, etiquetaFechaCorta } from '../lib/planHorario.js';
 import { resumenAceptacionCt } from '../lib/cubreAceptacionCt.js';
 import { IndicadorAceptacionCt, ModalDesgloseAceptacion } from './IndicadorAceptacionCt.jsx';
+import BotonInstalarApp from './BotonInstalarApp.jsx';
 
 function fmtFecha(ymd) {
   if (!ymd) return '—';
@@ -221,6 +222,10 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
   if (esCtMovil) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        <BotonInstalarApp
+          titulo="Instala la app CT en tu celular"
+          texto="Pon POS 3B en tu pantalla de inicio. Entra con tu PIN móvil y recibe las solicitudes sin abrir el navegador."
+        />
         <div className="card" style={{ borderTop: '4px solid #2e7d32' }}>
           <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
             Mis coberturas · {user?.nombre || 'CT'}
