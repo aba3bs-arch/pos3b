@@ -7,8 +7,10 @@ import { TUTORIAL_CONFIG_OPERACION } from './tutorialConfigOperacion.js';
 import { TUTORIAL_SOLICITAR_CT } from './tutorialSolicitarCt.js';
 import { TUTORIAL_PORTAL_CT } from './tutorialPortalCt.js';
 import { TUTORIAL_ADMIN_CT } from './tutorialAdminCt.js';
+import { TUTORIAL_RELOJ_EMPLEADO } from './tutorialRelojEmpleado.js';
 
 export const TUTORIALES = [
+  TUTORIAL_RELOJ_EMPLEADO,
   TUTORIAL_PORTAL_CT,
   TUTORIAL_SOLICITAR_CT,
   TUTORIAL_ADMIN_CT,

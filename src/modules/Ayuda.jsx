@@ -12,6 +12,25 @@ import { puedeGestionarUsuarios } from '../lib/roles.js';
 
 const SECCIONES = [
   {
+    id: 'reloj-empleados',
+    title: 'Reloj checador de empleados',
+    body: (
+      <>
+        <p style={{ margin: '0 0 0.5rem' }}>
+          Tutorial con imágenes 3D en el menú <strong>Tutorial</strong> → <em>Reloj checador de empleados</em>.
+          {' '}También: <strong>Checador → Reloj empleados → Ver tutorial 3D</strong>.
+        </p>
+        <ol style={{ margin: 0, paddingLeft: '1.2rem' }}>
+          <li>Abre <strong>Checador → Reloj empleados</strong>.</li>
+          <li>Escribe el <strong>PIN de la tienda</strong> y Continuar.</li>
+          <li>Confirma <strong>Entrada</strong> o <strong>Salida</strong>.</li>
+          <li>Fuera de horario: pide PIN de administrador.</li>
+          <li>Cubre turno: PIN de cubre + nombre y teléfono.</li>
+        </ol>
+      </>
+    ),
+  },
+  {
     id: 'cubre-turnos',
     title: 'Cubre turnos (CT): solicitar, PIN móvil y PIN temporal',
     body: (
