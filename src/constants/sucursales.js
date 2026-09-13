@@ -129,11 +129,11 @@ export const UBICACION_SUCURSALES = {
   FUSION: { nombre: 'Fusión', lat: 31.320189, lon: -110.943909 },
   '3B2': { nombre: 'Pueblo Nuevo', lat: 31.300544, lon: -110.923907 },
   '3B3': { nombre: '', lat: 31.300544, lon: -110.936193 },
-  '3B5': { nombre: '', lat: 31.289624, lon: -110.931254 },
-  '3B6': { nombre: '', lat: 31.294967, lon: -110.915074 },
-  '3B7': { nombre: '', lat: 31.309213, lon: -110.930617 },
-  '3B9': { nombre: '', lat: 31.329842, lon: -110.943361 },
-  '3B10': { nombre: '', lat: 31.301250, lon: -110.937966 },
+  '3B5': { nombre: 'Lomas Dos', lat: 31.289624, lon: -110.931254 },
+  '3B6': { nombre: 'Solidaridad', lat: 31.294967, lon: -110.915074 },
+  '3B7': { nombre: 'Del Valle', lat: 31.309213, lon: -110.930617 },
+  '3B9': { nombre: 'Buenos Aires', lat: 31.329842, lon: -110.943361 },
+  '3B10': { nombre: 'El Mezquite', lat: 31.301250, lon: -110.937966 },
 };
 
 export function ubicacionSucursal(codigo) {
