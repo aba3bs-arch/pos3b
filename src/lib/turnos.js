@@ -658,6 +658,124 @@ export function turnoActual(turnos = null, date = new Date()) {
   return list.find((t) => horaEnTurno(t, date)) || list[0] || null;
 }
 
+/**
+ * Paleta visual para historial de marcajes (entrada/salida) por turno.
+ * Facilita distinguir diurno / tarde / nocturno de un vistazo.
+ */
+export const COLORES_TURNO_HISTORIAL = {
+  diurno: {
+    clave: 'diurno',
+    etiqueta: 'Diurno',
+    fondo: 'color-mix(in srgb, #f9a825 14%, var(--surface, #fff))',
+    borde: '#f9a825',
+    texto: '#e65100',
+    badgeFondo: '#fff3e0',
+    badgeTexto: '#e65100',
+  },
+  manana: {
+    clave: 'manana',
+    etiqueta: 'Mañana',
+    fondo: 'color-mix(in srgb, #29b6f6 12%, var(--surface, #fff))',
+    borde: '#0288d1',
+    texto: '#01579b',
+    badgeFondo: '#e1f5fe',
+    badgeTexto: '#0277bd',
+  },
+  tarde: {
+    clave: 'tarde',
+    etiqueta: 'Tarde',
+    fondo: 'color-mix(in srgb, #26a69a 12%, var(--surface, #fff))',
+    borde: '#00897b',
+    texto: '#00695c',
+    badgeFondo: '#e0f2f1',
+    badgeTexto: '#00695c',
+  },
+  nocturno: {
+    clave: 'nocturno',
+    etiqueta: 'Nocturno',
+    fondo: 'color-mix(in srgb, #5c6bc0 14%, var(--surface, #fff))',
+    borde: '#3949ab',
+    texto: '#283593',
+    badgeFondo: '#e8eaf6',
+    badgeTexto: '#303f9f',
+  },
+  noche: {
+    clave: 'noche',
+    etiqueta: 'Noche',
+    fondo: 'color-mix(in srgb, #7e57c2 14%, var(--surface, #fff))',
+    borde: '#5e35b1',
+    texto: '#4527a0',
+    badgeFondo: '#ede7f6',
+    badgeTexto: '#4527a0',
+  },
+  otro: {
+    clave: 'otro',
+    etiqueta: 'Turno',
+    fondo: 'color-mix(in srgb, #90a4ae 10%, var(--surface, #fff))',
+    borde: '#78909c',
+    texto: '#455a64',
+    badgeFondo: '#eceff1',
+    badgeTexto: '#455a64',
+  },
+};
+
+function claveTurnoHistorial(turno) {
+  const id = String(turno?.id || '').toLowerCase();
+  const nom = String(turno?.nombre || '').toLowerCase();
+  if (id === 'diurno' || nom.includes('diurno')) return 'diurno';
+  if (id === 'nocturno' || nom.includes('nocturn')) return 'nocturno';
+  if (id === 'manana' || id === 'mañana' || nom.includes('mañana') || nom.includes('manana')) return 'manana';
+  if (id === 'tarde' || nom.includes('tarde')) return 'tarde';
+  if (id === 'noche' || nom.includes('noche')) return 'noche';
+  if (turno && puntoMedioEsDiurno(turno)) return 'diurno';
+  if (turno) return 'nocturno';
+  return 'otro';
+}
+
+/**
+ * Clasifica un marcaje (por fecha/hora) en el turno vigente de la sucursal
+ * y devuelve colores + etiqueta para pintar el historial.
+ */
+export function estiloTurnoMarcaje(fechaIsoODate, sucursal = null) {
+  const when = fechaIsoODate instanceof Date ? fechaIsoODate : new Date(fechaIsoODate);
+  if (!when || Number.isNaN(when.getTime())) {
+    return { turno: null, ...COLORES_TURNO_HISTORIAL.otro, etiqueta: '—' };
+  }
+  const list = leerTurnos(sucursal);
+  const turno = turnoActual(list, when);
+  return estiloPorTurno(turno);
+}
+
+/** Colores/etiqueta a partir del objeto turno (sin fecha). */
+export function estiloPorTurno(turno) {
+  const clave = claveTurnoHistorial(turno);
+  const base = COLORES_TURNO_HISTORIAL[clave] || COLORES_TURNO_HISTORIAL.otro;
+  return {
+    turno: turno || null,
+    ...base,
+    etiqueta: turno?.nombre || base.etiqueta,
+  };
+}
+
+/** Estilos de badge Entrada (verde) vs Salida (dorado). */
+export function estiloTipoMarcaje(tipo) {
+  const t = String(tipo || '').toUpperCase();
+  if (t === 'ENTRADA') {
+    return {
+      fondo: 'color-mix(in srgb, #2e7d32 16%, var(--surface, #fff))',
+      texto: '#1b5e20',
+      borde: '#2e7d32',
+      label: 'Entrada',
+    };
+  }
+  return {
+    fondo: 'color-mix(in srgb, var(--brand-gold, #e19929) 18%, var(--surface, #fff))',
+    texto: 'var(--brand-gold-dark, #c47f15)',
+    borde: 'var(--brand-gold, #e19929)',
+    label: t === 'SALIDA' ? 'Salida' : (tipo || '—'),
+  };
+}
+
 function minutosAhoraNogales(date = new Date()) {
   try {
     const parts = new Intl.DateTimeFormat('en-US', {

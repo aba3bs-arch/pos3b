@@ -79,7 +79,7 @@ export const TUTORIAL_RELOJ_EMPLEADO = {
       titulo: '6. Historial de hoy',
       cuerpo: [
         'Abajo del reloj ves los marcajes de **hoy** en esta tienda.',
-        'Cada fila muestra empleado, tipo (Entrada/Salida) y hora.',
+        'Cada fila muestra empleado, tipo (Entrada/Salida), hora y **turno** (colores distintos por turno).',
         'Admin puede editar o borrar un registro si hubo error.',
       ],
       imagen: `${IMG}/06-historial.png`,

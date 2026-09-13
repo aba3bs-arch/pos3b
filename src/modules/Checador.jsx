@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { etiquetaTienda, listarSucursalesParaUI } from '../constants/sucursales.js';
 import { buscarUsuarioPorPinYSucursal, esPersonalCentralAdmin, mensajePinSucursalIncorrecta } from '../lib/usuariosAuth.js';
 import { evaluarVinculoDispositivo } from '../lib/dispositivoUsuario.js';
-import { usuarioAutorizadoChecador } from '../lib/turnos.js';
+import { usuarioAutorizadoChecador, estiloTurnoMarcaje, estiloTipoMarcaje, estiloPorTurno, leerTurnos } from '../lib/turnos.js';
 import {
   actualizarMarcajeAsistencia,
   crearMarcajeAsistencia,
@@ -38,6 +38,139 @@ function inicioDiaLocal() {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d;
+}
+
+function LeyendaTurnosHistorial({ sucursal }) {
+  const items = useMemo(() => {
+    const turnos = leerTurnos(sucursal);
+    const seen = new Set();
+    const out = [];
+    for (const t of turnos) {
+      const est = estiloPorTurno(t);
+      const key = est.clave || t.id;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        key,
+        label: t.nombre || est.etiqueta,
+        horario: `${t.hora_inicio}–${t.hora_fin}`,
+        borde: est.borde,
+        fondo: est.fondo,
+        texto: est.texto,
+      });
+    }
+    return out;
+  }, [sucursal]);
+
+  if (!items.length) return null;
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '0.45rem',
+        margin: '0 0 0.65rem',
+        alignItems: 'center',
+      }}
+      aria-label="Leyenda de colores por turno"
+    >
+      <span className="muted" style={{ fontSize: '0.78rem', marginRight: 4 }}>Turnos:</span>
+      {items.map((it) => (
+        <span
+          key={it.key}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            fontSize: '0.75rem',
+            fontWeight: 650,
+            padding: '0.2rem 0.55rem',
+            borderRadius: 999,
+            background: it.fondo,
+            color: it.texto,
+            border: `1px solid ${it.borde}`,
+          }}
+          title={it.horario}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: it.borde,
+              flexShrink: 0,
+            }}
+          />
+          {it.label}
+          <span className="muted" style={{ fontWeight: 500, fontSize: '0.7rem' }}>{it.horario}</span>
+        </span>
+      ))}
+      <span
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: '0.75rem',
+          marginLeft: 4,
+        }}
+      >
+        <span style={{ ...estiloBadgeTipo('ENTRADA'), padding: '0.15rem 0.45rem', borderRadius: 6, fontWeight: 700 }}>Entrada</span>
+        <span style={{ ...estiloBadgeTipo('SALIDA'), padding: '0.15rem 0.45rem', borderRadius: 6, fontWeight: 700 }}>Salida</span>
+      </span>
+    </div>
+  );
+}
+
+function estiloBadgeTipo(tipo) {
+  const e = estiloTipoMarcaje(tipo);
+  return {
+    background: e.fondo,
+    color: e.texto,
+    border: `1px solid ${e.borde}`,
+  };
+}
+
+/** Estilos de fila + badge de turno para un marcaje. */
+function estiloFilaMarcaje(registro, sucursal) {
+  const when = registro?.created_at ? new Date(registro.created_at) : new Date();
+  return estiloTurnoMarcaje(when, sucursal);
+}
+
+function BadgeTipoMarcaje({ tipo }) {
+  const tipoEst = estiloTipoMarcaje(tipo);
+  return (
+    <span
+      className="badge"
+      style={{
+        background: tipoEst.fondo,
+        color: tipoEst.texto,
+        border: `1px solid ${tipoEst.borde}`,
+        fontWeight: 700,
+      }}
+    >
+      {tipoEst.label}
+    </span>
+  );
+}
+
+function BadgeTurnoMarcaje({ estilo }) {
+  return (
+    <span
+      style={{
+        display: 'inline-block',
+        fontSize: '0.72rem',
+        fontWeight: 700,
+        padding: '0.12rem 0.45rem',
+        borderRadius: 999,
+        background: estilo.badgeFondo,
+        color: estilo.badgeTexto,
+        border: `1px solid ${estilo.borde}`,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {estilo.etiqueta}
+    </span>
+  );
 }
 
 function rangoSemana(offset = 0) {
@@ -850,11 +983,13 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
           )}
 
           <h4 style={{ margin: '1.25rem 0 0.5rem', color: 'var(--brand-blue-dark)' }}>Marcajes de hoy</h4>
+          <LeyendaTurnosHistorial sucursal={sucursal} />
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
                   <th>Hora</th>
+                  <th>Turno</th>
                   <th>Empleado</th>
                   <th>Tipo</th>
                 </tr>
@@ -862,20 +997,29 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
               <tbody>
                 {historialHoy.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="muted">
+                    <td colSpan={4} className="muted">
                       Sin registros hoy.
                     </td>
                   </tr>
                 ) : (
-                  historialHoy.map((h) => (
-                    <tr key={h.id}>
-                      <td>{h.created_at ? new Date(h.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}</td>
-                      <td>{h.nombre}</td>
-                      <td>
-                        <span className="badge">{h.tipo === 'ENTRADA' ? 'Entrada' : 'Salida'}</span>
-                      </td>
-                    </tr>
-                  ))
+                  historialHoy.map((h) => {
+                    const est = estiloFilaMarcaje(h, sucursal);
+                    return (
+                      <tr
+                        key={h.id}
+                        style={{
+                          background: est.fondo,
+                          boxShadow: `inset 4px 0 0 ${est.borde}`,
+                        }}
+                        title={`Turno: ${est.etiqueta}`}
+                      >
+                        <td>{h.created_at ? new Date(h.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}</td>
+                        <td><BadgeTurnoMarcaje estilo={est} /></td>
+                        <td>{h.nombre}</td>
+                        <td><BadgeTipoMarcaje tipo={h.tipo} /></td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -1035,12 +1179,14 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
           <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>
             {historialFull.length} registro(s) · {etiquetaTienda(esAdmin ? filtroTiendaHist : sucursal)}
           </p>
+          <LeyendaTurnosHistorial sucursal={esAdmin ? (filtroTiendaHist || sucursal) : sucursal} />
           <div className="table-wrap">
             <table className="data">
               <thead>
                 <tr>
                   <th>Fecha</th>
                   <th>Hora</th>
+                  <th>Turno</th>
                   <th>Empleado</th>
                   <th>Tipo</th>
                   {esAdmin && <th>Admin</th>}
@@ -1049,28 +1195,38 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
               <tbody>
                 {historialFull.length === 0 ? (
                   <tr>
-                    <td colSpan={esAdmin ? 5 : 4} className="muted">
+                    <td colSpan={esAdmin ? 6 : 5} className="muted">
                       Sin registros en el periodo.
                     </td>
                   </tr>
                 ) : (
-                  historialFull.map((h) => (
-                    <tr key={h.id}>
-                      <td style={{ fontSize: '0.85rem' }}>{h.created_at ? new Date(h.created_at).toLocaleDateString('es-MX') : '—'}</td>
-                      <td>{h.created_at ? new Date(h.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                      <td>{h.nombre}</td>
-                      <td>
-                        <span className="badge">{h.tipo === 'ENTRADA' ? 'Entrada' : 'Salida'}</span>
-                      </td>
-                      {esAdmin && (
-                        <td>
-                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => abrirAjuste(h)}>
-                            Ajustar
-                          </button>
-                        </td>
-                      )}
-                    </tr>
-                  ))
+                  historialFull.map((h) => {
+                    const tiendaFila = h.sucursal_id || (esAdmin ? filtroTiendaHist : sucursal) || sucursal;
+                    const est = estiloFilaMarcaje(h, tiendaFila);
+                    return (
+                      <tr
+                        key={h.id}
+                        style={{
+                          background: est.fondo,
+                          boxShadow: `inset 4px 0 0 ${est.borde}`,
+                        }}
+                        title={`Turno: ${est.etiqueta}`}
+                      >
+                        <td style={{ fontSize: '0.85rem' }}>{h.created_at ? new Date(h.created_at).toLocaleDateString('es-MX') : '—'}</td>
+                        <td>{h.created_at ? new Date(h.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                        <td><BadgeTurnoMarcaje estilo={est} /></td>
+                        <td>{h.nombre}</td>
+                        <td><BadgeTipoMarcaje tipo={h.tipo} /></td>
+                        {esAdmin && (
+                          <td>
+                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => abrirAjuste(h)}>
+                              Ajustar
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
