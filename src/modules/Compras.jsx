@@ -33,6 +33,7 @@ import {
 async function aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, user, folio }) {
   const errores = [];
   const avisos = [];
+  const productos = [];
   let aplicados = 0;
   let pendientesNube = 0;
   const folioCompra =
@@ -59,15 +60,17 @@ async function aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, 
     if (!r.ok) {
       errores.push(`${l.nombre || l.id}: ${r.error}`);
       if (r.faltaRpc) {
-        return { aplicados, errores, avisos, pendientesNube, folio: folioCompra, faltaRpc: true, error: r.error };
+        return { aplicados, errores, avisos, pendientesNube, productos, folio: folioCompra, faltaRpc: true, error: r.error };
       }
       continue;
     }
     aplicados += 1;
     if (r.pendienteNube) pendientesNube += 1;
     if (r.aviso) avisos.push(r.aviso);
+    if (r.producto) productos.push(r.producto);
+    else if (r.patch && l.id) productos.push({ id: l.id, ...r.patch });
   }
-  return { aplicados, errores, avisos, pendientesNube, folio: folioCompra, faltaRpc: false };
+  return { aplicados, errores, avisos, pendientesNube, productos, folio: folioCompra, faltaRpc: false };
 }
 
 function totalPedido(lines) {
@@ -87,7 +90,7 @@ function alertSqlCompras(error) {
   return false;
 }
 
-export default function Compras({ supabase, sucursal, inventario, cargarDatos, onNavigate, user }) {
+export default function Compras({ supabase, sucursal, inventario, cargarDatos, fusionarProducto, onNavigate, user }) {
   const [pestana, setPestana] = useState('herramienta');
   const [proveedores, setProveedores] = useState([]);
   const [historial, setHistorial] = useState([]);
@@ -568,6 +571,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     setModoRecepcion(false);
     setModoEntregaDirecta(false);
     setLineas([]);
+    for (const p of inv.productos || []) fusionarProducto?.(p);
     cargarDatos();
     loadProveedoresYHistorial();
     loadPedidosPendientes();
@@ -658,6 +662,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, o
     setModoEntregaDirecta(false);
     setLineas([]);
     setNotasPedido('');
+    for (const p of invPreview.productos || []) fusionarProducto?.(p);
     cargarDatos();
     loadProveedoresYHistorial();
     loadPedidosPendientes();
