@@ -1055,7 +1055,7 @@ function App() {
   const modulosNav = useMemo(() => {
     if (!user) return [];
     // CT con PIN móvil: solo Checador (solicitudes / notificaciones CT).
-    if (user.esCtMovil) return ['Checador'];
+    if (user.esCtMovil) return ['Checador', 'Tutorial'];
     const all = modulosParaSidebar(user.rol, user.id);
     if (modoOffline) return all.filter((m) => moduloPermitidoOffline(m));
     return all;
@@ -1615,7 +1615,12 @@ function App() {
               cargarDatos={cargarDatos}
             />
           )}
-          {vista === 'Tutorial' && <Tutorial />}
+          {vista === 'Tutorial' && (
+            <Tutorial
+              tutorialIdInicial={user?.esCtMovil ? 'portal-ct' : null}
+              soloIds={user?.esCtMovil ? ['portal-ct'] : null}
+            />
+          )}
           {vista === 'Ayuda' && <Ayuda user={user} />}
         </div>
         {user ? <ReleaseAvisoOverlay user={user} /> : null}

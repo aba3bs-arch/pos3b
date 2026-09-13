@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="460" viewBox="0 0 960 460" role="img">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef4fb"/>
+      <stop offset="100%" stop-color="#f7f9fc"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0d47a1"/>
+      <stop offset="100%" stop-color="#1565c0"/>
+    </linearGradient>
+    <filter id="shadow" x="-5%" y="-5%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0d47a1" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+
+  <text x="48" y="52" font-family="Segoe UI,Arial,sans-serif" font-size="28" font-weight="700" fill="#0d47a1">4 · Al aceptar → PIN temporal</text>
+  <text x="48" y="86" font-family="Segoe UI,Arial,sans-serif" font-size="16" fill="#546e7a">Parpadea en tu celular · úsalo solo en la caja de esa tienda</text>
+  <g filter="url(#shadow)">
+    <rect x="80" y="130" width="360" height="260" rx="18" fill="#fff"/>
+    <rect x="100" y="155" width="320" height="100" rx="12" fill="#e8f5e9" stroke="#2e7d32" stroke-dasharray="6 4"/>
+    <text x="260" y="185" text-anchor="middle" font-size="13" font-weight="700" fill="#1b5e20" font-family="Segoe UI,Arial,sans-serif">NIP temporal para caja</text>
+    <text x="260" y="230" text-anchor="middle" font-size="36" font-weight="800" fill="#2e7d32" font-family="ui-monospace,monospace">4821</text>
+    <text x="120" y="290" font-size="14" fill="#455a64" font-family="Segoe UI,Arial,sans-serif">3B2 Pueblo Nuevo · turno día</text>
+    <text x="120" y="318" font-size="13" fill="#78909c" font-family="Segoe UI,Arial,sans-serif">Visible hasta cierre + gracia</text>
+    <rect x="120" y="340" width="100" height="28" rx="6" fill="#fff" stroke="#2e7d32"/>
+    <text x="170" y="359" text-anchor="middle" font-size="12" font-weight="700" fill="#2e7d32" font-family="Segoe UI,Arial,sans-serif">Copiar</text>
+  </g>
+  <g font-family="Segoe UI,Arial,sans-serif">
+    <rect x="500" y="150" width="400" height="220" rx="16" fill="#fff" filter="url(#shadow)"/>
+    <text x="530" y="190" font-size="16" font-weight="700" fill="#0d47a1">Recuerda los 3 PIN</text>
+    <text x="530" y="230" font-size="14" fill="#37474f">1. Móvil → solo tu celular</text>
+    <text x="530" y="260" font-size="14" fill="#37474f">2. Temporal → caja ese día</text>
+    <text x="530" y="290" font-size="14" fill="#37474f">3. Tienda → genérico Configuración</text>
+    <text x="530" y="335" font-size="14" font-weight="700" fill="#c62828">Nunca uses el móvil en la caja</text>
+  </g>
+
+</svg>
