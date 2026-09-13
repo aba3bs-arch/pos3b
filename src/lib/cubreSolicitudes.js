@@ -6,9 +6,10 @@
  * - Tienda solicita CT para un descanso → CT acepta → PIN temporal.
  * - Si acepta y no cumple → hold 7 días → liberación automática.
  */
-import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, urlGoogleMapsSucursal, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { crearNotificacion } from './contabilidadNotificaciones.js';
 import { generarPinCubreTurnoAleatorio, normalizarPinComparacion } from './cubreTurno.js';
+
 
 export const AVISO_FALTA_CUBRE_SOLICITUDES =
   'Falta la tabla de coberturas CT. Ejecuta supabase/fix_cubre_solicitudes.sql en Supabase.';
@@ -542,6 +543,7 @@ export async function solicitarCt(supabase, payload = {}, opts = {}) {
     return { ok: false, error: error.message };
   }
 
+  const mapsSolicitud = urlGoogleMapsSucursal(sucursal_id);
   await crearNotificacion(supabase, {
     sucursal_id,
     tipo: 'ct_solicitud',
@@ -553,6 +555,7 @@ export async function solicitarCt(supabase, payload = {}, opts = {}) {
       + (payload.turno_etiqueta ? ` (${payload.turno_etiqueta})` : '')
       + ` en ${etiquetaTienda(sucursal_id)}. `
       + `Solicitó: ${row.solicitado_por_nombre || 'caja'}.`
+      + (mapsSolicitud ? ` Maps: ${mapsSolicitud}` : '')
     ),
   });
 

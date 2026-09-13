@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, urlGoogleMapsSucursal } from '../constants/sucursales.js';
 import { normalizarRol } from '../lib/roles.js';
 import {
   AVISO_FALTA_CUBRE_SOLICITUDES,
@@ -31,6 +31,33 @@ import { fechasSemanaPlan, etiquetaFechaCorta } from '../lib/planHorario.js';
 import { resumenAceptacionCt } from '../lib/cubreAceptacionCt.js';
 import { IndicadorAceptacionCt, ModalDesgloseAceptacion } from './IndicadorAceptacionCt.jsx';
 import BotonInstalarApp from './BotonInstalarApp.jsx';
+
+
+/** Tienda con nombre de colonia + enlace Maps (si hay coords). */
+function CeldaTiendaMaps({ codigo, estilo }) {
+  const label = etiquetaTienda(codigo);
+  const maps = urlGoogleMapsSucursal(codigo);
+  return (
+    <span style={estilo}>
+      {label}
+      {maps ? (
+        <>
+          {' · '}
+          <a
+            href={maps}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`Abrir ${label} en Google Maps`}
+            onClick={(e) => e.stopPropagation()}
+            style={{ fontWeight: 600 }}
+          >
+            Maps
+          </a>
+        </>
+      ) : null}
+    </span>
+  );
+}
 
 function fmtFecha(ymd) {
   if (!ymd) return '—';
@@ -278,7 +305,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                     Copiar
                   </button>
                   <span className="muted" style={{ fontSize: '0.8rem' }}>
-                    {etiquetaTienda(s.sucursal_id)} · {fmtFecha(s.fecha)}
+                    <CeldaTiendaMaps codigo={s.sucursal_id} /> · {fmtFecha(s.fecha)}
                     {s.turno_etiqueta ? ` · ${s.turno_etiqueta}` : ''}
                     {' · hasta cierre + '}{GRACIA_PIN_TEMPORAL_CT_MIN} min
                   </span>
@@ -341,7 +368,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                             <div className="muted" style={{ fontSize: '0.75rem' }}>{s.turno_etiqueta}</div>
                           ) : null}
                         </td>
-                        <td>{etiquetaTienda(s.sucursal_id)}</td>
+                        <td><CeldaTiendaMaps codigo={s.sucursal_id} /></td>
                         <td>{ESTADOS_SOLICITUD_CT[s.estado] || s.estado}</td>
                         <td>
                           <PinTemporalParpadeante solicitud={s} />
@@ -368,12 +395,14 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                                     )));
                                   }
                                   const nip = res.pin || res.solicitud?.pin_temporal || '';
+                                  const mapsUrl = urlGoogleMapsSucursal(s.sucursal_id);
                                   alert(
                                     `✅ Cobertura aceptada\n\n`
                                     + `NIP TEMPORAL PARA CAJA: ${nip}\n\n`
                                     + `Tienda: ${etiquetaTienda(s.sucursal_id)}\n`
-                                    + `Fecha: ${s.fecha}\n\n`
-                                    + 'Este NIP queda visible arriba en tu sesión hasta el cierre del turno.\n'
+                                    + `Fecha: ${s.fecha}\n`
+                                    + (mapsUrl ? `Maps: ${mapsUrl}\n` : '')
+                                    + '\nEste NIP queda visible arriba en tu sesión hasta el cierre del turno.\n'
                                     + 'Úsalo en el login de la caja de esa tienda.',
                                   );
                                   await cargar();
@@ -536,7 +565,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
       {(esCajero || esAdmin) && (
         <div className="card">
           <h4 style={{ margin: '0 0 0.5rem' }}>
-            Solicitar CT · {etiquetaTienda(sucursal)}
+            Solicitar CT · <CeldaTiendaMaps codigo={sucursal} />
           </h4>
           <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.84rem' }}>
             El cajero elige el CT disponible ese día. Si ya cubre otro día, también aparece.
@@ -644,7 +673,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                 solicitudes.map((s) => (
                   <tr key={s.id}>
                     <td>{fmtFecha(s.fecha)}</td>
-                    <td>{etiquetaTienda(s.sucursal_id)}</td>
+                    <td><CeldaTiendaMaps codigo={s.sucursal_id} /></td>
                     <td>
                       {s.ct_nombre}
                       {s.ct_telefono ? <div className="muted" style={{ fontSize: '0.75rem' }}>{s.ct_telefono}</div> : null}
@@ -806,7 +835,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
               Evaluar CT · {evalModal.solicitud.ct_nombre}
             </h3>
             <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.84rem' }}>
-              {etiquetaTienda(evalModal.solicitud.sucursal_id)} · {fmtFecha(evalModal.solicitud.fecha)}.
+              <CeldaTiendaMaps codigo={evalModal.solicitud.sucursal_id} /> · {fmtFecha(evalModal.solicitud.fecha)}.
               Marca lo que falló (si no hubo problemas, deja todo desmarcado y califica).
             </p>
 

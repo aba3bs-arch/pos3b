@@ -124,17 +124,62 @@ export function codigoTiendaValido(codigo) {
   return listarSucursales().includes(c);
 }
 
+/** Ubicación coloquial + coords (Nogales, Sonora) para CT / Google Maps. */
+export const UBICACION_SUCURSALES = {
+  FUSION: { nombre: 'Fusión', lat: 31.320189, lon: -110.943909 },
+  '3B2': { nombre: 'Pueblo Nuevo', lat: 31.300544, lon: -110.923907 },
+  '3B3': { nombre: '', lat: 31.300544, lon: -110.936193 },
+  '3B5': { nombre: '', lat: 31.289624, lon: -110.931254 },
+  '3B6': { nombre: '', lat: 31.294967, lon: -110.915074 },
+  '3B7': { nombre: '', lat: 31.309213, lon: -110.930617 },
+  '3B9': { nombre: '', lat: 31.329842, lon: -110.943361 },
+  '3B10': { nombre: '', lat: 31.301250, lon: -110.937966 },
+};
+
+export function ubicacionSucursal(codigo) {
+  const c = normalizarCodigoTienda(codigo);
+  if (!c) return null;
+  return UBICACION_SUCURSALES[c] || null;
+}
+
+/** Nombre de colonia/zona (p. ej. "Pueblo Nuevo"); vacío si no está definido. */
+export function nombreUbicacionSucursal(codigo) {
+  const u = ubicacionSucursal(codigo);
+  return String(u?.nombre || '').trim();
+}
+
+/**
+ * Etiqueta de tienda. Tiendas con colonia conocida: "3B2 Pueblo Nuevo".
+ * MAIN / CEDIS conservan su etiqueta administrativa.
+ */
 export function etiquetaTienda(codigo) {
   const s = normalizarCodigoTienda(codigo);
   if (esCentralAdmin(s)) return 'Central de administración (MAIN)';
   if (esAlmacenCentral(s)) return 'CEDIS · almacén central';
-  if (s === 'FUSION') return s;
+  if (s === 'FUSION') {
+    return nombreUbicacionSucursal(s) || 'Fusión';
+  }
   if (/^CE-/i.test(s)) {
     const slug = s.slice(3);
     return slug ? `Socio 3B · ${slug}` : 'Socio 3B';
   }
-  if (/^3B\d+$/i.test(s)) return `Sucursal ${s}`;
+  if (/^3B\d+$/i.test(s)) {
+    const nombre = nombreUbicacionSucursal(s);
+    return nombre ? `${s} ${nombre}` : s;
+  }
   return s || String(codigo || '');
+}
+
+/** Alias: código + colonia (mismo resultado que etiquetaTienda en tiendas de venta). */
+export function etiquetaTiendaUbicacion(codigo) {
+  return etiquetaTienda(codigo);
+}
+
+/** URL Google Maps con pin en lat/lon. null si no hay coords. */
+export function urlGoogleMapsSucursal(codigo) {
+  const u = ubicacionSucursal(codigo);
+  if (!u || !Number.isFinite(Number(u.lat)) || !Number.isFinite(Number(u.lon))) return null;
+  return `https://www.google.com/maps?q=${Number(u.lat)},${Number(u.lon)}`;
 }
 
 export function agregarSucursalExtra(codigo) {
