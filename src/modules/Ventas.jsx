@@ -77,6 +77,7 @@ export default function Ventas({
   tipoCambio,
   inventario,
   cargarDatos,
+  fusionarProducto,
   busqueda,
   setBusqueda,
   modoOffline = false,
@@ -400,6 +401,8 @@ export default function Ventas({
         erroresStock.push(`${c.nombre || c.id}: ${r.error}`);
         continue;
       }
+      if (r.producto) fusionarProducto?.(r.producto);
+      else if (r.patch) fusionarProducto?.({ id: c.id, ...r.patch });
       guardarMovimientoLocal({
         tipo: 'retiro',
         modo: 'venta',

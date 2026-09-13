@@ -2,6 +2,7 @@ import {
   normalizarCodigoTienda,
   etiquetaTienda,
   listarSucursales,
+  SUCURSALES_BASE,
   ALMACEN_CENTRAL,
   CENTRAL_ADMIN,
   esAlmacenCentral,
@@ -25,10 +26,35 @@ export function etiquetaCedisEmpresa() {
   return 'CEDIS · almacén central';
 }
 
+/**
+ * Clave canónica de stock_sucursales.
+ * Repara tokens de folio usados por error como clave (p. ej. "10" → "3B10").
+ * Eso hacía que favoritos en 3B10 mostraran 0 aunque el ingreso hubiera escrito stock.
+ */
+export function claveStockSucursalCanon(clave) {
+  const raw = String(clave ?? '').trim();
+  if (!raw) return '';
+  const suc = normalizarCodigoTienda(raw);
+  if (suc && (SUCURSALES_BASE.includes(suc) || listarSucursales().includes(suc))) return suc;
+  // Solo dígitos: token de folio de tienda 3Bn (2, 5, 6, 7, 9, 10, …).
+  if (/^\d{1,2}$/.test(raw)) {
+    const cand = `3B${raw}`;
+    if (SUCURSALES_BASE.includes(cand) || listarSucursales().includes(cand)) return cand;
+  }
+  return suc || raw.toUpperCase();
+}
+
+function fusionarEntradaStock(a, b) {
+  return {
+    cedis: Math.floor(Number(a?.cedis) || 0) + Math.floor(Number(b?.cedis) || 0),
+    piso: Math.floor(Number(a?.piso) || 0) + Math.floor(Number(b?.piso) || 0),
+  };
+}
+
 /** El inventario CEDIS vive en la sucursal CEDIS; el piso de venta en cada tienda. */
 export function sucursalParaUbicacion(sucursal, ubicacion) {
   if (ubicacion === 'cedis') return ALMACEN_CENTRAL;
-  return normalizarCodigoTienda(sucursal);
+  return claveStockSucursalCanon(sucursal) || normalizarCodigoTienda(sucursal);
 }
 
 /** Normaliza una entrada de sucursal (objeto, número plano o formas legacy). */
@@ -59,23 +85,39 @@ export function parseStockSucursales(producto) {
     }
   }
   if (!obj) return {};
-  const out = {};
+  const canon = {};
+  const huerfanos = {};
   for (const [k, v] of Object.entries(obj)) {
-    const suc = normalizarCodigoTienda(k) || String(k || '').trim().toUpperCase();
+    const rawKey = String(k || '').trim();
+    const suc = claveStockSucursalCanon(k);
     if (!suc) continue;
-    out[suc] = normalizarEntradaStockSucursal(v);
+    const entry = normalizarEntradaStockSucursal(v);
+    // "10" / "5" = token de folio guardado por error; no sumar si ya existe 3B10/3B5.
+    const esHuerfanoFolio = /^\d{1,2}$/.test(rawKey) && suc.startsWith('3B');
+    if (esHuerfanoFolio) {
+      huerfanos[suc] = huerfanos[suc] ? fusionarEntradaStock(huerfanos[suc], entry) : entry;
+    } else {
+      canon[suc] = canon[suc] ? fusionarEntradaStock(canon[suc], entry) : entry;
+    }
+  }
+  const out = { ...canon };
+  for (const [suc, entry] of Object.entries(huerfanos)) {
+    if (!out[suc]) {
+      out[suc] = entry;
+      continue;
+    }
+    out[suc] = {
+      cedis: Math.floor(Number(out[suc].cedis) || 0) || Math.floor(Number(entry.cedis) || 0),
+      piso: Math.floor(Number(out[suc].piso) || 0) || Math.floor(Number(entry.piso) || 0),
+    };
   }
   return out;
 }
 
 /** Consolida CEDIS de cualquier sucursal en CEDIS.cedis (migra MAIN.cedis legacy). */
 export function normalizarMapaStockCedisUnico(map) {
-  const m = {};
-  for (const [k, v] of Object.entries(map || {})) {
-    const suc = normalizarCodigoTienda(k) || String(k || '').trim().toUpperCase();
-    if (!suc) continue;
-    m[suc] = normalizarEntradaStockSucursal(v);
-  }
+  // Reusa parseStockSucursales para canonizar/limpiar tokens de folio huérfanos.
+  const m = { ...parseStockSucursales({ stock_sucursales: map || {} }) };
 
   let cedisCentral = Math.floor(Number(m[ALMACEN_CENTRAL]?.cedis) || 0);
   // Legacy: el almacén vivía en MAIN.cedis antes de separar CEDIS.
@@ -170,7 +212,7 @@ export function stockAlmacenCentral(producto, sucursalContext) {
 
 export function productoParaVistaTienda(producto, sucursal, sucursalContext) {
   const map = asegurarMapaStock(producto, sucursalContext || sucursal);
-  const suc = normalizarCodigoTienda(sucursal);
+  const suc = claveStockSucursalCanon(sucursal) || normalizarCodigoTienda(sucursal);
   const cedisEmpresa = Math.max(0, Number(map[ALMACEN_CENTRAL]?.cedis) || 0);
   // No enmascarar negativos: si la tienda quedó en -N por ventas sin existencias,
   // el badge debe mostrar -N (rojo), no un 0 falso.
@@ -186,7 +228,7 @@ export function productoParaVistaTienda(producto, sucursal, sucursalContext) {
 }
 
 export function inventarioParaSucursal(inventario, sucursal) {
-  const suc = normalizarCodigoTienda(sucursal);
+  const suc = claveStockSucursalCanon(sucursal) || normalizarCodigoTienda(sucursal);
   return (inventario || []).map((p) => productoParaVistaTienda(p, suc, suc));
 }
 
@@ -261,15 +303,19 @@ export function stockVisible(valor, verNegativos = true) {
 
 /**
  * Texto corto de existencia para listas (CEDIS muestra almacén + piso).
+ * Siempre lee desde stock_sucursales de la sucursal (no confiar en producto.stock legado),
+ * para que favoritos / thumbs se actualicen al ingresar inventario en cualquier tienda.
  * @param {{ verNegativos?: boolean }} [opts] — false oculta negativos (cajero/repartidor).
  */
 export function etiquetaStockLista(producto, sucursal, opts = {}) {
   const verNegativos = opts.verNegativos !== false;
-  const piso = stockVisible(producto?.stock, verNegativos);
-  if (esAlmacenCentral(sucursal)) {
-    const cedis = stockVisible(producto?.stock_cedis, verNegativos);
+  const suc = claveStockSucursalCanon(sucursal) || normalizarCodigoTienda(sucursal);
+  if (esAlmacenCentral(suc)) {
+    const cedis = stockVisible(stockAlmacenCentral(producto, suc), verNegativos);
+    const piso = stockVisible(stockEnUbicacionReal(producto, suc, 'piso', suc), verNegativos);
     return { primario: cedis, etiquetaPrimario: 'CEDIS', secundario: piso, etiquetaSecundario: 'Piso' };
   }
+  const piso = stockVisible(stockEnUbicacionReal(producto, suc, 'piso', suc), verNegativos);
   return { primario: piso, etiquetaPrimario: 'PZA', secundario: null, etiquetaSecundario: null };
 }
 

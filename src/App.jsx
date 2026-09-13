@@ -65,7 +65,7 @@ import {
   sucursalFijaEsCajaFisica,
 } from './constants/sucursales.js';
 import { modulosParaSidebar, puedeVerModulo, normalizarRol, puedeCambiarTiendaLibremente, submodulosContabilidadVisibles, puedeVerSeccionContabilidad, SUBMODULOS_CONTABILIDAD, VISTA_HUB_CONTABILIDAD, submodulosEstadisticasVisibles, puedeVerSeccionEstadisticas, SUBMODULOS_ESTADISTICAS, VISTA_HUB_ESTADISTICAS, puedeAbrirBandejaIncidencias, puedeVerBandejaPendientesIncidencias, esRolCliente } from './lib/roles.js';
-import { inventarioParaSucursal } from './lib/inventarioMultitienda.js';
+import { inventarioParaSucursal, asegurarMapaStock } from './lib/inventarioMultitienda.js';
 import { EVENTO_BRANDING, leerNombreNegocio } from './lib/branding.js';
 import { leerTipoCambio, guardarTipoCambio, EVENTO_TIPO_CAMBIO, EVENTO_PRIVILEGIOS } from './lib/posConfig.js';
 import { sincronizarPrivilegiosDesdeNube } from './lib/privilegiosSync.js';
@@ -347,11 +347,20 @@ function App() {
     setInventario((prev) => {
       const list = Array.isArray(prev) ? [...prev] : [];
       const i = list.findIndex((p) => String(p.id) === String(row.id));
-      if (i >= 0) list[i] = { ...list[i], ...row };
-      else list.push(row);
+      let merged = i >= 0 ? { ...list[i], ...row } : { ...row };
+      // Canoniza claves (p. ej. "10" → "3B10") para que favoritos muestren el stock ingresado.
+      if (merged.stock_sucursales != null) {
+        try {
+          merged = { ...merged, stock_sucursales: asegurarMapaStock(merged, sucursal) };
+        } catch {
+          /* ignore */
+        }
+      }
+      if (i >= 0) list[i] = merged;
+      else list.push(merged);
       return list;
     });
-  }, []);
+  }, [sucursal]);
 
   useEffect(() => {
     if (sesion) cargarDatos();
@@ -1344,6 +1353,7 @@ function App() {
               tipoCambio={tipoCambio}
               inventario={inventarioTienda}
               cargarDatos={cargarDatos}
+              fusionarProducto={fusionarProductoEnCatalogo}
               busqueda={busqueda}
               setBusqueda={setBusqueda}
               modoOffline={modoOffline}
@@ -1447,7 +1457,7 @@ function App() {
             />
           )}
           {vista === 'Compras' && (
-            <Compras supabase={supabase} sucursal={sucursal} inventario={inventarioTienda} cargarDatos={cargarDatos} onNavigate={irAModulo} user={user} />
+            <Compras supabase={supabase} sucursal={sucursal} inventario={inventarioTienda} cargarDatos={cargarDatos} fusionarProducto={fusionarProductoEnCatalogo} onNavigate={irAModulo} user={user} />
           )}
           {vista === 'Checador' && (
             <Checador
