@@ -31,6 +31,8 @@ import { registrarConsultaPrecio } from '../lib/proyeccionFaltante.js';
 import { tieneAccionPlanHorario } from '../lib/planHorarioAcciones.js';
 import PlanHorarioCalendario from '../components/PlanHorarioCalendario.jsx';
 import PanelCubreSolicitudes from '../components/PanelCubreSolicitudes.jsx';
+import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
+import { TUTORIAL_RELOJ_EMPLEADO } from '../content/tutorialRelojEmpleado.js';
 
 function inicioDiaLocal() {
   const d = new Date();
@@ -90,6 +92,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
   const [formNuevo, setFormNuevo] = useState({ usuario_id: '', nombre: '', tipo: 'ENTRADA', fecha: '', hora: '' });
   const [mostrarNuevoMarcaje, setMostrarNuevoMarcaje] = useState(false);
   const [guardandoAjuste, setGuardandoAjuste] = useState(false);
+  const [tutorialRelojAbierto, setTutorialRelojAbierto] = useState(false);
 
   const [codigo, setCodigo] = useState('');
 
@@ -631,14 +634,26 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
 
       {pestana === 'reloj' && (
         <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
-          <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Reloj checador</h3>
-          <p className="muted" style={{ marginTop: 0 }}>
-            Empleados dados de alta en <strong>Usuarios</strong> marcan con su PIN de esta tienda. El personal de{' '}
-            <strong>{etiquetaTienda('MAIN')}</strong> y roles Auditor / Técnico / Repartidor pueden marcar en cualquier caja.
-            Quien cubre turno usa el{' '}
-            <strong>PIN de cubre turno</strong> de la sucursal (nombre + teléfono). Si un fijo no coincide con su turno, puede marcar
-            cubriendo otro turno (±20 min). Tienda actual: <span className="badge">{etiquetaTienda(sucursal)}</span>
-          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.65rem' }}>
+            <div>
+              <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Reloj checador</h3>
+              <p className="muted" style={{ marginTop: 0 }}>
+                Empleados dados de alta en <strong>Usuarios</strong> marcan con su PIN de esta tienda. El personal de{' '}
+                <strong>{etiquetaTienda('MAIN')}</strong> y roles Auditor / Técnico / Repartidor pueden marcar en cualquier caja.
+                Quien cubre turno usa el{' '}
+                <strong>PIN de cubre turno</strong> de la sucursal (nombre + teléfono). Si un fijo no coincide con su turno, puede marcar
+                cubriendo otro turno (±20 min). Tienda actual: <span className="badge">{etiquetaTienda(sucursal)}</span>
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ fontSize: '0.82rem', flexShrink: 0 }}
+              onClick={() => setTutorialRelojAbierto(true)}
+            >
+              Ver tutorial 3D
+            </button>
+          </div>
           <div
             style={{
               fontSize: '2rem',
@@ -1070,6 +1085,12 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       {pestana === 'cubre' && puedePanelCt && (
         <PanelCubreSolicitudes supabase={supabase} user={user} sucursal={sucursal} />
       )}
+
+      <VisorTutorialModal
+        abierto={tutorialRelojAbierto}
+        tutorial={TUTORIAL_RELOJ_EMPLEADO}
+        onCerrar={() => setTutorialRelojAbierto(false)}
+      />
     </div>
   );
 }
