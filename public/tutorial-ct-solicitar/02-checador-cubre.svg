@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="440" viewBox="0 0 960 440" role="img">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef4fb"/>
+      <stop offset="100%" stop-color="#f7f9fc"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0d47a1"/>
+      <stop offset="100%" stop-color="#1565c0"/>
+    </linearGradient>
+    <filter id="shadow" x="-5%" y="-5%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0d47a1" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+
+  <text x="40" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="28" font-weight="700" fill="#0d47a1">2 · Checador → Cubre turnos</text>
+  <g filter="url(#shadow)">
+    <rect x="60" y="90" width="840" height="300" rx="16" fill="#fff"/>
+    <!-- tabs -->
+    <rect x="80" y="110" width="110" height="36" rx="8" fill="#eceff1"/>
+    <text x="135" y="133" text-anchor="middle" font-size="13" fill="#607d8b" font-family="Segoe UI,Arial,sans-serif">Precios</text>
+    <rect x="200" y="110" width="110" height="36" rx="8" fill="#eceff1"/>
+    <text x="255" y="133" text-anchor="middle" font-size="13" fill="#607d8b" font-family="Segoe UI,Arial,sans-serif">Reloj</text>
+    <rect x="320" y="110" width="140" height="36" rx="8" fill="url(#brand)"/>
+    <text x="390" y="133" text-anchor="middle" font-size="13" font-weight="700" fill="#fff" font-family="Segoe UI,Arial,sans-serif">Cubre turnos</text>
+    <rect x="470" y="110" width="130" height="36" rx="8" fill="#eceff1"/>
+    <text x="535" y="133" text-anchor="middle" font-size="13" fill="#607d8b" font-family="Segoe UI,Arial,sans-serif">Plan horario</text>
+    <text x="90" y="200" font-size="18" font-weight="700" fill="#0d47a1" font-family="Segoe UI,Arial,sans-serif">Cubre turnos · catálogo</text>
+    <text x="90" y="235" font-size="14" fill="#546e7a" font-family="Segoe UI,Arial,sans-serif">Semáforo verde = disponible ese día · rojo = ocupado / hold</text>
+    <rect x="90" y="270" width="220" height="70" rx="12" fill="#e8f5e9" stroke="#2e7d32"/>
+    <text x="200" y="300" text-anchor="middle" font-size="14" font-weight="700" fill="#2e7d32" font-family="Segoe UI,Arial,sans-serif">Solicitar CT</text>
+    <text x="200" y="322" text-anchor="middle" font-size="12" fill="#558b2f" font-family="Segoe UI,Arial,sans-serif">Formulario abajo →</text>
+  </g>
+
+</svg>

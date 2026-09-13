@@ -18,8 +18,10 @@ const SECCIONES = [
       <>
         <p style={{ margin: '0 0 0.5rem' }}>
           Hay tutoriales con imágenes en el menú <strong>Tutorial</strong>:
+          {' '}<em>Portal CT</em> (cubre turnos en el celular),
           {' '}<em>Cómo solicitar un Cubre turno</em> (cajeros) y
           {' '}<em>Admin: alta de CT, PIN móvil y PIN temporal</em>.
+          {' '}El CT también puede abrir el suyo con <strong>Ver tutorial del portal</strong> dentro de Checador.
         </p>
         <p style={{ margin: '0 0 0.35rem' }}><strong>Solicitar CT (caja / planta)</strong></p>
         <ol style={{ margin: '0 0 0.65rem', paddingLeft: '1.2rem' }}>

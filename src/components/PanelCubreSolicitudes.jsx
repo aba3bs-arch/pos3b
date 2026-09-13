@@ -31,6 +31,9 @@ import { fechasSemanaPlan, etiquetaFechaCorta } from '../lib/planHorario.js';
 import { resumenAceptacionCt } from '../lib/cubreAceptacionCt.js';
 import { IndicadorAceptacionCt, ModalDesgloseAceptacion } from './IndicadorAceptacionCt.jsx';
 import BotonInstalarApp from './BotonInstalarApp.jsx';
+import VisorTutorialModal from './VisorTutorialModal.jsx';
+import { TUTORIAL_PORTAL_CT } from '../content/tutorialPortalCt.js';
+import { TUTORIAL_SOLICITAR_CT } from '../content/tutorialSolicitarCt.js';
 
 
 /** Tienda con nombre de colonia + enlace Maps (si hay coords). */
@@ -108,6 +111,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
   const [aviso, setAviso] = useState('');
   const [msg, setMsg] = useState('');
   const [evalModal, setEvalModal] = useState(null); // { solicitud, form, guardando }
+  const [tutorialAbierto, setTutorialAbierto] = useState(null); // 'portal' | 'solicitar' | null
   const [form, setForm] = useState({
     ct_rh_id: '',
     fecha: new Date().toISOString().slice(0, 10),
@@ -257,6 +261,16 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
           <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
             Mis coberturas · {user?.nombre || 'CT'}
           </h3>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem', margin: '0.35rem 0 0.55rem' }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ fontSize: '0.82rem' }}
+              onClick={() => setTutorialAbierto('portal')}
+            >
+              Ver tutorial del portal
+            </button>
+          </div>
           <p className="muted" style={{ margin: 0, fontSize: '0.86rem' }}>
             Entraste con tu <strong>PIN personal móvil</strong> (solo este celular).
             Aquí aceptas o rechazas las solicitudes de las tiendas.
@@ -446,6 +460,11 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
             onClose={() => setDesgloseAceptacion(null)}
           />
         )}
+        <VisorTutorialModal
+          abierto={tutorialAbierto === 'portal'}
+          tutorial={TUTORIAL_PORTAL_CT}
+          onCerrar={() => setTutorialAbierto(null)}
+        />
       </div>
     );
   }
@@ -564,9 +583,17 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
 
       {(esCajero || esAdmin) && (
         <div className="card">
-          <h4 style={{ margin: '0 0 0.5rem' }}>
-            Solicitar CT · <CeldaTiendaMaps codigo={sucursal} />
-          </h4>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.5rem' }}>
+          <h4 style={{ margin: 0 }}>Solicitar CT · <CeldaTiendaMaps codigo={sucursal} /></h4>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ fontSize: '0.8rem' }}
+            onClick={() => setTutorialAbierto('solicitar')}
+          >
+            Ver tutorial
+          </button>
+        </div>
           <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.84rem' }}>
             El cajero elige el CT disponible ese día. Si ya cubre otro día, también aparece.
           </p>
@@ -926,6 +953,11 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
           onClose={() => setDesgloseAceptacion(null)}
         />
       )}
+      <VisorTutorialModal
+        abierto={tutorialAbierto === 'solicitar' || tutorialAbierto === 'portal'}
+        tutorial={tutorialAbierto === 'portal' ? TUTORIAL_PORTAL_CT : TUTORIAL_SOLICITAR_CT}
+        onCerrar={() => setTutorialAbierto(null)}
+      />
     </div>
   );
 }

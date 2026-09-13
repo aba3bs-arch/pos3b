@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="440" viewBox="0 0 960 440" role="img">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef4fb"/>
+      <stop offset="100%" stop-color="#f7f9fc"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0d47a1"/>
+      <stop offset="100%" stop-color="#1565c0"/>
+    </linearGradient>
+    <filter id="shadow" x="-5%" y="-5%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0d47a1" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+
+  <text x="48" y="52" font-family="Segoe UI,Arial,sans-serif" font-size="28" font-weight="700" fill="#0d47a1">2 · Instala la app en tu celular</text>
+  <text x="48" y="86" font-family="Segoe UI,Arial,sans-serif" font-size="16" fill="#546e7a">Ícono en la pantalla de inicio · más rápido para ver solicitudes</text>
+  <g filter="url(#shadow)">
+    <rect x="80" y="130" width="380" height="240" rx="18" fill="#fff"/>
+    <rect x="80" y="130" width="380" height="52" rx="18" fill="url(#brand)"/>
+    <rect x="80" y="160" width="380" height="22" fill="url(#brand)"/>
+    <text x="100" y="163" font-family="Segoe UI,Arial,sans-serif" font-size="16" font-weight="700" fill="#fff">Instala la app CT en tu celular</text>
+    <text x="100" y="210" font-family="Segoe UI,Arial,sans-serif" font-size="14" fill="#455a64">Pon POS 3B en tu pantalla de inicio.</text>
+    <text x="100" y="235" font-family="Segoe UI,Arial,sans-serif" font-size="14" fill="#455a64">Entra con tu PIN móvil y recibe solicitudes</text>
+    <text x="100" y="260" font-family="Segoe UI,Arial,sans-serif" font-size="14" fill="#455a64">sin abrir el navegador.</text>
+    <rect x="100" y="290" width="180" height="44" rx="10" fill="#2e7d32"/>
+    <text x="190" y="318" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif" font-size="15" font-weight="700" fill="#fff">Instalar app</text>
+  </g>
+  <!-- home icons -->
+  <g transform="translate(560,150)">
+    <rect x="0" y="0" width="280" height="220" rx="24" fill="#263238"/>
+    <rect x="14" y="24" width="252" height="170" rx="8" fill="#eceff1"/>
+    <g transform="translate(40,60)">
+      <rect width="64" height="64" rx="14" fill="url(#brand)"/>
+      <text x="32" y="38" text-anchor="middle" fill="#fff" font-size="18" font-weight="700" font-family="Segoe UI,Arial,sans-serif">3B</text>
+      <text x="32" y="88" text-anchor="middle" fill="#37474f" font-size="12" font-family="Segoe UI,Arial,sans-serif">POS 3B</text>
+    </g>
+    <text x="140" y="210" text-anchor="middle" fill="#90a4ae" font-size="11" font-family="Segoe UI,Arial,sans-serif">Pantalla de inicio</text>
+  </g>
+
+</svg>

@@ -384,11 +384,22 @@ function Seccion({ seccion, tutorial, onHotspot }) {
   );
 }
 
-export default function Tutorial() {
-  const [tutorialId, setTutorialId] = useState(TUTORIALES[0]?.id || '');
+export default function Tutorial({ tutorialIdInicial = null, soloIds = null } = {}) {
+  const lista = useMemo(() => {
+    if (Array.isArray(soloIds) && soloIds.length) {
+      const set = new Set(soloIds);
+      return TUTORIALES.filter((t) => set.has(t.id));
+    }
+    return TUTORIALES;
+  }, [soloIds]);
+  const [tutorialId, setTutorialId] = useState(tutorialIdInicial || lista[0]?.id || '');
+  useEffect(() => {
+    if (tutorialIdInicial) setTutorialId(tutorialIdInicial);
+  }, [tutorialIdInicial]);
+
   const tutorial = useMemo(
-    () => TUTORIALES.find((t) => t.id === tutorialId) || TUTORIALES[0],
-    [tutorialId],
+    () => lista.find((t) => t.id === tutorialId) || lista[0],
+    [lista, tutorialId],
   );
   const secciones = tutorial?.secciones || [];
   const esInteractivo = Boolean(tutorial?.interactivo);
@@ -432,9 +443,9 @@ export default function Tutorial() {
         </p>
       </header>
 
-      {TUTORIALES.length > 1 ? (
+      {lista.length > 1 ? (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-          {TUTORIALES.map((t) => (
+          {lista.map((t) => (
             <button
               key={t.id}
               type="button"
