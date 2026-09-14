@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { etiquetaTienda, urlGoogleMapsSucursal } from '../constants/sucursales.js';
+import { esCentralAdmin, etiquetaTienda, urlGoogleMapsSucursal } from '../constants/sucursales.js';
 import { normalizarRol } from '../lib/roles.js';
 import {
   AVISO_FALTA_CUBRE_SOLICITUDES,
@@ -121,6 +121,8 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
 
   const rol = normalizarRol(user?.rol);
   const esAdmin = rol === 'Administrador' || rol === 'Gerente';
+  /** MAIN ve todas; en tienda solo la sucursal anclada. */
+  const veTodasTiendas = esCentralAdmin(sucursal);
   const esCajero = rol === 'Cajero';
   const esCtMovil = Boolean(user?.esCtMovil && user?.ctRhId);
   const ctRhId = esCtMovil ? user.ctRhId : null;
@@ -149,7 +151,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
     const [cat, sol] = await Promise.all([
       listarCatalogoCt(supabase),
       listarSolicitudesCt(supabase, {
-        sucursal: esAdmin ? undefined : sucursal,
+        sucursal: veTodasTiendas ? undefined : sucursal,
         limit: 150,
       }),
     ]);
@@ -175,7 +177,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
     setAceptacionCatalogo(aceMap);
     setAceptacionCt(null);
     setCargando(false);
-  }, [supabase, sucursal, esAdmin, esCtMovil, ctRhId]);
+  }, [supabase, sucursal, veTodasTiendas, esCtMovil, ctRhId]);
 
   useEffect(() => {
     void cargar();

@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import { etiquetaTienda, listarSucursalesParaUI } from '../constants/sucursales.js';
+import { esCentralAdmin, etiquetaTienda, listarSucursalesParaUI } from '../constants/sucursales.js';
 import { buscarUsuarioPorPinYSucursal, esPersonalCentralAdmin, mensajePinSucursalIncorrecta } from '../lib/usuariosAuth.js';
 import { evaluarVinculoDispositivo } from '../lib/dispositivoUsuario.js';
 import { usuarioAutorizadoChecador, estiloTurnoMarcaje, estiloTipoMarcaje, estiloPorTurno, leerTurnos } from '../lib/turnos.js';
@@ -230,10 +230,13 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
   const [codigo, setCodigo] = useState('');
 
   const esAdmin = puedeGestionarUsuarios(user?.rol);
+  /** MAIN (central): ve todas las tiendas. En caja de tienda: solo la sucursal anclada. */
+  const veTodasTiendas = esCentralAdmin(sucursal);
   const puedePlanHorario = esAdmin || tieneAccionPlanHorario(user?.rol, user?.id);
   const puedePanelCt = Boolean(user); // cajero pide CT; admin gestiona; CT acepta desde aquí (v1)
   const esCtMovil = Boolean(user?.esCtMovil);
   const tiendas = sucursalesLista?.length ? sucursalesLista : listarSucursalesParaUI();
+  const tiendaHistorial = veTodasTiendas ? (filtroTiendaHist || sucursal) : sucursal;
 
   useEffect(() => {
     if (!pestanaInicial) return;
@@ -294,7 +297,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
   const cargarHistorialCompleto = useCallback(async () => {
     if (!supabase) return;
     setCargandoHist(true);
-    const tienda = esAdmin ? filtroTiendaHist || sucursal : sucursal;
+    const tienda = veTodasTiendas ? filtroTiendaHist || sucursal : sucursal;
     if (!tienda) {
       setHistorialFull([]);
       setCargandoHist(false);
@@ -312,7 +315,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     const { data, error } = await q;
     setHistorialFull(error ? [] : data || []);
     setCargandoHist(false);
-  }, [supabase, sucursal, esAdmin, filtroTiendaHist, rangoHistorial]);
+  }, [supabase, sucursal, veTodasTiendas, filtroTiendaHist, rangoHistorial]);
 
   useEffect(() => {
     if (pestana === 'reloj') void cargarHistorialHoy();
@@ -323,14 +326,14 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
   }, [pestana, cargarHistorialCompleto]);
 
   useEffect(() => {
-    if (!esAdmin) setFiltroTiendaHist(sucursal || '');
-  }, [sucursal, esAdmin]);
+    if (!veTodasTiendas) setFiltroTiendaHist(sucursal || '');
+  }, [sucursal, veTodasTiendas]);
 
   useEffect(() => {
     if (!esAdmin || !supabase || pestana !== 'historial') return undefined;
     let ok = true;
     (async () => {
-      const tienda = filtroTiendaHist || sucursal;
+      const tienda = veTodasTiendas ? (filtroTiendaHist || sucursal) : sucursal;
       if (!tienda) return;
       const res = await supabase
         .from('usuarios')
@@ -345,7 +348,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     return () => {
       ok = false;
     };
-  }, [esAdmin, supabase, pestana, filtroTiendaHist, sucursal]);
+  }, [esAdmin, supabase, pestana, filtroTiendaHist, sucursal, veTodasTiendas]);
 
   const producto = useMemo(() => {
     const t = codigo.trim();
@@ -592,7 +595,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
     const res = await crearMarcajeAsistencia(supabase, {
       usuario_id: emp?.id || null,
       nombre,
-      sucursal_id: filtroTiendaHist || sucursal,
+      sucursal_id: tiendaHistorial || sucursal,
       tipo: formNuevo.tipo,
       created_at,
       ajustado_por: user?.nombre,
@@ -1032,6 +1035,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
           supabase={supabase}
           sucursal={sucursal}
           esAdmin={esAdmin}
+          veTodasTiendas={veTodasTiendas}
           sucursalesLista={tiendas}
         />
       )}
@@ -1042,10 +1046,13 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
           {esAdmin && (
             <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
               Como administrador puedes corregir hora/tipo de un marcaje o registrar entrada/salida manual si el empleado no checó.
+              {veTodasTiendas
+                ? ' En MAIN puedes elegir cualquier tienda.'
+                : ` Solo ves marcajes de ${etiquetaTienda(sucursal)}.`}
             </p>
           )}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'flex-end' }}>
-            {esAdmin && (
+            {veTodasTiendas && (
               <label className="muted" style={{ fontSize: '0.8rem' }}>
                 Tienda
                 <select className="select" style={{ display: 'block', marginTop: '0.2rem', minWidth: 160 }} value={filtroTiendaHist} onChange={(e) => setFiltroTiendaHist(e.target.value)}>
@@ -1177,9 +1184,9 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
             </div>
           )}
           <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.5rem' }}>
-            {historialFull.length} registro(s) · {etiquetaTienda(esAdmin ? filtroTiendaHist : sucursal)}
+            {historialFull.length} registro(s) · {etiquetaTienda(tiendaHistorial)}
           </p>
-          <LeyendaTurnosHistorial sucursal={esAdmin ? (filtroTiendaHist || sucursal) : sucursal} />
+          <LeyendaTurnosHistorial sucursal={tiendaHistorial || sucursal} />
           <div className="table-wrap">
             <table className="data">
               <thead>
@@ -1201,7 +1208,7 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                   </tr>
                 ) : (
                   historialFull.map((h) => {
-                    const tiendaFila = h.sucursal_id || (esAdmin ? filtroTiendaHist : sucursal) || sucursal;
+                    const tiendaFila = h.sucursal_id || tiendaHistorial || sucursal;
                     const est = estiloFilaMarcaje(h, tiendaFila);
                     return (
                       <tr
