@@ -7,6 +7,8 @@ import CorteConTeclado from '../../components/corteContabilidad/CorteConTeclado.
 import { calcularAbarrotes } from '../../lib/corteContabilidad/calc.js';
 import { datosImpresionCorteActual, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
+import AlertaPagareAbierto from '../../components/corteContabilidad/AlertaPagareAbierto.jsx';
+import { usePagaresAbiertosCorte } from '../../lib/corteContabilidad/usePagaresAbiertosCorte.js';
 import { procesarRifsVencidos } from '../../lib/rifs.js';
 
 const COLOR = '#b5a642';
@@ -68,6 +70,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     if (confirm(msg)) cerrarCorte();
   };
 
+  const { pagares: pagaresAbiertos } = usePagaresAbiertosCorte(supabase, sucursal, 'abarrotes');
   const cajaNegativa = calc.cajaActual < -0.001;
 
   const imprimirBorrador = () => {
@@ -209,6 +212,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           <div style={{ fontSize: '2.5rem', fontWeight: 800, color: cajaNegativa ? 'var(--danger)' : '#27ae60' }}>
             {fmtCorte(calc.cajaActual)}
           </div>
+          <AlertaPagareAbierto pagares={pagaresAbiertos} area="abarrotes" />
           <div className="muted" style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>
             Anterior + subtotal − recolección
           </div>

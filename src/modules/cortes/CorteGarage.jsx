@@ -22,6 +22,8 @@ import {
   imprimirRecoleccionGarage,
 } from '../../lib/impresionCorteContabilidad.js';
 import { fmtCorte, useCorteContabilidad } from '../../lib/corteContabilidad/useCorteContabilidad.js';
+import AlertaPagareAbierto from '../../components/corteContabilidad/AlertaPagareAbierto.jsx';
+import { usePagaresAbiertosCorte } from '../../lib/corteContabilidad/usePagaresAbiertosCorte.js';
 import { actualizarDetalleCierre } from '../../lib/corteContabilidad/store.js';
 import {
   calcularPagoClienteRecoleccion,
@@ -33,7 +35,7 @@ import {
 
 const COLOR = '#7f8c8d';
 
-export default function CorteGarage({ supabase, sucursal, user, sinAlertas: _sinAlertas = false, etiquetaCliente = '' }) {
+export default function CorteGarage({ supabase, sucursal, user, sinAlertas = false, etiquetaCliente = '' }) {
   const prepararTrasCierre = useCallback((estado, calc, detalleExtra) => {
     return prepararTrasCierreGarage(estado, calc, detalleExtra);
   }, []);
@@ -77,6 +79,7 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas: _sin
   const maquinasBase = maquinasGarageDefault();
   const maquinas = { ...maquinasBase, ...(estado.maquinas || {}) };
   const puedeEditar = !perm.soloLectura;
+  const { pagares: pagaresAbiertos } = usePagaresAbiertosCorte(supabase, sucursal, 'garage', { enabled: !sinAlertas });
   const montoRec = round2(estado.recoleccion);
   const montoAnt = round2(estado.recoleccion_anterior);
 
@@ -337,6 +340,9 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas: _sin
                 />
               </label>
             ))}
+            {!sinAlertas && (
+              <AlertaPagareAbierto pagares={pagaresAbiertos} area="garage" />
+            )}
           </div>
         </div>
 
