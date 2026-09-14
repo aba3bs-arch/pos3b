@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { puedeVerModulo, puedeGestionarUsuarios } from '../lib/roles.js';
 import { listarCatalogoContVirtual, filtrarCatalogoPorFlujo } from '../lib/contVirtualCatalogo.js';
 import { hoyYmdNogales } from '../lib/corteCaja.js';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, listarSucursalesParaUI, normalizarCodigoTienda } from '../constants/sucursales.js';
 import {
   adjuntarEvidenciaGasto,
   eliminarArchivoGastoEvidencia,
@@ -66,7 +66,10 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
     categoria_id: 'operativos',
     subcategoria_id: 'operativos-otros',
     cuenta: 'virtual',
+    sucursal_id: 'MAIN',
   });
+
+  const tiendasGasto = useMemo(() => listarSucursalesParaUI(), []);
 
   const catsEgreso = useMemo(() => filtrarCatalogoPorFlujo(catalogo, 'egreso') || catalogo || [], [catalogo]);
   const catSel = useMemo(
@@ -175,7 +178,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
         subcategoria_id: sub?.id || form.subcategoria_id || null,
         subcategoria_nombre: sub?.nombre || null,
         cuenta: form.cuenta,
-        sucursal_id: 'MAIN',
+        sucursal_id: normalizarCodigoTienda(form.sucursal_id) || 'MAIN',
         fecha: hoyYmdNogales(),
       },
       user,
@@ -327,10 +330,25 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
         <form className="card" style={{ borderTop: `4px solid ${COLOR}` }} onSubmit={registrar}>
           <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Registrar gasto</h3>
           <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.82rem' }}>
-            Fecha automática: <strong>{hoyYmdNogales()}</strong> · Tienda:{' '}
-            <strong>{etiquetaTienda('MAIN')}</strong> (central)
+            Fecha automática: <strong>{hoyYmdNogales()}</strong>. Elige a qué tienda se carga el gasto (o MAIN).
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.65rem' }}>
+            <label className="muted">
+              Cargar a tienda
+              <select
+                className="input"
+                value={form.sucursal_id}
+                onChange={(e) => setForm({ ...form, sucursal_id: e.target.value })}
+                style={{ marginTop: '0.3rem' }}
+                required
+              >
+                {tiendasGasto.map((t) => (
+                  <option key={t} value={t}>
+                    {etiquetaTienda(t)}{t === 'MAIN' ? ' · central' : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
             <label className="muted">
               Monto (MXN)
               <input
