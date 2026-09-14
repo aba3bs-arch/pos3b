@@ -205,9 +205,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const [prestamosPendAll, setPrestamosPendAll] = useState([]);
   const [horaLimiteVale, setHoraLimiteVale] = useState(() => etiquetaHoraLimiteVale());
   const [pagareForm, setPagareForm] = useState({
-    area: 'virtual',
+    area: 'abarrotes',
+    area_acreedora: 'virtual',
     sucursal_id: '',
     monto: '',
+    encargado_nombre: '',
     cajero_nombre: '',
     turno_nombre: '',
   });
@@ -1360,15 +1362,24 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   if (!(monto > 0)) return alert('Monto inválido.');
                   const sucPag = pagareForm.sucursal_id || filtroPagareEfectivo || sucursal;
                   if (!sucPag) return alert('Elige la sucursal del pagaré.');
+                  if (pagareForm.area === pagareForm.area_acreedora) {
+                    return alert('Elige áreas distintas: quién debe y a quién se paga.');
+                  }
                   const res = await registrarPagare(
                     supabase,
                     {
                       area: pagareForm.area,
+                      area_acreedora: pagareForm.area_acreedora,
                       sucursal_id: sucPag,
                       monto,
+                      encargado_nombre: pagareForm.encargado_nombre.trim() || null,
                       cajero_nombre: pagareForm.cajero_nombre.trim() || user?.nombre || null,
                       turno_nombre: pagareForm.turno_nombre.trim() || null,
-                      texto: textoPagare(monto),
+                      texto: textoPagare(monto, {
+                        sucursal: sucPag,
+                        area_acreedora: pagareForm.area_acreedora,
+                        encargado_nombre: pagareForm.encargado_nombre.trim() || null,
+                      }),
                     },
                     { nombreActor: user?.nombre, rolActor: user?.rol, user },
                   );
@@ -1380,8 +1391,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   }
                   setPagareForm({
                     area: pagareForm.area,
+                    area_acreedora: pagareForm.area_acreedora,
                     sucursal_id: pagareForm.sucursal_id,
                     monto: '',
+                    encargado_nombre: pagareForm.encargado_nombre,
                     cajero_nombre: '',
                     turno_nombre: '',
                   });
@@ -1404,7 +1417,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   </select>
                 </label>
                 <label className="muted" style={{ fontSize: '0.8rem' }}>
-                  Área
+                  Debe (área)
                   <select
                     className="select"
                     style={{ marginTop: 4 }}
@@ -1415,6 +1428,29 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     <option value="garage">Garage</option>
                     <option value="abarrotes">Abarrotes</option>
                   </select>
+                </label>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Pagar a
+                  <select
+                    className="select"
+                    style={{ marginTop: 4 }}
+                    value={pagareForm.area_acreedora}
+                    onChange={(e) => setPagareForm({ ...pagareForm, area_acreedora: e.target.value })}
+                  >
+                    <option value="virtual">Virtual</option>
+                    <option value="garage">Garage</option>
+                    <option value="abarrotes">Abarrotes</option>
+                  </select>
+                </label>
+                <label className="muted" style={{ fontSize: '0.8rem' }}>
+                  Encargado
+                  <input
+                    className="input"
+                    style={{ marginTop: 4 }}
+                    value={pagareForm.encargado_nombre}
+                    onChange={(e) => setPagareForm({ ...pagareForm, encargado_nombre: e.target.value })}
+                    placeholder="Nombre del encargado"
+                  />
                 </label>
                 <label className="muted" style={{ fontSize: '0.8rem' }}>
                   Monto
@@ -1479,7 +1515,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                       <thead>
                         <tr>
                           <th>Folio</th>
-                          <th>Área</th>
+                          <th>Debe</th>
+                          <th>Pagar a</th>
+                          <th>Encargado</th>
                           <th>Cajero</th>
                           <th>Monto</th>
                           <th>Saldo</th>
@@ -1496,6 +1534,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                             <tr key={p.id}>
                               <td>{p.folio || '—'}</td>
                               <td>{ETIQUETA_AREA_PAGARE[p.area] || p.area}</td>
+                              <td>{ETIQUETA_AREA_PAGARE[p.area_acreedora] || p.area_acreedora || 'Virtual'}</td>
+                              <td>{p.encargado_nombre || '—'}</td>
                               <td>
                                 {p.cajero_nombre || '—'}
                                 {p.turno_nombre ? <span className="muted"> · {p.turno_nombre}</span> : null}

@@ -495,10 +495,18 @@ export function htmlPagare(p, opts = {}) {
   const copia = opts.copia || 1;
   const totalCopias = opts.totalCopias || 2;
   const monto = p?.saldo != null ? p.saldo : p?.monto;
-  const area = ETIQUETA_AREA_PAGARE_PRINT[p?.area] || p?.area || '—';
+  const areaDebe = ETIQUETA_AREA_PAGARE_PRINT[p?.area] || p?.area || '—';
+  const areaPagar = ETIQUETA_AREA_PAGARE_PRINT[p?.area_acreedora]
+    || p?.area_acreedora
+    || 'Virtual';
+  const sucCodigo = String(p?.sucursal_id || '').trim().toUpperCase() || '—';
+  const encargado = String(p?.encargado_nombre || '').trim() || '_________________';
   const texto = String(p?.texto || '').trim()
-    || `Debo y pagaré la cantidad de: ${fmt(monto)} cuando sea solicitado por el recolector, `
-      + 'de perderse esa cantidad, será descontada en nómina, según acuerdo de pagos.';
+    || (
+      `Yo, ${encargado} (encargado), sucursal ${sucCodigo}, debo y pagaré a ${areaPagar} `
+      + `la cantidad de ${fmt(monto)} al ser liquidado el pagaré. `
+      + 'Si se llegara a perder esta cantidad, será descontada en nómina del responsable.'
+    );
   const fecha = p?.created_at
     ? String(p.created_at).slice(0, 16).replace('T', ' ')
     : (p?.fecha || new Date().toLocaleString('es-MX'));
@@ -511,13 +519,16 @@ export function htmlPagare(p, opts = {}) {
     <h1>PAGARÉ</h1>
     <div>Folio: <strong>${esc(p?.folio || '—')}</strong></div>
     <div>Fecha: ${esc(fecha)}</div>
-    <div>Área: <strong>${esc(area)}</strong></div>
-    <div>Sucursal: <strong>${esc(p?.sucursal_id || '—')}</strong></div>
+    <div>Sucursal: <strong>${esc(sucCodigo)}</strong></div>
+    <div>Debe: <strong>${esc(areaDebe)}</strong></div>
+    <div>Pagar a: <strong>${esc(areaPagar)}</strong></div>
+    <div>Encargado: <strong>${esc(encargado)}</strong></div>
     <div>Cajero en turno: <strong>${esc(p?.cajero_nombre || '—')}</strong></div>
     <div>Turno: <strong>${esc(p?.turno_nombre || '—')}</strong></div>
     <div style="font-size:20px;margin:12px 0"><strong>Cantidad: ${fmt(monto)}</strong></div>
     <div class="cuerpo">${esc(texto)}</div>
     <div class="muted">Generó: ${esc(p?.creado_por || '—')}${p?.creado_por_rol ? ` · ${esc(p.creado_por_rol)}` : ''}</div>
+    <div class="firma">Firma encargado: _________________________________</div>
     <div class="firma">Firma cajero: _________________________________</div>
     <div class="firma">Firma recolector: _________________________________</div>
   </body></html>`;

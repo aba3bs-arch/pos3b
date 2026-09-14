@@ -29,6 +29,14 @@ export default function AlertaPagareAbierto({
     ? (lista[0]?.folio ? ` · ${lista[0].folio}` : '')
     : ` · ${n} pagarés`;
 
+  const acreedores = [...new Set(
+    lista.map((p) => {
+      const k = String(p?.area_acreedora || 'virtual').toLowerCase();
+      return ETIQUETA_AREA_PAGARE[k] || k || 'Virtual';
+    }),
+  )];
+  const acreedorLbl = acreedores.length === 1 ? acreedores[0] : acreedores.join(' / ');
+
   return (
     <div className="alerta-pagare-abierto" role="alert" aria-live="assertive">
       <div className="alerta-pagare-abierto__titulo">
@@ -37,8 +45,8 @@ export default function AlertaPagareAbierto({
       </div>
       <div className="alerta-pagare-abierto__monto">{fmtCorte(total)}</div>
       <div className="alerta-pagare-abierto__acreedor">
-        Debe a: <strong>Virtual</strong>
-        <span className="alerta-pagare-abierto__acreedor-alt"> · Pague a Virtual</span>
+        Debe a: <strong>{acreedorLbl}</strong>
+        <span className="alerta-pagare-abierto__acreedor-alt"> · Pague a {acreedorLbl}</span>
       </div>
       <div className="alerta-pagare-abierto__hint">
         La alerta se quita cuando un recolector pulse Recolectar (Vales → Pagaré / RC Virtual).
