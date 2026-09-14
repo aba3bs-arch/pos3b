@@ -87,7 +87,59 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas: _sin
     patchEstado({ maquinas: next });
   };
 
-  const confirmarCierre = () => {
+  const confirmarCierre = async () => {
+    // Si hay monto en Recolección y solo se cierra el corte, el dinero pasa a
+    // «recolección anterior» PERO no se crea fila en RC Garage (temporal).
+    // Eso hacía que recolectores (p. ej. Luis Enrique) “recolectaran” sin que
+    // apareciera en Contabilidad → RC Garage.
+    if (montoRec > 0) {
+      if (!perm.recoleccion) {
+        return alert(
+          `Hay ${fmtCorte(montoRec)} en Recolección.\n\n` +
+            `No se puede cerrar el corte así: ese monto no quedaría registrado en RC Garage.\n` +
+            `Pide a un administrador o recolector autorizado que pulse «Generar recolección» ` +
+            `(Cancelar = temporal) antes de cerrar, o deja Recolección en 0.`,
+        );
+      }
+      const registrarTemporal = confirm(
+        `Hay ${fmtCorte(montoRec)} en Recolección.\n\n` +
+          `Si solo cierras el corte, el dinero pasa a «recolección anterior» pero ` +
+          `NO aparece en Contabilidad → RC Garage (recolección temporal).\n\n` +
+          `¿Registrar ahora como recolección TEMPORAL en RC Garage y luego cerrar?\n\n` +
+          `• Aceptar = sí, registrar temporal + cerrar\n` +
+          `• Cancelar = no cerrar (usa «Generar recolección» o quita el monto)`,
+      );
+      if (!registrarTemporal) return;
+
+      const resTmp = await registrarRecoleccion({
+        montoRecoleccion: montoRec,
+        maquinasEnCero: false,
+      });
+      if (!resTmp?.ok) {
+        if (resTmp?.error) alert(resTmp.error);
+        return;
+      }
+      imprimirRecoleccionGarage(
+        datosImpresionRecoleccionGarage({
+          sucursal,
+          folio: resTmp.folio,
+          user,
+          estado: resTmp.estadoImpresion,
+          gastos: resTmp.gastosImpresion,
+          calc: resTmp.calcImpresion,
+          recoleccion: resTmp.recoleccion,
+          temporal: true,
+          pago_cliente: null,
+          etiqueta_cliente: etiquetaCliente || null,
+        }),
+      );
+      alert(
+        `Recolección temporal ${resTmp.folio}: ${fmtCorte(resTmp.recoleccionActual ?? resTmp.recoleccion)}.\n` +
+          `Queda en recolección anterior: ${fmtCorte(resTmp.recoleccionAnteriorTras)}.\n` +
+          `Registrada en RC Garage. Ahora se cierra el corte.`,
+      );
+    }
+
     if (
       !confirm(
         `¿Cerrar corte garage?\n\n` +
@@ -95,11 +147,11 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas: _sin
           `Venta actual: ${fmtCorte(calc.venta)}\n` +
           `Gastos: ${fmtCorte(calc.gastosTotal)}\n` +
           `Venta neta: ${fmtCorte(calc.ventaNeta)}\n` +
-          `Recolección: ${fmtCorte(calc.recoleccion)}\n` +
-          `Recolección anterior: ${fmtCorte(calc.recoleccionAnterior)}\n` +
+          `Recolección: ${fmtCorte(0)}\n` +
+          `Recolección anterior: ${fmtCorte(montoRec > 0 ? round2(montoAnt + montoRec) : calc.recoleccionAnterior)}\n` +
           `Saldo en caja: ${fmtCorte(calc.cajaActual)}\n\n` +
           `Gastos y faltantes se conservan para el siguiente turno.\n` +
-          `Solo van a IE (y quedan en cero) al generar recolección con máquinas en cero.`,
+          `Para liquidar a IE: Generar recolección con máquinas en cero.`,
       )
     ) {
       return;
@@ -125,7 +177,7 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas: _sin
           : '') +
         `Gastos/faltantes acumulados: ${fmtCorte(calc.gastosTotal)}\n\n` +
         `• Aceptar = SÍ → definitiva: se suma la anterior al monto actual, desglose 60/40, gastos en cero y escala a Contabilidad/IE.\n` +
-        `• Cancelar = NO → temporal: el monto actual pasa a recolección anterior; gastos siguen; NO va a IE.`,
+        `• Cancelar = NO → temporal: se registra en RC Garage (temporal), el monto pasa a recolección anterior; gastos siguen; NO va a IE.`,
     );
 
     if (!maquinasEnCero && !(montoRec > 0)) {
@@ -340,7 +392,7 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas: _sin
               label="Recolección anterior"
               value={estado.recoleccion_anterior ?? ''}
               editable={perm.recoleccion || perm.editarTodo}
-              hint="Se conserva al cerrar corte. Solo se limpia con una recolección definitiva (máquinas en ceros)."
+              hint="Pendiente de liquidar. Solo se limpia con recolección definitiva (máquinas en ceros). Las temporales de RC Garage suman aquí."
               onChange={(v) => patchEstado({ recoleccion_anterior: v })}
             />
             <div>
@@ -348,7 +400,11 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas: _sin
                 label="Recolección"
                 value={estado.recoleccion ?? ''}
                 editable={perm.recoleccion}
-                hint={perm.recoleccion ? 'Efectivo retirado · usa el botón para generar el archivo' : 'Solo administrador o usuarios autorizados'}
+                hint={
+                  perm.recoleccion
+                    ? 'Efectivo retirado. Obligatorio: «Generar recolección» (Cancelar = temporal en RC Garage; Aceptar = definitiva → IE). Cerrar corte solo no la registra.'
+                    : 'Solo administrador o usuarios autorizados'
+                }
                 onChange={(v) => patchEstado({ recoleccion: v })}
               />
               {perm.recoleccion && (
@@ -356,7 +412,7 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas: _sin
                   type="button"
                   className="btn btn-primary"
                   style={{ marginTop: '0.45rem', width: '100%' }}
-                  disabled={cargando || !(montoRec > 0)}
+                  disabled={cargando || (!(montoRec > 0) && !(montoAnt > 0))}
                   onClick={generarRecoleccion}
                 >
                   Generar recolección
@@ -366,6 +422,7 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas: _sin
             {montoAnt > 0 && (
               <p className="muted" style={{ fontSize: '0.75rem', margin: 0 }}>
                 Hay {fmtCorte(montoAnt)} en recolección anterior (pendiente de cuadre hasta máquinas en ceros).
+                Revisa Contabilidad → RC Garage para las temporales.
               </p>
             )}
           </div>
