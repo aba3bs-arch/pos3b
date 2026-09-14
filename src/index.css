@@ -5686,6 +5686,81 @@ table.data th {
 }
 
 
+
+/* Alerta pagaré abierto en cortes Virtual / Abarrotes / Garage */
+@keyframes alerta-pagare-abierto-monto {
+  0%, 100% {
+    color: #facc15;
+    text-shadow: 0 0 14px rgba(250, 204, 21, 0.95), 0 0 28px rgba(250, 204, 21, 0.45);
+    transform: scale(1);
+  }
+  33% {
+    color: #ef4444;
+    text-shadow: 0 0 14px rgba(239, 68, 68, 0.95), 0 0 28px rgba(239, 68, 68, 0.5);
+    transform: scale(1.03);
+  }
+  66% {
+    color: #f97316;
+    text-shadow: 0 0 14px rgba(249, 115, 22, 0.95), 0 0 28px rgba(249, 115, 22, 0.45);
+    transform: scale(1.01);
+  }
+}
+
+@keyframes alerta-pagare-abierto-borde {
+  0%, 100% {
+    border-color: #facc15;
+    box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.35), 0 10px 28px rgba(0, 0, 0, 0.28);
+  }
+  50% {
+    border-color: #ef4444;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.4), 0 10px 28px rgba(0, 0, 0, 0.28);
+  }
+}
+
+.alerta-pagare-abierto {
+  margin: 0.75rem 0 0;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 3px solid #facc15;
+  background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+  color: #f8fafc;
+  text-align: center;
+  animation: alerta-pagare-abierto-borde 1.05s ease-in-out infinite;
+}
+
+.alerta-pagare-abierto__titulo {
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #fde68a;
+  margin-bottom: 0.35rem;
+}
+
+.alerta-pagare-abierto__monto {
+  font-size: 2rem;
+  font-weight: 900;
+  line-height: 1.15;
+  animation: alerta-pagare-abierto-monto 1.05s ease-in-out infinite;
+}
+
+.alerta-pagare-abierto__acreedor {
+  margin-top: 0.45rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.alerta-pagare-abierto__acreedor-alt {
+  color: #fde68a;
+  font-weight: 800;
+}
+
+.alerta-pagare-abierto__hint {
+  margin-top: 0.45rem;
+  font-size: 0.72rem;
+  color: #cbd5e1;
+}
+
 /* PIN temporal CT: negrita 15px parpadeante en sesión móvil (desde aceptar → cierre turno) */
 @keyframes ct-pin-temporal-parpadeo {
   0%, 100% { opacity: 1; transform: scale(1); }

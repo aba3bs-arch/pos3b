@@ -37,6 +37,8 @@ import {
   registrarPagoClienteRecoleccionIe,
   slugDesdeSucursalCliente,
 } from '../../lib/clientesMaquinas.js';
+import AlertaPagareAbierto from '../../components/corteContabilidad/AlertaPagareAbierto.jsx';
+import { usePagaresAbiertosCorte } from '../../lib/corteContabilidad/usePagaresAbiertosCorte.js';
 
 const ACCENT = '#6c3483';
 
@@ -46,9 +48,10 @@ function moneyNum(v) {
   return Number.isFinite(n) ? n : '';
 }
 
-export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sinAlertas: _sinAlertas = false, etiquetaCliente = '' }) {
+export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sinAlertas = false, etiquetaCliente = '' }) {
   const [mostrarDesglose, setMostrarDesglose] = useState(false);
   const [aprobando, setAprobando] = useState(false);
+  const { pagares: pagaresAbiertos } = usePagaresAbiertosCorte(supabase, sucursal, 'virtual', { enabled: !sinAlertas });
 
   const prepararTrasCierre = useCallback((estado, calc) => {
     return prepararTrasCierreVirtual(estado, calc);
@@ -562,6 +565,10 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
           style={{ minHeight: 72, width: '100%', resize: 'vertical' }}
         />
       </div>
+
+      {!sinAlertas && (
+        <AlertaPagareAbierto pagares={pagaresAbiertos} area="virtual" />
+      )}
 
       <CorteHistorialImpresion
         historial={historial}
