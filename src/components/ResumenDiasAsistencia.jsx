@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { esAlmacenCentral, etiquetaTienda, listarSucursalesParaUI } from '../constants/sucursales.js';
+import { esAlmacenCentral, esCentralAdmin, etiquetaTienda, listarSucursalesParaUI } from '../constants/sucursales.js';
 import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import {
   cargarMarcajesResumen,
@@ -91,11 +91,12 @@ function CalendarioEmpleado({ semanas, esCubreTurno }) {
   );
 }
 
-export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, sucursalesLista }) {
+export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, veTodasTiendas: veTodasProp, sucursalesLista }) {
+  const veTodasTiendas = veTodasProp != null ? Boolean(veTodasProp) : esCentralAdmin(sucursal);
   const tiendas = (sucursalesLista?.length ? sucursalesLista : listarSucursalesParaUI()).filter(
     (t) => !esAlmacenCentral(t),
   );
-  const [filtroTienda, setFiltroTienda] = useState(esAdmin ? '' : sucursal || '');
+  const [filtroTienda, setFiltroTienda] = useState(veTodasTiendas ? '' : sucursal || '');
   const [preset, setPreset] = useState('semana');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
@@ -104,8 +105,8 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, suc
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!esAdmin) setFiltroTienda(sucursal || '');
-  }, [sucursal, esAdmin]);
+    if (!veTodasTiendas) setFiltroTienda(sucursal || '');
+  }, [sucursal, veTodasTiendas]);
 
   const rango = useMemo(() => {
     if (preset === 'semana') return rangoSemana(0);
@@ -132,8 +133,8 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, suc
       setError('Configura Supabase para ver el resumen de asistencia.');
       return;
     }
-    const tienda = esAdmin ? filtroTienda : sucursal;
-    if (!esAdmin && !tienda) {
+    const tienda = veTodasTiendas ? filtroTienda : sucursal;
+    if (!veTodasTiendas && !tienda) {
       setFilas([]);
       setError('No hay sucursal seleccionada.');
       return;
@@ -165,7 +166,7 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, suc
       }),
     );
     setCargando(false);
-  }, [supabase, esAdmin, filtroTienda, sucursal, rango]);
+  }, [supabase, veTodasTiendas, filtroTienda, sucursal, rango]);
 
   useEffect(() => {
     void cargar();
@@ -185,7 +186,7 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, suc
         cubre turno (<strong>CT</strong>) solo marca los días cerrados.
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'flex-end' }}>
-        {esAdmin && (
+        {veTodasTiendas && (
           <label className="muted" style={{ fontSize: '0.8rem' }}>
             Tienda
             <select
@@ -234,7 +235,7 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, suc
         </span>
       </div>
       <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.75rem' }}>
-        {cargando ? 'Cargando…' : `${filas.length} empleado(s)`} · {esAdmin ? etiquetaTiendaFiltro : etiquetaTienda(sucursal)} · {etiquetaPeriodo}
+        {cargando ? 'Cargando…' : `${filas.length} empleado(s)`} · {veTodasTiendas ? etiquetaTiendaFiltro : etiquetaTienda(sucursal)} · {etiquetaPeriodo}
       </p>
       {error && (
         <p style={{ margin: '0 0 0.75rem', color: 'var(--brand-red)' }}>{error}</p>

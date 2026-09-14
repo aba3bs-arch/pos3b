@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { esCentralAdmin, etiquetaTienda } from '../constants/sucursales.js';
 import { listarEmpleadosRh } from '../lib/rhAba3b.js';
 import { leerTurnos } from '../lib/turnos.js';
 import { normalizarRol } from '../lib/roles.js';
@@ -54,6 +55,7 @@ async function cargarUsuariosPlan(supabase) {
 }
 
 export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
+  const veTodasTiendas = esCentralAdmin(sucursal);
   const [plan, setPlan] = useState(() => leerPlanHorarioLocal());
   const [usuarios, setUsuarios] = useState([]);
   const [rhCubre, setRhCubre] = useState([]);
@@ -133,7 +135,12 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
       return true;
     });
   }, [catalogoCt, usuarios, rhCubre, sel, plan.filas, sucursal, fechas]);
-  const grupos = useMemo(() => agruparFilasPorTienda(plan), [plan]);
+  const grupos = useMemo(() => {
+    const all = agruparFilasPorTienda(plan);
+    if (veTodasTiendas) return all;
+    const suc = String(sucursal || '').toUpperCase();
+    return all.filter((g) => String(g.sucursalId || '').toUpperCase() === suc);
+  }, [plan, veTodasTiendas, sucursal]);
 
   const horasPorFila = useMemo(() => {
     const map = new Map();
@@ -300,7 +307,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
         <div>
           <h3 style={{ margin: '0 0 0.25rem', color: 'var(--brand-blue)' }}>PLAN HORARIO ABARROTES 3B</h3>
           <p className="muted" style={{ margin: 0, fontSize: '0.82rem', maxWidth: 720 }}>
-            Calendario semanal de todas las tiendas. Los nombres salen de <strong>Usuarios</strong> (empleados de tienda).
+            {veTodasTiendas ? 'Calendario semanal de todas las tiendas.' : `Calendario semanal de ${etiquetaTienda(sucursal)}.`} Los nombres salen de <strong>Usuarios</strong> (empleados de tienda).
             Arrastra un bloque para moverlo; haz clic para marcar <strong>descanso</strong>, cambiar color y relacionarlo con un <strong>CT</strong> (cubre turnos).
             {actor}
           </p>
