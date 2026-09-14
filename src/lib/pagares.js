@@ -60,11 +60,25 @@ function faltaTablaPagares(error) {
   );
 }
 
-export function textoPagare(monto) {
+/**
+ * Texto legal del pagaré.
+ * @param {number} monto
+ * @param {{ sucursal?: string, acreedor?: string, area_acreedora?: string, encargado?: string, encargado_nombre?: string }} [opts]
+ * Sucursal = código corto (ej. 3B5). Encargado vacío → línea en blanco.
+ */
+export function textoPagare(monto, opts = {}) {
   const m = round2(monto);
+  const suc = String(opts.sucursal || opts.sucursal_id || '').trim().toUpperCase() || '________';
+  const acreedorKey = normalizarAreaPagare(opts.acreedor || opts.area_acreedora || opts.pagar_a);
+  const acreedor = acreedorKey
+    ? (ETIQUETA_AREA_PAGARE[acreedorKey] || acreedorKey)
+    : (String(opts.acreedor || opts.area_acreedora || '').trim() || '________');
+  const enc = String(opts.encargado || opts.encargado_nombre || '').trim();
+  const quien = enc || '_________________';
   return (
-    `Debo y pagaré la cantidad de: $${m.toFixed(2)} cuando sea solicitado por el recolector, `
-    + 'de perderse esa cantidad, será descontada en nómina, según acuerdo de pagos.'
+    `Yo, ${quien} (encargado), sucursal ${suc}, debo y pagaré a ${acreedor} `
+    + `la cantidad de $${m.toFixed(2)} al ser liquidado el pagaré. `
+    + 'Si se llegara a perder esta cantidad, será descontada en nómina del responsable.'
   );
 }
 
@@ -192,7 +206,14 @@ export async function registrarPagare(supabase, payload = {}, opts = {}) {
     return { ok: false, error: 'Solo administrador, gerente o recolector pueden generar un pagaré.' };
   }
   const area = normalizarAreaPagare(payload.area || payload.modulo);
-  if (!area) return { ok: false, error: 'Área inválida (virtual, garage o abarrotes).' };
+  if (!area) return { ok: false, error: 'Área deudora inválida (virtual, garage o abarrotes).' };
+  const area_acreedora = normalizarAreaPagare(
+    payload.area_acreedora || payload.pagar_a || payload.acreedor,
+  );
+  if (!area_acreedora) return { ok: false, error: 'Área acreedora inválida (virtual, garage o abarrotes).' };
+  if (area_acreedora === area) {
+    return { ok: false, error: 'Quien debe y a quién se paga deben ser áreas distintas.' };
+  }
   const sucursal_id = normalizarCodigoTienda(payload.sucursal_id || payload.sucursal);
   if (!sucursal_id) return { ok: false, error: 'Sucursal requerida.' };
   const monto = round2(payload.monto);
@@ -205,12 +226,18 @@ export async function registrarPagare(supabase, payload = {}, opts = {}) {
       || nombreTurnoLegible(turnoActual())
       || '',
   ).trim() || null;
-  const texto = String(payload.texto || '').trim() || textoPagare(monto);
+  const encargado_nombre = String(payload.encargado_nombre || payload.encargado || '').trim() || null;
+  const texto = String(payload.texto || '').trim() || textoPagare(monto, {
+    sucursal: sucursal_id,
+    area_acreedora,
+    encargado_nombre,
+  });
   const folio = String(payload.folio || '').trim() || folioPagare();
 
   const row = {
     folio,
     area,
+    area_acreedora,
     sucursal_id,
     monto,
     saldo: monto,
@@ -219,6 +246,7 @@ export async function registrarPagare(supabase, payload = {}, opts = {}) {
     cajero_nombre,
     cajero_id: cajero_id ? String(cajero_id) : null,
     turno_nombre,
+    encargado_nombre,
     texto,
     creado_por: opts.nombreActor || opts.user?.nombre || null,
     creado_por_rol: normalizarRol(opts.rolActor ?? opts.user?.rol) || null,

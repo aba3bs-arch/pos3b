@@ -68,3 +68,13 @@ comment on column public.pagares.liquidado_por is
   'Cajero (u admin/gerente) que liquidó y dejó el total listo para recolección.';
 comment on column public.pagares.rc_recibido_por is
   'Quién recolectó el pagaré (Luis Enrique / AMR / ABB / JLBB / FBBB).';
+
+alter table public.pagares add column if not exists area_acreedora text;
+alter table public.pagares add column if not exists encargado_nombre text;
+
+comment on column public.pagares.area is
+  'Área deudora (quién debe): virtual | garage | abarrotes.';
+comment on column public.pagares.area_acreedora is
+  'Área acreedora (a quién se paga): virtual | garage | abarrotes.';
+comment on column public.pagares.encargado_nombre is
+  'Nombre del encargado responsable del pagaré (opcional; si vacío, línea en blanco en ticket).';

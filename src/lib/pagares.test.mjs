@@ -34,9 +34,15 @@ assert.equal(normalizarAreaPagare('Virtual'), 'virtual');
 assert.equal(normalizarAreaPagare('GARAGE'), 'garage');
 assert.equal(normalizarAreaPagare('x'), null);
 
-const t = textoPagare(150.5);
-assert.match(t, /Debo y pagaré la cantidad de: \$150\.50/);
-assert.match(t, /descontada en nómina/i);
+const t = textoPagare(150.5, { sucursal: '3B5', area_acreedora: 'virtual', encargado_nombre: 'Ana López' });
+assert.match(t, /Yo, Ana López \(encargado\), sucursal 3B5/);
+assert.match(t, /debo y pagaré a Virtual/);
+assert.match(t, /\$150\.50/);
+assert.match(t, /nómina del responsable/i);
+
+const tBlank = textoPagare(10, { sucursal: '3B2', area_acreedora: 'garage' });
+assert.match(tBlank, /Yo, _{5,} \(encargado\), sucursal 3B2/);
+assert.match(tBlank, /pagaré a Garage/);
 
 assert.equal(saldoPagare({ monto: 100, saldo: 40 }), 40);
 assert.equal(saldoPagare({ monto: 100 }), 100);
