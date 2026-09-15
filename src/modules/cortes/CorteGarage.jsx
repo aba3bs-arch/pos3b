@@ -79,7 +79,7 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
   const maquinasBase = maquinasGarageDefault();
   const maquinas = { ...maquinasBase, ...(estado.maquinas || {}) };
   const puedeEditar = !perm.soloLectura;
-  const { pagares: pagaresAbiertos } = usePagaresAbiertosCorte(supabase, sucursal, 'garage', { enabled: !sinAlertas });
+  const { pagares: pagaresAbiertos, recargar: recargarPagares } = usePagaresAbiertosCorte(supabase, sucursal, 'garage', { enabled: !sinAlertas });
   const montoRec = round2(estado.recoleccion);
   const montoAnt = round2(estado.recoleccion_anterior);
 
@@ -341,7 +341,13 @@ export default function CorteGarage({ supabase, sucursal, user, sinAlertas = fal
               </label>
             ))}
             {!sinAlertas && (
-              <AlertaPagareAbierto pagares={pagaresAbiertos} area="garage" />
+              <AlertaPagareAbierto
+                pagares={pagaresAbiertos}
+                area="garage"
+                supabase={supabase}
+                user={user}
+                onCambio={recargarPagares}
+              />
             )}
           </div>
         </div>

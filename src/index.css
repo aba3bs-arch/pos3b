@@ -5761,6 +5761,52 @@ table.data th {
   color: #cbd5e1;
 }
 
+.alerta-pagare-abierto__item {
+  margin-top: 0.65rem;
+}
+
+.alerta-pagare-abierto__item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #e2e8f0;
+  margin-bottom: 0.4rem;
+}
+
+.alerta-pagare-abierto__badge {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fde68a;
+  border: 1px solid rgba(253, 230, 138, 0.45);
+  border-radius: 999px;
+  padding: 0.12rem 0.45rem;
+}
+
+.alerta-pagare-abierto__acciones {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.alerta-pagare-abierto__btn {
+  min-width: 6.5rem;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.alerta-pagare-abierto__btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 /* PIN temporal CT: negrita 15px parpadeante en sesión móvil (desde aceptar → cierre turno) */
 @keyframes ct-pin-temporal-parpadeo {
   0%, 100% { opacity: 1; transform: scale(1); }

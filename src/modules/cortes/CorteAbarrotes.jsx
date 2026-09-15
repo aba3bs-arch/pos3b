@@ -70,7 +70,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     if (confirm(msg)) cerrarCorte();
   };
 
-  const { pagares: pagaresAbiertos } = usePagaresAbiertosCorte(supabase, sucursal, 'abarrotes');
+  const { pagares: pagaresAbiertos, recargar: recargarPagares } = usePagaresAbiertosCorte(supabase, sucursal, 'abarrotes');
   const cajaNegativa = calc.cajaActual < -0.001;
 
   const imprimirBorrador = () => {
@@ -212,7 +212,13 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
           <div style={{ fontSize: '2.5rem', fontWeight: 800, color: cajaNegativa ? 'var(--danger)' : '#27ae60' }}>
             {fmtCorte(calc.cajaActual)}
           </div>
-          <AlertaPagareAbierto pagares={pagaresAbiertos} area="abarrotes" />
+          <AlertaPagareAbierto
+            pagares={pagaresAbiertos}
+            area="abarrotes"
+            supabase={supabase}
+            user={user}
+            onCambio={recargarPagares}
+          />
           <div className="muted" style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>
             Anterior + subtotal − recolección
           </div>
