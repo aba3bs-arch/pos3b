@@ -425,8 +425,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   }, [esMain, valeForm.categoria]);
 
   useEffect(() => {
-    if (esRepartidor) setPestana('pagare');
-  }, [esRepartidor]);
+    // Cajero y repartidor entran directo a Pagaré (Abonar / Liquidar / Recolectar).
+    if (esRepartidor || esCajero) setPestana('pagare');
+  }, [esRepartidor, esCajero]);
 
   useEffect(() => {
     if (irAPendientes && puedeVerBandejaAprobacion) {
@@ -1501,6 +1502,92 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 Sin pagarés{filtroPagareEfectivo ? ` en ${etiquetaTienda(filtroPagareEfectivo)}` : ''}.
                 Ejecuta <code>supabase/fix_pagares.sql</code> si falta la tabla.
               </p>
+            ) : esCajero ? (
+              <div className="pagare-cajero-lista">
+                {pagaresPorSucursal.flatMap(([, lista]) => lista).map((p) => {
+                  const pendienteCajero = pagarePendienteCajero(p);
+                  const pendienteRec = pagarePendienteRecoleccion(p);
+                  const saldo = pendienteRec ? montoPendienteRecoleccion(p) : saldoPagare(p);
+                  return (
+                    <div key={p.id} className="pagare-cajero-card">
+                      <div className="pagare-cajero-card__head">
+                        <strong>{p.folio || 'Sin folio'}</strong>
+                        <span className="pagare-cajero-card__estado">{etiquetaEstadoPagare(p.estado)}</span>
+                      </div>
+                      <div className="pagare-cajero-card__saldo">{fmt(saldo)}</div>
+                      <div className="pagare-cajero-card__meta">
+                        Debe: <strong>{ETIQUETA_AREA_PAGARE[p.area] || p.area}</strong>
+                        {' · '}
+                        Pagar a: <strong>{ETIQUETA_AREA_PAGARE[p.area_acreedora] || p.area_acreedora || 'Virtual'}</strong>
+                      </div>
+                      {(p.encargado_nombre || p.cajero_nombre) && (
+                        <div className="pagare-cajero-card__meta muted">
+                          {p.encargado_nombre ? `Encargado: ${p.encargado_nombre}` : null}
+                          {p.encargado_nombre && p.cajero_nombre ? ' · ' : null}
+                          {p.cajero_nombre ? `Cajero: ${p.cajero_nombre}` : null}
+                          {p.turno_nombre ? ` · ${p.turno_nombre}` : null}
+                        </div>
+                      )}
+                      {puedeAbonarLiquidarPagaresUi && pendienteCajero ? (
+                        <div className="pagare-cajero-card__acciones">
+                          <button
+                            type="button"
+                            className="btn btn-ghost pagare-cajero-card__btn"
+                            onClick={async () => {
+                              const s = saldoPagare(p);
+                              const raw = prompt(
+                                `Abonar pagaré ${p.folio || ''}\nSucursal: ${etiquetaTienda(p.sucursal_id)}\nSaldo: $${s.toFixed(2)}\n\n¿Cuánto abonas?`,
+                                String(s),
+                              );
+                              if (raw === null) return;
+                              const monto = parseFloat(String(raw).replace(',', '.'));
+                              if (!(monto > 0)) return alert('Monto inválido.');
+                              const res = await abonarPagare(supabase, p, monto, {
+                                nombreActor: user?.nombre,
+                                rolActor: user?.rol,
+                                user,
+                              });
+                              if (!res.ok) return alert(res.error);
+                              alert(res.mensaje);
+                              recargarTodo();
+                            }}
+                          >
+                            Abonar
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-primary pagare-cajero-card__btn"
+                            onClick={async () => {
+                              const s = saldoPagare(p);
+                              if (!confirm(
+                                `¿Liquidar pagaré ${p.folio || ''} por $${s.toFixed(2)}?\n\n`
+                                + `Sucursal: ${etiquetaTienda(p.sucursal_id)}\n`
+                                + 'Confirma que ya tienes el total. Quedará solo para recolección en RC Virtual → Pagaré.',
+                              )) return;
+                              const res = await liquidarPagare(supabase, p, {
+                                nombreActor: user?.nombre,
+                                rolActor: user?.rol,
+                                user,
+                              });
+                              if (!res.ok) return alert(res.error);
+                              alert(res.mensaje);
+                              recargarTodo();
+                            }}
+                          >
+                            Liquidar
+                          </button>
+                        </div>
+                      ) : pendienteRec ? (
+                        <p className="pagare-cajero-card__aviso">
+                          Ya liquidado · pendiente de recolección (RC Virtual).
+                        </p>
+                      ) : (
+                        <p className="pagare-cajero-card__aviso muted">Sin acciones pendientes para caja.</p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
               pagaresPorSucursal.map(([sucKey, lista]) => (
                 <div key={sucKey} style={{ marginBottom: '1.1rem' }}>
