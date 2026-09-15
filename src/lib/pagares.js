@@ -22,7 +22,7 @@ export const ETIQUETA_ESTADO_PAGARE = {
 };
 
 export const AVISO_FALTA_PAGARES =
-  'Falta o está desactualizada la tabla pagares. Ejecuta supabase/fix_pagares.sql en Supabase → SQL Editor (incluye area_acreedora, encargado_nombre y permisos RLS).';
+  'Falta o está desactualizada la tabla pagares. En Supabase → SQL Editor pega TODO supabase/fix_pagares.sql y pulsa Run (no pide contraseña ni parámetros; incluye area_acreedora, encargado_nombre y RLS).';
 
 /** Quién puede pulsar Recolectar en Vales → Pagaré (por nombre, no solo rol). */
 export const RECOLECTORES_PAGARE = [
