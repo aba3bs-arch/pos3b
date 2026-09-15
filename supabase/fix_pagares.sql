@@ -101,20 +101,48 @@ comment on column public.pagares.rc_recibido_por is
   'Quién recolectó el pagaré (Luis Enrique / AMR / ABB / JLBB / FBBB).';
 
 -- Permisos API (Supabase anon / authenticated)
+-- Sin políticas de INSERT, PostgREST responde:
+--   "new row violates row-level security policy for table pagares"
 alter table public.pagares enable row level security;
+alter table public.pagares force row level security;
 
-drop policy if exists "pagares_anon_rw" on public.pagares;
-create policy "pagares_anon_rw"
-  on public.pagares for all
+-- Quitar políticas viejas / rotas (nombres históricos)
+do $$
+declare r record;
+begin
+  for r in
+    select policyname
+    from pg_policies
+    where schemaname = 'public' and tablename = 'pagares'
+  loop
+    execute format('drop policy if exists %I on public.pagares', r.policyname);
+  end loop;
+end $$;
+
+-- Políticas permisivas explícitas por rol (anon = clave pública del POS)
+create policy "pagares_select_all"
+  on public.pagares for select
+  to anon, authenticated, public
+  using (true);
+
+create policy "pagares_insert_all"
+  on public.pagares for insert
+  to anon, authenticated, public
+  with check (true);
+
+create policy "pagares_update_all"
+  on public.pagares for update
+  to anon, authenticated, public
   using (true) with check (true);
 
-drop policy if exists "pagares_auth_rw" on public.pagares;
-create policy "pagares_auth_rw"
-  on public.pagares for all
-  using (true) with check (true);
+create policy "pagares_delete_all"
+  on public.pagares for delete
+  to anon, authenticated, public
+  using (true);
 
-grant select, insert, update, delete on public.pagares to anon, authenticated;
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.pagares to anon, authenticated, public;
 grant all on public.pagares to service_role;
 
--- Refrescar schema cache de PostgREST (por si faltaba area_acreedora)
+-- Refrescar schema cache de PostgREST
 notify pgrst, 'reload schema';
