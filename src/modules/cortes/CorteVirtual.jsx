@@ -51,7 +51,7 @@ function moneyNum(v) {
 export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sinAlertas = false, etiquetaCliente = '' }) {
   const [mostrarDesglose, setMostrarDesglose] = useState(false);
   const [aprobando, setAprobando] = useState(false);
-  const { pagares: pagaresAbiertos } = usePagaresAbiertosCorte(supabase, sucursal, 'virtual', { enabled: !sinAlertas });
+  const { pagares: pagaresAbiertos, recargar: recargarPagares } = usePagaresAbiertosCorte(supabase, sucursal, 'virtual', { enabled: !sinAlertas });
 
   const prepararTrasCierre = useCallback((estado, calc) => {
     return prepararTrasCierreVirtual(estado, calc);
@@ -567,7 +567,13 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
       </div>
 
       {!sinAlertas && (
-        <AlertaPagareAbierto pagares={pagaresAbiertos} area="virtual" />
+        <AlertaPagareAbierto
+          pagares={pagaresAbiertos}
+          area="virtual"
+          supabase={supabase}
+          user={user}
+          onCambio={recargarPagares}
+        />
       )}
 
       <CorteHistorialImpresion
