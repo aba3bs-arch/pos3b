@@ -104,7 +104,6 @@ comment on column public.pagares.rc_recibido_por is
 -- Sin políticas de INSERT, PostgREST responde:
 --   "new row violates row-level security policy for table pagares"
 alter table public.pagares enable row level security;
-alter table public.pagares force row level security;
 
 -- Quitar políticas viejas / rotas (nombres históricos)
 do $$
