@@ -22,7 +22,7 @@ export const ETIQUETA_ESTADO_PAGARE = {
 };
 
 export const AVISO_FALTA_PAGARES =
-  'Falta la tabla pagares. Ejecuta supabase/fix_pagares.sql en Supabase → SQL Editor.';
+  'Falta o está desactualizada la tabla pagares. Ejecuta supabase/fix_pagares.sql en Supabase → SQL Editor (incluye area_acreedora, encargado_nombre y permisos RLS).';
 
 /** Quién puede pulsar Recolectar en Vales → Pagaré (por nombre, no solo rol). */
 export const RECOLECTORES_PAGARE = [
@@ -52,11 +52,15 @@ function round2(n) {
 
 function faltaTablaPagares(error) {
   const msg = String(error?.message || error || '').toLowerCase();
+  if (msg.includes('area_acreedora') || msg.includes('encargado_nombre')) return true;
   return (
     msg.includes('pagares')
     && (msg.includes('does not exist')
       || msg.includes('schema cache')
-      || msg.includes('could not find the table'))
+      || msg.includes('could not find the table')
+      || msg.includes('could not find the')
+      || msg.includes('permission denied')
+      || msg.includes('row-level security'))
   );
 }
 
