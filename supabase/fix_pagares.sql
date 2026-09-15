@@ -1,21 +1,17 @@
 -- =============================================================================
--- POS 3B — fix_pagares.sql
--- CÓMO USARLO (no pide contraseña ni parámetros):
---   1) Abre Supabase → SQL Editor
---   2) Copia TODO este archivo y pégalo
---   3) Pulsa Run / Ejecutar una sola vez
---   4) Al final debe aparecer una fila "ok" = true
--- Seguro re-ejecutar. No hay prompts ni variables.
+-- POS 3B — fix_pagares.sql  (TABLA pagares)
+-- Pegar TODO en Supabase → SQL Editor → Run (1 sola vez; se puede repetir)
+-- No pide contraseña ni parámetros.
+-- Al final debe salir: ok = true | politicas_rls >= 4
 -- =============================================================================
--- Tabla pagares + columnas (area_acreedora, encargado_nombre) + RLS INSERT/UPDATE
--- para que el POS deje de pedir este script y pueda generar/abonar/liquidar.
 
+-- 1) Tabla
 create table if not exists public.pagares (
   id uuid primary key default gen_random_uuid(),
   folio text,
-  area text not null check (area in ('virtual', 'garage', 'abarrotes')),
+  area text not null default 'virtual',
   area_acreedora text,
-  sucursal_id text not null,
+  sucursal_id text not null default 'MAIN',
   monto numeric(12, 2) not null default 0,
   saldo numeric(12, 2) not null default 0,
   abono numeric(12, 2) not null default 0,
@@ -36,19 +32,7 @@ create table if not exists public.pagares (
   notas text
 );
 
-create unique index if not exists pagares_folio_uidx on public.pagares (folio)
-  where folio is not null and folio <> '';
-
-create index if not exists pagares_area_suc_estado_idx
-  on public.pagares (area, sucursal_id, estado);
-
-create index if not exists pagares_created_at_idx
-  on public.pagares (created_at desc);
-
-create index if not exists pagares_area_acreedora_idx
-  on public.pagares (area_acreedora, estado);
-
--- Columnas (idempotente si la tabla ya existía sin ellas)
+-- 2) Columnas (si la tabla ya existía a medias)
 alter table public.pagares add column if not exists folio text;
 alter table public.pagares add column if not exists area text;
 alter table public.pagares add column if not exists area_acreedora text;
@@ -72,37 +56,57 @@ alter table public.pagares add column if not exists rc_recibido_at timestamptz;
 alter table public.pagares add column if not exists rc_monto numeric(12, 2);
 alter table public.pagares add column if not exists notas text;
 
--- Defaults útiles si faltaban
+-- 3) Rellenar nulos (evita que fallen los CHECK)
+update public.pagares set area = 'virtual' where area is null or btrim(area) = '';
+update public.pagares set sucursal_id = 'MAIN' where sucursal_id is null or btrim(sucursal_id) = '';
 update public.pagares set estado = 'abierto' where estado is null or btrim(estado) = '';
+update public.pagares set monto = 0 where monto is null;
 update public.pagares set saldo = coalesce(saldo, monto, 0) where saldo is null;
 update public.pagares set abono = 0 where abono is null;
-update public.pagares set monto = 0 where monto is null;
+update public.pagares set rc_monto = 0 where rc_monto is null;
+update public.pagares set created_at = now() where created_at is null;
 update public.pagares
 set area_acreedora = 'virtual'
 where area_acreedora is null or btrim(area_acreedora) = '';
 
+-- Areas invalidas → virtual (por si habia datos viejos)
+update public.pagares
+set area = 'virtual'
+where lower(area) not in ('virtual', 'garage', 'abarrotes');
+
+update public.pagares
+set area_acreedora = 'virtual'
+where lower(area_acreedora) not in ('virtual', 'garage', 'abarrotes');
+
+-- 4) CHECK de areas (seguro re-ejecutar)
+alter table public.pagares drop constraint if exists pagares_area_check;
 alter table public.pagares drop constraint if exists pagares_area_acreedora_check;
+
+alter table public.pagares
+  add constraint pagares_area_check
+  check (area in ('virtual', 'garage', 'abarrotes'));
+
 alter table public.pagares
   add constraint pagares_area_acreedora_check
-  check (
-    area_acreedora is null
-    or area_acreedora in ('virtual', 'garage', 'abarrotes')
-  );
+  check (area_acreedora in ('virtual', 'garage', 'abarrotes'));
 
-comment on table public.pagares is
-  'Pagares por sucursal. Cajero abona/liquida; recolectores autorizados pasan a RC Virtual.';
-comment on column public.pagares.estado is
-  'abierto | parcial | por_recolectar | recolectado | liquidado | cancelado';
-comment on column public.pagares.area is
-  'Area deudora: virtual | garage | abarrotes.';
-comment on column public.pagares.area_acreedora is
-  'Area acreedora: virtual | garage | abarrotes.';
-comment on column public.pagares.encargado_nombre is
-  'Nombre del encargado (opcional).';
+-- 5) Indices
+create unique index if not exists pagares_folio_uidx on public.pagares (folio)
+  where folio is not null and folio <> '';
 
--- RLS: sin FORCE (solo ENABLE). Políticas abiertas para la clave anon del POS.
+create index if not exists pagares_area_suc_estado_idx
+  on public.pagares (area, sucursal_id, estado);
+
+create index if not exists pagares_created_at_idx
+  on public.pagares (created_at desc);
+
+create index if not exists pagares_area_acreedora_idx
+  on public.pagares (area_acreedora, estado);
+
+-- 6) RLS + permisos (mismo patron que gastos_evidencia)
 alter table public.pagares enable row level security;
 
+-- Quitar TODAS las politicas viejas (cualquier nombre)
 do $$
 declare
   r record;
@@ -116,26 +120,38 @@ begin
   end loop;
 end $$;
 
-create policy pagares_select_all
-  on public.pagares for select
-  to anon, authenticated, public
-  using (true);
+-- Por si quedaron con comillas / nombres viejos
+drop policy if exists "pagares_select_all" on public.pagares;
+drop policy if exists "pagares_insert_all" on public.pagares;
+drop policy if exists "pagares_update_all" on public.pagares;
+drop policy if exists "pagares_delete_all" on public.pagares;
+drop policy if exists pagares_select_all on public.pagares;
+drop policy if exists pagares_insert_all on public.pagares;
+drop policy if exists pagares_update_all on public.pagares;
+drop policy if exists pagares_delete_all on public.pagares;
+drop policy if exists "pagares_anon_rw" on public.pagares;
+drop policy if exists "pagares_auth_rw" on public.pagares;
+drop policy if exists pagares_anon_rw on public.pagares;
+drop policy if exists pagares_auth_rw on public.pagares;
 
-create policy pagares_insert_all
-  on public.pagares for insert
-  to anon, authenticated, public
-  with check (true);
-
-create policy pagares_update_all
-  on public.pagares for update
-  to anon, authenticated, public
+-- Politicas abiertas para la clave publica (anon) del POS
+create policy "pagares_anon_rw"
+  on public.pagares for all
+  to anon
   using (true)
   with check (true);
 
-create policy pagares_delete_all
-  on public.pagares for delete
-  to anon, authenticated, public
-  using (true);
+create policy "pagares_auth_rw"
+  on public.pagares for all
+  to authenticated
+  using (true)
+  with check (true);
+
+create policy "pagares_public_rw"
+  on public.pagares for all
+  to public
+  using (true)
+  with check (true);
 
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.pagares to anon, authenticated, public;
@@ -143,7 +159,7 @@ grant all on public.pagares to service_role;
 
 notify pgrst, 'reload schema';
 
--- Verificación: debe devolver ok = true
+-- 7) Verificacion
 select
   true as ok,
   to_regclass('public.pagares') is not null as tabla_ok,
