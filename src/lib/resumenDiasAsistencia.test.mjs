@@ -4,6 +4,7 @@ import {
   clasificarHuecosSinAsistencia,
   construirCalendarioAsistencia,
   construirResumenEmpleados,
+  diaLaborableParaBono,
   diasCompletosPorEntradaSalida,
   diasConAlgunaChecada,
   listarBloqueosBonoPorFalta,
@@ -450,6 +451,77 @@ assert.equal(
     descansosAutorizados: [{ usuario_id: 'c1', fecha: '2026-09-14' }],
   })
   assert.equal(conAut.find((b) => b.nombre === 'Carlos'), undefined)
+}
+
+{
+  // 3B2 diurno: descanso habitual domingo. Movieron el descanso a miércoles en el plan.
+  const planMie = {
+    version: 1,
+    filas: [{
+      id: 'emp:3B2:e1',
+      sucursal_id: '3B2',
+      tipo: 'empleado',
+      usuario_id: 'e1',
+      nombre: 'Ana 3B2',
+      celdas: {
+        0: { tipo: 'turno' },
+        1: { tipo: 'turno' },
+        2: { tipo: 'turno' },
+        3: { tipo: 'descanso' }, // miércoles
+        4: { tipo: 'turno' },
+        5: { tipo: 'turno' },
+        6: { tipo: 'turno' },
+      },
+    }],
+  }
+  const user = {
+    id: 'e1',
+    nombre: 'Ana 3B2',
+    rol: 'Cajero',
+    sucursal_id: '3B2',
+    activo: true,
+    tipo_empleado: 'tienda',
+    turno_id: 'diurno',
+  }
+  const ctx = { plan: planMie, hoy: '2026-09-16' }
+  // Miércoles (nuevo descanso en plan) → no laboral
+  assert.equal(diaLaborableParaBono(user, '2026-09-16', ctx), false)
+  // Domingo previo (habitual) → no laboral (no ban falso)
+  assert.equal(diaLaborableParaBono(user, '2026-09-13', ctx), false)
+  // Martes → sí laboral
+  assert.equal(diaLaborableParaBono(user, '2026-09-15', ctx), true)
+
+  // Con checadas lun–mar y sin miércoles: no debe haber bloqueo
+  const ahora = new Date(2026, 8, 16, 12, 0, 0)
+  const marcajes = [
+    ...parDia('e1', 'Ana 3B2', '3B2', '2026-09-14'),
+    ...parDia('e1', 'Ana 3B2', '3B2', '2026-09-15'),
+  ]
+  // Rellenar lookback Lun–Sáb (domingo = habitual)
+  for (let i = 1; i <= 50; i += 1) {
+    const dt = new Date(2026, 8, 16)
+    dt.setDate(dt.getDate() - i)
+    if (dt.getDay() === 0) continue
+    const y = dt.getFullYear()
+    const m = String(dt.getMonth() + 1).padStart(2, '0')
+    const d = String(dt.getDate()).padStart(2, '0')
+    const ymd = `${y}-${m}-${d}`
+    if (ymd === '2026-09-14' || ymd === '2026-09-15') continue
+    marcajes.push(...parDia('e1', 'Ana 3B2', '3B2', ymd))
+  }
+  const bloqueos = listarBloqueosBonoPorFalta({
+    usuarios: [user],
+    marcajes,
+    sucursalId: '3B2',
+    ahora,
+    diasBloqueo: 7,
+    plan: planMie,
+  })
+  assert.equal(
+    bloqueos.find((b) => b.nombre === 'Ana 3B2'),
+    undefined,
+    'Cambio de descanso a miércoles no debe aplicar ban',
+  )
 }
 
 {

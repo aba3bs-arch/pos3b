@@ -75,6 +75,8 @@ export function setClavesDescansosAutorizados(rows = []) {
 
 /**
  * Autoriza un día como descanso (idempotente por usuario+fecha).
+ * Si se indica `fechaHabitualYmd` (día de descanso que se mueve), también lo
+ * autoriza para que no cuente como falta al reinterpretar el plan.
  */
 export async function autorizarDescanso(supabase, {
   usuarioId,
@@ -84,6 +86,7 @@ export async function autorizarDescanso(supabase, {
   motivo = '',
   autorizadoPor = '',
   autorizadoPorRol = '',
+  fechaHabitualYmd = '',
 } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const uid = String(usuarioId || '').trim();
@@ -92,29 +95,32 @@ export async function autorizarDescanso(supabase, {
   if (!uid || !suc || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
     return { ok: false, error: 'Indica empleado, sucursal y fecha.' };
   }
-  const row = {
-    usuario_id: uid,
-    nombre: String(nombre || '').trim() || null,
-    sucursal_id: suc,
-    fecha,
-    motivo: String(motivo || '').trim() || 'Cambio de descanso autorizado',
-    autorizado_por: String(autorizadoPor || '').trim() || null,
-    autorizado_por_rol: String(autorizadoPorRol || '').trim() || null,
-  };
-  const { data, error } = await supabase
-    .from('descansos_autorizados')
-    .upsert(row, { onConflict: 'usuario_id,fecha' })
-    .select('*')
-    .maybeSingle();
-  if (error) {
+
+  const upsertUno = async (fechaRow, motivoRow) => {
+    const row = {
+      usuario_id: uid,
+      nombre: String(nombre || '').trim() || null,
+      sucursal_id: suc,
+      fecha: fechaRow,
+      motivo: String(motivoRow || '').trim() || 'Cambio de descanso autorizado',
+      autorizado_por: String(autorizadoPor || '').trim() || null,
+      autorizado_por_rol: String(autorizadoPorRol || '').trim() || null,
+    };
+    const { data, error } = await supabase
+      .from('descansos_autorizados')
+      .upsert(row, { onConflict: 'usuario_id,fecha' })
+      .select('*')
+      .maybeSingle();
+    if (!error) {
+      return { ok: true, row: data ? { ...data, fecha: String(data.fecha || '').slice(0, 10) } : row };
+    }
     if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_DESCANSOS_AUT, faltaTabla: true };
-    // Fallback sin unique: buscar e insertar/actualizar
     if (/on conflict|unique|constraint/i.test(String(error.message || ''))) {
       const prev = await supabase
         .from('descansos_autorizados')
         .select('id')
         .eq('usuario_id', uid)
-        .eq('fecha', fecha)
+        .eq('fecha', fechaRow)
         .maybeSingle();
       if (prev.data?.id) {
         const upd = await supabase
@@ -124,7 +130,6 @@ export async function autorizarDescanso(supabase, {
           .select('*')
           .single();
         if (upd.error) return { ok: false, error: upd.error.message };
-        emit();
         return { ok: true, row: { ...upd.data, fecha: String(upd.data.fecha || '').slice(0, 10) } };
       }
       const ins = await supabase.from('descansos_autorizados').insert([row]).select('*').single();
@@ -132,13 +137,39 @@ export async function autorizarDescanso(supabase, {
         if (faltaTabla(ins.error)) return { ok: false, error: AVISO_FALTA_DESCANSOS_AUT, faltaTabla: true };
         return { ok: false, error: ins.error.message };
       }
-      emit();
       return { ok: true, row: { ...ins.data, fecha: String(ins.data.fecha || '').slice(0, 10) } };
     }
     return { ok: false, error: error.message };
+  };
+
+  const motivoNuevo = String(motivo || '').trim() || 'Cambio de descanso autorizado';
+  const resNuevo = await upsertUno(fecha, motivoNuevo);
+  if (!resNuevo.ok) return resNuevo;
+
+  const habitual = String(fechaHabitualYmd || '').slice(0, 10);
+  let resHabitual = null;
+  if (habitual && /^\d{4}-\d{2}-\d{2}$/.test(habitual) && habitual !== fecha) {
+    resHabitual = await upsertUno(
+      habitual,
+      `Descanso habitual liberado por cambio → ${fecha}`,
+    );
+    if (!resHabitual.ok) {
+      emit();
+      return {
+        ok: true,
+        row: resNuevo.row,
+        warning: resHabitual.error || 'No se pudo registrar el descanso habitual.',
+        faltaTabla: resHabitual.faltaTabla,
+      };
+    }
   }
+
   emit();
-  return { ok: true, row: data ? { ...data, fecha: String(data.fecha || '').slice(0, 10) } : row };
+  return {
+    ok: true,
+    row: resNuevo.row,
+    rowHabitual: resHabitual?.row || null,
+  };
 }
 
 export async function revocarDescansoAutorizado(supabase, id) {
