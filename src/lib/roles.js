@@ -202,7 +202,6 @@ const ACCESO_POR_ROL = {
     'Cobranza',
     'Checador',
     'Check List',
-    'Registro de gastos',
     'Tutorial',
     'Ayuda',
   ],
@@ -404,7 +403,7 @@ export function modulosParaSidebar(rol, userId = null) {
   const filtrar = (lista) => lista.filter((m) => {
     if (MODULOS_AGRUPADOS_ESTADISTICAS.has(m)) return false;
     if (MODULOS_AGRUPADOS_CONTABILIDAD.has(m)) {
-      // Cajero: Cobranza / Registro de gastos salen sueltos; sin hub Contabilidad.
+      // Cajero: Cobranza sale suelta; sin hub Contabilidad ni Registro de gastos.
       if (cajero && MODULOS_CONTABILIDAD_SUELTOS_CAJERO.has(m)) return true;
       return false;
     }
@@ -423,10 +422,10 @@ export function modulosParaSidebar(rol, userId = null) {
       return permitidos.includes(m);
     }),
   );
-  // Cobranza / Registro de gastos no están en MODULOS_ORDEN (viven bajo Contabilidad).
-  // Para cajero se añaden sueltos al final del menú.
+  // Cobranza no está en MODULOS_ORDEN (vive bajo Contabilidad).
+  // Para cajero se añade suelta al final del menú si está permitida.
   if (cajero) {
-    for (const m of ['Registro de gastos', 'Cobranza']) {
+    for (const m of MODULOS_CONTABILIDAD_SUELTOS_CAJERO) {
       if (permitidos.includes(m) && !base.includes(m) && !MODULOS_BLOQUEADOS_MOSTRADOR.has(m)) {
         base.push(m);
       }
@@ -436,7 +435,7 @@ export function modulosParaSidebar(rol, userId = null) {
 }
 
 export function submodulosContabilidadVisibles(rol, userId = null) {
-  // Hub Contabilidad exclusivo de administradores (cajeros no ven el módulo).
+  // Hub Contabilidad: cajeros no lo ven (bloqueo duro). Cobranza va suelta si aplica.
   if (esRolMostradorRestringido(rol)) return [];
   return SUBMODULOS_CONTABILIDAD.filter((m) => puedeVerModulo(rol, m, userId));
 }
@@ -520,12 +519,11 @@ export function esRolCliente(rol) {
 }
 
 /**
- * Submódulos de Contabilidad que el cajero sigue viendo sueltos en el menú
- * (Cobranza / gastos operativos). El hub «Contabilidad» es solo administradores.
+ * Submódulos de Contabilidad que el cajero puede ver sueltos (sin hub Contabilidad).
+ * Solo Cobranza (créditos ruta). Registro de gastos no lo necesita el cajero.
  */
 export const MODULOS_CONTABILIDAD_SUELTOS_CAJERO = new Set([
   'Cobranza',
-  'Registro de gastos',
 ]);
 
 /** Módulos que el cajero nunca puede abrir (bloqueo duro). */
@@ -547,6 +545,7 @@ export const MODULOS_BLOQUEADOS_MOSTRADOR = new Set([
   'Crédito',
   'RH ABA3B',
   'Socio 3B',
+  'Registro de gastos',
   'Evaluación operativa',
   'Consolidación',
   'Compras vs inventario',

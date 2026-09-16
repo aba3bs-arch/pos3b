@@ -484,3 +484,29 @@ export function etiquetaFechaCorta(date) {
     return '';
   }
 }
+
+/**
+ * ¿El plan horario marca descanso ese día de la semana para el empleado?
+ * (plantilla L–D: si movieron el descanso en Checador → Plan, aquí se respeta).
+ */
+export function esDescansoEnPlanHorario(plan, usuarioId, ymdOrDate) {
+  const uid = usuarioId != null ? String(usuarioId).trim() : '';
+  if (!uid) return false;
+  let date;
+  if (ymdOrDate instanceof Date) {
+    date = ymdOrDate;
+  } else {
+    const [y, m, d] = String(ymdOrDate || '').slice(0, 10).split('-').map(Number);
+    if (![y, m, d].every((n) => Number.isFinite(n))) return false;
+    date = new Date(y, m - 1, d, 12, 0, 0);
+  }
+  if (Number.isNaN(date.getTime())) return false;
+  const diaId = String(date.getDay()); // 0=dom … 6=sáb (igual que DIAS_PLAN_HORARIO)
+  const filas = normalizarPlan(plan).filas || [];
+  const fila = filas.find(
+    (f) => f.tipo === 'empleado' && f.usuario_id != null && String(f.usuario_id) === uid,
+  );
+  if (!fila) return false;
+  const celda = normalizarCelda(fila.celdas?.[diaId]);
+  return celda.tipo === 'descanso';
+}

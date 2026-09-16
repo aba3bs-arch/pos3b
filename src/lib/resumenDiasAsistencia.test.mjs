@@ -385,6 +385,70 @@ assert.equal(
     diasBloqueo: 7,
   })
   assert.equal(noPlantilla.length, 0)
+
+  // Descanso del plan horario (día de la semana) no es falta
+  const planDescansoLunes = {
+    version: 1,
+    filas: [{
+      id: 'emp:3B5:d1',
+      sucursal_id: '3B5',
+      tipo: 'empleado',
+      usuario_id: 'd1',
+      nombre: 'Diana',
+      celdas: {
+        0: { tipo: 'turno' },
+        1: { tipo: 'descanso' }, // lunes
+        2: { tipo: 'turno' },
+        3: { tipo: 'turno' },
+        4: { tipo: 'turno' },
+        5: { tipo: 'turno' },
+        6: { tipo: 'turno' },
+      },
+    }],
+  }
+  const conPlan = listarBloqueosBonoPorFalta({
+    usuarios: [{
+      id: 'd1',
+      nombre: 'Diana',
+      rol: 'Cajero',
+      sucursal_id: '3B5',
+      activo: true,
+      tipo_empleado: 'tienda',
+      turno_id: 'diurno', // sin patrón: todos laborales salvo plan
+    }],
+    marcajes: [
+      ...parDia('d1', 'Diana', '3B5', '2026-09-15'),
+      ...parDia('d1', 'Diana', '3B5', '2026-09-16'),
+    ],
+    sucursalId: '3B5',
+    ahora,
+    diasBloqueo: 7,
+    plan: planDescansoLunes,
+  })
+  // Lunes 14 es descanso en plan → no falta aunque no checó
+  assert.equal(conPlan.find((b) => b.nombre === 'Diana' && b.faltaYmd === '2026-09-14'), undefined)
+
+  // Cambio de descanso autorizado (fecha concreta) no es falta
+  const conAut = listarBloqueosBonoPorFalta({
+    usuarios: [{
+      id: 'c1',
+      nombre: 'Carlos',
+      rol: 'Cajero',
+      sucursal_id: '3B5',
+      activo: true,
+      tipo_empleado: 'tienda',
+      turno_horario: horarioLM,
+    }],
+    marcajes: [
+      ...parDia('c1', 'Carlos', '3B5', '2026-09-15'),
+      ...parDia('c1', 'Carlos', '3B5', '2026-09-16'),
+    ],
+    sucursalId: '3B5',
+    ahora,
+    diasBloqueo: 7,
+    descansosAutorizados: [{ usuario_id: 'c1', fecha: '2026-09-14' }],
+  })
+  assert.equal(conAut.find((b) => b.nombre === 'Carlos'), undefined)
 }
 
 console.log('resumenDiasAsistencia.test.mjs ok')

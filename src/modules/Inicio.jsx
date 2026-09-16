@@ -183,6 +183,7 @@ export default function Inicio({
           supabase={supabase}
           sucursal={sucursal}
           inventario={inventario}
+          user={user}
           onNavigateConfig={puede('Configuracion') ? () => onNavigate('Configuracion') : undefined}
         />
       )}

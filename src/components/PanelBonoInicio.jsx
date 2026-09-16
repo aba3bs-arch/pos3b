@@ -3,10 +3,13 @@ import { esAlmacenCentral, etiquetaTienda } from '../constants/sucursales.js';
 import { EVENTO_BONOS_CONFIG } from '../lib/bonosConfig.js';
 import { EVENTO_RESULTADO_INVENTARIO } from '../lib/resultadoInventario.js';
 import { calcularBonoSucursal } from '../lib/bonosData.js';
+import { EVENTO_DESCANSOS_AUTORIZADOS } from '../lib/descansosAutorizados.js';
 import {
   DIAS_BLOQUEO_BONO_POR_FALTA,
   cargarBloqueosBonoPorFalta,
+  cargarUsuariosResumen,
 } from '../lib/resumenDiasAsistencia.js';
+import PanelAutorizarDescanso from './PanelAutorizarDescanso.jsx';
 
 function fmtMoney(n) {
   return `$${(Number(n) || 0).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -21,41 +24,55 @@ function fmtDia(ymd) {
 /**
  * Widget de bono en Inicio de cada sucursal (parpadea si hay bono > 0).
  * Incluye bono por recolección + bonos por turno (TD/TN) según % checklist
- * + empleados sin bono por falta (8 días; solo sin entrada ni salida).
+ * + empleados sin bono por falta (respetando descansos 6+1 y autorizados).
  */
-export default function PanelBonoInicio({ supabase, sucursal, inventario = [], onNavigateConfig }) {
+export default function PanelBonoInicio({
+  supabase,
+  sucursal,
+  inventario = [],
+  user = null,
+  onNavigateConfig,
+}) {
   const [pack, setPack] = useState(null);
   const [bloqueosFalta, setBloqueosFalta] = useState([]);
+  const [avisoDescansos, setAvisoDescansos] = useState('');
+  const [usuarios, setUsuarios] = useState([]);
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
     if (!supabase || !sucursal || esAlmacenCentral(sucursal)) {
       setPack(null);
       setBloqueosFalta([]);
+      setUsuarios([]);
       setCargando(false);
       return undefined;
     }
     let ok = true;
     const load = async () => {
       setCargando(true);
-      const [res, bloq] = await Promise.all([
+      const [res, bloq, uRes] = await Promise.all([
         calcularBonoSucursal(supabase, { sucursal, inventario }),
         cargarBloqueosBonoPorFalta(supabase, { sucursalId: sucursal }),
+        cargarUsuariosResumen(supabase, { sucursalId: sucursal }),
       ]);
       if (!ok) return;
       setPack(res);
       setBloqueosFalta(bloq?.data || []);
+      setAvisoDescansos(bloq?.avisoDescansos || '');
+      setUsuarios(uRes?.data || []);
       setCargando(false);
     };
     load();
     const onCfg = () => load();
     window.addEventListener(EVENTO_BONOS_CONFIG, onCfg);
     window.addEventListener(EVENTO_RESULTADO_INVENTARIO, onCfg);
+    window.addEventListener(EVENTO_DESCANSOS_AUTORIZADOS, onCfg);
     const t = setInterval(load, 5 * 60 * 1000);
     return () => {
       ok = false;
       window.removeEventListener(EVENTO_BONOS_CONFIG, onCfg);
       window.removeEventListener(EVENTO_RESULTADO_INVENTARIO, onCfg);
+      window.removeEventListener(EVENTO_DESCANSOS_AUTORIZADOS, onCfg);
       clearInterval(t);
     };
   }, [supabase, sucursal, inventario]);
@@ -130,10 +147,14 @@ export default function PanelBonoInicio({ supabase, sucursal, inventario = [], o
           Sin bono por falta (empleados de tienda)
         </h4>
         <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.74rem' }}>
-          Solo personal de tienda dado de alta. Falta = día laboral sin entrada ni salida.
-          Si registró solo entrada o solo salida, sí tiene bono. Tras una falta no recibe bono
-          durante {DIAS_BLOQUEO_BONO_POR_FALTA} días (ej. faltó lunes → vuelve el próximo lunes).
+          Solo personal de tienda dado de alta. Trabajan 6 días y descansan 1: el descanso
+          (plan horario / patrón / autorizado) no es falta. Falta = día laboral sin entrada ni salida.
+          Entrada o salida sola sí da bono. Tras una falta: {DIAS_BLOQUEO_BONO_POR_FALTA} días sin bono
+          (ej. faltó lunes → vuelve el próximo lunes).
         </p>
+        {avisoDescansos ? (
+          <p style={{ margin: '0 0 0.45rem', fontSize: '0.74rem', color: '#b45309' }}>{avisoDescansos}</p>
+        ) : null}
         {bloqueosFalta.length === 0 ? (
           <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
             Nadie de la plantilla en ventana de bloqueo por falta.
@@ -171,6 +192,18 @@ export default function PanelBonoInicio({ supabase, sucursal, inventario = [], o
           </ul>
         )}
       </div>
+
+      <PanelAutorizarDescanso
+        supabase={supabase}
+        sucursal={sucursal}
+        user={user}
+        usuarios={usuarios}
+        onCambio={async () => {
+          const bloq = await cargarBloqueosBonoPorFalta(supabase, { sucursalId: sucursal });
+          setBloqueosFalta(bloq?.data || []);
+          setAvisoDescansos(bloq?.avisoDescansos || '');
+        }}
+      />
 
       {mostrarTurnos ? (
         <div style={{ marginTop: '0.85rem' }}>

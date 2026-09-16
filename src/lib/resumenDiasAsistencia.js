@@ -10,8 +10,15 @@
  */
 
 import { esAlmacenCentral, normalizarCodigoTienda } from '../constants/sucursales.js'
+import {
+  claveDescansoAutorizado,
+  listarDescansosAutorizados,
+  setClavesDescansosAutorizados,
+} from './descansosAutorizados.js'
 import { resolverTipoEmpleado } from './empleadosVisibles.js'
 import { normalizarNombreEmpleado } from './nominaMatch.js'
+import { esDescansoEnPlanHorario } from './planHorario.js'
+import { leerPlanHorarioLocal, sincronizarPlanHorarioDesdeNube } from './planHorarioSync.js'
 import { normalizarRol } from './roles.js'
 import { ymdLocal } from './semanaNomina.js'
 import { parseTurnoHorario, turnoIdParaUsuario } from './turnos.js'
@@ -298,19 +305,43 @@ function dateLocalDesdeYmd(ymd) {
 
 /**
  * ¿Ese día el empleado de tienda debía trabajar?
- * Con patrón/días en turno_horario: solo los asignados.
- * Sin patrón: se asume laboral (turno fijo diario).
+ *
+ * Orden (si alguno dice descanso → NO es falta):
+ * 1) Descanso autorizado ese día (cambio de descanso / permiso)
+ * 2) Plan horario: celda del día de la semana = descanso
+ * 3) Patrón turno_horario: día sin turno asignado
+ * 4) Sin patrón ni plan: se asume laboral (hace falta autorizar o marcar en plan)
+ *
+ * @param {object} user
+ * @param {string} ymd
+ * @param {{ plan?: object, descansosAutSet?: Set<string> }} [ctx]
  */
-export function diaLaborableParaBono(user, ymd) {
+export function diaLaborableParaBono(user, ymd, ctx = {}) {
   if (!user || !ymd) return false
   const date = dateLocalDesdeYmd(ymd)
   if (!date) return false
+  const uid = user.id != null ? String(user.id) : ''
+
+  // 1) Autorización puntual (cambio de descanso)
+  if (uid && ctx.descansosAutSet?.has(claveDescansoAutorizado(uid, ymd))) {
+    return false
+  }
+
+  // 2) Plan horario semanal (descansos movidos en Checador → Plan)
+  if (uid && ctx.plan && esDescansoEnPlanHorario(ctx.plan, uid, date)) {
+    return false
+  }
+
+  // 3) Patrón de días del empleado (6 laborales + 1 descanso típico)
   const horario = parseTurnoHorario(user?.turno_horario)
   const hasDias = Boolean(
     horario?.patron
     || (horario?.dias && typeof horario.dias === 'object' && Object.keys(horario.dias).length),
   )
   if (hasDias) return Boolean(turnoIdParaUsuario(user, date))
+
+  // Sin patrón: si hay plan para ese usuario y el día no es descanso, es laboral.
+  // Si no hay info de plan, asumir laboral (para no ocultar faltas reales).
   return true
 }
 
@@ -318,8 +349,11 @@ export function diaLaborableParaBono(user, ymd) {
  * Empleados de tienda (dados de alta) con falta vigente para bono.
  * - Solo tipo tienda, activos, de la sucursal (no CT, no indirectos, no bajas).
  * - Falta = día laboral sin ENTRADA ni SALIDA.
+ * - Descanso (plan / patrón / autorizado) no cuenta como falta.
  * - Entrada sola o salida sola → SÍ tiene bono.
- * - Bloqueo: 7 días desde la falta; el día 8 (= mismo día de la semana siguiente) ya tiene bono.
+ * - Bloqueo: 7 días desde la falta; el día 8 ya tiene bono.
+ *
+ * @param {{ plan?: object, descansosAutorizados?: Array|Set<string> }} [opts]
  */
 export function listarBloqueosBonoPorFalta({
   usuarios = [],
@@ -327,6 +361,8 @@ export function listarBloqueosBonoPorFalta({
   sucursalId = '',
   ahora = new Date(),
   diasBloqueo = DIAS_BLOQUEO_BONO_POR_FALTA,
+  plan = null,
+  descansosAutorizados = null,
 } = {}) {
   const suc = normalizarCodigoTienda(sucursalId)
   const hoy = ymdLocal(ahora)
@@ -334,6 +370,12 @@ export function listarBloqueosBonoPorFalta({
   const lookback = Math.max(21, diasBan + 14)
   const desdeYmd = sumarDiasYmd(hoy, -lookback)
   const periodo = listarYmdInclusive(desdeYmd, hoy)
+
+  const descansosAutSet = descansosAutorizados instanceof Set
+    ? descansosAutorizados
+    : setClavesDescansosAutorizados(descansosAutorizados || [])
+
+  const ctx = { plan: plan || null, descansosAutSet }
 
   const plantilla = (usuarios || []).filter((u) => {
     if (!usuarioEstaActivo(u)) return false
@@ -363,12 +405,11 @@ export function listarBloqueosBonoPorFalta({
     const presentes = diasConAlgunaChecada(marcajesPorUsuario.get(uid) || [])
     const faltas = []
     for (const ymd of periodo) {
-      if (!diaLaborableParaBono(u, ymd)) continue
+      if (!diaLaborableParaBono(u, ymd, ctx)) continue
       if (presentes.has(ymd)) continue
       faltas.push(ymd)
     }
     for (const faltaYmd of faltas) {
-      // Último día sin bono = falta + (diasBan - 1); el siguiente ya tiene bono.
       const sinBonoHasta = sumarDiasYmd(faltaYmd, diasBan - 1)
       const vuelveBonoYmd = sumarDiasYmd(faltaYmd, diasBan)
       if (!sinBonoHasta || hoy < faltaYmd || hoy > sinBonoHasta) continue
@@ -597,8 +638,7 @@ export async function cargarUsuariosResumen(supabase, { sucursalId }) {
 
 /**
  * Empleados de la sucursal (solo tienda, dados de alta) sin bono por falta.
- * Falta = día laboral sin entrada ni salida; entrada o salida sola no cuenta.
- * Bloqueo 7 días; el mismo día de la semana siguiente ya tiene bono.
+ * Respeta descansos del plan horario, patrón 6+1 y descansos autorizados.
  */
 export async function cargarBloqueosBonoPorFalta(supabase, {
   sucursalId,
@@ -613,19 +653,29 @@ export async function cargarBloqueosBonoPorFalta(supabase, {
   const desdeIso = `${desdeYmd}T00:00:00`
   const hastaIso = new Date(ahora.getTime() + 24 * 3600 * 1000).toISOString()
 
-  const [uRes, mRes] = await Promise.all([
+  const [uRes, mRes, planSync, autRes] = await Promise.all([
     cargarUsuariosResumen(supabase, { sucursalId: suc }),
     cargarMarcajesResumen(supabase, { desdeIso, hastaIso, sucursalId: suc }),
+    sincronizarPlanHorarioDesdeNube(supabase).catch(() => ({ ok: false })),
+    listarDescansosAutorizados(supabase, { sucursalId: suc, desdeYmd, hastaYmd: hoy }),
   ])
   if (uRes.error && !uRes.data?.length) {
     return { ok: false, data: [], error: uRes.error.message || String(uRes.error) }
   }
+  const plan = planSync?.plan || leerPlanHorarioLocal()
   const data = listarBloqueosBonoPorFalta({
     usuarios: uRes.data || [],
     marcajes: mRes.data || [],
     sucursalId: suc,
     ahora,
     diasBloqueo,
+    plan,
+    descansosAutorizados: autRes?.data || [],
   })
-  return { ok: true, data, error: mRes.error?.message || null }
+  return {
+    ok: true,
+    data,
+    error: mRes.error?.message || null,
+    avisoDescansos: autRes?.faltaTabla ? autRes.error : null,
+  }
 }
