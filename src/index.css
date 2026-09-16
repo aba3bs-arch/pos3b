@@ -5670,6 +5670,12 @@ table.data th {
   font-weight: 800;
   letter-spacing: 0.03em;
 }
+.plan-horario .ph-celda.ph-bloqueada {
+  cursor: default;
+}
+.plan-horario .ph-celda.ph-bloqueada:active {
+  cursor: default;
+}
 .ph-editor {
   margin-top: 0.9rem;
   padding: 0.85rem;

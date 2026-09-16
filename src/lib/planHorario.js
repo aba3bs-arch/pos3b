@@ -147,13 +147,173 @@ export function normalizarFila(raw) {
 }
 
 export function planVacio() {
-  return { version: 1, filas: [] };
+  return { version: 1, horarioFijo: false, overridesSemana: {}, filas: [] };
+}
+
+/** Lunes (YMD) de la semana laboral que contiene la fecha. */
+export function claveLunesSemana(ymdOrDate) {
+  let date;
+  if (ymdOrDate instanceof Date) {
+    date = new Date(ymdOrDate.getFullYear(), ymdOrDate.getMonth(), ymdOrDate.getDate(), 12, 0, 0);
+  } else {
+    const [y, m, d] = String(ymdOrDate || '').slice(0, 10).split('-').map(Number);
+    if (![y, m, d].every((n) => Number.isFinite(n))) return '';
+    date = new Date(y, m - 1, d, 12, 0, 0);
+  }
+  if (Number.isNaN(date.getTime())) return '';
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const lun = new Date(date);
+  lun.setDate(date.getDate() + diff);
+  const yy = lun.getFullYear();
+  const mm = String(lun.getMonth() + 1).padStart(2, '0');
+  const dd = String(lun.getDate()).padStart(2, '0');
+  return `${yy}-${mm}-${dd}`;
+}
+
+export function claveLunesDesdeOffset(offset = 0, from = new Date()) {
+  return claveLunesSemana(inicioSemanaPlan(offset, from));
+}
+
+function normalizarOverridesSemana(raw) {
+  if (!raw || typeof raw !== 'object') return {};
+  const out = {};
+  for (const [lunes, filasOv] of Object.entries(raw)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(lunes)) continue;
+    if (!filasOv || typeof filasOv !== 'object') continue;
+    const filasOut = {};
+    for (const [filaId, celdas] of Object.entries(filasOv)) {
+      if (!filaId) continue;
+      filasOut[String(filaId)] = celdasCompletas(celdas);
+    }
+    if (Object.keys(filasOut).length) out[lunes] = filasOut;
+  }
+  return out;
+}
+
+function metaPlan(plan) {
+  const r = plan && typeof plan === 'object' ? plan : {};
+  return {
+    version: 1,
+    horarioFijo: Boolean(r.horarioFijo),
+    overridesSemana: normalizarOverridesSemana(r.overridesSemana),
+  };
+}
+
+function conFilas(plan, filas) {
+  return { ...metaPlan(plan), filas };
 }
 
 export function normalizarPlan(raw) {
   const r = raw && typeof raw === 'object' ? raw : {};
   const filas = Array.isArray(r.filas) ? r.filas.map(normalizarFila).filter((f) => f.sucursal_id) : [];
-  return { version: 1, filas };
+  return conFilas(r, filas);
+}
+
+export function setHorarioFijo(plan, fijo) {
+  return { ...normalizarPlan(plan), horarioFijo: Boolean(fijo) };
+}
+
+export function tieneOverrideSemana(plan, ymdOrDate) {
+  const lunes = claveLunesSemana(ymdOrDate);
+  if (!lunes) return false;
+  const ov = normalizarPlan(plan).overridesSemana?.[lunes];
+  return Boolean(ov && Object.keys(ov).length);
+}
+
+/** Celdas efectivas de una fila en una semana (override o plantilla). */
+export function celdasEfectivasFila(plan, fila, ymdOrDate) {
+  const p = normalizarPlan(plan);
+  const f = fila && typeof fila === 'object' ? fila : null;
+  if (!f) return celdasCompletas({});
+  const lunes = claveLunesSemana(ymdOrDate);
+  const ov = lunes ? p.overridesSemana?.[lunes]?.[f.id] : null;
+  if (ov) return celdasCompletas(ov);
+  return celdasCompletas(f.celdas);
+}
+
+function ensureOverrideFila(plan, lunesYmd, filaId) {
+  const next = normalizarPlan(plan);
+  const lunes = String(lunesYmd || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(lunes)) return next;
+  const fila = next.filas.find((f) => f.id === filaId);
+  if (!fila) return next;
+  if (!next.overridesSemana[lunes]) next.overridesSemana[lunes] = {};
+  if (!next.overridesSemana[lunes][filaId]) {
+    next.overridesSemana[lunes][filaId] = celdasCompletas(fila.celdas);
+  }
+  return next;
+}
+
+/** Intercambia bloques solo en esa semana (no toca la plantilla fija). */
+export function moverCeldaSemana(plan, lunesYmd, fromFilaId, fromDia, toFilaId, toDia) {
+  const fromKey = String(fromDia);
+  const toKey = String(toDia);
+  if (fromFilaId === toFilaId && fromKey === toKey) return normalizarPlan(plan);
+  let next = ensureOverrideFila(plan, lunesYmd, fromFilaId);
+  next = ensureOverrideFila(next, lunesYmd, toFilaId);
+  const lunes = String(lunesYmd || '').slice(0, 10);
+  const fromCel = next.overridesSemana[lunes][fromFilaId];
+  const toCel = next.overridesSemana[lunes][toFilaId];
+  const a = fromCel[fromKey];
+  const b = toCel[toKey];
+  fromCel[fromKey] = normalizarCelda(b);
+  toCel[toKey] = normalizarCelda(a);
+  return next;
+}
+
+export function parchearCeldaSemana(plan, lunesYmd, filaId, dia, patch) {
+  const key = String(dia);
+  const p = patch && typeof patch === 'object' ? patch : {};
+  let next = ensureOverrideFila(plan, lunesYmd, filaId);
+  const lunes = String(lunesYmd || '').slice(0, 10);
+  const prev = normalizarCelda(next.overridesSemana[lunes][filaId][key]);
+  let merged = { ...prev, ...p };
+  if (p.tipo === 'descanso' && (p.color == null || p.color === '') && !prev.color) {
+    merged.color = COLOR_DESCANSO_DEFAULT;
+  }
+  if (p.tipo === 'turno' && p.ctId === undefined && p.ctNombre === undefined) {
+    merged.ctId = null;
+    merged.ctNombre = null;
+    merged.ctTelefono = null;
+    if (p.color === undefined) merged.color = null;
+  }
+  if (p.ctNombre != null) merged.ctNombre = String(p.ctNombre).trim() || null;
+  next.overridesSemana[lunes][filaId] = {
+    ...next.overridesSemana[lunes][filaId],
+    [key]: normalizarCelda(merged),
+  };
+  return next;
+}
+
+export function asignarDescansoConCtSemana(plan, lunesYmd, filaId, dia, ct) {
+  return parchearCeldaSemana(plan, lunesYmd, filaId, dia, {
+    tipo: 'descanso',
+    color: COLOR_DESCANSO_DEFAULT,
+    ctId: ct?.id || null,
+    ctNombre: ct?.nombre || null,
+    ctTelefono: ct?.telefono || null,
+  });
+}
+
+export function quitarDescansoSemana(plan, lunesYmd, filaId, dia) {
+  return parchearCeldaSemana(plan, lunesYmd, filaId, dia, {
+    tipo: 'turno',
+    color: null,
+    ctId: null,
+    ctNombre: null,
+    ctTelefono: null,
+  });
+}
+
+export function limpiarOverrideSemana(plan, lunesYmd) {
+  const next = normalizarPlan(plan);
+  const lunes = String(lunesYmd || '').slice(0, 10);
+  if (next.overridesSemana[lunes]) {
+    const { [lunes]: _drop, ...rest } = next.overridesSemana;
+    next.overridesSemana = rest;
+  }
+  return next;
 }
 
 export function etiquetaNombreEmpleado(usuario, rhMatch = null) {
@@ -272,7 +432,7 @@ export function fusionarPlanConUsuarios(plan, usuarios, opts = {}) {
     }));
   }
 
-  return { version: 1, filas };
+  return conFilas(prev, filas);
 }
 
 export function agruparFilasPorTienda(plan) {
@@ -332,7 +492,7 @@ export function colorFondoCelda(celda) {
   return '#ffffff';
 }
 
-/** Intercambia dos bloques (mover descanso / cobertura entre días o filas). */
+/** Intercambia dos bloques en la plantilla habitual (mover descanso / cobertura). */
 export function moverCelda(plan, fromFilaId, fromDia, toFilaId, toDia) {
   const fromKey = String(fromDia);
   const toKey = String(toDia);
@@ -351,25 +511,23 @@ export function moverCelda(plan, fromFilaId, fromDia, toFilaId, toDia) {
 export function parchearCelda(plan, filaId, dia, patch) {
   const key = String(dia);
   const p = patch && typeof patch === 'object' ? patch : {};
-  return {
-    version: 1,
-    filas: normalizarPlan(plan).filas.map((f) => {
-      if (f.id !== filaId) return f;
-      const prev = normalizarCelda(f.celdas[key]);
-      let merged = { ...prev, ...p };
-      if (p.tipo === 'descanso' && (p.color == null || p.color === '') && !prev.color) {
-        merged.color = COLOR_DESCANSO_DEFAULT;
-      }
-      if (p.tipo === 'turno' && p.ctId === undefined && p.ctNombre === undefined) {
-        merged.ctId = null;
-        merged.ctNombre = null;
-        merged.ctTelefono = null;
-        if (p.color === undefined) merged.color = null;
-      }
-      if (p.ctNombre != null) merged.ctNombre = String(p.ctNombre).trim() || null;
-      return { ...f, celdas: { ...f.celdas, [key]: normalizarCelda(merged) } };
-    }),
-  };
+  const base = normalizarPlan(plan);
+  return conFilas(base, base.filas.map((f) => {
+    if (f.id !== filaId) return f;
+    const prev = normalizarCelda(f.celdas[key]);
+    let merged = { ...prev, ...p };
+    if (p.tipo === 'descanso' && (p.color == null || p.color === '') && !prev.color) {
+      merged.color = COLOR_DESCANSO_DEFAULT;
+    }
+    if (p.tipo === 'turno' && p.ctId === undefined && p.ctNombre === undefined) {
+      merged.ctId = null;
+      merged.ctNombre = null;
+      merged.ctTelefono = null;
+      if (p.color === undefined) merged.color = null;
+    }
+    if (p.ctNombre != null) merged.ctNombre = String(p.ctNombre).trim() || null;
+    return { ...f, celdas: { ...f.celdas, [key]: normalizarCelda(merged) } };
+  }));
 }
 
 export function asignarDescansoConCt(plan, filaId, dia, ct) {
@@ -510,27 +668,13 @@ export function diaDescansoPlanEmpleado(plan, usuarioId) {
 }
 
 export function esDescansoEnPlanHorario(plan, usuarioId, ymdOrDate) {
-  const uid = usuarioId != null ? String(usuarioId).trim() : '';
-  if (!uid) return false;
-  let date;
-  if (ymdOrDate instanceof Date) {
-    date = ymdOrDate;
-  } else {
-    const [y, m, d] = String(ymdOrDate || '').slice(0, 10).split('-').map(Number);
-    if (![y, m, d].every((n) => Number.isFinite(n))) return false;
-    date = new Date(y, m - 1, d, 12, 0, 0);
-  }
-  if (Number.isNaN(date.getTime())) return false;
-  const diaId = String(date.getDay()); // 0=dom … 6=sáb (igual que DIAS_PLAN_HORARIO)
-  const fila = filaPlanEmpleado(plan, uid);
-  if (!fila) return false;
-  const celda = normalizarCelda(fila.celdas?.[diaId]);
-  return celda.tipo === 'descanso';
+  const celda = celdaPlanEmpleadoDia(plan, usuarioId, ymdOrDate);
+  return Boolean(celda && celda.tipo === 'descanso');
 }
 
 /**
- * Celda del plan para ese empleado/día, o null si no hay fila.
- * Útil para saber si el plan manda (turno vs descanso) en la semana actual.
+ * Celda efectiva del plan para ese empleado/día (override de semana o plantilla).
+ * Útil para saber si el plan manda (turno vs descanso) esa semana.
  */
 export function celdaPlanEmpleadoDia(plan, usuarioId, ymdOrDate) {
   const fila = filaPlanEmpleado(plan, usuarioId);
@@ -544,5 +688,6 @@ export function celdaPlanEmpleadoDia(plan, usuarioId, ymdOrDate) {
     date = new Date(y, m - 1, d, 12, 0, 0);
   }
   if (Number.isNaN(date.getTime())) return null;
-  return normalizarCelda(fila.celdas?.[String(date.getDay())]);
+  const celdas = celdasEfectivasFila(plan, fila, date);
+  return normalizarCelda(celdas[String(date.getDay())]);
 }
