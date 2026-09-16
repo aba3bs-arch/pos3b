@@ -3,31 +3,48 @@ import { esAlmacenCentral, etiquetaTienda } from '../constants/sucursales.js';
 import { EVENTO_BONOS_CONFIG } from '../lib/bonosConfig.js';
 import { EVENTO_RESULTADO_INVENTARIO } from '../lib/resultadoInventario.js';
 import { calcularBonoSucursal } from '../lib/bonosData.js';
+import {
+  DIAS_BLOQUEO_BONO_POR_FALTA,
+  cargarBloqueosBonoPorFalta,
+} from '../lib/resumenDiasAsistencia.js';
 
 function fmtMoney(n) {
   return `$${(Number(n) || 0).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
+function fmtDia(ymd) {
+  if (!ymd) return '—';
+  const [y, m, d] = String(ymd).slice(0, 10).split('-');
+  return `${d}/${m}/${y}`;
+}
+
 /**
  * Widget de bono en Inicio de cada sucursal (parpadea si hay bono > 0).
- * Incluye bono por recolección + bonos por turno (TD/TN) según % checklist.
+ * Incluye bono por recolección + bonos por turno (TD/TN) según % checklist
+ * + empleados sin bono por falta (8 días; solo sin entrada ni salida).
  */
 export default function PanelBonoInicio({ supabase, sucursal, inventario = [], onNavigateConfig }) {
   const [pack, setPack] = useState(null);
+  const [bloqueosFalta, setBloqueosFalta] = useState([]);
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
     if (!supabase || !sucursal || esAlmacenCentral(sucursal)) {
       setPack(null);
+      setBloqueosFalta([]);
       setCargando(false);
       return undefined;
     }
     let ok = true;
     const load = async () => {
       setCargando(true);
-      const res = await calcularBonoSucursal(supabase, { sucursal, inventario });
+      const [res, bloq] = await Promise.all([
+        calcularBonoSucursal(supabase, { sucursal, inventario }),
+        cargarBloqueosBonoPorFalta(supabase, { sucursalId: sucursal }),
+      ]);
       if (!ok) return;
       setPack(res);
+      setBloqueosFalta(bloq?.data || []);
       setCargando(false);
     };
     load();
@@ -70,6 +87,9 @@ export default function PanelBonoInicio({ supabase, sucursal, inventario = [], o
   const td = bt?.porTurno?.TD;
   const tn = bt?.porTurno?.TN;
   const detalleTurnos = (bt?.detalle || []).slice(0, 8);
+  const nombresBloqueados = new Set(
+    (bloqueosFalta || []).map((b) => String(b.nombre || '').trim().toLowerCase()).filter(Boolean),
+  );
 
   return (
     <div className={`card ${clase}`} style={{ borderLeft: `4px solid ${hayBono ? '#b45309' : '#a8a29e'}` }}>
@@ -95,6 +115,60 @@ export default function PanelBonoInicio({ supabase, sucursal, inventario = [], o
             Base reco. {fmtMoney(pack.base)} · {pack.pct}% ({pack.cumplidas}/{pack.activas} reglas)
           </div>
         </div>
+      </div>
+
+      <div
+        style={{
+          marginTop: '0.85rem',
+          padding: '0.65rem 0.75rem',
+          borderRadius: 8,
+          border: '1px solid rgba(185,28,28,0.25)',
+          background: bloqueosFalta.length ? 'rgba(185,28,28,0.06)' : 'rgba(0,0,0,0.02)',
+        }}
+      >
+        <h4 style={{ margin: '0 0 0.35rem', fontSize: '0.88rem', color: '#b91c1c' }}>
+          Sin bono por falta ({DIAS_BLOQUEO_BONO_POR_FALTA} días)
+        </h4>
+        <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.74rem' }}>
+          Solo cuenta falta quien no registró entrada ni salida. Entrada sin salida no es falta.
+          Desde el día de la falta no reciben bono durante {DIAS_BLOQUEO_BONO_POR_FALTA} días.
+        </p>
+        {bloqueosFalta.length === 0 ? (
+          <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
+            Nadie en ventana de bloqueo por falta.
+          </p>
+        ) : (
+          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: '0.3rem' }}>
+            {bloqueosFalta.map((b) => (
+              <li
+                key={`${b.clave}-${b.faltaYmd}`}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: '0.5rem',
+                  flexWrap: 'wrap',
+                  fontSize: '0.8rem',
+                  padding: '0.35rem 0.45rem',
+                  borderRadius: 6,
+                  background: 'rgba(255,255,255,0.7)',
+                }}
+              >
+                <span>
+                  <strong>{b.nombre}</strong>
+                  <span className="muted" style={{ marginLeft: 6 }}>
+                    falta {fmtDia(b.faltaYmd)}
+                  </span>
+                </span>
+                <span style={{ color: '#b91c1c', fontWeight: 700 }}>
+                  hasta {fmtDia(b.sinBonoHasta)}
+                  <span className="muted" style={{ fontWeight: 500, marginLeft: 4 }}>
+                    ({b.diasRestantes}d)
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {mostrarTurnos ? (
@@ -140,29 +214,38 @@ export default function PanelBonoInicio({ supabase, sucursal, inventario = [], o
           </div>
           {detalleTurnos.length > 0 ? (
             <ul style={{ margin: '0.55rem 0 0', padding: 0, listStyle: 'none', display: 'grid', gap: '0.25rem' }}>
-              {detalleTurnos.map((d) => (
-                <li
-                  key={d.id}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    gap: '0.5rem',
-                    fontSize: '0.78rem',
-                    padding: '0.3rem 0.45rem',
-                    borderRadius: 6,
-                    background: 'rgba(0,0,0,0.03)',
-                  }}
-                >
-                  <span>
-                    {d.fecha} · {d.turno}
-                    <span style={{ marginLeft: 6, fontWeight: 700, color: d.color, fontSize: 14 }}>
-                      {d.pct}%
+              {detalleTurnos.map((d) => {
+                const bloqueado = nombresBloqueados.has(String(d.usuario || '').trim().toLowerCase());
+                return (
+                  <li
+                    key={d.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: '0.5rem',
+                      fontSize: '0.78rem',
+                      padding: '0.3rem 0.45rem',
+                      borderRadius: 6,
+                      background: bloqueado ? 'rgba(185,28,28,0.08)' : 'rgba(0,0,0,0.03)',
+                    }}
+                  >
+                    <span>
+                      {d.fecha} · {d.turno}
+                      {d.usuario ? <span className="muted" style={{ marginLeft: 4 }}>{d.usuario}</span> : null}
+                      <span style={{ marginLeft: 6, fontWeight: 700, color: d.color, fontSize: 14 }}>
+                        {d.pct}%
+                      </span>
+                      <span className="muted" style={{ marginLeft: 4 }}>({d.etiqueta})</span>
+                      {bloqueado ? (
+                        <span style={{ marginLeft: 6, color: '#b91c1c', fontWeight: 700 }}>sin bono · falta</span>
+                      ) : null}
                     </span>
-                    <span className="muted" style={{ marginLeft: 4 }}>({d.etiqueta})</span>
-                  </span>
-                  <strong>{fmtMoney(d.bono)}</strong>
-                </li>
-              ))}
+                    <strong style={{ color: bloqueado ? '#b91c1c' : undefined }}>
+                      {bloqueado ? fmtMoney(0) : fmtMoney(d.bono)}
+                    </strong>
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p className="muted" style={{ margin: '0.45rem 0 0', fontSize: '0.75rem' }}>

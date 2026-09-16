@@ -4,9 +4,12 @@ import {
   construirCalendarioAsistencia,
   construirResumenEmpleados,
   diasCompletosPorEntradaSalida,
+  diasConAlgunaChecada,
+  listarBloqueosBonoPorFalta,
   listarYmdInclusive,
   lineaResumenEmpleado,
   resumirDiasEmpleado,
+  sumarDiasYmd,
 } from './resumenDiasAsistencia.js'
 
 const semana = listarYmdInclusive('2026-08-10', '2026-08-16')
@@ -264,6 +267,58 @@ assert.equal(
   assert.equal(maria.dias, 0)
   assert.equal(maria.descansos, 1)
   assert.equal(maria.faltas, 6)
+}
+
+{
+  // Bono: entrada sin salida NO es falta; solo sin entrada ni salida.
+  const dias = diasConAlgunaChecada([
+    { tipo: 'ENTRADA', created_at: '2026-09-10T08:00:00' },
+    { tipo: 'ENTRADA', created_at: '2026-09-11T08:00:00' },
+    { tipo: 'SALIDA', created_at: '2026-09-11T20:00:00' },
+  ])
+  assert.equal(dias.has('2026-09-10'), true) // solo entrada cuenta como presencia (bono)
+  assert.equal(dias.has('2026-09-11'), true)
+
+  const ahora = new Date(2026, 8, 16, 12, 0, 0) // 16 sep
+  // Ana: 10 (solo entrada = presente), 12+13+16 completo. Huecos 11,14,15 → descanso 11 + faltas 14,15
+  // Falta más reciente 15 → bloqueo hasta 22; hoy 16 sigue bloqueada.
+  const bloqueos = listarBloqueosBonoPorFalta({
+    usuarios: [{ id: 'a1', nombre: 'Ana Bono', rol: 'Cajero', sucursal_id: '3B5', activo: true }],
+    marcajes: [
+      { usuario_id: 'a1', nombre: 'Ana Bono', sucursal_id: '3B5', tipo: 'ENTRADA', created_at: '2026-09-10T08:00:00' },
+      ...parDia('a1', 'Ana Bono', '3B5', '2026-09-12'),
+      ...parDia('a1', 'Ana Bono', '3B5', '2026-09-13'),
+      ...parDia('a1', 'Ana Bono', '3B5', '2026-09-16'),
+    ],
+    sucursalId: '3B5',
+    ahora,
+    diasBloqueo: 8,
+  })
+  assert.ok(bloqueos.length >= 1, 'debe haber bloqueo por falta')
+  const ana = bloqueos.find((b) => b.nombre === 'Ana Bono')
+  assert.ok(ana, 'Ana debe estar bloqueada')
+  assert.equal(ana.faltaYmd, '2026-09-15')
+  assert.equal(ana.sinBonoHasta, sumarDiasYmd('2026-09-15', 7))
+  assert.equal(ana.diasRestantes, 7)
+
+  // Solo entrada el día 14: con modo bono no genera falta ese día
+  const soloEntrada = construirResumenEmpleados({
+    usuarios: [{ id: 'b1', nombre: 'Betto', rol: 'Cajero', sucursal_id: '3B5', activo: true }],
+    marcajes: [
+      { usuario_id: 'b1', nombre: 'Betto', sucursal_id: '3B5', tipo: 'ENTRADA', created_at: '2026-09-14T08:00:00' },
+      ...parDia('b1', 'Betto', '3B5', '2026-09-15'),
+      ...parDia('b1', 'Betto', '3B5', '2026-09-16'),
+    ],
+    desdeYmd: '2026-09-14',
+    hastaYmd: '2026-09-16',
+    ahora,
+    filtroSucursal: '3B5',
+    modoPresencia: 'cualquier_marcaje',
+  })
+  const betto = soloEntrada.find((f) => f.nombre === 'Betto')
+  assert.equal(betto.dias, 3)
+  assert.equal(betto.faltas, 0)
+  assert.ok(!betto.diasFaltaYmd.includes('2026-09-14'))
 }
 
 console.log('resumenDiasAsistencia.test.mjs ok')
