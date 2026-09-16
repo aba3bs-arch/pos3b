@@ -336,7 +336,7 @@ export async function corteYaRegistrado(supabase, { sucursal, fecha, turnoId }) 
 }
 
 function rowCorteDesdePayload(corte, usuarioId = null) {
-  return {
+  const row = {
     sucursal_id: corte.sucursal,
     usuario: corte.usuario,
     usuario_id: usuarioId || null,
@@ -354,6 +354,12 @@ function rowCorteDesdePayload(corte, usuarioId = null) {
     corroboracion: corte.corroboracion || {},
     notas: corte.notas || '',
   };
+  if (corte.autorizado_fuera_horario) {
+    row.autorizado_fuera_horario = true;
+    row.autorizado_por = corte.autorizado_por || null;
+    row.autorizado_at = corte.autorizado_at || new Date().toISOString();
+  }
+  return row;
 }
 
 export async function guardarCorte(supabase, corte, usuarioId = null) {
@@ -372,7 +378,16 @@ export async function guardarCorte(supabase, corte, usuarioId = null) {
   const row = rowCorteDesdePayload(corte, usuarioId);
   let cloudId = null;
   if (supabase) {
-    const { data, error } = await supabase.from('cortes_caja').insert([row]).select('id').single();
+    let { data, error } = await supabase.from('cortes_caja').insert([row]).select('id').single();
+    // Columnas de autorizacion aun no migradas: reintentar sin ellas.
+    if (
+      error
+      && row.autorizado_fuera_horario
+      && /autorizado_fuera_horario|autorizado_por|autorizado_at|schema cache|column/i.test(String(error.message || ''))
+    ) {
+      const { autorizado_fuera_horario, autorizado_por, autorizado_at, ...sinAuth } = row;
+      ({ data, error } = await supabase.from('cortes_caja').insert([sinAuth]).select('id').single());
+    }
     if (error) {
       if (error.code === '23505') {
         return { ok: false, error: 'Ya se registró un corte para este turno en la nube.' };

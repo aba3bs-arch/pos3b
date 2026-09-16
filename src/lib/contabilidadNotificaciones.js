@@ -167,6 +167,7 @@ export const TIPOS_NOTIF = {
   CT_CANCELADA: 'ct_cancelada',
   CT_HOLD: 'ct_hold',
   CT_EVALUACION_ALERTA: 'ct_evaluacion_alerta',
+  CORTE_FUERA_HORARIO: 'corte_fuera_horario',
 };
 
 /** Alertas CT que el cajero debe ver flotantes hasta atenderlas. */
@@ -229,6 +230,8 @@ export function etiquetaTipoNotificacion(tipo) {
       return 'CT en hold';
     case TIPOS_NOTIF.CT_EVALUACION_ALERTA:
       return 'Alerta evaluación CT';
+    case TIPOS_NOTIF.CORTE_FUERA_HORARIO:
+      return 'Corte fuera de horario';
     default:
       return tipo || 'Notificación';
   }

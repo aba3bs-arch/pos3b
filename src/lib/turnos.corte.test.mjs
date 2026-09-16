@@ -4,6 +4,9 @@ import {
   sugerirTurnoParaCorte,
   turnoActual,
   turnoConTolerancia,
+  horaEnVentanaCorte,
+  estadoVentanaCorte,
+  puedeGuardarCorteEnHorario,
 } from './turnos.js';
 
 const diurno = { id: 'diurno', nombre: 'Turno diurno', hora_inicio: '07:00', hora_fin: '19:00' };
@@ -40,17 +43,38 @@ assert.equal(turnoActual(list, at(7)).id, 'diurno');
   assert.equal(s.motivo, 'actual');
 }
 
-// Cajero nocturno aún en tolerancia post-cierre → sugiere entrega (su turno)
+// Ventana de corte diurno: 18:00–19:30 (60 antes + 30 después)
 {
-  const s = sugerirTurnoParaCorte(list, at(7, 15), {
-    user: { rol: 'Cajero', turno_id: 'nocturno' },
-    tolerancia: { minutos_antes: 30, minutos_despues_fin: 30 },
-  });
-  assert.equal(s.turno.id, 'nocturno');
-  assert.equal(s.motivo, 'entrega');
+  const opts = { tolerancia: { minutos_antes: 30, minutos_despues_fin: 30 }, minutosAntesFin: 60 };
+  assert.equal(horaEnVentanaCorte(diurno, at(10), opts), false);
+  assert.equal(estadoVentanaCorte(diurno, at(10), opts).motivo, 'temprano');
+  assert.equal(horaEnVentanaCorte(diurno, at(18, 15), opts), true);
+  assert.equal(horaEnVentanaCorte(diurno, at(19, 15), opts), true);
+  assert.equal(horaEnVentanaCorte(diurno, at(19, 45), opts), false);
+  assert.equal(estadoVentanaCorte(diurno, at(19, 45), opts).motivo, 'tarde');
 }
 
-// Pasada la tolerancia: vuelve al turno en curso (diurno)
+// Cajero temprano requiere PIN; admin no
+{
+  const opts = { tolerancia: { minutos_antes: 30, minutos_despues_fin: 30 }, minutosAntesFin: 60 };
+  const cajero = puedeGuardarCorteEnHorario(
+    { id: '1', rol: 'Cajero', turno_id: 'diurno' },
+    diurno,
+    at(10),
+    opts,
+  );
+  assert.equal(cajero.ok, false);
+  assert.equal(cajero.requierePinAdmin, true);
+  const admin = puedeGuardarCorteEnHorario(
+    { id: '2', rol: 'Administrador' },
+    diurno,
+    at(10),
+    opts,
+  );
+  assert.equal(admin.ok, true);
+  assert.equal(admin.bypassRol, true);
+}
+
 {
   const s = sugerirTurnoParaCorte(list, at(8, 0), {
     user: { rol: 'Cajero', turno_id: 'nocturno' },

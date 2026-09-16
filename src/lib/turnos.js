@@ -630,6 +630,139 @@ export function etiquetaVentanaLogin(turno, tolerancia = null) {
   return `${t.hora_inicio}–${t.hora_fin}`;
 }
 
+/** Ventana de cierre de corte: última hora del turno + gracia después de hora_fin. */
+export const VENTANA_CORTE_DEFAULT = {
+  minutos_antes_fin: 60,
+};
+
+function formatoMinutosDia(totalMin) {
+  const DAY = 24 * 60;
+  const m = ((Number(totalMin) % DAY) + DAY) % DAY;
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/**
+ * Ventana horaria en que el cajero puede guardar el corte sin PIN admin.
+ * Por defecto: 60 min antes de hora_fin hasta tolerancia.minutos_despues_fin después.
+ */
+export function turnoVentanaCorte(turno, opts = {}) {
+  if (!turno) return null;
+  const suc = opts.sucursal;
+  const tol = opts.tolerancia || leerToleranciaTurnos(suc);
+  const antes = clampMinutosTolerancia(
+    opts.minutosAntesFin ?? VENTANA_CORTE_DEFAULT.minutos_antes_fin,
+    VENTANA_CORTE_DEFAULT.minutos_antes_fin,
+  );
+  const despues = clampMinutosTolerancia(
+    opts.minutosDespuesFin ?? tol.minutos_despues_fin,
+    TOLERANCIA_TURNOS_DEFAULT.minutos_despues_fin,
+  );
+  const fin = minutosDesdeMedianoche(turno.hora_fin);
+  const DAY = 24 * 60;
+  const iniVentana = ((fin - antes) % DAY + DAY) % DAY;
+  const finVentana = ((fin + despues) % DAY + DAY) % DAY;
+  return {
+    ...turno,
+    hora_inicio: formatoMinutosDia(iniVentana),
+    hora_fin: formatoMinutosDia(finVentana),
+    minutos_antes_fin: antes,
+    minutos_despues_fin: despues,
+    hora_salida: turno.hora_fin,
+  };
+}
+
+export function horaEnVentanaCorte(turno, date = new Date(), opts = {}) {
+  const v = turnoVentanaCorte(turno, opts);
+  return v ? horaEnTurno(v, date) : false;
+}
+
+/**
+ * Estado de la ventana de cierre para UI / guardar corte.
+ * @returns {{ ok: boolean, motivo: string, error?: string, ventana?: object, etiqueta?: string }}
+ */
+export function estadoVentanaCorte(turno, date = new Date(), opts = {}) {
+  if (!turno) {
+    return { ok: false, motivo: 'sin_turno', error: 'No hay turno configurado.' };
+  }
+  const v = turnoVentanaCorte(turno, opts);
+  const etiqueta = `${v.hora_inicio}–${v.hora_fin}`;
+  if (horaEnTurno(v, date)) {
+    return {
+      ok: true,
+      motivo: 'ventana',
+      ventana: v,
+      etiqueta,
+      horaSalida: turno.hora_fin,
+    };
+  }
+  if (horaEnTurno(turno, date)) {
+    return {
+      ok: false,
+      motivo: 'temprano',
+      ventana: v,
+      etiqueta,
+      horaSalida: turno.hora_fin,
+      error: (
+        `Aún es temprano para cerrar ${nombreTurnoLegible(turno)}. `
+        + `El corte se abre de ${v.hora_inicio} a ${v.hora_fin} (salida ${turno.hora_fin}). `
+        + 'Si necesitas cerrar ahora, un administrador debe autorizar con su PIN.'
+      ),
+    };
+  }
+  return {
+    ok: false,
+    motivo: 'tarde',
+    ventana: v,
+    etiqueta,
+    horaSalida: turno.hora_fin,
+    error: (
+      `Fuera de horario de cierre de ${nombreTurnoLegible(turno)} `
+      + `(salida ${turno.hora_fin}, ventana ${etiqueta}). `
+      + 'Se notificó / notifica a administración; un admin puede autorizar con su PIN.'
+    ),
+  };
+}
+
+/**
+ * ¿Puede guardar el corte ahora sin (o con) autorización admin?
+ * Admin/Gerente/Supervisor siempre. Cajero: ventana de cierre o PIN FH.
+ */
+export function puedeGuardarCorteEnHorario(user, turno, date = new Date(), opts = {}) {
+  if (!turno) return { ok: false, error: 'No hay turno configurado.', requierePinAdmin: false };
+  const rol = normalizarRol(user?.rol);
+  if (['Administrador', 'Gerente', 'Supervisor'].includes(rol)) {
+    return { ok: true, bypassRol: true, ventana: estadoVentanaCorte(turno, date, opts) };
+  }
+  const sucursal = opts.sucursal;
+  if (sucursal && tieneAutorizacionFueraHorario(user, sucursal, date)) {
+    return {
+      ok: true,
+      autorizacionAdmin: true,
+      ventana: estadoVentanaCorte(turno, date, opts),
+    };
+  }
+  if (sucursal && tieneExtensionSesionTurno(user, sucursal, date)) {
+    const ext = extensionSesionActiva(user, sucursal, date);
+    const asignadoExt = ext?.turnoId || turnoIdParaUsuario(user, date);
+    if (asignadoExt && String(asignadoExt) === String(turno.id)) {
+      return {
+        ok: true,
+        extensionSesion: true,
+        ventana: estadoVentanaCorte(turno, date, opts),
+      };
+    }
+  }
+  const ventana = estadoVentanaCorte(turno, date, opts);
+  if (ventana.ok) return { ok: true, ventana };
+  return {
+    ok: false,
+    requierePinAdmin: true,
+    ventana,
+    error: ventana.error,
+    motivo: ventana.motivo,
+  };
+}
+
 /** ¿La hora (Nogales, Sonora) cae en este turno? (soporta turno nocturno que cruza medianoche) */
 export function horaEnTurno(turno, date = new Date()) {
   let now;

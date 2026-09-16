@@ -17,9 +17,18 @@ import {
   sugerirTurnoParaCorte,
   turnosDisponiblesParaCorte,
   usuarioAutorizadoCorte,
+  estadoVentanaCorte,
+  puedeGuardarCorteEnHorario,
 } from '../lib/turnos.js';
 import { normalizarRol } from '../lib/roles.js';
 import { EVENTO_EXTENSION_SESION, minutosRestantesExtension } from '../lib/extensionSesionTurno.js';
+import {
+  otorgarAutorizacionFueraHorario,
+  verificarPinAdministradorGlobal,
+  etiquetaAutorizacionActiva,
+} from '../lib/autorizacionTurnoFueraHorario.js';
+import { crearNotificacion, TIPOS_NOTIF } from '../lib/contabilidadNotificaciones.js';
+import InputPin from '../components/InputPin.jsx';
 import {
   cargarDiaCaja,
   lineasCancelablesVenta,
@@ -105,6 +114,13 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
   const [corteExistente, setCorteExistente] = useState(null);
   const [modoCorregir, setModoCorregir] = useState(false);
   const [bloqueoCorte, setBloqueoCorte] = useState('');
+  const [ventanaCorte, setVentanaCorte] = useState(null);
+  const [horarioGuardar, setHorarioGuardar] = useState({ ok: true });
+  const [pinAdminCorte, setPinAdminCorte] = useState('');
+  const [autorizandoCorte, setAutorizandoCorte] = useState(false);
+  const [notificandoAdmin, setNotificandoAdmin] = useState(false);
+  const [avisoNotifAdmin, setAvisoNotifAdmin] = useState('');
+  const [authAdminCorte, setAuthAdminCorte] = useState(null);
 
   const resumen = useMemo(() => resumirMovimientosCaja(ventas, cancelaciones), [ventas, cancelaciones]);
   const movimientos = useMemo(() => listaMovimientosCaja(ventas, cancelaciones), [ventas, cancelaciones]);
@@ -216,11 +232,16 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
   useEffect(() => {
     if (!turnoActivo) {
       setBloqueoCorte('No hay turno configurado.');
+      setVentanaCorte(null);
+      setHorarioGuardar({ ok: false, error: 'No hay turno configurado.', requierePinAdmin: false });
       return;
     }
     const auth = usuarioAutorizadoCorte(user, turnoActivo, new Date(), { turnos, sucursal });
     setBloqueoCorte(auth.ok ? '' : auth.error);
-  }, [turnos, user, turnoActivo, sucursal]);
+    const ven = estadoVentanaCorte(turnoActivo, new Date(), { sucursal });
+    setVentanaCorte(ven);
+    setHorarioGuardar(puedeGuardarCorteEnHorario(user, turnoActivo, new Date(), { sucursal }));
+  }, [turnos, user, turnoActivo, sucursal, authAdminCorte]);
 
   useEffect(() => {
     if (!supabase || !turnoActivo) {
@@ -295,17 +316,90 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
     detalleMetodos: resumen.detalleMetodos,
     corroboracion,
     notas: notas.trim(),
+    ...(authAdminCorte
+      ? {
+          autorizado_fuera_horario: true,
+          autorizado_por: authAdminCorte.nombre || authAdminCorte.adminNombre || null,
+          autorizado_at: new Date().toISOString(),
+        }
+      : {}),
   });
+
+  const notificarAdminCorteFueraHorario = async () => {
+    if (!supabase || !turnoActivo) return;
+    setNotificandoAdmin(true);
+    setAvisoNotifAdmin('');
+    const ven = estadoVentanaCorte(turnoActivo, new Date(), { sucursal });
+    const res = await crearNotificacion(supabase, {
+      sucursal_id: 'MAIN',
+      tipo: TIPOS_NOTIF.CORTE_FUERA_HORARIO,
+      ref_tabla: 'cortes_caja',
+      ref_id: `${sucursal}|${fecha}|${turnoActivo.id}`,
+      titulo: `Corte fuera de horario · ${etiquetaTienda(sucursal) || sucursal}`,
+      mensaje: (
+        `${user?.nombre || 'Cajero'} en ${etiquetaTienda(sucursal) || sucursal} `
+        + `quiere cerrar ${nombreTurnoLegible(turnoActivo)} (${fecha}). `
+        + `Salida ${turnoActivo.hora_fin}, ventana ${ven.etiqueta || '—'}. `
+        + 'Cualquier administrador puede ir a la caja e ingresar su PIN para autorizar.'
+      ),
+      area_buzon: 'central',
+    });
+    setNotificandoAdmin(false);
+    if (!res.ok) {
+      setAvisoNotifAdmin(res.error || 'No se pudo notificar.');
+      return;
+    }
+    setAvisoNotifAdmin(res.aviso || 'Notificación enviada a administración central.');
+  };
+
+  const autorizarCorteConAdmin = async () => {
+    const p = pinAdminCorte.trim();
+    if (!p) return alert('Indica el PIN del administrador.');
+    if (!supabase) return alert('Sin conexión a Supabase.');
+    setAutorizandoCorte(true);
+    const auth = await verificarPinAdministradorGlobal(supabase, p);
+    setAutorizandoCorte(false);
+    if (!auth.ok) return alert(auth.error);
+    otorgarAutorizacionFueraHorario({
+      usuarioId: user?.id,
+      sucursal,
+      admin: auth.user,
+      duracionMs: 2 * 60 * 60 * 1000,
+    });
+    setAuthAdminCorte({
+      id: auth.user?.id,
+      nombre: auth.nombre || auth.user?.nombre,
+      adminNombre: auth.nombre || auth.user?.nombre,
+    });
+    setPinAdminCorte('');
+    void notificarAdminCorteFueraHorario();
+    setMsg(`Corte autorizado por ${auth.nombre || 'administrador'}. Ya puedes guardar.`);
+    setHorarioGuardar(puedeGuardarCorteEnHorario(user, turnoActivo, new Date(), { sucursal }));
+  };
 
   const guardarCorteHandler = async () => {
     if (bloqueoCorte) return alert(bloqueoCorte);
     if (corteExistente?.existe) return alert('Ya se registró el corte de este turno. Usa «Corregir corte» para actualizarlo.');
+    const horario = puedeGuardarCorteEnHorario(user, turnoActivo, new Date(), { sucursal });
+    if (!horario.ok) {
+      setHorarioGuardar(horario);
+      void notificarAdminCorteFueraHorario();
+      return alert(horario.error || 'Fuera de horario de cierre. Pide PIN de un administrador.');
+    }
     const contado = parseFloat(efectivoContado);
     if (Number.isNaN(contado)) {
       alert('Indica cuánto efectivo contaste en caja.');
       return;
     }
     const corte = armarPayloadCorte(contado);
+    if (horario.autorizacionAdmin || authAdminCorte) {
+      corte.autorizado_fuera_horario = true;
+      corte.autorizado_por = authAdminCorte?.nombre
+        || authAdminCorte?.adminNombre
+        || etiquetaAutorizacionActiva(user, sucursal)
+        || 'Administrador';
+      corte.autorizado_at = new Date().toISOString();
+    }
     const r = await guardarCorte(supabase, corte, user?.id);
     if (!r.ok) {
       alert(r.error);
@@ -315,6 +409,7 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
     setMsg(r.id ? 'Corte guardado en la nube y en este equipo.' : 'Corte guardado en este equipo.');
     setCorteExistente({ existe: true, corte: { ...corte, id: r.id, efectivo_contado: contado }, origen: r.id ? 'nube' : 'local' });
     setNotas('');
+    setAuthAdminCorte(null);
     if (leerConfigImpresion().autoCorte) {
       await imprimirCorteDesdeResumen(contado);
     }
@@ -652,6 +747,78 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
           </p>
         </div>
       )}
+      {!bloqueoCorte && turnoActivo && ventanaCorte && (
+        <div
+          className="card"
+          style={{
+            borderColor: ventanaCorte.ok || horarioGuardar.ok
+              ? 'rgba(46,125,50,0.35)'
+              : 'rgba(225,153,41,0.55)',
+            background: ventanaCorte.ok || horarioGuardar.ok
+              ? 'rgba(46,125,50,0.06)'
+              : 'rgba(225,153,41,0.1)',
+          }}
+        >
+          <strong style={{ color: ventanaCorte.ok || horarioGuardar.ok ? 'var(--brand-green, #2e7d32)' : 'var(--brand-gold-dark)' }}>
+            {ventanaCorte.ok
+              ? 'Ventana de cierre abierta'
+              : horarioGuardar.autorizacionAdmin || authAdminCorte
+                ? 'Cierre autorizado por administrador'
+                : 'Fuera de horario de cierre'}
+          </strong>
+          <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.88rem' }}>
+            Un solo corte por turno · {nombreTurnoLegible(turnoActivo)} · salida {turnoActivo.hora_fin}
+            {ventanaCorte.etiqueta ? ` · ventana ${ventanaCorte.etiqueta}` : ''}
+          </p>
+          {!ventanaCorte.ok && !(horarioGuardar.autorizacionAdmin || authAdminCorte) && (
+            <>
+              <p style={{ margin: '0.45rem 0 0', fontSize: '0.88rem' }}>{ventanaCorte.error}</p>
+              <div style={{ marginTop: '0.75rem', maxWidth: 380 }}>
+                <label className="muted" style={{ display: 'block', fontSize: '0.82rem' }}>
+                  PIN del administrador (cualquier admin)
+                  <div style={{ marginTop: '0.35rem' }}>
+                    <InputPin
+                      value={pinAdminCorte}
+                      onChange={(e) => setPinAdminCorte(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && !autorizandoCorte && autorizarCorteConAdmin()}
+                      placeholder="PIN admin"
+                      style={{ marginBottom: 0 }}
+                    />
+                  </div>
+                </label>
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.65rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="btn btn-gold"
+                    onClick={autorizarCorteConAdmin}
+                    disabled={autorizandoCorte}
+                  >
+                    {autorizandoCorte ? 'Verificando…' : 'Autorizar cierre'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={notificarAdminCorteFueraHorario}
+                    disabled={notificandoAdmin}
+                  >
+                    {notificandoAdmin ? 'Enviando…' : 'Notificar a central'}
+                  </button>
+                </div>
+                {avisoNotifAdmin && (
+                  <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>{avisoNotifAdmin}</p>
+                )}
+              </div>
+            </>
+          )}
+          {(authAdminCorte || horarioGuardar.autorizacionAdmin) && (
+            <p style={{ margin: '0.45rem 0 0', fontSize: '0.86rem', color: 'var(--brand-green, #2e7d32)' }}>
+              {authAdminCorte
+                ? `Autorizado por ${authAdminCorte.nombre || 'administrador'}.`
+                : (etiquetaAutorizacionActiva(user, sucursal) || 'Autorización activa.')}
+            </p>
+          )}
+        </div>
+      )}
       {corteExistente?.existe && (
         <div
           className="card"
@@ -771,7 +938,12 @@ export default function CorteCaja({ supabase, sucursal, user, inventario, invent
             </label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
               {!corteExistente?.existe ? (
-                <button type="button" className="btn btn-success" onClick={guardarCorteHandler} disabled={Boolean(bloqueoCorte)}>
+                <button
+                  type="button"
+                  className="btn btn-success"
+                  onClick={guardarCorteHandler}
+                  disabled={Boolean(bloqueoCorte) || (!horarioGuardar.ok && !authAdminCorte)}
+                >
                   Guardar corte
                 </button>
               ) : modoCorregir ? (
