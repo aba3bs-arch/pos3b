@@ -129,7 +129,13 @@ export default function PanelBonoInicio({
             {mostrarTurnos ? ` · Turnos ${fmtMoney(pack.bonoTurnos || 0)}` : ''}
           </div>
           <div className="muted" style={{ fontSize: '0.75rem', marginTop: 2 }}>
-            Base reco. {fmtMoney(pack.base)} · {pack.pct}% ({pack.cumplidas}/{pack.activas} reglas)
+            Base reco. {fmtMoney(pack.base)} · {pack.pct}%
+            {pack.modoCalculo === 'penalizaciones' || !pack.modoCalculo
+              ? (pack.penalizacionTotal > 0
+                ? ` (−${pack.penalizacionTotal}% penaliz.)`
+                : ' (tabulador completo)')
+              : ` (${pack.cumplidas}/${pack.activas} reglas)`}
+            {pack.bloqueadoPorFaltante ? ' · bloqueado por faltante' : ''}
           </div>
         </div>
       </div>
@@ -312,6 +318,12 @@ export default function PanelBonoInicio({
             <span>
               <strong style={{ color: r.ok ? '#15803d' : '#b91c1c' }}>{r.ok ? '✓' : '✗'}</strong>{' '}
               {r.label}
+              {!r.ok && r.penalizacionPct > 0 ? (
+                <span style={{ color: '#b91c1c', marginLeft: 4 }}>−{r.penalizacionPct}%</span>
+              ) : null}
+              {r.esRequisito && !r.ok ? (
+                <span style={{ color: '#b91c1c', marginLeft: 4 }}>(sin bono)</span>
+              ) : null}
             </span>
             <span className="muted">{r.valor} <span style={{ opacity: 0.75 }}>({r.requerido})</span></span>
           </li>

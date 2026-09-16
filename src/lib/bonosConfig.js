@@ -20,7 +20,7 @@ export const RANGOS_BONO_DEFAULT = [
   { min: 17001, max: 20000, bono: 600 },
 ];
 
-/** Niveles de cumplimiento → % del bono base. */
+/** Niveles legacy (conteo de reglas). Se mantiene por compatibilidad; el cálculo actual usa penalizaciones. */
 export const NIVELES_PCT_DEFAULT = [
   { reglasMin: 4, pct: 100 },
   { reglasMin: 3, pct: 75 },
@@ -36,17 +36,47 @@ export const BONOS_TURNO_DEFAULT = {
   TN: 50,
 };
 
+/**
+ * Modelo de pago (penalizaciones desde 100% del tabulador):
+ * - Faltante de efectivo = $0 → requisito para cobrar (si hay faltante → 0%).
+ * - Check list: 6 días laborales esperados; si ≤4 días llenados → −20%.
+ * - Evaluación operativa < 70% → −20%.
+ * - Inventario (merma) > 6% → −60%.
+ */
 export const BONOS_CONFIG_DEFAULT = {
   activo: true,
   /** Semana nómina (sáb–vie) o día. */
   periodo: 'semana',
+  /** penalizaciones = modelo actual; reglas = legacy por conteo. */
+  modoCalculo: 'penalizaciones',
   rangos: RANGOS_BONO_DEFAULT.map((r) => ({ ...r })),
   nivelesPct: NIVELES_PCT_DEFAULT.map((n) => ({ ...n })),
   reglas: {
-    faltanteCero: { activo: true, label: 'Faltante de efectivo = $0' },
-    mermaMaxPct: { activo: true, label: 'Merma de inventario', maxPct: 2.5 },
-    evaluacionMinPct: { activo: true, label: 'Evaluación operativa', minPct: 75 },
-    checklistDiario: { activo: true, label: 'Check list operativo diario' },
+    faltanteCero: {
+      activo: true,
+      label: 'Faltante de efectivo = $0 (requisito)',
+      esRequisito: true,
+    },
+    checklistDiario: {
+      activo: true,
+      label: 'Check list operativo (días laborales)',
+      diasEsperados: 6,
+      /** Si días con checklist ≤ este valor → aplica penalización. */
+      diasPenalizaSiHasta: 4,
+      penalizacionPct: 20,
+    },
+    evaluacionMinPct: {
+      activo: true,
+      label: 'Evaluación operativa',
+      minPct: 70,
+      penalizacionPct: 20,
+    },
+    mermaMaxPct: {
+      activo: true,
+      label: 'Inventario (merma)',
+      maxPct: 6,
+      penalizacionPct: 60,
+    },
   },
   /**
    * Bonos por turno (TD/TN) según % de evaluación del compañero del checklist.
@@ -118,29 +148,62 @@ export function normalizarBonosConfig(raw) {
   const base = BONOS_CONFIG_DEFAULT;
   const r = raw && typeof raw === 'object' ? raw : {};
   const reglasIn = r.reglas && typeof r.reglas === 'object' ? r.reglas : {};
+  const modo = r.modoCalculo === 'reglas' ? 'reglas' : 'penalizaciones';
+  // Primera vez con modelo de penalizaciones: subir umbrales viejos (2.5% / 75%) a 6% / 70%.
+  const migrarUmbrales = r.modoCalculo == null
+    && reglasIn.mermaMaxPct?.penalizacionPct == null
+    && reglasIn.evaluacionMinPct?.penalizacionPct == null;
+  const mermaMaxDefault = migrarUmbrales && Number(reglasIn.mermaMaxPct?.maxPct) === 2.5
+    ? base.reglas.mermaMaxPct.maxPct
+    : num(reglasIn.mermaMaxPct?.maxPct, base.reglas.mermaMaxPct.maxPct);
+  const evalMinDefault = migrarUmbrales && Number(reglasIn.evaluacionMinPct?.minPct) === 75
+    ? base.reglas.evaluacionMinPct.minPct
+    : num(reglasIn.evaluacionMinPct?.minPct, base.reglas.evaluacionMinPct.minPct);
   return {
     activo: r.activo !== false,
     periodo: r.periodo === 'dia' ? 'dia' : 'semana',
+    modoCalculo: modo,
     rangos: normalizarRangos(r.rangos),
     nivelesPct: normalizarNivelesPct(r.nivelesPct),
     reglas: {
       faltanteCero: {
         activo: reglasIn.faltanteCero?.activo !== false,
         label: String(reglasIn.faltanteCero?.label || base.reglas.faltanteCero.label),
-      },
-      mermaMaxPct: {
-        activo: reglasIn.mermaMaxPct?.activo !== false,
-        label: String(reglasIn.mermaMaxPct?.label || base.reglas.mermaMaxPct.label),
-        maxPct: round2(num(reglasIn.mermaMaxPct?.maxPct, base.reglas.mermaMaxPct.maxPct)),
-      },
-      evaluacionMinPct: {
-        activo: reglasIn.evaluacionMinPct?.activo !== false,
-        label: String(reglasIn.evaluacionMinPct?.label || base.reglas.evaluacionMinPct.label),
-        minPct: round2(num(reglasIn.evaluacionMinPct?.minPct, base.reglas.evaluacionMinPct.minPct)),
+        esRequisito: reglasIn.faltanteCero?.esRequisito !== false,
       },
       checklistDiario: {
         activo: reglasIn.checklistDiario?.activo !== false,
         label: String(reglasIn.checklistDiario?.label || base.reglas.checklistDiario.label),
+        diasEsperados: Math.max(1, Math.round(num(
+          reglasIn.checklistDiario?.diasEsperados,
+          base.reglas.checklistDiario.diasEsperados,
+        ))),
+        diasPenalizaSiHasta: Math.max(0, Math.round(num(
+          reglasIn.checklistDiario?.diasPenalizaSiHasta,
+          base.reglas.checklistDiario.diasPenalizaSiHasta,
+        ))),
+        penalizacionPct: Math.max(0, Math.min(100, round2(num(
+          reglasIn.checklistDiario?.penalizacionPct,
+          base.reglas.checklistDiario.penalizacionPct,
+        )))),
+      },
+      evaluacionMinPct: {
+        activo: reglasIn.evaluacionMinPct?.activo !== false,
+        label: String(reglasIn.evaluacionMinPct?.label || base.reglas.evaluacionMinPct.label),
+        minPct: round2(evalMinDefault),
+        penalizacionPct: Math.max(0, Math.min(100, round2(num(
+          reglasIn.evaluacionMinPct?.penalizacionPct,
+          base.reglas.evaluacionMinPct.penalizacionPct,
+        )))),
+      },
+      mermaMaxPct: {
+        activo: reglasIn.mermaMaxPct?.activo !== false,
+        label: String(reglasIn.mermaMaxPct?.label || base.reglas.mermaMaxPct.label),
+        maxPct: round2(mermaMaxDefault),
+        penalizacionPct: Math.max(0, Math.min(100, round2(num(
+          reglasIn.mermaMaxPct?.penalizacionPct,
+          base.reglas.mermaMaxPct.penalizacionPct,
+        )))),
       },
     },
     bonosTurno: normalizarBonosTurno(r.bonosTurno),
@@ -245,7 +308,7 @@ export function bonoBasePorMonto(monto, config = null) {
   return 0;
 }
 
-/** % según cuántas reglas se cumplieron. */
+/** % según cuántas reglas se cumplieron (modo legacy). */
 export function pctPorReglasCumplidas(cumplidas, config = null) {
   const cfg = normalizarBonosConfig(config || leerBonosConfig());
   const n = Math.max(0, Math.round(Number(cumplidas) || 0));
@@ -262,4 +325,117 @@ export function bonoFinal(base, pct) {
 /** Bono de un turno = base configurada × % evaluación del compañero. */
 export function bonoTurnoPorEvaluacion(baseTurno, pctEvaluacion) {
   return bonoFinal(baseTurno, pctEvaluacion);
+}
+
+/**
+ * % del bono por penalizaciones (modelo operativo actual).
+ *
+ * @param {{
+ *   faltanteOk: boolean,
+ *   checklistDias: number,
+ *   evaluacionPct: number|null,
+ *   mermaPct: number,
+ * }} metricas
+ * @param {object|null} config
+ * @returns {{
+ *   pct: number,
+ *   detalle: Array<object>,
+ *   penalizacionTotal: number,
+ *   bloqueadoPorFaltante: boolean,
+ * }}
+ */
+export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
+  const cfg = normalizarBonosConfig(config || leerBonosConfig());
+  const reglas = cfg.reglas;
+  const detalle = [];
+  let penalizacionTotal = 0;
+
+  const faltanteOk = metricas.faltanteOk !== false;
+  if (reglas.faltanteCero.activo) {
+    const ok = faltanteOk;
+    detalle.push({
+      id: 'faltanteCero',
+      label: reglas.faltanteCero.label,
+      ok,
+      esRequisito: true,
+      penalizacionPct: ok ? 0 : 100,
+      valor: ok ? 'Sin faltante' : 'Con faltante',
+      requerido: '$0.00',
+    });
+    if (!ok) {
+      return {
+        pct: 0,
+        detalle,
+        penalizacionTotal: 100,
+        bloqueadoPorFaltante: true,
+      };
+    }
+  }
+
+  let pct = 100;
+
+  if (reglas.checklistDiario.activo) {
+    const dias = Math.max(0, Math.round(Number(metricas.checklistDias) || 0));
+    const hasta = Number(reglas.checklistDiario.diasPenalizaSiHasta) || 4;
+    const esperados = Number(reglas.checklistDiario.diasEsperados) || 6;
+    const pen = Number(reglas.checklistDiario.penalizacionPct) || 20;
+    const ok = dias > hasta;
+    if (!ok) {
+      pct = round2(pct - pen);
+      penalizacionTotal = round2(penalizacionTotal + pen);
+    }
+    detalle.push({
+      id: 'checklistDiario',
+      label: reglas.checklistDiario.label,
+      ok,
+      penalizacionPct: ok ? 0 : pen,
+      valor: `${dias}/${esperados} días`,
+      requerido: `>${hasta} días (ideal ${esperados})`,
+    });
+  }
+
+  if (reglas.evaluacionMinPct.activo) {
+    const minPct = Number(reglas.evaluacionMinPct.minPct) || 70;
+    const pen = Number(reglas.evaluacionMinPct.penalizacionPct) || 20;
+    const ep = metricas.evaluacionPct;
+    const ok = ep != null && Number.isFinite(Number(ep)) && Number(ep) >= minPct;
+    if (!ok) {
+      pct = round2(pct - pen);
+      penalizacionTotal = round2(penalizacionTotal + pen);
+    }
+    detalle.push({
+      id: 'evaluacionMinPct',
+      label: reglas.evaluacionMinPct.label,
+      ok,
+      penalizacionPct: ok ? 0 : pen,
+      valor: ep == null || !Number.isFinite(Number(ep)) ? 'Sin evaluación' : `${round2(Number(ep))}%`,
+      requerido: `≥ ${minPct}%`,
+    });
+  }
+
+  if (reglas.mermaMaxPct.activo) {
+    const maxPct = Number(reglas.mermaMaxPct.maxPct) || 6;
+    const pen = Number(reglas.mermaMaxPct.penalizacionPct) || 60;
+    const mp = Number(metricas.mermaPct);
+    const ok = Number.isFinite(mp) && mp <= maxPct;
+    if (!ok) {
+      pct = round2(pct - pen);
+      penalizacionTotal = round2(penalizacionTotal + pen);
+    }
+    detalle.push({
+      id: 'mermaMaxPct',
+      label: reglas.mermaMaxPct.label,
+      ok,
+      penalizacionPct: ok ? 0 : pen,
+      valor: Number.isFinite(mp) ? `${round2(mp)}%` : 'Sin dato',
+      requerido: `≤ ${maxPct}%`,
+    });
+  }
+
+  return {
+    pct: Math.max(0, Math.min(100, pct)),
+    detalle,
+    penalizacionTotal: Math.min(100, penalizacionTotal),
+    bloqueadoPorFaltante: false,
+  };
 }

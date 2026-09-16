@@ -13,6 +13,7 @@ import {
   bonoBasePorMonto,
   bonoFinal,
   bonoTurnoPorEvaluacion,
+  calcularPctBonoPorPenalizaciones,
   leerBonosConfig,
   normalizarBonosConfig,
   pctPorReglasCumplidas,
@@ -207,8 +208,8 @@ async function evaluacionPct(supabase, sucursal) {
   };
 }
 
-/** Check list diario: en periodo día = hoy cerrado; en semana = % días con al menos un turno cerrado. */
-async function checklistCumple(supabase, sucursal, desde, hasta, esDia) {
+/** Check list: cuenta días con al menos un turno cerrado en el periodo. */
+async function checklistCumple(supabase, sucursal, desde, hasta, esDia, diasEsperados = 6) {
   const res = await listarSesionesChecklist(supabase, {
     sucursalId: sucursal,
     desde,
@@ -225,25 +226,30 @@ async function checklistCumple(supabase, sucursal, desde, hasta, esDia) {
     if (f) cerradosPorDia.add(f);
   }
 
+  const esperados = Math.max(1, Number(diasEsperados) || 6);
+
   if (esDia) {
     const ok = cerradosPorDia.has(hoy) || cerradosPorDia.has(desde);
     return {
       ok,
-      diasConChecklist: cerradosPorDia.size,
+      diasConChecklist: cerradosPorDia.has(desde) || cerradosPorDia.has(hoy) ? 1 : 0,
       diasPeriodo: 1,
+      diasEsperados: 1,
       pctDias: ok ? 100 : 0,
     };
   }
 
-  // Semana: exige checklist en todos los días transcurridos hasta hoy (no futuros)
+  // Semana: días con checklist cerrado (hasta hoy). Se espera ~6 laborales.
   const diasExigidos = dias.filter((d) => d <= hoy);
-  const hechos = diasExigidos.filter((d) => cerradosPorDia.has(d)).length;
-  const ok = diasExigidos.length > 0 && hechos === diasExigidos.length;
+  const hechos = [...cerradosPorDia].filter((d) => d >= desde && d <= hasta && d <= hoy).length;
+  const meta = Math.min(esperados, diasExigidos.length || esperados);
+  const ok = hechos >= meta;
   return {
     ok,
     diasConChecklist: hechos,
     diasPeriodo: diasExigidos.length,
-    pctDias: diasExigidos.length ? round2((hechos / diasExigidos.length) * 100) : 0,
+    diasEsperados: esperados,
+    pctDias: esperados ? round2((Math.min(hechos, esperados) / esperados) * 100) : 0,
   };
 }
 
@@ -360,7 +366,14 @@ export async function calcularBonoSucursal(supabase, {
     faltantePeriodo(supabase, suc, rango.desde, rango.hasta),
     mermaPctPeriodo(supabase, suc, rango.desde, rango.hasta, inventario),
     evaluacionPct(supabase, suc),
-    checklistCumple(supabase, suc, rango.desde, rango.hasta, esDia),
+    checklistCumple(
+      supabase,
+      suc,
+      rango.desde,
+      rango.hasta,
+      esDia,
+      cfgLive.reglas?.checklistDiario?.diasEsperados ?? 6,
+    ),
     calcularBonosTurnoChecklist(supabase, {
       sucursal: suc,
       desde: rango.desde,
@@ -371,74 +384,97 @@ export async function calcularBonoSucursal(supabase, {
 
   const base = bonoBasePorMonto(reco.total, cfgLive);
   const reglasCfg = cfgLive.reglas;
+  const usarPenalizaciones = cfgLive.modoCalculo !== 'reglas';
 
-  const detalleReglas = [];
+  let detalleReglas = [];
   let cumplidas = 0;
   let activas = 0;
+  let pct = 0;
+  let penalizacionTotal = 0;
+  let bloqueadoPorFaltante = false;
 
-  if (reglasCfg.faltanteCero.activo) {
-    activas += 1;
-    const ok = falt.ok;
-    if (ok) cumplidas += 1;
-    detalleReglas.push({
-      id: 'faltanteCero',
-      label: reglasCfg.faltanteCero.label,
-      ok,
-      valor: `$${falt.total.toFixed(2)}`,
-      requerido: '$0.00',
+  if (usarPenalizaciones) {
+    const calc = calcularPctBonoPorPenalizaciones({
+      faltanteOk: falt.ok,
+      checklistDias: check.diasConChecklist,
+      evaluacionPct: evalRes.pct,
+      mermaPct: merma.pct,
+    }, cfgLive);
+    pct = cfgLive.activo ? calc.pct : 0;
+    detalleReglas = calc.detalle.map((r) => {
+      if (r.id === 'mermaMaxPct' && merma.fuente === 'resultado_manual') {
+        return { ...r, valor: `${r.valor} · captura manual`, fuente: merma.fuente };
+      }
+      if (r.id === 'faltanteCero') {
+        return { ...r, valor: `$${falt.total.toFixed(2)}` };
+      }
+      return r;
     });
+    penalizacionTotal = calc.penalizacionTotal;
+    bloqueadoPorFaltante = calc.bloqueadoPorFaltante;
+    activas = detalleReglas.length;
+    cumplidas = detalleReglas.filter((r) => r.ok).length;
+  } else {
+    // Legacy: conteo de reglas → nivelesPct
+    if (reglasCfg.faltanteCero.activo) {
+      activas += 1;
+      const ok = falt.ok;
+      if (ok) cumplidas += 1;
+      detalleReglas.push({
+        id: 'faltanteCero',
+        label: reglasCfg.faltanteCero.label,
+        ok,
+        valor: `$${falt.total.toFixed(2)}`,
+        requerido: '$0.00',
+      });
+    }
+    if (reglasCfg.mermaMaxPct.activo) {
+      activas += 1;
+      const maxPct = Number(reglasCfg.mermaMaxPct.maxPct) || 6;
+      const ok = merma.pct <= maxPct;
+      if (ok) cumplidas += 1;
+      const fuenteLabel = merma.fuente === 'resultado_manual' ? ' · captura manual' : '';
+      detalleReglas.push({
+        id: 'mermaMaxPct',
+        label: reglasCfg.mermaMaxPct.label,
+        ok,
+        valor: `${merma.pct}%${fuenteLabel}`,
+        requerido: `≤ ${maxPct}%`,
+        fuente: merma.fuente || 'movimientos',
+      });
+    }
+    if (reglasCfg.evaluacionMinPct.activo) {
+      activas += 1;
+      const minPct = Number(reglasCfg.evaluacionMinPct.minPct) || 70;
+      const ep = evalRes.pct;
+      const ok = ep != null && ep >= minPct;
+      if (ok) cumplidas += 1;
+      detalleReglas.push({
+        id: 'evaluacionMinPct',
+        label: reglasCfg.evaluacionMinPct.label,
+        ok,
+        valor: ep == null ? 'Sin evaluación' : `${ep}%`,
+        requerido: `≥ ${minPct}%`,
+      });
+    }
+    if (reglasCfg.checklistDiario.activo) {
+      activas += 1;
+      const ok = check.ok;
+      if (ok) cumplidas += 1;
+      detalleReglas.push({
+        id: 'checklistDiario',
+        label: reglasCfg.checklistDiario.label,
+        ok,
+        valor: `${check.diasConChecklist}/${check.diasEsperados || check.diasPeriodo} días`,
+        requerido: `${check.diasEsperados || 6} días`,
+      });
+    }
+    const cumplidasNorm = activas > 0 && activas < 4
+      ? Math.round((cumplidas / activas) * 4)
+      : cumplidas;
+    pct = cfgLive.activo ? pctPorReglasCumplidas(cumplidasNorm, cfgLive) : 0;
   }
 
-  if (reglasCfg.mermaMaxPct.activo) {
-    activas += 1;
-    const maxPct = Number(reglasCfg.mermaMaxPct.maxPct) || 2.5;
-    const ok = merma.pct <= maxPct;
-    if (ok) cumplidas += 1;
-    const fuenteLabel = merma.fuente === 'resultado_manual' ? ' · captura manual' : '';
-    detalleReglas.push({
-      id: 'mermaMaxPct',
-      label: reglasCfg.mermaMaxPct.label,
-      ok,
-      valor: `${merma.pct}%${fuenteLabel}`,
-      requerido: `≤ ${maxPct}%`,
-      fuente: merma.fuente || 'movimientos',
-    });
-  }
-
-  if (reglasCfg.evaluacionMinPct.activo) {
-    activas += 1;
-    const minPct = Number(reglasCfg.evaluacionMinPct.minPct) || 75;
-    const pct = evalRes.pct;
-    const ok = pct != null && pct >= minPct;
-    if (ok) cumplidas += 1;
-    detalleReglas.push({
-      id: 'evaluacionMinPct',
-      label: reglasCfg.evaluacionMinPct.label,
-      ok,
-      valor: pct == null ? 'Sin evaluación' : `${pct}%`,
-      requerido: `≥ ${minPct}%`,
-    });
-  }
-
-  if (reglasCfg.checklistDiario.activo) {
-    activas += 1;
-    const ok = check.ok;
-    if (ok) cumplidas += 1;
-    detalleReglas.push({
-      id: 'checklistDiario',
-      label: reglasCfg.checklistDiario.label,
-      ok,
-      valor: `${check.diasConChecklist}/${check.diasPeriodo} días`,
-      requerido: 'Diario cerrado',
-    });
-  }
-
-  // Mapear cumplidas sobre 4 slots (o activas) a niveles configurados
-  const cumplidasNorm = activas > 0 && activas < 4
-    ? Math.round((cumplidas / activas) * 4)
-    : cumplidas;
-
-  const pct = cfgLive.activo ? pctPorReglasCumplidas(cumplidasNorm, cfgLive) : 0;
   const bonoRecoleccion = cfgLive.activo && base > 0 ? bonoFinal(base, pct) : 0;
   const bonoTurnos = cfgLive.activo && bonosTurno?.activo ? (Number(bonosTurno.total) || 0) : 0;
   const bono = round2(bonoRecoleccion + bonoTurnos);
@@ -446,19 +482,22 @@ export async function calcularBonoSucursal(supabase, {
   return {
     ok: true,
     activo: cfgLive.activo,
+    modoCalculo: cfgLive.modoCalculo,
     sucursal: suc,
     periodo: rango,
     recoleccion: reco.total,
     recoleccionesCount: reco.count,
     base,
     pct,
+    penalizacionTotal,
+    bloqueadoPorFaltante,
     bono,
     bonoRecoleccion,
     bonoTurnos,
     bonosTurno,
     cumplidas,
     activas,
-    cumplidasNorm,
+    cumplidasNorm: cumplidas,
     reglas: detalleReglas,
     metricas: {
       faltante: falt.total,
