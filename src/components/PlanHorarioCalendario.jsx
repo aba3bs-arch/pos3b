@@ -358,39 +358,39 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
     if (fijo) {
       aplicar(setHorarioFijo(plan, true));
       setModoEdicion(null);
-      setAviso('Horario fijo activado. Usa “Mover esta semana” para un cambio puntual o “Cambiar horario habitual” para la plantilla.');
+      setAviso('Descansos fijos. Usa “Mover descanso esta semana” para un cambio puntual, o “Cambiar descanso habitual” si el día de descanso cambia para siempre.');
       return;
     }
-    if (!confirm('¿Quitar el candado? Podrás editar el horario habitual (L–D) libremente.')) return;
+    if (!confirm('¿Quitar el candado de descansos? Podrás editar el día de descanso habitual (L–D) libremente.')) return;
     aplicar(setHorarioFijo(plan, false));
     setModoEdicion(null);
   };
 
   const iniciarMoverSemana = () => {
     setModoEdicion('semana');
-    setAviso(`Editando solo la semana del ${lunesSemana}. El horario fijo (plantilla L–D) no cambia.`);
+    setAviso(`Mueve el bloque DESCANSO solo en la semana del ${lunesSemana}. El descanso habitual (plantilla) no cambia.`);
   };
 
   const iniciarCambiarHabitual = () => {
     if (!confirm(
-      '¿Cambiar el horario habitual?\n\n'
-      + 'Los cambios se guardan en la plantilla fija (todas las semanas).\n'
-      + 'Si solo quieres mover un descanso esta semana, usa “Mover esta semana”.',
+      '¿Cambiar el descanso habitual?\n\n'
+      + 'El nuevo día de descanso queda en la plantilla fija (todas las semanas).\n'
+      + 'Si solo es esta semana, usa “Mover descanso esta semana”.',
     )) return;
     setModoEdicion('habitual');
-    setAviso('Editando horario habitual (plantilla L–D). Guarda cuando termines.');
+    setAviso('Editando descanso habitual (plantilla L–D). Arrastra el DESCANSO y guarda.');
   };
 
   const terminarEdicion = () => {
     setModoEdicion(null);
-    setAviso(horarioFijo ? 'Horario fijo. Sin edición activa.' : '');
+    setAviso(horarioFijo ? 'Descansos fijos. Sin edición activa.' : '');
   };
 
   const restaurarSemana = () => {
     if (!hayOverrideSemana) return;
-    if (!confirm('¿Quitar el movimiento de esta semana y volver al horario fijo?')) return;
+    if (!confirm('¿Quitar el movimiento de esta semana y volver al descanso fijo?')) return;
     aplicar(limpiarOverrideSemana(plan, lunesSemana));
-    setAviso('Esta semana vuelve al horario fijo.');
+    setAviso('Esta semana vuelve al descanso fijo.');
   };
 
   const actor = user?.nombre ? ` · ${user.nombre}` : '';
@@ -402,7 +402,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
           <h3 style={{ margin: '0 0 0.25rem', color: 'var(--brand-blue)' }}>PLAN HORARIO ABARROTES 3B</h3>
           <p className="muted" style={{ margin: 0, fontSize: '0.82rem', maxWidth: 720 }}>
             {veTodasTiendas ? 'Calendario semanal de todas las tiendas.' : `Calendario semanal de ${etiquetaTienda(sucursal)}.`} Los nombres salen de <strong>Usuarios</strong> (empleados de tienda).
-            Configura el horario, déjalo <strong>fijo</strong> y muévelo solo cuando haga falta (esta semana o el habitual).
+            Marca el <strong>descanso</strong> de cada empleado, déjalo <strong>fijo</strong> y muévelo solo cuando haga falta (esta semana o el habitual).
             {actor}
           </p>
         </div>
@@ -435,9 +435,9 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
           className={horarioFijo ? 'btn btn-primary' : 'btn btn-ghost'}
           onClick={() => fijarHorario(true)}
           disabled={horarioFijo && !modoEdicion}
-          title="Bloquea la plantilla L–D para que no se mueva por accidente"
+          title="Bloquea los descansos de la plantilla L–D para que no se muevan por accidente"
         >
-          {horarioFijo ? '🔒 Horario fijo' : 'Dejar fijo'}
+          {horarioFijo ? '🔒 Descansos fijos' : 'Fijar descansos'}
         </button>
         {horarioFijo ? (
           <>
@@ -445,19 +445,21 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
               type="button"
               className={editandoSemana ? 'btn btn-primary' : 'btn btn-ghost'}
               onClick={() => (editandoSemana ? terminarEdicion() : iniciarMoverSemana())}
+              title="Mueve el bloque DESCANSO solo en esta semana"
             >
-              {editandoSemana ? 'Listo (semana)' : 'Mover esta semana'}
+              {editandoSemana ? 'Listo (semana)' : 'Mover descanso esta semana'}
             </button>
             <button
               type="button"
               className={modoEdicion === 'habitual' ? 'btn btn-primary' : 'btn btn-ghost'}
               onClick={() => (modoEdicion === 'habitual' ? terminarEdicion() : iniciarCambiarHabitual())}
+              title="Cambia el día de descanso de la plantilla (todas las semanas)"
             >
-              {modoEdicion === 'habitual' ? 'Listo (habitual)' : 'Cambiar horario habitual'}
+              {modoEdicion === 'habitual' ? 'Listo (habitual)' : 'Cambiar descanso habitual'}
             </button>
             {hayOverrideSemana && (
               <button type="button" className="btn btn-ghost" onClick={restaurarSemana}>
-                Restaurar esta semana al fijo
+                Restaurar descanso de esta semana
               </button>
             )}
             <button type="button" className="btn btn-ghost" onClick={() => fijarHorario(false)}>
@@ -466,22 +468,22 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
           </>
         ) : (
           <span className="muted" style={{ fontSize: '0.8rem' }}>
-            Editable: arrastra bloques o edita celdas. Cuando esté bien, pulsa <strong>Dejar fijo</strong>.
+            Marca el <strong>DESCANSO</strong> de cada quien (clic o arrastre). Cuando quede bien, pulsa <strong>Fijar descansos</strong>.
           </span>
         )}
         {editandoSemana && (
           <span style={{ fontSize: '0.8rem', color: '#2e7d32', fontWeight: 600 }}>
-            Solo esta semana · plantilla intacta
+            Solo esta semana · descanso habitual intacto
           </span>
         )}
         {modoEdicion === 'habitual' && (
           <span style={{ fontSize: '0.8rem', color: '#1565c0', fontWeight: 600 }}>
-            Editando plantilla habitual
+            Editando descanso habitual
           </span>
         )}
         {!puedeEditar && horarioFijo && (
           <span className="muted" style={{ fontSize: '0.8rem' }}>
-            Bloqueado · elige “Mover esta semana” o “Cambiar horario habitual”
+            Bloqueado · elige “Mover descanso esta semana” o “Cambiar descanso habitual”
           </span>
         )}
       </div>
