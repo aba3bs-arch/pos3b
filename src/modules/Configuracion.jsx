@@ -128,7 +128,7 @@ import {
   pinCubreTurnoActivo,
 } from '../lib/cubreTurno.js';
 import { pinUsuarioOcupadoEnSucursal } from '../lib/usuariosAuth.js';
-import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarPrivilegios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, SUBMODULOS_ESTADISTICAS, ROLES, listarTodosLosRoles, leerRolesPersonalizados, agregarRolPersonalizado, quitarRolPersonalizado, esRolSistema, EVENTO_ROLES, modulosDefaultRol, modulosEnEdicionPrivilegios, tieneListaPersonalizada, normalizarListaModulos, describeOrigenPrivilegios, normalizarRol } from '../lib/roles.js';
+import { puedeAsignarTurnos, puedeGestionarUsuarios, puedeGestionarPrivilegios, puedeGestionarInventarioMultitienda, MODULOS_PRIVILEGIOS_GENERAL, MODULOS_CORTES, SUBMODULOS_CONTABILIDAD, SUBMODULOS_ESTADISTICAS, ROLES, listarTodosLosRoles, leerRolesPersonalizados, agregarRolPersonalizado, quitarRolPersonalizado, esRolSistema, EVENTO_ROLES, modulosDefaultRol, modulosEnEdicionPrivilegios, tieneListaPersonalizada, normalizarListaModulos, describeOrigenPrivilegios, normalizarRol, esRolMostradorRestringido, esRolRepartidor, MODULOS_BLOQUEADOS_MOSTRADOR, MODULOS_BLOQUEADOS_REPARTIDOR } from '../lib/roles.js';
 import { puedeRecibirNotificacionesDispositivo } from '../lib/notificacionesDispositivo.js';
 import { sincronizarPrivilegiosDesdeNube } from '../lib/privilegiosSync.js';
 import { cargarPinsCubreTurnoDesdeNube, AVISO_SIN_TABLA_PIN_CUBRE } from '../lib/cubreTurnoSync.js';
@@ -1771,8 +1771,9 @@ export default function Configuracion({
         <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Privilegios por rol o usuario</h3>
           <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-            Personaliza qué módulos ve cada rol o empleado. Al guardar se sincroniza en Supabase para que <strong>todas las cajas</strong> usen la misma configuración.
+            Cada cambio (módulo o acción) se guarda y sincroniza de inmediato en Supabase para que <strong>todas las cajas</strong> lo apliquen desde ese momento.
             Si un empleado tiene lista <strong>por usuario</strong>, esa lista tiene prioridad sobre su rol.
+            No hace falta editar código para quitar o poner privilegios.
           </p>
           {privAvisoNube && (
             <p className="muted" style={{ margin: '0.5rem 0', fontSize: '0.82rem', color: 'var(--brand-gold)' }}>{privAvisoNube}</p>
@@ -1832,26 +1833,40 @@ export default function Configuracion({
                 ? usuariosTurno.filter((u) => normalizarRol(u.rol) === normalizarRol(privRol) && tieneListaPersonalizada('porUsuario', u.id, privilegios))
                 : [];
 
+            const moduloBloqueadoDuro = (mod) => {
+              if (esRolMostradorRestringido(rolBase) && MODULOS_BLOQUEADOS_MOSTRADOR.has(mod)) return true;
+              if (esRolRepartidor(rolBase) && MODULOS_BLOQUEADOS_REPARTIDOR.has(mod)) return true;
+              return false;
+            };
+
             const aplicarModulos = async (next) => {
               if (!privKey) return;
-              const normalizado = normalizarListaModulos(next);
+              const limpio = next.filter((m) => !moduloBloqueadoDuro(m));
+              const normalizado = normalizarListaModulos(limpio);
               const data = { ...privilegios, [store]: { ...privilegios[store], [privKey]: normalizado } };
               setPrivilegios(data);
               await guardarPrivilegiosYSubir(data);
             };
 
             const toggleModulo = (mod) => {
-              if (!privKey) return;
+              if (!privKey || moduloBloqueadoDuro(mod)) return;
               const actual = modulosEnEdicionPrivilegios({ privilegios, store, key: privKey, defaults: baseModulos });
               const next = actual.includes(mod) ? actual.filter((m) => m !== mod) : [...actual, mod];
               void aplicarModulos(next);
+            };
+
+            const aplicarAccionYSubir = (next) => {
+              setPrivilegios(next);
+              void guardarPrivilegiosYSubir(next);
             };
 
             const toggleTodosContabilidad = (marcar) => {
               if (!privKey) return;
               const actual = modulosEnEdicionPrivilegios({ privilegios, store, key: privKey, defaults: baseModulos });
               const sinSub = actual.filter((m) => !SUBMODULOS_CONTABILIDAD.includes(m));
-              const next = marcar ? [...sinSub, ...SUBMODULOS_CONTABILIDAD] : sinSub;
+              const next = marcar
+                ? [...sinSub, ...SUBMODULOS_CONTABILIDAD.filter((m) => !moduloBloqueadoDuro(m))]
+                : sinSub;
               void aplicarModulos(next);
             };
 
@@ -1859,7 +1874,9 @@ export default function Configuracion({
               if (!privKey) return;
               const actual = modulosEnEdicionPrivilegios({ privilegios, store, key: privKey, defaults: baseModulos });
               const sinSub = actual.filter((m) => !SUBMODULOS_ESTADISTICAS.includes(m));
-              const next = marcar ? [...sinSub, ...SUBMODULOS_ESTADISTICAS] : sinSub;
+              const next = marcar
+                ? [...sinSub, ...SUBMODULOS_ESTADISTICAS.filter((m) => !moduloBloqueadoDuro(m))]
+                : sinSub;
               void aplicarModulos(next);
             };
 
@@ -1894,14 +1911,22 @@ export default function Configuracion({
                         {usuariosConOverride.map((u) => u.nombre).join(', ')}
                       </div>
                     )}
+                    {(esRolMostradorRestringido(rolBase) || esRolRepartidor(rolBase)) && (
+                      <div className="muted" style={{ marginTop: '0.35rem', fontSize: '0.78rem', lineHeight: 1.35 }}>
+                        Algunos módulos están bloqueados de forma fija para este rol (seguridad de caja). Aparecen deshabilitados y no se pueden activar desde aquí.
+                      </div>
+                    )}
                   </div>
                 )}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.5rem' }}>
-                  {MODULOS_PRIVILEGIOS_GENERAL.map((mod) => (
-                    <div key={mod} style={{ padding: '0.35rem 0', fontSize: '0.88rem' }}>
+                  {MODULOS_PRIVILEGIOS_GENERAL.map((mod) => {
+                    const bloqueado = moduloBloqueadoDuro(mod);
+                    return (
+                    <div key={mod} style={{ padding: '0.35rem 0', fontSize: '0.88rem', opacity: bloqueado ? 0.55 : 1 }}>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                        <input type="checkbox" checked={activos.includes(mod)} disabled={!privKey} onChange={() => toggleModulo(mod)} />
+                        <input type="checkbox" checked={!bloqueado && activos.includes(mod)} disabled={!privKey || bloqueado} onChange={() => toggleModulo(mod)} />
                         <strong>{mod}</strong>
+                        {bloqueado && <span className="muted" style={{ fontSize: '0.72rem' }}>(bloqueado)</span>}
                       </label>
                       {mod === 'Incidencias' && (
                         <p className="muted" style={{ margin: '0.2rem 0 0 1.45rem', fontSize: '0.78rem', lineHeight: 1.35 }}>
@@ -1919,7 +1944,8 @@ export default function Configuracion({
                         </p>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
                 {privKey && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.5rem' }}>
@@ -1963,12 +1989,15 @@ export default function Configuracion({
                     Todos los submódulos de Contabilidad
                   </label>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.35rem', paddingLeft: '1.25rem' }}>
-                    {SUBMODULOS_CONTABILIDAD.map((mod) => (
-                      <label key={mod} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem' }}>
-                        <input type="checkbox" checked={activos.includes(mod)} disabled={!privKey} onChange={() => toggleModulo(mod)} />
-                        {mod}
+                    {SUBMODULOS_CONTABILIDAD.map((mod) => {
+                      const bloqueado = moduloBloqueadoDuro(mod);
+                      return (
+                      <label key={mod} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem', opacity: bloqueado ? 0.55 : 1 }}>
+                        <input type="checkbox" checked={!bloqueado && activos.includes(mod)} disabled={!privKey || bloqueado} onChange={() => toggleModulo(mod)} />
+                        {mod}{bloqueado ? ' (bloqueado)' : ''}
                       </label>
-                    ))}
+                      );
+                    })}
                   </div>
                   {privKey && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.65rem' }}>
@@ -2018,12 +2047,15 @@ export default function Configuracion({
                     Todas las áreas de Estadísticas
                   </label>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.35rem', paddingLeft: '1.25rem' }}>
-                    {SUBMODULOS_ESTADISTICAS.map((mod) => (
-                      <label key={mod} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem' }}>
-                        <input type="checkbox" checked={activos.includes(mod)} disabled={!privKey} onChange={() => toggleModulo(mod)} />
-                        {mod}
+                    {SUBMODULOS_ESTADISTICAS.map((mod) => {
+                      const bloqueado = moduloBloqueadoDuro(mod);
+                      return (
+                      <label key={mod} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem', opacity: bloqueado ? 0.55 : 1 }}>
+                        <input type="checkbox" checked={!bloqueado && activos.includes(mod)} disabled={!privKey || bloqueado} onChange={() => toggleModulo(mod)} />
+                        {mod}{bloqueado ? ' (bloqueado)' : ''}
                       </label>
-                    ))}
+                      );
+                    })}
                   </div>
                   {privKey && !algunoSubEst && (
                     <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem', color: 'var(--brand-red)' }}>
@@ -2048,7 +2080,7 @@ export default function Configuracion({
                           onChange={(e) => {
                             if (!privKey) return;
                             const next = guardarAccionPrivilegio(acc.id, privModo, privKey, e.target.checked);
-                            setPrivilegios(next);
+                            aplicarAccionYSubir(next);
                           }}
                         />
                         {acc.label}
@@ -2083,7 +2115,7 @@ export default function Configuracion({
                           onChange={(e) => {
                             if (!privKey) return;
                             const next = guardarAccionPrivilegio(acc.id, privModo, privKey, e.target.checked);
-                            setPrivilegios(next);
+                            aplicarAccionYSubir(next);
                           }}
                         />
                         {acc.label}
@@ -2124,7 +2156,7 @@ export default function Configuracion({
                             onChange={(e) => {
                               if (!privKey) return;
                               const next = guardarAccionPrivilegioExplicit(acc.id, privModo, privKey, e.target.checked);
-                              setPrivilegios(next);
+                              aplicarAccionYSubir(next);
                             }}
                           />
                           <span>
@@ -2171,7 +2203,7 @@ export default function Configuracion({
                             onChange={(e) => {
                               if (!privKey) return;
                               const next = guardarAccionPrivilegioExplicit(acc.id, privModo, privKey, e.target.checked);
-                              setPrivilegios(next);
+                              aplicarAccionYSubir(next);
                             }}
                           />
                           <span>
@@ -2261,7 +2293,7 @@ export default function Configuracion({
                             onChange={(e) => {
                               if (!privKey) return;
                               const next = guardarAccionPrivilegio(acc.id, privModo, privKey, e.target.checked);
-                              setPrivilegios(next);
+                              aplicarAccionYSubir(next);
                             }}
                           />
                           <span>
@@ -2289,7 +2321,7 @@ export default function Configuracion({
                 if (ok) alert('Privilegios guardados y sincronizados.');
               }}
             >
-              {privGuardando ? 'Guardando…' : 'Guardar y sincronizar'}
+              {privGuardando ? 'Guardando…' : 'Sincronizar ahora'}
             </button>
             <button
               type="button"
