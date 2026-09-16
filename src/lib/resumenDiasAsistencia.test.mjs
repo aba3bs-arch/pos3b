@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import {
+  calcularSuspensionBonoPorFaltas,
   clasificarHuecosSinAsistencia,
   construirCalendarioAsistencia,
   construirResumenEmpleados,
@@ -449,6 +450,92 @@ assert.equal(
     descansosAutorizados: [{ usuario_id: 'c1', fecha: '2026-09-14' }],
   })
   assert.equal(conAut.find((b) => b.nombre === 'Carlos'), undefined)
+}
+
+{
+  // Una falta lunes 14 → sin bono hasta dom 20; se reactiva lunes 21.
+  const una = calcularSuspensionBonoPorFaltas(['2026-09-14'], { hoy: '2026-09-16', diasBloqueo: 7 })
+  assert.ok(una)
+  assert.equal(una.faltaYmd, '2026-09-14')
+  assert.equal(una.primeraFaltaYmd, '2026-09-14')
+  assert.equal(una.faltasCount, 1)
+  assert.equal(una.diasAcumuladosExtra, 0)
+  assert.equal(una.sinBonoHasta, '2026-09-20')
+  assert.equal(una.vuelveBonoYmd, '2026-09-21')
+  assert.equal(una.diasRestantes, 5)
+
+  // El lunes 21 ya recuperó (si no faltó de nuevo).
+  assert.equal(
+    calcularSuspensionBonoPorFaltas(['2026-09-14'], { hoy: '2026-09-21', diasBloqueo: 7 }),
+    null,
+  )
+
+  // Dos faltas (lun 14 y mié 16): se acumula la diferencia (2d) → vuelve mié 23 (= 16+7).
+  const dos = calcularSuspensionBonoPorFaltas(['2026-09-14', '2026-09-16'], {
+    hoy: '2026-09-17',
+    diasBloqueo: 7,
+  })
+  assert.ok(dos)
+  assert.equal(dos.faltasCount, 2)
+  assert.equal(dos.primeraFaltaYmd, '2026-09-14')
+  assert.equal(dos.faltaYmd, '2026-09-16')
+  assert.equal(dos.diasAcumuladosExtra, 2)
+  assert.equal(dos.vuelveBonoYmd, '2026-09-23')
+  assert.equal(dos.sinBonoHasta, '2026-09-22')
+
+  // Tras recuperar, una falta nueva empieza cadena limpia.
+  const nueva = calcularSuspensionBonoPorFaltas(['2026-09-14', '2026-09-28'], {
+    hoy: '2026-09-29',
+    diasBloqueo: 7,
+  })
+  assert.ok(nueva)
+  assert.equal(nueva.faltasCount, 1)
+  assert.equal(nueva.faltaYmd, '2026-09-28')
+  assert.equal(nueva.vuelveBonoYmd, '2026-10-05')
+  assert.equal(nueva.diasAcumuladosExtra, 0)
+}
+
+{
+  // Integración: dos faltas laborales (lun+mié) con patrón LM → bloqueo hasta mié+7.
+  const horarioLM = {
+    tipo: 'personalizado',
+    dias: { 1: 'diurno', 2: 'diurno', 3: 'diurno' },
+  }
+  const ahora = new Date(2026, 8, 17, 12, 0, 0) // jueves 17 sep
+  // Presencia en semanas previas para que solo cuenten las faltas recientes 14 y 16.
+  const marcajesPrev = []
+  for (const ymd of [
+    '2026-08-10', '2026-08-11', '2026-08-12',
+    '2026-08-17', '2026-08-18', '2026-08-19',
+    '2026-08-24', '2026-08-25', '2026-08-26',
+    '2026-08-31', '2026-09-01', '2026-09-02',
+    '2026-09-07', '2026-09-08', '2026-09-09',
+    '2026-09-15', // martes sí; lun 14 y mié 16 faltan
+  ]) {
+    marcajesPrev.push(...parDia('m2', 'Pedro', '3B5', ymd))
+  }
+  const bloqueos = listarBloqueosBonoPorFalta({
+    usuarios: [{
+      id: 'm2',
+      nombre: 'Pedro',
+      rol: 'Cajero',
+      sucursal_id: '3B5',
+      activo: true,
+      tipo_empleado: 'tienda',
+      turno_horario: horarioLM,
+    }],
+    marcajes: marcajesPrev,
+    sucursalId: '3B5',
+    ahora,
+    diasBloqueo: 7,
+  })
+  const pedro = bloqueos.find((b) => b.nombre === 'Pedro')
+  assert.ok(pedro)
+  assert.equal(pedro.faltasCount, 2)
+  assert.equal(pedro.primeraFaltaYmd, '2026-09-14')
+  assert.equal(pedro.faltaYmd, '2026-09-16')
+  assert.equal(pedro.diasAcumuladosExtra, 2)
+  assert.equal(pedro.vuelveBonoYmd, '2026-09-23')
 }
 
 console.log('resumenDiasAsistencia.test.mjs ok')

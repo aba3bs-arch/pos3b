@@ -274,8 +274,10 @@ export function diasConAlgunaChecada(marcajes = []) {
 }
 
 /**
- * Días de bloqueo contando el de la falta.
- * Faltó lunes → sin bono lun–dom; el próximo lunes ya tiene bono (vuelve a los 7 días).
+ * Una falta → sin bono desde ese día; se reactiva la siguiente semana el mismo día
+ * (ej. faltó lunes 14 → vuelve lunes 21), si no volvió a faltar.
+ * Varias faltas antes de recuperar: se acumula la diferencia de días entre faltas
+ * (= se reactiva 7 días después de la última falta de la cadena).
  */
 export const DIAS_BLOQUEO_BONO_POR_FALTA = 7
 
@@ -295,6 +297,77 @@ export function diasInclusiveEntre(desdeYmd, hastaYmd) {
   const a = Date.UTC(y0, m0 - 1, d0)
   const b = Date.UTC(y1, m1 - 1, d1)
   return Math.floor((b - a) / 86400000) + 1
+}
+
+/** Días calendario entre dos YMD (0 si misma fecha; no inclusivo). */
+export function diasEntreYmd(desdeYmd, hastaYmd) {
+  if (!desdeYmd || !hastaYmd) return 0
+  const [y0, m0, d0] = String(desdeYmd).slice(0, 10).split('-').map(Number)
+  const [y1, m1, d1] = String(hastaYmd).slice(0, 10).split('-').map(Number)
+  if (![y0, m0, d0, y1, m1, d1].every((n) => Number.isFinite(n))) return 0
+  const a = Date.UTC(y0, m0 - 1, d0)
+  const b = Date.UTC(y1, m1 - 1, d1)
+  return Math.floor((b - a) / 86400000)
+}
+
+/**
+ * Suspensión de bono por faltas encadenadas.
+ *
+ * @param {string[]} faltasYmd fechas de falta (día laboral sin entrada ni salida), orden indistinto
+ * @param {{ hoy: string, diasBloqueo?: number }} opts
+ * @returns {null | {
+ *   faltaYmd: string,
+ *   primeraFaltaYmd: string,
+ *   faltasYmd: string[],
+ *   faltasCount: number,
+ *   diasAcumuladosExtra: number,
+ *   sinBonoHasta: string,
+ *   vuelveBonoYmd: string,
+ *   diasRestantes: number,
+ * }}
+ */
+export function calcularSuspensionBonoPorFaltas(faltasYmd = [], { hoy, diasBloqueo = DIAS_BLOQUEO_BONO_POR_FALTA } = {}) {
+  const ban = Math.max(1, Number(diasBloqueo) || DIAS_BLOQUEO_BONO_POR_FALTA)
+  const sorted = [...new Set((faltasYmd || []).map((x) => String(x || '').slice(0, 10)).filter(Boolean))].sort()
+  if (!sorted.length || !hoy) return null
+
+  let cadena = []
+  let vuelve = null
+
+  for (const f of sorted) {
+    if (vuelve == null || f < vuelve) {
+      // Misma cadena: cada falta mueve el regreso a f+7
+      // (= primera+7 + suma de diferencias entre faltas consecutivas).
+      cadena.push(f)
+      vuelve = sumarDiasYmd(f, ban)
+    } else {
+      // Ya había recuperado el bono; cadena nueva.
+      cadena = [f]
+      vuelve = sumarDiasYmd(f, ban)
+    }
+  }
+
+  if (!vuelve || !cadena.length) return null
+  const primera = cadena[0]
+  const ultima = cadena[cadena.length - 1]
+  if (hoy < primera || hoy >= vuelve) return null
+
+  const sinBonoHasta = sumarDiasYmd(vuelve, -1)
+  let diasAcumuladosExtra = 0
+  for (let i = 1; i < cadena.length; i += 1) {
+    diasAcumuladosExtra += Math.max(0, diasEntreYmd(cadena[i - 1], cadena[i]))
+  }
+
+  return {
+    faltaYmd: ultima,
+    primeraFaltaYmd: primera,
+    faltasYmd: cadena,
+    faltasCount: cadena.length,
+    diasAcumuladosExtra,
+    sinBonoHasta,
+    vuelveBonoYmd: vuelve,
+    diasRestantes: diasInclusiveEntre(hoy, sinBonoHasta),
+  }
 }
 
 function dateLocalDesdeYmd(ymd) {
@@ -351,7 +424,9 @@ export function diaLaborableParaBono(user, ymd, ctx = {}) {
  * - Falta = día laboral sin ENTRADA ni SALIDA.
  * - Descanso (plan / patrón / autorizado) no cuenta como falta.
  * - Entrada sola o salida sola → SÍ tiene bono.
- * - Bloqueo: 7 días desde la falta; el día 8 ya tiene bono.
+ * - 1 falta: sin bono desde ese día; se reactiva la siguiente semana el mismo día.
+ * - Varias faltas antes de recuperar: se acumula la diferencia de días entre faltas
+ *   (vuelve 7 días después de la última falta de la cadena).
  *
  * @param {{ plan?: object, descansosAutorizados?: Array|Set<string> }} [opts]
  */
@@ -367,7 +442,8 @@ export function listarBloqueosBonoPorFalta({
   const suc = normalizarCodigoTienda(sucursalId)
   const hoy = ymdLocal(ahora)
   const diasBan = Math.max(1, Number(diasBloqueo) || DIAS_BLOQUEO_BONO_POR_FALTA)
-  const lookback = Math.max(21, diasBan + 14)
+  // Mirar atrás lo suficiente para encadenar varias faltas acumuladas.
+  const lookback = Math.max(45, diasBan * 6)
   const desdeYmd = sumarDiasYmd(hoy, -lookback)
   const periodo = listarYmdInclusive(desdeYmd, hoy)
 
@@ -397,7 +473,7 @@ export function listarBloqueosBonoPorFalta({
     marcajesPorUsuario.get(uid).push(m)
   }
 
-  /** @type {Array<{ clave: string, nombre: string, sucursalId: string, faltaYmd: string, sinBonoHasta: string, vuelveBonoYmd: string, diasRestantes: number }>} */
+  /** @type {Array<object>} */
   const out = []
 
   for (const u of plantilla) {
@@ -409,28 +485,24 @@ export function listarBloqueosBonoPorFalta({
       if (presentes.has(ymd)) continue
       faltas.push(ymd)
     }
-    for (const faltaYmd of faltas) {
-      const sinBonoHasta = sumarDiasYmd(faltaYmd, diasBan - 1)
-      const vuelveBonoYmd = sumarDiasYmd(faltaYmd, diasBan)
-      if (!sinBonoHasta || hoy < faltaYmd || hoy > sinBonoHasta) continue
-      out.push({
-        clave: `id:${uid}`,
-        nombre: u.nombre || 'Sin nombre',
-        sucursalId: normalizarCodigoTienda(u.sucursal_id) || suc,
-        faltaYmd,
-        sinBonoHasta,
-        vuelveBonoYmd,
-        diasRestantes: diasInclusiveEntre(hoy, sinBonoHasta),
-      })
-    }
+    const susp = calcularSuspensionBonoPorFaltas(faltas, { hoy, diasBloqueo: diasBan })
+    if (!susp) continue
+    out.push({
+      clave: `id:${uid}`,
+      nombre: u.nombre || 'Sin nombre',
+      sucursalId: normalizarCodigoTienda(u.sucursal_id) || suc,
+      faltaYmd: susp.faltaYmd,
+      primeraFaltaYmd: susp.primeraFaltaYmd,
+      faltasYmd: susp.faltasYmd,
+      faltasCount: susp.faltasCount,
+      diasAcumuladosExtra: susp.diasAcumuladosExtra,
+      sinBonoHasta: susp.sinBonoHasta,
+      vuelveBonoYmd: susp.vuelveBonoYmd,
+      diasRestantes: susp.diasRestantes,
+    })
   }
 
-  const porEmpleado = new Map()
-  for (const row of out) {
-    const prev = porEmpleado.get(row.clave)
-    if (!prev || row.faltaYmd > prev.faltaYmd) porEmpleado.set(row.clave, row)
-  }
-  return [...porEmpleado.values()].sort((a, b) => {
+  return out.sort((a, b) => {
     if (a.faltaYmd !== b.faltaYmd) return String(b.faltaYmd).localeCompare(String(a.faltaYmd))
     return String(a.nombre).localeCompare(String(b.nombre), 'es')
   })
@@ -648,7 +720,7 @@ export async function cargarBloqueosBonoPorFalta(supabase, {
   if (!supabase || !sucursalId) return { ok: false, data: [], error: 'Sin sucursal.' }
   const suc = normalizarCodigoTienda(sucursalId)
   const hoy = ymdLocal(ahora)
-  const lookback = Math.max(21, (Number(diasBloqueo) || 7) + 14)
+  const lookback = Math.max(45, (Number(diasBloqueo) || 7) * 6)
   const desdeYmd = sumarDiasYmd(hoy, -lookback)
   const desdeIso = `${desdeYmd}T00:00:00`
   const hastaIso = new Date(ahora.getTime() + 24 * 3600 * 1000).toISOString()
