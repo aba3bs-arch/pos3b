@@ -17,7 +17,7 @@ import {
 } from './descansosAutorizados.js'
 import { resolverTipoEmpleado } from './empleadosVisibles.js'
 import { normalizarNombreEmpleado } from './nominaMatch.js'
-import { esDescansoEnPlanHorario, celdaPlanEmpleadoDia, diaDescansoPlanEmpleado } from './planHorario.js'
+import { esDescansoEnPlanHorario, celdaPlanEmpleadoDia, diaDescansoPlanEmpleado, tieneOverrideSemana } from './planHorario.js'
 import { leerPlanHorarioLocal, sincronizarPlanHorarioDesdeNube } from './planHorarioSync.js'
 import { normalizarRol } from './roles.js'
 import { ymdLocal } from './semanaNomina.js'
@@ -471,10 +471,13 @@ export function diaLaborableParaBono(user, ymd, ctx = {}) {
   const descansoPlanActual = uid && ctx.plan ? diaDescansoPlanEmpleado(ctx.plan, uid) : null
   const habitual = diaDescansoHabitualEmpleado(user)
 
-  // 2) Semana actual: si hay fila en plan, la celda manda (ej. descanso movido a miércoles).
-  //    No se aplica el plan actual a semanas pasadas (evitar que miércoles viejos
-  //    se vuelvan “descanso” retroactivo al mover el plan).
-  if (enSemanaActual && celdaPlan) {
+  // 2) Semana con override puntual, o semana actual: la celda efectiva manda
+  //    (ej. descanso movido a miércoles solo esa semana sin tocar el fijo).
+  //    No se aplica la plantilla actual a semanas pasadas sin override.
+  const usaCeldaPlan = Boolean(
+    celdaPlan && (enSemanaActual || (ctx.plan && tieneOverrideSemana(ctx.plan, date))),
+  )
+  if (usaCeldaPlan) {
     return celdaPlan.tipo !== 'descanso'
   }
 

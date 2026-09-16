@@ -4,6 +4,7 @@ import {
   formatoBloqueHorario,
   fusionarPlanConUsuarios,
   moverCelda,
+  moverCeldaSemana,
   parchearCelda,
   asignarDescansoConCt,
   quitarDescanso,
@@ -14,6 +15,13 @@ import {
   tituloTiendaPlan,
   empleadosPorTiendaParaPlan,
   COLOR_DESCANSO_DEFAULT,
+  setHorarioFijo,
+  celdaPlanEmpleadoDia,
+  esDescansoEnPlanHorario,
+  tieneOverrideSemana,
+  limpiarOverrideSemana,
+  claveLunesSemana,
+  normalizarPlan,
 } from './planHorario.js';
 import { tieneAccionPlanHorario, ACCION_PLAN_HORARIO } from './planHorarioAcciones.js';
 
@@ -77,6 +85,7 @@ const cts = listarCandidatosCt({
     { id: 10, nombre_completo: 'Angel Perez', telefono: '6311110000', tipo_empleado: 'cubre_turno', estado: 'activo' },
     { id: 11, nombre_completo: 'Viejo', estado: 'baja' },
   ],
+  soloRh: false,
 });
 assert.ok(cts.some((c) => c.nombre === 'Angel Perez' && c.origen === 'rh'));
 assert.ok(cts.some((c) => c.nombre === 'Leitah' && c.origen === 'usuario'));
@@ -101,5 +110,27 @@ const conservado = fusionarPlanConUsuarios(
   usuarios,
 );
 assert.equal(conservado.filas.find((f) => f.id === filaLeitah).celdas['1'].ctNombre, 'Mayre');
+
+// Horario fijo + mover solo una semana (plantilla intacta)
+let fijo = setHorarioFijo(asignarDescansoConCt(plan, filaLeitah, 0, { nombre: 'Samuel' }), true);
+assert.equal(fijo.horarioFijo, true);
+assert.equal(fijo.filas.find((f) => f.id === filaLeitah).celdas['0'].tipo, 'descanso');
+
+const lunes = claveLunesSemana('2026-09-16'); // miércoles → lunes 14
+assert.equal(lunes, '2026-09-14');
+fijo = moverCeldaSemana(fijo, lunes, filaLeitah, 0, filaLeitah, 3); // dom → mié
+assert.equal(fijo.filas.find((f) => f.id === filaLeitah).celdas['0'].tipo, 'descanso', 'plantilla sigue en domingo');
+assert.equal(fijo.filas.find((f) => f.id === filaLeitah).celdas['3'].tipo, 'turno', 'plantilla miércoles intacto');
+assert.ok(tieneOverrideSemana(fijo, '2026-09-16'));
+assert.equal(celdaPlanEmpleadoDia(fijo, 1, '2026-09-16').tipo, 'descanso', 'miércoles de esa semana = descanso');
+assert.equal(celdaPlanEmpleadoDia(fijo, 1, '2026-09-20').tipo, 'turno', 'domingo de esa semana = turno');
+assert.equal(esDescansoEnPlanHorario(fijo, 1, '2026-09-27'), true, 'otro domingo sigue plantilla');
+assert.equal(esDescansoEnPlanHorario(fijo, 1, '2026-09-23'), false, 'otro miércoles sigue plantilla');
+
+fijo = limpiarOverrideSemana(fijo, lunes);
+assert.ok(!tieneOverrideSemana(fijo, '2026-09-16'));
+assert.equal(celdaPlanEmpleadoDia(fijo, 1, '2026-09-16').tipo, 'turno');
+assert.equal(normalizarPlan({ filas: [] }).horarioFijo, false);
+assert.deepEqual(normalizarPlan({ filas: [], horarioFijo: true }).overridesSemana, {});
 
 console.log('planHorario.test.mjs OK');

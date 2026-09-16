@@ -8,17 +8,26 @@ import {
   DIAS_PLAN_HORARIO,
   agruparFilasPorTienda,
   asignarDescansoConCt,
+  asignarDescansoConCtSemana,
+  celdasEfectivasFila,
+  claveLunesDesdeOffset,
   colorFondoCelda,
   etiquetaFechaCorta,
   fechasSemanaPlan,
   formatoBloqueHorario,
   fusionarPlanConUsuarios,
+  limpiarOverrideSemana,
   listarCandidatosCt,
   mapasRhParaPlan,
   moverCelda,
+  moverCeldaSemana,
   parchearCelda,
+  parchearCeldaSemana,
   quitarDescanso,
+  quitarDescansoSemana,
+  setHorarioFijo,
   textoCelda,
+  tieneOverrideSemana,
   turnoDeFila,
 } from '../lib/planHorario.js';
 import {
@@ -67,6 +76,8 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
   const [sel, setSel] = useState(null);
   const [ctManual, setCtManual] = useState('');
   const [dirty, setDirty] = useState(false);
+  /** null | 'semana' | 'habitual' — solo aplica cuando horarioFijo */
+  const [modoEdicion, setModoEdicion] = useState(null);
   const dragRef = useRef(null);
   const [dragOver, setDragOver] = useState(null);
 
@@ -75,6 +86,15 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
     && !esUsuarioCubreTurno(user);
 
   const fechas = useMemo(() => fechasSemanaPlan(semanaOff), [semanaOff]);
+  const lunesSemana = useMemo(() => claveLunesDesdeOffset(semanaOff), [semanaOff]);
+  const horarioFijo = Boolean(plan?.horarioFijo);
+  const editandoSemana = horarioFijo && modoEdicion === 'semana';
+  const editandoHabitual = !horarioFijo || modoEdicion === 'habitual';
+  const puedeEditar = editandoSemana || editandoHabitual;
+  const hayOverrideSemana = useMemo(
+    () => tieneOverrideSemana(plan, lunesSemana),
+    [plan, lunesSemana],
+  );
 
   const candidatos = useMemo(() => {
     const filaSel = sel
@@ -158,14 +178,43 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
     if (!sel) return null;
     const fila = plan.filas.find((f) => f.id === sel.filaId);
     if (!fila) return null;
-    return { fila, celda: fila.celdas[String(sel.diaId)], horas: horasPorFila.get(fila.id) };
-  }, [sel, plan, horasPorFila]);
+    const celdas = celdasEfectivasFila(plan, fila, lunesSemana);
+    return { fila, celda: celdas[String(sel.diaId)], horas: horasPorFila.get(fila.id) };
+  }, [sel, plan, horasPorFila, lunesSemana]);
 
   const aplicar = useCallback((next) => {
     setPlan(next);
     setDirty(true);
     setAviso('');
   }, []);
+
+  const aplicarMovimiento = useCallback((fromFilaId, fromDia, toFilaId, toDia) => {
+    if (editandoSemana) {
+      return moverCeldaSemana(plan, lunesSemana, fromFilaId, fromDia, toFilaId, toDia);
+    }
+    return moverCelda(plan, fromFilaId, fromDia, toFilaId, toDia);
+  }, [editandoSemana, plan, lunesSemana]);
+
+  const aplicarParche = useCallback((filaId, dia, patch) => {
+    if (editandoSemana) {
+      return parchearCeldaSemana(plan, lunesSemana, filaId, dia, patch);
+    }
+    return parchearCelda(plan, filaId, dia, patch);
+  }, [editandoSemana, plan, lunesSemana]);
+
+  const aplicarDescanso = useCallback((filaId, dia, ct) => {
+    if (editandoSemana) {
+      return asignarDescansoConCtSemana(plan, lunesSemana, filaId, dia, ct);
+    }
+    return asignarDescansoConCt(plan, filaId, dia, ct);
+  }, [editandoSemana, plan, lunesSemana]);
+
+  const aplicarQuitarDescanso = useCallback((filaId, dia) => {
+    if (editandoSemana) {
+      return quitarDescansoSemana(plan, lunesSemana, filaId, dia);
+    }
+    return quitarDescanso(plan, filaId, dia);
+  }, [editandoSemana, plan, lunesSemana]);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -185,6 +234,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
     if (sync.aviso || sync.sinTabla) setAviso(sync.aviso || AVISO_FALTA_PLAN_HORARIO_SQL);
     else setAviso('');
     setDirty(false);
+    setModoEdicion(null);
     setCargando(false);
   }, [supabase]);
 
@@ -210,14 +260,14 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
     const from = dragRef.current;
     dragRef.current = null;
     setDragOver(null);
-    if (!from) return;
-    aplicar(moverCelda(plan, from.filaId, from.diaId, toFilaId, toDia));
+    if (!from || !puedeEditar) return;
+    aplicar(aplicarMovimiento(from.filaId, from.diaId, toFilaId, toDia));
     setSel({ filaId: toFilaId, diaId: toDia });
   };
 
   const marcarDescanso = (ct) => {
-    if (!sel) return;
-    aplicar(asignarDescansoConCt(plan, sel.filaId, sel.diaId, ct || { nombre: ctManual.trim() || 'DESCANSO' }));
+    if (!sel || !puedeEditar) return;
+    aplicar(aplicarDescanso(sel.filaId, sel.diaId, ct || { nombre: ctManual.trim() || 'DESCANSO' }));
     setCtManual('');
   };
 
@@ -228,7 +278,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
 
   /** Quitar descanso y cancelar cualquier solicitud CT activa de la celda (trabajar el descanso). */
   const quitarDescansoYCt = async () => {
-    if (!sel) return;
+    if (!sel || !puedeEditar) return;
     const fila = plan.filas?.find((f) => f.id === sel.filaId);
     const ymd = ymdDeSel();
     const teniaCt = Boolean(celdaSel?.celda?.ctId || celdaSel?.celda?.ctNombre);
@@ -248,7 +298,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
       }
       if (res.canceladas) alert(res.mensaje);
     }
-    aplicar(quitarDescanso(plan, sel.filaId, sel.diaId));
+    aplicar(aplicarQuitarDescanso(sel.filaId, sel.diaId));
     setCtManual('');
   };
 
@@ -275,7 +325,12 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
         : '')
       + 'El CT ve la petición en su celular (PIN móvil). Al aceptar recibe PIN temporal solo para esa tienda/fecha.',
     )) return;
-    marcarDescanso(ct);
+    // Con horario fijo, la solicitud CT se anota solo en esta semana (no reescribe la plantilla).
+    const nextPlan = (horarioFijo && modoEdicion !== 'habitual')
+      ? asignarDescansoConCtSemana(plan, lunesSemana, sel.filaId, sel.diaId, ct)
+      : asignarDescansoConCt(plan, sel.filaId, sel.diaId, ct);
+    aplicar(nextPlan);
+    setCtManual('');
     const res = await solicitarCt(
       supabase,
       {
@@ -299,6 +354,45 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
     await cargar();
   };
 
+  const fijarHorario = (fijo) => {
+    if (fijo) {
+      aplicar(setHorarioFijo(plan, true));
+      setModoEdicion(null);
+      setAviso('Horario fijo activado. Usa “Mover esta semana” para un cambio puntual o “Cambiar horario habitual” para la plantilla.');
+      return;
+    }
+    if (!confirm('¿Quitar el candado? Podrás editar el horario habitual (L–D) libremente.')) return;
+    aplicar(setHorarioFijo(plan, false));
+    setModoEdicion(null);
+  };
+
+  const iniciarMoverSemana = () => {
+    setModoEdicion('semana');
+    setAviso(`Editando solo la semana del ${lunesSemana}. El horario fijo (plantilla L–D) no cambia.`);
+  };
+
+  const iniciarCambiarHabitual = () => {
+    if (!confirm(
+      '¿Cambiar el horario habitual?\n\n'
+      + 'Los cambios se guardan en la plantilla fija (todas las semanas).\n'
+      + 'Si solo quieres mover un descanso esta semana, usa “Mover esta semana”.',
+    )) return;
+    setModoEdicion('habitual');
+    setAviso('Editando horario habitual (plantilla L–D). Guarda cuando termines.');
+  };
+
+  const terminarEdicion = () => {
+    setModoEdicion(null);
+    setAviso(horarioFijo ? 'Horario fijo. Sin edición activa.' : '');
+  };
+
+  const restaurarSemana = () => {
+    if (!hayOverrideSemana) return;
+    if (!confirm('¿Quitar el movimiento de esta semana y volver al horario fijo?')) return;
+    aplicar(limpiarOverrideSemana(plan, lunesSemana));
+    setAviso('Esta semana vuelve al horario fijo.');
+  };
+
   const actor = user?.nombre ? ` · ${user.nombre}` : '';
 
   return (
@@ -308,7 +402,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
           <h3 style={{ margin: '0 0 0.25rem', color: 'var(--brand-blue)' }}>PLAN HORARIO ABARROTES 3B</h3>
           <p className="muted" style={{ margin: 0, fontSize: '0.82rem', maxWidth: 720 }}>
             {veTodasTiendas ? 'Calendario semanal de todas las tiendas.' : `Calendario semanal de ${etiquetaTienda(sucursal)}.`} Los nombres salen de <strong>Usuarios</strong> (empleados de tienda).
-            Arrastra un bloque para moverlo; haz clic para marcar <strong>descanso</strong>, cambiar color y relacionarlo con un <strong>CT</strong> (cubre turnos).
+            Configura el horario, déjalo <strong>fijo</strong> y muévelo solo cuando haga falta (esta semana o el habitual).
             {actor}
           </p>
         </div>
@@ -321,6 +415,75 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
             {guardando ? 'Guardando…' : dirty ? 'Guardar plan' : 'Guardado'}
           </button>
         </div>
+      </div>
+
+      <div
+        style={{
+          marginTop: '0.75rem',
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '0.45rem',
+          alignItems: 'center',
+          padding: '0.55rem 0.65rem',
+          borderRadius: 8,
+          background: horarioFijo ? 'rgba(46, 125, 50, 0.08)' : 'rgba(25, 118, 210, 0.08)',
+          border: `1px solid ${horarioFijo ? '#a5d6a7' : '#90caf9'}`,
+        }}
+      >
+        <button
+          type="button"
+          className={horarioFijo ? 'btn btn-primary' : 'btn btn-ghost'}
+          onClick={() => fijarHorario(true)}
+          disabled={horarioFijo && !modoEdicion}
+          title="Bloquea la plantilla L–D para que no se mueva por accidente"
+        >
+          {horarioFijo ? '🔒 Horario fijo' : 'Dejar fijo'}
+        </button>
+        {horarioFijo ? (
+          <>
+            <button
+              type="button"
+              className={editandoSemana ? 'btn btn-primary' : 'btn btn-ghost'}
+              onClick={() => (editandoSemana ? terminarEdicion() : iniciarMoverSemana())}
+            >
+              {editandoSemana ? 'Listo (semana)' : 'Mover esta semana'}
+            </button>
+            <button
+              type="button"
+              className={modoEdicion === 'habitual' ? 'btn btn-primary' : 'btn btn-ghost'}
+              onClick={() => (modoEdicion === 'habitual' ? terminarEdicion() : iniciarCambiarHabitual())}
+            >
+              {modoEdicion === 'habitual' ? 'Listo (habitual)' : 'Cambiar horario habitual'}
+            </button>
+            {hayOverrideSemana && (
+              <button type="button" className="btn btn-ghost" onClick={restaurarSemana}>
+                Restaurar esta semana al fijo
+              </button>
+            )}
+            <button type="button" className="btn btn-ghost" onClick={() => fijarHorario(false)}>
+              Quitar candado
+            </button>
+          </>
+        ) : (
+          <span className="muted" style={{ fontSize: '0.8rem' }}>
+            Editable: arrastra bloques o edita celdas. Cuando esté bien, pulsa <strong>Dejar fijo</strong>.
+          </span>
+        )}
+        {editandoSemana && (
+          <span style={{ fontSize: '0.8rem', color: '#2e7d32', fontWeight: 600 }}>
+            Solo esta semana · plantilla intacta
+          </span>
+        )}
+        {modoEdicion === 'habitual' && (
+          <span style={{ fontSize: '0.8rem', color: '#1565c0', fontWeight: 600 }}>
+            Editando plantilla habitual
+          </span>
+        )}
+        {!puedeEditar && horarioFijo && (
+          <span className="muted" style={{ fontSize: '0.8rem' }}>
+            Bloqueado · elige “Mover esta semana” o “Cambiar horario habitual”
+          </span>
+        )}
       </div>
 
       {aviso && (
@@ -351,6 +514,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
                   </tr>
                   {g.filas.map((fila) => {
                     const horas = horasPorFila.get(fila.id);
+                    const celdasVista = celdasEfectivasFila(plan, fila, lunesSemana);
                     return (
                       <tr key={fila.id}>
                         <td className="ph-nombre" title={fila.tipo === 'ct' ? 'Cubre turnos' : fila.nombre}>
@@ -358,20 +522,27 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
                           {fila.tipo === 'ct' && <span className="muted" style={{ display: 'block', fontSize: '0.68rem', fontWeight: 600 }}>cubre turnos</span>}
                         </td>
                         {DIAS_PLAN_HORARIO.map((d) => {
-                          const celda = fila.celdas[String(d.id)];
+                          const celda = celdasVista[String(d.id)];
                           const bg = colorFondoCelda(celda);
                           const activa = sel?.filaId === fila.id && sel?.diaId === d.id;
                           const over = dragOver?.filaId === fila.id && dragOver?.diaId === d.id;
                           return (
                             <td
                               key={d.id}
-                              className={`ph-celda${activa ? ' ph-activa' : ''}${over ? ' ph-dragover' : ''}${celda.tipo === 'descanso' ? ' ph-descanso' : ''}`}
-                              style={{ background: bg, color: colorTextoSobre(bg) }}
-                              draggable
+                              className={`ph-celda${activa ? ' ph-activa' : ''}${over ? ' ph-dragover' : ''}${celda.tipo === 'descanso' ? ' ph-descanso' : ''}${!puedeEditar ? ' ph-bloqueada' : ''}`}
+                              style={{
+                                background: bg,
+                                color: colorTextoSobre(bg),
+                                cursor: puedeEditar ? 'grab' : 'default',
+                                opacity: !puedeEditar ? 0.92 : 1,
+                              }}
+                              draggable={puedeEditar}
                               onDragStart={() => {
+                                if (!puedeEditar) return;
                                 dragRef.current = { filaId: fila.id, diaId: d.id };
                               }}
                               onDragOver={(e) => {
+                                if (!puedeEditar) return;
                                 e.preventDefault();
                                 setDragOver({ filaId: fila.id, diaId: d.id });
                               }}
@@ -380,6 +551,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
                               }}
                               onDrop={(e) => {
                                 e.preventDefault();
+                                if (!puedeEditar) return;
                                 onDropCelda(fila.id, d.id);
                               }}
                               onClick={() => {
@@ -410,15 +582,25 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
               <div className="muted" style={{ fontSize: '0.8rem', marginTop: '0.2rem' }}>
                 Horario del bloque: {celdaSel.horas}
                 {celdaSel.fila.tipo === 'ct' ? ' · fila CT' : ''}
+                {editandoSemana ? ' · cambio solo esta semana' : ''}
+                {modoEdicion === 'habitual' ? ' · plantilla habitual' : ''}
+                {!puedeEditar ? ' · bloqueado (activa un modo de edición)' : ''}
               </div>
             </div>
             <button type="button" className="btn btn-ghost" onClick={() => setSel(null)}>Cerrar</button>
           </div>
 
+          {!puedeEditar && (
+            <p className="muted" style={{ margin: '0.55rem 0 0', fontSize: '0.82rem' }}>
+              El horario está fijo. Pulsa <strong>Mover esta semana</strong> o <strong>Cambiar horario habitual</strong> arriba para editar.
+            </p>
+          )}
+
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.65rem' }}>
             <button
               type="button"
               className={celdaSel.celda.tipo === 'turno' ? 'btn btn-primary' : 'btn btn-ghost'}
+              disabled={!puedeEditar}
               onClick={() => void quitarDescansoYCt()}
             >
               Turno
@@ -426,6 +608,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
             <button
               type="button"
               className={celdaSel.celda.tipo === 'descanso' ? 'btn btn-primary' : 'btn btn-ghost'}
+              disabled={!puedeEditar}
               onClick={() => marcarDescanso(candidatos.find((c) => c.id === celdaSel.celda.ctId) || { nombre: celdaSel.celda.ctNombre })}
             >
               Descanso
@@ -440,7 +623,8 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
                   key={c.id}
                   type="button"
                   title={c.label}
-                  onClick={() => aplicar(parchearCelda(plan, sel.filaId, sel.diaId, { color: c.id === 'turno' ? null : c.hex }))}
+                  disabled={!puedeEditar}
+                  onClick={() => aplicar(aplicarParche(sel.filaId, sel.diaId, { color: c.id === 'turno' ? null : c.hex }))}
                   style={{
                     width: 28,
                     height: 28,
@@ -449,7 +633,8 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
                       ? '2px solid var(--brand-blue)'
                       : '1px solid #bbb',
                     background: c.hex,
-                    cursor: 'pointer',
+                    cursor: puedeEditar ? 'pointer' : 'not-allowed',
+                    opacity: puedeEditar ? 1 : 0.55,
                   }}
                 />
               ))}
@@ -465,10 +650,11 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
                 className="input"
                 style={{ minWidth: 260 }}
                 value={celdaSel.celda.ctId || ''}
+                disabled={!puedeEditar}
                 onChange={(e) => {
                   const id = e.target.value;
                   if (!id) {
-                    aplicar(parchearCelda(plan, sel.filaId, sel.diaId, { ctId: null, ctNombre: null, ctTelefono: null }));
+                    aplicar(aplicarParche(sel.filaId, sel.diaId, { ctId: null, ctNombre: null, ctTelefono: null }));
                     return;
                   }
                   const ct = candidatos.find((c) => c.id === id);
@@ -504,13 +690,14 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
                 className="input"
                 placeholder="Nombre CT (si no está en la lista)"
                 value={ctManual}
+                disabled={!puedeEditar}
                 onChange={(e) => setCtManual(e.target.value)}
                 style={{ minWidth: 200 }}
               />
               <button
                 type="button"
                 className="btn btn-gold"
-                disabled={!ctManual.trim()}
+                disabled={!puedeEditar || !ctManual.trim()}
                 onClick={() => marcarDescanso({ nombre: ctManual.trim() })}
               >
                 Asignar nombre
@@ -519,6 +706,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
                 <button
                   type="button"
                   className="btn btn-ghost"
+                  disabled={!puedeEditar}
                   title="Cancela la solicitud CT (si hay) y vuelve a turno laboral"
                   onClick={() => void quitarDescansoYCt()}
                 >
