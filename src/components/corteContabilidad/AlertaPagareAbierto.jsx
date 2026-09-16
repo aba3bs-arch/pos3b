@@ -3,6 +3,7 @@ import { fmtCorte } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 import {
   ETIQUETA_AREA_PAGARE,
   abonarPagare,
+  etiquetaPagarALas3b,
   liquidarPagare,
   montoPendienteRecoleccion,
   pagarePendienteCajero,
@@ -19,8 +20,8 @@ function montoPagareVisible(p) {
 /**
  * Recuadro de alerta en cortes: pagaré abierto del área.
  * Cajero / admin / gerente pueden Abonar o Liquidar aquí (misma lógica que Vales → Pagaré).
- * La alerta se oculta solo cuando el recolector marca Recolectar (u otro cierre de saldo).
- * Acreedor operativo: RC Virtual (“Pague a Virtual”).
+ * La alerta se quita cuando el recolector pulse Recolectar.
+ * Acreedor: «las 3b (quién generó)».
  */
 export default function AlertaPagareAbierto({
   pagares = [],
@@ -43,13 +44,8 @@ export default function AlertaPagareAbierto({
     ? (lista[0]?.folio ? ` · ${lista[0].folio}` : '')
     : ` · ${n} pagarés`;
 
-  const acreedores = [...new Set(
-    lista.map((p) => {
-      const k = String(p?.area_acreedora || 'virtual').toLowerCase();
-      return ETIQUETA_AREA_PAGARE[k] || k || 'Virtual';
-    }),
-  )];
-  const acreedorLbl = acreedores.length === 1 ? acreedores[0] : acreedores.join(' / ');
+  const pagarALabels = [...new Set(lista.map((p) => etiquetaPagarALas3b(p)))];
+  const pagarALbl = pagarALabels.length === 1 ? pagarALabels[0] : pagarALabels.join(' / ');
 
   const puedeAcciones = Boolean(supabase) && puedeAbonarLiquidarPagare(user?.rol, user);
   const algunoPendienteCajero = lista.some(pagarePendienteCajero);
@@ -130,8 +126,7 @@ export default function AlertaPagareAbierto({
       </div>
       <div className="alerta-pagare-abierto__monto">{fmtCorte(total)}</div>
       <div className="alerta-pagare-abierto__acreedor">
-        Debe a: <strong>{acreedorLbl}</strong>
-        <span className="alerta-pagare-abierto__acreedor-alt"> · Pague a {acreedorLbl}</span>
+        Pague a: <strong>{pagarALbl}</strong>
       </div>
 
       {lista.map((p) => {

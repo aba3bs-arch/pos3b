@@ -494,16 +494,15 @@ const ETIQUETA_AREA_PAGARE_PRINT = {
 export function htmlPagare(p, opts = {}) {
   const copia = opts.copia || 1;
   const totalCopias = opts.totalCopias || 2;
-  const monto = p?.saldo != null ? p.saldo : p?.monto;
+  const monto = p?.saldo != null && Number(p.saldo) > 0.001 ? p.saldo : (p?.rc_monto || p?.monto);
   const areaDebe = ETIQUETA_AREA_PAGARE_PRINT[p?.area] || p?.area || '—';
-  const areaPagar = ETIQUETA_AREA_PAGARE_PRINT[p?.area_acreedora]
-    || p?.area_acreedora
-    || 'Virtual';
+  const genero = String(p?.creado_por || '').trim() || '_________________';
+  const pagarA = `las 3b (${genero})`;
   const sucCodigo = String(p?.sucursal_id || '').trim().toUpperCase() || '—';
   const encargado = String(p?.encargado_nombre || '').trim() || '_________________';
   const texto = String(p?.texto || '').trim()
     || (
-      `Yo, ${encargado} (encargado), sucursal ${sucCodigo}, debo y pagaré a ${areaPagar} `
+      `Yo, ${encargado} (encargado), sucursal ${sucCodigo}, debo y pagaré a las 3b (${genero}) `
       + `la cantidad de ${fmt(monto)} al ser liquidado el pagaré. `
       + 'Si se llegara a perder esta cantidad, será descontada en nómina del responsable.'
     );
@@ -521,7 +520,7 @@ export function htmlPagare(p, opts = {}) {
     <div>Fecha: ${esc(fecha)}</div>
     <div>Sucursal: <strong>${esc(sucCodigo)}</strong></div>
     <div>Debe: <strong>${esc(areaDebe)}</strong></div>
-    <div>Pagar a: <strong>${esc(areaPagar)}</strong></div>
+    <div>Pagar a: <strong>${esc(pagarA)}</strong></div>
     <div>Encargado: <strong>${esc(encargado)}</strong></div>
     <div>Cajero en turno: <strong>${esc(p?.cajero_nombre || '—')}</strong></div>
     <div>Turno: <strong>${esc(p?.turno_nombre || '—')}</strong></div>

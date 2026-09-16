@@ -17,11 +17,16 @@ import {
   AVISO_FALTA_PAGARES,
   ETIQUETA_AREA_PAGARE,
   etiquetaEstadoPagare,
+  etiquetaPagarALas3b,
   cancelarPagare,
   listarPagares,
   montoPendienteRecoleccion,
+  nombreRecolectorPagare,
+  pagareEnTransito,
   pagarePendienteRecoleccion,
   puedeEliminarPagare,
+  puedeRecibirPagare,
+  recibirPagare,
   saldoPagare,
 } from '../lib/pagares.js';
 import { imprimirPagare } from '../lib/impresionContabilidad.js';
@@ -68,6 +73,7 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
   const adminEsAbb = esAbb(adminNombre);
   const adminEsAmr = esUsuarioAmr(adminNombre);
   const adminPuedeEliminar = puedeEliminarPagare(adminNombre);
+  const adminPuedeRecibir = puedeRecibirPagare(adminNombre);
   const miClave = claveRecolectorRVirtual(adminNombre);
   const [pestana, setPestana] = useState(
     pestanaInicial || (areaInicial === 'garage' ? 'garage' : 'recolecciones'),
@@ -93,11 +99,11 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
   const porEntregarAbb = pestana === 'garage' ? porEntregarGarage : porEntregarVirtual;
   const esPestanaRecolecciones = pestana === 'recolecciones' || pestana === 'garage';
 
-  const pagaresRcPorSucursal = useMemo(() => {
+  const pagaresPorSucursalAbiertos = useMemo(() => {
     const relevantes = (pagares || []).filter((p) => {
       const est = String(p.estado || '').toLowerCase();
-      if (est === 'cancelado') return false;
-      return est === 'por_recolectar' || est === 'recolectado' || pagarePendienteRecoleccion(p);
+      if (est === 'cancelado' || est === 'en_transito' || est === 'recolectado') return false;
+      return est === 'por_recolectar' || pagarePendienteRecoleccion(p) || est === 'abierto' || est === 'parcial';
     });
     const map = new Map();
     for (const p of relevantes) {
@@ -107,7 +113,21 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
     }
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   }, [pagares]);
-  const totalPagaresRc = pagaresRcPorSucursal.reduce((n, [, list]) => n + list.length, 0);
+
+  const pagaresEnTransitoPorRecolector = useMemo(() => {
+    const relevantes = (pagares || []).filter(pagareEnTransito);
+    const map = new Map();
+    for (const p of relevantes) {
+      const key = nombreRecolectorPagare(p) || 'Sin recolector';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(p);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es'));
+  }, [pagares]);
+
+  const totalPagaresTienda = pagaresPorSucursalAbiertos.reduce((n, [, list]) => n + list.length, 0);
+  const totalPagaresTransito = pagaresEnTransitoPorRecolector.reduce((n, [, list]) => n + list.length, 0);
+  const totalPagaresRc = totalPagaresTienda + totalPagaresTransito;
 
   const cargar = useCallback(async () => {
     if (!supabase) return;
@@ -282,6 +302,27 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
     await cargar();
   };
 
+  const recibirPagareItem = async (p) => {
+    if (!adminPuedeRecibir) return;
+    const monto = montoPendienteRecoleccion(p) || saldoPagare(p);
+    if (!confirm(
+      `¿Recibir pagaré ${p.folio || ''} por ${fmtMonto(monto)}?\n\n`
+      + `Recolectó: ${nombreRecolectorPagare(p) || '—'}\n`
+      + `Quedará recibido en central a tu nombre (${adminNombre || '—'}).`,
+    )) return;
+    setTrabajando(`pag-rec-${p.id}`);
+    setMsg('');
+    setError('');
+    const res = await recibirPagare(supabase, p, { user: { nombre: adminNombre }, nombreActor: adminNombre });
+    setTrabajando('');
+    if (!res.ok) {
+      setError(res.error || 'No se pudo recibir el pagaré.');
+      return;
+    }
+    setMsg(res.mensaje || 'Pagaré recibido.');
+    await cargar();
+  };
+
 
   const abrirGasto = (it) => {
     if (!adminEsAmr || !it?.origenId) return;
@@ -379,98 +420,204 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
       {pestana === 'pagare' && (
         <div className="card">
           <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue-dark)' }}>
-            Pagaré · RC Virtual (por sucursal)
+            Pagaré · RC Virtual
           </h4>
           <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.84rem' }}>
-            Aquí llegan los pagarés que el cajero ya <strong>liquidó</strong> en Vales → Pagaré
-            (quedan «Por recolectar»). Al <strong>Recolectar</strong> (Luis Enrique / AMR / ABB / JLBB / FBBB)
-            queda registrado quién cobró.
+            <strong>Por tienda:</strong> liquidados por el cajero («Por recolectar»).
+            {' '}Al <strong>Recolectar</strong> pasan a <strong>En tránsito</strong> bajo el nombre del recolector.
+            {' '}AMR / ABB / JLBB / FJBB pulsan <strong>Recibir</strong> para cerrarlos.
+            {' '}El ticket dice pagar a <strong>las 3b (quién generó)</strong>.
           </p>
           {cargando ? (
             <p className="muted">Cargando…</p>
           ) : totalPagaresRc === 0 ? (
             <p className="muted" style={{ margin: 0 }}>
-              Sin pagarés pendientes ni recolectados. Ejecuta <code>supabase/fix_pagares.sql</code> si falta la tabla.
+              Sin pagarés pendientes ni en tránsito. Ejecuta <code>supabase/fix_pagares.sql</code> si falta la tabla.
             </p>
           ) : (
-            pagaresRcPorSucursal.map(([sucKey, lista]) => (
-              <div key={sucKey} style={{ marginBottom: '1rem' }}>
-                <h4 style={{ margin: '0 0 0.4rem', color: 'var(--brand-blue-dark)' }}>
-                  {etiquetaTienda(sucKey)}
-                  <span className="muted" style={{ fontWeight: 500, fontSize: '0.82rem', marginLeft: '0.35rem' }}>
-                    ({lista.length})
-                  </span>
-                </h4>
-                <div className="table-wrap">
-                  <table className="data">
-                    <thead>
-                      <tr>
-                        <th>Folio</th>
-                        <th>Área</th>
-                        <th>Cajero</th>
-                        <th>Monto</th>
-                        <th>A recolectar</th>
-                        <th>Estado</th>
-                        <th>Liquidó / Recolectó</th>
-                        <th />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lista.map((p) => (
-                        <tr key={p.id}>
-                          <td>{p.folio || '—'}</td>
-                          <td>{ETIQUETA_AREA_PAGARE[p.area] || p.area}</td>
-                          <td>
-                            {p.cajero_nombre || '—'}
-                            {p.turno_nombre ? <span className="muted"> · {p.turno_nombre}</span> : null}
-                          </td>
-                          <td>{fmtMonto(p.monto)}</td>
-                          <td>{fmtMonto(montoPendienteRecoleccion(p) || saldoPagare(p))}</td>
-                          <td>{etiquetaEstadoPagare(p.estado)}</td>
-                          <td className="muted" style={{ fontSize: '0.78rem' }}>
-                            {p.liquidado_por ? `Liquidó: ${p.liquidado_por}` : '—'}
-                            {p.rc_recibido_por ? (
-                              <>
-                                <br />
-                                Recolectó: {p.rc_recibido_por}
-                                {p.rc_recibido_at ? ` · ${fmtFecha(p.rc_recibido_at)}` : ''}
-                              </>
-                            ) : null}
-                          </td>
-                          <td style={{ whiteSpace: 'nowrap' }}>
-                            <button
-                              type="button"
-                              className="btn btn-ghost"
-                              style={{ fontSize: '0.78rem', padding: '0.2rem 0.4rem' }}
-                              onClick={() => imprimirPagare(p, { copias: 2 })}
-                            >
-                              Ticket ×2
-                            </button>
-                            {adminPuedeEliminar && String(p.estado || '').toLowerCase() !== 'cancelado' ? (
-                              <button
-                                type="button"
-                                className="btn btn-ghost"
-                                style={{
-                                  fontSize: '0.78rem',
-                                  padding: '0.2rem 0.4rem',
-                                  color: 'var(--danger)',
-                                  border: '1px solid var(--danger)',
-                                  marginLeft: '0.25rem',
-                                }}
-                                disabled={Boolean(trabajando)}
-                                onClick={() => eliminarPagareItem(p)}
-                              >
-                                {trabajando === `pag-${p.id}` ? '…' : 'Eliminar'}
-                              </button>
-                            ) : null}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ))
+            <>
+              <h4 style={{ margin: '0.5rem 0 0.4rem', color: 'var(--brand-blue)' }}>
+                Por tienda · por recolectar ({totalPagaresTienda})
+              </h4>
+              {totalPagaresTienda === 0 ? (
+                <p className="muted" style={{ margin: '0 0 1rem', fontSize: '0.84rem' }}>Sin pagarés pendientes por tienda.</p>
+              ) : (
+                pagaresPorSucursalAbiertos.map(([sucKey, lista]) => (
+                  <div key={`suc-${sucKey}`} style={{ marginBottom: '1rem' }}>
+                    <h4 style={{ margin: '0 0 0.4rem', color: 'var(--brand-blue-dark)' }}>
+                      {etiquetaTienda(sucKey)}
+                      <span className="muted" style={{ fontWeight: 500, fontSize: '0.82rem', marginLeft: '0.35rem' }}>
+                        ({lista.length})
+                      </span>
+                    </h4>
+                    <div className="table-wrap">
+                      <table className="data">
+                        <thead>
+                          <tr>
+                            <th>Folio</th>
+                            <th>Área</th>
+                            <th>Pagar a</th>
+                            <th>Cajero</th>
+                            <th>Monto</th>
+                            <th>Estado</th>
+                            <th>Liquidó</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lista.map((p) => (
+                            <tr key={p.id}>
+                              <td>{p.folio || '—'}</td>
+                              <td>{ETIQUETA_AREA_PAGARE[p.area] || p.area}</td>
+                              <td style={{ fontSize: '0.82rem' }}>{etiquetaPagarALas3b(p)}</td>
+                              <td>
+                                {p.cajero_nombre || '—'}
+                                {p.turno_nombre ? <span className="muted"> · {p.turno_nombre}</span> : null}
+                              </td>
+                              <td>{fmtMonto(montoPendienteRecoleccion(p) || saldoPagare(p))}</td>
+                              <td>{etiquetaEstadoPagare(p.estado)}</td>
+                              <td className="muted" style={{ fontSize: '0.78rem' }}>
+                                {p.liquidado_por || '—'}
+                              </td>
+                              <td style={{ whiteSpace: 'nowrap' }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost"
+                                  style={{ fontSize: '0.78rem', padding: '0.2rem 0.4rem' }}
+                                  onClick={() => imprimirPagare(p, { copias: 2 })}
+                                >
+                                  Ticket ×2
+                                </button>
+                                {adminPuedeEliminar ? (
+                                  <button
+                                    type="button"
+                                    className="btn btn-ghost"
+                                    style={{
+                                      fontSize: '0.78rem',
+                                      padding: '0.2rem 0.4rem',
+                                      color: 'var(--danger)',
+                                      border: '1px solid var(--danger)',
+                                      marginLeft: '0.25rem',
+                                    }}
+                                    disabled={Boolean(trabajando)}
+                                    onClick={() => eliminarPagareItem(p)}
+                                  >
+                                    {trabajando === `pag-${p.id}` ? '…' : 'Eliminar'}
+                                  </button>
+                                ) : null}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))
+              )}
+
+              <h4 style={{ margin: '1.25rem 0 0.4rem', color: 'var(--brand-gold-dark, #b45309)' }}>
+                En tránsito · por recolector ({totalPagaresTransito})
+              </h4>
+              <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
+                Separados de las tiendas. AMR / ABB / JLBB / FJBB reciben aquí.
+              </p>
+              {totalPagaresTransito === 0 ? (
+                <p className="muted" style={{ margin: 0, fontSize: '0.84rem' }}>Sin pagarés en tránsito.</p>
+              ) : (
+                pagaresEnTransitoPorRecolector.map(([recoNombre, lista]) => {
+                  const clave = `tr-${recoNombre}`;
+                  const abiertoRec = abierto === clave;
+                  const totalRec = lista.reduce((n, p) => n + (montoPendienteRecoleccion(p) || 0), 0);
+                  return (
+                    <div key={clave} style={{ marginBottom: '0.75rem', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 10 }}>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{
+                          width: '100%',
+                          justifyContent: 'flex-start',
+                          gap: '0.5rem',
+                          padding: '0.65rem 0.85rem',
+                          fontWeight: 700,
+                        }}
+                        onClick={() => setAbierto(abiertoRec ? null : clave)}
+                      >
+                        <Chevron abierto={abiertoRec} />
+                        {recoNombre}
+                        <span className="muted" style={{ fontWeight: 500, fontSize: '0.82rem' }}>
+                          · {lista.length} · {fmtMonto(totalRec)}
+                        </span>
+                      </button>
+                      {abiertoRec && (
+                        <div className="table-wrap" style={{ padding: '0 0.5rem 0.65rem' }}>
+                          <table className="data">
+                            <thead>
+                              <tr>
+                                <th>Folio</th>
+                                <th>Tienda</th>
+                                <th>Área</th>
+                                <th>Monto</th>
+                                <th>Estado</th>
+                                <th />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {lista.map((p) => (
+                                <tr key={p.id}>
+                                  <td>{p.folio || '—'}</td>
+                                  <td>{etiquetaTienda(p.sucursal_id)}</td>
+                                  <td>{ETIQUETA_AREA_PAGARE[p.area] || p.area}</td>
+                                  <td>{fmtMonto(montoPendienteRecoleccion(p))}</td>
+                                  <td>{etiquetaEstadoPagare(p.estado)}</td>
+                                  <td style={{ whiteSpace: 'nowrap' }}>
+                                    {adminPuedeRecibir ? (
+                                      <button
+                                        type="button"
+                                        className="btn btn-gold"
+                                        style={{ fontSize: '0.78rem', padding: '0.2rem 0.45rem' }}
+                                        disabled={Boolean(trabajando)}
+                                        onClick={() => recibirPagareItem(p)}
+                                      >
+                                        {trabajando === `pag-rec-${p.id}` ? '…' : 'Recibir'}
+                                      </button>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      className="btn btn-ghost"
+                                      style={{ fontSize: '0.78rem', padding: '0.2rem 0.4rem', marginLeft: '0.25rem' }}
+                                      onClick={() => imprimirPagare(p, { copias: 1 })}
+                                    >
+                                      Ticket
+                                    </button>
+                                    {adminPuedeEliminar ? (
+                                      <button
+                                        type="button"
+                                        className="btn btn-ghost"
+                                        style={{
+                                          fontSize: '0.78rem',
+                                          padding: '0.2rem 0.4rem',
+                                          color: 'var(--danger)',
+                                          border: '1px solid var(--danger)',
+                                          marginLeft: '0.25rem',
+                                        }}
+                                        disabled={Boolean(trabajando)}
+                                        onClick={() => eliminarPagareItem(p)}
+                                      >
+                                        Eliminar
+                                      </button>
+                                    ) : null}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </>
           )}
         </div>
       )}

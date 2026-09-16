@@ -16,13 +16,17 @@ export const ETIQUETA_ESTADO_PAGARE = {
   abierto: 'Abierto',
   parcial: 'Parcial (abonado)',
   por_recolectar: 'Por recolectar → RC Virtual',
-  recolectado: 'Recolectado',
+  en_transito: 'En tránsito (recolectado)',
+  recolectado: 'Recibido en central',
   liquidado: 'Liquidado',
   cancelado: 'Cancelado',
 };
 
+/** Acreedor fijo en ticket y alerta. */
+export const ACREEDOR_PAGARE_LAS_3B = 'las 3b';
+
 export const AVISO_FALTA_PAGARES =
-  'Falta o está desactualizada la tabla pagares. En Supabase → SQL Editor pega TODO supabase/fix_pagares.sql y pulsa Run (no pide contraseña ni parámetros; incluye area_acreedora, encargado_nombre y RLS).';
+  'Falta o está desactualizada la tabla pagares. En Supabase → SQL Editor pega TODO supabase/fix_pagares.sql y pulsa Run (no pide contraseña ni parámetros; incluye area_acreedora, encargado_nombre, rc_recolectado_* y RLS).';
 
 /** Quién puede pulsar Recolectar en Vales → Pagaré (por nombre, no solo rol). */
 export const RECOLECTORES_PAGARE = [
@@ -66,24 +70,31 @@ function faltaTablaPagares(error) {
 
 /**
  * Texto legal del pagaré.
+ * Acreedor fijo: «las 3b» + (quién generó el pagaré).
  * @param {number} monto
- * @param {{ sucursal?: string, acreedor?: string, area_acreedora?: string, encargado?: string, encargado_nombre?: string }} [opts]
- * Sucursal = código corto (ej. 3B5). Encargado vacío → línea en blanco.
+ * @param {{ sucursal?: string, encargado?: string, encargado_nombre?: string, creado_por?: string, generado_por?: string }} [opts]
  */
 export function textoPagare(monto, opts = {}) {
   const m = round2(monto);
   const suc = String(opts.sucursal || opts.sucursal_id || '').trim().toUpperCase() || '________';
-  const acreedorKey = normalizarAreaPagare(opts.acreedor || opts.area_acreedora || opts.pagar_a);
-  const acreedor = acreedorKey
-    ? (ETIQUETA_AREA_PAGARE[acreedorKey] || acreedorKey)
-    : (String(opts.acreedor || opts.area_acreedora || '').trim() || '________');
   const enc = String(opts.encargado || opts.encargado_nombre || '').trim();
   const quien = enc || '_________________';
+  const genero = String(opts.creado_por || opts.generado_por || opts.nombreActor || '').trim()
+    || '_________________';
   return (
-    `Yo, ${quien} (encargado), sucursal ${suc}, debo y pagaré a ${acreedor} `
+    `Yo, ${quien} (encargado), sucursal ${suc}, debo y pagaré a ${ACREEDOR_PAGARE_LAS_3B} (${genero}) `
     + `la cantidad de $${m.toFixed(2)} al ser liquidado el pagaré. `
     + 'Si se llegara a perder esta cantidad, será descontada en nómina del responsable.'
   );
+}
+
+/** Etiqueta corta para UI/alerta: «las 3b (Nombre)». */
+export function etiquetaPagarALas3b(pagareOrNombre = null) {
+  const nombre = typeof pagareOrNombre === 'string'
+    ? pagareOrNombre
+    : (pagareOrNombre?.creado_por || pagareOrNombre?.generado_por || '');
+  const n = String(nombre || '').trim();
+  return n ? `${ACREEDOR_PAGARE_LAS_3B} (${n})` : ACREEDOR_PAGARE_LAS_3B;
 }
 
 export function normalizarAreaPagare(area) {
@@ -124,6 +135,11 @@ export function puedeEliminarPagare(userOrNombre) {
   return puedeEliminarRechazarRcVirtual(userOrNombre);
 }
 
+/** AMR / ABB / JLBB / FJBB: reciben pagarés en tránsito en RC Virtual. */
+export function puedeRecibirPagare(userOrNombre) {
+  return puedeEliminarRechazarRcVirtual(userOrNombre);
+}
+
 
 export function saldoPagare(p) {
   if (!p) return 0;
@@ -136,6 +152,12 @@ export function montoPendienteRecoleccion(p) {
   const rc = Number(p.rc_monto);
   if (Number.isFinite(rc) && rc > 0.001) return round2(rc);
   return saldoPagare(p);
+}
+
+/** Nombre del recolector (en tránsito). Compat: filas viejas usaban rc_recibido_por. */
+export function nombreRecolectorPagare(p) {
+  if (!p) return '';
+  return String(p.rc_recolectado_por || p.rc_recibido_por || '').trim();
 }
 
 /** Abierto para cajero (abonar / liquidar). */
@@ -153,12 +175,24 @@ export function pagarePendienteRecoleccion(p) {
   return ESTADOS_PENDIENTE_RECOLECCION.has(est) && montoPendienteRecoleccion(p) > 0.001;
 }
 
+/** Recolectado por calle; espera recepción en central (ABB/JLBB/FJBB/AMR). */
+export function pagareEnTransito(p) {
+  if (!p) return false;
+  return String(p.estado || '').toLowerCase() === 'en_transito';
+}
+
+/** Ya recibido en central (cerrado en RC). */
+export function pagareRecibidoCentral(p) {
+  if (!p) return false;
+  return String(p.estado || '').toLowerCase() === 'recolectado';
+}
+
 export function pagareEstaAbierto(p) {
   if (!p) return false;
   const est = String(p.estado || '').toLowerCase();
   if (ESTADOS_PENDIENTE_CAJERO.has(est)) return saldoPagare(p) > 0.001;
   if (ESTADOS_PENDIENTE_RECOLECCION.has(est)) return montoPendienteRecoleccion(p) > 0.001;
-  return saldoPagare(p) > 0.001 && !['liquidado', 'recolectado', 'cancelado'].includes(est);
+  return saldoPagare(p) > 0.001 && !['liquidado', 'recolectado', 'cancelado', 'en_transito'].includes(est);
 }
 
 function folioPagare() {
@@ -231,10 +265,11 @@ export async function registrarPagare(supabase, payload = {}, opts = {}) {
       || '',
   ).trim() || null;
   const encargado_nombre = String(payload.encargado_nombre || payload.encargado || '').trim() || null;
+  const creado_por = opts.nombreActor || opts.user?.nombre || null;
   const texto = String(payload.texto || '').trim() || textoPagare(monto, {
     sucursal: sucursal_id,
-    area_acreedora,
     encargado_nombre,
+    creado_por,
   });
   const folio = String(payload.folio || '').trim() || folioPagare();
 
@@ -252,7 +287,7 @@ export async function registrarPagare(supabase, payload = {}, opts = {}) {
     turno_nombre,
     encargado_nombre,
     texto,
-    creado_por: opts.nombreActor || opts.user?.nombre || null,
+    creado_por,
     creado_por_rol: normalizarRol(opts.rolActor ?? opts.user?.rol) || null,
     notas: payload.notas || null,
   };
@@ -360,7 +395,7 @@ export async function liquidarPagare(supabase, pagare, opts = {}) {
 
 /**
  * Recolectar en Vales → Pagaré. Solo Luis Enrique / AMR / ABB / JLBB / FBBB.
- * Registra quién recolectó y marca recolectado (visible en RC Virtual).
+ * Queda «en tránsito» a nombre del recolector en RC Virtual → Pagaré.
  */
 export async function recolectarPagare(supabase, pagare, opts = {}) {
   if (!supabase || !pagare?.id) return { ok: false, error: 'Pagaré inválido.' };
@@ -380,14 +415,25 @@ export async function recolectarPagare(supabase, pagare, opts = {}) {
   const monto = montoPendienteRecoleccion(pagare);
   const ahora = new Date().toISOString();
   const patch = {
-    estado: 'recolectado',
+    estado: 'en_transito',
     saldo: 0,
     rc_monto: monto,
+    rc_recolectado_por: nombre || null,
+    rc_recolectado_at: ahora,
+    // Compat filas/UI viejas que leían rc_recibido_por como recolector
     rc_recibido_por: nombre || null,
     rc_recibido_at: ahora,
   };
 
-  const { data, error } = await supabase.from('pagares').update(patch).eq('id', pagare.id).select('*').single();
+  let { data, error } = await supabase.from('pagares').update(patch).eq('id', pagare.id).select('*').single();
+  // Columna rc_recolectado_* aún no migrada
+  if (
+    error
+    && /rc_recolectado_por|rc_recolectado_at|schema cache|column/i.test(String(error.message || ''))
+  ) {
+    const { rc_recolectado_por, rc_recolectado_at, ...sinNuevas } = patch;
+    ({ data, error } = await supabase.from('pagares').update(sinNuevas).eq('id', pagare.id).select('*').single());
+  }
   if (error) {
     if (faltaTablaPagares(error)) return { ok: false, error: AVISO_FALTA_PAGARES, faltaTabla: true };
     return { ok: false, error: error.message };
@@ -397,8 +443,65 @@ export async function recolectarPagare(supabase, pagare, opts = {}) {
     pagare: data,
     monto,
     mensaje: (
-      `Recolectado ${pagare.folio || ''} · $${monto.toFixed(2)} · ${etiquetaTiendaSegura(pagare.sucursal_id)} `
-      + `por ${nombre || '—'}. Registrado en RC Virtual → Pagaré.`
+      `Pagaré ${pagare.folio || ''} recolectado · $${monto.toFixed(2)} · ${etiquetaTiendaSegura(pagare.sucursal_id)} `
+      + `por ${nombre || '—'}. Queda en tránsito en RC Virtual → Pagaré hasta que AMR/ABB/JLBB/FJBB lo reciban.`
+    ).trim(),
+  };
+}
+
+/**
+ * Recibir en central un pagaré en tránsito (AMR / ABB / JLBB / FJBB).
+ * Pasa de «en tránsito» → «recolectado» (recibido).
+ */
+export async function recibirPagare(supabase, pagare, opts = {}) {
+  if (!supabase || !pagare?.id) return { ok: false, error: 'Pagaré inválido.' };
+  const nombre = opts.nombreActor || opts.user?.nombre || '';
+  if (!puedeRecibirPagare(opts.user || nombre)) {
+    return {
+      ok: false,
+      error: 'Solo AMR, ABB, JLBB o FJBB pueden recibir pagarés en tránsito.',
+    };
+  }
+  if (!pagareEnTransito(pagare)) {
+    return {
+      ok: false,
+      error: 'Solo se reciben pagarés en estado «En tránsito».',
+    };
+  }
+  const monto = montoPendienteRecoleccion(pagare);
+  const ahora = new Date().toISOString();
+  const patch = {
+    estado: 'recolectado',
+    saldo: 0,
+    rc_monto: monto,
+    rc_recibido_por: nombre || null,
+    rc_recibido_at: ahora,
+  };
+  // Conservar recolector si ya estaba
+  if (!pagare.rc_recolectado_por && pagare.rc_recibido_por) {
+    patch.rc_recolectado_por = pagare.rc_recibido_por;
+    patch.rc_recolectado_at = pagare.rc_recibido_at || ahora;
+  }
+
+  let { data, error } = await supabase.from('pagares').update(patch).eq('id', pagare.id).select('*').single();
+  if (
+    error
+    && /rc_recolectado_por|rc_recolectado_at|schema cache|column/i.test(String(error.message || ''))
+  ) {
+    const { rc_recolectado_por, rc_recolectado_at, ...sinNuevas } = patch;
+    ({ data, error } = await supabase.from('pagares').update(sinNuevas).eq('id', pagare.id).select('*').single());
+  }
+  if (error) {
+    if (faltaTablaPagares(error)) return { ok: false, error: AVISO_FALTA_PAGARES, faltaTabla: true };
+    return { ok: false, error: error.message };
+  }
+  return {
+    ok: true,
+    pagare: data,
+    monto,
+    mensaje: (
+      `Pagaré ${pagare.folio || ''} recibido en central · $${monto.toFixed(2)} `
+      + `por ${nombre || '—'}.`
     ).trim(),
   };
 }
