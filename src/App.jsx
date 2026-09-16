@@ -1181,6 +1181,10 @@ function App() {
   const consolaCentral = !tiendaCajaFisicaBloqueada;
   const contabilidadActiva = !modoOffline && (vista === VISTA_HUB_CONTABILIDAD || SUBMODULOS_CONTABILIDAD.includes(vista));
   const estadisticasActiva = !modoOffline && (vista === VISTA_HUB_ESTADISTICAS || SUBMODULOS_ESTADISTICAS.includes(vista));
+  const puedeHubContabilidad = puedeVerSeccionContabilidad(user?.rol, user?.id);
+  const volverContabilidadBtn = puedeHubContabilidad ? (
+    <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+  ) : null;
 
   return (
     <div className={`app-shell${mobile ? ' app-shell--mobile' : ''}`}>

@@ -250,8 +250,102 @@ function claveNombreSucursal(nombre, sucursalId) {
 }
 
 /**
+ * Días con al menos una checada (ENTRADA o SALIDA).
+ * Para bono: si hay entrada sin salida, NO es falta.
+ */
+export function diasConAlgunaChecada(marcajes = []) {
+  const dias = new Set()
+  for (const m of marcajes || []) {
+    if (!normalizarTipoMarcaje(m?.tipo)) continue
+    const ymd = ymdLocalDesdeIso(m.created_at)
+    if (ymd) dias.add(ymd)
+  }
+  return dias
+}
+
+/** Días sin bono a partir del día de la falta (incluye ese día). */
+export const DIAS_BLOQUEO_BONO_POR_FALTA = 8
+
+export function sumarDiasYmd(ymd, dias) {
+  if (!ymd) return ''
+  const [y, m, d] = String(ymd).slice(0, 10).split('-').map(Number)
+  if (![y, m, d].every((n) => Number.isFinite(n))) return ''
+  const dt = new Date(y, m - 1, d)
+  dt.setDate(dt.getDate() + (Number(dias) || 0))
+  return ymdLocal(dt)
+}
+
+export function diasInclusiveEntre(desdeYmd, hastaYmd) {
+  if (!desdeYmd || !hastaYmd || desdeYmd > hastaYmd) return 0
+  const [y0, m0, d0] = desdeYmd.split('-').map(Number)
+  const [y1, m1, d1] = hastaYmd.split('-').map(Number)
+  const a = Date.UTC(y0, m0 - 1, d0)
+  const b = Date.UTC(y1, m1 - 1, d1)
+  return Math.floor((b - a) / 86400000) + 1
+}
+
+/**
+ * Empleados de planta con falta (sin entrada ni salida ese día) que aún
+ * están en la ventana de 8 días sin bono.
+ * Entrada sin salida NO cuenta como falta.
+ */
+export function listarBloqueosBonoPorFalta({
+  usuarios = [],
+  marcajes = [],
+  sucursalId = '',
+  ahora = new Date(),
+  diasBloqueo = DIAS_BLOQUEO_BONO_POR_FALTA,
+} = {}) {
+  const hoy = ymdLocal(ahora)
+  const lookback = Math.max(21, (Number(diasBloqueo) || 8) + 14)
+  const desdeYmd = sumarDiasYmd(hoy, -lookback)
+  const resumen = construirResumenEmpleados({
+    usuarios,
+    marcajes,
+    desdeYmd,
+    hastaYmd: hoy,
+    ahora,
+    filtroSucursal: sucursalId,
+    modoPresencia: 'cualquier_marcaje',
+  })
+
+  /** @type {Array<{ clave: string, nombre: string, sucursalId: string, faltaYmd: string, sinBonoHasta: string, diasRestantes: number }>} */
+  const out = []
+  for (const emp of resumen) {
+    if (emp.esCubreTurno) continue
+    for (const faltaYmd of emp.diasFaltaYmd || []) {
+      const sinBonoHasta = sumarDiasYmd(faltaYmd, (Number(diasBloqueo) || 8) - 1)
+      if (!sinBonoHasta || hoy < faltaYmd || hoy > sinBonoHasta) continue
+      out.push({
+        clave: emp.clave,
+        nombre: emp.nombre,
+        sucursalId: emp.sucursalId,
+        faltaYmd,
+        sinBonoHasta,
+        diasRestantes: diasInclusiveEntre(hoy, sinBonoHasta),
+      })
+    }
+  }
+
+  // Una fila por empleado: la falta más reciente (bloqueo vigente más restrictivo)
+  const porEmpleado = new Map()
+  for (const row of out) {
+    const prev = porEmpleado.get(row.clave)
+    if (!prev || row.faltaYmd > prev.faltaYmd) porEmpleado.set(row.clave, row)
+  }
+  return [...porEmpleado.values()].sort((a, b) => {
+    if (a.faltaYmd !== b.faltaYmd) return String(b.faltaYmd).localeCompare(String(a.faltaYmd))
+    return String(a.nombre).localeCompare(String(b.nombre), 'es')
+  })
+}
+
+/**
  * Arma el resumen por empleado: usuarios activos de la tienda + quien checó
  * (cubre turno u otros) aunque no esté en la plantilla.
+ *
+ * @param {'par'|'cualquier_marcaje'} [opts.modoPresencia]
+ *   - par: ENTRADA+SALIDA (nómina / resumen clásico)
+ *   - cualquier_marcaje: basta ENTRADA o SALIDA (bono: entrada sin salida ≠ falta)
  */
 export function construirResumenEmpleados({
   usuarios = [],
@@ -260,6 +354,7 @@ export function construirResumenEmpleados({
   hastaYmd,
   ahora = new Date(),
   filtroSucursal = '',
+  modoPresencia = 'par',
 } = {}) {
   const filtro = normalizarCodigoTienda(filtroSucursal)
   const map = new Map()
@@ -331,10 +426,15 @@ export function construirResumenEmpleados({
   }
 
   const sucMostrar = (row) => filtro || row.sucursalId || '—'
+  const diasPresente = (marcajesEmp) => (
+    modoPresencia === 'cualquier_marcaje'
+      ? diasConAlgunaChecada(marcajesEmp)
+      : diasCompletosPorEntradaSalida(marcajesEmp)
+  )
 
   const lista = [...map.values()].map((row) => {
     const r = resumirDiasEmpleado({
-      diasTrabajadosYmd: diasCompletosPorEntradaSalida(row.marcajes),
+      diasTrabajadosYmd: diasPresente(row.marcajes),
       desdeYmd,
       hastaYmd,
       ahora,
@@ -426,4 +526,38 @@ export async function cargarUsuariosResumen(supabase, { sucursalId }) {
     if (sucursalId) n = n.eq('sucursal_id', sucursalId)
     return n
   })
+}
+
+/**
+ * Empleados de la sucursal sin bono por falta (ventana de 8 días).
+ * Falta = día sin entrada ni salida; entrada sola no cuenta.
+ */
+export async function cargarBloqueosBonoPorFalta(supabase, {
+  sucursalId,
+  ahora = new Date(),
+  diasBloqueo = DIAS_BLOQUEO_BONO_POR_FALTA,
+} = {}) {
+  if (!supabase || !sucursalId) return { ok: false, data: [], error: 'Sin sucursal.' }
+  const suc = normalizarCodigoTienda(sucursalId)
+  const hoy = ymdLocal(ahora)
+  const lookback = Math.max(21, (Number(diasBloqueo) || 8) + 14)
+  const desdeYmd = sumarDiasYmd(hoy, -lookback)
+  const desdeIso = `${desdeYmd}T00:00:00`
+  const hastaIso = new Date(ahora.getTime() + 24 * 3600 * 1000).toISOString()
+
+  const [uRes, mRes] = await Promise.all([
+    cargarUsuariosResumen(supabase, { sucursalId: suc }),
+    cargarMarcajesResumen(supabase, { desdeIso, hastaIso, sucursalId: suc }),
+  ])
+  if (uRes.error && !uRes.data?.length) {
+    return { ok: false, data: [], error: uRes.error.message || String(uRes.error) }
+  }
+  const data = listarBloqueosBonoPorFalta({
+    usuarios: uRes.data || [],
+    marcajes: mRes.data || [],
+    sucursalId: suc,
+    ahora,
+    diasBloqueo,
+  })
+  return { ok: true, data, error: mRes.error?.message || null }
 }
