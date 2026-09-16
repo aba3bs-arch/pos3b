@@ -126,6 +126,9 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
    */
   const confirmarBonoRecoleccion = async () => {
     if (!puedeRec) return alert('Solo admin/recolector puede calcular y cargar el bono.');
+    if (!puedeEditarCorteCampo(perm, 'gastos') && !perm.editarTodo) {
+      return alert('Sin permiso para cargar el bono como gasto del corte.');
+    }
     if (!(ventaParaBono > 0)) {
       return alert(
         'No hay venta para el tabulador.\n\n' +
