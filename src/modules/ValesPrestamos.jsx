@@ -80,6 +80,7 @@ import {
   abonarPagare,
   cancelarPagare,
   etiquetaEstadoPagare,
+  etiquetaPagarALas3b,
   liquidarPagare,
   listarPagares,
   pagarePendienteCajero,
@@ -1331,9 +1332,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           <div className="card">
             <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Pagarés por sucursal</h3>
             <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.86rem' }}>
-              1) Generar pagaré (admin / gerente / recolector) · 2) Cajero <strong>Abona</strong> (descuenta)
-              o <strong>Liquida</strong> (deja el total listo) · 3) Luis Enrique / AMR / ABB / JLBB / FBBB
-              pulsan <strong>Recolectar</strong> → queda en RC Virtual → Pagaré.
+              1) Generar pagaré (admin / gerente / recolector) · ticket: pagar a <strong>las 3b (quién generó)</strong>
+              · 2) Cajero <strong>Abona</strong> o <strong>Liquida</strong> · 3) Recolector pulsa <strong>Recolectar</strong>
+              → queda en tránsito en RC Virtual · 4) AMR / ABB / JLBB / FJBB <strong>Reciben</strong>.
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: '0.85rem' }}>
               <label className="muted" style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
@@ -1378,8 +1379,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                       turno_nombre: pagareForm.turno_nombre.trim() || null,
                       texto: textoPagare(monto, {
                         sucursal: sucPag,
-                        area_acreedora: pagareForm.area_acreedora,
                         encargado_nombre: pagareForm.encargado_nombre.trim() || null,
+                        creado_por: user?.nombre || null,
                       }),
                     },
                     { nombreActor: user?.nombre, rolActor: user?.rol, user },
@@ -1431,7 +1432,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   </select>
                 </label>
                 <label className="muted" style={{ fontSize: '0.8rem' }}>
-                  Pagar a
+                  Área acreedora
                   <select
                     className="select"
                     style={{ marginTop: 4 }}
@@ -1442,6 +1443,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     <option value="garage">Garage</option>
                     <option value="abarrotes">Abarrotes</option>
                   </select>
+                  <span style={{ display: 'block', marginTop: 2, fontSize: '0.72rem' }}>
+                    Ticket: pagar a las 3b ({user?.nombre || 'quién generó'})
+                  </span>
                 </label>
                 <label className="muted" style={{ fontSize: '0.8rem' }}>
                   Encargado
@@ -1518,7 +1522,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                       <div className="pagare-cajero-card__meta">
                         Debe: <strong>{ETIQUETA_AREA_PAGARE[p.area] || p.area}</strong>
                         {' · '}
-                        Pagar a: <strong>{ETIQUETA_AREA_PAGARE[p.area_acreedora] || p.area_acreedora || 'Virtual'}</strong>
+                        Pagar a: <strong>{etiquetaPagarALas3b(p)}</strong>
                       </div>
                       {(p.encargado_nombre || p.cajero_nombre) && (
                         <div className="pagare-cajero-card__meta muted">
@@ -1621,7 +1625,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                             <tr key={p.id}>
                               <td>{p.folio || '—'}</td>
                               <td>{ETIQUETA_AREA_PAGARE[p.area] || p.area}</td>
-                              <td>{ETIQUETA_AREA_PAGARE[p.area_acreedora] || p.area_acreedora || 'Virtual'}</td>
+                              <td>{etiquetaPagarALas3b(p)}</td>
                               <td>{p.encargado_nombre || '—'}</td>
                               <td>
                                 {p.cajero_nombre || '—'}
@@ -1712,7 +1716,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                                       if (!confirm(
                                         `¿Recolectar pagaré ${p.folio || ''} por $${monto.toFixed(2)}?\n\n`
                                         + `Sucursal: ${etiquetaTienda(p.sucursal_id)}\n`
-                                        + `Se registrará a tu nombre (${user?.nombre || '—'}) en RC Virtual → Pagaré.`,
+                                        + `Se registrará a tu nombre (${user?.nombre || '—'}) en RC Virtual → Pagaré (en tránsito).`,
                                       )) return;
                                       const res = await recolectarPagare(supabase, p, {
                                         nombreActor: user?.nombre,

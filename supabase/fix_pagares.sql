@@ -71,6 +71,8 @@ alter table public.pagares add column if not exists rc_recibido_por text;
 alter table public.pagares add column if not exists rc_recibido_at timestamptz;
 alter table public.pagares add column if not exists rc_monto numeric(12, 2);
 alter table public.pagares add column if not exists notas text;
+alter table public.pagares add column if not exists rc_recolectado_por text;
+alter table public.pagares add column if not exists rc_recolectado_at timestamptz;
 
 -- Defaults útiles si faltaban
 update public.pagares set estado = 'abierto' where estado is null or btrim(estado) = '';
@@ -90,15 +92,23 @@ alter table public.pagares
   );
 
 comment on table public.pagares is
-  'Pagares por sucursal. Cajero abona/liquida; recolectores autorizados pasan a RC Virtual.';
+  'Pagares por sucursal. Ticket: pagar a las 3b (quien genero). Cajero abona/liquida; recolector → en_transito; AMR/ABB/JLBB/FJBB reciben en RC Virtual.';
 comment on column public.pagares.estado is
-  'abierto | parcial | por_recolectar | recolectado | liquidado | cancelado';
+  'abierto | parcial | por_recolectar | en_transito | recolectado | liquidado | cancelado';
 comment on column public.pagares.area is
   'Area deudora: virtual | garage | abarrotes.';
 comment on column public.pagares.area_acreedora is
-  'Area acreedora: virtual | garage | abarrotes.';
+  'Area acreedora (interna): virtual | garage | abarrotes. El ticket muestra las 3b + quien genero.';
 comment on column public.pagares.encargado_nombre is
   'Nombre del encargado (opcional).';
+comment on column public.pagares.rc_recolectado_por is
+  'Nombre del recolector al pasar a en_transito (Vales → Recolectar).';
+comment on column public.pagares.rc_recolectado_at is
+  'Timestamp de recoleccion (en_transito).';
+comment on column public.pagares.rc_recibido_por is
+  'Quien recibio en central (AMR/ABB/JLBB/FJBB). Compat: filas viejas usaban este campo como recolector.';
+comment on column public.pagares.rc_recibido_at is
+  'Timestamp de recepcion en central (estado recolectado).';
 
 -- RLS: sin FORCE (solo ENABLE). Políticas abiertas para la clave anon del POS.
 alter table public.pagares enable row level security;
@@ -155,6 +165,10 @@ select
     select 1 from information_schema.columns
     where table_schema = 'public' and table_name = 'pagares' and column_name = 'encargado_nombre'
   ) as tiene_encargado_nombre,
+  exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'pagares' and column_name = 'rc_recolectado_por'
+  ) as tiene_rc_recolectado_por,
   (
     select count(*) from pg_policies
     where schemaname = 'public' and tablename = 'pagares'
