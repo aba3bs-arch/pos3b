@@ -124,8 +124,9 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
     <div className="card" style={{ maxWidth: 900 }}>
       <h3 style={{ margin: '0 0 0.35rem', color: '#b45309' }}>Bonos por recolección</h3>
       <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-        El bono base sale del monto recolectado. El % (100 / 75 / 50 / 25) depende de cuántas reglas se cumplan
-        (faltante, merma, evaluación operativa, check list diario). Se muestra en el Inicio de cada sucursal.
+        El bono base sale del <strong>tabulador</strong> de recolección. Con <strong>faltante = $0</strong> partes del 100%.
+        Penalizaciones: check list ≤4 días −20%; evaluación &lt;70% −20%; inventario (merma) &gt;6% −60%.
+        Quien falta pierde el bono una semana (Inicio). Se muestra en el Inicio de cada sucursal.
       </p>
 
       <div style={{ display: 'flex', gap: '0.4rem', marginBottom: '1rem' }}>
@@ -198,60 +199,117 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
             <span className="muted" style={{ fontSize: '0.85rem' }}>Si la recolección supera el último rango, usar el bono máximo</span>
           </label>
 
-          <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Niveles de cumplimiento → %</h4>
-          <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>Según cuántas reglas se cumplen (de 0 a 4).</p>
-          {(cfg.nivelesPct || []).map((n, idx) => (
-            <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.35rem' }}>
-              <label className="muted" style={{ fontSize: '0.75rem' }}>
-                Mín. reglas cumplidas
-                <input className="input" type="number" min={0} max={4} value={n.reglasMin} onChange={(e) => setNivel(idx, { reglasMin: Number(e.target.value) })} />
-              </label>
-              <label className="muted" style={{ fontSize: '0.75rem' }}>
-                % del bono
-                <input className="input" type="number" min={0} max={100} value={n.pct} onChange={(e) => setNivel(idx, { pct: Number(e.target.value) })} />
-              </label>
-            </div>
-          ))}
+          <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Cálculo del %</h4>
+          <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
+            Modo recomendado: <strong>penalizaciones</strong> (100% menos descuentos). El modo “conteo de reglas” es legacy.
+          </p>
+          <label className="muted" style={{ display: 'block', marginBottom: '1rem' }}>
+            Modo
+            <select
+              className="input"
+              style={{ marginTop: '0.35rem' }}
+              value={cfg.modoCalculo || 'penalizaciones'}
+              onChange={(e) => setCfg({ ...cfg, modoCalculo: e.target.value })}
+            >
+              <option value="penalizaciones">Penalizaciones (faltante + check + eval + inventario)</option>
+              <option value="reglas">Legacy: conteo de reglas → niveles %</option>
+            </select>
+          </label>
 
-          <h4 style={{ margin: '1rem 0 0.5rem', color: 'var(--brand-blue)' }}>Reglas de elegibilidad</h4>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <input type="checkbox" checked={cfg.reglas.faltanteCero.activo !== false} onChange={(e) => setRegla('faltanteCero', { activo: e.target.checked })} />
-              Faltante de efectivo = $0
+          {(cfg.modoCalculo || 'penalizaciones') === 'reglas' && (
+            <>
+              <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Niveles de cumplimiento → % (legacy)</h4>
+              <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>Según cuántas reglas se cumplen (de 0 a 4).</p>
+              {(cfg.nivelesPct || []).map((n, idx) => (
+                <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                  <label className="muted" style={{ fontSize: '0.75rem' }}>
+                    Mín. reglas cumplidas
+                    <input className="input" type="number" min={0} max={4} value={n.reglasMin} onChange={(e) => setNivel(idx, { reglasMin: Number(e.target.value) })} />
+                  </label>
+                  <label className="muted" style={{ fontSize: '0.75rem' }}>
+                    % del bono
+                    <input className="input" type="number" min={0} max={100} value={n.pct} onChange={(e) => setNivel(idx, { pct: Number(e.target.value) })} />
+                  </label>
+                </div>
+              ))}
+            </>
+          )}
+
+          <h4 style={{ margin: '1rem 0 0.5rem', color: 'var(--brand-blue)' }}>Medidores y penalizaciones</h4>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+              <input type="checkbox" checked={cfg.reglas.faltanteCero.activo !== false} onChange={(e) => setRegla('faltanteCero', { activo: e.target.checked })} style={{ marginTop: 3 }} />
+              <span>
+                <strong>Faltante de efectivo = $0</strong>
+                <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
+                  Requisito: si hay faltante, el bono de recolección queda en 0% del tabulador.
+                </span>
+              </span>
             </label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+
+            <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <input type="checkbox" checked={cfg.reglas.mermaMaxPct.activo !== false} onChange={(e) => setRegla('mermaMaxPct', { activo: e.target.checked })} />
-                Merma inventario ≤
+                <input type="checkbox" checked={cfg.reglas.checklistDiario.activo !== false} onChange={(e) => setRegla('checklistDiario', { activo: e.target.checked })} />
+                <strong>Check list operativo</strong>
               </label>
-              <input
-                className="input"
-                type="number"
-                step="0.1"
-                style={{ width: 80 }}
-                value={cfg.reglas.mermaMaxPct.maxPct}
-                onChange={(e) => setRegla('mermaMaxPct', { maxPct: Number(e.target.value) })}
-              />
-              <span className="muted">%</span>
+              <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
+                Ideal: llenar los {cfg.reglas.checklistDiario.diasEsperados ?? 6} días laborales. Si llenas ≤{cfg.reglas.checklistDiario.diasPenalizaSiHasta ?? 4} días → −{cfg.reglas.checklistDiario.penalizacionPct ?? 20}%.
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Días esperados
+                  <input className="input" type="number" min={1} max={7} style={{ width: 72, marginTop: 2 }} value={cfg.reglas.checklistDiario.diasEsperados ?? 6} onChange={(e) => setRegla('checklistDiario', { diasEsperados: Number(e.target.value) })} />
+                </label>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Penaliza si ≤
+                  <input className="input" type="number" min={0} max={7} style={{ width: 72, marginTop: 2 }} value={cfg.reglas.checklistDiario.diasPenalizaSiHasta ?? 4} onChange={(e) => setRegla('checklistDiario', { diasPenalizaSiHasta: Number(e.target.value) })} />
+                </label>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Penalización %
+                  <input className="input" type="number" min={0} max={100} style={{ width: 72, marginTop: 2 }} value={cfg.reglas.checklistDiario.penalizacionPct ?? 20} onChange={(e) => setRegla('checklistDiario', { penalizacionPct: Number(e.target.value) })} />
+                </label>
+              </div>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+
+            <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <input type="checkbox" checked={cfg.reglas.evaluacionMinPct.activo !== false} onChange={(e) => setRegla('evaluacionMinPct', { activo: e.target.checked })} />
-                Evaluación operativa ≥
+                <strong>Evaluación operativa</strong>
               </label>
-              <input
-                className="input"
-                type="number"
-                style={{ width: 80 }}
-                value={cfg.reglas.evaluacionMinPct.minPct}
-                onChange={(e) => setRegla('evaluacionMinPct', { minPct: Number(e.target.value) })}
-              />
-              <span className="muted">%</span>
+              <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
+                Si está por debajo del mínimo → aplica penalización.
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Mínimo %
+                  <input className="input" type="number" style={{ width: 80, marginTop: 2 }} value={cfg.reglas.evaluacionMinPct.minPct} onChange={(e) => setRegla('evaluacionMinPct', { minPct: Number(e.target.value) })} />
+                </label>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Penalización %
+                  <input className="input" type="number" min={0} max={100} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.evaluacionMinPct.penalizacionPct ?? 20} onChange={(e) => setRegla('evaluacionMinPct', { penalizacionPct: Number(e.target.value) })} />
+                </label>
+              </div>
             </div>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <input type="checkbox" checked={cfg.reglas.checklistDiario.activo !== false} onChange={(e) => setRegla('checklistDiario', { activo: e.target.checked })} />
-              Check list operativo diario (cerrado)
-            </label>
+
+            <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <input type="checkbox" checked={cfg.reglas.mermaMaxPct.activo !== false} onChange={(e) => setRegla('mermaMaxPct', { activo: e.target.checked })} />
+                <strong>Inventario (merma)</strong>
+              </label>
+              <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
+                Si la merma supera el máximo → pierdes gran parte del bono.
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Máx. merma %
+                  <input className="input" type="number" step="0.1" style={{ width: 80, marginTop: 2 }} value={cfg.reglas.mermaMaxPct.maxPct} onChange={(e) => setRegla('mermaMaxPct', { maxPct: Number(e.target.value) })} />
+                </label>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Penalización %
+                  <input className="input" type="number" min={0} max={100} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.mermaMaxPct.penalizacionPct ?? 60} onChange={(e) => setRegla('mermaMaxPct', { penalizacionPct: Number(e.target.value) })} />
+                </label>
+              </div>
+            </div>
           </div>
 
           <h4 style={{ margin: '1rem 0 0.5rem', color: 'var(--brand-blue)' }}>Bonos por turno (Check List)</h4>
