@@ -11,6 +11,7 @@ import {
 import { normalizarRol } from '../lib/roles.js';
 import { hoyYmdNogales } from '../lib/corteCaja.js';
 import { usuarioEstaActivo } from '../lib/usuariosAuth.js';
+import { sugerirFechaDescansoHabitual } from '../lib/resumenDiasAsistencia.js';
 
 /**
  * Autorizar cambio de descanso para que no cuente como falta en bonos.
@@ -40,11 +41,25 @@ export default function PanelAutorizarDescanso({
 
   const [usuarioId, setUsuarioId] = useState('');
   const [fecha, setFecha] = useState(() => hoyYmdNogales());
+  const [fechaHabitual, setFechaHabitual] = useState('');
   const [motivo, setMotivo] = useState('Cambio de descanso autorizado');
   const [lista, setLista] = useState([]);
   const [aviso, setAviso] = useState('');
   const [msg, setMsg] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const empSel = useMemo(
+    () => plantilla.find((u) => String(u.id) === String(usuarioId)) || null,
+    [plantilla, usuarioId],
+  );
+
+  useEffect(() => {
+    if (!empSel || !fecha) {
+      setFechaHabitual('');
+      return;
+    }
+    setFechaHabitual(sugerirFechaDescansoHabitual(empSel, fecha));
+  }, [empSel, fecha]);
 
   const cargar = async () => {
     if (!supabase || !suc) return;
@@ -94,6 +109,7 @@ export default function PanelAutorizarDescanso({
         nombre: emp.nombre,
         sucursalId: suc,
         fechaYmd: fecha,
+        fechaHabitualYmd: fechaHabitual,
         motivo,
         autorizadoPor: user?.nombre || '',
         autorizadoPorRol: user?.rol || '',
@@ -103,7 +119,10 @@ export default function PanelAutorizarDescanso({
         if (res.faltaTabla) setAviso(AVISO_FALTA_DESCANSOS_AUT);
         return;
       }
-      setMsg(`Descanso autorizado: ${emp.nombre} · ${fecha}. No cuenta como falta.`);
+      const extra = fechaHabitual && fechaHabitual !== fecha
+        ? ` También se liberó el descanso habitual ${fechaHabitual}.`
+        : '';
+      setMsg(`Descanso autorizado: ${emp.nombre} · ${fecha}.${extra} No cuenta como falta.`);
       await cargar();
       if (typeof onCambio === 'function') await onCambio();
     } finally {
@@ -143,9 +162,9 @@ export default function PanelAutorizarDescanso({
         Autorizar cambio de descanso
       </h4>
       <p className="muted" style={{ margin: '0 0 0.55rem', fontSize: '0.74rem' }}>
-        Los empleados trabajan 6 días y descansan 1. Ese día no es falta.
-        Si cambian el descanso, autorízalo aquí (o muévelo en Checador → Plan horario)
-        para que el sistema no lo tome como falta de bono.
+        Los empleados trabajan 6 días y descansan 1 (en 3B2 diurno suele ser domingo).
+        Si mueven el descanso (ej. a miércoles), autorízalo aquí o muévelo en Checador → Plan horario:
+        ese día no es falta y no aplica ban de bono. También se libera el descanso habitual de esa semana.
         {' '}Tienda: <strong>{etiquetaTienda(suc)}</strong>.
       </p>
 
@@ -180,7 +199,7 @@ export default function PanelAutorizarDescanso({
           </select>
         </label>
         <label className="muted" style={{ fontSize: '0.75rem' }}>
-          Fecha descanso
+          Nuevo descanso
           <input
             className="input"
             type="date"
@@ -188,6 +207,16 @@ export default function PanelAutorizarDescanso({
             value={fecha}
             onChange={(e) => setFecha(e.target.value)}
             required
+          />
+        </label>
+        <label className="muted" style={{ fontSize: '0.75rem' }}>
+          Descanso habitual (ej. domingo)
+          <input
+            className="input"
+            type="date"
+            style={{ marginTop: 4 }}
+            value={fechaHabitual}
+            onChange={(e) => setFechaHabitual(e.target.value)}
           />
         </label>
         <label className="muted" style={{ fontSize: '0.75rem', gridColumn: 'span 2' }}>
@@ -206,7 +235,7 @@ export default function PanelAutorizarDescanso({
           disabled={busy || !plantilla.length}
           style={{ fontSize: '0.8rem' }}
         >
-          {busy ? '…' : 'Autorizar'}
+          {busy ? '…' : 'Autorizar cambio'}
         </button>
       </form>
 

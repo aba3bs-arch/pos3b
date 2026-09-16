@@ -17,11 +17,11 @@ import {
 } from './descansosAutorizados.js'
 import { resolverTipoEmpleado } from './empleadosVisibles.js'
 import { normalizarNombreEmpleado } from './nominaMatch.js'
-import { esDescansoEnPlanHorario } from './planHorario.js'
+import { esDescansoEnPlanHorario, celdaPlanEmpleadoDia, diaDescansoPlanEmpleado } from './planHorario.js'
 import { leerPlanHorarioLocal, sincronizarPlanHorarioDesdeNube } from './planHorarioSync.js'
 import { normalizarRol } from './roles.js'
 import { ymdLocal } from './semanaNomina.js'
-import { parseTurnoHorario, turnoIdParaUsuario } from './turnos.js'
+import { parseTurnoHorario, patronRotacionPorId, turnoIdParaUsuario } from './turnos.js'
 import { esAdministradorSinAnclaje, usuarioEstaActivo } from './usuariosAuth.js'
 
 export function ymdLocalDesdeIso(iso) {
@@ -376,36 +376,119 @@ function dateLocalDesdeYmd(ymd) {
   return new Date(y, m - 1, d, 12, 0, 0)
 }
 
+/** Lunes de la semana laboral (Lun–Dom) para un YMD. */
+export function ymdLunesDeSemana(ymd) {
+  const date = dateLocalDesdeYmd(ymd)
+  if (!date) return ''
+  const day = date.getDay() // 0=dom
+  const diff = day === 0 ? -6 : 1 - day
+  date.setDate(date.getDate() + diff)
+  return ymdLocal(date)
+}
+
+export function mismaSemanaLaboral(ymdA, ymdB) {
+  const a = ymdLunesDeSemana(ymdA)
+  const b = ymdLunesDeSemana(ymdB)
+  return Boolean(a && b && a === b)
+}
+
+/**
+ * Día de descanso habitual (0=dom … 6=sáb).
+ * Patrón / días personalizados → el único día sin turno; si no, domingo (6+1 tienda).
+ */
+export function diaDescansoHabitualEmpleado(user) {
+  const horario = parseTurnoHorario(user?.turno_horario)
+  let diasMap = null
+  if (horario?.patron) {
+    diasMap = patronRotacionPorId(horario.patron)?.dias || null
+  } else if (horario?.dias && typeof horario.dias === 'object' && Object.keys(horario.dias).length) {
+    diasMap = horario.dias
+  }
+  if (diasMap) {
+    const sinTurno = []
+    for (let i = 0; i < 7; i += 1) {
+      const id = diasMap[String(i)] ?? diasMap[i]
+      if (!id) sinTurno.push(i)
+    }
+    if (sinTurno.length === 1) return sinTurno[0]
+    if (sinTurno.includes(0)) return 0
+  }
+  return 0
+}
+
+/** YMD del último weekday (0=dom…6=sáb) en o antes de `ymd`. */
+export function ymdUltimoWeekdayEnOAntes(ymd, diaSemana) {
+  const date = dateLocalDesdeYmd(ymd)
+  if (!date) return ''
+  const target = Number(diaSemana)
+  if (!Number.isFinite(target) || target < 0 || target > 6) return ''
+  const diff = (date.getDay() - target + 7) % 7
+  date.setDate(date.getDate() - diff)
+  return ymdLocal(date)
+}
+
+/**
+ * Fecha del descanso habitual a liberar al mover el descanso a `fechaNuevaYmd`.
+ * Ej.: nuevo descanso miércoles → sugiere el domingo previo.
+ */
+export function sugerirFechaDescansoHabitual(user, fechaNuevaYmd) {
+  const habitual = diaDescansoHabitualEmpleado(user)
+  const ymd = ymdUltimoWeekdayEnOAntes(fechaNuevaYmd, habitual)
+  if (!ymd || ymd === String(fechaNuevaYmd || '').slice(0, 10)) return ''
+  return ymd
+}
+
 /**
  * ¿Ese día el empleado de tienda debía trabajar?
  *
  * Orden (si alguno dice descanso → NO es falta):
  * 1) Descanso autorizado ese día (cambio de descanso / permiso)
- * 2) Plan horario: celda del día de la semana = descanso
- * 3) Patrón turno_horario: día sin turno asignado
- * 4) Sin patrón ni plan: se asume laboral (hace falta autorizar o marcar en plan)
+ * 2) Semana actual + plan: la celda manda (permite mover descanso a miércoles)
+ * 3) Plan horario descanso (otras semanas)
+ * 4) Descanso habitual (domingo 6+1 / patrón), sin reinterpretar como falta
+ *    cuando el plan ya movió el descanso a otro día
+ * 5) Patrón de días del empleado
+ * 6) Sin info: laboral
  *
  * @param {object} user
  * @param {string} ymd
- * @param {{ plan?: object, descansosAutSet?: Set<string> }} [ctx]
+ * @param {{ plan?: object, descansosAutSet?: Set<string>, hoy?: string }} [ctx]
  */
 export function diaLaborableParaBono(user, ymd, ctx = {}) {
   if (!user || !ymd) return false
   const date = dateLocalDesdeYmd(ymd)
   if (!date) return false
   const uid = user.id != null ? String(user.id) : ''
+  const hoy = ctx.hoy || null
+  const enSemanaActual = hoy ? mismaSemanaLaboral(ymd, hoy) : false
 
   // 1) Autorización puntual (cambio de descanso)
   if (uid && ctx.descansosAutSet?.has(claveDescansoAutorizado(uid, ymd))) {
     return false
   }
 
-  // 2) Plan horario semanal (descansos movidos en Checador → Plan)
-  if (uid && ctx.plan && esDescansoEnPlanHorario(ctx.plan, uid, date)) {
+  const celdaPlan = uid && ctx.plan ? celdaPlanEmpleadoDia(ctx.plan, uid, date) : null
+  const descansoPlanActual = uid && ctx.plan ? diaDescansoPlanEmpleado(ctx.plan, uid) : null
+  const habitual = diaDescansoHabitualEmpleado(user)
+
+  // 2) Semana actual: si hay fila en plan, la celda manda (ej. descanso movido a miércoles).
+  //    No se aplica el plan actual a semanas pasadas (evitar que miércoles viejos
+  //    se vuelvan “descanso” retroactivo al mover el plan).
+  if (enSemanaActual && celdaPlan) {
+    return celdaPlan.tipo !== 'descanso'
+  }
+
+  // 3) Descanso habitual (domingo típico / patrón) en semanas pasadas o sin plan.
+  if (date.getDay() === habitual) {
     return false
   }
 
-  // 3) Patrón de días del empleado (6 laborales + 1 descanso típico)
+  // 4) Autorización ya cubierta; plan descanso solo si no hay “hoy” (tests sin semana actual)
+  if (!hoy && uid && ctx.plan && esDescansoEnPlanHorario(ctx.plan, uid, date)) {
+    return false
+  }
+
+  // 5) Patrón de días del empleado
   const horario = parseTurnoHorario(user?.turno_horario)
   const hasDias = Boolean(
     horario?.patron
@@ -413,8 +496,8 @@ export function diaLaborableParaBono(user, ymd, ctx = {}) {
   )
   if (hasDias) return Boolean(turnoIdParaUsuario(user, date))
 
-  // Sin patrón: si hay plan para ese usuario y el día no es descanso, es laboral.
-  // Si no hay info de plan, asumir laboral (para no ocultar faltas reales).
+  // 6) Sin patrón: laboral
+  if (descansoPlanActual != null && !hoy && date.getDay() === descansoPlanActual) return false
   return true
 }
 
@@ -451,7 +534,7 @@ export function listarBloqueosBonoPorFalta({
     ? descansosAutorizados
     : setClavesDescansosAutorizados(descansosAutorizados || [])
 
-  const ctx = { plan: plan || null, descansosAutSet }
+  const ctx = { plan: plan || null, descansosAutSet, hoy }
 
   const plantilla = (usuarios || []).filter((u) => {
     if (!usuarioEstaActivo(u)) return false
