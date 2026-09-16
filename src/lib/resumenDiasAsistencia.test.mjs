@@ -270,55 +270,121 @@ assert.equal(
 }
 
 {
-  // Bono: entrada sin salida NO es falta; solo sin entrada ni salida.
+  // Bono: solo empleados de tienda dados de alta.
+  // Entrada sola o salida sola → SÍ bono. Sin ambas en día laboral → falta.
+  // Faltó lunes → sin bono 7 días; vuelve el próximo lunes.
   const dias = diasConAlgunaChecada([
     { tipo: 'ENTRADA', created_at: '2026-09-10T08:00:00' },
-    { tipo: 'ENTRADA', created_at: '2026-09-11T08:00:00' },
     { tipo: 'SALIDA', created_at: '2026-09-11T20:00:00' },
   ])
-  assert.equal(dias.has('2026-09-10'), true) // solo entrada cuenta como presencia (bono)
+  assert.equal(dias.has('2026-09-10'), true)
   assert.equal(dias.has('2026-09-11'), true)
 
-  const ahora = new Date(2026, 8, 16, 12, 0, 0) // 16 sep
-  // Ana: 10 (solo entrada = presente), 12+13+16 completo. Huecos 11,14,15 → descanso 11 + faltas 14,15
-  // Falta más reciente 15 → bloqueo hasta 22; hoy 16 sigue bloqueada.
+  const ahora = new Date(2026, 8, 16, 12, 0, 0) // miércoles 16 sep
+  // Lun=1 Mar=2 Mié=3 — solo esos días laborales en el patrón de prueba
+  const horarioLM = {
+    tipo: 'personalizado',
+    dias: { 1: 'diurno', 2: 'diurno', 3: 'diurno' },
+  }
+
+  // Manuel faltó lunes 14 (sin entrada ni salida). Hoy 16 → bloqueado; vuelve lunes 21.
   const bloqueos = listarBloqueosBonoPorFalta({
-    usuarios: [{ id: 'a1', nombre: 'Ana Bono', rol: 'Cajero', sucursal_id: '3B5', activo: true }],
+    usuarios: [{
+      id: 'm1',
+      nombre: 'Manuel',
+      rol: 'Cajero',
+      sucursal_id: '3B5',
+      activo: true,
+      tipo_empleado: 'tienda',
+      turno_horario: horarioLM,
+    }],
     marcajes: [
-      { usuario_id: 'a1', nombre: 'Ana Bono', sucursal_id: '3B5', tipo: 'ENTRADA', created_at: '2026-09-10T08:00:00' },
-      ...parDia('a1', 'Ana Bono', '3B5', '2026-09-12'),
-      ...parDia('a1', 'Ana Bono', '3B5', '2026-09-13'),
-      ...parDia('a1', 'Ana Bono', '3B5', '2026-09-16'),
+      ...parDia('m1', 'Manuel', '3B5', '2026-09-15'),
+      ...parDia('m1', 'Manuel', '3B5', '2026-09-16'),
     ],
     sucursalId: '3B5',
     ahora,
-    diasBloqueo: 8,
+    diasBloqueo: 7,
   })
-  assert.ok(bloqueos.length >= 1, 'debe haber bloqueo por falta')
-  const ana = bloqueos.find((b) => b.nombre === 'Ana Bono')
-  assert.ok(ana, 'Ana debe estar bloqueada')
-  assert.equal(ana.faltaYmd, '2026-09-15')
-  assert.equal(ana.sinBonoHasta, sumarDiasYmd('2026-09-15', 7))
-  assert.equal(ana.diasRestantes, 7)
+  const manuel = bloqueos.find((b) => b.nombre === 'Manuel')
+  assert.ok(manuel, 'Manuel debe estar bloqueado')
+  assert.equal(manuel.faltaYmd, '2026-09-14')
+  assert.equal(manuel.sinBonoHasta, '2026-09-20')
+  assert.equal(manuel.vuelveBonoYmd, '2026-09-21')
+  assert.equal(manuel.diasRestantes, 5)
 
-  // Solo entrada el día 14: con modo bono no genera falta ese día
-  const soloEntrada = construirResumenEmpleados({
-    usuarios: [{ id: 'b1', nombre: 'Betto', rol: 'Cajero', sucursal_id: '3B5', activo: true }],
+  // María: solo entrada el lunes 14 → SÍ tiene bono
+  const mariaOk = listarBloqueosBonoPorFalta({
+    usuarios: [{
+      id: 'ma1',
+      nombre: 'Maria',
+      rol: 'Cajero',
+      sucursal_id: '3B5',
+      activo: true,
+      tipo_empleado: 'tienda',
+      turno_horario: horarioLM,
+    }],
     marcajes: [
-      { usuario_id: 'b1', nombre: 'Betto', sucursal_id: '3B5', tipo: 'ENTRADA', created_at: '2026-09-14T08:00:00' },
-      ...parDia('b1', 'Betto', '3B5', '2026-09-15'),
-      ...parDia('b1', 'Betto', '3B5', '2026-09-16'),
+      { usuario_id: 'ma1', nombre: 'Maria', sucursal_id: '3B5', tipo: 'ENTRADA', created_at: '2026-09-14T08:00:00' },
+      ...parDia('ma1', 'Maria', '3B5', '2026-09-15'),
+      ...parDia('ma1', 'Maria', '3B5', '2026-09-16'),
     ],
-    desdeYmd: '2026-09-14',
-    hastaYmd: '2026-09-16',
+    sucursalId: '3B5',
     ahora,
-    filtroSucursal: '3B5',
-    modoPresencia: 'cualquier_marcaje',
+    diasBloqueo: 7,
   })
-  const betto = soloEntrada.find((f) => f.nombre === 'Betto')
-  assert.equal(betto.dias, 3)
-  assert.equal(betto.faltas, 0)
-  assert.ok(!betto.diasFaltaYmd.includes('2026-09-14'))
+  assert.equal(mariaOk.find((b) => b.nombre === 'Maria'), undefined)
+
+  // Solo salida el lunes (olvidó entrada) → también tiene bono
+  const soloSalida = listarBloqueosBonoPorFalta({
+    usuarios: [{
+      id: 's1',
+      nombre: 'Sara',
+      rol: 'Cajero',
+      sucursal_id: '3B5',
+      activo: true,
+      tipo_empleado: 'tienda',
+      turno_horario: horarioLM,
+    }],
+    marcajes: [
+      { usuario_id: 's1', nombre: 'Sara', sucursal_id: '3B5', tipo: 'SALIDA', created_at: '2026-09-14T20:00:00' },
+      ...parDia('s1', 'Sara', '3B5', '2026-09-15'),
+      ...parDia('s1', 'Sara', '3B5', '2026-09-16'),
+    ],
+    sucursalId: '3B5',
+    ahora,
+    diasBloqueo: 7,
+  })
+  assert.equal(soloSalida.find((b) => b.nombre === 'Sara'), undefined)
+
+  // Indirecto / baja no aparecen aunque no chequen
+  const noPlantilla = listarBloqueosBonoPorFalta({
+    usuarios: [
+      {
+        id: 'ind1',
+        nombre: 'Indirecto Main',
+        rol: 'Cajero',
+        sucursal_id: 'MAIN',
+        activo: true,
+        tipo_empleado: 'indirecto',
+        turno_horario: horarioLM,
+      },
+      {
+        id: 'baja1',
+        nombre: 'Baja Tienda',
+        rol: 'Cajero',
+        sucursal_id: '3B5',
+        activo: false,
+        tipo_empleado: 'tienda',
+        turno_horario: horarioLM,
+      },
+    ],
+    marcajes: [],
+    sucursalId: '3B5',
+    ahora,
+    diasBloqueo: 7,
+  })
+  assert.equal(noPlantilla.length, 0)
 }
 
 console.log('resumenDiasAsistencia.test.mjs ok')

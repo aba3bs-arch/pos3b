@@ -10,8 +10,11 @@
  */
 
 import { esAlmacenCentral, normalizarCodigoTienda } from '../constants/sucursales.js'
+import { resolverTipoEmpleado } from './empleadosVisibles.js'
 import { normalizarNombreEmpleado } from './nominaMatch.js'
+import { normalizarRol } from './roles.js'
 import { ymdLocal } from './semanaNomina.js'
+import { parseTurnoHorario, turnoIdParaUsuario } from './turnos.js'
 import { esAdministradorSinAnclaje, usuarioEstaActivo } from './usuariosAuth.js'
 
 export function ymdLocalDesdeIso(iso) {
@@ -251,7 +254,7 @@ function claveNombreSucursal(nombre, sucursalId) {
 
 /**
  * Días con al menos una checada (ENTRADA o SALIDA).
- * Para bono: si hay entrada sin salida, NO es falta.
+ * Para bono: entrada sin salida O salida sin entrada → SÍ tiene bono (no es falta).
  */
 export function diasConAlgunaChecada(marcajes = []) {
   const dias = new Set()
@@ -263,8 +266,11 @@ export function diasConAlgunaChecada(marcajes = []) {
   return dias
 }
 
-/** Días sin bono a partir del día de la falta (incluye ese día). */
-export const DIAS_BLOQUEO_BONO_POR_FALTA = 8
+/**
+ * Días de bloqueo contando el de la falta.
+ * Faltó lunes → sin bono lun–dom; el próximo lunes ya tiene bono (vuelve a los 7 días).
+ */
+export const DIAS_BLOQUEO_BONO_POR_FALTA = 7
 
 export function sumarDiasYmd(ymd, dias) {
   if (!ymd) return ''
@@ -284,10 +290,36 @@ export function diasInclusiveEntre(desdeYmd, hastaYmd) {
   return Math.floor((b - a) / 86400000) + 1
 }
 
+function dateLocalDesdeYmd(ymd) {
+  const [y, m, d] = String(ymd || '').slice(0, 10).split('-').map(Number)
+  if (![y, m, d].every((n) => Number.isFinite(n))) return null
+  return new Date(y, m - 1, d, 12, 0, 0)
+}
+
 /**
- * Empleados de planta con falta (sin entrada ni salida ese día) que aún
- * están en la ventana de 8 días sin bono.
- * Entrada sin salida NO cuenta como falta.
+ * ¿Ese día el empleado de tienda debía trabajar?
+ * Con patrón/días en turno_horario: solo los asignados.
+ * Sin patrón: se asume laboral (turno fijo diario).
+ */
+export function diaLaborableParaBono(user, ymd) {
+  if (!user || !ymd) return false
+  const date = dateLocalDesdeYmd(ymd)
+  if (!date) return false
+  const horario = parseTurnoHorario(user?.turno_horario)
+  const hasDias = Boolean(
+    horario?.patron
+    || (horario?.dias && typeof horario.dias === 'object' && Object.keys(horario.dias).length),
+  )
+  if (hasDias) return Boolean(turnoIdParaUsuario(user, date))
+  return true
+}
+
+/**
+ * Empleados de tienda (dados de alta) con falta vigente para bono.
+ * - Solo tipo tienda, activos, de la sucursal (no CT, no indirectos, no bajas).
+ * - Falta = día laboral sin ENTRADA ni SALIDA.
+ * - Entrada sola o salida sola → SÍ tiene bono.
+ * - Bloqueo: 7 días desde la falta; el día 8 (= mismo día de la semana siguiente) ya tiene bono.
  */
 export function listarBloqueosBonoPorFalta({
   usuarios = [],
@@ -296,38 +328,62 @@ export function listarBloqueosBonoPorFalta({
   ahora = new Date(),
   diasBloqueo = DIAS_BLOQUEO_BONO_POR_FALTA,
 } = {}) {
+  const suc = normalizarCodigoTienda(sucursalId)
   const hoy = ymdLocal(ahora)
-  const lookback = Math.max(21, (Number(diasBloqueo) || 8) + 14)
+  const diasBan = Math.max(1, Number(diasBloqueo) || DIAS_BLOQUEO_BONO_POR_FALTA)
+  const lookback = Math.max(21, diasBan + 14)
   const desdeYmd = sumarDiasYmd(hoy, -lookback)
-  const resumen = construirResumenEmpleados({
-    usuarios,
-    marcajes,
-    desdeYmd,
-    hastaYmd: hoy,
-    ahora,
-    filtroSucursal: sucursalId,
-    modoPresencia: 'cualquier_marcaje',
+  const periodo = listarYmdInclusive(desdeYmd, hoy)
+
+  const plantilla = (usuarios || []).filter((u) => {
+    if (!usuarioEstaActivo(u)) return false
+    if (esAdministradorSinAnclaje(u.rol)) return false
+    if (normalizarRol(u.rol) === 'Administrador') return false
+    if (resolverTipoEmpleado(u) !== 'tienda') return false
+    const sucU = normalizarCodigoTienda(u.sucursal_id)
+    if (!sucU || sucU === 'MAIN') return false
+    if (suc && sucU !== suc) return false
+    return true
   })
 
-  /** @type {Array<{ clave: string, nombre: string, sucursalId: string, faltaYmd: string, sinBonoHasta: string, diasRestantes: number }>} */
+  /** @type {Map<string, object[]>} */
+  const marcajesPorUsuario = new Map()
+  for (const m of marcajes || []) {
+    const uid = m.usuario_id != null ? String(m.usuario_id).trim() : ''
+    if (!uid) continue
+    if (!marcajesPorUsuario.has(uid)) marcajesPorUsuario.set(uid, [])
+    marcajesPorUsuario.get(uid).push(m)
+  }
+
+  /** @type {Array<{ clave: string, nombre: string, sucursalId: string, faltaYmd: string, sinBonoHasta: string, vuelveBonoYmd: string, diasRestantes: number }>} */
   const out = []
-  for (const emp of resumen) {
-    if (emp.esCubreTurno) continue
-    for (const faltaYmd of emp.diasFaltaYmd || []) {
-      const sinBonoHasta = sumarDiasYmd(faltaYmd, (Number(diasBloqueo) || 8) - 1)
+
+  for (const u of plantilla) {
+    const uid = String(u.id)
+    const presentes = diasConAlgunaChecada(marcajesPorUsuario.get(uid) || [])
+    const faltas = []
+    for (const ymd of periodo) {
+      if (!diaLaborableParaBono(u, ymd)) continue
+      if (presentes.has(ymd)) continue
+      faltas.push(ymd)
+    }
+    for (const faltaYmd of faltas) {
+      // Último día sin bono = falta + (diasBan - 1); el siguiente ya tiene bono.
+      const sinBonoHasta = sumarDiasYmd(faltaYmd, diasBan - 1)
+      const vuelveBonoYmd = sumarDiasYmd(faltaYmd, diasBan)
       if (!sinBonoHasta || hoy < faltaYmd || hoy > sinBonoHasta) continue
       out.push({
-        clave: emp.clave,
-        nombre: emp.nombre,
-        sucursalId: emp.sucursalId,
+        clave: `id:${uid}`,
+        nombre: u.nombre || 'Sin nombre',
+        sucursalId: normalizarCodigoTienda(u.sucursal_id) || suc,
         faltaYmd,
         sinBonoHasta,
+        vuelveBonoYmd,
         diasRestantes: diasInclusiveEntre(hoy, sinBonoHasta),
       })
     }
   }
 
-  // Una fila por empleado: la falta más reciente (bloqueo vigente más restrictivo)
   const porEmpleado = new Map()
   for (const row of out) {
     const prev = porEmpleado.get(row.clave)
@@ -345,7 +401,7 @@ export function listarBloqueosBonoPorFalta({
  *
  * @param {'par'|'cualquier_marcaje'} [opts.modoPresencia]
  *   - par: ENTRADA+SALIDA (nómina / resumen clásico)
- *   - cualquier_marcaje: basta ENTRADA o SALIDA (bono: entrada sin salida ≠ falta)
+ *   - cualquier_marcaje: basta ENTRADA o SALIDA (bono: entrada/salida sola ≠ falta)
  */
 export function construirResumenEmpleados({
   usuarios = [],
@@ -521,16 +577,28 @@ export async function cargarMarcajesResumen(supabase, { desdeIso, hastaIso, sucu
 
 export async function cargarUsuariosResumen(supabase, { sucursalId }) {
   if (!supabase) return { data: [], error: null }
-  return fetchPaginado(supabase, 'usuarios', 'id,nombre,rol,sucursal_id,activo', (q) => {
+  const apply = (q) => {
     let n = q.order('nombre', { ascending: true }).order('id', { ascending: true })
     if (sucursalId) n = n.eq('sucursal_id', sucursalId)
     return n
-  })
+  }
+  const full = await fetchPaginado(
+    supabase,
+    'usuarios',
+    'id,nombre,rol,sucursal_id,activo,tipo_empleado,turno_id,turno_horario',
+    apply,
+  )
+  if (!full.error) return full
+  if (!/turno_horario|tipo_empleado|column|schema cache/i.test(String(full.error.message || full.error))) {
+    return full
+  }
+  return fetchPaginado(supabase, 'usuarios', 'id,nombre,rol,sucursal_id,activo,turno_id', apply)
 }
 
 /**
- * Empleados de la sucursal sin bono por falta (ventana de 8 días).
- * Falta = día sin entrada ni salida; entrada sola no cuenta.
+ * Empleados de la sucursal (solo tienda, dados de alta) sin bono por falta.
+ * Falta = día laboral sin entrada ni salida; entrada o salida sola no cuenta.
+ * Bloqueo 7 días; el mismo día de la semana siguiente ya tiene bono.
  */
 export async function cargarBloqueosBonoPorFalta(supabase, {
   sucursalId,
@@ -540,7 +608,7 @@ export async function cargarBloqueosBonoPorFalta(supabase, {
   if (!supabase || !sucursalId) return { ok: false, data: [], error: 'Sin sucursal.' }
   const suc = normalizarCodigoTienda(sucursalId)
   const hoy = ymdLocal(ahora)
-  const lookback = Math.max(21, (Number(diasBloqueo) || 8) + 14)
+  const lookback = Math.max(21, (Number(diasBloqueo) || 7) + 14)
   const desdeYmd = sumarDiasYmd(hoy, -lookback)
   const desdeIso = `${desdeYmd}T00:00:00`
   const hastaIso = new Date(ahora.getTime() + 24 * 3600 * 1000).toISOString()
