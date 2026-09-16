@@ -127,15 +127,16 @@ export default function PanelBonoInicio({ supabase, sucursal, inventario = [], o
         }}
       >
         <h4 style={{ margin: '0 0 0.35rem', fontSize: '0.88rem', color: '#b91c1c' }}>
-          Sin bono por falta ({DIAS_BLOQUEO_BONO_POR_FALTA} días)
+          Sin bono por falta (empleados de tienda)
         </h4>
         <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.74rem' }}>
-          Solo cuenta falta quien no registró entrada ni salida. Entrada sin salida no es falta.
-          Desde el día de la falta no reciben bono durante {DIAS_BLOQUEO_BONO_POR_FALTA} días.
+          Solo personal de tienda dado de alta. Falta = día laboral sin entrada ni salida.
+          Si registró solo entrada o solo salida, sí tiene bono. Tras una falta no recibe bono
+          durante {DIAS_BLOQUEO_BONO_POR_FALTA} días (ej. faltó lunes → vuelve el próximo lunes).
         </p>
         {bloqueosFalta.length === 0 ? (
           <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
-            Nadie en ventana de bloqueo por falta.
+            Nadie de la plantilla en ventana de bloqueo por falta.
           </p>
         ) : (
           <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: '0.3rem' }}>
@@ -160,9 +161,9 @@ export default function PanelBonoInicio({ supabase, sucursal, inventario = [], o
                   </span>
                 </span>
                 <span style={{ color: '#b91c1c', fontWeight: 700 }}>
-                  hasta {fmtDia(b.sinBonoHasta)}
+                  vuelve {fmtDia(b.vuelveBonoYmd || b.sinBonoHasta)}
                   <span className="muted" style={{ fontWeight: 500, marginLeft: 4 }}>
-                    ({b.diasRestantes}d)
+                    ({b.diasRestantes}d sin bono)
                   </span>
                 </span>
               </li>
