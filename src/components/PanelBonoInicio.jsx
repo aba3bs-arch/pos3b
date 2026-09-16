@@ -149,8 +149,9 @@ export default function PanelBonoInicio({
         <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.74rem' }}>
           Solo personal de tienda dado de alta. Trabajan 6 días y descansan 1: el descanso
           (plan horario / patrón / autorizado) no es falta. Falta = día laboral sin entrada ni salida.
-          Entrada o salida sola sí da bono. Tras una falta: {DIAS_BLOQUEO_BONO_POR_FALTA} días sin bono
-          (ej. faltó lunes → vuelve el próximo lunes).
+          Entrada o salida sola sí da bono. Si faltan: pierden el bono desde ese día y lo recuperan
+          la siguiente semana el mismo día (ej. faltó lunes 14 → vuelve lunes 21), si no volvieron a faltar.
+          Si faltan otra vez antes de recuperar, se acumulan los días entre faltas (vuelven {DIAS_BLOQUEO_BONO_POR_FALTA} días después de la última).
         </p>
         {avisoDescansos ? (
           <p style={{ margin: '0 0 0.45rem', fontSize: '0.74rem', color: '#b45309' }}>{avisoDescansos}</p>
@@ -178,7 +179,12 @@ export default function PanelBonoInicio({
                 <span>
                   <strong>{b.nombre}</strong>
                   <span className="muted" style={{ marginLeft: 6 }}>
-                    falta {fmtDia(b.faltaYmd)}
+                    {b.faltasCount > 1
+                      ? `${b.faltasCount} faltas (${fmtDia(b.primeraFaltaYmd)} → ${fmtDia(b.faltaYmd)})`
+                      : `falta ${fmtDia(b.faltaYmd)}`}
+                    {b.diasAcumuladosExtra > 0 ? (
+                      <span> · +{b.diasAcumuladosExtra}d acumulados</span>
+                    ) : null}
                   </span>
                 </span>
                 <span style={{ color: '#b91c1c', fontWeight: 700 }}>
