@@ -7,6 +7,7 @@ import PanelLiquidacionRecolecciones from '../components/PanelLiquidacionRecolec
 import {
   AVISO_FALTA_VENTA_RUTA,
   NOMBRE_ALMACEN_RUTA,
+  cancelarCargaRuta,
   crearCargaRuta,
   disponibleEnLineaCarga,
   guardarClienteRuta,
@@ -15,6 +16,7 @@ import {
   listarCargasRuta,
   listarClientesRuta,
   listarDestinosVentaRuta,
+  listarReporteIngresosCargaRuta,
   listarUsuariosRepartidores,
   listarVentasRuta,
   precioRutaEspecial,
@@ -154,7 +156,15 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           <PanelLiquidacionRecolecciones supabase={supabase} user={user} embedded />
         </div>
       )}
-      {vista === 'consultas' && puede('ruta_consultas') && <VistaConsultas supabase={supabase} setAviso={setAviso} />}
+      {vista === 'consultas' && puede('ruta_consultas') && (
+        <VistaConsultas
+          supabase={supabase}
+          user={user}
+          setAviso={setAviso}
+          cargarDatos={cargarDatos}
+          fusionarProducto={fusionarProducto}
+        />
+      )}
     </div>
   );
 }
@@ -1092,10 +1102,15 @@ function VistaClientes({ supabase, setAviso }) {
   );
 }
 
-function VistaConsultas({ supabase, setAviso }) {
-  const [tab, setTab] = useState('ventas');
+function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProducto }) {
+  const [tab, setTab] = useState('ingresos');
   const [rows, setRows] = useState([]);
   const [cargando, setCargando] = useState(false);
+  const [tick, setTick] = useState(0);
+  const [expandido, setExpandido] = useState(null);
+  const [cancelandoId, setCancelandoId] = useState('');
+
+  const puedeCancelar = puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_carga');
 
   useEffect(() => {
     let cancel = false;
@@ -1104,6 +1119,12 @@ function VistaConsultas({ supabase, setAviso }) {
       try {
         if (tab === 'cargas') {
           const r = await listarCargasRuta(supabase, { limit: 80 });
+          if (cancel) return;
+          if (r.aviso) setAviso(r.aviso);
+          if (r.error) setAviso(r.error);
+          setRows(r.data || []);
+        } else if (tab === 'ingresos') {
+          const r = await listarReporteIngresosCargaRuta(supabase, { limit: 80 });
           if (cancel) return;
           if (r.aviso) setAviso(r.aviso);
           if (r.error) setAviso(r.error);
@@ -1128,7 +1149,7 @@ function VistaConsultas({ supabase, setAviso }) {
     return () => {
       cancel = true;
     };
-  }, [supabase, tab, setAviso]);
+  }, [supabase, tab, setAviso, tick]);
 
   const fmtFecha = (iso) => {
     if (!iso) return '—';
@@ -1141,7 +1162,11 @@ function VistaConsultas({ supabase, setAviso }) {
 
   const badgeEstado = (estado) => {
     const e = String(estado || '').toLowerCase();
-    const color = e === 'en_ruta' ? '#0f766e' : e === 'liquidada' ? '#64748b' : 'var(--brand-blue)';
+    const color =
+      e === 'en_ruta' ? '#0f766e'
+        : e === 'liquidada' ? '#64748b'
+          : e === 'cancelada' ? '#b91c1c'
+            : 'var(--brand-blue)';
     return (
       <span
         style={{
@@ -1159,11 +1184,51 @@ function VistaConsultas({ supabase, setAviso }) {
     );
   };
 
+  const onCancelarCarga = async (carga) => {
+    if (!carga?.id || !puedeCancelar) return;
+    const estado = String(carga.estado || '').toLowerCase();
+    if (estado !== 'en_ruta') {
+      setAviso('Solo se pueden cancelar cargas en ruta (sin ventas).');
+      return;
+    }
+    const motivo = window.prompt(
+      `¿Cancelar carga ${carga.folio || ''}?\nSe devolverá a CEDIS el inventario disponible.\nMotivo (opcional):`,
+    );
+    if (motivo === null) return;
+    setCancelandoId(carga.id);
+    setAviso('');
+    try {
+      const res = await cancelarCargaRuta(supabase, {
+        cargaId: carga.id,
+        usuarioNombre: user?.nombre,
+        rol: user?.rol,
+        userId: user?.id,
+        motivo: String(motivo || '').trim() || undefined,
+      });
+      if (!res.ok) {
+        setAviso(res.error || 'No se pudo cancelar la carga.');
+        return;
+      }
+      for (const p of res.patches || []) {
+        if (p?.id) fusionarProducto?.(p);
+      }
+      if (cargarDatos) void cargarDatos();
+      setAviso(`Carga ${carga.folio || ''} cancelada · inventario devuelto a CEDIS.`);
+      setTick((t) => t + 1);
+    } finally {
+      setCancelandoId('');
+    }
+  };
+
   return (
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
-      <h3 style={{ margin: '0 0 0.75rem', color: COLOR }}>Consultas</h3>
+      <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Consultas</h3>
+      <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+        Ingresos = cargas al camión (salida CEDIS). Desde Cargas puedes cancelar un registro en ruta sin ventas.
+      </p>
       <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
         {[
+          { id: 'ingresos', label: 'Ingresos' },
           { id: 'ventas', label: 'Ventas' },
           { id: 'cargas', label: 'Cargas' },
           { id: 'creditos', label: 'Créditos cobrados' },
@@ -1172,7 +1237,7 @@ function VistaConsultas({ supabase, setAviso }) {
             key={t.id}
             type="button"
             className={`btn ${tab === t.id ? 'btn-primary' : 'btn-ghost'}`}
-            onClick={() => setTab(t.id)}
+            onClick={() => { setExpandido(null); setTab(t.id); }}
           >
             {t.label}
           </button>
@@ -1182,6 +1247,86 @@ function VistaConsultas({ supabase, setAviso }) {
         <p className="muted">Cargando…</p>
       ) : !rows.length ? (
         <p className="muted">Sin registros.</p>
+      ) : tab === 'ingresos' ? (
+        <div className="table-wrap">
+          <table className="consultas-table">
+            <thead>
+              <tr>
+                <th>Folio</th>
+                <th>Fecha</th>
+                <th>Repartidor</th>
+                <th>Piezas</th>
+                <th>Total</th>
+                <th>Estado</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((c) => {
+                const abierto = expandido === c.id;
+                return (
+                  <React.Fragment key={c.id}>
+                    <tr>
+                      <td><strong>{c.folio || '—'}</strong></td>
+                      <td>{c.fecha || fmtFecha(c.created_at)}</td>
+                      <td>{c.vendedor_nombre || '—'}</td>
+                      <td>{fmtQty(c.piezas)}</td>
+                      <td>{fmtMonto(c.total)}</td>
+                      <td>{badgeEstado(c.estado)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ fontSize: '0.78rem', padding: '0.2rem 0.45rem' }}
+                          onClick={() => setExpandido(abierto ? null : c.id)}
+                        >
+                          {abierto ? 'Ocultar' : 'Detalle'}
+                        </button>
+                      </td>
+                    </tr>
+                    {abierto ? (
+                      <tr>
+                        <td colSpan={7} style={{ background: '#f8fafc', padding: '0.5rem 0.75rem' }}>
+                          <div className="muted" style={{ fontSize: '0.78rem', marginBottom: '0.35rem' }}>
+                            {c.etiqueta || 'Ingreso a camión (salida CEDIS)'}
+                          </div>
+                          {(c.lineas || []).length ? (
+                            <table className="consultas-table" style={{ margin: 0 }}>
+                              <thead>
+                                <tr>
+                                  <th>Producto</th>
+                                  <th>Cargadas</th>
+                                  <th>Vendidas</th>
+                                  <th>Devueltas</th>
+                                  <th>Precio</th>
+                                  <th>Importe</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {c.lineas.map((l) => (
+                                  <tr key={l.id || `${c.id}-${l.producto_id}`}>
+                                    <td>{l.producto_nombre || l.producto_id || '—'}</td>
+                                    <td>{fmtQty(l.qty_cargada)}</td>
+                                    <td>{fmtQty(l.qty_vendida)}</td>
+                                    <td>{fmtQty(l.qty_devuelta)}</td>
+                                    <td>{fmtMonto(l.precio)}</td>
+                                    <td>{fmtMonto((Number(l.precio) || 0) * (Number(l.qty_cargada) || 0))}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          ) : (
+                            <p className="muted" style={{ margin: 0 }}>Sin líneas.</p>
+                          )}
+                        </td>
+                      </tr>
+                    ) : null}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       ) : tab === 'cargas' ? (
         <div className="table-wrap">
           <table className="consultas-table">
@@ -1192,18 +1337,39 @@ function VistaConsultas({ supabase, setAviso }) {
                 <th>Repartidor</th>
                 <th>Estado</th>
                 <th>Liquidada</th>
+                {puedeCancelar ? <th /> : null}
               </tr>
             </thead>
             <tbody>
-              {rows.map((c) => (
-                <tr key={c.id}>
-                  <td><strong>{c.folio || '—'}</strong></td>
-                  <td>{c.fecha || fmtFecha(c.created_at)}</td>
-                  <td>{c.vendedor_nombre || '—'}</td>
-                  <td>{badgeEstado(c.estado)}</td>
-                  <td className="muted" style={{ fontSize: '0.8rem' }}>{c.liquidada_at ? fmtFecha(c.liquidada_at) : '—'}</td>
-                </tr>
-              ))}
+              {rows.map((c) => {
+                const enRuta = String(c.estado || '').toLowerCase() === 'en_ruta';
+                return (
+                  <tr key={c.id}>
+                    <td><strong>{c.folio || '—'}</strong></td>
+                    <td>{c.fecha || fmtFecha(c.created_at)}</td>
+                    <td>{c.vendedor_nombre || '—'}</td>
+                    <td>{badgeEstado(c.estado)}</td>
+                    <td className="muted" style={{ fontSize: '0.8rem' }}>{c.liquidada_at ? fmtFecha(c.liquidada_at) : '—'}</td>
+                    {puedeCancelar ? (
+                      <td>
+                        {enRuta ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ fontSize: '0.78rem', padding: '0.2rem 0.45rem', color: '#b91c1c' }}
+                            disabled={cancelandoId === c.id}
+                            onClick={() => void onCancelarCarga(c)}
+                          >
+                            {cancelandoId === c.id ? 'Cancelando…' : 'Cancelar'}
+                          </button>
+                        ) : (
+                          <span className="muted" style={{ fontSize: '0.75rem' }}>—</span>
+                        )}
+                      </td>
+                    ) : null}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

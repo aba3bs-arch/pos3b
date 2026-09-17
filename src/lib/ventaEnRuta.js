@@ -98,6 +98,8 @@ export async function descontarCedisParaCarga(supabase, {
     sucursal: ALMACEN_CENTRAL,
     sucursalOperacion: ALMACEN_CENTRAL,
     modo: 'cedis',
+    folio: folio || undefined,
+    meta: folio ? { carga_folio: folio, origen: 'ruta_carga' } : { origen: 'ruta_carga' },
   });
   if (mov.ok) {
     const esperado = Math.max(0, disponible - qty);
@@ -148,6 +150,202 @@ export async function descontarCedisParaCarga(supabase, {
     aviso: mov.error || null,
   };
 }
+
+/**
+ * Devuelve piezas al CEDIS (cancelación de carga / ingreso inverso).
+ */
+export async function devolverCedisDesdeCarga(supabase, {
+  producto,
+  cantidad,
+  motivo,
+  usuario,
+  folio,
+} = {}) {
+  const qty = Math.floor(Math.abs(Number(cantidad) || 0));
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  if (!producto?.id || !(qty > 0)) return { ok: false, error: 'Producto o cantidad inválidos.' };
+
+  const fresco = await leerProductoInventarioFresco(supabase, producto.id);
+  if (!fresco.ok) return fresco;
+  const sync = await sincronizarStockCedisProducto(supabase, fresco.producto);
+  if (!sync.ok) return sync;
+  const prod = sync.producto;
+  const antes = stockAlmacenCentral(prod);
+
+  const mov = await aplicarMovimientoInventario(supabase, {
+    tipo: 'entrada',
+    productoOrigen: { ...producto, ...prod },
+    cantidad: qty,
+    motivo: motivo || `Cancelación carga ruta ${folio || ''} · → CEDIS`,
+    usuario: usuario || '—',
+    sucursal: ALMACEN_CENTRAL,
+    sucursalOperacion: ALMACEN_CENTRAL,
+    modo: 'cedis',
+    folio: folio || undefined,
+    meta: folio ? { carga_folio: folio, origen: 'ruta_carga_cancel' } : { origen: 'ruta_carga_cancel' },
+  });
+  if (mov.ok) {
+    const esperado = antes + qty;
+    const despues = Number(mov.stock_despues);
+    if (!Number.isFinite(despues) || despues !== esperado) {
+      const patch = buildPatchStock(
+        { ...prod, ...(mov.patch || {}) },
+        ALMACEN_CENTRAL,
+        'cedis',
+        esperado,
+        ALMACEN_CENTRAL,
+      );
+      const { error } = await supabase.from('productos').update(patch).eq('id', producto.id);
+      if (error) return { ok: false, error: error.message || String(error) };
+      return {
+        ok: true,
+        patch,
+        producto: { ...prod, ...patch },
+        stock_antes: antes,
+        stock_despues: esperado,
+        corregido: true,
+      };
+    }
+    return {
+      ok: true,
+      patch: mov.patch,
+      producto: mov.producto || { ...prod, ...mov.patch },
+      stock_antes: mov.stock_antes,
+      stock_despues: mov.stock_despues,
+    };
+  }
+  if (!mov.faltaRpc) return mov;
+
+  const objetivo = antes + qty;
+  const patch = buildPatchStock(prod, ALMACEN_CENTRAL, 'cedis', objetivo, ALMACEN_CENTRAL);
+  const { error } = await supabase.from('productos').update(patch).eq('id', producto.id);
+  if (error) return { ok: false, error: error.message || String(error) };
+  return {
+    ok: true,
+    patch,
+    producto: { ...prod, ...patch },
+    stock_antes: antes,
+    stock_despues: objetivo,
+    fallbackJson: true,
+    aviso: mov.error || null,
+  };
+}
+
+/**
+ * Cancela una carga en ruta: devuelve a CEDIS lo disponible (no vendido) y marca cancelada.
+ */
+export async function cancelarCargaRuta(supabase, {
+  cargaId,
+  usuarioNombre,
+  rol,
+  userId,
+  motivo,
+} = {}) {
+  if (!puedeAccionVentaRuta(rol, userId, 'ruta_carga')) {
+    return { ok: false, error: 'Sin privilegio para cancelar cargas de camión.' };
+  }
+  const id = String(cargaId || '').trim();
+  if (!id) return { ok: false, error: 'Falta la carga.' };
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+
+  const { data: carga, error: eCarga } = await supabase
+    .from('ruta_cargas')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (eCarga && faltaTabla(eCarga)) return { ok: false, error: AVISO_FALTA_VENTA_RUTA };
+  if (eCarga) return { ok: false, error: eCarga.message };
+  if (!carga) return { ok: false, error: 'Carga no encontrada.' };
+
+  const estado = String(carga.estado || '').toLowerCase();
+  if (estado === 'cancelada') return { ok: false, error: 'Esta carga ya está cancelada.' };
+  if (estado === 'liquidada') return { ok: false, error: 'No se puede cancelar una carga liquidada.' };
+
+  const lin = await lineasDeCarga(supabase, id);
+  if (lin.error) return { ok: false, error: lin.error };
+  const lineas = lin.data || [];
+  const vendidas = lineas.filter((l) => (Number(l.qty_vendida) || 0) > 0);
+  if (vendidas.length) {
+    return {
+      ok: false,
+      error: `Hay ventas en esta carga (${vendidas.length} producto(s)). No se puede cancelar; liquida o ajusta primero.`,
+    };
+  }
+
+  const folio = carga.folio || id;
+  const patches = [];
+  for (const l of lineas) {
+    const qty = disponibleEnLineaCarga(l);
+    if (!(qty > 0)) continue;
+    const prod = { id: l.producto_id, nombre: l.producto_nombre || l.producto_id };
+    const mov = await devolverCedisDesdeCarga(supabase, {
+      producto: prod,
+      cantidad: qty,
+      motivo: motivo || `Cancelación carga ${folio} · → CEDIS`,
+      usuario: usuarioNombre || '—',
+      folio,
+    });
+    if (!mov.ok) {
+      return { ok: false, error: `CEDIS · ${prod.nombre}: ${mov.error}`, parcial: true, patches };
+    }
+    if (mov.patch) patches.push({ id: prod.id, ...mov.patch, nombre: prod.nombre });
+    const { error: eUp } = await supabase
+      .from('ruta_carga_lineas')
+      .update({
+        qty_devuelta: (Number(l.qty_devuelta) || 0) + qty,
+      })
+      .eq('id', l.id);
+    if (eUp) return { ok: false, error: eUp.message, parcial: true, patches };
+  }
+
+  const notasExtra = [
+    String(carga.notas || '').trim(),
+    `Cancelada ${new Date().toISOString().slice(0, 16).replace('T', ' ')} · ${usuarioNombre || '—'}`,
+    motivo ? `Motivo: ${motivo}` : null,
+  ].filter(Boolean).join(' · ');
+
+  const { data: updated, error: eUpd } = await supabase
+    .from('ruta_cargas')
+    .update({ estado: 'cancelada', notas: notasExtra || null })
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (eUpd) return { ok: false, error: eUpd.message, parcial: true, patches };
+
+  return { ok: true, carga: updated, patches };
+}
+
+/**
+ * Reporte de ingresos a ruta (cargas desde CEDIS) con líneas de producto.
+ * Es lo que se ve en Venta en Ruta → Consultas → Ingresos.
+ */
+export async function listarReporteIngresosCargaRuta(supabase, { limit = 40, estado = null } = {}) {
+  const r = await listarCargasRuta(supabase, { limit, estado: estado || undefined });
+  if (r.error) return { data: [], error: r.error, aviso: r.aviso };
+  const cargas = r.data || [];
+  const out = [];
+  for (const c of cargas) {
+    const lin = await lineasDeCarga(supabase, c.id);
+    const lineas = lin.data || [];
+    let piezas = 0;
+    let total = 0;
+    for (const l of lineas) {
+      const q = Number(l.qty_cargada) || 0;
+      piezas += q;
+      total += round2((Number(l.precio) || 0) * q);
+    }
+    out.push({
+      ...c,
+      lineas,
+      piezas,
+      total: round2(total),
+      tipo_reporte: 'ingreso_ruta',
+      etiqueta: 'Ingreso a camión (salida CEDIS)',
+    });
+  }
+  return { data: out, aviso: r.aviso || null };
+}
+
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
