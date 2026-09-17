@@ -602,6 +602,7 @@ export function mapearExtrasAFormDocs(empleado) {
     notas: ex.notas_alta || empleado?.notas || '',
     ct_sucursales: Array.isArray(ex.ct_sucursales) ? ex.ct_sucursales : undefined,
     ct_solo_dia: Boolean(ex.ct_solo_dia),
+    ct_dias: Array.isArray(ex.ct_dias) ? ex.ct_dias : undefined,
   };
 }
 
@@ -636,6 +637,17 @@ export function armarExtrasDesdeForm(form, extrasPrev = {}) {
     base.ct_solo_dia = form.ct_solo_dia != null
       ? Boolean(form.ct_solo_dia)
       : Boolean(prev.ct_solo_dia);
+    if (typeof form.ct_dias !== 'undefined') {
+      const dias = Array.isArray(form.ct_dias)
+        ? [...new Set(form.ct_dias.map((d) => Number(d)).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))]
+        : [];
+      // 7 días → null (todos). Subconjunto o vacío → lista (vacío = ningún día).
+      base.ct_dias = dias.length >= 7 ? null : dias.sort((a, b) => a - b);
+    } else if (Array.isArray(prev.ct_dias)) {
+      base.ct_dias = prev.ct_dias.length >= 7 ? null : prev.ct_dias;
+    } else {
+      base.ct_dias = null;
+    }
     base.ct_disponibilidad = prev.ct_disponibilidad || 'disponible';
     base.sin_nomina = true;
     base.pago_via = 'gasto_cubre_turno';

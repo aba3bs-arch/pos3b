@@ -31,6 +31,9 @@ import { ROLES, normalizarRol, puedeGestionarUsuarios } from '../lib/roles.js';
 import FormularioBajaEmpleado from '../components/FormularioBajaEmpleado.jsx';
 import { asegurarPinMovilCt, liberarDispositivoPinMovilCt } from '../lib/cubreTurnoPinMovil.js';
 import { desbloquearAccesoAppCt, UMBRAL_ACEPTACION_CT } from '../lib/cubreAceptacionCt.js';
+import { DIAS_CT_SEMANA } from '../lib/cubreSolicitudes.js';
+
+const TODOS_DIAS_CT = DIAS_CT_SEMANA.map((d) => d.id);
 
 const FORM_VACIO = {
   nombre: '',
@@ -45,6 +48,8 @@ const FORM_VACIO = {
   ct_sucursales: listarSucursalesOperativas(),
   /** CT: si true, solo turnos de día (no nocturno). */
   ct_solo_dia: false,
+  /** CT: días de la semana en que puede cubrir (0=dom…6=sáb). Los 7 = todos. */
+  ct_dias: [...TODOS_DIAS_CT],
   fecha_nacimiento: '',
   curp: '',
   rfc: '',
@@ -173,6 +178,9 @@ export default function RhAba3b({ supabase, user, sucursal }) {
         ? res.empleado.extras.ct_sucursales
         : listarSucursalesOperativas(),
       ct_solo_dia: Boolean(res.empleado?.extras?.ct_solo_dia),
+      ct_dias: Array.isArray(res.empleado?.extras?.ct_dias) && res.empleado.extras.ct_dias.length
+        ? res.empleado.extras.ct_dias.map(Number)
+        : [...TODOS_DIAS_CT],
     });
     setVista('detalle');
     setTrabajando(false);
@@ -228,6 +236,10 @@ export default function RhAba3b({ supabase, user, sucursal }) {
       if (!tiendas.length) {
         return alert('Indica en qué sucursales puede cubrir (al menos una de las 7).');
       }
+      const dias = Array.isArray(form.ct_dias) ? form.ct_dias : [];
+      if (!dias.length) {
+        return alert('Indica en qué días de la semana puede cubrir el CT (al menos uno).');
+      }
     } else if (!String(form.pin || '').trim()) {
       return alert('Indica el PIN de acceso al POS. Sin PIN no aparece en Usuarios ni en nómina.');
     }
@@ -267,6 +279,16 @@ export default function RhAba3b({ supabase, user, sucursal }) {
 
   const guardarEdicion = async () => {
     if (!puede || !seleccionadoId) return;
+    if (form.tipo_empleado === 'cubre_turno') {
+      const dias = Array.isArray(form.ct_dias) ? form.ct_dias : [];
+      if (!dias.length) {
+        return alert('Indica en qué días de la semana puede cubrir el CT (al menos uno).');
+      }
+      const tiendas = Array.isArray(form.ct_sucursales) ? form.ct_sucursales.filter(Boolean) : [];
+      if (!tiendas.length) {
+        return alert('Indica en qué sucursales puede cubrir (al menos una).');
+      }
+    }
     setTrabajando(true);
     const res = await editarEmpleadoRh(supabase, seleccionadoId, form, { user });
     setTrabajando(false);
@@ -1016,6 +1038,10 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
         next.ct_sucursales = [...sucOps];
         changed = true;
       }
+      if (!Array.isArray(prev.ct_dias) || !prev.ct_dias.length) {
+        next.ct_dias = [...TODOS_DIAS_CT];
+        changed = true;
+      }
       if (prev.puesto !== 'Cubre turnos' && (!prev.puesto || prev.puesto === 'Cajero')) {
         next.puesto = 'Cubre turnos';
         changed = true;
@@ -1037,6 +1063,13 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
     const has = cur.includes(codigo);
     const next = has ? cur.filter((s) => s !== codigo) : [...cur, codigo];
     set('ct_sucursales', next);
+  };
+
+  const toggleCtDia = (diaId) => {
+    const cur = Array.isArray(form.ct_dias) ? form.ct_dias.map(Number) : [];
+    const has = cur.includes(diaId);
+    const next = has ? cur.filter((d) => d !== diaId) : [...cur, diaId];
+    set('ct_dias', next);
   };
 
   const procesarIne = async (file) => {
@@ -1183,7 +1216,7 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
             {' '}<strong>PIN de tienda</strong> (Configuración → PIN cubre turno, para marcar en caja) y
             {' '}<strong>PIN móvil personal</strong> (solo su celular: ve notificaciones y solicitudes CT).
             Su nombre se agrega en gastos <strong>CUBRE TURNO → su nombre</strong>. Puede cubrir en las 7 sucursales;
-            marca “solo día” si no cubre nocturno.
+            marca los días en que sí trabaja (los demás quedan <strong>no disponible</strong>) y “solo día” si no cubre nocturno.
           </p>
           <div style={{ marginBottom: '0.65rem' }}>
             <div className="muted" style={{ fontSize: '0.78rem', marginBottom: '0.35rem' }}>
@@ -1207,6 +1240,31 @@ function FormularioRh({ form, setForm, sucursales, roles, mostrarRecontratable =
               </button>
               <button type="button" className="btn btn-ghost" style={{ fontSize: '0.78rem', padding: '0.2rem 0.5rem' }} onClick={() => set('ct_sucursales', [])}>
                 Ninguna
+              </button>
+            </div>
+          </div>
+          <div style={{ marginBottom: '0.65rem' }}>
+            <div className="muted" style={{ fontSize: '0.78rem', marginBottom: '0.35rem' }}>
+              Días en que puede cubrir * (marcados = disponible · sin marcar = no disponible)
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.55rem 1rem' }}>
+              {DIAS_CT_SEMANA.map((d) => (
+                <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.88rem' }}>
+                  <input
+                    type="checkbox"
+                    checked={(form.ct_dias || []).map(Number).includes(d.id)}
+                    onChange={() => toggleCtDia(d.id)}
+                  />
+                  {d.largo}
+                </label>
+              ))}
+            </div>
+            <div style={{ marginTop: '0.45rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-ghost" style={{ fontSize: '0.78rem', padding: '0.2rem 0.5rem' }} onClick={() => set('ct_dias', [...TODOS_DIAS_CT])}>
+                Todos los días
+              </button>
+              <button type="button" className="btn btn-ghost" style={{ fontSize: '0.78rem', padding: '0.2rem 0.5rem' }} onClick={() => set('ct_dias', [])}>
+                Ninguno
               </button>
             </div>
           </div>

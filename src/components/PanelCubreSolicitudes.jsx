@@ -15,6 +15,7 @@ import {
   rechazarSolicitudCt,
   setDisponibilidadManualCt,
   solicitarCt,
+  ctPuedeCubrirDia,
 } from '../lib/cubreSolicitudes.js';
 import {
   AVISO_FALTA_CUBRE_EVALUACIONES,
@@ -211,8 +212,11 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
   const disponibles = useMemo(() => {
     const ymd = String(form.fecha || '').slice(0, 10);
     return catalogo.filter((c) => {
-      if (['hold', 'baja', 'no_disponible'].includes(c.disponibilidad)) return false;
-      if (!ymd) return c.puede_solicitar;
+      if (['hold', 'baja'].includes(c.disponibilidad)) return false;
+      const manualOff = String(c.extras?.ct_disponibilidad || '').toLowerCase() === 'no_disponible';
+      if (manualOff) return false;
+      if (!ymd) return c.puede_solicitar && c.disponibilidad === 'disponible';
+      if (!ctPuedeCubrirDia(c.extras || { ct_dias: c.ct_dias }, ymd)) return false;
       return !(c.fechas_ocupadas || []).includes(ymd);
     });
   }, [catalogo, form.fecha]);
@@ -543,6 +547,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                     </td>
                     <td className="muted" style={{ fontSize: '0.8rem' }}>
                       {c.ct_solo_dia ? 'Solo día · ' : 'Día/noche · '}
+                      {c.ct_dias_label ? `${c.ct_dias_label} · ` : ''}
                       {Array.isArray(c.ct_sucursales) && c.ct_sucursales.length
                         ? c.ct_sucursales.map((s) => etiquetaTienda(s)).join(', ')
                         : '7 sucursales'}

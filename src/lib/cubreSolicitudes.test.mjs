@@ -9,6 +9,9 @@ import {
   ctPuedeCubrirSucursal,
   ctPuedeCubrirTurno,
   ctPuedeCubrirEn,
+  ctPuedeCubrirDia,
+  ctDiasHabilitados,
+  etiquetaDiasCt,
 } from './cubreSolicitudes.js';
 
 assert.equal(estadoDisponibilidadCt({ estado: 'baja' }), 'baja');
@@ -114,5 +117,40 @@ assert.equal(ctPuedeCubrirTurno({ ct_solo_dia: true }, 'nocturno'), false);
 assert.equal(ctPuedeCubrirTurno({ ct_solo_dia: true }, 'diurno'), true);
 assert.equal(ctPuedeCubrirEn({ ct_sucursales: ['3B2'], ct_solo_dia: true }, { sucursal_id: '3B2', turno_id: 'diurno' }), true);
 assert.equal(ctPuedeCubrirEn({ ct_sucursales: ['3B2'], ct_solo_dia: true }, { sucursal_id: '3B2', turno_id: 'nocturno' }), false);
+
+// Días de la semana: 2026-09-16 = miércoles (3)
+assert.equal(ctDiasHabilitados({}), null);
+assert.deepEqual(ctDiasHabilitados({ ct_dias: [1, 3, 5] }), [1, 3, 5]);
+assert.equal(ctPuedeCubrirDia({}, '2026-09-16'), true);
+assert.equal(ctPuedeCubrirDia({ ct_dias: [1, 3, 5] }, '2026-09-16'), true); // mié
+assert.equal(ctPuedeCubrirDia({ ct_dias: [1, 3, 5] }, '2026-09-15'), false); // mar
+assert.equal(ctPuedeCubrirDia({ ct_dias: [0, 6] }, '2026-09-20'), true); // dom
+assert.equal(ctPuedeCubrirDia({ ct_dias: [] }, '2026-09-16'), false);
+assert.equal(
+  estadoDisponibilidadCt(
+    { id: '9', estado: 'activo', extras: { ct_dias: [1, 2, 4, 5] } },
+    [],
+    { fecha: '2026-09-16' },
+  ),
+  'no_disponible',
+);
+assert.equal(
+  estadoDisponibilidadCt(
+    { id: '9', estado: 'activo', extras: { ct_dias: [1, 2, 3, 4, 5] } },
+    [],
+    { fecha: '2026-09-16' },
+  ),
+  'disponible',
+);
+assert.equal(
+  ctPuedeCubrirEn(
+    { ct_dias: [6, 0] },
+    { fecha: '2026-09-16' },
+  ),
+  false,
+);
+assert.match(etiquetaDiasCt({ ct_dias: [1, 3] }), /Lun/);
+assert.match(etiquetaDiasCt({ ct_dias: [1, 3] }), /Mié/);
+assert.equal(etiquetaDiasCt({}), 'Todos los días');
 
 console.log('cubreSolicitudes.test.mjs ok');

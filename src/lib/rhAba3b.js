@@ -988,7 +988,7 @@ export async function editarEmpleadoRh(supabase, empleadoId, patch = {}, { user 
     return { ok: false, error: 'Indica el motivo por el que no es recontratable.' };
   }
 
-  const docsTouched = ['doc_ine', 'doc_comprobante', 'doc_acta', 'doc_csf', 'doc_contrato', 'doc_foto', 'notas', 'ine_foto', 'ct_sucursales', 'ct_solo_dia', 'tipo_empleado']
+  const docsTouched = ['doc_ine', 'doc_comprobante', 'doc_acta', 'doc_csf', 'doc_contrato', 'doc_foto', 'notas', 'ine_foto', 'ct_sucursales', 'ct_solo_dia', 'ct_dias', 'tipo_empleado']
     .some((k) => patch[k] !== undefined);
   if (docsTouched || patch.extras != null) {
     upd.extras = armarExtrasDesdeForm(
