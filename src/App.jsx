@@ -191,6 +191,7 @@ function App() {
   const [productosDestinoTraspaso, setProductosDestinoTraspaso] = useState(null);
   const [productosLineasTraspaso, setProductosLineasTraspaso] = useState(null);
   const [productosNotasTraspaso, setProductosNotasTraspaso] = useState(null);
+  const [comprasCompraIdInicial, setComprasCompraIdInicial] = useState(null);
   const [sucursal, setSucursal] = useState(sucursalInicial);
   const [tiendaFijadaParaAcceso, setTiendaFijadaParaAcceso] = useState(() => {
     if (CAJA_FISICA_FIJA_ENV) return true;
@@ -590,6 +591,14 @@ function App() {
         setProductosLineasTraspaso(opts.lineasTraspaso || null);
         setProductosNotasTraspaso(opts.notasTraspaso || null);
       }
+      if (m === 'Compras') {
+        setComprasCompraIdInicial(opts.compraId || null);
+        const sucRec = normalizarCodigoTienda(opts.sucursalRecepcion);
+        if (sucRec && sucRec !== normalizarCodigoTienda(sucursal)) {
+          setSucursal(sucRec);
+          guardarSucursalLocal(sucRec);
+        }
+      }
       if (m === 'Vales y Préstamos' && (opts.pestana || opts.retorno)) {
         setValesNavOpts({ pestana: opts.pestana || null, retorno: opts.retorno || null });
         if (opts.retorno) setValesRetornoModulo(opts.retorno);
@@ -597,7 +606,7 @@ function App() {
       setVista(m);
       setSidebarOpen(false);
     },
-    [user, modoOffline],
+    [user, modoOffline, sucursal],
   );
 
   const irAIncidencias = useCallback(() => {
@@ -1487,7 +1496,17 @@ function App() {
             />
           )}
           {vista === 'Compras' && (
-            <Compras supabase={supabase} sucursal={sucursal} inventario={inventarioTienda} cargarDatos={cargarDatos} fusionarProducto={fusionarProductoEnCatalogo} onNavigate={irAModulo} user={user} />
+            <Compras
+              supabase={supabase}
+              sucursal={sucursal}
+              inventario={inventarioTienda}
+              cargarDatos={cargarDatos}
+              fusionarProducto={fusionarProductoEnCatalogo}
+              onNavigate={irAModulo}
+              user={user}
+              compraIdInicial={comprasCompraIdInicial}
+              onCompraInicialConsumida={() => setComprasCompraIdInicial(null)}
+            />
           )}
           {vista === 'Checador' && (
             <Checador

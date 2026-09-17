@@ -121,6 +121,15 @@ export default function Traspasos({
     const dest = normalizarCodigoTienda(destinoInicial);
     if (!dest) return;
     if (!destinos.includes(dest) && dest !== sucursalOp) return;
+    // No abrir envío origen === destino (p. ej. venta ruta mal dirigida a Traspasos).
+    if (dest === sucursalOp) {
+      setAviso(
+        'No se puede enviar un traspaso a la misma tienda. '
+        + 'La mercancía de venta en ruta se recibe en Compras (pedido pendiente).',
+      );
+      setPaso(null);
+      return;
+    }
     setTab('enviar');
     setModoFlujo('envio');
     setDestinoId(dest);
