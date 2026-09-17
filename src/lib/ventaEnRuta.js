@@ -513,6 +513,70 @@ export async function lineasDeVariasCargas(supabase, cargas) {
   return { data: flat, porCarga: resultados, aviso, error };
 }
 
+/**
+ * Catálogo POS del camión: 1 fila por producto con existencia consolidada
+ * (todas las cargas en ruta) y precio de línea o precio_ruta.
+ */
+export function catalogoPosCamionDesdeLineas(lineas, { productoPorId = null, inventario = [] } = {}) {
+  const inv = inventarioCamionDesdeLineas(lineas, { productoPorId, inventario });
+  const precioPorId = new Map();
+  for (const lin of lineas || []) {
+    const pid = String(lin.producto_id || '');
+    const pr = Number(lin.precio) || 0;
+    if (!pid || !(pr > 0)) continue;
+    const prev = precioPorId.get(pid);
+    if (prev == null || pr > prev) precioPorId.set(pid, pr);
+  }
+  return inv
+    .map((p) => {
+      const base = productoPorId?.get(String(p.id))
+        || (inventario || []).find((x) => String(x.id) === String(p.id))
+        || {};
+      const precioLin = precioPorId.get(String(p.id)) || 0;
+      const precio = precioLin > 0 ? precioLin : precioRutaEspecial(base);
+      return {
+        id: String(p.id),
+        nombre: p.nombre || base.nombre || p.id,
+        cat: p.cat || base.cat || 'GENERAL',
+        foto_url: base.foto_url || base.foto || p.foto_url || null,
+        precio: Number(precio) || 0,
+        disponible: Number(p._disp_camion) || 0,
+      };
+    })
+    .filter((p) => p.disponible > 0 && p.precio > 0);
+}
+
+/**
+ * Reparte una cantidad a vender entre líneas del mismo producto (FIFO del array).
+ * @returns {{ ok: true, asignaciones: Array<{ linea, qty, cargaId }> } | { ok: false, error: string }}
+ */
+export function asignarVentaALineasProducto(lineasDelProducto, cantidad) {
+  const need = Math.floor(Math.abs(Number(cantidad) || 0));
+  if (!(need > 0)) return { ok: false, error: 'Cantidad inválida.' };
+  let restante = need;
+  const asignaciones = [];
+  for (const lin of lineasDelProducto || []) {
+    if (restante <= 0) break;
+    const disp = disponibleEnLineaCarga(lin);
+    if (!(disp > 0)) continue;
+    const take = Math.min(Math.floor(disp), restante);
+    if (!(take > 0)) continue;
+    asignaciones.push({
+      linea: lin,
+      qty: take,
+      cargaId: lin.carga_id || null,
+    });
+    restante -= take;
+  }
+  if (restante > 0) {
+    const totalDisp = round3(
+      (lineasDelProducto || []).reduce((s, l) => s + disponibleEnLineaCarga(l), 0),
+    );
+    return { ok: false, error: `En camión solo hay ${totalDisp}.` };
+  }
+  return { ok: true, asignaciones };
+}
+
 // ─── Clientes externos ────────────────────────────────────────────
 
 export async function listarClientesRuta(supabase) {
@@ -761,20 +825,21 @@ export async function listarVentasRuta(supabase, { cargaId, limit = 200 } = {}) 
 
 /**
  * Cierra una venta POS de ruta (un folio por sucursal/cliente).
+ * Existencia = todo el camión (cargas en_ruta); `cargaId` es opcional (compat).
+ * Sin cargaId se usa el inventario consolidado del repartidor / cargas activas.
  */
 export async function registrarVentaRuta(supabase, {
   cargaId,
+  vendedorId,
   clienteTipo,
   clienteId,
   clienteNombre,
   metodoPago,
   articulos,
   vendedorNombre,
-  vendedorId,
   montoEfectivo: optsMontoEfectivo = 0,
   montoCredito: optsMontoCredito = 0,
 } = {}) {
-  if (!cargaId) return { ok: false, error: 'Elige una carga en ruta.' };
   if (!supabase) return { ok: false, error: 'Se requiere conexión.' };
   const mp = String(metodoPago || '').toLowerCase();
   if (mp !== 'efectivo' && mp !== 'credito' && mp !== 'mixto') {
@@ -816,20 +881,60 @@ export async function registrarVentaRuta(supabase, {
     }
   }
 
-  const linRes = await lineasDeCarga(supabase, cargaId);
-  const lineas = linRes.data || [];
-  for (const a of arts) {
-    const lin = lineas.find((l) => String(l.producto_id) === a.producto_id);
-    if (!lin) return { ok: false, error: `${a.nombre || a.producto_id} no está en la carga.` };
-    const disp = disponibleEnLineaCarga(lin);
-    if (disp + 0.0001 < a.cantidad) {
-      return { ok: false, error: `En camión solo hay ${disp} de ${a.nombre || a.producto_id}.` };
+  let lineas = [];
+  let cargasList = [];
+  const cargaFija = String(cargaId || '').trim();
+  if (cargaFija) {
+    const linRes = await lineasDeCarga(supabase, cargaFija);
+    if (linRes.error) return { ok: false, error: linRes.error };
+    lineas = linRes.data || [];
+    cargasList = [{ id: cargaFija }];
+  } else {
+    const filtros = { estado: 'en_ruta', limit: 80 };
+    if (vendedorId) filtros.vendedorId = vendedorId;
+    const cRes = await listarCargasRuta(supabase, filtros);
+    if (cRes.error) return { ok: false, error: cRes.error };
+    cargasList = cRes.data || [];
+    if (!cargasList.length) {
+      return { ok: false, error: 'No hay mercancía en ruta. Carga el camión primero.' };
     }
+    const lr = await lineasDeVariasCargas(supabase, cargasList);
+    if (lr.error) return { ok: false, error: lr.error };
+    lineas = lr.data || [];
+  }
+
+  const byProd = new Map();
+  for (const l of lineas) {
+    const pid = String(l.producto_id || '');
+    if (!pid) continue;
+    if (!byProd.has(pid)) byProd.set(pid, []);
+    byProd.get(pid).push(l);
+  }
+
+  const allAsign = [];
+  for (const a of arts) {
+    const lines = byProd.get(a.producto_id) || [];
+    if (!lines.length) {
+      return { ok: false, error: `${a.nombre || a.producto_id} no está en el camión.` };
+    }
+    const asg = asignarVentaALineasProducto(lines, a.cantidad);
+    if (!asg.ok) {
+      return { ok: false, error: `${a.nombre || a.producto_id}: ${asg.error}` };
+    }
+    for (const x of asg.asignaciones) {
+      allAsign.push(x);
+    }
+  }
+
+  const primaryCargaId = cargaFija
+    || String(allAsign[0]?.cargaId || cargasList[0]?.id || '').trim();
+  if (!primaryCargaId) {
+    return { ok: false, error: 'No se pudo asociar la venta a una carga en ruta.' };
   }
 
   const folio = folioVenta();
   const ventaPayload = {
-    carga_id: cargaId,
+    carga_id: primaryCargaId,
     folio,
     cliente_tipo: tipoCli,
     cliente_id: String(clienteId),
@@ -861,10 +966,18 @@ export async function registrarVentaRuta(supabase, {
 
   const venta = ventaRow || ventaPayload;
 
-  for (const a of arts) {
-    const lin = lineas.find((l) => String(l.producto_id) === a.producto_id);
-    const nueva = round3((Number(lin.qty_vendida) || 0) + a.cantidad);
-    const { error: eUp } = await supabase.from('ruta_carga_lineas').update({ qty_vendida: nueva }).eq('id', lin.id);
+  // Descuenta existencia del camión (puede tocar varias líneas / cargas)
+  const vendidoPorLinea = new Map();
+  for (const asg of allAsign) {
+    const id = asg.linea?.id;
+    if (!id) continue;
+    vendidoPorLinea.set(id, (vendidoPorLinea.get(id) || 0) + asg.qty);
+  }
+  for (const [linId, qtyAdd] of vendidoPorLinea) {
+    const lin = lineas.find((l) => String(l.id) === String(linId));
+    if (!lin) continue;
+    const nueva = round3((Number(lin.qty_vendida) || 0) + qtyAdd);
+    const { error: eUp } = await supabase.from('ruta_carga_lineas').update({ qty_vendida: nueva }).eq('id', linId);
     if (eUp) return { ok: false, error: eUp.message };
   }
 
@@ -925,7 +1038,7 @@ export async function registrarVentaRuta(supabase, {
       clienteNombre: clienteNombre || String(clienteId),
       monto: montoCre,
       ventaId: venta.id,
-      cargaId,
+      cargaId: primaryCargaId,
       folioVenta: folio,
       usuarioNombre: vendedorNombre,
       notas: mp === 'mixto'
@@ -954,6 +1067,7 @@ export async function registrarVentaRuta(supabase, {
     transitoId,
     montoEfectivo: montoEfe,
     montoCredito: montoCre,
+    cargaId: primaryCargaId,
     avisos: avisos.length ? avisos : undefined,
   };
 }

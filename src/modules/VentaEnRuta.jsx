@@ -8,11 +8,13 @@ import {
   AVISO_FALTA_VENTA_RUTA,
   NOMBRE_ALMACEN_RUTA,
   cancelarCargaRuta,
+  catalogoPosCamionDesdeLineas,
   crearCargaRuta,
   disponibleEnLineaCarga,
   guardarClienteRuta,
   guardarPrecioRutaProducto,
   lineasDeCarga,
+  lineasDeVariasCargas,
   listarCargasRuta,
   listarClientesRuta,
   listarDestinosVentaRuta,
@@ -526,8 +528,8 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
 
 function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavigate }) {
   const [cargas, setCargas] = useState([]);
-  const [cargaId, setCargaId] = useState('');
   const [lineas, setLineas] = useState([]);
+  const [cargandoCamion, setCargandoCamion] = useState(false);
   const [clientesExt, setClientesExt] = useState([]);
   const [clienteKey, setClienteKey] = useState('');
   const [codigo, setCodigo] = useState('');
@@ -540,48 +542,51 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
   const [montoEfectivo, setMontoEfectivo] = useState('');
   const [montoCredito, setMontoCredito] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [tickCamion, setTickCamion] = useState(0);
 
   const esRep = esRolRepartidor(user?.rol);
   const destinos = useMemo(() => listarDestinosVentaRuta(clientesExt), [clientesExt]);
+  const destinoSeleccionado = useMemo(() => {
+    if (!clienteKey) return null;
+    const [tipo, ...rest] = clienteKey.split(':');
+    const id = rest.join(':');
+    return destinos.find((d) => d.tipo === tipo && String(d.id) === id) || null;
+  }, [clienteKey, destinos]);
 
-  const cargarBase = useCallback(async () => {
-    const filtros = { estado: 'en_ruta' };
-    if (esRolRepartidor(user?.rol) && user?.id) filtros.vendedorId = user.id;
-    const [c, cli] = await Promise.all([
-      listarCargasRuta(supabase, filtros),
-      listarClientesRuta(supabase),
-    ]);
-    if (c.aviso || cli.aviso) setAviso(c.aviso || cli.aviso || AVISO_FALTA_VENTA_RUTA);
-    setCargas(c.data || []);
-    setClientesExt(cli.data || []);
+  const refrescarCamion = useCallback(async () => {
+    setCargandoCamion(true);
+    try {
+      const filtros = { estado: 'en_ruta', limit: 80 };
+      if (esRolRepartidor(user?.rol) && user?.id) filtros.vendedorId = user.id;
+      const [c, cli] = await Promise.all([
+        listarCargasRuta(supabase, filtros),
+        listarClientesRuta(supabase),
+      ]);
+      if (c.aviso || cli.aviso) setAviso(c.aviso || cli.aviso || AVISO_FALTA_VENTA_RUTA);
+      if (c.error) setAviso(c.error);
+      const lista = c.data || [];
+      setCargas(lista);
+      setClientesExt(cli.data || []);
+      if (!lista.length) {
+        setLineas([]);
+        return;
+      }
+      const lr = await lineasDeVariasCargas(supabase, lista);
+      if (lr.aviso) setAviso(lr.aviso);
+      if (lr.error) setAviso(lr.error);
+      setLineas(lr.data || []);
+    } finally {
+      setCargandoCamion(false);
+    }
   }, [supabase, setAviso, user?.id, user?.rol]);
 
-  useEffect(() => { void cargarBase(); }, [cargarBase]);
+  useEffect(() => { void refrescarCamion(); }, [refrescarCamion, tickCamion]);
 
-  useEffect(() => {
-    if (!cargaId) { setLineas([]); return; }
-    void lineasDeCarga(supabase, cargaId).then((r) => setLineas(r.data || []));
-  }, [supabase, cargaId]);
-
-  /** Productos del camión enriquecidos con catálogo (foto, depto). */
-  const productosCamion = useMemo(() => {
-    return (lineas || [])
-      .map((lin) => {
-        const p = productoPorId.get(String(lin.producto_id)) || {};
-        const disp = disponibleEnLineaCarga(lin);
-        const precio = Number(lin.precio) > 0 ? Number(lin.precio) : precioRutaEspecial(p);
-        return {
-          id: String(lin.producto_id),
-          nombre: lin.producto_nombre || p.nombre || lin.producto_id,
-          cat: p.cat || 'GENERAL',
-          foto_url: p.foto_url || p.foto || null,
-          precio: Number(precio) || 0,
-          disponible: disp,
-          linea: lin,
-        };
-      })
-      .filter((p) => p.disponible > 0 && p.precio > 0);
-  }, [lineas, productoPorId]);
+  /** Toda la mercancía del camión (cargas en ruta consolidadas). */
+  const productosCamion = useMemo(
+    () => catalogoPosCamionDesdeLineas(lineas, { productoPorId, inventario }),
+    [lineas, productoPorId, inventario],
+  );
 
   const departamentosMenu = useMemo(() => {
     const counts = new Map();
@@ -627,7 +632,7 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
   }, [carrito]);
 
   const agregarProducto = (prod, qtyAdd = 1) => {
-    if (!cargaId) return alert('Elige una carga.');
+    if (!clienteKey) return alert('Elige la tienda (o cliente) destino.');
     const add = Math.max(1, Math.floor(Number(qtyAdd) || 1));
     const enCarrito = qtyEnCarrito(prod.id);
     const max = Number(prod.disponible) || 0;
@@ -690,13 +695,13 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
   };
 
   const scanAgregar = (codigoIn) => {
-    if (!cargaId) return alert('Elige una carga.');
+    if (!clienteKey) return alert('Elige la tienda (o cliente) destino.');
     const raw = String(codigoIn ?? codigo ?? '').trim();
     if (!raw) return;
     const { producto } = buscarProductoInventario(inventario, raw);
     const pid = producto?.id || raw;
     const prod = productosCamion.find((p) => String(p.id) === String(pid));
-    if (!prod) return alert('Ese producto no está disponible en la carga del camión.');
+    if (!prod) return alert('Ese producto no está disponible en el camión.');
     agregarProducto(prod, 1);
     setCodigo('');
   };
@@ -704,7 +709,7 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
   const total = carrito.reduce((s, a) => s + a.precio * a.cantidad, 0);
 
   const abrirCobro = () => {
-    if (!cargaId) return alert('Elige una carga.');
+    if (!clienteKey) return alert('Elige la tienda (o cliente) destino.');
     if (!carrito.length) return alert('Carrito vacío.');
     setMetodo('efectivo');
     setMontoEfectivo(String(total.toFixed(2)));
@@ -720,7 +725,6 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
   };
 
   const cobrar = async () => {
-    if (!cargaId) return alert('Elige carga.');
     if (!clienteKey) return alert('Elige la tienda (o cliente) a la que traspasarás la venta.');
     if (!carrito.length) return alert('Carrito vacío.');
     const [tipo, ...rest] = clienteKey.split(':');
@@ -746,14 +750,13 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
 
     setGuardando(true);
     const r = await registrarVentaRuta(supabase, {
-      cargaId,
+      vendedorId: esRep ? user?.id : undefined,
       clienteTipo: tipo,
       clienteId: id,
       clienteNombre: dest?.nombre || id,
       metodoPago: metodo,
       articulos: carrito,
       vendedorNombre: user?.nombre,
-      vendedorId: user?.id,
       montoEfectivo: montoEfe,
       montoCredito: montoCre,
     });
@@ -772,8 +775,7 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
     setCarrito([]);
     setMostrarCobro(false);
     setQtyEditId(null);
-    const lin = await lineasDeCarga(supabase, cargaId);
-    setLineas(lin.data || []);
+    setTickCamion((t) => t + 1);
     // Ir a Productos → Traspasos (preselecciona tienda destino si es sucursal)
     onNavigate?.('Productos', {
       vista: 'traspaso',
@@ -781,42 +783,66 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
     });
   };
 
+  const onCambiarDestino = (value) => {
+    setClienteKey(value);
+    setCarrito([]);
+    setQtyEditId(null);
+    setMostrarCobro(false);
+  };
+
+  const piezasCamion = productosCamion.reduce((s, p) => s + (Number(p.disponible) || 0), 0);
+
   return (
     <div className="ruta-pos">
       <div className="ruta-pos-toolbar card">
         <div>
           <h3 style={{ margin: 0, color: COLOR }}>POS venta en ruta</h3>
           <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
-            Departamentos a la izquierda · carrito a la derecha. Un folio por tienda.
-            {esRep ? ' Solo ves las cargas asignadas a ti.' : ''}
+            Elige la tienda destino: verás toda la mercancía del camión y su existencia.
+            {esRep ? ' (Inventario de tus cargas en ruta.)' : ''}
           </p>
         </div>
         <div className="ruta-pos-toolbar-fields">
           <label>
-            Carga
-            <select className="input" value={cargaId} onChange={(e) => { setCargaId(e.target.value); setCarrito([]); }}>
-              <option value="">—</option>
-              {cargas.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.folio}{c.vendedor_nombre ? ` · ${c.vendedor_nombre}` : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Tienda / cliente (traspaso)
-            <select className="input" value={clienteKey} onChange={(e) => setClienteKey(e.target.value)}>
+            Tienda / cliente (destino)
+            <select
+              className="input"
+              value={clienteKey}
+              onChange={(e) => onCambiarDestino(e.target.value)}
+            >
               <option value="">— Elige destino —</option>
               {destinos.map((d) => (
                 <option key={`${d.tipo}:${d.id}`} value={`${d.tipo}:${d.id}`}>{d.nombre}</option>
               ))}
             </select>
           </label>
+          {clienteKey ? (
+            <div className="muted" style={{ fontSize: '0.8rem', alignSelf: 'end', paddingBottom: '0.35rem' }}>
+              {cargandoCamion
+                ? 'Cargando camión…'
+                : `${productosCamion.length} producto(s) · ${fmtQty(piezasCamion)} pzas`}
+              {cargas.length ? ` · ${cargas.length} carga(s)` : ''}
+            </div>
+          ) : null}
         </div>
       </div>
 
-      {!cargaId ? (
-        <div className="card"><p className="muted" style={{ margin: 0 }}>Elige una carga en ruta para ver el catálogo del camión.</p></div>
+      {!clienteKey ? (
+        <div className="card">
+          <p className="muted" style={{ margin: 0 }}>
+            Selecciona la sucursal (o cliente) que recibe la mercancía para ver el inventario del camión.
+          </p>
+        </div>
+      ) : cargandoCamion ? (
+        <div className="card"><p className="muted" style={{ margin: 0 }}>Cargando mercancía del camión…</p></div>
+      ) : !productosCamion.length ? (
+        <div className="card">
+          <p className="muted" style={{ margin: 0 }}>
+            No hay mercancía disponible en el camión
+            {destinoSeleccionado ? ` para vender a ${destinoSeleccionado.nombre}` : ''}.
+            Carga inventario en «Carga de camión».
+          </p>
+        </div>
       ) : (
         <div className="ruta-pos-layout">
           <nav className="ruta-pos-deptos card" aria-label="Departamentos">
@@ -837,7 +863,14 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
 
           <section className="ruta-pos-catalogo card">
             <div className="ruta-pos-catalogo-head">
-              <strong>{etiquetaDepartamento(deptoActivo) || 'Catálogo'}</strong>
+              <strong>
+                {etiquetaDepartamento(deptoActivo) || 'Catálogo'}
+                {destinoSeleccionado ? (
+                  <span className="muted" style={{ fontWeight: 400, fontSize: '0.85rem' }}>
+                    {' '}· {destinoSeleccionado.nombre}
+                  </span>
+                ) : null}
+              </strong>
               <div className="ruta-pos-buscar">
                 <CampoCodigo
                   value={codigo}
