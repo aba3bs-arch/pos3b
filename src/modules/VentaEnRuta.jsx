@@ -923,7 +923,11 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
             {productosCatalogo.length === 0 ? (
               <div className="ruta-pos-vacio">
                 <Icon name="package" size={36} />
-                <p className="muted">No hay productos disponibles en este departamento.</p>
+                <p className="muted">
+                  {deptoActivo === DEPT_FAVORITOS_RUTA
+                    ? 'No hay favoritos de ruta en esta carga. Márcalos en Precios de ruta.'
+                    : 'No hay productos disponibles en este departamento.'}
+                </p>
               </div>
             ) : (
               <div className="ventas-favoritos-grid ruta-pos-grid">

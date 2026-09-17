@@ -511,6 +511,11 @@ export default function Productos({
   const toggleFavorito = async (p) => {
     if (!puedeGestionCatalogo) return alert('Tu rol no puede editar productos.');
     if (!supabase || !p?.id) return;
+    if (esAlmacenCentral(sucursal)) {
+      return alert(
+        'CEDIS es centro de distribución (sin favoritos de caja).\n\nFavoritos de tienda: cambia a la sucursal.\nFavoritos del camión: Venta en Ruta → Precios → ★',
+      );
+    }
     const patch = patchToggleFavoritoSucursal(p, sucursal);
     let { error } = await supabase.from('productos').update(patch).eq('id', p.id);
     if (error && String(error.message || '').includes('favoritos_sucursales')) {
@@ -1349,7 +1354,7 @@ export default function Productos({
                 vinculos={vinculos}
                 verNegativos={verNegativos}
                 onEditar={puedeGestionCatalogo ? editar : undefined}
-                onToggleFavorito={puedeGestionCatalogo ? toggleFavorito : undefined}
+                onToggleFavorito={puedeGestionCatalogo && !enCentral ? toggleFavorito : undefined}
                 onVincularProveedor={puedeGestionCatalogo ? vincularProveedor : undefined}
                 onQuitarVinculo={puedeGestionCatalogo ? quitarVinculo : undefined}
                 onFotoActualizada={puedeGestionCatalogo ? (row) => fusionarProducto?.(row) : undefined}

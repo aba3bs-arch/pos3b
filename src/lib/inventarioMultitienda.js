@@ -23,7 +23,7 @@ export function etiquetaAlmacenCentral() {
 }
 
 export function etiquetaCedisEmpresa() {
-  return 'CEDIS · almacén central';
+  return 'CEDIS · centro de distribución';
 }
 
 /**
@@ -302,20 +302,19 @@ export function stockVisible(valor, verNegativos = true) {
 }
 
 /**
- * Texto corto de existencia para listas (CEDIS muestra almacén + piso).
- * Siempre lee desde stock_sucursales de la sucursal (no confiar en producto.stock legado),
- * para que favoritos / thumbs se actualicen al ingresar inventario en cualquier tienda.
+ * Texto corto de existencia para listas.
+ * CEDIS = centro de distribución: muestra almacén primero (no piso de venta).
+ * Tiendas: PZA de piso.
+ * Siempre lee desde stock_sucursales (no confiar en producto.stock legado).
  * @param {{ verNegativos?: boolean }} [opts] — false oculta negativos (cajero/repartidor).
  */
 export function etiquetaStockLista(producto, sucursal, opts = {}) {
   const verNegativos = opts.verNegativos !== false;
   const suc = claveStockSucursalCanon(sucursal) || normalizarCodigoTienda(sucursal);
-  // CEDIS opera como sucursal en venta/favoritos: stock de piso (PZA) primero;
-  // el almacén CEDIS queda como secundario para seguimiento.
   if (esAlmacenCentral(suc)) {
-    const piso = stockVisible(stockEnUbicacionReal(producto, suc, 'piso', suc), verNegativos);
     const cedis = stockVisible(stockAlmacenCentral(producto, suc), verNegativos);
-    return { primario: piso, etiquetaPrimario: 'PZA', secundario: cedis, etiquetaSecundario: 'CEDIS' };
+    const piso = stockVisible(stockEnUbicacionReal(producto, suc, 'piso', suc), verNegativos);
+    return { primario: cedis, etiquetaPrimario: 'CEDIS', secundario: piso, etiquetaSecundario: 'Piso' };
   }
   const piso = stockVisible(stockEnUbicacionReal(producto, suc, 'piso', suc), verNegativos);
   return { primario: piso, etiquetaPrimario: 'PZA', secundario: null, etiquetaSecundario: null };

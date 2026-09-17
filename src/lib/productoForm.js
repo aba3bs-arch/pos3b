@@ -1,7 +1,6 @@
 import { buildPatchStock, buildPatchStockTienda, esAlmacenCentral } from './inventarioMultitienda.js';
 import { normalizarCodigosAlt } from './buscarProductoTexto.js';
 import {
-  ALMACEN_CENTRAL,
   SUCURSAL_RUTA,
   listarSucursalesOperativas,
   normalizarCodigoTienda,
@@ -281,7 +280,10 @@ export function productoParaGuardar(form, opts = {}) {
     }
     if (sucursal) {
       const suc = normalizarCodigoTienda(sucursal);
-      if (suc && suc !== 'MAIN') map[suc] = Boolean(form.en_favoritos);
+      // CEDIS/MAIN no tienen favoritos de caja (CEDIS = distribución; POS ruta = RUTA).
+      if (suc && suc !== 'MAIN' && !esAlmacenCentral(suc)) {
+        map[suc] = Boolean(form.en_favoritos);
+      }
     }
     return map;
   })();
@@ -301,23 +303,29 @@ export function productoEnVenta(p) {
   return p?.en_venta !== false;
 }
 
-/** Sucursales donde se pueden marcar favoritos (tiendas + CEDIS + RUTA; no MAIN). */
+/** ¿Esta sucursal admite favoritos de POS? Tiendas + RUTA; no MAIN ni CEDIS. */
+export function favoritosPermitidosEnSucursal(sucursal) {
+  const suc = normalizarCodigoTienda(sucursal);
+  if (!suc || suc === 'MAIN' || esAlmacenCentral(suc)) return false;
+  return true;
+}
+
+/** Sucursales donde se pueden marcar favoritos (tiendas + RUTA; no MAIN ni CEDIS). */
 export function sucursalesFavoritosPosibles() {
   const ops = listarSucursalesOperativas();
   const out = [...ops];
-  if (!out.includes(ALMACEN_CENTRAL)) out.push(ALMACEN_CENTRAL);
   if (!out.includes(SUCURSAL_RUTA)) out.push(SUCURSAL_RUTA);
   return out;
 }
 
-/** Mapa { "3B5": true, "CEDIS": true } — vacío si no hay datos. */
+/** Mapa { "3B5": true, "RUTA": true } — vacío si no hay datos. CEDIS no aplica. */
 export function parseFavoritosSucursales(producto) {
   const raw = producto?.favoritos_sucursales;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
   const out = {};
   for (const [k, v] of Object.entries(raw)) {
     const suc = normalizarCodigoTienda(k);
-    if (!suc || suc === 'MAIN') continue;
+    if (!suc || suc === 'MAIN' || esAlmacenCentral(suc)) continue;
     out[suc] = Boolean(v);
   }
   return out;
@@ -325,12 +333,14 @@ export function parseFavoritosSucursales(producto) {
 
 /**
  * ¿Es favorito en esta sucursal?
+ * - CEDIS / MAIN: nunca (centro de distribución / admin; POS de ruta usa RUTA).
  * - Con mapa favoritos_sucursales: solo esa sucursal.
- * - Sin mapa (legado): en_favoritos / cat FAVORITOS aplica a todas.
+ * - Sin mapa (legado): en_favoritos / cat FAVORITOS aplica a tiendas/RUTA.
  */
 export function productoEsFavorito(p, sucursal = null) {
   if (!p) return false;
   const suc = normalizarCodigoTienda(sucursal);
+  if (suc === 'MAIN' || esAlmacenCentral(suc)) return false;
   const map = parseFavoritosSucursales(p);
   const tieneMapa = Object.keys(map).length > 0;
   if (suc && tieneMapa) return Boolean(map[suc]);
@@ -343,7 +353,7 @@ export function productoEsFavorito(p, sucursal = null) {
 
 /**
  * Inicializa mapa al primer toggle por sucursal.
- * Legado en_favoritos=true → todas las sucursales POSibles en true.
+ * Legado en_favoritos=true → tiendas operativas + RUTA en true (no CEDIS).
  */
 export function asegurarMapaFavoritos(producto) {
   const map = parseFavoritosSucursales(producto);
@@ -355,12 +365,12 @@ export function asegurarMapaFavoritos(producto) {
   return out;
 }
 
-/** Patch para toggle favorito solo en `sucursal`. */
+/** Patch para toggle favorito solo en `sucursal` (tiendas o RUTA). */
 export function patchToggleFavoritoSucursal(producto, sucursal) {
   const suc = normalizarCodigoTienda(sucursal);
-  if (!suc || suc === 'MAIN') {
+  if (!favoritosPermitidosEnSucursal(suc)) {
     const next = !productoEsFavorito(producto);
-    return { en_favoritos: next, favoritos_sucursales: {} };
+    return { en_favoritos: next, favoritos_sucursales: parseFavoritosSucursales(producto) };
   }
   const map = asegurarMapaFavoritos(producto);
   map[suc] = !Boolean(map[suc]);

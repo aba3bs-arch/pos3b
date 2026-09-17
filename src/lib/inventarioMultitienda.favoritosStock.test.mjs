@@ -56,12 +56,12 @@ assert.equal(etiquetaStockLista(ingresado, '3B10').primario, 120);
 assert.equal(etiquetaStockLista(ingresado, '3B5').primario, 10);
 assert.equal(etiquetaStockLista(ingresado, '3B2').primario, 0);
 
-// CEDIS funciona como sucursal en favoritos: PZA (piso) primero, almacén secundario
+// CEDIS = centro de distribución: almacén primero, piso secundario
 const vistaCedis = etiquetaStockLista(cigarro, 'CEDIS');
-assert.equal(vistaCedis.etiquetaPrimario, 'PZA');
-assert.equal(vistaCedis.primario, 0);
-assert.equal(vistaCedis.etiquetaSecundario, 'CEDIS');
-assert.equal(vistaCedis.secundario, 200);
+assert.equal(vistaCedis.etiquetaPrimario, 'CEDIS');
+assert.equal(vistaCedis.primario, 200);
+assert.equal(vistaCedis.etiquetaSecundario, 'Piso');
+assert.equal(vistaCedis.secundario, 0);
 
 const limpio = asegurarMapaStock(cigarro, '3B10');
 assert.equal(limpio['3B10'].piso, 48);

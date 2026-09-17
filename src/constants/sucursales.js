@@ -167,7 +167,7 @@ export function nombreUbicacionSucursal(codigo) {
 export function etiquetaTienda(codigo) {
   const s = normalizarCodigoTienda(codigo);
   if (esCentralAdmin(s)) return 'Central de administración (MAIN)';
-  if (esAlmacenCentral(s)) return 'CEDIS · almacén central';
+  if (esAlmacenCentral(s)) return 'CEDIS · centro de distribución';
   if (esSucursalRuta(s)) return 'Venta en ruta';
   if (s === 'FUSION') {
     return nombreUbicacionSucursal(s) || 'Fusión';

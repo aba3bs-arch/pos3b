@@ -32,7 +32,7 @@ assert.equal(esSucursalNoVenta('MAIN'), true);
 assert.equal(esSucursalNoVenta('CEDIS'), true);
 assert.equal(esSucursalNoVenta('3B5'), false);
 assert.equal(etiquetaTienda('MAIN'), 'Central de administración (MAIN)');
-assert.equal(etiquetaTienda('CEDIS'), 'CEDIS · almacén central');
+assert.equal(etiquetaTienda('CEDIS'), 'CEDIS · centro de distribución');
 assert.ok(listarSucursales().includes('CEDIS'));
 assert.ok(listarSucursales().includes('MAIN'));
 assert.ok(!listarSucursalesOperativas().includes('MAIN'));
