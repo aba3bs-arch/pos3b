@@ -5,7 +5,11 @@
  */
 
 import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda, ALMACEN_CENTRAL } from '../constants/sucursales.js';
-import { aplicarMovimientoInventario } from './inventarioMovimientos.js';
+import {
+  aplicarMovimientoInventario,
+  leerProductoInventarioFresco,
+} from './inventarioMovimientos.js';
+import { stockAlmacenCentral, asegurarMapaStock, buildPatchStock } from './inventarioMultitienda.js';
 import { esRolRepartidor, normalizarRol } from './roles.js';
 import { registrarCargoCreditoRuta } from './rutaCxc.js';
 import { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
@@ -21,8 +25,129 @@ const LS_VENTAS = 'pos3b_ruta_ventas';
 export const AVISO_FALTA_VENTA_RUTA =
   'Faltan tablas de Venta en Ruta. En Supabase ejecuta supabase/fix_autofin_y_venta_ruta_completo.sql (o fix_venta_en_ruta.sql + fix_precio_ruta_y_cxc.sql + fix_venta_ruta_pos_v2.sql).';
 
-export const NOMBRE_ALMACEN_RUTA = 'MAIN · CEDIS';
+export const NOMBRE_ALMACEN_RUTA = 'CEDIS · centro de distribución';
 
+/**
+ * Asegura que stock_sucursales.CEDIS.cedis refleje stock_cedis / MAIN.cedis legado
+ * antes de descontar (el RPC antiguo a veces partía de 0 y no tocaba el almacén real).
+ */
+export async function sincronizarStockCedisProducto(supabase, producto) {
+  if (!supabase || !producto?.id) return { ok: false, error: 'Sin producto.' };
+  const map = asegurarMapaStock(producto, ALMACEN_CENTRAL);
+  const cedisMap = Math.floor(Number(map[ALMACEN_CENTRAL]?.cedis) || 0);
+  const rawMap = producto.stock_sucursales && typeof producto.stock_sucursales === 'object'
+    ? producto.stock_sucursales
+    : {};
+  const rawCedis = Math.floor(Number(rawMap?.[ALMACEN_CENTRAL]?.cedis) || 0);
+  const rawMain = Math.floor(Number(rawMap?.MAIN?.cedis) || 0);
+  const legacy = Math.floor(Number(producto.stock_cedis) || 0);
+  const necesitaSync = cedisMap !== rawCedis || rawMain > 0 || (legacy > rawCedis && cedisMap !== legacy);
+  if (!necesitaSync && cedisMap === legacy) {
+    return { ok: true, producto, stock: cedisMap, sync: false };
+  }
+  const patch = {
+    stock_sucursales: map,
+    stock_cedis: Math.max(0, cedisMap),
+  };
+  const { error } = await supabase.from('productos').update(patch).eq('id', producto.id);
+  if (error) return { ok: false, error: error.message };
+  return {
+    ok: true,
+    producto: { ...producto, ...patch },
+    stock: cedisMap,
+    sync: true,
+    patch,
+  };
+}
+
+/**
+ * Descuenta piezas del almacén CEDIS para una carga de camión.
+ * Preferencia: movimiento atómico; si falta RPC, patch JSON de respaldo.
+ */
+export async function descontarCedisParaCarga(supabase, {
+  producto,
+  cantidad,
+  motivo,
+  usuario,
+  folio,
+} = {}) {
+  const qty = Math.floor(Math.abs(Number(cantidad) || 0));
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  if (!producto?.id || !(qty > 0)) return { ok: false, error: 'Producto o cantidad inválidos.' };
+
+  const fresco = await leerProductoInventarioFresco(supabase, producto.id);
+  if (!fresco.ok) return fresco;
+
+  const sync = await sincronizarStockCedisProducto(supabase, fresco.producto);
+  if (!sync.ok) return sync;
+  const prod = sync.producto;
+  const disponible = stockAlmacenCentral(prod);
+  if (disponible < qty) {
+    return {
+      ok: false,
+      error: `Stock insuficiente en CEDIS (hay ${disponible}, pides ${qty}).`,
+    };
+  }
+
+  const mov = await aplicarMovimientoInventario(supabase, {
+    tipo: 'retiro',
+    productoOrigen: { ...producto, ...prod },
+    cantidad: qty,
+    motivo: motivo || `Carga camión ruta ${folio || ''} · CEDIS`,
+    usuario: usuario || '—',
+    sucursal: ALMACEN_CENTRAL,
+    sucursalOperacion: ALMACEN_CENTRAL,
+    modo: 'cedis',
+  });
+  if (mov.ok) {
+    const esperado = Math.max(0, disponible - qty);
+    const despues = Number(mov.stock_despues);
+    // Si el RPC partió de 0 (mapa vacío / SQL viejo), corregir al valor real.
+    if (!Number.isFinite(despues) || despues !== esperado) {
+      const patch = buildPatchStock(
+        { ...prod, ...(mov.patch || {}) },
+        ALMACEN_CENTRAL,
+        'cedis',
+        esperado,
+        ALMACEN_CENTRAL,
+      );
+      const { error } = await supabase.from('productos').update(patch).eq('id', producto.id);
+      if (error) return { ok: false, error: error.message || String(error) };
+      return {
+        ok: true,
+        patch,
+        producto: { ...prod, ...patch },
+        stock_antes: disponible,
+        stock_despues: esperado,
+        corregido: true,
+      };
+    }
+    return {
+      ok: true,
+      patch: mov.patch,
+      producto: mov.producto || { ...prod, ...mov.patch },
+      stock_antes: mov.stock_antes,
+      stock_despues: mov.stock_despues,
+    };
+  }
+
+  if (!mov.faltaRpc) return mov;
+
+  // Respaldo sin RPC: escribir stock_sucursales.CEDIS.cedis directo.
+  const objetivo = Math.max(0, disponible - qty);
+  const patch = buildPatchStock(prod, ALMACEN_CENTRAL, 'cedis', objetivo, ALMACEN_CENTRAL);
+  const { error } = await supabase.from('productos').update(patch).eq('id', producto.id);
+  if (error) return { ok: false, error: error.message || String(error) };
+  return {
+    ok: true,
+    patch,
+    producto: { ...prod, ...patch },
+    stock_antes: disponible,
+    stock_despues: objetivo,
+    fallbackJson: true,
+    aviso: mov.error || null,
+  };
+}
 function round2(n) {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
@@ -218,7 +343,7 @@ export async function lineasDeCarga(supabase, cargaId) {
 }
 
 /**
- * Crea carga y descuenta inventario de MAIN · CEDIS (almacén central).
+ * Crea carga y descuenta inventario de CEDIS (centro de distribución).
  * El repartidor debe ser un usuario con rol Repartidor.
  * @param {Array<{productoId, nombre, precio, cantidad}>} lineas
  */
@@ -274,22 +399,24 @@ export async function crearCargaRuta(supabase, { vendedorNombre, vendedorId, not
 
   const cargaId = row.id;
   const porId = new Map((inventario || []).map((p) => [String(p.id), p]));
+  const patches = [];
+  let aviso = null;
 
   for (const it of items) {
     const prod = porId.get(it.productoId) || { id: it.productoId, nombre: it.nombre };
-    // Retiro explícito de CEDIS (almacén central en MAIN), no del piso.
-    const mov = await aplicarMovimientoInventario(supabase, {
-      tipo: 'retiro',
-      productoOrigen: prod,
+    const mov = await descontarCedisParaCarga(supabase, {
+      producto: prod,
       cantidad: it.cantidad,
       motivo: `Carga camión ruta ${folio} · CEDIS → ${repNombre}`,
       usuario: usuarioNombre || '—',
-      sucursal: ALMACEN_CENTRAL,
-      sucursalOperacion: ALMACEN_CENTRAL,
-      modo: 'cedis',
+      folio,
     });
     if (!mov.ok) {
-      return { ok: false, error: `CEDIS · ${it.nombre || it.productoId}: ${mov.error}` };
+      return { ok: false, error: `CEDIS · ${it.nombre || it.productoId}: ${mov.error}`, cargaId, folio };
+    }
+    if (mov.patch) patches.push({ id: it.productoId, ...mov.patch, nombre: it.nombre });
+    if (mov.aviso || mov.fallbackJson) {
+      aviso = mov.aviso || 'Stock CEDIS actualizado (modo respaldo). Ejecuta supabase/fix_stock_delta_atomico.sql.';
     }
     const { error: eLin } = await supabase.from('ruta_carga_lineas').insert([{
       carga_id: cargaId,
@@ -300,9 +427,9 @@ export async function crearCargaRuta(supabase, { vendedorNombre, vendedorId, not
       qty_vendida: 0,
       qty_devuelta: 0,
     }]);
-    if (eLin) return { ok: false, error: eLin.message };
+    if (eLin) return { ok: false, error: eLin.message, cargaId, folio };
   }
-  return { ok: true, carga: row };
+  return { ok: true, carga: row, patches, aviso };
 }
 
 // ─── Efectivo en tránsito: ver rutaTransito.js (reexport arriba) ───

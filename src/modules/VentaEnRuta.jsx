@@ -48,7 +48,7 @@ function fmtQty(n) {
   return Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
 }
 
-export default function VentaEnRuta({ supabase, user, inventario = [], onNavigate, sucursal }) {
+export default function VentaEnRuta({ supabase, user, inventario = [], onNavigate, sucursal, cargarDatos, fusionarProducto }) {
   const [vista, setVista] = useState('hub');
   const [aviso, setAviso] = useState('');
 
@@ -104,7 +104,14 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
         />
       )}
       {vista === 'carga' && puede('ruta_carga') && (
-        <VistaCarga supabase={supabase} user={user} inventario={inventario} setAviso={setAviso} />
+        <VistaCarga
+          supabase={supabase}
+          user={user}
+          inventario={inventario}
+          setAviso={setAviso}
+          cargarDatos={cargarDatos}
+          fusionarProducto={fusionarProducto}
+        />
       )}
       {vista === 'precios' && puede('ruta_precios') && (
         <VistaPrecios supabase={supabase} user={user} inventario={inventario} setAviso={setAviso} />
@@ -156,7 +163,7 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
   );
 }
 
-function VistaCarga({ supabase, user, inventario, setAviso }) {
+function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusionarProducto }) {
   const [lineas, setLineas] = useState([]);
   const [codigo, setCodigo] = useState('');
   const [qty, setQty] = useState('1');
@@ -229,7 +236,15 @@ function VistaCarga({ supabase, user, inventario, setAviso }) {
     setGuardando(false);
     if (!r.ok) return alert(r.error);
     if (r.aviso) setAviso(r.aviso);
-    alert(`Carga ${r.carga?.folio || ''} creada para ${repartidorSel.nombre}. Stock CEDIS descontado.`);
+    for (const p of r.patches || []) {
+      if (p?.id) fusionarProducto?.(p);
+    }
+    if (cargarDatos) void cargarDatos();
+    const n = (r.patches || []).length;
+    alert(
+      `Carga ${r.carga?.folio || ''} creada para ${repartidorSel.nombre}.\n`
+      + `Stock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.`,
+    );
     setLineas([]);
   };
 
