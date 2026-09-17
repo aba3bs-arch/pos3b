@@ -443,7 +443,7 @@ export default function FormularioProducto({
           </label>
         ) : (
           <span className="muted" style={{ fontSize: '0.85rem' }}>
-            CEDIS es centro de distribución (sin favoritos de caja). Favoritos del camión: Venta en Ruta → Precios.
+            CEDIS es centro de distribución (sin favoritos de caja). El POS de ruta usa los artículos de la carga.
           </span>
         )}
       </div>

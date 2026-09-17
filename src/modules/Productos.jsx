@@ -513,7 +513,7 @@ export default function Productos({
     if (!supabase || !p?.id) return;
     if (esAlmacenCentral(sucursal)) {
       return alert(
-        'CEDIS es centro de distribución (sin favoritos de caja).\n\nFavoritos de tienda: cambia a la sucursal.\nFavoritos del camión: Venta en Ruta → Precios → ★',
+        'CEDIS es centro de distribución (sin favoritos de caja).\n\nFavoritos de tienda: cambia a la sucursal.\nVenta en Ruta: el POS muestra los artículos de la carga del camión.',
       );
     }
     const patch = patchToggleFavoritoSucursal(p, sucursal);
