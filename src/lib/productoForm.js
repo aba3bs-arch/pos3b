@@ -2,6 +2,7 @@ import { buildPatchStock, buildPatchStockTienda, esAlmacenCentral } from './inve
 import { normalizarCodigosAlt } from './buscarProductoTexto.js';
 import {
   ALMACEN_CENTRAL,
+  SUCURSAL_RUTA,
   listarSucursalesOperativas,
   normalizarCodigoTienda,
 } from '../constants/sucursales.js';
@@ -300,11 +301,13 @@ export function productoEnVenta(p) {
   return p?.en_venta !== false;
 }
 
-/** Sucursales donde se pueden marcar favoritos (tiendas + CEDIS; no MAIN). */
+/** Sucursales donde se pueden marcar favoritos (tiendas + CEDIS + RUTA; no MAIN). */
 export function sucursalesFavoritosPosibles() {
   const ops = listarSucursalesOperativas();
-  if (!ops.includes(ALMACEN_CENTRAL)) return [...ops, ALMACEN_CENTRAL];
-  return ops;
+  const out = [...ops];
+  if (!out.includes(ALMACEN_CENTRAL)) out.push(ALMACEN_CENTRAL);
+  if (!out.includes(SUCURSAL_RUTA)) out.push(SUCURSAL_RUTA);
+  return out;
 }
 
 /** Mapa { "3B5": true, "CEDIS": true } — vacío si no hay datos. */

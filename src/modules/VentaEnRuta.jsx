@@ -31,6 +31,8 @@ import {
   departamentoFiltroCoincideCedis,
 } from '../lib/catalogoCedis.js';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
+import { productoEsFavorito, patchToggleFavoritoSucursal } from '../lib/productoForm.js';
+import { SUCURSAL_RUTA, etiquetaTienda } from '../constants/sucursales.js';
 import { esRolRepartidor } from '../lib/roles.js';
 import CorteRuta from './CorteRuta.jsx';
 import PreinventarioRuta from './PreinventarioRuta.jsx';
@@ -38,6 +40,8 @@ import CobranzaRuta from './CobranzaRuta.jsx';
 import './VentaEnRuta.css';
 
 const COLOR = '#0f766e';
+const DEPT_FAVORITOS_RUTA = '__FAVORITOS_RUTA__';
+const LABEL_FAVORITOS_RUTA = 'Favoritos';
 
 function fmtQty(n) {
   const v = Number(n) || 0;
@@ -288,11 +292,13 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
   const [q, setQ] = useState('');
   const [departamento, setDepartamento] = useState('');
   const [proveedorId, setProveedorId] = useState('');
+  const [soloFavoritos, setSoloFavoritos] = useState(false);
   const [proveedores, setProveedores] = useState([]);
   const [productosPorProveedor, setProductosPorProveedor] = useState(() => new Map());
   const [idsConProveedor, setIdsConProveedor] = useState(() => new Set());
   const [editId, setEditId] = useState('');
   const [editVal, setEditVal] = useState('');
+  const [favBusyId, setFavBusyId] = useState('');
 
   const departamentos = useMemo(() => listarDepartamentos(inventario), [inventario]);
 
@@ -337,7 +343,7 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
     };
   }, [supabase]);
 
-  const filtrosActivos = Boolean(q.trim() || departamento || proveedorId);
+  const filtrosActivos = Boolean(q.trim() || departamento || proveedorId || soloFavoritos);
 
   const lista = useMemo(() => {
     let list = inventario || [];
@@ -352,7 +358,10 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
       const ids = productosPorProveedor.get(String(proveedorId));
       list = list.filter((p) => ids?.has(String(p.id)));
     }
-    // Con filtro depto/proveedor mostrar más filas; sin filtro mantener tope razonable
+    if (soloFavoritos) {
+      list = list.filter((p) => productoEsFavorito(p, SUCURSAL_RUTA));
+    }
+    // Con filtro depto/proveedor/favoritos mostrar más filas; sin filtro mantener tope razonable
     const tope = filtrosActivos ? 500 : 80;
     return list.slice(0, tope);
   }, [
@@ -360,6 +369,7 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
     q,
     departamento,
     proveedorId,
+    soloFavoritos,
     productosPorProveedor,
     idsConProveedor,
     filtrosActivos,
@@ -373,18 +383,43 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
     p.precio_ruta = r.precio;
   };
 
+  const toggleFavoritoRuta = async (p) => {
+    if (!p?.id || favBusyId) return;
+    setFavBusyId(p.id);
+    const patch = patchToggleFavoritoSucursal(p, SUCURSAL_RUTA);
+    const { error } = await supabase.from('productos').update(patch).eq('id', p.id);
+    setFavBusyId('');
+    if (error && String(error.message || '').includes('favoritos_sucursales')) {
+      const retry = await supabase.from('productos').update({ en_favoritos: patch.en_favoritos }).eq('id', p.id);
+      if (retry.error) return alert(retry.error.message || String(retry.error));
+      p.en_favoritos = patch.en_favoritos;
+      alert('Favorito guardado solo global: falta columna favoritos_sucursales.\nEjecuta: supabase/fix_productos_favoritos_sucursales.sql');
+      setAviso('Favorito ruta (modo legado).');
+      return;
+    }
+    if (error) return alert(error.message || String(error));
+    p.favoritos_sucursales = patch.favoritos_sucursales;
+    p.en_favoritos = patch.en_favoritos;
+    setAviso(
+      productoEsFavorito(p, SUCURSAL_RUTA)
+        ? `«${p.nombre}» en favoritos de ${etiquetaTienda(SUCURSAL_RUTA)}`
+        : `«${p.nombre}» quitado de favoritos de ruta`,
+    );
+  };
+
   const limpiarFiltros = () => {
     setQ('');
     setDepartamento('');
     setProveedorId('');
+    setSoloFavoritos(false);
   };
 
   return (
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Precios de ruta</h3>
       <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
-        Precio especial sin impuestos. Filtra por departamento o proveedor para elegir los productos que se
-        repartirán por ruta. Solo admin/gerente.
+        Precio especial sin impuestos. Marca ★ Favorito ruta para que el POS del camión muestre solo esos
+        productos en la pestaña Favoritos. Solo admin/gerente.
       </p>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'center' }}>
@@ -424,6 +459,15 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
             </option>
           ))}
         </select>
+        <button
+          type="button"
+          className={`btn ${soloFavoritos ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ fontSize: '0.82rem' }}
+          onClick={() => setSoloFavoritos((v) => !v)}
+          title={`Filtrar favoritos de ${etiquetaTienda(SUCURSAL_RUTA)}`}
+        >
+          ★ Favoritos ruta
+        </button>
         {filtrosActivos ? (
           <button type="button" className="btn btn-ghost" style={{ fontSize: '0.82rem' }} onClick={limpiarFiltros}>
             Limpiar filtros
@@ -439,11 +483,13 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
           : proveedorId === '__ninguno__'
             ? ' · sin proveedor'
             : ''}
+        {soloFavoritos ? ' · solo favoritos ruta' : ''}
       </p>
 
       <table className="consultas-table">
         <thead>
           <tr>
+            <th>Fav</th>
             <th>Producto</th>
             <th>Depto</th>
             <th>P. ruta</th>
@@ -451,44 +497,64 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
           </tr>
         </thead>
         <tbody>
-          {lista.map((p) => (
-            <tr key={p.id}>
-              <td>
-                <strong>{p.nombre}</strong>
-                <div className="muted" style={{ fontSize: '0.72rem' }}>{p.id}</div>
-              </td>
-              <td className="muted" style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
-                {etiquetaDepartamento(p.cat || 'GENERAL')}
-              </td>
-              <td>
-                {editId === p.id ? (
-                  <input className="input" type="number" style={{ width: 110 }} value={editVal} onChange={(e) => setEditVal(e.target.value)} />
-                ) : (
-                  precioRutaEspecial(p) != null ? fmtMonto(precioRutaEspecial(p)) : <span className="muted">Sin precio</span>
-                )}
-              </td>
-              <td>
-                {editId === p.id ? (
-                  <>
-                    <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.45rem', fontSize: '0.78rem' }} onClick={() => void guardar(p)}>Guardar</button>
-                    <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.45rem' }} onClick={() => setEditId('')}>×</button>
-                  </>
-                ) : (
+          {lista.map((p) => {
+            const fav = productoEsFavorito(p, SUCURSAL_RUTA);
+            return (
+              <tr key={p.id}>
+                <td>
                   <button
                     type="button"
                     className="btn btn-ghost"
-                    style={{ padding: '0.2rem 0.45rem', fontSize: '0.78rem' }}
-                    onClick={() => { setEditId(p.id); setEditVal(String(p.precio_ruta || '')); }}
+                    style={{
+                      padding: '0.2rem 0.45rem',
+                      fontSize: '1rem',
+                      color: fav ? 'var(--brand-gold, #ca8a04)' : undefined,
+                      opacity: favBusyId === p.id ? 0.5 : 1,
+                    }}
+                    title={fav ? 'Quitar de favoritos ruta' : 'Marcar favorito ruta'}
+                    disabled={favBusyId === p.id}
+                    onClick={() => void toggleFavoritoRuta(p)}
                   >
-                    Editar
+                    {fav ? '★' : '☆'}
                   </button>
-                )}
-              </td>
-            </tr>
-          ))}
+                </td>
+                <td>
+                  <strong>{p.nombre}</strong>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>{p.id}</div>
+                </td>
+                <td className="muted" style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                  {etiquetaDepartamento(p.cat || 'GENERAL')}
+                </td>
+                <td>
+                  {editId === p.id ? (
+                    <input className="input" type="number" style={{ width: 110 }} value={editVal} onChange={(e) => setEditVal(e.target.value)} />
+                  ) : (
+                    precioRutaEspecial(p) != null ? fmtMonto(precioRutaEspecial(p)) : <span className="muted">Sin precio</span>
+                  )}
+                </td>
+                <td>
+                  {editId === p.id ? (
+                    <>
+                      <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.45rem', fontSize: '0.78rem' }} onClick={() => void guardar(p)}>Guardar</button>
+                      <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.45rem' }} onClick={() => setEditId('')}>×</button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ padding: '0.2rem 0.45rem', fontSize: '0.78rem' }}
+                      onClick={() => { setEditId(p.id); setEditVal(String(p.precio_ruta || '')); }}
+                    >
+                      Editar
+                    </button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
           {!lista.length ? (
             <tr>
-              <td colSpan={4} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>
+              <td colSpan={5} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>
                 No hay productos con estos filtros.
               </td>
             </tr>
@@ -538,7 +604,7 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
     void lineasDeCarga(supabase, cargaId).then((r) => setLineas(r.data || []));
   }, [supabase, cargaId]);
 
-  /** Productos del camión enriquecidos con catálogo (foto, depto). */
+  /** Productos del camión enriquecidos con catálogo (foto, depto, favoritos ruta). */
   const productosCamion = useMemo(() => {
     return (lineas || [])
       .map((lin) => {
@@ -553,10 +619,17 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
           precio: Number(precio) || 0,
           disponible: disp,
           linea: lin,
+          en_favoritos: p.en_favoritos,
+          favoritos_sucursales: p.favoritos_sucursales,
         };
       })
       .filter((p) => p.disponible > 0 && p.precio > 0);
   }, [lineas, productoPorId]);
+
+  const favoritosCamion = useMemo(
+    () => productosCamion.filter((p) => productoEsFavorito(p, SUCURSAL_RUTA)),
+    [productosCamion],
+  );
 
   const departamentosMenu = useMemo(() => {
     const counts = new Map();
@@ -571,13 +644,21 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
       .filter((d) => !DEPARTAMENTOS_CEDIS_UI.includes(d))
       .sort((a, b) => a.localeCompare(b, 'es'));
     const ids = [...preferidos, ...otros];
-    if (!ids.length) return [{ id: '', label: 'Sin productos', count: 0 }];
-    return ids.map((id) => ({
+    const depts = ids.map((id) => ({
       id,
       label: etiquetaDepartamento(id),
       count: counts.get(id) || 0,
     }));
-  }, [productosCamion]);
+    if (favoritosCamion.length) {
+      depts.unshift({
+        id: DEPT_FAVORITOS_RUTA,
+        label: LABEL_FAVORITOS_RUTA,
+        count: favoritosCamion.length,
+      });
+    }
+    if (!depts.length) return [{ id: '', label: 'Sin productos', count: 0 }];
+    return depts;
+  }, [productosCamion, favoritosCamion]);
 
   useEffect(() => {
     if (!departamentosMenu.length) return;
@@ -589,12 +670,14 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
   const productosCatalogo = useMemo(() => {
     const t = qDepto.trim();
     let list = productosCamion;
-    if (deptoActivo) {
+    if (deptoActivo === DEPT_FAVORITOS_RUTA) {
+      list = favoritosCamion;
+    } else if (deptoActivo) {
       list = list.filter((p) => departamentoFiltroCoincideCedis(p.cat, deptoActivo));
     }
     if (t) list = list.filter((p) => productoCoincideBusqueda(p, t) || String(p.id).includes(t));
     return list;
-  }, [productosCamion, deptoActivo, qDepto]);
+  }, [productosCamion, favoritosCamion, deptoActivo, qDepto]);
 
   const qtyEnCarrito = useCallback((productoId) => {
     const it = carrito.find((x) => String(x.productoId) === String(productoId));
@@ -812,7 +895,11 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
 
           <section className="ruta-pos-catalogo card">
             <div className="ruta-pos-catalogo-head">
-              <strong>{etiquetaDepartamento(deptoActivo) || 'Catálogo'}</strong>
+              <strong>
+                {deptoActivo === DEPT_FAVORITOS_RUTA
+                  ? LABEL_FAVORITOS_RUTA
+                  : (etiquetaDepartamento(deptoActivo) || 'Catálogo')}
+              </strong>
               <div className="ruta-pos-buscar">
                 <CampoCodigo
                   value={codigo}

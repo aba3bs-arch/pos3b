@@ -24,6 +24,13 @@ assert.equal(productoEsFavorito(pMap, 'CEDIS'), true);
 assert.equal(productoEsFavorito(pMap, 'FUSION'), false);
 assert.equal(productoEsFavorito(pMap, '3B2'), false);
 
+// RUTA (venta en ruta / camión) es sucursal lógica de favoritos
+assert.equal(productoEsFavorito({ favoritos_sucursales: { RUTA: true } }, 'RUTA'), true);
+assert.equal(productoEsFavorito({ favoritos_sucursales: { RUTA: true, '3B5': false } }, '3B5'), false);
+const patchRuta = patchToggleFavoritoSucursal({ id: 'R1', en_favoritos: false }, 'RUTA');
+assert.equal(patchRuta.favoritos_sucursales.RUTA, true);
+assert.equal(productoEsFavorito({ ...patchRuta }, 'CEDIS'), false);
+
 // Toggle solo en CEDIS (legado global → materializa)
 const legado = { id: 'X1', en_favoritos: true, nombre: 'Prod' };
 const patchCedis = patchToggleFavoritoSucursal(legado, 'CEDIS');

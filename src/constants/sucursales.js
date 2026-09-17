@@ -12,6 +12,13 @@ export const CENTRAL_ADMIN = 'MAIN';
 /** Almacén / CEDIS de la empresa (inventario central). */
 export const ALMACEN_CENTRAL = 'CEDIS';
 
+/**
+ * Sucursal lógica de Venta en Ruta (camión).
+ * No es tienda de piso ni entra en listarSucursalesOperativas:
+ * solo favoritos, preinventario de ruta y etiquetas.
+ */
+export const SUCURSAL_RUTA = 'RUTA';
+
 /** Quita acentos/diacríticos (FUSIÓN → FUSION) para códigos de tienda. */
 export function sinAcentosTexto(s) {
   return String(s ?? '')
@@ -65,6 +72,11 @@ export function esCentralAdmin(codigo) {
 /** Almacén CEDIS (inventario). */
 export function esAlmacenCentral(codigo) {
   return normalizarCodigoTienda(codigo) === ALMACEN_CENTRAL;
+}
+
+/** Venta en ruta (camión); soft-code, no tienda física. */
+export function esSucursalRuta(codigo) {
+  return normalizarCodigoTienda(codigo) === SUCURSAL_RUTA;
 }
 
 /** MAIN o CEDIS: no son tiendas de venta al público. */
@@ -156,6 +168,7 @@ export function etiquetaTienda(codigo) {
   const s = normalizarCodigoTienda(codigo);
   if (esCentralAdmin(s)) return 'Central de administración (MAIN)';
   if (esAlmacenCentral(s)) return 'CEDIS · almacén central';
+  if (esSucursalRuta(s)) return 'Venta en ruta';
   if (s === 'FUSION') {
     return nombreUbicacionSucursal(s) || 'Fusión';
   }
