@@ -189,6 +189,8 @@ function App() {
   const [checadorPestana, setChecadorPestana] = useState('precios');
   const [productosVistaInicial, setProductosVistaInicial] = useState(null);
   const [productosDestinoTraspaso, setProductosDestinoTraspaso] = useState(null);
+  const [productosLineasTraspaso, setProductosLineasTraspaso] = useState(null);
+  const [productosNotasTraspaso, setProductosNotasTraspaso] = useState(null);
   const [sucursal, setSucursal] = useState(sucursalInicial);
   const [tiendaFijadaParaAcceso, setTiendaFijadaParaAcceso] = useState(() => {
     if (CAJA_FISICA_FIJA_ENV) return true;
@@ -585,6 +587,8 @@ function App() {
       if (m === 'Productos') {
         setProductosVistaInicial(opts.vista || null);
         setProductosDestinoTraspaso(opts.destinoTraspaso || null);
+        setProductosLineasTraspaso(opts.lineasTraspaso || null);
+        setProductosNotasTraspaso(opts.notasTraspaso || null);
       }
       if (m === 'Vales y Préstamos' && (opts.pestana || opts.retorno)) {
         setValesNavOpts({ pestana: opts.pestana || null, retorno: opts.retorno || null });
@@ -1472,9 +1476,13 @@ function App() {
               consolaCentral={consolaCentral}
               vistaInicial={productosVistaInicial}
               destinoTraspasoInicial={productosDestinoTraspaso}
+              lineasTraspasoInicial={productosLineasTraspaso}
+              notasTraspasoInicial={productosNotasTraspaso}
               onVistaInicialConsumida={() => {
                 setProductosVistaInicial(null);
                 setProductosDestinoTraspaso(null);
+                setProductosLineasTraspaso(null);
+                setProductosNotasTraspaso(null);
               }}
             />
           )}

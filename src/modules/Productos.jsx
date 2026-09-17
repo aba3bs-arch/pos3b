@@ -111,11 +111,15 @@ export default function Productos({
   consolaCentral = false,
   vistaInicial = null,
   destinoTraspasoInicial = null,
+  lineasTraspasoInicial = null,
+  notasTraspasoInicial = null,
   onVistaInicialConsumida,
 }) {
   const [vista, setVista] = useState('lista');
   const [permitirTraspasoDesdeRuta, setPermitirTraspasoDesdeRuta] = useState(false);
   const [destinoTraspasoLocal, setDestinoTraspasoLocal] = useState(null);
+  const [lineasTraspasoLocal, setLineasTraspasoLocal] = useState(null);
+  const [notasTraspasoLocal, setNotasTraspasoLocal] = useState(null);
   const [form, setForm] = useState(empty);
   const [q, setQ] = useState('');
   const [proveedores, setProveedores] = useState([]);
@@ -228,6 +232,8 @@ export default function Productos({
     if (vistaInicial === 'traspaso' && tieneAccionProducto('prod_traspaso', user?.rol, user?.id)) {
       setPermitirTraspasoDesdeRuta(true);
       setDestinoTraspasoLocal(destinoTraspasoInicial || null);
+      setLineasTraspasoLocal(Array.isArray(lineasTraspasoInicial) ? lineasTraspasoInicial : null);
+      setNotasTraspasoLocal(notasTraspasoInicial || null);
       setVista('traspaso');
     }
     onVistaInicialConsumida?.();
@@ -1487,6 +1493,8 @@ export default function Productos({
             sucursal={sucursal}
             onVolver={irLista}
             destinoInicial={destinoTraspasoLocal || undefined}
+            lineasIniciales={lineasTraspasoLocal || undefined}
+            notasIniciales={notasTraspasoLocal || undefined}
           />
         )}
 
