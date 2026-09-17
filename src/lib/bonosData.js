@@ -73,7 +73,7 @@ async function totalRecoleccionPeriodo(supabase, sucursal, desde, hasta) {
   }
 }
 
-/** Faltante de efectivo en el periodo (gastos FALTANTE + estado corte si existe). */
+/** Faltante de efectivo en el periodo: solo gastos de corte con subcategoría/categoría FALTANTE. */
 async function faltantePeriodo(supabase, sucursal, desde, hasta) {
   const suc = normalizarCodigoTienda(sucursal);
   const desdeIso = inicioDia(desde).toISOString();
@@ -81,39 +81,23 @@ async function faltantePeriodo(supabase, sucursal, desde, hasta) {
   let total = 0;
 
   try {
-    let q = supabase
+    const { data, error } = await supabase
       .from('cortes_contabilidad_gastos')
       .select('id, monto, categoria, subcategoria, sucursal_id, created_at, estado_aprobacion')
       .eq('sucursal_id', suc)
       .gte('created_at', desdeIso)
       .lte('created_at', hastaIso)
       .limit(2000);
-    const { data, error } = await q;
     if (!error) {
       for (const g of data || []) {
         const est = g.estado_aprobacion;
         if (est && est !== 'aprobado') continue;
-        const blob = `${g.categoria || ''} ${g.subcategoria || ''}`.toUpperCase();
-        if (!blob.includes('FALTANTE')) continue;
+        const sub = String(g.subcategoria || '').toUpperCase();
+        const cat = String(g.categoria || '').toUpperCase();
+        // Gastos de Virtual / otros cortes: categoría o subcategoría FALTANTE.
+        if (!sub.includes('FALTANTE') && !cat.includes('FALTANTE')) continue;
         total = round2(total + Math.abs(Number(g.monto) || 0));
       }
-    }
-  } catch {
-    /* ignore */
-  }
-
-  try {
-    let cq = supabase
-      .from('cortes_caja')
-      .select('id, diferencia, sucursal_id, created_at')
-      .eq('sucursal_id', suc)
-      .gte('created_at', desdeIso)
-      .lte('created_at', hastaIso)
-      .limit(500);
-    const { data: cortes } = await cq;
-    for (const c of cortes || []) {
-      const dif = Number(c.diferencia) || 0;
-      if (dif < 0) total = round2(total + Math.abs(dif));
     }
   } catch {
     /* ignore */
@@ -476,8 +460,10 @@ export async function calcularBonoSucursal(supabase, {
   }
 
   const bonoRecoleccion = cfgLive.activo && base > 0 ? bonoFinal(base, pct) : 0;
-  const bonoTurnos = cfgLive.activo && bonosTurno?.activo ? (Number(bonosTurno.total) || 0) : 0;
-  const bono = round2(bonoRecoleccion + bonoTurnos);
+  // Los $ de checklist TD/TN ya no suman al bono de Inicio: el checklist solo aporta ±% (penalización).
+  // El monto a pagar se confirma al pulsar Bono antes de recolectar.
+  const bonoTurnos = 0;
+  const bono = round2(bonoRecoleccion);
 
   return {
     ok: true,
@@ -494,7 +480,9 @@ export async function calcularBonoSucursal(supabase, {
     bono,
     bonoRecoleccion,
     bonoTurnos,
-    bonosTurno,
+    bonosTurno: bonosTurno
+      ? { ...bonosTurno, activo: false, total: 0 }
+      : bonosTurno,
     cumplidas,
     activas,
     cumplidasNorm: cumplidas,

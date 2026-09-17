@@ -23,8 +23,10 @@ function fmtDia(ymd) {
 
 /**
  * Widget de bono en Inicio de cada sucursal (parpadea si hay bono > 0).
- * Incluye bono por recolección + bonos por turno (TD/TN) según % checklist
- * + empleados sin bono por falta (respetando descansos 6+1 y autorizados).
+ * Muestra medidores (faltante, checklist ±20%, evaluación ±20%, merma).
+ * El checklist NO define un monto: solo el %. El monto se confirma al pulsar
+ * Bono antes de recolectar.
+ * También lista empleados sin bono por falta (descansos 6+1 y autorizados).
  */
 export default function PanelBonoInicio({
   supabase,
@@ -99,14 +101,6 @@ export default function PanelBonoInicio({
 
   const hayBono = (pack.bono || 0) > 0;
   const clase = hayBono ? 'bono-panel bono-panel-parpadeo' : 'bono-panel';
-  const bt = pack.bonosTurno;
-  const mostrarTurnos = bt?.activo;
-  const td = bt?.porTurno?.TD;
-  const tn = bt?.porTurno?.TN;
-  const detalleTurnos = (bt?.detalle || []).slice(0, 8);
-  const nombresBloqueados = new Set(
-    (bloqueosFalta || []).map((b) => String(b.nombre || '').trim().toLowerCase()).filter(Boolean),
-  );
 
   return (
     <div className={`card ${clase}`} style={{ borderLeft: `4px solid ${hayBono ? '#b45309' : '#a8a29e'}` }}>
@@ -119,23 +113,22 @@ export default function PanelBonoInicio({
           <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.78rem' }}>
             {pack.periodo?.label || 'Periodo'} · Recolección {fmtMoney(pack.recoleccion)}
           </p>
+          <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', maxWidth: 420 }}>
+            El check list y la evaluación operativa solo ajustan ±20%. El monto del bono se muestra al pulsar <strong>Bono</strong> antes de recolectar.
+          </p>
         </div>
         <div style={{ textAlign: 'right' }}>
-          <div className={hayBono ? 'bono-monto-parpadeo' : undefined} style={{ fontSize: '1.75rem', fontWeight: 900, color: hayBono ? '#b45309' : '#78716c', lineHeight: 1.1 }}>
-            {fmtMoney(pack.bono)}
-          </div>
-          <div className="muted" style={{ fontSize: '0.78rem', marginTop: 2 }}>
-            Recolección {fmtMoney(pack.bonoRecoleccion ?? pack.bono)}
-            {mostrarTurnos ? ` · Turnos ${fmtMoney(pack.bonoTurnos || 0)}` : ''}
-          </div>
           <div className="muted" style={{ fontSize: '0.75rem', marginTop: 2 }}>
-            Base reco. {fmtMoney(pack.base)} · {pack.pct}%
+            Estimado tabulador {fmtMoney(pack.base)} · {pack.pct}%
             {pack.modoCalculo === 'penalizaciones' || !pack.modoCalculo
               ? (pack.penalizacionTotal > 0
                 ? ` (−${pack.penalizacionTotal}% penaliz.)`
                 : ' (tabulador completo)')
               : ` (${pack.cumplidas}/${pack.activas} reglas)`}
             {pack.bloqueadoPorFaltante ? ' · bloqueado por faltante' : ''}
+          </div>
+          <div className="muted" style={{ fontSize: '0.72rem', marginTop: 4, maxWidth: 200, marginLeft: 'auto' }}>
+            Monto a pagar: al recolectar (botón Bono)
           </div>
         </div>
       </div>
@@ -217,90 +210,6 @@ export default function PanelBonoInicio({
         }}
       />
 
-      {mostrarTurnos ? (
-        <div style={{ marginTop: '0.85rem' }}>
-          <h4 style={{ margin: '0 0 0.4rem', fontSize: '0.88rem', color: '#92400e' }}>
-            Bonos por turno (Check List)
-          </h4>
-          <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.75rem' }}>
-            Se ajustan con el % de evaluación del compañero: bono = base × (% / 100).
-            Bases: TD {fmtMoney(bt.bases?.TD)} · TN {fmtMoney(bt.bases?.TN)}.
-          </p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.45rem' }}>
-            {['TD', 'TN'].map((key) => {
-              const row = key === 'TD' ? td : tn;
-              const base = row?.base ?? (key === 'TD' ? bt.bases?.TD : bt.bases?.TN) ?? 0;
-              const pct = row?.pctPromedio ?? 0;
-              const color = pct <= 40 ? '#c62828' : pct <= 80 ? '#f9a825' : '#2e7d32';
-              return (
-                <div
-                  key={key}
-                  style={{
-                    padding: '0.5rem 0.6rem',
-                    borderRadius: 8,
-                    border: '1px solid rgba(180,83,9,0.25)',
-                    background: 'rgba(180,83,9,0.04)',
-                  }}
-                >
-                  <div style={{ fontWeight: 800, fontSize: '0.85rem' }}>
-                    {key === 'TD' ? 'Turno día (TD)' : 'Turno noche (TN)'}
-                  </div>
-                  <div className="muted" style={{ fontSize: '0.72rem' }}>
-                    Base {fmtMoney(base)} · {row?.sesiones || 0} checklist(s)
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4, gap: '0.35rem' }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color }}>
-                      {pct}%
-                    </span>
-                    <strong style={{ fontSize: '1rem', color: '#b45309' }}>{fmtMoney(row?.bono || 0)}</strong>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          {detalleTurnos.length > 0 ? (
-            <ul style={{ margin: '0.55rem 0 0', padding: 0, listStyle: 'none', display: 'grid', gap: '0.25rem' }}>
-              {detalleTurnos.map((d) => {
-                const bloqueado = nombresBloqueados.has(String(d.usuario || '').trim().toLowerCase());
-                return (
-                  <li
-                    key={d.id}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      gap: '0.5rem',
-                      fontSize: '0.78rem',
-                      padding: '0.3rem 0.45rem',
-                      borderRadius: 6,
-                      background: bloqueado ? 'rgba(185,28,28,0.08)' : 'rgba(0,0,0,0.03)',
-                    }}
-                  >
-                    <span>
-                      {d.fecha} · {d.turno}
-                      {d.usuario ? <span className="muted" style={{ marginLeft: 4 }}>{d.usuario}</span> : null}
-                      <span style={{ marginLeft: 6, fontWeight: 700, color: d.color, fontSize: 14 }}>
-                        {d.pct}%
-                      </span>
-                      <span className="muted" style={{ marginLeft: 4 }}>({d.etiqueta})</span>
-                      {bloqueado ? (
-                        <span style={{ marginLeft: 6, color: '#b91c1c', fontWeight: 700 }}>sin bono · falta</span>
-                      ) : null}
-                    </span>
-                    <strong style={{ color: bloqueado ? '#b91c1c' : undefined }}>
-                      {bloqueado ? fmtMoney(0) : fmtMoney(d.bono)}
-                    </strong>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : (
-            <p className="muted" style={{ margin: '0.45rem 0 0', fontSize: '0.75rem' }}>
-              Sin checklists TD/TN cerrados en el periodo.
-            </p>
-          )}
-        </div>
-      ) : null}
-
       <ul style={{ margin: '0.75rem 0 0', padding: 0, listStyle: 'none', display: 'grid', gap: '0.35rem' }}>
         {(pack.reglas || []).map((r) => (
           <li
@@ -320,6 +229,9 @@ export default function PanelBonoInicio({
               {r.label}
               {!r.ok && r.penalizacionPct > 0 ? (
                 <span style={{ color: '#b91c1c', marginLeft: 4 }}>−{r.penalizacionPct}%</span>
+              ) : null}
+              {r.ok && (r.id === 'checklistDiario' || r.id === 'evaluacionMinPct') ? (
+                <span style={{ color: '#15803d', marginLeft: 4 }}>OK</span>
               ) : null}
               {r.esRequisito && !r.ok ? (
                 <span style={{ color: '#b91c1c', marginLeft: 4 }}>(sin bono)</span>

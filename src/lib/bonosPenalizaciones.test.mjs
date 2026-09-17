@@ -43,10 +43,10 @@ import {
 }
 
 {
-  // Check list ≤4 días → −20%
+  // Check list < 4 días → −20%; 4–6 OK
   const r = calcularPctBonoPorPenalizaciones({
     faltanteOk: true,
-    checklistDias: 4,
+    checklistDias: 3,
     evaluacionPct: 80,
     mermaPct: 3,
   })
@@ -55,7 +55,18 @@ import {
 }
 
 {
-  // 5 días checklist: no penaliza (solo ≤4)
+  // 4 días checklist: no penaliza (mínimo 4)
+  const r = calcularPctBonoPorPenalizaciones({
+    faltanteOk: true,
+    checklistDias: 4,
+    evaluacionPct: 80,
+    mermaPct: 3,
+  })
+  assert.equal(r.pct, 100)
+}
+
+{
+  // 5 días checklist: no penaliza
   const r = calcularPctBonoPorPenalizaciones({
     faltanteOk: true,
     checklistDias: 5,
@@ -101,12 +112,12 @@ import {
 }
 
 {
-  // Bono final con tabulador
+  // Bono final con tabulador (3 días checklist → −20%)
   const base = bonoBasePorMonto(8500) // rango 7001–10000 → 300
   assert.equal(base, 300)
   const pct = calcularPctBonoPorPenalizaciones({
     faltanteOk: true,
-    checklistDias: 4,
+    checklistDias: 3,
     evaluacionPct: 80,
     mermaPct: 2,
   }).pct

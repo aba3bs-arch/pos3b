@@ -29,19 +29,20 @@ export const NIVELES_PCT_DEFAULT = [
   { reglasMin: 0, pct: 0 },
 ];
 
-/** Bono base por turno de checklist (ajustado por % evaluación del compañero). */
+/** Bono base por turno de checklist (legado; desactivado: el checklist solo aporta ±%). */
 export const BONOS_TURNO_DEFAULT = {
-  activo: true,
+  activo: false,
   TD: 100,
   TN: 50,
 };
 
 /**
  * Modelo de pago (penalizaciones desde 100% del tabulador):
- * - Faltante de efectivo = $0 → requisito para cobrar (si hay faltante → 0%).
- * - Check list: 6 días laborales esperados; si ≤4 días llenados → −20%.
+ * - Faltante de efectivo = $0 → requisito (gastos de corte, subcategoría FALTANTE).
+ * - Check list: 4 a 6 días llenados OK; si < 4 días → −20%.
  * - Evaluación operativa < 70% → −20%.
  * - Inventario (merma) > 6% → −60%.
+ * El checklist NO define un monto de bono; solo afecta ese %.
  */
 export const BONOS_CONFIG_DEFAULT = {
   activo: true,
@@ -61,7 +62,7 @@ export const BONOS_CONFIG_DEFAULT = {
       activo: true,
       label: 'Check list operativo (días laborales)',
       diasEsperados: 6,
-      /** Si días con checklist ≤ este valor → aplica penalización. */
+      /** Penaliza si días con checklist son estrictamente menores a este valor. */
       diasPenalizaSiHasta: 4,
       penalizacionPct: 20,
     },
@@ -376,10 +377,11 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
 
   if (reglas.checklistDiario.activo) {
     const dias = Math.max(0, Math.round(Number(metricas.checklistDias) || 0));
-    const hasta = Number(reglas.checklistDiario.diasPenalizaSiHasta) || 4;
+    const minimo = Number(reglas.checklistDiario.diasPenalizaSiHasta) || 4;
     const esperados = Number(reglas.checklistDiario.diasEsperados) || 6;
     const pen = Number(reglas.checklistDiario.penalizacionPct) || 20;
-    const ok = dias > hasta;
+    // De `minimo` a `esperados` días (ej. 4–6): OK. Menos de minimo → −pen%.
+    const ok = dias >= minimo;
     if (!ok) {
       pct = round2(pct - pen);
       penalizacionTotal = round2(penalizacionTotal + pen);
@@ -390,7 +392,7 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
       ok,
       penalizacionPct: ok ? 0 : pen,
       valor: `${dias}/${esperados} días`,
-      requerido: `>${hasta} días (ideal ${esperados})`,
+      requerido: `≥${minimo} días (ideal ${esperados})`,
     });
   }
 
