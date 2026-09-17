@@ -246,6 +246,75 @@ export function disponibleEnLineaCarga(lin) {
   );
 }
 
+/**
+ * Une líneas de una o varias cargas en inventario de preinventario (1 fila por producto).
+ * El teórico (`_disp_camion`) es la suma de disponible en todas las cargas.
+ * @param {Array} lineas — filas ruta_carga_lineas (pueden venir de varias cargas)
+ * @param {{ productoPorId?: Map, inventario?: Array }} [opts]
+ */
+export function inventarioCamionDesdeLineas(lineas, { productoPorId = null, inventario = [] } = {}) {
+  const byId = new Map();
+  for (const lin of lineas || []) {
+    const pid = String(lin.producto_id || '');
+    if (!pid) continue;
+    const disp = disponibleEnLineaCarga(lin);
+    const cargada = Number(lin.qty_cargada) || 0;
+    const vendida = Number(lin.qty_vendida) || 0;
+    const devuelta = Number(lin.qty_devuelta) || 0;
+    const prev = byId.get(pid);
+    if (!prev) {
+      const base = productoPorId?.get(pid)
+        || (inventario || []).find((p) => String(p.id) === pid)
+        || {};
+      byId.set(pid, {
+        ...base,
+        id: pid,
+        nombre: lin.producto_nombre || base.nombre || pid,
+        cat: base.cat || 'GENERAL',
+        _qty_cargada: cargada,
+        _qty_vendida: vendida,
+        _qty_devuelta: devuelta,
+        _disp_camion: disp,
+        _num_cargas: 1,
+      });
+    } else {
+      prev._qty_cargada += cargada;
+      prev._qty_vendida += vendida;
+      prev._qty_devuelta += devuelta;
+      prev._disp_camion = round3(prev._disp_camion + disp);
+      prev._num_cargas += 1;
+      if (!prev.nombre && lin.producto_nombre) prev.nombre = lin.producto_nombre;
+    }
+  }
+  return [...byId.values()];
+}
+
+/**
+ * Carga líneas de varias cargas en paralelo y las consolida para preinventario.
+ * @param {import('@supabase/supabase-js').SupabaseClient} supabase
+ * @param {Array<{id:string}>} cargas
+ */
+export async function lineasDeVariasCargas(supabase, cargas) {
+  const list = (cargas || []).filter((c) => c?.id);
+  if (!list.length) return { data: [], porCarga: [] };
+  const resultados = await Promise.all(
+    list.map(async (c) => {
+      const r = await lineasDeCarga(supabase, c.id);
+      return {
+        cargaId: c.id,
+        folio: c.folio || '',
+        lineas: r.data || [],
+        aviso: r.aviso || null,
+        error: r.error || null,
+      };
+    }),
+  );
+  const aviso = resultados.find((r) => r.aviso)?.aviso || null;
+  const error = resultados.find((r) => r.error)?.error || null;
+  const flat = resultados.flatMap((r) => r.lineas);
+  return { data: flat, porCarga: resultados, aviso, error };
+}
+
 // ─── Clientes externos ────────────────────────────────────────────
 
 export async function listarClientesRuta(supabase) {
