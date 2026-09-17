@@ -21,6 +21,14 @@ import {
   limpiarCarritoVenta,
 } from '../lib/carritoVentaPersistencia.js';
 import { encolarVentaOffline, esErrorDeRed } from '../lib/ventasOffline.js';
+import {
+  esMetodoTarjeta,
+  normalizarDigitosBaucher,
+  baucherTarjetaValido,
+  tarjetaCandadoActivo,
+  MSG_CANDADO_TARJETA,
+  MSG_BAUCHER_REQUERIDO,
+} from '../lib/pagoTarjetaBaucher.js';
 
 function addToCart(carrito, producto, qtyAdd = 1) {
   const add = Math.max(1, Math.floor(Number(qtyAdd) || 1));
@@ -247,6 +255,9 @@ export default function Ventas({
   const totalMXN = useMemo(() => carrito.reduce((acc, p) => acc + Number(p.precio || 0) * (p.qty || 1), 0), [carrito]);
 
   const esEfectivo = metodoActual?.tipo === 'efectivo';
+  const esTarjeta = esMetodoTarjeta(metodoActual);
+  const candadoTarjeta = tarjetaCandadoActivo(metodoActual, refPago);
+  const baucherOk = !esTarjeta || baucherTarjetaValido(refPago);
 
   const cambioMXN = useMemo(() => {
     if (pagoCon === PAGO_EXACTO) return 0;
@@ -269,6 +280,9 @@ export default function Ventas({
     if (!acceso.ok) return alert(acceso.error);
     const turno = turnoActual();
     if (!metodoActual) return alert('No hay métodos de pago activos. Configúralos en Configuración.');
+    if (esMetodoTarjeta(metodoActual) && !baucherTarjetaValido(refPago)) {
+      return alert(MSG_BAUCHER_REQUERIDO);
+    }
     if (esEfectivo && !pagoCon) return alert('Selecciona la denominación o Monto exacto.');
     if (esEfectivo && cambioMXN < 0) return alert('Monto insuficiente');
     const articulos = carrito.map((c) => ({
@@ -506,9 +520,18 @@ export default function Ventas({
   };
 
   const elegirMetodo = (id) => {
+    if (tarjetaCandadoActivo(metodoActual, refPago) && id !== formaPago) {
+      alert(MSG_CANDADO_TARJETA);
+      return;
+    }
     setFormaPago(id);
     setPagoCon('');
     setRefPago('');
+  };
+
+  const salirCobro = () => {
+    if (finalizando) return;
+    resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago });
   };
 
   const reimprimirUltima = async () => {
@@ -882,16 +905,23 @@ export default function Ventas({
           role="dialog"
           aria-modal="true"
           aria-labelledby="ventas-cobro-titulo"
-          onClick={() => !finalizando && resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago })}
+          onClick={() => {
+            if (finalizando) return;
+            if (candadoTarjeta) {
+              alert(MSG_CANDADO_TARJETA);
+              return;
+            }
+            salirCobro();
+          }}
         >
           <div className="ventas-cobro-modal" onClick={(e) => e.stopPropagation()}>
             <header className="prod-modal-header">
               <button
                 type="button"
                 className="prod-modal-close"
-                aria-label="Cerrar"
+                aria-label={candadoTarjeta ? 'Salir del cobro' : 'Cerrar'}
                 disabled={finalizando}
-                onClick={() => resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago })}
+                onClick={salirCobro}
               >
                 <Icon name="x" size={18} />
               </button>
@@ -911,18 +941,45 @@ export default function Ventas({
                 </p>
               ) : (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.75rem' }}>
-                  {metodosPago.map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      className={formaPago === m.id ? 'btn btn-primary' : 'btn btn-ghost'}
-                      style={{ flex: '1 1 calc(50% - 0.4rem)', minWidth: '100px', fontSize: '0.85rem', padding: '0.45rem 0.5rem' }}
-                      onClick={() => elegirMetodo(m.id)}
-                      disabled={finalizando}
-                    >
-                      {m.label}
-                    </button>
-                  ))}
+                  {metodosPago.map((m) => {
+                    const bloqueado = candadoTarjeta && m.id !== formaPago;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        className={formaPago === m.id ? 'btn btn-primary' : 'btn btn-ghost'}
+                        style={{
+                          flex: '1 1 calc(50% - 0.4rem)',
+                          minWidth: '100px',
+                          fontSize: '0.85rem',
+                          padding: '0.45rem 0.5rem',
+                          opacity: bloqueado ? 0.45 : 1,
+                        }}
+                        onClick={() => elegirMetodo(m.id)}
+                        disabled={finalizando || bloqueado}
+                        title={bloqueado ? MSG_CANDADO_TARJETA : undefined}
+                      >
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {candadoTarjeta && (
+                <div
+                  style={{
+                    marginBottom: '0.75rem',
+                    padding: '0.55rem 0.65rem',
+                    borderRadius: 8,
+                    border: '1px solid rgba(180, 83, 9, 0.45)',
+                    background: 'rgba(251, 191, 36, 0.12)',
+                    fontSize: '0.82rem',
+                    color: 'var(--brand-gold-dark, #92400e)',
+                    fontWeight: 600,
+                  }}
+                >
+                  Candado tarjeta: ingresa los últimos 4 o 5 dígitos del baucher para continuar,
+                  o pulsa <strong>Salir del cobro</strong> para cancelar.
                 </div>
               )}
               {esEfectivo ? (
@@ -971,19 +1028,31 @@ export default function Ventas({
                   </p>
                   {metodoActual && (
                     <label className="muted" style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem' }}>
-                      Referencia / folio (anota los últimos 4 o 5 dígitos del ticket)
+                      {esTarjeta
+                        ? 'Últimos 4 o 5 dígitos del baucher (obligatorio)'
+                        : 'Referencia / folio (anota los últimos 4 o 5 dígitos del ticket)'}
                       <input
                         className="input"
                         style={{ marginTop: '0.35rem' }}
                         value={refPago}
-                        onChange={(e) => setRefPago(e.target.value)}
-                        placeholder="Últimos 4 o 5 dígitos del ticket de la terminal…"
-                        maxLength={64}
+                        onChange={(e) => {
+                          const v = esTarjeta
+                            ? normalizarDigitosBaucher(e.target.value)
+                            : e.target.value;
+                          setRefPago(v);
+                        }}
+                        placeholder={esTarjeta ? 'Ej. 4821 o 94821' : 'Últimos 4 o 5 dígitos del ticket de la terminal…'}
+                        maxLength={esTarjeta ? 5 : 64}
+                        inputMode={esTarjeta ? 'numeric' : undefined}
+                        autoComplete="off"
                         disabled={finalizando}
+                        aria-invalid={esTarjeta && !baucherOk ? 'true' : undefined}
                       />
-                      {String(metodoActual?.id || '').toLowerCase().includes('tarjeta') || /tarjeta/i.test(String(metodoActual?.label || '')) ? (
-                        <span style={{ display: 'block', marginTop: '0.35rem', fontSize: '0.78rem', color: 'var(--brand-gold-dark, #b45309)' }}>
-                          Cobra primero en la terminal y anota aquí los últimos 4 o 5 dígitos del ticket.
+                      {esTarjeta ? (
+                        <span style={{ display: 'block', marginTop: '0.35rem', fontSize: '0.78rem', color: candadoTarjeta ? 'var(--danger, #b91c1c)' : 'var(--brand-gold-dark, #b45309)' }}>
+                          {candadoTarjeta
+                            ? 'Cobra en la terminal y escribe aquí exactamente 4 o 5 dígitos del baucher.'
+                            : 'Baucher registrado. Ya puedes finalizar la venta.'}
                         </span>
                       ) : null}
                     </label>
@@ -995,7 +1064,8 @@ export default function Ventas({
                 className="btn btn-success"
                 style={{ width: '100%', padding: '0.85rem', fontSize: '1.05rem' }}
                 onClick={finalizarVenta}
-                disabled={!metodosPago.length || finalizando}
+                disabled={!metodosPago.length || finalizando || candadoTarjeta}
+                title={candadoTarjeta ? MSG_BAUCHER_REQUERIDO : undefined}
               >
                 <BtnLabel icon="check">{finalizando ? 'Registrando…' : 'Finalizar venta'}</BtnLabel>
               </button>
@@ -1004,9 +1074,9 @@ export default function Ventas({
                 className="btn btn-ghost"
                 style={{ width: '100%', marginTop: '0.35rem' }}
                 disabled={finalizando}
-                onClick={() => resetCobro({ setMostrarCobro, setFormaPago, setPagoCon, setRefPago })}
+                onClick={salirCobro}
               >
-                Cancelar
+                {candadoTarjeta ? 'Salir del cobro' : 'Cancelar'}
               </button>
             </div>
           </div>
