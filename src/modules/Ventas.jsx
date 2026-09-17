@@ -189,7 +189,10 @@ export default function Ventas({
 
   const enVenta = useMemo(() => (inventario || []).filter((p) => productoEnVenta(p)), [inventario]);
 
-  const favoritos = useMemo(() => enVenta.filter((p) => productoEsFavorito(p)), [enVenta]);
+  const favoritos = useMemo(
+    () => enVenta.filter((p) => productoEsFavorito(p, sucursal)),
+    [enVenta, sucursal],
+  );
 
   const departamentosMenu = useMemo(() => {
     const counts = new Map();
@@ -613,7 +616,7 @@ export default function Ventas({
               <Icon name="package" size={36} />
               <p>
                 {deptoActivo === 'favoritos'
-                  ? 'No hay favoritos. Márcalos en Productos para venta rápida.'
+                  ? `No hay favoritos en ${sucursal || 'esta sucursal'}. Márcalos en Productos (solo para esta tienda).`
                   : qDepto.trim()
                     ? 'Sin coincidencias en este departamento.'
                     : 'No hay productos en este departamento.'}

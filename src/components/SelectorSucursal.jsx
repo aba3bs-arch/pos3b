@@ -81,7 +81,7 @@ export default function SelectorSucursal({
                           )}
                           {esCedis && (
                             <span className="muted" style={{ display: 'block', fontSize: '0.78rem', fontWeight: 500 }}>
-                              Inventario · almacén central
+                              Centro de distribución · inventario
                             </span>
                           )}
                         </span>

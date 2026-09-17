@@ -23,7 +23,7 @@ export function etiquetaAlmacenCentral() {
 }
 
 export function etiquetaCedisEmpresa() {
-  return 'CEDIS · almacén central';
+  return 'CEDIS · centro de distribución';
 }
 
 /**
@@ -302,9 +302,10 @@ export function stockVisible(valor, verNegativos = true) {
 }
 
 /**
- * Texto corto de existencia para listas (CEDIS muestra almacén + piso).
- * Siempre lee desde stock_sucursales de la sucursal (no confiar en producto.stock legado),
- * para que favoritos / thumbs se actualicen al ingresar inventario en cualquier tienda.
+ * Texto corto de existencia para listas.
+ * CEDIS = centro de distribución: muestra almacén primero (no piso de venta).
+ * Tiendas: PZA de piso.
+ * Siempre lee desde stock_sucursales (no confiar en producto.stock legado).
  * @param {{ verNegativos?: boolean }} [opts] — false oculta negativos (cajero/repartidor).
  */
 export function etiquetaStockLista(producto, sucursal, opts = {}) {

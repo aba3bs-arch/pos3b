@@ -7,7 +7,7 @@ import { esAlmacenCentral, etiquetaCedisEmpresa, etiquetaStockLista, stockVisibl
 import { etiquetaTienda } from '../constants/sucursales.js';
 import { tieneFoto } from '../lib/fotosCatalogo.js';
 import { leerImagenProductoComoDataUrl } from '../lib/imagenProducto.js';
-import { precioVentaParaCaja } from '../lib/productoForm.js';
+import { precioVentaParaCaja, productoEsFavorito } from '../lib/productoForm.js';
 
 function fmtPrecio(n) {
   return `$${Number(n || 0).toFixed(2)}`;
@@ -57,7 +57,7 @@ export default function DetalleProducto({
   const precioCon = precioVentaParaCaja(producto);
   const impuesto = Number(producto.impuesto ?? 8);
   const precioSin = Number(producto.precio_venta_sin ?? (precioCon / (1 + impuesto / 100)));
-  const favorito = Boolean(producto.en_favoritos) || producto.cat === 'FAVORITOS';
+  const favorito = productoEsFavorito(producto, sucursal);
   const stockVista = etiquetaStockLista(producto, sucursal, { verNegativos });
   const stock = stockVista.primario;
   const sinFoto = !tieneFoto(producto);
@@ -139,7 +139,7 @@ export default function DetalleProducto({
                 type="button"
                 className="btn btn-ghost"
                 style={{ padding: '0.4rem', color: favorito ? 'var(--brand-gold)' : undefined }}
-                title={favorito ? 'Quitar de favoritos' : 'Marcar favorito'}
+                title={favorito ? `Quitar de favoritos (${tiendaLabel})` : `Favorito en ${tiendaLabel}`}
                 onClick={() => onToggleFavorito(producto)}
               >
                 <Icon name="check" size={18} />

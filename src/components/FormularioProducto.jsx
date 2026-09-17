@@ -436,10 +436,16 @@ export default function FormularioProducto({
           <input type="checkbox" checked={form.en_venta !== false} onChange={(e) => setCampoSimple('en_venta', e.target.checked)} />
           <span className="muted">Disponible en venta (caja)</span>
         </label>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
-          <input type="checkbox" checked={Boolean(form.en_favoritos)} onChange={(e) => setCampoSimple('en_favoritos', e.target.checked)} />
-          <span className="muted">Mostrar en favoritos</span>
-        </label>
+        {!enCentral ? (
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
+            <input type="checkbox" checked={Boolean(form.en_favoritos)} onChange={(e) => setCampoSimple('en_favoritos', e.target.checked)} />
+            <span className="muted">Favorito en {tiendaLabel || 'esta sucursal'}</span>
+          </label>
+        ) : (
+          <span className="muted" style={{ fontSize: '0.85rem' }}>
+            CEDIS es centro de distribución (sin favoritos de caja). Favoritos del camión: Venta en Ruta → Precios.
+          </span>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', flexWrap: 'wrap' }}>

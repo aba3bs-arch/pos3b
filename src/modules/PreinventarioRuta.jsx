@@ -2,10 +2,11 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Preinventario from './Preinventario.jsx';
 import { disponibleEnLineaCarga, lineasDeCarga, listarCargasRuta } from '../lib/ventaEnRuta.js';
 import { esRolRepartidor } from '../lib/roles.js';
+import { SUCURSAL_RUTA } from '../constants/sucursales.js';
 
 const COLOR = '#0f766e';
 /** Alcance de plantillas compartidas de ruta (no mezcla con tiendas). */
-export const SUCURSAL_PREINVENTARIO_RUTA = 'RUTA';
+export const SUCURSAL_PREINVENTARIO_RUTA = SUCURSAL_RUTA;
 
 /**
  * Preinventario del camión: mismo sistema de plantillas que Productos,

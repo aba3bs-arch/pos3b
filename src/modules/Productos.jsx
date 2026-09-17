@@ -21,7 +21,7 @@ import {
 } from '../lib/importarCatalogo.js';
 import { vaciarInventario, opcionesVaciado } from '../lib/borrarInventario.js';
 import { registrarCambioPrecio, leerProductoInventarioFresco } from '../lib/inventarioMovimientos.js';
-import { mensajeErrorColumnasProducto, productoDesdeDb, productoParaGuardar, productoVacio } from '../lib/productoForm.js';
+import { mensajeErrorColumnasProducto, productoDesdeDb, productoEsFavorito, productoParaGuardar, productoVacio, patchToggleFavoritoSucursal } from '../lib/productoForm.js';
 import { codigoOcupadoPorOtro, normalizarCodigosAlt } from '../lib/buscarProductoTexto.js';
 import {
   puedeCrearProveedor,
@@ -350,8 +350,8 @@ export default function Productos({
       const ids = productosPorProveedor.get(String(filtros.proveedor));
       list = list.filter((p) => ids?.has(String(p.id)));
     }
-    if (filtros.favoritos === 'si') list = list.filter((p) => Boolean(p.en_favoritos) || p.cat === 'FAVORITOS');
-    if (filtros.favoritos === 'no') list = list.filter((p) => !p.en_favoritos && p.cat !== 'FAVORITOS');
+    if (filtros.favoritos === 'si') list = list.filter((p) => productoEsFavorito(p, sucursal));
+    if (filtros.favoritos === 'no') list = list.filter((p) => !productoEsFavorito(p, sucursal));
     if (filtros.existencia === 'si') {
       list = list.filter((p) => {
         if (enCentral) return Number(p.stock_cedis) > 0 || Number(p.stock) > 0;
@@ -473,7 +473,9 @@ export default function Productos({
   };
 
   const editar = (p) => {
-    setForm(productoDesdeDb(p));
+    const formDb = productoDesdeDb(p);
+    formDb.en_favoritos = productoEsFavorito(p, sucursal);
+    setForm(formDb);
     setEsEdicionProducto(true);
     setProductoSelId(p.id);
     setVista('editar');
@@ -509,9 +511,24 @@ export default function Productos({
   const toggleFavorito = async (p) => {
     if (!puedeGestionCatalogo) return alert('Tu rol no puede editar productos.');
     if (!supabase || !p?.id) return;
-    const next = !Boolean(p.en_favoritos);
-    const { error } = await supabase.from('productos').update({ en_favoritos: next }).eq('id', p.id);
-    if (error) return alert(error.message);
+    if (esAlmacenCentral(sucursal)) {
+      return alert(
+        'CEDIS es centro de distribución (sin favoritos de caja).\n\nFavoritos de tienda: cambia a la sucursal.\nFavoritos del camión: Venta en Ruta → Precios → ★',
+      );
+    }
+    const patch = patchToggleFavoritoSucursal(p, sucursal);
+    let { error } = await supabase.from('productos').update(patch).eq('id', p.id);
+    if (error && String(error.message || '').includes('favoritos_sucursales')) {
+      const retry = await supabase.from('productos').update({ en_favoritos: patch.en_favoritos }).eq('id', p.id);
+      error = retry.error;
+      if (!error) {
+        alert('Favorito guardado solo global: falta columna favoritos_sucursales.\nEjecuta: supabase/fix_productos_favoritos_sucursales.sql');
+      }
+    }
+    if (error) {
+      const aviso = mensajeErrorColumnasProducto(error);
+      return alert(aviso || error.message);
+    }
     cargarDatos();
   };
 
@@ -559,6 +576,19 @@ export default function Productos({
       );
     }
     let { data: saved, error } = await supabase.from('productos').upsert([payload]).select('*').single();
+    if (error && String(error.message || '').includes('favoritos_sucursales')) {
+      const { favoritos_sucursales: _omitFav, ...sinFavMap } = payload;
+      const retryFav = await supabase.from('productos').upsert([sinFavMap]).select('*').single();
+      if (!retryFav.error) {
+        alert(
+          'Guardado sin favoritos por sucursal: falta la columna en Supabase.\nEjecuta: supabase/fix_productos_favoritos_sucursales.sql',
+        );
+        saved = retryFav.data;
+        error = null;
+      } else {
+        error = retryFav.error;
+      }
+    }
     if (error && String(error.message || '').includes('codigos_alt')) {
       const { codigos_alt: _omit, ...sinAlt } = payload;
       const retry = await supabase.from('productos').upsert([sinAlt]).select('*').single();
@@ -1290,16 +1320,12 @@ export default function Productos({
                         <div className="prod-lista-codigo">{p.id}</div>
                         <div className="prod-lista-nombre">{p.nombre}</div>
                         <div className="prod-lista-stock" style={stockNeg ? { color: 'var(--brand-red)', fontWeight: 700 } : undefined}>
-                          {enCentral ? (
+                          <span className="muted">{stockVista.etiquetaPrimario}</span> {stockVista.primario}
+                          {stockVista.secundario != null ? (
                             <>
-                              <span className="muted">{stockVista.etiquetaPrimario}</span> {stockVista.primario}
                               <span className="muted"> · {stockVista.etiquetaSecundario}</span> {stockVista.secundario}
                             </>
-                          ) : (
-                            <>
-                              <span className="muted">{stockVista.etiquetaPrimario}</span> {stockVista.primario}
-                            </>
-                          )}
+                          ) : null}
                         </div>
                       </div>
                       <div className="prod-lista-precio">${Number(p.precio || 0).toFixed(2)}</div>
@@ -1328,7 +1354,7 @@ export default function Productos({
                 vinculos={vinculos}
                 verNegativos={verNegativos}
                 onEditar={puedeGestionCatalogo ? editar : undefined}
-                onToggleFavorito={puedeGestionCatalogo ? toggleFavorito : undefined}
+                onToggleFavorito={puedeGestionCatalogo && !enCentral ? toggleFavorito : undefined}
                 onVincularProveedor={puedeGestionCatalogo ? vincularProveedor : undefined}
                 onQuitarVinculo={puedeGestionCatalogo ? quitarVinculo : undefined}
                 onFotoActualizada={puedeGestionCatalogo ? (row) => fusionarProducto?.(row) : undefined}

@@ -98,7 +98,13 @@ begin
   end if;
 
   if v_ubi = 'cedis' then
-    v_antes := coalesce((v_entry ->> 'cedis')::integer, v_cedis_central, v_stock_cedis, 0);
+    -- Si el mapa tiene cedis:0 pero stock_cedis (o MAIN ya migrado) tiene piezas,
+    -- coalesce(..., 0) no sirve: 0 no es NULL. Usar greatest para sembrar.
+    v_antes := greatest(
+      coalesce((v_entry ->> 'cedis')::integer, 0),
+      coalesce(v_cedis_central, 0),
+      coalesce(v_stock_cedis, 0)
+    );
     v_despues := v_antes + p_delta;
     v_piso_suc := coalesce((v_entry ->> 'piso')::integer, 0);
     v_entry := jsonb_build_object('cedis', v_despues, 'piso', v_piso_suc);
@@ -245,7 +251,11 @@ begin
   end if;
 
   if v_ubi = 'cedis' then
-    v_antes := coalesce((v_entry ->> 'cedis')::integer, v_cedis_central, v_stock_cedis, 0);
+    v_antes := greatest(
+      coalesce((v_entry ->> 'cedis')::integer, 0),
+      coalesce(v_cedis_central, 0),
+      coalesce(v_stock_cedis, 0)
+    );
     v_piso_suc := coalesce((v_entry ->> 'piso')::integer, 0);
     v_entry := jsonb_build_object('cedis', v_despues, 'piso', v_piso_suc);
   else
