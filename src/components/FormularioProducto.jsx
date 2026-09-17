@@ -438,7 +438,10 @@ export default function FormularioProducto({
         </label>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
           <input type="checkbox" checked={Boolean(form.en_favoritos)} onChange={(e) => setCampoSimple('en_favoritos', e.target.checked)} />
-          <span className="muted">Mostrar en favoritos</span>
+          <span className="muted">
+            Favorito en {tiendaLabel || 'esta sucursal'}
+            {enCentral ? ' (CEDIS)' : ''}
+          </span>
         </label>
       </div>
 

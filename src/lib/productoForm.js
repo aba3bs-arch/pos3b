@@ -1,5 +1,10 @@
 import { buildPatchStock, buildPatchStockTienda, esAlmacenCentral } from './inventarioMultitienda.js';
 import { normalizarCodigosAlt } from './buscarProductoTexto.js';
+import {
+  ALMACEN_CENTRAL,
+  listarSucursalesOperativas,
+  normalizarCodigoTienda,
+} from '../constants/sucursales.js';
 
 export const IVA_DEFAULT = 8;
 export const GANANCIA_DEFAULT = 30;
@@ -124,6 +129,7 @@ export function productoVacio() {
     stock_minimo: 6,
     en_venta: true,
     en_favoritos: false,
+    favoritos_sucursales: {},
     codigos_alt: [],
   };
 }
@@ -181,6 +187,7 @@ export function productoDesdeDb(p) {
     stock_minimo: p.stock_minimo != null ? Number(p.stock_minimo) : 6,
     en_venta: p.en_venta !== false,
     en_favoritos: Boolean(p.en_favoritos) || p.cat === 'FAVORITOS',
+    favoritos_sucursales: parseFavoritosSucursales(p),
     codigos_alt: normalizarCodigosAlt(p.codigos_alt),
   };
 }
@@ -262,9 +269,23 @@ export function productoParaGuardar(form, opts = {}) {
     precio: ventaCon,
     stock_minimo: Math.max(0, parseInt(String(form.stock_minimo), 10) || 0),
     en_venta: form.en_venta !== false,
-    en_favoritos: Boolean(form.en_favoritos),
     codigos_alt: codigosAlt,
   };
+  const mapFav = (() => {
+    const origen = productoDb || form;
+    const map = { ...parseFavoritosSucursales(origen) };
+    // Si no había mapa pero el legado era favorito global, materializar.
+    if (!Object.keys(map).length && (Boolean(origen.en_favoritos) || origen.cat === 'FAVORITOS')) {
+      for (const s of sucursalesFavoritosPosibles()) map[s] = true;
+    }
+    if (sucursal) {
+      const suc = normalizarCodigoTienda(sucursal);
+      if (suc && suc !== 'MAIN') map[suc] = Boolean(form.en_favoritos);
+    }
+    return map;
+  })();
+  base.favoritos_sucursales = mapFav;
+  base.en_favoritos = Object.values(mapFav).some(Boolean);
   if (sucursal) {
     const origen = productoDb || { ...form, stock_sucursales: form.stock_sucursales };
     if (esAlmacenCentral(sucursal)) {
@@ -279,12 +300,76 @@ export function productoEnVenta(p) {
   return p?.en_venta !== false;
 }
 
-export function productoEsFavorito(p) {
-  return Boolean(p?.en_favoritos) || p?.cat === 'FAVORITOS';
+/** Sucursales donde se pueden marcar favoritos (tiendas + CEDIS; no MAIN). */
+export function sucursalesFavoritosPosibles() {
+  const ops = listarSucursalesOperativas();
+  if (!ops.includes(ALMACEN_CENTRAL)) return [...ops, ALMACEN_CENTRAL];
+  return ops;
+}
+
+/** Mapa { "3B5": true, "CEDIS": true } — vacío si no hay datos. */
+export function parseFavoritosSucursales(producto) {
+  const raw = producto?.favoritos_sucursales;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const suc = normalizarCodigoTienda(k);
+    if (!suc || suc === 'MAIN') continue;
+    out[suc] = Boolean(v);
+  }
+  return out;
+}
+
+/**
+ * ¿Es favorito en esta sucursal?
+ * - Con mapa favoritos_sucursales: solo esa sucursal.
+ * - Sin mapa (legado): en_favoritos / cat FAVORITOS aplica a todas.
+ */
+export function productoEsFavorito(p, sucursal = null) {
+  if (!p) return false;
+  const suc = normalizarCodigoTienda(sucursal);
+  const map = parseFavoritosSucursales(p);
+  const tieneMapa = Object.keys(map).length > 0;
+  if (suc && tieneMapa) return Boolean(map[suc]);
+  if (suc && !tieneMapa) {
+    return Boolean(p.en_favoritos) || p.cat === 'FAVORITOS';
+  }
+  if (tieneMapa) return Object.values(map).some(Boolean);
+  return Boolean(p.en_favoritos) || p.cat === 'FAVORITOS';
+}
+
+/**
+ * Inicializa mapa al primer toggle por sucursal.
+ * Legado en_favoritos=true → todas las sucursales POSibles en true.
+ */
+export function asegurarMapaFavoritos(producto) {
+  const map = parseFavoritosSucursales(producto);
+  if (Object.keys(map).length > 0) return { ...map };
+  const legado = Boolean(producto?.en_favoritos) || producto?.cat === 'FAVORITOS';
+  if (!legado) return {};
+  const out = {};
+  for (const s of sucursalesFavoritosPosibles()) out[s] = true;
+  return out;
+}
+
+/** Patch para toggle favorito solo en `sucursal`. */
+export function patchToggleFavoritoSucursal(producto, sucursal) {
+  const suc = normalizarCodigoTienda(sucursal);
+  if (!suc || suc === 'MAIN') {
+    const next = !productoEsFavorito(producto);
+    return { en_favoritos: next, favoritos_sucursales: {} };
+  }
+  const map = asegurarMapaFavoritos(producto);
+  map[suc] = !Boolean(map[suc]);
+  const enFavoritos = Object.values(map).some(Boolean);
+  return { favoritos_sucursales: map, en_favoritos: enFavoritos };
 }
 
 export function mensajeErrorColumnasProducto(error) {
   const msg = String(error?.message || error || '');
+  if (msg.includes('favoritos_sucursales')) {
+    return 'Falta la columna favoritos_sucursales. Ejecuta en Supabase: supabase/fix_productos_favoritos_sucursales.sql';
+  }
   if (msg.includes('codigos_alt')) {
     return 'Falta la columna codigos_alt. Ejecuta en Supabase: supabase/fix_productos_codigos_alt.sql';
   }

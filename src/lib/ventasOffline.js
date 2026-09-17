@@ -74,6 +74,7 @@ export function guardarCatalogoOffline(sucursal, productos) {
       departamento: p.departamento,
       favorito: p.favorito,
       en_favoritos: p.en_favoritos,
+      favoritos_sucursales: p.favoritos_sucursales || null,
       en_venta: p.en_venta,
       foto_url: p.foto_url || null,
     }));

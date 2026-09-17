@@ -310,10 +310,12 @@ export function stockVisible(valor, verNegativos = true) {
 export function etiquetaStockLista(producto, sucursal, opts = {}) {
   const verNegativos = opts.verNegativos !== false;
   const suc = claveStockSucursalCanon(sucursal) || normalizarCodigoTienda(sucursal);
+  // CEDIS opera como sucursal en venta/favoritos: stock de piso (PZA) primero;
+  // el almacén CEDIS queda como secundario para seguimiento.
   if (esAlmacenCentral(suc)) {
-    const cedis = stockVisible(stockAlmacenCentral(producto, suc), verNegativos);
     const piso = stockVisible(stockEnUbicacionReal(producto, suc, 'piso', suc), verNegativos);
-    return { primario: cedis, etiquetaPrimario: 'CEDIS', secundario: piso, etiquetaSecundario: 'Piso' };
+    const cedis = stockVisible(stockAlmacenCentral(producto, suc), verNegativos);
+    return { primario: piso, etiquetaPrimario: 'PZA', secundario: cedis, etiquetaSecundario: 'CEDIS' };
   }
   const piso = stockVisible(stockEnUbicacionReal(producto, suc, 'piso', suc), verNegativos);
   return { primario: piso, etiquetaPrimario: 'PZA', secundario: null, etiquetaSecundario: null };
