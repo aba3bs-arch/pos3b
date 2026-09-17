@@ -796,3 +796,28 @@ export function stockDestinoDisponible(producto, destinoId) {
   const d = normalizarCodigoTienda(destinoId);
   return stockVistaProducto(producto, d, 'piso');
 }
+
+/**
+ * Normaliza líneas precargadas (p. ej. desde venta en ruta) para el editor de envío.
+ */
+export function normalizarLineasTraspasoIniciales(lineasIniciales, catalogo = []) {
+  const byId = new Map((catalogo || []).map((p) => [String(p.id), p]));
+  const out = [];
+  const seen = new Set();
+  for (const raw of lineasIniciales || []) {
+    const pid = String(raw?.producto_id || raw?.productoId || raw?.id || '').trim();
+    if (!pid || seen.has(pid)) continue;
+    const qty = Math.max(0, Math.floor(Number(raw?.cantidad) || 0));
+    if (!(qty > 0)) continue;
+    const p = byId.get(pid) || {};
+    seen.add(pid);
+    out.push({
+      producto_id: pid,
+      nombre: String(raw?.nombre || raw?.producto_nombre || p.nombre || pid).trim() || pid,
+      cantidad: qty,
+      precio: Number(raw?.precio) || Number(p.precio) || 0,
+      costo: Number(raw?.costo) || Number(p.costo) || 0,
+    });
+  }
+  return out;
+}

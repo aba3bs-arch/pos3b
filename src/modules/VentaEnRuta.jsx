@@ -772,15 +772,32 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
       r.compraId ? 'Pedido en Compras listo para recibir' : null,
     ].filter(Boolean).join(' · ');
     alert(`Venta ${r.venta?.folio || ''} OK.\n${extra}`);
+    const lineasTrp = tipo === 'sucursal'
+      ? carrito.map((a) => {
+        const p = productoPorId.get(String(a.productoId)) || {};
+        return {
+          producto_id: String(a.productoId),
+          nombre: a.nombre,
+          cantidad: Math.max(1, Math.floor(Number(a.cantidad) || 0)),
+          precio: Number(a.precio) || 0,
+          costo: Number(p.costo) || 0,
+        };
+      }).filter((l) => l.producto_id && l.cantidad > 0)
+      : [];
+    const folioVenta = r.venta?.folio || '';
     setCarrito([]);
     setMostrarCobro(false);
     setQtyEditId(null);
     setTickCamion((t) => t + 1);
-    // Ir a Productos → Traspasos (preselecciona tienda destino si es sucursal)
-    onNavigate?.('Productos', {
-      vista: 'traspaso',
-      destinoTraspaso: tipo === 'sucursal' ? id : null,
-    });
+    // Sucursal: Traspasos con destino + artículos de la venta precargados
+    if (tipo === 'sucursal') {
+      onNavigate?.('Productos', {
+        vista: 'traspaso',
+        destinoTraspaso: id,
+        lineasTraspaso: lineasTrp,
+        notasTraspaso: folioVenta ? `Venta ruta ${folioVenta}` : 'Venta en ruta',
+      });
+    }
   };
 
   const onCambiarDestino = (value) => {

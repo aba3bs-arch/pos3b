@@ -23,6 +23,7 @@ import {
   recibirTraspaso,
   stockDestinoDisponible,
   stockOrigenDisponible,
+  normalizarLineasTraspasoIniciales,
 } from '../lib/traspasosInventario.js';
 import { normalizarRol } from '../lib/roles.js';
 
@@ -77,6 +78,8 @@ export default function Traspasos({
   sucursal,
   onVolver,
   destinoInicial,
+  lineasIniciales,
+  notasIniciales,
 }) {
   const catalogo = inventarioCompleto || inventario || [];
   const sucursalOp = normalizarCodigoTienda(sucursal) || 'MAIN';
@@ -122,7 +125,12 @@ export default function Traspasos({
     setModoFlujo('envio');
     setDestinoId(dest);
     setPaso('editor');
-  }, [destinoInicial, destinos, sucursalOp]);
+    const precarga = normalizarLineasTraspasoIniciales(lineasIniciales, catalogo);
+    if (precarga.length) setLineas(precarga);
+    if (notasIniciales) setNotas(String(notasIniciales));
+    // catalogo solo enriquece nombre/costo al abrir desde ruta
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [destinoInicial, destinos, sucursalOp, lineasIniciales, notasIniciales]);
 
   const reload = useCallback(async () => {
     setCargando(true);
