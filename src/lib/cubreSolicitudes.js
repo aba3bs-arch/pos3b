@@ -58,6 +58,63 @@ export function ctSucursalesHabilitadas(extras = {}) {
   return [...new Set(lista.map((s) => normalizarCodigoTienda(s)).filter(Boolean))];
 }
 
+/** Días de la semana (UI y storage): 0=dom … 6=sáb, igual que Date#getDay. */
+export const DIAS_CT_SEMANA = [
+  { id: 1, label: 'Lun', largo: 'Lunes' },
+  { id: 2, label: 'Mar', largo: 'Martes' },
+  { id: 3, label: 'Mié', largo: 'Miércoles' },
+  { id: 4, label: 'Jue', largo: 'Jueves' },
+  { id: 5, label: 'Vie', largo: 'Viernes' },
+  { id: 6, label: 'Sáb', largo: 'Sábado' },
+  { id: 0, label: 'Dom', largo: 'Domingo' },
+];
+
+/**
+ * Días en que el CT puede cubrir.
+ * null = todos los días (legado / sin configurar).
+ * [] = ningún día.
+ * Array con ids = solo esos (0=dom … 6=sáb).
+ */
+export function ctDiasHabilitados(extras = {}) {
+  if (!Array.isArray(extras?.ct_dias)) return null;
+  return [...new Set(
+    extras.ct_dias.map((d) => Number(d)).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6),
+  )].sort((a, b) => a - b);
+}
+
+export function diaSemanaDeYmd(ymdOrDate) {
+  if (ymdOrDate instanceof Date) {
+    if (Number.isNaN(ymdOrDate.getTime())) return null;
+    return ymdOrDate.getDay();
+  }
+  const [y, m, d] = String(ymdOrDate || '').slice(0, 10).split('-').map(Number);
+  if (![y, m, d].every((n) => Number.isFinite(n))) return null;
+  const dt = new Date(y, m - 1, d, 12, 0, 0);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.getDay();
+}
+
+/** true si el CT puede cubrir ese día de la semana (o no tiene restricción). */
+export function ctPuedeCubrirDia(extras, ymdOrDate) {
+  const hab = ctDiasHabilitados(extras);
+  if (hab === null) return true;
+  if (!hab.length) return false;
+  const day = diaSemanaDeYmd(ymdOrDate);
+  if (day == null) return true;
+  return hab.includes(day);
+}
+
+export function etiquetaDiasCt(extras) {
+  const hab = ctDiasHabilitados(extras);
+  if (hab === null || hab.length === 7) return 'Todos los días';
+  if (!hab.length) return 'Ningún día';
+  const order = DIAS_CT_SEMANA.map((d) => d.id);
+  return [...hab]
+    .sort((a, b) => order.indexOf(a) - order.indexOf(b))
+    .map((id) => DIAS_CT_SEMANA.find((d) => d.id === id)?.label || String(id))
+    .join(', ');
+}
+
 export function ctPuedeCubrirSucursal(extras, sucursalId) {
   const hab = ctSucursalesHabilitadas(extras);
   if (!hab) return true;
@@ -76,9 +133,10 @@ export function ctPuedeCubrirTurno(extras, turnoId) {
   return !turnoEsNocturno(turnoId);
 }
 
-export function ctPuedeCubrirEn(extras, { sucursal_id, turno_id } = {}) {
+export function ctPuedeCubrirEn(extras, { sucursal_id, turno_id, fecha } = {}) {
   if (sucursal_id && !ctPuedeCubrirSucursal(extras, sucursal_id)) return false;
   if (turno_id != null && turno_id !== '' && !ctPuedeCubrirTurno(extras, turno_id)) return false;
+  if (fecha && !ctPuedeCubrirDia(extras, fecha)) return false;
   return true;
 }
 
@@ -145,8 +203,10 @@ export function estadoDisponibilidadCt(empleadoRh, solicitudesActivas = [], opts
   const until = ex.ct_hold_until ? Date.parse(ex.ct_hold_until) : NaN;
   if (Number.isFinite(until) && until > Date.now()) return 'hold';
   if (String(ex.ct_disponibilidad || '').toLowerCase() === 'no_disponible') return 'no_disponible';
-  const id = String(empleadoRh.id);
   const fechaRef = opts.fecha ? String(opts.fecha).slice(0, 10) : null;
+  // Días de la semana configurados: fuera de ellos → no disponible ese día.
+  if (fechaRef && !ctPuedeCubrirDia(ex, fechaRef)) return 'no_disponible';
+  const id = String(empleadoRh.id);
   const ocupado = (solicitudesActivas || []).some((s) => {
     if (String(s.ct_rh_id) !== id) return false;
     if (!ESTADOS_OCUPAN_CT.has(String(s.estado || ''))) return false;
@@ -225,6 +285,17 @@ export async function listarCatalogoCt(supabase, opts = {}) {
       const ocupadas = fechasOcupadasCt(e.id, solicitudes);
       const estadoDisp = estadoDisponibilidadCt(e, solicitudes, { fecha: fechaOpts || undefined });
       const sucursales = ctSucursalesHabilitadas(ex);
+      const dias = ctDiasHabilitados(ex);
+      const manualOff = String(ex.ct_disponibilidad || '').toLowerCase() === 'no_disponible';
+      let label = etiquetaDisponibilidadCt(estadoDisp);
+      if (
+        fechaOpts
+        && estadoDisp === 'no_disponible'
+        && !manualOff
+        && !ctPuedeCubrirDia(ex, fechaOpts)
+      ) {
+        label = 'No disponible ese día';
+      }
       return {
         id: `rh:${e.id}`,
         rh_id: e.id,
@@ -233,13 +304,15 @@ export async function listarCatalogoCt(supabase, opts = {}) {
         sucursal_id: e.sucursal_id || null,
         estado_rh: e.estado,
         disponibilidad: estadoDisp,
-        disponibilidad_label: etiquetaDisponibilidadCt(estadoDisp),
+        disponibilidad_label: label,
         color: colorDisponibilidadCt(estadoDisp),
         puede_solicitar: ctPuedeSerSolicitado(estadoDisp),
         fechas_ocupadas: ocupadas,
         hold_until: ex.ct_hold_until || null,
         ct_sucursales: sucursales,
         ct_solo_dia: Boolean(ex.ct_solo_dia),
+        ct_dias: dias,
+        ct_dias_label: etiquetaDiasCt(ex),
         origen: 'rh',
         extras: ex,
         raw: e,
@@ -555,6 +628,12 @@ export async function solicitarCt(supabase, payload = {}, opts = {}) {
     return {
       ok: false,
       error: `${ct.nombre} solo cubre turnos de día (no nocturno).`,
+    };
+  }
+  if (!ctPuedeCubrirDia(ct.extras, fecha)) {
+    return {
+      ok: false,
+      error: `${ct.nombre} no trabaja ese día de la semana (${etiquetaDiasCt(ct.extras)}). Elige otro CT u otra fecha.`,
     };
   }
 

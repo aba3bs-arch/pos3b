@@ -36,7 +36,13 @@ import {
   persistirPlanHorario,
   sincronizarPlanHorarioDesdeNube,
 } from '../lib/planHorarioSync.js';
-import { listarCatalogoCt, quitarCoberturaCtPlan, solicitarCt } from '../lib/cubreSolicitudes.js';
+import {
+  listarCatalogoCt,
+  quitarCoberturaCtPlan,
+  solicitarCt,
+  ctPuedeCubrirDia,
+  etiquetaDiasCt,
+} from '../lib/cubreSolicitudes.js';
 import { esUsuarioCubreTurno } from '../lib/cubreTurno.js';
 
 function colorTextoSobre(bg) {
@@ -109,15 +115,25 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
     if (catalogoCt.length) {
       base = catalogoCt.map((c) => {
         const ocupadas = c.fechas_ocupadas || [];
-        const bloqueadoFijo = ['hold', 'baja', 'no_disponible'].includes(c.disponibilidad);
+        const manualOff = String(c.extras?.ct_disponibilidad || '').toLowerCase() === 'no_disponible';
+        const holdOrBaja = ['hold', 'baja'].includes(c.disponibilidad)
+          || (c.disponibilidad === 'no_disponible' && manualOff && !fechaSel);
+        const diaNoHabilitado = Boolean(fechaSel && !ctPuedeCubrirDia(c.extras || { ct_dias: c.ct_dias }, fechaSel));
         const ocupadoEseDia = Boolean(fechaSel && ocupadas.includes(fechaSel));
-        // Cobertura en otro día no bloquea; solo el mismo día (o hold/baja).
-        const puede = bloqueadoFijo
-          ? false
-          : (fechaSel ? !ocupadoEseDia : true);
-        const estadoDia = bloqueadoFijo
-          ? c.disponibilidad
-          : (ocupadoEseDia ? 'cubriendo' : 'disponible');
+        const bloqueado = holdOrBaja || diaNoHabilitado || (c.disponibilidad === 'no_disponible' && manualOff);
+        const puede = bloqueado ? false : (fechaSel ? !ocupadoEseDia : true);
+        let estadoDia = 'disponible';
+        let label = 'Disponible';
+        if (holdOrBaja || (manualOff && c.disponibilidad === 'no_disponible')) {
+          estadoDia = c.disponibilidad === 'hold' || c.disponibilidad === 'baja' ? c.disponibilidad : 'no_disponible';
+          label = c.disponibilidad_label || 'No disponible';
+        } else if (diaNoHabilitado) {
+          estadoDia = 'no_disponible';
+          label = 'No disponible ese día';
+        } else if (ocupadoEseDia) {
+          estadoDia = 'cubriendo';
+          label = 'Cubriendo ese día';
+        }
         return {
           id: c.id,
           rh_id: c.rh_id,
@@ -126,14 +142,14 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
           origen: 'rh',
           sucursal_id: c.sucursal_id,
           disponibilidad: estadoDia,
-          disponibilidad_label: ocupadoEseDia
-            ? 'Cubriendo ese día'
-            : (bloqueadoFijo ? c.disponibilidad_label : 'Disponible'),
-          color: ocupadoEseDia || bloqueadoFijo ? '#c62828' : '#2e7d32',
+          disponibilidad_label: label,
+          color: estadoDia === 'disponible' ? '#2e7d32' : '#c62828',
           puede_solicitar: puede,
           fechas_ocupadas: ocupadas,
           ct_sucursales: c.ct_sucursales,
           ct_solo_dia: c.ct_solo_dia,
+          ct_dias: c.ct_dias,
+          ct_dias_label: c.ct_dias_label || etiquetaDiasCt(c.extras || { ct_dias: c.ct_dias }),
           extras: c.extras,
         };
       });
@@ -144,6 +160,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
       const ex = c.extras || {
         ct_sucursales: c.ct_sucursales,
         ct_solo_dia: c.ct_solo_dia,
+        ct_dias: c.ct_dias,
       };
       if (sucFiltro && Array.isArray(ex.ct_sucursales) && ex.ct_sucursales.length) {
         const hab = ex.ct_sucursales.map((s) => String(s).toUpperCase());
@@ -668,6 +685,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
                   <option key={c.id} value={c.id} disabled={c.puede_solicitar === false}>
                     {c.puede_solicitar === false ? '🔴' : '🟢'} {c.nombre.toUpperCase()}
                     {c.ct_solo_dia ? ' · solo día' : ''}
+                    {c.ct_dias_label && c.ct_dias_label !== 'Todos los días' ? ` · ${c.ct_dias_label}` : ''}
                     {c.disponibilidad_label ? ` · ${c.disponibilidad_label}` : ' · CT RH'}
                   </option>
                 ))}
