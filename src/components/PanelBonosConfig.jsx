@@ -242,7 +242,8 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
               <span>
                 <strong>Faltante de efectivo = $0</strong>
                 <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
-                  Requisito: si hay faltante, el bono de recolección queda en 0% del tabulador.
+                  Requisito: se toma de gastos del corte (Virtual u otros) con subcategoría/categoría FALTANTE.
+                  Si hay faltante, el bono queda en 0%.
                 </span>
               </span>
             </label>
@@ -253,7 +254,9 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                 <strong>Check list operativo</strong>
               </label>
               <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
-                Ideal: llenar los {cfg.reglas.checklistDiario.diasEsperados ?? 6} días laborales. Si llenas ≤{cfg.reglas.checklistDiario.diasPenalizaSiHasta ?? 4} días → −{cfg.reglas.checklistDiario.penalizacionPct ?? 20}%.
+                Ideal: llenar de {cfg.reglas.checklistDiario.diasPenalizaSiHasta ?? 4} a {cfg.reglas.checklistDiario.diasEsperados ?? 6} días laborales.
+                Si llenas <strong>menos de {cfg.reglas.checklistDiario.diasPenalizaSiHasta ?? 4}</strong> → −{cfg.reglas.checklistDiario.penalizacionPct ?? 20}%.
+                El checklist no define un monto de bono; solo ese %.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                 <label className="muted" style={{ fontSize: '0.72rem' }}>
@@ -261,7 +264,7 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                   <input className="input" type="number" min={1} max={7} style={{ width: 72, marginTop: 2 }} value={cfg.reglas.checklistDiario.diasEsperados ?? 6} onChange={(e) => setRegla('checklistDiario', { diasEsperados: Number(e.target.value) })} />
                 </label>
                 <label className="muted" style={{ fontSize: '0.72rem' }}>
-                  Penaliza si ≤
+                  Mínimo (sin castigo)
                   <input className="input" type="number" min={0} max={7} style={{ width: 72, marginTop: 2 }} value={cfg.reglas.checklistDiario.diasPenalizaSiHasta ?? 4} onChange={(e) => setRegla('checklistDiario', { diasPenalizaSiHasta: Number(e.target.value) })} />
                 </label>
                 <label className="muted" style={{ fontSize: '0.72rem' }}>
@@ -277,7 +280,7 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                 <strong>Evaluación operativa</strong>
               </label>
               <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
-                Si está por debajo del mínimo → aplica penalización.
+                Si está por debajo del mínimo → −{cfg.reglas.evaluacionMinPct.penalizacionPct ?? 20}% (igual que el checklist: solo ajusta el %, no define el monto).
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                 <label className="muted" style={{ fontSize: '0.72rem' }}>
@@ -312,10 +315,11 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
             </div>
           </div>
 
-          <h4 style={{ margin: '1rem 0 0.5rem', color: 'var(--brand-blue)' }}>Bonos por turno (Check List)</h4>
+          <h4 style={{ margin: '1rem 0 0.5rem', color: 'var(--brand-blue)' }}>Bonos por turno (Check List) — legado</h4>
           <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
-            Se ajustan con el % de evaluación del compañero del checklist cerrado:
-            {' '}<strong>bono = base × (% / 100)</strong>. Ej.: TD $100 al 80% → $80; TN $50 al 100% → $50.
+            Ya no se usa en Inicio: el checklist solo aporta ±% al bono de recolección.
+            El monto se confirma con el botón <strong>Bono</strong> antes de recolectar.
+            Deja esta opción desactivada.
           </p>
           <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.5rem' }}>
             <input
