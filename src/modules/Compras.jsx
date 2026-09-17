@@ -90,7 +90,17 @@ function alertSqlCompras(error) {
   return false;
 }
 
-export default function Compras({ supabase, sucursal, inventario, cargarDatos, fusionarProducto, onNavigate, user }) {
+export default function Compras({
+  supabase,
+  sucursal,
+  inventario,
+  cargarDatos,
+  fusionarProducto,
+  onNavigate,
+  user,
+  compraIdInicial = null,
+  onCompraInicialConsumida,
+}) {
   const [pestana, setPestana] = useState('herramienta');
   const [proveedores, setProveedores] = useState([]);
   const [historial, setHistorial] = useState([]);
@@ -102,6 +112,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, f
   const [compraActiva, setCompraActiva] = useState(null);
   const [modoRecepcion, setModoRecepcion] = useState(false);
   const [modoEntregaDirecta, setModoEntregaDirecta] = useState(false);
+  const [precargarRecepcionPedido, setPrecargarRecepcionPedido] = useState(false);
 
   const [umbralCatalogo, setUmbralCatalogo] = useState(8);
   const [verTodoInventario, setVerTodoInventario] = useState(false);
@@ -254,6 +265,56 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, f
     loadPedidosPendientes();
   }, [supabase, sucursal]);
 
+  /** Abre recepción del pedido creado por venta en ruta (o compraId pasado por navegación). */
+  useEffect(() => {
+    if (!compraIdInicial || !supabase) return undefined;
+    let cancel = false;
+    void (async () => {
+      const id = String(compraIdInicial);
+      let compra =
+        (pedidosPendientes || []).find((c) => String(c.id) === id)
+        || (historial || []).find((c) => String(c.id) === id)
+        || null;
+      if (!compra) {
+        const { data, error } = await supabase
+          .from('compras')
+          .select('*, proveedores(nombre)')
+          .eq('id', id)
+          .maybeSingle();
+        if (cancel) return;
+        if (error || !data) {
+          onCompraInicialConsumida?.();
+          return;
+        }
+        compra = data;
+      }
+      if (cancel) return;
+      if (String(compra.estado || '').toLowerCase() !== 'pedido') {
+        onCompraInicialConsumida?.();
+        return;
+      }
+      const sucCompra = String(compra.sucursal_id || '').toUpperCase();
+      const sucAct = String(sucursal || '').toUpperCase();
+      if (sucCompra && sucAct && sucCompra !== sucAct) {
+        // Esperar a que App cambie la sucursal (sucursalRecepcion); no consumir aún.
+        return;
+      }
+      setPestana('herramienta');
+      setProveedorId(compra.proveedor_id || '');
+      setPrecargarRecepcionPedido(true);
+      setCompraActiva(compra);
+      setModoRecepcion(true);
+      setModoEntregaDirecta(false);
+      setHerramientaAbierta(true);
+      onCompraInicialConsumida?.();
+    })();
+    return () => {
+      cancel = true;
+    };
+    // Solo al llegar compraIdInicial / cambio de sucursal tras navegación
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compraIdInicial, supabase, sucursal]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -348,8 +409,16 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, f
 
   useEffect(() => {
     if (!herramientaAbierta) return;
-    setLineas(construirLineas(modoRecepcion ? compraActiva : null));
-  }, [herramientaAbierta, construirLineas, modoRecepcion, compraActiva]);
+    let rows = construirLineas(modoRecepcion ? compraActiva : null);
+    if (modoRecepcion && precargarRecepcionPedido) {
+      rows = rows.map((r) => {
+        const ped = Number(r.qty_pedido) || 0;
+        if (!(ped > 0)) return r;
+        return { ...r, qty_recibido: ped };
+      });
+    }
+    setLineas(rows);
+  }, [herramientaAbierta, construirLineas, modoRecepcion, compraActiva, precargarRecepcionPedido]);
 
   const lineasVisibles = useMemo(() => {
     if (verTodoInventario) return lineas;
@@ -393,6 +462,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, f
     setCompraActiva(compra);
     setModoRecepcion(true);
     setModoEntregaDirecta(false);
+    setPrecargarRecepcionPedido(false);
     setHerramientaAbierta(true);
   };
 
@@ -570,6 +640,7 @@ export default function Compras({ supabase, sucursal, inventario, cargarDatos, f
     setCompraActiva(null);
     setModoRecepcion(false);
     setModoEntregaDirecta(false);
+    setPrecargarRecepcionPedido(false);
     setLineas([]);
     for (const p of inv.productos || []) fusionarProducto?.(p);
     cargarDatos();
