@@ -526,8 +526,8 @@ export function imprimirReporte(datos) {
   return imprimirDocumento('reporte', datos);
 }
 
-export function imprimirCorte(datos) {
-  return imprimirDocumento('corte', datos);
+export function imprimirCorte(datos, opts = {}) {
+  return imprimirDocumento('corte', datos, { forzar: true, ...opts, titulo: opts.titulo || 'Corte de caja' });
 }
 
 export function imprimirPrueba() {

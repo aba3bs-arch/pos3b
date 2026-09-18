@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { listarCargasRuta, listarVentasRuta } from '../lib/ventaEnRuta.js';
 import {
+  construirTicketCorteRuta,
   guardarCorteRutaLocal,
   intentarGuardarCorteRutaNube,
   listarCortesRutaLocal,
@@ -12,7 +13,12 @@ import { imprimirCorte } from '../lib/impresion.js';
 
 const COLOR = '#0f766e';
 
-export default function CorteRuta({ supabase, user, setAviso }) {
+function imprimirTicketCorteRuta(corte, extras = {}) {
+  const payload = construirTicketCorteRuta(corte, extras);
+  return imprimirCorte(payload, { forzar: true, titulo: 'Corte de caja · Ruta' });
+}
+
+export default function CorteRuta({ supabase, user, vendedorSesion, setAviso }) {
   const [cargas, setCargas] = useState([]);
   const [cargaId, setCargaId] = useState('');
   const [ventas, setVentas] = useState([]);
@@ -22,21 +28,28 @@ export default function CorteRuta({ supabase, user, setAviso }) {
   const [historial, setHistorial] = useState([]);
   const [msg, setMsg] = useState('');
 
-  const esRep = esRolRepartidor(user?.rol);
-  const carga = useMemo(() => cargas.find((c) => String(c.id) === String(cargaId)), [cargas, cargaId]);
+  const vendedorId = vendedorSesion?.id
+    || (esRolRepartidor(user?.rol) ? user?.id : null);
+  const vendedorNombre = vendedorSesion?.nombre
+    || (esRolRepartidor(user?.rol) ? (user?.nombre || null) : null);
+
+  const carga = useMemo(
+    () => cargas.find((c) => String(c.id) === String(cargaId)),
+    [cargas, cargaId],
+  );
 
   const cargarCargas = useCallback(async () => {
-    const filtros = {};
-    if (esRep && user?.id) filtros.vendedorId = user.id;
-    const r = await listarCargasRuta(supabase, { ...filtros, limit: 60 });
+    const filtros = { limit: 60 };
+    if (vendedorId) filtros.vendedorId = vendedorId;
+    const r = await listarCargasRuta(supabase, filtros);
     if (r.aviso) setAviso?.(r.aviso);
     setCargas(r.data || []);
-  }, [supabase, esRep, user?.id, setAviso]);
+  }, [supabase, vendedorId, setAviso]);
 
   useEffect(() => {
     void cargarCargas();
-    setHistorial(listarCortesRutaLocal({ vendedorId: esRep ? user?.id : undefined }));
-  }, [cargarCargas, esRep, user?.id]);
+    setHistorial(listarCortesRutaLocal({ vendedorId: vendedorId || undefined }));
+  }, [cargarCargas, vendedorId]);
 
   useEffect(() => {
     let cancel = false;
@@ -56,18 +69,25 @@ export default function CorteRuta({ supabase, user, setAviso }) {
   const resumen = useMemo(() => resumirVentasRutaParaCorte(ventas), [ventas]);
   const dif = contado === '' ? null : Math.round((Number(contado) - resumen.efectivoEsperado) * 100) / 100;
 
+  const nombreCorte = carga?.vendedor_nombre || vendedorNombre || '—';
+
   const guardar = async () => {
     if (!cargaId) return alert('Elige una carga.');
     if (!ventas.length) return alert('No hay ventas en esta carga.');
     if (contado === '' || contado == null) return alert('Indica el efectivo contado.');
-    if (!confirm(`¿Guardar corte de ruta?\nEsperado ${fmtMonto(resumen.efectivoEsperado)} · Contado ${fmtMonto(contado)}`)) return;
+    if (!confirm(
+      `¿Guardar e imprimir corte de ruta?\n`
+      + `Vendedor: ${nombreCorte}\n`
+      + `Efectivo esperado ${fmtMonto(resumen.efectivoEsperado)} · Contado ${fmtMonto(contado)}\n`
+      + `Crédito ${fmtMonto(resumen.credito)}`,
+    )) return;
     setGuardando(true);
     setMsg('');
     const row = {
       carga_id: cargaId,
       carga_folio: carga?.folio || null,
-      vendedor_id: carga?.vendedor_id || user?.id || null,
-      vendedor_nombre: carga?.vendedor_nombre || user?.nombre || null,
+      vendedor_id: carga?.vendedor_id || vendedorId || user?.id || null,
+      vendedor_nombre: carga?.vendedor_nombre || vendedorNombre || user?.nombre || null,
       fecha: new Date().toISOString().slice(0, 10),
       tickets: resumen.tickets,
       total_ventas: resumen.total,
@@ -86,28 +106,23 @@ export default function CorteRuta({ supabase, user, setAviso }) {
       setMsg(nube.error);
       return;
     }
-    setMsg('Corte guardado.');
-    setHistorial(listarCortesRutaLocal({ vendedorId: esRep ? user?.id : undefined }));
+    setMsg('Corte guardado · imprimiendo ticket…');
+    setHistorial(listarCortesRutaLocal({ vendedorId: vendedorId || undefined }));
     try {
-      imprimirCorte({
-        fecha: local.corte.fecha,
-        sucursal: `RUTA · ${local.corte.carga_folio || ''}`,
-        usuario: local.corte.usuario,
-        turno: local.corte.vendedor_nombre,
-        tickets: local.corte.tickets,
-        total: local.corte.total_ventas,
-        efectivoEsperado: local.corte.efectivo_esperado,
-        efectivoContado: local.corte.efectivo_contado,
-        diferencia: local.corte.diferencia,
-        detalleMetodos: [
-          { metodo: 'efectivo', total: resumen.porMetodo.efectivo },
-          { metodo: 'credito', total: resumen.porMetodo.credito },
-          { metodo: 'mixto', total: resumen.porMetodo.mixto },
-        ].filter((x) => x.total > 0),
-        notas: local.corte.notas,
-      });
-    } catch {
-      /* print optional */
+      imprimirTicketCorteRuta(local.corte, { porMetodo: resumen.porMetodo });
+      setMsg('Corte guardado e impreso.');
+    } catch (e) {
+      setMsg(`Corte guardado. No se pudo imprimir: ${e?.message || e}`);
+    }
+    setContado('');
+    setNotas('');
+  };
+
+  const reimprimir = (corte) => {
+    try {
+      imprimirTicketCorteRuta(corte);
+    } catch (e) {
+      alert(e?.message || 'No se pudo imprimir.');
     }
   };
 
@@ -115,8 +130,21 @@ export default function CorteRuta({ supabase, user, setAviso }) {
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Corte de caja · Venta en Ruta</h3>
       <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-        Arqueo de las ventas del camión (efectivo en tránsito + crédito). No reemplaza el corte de tienda.
+        Arqueo de las ventas del camión (efectivo + crédito). Al guardar se imprime el ticket de corte.
       </p>
+
+      <div
+        style={{
+          marginBottom: '0.85rem',
+          padding: '0.55rem 0.75rem',
+          background: `${COLOR}12`,
+          borderRadius: 6,
+          fontSize: '0.9rem',
+        }}
+      >
+        Corte de: <strong>{nombreCorte}</strong>
+        {carga?.folio ? <span className="muted"> · carga {carga.folio}</span> : null}
+      </div>
 
       <label className="muted" style={{ display: 'block', fontSize: '0.8rem', maxWidth: 420 }}>
         Carga
@@ -176,7 +204,7 @@ export default function CorteRuta({ supabase, user, setAviso }) {
             <textarea className="input" rows={2} value={notas} onChange={(e) => setNotas(e.target.value)} style={{ marginTop: '0.35rem' }} />
           </label>
           <button type="button" className="btn btn-primary" disabled={guardando || !ventas.length} onClick={() => void guardar()}>
-            {guardando ? 'Guardando…' : 'Guardar corte de ruta'}
+            {guardando ? 'Guardando…' : 'Guardar e imprimir corte'}
           </button>
           {msg && <p className="muted" style={{ margin: 0 }}>{msg}</p>}
         </div>
@@ -212,9 +240,19 @@ export default function CorteRuta({ supabase, user, setAviso }) {
           <h4 style={{ margin: '0 0 0.5rem', color: COLOR }}>Cortes recientes (este equipo)</h4>
           <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.85rem' }}>
             {historial.slice(0, 12).map((c) => (
-              <li key={c.id}>
-                {c.fecha} · {c.carga_folio || 'sin folio'} · esp {fmtMonto(c.efectivo_esperado)} · cont {c.efectivo_contado == null ? '—' : fmtMonto(c.efectivo_contado)}
+              <li key={c.id} style={{ marginBottom: '0.35rem' }}>
+                {c.fecha} · <strong>{c.vendedor_nombre || '—'}</strong> · {c.carga_folio || 'sin folio'}
+                {' '}· esp {fmtMonto(c.efectivo_esperado)} · cont {c.efectivo_contado == null ? '—' : fmtMonto(c.efectivo_contado)}
                 {c.diferencia != null ? ` · dif ${fmtMonto(c.diferencia)}` : ''}
+                {' '}
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ fontSize: '0.75rem', padding: '0.1rem 0.4rem' }}
+                  onClick={() => reimprimir(c)}
+                >
+                  Reimprimir
+                </button>
               </li>
             ))}
           </ul>
