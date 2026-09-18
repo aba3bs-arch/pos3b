@@ -5,6 +5,7 @@ import {
   normalizarCodigoTienda,
   esSucursalRuta,
 } from '../constants/sucursales.js';
+import { mergeFavoritosSucursales } from './favoritosSucursalesPersistencia.js';
 
 export const IVA_DEFAULT = 8;
 export const GANANCIA_DEFAULT = 30;
@@ -315,17 +316,22 @@ export function sucursalesFavoritosPosibles() {
   return listarSucursalesOperativas();
 }
 
-/** Mapa { "3B5": true, ... } — vacío si no hay datos. CEDIS/MAIN/RUTA no aplican. */
+/** Mapa { "3B5": true, ... } — une nube + respaldo local si falta la columna. */
 export function parseFavoritosSucursales(producto) {
   const raw = producto?.favoritos_sucursales;
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-  const out = {};
-  for (const [k, v] of Object.entries(raw)) {
-    const suc = normalizarCodigoTienda(k);
-    if (!suc || suc === 'MAIN' || esAlmacenCentral(suc) || esSucursalRuta(suc)) continue;
-    out[suc] = Boolean(v);
-  }
-  return out;
+  const fromRaw = (() => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+    const out = {};
+    for (const [k, v] of Object.entries(raw)) {
+      const suc = normalizarCodigoTienda(k);
+      if (!suc || suc === 'MAIN' || esAlmacenCentral(suc) || esSucursalRuta(suc)) continue;
+      out[suc] = Boolean(v);
+    }
+    return out;
+  })();
+  const id = producto?.id;
+  if (!id) return fromRaw;
+  return mergeFavoritosSucursales(id, fromRaw);
 }
 
 /**
