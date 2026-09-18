@@ -600,8 +600,7 @@ function PanelSesionAdminCorte({ supabase, user, sucursal, onSesion, setAviso })
 
 function VistaCamiones({ supabase, setAviso }) {
   const [camiones, setCamiones] = useState([]);
-  const [usuarios, setUsuarios] = useState([]);
-  const [rtList, setRtList] = useState([]);
+  const [recolectores, setRecolectores] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [edit, setEdit] = useState(null);
@@ -609,50 +608,31 @@ function VistaCamiones({ supabase, setAviso }) {
     codigo: '',
     placa: '',
     alias: '',
-    usuarioId: '',
     repartidorId: '',
     notas: '',
   });
 
-  const nombreUsuario = useMemo(() => {
-    const m = new Map();
-    for (const u of usuarios) m.set(String(u.id), u.nombre || u.id);
-    return m;
-  }, [usuarios]);
-
   const nombreRt = useMemo(() => {
     const m = new Map();
-    for (const r of rtList) m.set(String(r.id), r.nombre || r.id);
+    for (const r of recolectores) m.set(String(r.repartidor_id || r.id), r.nombre || r.id);
     return m;
-  }, [rtList]);
+  }, [recolectores]);
 
   const refrescar = useCallback(async () => {
     setCargando(true);
-    const [c, uRes, rt] = await Promise.all([
+    const [c, r] = await Promise.all([
       listarCamionesRuta(supabase),
-      supabase.from('usuarios').select('id, nombre, rol, sucursal_id, activo').order('nombre').limit(500),
-      listarRepartidores(supabase).catch(() => []),
+      listarRecolectoresCargaRuta(supabase),
     ]);
     if (c.aviso) setAviso?.(c.aviso);
     if (c.error) setAviso?.(c.error);
-    if (uRes.error) setAviso?.(uRes.error);
+    if (r.error) setAviso?.(r.error);
     setCamiones(c.data || []);
-    setUsuarios((uRes.data || []).filter((x) => x?.activo !== false));
-    setRtList(Array.isArray(rt) ? rt : []);
+    setRecolectores(r.data || []);
     setCargando(false);
   }, [supabase, setAviso]);
 
   useEffect(() => { void refrescar(); }, [refrescar]);
-
-  const usuariosOcupados = useMemo(() => {
-    const s = new Set();
-    for (const c of camiones) {
-      if (c.activo !== false && c.usuario_id && (!edit || String(edit.id) !== String(c.id))) {
-        s.add(String(c.usuario_id));
-      }
-    }
-    return s;
-  }, [camiones, edit]);
 
   const rtOcupados = useMemo(() => {
     const s = new Set();
@@ -664,19 +644,30 @@ function VistaCamiones({ supabase, setAviso }) {
     return s;
   }, [camiones, edit]);
 
+  const resolverAsignacion = (repartidorId) => {
+    const rt = recolectores.find((x) => String(x.repartidor_id || x.id) === String(repartidorId));
+    if (!rt) return { usuarioId: null, repartidorId: repartidorId || null };
+    return {
+      usuarioId: rt.usuario_id || null,
+      repartidorId: rt.repartidor_id || rt.id,
+    };
+  };
+
   const resetForm = () => {
-    setForm({ codigo: '', placa: '', alias: '', usuarioId: '', repartidorId: '', notas: '' });
+    setForm({ codigo: '', placa: '', alias: '', repartidorId: '', notas: '' });
     setEdit(null);
   };
 
   const guardarNuevo = async () => {
+    if (!form.repartidorId) return alert('Selecciona el recolector / repartidor del Panel RT.');
+    const asig = resolverAsignacion(form.repartidorId);
     setGuardando(true);
     const r = await crearCamionRuta(supabase, {
       codigo: form.codigo || form.alias || form.placa,
       placa: form.placa,
       alias: form.alias,
-      usuarioId: form.usuarioId || null,
-      repartidorId: form.repartidorId || null,
+      usuarioId: asig.usuarioId,
+      repartidorId: asig.repartidorId,
       notas: form.notas,
     });
     setGuardando(false);
@@ -687,13 +678,15 @@ function VistaCamiones({ supabase, setAviso }) {
 
   const guardarEdicion = async () => {
     if (!edit?.id) return;
+    if (!edit.repartidor_id) return alert('Selecciona el recolector / repartidor del Panel RT.');
+    const asig = resolverAsignacion(edit.repartidor_id);
     setGuardando(true);
     const r = await actualizarCamionRuta(supabase, edit.id, {
       codigo: edit.codigo,
       placa: edit.placa,
       alias: edit.alias,
-      usuarioId: edit.usuario_id || null,
-      repartidorId: edit.repartidor_id || null,
+      usuarioId: asig.usuarioId,
+      repartidorId: asig.repartidorId,
       notas: edit.notas,
       activo: edit.activo !== false,
     });
@@ -707,8 +700,8 @@ function VistaCamiones({ supabase, setAviso }) {
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Camiones</h3>
       <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-        Crea unidades y asígnalas a un usuario con rol Repartidor y/o a un recolector del Panel RT.
-        Cada persona activa solo puede tener un camión.
+        Crea unidades y asígnalas a un <strong>recolector / repartidor</strong> del Panel RT
+        (los mismos que en Carga de camión). Cada recolector activo solo puede tener un camión.
       </p>
 
       {!edit ? (
@@ -757,37 +750,29 @@ function VistaCamiones({ supabase, setAviso }) {
             </label>
           </div>
           <label className="muted" style={{ fontSize: '0.8rem' }}>
-            Usuario (asignación)
-            <select
-              className="input"
-              style={{ marginTop: '0.35rem' }}
-              value={form.usuarioId}
-              onChange={(e) => setForm((f) => ({ ...f, usuarioId: e.target.value }))}
-            >
-              <option value="">— Sin usuario —</option>
-              {usuarios.map((u) => (
-                <option key={u.id} value={u.id} disabled={usuariosOcupados.has(String(u.id))}>
-                  {u.etiqueta || u.nombre}{usuariosOcupados.has(String(u.id)) ? ' (ya tiene camión)' : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="muted" style={{ fontSize: '0.8rem' }}>
-            Recolector Panel RT (opcional)
+            Recolector / repartidor
             <select
               className="input"
               style={{ marginTop: '0.35rem' }}
               value={form.repartidorId}
               onChange={(e) => setForm((f) => ({ ...f, repartidorId: e.target.value }))}
             >
-              <option value="">— Sin Panel RT —</option>
-              {rtList.map((r) => (
-                <option key={r.id} value={r.id} disabled={rtOcupados.has(String(r.id))}>
-                  {r.nombre}{rtOcupados.has(String(r.id)) ? ' (ya tiene camión)' : ''}
-                </option>
-              ))}
+              <option value="">— Seleccionar recolector —</option>
+              {recolectores.map((r) => {
+                const rid = r.repartidor_id || r.id;
+                return (
+                  <option key={rid} value={rid} disabled={rtOcupados.has(String(rid))}>
+                    {r.nombre}{rtOcupados.has(String(rid)) ? ' (ya tiene camión)' : ''}
+                  </option>
+                );
+              })}
             </select>
           </label>
+          {!recolectores.length && !cargando && (
+            <p className="muted" style={{ margin: 0, fontSize: '0.8rem', color: 'var(--danger, #b91c1c)' }}>
+              No hay recolectores en Panel RT. Agrégalos en Contabilidad → Panel RT → Recolectores.
+            </p>
+          )}
           <label className="muted" style={{ fontSize: '0.8rem' }}>
             Notas
             <input
@@ -800,7 +785,7 @@ function VistaCamiones({ supabase, setAviso }) {
           <button
             type="button"
             className="btn btn-primary"
-            disabled={guardando || (!form.usuarioId && !form.repartidorId)}
+            disabled={guardando || !form.repartidorId}
             onClick={() => void guardarNuevo()}
           >
             {guardando ? 'Guardando…' : 'Crear camión'}
@@ -830,21 +815,22 @@ function VistaCamiones({ supabase, setAviso }) {
             <input className="input" style={{ marginTop: '0.35rem' }} value={edit.placa || ''} onChange={(e) => setEdit((x) => ({ ...x, placa: e.target.value }))} />
           </label>
           <label className="muted" style={{ fontSize: '0.8rem' }}>
-            Usuario
-            <select className="input" style={{ marginTop: '0.35rem' }} value={edit.usuario_id || ''} onChange={(e) => setEdit((x) => ({ ...x, usuario_id: e.target.value || null }))}>
-              <option value="">— Sin usuario —</option>
-              {usuarios.map((u) => (
-                <option key={u.id} value={u.id} disabled={usuariosOcupados.has(String(u.id))}>{u.etiqueta || u.nombre}</option>
-              ))}
-            </select>
-          </label>
-          <label className="muted" style={{ fontSize: '0.8rem' }}>
-            Recolector Panel RT
-            <select className="input" style={{ marginTop: '0.35rem' }} value={edit.repartidor_id || ''} onChange={(e) => setEdit((x) => ({ ...x, repartidor_id: e.target.value || null }))}>
-              <option value="">— Sin Panel RT —</option>
-              {rtList.map((r) => (
-                <option key={r.id} value={r.id} disabled={rtOcupados.has(String(r.id))}>{r.nombre}</option>
-              ))}
+            Recolector / repartidor
+            <select
+              className="input"
+              style={{ marginTop: '0.35rem' }}
+              value={edit.repartidor_id || ''}
+              onChange={(e) => setEdit((x) => ({ ...x, repartidor_id: e.target.value || null }))}
+            >
+              <option value="">— Seleccionar recolector —</option>
+              {recolectores.map((r) => {
+                const rid = r.repartidor_id || r.id;
+                return (
+                  <option key={rid} value={rid} disabled={rtOcupados.has(String(rid))}>
+                    {r.nombre}
+                  </option>
+                );
+              })}
             </select>
           </label>
           <label className="muted" style={{ fontSize: '0.8rem' }}>
@@ -883,8 +869,9 @@ function VistaCamiones({ supabase, setAviso }) {
                 <strong>{etiquetaCamion(c)}</strong>
                 <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
                   {c.activo === false ? 'Inactivo' : 'Activo'}
-                  {c.usuario_id ? ` · ${nombreUsuario.get(String(c.usuario_id)) || c.usuario_id}` : ''}
-                  {c.repartidor_id ? ` · RT ${nombreRt.get(String(c.repartidor_id)) || c.repartidor_id}` : ''}
+                  {c.repartidor_id
+                    ? ` · ${nombreRt.get(String(c.repartidor_id)) || c.repartidor_id}`
+                    : ' · sin recolector'}
                   {c.placa ? ` · placa ${c.placa}` : ''}
                 </span>
               </span>
