@@ -4,7 +4,7 @@
  * - CEDIS = Almacén central / inventario de la cadena
  * - FUSION, 3Bn = tiendas de venta
  */
-export const SUCURSALES_BASE = ['MAIN', 'CEDIS', 'FUSION', '3B2', '3B5', '3B6', '3B7', '3B9', '3B10'];
+export const SUCURSALES_BASE = ['MAIN', 'CEDIS', 'FUSION', '3B2', '3B3', '3B5', '3B6', '3B7', '3B9', '3B10'];
 
 /** Panel administrativo (login hub, no fijable como caja). */
 export const CENTRAL_ADMIN = 'MAIN';

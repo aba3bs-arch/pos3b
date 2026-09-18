@@ -2659,7 +2659,8 @@ export default function Configuracion({
             Un <strong>PIN universal por sucursal</strong> para quien cubre turno sin usuario propio. Al usarlo, el POS y el
             checador exigen <strong>nombre y apellido + teléfono</strong> (permisos de <strong>cajero</strong>, sin vincular equipo).
             Debe ser distinto de los PIN personales de esa tienda. Vacío = desactivado.
-            El PIN <strong>solo se guarda en la nube</strong> (no en el navegador) para que no se mezcle entre tiendas en esta PC.
+            El PIN <strong>solo se guarda en la nube</strong> (no en el navegador) para que funcione igual en todas las cajas.
+            Hay que usarlo en la <strong>misma tienda</strong> donde lo configuraste (p. ej. PIN de 3B3 solo en la caja 3B3).
             No usa «Liberar equipo» porque el cubre turno no queda ligado a la caja.
           </p>
           {pinsCubreAvisoNube && (

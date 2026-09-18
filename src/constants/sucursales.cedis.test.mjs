@@ -35,9 +35,14 @@ assert.equal(etiquetaTienda('MAIN'), 'Central de administración (MAIN)');
 assert.equal(etiquetaTienda('CEDIS'), 'CEDIS · centro de distribución');
 assert.ok(listarSucursales().includes('CEDIS'));
 assert.ok(listarSucursales().includes('MAIN'));
+assert.ok(listarSucursales().includes('3B3'));
+assert.ok(listarSucursalesOperativas().includes('3B3'));
 assert.ok(!listarSucursalesOperativas().includes('MAIN'));
 assert.ok(!listarSucursalesOperativas().includes('CEDIS'));
 assert.equal(codigoTiendaValido('CEDIS'), true);
+assert.equal(codigoTiendaValido('3B3'), true);
+assert.equal(normalizarCodigoTienda('3b3'), '3B3');
+assert.equal(etiquetaTienda('3b3'), '3B3');
 
 const dup = agregarSucursalExtra('CEDIS');
 assert.equal(dup.ok, false);
