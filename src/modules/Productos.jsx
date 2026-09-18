@@ -36,6 +36,7 @@ import Icon from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import DetalleProducto from '../components/DetalleProducto.jsx';
 import ModalAjusteInventario from '../components/ModalAjusteInventario.jsx';
+import PortalFlotante from '../components/PortalFlotante.jsx';
 import ProductoThumb from '../components/ProductoThumb.jsx';
 import MoverProductosLote from '../components/MoverProductosLote.jsx';
 import { imprimirEtiquetasEstante } from '../lib/impresion.js';
@@ -1200,6 +1201,7 @@ export default function Productos({
             </div>
 
             {mostrarFiltros && (
+              <PortalFlotante>
               <div
                 className="prod-modal-backdrop prod-filtros-backdrop"
                 role="dialog"
@@ -1338,6 +1340,7 @@ export default function Productos({
                   </div>
                 </div>
               </div>
+              </PortalFlotante>
             )}
 
             <div className="prod-lista-scroll">

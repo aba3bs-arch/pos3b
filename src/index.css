@@ -3575,17 +3575,76 @@ table.data th {
   box-shadow: none;
 }
 
-/* Modal ajuste inventario */
+/* Modal ajuste inventario / ventanas de la app */
 .prod-modal-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 13000;
+  z-index: 14000;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 1rem;
   background: rgba(26, 35, 50, 0.55);
   backdrop-filter: blur(2px);
+  animation: ventana-flotante-backdrop-in 0.16s ease;
+}
+
+/* Capa genérica: todas las ventanas flotantes de la app */
+.ventana-flotante-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 14000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  margin: 0;
+  border: none;
+  background: rgba(15, 23, 42, 0.48);
+  backdrop-filter: blur(2px);
+  -webkit-tap-highlight-color: transparent;
+  animation: ventana-flotante-backdrop-in 0.16s ease;
+}
+
+.ventana-flotante-panel {
+  width: min(520px, 100%);
+  max-height: min(90vh, 720px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  margin: 0;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.28);
+  border-radius: 14px;
+  animation: ventana-flotante-panel-in 0.18s ease;
+}
+
+@keyframes ventana-flotante-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ventana-flotante-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 560px) {
+  .ventana-flotante-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .ventana-flotante-panel {
+    width: 100%;
+    max-height: min(92vh, 780px);
+    border-radius: 16px 16px 0 0;
+  }
 }
 
 .prod-modal-ajuste {

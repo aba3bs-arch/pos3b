@@ -10,6 +10,7 @@ import { normalizarCodigoTienda } from '../constants/sucursales.js';
 import { descontarStockPorVenta, guardarMovimientoLocal } from '../lib/inventarioMovimientos.js';
 import { sonidoEscaneoProducto } from '../lib/sonidosPos.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
+import PortalFlotante from '../components/PortalFlotante.jsx';
 import DetalleProducto from '../components/DetalleProducto.jsx';
 import { productoCoincideBusqueda, productoPorCodigoExacto, pareceCodigoProducto, parseMultiplicadorBusqueda } from '../lib/buscarProductoTexto.js';
 import { registrarRemocionCarrito } from '../lib/proyeccionFaltante.js';
@@ -690,6 +691,7 @@ export default function Ventas({
       </div>
 
       {detalleProducto && (
+        <PortalFlotante>
         <div
           className="prod-modal-backdrop"
           role="dialog"
@@ -735,6 +737,7 @@ export default function Ventas({
             </div>
           </div>
         </div>
+        </PortalFlotante>
       )}
 
       <aside className="card ventas-ticket">
@@ -900,6 +903,7 @@ export default function Ventas({
       </div>
 
       {mostrarCobro && (
+        <PortalFlotante>
         <div
           className="prod-modal-backdrop"
           role="dialog"
@@ -1081,9 +1085,11 @@ export default function Ventas({
             </div>
           </div>
         </div>
+        </PortalFlotante>
       )}
 
       {resultadoVenta && (
+        <PortalFlotante>
         <div
           className="prod-modal-backdrop"
           role="dialog"
@@ -1153,6 +1159,7 @@ export default function Ventas({
             </button>
           </div>
         </div>
+        </PortalFlotante>
       )}
     </div>
   );

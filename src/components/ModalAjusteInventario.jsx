@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import Icon from './Icon.jsx';
+import PortalFlotante from './PortalFlotante.jsx';
 import { etiquetaDepartamento, listarDepartamentos } from '../lib/departamentos.js';
 import { eliminarAjusteEnEspera, listarAjustesEnEspera } from '../lib/ajusteInventarioBorrador.js';
 
@@ -134,6 +135,7 @@ export default function ModalAjusteInventario({
   };
 
   return (
+    <PortalFlotante>
     <div className="prod-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-ajuste-titulo">
       <div className="prod-modal-ajuste">
         <header className="prod-modal-header">
@@ -280,5 +282,6 @@ export default function ModalAjusteInventario({
         </div>
       </div>
     </div>
+    </PortalFlotante>
   );
 }

@@ -26,6 +26,7 @@ import {
   MAX_ARCHIVOS_POR_GASTO,
 } from '../lib/gastosEvidencia.js';
 import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
+import PortalFlotante from '../components/PortalFlotante.jsx';
 
 const COLOR = '#0f766e';
 
@@ -675,6 +676,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
       </div>
 
       {preview ? (
+        <PortalFlotante>
         <div
           role="dialog"
           aria-modal="true"
@@ -708,6 +710,7 @@ export default function GastosEvidencia({ supabase, user, sucursal }) {
             )}
           </div>
         </div>
+        </PortalFlotante>
       ) : null}
     </div>
   );

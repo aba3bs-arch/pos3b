@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import PortalFlotante from '../PortalFlotante.jsx';
 import { etiquetaTipoCierre } from '../../lib/corteContabilidad/permisos.js';
 import { fmtCorte } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 import { round2 } from '../../lib/corteContabilidad/calc.js';
@@ -64,6 +65,7 @@ export default function CorteVirtualDesgloseModal({
   };
 
   return (
+    <PortalFlotante>
     <div
       role="dialog"
       aria-modal="true"
@@ -281,6 +283,7 @@ export default function CorteVirtualDesgloseModal({
         </div>
       </div>
     </div>
+    </PortalFlotante>
   );
 }
 

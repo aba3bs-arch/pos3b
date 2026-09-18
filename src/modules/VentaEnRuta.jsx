@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import SubcomandosHub from '../components/SubcomandosHub.jsx';
 import ProductoThumb from '../components/ProductoThumb.jsx';
 import Icon from '../components/Icon.jsx';
+import PortalFlotante from '../components/PortalFlotante.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import PanelLiquidacionRecolecciones from '../components/PanelLiquidacionRecolecciones.jsx';
 import InputPin from '../components/InputPin.jsx';
@@ -1867,6 +1868,7 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
       )}
 
       {mostrarCobro && (
+        <PortalFlotante>
         <div
           className="prod-modal-backdrop"
           role="dialog"
@@ -1979,6 +1981,7 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
             </div>
           </div>
         </div>
+        </PortalFlotante>
       )}
     </div>
   );

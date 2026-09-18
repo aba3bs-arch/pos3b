@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import FiltroPeriodo from './FiltroPeriodo.jsx';
 import { BtnLabel } from './Icon.jsx';
+import PortalFlotante from './PortalFlotante.jsx';
 import { imprimirReporte } from '../lib/impresion.js';
 import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
 import { etiquetaDepartamento } from '../lib/departamentos.js';
@@ -72,6 +73,7 @@ function ModalCorregirLinea({ linea, onCerrar, onGuardar, guardando, error }) {
   if (!linea) return null;
 
   return (
+    <PortalFlotante>
     <div
       className="prod-modal-backdrop"
       role="dialog"
@@ -154,6 +156,7 @@ function ModalCorregirLinea({ linea, onCerrar, onGuardar, guardando, error }) {
         </div>
       </div>
     </div>
+    </PortalFlotante>
   );
 }
 

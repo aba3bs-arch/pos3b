@@ -1,10 +1,12 @@
 import React from 'react';
+import PortalFlotante from './PortalFlotante.jsx';
 import { MINUTOS_EXTENSION_SESION } from '../lib/extensionSesionTurno.js';
 
 export default function ModalExtensionTurno({ open, minutos = MINUTOS_EXTENSION_SESION, onAceptar, onRechazar }) {
   if (!open) return null;
 
   return (
+    <PortalFlotante>
     <div className="anuncio-pos-backdrop" role="dialog" aria-modal="true" aria-labelledby="ext-turno-titulo">
       <div className="anuncio-pos-modal card" style={{ maxWidth: 440 }}>
         <h2 id="ext-turno-titulo" style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>
@@ -27,5 +29,6 @@ export default function ModalExtensionTurno({ open, minutos = MINUTOS_EXTENSION_
         </div>
       </div>
     </div>
+    </PortalFlotante>
   );
 }

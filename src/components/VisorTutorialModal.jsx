@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import PortalFlotante from './PortalFlotante.jsx';
 
 function renderTexto(text) {
   const parts = String(text).split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
@@ -45,6 +46,7 @@ export default function VisorTutorialModal({ tutorial, abierto, onCerrar, titulo
   const progreso = total ? Math.round(((idx + 1) / total) * 100) : 0;
 
   return (
+    <PortalFlotante>
     <div
       className="anuncio-pos-backdrop"
       role="dialog"
@@ -140,5 +142,6 @@ export default function VisorTutorialModal({ tutorial, abierto, onCerrar, titulo
         </div>
       </div>
     </div>
+    </PortalFlotante>
   );
 }
