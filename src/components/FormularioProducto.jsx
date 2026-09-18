@@ -437,10 +437,16 @@ export default function FormularioProducto({
           <span className="muted">Disponible en venta (caja)</span>
         </label>
         {!enCentral ? (
-          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer' }}>
-            <input type="checkbox" checked={Boolean(form.en_favoritos)} onChange={(e) => setCampoSimple('en_favoritos', e.target.checked)} />
-            <span className="muted">Favorito en {tiendaLabel || 'esta sucursal'}</span>
-          </label>
+          <button
+            type="button"
+            className={`btn ${form.en_favoritos ? 'btn-gold' : 'btn-ghost'}`}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
+            onClick={() => setCampoSimple('en_favoritos', !form.en_favoritos)}
+            title={`Favorito rápido en ${tiendaLabel || 'esta sucursal'}`}
+          >
+            <Icon name="star" size={16} fill={form.en_favoritos ? 'currentColor' : 'none'} />
+            {form.en_favoritos ? `Favorito en ${tiendaLabel || 'esta sucursal'}` : `Marcar favorito (${tiendaLabel || 'tienda'})`}
+          </button>
         ) : (
           <span className="muted" style={{ fontSize: '0.85rem' }}>
             CEDIS es centro de distribución (sin favoritos de caja). El POS de ruta usa los artículos de la carga.
