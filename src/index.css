@@ -5981,3 +5981,98 @@ table.data th {
   border-radius: 8px;
   padding: 0.35rem 0.75rem;
 }
+
+/* Evaluación CT (Checador → Cubre turnos): ventana flotante sobre el viewport */
+.ct-eval-flotante-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 14000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  margin: 0;
+  border: none;
+  background: rgba(15, 23, 42, 0.48);
+  backdrop-filter: blur(2px);
+  -webkit-tap-highlight-color: transparent;
+  animation: ct-eval-backdrop-in 0.16s ease;
+}
+
+.ct-eval-flotante {
+  width: min(480px, 100%);
+  max-height: min(88vh, 720px);
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.28);
+  border-radius: 14px;
+  animation: ct-eval-float-in 0.18s ease;
+}
+
+.ct-eval-flotante-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1rem 0.75rem;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  flex-shrink: 0;
+}
+
+.ct-eval-flotante-close {
+  padding: 0.35rem !important;
+  flex-shrink: 0;
+}
+
+.ct-eval-flotante-body {
+  padding: 0.85rem 1rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.ct-eval-flotante-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 0.75rem 1rem 1rem;
+  border-top: 1px solid var(--border, #e2e8f0);
+  flex-shrink: 0;
+  background: var(--card, #fff);
+}
+
+@keyframes ct-eval-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ct-eval-float-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 560px) {
+  .ct-eval-flotante-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .ct-eval-flotante {
+    width: 100%;
+    max-height: min(92vh, 780px);
+    border-radius: 16px 16px 0 0;
+  }
+}
+
