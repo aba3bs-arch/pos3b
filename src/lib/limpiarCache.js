@@ -43,6 +43,9 @@ const CLAVES_PRESERVAR = new Set([
   'pos3b_cont_virtual_catalogo',
   'pos3b_cont_virtual_egresos',
   'pos3b_ventas_offline_cola',
+  // Sesión PIN del POS / corte en Venta en Ruta
+  'pos3b_ruta_vendedor_sesion',
+  'pos3b_ruta_admin_corte',
 ]);
 
 
@@ -60,8 +63,10 @@ function debePreservar(clave) {
   if (clave.startsWith('pos3b_resultado_inv_')) return true;
   // Catálogo caché para vender sin internet
   if (clave.startsWith('pos3b_catalogo_offline_')) return true;
-  // Carrito de venta en curso
+  // Carrito de venta en curso (caja)
   if (clave.startsWith('pos3b_carrito_venta_')) return true;
+  // Carrito POS venta en ruta (por vendedor)
+  if (clave.startsWith('pos3b_carrito_pos_ruta_')) return true;
   return false;
 }
 
@@ -128,4 +133,5 @@ export function formatoBytesAprox(bytes) {
 
 export const TEXTO_AYUDA_LIMPIEZA =
   'Se borran copias locales temporales y caché del navegador, y la pantalla se recarga para cargar la versión nueva. ' +
-  'No se borran: tienda activa, tipo de cambio, turnos, impresión, branding, privilegios ni vínculo del equipo.';
+  'No se borran: tienda activa, tipo de cambio, turnos, impresión, branding, privilegios, vínculo del equipo, ' +
+  'ni el carrito de venta (caja o ruta) en curso.';
