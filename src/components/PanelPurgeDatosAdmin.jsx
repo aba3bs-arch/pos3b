@@ -98,7 +98,7 @@ export default function PanelPurgeDatosAdmin({
         </button>
       </div>
       <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.85rem' }}>
-        Para arrancar limpio (sin pruebas): marca «Borrar toda la información», selecciona también IE, recolecciones RT y notificaciones, escribe BORRAR TODO y confirma con tu PIN.
+        Para arrancar limpio (sin pruebas): marca «Borrar toda la información», selecciona también IE, recolecciones RT, Venta en Ruta y notificaciones, escribe BORRAR TODO y confirma con tu PIN.
         No borra el catálogo de productos ni las categorías de IE. Solo Andrés.
       </p>
 
