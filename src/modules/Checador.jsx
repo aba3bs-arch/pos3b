@@ -15,6 +15,7 @@ import {
   verificarPinAdministradorGlobal,
 } from '../lib/autorizacionTurnoFueraHorario.js';
 import { puedeGestionarUsuarios } from '../lib/roles.js';
+import { stockVisible } from '../lib/inventarioMultitienda.js';
 import { rangoDesdePreset } from '../lib/consultasInventario.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import InputPin from '../components/InputPin.jsx';
@@ -742,7 +743,9 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                 Código: {producto.id} · Categoría: {producto.cat}
               </div>
               <div style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--brand-red)', marginTop: '0.75rem' }}>${Number(producto.precio).toFixed(2)} MXN</div>
-              <div style={{ marginTop: '0.5rem', fontWeight: 600, color: Number(producto.stock) < 5 ? 'var(--brand-red)' : 'var(--brand-green)' }}>Stock: {producto.stock} uds.</div>
+              <div style={{ marginTop: '0.5rem', fontWeight: 600, color: stockVisible(producto.stock, false) < 5 ? 'var(--brand-red)' : 'var(--brand-green)' }}>
+                Stock: {stockVisible(producto.stock, false)} uds.
+              </div>
             </div>
           )}
           {!producto && similares.length > 0 && (

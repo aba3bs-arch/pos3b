@@ -42,8 +42,8 @@ export default function ProductoThumb({
   referencias = false,
   /** Sucursal activa: en MAIN el teórico es CEDIS; en tienda es piso. */
   sucursal = null,
-  /** false = no mostrar negativos (cajero/repartidor). Default true. */
-  verNegativos = true,
+  /** false = no mostrar negativos (cajero/repartidor / piso de tienda). Default false (fail-closed). */
+  verNegativos = false,
 }) {
   const src = urlFotoProducto(producto);
   const [roto, setRoto] = useState(false);

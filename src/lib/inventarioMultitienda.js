@@ -306,10 +306,11 @@ export function stockVisible(valor, verNegativos = true) {
  * CEDIS = centro de distribución: muestra almacén primero (no piso de venta).
  * Tiendas: PZA de piso.
  * Siempre lee desde stock_sucursales (no confiar en producto.stock legado).
- * @param {{ verNegativos?: boolean }} [opts] — false oculta negativos (cajero/repartidor).
+ * @param {{ verNegativos?: boolean }} [opts] — false oculta negativos (piso tienda / sin privilegio).
+ *   Default false (fail-closed): hay que pedir explícitamente verNegativos:true.
  */
 export function etiquetaStockLista(producto, sucursal, opts = {}) {
-  const verNegativos = opts.verNegativos !== false;
+  const verNegativos = opts.verNegativos === true;
   const suc = claveStockSucursalCanon(sucursal) || normalizarCodigoTienda(sucursal);
   if (esAlmacenCentral(suc)) {
     const cedis = stockVisible(stockAlmacenCentral(producto, suc), verNegativos);

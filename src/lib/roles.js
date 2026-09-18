@@ -11,6 +11,7 @@ import {
   tieneListaPersonalizada,
   normalizarListaModulos,
 } from './privilegios.js';
+import { puedeVerNegativosProductos } from './productosAcciones.js';
 
 export {
   modulosEnEdicionPrivilegios,
@@ -624,22 +625,11 @@ export function puedeGestionarInventarioMultitienda(rol) {
  * Por defecto: Administrador y Auditor. Se otorga o quita en
  * Configuración → Privilegios → Productos — menú ⋮.
  * El descuento real en BD sigue pudiendo ir a negativo.
+ * En piso de tienda (Ventas / Checador) la UI no debe mostrar -N;
+ * usar stockVisible(..., false). Este flag es para Productos / auditoría.
  */
 export function puedeVerStockNegativo(rol, userId = null) {
-  const r = rolSistemaEfectivo(rol);
-  if (r === 'Administrador') return true;
-  const p = leerPrivilegios();
-  const acc = p.acciones?.prod_negativos;
-  if (acc) {
-    const uid = userId != null ? String(userId) : '';
-    if (uid && Object.prototype.hasOwnProperty.call(acc.porUsuario || {}, uid)) {
-      return Boolean(acc.porUsuario[uid]);
-    }
-    if (Object.prototype.hasOwnProperty.call(acc.porRol || {}, r)) {
-      return Boolean(acc.porRol[r]);
-    }
-  }
-  return r === 'Auditor';
+  return puedeVerNegativosProductos(rol, userId);
 }
 
 /** Consolidar ventas vs piso: Admin, Gerente y Repartidor (no vaciar). */

@@ -14,7 +14,6 @@ import DetalleProducto from '../components/DetalleProducto.jsx';
 import { productoCoincideBusqueda, productoPorCodigoExacto, pareceCodigoProducto, parseMultiplicadorBusqueda } from '../lib/buscarProductoTexto.js';
 import { registrarRemocionCarrito } from '../lib/proyeccionFaltante.js';
 import { suscribirEscanerRemoto } from '../lib/escanerRemoto.js';
-import { puedeVerStockNegativo } from '../lib/roles.js';
 import {
   guardarCarritoVenta,
   leerCarritoVenta,
@@ -92,7 +91,9 @@ export default function Ventas({
   forzarOffline,
   onVentaOfflineLocal,
 }) {
-  const verNegativos = puedeVerStockNegativo(user?.rol, user?.id);
+  // Piso de tienda: nunca mostrar inventario teórico negativo en favoritos/detalle.
+  // Los -N se auditan en Productos (privilegio prod_negativos).
+  const verNegativos = false;
   const [carrito, setCarrito] = useState(() => leerCarritoVenta(sucursal));
   const [pagoCon, setPagoCon] = useState('');
   const [refPago, setRefPago] = useState('');

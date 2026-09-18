@@ -5,6 +5,7 @@ import {
   etiquetaStockLista,
   productoParaVistaTienda,
   asegurarMapaStock,
+  stockVisible,
 } from './inventarioMultitienda.js';
 
 assert.equal(claveStockSucursalCanon('10'), '3B10');
@@ -66,5 +67,17 @@ assert.equal(vistaCedis.secundario, 0);
 const limpio = asegurarMapaStock(cigarro, '3B10');
 assert.equal(limpio['3B10'].piso, 48);
 assert.equal(limpio['10'], undefined);
+
+// Negativos: dato real se conserva; UI de piso (default) los enmascara a 0
+const negativo = {
+  id: 'NEG1',
+  stock_sucursales: { '3B10': { cedis: 0, piso: -12 } },
+};
+assert.equal(productoParaVistaTienda(negativo, '3B10').stock, -12, 'dato real se conserva');
+assert.equal(etiquetaStockLista(negativo, '3B10').primario, 0, 'UI default oculta negativos');
+assert.equal(etiquetaStockLista(negativo, '3B10', { verNegativos: false }).primario, 0);
+assert.equal(etiquetaStockLista(negativo, '3B10', { verNegativos: true }).primario, -12, 'con privilegio se ve -N');
+assert.equal(stockVisible(-12, false), 0);
+assert.equal(stockVisible(-12, true), -12);
 
 console.log('inventarioMultitienda.favoritosStock.test.mjs: ok');

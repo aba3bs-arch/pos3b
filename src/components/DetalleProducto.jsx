@@ -24,8 +24,8 @@ export default function DetalleProducto({
   onVincularProveedor,
   onQuitarVinculo,
   onFotoActualizada,
-  /** false = no mostrar negativos (cajero/repartidor). */
-  verNegativos = true,
+  /** false = no mostrar negativos (cajero/repartidor). Default false (fail-closed). */
+  verNegativos = false,
 }) {
   const [tab, setTab] = useState('detalles');
   const [proveedoresOpen, setProveedoresOpen] = useState(false);

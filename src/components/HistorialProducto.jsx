@@ -31,7 +31,7 @@ function badgeTipo(tipo, modo) {
   );
 }
 
-export default function HistorialProducto({ supabase, producto, sucursal, onVolver, embebido = false, verNegativos = true }) {
+export default function HistorialProducto({ supabase, producto, sucursal, onVolver, embebido = false, verNegativos = false }) {
   const [presetFecha, setPresetFecha] = useState('7d');
   const [desde, setDesde] = useState(() => rangoDesdePreset('7d').desde);
   const [hasta, setHasta] = useState(() => rangoDesdePreset('7d').hasta);
