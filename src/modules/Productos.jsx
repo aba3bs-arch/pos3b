@@ -529,6 +529,9 @@ export default function Productos({
       );
     }
     const patch = patchToggleFavoritoSucursal(p, sucursal);
+    // UI inmediata (optimista)
+    fusionarProducto?.({ ...p, ...patch });
+
     const {
       esErrorColumnaFavoritosSucursales,
       marcarFavoritosSucursalesColumnaAusente,
@@ -543,21 +546,18 @@ export default function Productos({
       guardarFavoritosSucursalesLocal(p.id, patch.favoritos_sucursales);
       const retry = await supabase.from('productos').update({ en_favoritos: patch.en_favoritos }).eq('id', p.id);
       error = retry.error;
-      if (!error) {
-        // Actualiza UI de inmediato con el mapa local (sin alerta molesta).
-        fusionarProducto?.({ ...p, ...patch });
-        cargarDatos();
-        return;
-      }
+      if (!error) return;
     } else if (!error) {
       marcarFavoritosSucursalesColumnaOk();
       limpiarFavoritosSucursalesLocal(p.id);
+      return;
     }
     if (error) {
+      // Revertir optimista
+      fusionarProducto?.(p);
       const aviso = mensajeErrorColumnasProducto(error);
       return alert(aviso || error.message);
     }
-    cargarDatos();
   };
 
   const vincularProveedor = async (provId, sku) => {
@@ -1350,28 +1350,49 @@ export default function Productos({
                   const activo = productoSeleccionado?.id === p.id;
                   const stockVista = etiquetaStockLista(p, sucursal, { verNegativos });
                   const stockNeg = verNegativos && (Number(p.stock) < 0 || (enCentral && Number(p.stock_cedis) < 0));
+                  const esFav = !enCentral && productoEsFavorito(p, sucursal);
                   return (
-                    <button
+                    <div
                       key={p.id}
-                      type="button"
-                      className={`prod-lista-item ${activo ? 'activo' : ''}`}
-                      onClick={() => seleccionarProducto(p)}
+                      className={`prod-lista-item ${activo ? 'activo' : ''}${esFav ? ' es-favorito' : ''}${puedeGestionCatalogo && !enCentral ? ' con-fav' : ''}`}
                     >
-                      <ProductoThumb producto={p} size={48} className="prod-lista-thumb" sucursal={sucursal} verNegativos={verNegativos} />
-                      <div className="prod-lista-meta">
-                        <div className="prod-lista-codigo">{p.id}</div>
-                        <div className="prod-lista-nombre">{p.nombre}</div>
-                        <div className="prod-lista-stock" style={stockNeg ? { color: 'var(--brand-red)', fontWeight: 700 } : undefined}>
-                          <span className="muted">{stockVista.etiquetaPrimario}</span> {stockVista.primario}
-                          {stockVista.secundario != null ? (
-                            <>
-                              <span className="muted"> · {stockVista.etiquetaSecundario}</span> {stockVista.secundario}
-                            </>
-                          ) : null}
+                      {puedeGestionCatalogo && !enCentral ? (
+                        <button
+                          type="button"
+                          className={`prod-lista-fav${esFav ? ' activo' : ''}`}
+                          title={esFav ? `Quitar de favoritos (${tiendaLabel})` : `Marcar favorito en ${tiendaLabel}`}
+                          aria-label={esFav ? 'Quitar favorito' : 'Marcar favorito'}
+                          aria-pressed={esFav}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            void toggleFavorito(p);
+                          }}
+                        >
+                          <Icon name="star" size={20} strokeWidth={2.25} fill={esFav ? 'currentColor' : 'none'} />
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="prod-lista-item-main"
+                        onClick={() => seleccionarProducto(p)}
+                      >
+                        <ProductoThumb producto={p} size={48} className="prod-lista-thumb" sucursal={sucursal} verNegativos={verNegativos} />
+                        <div className="prod-lista-meta">
+                          <div className="prod-lista-codigo">{p.id}</div>
+                          <div className="prod-lista-nombre">{p.nombre}</div>
+                          <div className="prod-lista-stock" style={stockNeg ? { color: 'var(--brand-red)', fontWeight: 700 } : undefined}>
+                            <span className="muted">{stockVista.etiquetaPrimario}</span> {stockVista.primario}
+                            {stockVista.secundario != null ? (
+                              <>
+                                <span className="muted"> · {stockVista.etiquetaSecundario}</span> {stockVista.secundario}
+                              </>
+                            ) : null}
+                          </div>
                         </div>
-                      </div>
-                      <div className="prod-lista-precio">${Number(p.precio || 0).toFixed(2)}</div>
-                    </button>
+                        <div className="prod-lista-precio">${Number(p.precio || 0).toFixed(2)}</div>
+                      </button>
+                    </div>
                   );
                 })
               )}

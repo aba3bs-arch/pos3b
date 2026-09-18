@@ -121,6 +121,7 @@ const ICONS = {
   link: ['M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71', 'M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'],
   print: ['M6 9V3h12v6', 'M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2', 'M6 14h12v7H6z'],
   check: ['M20 6 9 17l-5-5'],
+  star: ['M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z'],
   x: ['M18 6 6 18', 'M6 6l12 12'],
   refresh: ['M21 12a9 9 0 1 1-3-6.7', 'M21 3v6h-6'],
   circle: ['M12 12m-9 0a9 9 0 1 0 18 0a9 9 0 1 0-18 0'],
@@ -129,7 +130,7 @@ const ICONS = {
   lock: ['M7 11V7a5 5 0 0 1 10 0v4', 'M5 11h14v10H5z'],
 };
 
-export default function Icon({ name, size = 18, strokeWidth = 2, className = '', style, title }) {
+export default function Icon({ name, size = 18, strokeWidth = 2, className = '', style, title, fill = 'none' }) {
   const paths = ICONS[name] || ICONS.circle;
   return (
     <svg
@@ -137,7 +138,7 @@ export default function Icon({ name, size = 18, strokeWidth = 2, className = '',
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="none"
+      fill={fill}
       stroke="currentColor"
       strokeWidth={strokeWidth}
       strokeLinecap="round"
