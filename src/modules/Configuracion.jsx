@@ -2524,7 +2524,7 @@ export default function Configuracion({
       <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
         <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Catálogo de tiendas</h3>
         <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-          Tiendas base: <strong>MAIN</strong> (central de administración), <strong>FUSION</strong>, <strong>3B2, 3B5, 3B6, 3B7, 3B9, 3B10</strong>. Puedes añadir más códigos; se guardan solo en este navegador.
+          Tiendas base: <strong>MAIN</strong> (central de administración), <strong>FUSION</strong>, <strong>3B2, 3B3, 3B5, 3B6, 3B7, 3B9, 3B10</strong>. Puedes añadir más códigos; se guardan solo en este navegador.
         </p>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem', alignItems: 'flex-end' }}>
           <label className="muted" style={{ flex: '1 1 200px' }}>
