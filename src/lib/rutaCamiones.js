@@ -105,7 +105,7 @@ export async function crearCamionRuta(supabase, {
   const uid = usuarioId ? String(usuarioId).trim() : null;
   const rid = repartidorId ? String(repartidorId).trim() : null;
   if (!uid && !rid) {
-    return { ok: false, error: 'Asigna el camión a un usuario Repartidor o a un recolector del Panel RT.' };
+    return { ok: false, error: 'Asigna el camión a un recolector / repartidor del Panel RT.' };
   }
 
   const row = {
@@ -200,7 +200,7 @@ export function validarCamionForm({ codigo, alias, placa, usuarioId, repartidorI
   const cod = slugCodigoCamion(codigo) || slugCodigoCamion(alias) || slugCodigoCamion(placa);
   if (!cod) return { ok: false, error: 'Indica un código o alias para el camión.' };
   if (!usuarioId && !repartidorId) {
-    return { ok: false, error: 'Asigna el camión a un usuario Repartidor o a un recolector del Panel RT.' };
+    return { ok: false, error: 'Asigna el camión a un recolector / repartidor del Panel RT.' };
   }
   return { ok: true, codigo: cod };
 }
