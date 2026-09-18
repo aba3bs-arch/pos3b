@@ -196,8 +196,68 @@ assert.equal(
   assert.equal(filas.length, 2)
   const sandra = filas.find((f) => f.nombre === 'sandra martinez')
   const liz = filas.find((f) => f.nombre === 'lizbeth selene lopez')
-  assert.equal(sandra.linea, 'sandra martinez: 3B10 dias 5 - descanso 2 - faltas 0')
-  assert.equal(liz.linea, 'lizbeth selene lopez: FUSION dias 2 - descanso 1 - faltas 4')
+  // Sin plan: domingo habitual = descanso; miércoles sin checada = falta
+  assert.equal(sandra.linea, 'sandra martinez: 3B10 dias 5 - descanso 1 - faltas 1')
+  assert.equal(sandra.mapaEstado['2026-08-16'], 'descanso')
+  assert.equal(sandra.mapaEstado['2026-08-12'], 'falta')
+  // Liz: trabajó lun y dom; mar–sáb laborales sin checada = 5 faltas
+  assert.equal(liz.linea, 'lizbeth selene lopez: FUSION dias 2 - descanso 0 - faltas 5')
+}
+
+{
+  // Con plan horario: miércoles DESCANSO → no se marca como falta
+  const ahora = new Date(2026, 7, 16, 20, 0, 0)
+  const planMie = {
+    version: 1,
+    filas: [{
+      id: 'emp:3B10:1',
+      sucursal_id: '3B10',
+      tipo: 'empleado',
+      usuario_id: '1',
+      nombre: 'sandra martinez',
+      celdas: {
+        0: { tipo: 'turno' },
+        1: { tipo: 'turno' },
+        2: { tipo: 'turno' },
+        3: { tipo: 'descanso' },
+        4: { tipo: 'turno' },
+        5: { tipo: 'turno' },
+        6: { tipo: 'turno' },
+      },
+    }],
+  }
+  const filas = construirResumenEmpleados({
+    usuarios: [{ id: '1', nombre: 'sandra martinez', sucursal_id: '3B10', activo: true, rol: 'Cajero' }],
+    marcajes: ['2026-08-10', '2026-08-11', '2026-08-13', '2026-08-14', '2026-08-15'].flatMap((d) =>
+      parDia('1', 'sandra martinez', '3B10', d),
+    ),
+    desdeYmd: '2026-08-10',
+    hastaYmd: '2026-08-16',
+    ahora,
+    plan: planMie,
+  })
+  const sandra = filas.find((f) => f.nombre === 'sandra martinez')
+  assert.equal(sandra.mapaEstado['2026-08-12'], 'descanso', 'mié plan ≠ falta')
+  // Plantilla con domingo = turno: si no checó, sí es falta (el descanso ya no es domingo)
+  assert.equal(sandra.mapaEstado['2026-08-16'], 'falta')
+  assert.equal(sandra.faltas, 1)
+  assert.equal(sandra.descansos, 1)
+
+  // Descanso autorizado en domingo → tampoco es falta
+  const filasAut = construirResumenEmpleados({
+    usuarios: [{ id: '1', nombre: 'sandra martinez', sucursal_id: '3B10', activo: true, rol: 'Cajero' }],
+    marcajes: ['2026-08-10', '2026-08-11', '2026-08-13', '2026-08-14', '2026-08-15'].flatMap((d) =>
+      parDia('1', 'sandra martinez', '3B10', d),
+    ),
+    desdeYmd: '2026-08-10',
+    hastaYmd: '2026-08-16',
+    ahora,
+    plan: planMie,
+    descansosAutorizados: [{ usuario_id: '1', fecha: '2026-08-16' }],
+  })
+  const s2 = filasAut.find((f) => f.nombre === 'sandra martinez')
+  assert.equal(s2.mapaEstado['2026-08-16'], 'descanso', 'autorizado ≠ falta')
+  assert.equal(s2.faltas, 0)
 }
 
 {

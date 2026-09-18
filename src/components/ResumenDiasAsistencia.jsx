@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { esAlmacenCentral, esCentralAdmin, etiquetaTienda, listarSucursalesParaUI } from '../constants/sucursales.js';
 import { rangoDesdePreset } from '../lib/consultasInventario.js';
+import { listarDescansosAutorizados } from '../lib/descansosAutorizados.js';
+import { leerPlanHorarioLocal, sincronizarPlanHorarioDesdeNube } from '../lib/planHorarioSync.js';
 import {
   cargarMarcajesResumen,
   cargarUsuariosResumen,
@@ -142,12 +144,20 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, veT
     setCargando(true);
     setError('');
     const { desde: d, hasta: h } = rango;
-    const [uRes, mRes] = await Promise.all([
+    const desdeYmd = ymdLocal(d);
+    const hastaYmd = ymdLocal(h);
+    const [uRes, mRes, planSync, autRes] = await Promise.all([
       cargarUsuariosResumen(supabase, { sucursalId: tienda || null }),
       cargarMarcajesResumen(supabase, {
         desdeIso: d.toISOString(),
         hastaIso: h.toISOString(),
         sucursalId: tienda || null,
+      }),
+      sincronizarPlanHorarioDesdeNube(supabase).catch(() => ({ ok: false })),
+      listarDescansosAutorizados(supabase, {
+        sucursalId: tienda || '',
+        desdeYmd,
+        hastaYmd,
       }),
     ]);
     if (uRes.error || mRes.error) {
@@ -156,13 +166,16 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, veT
       setCargando(false);
       return;
     }
+    const plan = planSync?.plan || leerPlanHorarioLocal();
     setFilas(
       construirResumenEmpleados({
         usuarios: uRes.data || [],
         marcajes: mRes.data || [],
-        desdeYmd: ymdLocal(d),
-        hastaYmd: ymdLocal(h),
+        desdeYmd,
+        hastaYmd,
         filtroSucursal: tienda || '',
+        plan,
+        descansosAutorizados: autRes?.data || [],
       }),
     );
     setCargando(false);
@@ -181,9 +194,10 @@ export default function ResumenDiasAsistencia({ supabase, sucursal, esAdmin, veT
       <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
         Calendario por persona: ves exactamente qué días trabajó. Un día cuenta con{' '}
         <strong>entrada y salida</strong>. Turno nocturno (19:00 → 07:00): cuenta el día en que{' '}
-        <strong>empieza a las 19 h</strong>, aunque la salida sea al día siguiente. En rachas sin
-        jornada cerrada, el primero es descanso y el resto faltas. No se cuentan días futuros. Quien
-        cubre turno (<strong>CT</strong>) solo marca los días cerrados.
+        <strong>empieza a las 19 h</strong>, aunque la salida sea al día siguiente.
+        Los <strong>DESCANSO</strong> del plan horario (Checador → Plan) y los descansos autorizados
+        <strong> no se marcan como falta</strong>. Solo es falta un día laboral sin jornada.
+        No se cuentan días futuros. Quien cubre turno (<strong>CT</strong>) solo marca los días cerrados.
       </p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'flex-end' }}>
         {veTodasTiendas && (

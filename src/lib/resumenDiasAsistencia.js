@@ -152,13 +152,56 @@ export function clasificarHuecosSinAsistencia(diasTrabajadosYmd, diasPeriodoYmd)
  * @param {Date} [opts.ahora]
  * @param {boolean} [opts.soloDiasRegistrados] — cubre turno: sin descanso/faltas
  */
+/**
+ * Clasifica días sin checada usando plan horario / descanso autorizado / habitual.
+ * Si no hay `user`, cae a la heurística de rachas (legado).
+ *
+ * @param {object} opts
+ * @param {object|null} [opts.user]
+ * @param {{ plan?: object, descansosAutSet?: Set<string>, hoy?: string }} [opts.ctx]
+ */
+export function clasificarDiasSinAsistencia({
+  diasTrabajadosYmd,
+  diasPeriodoYmd,
+  user = null,
+  ctx = null,
+} = {}) {
+  const setTrab = diasTrabajadosYmd instanceof Set
+    ? diasTrabajadosYmd
+    : new Set(diasTrabajadosYmd || [])
+  const periodo = Array.isArray(diasPeriodoYmd) ? diasPeriodoYmd : []
+
+  if (user && ctx) {
+    /** @type {string[]} */
+    const diasDescansoYmd = []
+    /** @type {string[]} */
+    const diasFaltaYmd = []
+    for (const ymd of periodo) {
+      if (setTrab.has(ymd)) continue
+      if (!diaLaborableParaBono(user, ymd, ctx)) diasDescansoYmd.push(ymd)
+      else diasFaltaYmd.push(ymd)
+    }
+    return {
+      descansos: diasDescansoYmd.length,
+      faltas: diasFaltaYmd.length,
+      diasDescansoYmd,
+      diasFaltaYmd,
+    }
+  }
+
+  return clasificarHuecosSinAsistencia(setTrab, periodo)
+}
+
 export function resumirDiasEmpleado({
   diasTrabajadosYmd,
   desdeYmd,
   hastaYmd,
   ahora,
   soloDiasRegistrados = false,
-}) {
+  user = null,
+  plan = null,
+  descansosAutSet = null,
+} = {}) {
   const setTrab = diasTrabajadosYmd instanceof Set ? diasTrabajadosYmd : new Set(diasTrabajadosYmd || [])
   const hasta = ymdHastaEfectivo(hastaYmd, ahora)
   const periodo = listarYmdInclusive(desdeYmd, hasta)
@@ -175,10 +218,24 @@ export function resumirDiasEmpleado({
       mapaEstado: Object.fromEntries(trabajados.map((d) => [d, 'trabajado'])),
     }
   }
-  const { descansos, faltas, diasDescansoYmd, diasFaltaYmd } = clasificarHuecosSinAsistencia(
-    enPeriodo,
-    periodo,
-  )
+
+  const hoy = ymdLocal(ahora || new Date())
+  const ctx = user
+    ? {
+      plan: plan || null,
+      descansosAutSet: descansosAutSet instanceof Set
+        ? descansosAutSet
+        : setClavesDescansosAutorizados(descansosAutSet || []),
+      hoy,
+    }
+    : null
+
+  const { descansos, faltas, diasDescansoYmd, diasFaltaYmd } = clasificarDiasSinAsistencia({
+    diasTrabajadosYmd: enPeriodo,
+    diasPeriodoYmd: periodo,
+    user,
+    ctx,
+  })
   /** @type {Record<string, EstadoDiaAsistencia>} */
   const mapaEstado = {}
   for (const d of trabajados) mapaEstado[d] = 'trabajado'
@@ -608,13 +665,18 @@ export function construirResumenEmpleados({
   ahora = new Date(),
   filtroSucursal = '',
   modoPresencia = 'par',
+  plan = null,
+  descansosAutorizados = null,
 } = {}) {
   const filtro = normalizarCodigoTienda(filtroSucursal)
   const map = new Map()
   const porId = new Map()
   const porNomSuc = new Map()
+  const descansosAutSet = descansosAutorizados instanceof Set
+    ? descansosAutorizados
+    : setClavesDescansosAutorizados(descansosAutorizados || [])
 
-  const ensure = (clave, { nombre, sucursalId, usuarioId, esCubreTurno = false }) => {
+  const ensure = (clave, { nombre, sucursalId, usuarioId, esCubreTurno = false, user = null }) => {
     if (!map.has(clave)) {
       map.set(clave, {
         clave,
@@ -622,12 +684,14 @@ export function construirResumenEmpleados({
         sucursalId: sucursalId || filtro || '',
         usuarioId: usuarioId || '',
         esCubreTurno: Boolean(esCubreTurno),
+        user: user || null,
         marcajes: [],
       })
     }
     const row = map.get(clave)
     if (nombre && row.nombre === 'Sin nombre') row.nombre = nombre
     if (esCubreTurno) row.esCubreTurno = true
+    if (user && !row.user) row.user = user
     return row
   }
 
@@ -639,7 +703,13 @@ export function construirResumenEmpleados({
     if (filtro && sucU !== filtro) continue
     if (!sucU) continue
     const clave = `id:${u.id}`
-    ensure(clave, { nombre: u.nombre, sucursalId: sucU, usuarioId: String(u.id), esCubreTurno: false })
+    ensure(clave, {
+      nombre: u.nombre,
+      sucursalId: sucU,
+      usuarioId: String(u.id),
+      esCubreTurno: false,
+      user: u,
+    })
     porId.set(String(u.id), clave)
     const nomClave = claveNombreSucursal(u.nombre, sucU)
     if (nomClave) porNomSuc.set(nomClave, clave)
@@ -692,6 +762,11 @@ export function construirResumenEmpleados({
       hastaYmd,
       ahora,
       soloDiasRegistrados: row.esCubreTurno,
+      user: row.user || (row.usuarioId
+        ? { id: row.usuarioId, nombre: row.nombre, sucursal_id: row.sucursalId, turno_id: 'diurno' }
+        : null),
+      plan,
+      descansosAutSet,
     })
     const sucursalEtiqueta = sucMostrar(row)
     const calendario = construirCalendarioAsistencia({
