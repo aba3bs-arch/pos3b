@@ -41,7 +41,6 @@ import {
   slugCodigoCamion,
 } from '../lib/rutaCamiones.js';
 import { listarCreditosCobradosRuta } from '../lib/rutaCxc.js';
-import { listarRepartidores } from '../lib/controlEfectivo.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { stockEnUbicacion, ALMACEN_CENTRAL } from '../lib/inventarioMultitienda.js';
