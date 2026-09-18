@@ -2,6 +2,7 @@ import { listarSucursales, esAlmacenCentral } from '../constants/sucursales.js';
 import { vaciarInventario } from './borrarInventario.js';
 import { limpiarTodosCarritosVenta } from './carritoVentaPersistencia.js';
 import { limpiarTodosCarritosPosRuta } from './carritoPosRutaPersistencia.js';
+import { borrarDatosVentaEnRuta } from './purgaVentaEnRuta.js';
 
 export const TIPOS_PURGA = [
   { id: 'ventas', label: 'Ventas', desc: 'Tickets y totales en la nube.' },
@@ -10,6 +11,7 @@ export const TIPOS_PURGA = [
   { id: 'ie_egresos', label: 'IE Virtual / IE Abarrotes', desc: 'Libro de egresos e ingresos de prueba en Cont Virtual (cont_virtual_egresos).' },
   { id: 'recolecciones_rt', label: 'Recolecciones RT / tránsito', desc: 'Movimientos de efectivo en tránsito y liquidaciones de recolector.' },
   { id: 'notificaciones', label: 'Notificaciones / buzón', desc: 'Avisos pendientes e historial de bandeja de contabilidad.' },
+  { id: 'venta_ruta', label: 'Venta en Ruta', desc: 'Cargas, ventas, CxC, cortes, clientes, camiones, tránsito de ruta y caché local del módulo (arranque limpio).' },
   { id: 'inventario', label: 'Inventario', desc: 'Pone en cero el stock (no borra el catálogo ni la bitácora de movimientos en la nube).' },
   { id: 'cache_local', label: 'Caché local', desc: 'Cortes locales y egresos IE de este navegador. Conserva movimientos de inventario locales pendientes de subir a la nube.' },
 ];
@@ -265,6 +267,13 @@ export async function ejecutarPurgaDatos(supabase, opts) {
     });
     if (r.ok) resultados.push(r.detalle);
     else errores.push(r.error);
+  }
+
+  if (tiposSet.has('venta_ruta')) {
+    // Módulo global (no filtra por tienda POS ni rango): arranque limpio completo.
+    const r = await borrarDatosVentaEnRuta(supabase);
+    if (r.ok) resultados.push(r.detalle);
+    else errores.push(r.error || (r.errores || []).join('\n'));
   }
 
   if (tiposSet.has('inventario')) {

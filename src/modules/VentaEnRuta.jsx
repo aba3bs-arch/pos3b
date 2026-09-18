@@ -5,6 +5,7 @@ import Icon from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import PanelLiquidacionRecolecciones from '../components/PanelLiquidacionRecolecciones.jsx';
 import InputPin from '../components/InputPin.jsx';
+import PanelPurgaVentaEnRuta from '../components/PanelPurgaVentaEnRuta.jsx';
 import {
   AVISO_FALTA_VENTA_RUTA,
   NOMBRE_ALMACEN_RUTA,
@@ -257,11 +258,25 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
         </div>
       )}
       {vista === 'hub' && (
-        <SubcomandosHub
-          color={COLOR}
-          items={subs.map((s) => ({ ...s, ayuda: s.desc, color: COLOR }))}
-          onSelect={ir}
-        />
+        <>
+          <SubcomandosHub
+            color={COLOR}
+            items={subs.map((s) => ({ ...s, ayuda: s.desc, color: COLOR }))}
+            onSelect={ir}
+          />
+          <PanelPurgaVentaEnRuta
+            supabase={supabase}
+            user={user}
+            sucursal={sucursal}
+            onPurgado={() => {
+              setVendedorSesion(null);
+              guardarSesionVendedor(null);
+              setAdminCorteSesion(null);
+              guardarSesionAdminCorte(null);
+              setAviso('Datos de Venta en Ruta borrados. El módulo quedó listo para iniciar operación.');
+            }}
+          />
+        </>
       )}
       {vista === 'camiones' && puede('ruta_camiones') && (
         <VistaCamiones
