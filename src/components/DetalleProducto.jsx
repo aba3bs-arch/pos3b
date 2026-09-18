@@ -151,7 +151,7 @@ export default function DetalleProducto({
               >
                 <Icon name="star" size={18} strokeWidth={2.25} fill={favorito ? 'currentColor' : 'none'} />
                 <span style={{ fontSize: '0.8rem', fontWeight: 650 }}>
-                  {favorito ? 'Favorito' : 'Favorito'}
+                  {favorito ? 'Favorito' : 'Marcar'}
                 </span>
               </button>
             )}
