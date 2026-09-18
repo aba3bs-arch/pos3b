@@ -19,7 +19,7 @@ import {
   listarDestinosVentaRuta,
   listarReporteIngresosCargaRuta,
   listarUsuariosRepartidores,
-  listarUsuariosParaCargaRuta,
+  listarRecolectoresCargaRuta,
   listarVendedoresSesionRuta,
   listarAdministradoresCorteRuta,
   listarVentasRuta,
@@ -628,16 +628,16 @@ function VistaCamiones({ supabase, setAviso }) {
 
   const refrescar = useCallback(async () => {
     setCargando(true);
-    const [c, u, rt] = await Promise.all([
+    const [c, uRes, rt] = await Promise.all([
       listarCamionesRuta(supabase),
-      listarUsuariosParaCargaRuta(supabase),
+      supabase.from('usuarios').select('id, nombre, rol, sucursal_id, activo').order('nombre').limit(500),
       listarRepartidores(supabase).catch(() => []),
     ]);
     if (c.aviso) setAviso?.(c.aviso);
     if (c.error) setAviso?.(c.error);
-    if (u.error) setAviso?.(u.error);
+    if (uRes.error) setAviso?.(uRes.error);
     setCamiones(c.data || []);
-    setUsuarios(u.data || []);
+    setUsuarios((uRes.data || []).filter((x) => x?.activo !== false));
     setRtList(Array.isArray(rt) ? rt : []);
     setCargando(false);
   }, [supabase, setAviso]);
@@ -934,7 +934,7 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
   const [lineas, setLineas] = useState([]);
   const [codigo, setCodigo] = useState('');
   const [qty, setQty] = useState('1');
-  const [repartidores, setRepartidores] = useState([]);
+  const [recolectores, setRecolectores] = useState([]);
   const [camiones, setCamiones] = useState([]);
   const [repartidorId, setRepartidorId] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -949,34 +949,43 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     (async () => {
       setCargandoRep(true);
       const [r, c] = await Promise.all([
-        listarUsuariosParaCargaRuta(supabase),
+        listarRecolectoresCargaRuta(supabase),
         listarCamionesRuta(supabase, { soloActivos: true }),
       ]);
       if (cancel) return;
       if (r.error) setAviso(r.error);
       if (c.aviso && c.aviso !== AVISO_FALTA_RUTA_CAMIONES) setAviso(c.aviso);
       if (c.error) setAviso(c.error);
-      setRepartidores(r.data || []);
+      setRecolectores(r.data || []);
       setCamiones(c.data || []);
       setCargandoRep(false);
     })();
     return () => { cancel = true; };
   }, [supabase, setAviso]);
 
-  const camionPorUsuario = useMemo(() => {
-    const m = new Map();
+  const camionPorClave = useMemo(() => {
+    const byUsuario = new Map();
+    const byRt = new Map();
     for (const c of camiones) {
-      if (c.usuario_id) m.set(String(c.usuario_id), c);
+      if (c.usuario_id) byUsuario.set(String(c.usuario_id), c);
+      if (c.repartidor_id) byRt.set(String(c.repartidor_id), c);
     }
-    return m;
+    return { byUsuario, byRt };
   }, [camiones]);
 
-  const repartidorSel = useMemo(
-    () => repartidores.find((u) => String(u.id) === String(repartidorId)) || null,
-    [repartidores, repartidorId],
+  const recolectorSel = useMemo(
+    () => recolectores.find((u) => String(u.id) === String(repartidorId)) || null,
+    [recolectores, repartidorId],
   );
 
-  const camionSel = repartidorSel ? camionPorUsuario.get(String(repartidorSel.id)) || null : null;
+  const camionSel = useMemo(() => {
+    if (!recolectorSel) return null;
+    const rtId = recolectorSel.repartidor_id || recolectorSel.id;
+    const uid = recolectorSel.usuario_id;
+    return camionPorClave.byRt.get(String(rtId))
+      || (uid ? camionPorClave.byUsuario.get(String(uid)) : null)
+      || null;
+  }, [recolectorSel, camionPorClave]);
 
   const agregar = () => {
     const { producto } = buscarProductoInventario(inventario, codigo);
@@ -1005,15 +1014,16 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
 
   const crear = async () => {
     if (!lineas.length) return alert('Agrega productos.');
-    if (!repartidorSel) return alert('Selecciona el usuario destinatario de la carga.');
+    if (!recolectorSel) return alert('Selecciona el recolector / repartidor.');
     const etiqueta = camionSel
-      ? `${etiquetaCamion(camionSel)} · ${repartidorSel.nombre}`
-      : repartidorSel.nombre;
+      ? `${etiquetaCamion(camionSel)} · ${recolectorSel.nombre}`
+      : recolectorSel.nombre;
     if (!confirm(`¿Cargar camión para ${etiqueta}? Se descuenta de ${NOMBRE_ALMACEN_RUTA}.`)) return;
     setGuardando(true);
     const r = await crearCargaRuta(supabase, {
-      vendedorNombre: repartidorSel.nombre,
-      vendedorId: repartidorSel.id,
+      vendedorNombre: recolectorSel.nombre,
+      vendedorId: recolectorSel.usuario_id || recolectorSel.id,
+      repartidorId: recolectorSel.repartidor_id || recolectorSel.id,
       camionId: camionSel?.id || null,
       lineas,
       usuarioNombre: user?.nombre,
@@ -1040,11 +1050,12 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Carga de camión</h3>
       <p className="muted" style={{ fontSize: '0.8rem' }}>
-        Elige el usuario destinatario (todos los usuarios activos). Si tiene camión asignado, se registra en la carga.
-        Al crear se descuenta el inventario de {NOMBRE_ALMACEN_RUTA}.
+        Elige un <strong>recolector / repartidor</strong> del Panel RT.
+        Los que agregues en Panel RT → Recolectores aparecen aquí automáticamente.
+        Si tiene camión asignado, se registra en la carga. Se descuenta de {NOMBRE_ALMACEN_RUTA}.
       </p>
       <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-        Usuario / repartidor
+        Recolector / repartidor
         <select
           className="input"
           style={{ display: 'block', width: '100%', marginTop: '0.25rem' }}
@@ -1052,29 +1063,30 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
           onChange={(e) => setRepartidorId(e.target.value)}
           disabled={cargandoRep}
         >
-          <option value="">{cargandoRep ? 'Cargando…' : '— Seleccionar usuario —'}</option>
-          {repartidores.map((u) => {
-            const cam = camionPorUsuario.get(String(u.id));
+          <option value="">{cargandoRep ? 'Cargando…' : '— Seleccionar recolector —'}</option>
+          {recolectores.map((u) => {
+            const cam = camionPorClave.byRt.get(String(u.repartidor_id || u.id))
+              || (u.usuario_id ? camionPorClave.byUsuario.get(String(u.usuario_id)) : null);
             return (
               <option key={u.id} value={u.id}>
-                {u.etiqueta || u.nombre}{cam ? ` · ${etiquetaCamion(cam)}` : ''}
+                {u.nombre}{cam ? ` · ${etiquetaCamion(cam)}` : ''}
               </option>
             );
           })}
         </select>
       </label>
-      {repartidorSel && (
+      {recolectorSel && (
         <p style={{ margin: '0 0 0.65rem', fontSize: '0.85rem' }}>
           {camionSel ? (
             <>Camión asignado: <strong>{etiquetaCamion(camionSel)}</strong></>
           ) : (
-            <span className="muted">Sin camión asignado — créalo en «Camiones».</span>
+            <span className="muted">Sin camión asignado — créalo en «Camiones» y asígnalo a este recolector.</span>
           )}
         </p>
       )}
-      {!cargandoRep && repartidores.length === 0 && (
+      {!cargandoRep && recolectores.length === 0 && (
         <p className="muted" style={{ fontSize: '0.8rem', color: 'var(--danger, #b91c1c)' }}>
-          No hay usuarios activos. Créalos en Usuarios.
+          No hay recolectores activos en Panel RT. Agrégalos en Contabilidad → Panel RT → Recolectores.
         </p>
       )}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>

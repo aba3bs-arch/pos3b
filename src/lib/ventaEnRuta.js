@@ -401,7 +401,6 @@ export function puedeAdministrarVentaRuta(rol) {
 
 /**
  * Usuarios activos con rol Repartidor (o plantilla Repartidor).
- * Para asignar el camión al cargar desde CEDIS.
  */
 export async function listarUsuariosRepartidores(supabase) {
   if (!supabase) return { data: [] };
@@ -416,29 +415,59 @@ export async function listarUsuariosRepartidores(supabase) {
 }
 
 /**
- * Destinatarios de carga de camión: todos los usuarios activos
- * (no solo rol Repartidor), para poder cargar a quien tenga unidad asignada.
+ * Destinatarios de Carga de camión = recolectores activos del Panel RT.
+ * Cada alta en Panel RT → Recolectores aparece aquí automáticamente.
+ * Si el nombre coincide con un usuario POS, se enlaza (usuario_id).
  */
-export async function listarUsuariosParaCargaRuta(supabase) {
-  if (!supabase) return { data: [] };
-  const { data, error } = await supabase
+export async function listarRecolectoresCargaRuta(supabase) {
+  if (!supabase) return { data: [], aviso: null };
+  let rtList = [];
+  try {
+    rtList = await listarRepartidores(supabase);
+  } catch (e) {
+    return { data: [], error: e?.message || String(e) };
+  }
+
+  const { data: usuariosRaw, error: eUsu } = await supabase
     .from('usuarios')
     .select('id, nombre, rol, sucursal_id, activo')
     .order('nombre')
     .limit(500);
-  if (error) return { data: [], error: error.message };
-  const list = (data || [])
-    .filter((u) => u?.activo !== false)
-    .map((u) => ({
-      id: u.id,
-      nombre: u.nombre || u.id,
-      rol: u.rol,
-      sucursal_id: u.sucursal_id,
-      etiqueta: esRolRepartidor(u.rol)
-        ? (u.nombre || u.id)
-        : `${u.nombre || u.id} · ${u.rol || 'usuario'}`,
-    }));
-  return { data: list };
+  if (eUsu) return { data: [], error: eUsu.message };
+
+  const usuarios = (usuariosRaw || []).filter((u) => u?.activo !== false);
+  const byName = new Map();
+  for (const u of usuarios) {
+    const k = normNombrePersona(u.nombre);
+    if (k && !byName.has(k)) byName.set(k, u);
+  }
+
+  const out = (rtList || [])
+    .filter((rt) => rt?.id && rt.activo !== false)
+    .map((rt) => {
+      const uMatch = byName.get(normNombrePersona(rt.nombre));
+      const usuarioId = uMatch ? String(uMatch.id) : null;
+      return {
+        id: String(rt.id),
+        nombre: rt.nombre || rt.id,
+        rol: uMatch?.rol || 'Repartidor',
+        sucursal_id: uMatch?.sucursal_id || null,
+        fuente: usuarioId ? 'rt+usuario' : 'rt',
+        usuario_id: usuarioId,
+        repartidor_id: String(rt.id),
+        etiqueta: usuarioId
+          ? `${rt.nombre} · Panel RT`
+          : `${rt.nombre} · Panel RT`,
+      };
+    })
+    .sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));
+
+  return { data: out };
+}
+
+/** @deprecated usar listarRecolectoresCargaRuta */
+export async function listarUsuariosParaCargaRuta(supabase) {
+  return listarRecolectoresCargaRuta(supabase);
 }
 
 /**
@@ -1023,19 +1052,57 @@ export async function lineasDeCarga(supabase, cargaId) {
 
 /**
  * Crea carga y descuenta inventario de CEDIS (centro de distribución).
- * Destinatario: cualquier usuario activo (típicamente el dueño del camión).
+ * Destinatario: recolector Panel RT (repartidor_id) y/o usuario POS enlazado.
  * @param {Array<{productoId, nombre, precio, cantidad}>} lineas
  */
-export async function crearCargaRuta(supabase, { vendedorNombre, vendedorId, camionId, notas, lineas, usuarioNombre, rol, userId, inventario = [] } = {}) {
+export async function crearCargaRuta(supabase, {
+  vendedorNombre,
+  vendedorId,
+  repartidorId,
+  camionId,
+  notas,
+  lineas,
+  usuarioNombre,
+  rol,
+  userId,
+  inventario = [],
+} = {}) {
   if (!puedeAccionVentaRuta(rol, userId, 'ruta_carga')) {
     return { ok: false, error: 'Sin privilegio para cargar el camión desde CEDIS.' };
   }
-  const repId = String(vendedorId || '').trim();
-  const repNombre = String(vendedorNombre || '').trim();
-  if (!repId || !repNombre) {
-    return { ok: false, error: 'Selecciona el usuario / repartidor destinatario de la carga.' };
-  }
-  if (supabase) {
+  const rtId = String(repartidorId || '').trim();
+  let repId = String(vendedorId || '').trim();
+  let repNombre = String(vendedorNombre || '').trim();
+
+  if (supabase && rtId) {
+    try {
+      const { data: rt, error: eRt } = await supabase
+        .from('repartidores')
+        .select('id, nombre, activo')
+        .eq('id', rtId)
+        .maybeSingle();
+      if (eRt) return { ok: false, error: eRt.message };
+      if (!rt || rt.activo === false) {
+        return { ok: false, error: 'El recolector del Panel RT no existe o está inactivo.' };
+      }
+      if (!repNombre) repNombre = rt.nombre || rtId;
+      // Preferir usuario POS enlazado por nombre; si no, usar id del recolector RT
+      if (!repId || String(repId).startsWith('rt:')) {
+        const { data: usuarios } = await supabase
+          .from('usuarios')
+          .select('id, nombre, activo')
+          .order('nombre')
+          .limit(500);
+        const match = (usuarios || []).find(
+          (u) => u?.activo !== false && normNombrePersona(u.nombre) === normNombrePersona(rt.nombre),
+        );
+        repId = match ? String(match.id) : String(rt.id);
+        if (match?.nombre) repNombre = match.nombre;
+      }
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) };
+    }
+  } else if (supabase && repId) {
     const { data: uRep, error: eRep } = await supabase
       .from('usuarios')
       .select('id, nombre, rol, activo')
@@ -1043,8 +1110,23 @@ export async function crearCargaRuta(supabase, { vendedorNombre, vendedorId, cam
       .maybeSingle();
     if (eRep) return { ok: false, error: eRep.message };
     if (!uRep || uRep.activo === false) {
-      return { ok: false, error: 'El usuario seleccionado no existe o está inactivo.' };
+      // Puede ser id de Panel RT guardado directo
+      const { data: rt } = await supabase
+        .from('repartidores')
+        .select('id, nombre, activo')
+        .eq('id', repId)
+        .maybeSingle();
+      if (!rt || rt.activo === false) {
+        return { ok: false, error: 'El recolector / usuario seleccionado no existe o está inactivo.' };
+      }
+      if (!repNombre) repNombre = rt.nombre || repId;
+    } else if (!repNombre) {
+      repNombre = uRep.nombre || repId;
     }
+  }
+
+  if (!repId || !repNombre) {
+    return { ok: false, error: 'Selecciona el recolector / repartidor destinatario de la carga.' };
   }
   const items = (lineas || [])
     .map((l) => ({
