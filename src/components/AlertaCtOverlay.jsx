@@ -9,6 +9,7 @@ import {
   marcarNotificacionAtendidaPorId,
 } from '../lib/contabilidadNotificaciones.js';
 import { normalizarRol } from '../lib/roles.js';
+import PortalFlotante from './PortalFlotante.jsx';
 
 /**
  * Alerta flotante persistente cuando un CT rechaza (o acepta) una cobertura.
@@ -81,6 +82,7 @@ export default function AlertaCtOverlay({
   };
 
   return (
+    <PortalFlotante>
     <div
       className="anuncio-pos-backdrop"
       role="dialog"
@@ -137,5 +139,6 @@ export default function AlertaCtOverlay({
         </div>
       </div>
     </div>
+    </PortalFlotante>
   );
 }

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { esCentralAdmin, etiquetaTienda, urlGoogleMapsSucursal } from '../constants/sucursales.js';
 import { normalizarRol } from '../lib/roles.js';
+import PortalFlotante from './PortalFlotante.jsx';
 import {
   AVISO_FALTA_CUBRE_SOLICITUDES,
   ESTADOS_SOLICITUD_CT,
@@ -844,9 +844,8 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
         </p>
       </div>
 
-      {evalModal
-        && typeof document !== 'undefined'
-        && createPortal(
+      {evalModal && (
+        <PortalFlotante>
           <div
             className="ct-eval-flotante-backdrop"
             role="presentation"
@@ -960,9 +959,9 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                 </button>
               </footer>
             </div>
-          </div>,
-          document.body,
-        )}
+          </div>
+        </PortalFlotante>
+      )}
       {desgloseAceptacion && (
         <ModalDesgloseAceptacion
           resumen={desgloseAceptacion.resumen}
