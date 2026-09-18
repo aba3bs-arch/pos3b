@@ -887,22 +887,29 @@ export async function guardarPrecioRutaProducto(supabase, productoId, precio, { 
 
 // ─── Cargas (descuenta MAIN · CEDIS) ───────────────────────────────
 
-export async function listarCargasRuta(supabase, { estado, vendedorId, limit = 80 } = {}) {
+export async function listarCargasRuta(supabase, { estado, vendedorId, camionId, limit = 80 } = {}) {
   if (!supabase) {
     let list = leerLS(LS_CARGAS, []);
     if (estado) list = list.filter((c) => c.estado === estado);
-    if (vendedorId) list = list.filter((c) => String(c.vendedor_id) === String(vendedorId));
+    if (camionId) list = list.filter((c) => String(c.camion_id) === String(camionId));
+    else if (vendedorId) list = list.filter((c) => String(c.vendedor_id) === String(vendedorId));
     return { data: list.slice(0, limit) };
   }
   let q = supabase.from('ruta_cargas').select('*').order('created_at', { ascending: false }).limit(limit);
   if (estado) q = q.eq('estado', estado);
-  if (vendedorId) q = q.eq('vendedor_id', String(vendedorId));
+  if (camionId) q = q.eq('camion_id', String(camionId));
+  else if (vendedorId) q = q.eq('vendedor_id', String(vendedorId));
   const { data, error } = await q;
   if (error && faltaTabla(error)) {
     let list = leerLS(LS_CARGAS, []);
     if (estado) list = list.filter((c) => c.estado === estado);
-    if (vendedorId) list = list.filter((c) => String(c.vendedor_id) === String(vendedorId));
+    if (camionId) list = list.filter((c) => String(c.camion_id) === String(camionId));
+    else if (vendedorId) list = list.filter((c) => String(c.vendedor_id) === String(vendedorId));
     return { data: list.slice(0, limit), aviso: AVISO_FALTA_VENTA_RUTA };
+  }
+  // Columna camion_id aún no existe: caer a filtro por vendedor
+  if (error && camionId && /camion_id|schema cache|column/i.test(String(error.message || ''))) {
+    return listarCargasRuta(supabase, { estado, vendedorId, limit });
   }
   if (error) return { data: [], error: error.message };
   return { data: data || [] };

@@ -11,6 +11,7 @@ import {
   listarCortesRutaLocal,
   resumirVentasRutaParaCorte,
 } from '../lib/corteRuta.js';
+import { etiquetaCamion, resolverCamionVendedor } from '../lib/rutaCamiones.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { imprimirCorte } from '../lib/impresion.js';
 
@@ -21,16 +22,34 @@ function imprimirTicketCorteRuta(corte, extras = {}) {
   return imprimirCorte(payload, { forzar: true, titulo: 'Corte de caja · Ruta' });
 }
 
+function fusionarCargasPorId(listas) {
+  const map = new Map();
+  for (const list of listas) {
+    for (const c of list || []) {
+      if (!c?.id) continue;
+      map.set(String(c.id), c);
+    }
+  }
+  return [...map.values()].sort((a, b) => {
+    const ta = String(a.created_at || a.fecha || '');
+    const tb = String(b.created_at || b.fecha || '');
+    return tb.localeCompare(ta);
+  });
+}
+
 /**
- * Corte de caja de ruta: lo autentica un administrador/gerente
- * y elige de qué vendedor (Repartidor / Panel RT) cortar.
+ * Corte de caja de ruta: lo autentica un administrador/gerente,
+ * elige el usuario/repartidor y muestra las cargas del camión vinculado.
  */
 export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion, setAviso }) {
   const [vendedores, setVendedores] = useState([]);
   const [vendedorId, setVendedorId] = useState(() => (
     vendedorSesion?.id ? String(vendedorSesion.id) : ''
   ));
+  const [camion, setCamion] = useState(null);
+  const [cargandoCamion, setCargandoCamion] = useState(false);
   const [cargas, setCargas] = useState([]);
+  const [cargandoCargas, setCargandoCargas] = useState(false);
   const [cargaId, setCargaId] = useState('');
   const [ventas, setVentas] = useState([]);
   const [contado, setContado] = useState('');
@@ -51,6 +70,7 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
   }, [vendedorSel, vendedorId]);
 
   const filtroVendedorNombre = vendedorSel?.nombre || vendedorSesion?.nombre || null;
+  const camionEtiqueta = camion ? etiquetaCamion(camion) : null;
 
   useEffect(() => {
     let cancel = false;
@@ -67,6 +87,23 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
     return () => { cancel = true; };
   }, [supabase, setAviso]); // eslint-disable-line react-hooks/exhaustive-deps -- solo al montar
 
+  // Al elegir usuario → resolver camión vinculado
+  useEffect(() => {
+    let cancel = false;
+    void (async () => {
+      setCamion(null);
+      if (!vendedorSel) return;
+      setCargandoCamion(true);
+      const r = await resolverCamionVendedor(supabase, vendedorSel);
+      if (cancel) return;
+      if (r.aviso) setAviso?.(r.aviso);
+      if (r.error) setAviso?.(r.error);
+      setCamion(r.data || null);
+      setCargandoCamion(false);
+    })();
+    return () => { cancel = true; };
+  }, [supabase, vendedorSel, setAviso]);
+
   const carga = useMemo(
     () => cargas.find((c) => String(c.id) === String(cargaId)),
     [cargas, cargaId],
@@ -78,22 +115,61 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
       setCargaId('');
       return;
     }
-    const filtros = { limit: 60 };
-    if (filtroVendedorId) filtros.vendedorId = filtroVendedorId;
-    if (filtroVendedorNombre && !filtroVendedorId) filtros.vendedorNombre = filtroVendedorNombre;
-    const r = await listarCargasRuta(supabase, filtros);
-    if (r.aviso) setAviso?.(r.aviso);
-    const data = r.data || [];
-    // Si el vendedor es solo RT (sin usuario), filtrar por nombre en cliente
-    const filtradas = filtroVendedorId
-      ? data
-      : data.filter((c) => {
-        const nom = String(c.vendedor_nombre || '').trim().toLowerCase();
-        return nom && nom === String(filtroVendedorNombre || '').trim().toLowerCase();
-      });
-    setCargas(filtradas);
-    setCargaId('');
-  }, [supabase, vendedorId, filtroVendedorId, filtroVendedorNombre, setAviso]);
+    setCargandoCargas(true);
+    try {
+      const promesas = [];
+      // Preferente: cargas del camión asignado al usuario
+      if (camion?.id) {
+        promesas.push(listarCargasRuta(supabase, { camionId: camion.id, limit: 80 }));
+      }
+      // También cargas del vendedor (histórico sin camion_id o sin camión asignado)
+      if (filtroVendedorId) {
+        promesas.push(listarCargasRuta(supabase, { vendedorId: filtroVendedorId, limit: 80 }));
+      } else {
+        promesas.push(listarCargasRuta(supabase, { limit: 80 }));
+      }
+
+      const results = await Promise.all(promesas);
+      for (const r of results) {
+        if (r.aviso) setAviso?.(r.aviso);
+        if (r.error) setAviso?.(r.error);
+      }
+
+      let filtradas = fusionarCargasPorId(results.map((r) => r.data));
+
+      // Si hay camión: priorizar las de ese camión; completar con las del vendedor sin camion_id
+      if (camion?.id) {
+        const delCamion = filtradas.filter((c) => String(c.camion_id) === String(camion.id));
+        const delVendedorSinCamion = filtradas.filter((c) => {
+          if (String(c.camion_id || '') === String(camion.id)) return false;
+          if (filtroVendedorId && String(c.vendedor_id) === String(filtroVendedorId)) {
+            return !c.camion_id;
+          }
+          return false;
+        });
+        filtradas = fusionarCargasPorId([delCamion, delVendedorSinCamion]);
+      } else if (filtroVendedorId) {
+        filtradas = filtradas.filter((c) => String(c.vendedor_id) === String(filtroVendedorId));
+      } else if (filtroVendedorNombre) {
+        const nom = String(filtroVendedorNombre).trim().toLowerCase();
+        filtradas = filtradas.filter(
+          (c) => String(c.vendedor_nombre || '').trim().toLowerCase() === nom,
+        );
+      }
+
+      setCargas(filtradas);
+      setCargaId((prev) => (filtradas.some((c) => String(c.id) === String(prev)) ? prev : ''));
+    } finally {
+      setCargandoCargas(false);
+    }
+  }, [
+    supabase,
+    vendedorId,
+    camion,
+    filtroVendedorId,
+    filtroVendedorNombre,
+    setAviso,
+  ]);
 
   useEffect(() => {
     void cargarCargas();
@@ -130,6 +206,7 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
     if (!confirm(
       `¿Guardar e imprimir corte de ruta?\n`
       + `Vendedor: ${nombreCorte}\n`
+      + (camionEtiqueta ? `Camión: ${camionEtiqueta}\n` : '')
       + `Autenticó: ${adminNombre || '—'}\n`
       + `Efectivo esperado ${fmtMonto(resumen.efectivoEsperado)} · Contado ${fmtMonto(contado)}\n`
       + `Crédito ${fmtMonto(resumen.credito)}`,
@@ -139,6 +216,8 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
     const row = {
       carga_id: cargaId,
       carga_folio: carga?.folio || null,
+      camion_id: carga?.camion_id || camion?.id || null,
+      camion_etiqueta: camionEtiqueta || null,
       vendedor_id: carga?.vendedor_id || filtroVendedorId || null,
       vendedor_nombre: carga?.vendedor_nombre || filtroVendedorNombre || null,
       fecha: new Date().toISOString().slice(0, 10),
@@ -169,6 +248,7 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
       imprimirTicketCorteRuta(local.corte, {
         porMetodo: resumen.porMetodo,
         adminNombre,
+        camionEtiqueta,
       });
       setMsg('Corte guardado e impreso.');
     } catch (e) {
@@ -180,7 +260,9 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
 
   const reimprimir = (corte) => {
     try {
-      imprimirTicketCorteRuta(corte);
+      imprimirTicketCorteRuta(corte, {
+        camionEtiqueta: corte.camion_etiqueta || null,
+      });
     } catch (e) {
       alert(e?.message || 'No se pudo imprimir.');
     }
@@ -190,8 +272,7 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Corte de caja · Venta en Ruta</h3>
       <p className="muted" style={{ marginTop: 0, fontSize: '0.85rem' }}>
-        Arqueo de las ventas del camión (efectivo + crédito). Lo autentica un administrador;
-        elige de qué vendedor cortar. Al guardar se imprime el ticket.
+        El administrador elige el usuario/repartidor; se muestran las cargas del camión vinculado a ese usuario.
       </p>
 
       {adminSesion && (
@@ -210,7 +291,7 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
       )}
 
       <label className="muted" style={{ display: 'block', fontSize: '0.8rem', maxWidth: 420, marginBottom: '0.75rem' }}>
-        Vendedor a cortar
+        Usuario / repartidor a cortar
         <select
           className="input"
           style={{ marginTop: '0.35rem' }}
@@ -220,17 +301,18 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
             setCargaId('');
             setContado('');
             setMsg('');
+            setCamion(null);
           }}
           disabled={cargandoVend}
         >
-          <option value="">— Elige vendedor —</option>
+          <option value="">— Elige usuario —</option>
           {vendedores.map((v) => (
             <option key={v.id} value={v.id}>{v.etiqueta || v.nombre || v.id}</option>
           ))}
         </select>
       </label>
 
-      {cargandoVend && <p className="muted">Cargando vendedores…</p>}
+      {cargandoVend && <p className="muted">Cargando usuarios…</p>}
 
       {vendedorId && (
         <div
@@ -242,32 +324,50 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
             fontSize: '0.9rem',
           }}
         >
-          Corte de: <strong>{nombreCorte}</strong>
+          Corte de: <strong>{vendedorSel?.nombre || filtroVendedorNombre || '—'}</strong>
+          {cargandoCamion ? (
+            <span className="muted"> · buscando camión…</span>
+          ) : camionEtiqueta ? (
+            <span> · Camión: <strong>{camionEtiqueta}</strong></span>
+          ) : (
+            <span className="muted"> · sin camión asignado (se listan cargas del usuario)</span>
+          )}
           {carga?.folio ? <span className="muted"> · carga {carga.folio}</span> : null}
         </div>
       )}
 
       {vendedorId && (
-        <label className="muted" style={{ display: 'block', fontSize: '0.8rem', maxWidth: 420 }}>
-          Carga
+        <label className="muted" style={{ display: 'block', fontSize: '0.8rem', maxWidth: 480 }}>
+          Carga del camión
           <select
             className="input"
             style={{ marginTop: '0.35rem' }}
             value={cargaId}
             onChange={(e) => setCargaId(e.target.value)}
+            disabled={cargandoCargas}
           >
-            <option value="">— Elige carga —</option>
+            <option value="">
+              {cargandoCargas ? 'Cargando cargas…' : '— Elige carga —'}
+            </option>
             {cargas.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.folio} · {c.estado}{c.vendedor_nombre ? ` · ${c.vendedor_nombre}` : ''}
+                {c.folio} · {c.estado}
+                {c.vendedor_nombre ? ` · ${c.vendedor_nombre}` : ''}
+                {c.camion_id && camion && String(c.camion_id) === String(camion.id)
+                  ? ` · ${camionEtiqueta}`
+                  : ''}
               </option>
             ))}
           </select>
         </label>
       )}
 
-      {vendedorId && !cargas.length && !cargandoVend && (
-        <p className="muted" style={{ marginTop: '0.75rem' }}>No hay cargas para este vendedor.</p>
+      {vendedorId && !cargandoCargas && !cargas.length && (
+        <p className="muted" style={{ marginTop: '0.75rem' }}>
+          {camion
+            ? `No hay cargas para el camión ${camionEtiqueta}.`
+            : 'No hay cargas para este usuario. Asigna un camión en «Camiones» y crea una carga.'}
+        </p>
       )}
 
       {cargaId && (
@@ -353,7 +453,9 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
           <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '0.85rem' }}>
             {historial.slice(0, 12).map((c) => (
               <li key={c.id} style={{ marginBottom: '0.35rem' }}>
-                {c.fecha} · <strong>{c.vendedor_nombre || '—'}</strong> · {c.carga_folio || 'sin folio'}
+                {c.fecha} · <strong>{c.vendedor_nombre || '—'}</strong>
+                {c.camion_etiqueta ? ` · ${c.camion_etiqueta}` : ''}
+                {' '}· {c.carga_folio || 'sin folio'}
                 {' '}· esp {fmtMonto(c.efectivo_esperado)} · cont {c.efectivo_contado == null ? '—' : fmtMonto(c.efectivo_contado)}
                 {c.diferencia != null ? ` · dif ${fmtMonto(c.diferencia)}` : ''}
                 {c.admin_nombre ? ` · por ${c.admin_nombre}` : ''}

@@ -36,6 +36,7 @@ import {
   etiquetaCamion,
   listarCamionesRuta,
   reactivarCamionRuta,
+  resolverCamionVendedor,
   slugCodigoCamion,
 } from '../lib/rutaCamiones.js';
 import { listarCreditosCobradosRuta } from '../lib/rutaCxc.js';
@@ -162,9 +163,22 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
     if (vista === 'corte') setVista('hub');
   };
 
-  const onSesionVendedorOk = (sesion) => {
-    setVendedorSesion(sesion);
-    guardarSesionVendedor(sesion);
+  const onSesionVendedorOk = async (sesion) => {
+    let next = { ...sesion };
+    try {
+      const cam = await resolverCamionVendedor(supabase, sesion);
+      if (cam.data) {
+        next = {
+          ...next,
+          camion_id: cam.data.id,
+          camionEtiqueta: etiquetaCamion(cam.data),
+        };
+      }
+    } catch {
+      /* ignore */
+    }
+    setVendedorSesion(next);
+    guardarSesionVendedor(next);
   };
 
   const onSesionAdminCorteOk = (sesion) => {
@@ -1590,6 +1604,7 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
           <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
             Elige la tienda destino: verás toda la mercancía del camión y su existencia.
             {vendedorNombre ? ` Vendedor: ${vendedorNombre}.` : ''}
+            {vendedorSesion?.camionEtiqueta ? ` Camión: ${vendedorSesion.camionEtiqueta}.` : ''}
           </p>
         </div>
         <div className="ruta-pos-toolbar-fields">
