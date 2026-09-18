@@ -163,8 +163,9 @@ export default function PanelAutorizarDescanso({
       </h4>
       <p className="muted" style={{ margin: '0 0 0.55rem', fontSize: '0.74rem' }}>
         Los empleados trabajan 6 días y descansan 1 (en 3B2 diurno suele ser domingo).
-        Si mueven el descanso (ej. a miércoles), autorízalo aquí o muévelo en Checador → Plan horario:
-        ese día no es falta y no aplica ban de bono. También se libera el descanso habitual de esa semana.
+        El <strong>DESCANSO</strong> de Checador → Plan horario nunca es falta.
+        Si autorizas un cambio aquí (ej. a miércoles), ese día tampoco cuenta como falta ni aplica ban de bono.
+        También se libera el descanso habitual de esa semana.
         {' '}Tienda: <strong>{etiquetaTienda(suc)}</strong>.
       </p>
 

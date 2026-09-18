@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { setClavesDescansosAutorizados } from './descansosAutorizados.js'
 import {
   calcularSuspensionBonoPorFaltas,
   clasificarHuecosSinAsistencia,
@@ -521,6 +522,72 @@ assert.equal(
     bloqueos.find((b) => b.nombre === 'Ana 3B2'),
     undefined,
     'Cambio de descanso a miércoles no debe aplicar ban',
+  )
+}
+
+{
+  // Semana pasada: plantilla con descanso miércoles debe respetarse aunque hoy esté en otra semana
+  const planMie = {
+    version: 1,
+    filas: [{
+      id: 'emp:3B2:p1',
+      sucursal_id: '3B2',
+      tipo: 'empleado',
+      usuario_id: 'p1',
+      nombre: 'Pedro Plan',
+      celdas: {
+        0: { tipo: 'turno' },
+        1: { tipo: 'turno' },
+        2: { tipo: 'turno' },
+        3: { tipo: 'descanso' },
+        4: { tipo: 'turno' },
+        5: { tipo: 'turno' },
+        6: { tipo: 'turno' },
+      },
+    }],
+  }
+  const user = {
+    id: 'p1',
+    nombre: 'Pedro Plan',
+    rol: 'Cajero',
+    sucursal_id: '3B2',
+    activo: true,
+    tipo_empleado: 'tienda',
+    turno_id: 'diurno',
+  }
+  // Hoy = miércoles 23 sep; miércoles 16 es semana pasada sin override
+  const ctxPasado = { plan: planMie, hoy: '2026-09-23' }
+  assert.equal(diaLaborableParaBono(user, '2026-09-16', ctxPasado), false, 'mié plan pasado ≠ falta')
+  assert.equal(diaLaborableParaBono(user, '2026-09-13', ctxPasado), false, 'dom habitual ≠ falta')
+  assert.equal(diaLaborableParaBono(user, '2026-09-15', ctxPasado), true, 'mar laboral')
+
+  // Override semana: descanso movido a jueves solo esa semana
+  const planOv = {
+    ...planMie,
+    overridesSemana: {
+      '2026-09-14': {
+        'emp:3B2:p1': {
+          0: { tipo: 'turno' },
+          1: { tipo: 'turno' },
+          2: { tipo: 'turno' },
+          3: { tipo: 'turno' },
+          4: { tipo: 'descanso' }, // jueves
+          5: { tipo: 'turno' },
+          6: { tipo: 'turno' },
+        },
+      },
+    },
+  }
+  const ctxOv = { plan: planOv, hoy: '2026-09-23' }
+  assert.equal(diaLaborableParaBono(user, '2026-09-17', ctxOv), false, 'jue override ≠ falta')
+  assert.equal(diaLaborableParaBono(user, '2026-09-16', ctxOv), true, 'mié override = laboral')
+
+  // Autorizado puntual siempre gana
+  const autSet = setClavesDescansosAutorizados([{ usuario_id: 'p1', fecha: '2026-09-15' }])
+  assert.equal(
+    diaLaborableParaBono(user, '2026-09-15', { plan: planMie, hoy: '2026-09-23', descansosAutSet: autSet }),
+    false,
+    'descanso autorizado ≠ falta',
   )
 }
 
