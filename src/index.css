@@ -3160,9 +3160,11 @@ table.data th {
 
 .prod-lista-item {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr;
   gap: 0;
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   text-align: left;
   padding: 0;
   border: none;
@@ -3173,13 +3175,19 @@ table.data th {
   font: inherit;
 }
 
+.prod-lista-item.con-fav {
+  grid-template-columns: 2.75rem minmax(0, 1fr);
+}
+
 .prod-lista-item-main {
   display: grid;
-  grid-template-columns: 48px 1fr auto;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
   gap: 0.65rem;
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   text-align: left;
-  padding: 0.65rem 0.5rem 0.65rem 0.75rem;
+  padding: 0.65rem 0.75rem 0.65rem 0.35rem;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -3187,6 +3195,10 @@ table.data th {
   color: inherit;
   font: inherit;
   min-width: 0;
+}
+
+.prod-lista-item:not(.con-fav) .prod-lista-item-main {
+  padding-left: 0.75rem;
 }
 
 .prod-lista-item:hover,
@@ -3207,23 +3219,27 @@ table.data th {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 2.5rem;
-  min-width: 2.5rem;
+  width: 2.75rem;
+  min-width: 2.75rem;
+  flex-shrink: 0;
   border: none;
-  background: transparent;
-  color: var(--muted, #94a3b8);
+  background: rgba(212, 175, 55, 0.08);
+  color: #b45309;
   cursor: pointer;
   padding: 0;
   align-self: stretch;
+  z-index: 1;
+  position: relative;
 }
 
 .prod-lista-fav:hover {
-  color: var(--brand-gold);
-  background: rgba(212, 175, 55, 0.12);
+  color: var(--brand-gold, #d4af37);
+  background: rgba(212, 175, 55, 0.22);
 }
 
 .prod-lista-fav.activo {
-  color: var(--brand-gold);
+  color: var(--brand-gold, #d4af37);
+  background: rgba(212, 175, 55, 0.18);
 }
 
 .prod-lista-item.es-favorito .prod-lista-nombre {

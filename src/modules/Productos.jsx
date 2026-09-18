@@ -1354,8 +1354,24 @@ export default function Productos({
                   return (
                     <div
                       key={p.id}
-                      className={`prod-lista-item ${activo ? 'activo' : ''}${esFav ? ' es-favorito' : ''}`}
+                      className={`prod-lista-item ${activo ? 'activo' : ''}${esFav ? ' es-favorito' : ''}${puedeGestionCatalogo && !enCentral ? ' con-fav' : ''}`}
                     >
+                      {puedeGestionCatalogo && !enCentral ? (
+                        <button
+                          type="button"
+                          className={`prod-lista-fav${esFav ? ' activo' : ''}`}
+                          title={esFav ? `Quitar de favoritos (${tiendaLabel})` : `Marcar favorito en ${tiendaLabel}`}
+                          aria-label={esFav ? 'Quitar favorito' : 'Marcar favorito'}
+                          aria-pressed={esFav}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            void toggleFavorito(p);
+                          }}
+                        >
+                          <Icon name="star" size={20} strokeWidth={2.25} fill={esFav ? 'currentColor' : 'none'} />
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className="prod-lista-item-main"
@@ -1376,22 +1392,6 @@ export default function Productos({
                         </div>
                         <div className="prod-lista-precio">${Number(p.precio || 0).toFixed(2)}</div>
                       </button>
-                      {puedeGestionCatalogo && !enCentral ? (
-                        <button
-                          type="button"
-                          className={`prod-lista-fav${esFav ? ' activo' : ''}`}
-                          title={esFav ? `Quitar de favoritos (${tiendaLabel})` : `Marcar favorito en ${tiendaLabel}`}
-                          aria-label={esFav ? 'Quitar favorito' : 'Marcar favorito'}
-                          aria-pressed={esFav}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            void toggleFavorito(p);
-                          }}
-                        >
-                          <Icon name="star" size={18} fill={esFav ? 'currentColor' : 'none'} />
-                        </button>
-                      ) : null}
                     </div>
                   );
                 })

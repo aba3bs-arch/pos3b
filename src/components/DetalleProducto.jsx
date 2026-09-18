@@ -138,12 +138,21 @@ export default function DetalleProducto({
               <button
                 type="button"
                 className={`btn btn-ghost prod-detalle-fav${favorito ? ' activo' : ''}`}
-                style={{ padding: '0.4rem', color: favorito ? 'var(--brand-gold)' : undefined }}
+                style={{
+                  padding: '0.4rem 0.55rem',
+                  gap: '0.35rem',
+                  color: favorito ? 'var(--brand-gold)' : '#b45309',
+                  border: '1px solid rgba(180, 83, 9, 0.35)',
+                  background: favorito ? 'rgba(212, 175, 55, 0.15)' : 'rgba(212, 175, 55, 0.06)',
+                }}
                 title={favorito ? `Quitar de favoritos (${tiendaLabel})` : `Favorito en ${tiendaLabel}`}
                 aria-pressed={favorito}
                 onClick={() => onToggleFavorito(producto)}
               >
-                <Icon name="star" size={18} fill={favorito ? 'currentColor' : 'none'} />
+                <Icon name="star" size={18} strokeWidth={2.25} fill={favorito ? 'currentColor' : 'none'} />
+                <span style={{ fontSize: '0.8rem', fontWeight: 650 }}>
+                  {favorito ? 'Favorito' : 'Favorito'}
+                </span>
               </button>
             )}
             {onEditar && (
