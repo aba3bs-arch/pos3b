@@ -19,10 +19,13 @@ import {
   listarDestinosVentaRuta,
   listarReporteIngresosCargaRuta,
   listarUsuariosRepartidores,
+  listarVendedoresSesionRuta,
+  listarAdministradoresCorteRuta,
   listarVentasRuta,
   precioRutaEspecial,
   registrarVentaRuta,
-  verificarPinRepartidorRuta,
+  verificarPinVendedorSesionRuta,
+  verificarPinAdminCorteRuta,
 } from '../lib/ventaEnRuta.js';
 import { subcomandosVentaRutaVisibles, puedeAccionVentaRuta } from '../lib/ventaEnRutaAcciones.js';
 import { listarCreditosCobradosRuta } from '../lib/rutaCxc.js';
@@ -35,7 +38,7 @@ import {
   departamentoFiltroCoincideCedis,
 } from '../lib/catalogoCedis.js';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
-import { esRolRepartidor } from '../lib/roles.js';
+import { esRolRepartidor, normalizarRol } from '../lib/roles.js';
 import CorteRuta from './CorteRuta.jsx';
 import PreinventarioRuta from './PreinventarioRuta.jsx';
 import CobranzaRuta from './CobranzaRuta.jsx';
@@ -43,6 +46,7 @@ import './VentaEnRuta.css';
 
 const COLOR = '#0f766e';
 const LS_SESION_VENDEDOR = 'pos3b_ruta_vendedor_sesion';
+const LS_SESION_ADMIN_CORTE = 'pos3b_ruta_admin_corte';
 
 function leerSesionVendedorGuardada() {
   try {
@@ -63,9 +67,33 @@ function guardarSesionVendedor(sesion) {
   }
 }
 
+function leerSesionAdminCorte() {
+  try {
+    const j = JSON.parse(localStorage.getItem(LS_SESION_ADMIN_CORTE) || 'null');
+    if (j?.id && j?.nombre) return j;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function guardarSesionAdminCorte(sesion) {
+  try {
+    if (!sesion) localStorage.removeItem(LS_SESION_ADMIN_CORTE);
+    else localStorage.setItem(LS_SESION_ADMIN_CORTE, JSON.stringify(sesion));
+  } catch {
+    /* ignore */
+  }
+}
+
 function fmtQty(n) {
   const v = Number(n) || 0;
   return Number.isInteger(v) ? String(v) : String(Math.round(v * 1000) / 1000);
+}
+
+function esAdminOGerente(rol) {
+  const r = normalizarRol(rol);
+  return r === 'Administrador' || r === 'Gerente';
 }
 
 export default function VentaEnRuta({ supabase, user, inventario = [], onNavigate, sucursal, cargarDatos, fusionarProducto }) {
@@ -76,6 +104,12 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
       return { id: user.id, nombre: user.nombre || user.email || 'Repartidor', rol: user.rol };
     }
     return leerSesionVendedorGuardada();
+  });
+  const [adminCorteSesion, setAdminCorteSesion] = useState(() => {
+    if (esAdminOGerente(user?.rol) && user?.id) {
+      return { id: user.id, nombre: user.nombre || user.email || 'Admin', rol: user.rol };
+    }
+    return leerSesionAdminCorte();
   });
 
   const productoPorId = useMemo(() => {
@@ -108,15 +142,24 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
   const cerrarSesionVendedor = () => {
     setVendedorSesion(null);
     guardarSesionVendedor(null);
-    if (vista === 'venta' || vista === 'corte') setVista('hub');
+    if (vista === 'venta') setVista('hub');
   };
 
-  const onSesionOk = (sesion) => {
+  const cerrarSesionAdminCorte = () => {
+    setAdminCorteSesion(null);
+    guardarSesionAdminCorte(null);
+    if (vista === 'corte') setVista('hub');
+  };
+
+  const onSesionVendedorOk = (sesion) => {
     setVendedorSesion(sesion);
     guardarSesionVendedor(sesion);
   };
 
-  const necesitaSesionVendedor = vista === 'venta' || vista === 'corte';
+  const onSesionAdminCorteOk = (sesion) => {
+    setAdminCorteSesion(sesion);
+    guardarSesionAdminCorte(sesion);
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -135,7 +178,7 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
       {aviso && (
         <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)', fontSize: '0.85rem' }}>{aviso}</div>
       )}
-      {vendedorSesion && (vista === 'hub' || necesitaSesionVendedor) && (
+      {vendedorSesion && (vista === 'hub' || vista === 'venta') && (
         <div
           className="card"
           style={{
@@ -154,6 +197,29 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           </span>
           <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={cerrarSesionVendedor}>
             Cerrar sesión vendedor
+          </button>
+        </div>
+      )}
+      {adminCorteSesion && (vista === 'hub' || vista === 'corte') && (
+        <div
+          className="card"
+          style={{
+            margin: 0,
+            padding: '0.55rem 0.85rem',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '0.5rem',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderLeft: '4px solid #1d4ed8',
+          }}
+        >
+          <span style={{ fontSize: '0.9rem' }}>
+            Corte autenticado por: <strong>{adminCorteSesion.nombre}</strong>
+            <span className="muted"> · {adminCorteSesion.rol || 'Admin'}</span>
+          </span>
+          <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={cerrarSesionAdminCorte}>
+            Cerrar sesión admin
           </button>
         </div>
       )}
@@ -185,7 +251,7 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
             user={user}
             sucursal={sucursal}
             titulo="Login vendedor · POS"
-            onSesion={onSesionOk}
+            onSesion={onSesionVendedorOk}
             setAviso={setAviso}
           />
         ) : (
@@ -201,20 +267,19 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
         )
       )}
       {vista === 'corte' && puede('ruta_corte') && (
-        !vendedorSesion ? (
-          <PanelSesionVendedorRuta
+        !adminCorteSesion ? (
+          <PanelSesionAdminCorte
             supabase={supabase}
             user={user}
             sucursal={sucursal}
-            titulo="Login vendedor · Corte de caja"
-            onSesion={onSesionOk}
+            onSesion={onSesionAdminCorteOk}
             setAviso={setAviso}
           />
         ) : (
           <CorteRuta
             supabase={supabase}
             user={user}
-            vendedorSesion={vendedorSesion}
+            adminSesion={adminCorteSesion}
             setAviso={setAviso}
           />
         )
@@ -260,10 +325,10 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
   );
 }
 
-/** Selector de vendedor + PIN para POS y corte de ruta. */
+/** Selector de vendedor (usuarios Repartidor + Panel RT) + PIN para POS. */
 function PanelSesionVendedorRuta({ supabase, user, sucursal, titulo, onSesion, setAviso }) {
-  const [repartidores, setRepartidores] = useState([]);
-  const [repartidorId, setRepartidorId] = useState('');
+  const [vendedores, setVendedores] = useState([]);
+  const [vendedorId, setVendedorId] = useState('');
   const [pin, setPin] = useState('');
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -275,13 +340,17 @@ function PanelSesionVendedorRuta({ supabase, user, sucursal, titulo, onSesion, s
     let cancel = false;
     void (async () => {
       setCargando(true);
-      const r = await listarUsuariosRepartidores(supabase);
+      const r = await listarVendedoresSesionRuta(supabase);
       if (cancel) return;
       if (r.error) setAviso?.(r.error);
       const list = r.data || [];
-      setRepartidores(list);
-      if (esRep && user?.id) setRepartidorId(String(user.id));
-      else if (list.length === 1) setRepartidorId(String(list[0].id));
+      setVendedores(list);
+      if (esRep && user?.id) {
+        const match = list.find((v) => String(v.usuario_id || v.id) === String(user.id));
+        if (match) setVendedorId(String(match.id));
+      } else if (list.length === 1) {
+        setVendedorId(String(list[0].id));
+      }
       setCargando(false);
     })();
     return () => { cancel = true; };
@@ -294,16 +363,19 @@ function PanelSesionVendedorRuta({ supabase, user, sucursal, titulo, onSesion, s
       nombre: user.nombre || user.email || 'Repartidor',
       rol: user.rol,
       sucursal_id: user.sucursal_id,
+      fuente: 'usuario',
+      usuario_id: user.id,
     });
   };
 
   const entrar = async () => {
     setErr('');
     setGuardando(true);
-    const r = await verificarPinRepartidorRuta(supabase, {
+    const r = await verificarPinVendedorSesionRuta(supabase, {
       pin,
-      repartidorId,
+      vendedorId,
       sucursal: sucursal || user?.sucursal_id,
+      vendedores,
     });
     setGuardando(false);
     if (!r.ok) {
@@ -318,12 +390,14 @@ function PanelSesionVendedorRuta({ supabase, user, sucursal, titulo, onSesion, s
     <div className="card" style={{ borderTop: `4px solid ${COLOR}`, maxWidth: 480 }}>
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>{titulo || 'Login vendedor'}</h3>
       <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-        Elige el vendedor / repartidor e ingresa su PIN para ventas y corte.
+        Elige el vendedor (rol Repartidor o recolector del Panel RT) e ingresa su PIN.
       </p>
       {cargando ? (
         <p className="muted">Cargando vendedores…</p>
-      ) : !repartidores.length ? (
-        <p className="muted">No hay usuarios con rol Repartidor activos.</p>
+      ) : !vendedores.length ? (
+        <p className="muted">
+          No hay vendedores. Crea usuarios con rol Repartidor o recolectores activos en Panel RT.
+        </p>
       ) : (
         <div style={{ display: 'grid', gap: '0.65rem' }}>
           <label className="muted" style={{ fontSize: '0.8rem' }}>
@@ -331,13 +405,13 @@ function PanelSesionVendedorRuta({ supabase, user, sucursal, titulo, onSesion, s
             <select
               className="input"
               style={{ marginTop: '0.35rem' }}
-              value={repartidorId}
-              onChange={(e) => { setRepartidorId(e.target.value); setErr(''); }}
+              value={vendedorId}
+              onChange={(e) => { setVendedorId(e.target.value); setErr(''); }}
               disabled={guardando}
             >
               <option value="">— Selecciona —</option>
-              {repartidores.map((u) => (
-                <option key={u.id} value={u.id}>{u.nombre || u.id}</option>
+              {vendedores.map((u) => (
+                <option key={u.id} value={u.id}>{u.etiqueta || u.nombre || u.id}</option>
               ))}
             </select>
           </label>
@@ -357,12 +431,128 @@ function PanelSesionVendedorRuta({ supabase, user, sucursal, titulo, onSesion, s
           <button
             type="button"
             className="btn btn-primary"
-            disabled={guardando || !repartidorId || !String(pin).trim()}
+            disabled={guardando || !vendedorId || !String(pin).trim()}
             onClick={() => void entrar()}
           >
             {guardando ? 'Validando…' : 'Entrar'}
           </button>
-          {esRep && String(user?.id) === String(repartidorId) && (
+          {esRep && String(user?.id) === String(vendedorId) && (
+            <button type="button" className="btn btn-ghost" disabled={guardando} onClick={entrarConSesionApp}>
+              Continuar como {user?.nombre || 'mi usuario'}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Login de administrador/gerente para el corte de caja de ruta. */
+function PanelSesionAdminCorte({ supabase, user, sucursal, onSesion, setAviso }) {
+  const [admins, setAdmins] = useState([]);
+  const [adminId, setAdminId] = useState('');
+  const [pin, setPin] = useState('');
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+  const [err, setErr] = useState('');
+
+  const soyAdmin = esAdminOGerente(user?.rol);
+
+  useEffect(() => {
+    let cancel = false;
+    void (async () => {
+      setCargando(true);
+      const r = await listarAdministradoresCorteRuta(supabase);
+      if (cancel) return;
+      if (r.error) setAviso?.(r.error);
+      const list = r.data || [];
+      setAdmins(list);
+      if (soyAdmin && user?.id) setAdminId(String(user.id));
+      else if (list.length === 1) setAdminId(String(list[0].id));
+      setCargando(false);
+    })();
+    return () => { cancel = true; };
+  }, [supabase, setAviso, soyAdmin, user?.id]);
+
+  const entrarConSesionApp = () => {
+    if (!soyAdmin || !user?.id) return;
+    onSesion?.({
+      id: user.id,
+      nombre: user.nombre || user.email || 'Admin',
+      rol: user.rol,
+      sucursal_id: user.sucursal_id,
+    });
+  };
+
+  const entrar = async () => {
+    setErr('');
+    setGuardando(true);
+    const r = await verificarPinAdminCorteRuta(supabase, {
+      pin,
+      adminId,
+      sucursal: sucursal || user?.sucursal_id,
+    });
+    setGuardando(false);
+    if (!r.ok) {
+      setErr(r.error || 'No se pudo validar el PIN.');
+      return;
+    }
+    setPin('');
+    onSesion?.(r.user);
+  };
+
+  return (
+    <div className="card" style={{ borderTop: '4px solid #1d4ed8', maxWidth: 480 }}>
+      <h3 style={{ margin: '0 0 0.35rem', color: '#1d4ed8' }}>Login administrador · Corte de caja</h3>
+      <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+        El corte lo hace un administrador o gerente. Elige quién autentica e ingresa su PIN.
+        Después podrás elegir de qué vendedor cortar.
+      </p>
+      {cargando ? (
+        <p className="muted">Cargando administradores…</p>
+      ) : !admins.length ? (
+        <p className="muted">No hay usuarios con rol Administrador o Gerente activos.</p>
+      ) : (
+        <div style={{ display: 'grid', gap: '0.65rem' }}>
+          <label className="muted" style={{ fontSize: '0.8rem' }}>
+            Administrador
+            <select
+              className="input"
+              style={{ marginTop: '0.35rem' }}
+              value={adminId}
+              onChange={(e) => { setAdminId(e.target.value); setErr(''); }}
+              disabled={guardando}
+            >
+              <option value="">— Selecciona —</option>
+              {admins.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.nombre || u.id} · {u.rol || ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="muted" style={{ fontSize: '0.8rem' }}>
+            PIN del administrador
+            <InputPin
+              value={pin}
+              onChange={(e) => { setPin(e.target.value); setErr(''); }}
+              onKeyDown={(e) => e.key === 'Enter' && void entrar()}
+              placeholder="PIN"
+              disabled={guardando}
+              autoFocus
+              style={{ marginTop: '0.35rem', width: '100%' }}
+            />
+          </label>
+          {err && <p style={{ margin: 0, color: '#b91c1c', fontSize: '0.85rem' }}>{err}</p>}
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={guardando || !adminId || !String(pin).trim()}
+            onClick={() => void entrar()}
+          >
+            {guardando ? 'Validando…' : 'Autenticar corte'}
+          </button>
+          {soyAdmin && String(user?.id) === String(adminId) && (
             <button type="button" className="btn btn-ghost" disabled={guardando} onClick={entrarConSesionApp}>
               Continuar como {user?.nombre || 'mi usuario'}
             </button>
@@ -746,7 +936,9 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
   const [guardando, setGuardando] = useState(false);
   const [tickCamion, setTickCamion] = useState(0);
 
-  const vendedorId = vendedorSesion?.id || (esRolRepartidor(user?.rol) ? user?.id : null);
+  const vendedorId = vendedorSesion?.usuario_id
+    || (vendedorSesion?.id && !String(vendedorSesion.id).startsWith('rt:') ? vendedorSesion.id : null)
+    || (esRolRepartidor(user?.rol) ? user?.id : null);
   const vendedorNombre = vendedorSesion?.nombre || user?.nombre || '—';
   const destinos = useMemo(() => listarDestinosVentaRuta(clientesExt), [clientesExt]);
   const destinoSeleccionado = useMemo(() => {
@@ -767,7 +959,12 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
       ]);
       if (c.aviso || cli.aviso) setAviso(c.aviso || cli.aviso || AVISO_FALTA_VENTA_RUTA);
       if (c.error) setAviso(c.error);
-      const lista = c.data || [];
+      let lista = c.data || [];
+      // Vendedor solo Panel RT (sin usuario): filtrar cargas por nombre
+      if (!vendedorId && vendedorNombre && vendedorNombre !== '—') {
+        const nom = String(vendedorNombre).trim().toLowerCase();
+        lista = lista.filter((x) => String(x.vendedor_nombre || '').trim().toLowerCase() === nom);
+      }
       setCargas(lista);
       setClientesExt(cli.data || []);
       if (!lista.length) {
@@ -781,7 +978,7 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
     } finally {
       setCargandoCamion(false);
     }
-  }, [supabase, setAviso, vendedorId]);
+  }, [supabase, setAviso, vendedorId, vendedorNombre]);
 
   useEffect(() => { void refrescarCamion(); }, [refrescarCamion, tickCamion]);
 
