@@ -14,6 +14,7 @@ import { esRolRepartidor, normalizarRol } from './roles.js';
 import { registrarCargoCreditoRuta } from './rutaCxc.js';
 import { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
 import { puedeAccionVentaRuta } from './ventaEnRutaAcciones.js';
+import { buscarUsuarioPorPinYSucursal } from './usuariosAuth.js';
 
 export { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
 
@@ -402,6 +403,78 @@ export async function listarUsuariosRepartidores(supabase) {
   if (error) return { data: [], error: error.message };
   const list = (data || []).filter((u) => u?.activo !== false && esRolRepartidor(u.rol));
   return { data: list };
+}
+
+/**
+ * Valida PIN del vendedor/repartidor seleccionado para abrir sesión de POS o corte.
+ * El PIN debe corresponder al usuario elegido (no al admin de la caja).
+ */
+export async function verificarPinRepartidorRuta(supabase, {
+  pin,
+  repartidorId,
+  sucursal,
+} = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const p = String(pin || '').trim();
+  const idEsperado = String(repartidorId || '').trim();
+  if (!p) return { ok: false, error: 'Ingresa el PIN del vendedor.' };
+  if (!idEsperado) return { ok: false, error: 'Selecciona el vendedor / repartidor.' };
+
+  const { data, error } = await supabase
+    .from('usuarios')
+    .select('id, nombre, rol, sucursal_id, activo')
+    .eq('pin', p)
+    .limit(20);
+  if (error) {
+    // Respaldo: búsqueda por sucursal (misma lógica de login de caja)
+    const auth = await buscarUsuarioPorPinYSucursal(supabase, p, sucursal, { aceptarPersonalCentral: true });
+    if (auth.error) return { ok: false, error: auth.error };
+    if (!auth.user) {
+      return {
+        ok: false,
+        error: auth.avisoSucursal
+          ? 'PIN no válido en esta sucursal.'
+          : 'PIN incorrecto.',
+      };
+    }
+    if (String(auth.user.id) !== idEsperado) {
+      return { ok: false, error: 'El PIN no corresponde al vendedor seleccionado.' };
+    }
+    if (!esRolRepartidor(auth.user.rol)) {
+      return { ok: false, error: 'El usuario no tiene rol Repartidor.' };
+    }
+    if (auth.user.activo === false) {
+      return { ok: false, error: 'Este usuario está inactivo.' };
+    }
+    return {
+      ok: true,
+      user: {
+        id: auth.user.id,
+        nombre: auth.user.nombre,
+        rol: auth.user.rol,
+        sucursal_id: auth.user.sucursal_id,
+      },
+    };
+  }
+
+  const list = (data || []).filter((u) => u?.activo !== false);
+  const match = list.find((u) => String(u.id) === idEsperado);
+  if (!match) {
+    if (list.length) return { ok: false, error: 'El PIN no corresponde al vendedor seleccionado.' };
+    return { ok: false, error: 'PIN incorrecto.' };
+  }
+  if (!esRolRepartidor(match.rol)) {
+    return { ok: false, error: 'El usuario no tiene rol Repartidor.' };
+  }
+  return {
+    ok: true,
+    user: {
+      id: match.id,
+      nombre: match.nombre,
+      rol: match.rol,
+      sucursal_id: match.sucursal_id,
+    },
+  };
 }
 
 /** Precio especial de ruta (sin impuestos). */

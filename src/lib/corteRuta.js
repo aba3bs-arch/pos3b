@@ -80,6 +80,47 @@ export function listarCortesRutaLocal({ cargaId, vendedorId, limit = 40 } = {}) 
   return list.slice(0, limit);
 }
 
+/**
+ * Payload para imprimir ticket de corte de caja de ruta (efectivo + crédito).
+ * Compatible con htmlCorteCaja (usa `monto` en detalleMetodos).
+ */
+export function construirTicketCorteRuta(corte = {}, extras = {}) {
+  const pm = extras.porMetodo || corte.por_metodo || {};
+  const detalleMetodos = [
+    { metodo: 'Efectivo', monto: round2(pm.efectivo) },
+    { metodo: 'Crédito', monto: round2(pm.credito) },
+    { metodo: 'Mixto', monto: round2(pm.mixto) },
+  ].filter((x) => Number(x.monto) > 0);
+
+  const vendedor = corte.vendedor_nombre || extras.vendedorNombre || '—';
+  const cerradoPor = corte.usuario || extras.usuarioCierra || null;
+  const credito = round2(corte.credito ?? extras.credito ?? 0);
+  const notasExtra = [
+    corte.notas || extras.notas || null,
+    credito > 0 ? `Crédito en ventas: $${credito.toFixed(2)}` : null,
+    cerradoPor && vendedor && String(cerradoPor) !== String(vendedor)
+      ? `Cerrado por: ${cerradoPor}`
+      : null,
+  ].filter(Boolean).join(' · ');
+
+  return {
+    fecha: corte.fecha || new Date().toISOString().slice(0, 10),
+    sucursal: `RUTA · ${corte.carga_folio || extras.cargaFolio || ''}`.trim(),
+    usuario: vendedor,
+    turno: vendedor,
+    tickets: Number(corte.tickets) || 0,
+    cancelaciones: 0,
+    totalBruto: round2(corte.total_ventas),
+    totalCancelaciones: 0,
+    total: round2(corte.total_ventas),
+    efectivoEsperado: round2(corte.efectivo_esperado),
+    efectivoContado: corte.efectivo_contado == null ? null : round2(corte.efectivo_contado),
+    diferencia: corte.diferencia == null ? null : round2(corte.diferencia),
+    detalleMetodos,
+    notas: notasExtra || undefined,
+  };
+}
+
 export function guardarCorteRutaLocal(row) {
   const id = row.id || `cruta_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const item = {

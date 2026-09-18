@@ -4,16 +4,15 @@ import ProductoThumb from '../components/ProductoThumb.jsx';
 import Icon from '../components/Icon.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import PanelLiquidacionRecolecciones from '../components/PanelLiquidacionRecolecciones.jsx';
+import InputPin from '../components/InputPin.jsx';
 import {
   AVISO_FALTA_VENTA_RUTA,
   NOMBRE_ALMACEN_RUTA,
   cancelarCargaRuta,
   catalogoPosCamionDesdeLineas,
   crearCargaRuta,
-  disponibleEnLineaCarga,
   guardarClienteRuta,
   guardarPrecioRutaProducto,
-  lineasDeCarga,
   lineasDeVariasCargas,
   listarCargasRuta,
   listarClientesRuta,
@@ -23,6 +22,7 @@ import {
   listarVentasRuta,
   precioRutaEspecial,
   registrarVentaRuta,
+  verificarPinRepartidorRuta,
 } from '../lib/ventaEnRuta.js';
 import { subcomandosVentaRutaVisibles, puedeAccionVentaRuta } from '../lib/ventaEnRutaAcciones.js';
 import { listarCreditosCobradosRuta } from '../lib/rutaCxc.js';
@@ -42,6 +42,26 @@ import CobranzaRuta from './CobranzaRuta.jsx';
 import './VentaEnRuta.css';
 
 const COLOR = '#0f766e';
+const LS_SESION_VENDEDOR = 'pos3b_ruta_vendedor_sesion';
+
+function leerSesionVendedorGuardada() {
+  try {
+    const j = JSON.parse(localStorage.getItem(LS_SESION_VENDEDOR) || 'null');
+    if (j?.id && j?.nombre) return j;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function guardarSesionVendedor(sesion) {
+  try {
+    if (!sesion) localStorage.removeItem(LS_SESION_VENDEDOR);
+    else localStorage.setItem(LS_SESION_VENDEDOR, JSON.stringify(sesion));
+  } catch {
+    /* ignore */
+  }
+}
 
 function fmtQty(n) {
   const v = Number(n) || 0;
@@ -51,6 +71,12 @@ function fmtQty(n) {
 export default function VentaEnRuta({ supabase, user, inventario = [], onNavigate, sucursal, cargarDatos, fusionarProducto }) {
   const [vista, setVista] = useState('hub');
   const [aviso, setAviso] = useState('');
+  const [vendedorSesion, setVendedorSesion] = useState(() => {
+    if (esRolRepartidor(user?.rol) && user?.id) {
+      return { id: user.id, nombre: user.nombre || user.email || 'Repartidor', rol: user.rol };
+    }
+    return leerSesionVendedorGuardada();
+  });
 
   const productoPorId = useMemo(() => {
     const m = new Map();
@@ -79,6 +105,19 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
     setVista(id);
   };
 
+  const cerrarSesionVendedor = () => {
+    setVendedorSesion(null);
+    guardarSesionVendedor(null);
+    if (vista === 'venta' || vista === 'corte') setVista('hub');
+  };
+
+  const onSesionOk = (sesion) => {
+    setVendedorSesion(sesion);
+    guardarSesionVendedor(sesion);
+  };
+
+  const necesitaSesionVendedor = vista === 'venta' || vista === 'corte';
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div>
@@ -95,6 +134,28 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
       </div>
       {aviso && (
         <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)', fontSize: '0.85rem' }}>{aviso}</div>
+      )}
+      {vendedorSesion && (vista === 'hub' || necesitaSesionVendedor) && (
+        <div
+          className="card"
+          style={{
+            margin: 0,
+            padding: '0.55rem 0.85rem',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '0.5rem',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderLeft: `4px solid ${COLOR}`,
+          }}
+        >
+          <span style={{ fontSize: '0.9rem' }}>
+            Vendedor en sesión: <strong>{vendedorSesion.nombre}</strong>
+          </span>
+          <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={cerrarSesionVendedor}>
+            Cerrar sesión vendedor
+          </button>
+        </div>
       )}
       {vista === 'hub' && (
         <SubcomandosHub
@@ -118,17 +179,45 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
       )}
       {vista === 'clientes' && puede('ruta_clientes') && <VistaClientes supabase={supabase} setAviso={setAviso} />}
       {vista === 'venta' && puede('ruta_pos') && (
-        <VistaPos
-          supabase={supabase}
-          user={user}
-          productoPorId={productoPorId}
-          inventario={inventario}
-          setAviso={setAviso}
-          onNavigate={onNavigate}
-        />
+        !vendedorSesion ? (
+          <PanelSesionVendedorRuta
+            supabase={supabase}
+            user={user}
+            sucursal={sucursal}
+            titulo="Login vendedor · POS"
+            onSesion={onSesionOk}
+            setAviso={setAviso}
+          />
+        ) : (
+          <VistaPos
+            supabase={supabase}
+            user={user}
+            vendedorSesion={vendedorSesion}
+            productoPorId={productoPorId}
+            inventario={inventario}
+            setAviso={setAviso}
+            onNavigate={onNavigate}
+          />
+        )
       )}
       {vista === 'corte' && puede('ruta_corte') && (
-        <CorteRuta supabase={supabase} user={user} setAviso={setAviso} />
+        !vendedorSesion ? (
+          <PanelSesionVendedorRuta
+            supabase={supabase}
+            user={user}
+            sucursal={sucursal}
+            titulo="Login vendedor · Corte de caja"
+            onSesion={onSesionOk}
+            setAviso={setAviso}
+          />
+        ) : (
+          <CorteRuta
+            supabase={supabase}
+            user={user}
+            vendedorSesion={vendedorSesion}
+            setAviso={setAviso}
+          />
+        )
       )}
       {vista === 'preinventario' && puede('ruta_preinventario') && (
         <PreinventarioRuta
@@ -166,6 +255,119 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           cargarDatos={cargarDatos}
           fusionarProducto={fusionarProducto}
         />
+      )}
+    </div>
+  );
+}
+
+/** Selector de vendedor + PIN para POS y corte de ruta. */
+function PanelSesionVendedorRuta({ supabase, user, sucursal, titulo, onSesion, setAviso }) {
+  const [repartidores, setRepartidores] = useState([]);
+  const [repartidorId, setRepartidorId] = useState('');
+  const [pin, setPin] = useState('');
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+  const [err, setErr] = useState('');
+
+  const esRep = esRolRepartidor(user?.rol);
+
+  useEffect(() => {
+    let cancel = false;
+    void (async () => {
+      setCargando(true);
+      const r = await listarUsuariosRepartidores(supabase);
+      if (cancel) return;
+      if (r.error) setAviso?.(r.error);
+      const list = r.data || [];
+      setRepartidores(list);
+      if (esRep && user?.id) setRepartidorId(String(user.id));
+      else if (list.length === 1) setRepartidorId(String(list[0].id));
+      setCargando(false);
+    })();
+    return () => { cancel = true; };
+  }, [supabase, setAviso, esRep, user?.id]);
+
+  const entrarConSesionApp = () => {
+    if (!esRep || !user?.id) return;
+    onSesion?.({
+      id: user.id,
+      nombre: user.nombre || user.email || 'Repartidor',
+      rol: user.rol,
+      sucursal_id: user.sucursal_id,
+    });
+  };
+
+  const entrar = async () => {
+    setErr('');
+    setGuardando(true);
+    const r = await verificarPinRepartidorRuta(supabase, {
+      pin,
+      repartidorId,
+      sucursal: sucursal || user?.sucursal_id,
+    });
+    setGuardando(false);
+    if (!r.ok) {
+      setErr(r.error || 'No se pudo validar el PIN.');
+      return;
+    }
+    setPin('');
+    onSesion?.(r.user);
+  };
+
+  return (
+    <div className="card" style={{ borderTop: `4px solid ${COLOR}`, maxWidth: 480 }}>
+      <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>{titulo || 'Login vendedor'}</h3>
+      <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+        Elige el vendedor / repartidor e ingresa su PIN para ventas y corte.
+      </p>
+      {cargando ? (
+        <p className="muted">Cargando vendedores…</p>
+      ) : !repartidores.length ? (
+        <p className="muted">No hay usuarios con rol Repartidor activos.</p>
+      ) : (
+        <div style={{ display: 'grid', gap: '0.65rem' }}>
+          <label className="muted" style={{ fontSize: '0.8rem' }}>
+            Vendedor
+            <select
+              className="input"
+              style={{ marginTop: '0.35rem' }}
+              value={repartidorId}
+              onChange={(e) => { setRepartidorId(e.target.value); setErr(''); }}
+              disabled={guardando}
+            >
+              <option value="">— Selecciona —</option>
+              {repartidores.map((u) => (
+                <option key={u.id} value={u.id}>{u.nombre || u.id}</option>
+              ))}
+            </select>
+          </label>
+          <label className="muted" style={{ fontSize: '0.8rem' }}>
+            PIN del vendedor
+            <InputPin
+              value={pin}
+              onChange={(e) => { setPin(e.target.value); setErr(''); }}
+              onKeyDown={(e) => e.key === 'Enter' && void entrar()}
+              placeholder="PIN"
+              disabled={guardando}
+              autoFocus
+              style={{ marginTop: '0.35rem', width: '100%' }}
+            />
+          </label>
+          {err && <p style={{ margin: 0, color: '#b91c1c', fontSize: '0.85rem' }}>{err}</p>}
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={guardando || !repartidorId || !String(pin).trim()}
+            onClick={() => void entrar()}
+          >
+            {guardando ? 'Validando…' : 'Entrar'}
+          </button>
+          {esRep && String(user?.id) === String(repartidorId) && (
+            <button type="button" className="btn btn-ghost" disabled={guardando} onClick={entrarConSesionApp}>
+              Continuar como {user?.nombre || 'mi usuario'}
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -526,7 +728,7 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
   );
 }
 
-function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavigate }) {
+function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, setAviso, onNavigate }) {
   const [cargas, setCargas] = useState([]);
   const [lineas, setLineas] = useState([]);
   const [cargandoCamion, setCargandoCamion] = useState(false);
@@ -544,7 +746,8 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
   const [guardando, setGuardando] = useState(false);
   const [tickCamion, setTickCamion] = useState(0);
 
-  const esRep = esRolRepartidor(user?.rol);
+  const vendedorId = vendedorSesion?.id || (esRolRepartidor(user?.rol) ? user?.id : null);
+  const vendedorNombre = vendedorSesion?.nombre || user?.nombre || '—';
   const destinos = useMemo(() => listarDestinosVentaRuta(clientesExt), [clientesExt]);
   const destinoSeleccionado = useMemo(() => {
     if (!clienteKey) return null;
@@ -557,7 +760,7 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
     setCargandoCamion(true);
     try {
       const filtros = { estado: 'en_ruta', limit: 80 };
-      if (esRolRepartidor(user?.rol) && user?.id) filtros.vendedorId = user.id;
+      if (vendedorId) filtros.vendedorId = vendedorId;
       const [c, cli] = await Promise.all([
         listarCargasRuta(supabase, filtros),
         listarClientesRuta(supabase),
@@ -578,7 +781,7 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
     } finally {
       setCargandoCamion(false);
     }
-  }, [supabase, setAviso, user?.id, user?.rol]);
+  }, [supabase, setAviso, vendedorId]);
 
   useEffect(() => { void refrescarCamion(); }, [refrescarCamion, tickCamion]);
 
@@ -750,13 +953,13 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
 
     setGuardando(true);
     const r = await registrarVentaRuta(supabase, {
-      vendedorId: esRep ? user?.id : undefined,
+      vendedorId: vendedorId || undefined,
       clienteTipo: tipo,
       clienteId: id,
       clienteNombre: dest?.nombre || id,
       metodoPago: metodo,
       articulos: carrito,
-      vendedorNombre: user?.nombre,
+      vendedorNombre,
       montoEfectivo: montoEfe,
       montoCredito: montoCre,
     });
@@ -801,7 +1004,7 @@ function VistaPos({ supabase, user, productoPorId, inventario, setAviso, onNavig
           <h3 style={{ margin: 0, color: COLOR }}>POS venta en ruta</h3>
           <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
             Elige la tienda destino: verás toda la mercancía del camión y su existencia.
-            {esRep ? ' (Inventario de tus cargas en ruta.)' : ''}
+            {vendedorNombre ? ` Vendedor: ${vendedorNombre}.` : ''}
           </p>
         </div>
         <div className="ruta-pos-toolbar-fields">
