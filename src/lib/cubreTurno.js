@@ -78,8 +78,13 @@ export async function persistirPinCubreTurno(sucursal, pin, supabase) {
   const remoto = await subirPinCubreTurnoANube(supabase, suc, p);
   if (remoto.ok) {
     marcarPinCubreTurnoActivo(suc, Boolean(remoto.pin ?? p));
+    return { ok: true, remoto };
   }
-  return { ok: Boolean(remoto.ok), remoto };
+  return {
+    ok: false,
+    error: remoto.error || remoto.aviso || 'No se pudo guardar el PIN en la nube.',
+    remoto,
+  };
 }
 
 export function generarPinCubreTurnoAleatorio() {

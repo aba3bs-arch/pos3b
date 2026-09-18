@@ -79,6 +79,7 @@ import {
   AVISO_SIN_TABLA_PIN_CUBRE,
   refrescarPinCubreTurnoSucursal,
   sincronizarPinsCubreTurnoDesdeNube,
+  sucursalDePinCubreTurno,
 } from './lib/cubreTurnoSync.js';
 import { buscarUsuarioPorPinYSucursal, buscarUsuarioPorId, mensajePinSucursalIncorrecta, esAdministradorSinAnclaje } from './lib/usuariosAuth.js';
 import {
@@ -857,7 +858,7 @@ function App() {
       return;
     }
 
-    // PIN no es de usuario ni de cubre turno: mensajes claros (tabla faltante / sync).
+    // PIN no es de usuario ni de cubre turno: mensajes claros (tabla faltante / sync / otra tienda).
     if (syncPin.sinTabla) {
       alert(
         `PIN incorrecto.\n\n${syncPin.aviso || AVISO_SIN_TABLA_PIN_CUBRE}\n\nSin esa tabla, el PIN de cubre turno no se puede verificar en la nube.`,
@@ -865,7 +866,22 @@ function App() {
     } else if (syncPin.ok === false && syncPin.error) {
       alert(`PIN incorrecto.\n\nNo se pudo verificar el PIN de cubre turno en la nube: ${syncPin.error}`);
     } else {
-      alert(avisoSucursal ? mensajePinSucursalIncorrecta(etiquetaTienda(sucursal), sucursalReal) : 'PIN incorrecto');
+      let otraTienda = null;
+      try {
+        const cruzado = await sucursalDePinCubreTurno(supabase, p);
+        if (cruzado.sucursal && normalizarCodigoTienda(cruzado.sucursal) !== normalizarCodigoTienda(sucursal)) {
+          otraTienda = cruzado.sucursal;
+        }
+      } catch {
+        /* ignore */
+      }
+      if (otraTienda) {
+        alert(
+          `PIN incorrecto en ${etiquetaTienda(sucursal)}.\n\nEse PIN de cubre turno corresponde a ${etiquetaTienda(otraTienda)}. Cambia la tienda de esta caja o usa el PIN de esta sucursal.`,
+        );
+      } else {
+        alert(avisoSucursal ? mensajePinSucursalIncorrecta(etiquetaTienda(sucursal), sucursalReal) : 'PIN incorrecto');
+      }
     }
     setPin('');
   };
