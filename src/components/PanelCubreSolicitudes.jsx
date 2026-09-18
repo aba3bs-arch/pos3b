@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { esCentralAdmin, etiquetaTienda, urlGoogleMapsSucursal } from '../constants/sucursales.js';
 import { normalizarRol } from '../lib/roles.js';
 import {
@@ -33,6 +34,7 @@ import { resumenAceptacionCt } from '../lib/cubreAceptacionCt.js';
 import { IndicadorAceptacionCt, ModalDesgloseAceptacion } from './IndicadorAceptacionCt.jsx';
 import BotonInstalarApp from './BotonInstalarApp.jsx';
 import VisorTutorialModal from './VisorTutorialModal.jsx';
+import Icon from './Icon.jsx';
 import { TUTORIAL_PORTAL_CT } from '../content/tutorialPortalCt.js';
 import { TUTORIAL_SOLICITAR_CT } from '../content/tutorialSolicitarCt.js';
 
@@ -842,117 +844,125 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
         </p>
       </div>
 
-      {evalModal && (
-        <div
-          className="modal-backdrop"
-          role="presentation"
-          onClick={() => !evalModal.guardando && setEvalModal(null)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0,0,0,0.45)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 80,
-            padding: 16,
-          }}
-        >
+      {evalModal
+        && typeof document !== 'undefined'
+        && createPortal(
           <div
-            className="card"
-            role="dialog"
-            aria-modal="true"
-            onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: 480, width: '100%', maxHeight: '90vh', overflow: 'auto' }}
+            className="ct-eval-flotante-backdrop"
+            role="presentation"
+            onClick={() => !evalModal.guardando && setEvalModal(null)}
           >
-            <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
-              Evaluar CT · {evalModal.solicitud.ct_nombre}
-            </h3>
-            <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.84rem' }}>
-              <CeldaTiendaMaps codigo={evalModal.solicitud.sucursal_id} /> · {fmtFecha(evalModal.solicitud.fecha)}.
-              Marca lo que falló (si no hubo problemas, deja todo desmarcado y califica).
-            </p>
-
-            <div style={{ display: 'grid', gap: '0.45rem', marginBottom: '0.75rem' }}>
-              {CRITERIOS_EVALUACION_CT.map((c) => (
-                <label
-                  key={c.id}
-                  style={{
-                    display: 'flex',
-                    gap: 8,
-                    alignItems: 'flex-start',
-                    fontSize: '0.88rem',
-                    cursor: 'pointer',
-                  }}
+            <div
+              className="card ct-eval-flotante"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="ct-eval-flotante-titulo"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <header className="ct-eval-flotante-head">
+                <div>
+                  <h3 id="ct-eval-flotante-titulo" style={{ margin: 0, color: 'var(--brand-blue)' }}>
+                    Evaluar CT · {evalModal.solicitud.ct_nombre}
+                  </h3>
+                  <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.84rem' }}>
+                    <CeldaTiendaMaps codigo={evalModal.solicitud.sucursal_id} /> · {fmtFecha(evalModal.solicitud.fecha)}.
+                    Marca lo que falló (si no hubo problemas, deja todo desmarcado y califica).
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-ghost ct-eval-flotante-close"
+                  aria-label="Cerrar evaluación"
+                  disabled={evalModal.guardando}
+                  onClick={() => setEvalModal(null)}
                 >
-                  <input
-                    type="checkbox"
-                    checked={Boolean(evalModal.form[c.id])}
+                  <Icon name="x" size={18} />
+                </button>
+              </header>
+
+              <div className="ct-eval-flotante-body">
+                <div style={{ display: 'grid', gap: '0.45rem', marginBottom: '0.75rem' }}>
+                  {CRITERIOS_EVALUACION_CT.map((c) => (
+                    <label
+                      key={c.id}
+                      style={{
+                        display: 'flex',
+                        gap: 8,
+                        alignItems: 'flex-start',
+                        fontSize: '0.88rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={Boolean(evalModal.form[c.id])}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setEvalModal((m) => (
+                            m ? { ...m, form: { ...m.form, [c.id]: checked } } : m
+                          ));
+                        }}
+                      />
+                      <span>{c.label}</span>
+                    </label>
+                  ))}
+                </div>
+
+                <label className="muted" style={{ fontSize: '0.8rem', display: 'block', marginBottom: '0.65rem' }}>
+                  Calificación general
+                  <select
+                    className="select"
+                    style={{ display: 'block', marginTop: 4, width: '100%' }}
+                    value={evalModal.form.calificacion ?? 4}
                     onChange={(e) => {
-                      const checked = e.target.checked;
-                      setEvalModal((m) => (
-                        m ? { ...m, form: { ...m.form, [c.id]: checked } } : m
-                      ));
+                      const v = Number(e.target.value);
+                      setEvalModal((m) => (m ? { ...m, form: { ...m.form, calificacion: v } } : m));
+                    }}
+                  >
+                    {CALIFICACIONES_CT.map((c) => (
+                      <option key={c.valor} value={c.valor}>{c.label}</option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="muted" style={{ fontSize: '0.8rem', display: 'block', marginBottom: '0.85rem' }}>
+                  Comentario (opcional)
+                  <textarea
+                    className="input"
+                    rows={3}
+                    style={{ display: 'block', marginTop: 4, width: '100%', resize: 'vertical' }}
+                    placeholder="Ej. faltó caja chica, cliente se quejó del trato…"
+                    value={evalModal.form.comentario || ''}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setEvalModal((m) => (m ? { ...m, form: { ...m.form, comentario: v } } : m));
                     }}
                   />
-                  <span>{c.label}</span>
                 </label>
-              ))}
+              </div>
+
+              <footer className="ct-eval-flotante-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={evalModal.guardando}
+                  onClick={() => setEvalModal(null)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={evalModal.guardando}
+                  onClick={() => void guardarEvaluacion()}
+                >
+                  {evalModal.guardando ? 'Guardando…' : 'Guardar evaluación'}
+                </button>
+              </footer>
             </div>
-
-            <label className="muted" style={{ fontSize: '0.8rem', display: 'block', marginBottom: '0.65rem' }}>
-              Calificación general
-              <select
-                className="select"
-                style={{ display: 'block', marginTop: 4, width: '100%' }}
-                value={evalModal.form.calificacion ?? 4}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  setEvalModal((m) => (m ? { ...m, form: { ...m.form, calificacion: v } } : m));
-                }}
-              >
-                {CALIFICACIONES_CT.map((c) => (
-                  <option key={c.valor} value={c.valor}>{c.label}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="muted" style={{ fontSize: '0.8rem', display: 'block', marginBottom: '0.85rem' }}>
-              Comentario (opcional)
-              <textarea
-                className="input"
-                rows={3}
-                style={{ display: 'block', marginTop: 4, width: '100%', resize: 'vertical' }}
-                placeholder="Ej. faltó caja chica, cliente se quejó del trato…"
-                value={evalModal.form.comentario || ''}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setEvalModal((m) => (m ? { ...m, form: { ...m.form, comentario: v } } : m));
-                }}
-              />
-            </label>
-
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                disabled={evalModal.guardando}
-                onClick={() => setEvalModal(null)}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={evalModal.guardando}
-                onClick={() => void guardarEvaluacion()}
-              >
-                {evalModal.guardando ? 'Guardando…' : 'Guardar evaluación'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
       {desgloseAceptacion && (
         <ModalDesgloseAceptacion
           resumen={desgloseAceptacion.resumen}
