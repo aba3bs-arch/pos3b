@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import PortalFlotante from '../PortalFlotante.jsx';
 import { fmtCorte } from '../../lib/corteContabilidad/useCorteContabilidad.js';
 import { datosImpresionDesdeHistorial, imprimirCorteContabilidad } from '../../lib/impresionCorteContabilidad.js';
 import { etiquetaTipoCierre } from '../../lib/corteContabilidad/permisos.js';
@@ -128,6 +129,7 @@ export default function CorteHistorialImpresion({
           </div>
 
           {editando && (
+            <PortalFlotante>
             <div
               className="modal-backdrop"
               style={{
@@ -200,6 +202,7 @@ export default function CorteHistorialImpresion({
                 </div>
               </div>
             </div>
+            </PortalFlotante>
           )}
         </div>
       )}

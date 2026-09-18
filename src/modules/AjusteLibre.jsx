@@ -6,6 +6,7 @@ import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } fro
 import { fmtMxn } from '../lib/valorInventario.js';
 import { imprimirAjusteInventario } from '../lib/impresion.js';
 import Icon from '../components/Icon.jsx';
+import PortalFlotante from '../components/PortalFlotante.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import ProductoThumb from '../components/ProductoThumb.jsx';
 import MenuPuntos from '../components/MenuPuntos.jsx';
@@ -777,6 +778,7 @@ export default function AjusteLibre({
       )}
 
       {modalCantidad && (
+        <PortalFlotante>
         <div className="prod-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="ajuste-cantidad-titulo">
           <div className="ajuste-libre-modal-cantidad">
             <header className="prod-modal-header">
@@ -853,6 +855,7 @@ export default function AjusteLibre({
             </footer>
           </div>
         </div>
+        </PortalFlotante>
       )}
     </div>
   );

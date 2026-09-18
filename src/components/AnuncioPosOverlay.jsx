@@ -5,6 +5,7 @@ import {
   obtenerAnuncioParaMostrar,
   tamanoVentanaAnuncio,
 } from '../lib/anunciosPos.js';
+import PortalFlotante from './PortalFlotante.jsx';
 
 export default function AnuncioPosOverlay({ supabase, onIrVentas }) {
   const [anuncio, setAnuncio] = useState(null);
@@ -35,6 +36,7 @@ export default function AnuncioPosOverlay({ supabase, onIrVentas }) {
   };
 
   return (
+    <PortalFlotante>
     <div
       className="anuncio-pos-backdrop"
       role="dialog"
@@ -75,5 +77,6 @@ export default function AnuncioPosOverlay({ supabase, onIrVentas }) {
         </div>
       </div>
     </div>
+    </PortalFlotante>
   );
 }

@@ -6,6 +6,7 @@ import {
   marcarBuildAceptado,
   posponerActualizacion,
 } from '../lib/appActualizacion.js';
+import PortalFlotante from './PortalFlotante.jsx';
 
 /**
  * Aviso cuando hay un build nuevo en el servidor (Netlify / deploy).
@@ -65,6 +66,7 @@ export default function ActualizacionPendienteOverlay() {
   };
 
   return (
+    <PortalFlotante>
     <div className="anuncio-pos-backdrop app-update-backdrop" role="dialog" aria-modal="true" aria-labelledby="app-update-titulo">
       <div className="anuncio-pos-modal card app-update-modal" style={{ maxWidth: 'min(94vw, 560px)' }}>
         <div className="app-update-badge">Actualización</div>
@@ -105,5 +107,6 @@ export default function ActualizacionPendienteOverlay() {
         </div>
       </div>
     </div>
+    </PortalFlotante>
   );
 }

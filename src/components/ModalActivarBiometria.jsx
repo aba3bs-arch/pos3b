@@ -1,4 +1,5 @@
 import React from 'react';
+import PortalFlotante from './PortalFlotante.jsx';
 
 /**
  * Oferta de activar Face ID / huella tras login con PIN.
@@ -15,6 +16,7 @@ export default function ModalActivarBiometria({
   if (!open) return null;
 
   return (
+    <PortalFlotante>
     <div className="anuncio-pos-backdrop" role="dialog" aria-modal="true" aria-labelledby="bio-activar-titulo">
       <div className="anuncio-pos-modal card" style={{ maxWidth: 440 }}>
         <h2 id="bio-activar-titulo" style={{ margin: 0, fontSize: '1.25rem', fontWeight: 800 }}>
@@ -44,5 +46,6 @@ export default function ModalActivarBiometria({
         </div>
       </div>
     </div>
+    </PortalFlotante>
   );
 }

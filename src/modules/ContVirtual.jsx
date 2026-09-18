@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import PortalFlotante from '../components/PortalFlotante.jsx';
 import { listarSucursales, listarSucursalesOperativas, etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { puedeGestionarUsuarios, normalizarRol, listarTodosLosRoles } from '../lib/roles.js';
 import { puedeGestionarMovimientosIe } from '../lib/ieVirtualPermisos.js';
@@ -181,6 +182,7 @@ function ModalDesgloseMovimiento({ item, onClose, puedeEditar = false, onEditar,
   ].filter(Boolean);
 
   return (
+    <PortalFlotante>
     <div className="cv-modal-backdrop cv-modal-backdrop-float" onClick={onClose} role="presentation">
       <div
         className="cv-modal cv-modal-desglose cv-modal-float"
@@ -256,6 +258,7 @@ function ModalDesgloseMovimiento({ item, onClose, puedeEditar = false, onEditar,
         ) : null}
       </div>
     </div>
+    </PortalFlotante>
   );
 }
 
@@ -3107,8 +3110,9 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
       ) : null}
 
       {showInversion && (
-        <div className="cv-modal-backdrop" onClick={() => setShowInversion(false)} role="presentation">
-          <div className="cv-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Inversión oficina">
+        <PortalFlotante>
+        <div className="cv-modal-backdrop cv-modal-backdrop-float" onClick={() => setShowInversion(false)} role="presentation">
+          <div className="cv-modal cv-modal-float" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Inversión oficina">
             <h3>Inversión oficina → proveedor</h3>
             <p className="muted" style={{ fontSize: '0.78rem', marginTop: 0 }}>
               Registra egreso en {tituloLibro} y deja el cobro pendiente en el corte de la tienda.
@@ -3199,9 +3203,11 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             </div>
           </div>
         </div>
+        </PortalFlotante>
       )}
 
       {showManual && (
+        <PortalFlotante>
         <div className="cv-modal-backdrop cv-modal-backdrop-float" onClick={() => { setShowManual(false); setEditandoManualId(null); }} role="presentation">
           <div className="cv-modal cv-modal-float" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Captura manual">
             <h3>
@@ -3344,9 +3350,11 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             </div>
           </div>
         </div>
+        </PortalFlotante>
       )}
 
       {editCierre && (
+        <PortalFlotante>
         <div className="cv-modal-backdrop cv-modal-backdrop-float" onClick={() => setEditCierre(null)} role="presentation">
           <div className="cv-modal cv-modal-float" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Editar ingreso de corte">
             <h3>
@@ -3426,6 +3434,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             </div>
           </div>
         </div>
+        </PortalFlotante>
       )}
     </div>
   );

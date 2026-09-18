@@ -1,4 +1,5 @@
 import React from 'react';
+import PortalFlotante from './PortalFlotante.jsx';
 import {
   UMBRAL_ACEPTACION_CT,
   colorNivelAceptacionCt,
@@ -51,6 +52,7 @@ export function IndicadorAceptacionCt({ resumen, onClick, compact = false }) {
 export function ModalDesgloseAceptacion({ resumen, nombre, onClose }) {
   if (!resumen) return null;
   return (
+    <PortalFlotante>
     <div
       role="dialog"
       aria-modal="true"
@@ -114,5 +116,6 @@ export function ModalDesgloseAceptacion({ resumen, nombre, onClose }) {
         </div>
       </div>
     </div>
+    </PortalFlotante>
   );
 }

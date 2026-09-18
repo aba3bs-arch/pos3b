@@ -14,6 +14,7 @@ import { listarSucursales, etiquetaTienda } from '../constants/sucursales.js';
 import { esAlmacenCentral, etiquetaAlmacenCentral, etiquetaCedisEmpresa, stockVisible } from '../lib/inventarioMultitienda.js';
 import { puedeVerStockNegativo } from '../lib/roles.js';
 import Icon from '../components/Icon.jsx';
+import PortalFlotante from '../components/PortalFlotante.jsx';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import ConteoPorDepartamento from './ConteoPorDepartamento.jsx';
 import AjusteLibre from './AjusteLibre.jsx';
@@ -746,6 +747,7 @@ export default function AjusteInventario({
       ) : modo === 'masivo' ? (
         <div className="card">
           {modalIngreso && (
+            <PortalFlotante>
             <div
               role="dialog"
               aria-modal="true"
@@ -807,6 +809,7 @@ export default function AjusteInventario({
                 </div>
               </div>
             </div>
+            </PortalFlotante>
           )}
           <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>
             {esRetiroMasivo ? 'Productos a retirar' : 'Productos a ingresar'}

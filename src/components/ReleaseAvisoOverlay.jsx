@@ -5,6 +5,7 @@ import {
   marcarReleaseAvisoVisto,
 } from '../lib/releaseAviso.js';
 import { aplicarActualizacionApp } from '../lib/appActualizacion.js';
+import PortalFlotante from './PortalFlotante.jsx';
 
 /**
  * Aviso de cambios para todos los usuarios + botón Actualizar (limpia caché y recarga).
@@ -35,6 +36,7 @@ export default function ReleaseAvisoOverlay({ user }) {
   };
 
   return (
+    <PortalFlotante>
     <div className="anuncio-pos-backdrop app-update-backdrop" role="dialog" aria-modal="true" aria-labelledby="release-aviso-titulo">
       <div className="anuncio-pos-modal card app-update-modal" style={{ maxWidth: 'min(94vw, 560px)' }}>
         <div className="app-update-badge">Nueva versión</div>
@@ -64,5 +66,6 @@ export default function ReleaseAvisoOverlay({ user }) {
         </div>
       </div>
     </div>
+    </PortalFlotante>
   );
 }
