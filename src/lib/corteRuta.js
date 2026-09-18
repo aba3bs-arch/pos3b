@@ -94,8 +94,10 @@ export function construirTicketCorteRuta(corte = {}, extras = {}) {
 
   const vendedor = corte.vendedor_nombre || extras.vendedorNombre || '—';
   const cerradoPor = corte.admin_nombre || extras.adminNombre || corte.usuario || extras.usuarioCierra || null;
+  const camionTxt = corte.camion_etiqueta || extras.camionEtiqueta || null;
   const credito = round2(corte.credito ?? extras.credito ?? 0);
   const notasExtra = [
+    camionTxt ? `Camión: ${camionTxt}` : null,
     corte.notas || extras.notas || null,
     credito > 0 ? `Crédito en ventas: $${credito.toFixed(2)}` : null,
     cerradoPor && vendedor && String(cerradoPor) !== String(vendedor)

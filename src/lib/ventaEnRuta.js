@@ -887,22 +887,29 @@ export async function guardarPrecioRutaProducto(supabase, productoId, precio, { 
 
 // ─── Cargas (descuenta MAIN · CEDIS) ───────────────────────────────
 
-export async function listarCargasRuta(supabase, { estado, vendedorId, limit = 80 } = {}) {
+export async function listarCargasRuta(supabase, { estado, vendedorId, camionId, limit = 80 } = {}) {
   if (!supabase) {
     let list = leerLS(LS_CARGAS, []);
     if (estado) list = list.filter((c) => c.estado === estado);
-    if (vendedorId) list = list.filter((c) => String(c.vendedor_id) === String(vendedorId));
+    if (camionId) list = list.filter((c) => String(c.camion_id) === String(camionId));
+    else if (vendedorId) list = list.filter((c) => String(c.vendedor_id) === String(vendedorId));
     return { data: list.slice(0, limit) };
   }
   let q = supabase.from('ruta_cargas').select('*').order('created_at', { ascending: false }).limit(limit);
   if (estado) q = q.eq('estado', estado);
-  if (vendedorId) q = q.eq('vendedor_id', String(vendedorId));
+  if (camionId) q = q.eq('camion_id', String(camionId));
+  else if (vendedorId) q = q.eq('vendedor_id', String(vendedorId));
   const { data, error } = await q;
   if (error && faltaTabla(error)) {
     let list = leerLS(LS_CARGAS, []);
     if (estado) list = list.filter((c) => c.estado === estado);
-    if (vendedorId) list = list.filter((c) => String(c.vendedor_id) === String(vendedorId));
+    if (camionId) list = list.filter((c) => String(c.camion_id) === String(camionId));
+    else if (vendedorId) list = list.filter((c) => String(c.vendedor_id) === String(vendedorId));
     return { data: list.slice(0, limit), aviso: AVISO_FALTA_VENTA_RUTA };
+  }
+  // Columna camion_id aún no existe: caer a filtro por vendedor
+  if (error && camionId && /camion_id|schema cache|column/i.test(String(error.message || ''))) {
+    return listarCargasRuta(supabase, { estado, vendedorId, limit });
   }
   if (error) return { data: [], error: error.message };
   return { data: data || [] };
@@ -929,7 +936,7 @@ export async function lineasDeCarga(supabase, cargaId) {
  * El repartidor debe ser un usuario con rol Repartidor.
  * @param {Array<{productoId, nombre, precio, cantidad}>} lineas
  */
-export async function crearCargaRuta(supabase, { vendedorNombre, vendedorId, notas, lineas, usuarioNombre, rol, userId, inventario = [] } = {}) {
+export async function crearCargaRuta(supabase, { vendedorNombre, vendedorId, camionId, notas, lineas, usuarioNombre, rol, userId, inventario = [] } = {}) {
   if (!puedeAccionVentaRuta(rol, userId, 'ruta_carga')) {
     return { ok: false, error: 'Sin privilegio para cargar el camión desde CEDIS.' };
   }
@@ -964,18 +971,31 @@ export async function crearCargaRuta(supabase, { vendedorNombre, vendedorId, not
   if (!supabase) return { ok: false, error: 'Se requiere conexión a Supabase para descontar CEDIS.' };
 
   const folio = folioCarga();
-  const { data: row, error } = await supabase
+  const payloadCarga = {
+    folio,
+    vendedor_id: repId,
+    vendedor_nombre: repNombre,
+    fecha: new Date().toISOString().slice(0, 10),
+    estado: 'en_ruta',
+    notas: notas || null,
+  };
+  const cid = camionId ? String(camionId).trim() : '';
+  if (cid) payloadCarga.camion_id = cid;
+
+  let { data: row, error } = await supabase
     .from('ruta_cargas')
-    .insert([{
-      folio,
-      vendedor_id: repId,
-      vendedor_nombre: repNombre,
-      fecha: new Date().toISOString().slice(0, 10),
-      estado: 'en_ruta',
-      notas: notas || null,
-    }])
+    .insert([payloadCarga])
     .select('*')
     .single();
+  // Si aún no existe la columna camion_id, reintentar sin ella
+  if (error && cid && /camion_id|schema cache|column/i.test(String(error.message || ''))) {
+    delete payloadCarga.camion_id;
+    ({ data: row, error } = await supabase
+      .from('ruta_cargas')
+      .insert([payloadCarga])
+      .select('*')
+      .single());
+  }
   if (error && faltaTabla(error)) return { ok: false, error: AVISO_FALTA_VENTA_RUTA };
   if (error) return { ok: false, error: error.message };
 
