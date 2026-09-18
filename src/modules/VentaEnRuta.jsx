@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import SubcomandosHub from '../components/SubcomandosHub.jsx';
 import ProductoThumb from '../components/ProductoThumb.jsx';
 import Icon from '../components/Icon.jsx';
@@ -28,6 +28,11 @@ import {
   verificarPinVendedorSesionRuta,
   verificarPinAdminCorteRuta,
 } from '../lib/ventaEnRuta.js';
+import {
+  guardarCarritoPosRuta,
+  leerCarritoPosRuta,
+  limpiarCarritoPosRuta,
+} from '../lib/carritoPosRutaPersistencia.js';
 import { subcomandosVentaRutaVisibles, puedeAccionVentaRuta } from '../lib/ventaEnRutaAcciones.js';
 import {
   AVISO_FALTA_RUTA_CAMIONES,
@@ -1320,13 +1325,14 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
 }
 
 function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, setAviso, onNavigate }) {
+  const persistidoInicial = useMemo(() => leerCarritoPosRuta(vendedorSesion), [vendedorSesion]);
   const [cargas, setCargas] = useState([]);
   const [lineas, setLineas] = useState([]);
   const [cargandoCamion, setCargandoCamion] = useState(false);
   const [clientesExt, setClientesExt] = useState([]);
-  const [clienteKey, setClienteKey] = useState('');
+  const [clienteKey, setClienteKey] = useState(() => persistidoInicial.clienteKey || '');
   const [codigo, setCodigo] = useState('');
-  const [carrito, setCarrito] = useState([]);
+  const [carrito, setCarrito] = useState(() => persistidoInicial.carrito || []);
   const [deptoActivo, setDeptoActivo] = useState('');
   const [qDepto, setQDepto] = useState('');
   const [qtyEditId, setQtyEditId] = useState(null);
@@ -1336,6 +1342,9 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
   const [montoCredito, setMontoCredito] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [tickCamion, setTickCamion] = useState(0);
+  const carritoRef = useRef(carrito);
+  const clienteKeyRef = useRef(clienteKey);
+  const omitirGuardadoRef = useRef(false);
 
   const vendedorId = vendedorSesion?.usuario_id
     || (vendedorSesion?.id && !String(vendedorSesion.id).startsWith('rt:') ? vendedorSesion.id : null)
@@ -1348,6 +1357,39 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
     const id = rest.join(':');
     return destinos.find((d) => d.tipo === tipo && String(d.id) === id) || null;
   }, [clienteKey, destinos]);
+
+  useEffect(() => {
+    carritoRef.current = carrito;
+  }, [carrito]);
+
+  useEffect(() => {
+    clienteKeyRef.current = clienteKey;
+  }, [clienteKey]);
+
+  // Al cambiar de vendedor, cargar su carrito (sin pisar el del anterior).
+  useEffect(() => {
+    omitirGuardadoRef.current = true;
+    const data = leerCarritoPosRuta(vendedorSesion);
+    setClienteKey(data.clienteKey || '');
+    setCarrito(data.carrito || []);
+    setQtyEditId(null);
+    setMostrarCobro(false);
+  }, [vendedorSesion]);
+
+  // Persistir tras cada cambio (y al desmontar / cerrar la app en este equipo).
+  useEffect(() => {
+    if (omitirGuardadoRef.current) {
+      omitirGuardadoRef.current = false;
+      return undefined;
+    }
+    guardarCarritoPosRuta(vendedorSesion, { clienteKey, carrito });
+    return () => {
+      guardarCarritoPosRuta(vendedorSesion, {
+        clienteKey: clienteKeyRef.current,
+        carrito: carritoRef.current,
+      });
+    };
+  }, [carrito, clienteKey, vendedorSesion]);
 
   const refrescarCamion = useCallback(async () => {
     setCargandoCamion(true);
@@ -1388,6 +1430,24 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
     () => catalogoPosCamionDesdeLineas(lineas, { productoPorId, inventario }),
     [lineas, productoPorId, inventario],
   );
+
+  // Actualizar existencias del carrito restaurado cuando llega el stock del camión.
+  useEffect(() => {
+    if (!productosCamion.length || !carrito.length) return;
+    setCarrito((prev) => {
+      let changed = false;
+      const next = prev.map((it) => {
+        const prod = productosCamion.find((p) => String(p.id) === String(it.productoId));
+        if (!prod) return it;
+        const disp = Number(prod.disponible) || 0;
+        if (disp === Number(it.disponible)) return it;
+        changed = true;
+        const cantidad = Math.min(Number(it.cantidad) || 1, Math.max(1, disp || 1));
+        return { ...it, disponible: disp, cantidad, precio: prod.precio ?? it.precio };
+      });
+      return changed ? next : prev;
+    });
+  }, [productosCamion]); // eslint-disable-line react-hooks/exhaustive-deps -- solo al refrescar camión
 
   const departamentosMenu = useMemo(() => {
     const counts = new Map();
@@ -1573,9 +1633,13 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
       r.compraId ? 'Pedido en Compras listo para recibir en la tienda' : null,
     ].filter(Boolean).join(' · ');
     alert(`Venta ${r.venta?.folio || ''} OK.\n${extra}`);
+    omitirGuardadoRef.current = true;
+    carritoRef.current = [];
     setCarrito([]);
     setMostrarCobro(false);
     setQtyEditId(null);
+    // Conserva destino; persiste carrito vacío + clienteKey para la siguiente venta.
+    guardarCarritoPosRuta(vendedorSesion, { clienteKey: clienteKeyRef.current, carrito: [] });
     setTickCamion((t) => t + 1);
     // La tienda recibe en Compras (pedido), no en Traspasos (origen ≠ destino).
     if (tipo === 'sucursal' && r.compraId) {
@@ -1675,18 +1739,6 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
                   </span>
                 ) : null}
               </strong>
-              <div className="ruta-pos-buscar">
-                <CampoCodigo
-                  value={codigo}
-                  onChange={(e) => setCodigo(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && scanAgregar()}
-                  onEscanear={(c) => scanAgregar(c)}
-                  beepAlEnter
-                  placeholder="Escanear o buscar…"
-                  tituloCamara="Escanear producto del camión"
-                />
-                <button type="button" className="btn btn-primary" onClick={() => scanAgregar()}>+</button>
-              </div>
               <input
                 className="input"
                 value={qDepto}
@@ -1724,8 +1776,20 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
 
           <aside className="ruta-pos-ticket card">
             <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>Carrito</h3>
+            <div className="ruta-pos-buscar" style={{ marginBottom: '0.55rem' }}>
+              <CampoCodigo
+                value={codigo}
+                onChange={(e) => setCodigo(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && scanAgregar()}
+                onEscanear={(c) => scanAgregar(c)}
+                beepAlEnter
+                placeholder="Escanear o buscar…"
+                tituloCamara="Escanear producto del camión"
+              />
+              <button type="button" className="btn btn-primary" onClick={() => scanAgregar()}>+</button>
+            </div>
             <div className="ruta-pos-ticket-lineas">
-              {carrito.length === 0 && <p className="muted">Toca un producto para agregarlo</p>}
+              {carrito.length === 0 && <p className="muted">Escanea o toca un producto para agregarlo</p>}
               {carrito.map((it) => {
                 const editando = qtyEditId === it.productoId;
                 return (
