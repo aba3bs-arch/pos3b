@@ -42,8 +42,8 @@ assert.ok(!listarSucursalesOperativas().includes('CEDIS'));
 assert.equal(codigoTiendaValido('CEDIS'), true);
 assert.equal(codigoTiendaValido('3B3'), true);
 assert.equal(normalizarCodigoTienda('3b3'), '3B3');
-assert.equal(etiquetaTienda('3b3'), '3B3 Empalme');
-assert.equal(etiquetaTienda('3B3'), '3B3 Empalme');
+assert.equal(etiquetaTienda('3b3'), '3B3 Petróleos');
+assert.equal(etiquetaTienda('3B3'), '3B3 Petróleos');
 
 const dup = agregarSucursalExtra('CEDIS');
 assert.equal(dup.ok, false);
