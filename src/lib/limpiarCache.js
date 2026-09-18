@@ -67,6 +67,9 @@ function debePreservar(clave) {
   if (clave.startsWith('pos3b_carrito_venta_')) return true;
   // Carrito POS venta en ruta (por vendedor)
   if (clave.startsWith('pos3b_carrito_pos_ruta_')) return true;
+  // Favoritos por sucursal (respaldo si falta columna en nube)
+  if (clave === 'pos3b_favoritos_sucursales_v1') return true;
+  if (clave === 'pos3b_favoritos_sucursales_col_missing') return true;
   return false;
 }
 
