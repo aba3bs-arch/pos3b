@@ -23,7 +23,12 @@ import {
   claveLunesSemana,
   normalizarPlan,
 } from './planHorario.js';
-import { tieneAccionPlanHorario, ACCION_PLAN_HORARIO } from './planHorarioAcciones.js';
+import {
+  tieneAccionPlanHorario,
+  tieneAccionAsignarDescansos,
+  ACCION_PLAN_HORARIO,
+  ACCION_ASIGNAR_DESCANSOS,
+} from './planHorarioAcciones.js';
 
 assert.equal(formatoHoraPlan('07:00'), '7:00 AM');
 assert.equal(formatoHoraPlan('19:00'), '19:00');
@@ -104,6 +109,25 @@ assert.equal(tieneAccionPlanHorario('Cajero', 'u1', {
 assert.equal(tieneAccionPlanHorario('Administrador', null, {
   acciones: { [ACCION_PLAN_HORARIO]: { porRol: { Administrador: false }, porUsuario: {} } },
 }), true);
+
+assert.equal(tieneAccionAsignarDescansos('Administrador'), true);
+assert.equal(tieneAccionAsignarDescansos('Cajero'), false);
+assert.equal(tieneAccionAsignarDescansos('Gerente'), false);
+assert.equal(tieneAccionAsignarDescansos('Gerente', null, {
+  acciones: { [ACCION_ASIGNAR_DESCANSOS]: { porRol: { Gerente: true }, porUsuario: {} } },
+}), true);
+assert.equal(tieneAccionAsignarDescansos('Cajero', 'u9', {
+  acciones: { [ACCION_ASIGNAR_DESCANSOS]: { porRol: {}, porUsuario: { u9: true } } },
+}), true);
+assert.equal(tieneAccionAsignarDescansos('Administrador', null, {
+  acciones: { [ACCION_ASIGNAR_DESCANSOS]: { porRol: { Administrador: false }, porUsuario: {} } },
+}), true);
+assert.equal(tieneAccionAsignarDescansos('Gerente', null, {
+  acciones: {
+    [ACCION_PLAN_HORARIO]: { porRol: { Gerente: true }, porUsuario: {} },
+    [ACCION_ASIGNAR_DESCANSOS]: { porRol: { Gerente: false }, porUsuario: {} },
+  },
+}), false);
 
 const conservado = fusionarPlanConUsuarios(
   asignarDescansoConCt(plan, filaLeitah, 1, { nombre: 'Mayre' }),

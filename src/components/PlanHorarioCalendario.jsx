@@ -44,6 +44,8 @@ import {
   etiquetaDiasCt,
 } from '../lib/cubreSolicitudes.js';
 import { esUsuarioCubreTurno } from '../lib/cubreTurno.js';
+import { tieneAccionAsignarDescansos } from '../lib/planHorarioAcciones.js';
+import Icon from './Icon.jsx';
 
 function colorTextoSobre(bg) {
   const hex = String(bg || '#fff').replace('#', '');
@@ -88,6 +90,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
   const [dragOver, setDragOver] = useState(null);
 
   const rol = normalizarRol(user?.rol);
+  const puedeAsignarDescansos = tieneAccionAsignarDescansos(user?.rol, user?.id);
   const puedeSolicitarDesdePlan = (rol === 'Cajero' || rol === 'Administrador' || rol === 'Gerente')
     && !esUsuarioCubreTurno(user);
 
@@ -96,7 +99,8 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
   const horarioFijo = Boolean(plan?.horarioFijo);
   const editandoSemana = horarioFijo && modoEdicion === 'semana';
   const editandoHabitual = !horarioFijo || modoEdicion === 'habitual';
-  const puedeEditar = editandoSemana || editandoHabitual;
+  /** Edición de plantilla/descansos: solo admin o privilegio «Asignar descansos». */
+  const puedeEditar = puedeAsignarDescansos && (editandoSemana || editandoHabitual);
   const hayOverrideSemana = useMemo(
     () => tieneOverrideSemana(plan, lunesSemana),
     [plan, lunesSemana],
@@ -278,12 +282,23 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
     dragRef.current = null;
     setDragOver(null);
     if (!from || !puedeEditar) return;
+    const filaFrom = plan.filas?.find((f) => f.id === from.filaId);
+    const filaTo = plan.filas?.find((f) => f.id === toFilaId);
+    const celFrom = filaFrom?.celdas?.[String(from.diaId)];
+    const celTo = filaTo?.celdas?.[String(toDia)];
+    const mueveDescanso = celFrom?.tipo === 'descanso' || celTo?.tipo === 'descanso';
+    if (mueveDescanso && !puedeAsignarDescansos) {
+      return alert('No tienes privilegio para mover descansos. Pídelo al administrador (Configuración → Privilegios → Checador).');
+    }
     aplicar(aplicarMovimiento(from.filaId, from.diaId, toFilaId, toDia));
     setSel({ filaId: toFilaId, diaId: toDia });
   };
 
   const marcarDescanso = (ct) => {
     if (!sel || !puedeEditar) return;
+    if (!puedeAsignarDescansos) {
+      return alert('No tienes privilegio para asignar descansos. Pídelo al administrador (Configuración → Privilegios → Checador).');
+    }
     aplicar(aplicarDescanso(sel.filaId, sel.diaId, ct || { nombre: ctManual.trim() || 'DESCANSO' }));
     setCtManual('');
   };
@@ -296,6 +311,9 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
   /** Quitar descanso y cancelar cualquier solicitud CT activa de la celda (trabajar el descanso). */
   const quitarDescansoYCt = async () => {
     if (!sel || !puedeEditar) return;
+    if (!puedeAsignarDescansos) {
+      return alert('No tienes privilegio para quitar/asignar descansos. Pídelo al administrador (Configuración → Privilegios → Checador).');
+    }
     const fila = plan.filas?.find((f) => f.id === sel.filaId);
     const ymd = ymdDeSel();
     const teniaCt = Boolean(celdaSel?.celda?.ctId || celdaSel?.celda?.ctNombre);
@@ -372,6 +390,9 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
   };
 
   const fijarHorario = (fijo) => {
+    if (!puedeAsignarDescansos) {
+      return alert('Solo el administrador o quien tenga el privilegio «Asignar descansos» puede fijar o quitar el candado.');
+    }
     if (fijo) {
       aplicar(setHorarioFijo(plan, true));
       setModoEdicion(null);
@@ -384,11 +405,17 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
   };
 
   const iniciarMoverSemana = () => {
+    if (!puedeAsignarDescansos) {
+      return alert('Solo el administrador o quien tenga el privilegio «Asignar descansos» puede mover descansos.');
+    }
     setModoEdicion('semana');
     setAviso(`Mueve el bloque DESCANSO solo en la semana del ${lunesSemana}. El descanso habitual (plantilla) no cambia.`);
   };
 
   const iniciarCambiarHabitual = () => {
+    if (!puedeAsignarDescansos) {
+      return alert('Solo el administrador o quien tenga el privilegio «Asignar descansos» puede cambiar el descanso habitual.');
+    }
     if (!confirm(
       '¿Cambiar el descanso habitual?\n\n'
       + 'El nuevo día de descanso queda en la plantilla fija (todas las semanas).\n'
@@ -404,6 +431,9 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
   };
 
   const restaurarSemana = () => {
+    if (!puedeAsignarDescansos) {
+      return alert('Solo el administrador o quien tenga el privilegio «Asignar descansos» puede restaurar descansos.');
+    }
     if (!hayOverrideSemana) return;
     if (!confirm('¿Quitar el movimiento de esta semana y volver al descanso fijo?')) return;
     aplicar(limpiarOverrideSemana(plan, lunesSemana));
@@ -434,6 +464,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
         </div>
       </div>
 
+      {puedeAsignarDescansos ? (
       <div
         style={{
           marginTop: '0.75rem',
@@ -453,8 +484,16 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
           onClick={() => fijarHorario(true)}
           disabled={horarioFijo && !modoEdicion}
           title="Bloquea los descansos de la plantilla L–D para que no se muevan por accidente"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
         >
-          {horarioFijo ? '🔒 Descansos fijos' : 'Fijar descansos'}
+          {horarioFijo ? (
+            <>
+              <Icon name="lock" size={14} />
+              Descansos fijos
+            </>
+          ) : (
+            'Fijar descansos'
+          )}
         </button>
         {horarioFijo ? (
           <>
@@ -504,6 +543,12 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
           </span>
         )}
       </div>
+      ) : (
+        <p className="muted" style={{ margin: '0.75rem 0 0', fontSize: '0.84rem' }}>
+          Solo consulta. Fijar, mover o quitar descansos es exclusivo del <strong>administrador</strong> o quien tenga el privilegio{' '}
+          <strong>Asignar descansos</strong> en Configuración → Privilegios → Checador.
+        </p>
+      )}
 
       {aviso && (
         <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.82rem' }}>{aviso}</p>
@@ -611,15 +656,18 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
 
           {!puedeEditar && (
             <p className="muted" style={{ margin: '0.55rem 0 0', fontSize: '0.82rem' }}>
-              El horario está fijo. Pulsa <strong>Mover esta semana</strong> o <strong>Cambiar horario habitual</strong> arriba para editar.
+              {puedeAsignarDescansos
+                ? <>El horario está fijo. Pulsa <strong>Mover esta semana</strong> o <strong>Cambiar horario habitual</strong> arriba para editar.</>
+                : <>Solo consulta. Marcar o mover descansos requiere privilegio de administrador (Configuración → Privilegios → Checador → Asignar descansos).</>}
             </p>
           )}
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.65rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.65rem', alignItems: 'center' }}>
             <button
               type="button"
               className={celdaSel.celda.tipo === 'turno' ? 'btn btn-primary' : 'btn btn-ghost'}
               disabled={!puedeEditar}
+              title={puedeAsignarDescansos ? undefined : 'Requiere privilegio Asignar descansos'}
               onClick={() => void quitarDescansoYCt()}
             >
               Turno
@@ -628,10 +676,16 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
               type="button"
               className={celdaSel.celda.tipo === 'descanso' ? 'btn btn-primary' : 'btn btn-ghost'}
               disabled={!puedeEditar}
+              title={puedeAsignarDescansos ? undefined : 'Requiere privilegio Asignar descansos'}
               onClick={() => marcarDescanso(candidatos.find((c) => c.id === celdaSel.celda.ctId) || { nombre: celdaSel.celda.ctNombre })}
             >
               Descanso
             </button>
+            {!puedeAsignarDescansos && (
+              <span className="muted" style={{ fontSize: '0.78rem' }}>
+                Solo admin o quien tenga «Asignar descansos» puede marcar/quitar descansos.
+              </span>
+            )}
           </div>
 
           <div style={{ marginTop: '0.7rem' }}>

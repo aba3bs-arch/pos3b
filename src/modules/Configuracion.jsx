@@ -163,7 +163,7 @@ import {
   ACCIONES_CHECADOR_PRIVILEGIO,
   ACCIONES_DEFAULT_CHECADOR_POR_ROL,
   DESCRIPCION_MODULO_CHECADOR,
-  tieneAccionPlanHorario,
+  tieneAccionChecador,
 } from '../lib/planHorarioAcciones.js';
 import {
   ACCIONES_VENTA_RUTA_PRIVILEGIO,
@@ -2201,12 +2201,12 @@ export default function Configuracion({
                 >
                   <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: 'var(--brand-gold-dark)' }}>Checador — Plan horario</h4>
                   <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
-                    Calendario semanal de todas las tiendas (turnos, descansos, colores y cubre turnos).
-                    El <strong>administrador</strong> siempre lo ve. Marca el privilegio para Gerente u otros roles / empleados.
+                    Ver el calendario y <strong>asignar/fijar descansos</strong> son privilegios aparte.
+                    El <strong>administrador</strong> siempre tiene ambos. Marca cada checkbox para Gerente u otros roles / empleados.
                   </p>
                   {ACCIONES_CHECADOR_PRIVILEGIO.map((acc) => {
                     const uidPriv = privModo === 'usuario' ? privKey : null;
-                    const checked = privKey ? tieneAccionPlanHorario(rolBase, uidPriv, privilegios) : false;
+                    const checked = privKey ? tieneAccionChecador(acc.id, rolBase, uidPriv, privilegios) : false;
                     const esDefecto = privKey && (ACCIONES_DEFAULT_CHECADOR_POR_ROL[normalizarRol(rolBase)] || []).includes(acc.id);
                     const explicito = privKey ? leerAccionPrivilegio(acc.id, privModo, privKey) : false;
                     return (
