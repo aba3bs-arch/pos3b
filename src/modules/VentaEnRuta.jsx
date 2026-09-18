@@ -28,7 +28,18 @@ import {
   verificarPinAdminCorteRuta,
 } from '../lib/ventaEnRuta.js';
 import { subcomandosVentaRutaVisibles, puedeAccionVentaRuta } from '../lib/ventaEnRutaAcciones.js';
+import {
+  AVISO_FALTA_RUTA_CAMIONES,
+  actualizarCamionRuta,
+  crearCamionRuta,
+  desactivarCamionRuta,
+  etiquetaCamion,
+  listarCamionesRuta,
+  reactivarCamionRuta,
+  slugCodigoCamion,
+} from '../lib/rutaCamiones.js';
 import { listarCreditosCobradosRuta } from '../lib/rutaCxc.js';
+import { listarRepartidores } from '../lib/controlEfectivo.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { stockEnUbicacion, ALMACEN_CENTRAL } from '../lib/inventarioMultitienda.js';
@@ -194,6 +205,9 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
         >
           <span style={{ fontSize: '0.9rem' }}>
             Vendedor en sesión: <strong>{vendedorSesion.nombre}</strong>
+            {vendedorSesion.camionEtiqueta ? (
+              <span className="muted"> · {vendedorSesion.camionEtiqueta}</span>
+            ) : null}
           </span>
           <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={cerrarSesionVendedor}>
             Cerrar sesión vendedor
@@ -228,6 +242,12 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           color={COLOR}
           items={subs.map((s) => ({ ...s, ayuda: s.desc, color: COLOR }))}
           onSelect={ir}
+        />
+      )}
+      {vista === 'camiones' && puede('ruta_camiones') && (
+        <VistaCamiones
+          supabase={supabase}
+          setAviso={setAviso}
         />
       )}
       {vista === 'carga' && puede('ruta_carga') && (
@@ -563,11 +583,344 @@ function PanelSesionAdminCorte({ supabase, user, sucursal, onSesion, setAviso })
   );
 }
 
+function VistaCamiones({ supabase, setAviso }) {
+  const [camiones, setCamiones] = useState([]);
+  const [usuarios, setUsuarios] = useState([]);
+  const [rtList, setRtList] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+  const [edit, setEdit] = useState(null);
+  const [form, setForm] = useState({
+    codigo: '',
+    placa: '',
+    alias: '',
+    usuarioId: '',
+    repartidorId: '',
+    notas: '',
+  });
+
+  const nombreUsuario = useMemo(() => {
+    const m = new Map();
+    for (const u of usuarios) m.set(String(u.id), u.nombre || u.id);
+    return m;
+  }, [usuarios]);
+
+  const nombreRt = useMemo(() => {
+    const m = new Map();
+    for (const r of rtList) m.set(String(r.id), r.nombre || r.id);
+    return m;
+  }, [rtList]);
+
+  const refrescar = useCallback(async () => {
+    setCargando(true);
+    const [c, u, rt] = await Promise.all([
+      listarCamionesRuta(supabase),
+      listarUsuariosRepartidores(supabase),
+      listarRepartidores(supabase).catch(() => []),
+    ]);
+    if (c.aviso) setAviso?.(c.aviso);
+    if (c.error) setAviso?.(c.error);
+    if (u.error) setAviso?.(u.error);
+    setCamiones(c.data || []);
+    setUsuarios(u.data || []);
+    setRtList(Array.isArray(rt) ? rt : []);
+    setCargando(false);
+  }, [supabase, setAviso]);
+
+  useEffect(() => { void refrescar(); }, [refrescar]);
+
+  const usuariosOcupados = useMemo(() => {
+    const s = new Set();
+    for (const c of camiones) {
+      if (c.activo !== false && c.usuario_id && (!edit || String(edit.id) !== String(c.id))) {
+        s.add(String(c.usuario_id));
+      }
+    }
+    return s;
+  }, [camiones, edit]);
+
+  const rtOcupados = useMemo(() => {
+    const s = new Set();
+    for (const c of camiones) {
+      if (c.activo !== false && c.repartidor_id && (!edit || String(edit.id) !== String(c.id))) {
+        s.add(String(c.repartidor_id));
+      }
+    }
+    return s;
+  }, [camiones, edit]);
+
+  const resetForm = () => {
+    setForm({ codigo: '', placa: '', alias: '', usuarioId: '', repartidorId: '', notas: '' });
+    setEdit(null);
+  };
+
+  const guardarNuevo = async () => {
+    setGuardando(true);
+    const r = await crearCamionRuta(supabase, {
+      codigo: form.codigo || form.alias || form.placa,
+      placa: form.placa,
+      alias: form.alias,
+      usuarioId: form.usuarioId || null,
+      repartidorId: form.repartidorId || null,
+      notas: form.notas,
+    });
+    setGuardando(false);
+    if (!r.ok) return alert(r.error);
+    resetForm();
+    void refrescar();
+  };
+
+  const guardarEdicion = async () => {
+    if (!edit?.id) return;
+    setGuardando(true);
+    const r = await actualizarCamionRuta(supabase, edit.id, {
+      codigo: edit.codigo,
+      placa: edit.placa,
+      alias: edit.alias,
+      usuarioId: edit.usuario_id || null,
+      repartidorId: edit.repartidor_id || null,
+      notas: edit.notas,
+      activo: edit.activo !== false,
+    });
+    setGuardando(false);
+    if (!r.ok) return alert(r.error);
+    resetForm();
+    void refrescar();
+  };
+
+  return (
+    <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
+      <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Camiones</h3>
+      <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+        Crea unidades y asígnalas a un usuario con rol Repartidor y/o a un recolector del Panel RT.
+        Cada persona activa solo puede tener un camión.
+      </p>
+
+      {!edit ? (
+        <div style={{
+          marginBottom: '1rem',
+          padding: '0.85rem',
+          background: `${COLOR}0d`,
+          borderRadius: 8,
+          display: 'grid',
+          gap: '0.65rem',
+        }}
+        >
+          <div style={{ display: 'grid', gap: '0.65rem', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+            <label className="muted" style={{ fontSize: '0.8rem' }}>
+              Código
+              <input
+                className="input"
+                style={{ marginTop: '0.35rem' }}
+                value={form.codigo}
+                placeholder="CAM-01"
+                onChange={(e) => setForm((f) => ({ ...f, codigo: e.target.value }))}
+                onBlur={() => setForm((f) => ({
+                  ...f,
+                  codigo: slugCodigoCamion(f.codigo) || f.codigo,
+                }))}
+              />
+            </label>
+            <label className="muted" style={{ fontSize: '0.8rem' }}>
+              Alias
+              <input
+                className="input"
+                style={{ marginTop: '0.35rem' }}
+                value={form.alias}
+                placeholder="Camión norte"
+                onChange={(e) => setForm((f) => ({ ...f, alias: e.target.value }))}
+              />
+            </label>
+            <label className="muted" style={{ fontSize: '0.8rem' }}>
+              Placa
+              <input
+                className="input"
+                style={{ marginTop: '0.35rem' }}
+                value={form.placa}
+                onChange={(e) => setForm((f) => ({ ...f, placa: e.target.value }))}
+              />
+            </label>
+          </div>
+          <label className="muted" style={{ fontSize: '0.8rem' }}>
+            Usuario Repartidor
+            <select
+              className="input"
+              style={{ marginTop: '0.35rem' }}
+              value={form.usuarioId}
+              onChange={(e) => setForm((f) => ({ ...f, usuarioId: e.target.value }))}
+            >
+              <option value="">— Sin usuario —</option>
+              {usuarios.map((u) => (
+                <option key={u.id} value={u.id} disabled={usuariosOcupados.has(String(u.id))}>
+                  {u.nombre}{usuariosOcupados.has(String(u.id)) ? ' (ya tiene camión)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="muted" style={{ fontSize: '0.8rem' }}>
+            Recolector Panel RT (opcional)
+            <select
+              className="input"
+              style={{ marginTop: '0.35rem' }}
+              value={form.repartidorId}
+              onChange={(e) => setForm((f) => ({ ...f, repartidorId: e.target.value }))}
+            >
+              <option value="">— Sin Panel RT —</option>
+              {rtList.map((r) => (
+                <option key={r.id} value={r.id} disabled={rtOcupados.has(String(r.id))}>
+                  {r.nombre}{rtOcupados.has(String(r.id)) ? ' (ya tiene camión)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="muted" style={{ fontSize: '0.8rem' }}>
+            Notas
+            <input
+              className="input"
+              style={{ marginTop: '0.35rem' }}
+              value={form.notas}
+              onChange={(e) => setForm((f) => ({ ...f, notas: e.target.value }))}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={guardando || (!form.usuarioId && !form.repartidorId)}
+            onClick={() => void guardarNuevo()}
+          >
+            {guardando ? 'Guardando…' : 'Crear camión'}
+          </button>
+        </div>
+      ) : (
+        <div style={{
+          marginBottom: '1rem',
+          padding: '0.85rem',
+          background: 'var(--surface-2, #f8fafc)',
+          borderRadius: 8,
+          display: 'grid',
+          gap: '0.65rem',
+        }}
+        >
+          <h4 style={{ margin: 0 }}>Editar · {etiquetaCamion(edit)}</h4>
+          <label className="muted" style={{ fontSize: '0.8rem' }}>
+            Código
+            <input className="input" style={{ marginTop: '0.35rem' }} value={edit.codigo || ''} onChange={(e) => setEdit((x) => ({ ...x, codigo: e.target.value }))} />
+          </label>
+          <label className="muted" style={{ fontSize: '0.8rem' }}>
+            Alias
+            <input className="input" style={{ marginTop: '0.35rem' }} value={edit.alias || ''} onChange={(e) => setEdit((x) => ({ ...x, alias: e.target.value }))} />
+          </label>
+          <label className="muted" style={{ fontSize: '0.8rem' }}>
+            Placa
+            <input className="input" style={{ marginTop: '0.35rem' }} value={edit.placa || ''} onChange={(e) => setEdit((x) => ({ ...x, placa: e.target.value }))} />
+          </label>
+          <label className="muted" style={{ fontSize: '0.8rem' }}>
+            Usuario Repartidor
+            <select className="input" style={{ marginTop: '0.35rem' }} value={edit.usuario_id || ''} onChange={(e) => setEdit((x) => ({ ...x, usuario_id: e.target.value || null }))}>
+              <option value="">— Sin usuario —</option>
+              {usuarios.map((u) => (
+                <option key={u.id} value={u.id} disabled={usuariosOcupados.has(String(u.id))}>{u.nombre}</option>
+              ))}
+            </select>
+          </label>
+          <label className="muted" style={{ fontSize: '0.8rem' }}>
+            Recolector Panel RT
+            <select className="input" style={{ marginTop: '0.35rem' }} value={edit.repartidor_id || ''} onChange={(e) => setEdit((x) => ({ ...x, repartidor_id: e.target.value || null }))}>
+              <option value="">— Sin Panel RT —</option>
+              {rtList.map((r) => (
+                <option key={r.id} value={r.id} disabled={rtOcupados.has(String(r.id))}>{r.nombre}</option>
+              ))}
+            </select>
+          </label>
+          <label className="muted" style={{ fontSize: '0.8rem' }}>
+            Notas
+            <input className="input" style={{ marginTop: '0.35rem' }} value={edit.notas || ''} onChange={(e) => setEdit((x) => ({ ...x, notas: e.target.value }))} />
+          </label>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-primary" disabled={guardando} onClick={() => void guardarEdicion()}>Guardar</button>
+            <button type="button" className="btn btn-ghost" onClick={resetForm}>Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {cargando ? (
+        <p className="muted">Cargando camiones…</p>
+      ) : !camiones.length ? (
+        <p className="muted">
+          Aún no hay camiones. Si falla al guardar, ejecuta <code>supabase/fix_ruta_camiones.sql</code> en Supabase.
+        </p>
+      ) : (
+        <div>
+          {camiones.map((c) => (
+            <div
+              key={c.id}
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.55rem 0',
+                borderBottom: '1px solid var(--border, #e2e8f0)',
+                flexWrap: 'wrap',
+              }}
+            >
+              <span>
+                <strong>{etiquetaCamion(c)}</strong>
+                <span className="muted" style={{ display: 'block', fontSize: '0.78rem' }}>
+                  {c.activo === false ? 'Inactivo' : 'Activo'}
+                  {c.usuario_id ? ` · ${nombreUsuario.get(String(c.usuario_id)) || c.usuario_id}` : ''}
+                  {c.repartidor_id ? ` · RT ${nombreRt.get(String(c.repartidor_id)) || c.repartidor_id}` : ''}
+                  {c.placa ? ` · placa ${c.placa}` : ''}
+                </span>
+              </span>
+              <span style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                <button type="button" className="btn btn-ghost" style={{ fontSize: '0.75rem' }} onClick={() => { setEdit({ ...c }); }}>
+                  Editar
+                </button>
+                {c.activo !== false ? (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ fontSize: '0.75rem', color: 'var(--brand-gold-dark, #b45309)' }}
+                    disabled={guardando}
+                    onClick={async () => {
+                      const r = await desactivarCamionRuta(supabase, c.id);
+                      if (!r.ok) return alert(r.error);
+                      void refrescar();
+                    }}
+                  >
+                    Desactivar
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ fontSize: '0.75rem', color: 'var(--brand-green, #15803d)' }}
+                    disabled={guardando}
+                    onClick={async () => {
+                      const r = await reactivarCamionRuta(supabase, c.id);
+                      if (!r.ok) return alert(r.error);
+                      void refrescar();
+                    }}
+                  >
+                    Reactivar
+                  </button>
+                )}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusionarProducto }) {
   const [lineas, setLineas] = useState([]);
   const [codigo, setCodigo] = useState('');
   const [qty, setQty] = useState('1');
   const [repartidores, setRepartidores] = useState([]);
+  const [camiones, setCamiones] = useState([]);
   const [repartidorId, setRepartidorId] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [cargandoRep, setCargandoRep] = useState(true);
@@ -580,19 +933,35 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     let cancel = false;
     (async () => {
       setCargandoRep(true);
-      const r = await listarUsuariosRepartidores(supabase);
+      const [r, c] = await Promise.all([
+        listarUsuariosRepartidores(supabase),
+        listarCamionesRuta(supabase, { soloActivos: true }),
+      ]);
       if (cancel) return;
       if (r.error) setAviso(r.error);
+      if (c.aviso && c.aviso !== AVISO_FALTA_RUTA_CAMIONES) setAviso(c.aviso);
+      if (c.error) setAviso(c.error);
       setRepartidores(r.data || []);
+      setCamiones(c.data || []);
       setCargandoRep(false);
     })();
     return () => { cancel = true; };
   }, [supabase, setAviso]);
 
+  const camionPorUsuario = useMemo(() => {
+    const m = new Map();
+    for (const c of camiones) {
+      if (c.usuario_id) m.set(String(c.usuario_id), c);
+    }
+    return m;
+  }, [camiones]);
+
   const repartidorSel = useMemo(
     () => repartidores.find((u) => String(u.id) === String(repartidorId)) || null,
     [repartidores, repartidorId],
   );
+
+  const camionSel = repartidorSel ? camionPorUsuario.get(String(repartidorSel.id)) || null : null;
 
   const agregar = () => {
     const { producto } = buscarProductoInventario(inventario, codigo);
@@ -622,11 +991,15 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
   const crear = async () => {
     if (!lineas.length) return alert('Agrega productos.');
     if (!repartidorSel) return alert('Selecciona un repartidor (usuarios con rol Repartidor).');
-    if (!confirm(`¿Cargar camión para ${repartidorSel.nombre}? Se descuenta de ${NOMBRE_ALMACEN_RUTA}.`)) return;
+    const etiqueta = camionSel
+      ? `${etiquetaCamion(camionSel)} · ${repartidorSel.nombre}`
+      : repartidorSel.nombre;
+    if (!confirm(`¿Cargar camión para ${etiqueta}? Se descuenta de ${NOMBRE_ALMACEN_RUTA}.`)) return;
     setGuardando(true);
     const r = await crearCargaRuta(supabase, {
       vendedorNombre: repartidorSel.nombre,
       vendedorId: repartidorSel.id,
+      camionId: camionSel?.id || null,
       lineas,
       usuarioNombre: user?.nombre,
       rol: user?.rol,
@@ -642,7 +1015,7 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     if (cargarDatos) void cargarDatos();
     const n = (r.patches || []).length;
     alert(
-      `Carga ${r.carga?.folio || ''} creada para ${repartidorSel.nombre}.\n`
+      `Carga ${r.carga?.folio || ''} creada para ${etiqueta}.\n`
       + `Stock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.`,
     );
     setLineas([]);
@@ -652,7 +1025,8 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Carga de camión</h3>
       <p className="muted" style={{ fontSize: '0.8rem' }}>
-        Elige un repartidor con rol Repartidor. Al crear la carga se descuenta el inventario de {NOMBRE_ALMACEN_RUTA}.
+        Elige un repartidor. Si tiene camión asignado (menú Camiones), se registra en la carga.
+        Al crear se descuenta el inventario de {NOMBRE_ALMACEN_RUTA}.
       </p>
       <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
         Repartidor
@@ -664,11 +1038,25 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
           disabled={cargandoRep}
         >
           <option value="">{cargandoRep ? 'Cargando…' : '— Seleccionar repartidor —'}</option>
-          {repartidores.map((u) => (
-            <option key={u.id} value={u.id}>{u.nombre}</option>
-          ))}
+          {repartidores.map((u) => {
+            const cam = camionPorUsuario.get(String(u.id));
+            return (
+              <option key={u.id} value={u.id}>
+                {u.nombre}{cam ? ` · ${etiquetaCamion(cam)}` : ' · sin camión'}
+              </option>
+            );
+          })}
         </select>
       </label>
+      {repartidorSel && (
+        <p style={{ margin: '0 0 0.65rem', fontSize: '0.85rem' }}>
+          {camionSel ? (
+            <>Camión asignado: <strong>{etiquetaCamion(camionSel)}</strong></>
+          ) : (
+            <span className="muted">Sin camión asignado — créalo en «Camiones».</span>
+          )}
+        </p>
+      )}
       {!cargandoRep && repartidores.length === 0 && (
         <p className="muted" style={{ fontSize: '0.8rem', color: 'var(--danger, #b91c1c)' }}>
           No hay usuarios activos con rol Repartidor. Créalos en Usuarios.

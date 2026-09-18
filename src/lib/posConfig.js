@@ -414,6 +414,7 @@ export const ACCIONES_PRIVILEGIO = [
   { id: 'recol_ctb_eliminar', label: 'Panel RT — Eliminar registros' },
   { id: 'recol_ctb_gastos', label: 'Panel RT — Gastos / liberar efectivo' },
   { id: 'recol_ctb_cuentas', label: 'Panel RT — Cuentas Francisco / Andrés' },
+  { id: 'ruta_camiones', label: 'Venta en Ruta — Camiones' },
   { id: 'ruta_carga', label: 'Venta en Ruta — Carga de camión' },
   { id: 'ruta_precios', label: 'Venta en Ruta — Precios de ruta' },
   { id: 'ruta_clientes', label: 'Venta en Ruta — Clientes externos' },
