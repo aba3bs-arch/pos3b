@@ -673,6 +673,49 @@ export function esDescansoEnPlanHorario(plan, usuarioId, ymdOrDate) {
 }
 
 /**
+ * Fechas YMD de DESCANSO en el plan (plantilla u override) para una semana.
+ * Útil al guardar el plan: esos días no deben contar como falta en bono.
+ *
+ * @param {object} plan
+ * @param {string} lunesYmd
+ * @returns {Array<{ usuarioId: string, nombre: string, sucursalId: string, fechaYmd: string }>}
+ */
+export function listarDescansosPlanSemana(plan, lunesYmd) {
+  const lunes = String(lunesYmd || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(lunes)) return [];
+  const [y, m, d] = lunes.split('-').map(Number);
+  const base = new Date(y, m - 1, d, 12, 0, 0);
+  if (Number.isNaN(base.getTime()) || base.getDay() !== 1) return [];
+
+  const p = normalizarPlan(plan);
+  /** @type {Array<{ usuarioId: string, nombre: string, sucursalId: string, fechaYmd: string }>} */
+  const out = [];
+  for (const fila of p.filas || []) {
+    if (fila.tipo !== 'empleado' || fila.usuario_id == null) continue;
+    const uid = String(fila.usuario_id).trim();
+    if (!uid) continue;
+    const celdas = celdasEfectivasFila(p, fila, base);
+    for (let i = 0; i < 7; i += 1) {
+      const dt = new Date(base);
+      dt.setDate(base.getDate() + i);
+      const diaId = dt.getDay();
+      const celda = normalizarCelda(celdas[String(diaId)]);
+      if (celda.tipo !== 'descanso') continue;
+      const yy = dt.getFullYear();
+      const mm = String(dt.getMonth() + 1).padStart(2, '0');
+      const dd = String(dt.getDate()).padStart(2, '0');
+      out.push({
+        usuarioId: uid,
+        nombre: String(fila.nombre || '').trim() || 'Sin nombre',
+        sucursalId: String(fila.sucursal_id || '').trim(),
+        fechaYmd: `${yy}-${mm}-${dd}`,
+      });
+    }
+  }
+  return out;
+}
+
+/**
  * Celda efectiva del plan para ese empleado/día (override de semana o plantilla).
  * Útil para saber si el plan manda (turno vs descanso) esa semana.
  */

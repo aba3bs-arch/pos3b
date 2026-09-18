@@ -268,7 +268,7 @@ export default function PlanHorarioCalendario({ supabase, user, sucursal }) {
     } else if (res.remoto && res.remoto.ok === false) {
       setAviso(res.remoto.error || 'No se pudo guardar en la nube. Quedó en este equipo.');
     } else {
-      setAviso('Plan horario guardado.');
+      setAviso('Plan horario guardado. Los DESCANSO del plan no cuentan como falta en bono.');
     }
     setDirty(false);
   }, [plan, supabase]);

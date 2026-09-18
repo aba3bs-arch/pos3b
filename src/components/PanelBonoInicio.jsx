@@ -5,6 +5,7 @@ import { EVENTO_BONOS_CONFIG, calcularPagosBonoPorEmpleado } from '../lib/bonosC
 import { EVENTO_RESULTADO_INVENTARIO } from '../lib/resultadoInventario.js';
 import { calcularBonoSucursal } from '../lib/bonosData.js';
 import { EVENTO_DESCANSOS_AUTORIZADOS } from '../lib/descansosAutorizados.js';
+import { EVENTO_PLAN_HORARIO } from '../lib/planHorarioSync.js';
 import {
   DIAS_BLOQUEO_BONO_POR_FALTA,
   cargarBloqueosBonoPorFalta,
@@ -83,12 +84,14 @@ export default function PanelBonoInicio({
     window.addEventListener(EVENTO_BONOS_CONFIG, onCfg);
     window.addEventListener(EVENTO_RESULTADO_INVENTARIO, onCfg);
     window.addEventListener(EVENTO_DESCANSOS_AUTORIZADOS, onCfg);
+    window.addEventListener(EVENTO_PLAN_HORARIO, onCfg);
     const t = setInterval(load, 5 * 60 * 1000);
     return () => {
       ok = false;
       window.removeEventListener(EVENTO_BONOS_CONFIG, onCfg);
       window.removeEventListener(EVENTO_RESULTADO_INVENTARIO, onCfg);
       window.removeEventListener(EVENTO_DESCANSOS_AUTORIZADOS, onCfg);
+      window.removeEventListener(EVENTO_PLAN_HORARIO, onCfg);
       clearInterval(t);
     };
   }, [supabase, sucursal, inventario]);
@@ -219,7 +222,8 @@ export default function PanelBonoInicio({
           Sin bono por falta (empleados de tienda)
         </h4>
         <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.74rem' }}>
-          Quien tiene falta vigente queda en <strong>0%</strong>. Descanso (plan / patrón / autorizado) no es falta.
+          Quien tiene falta vigente queda en <strong>0%</strong>. Descanso del plan horario
+          (Checador → Plan) o descanso autorizado no es falta.
           Recuperan el bono {DIAS_BLOQUEO_BONO_POR_FALTA} días después de la última falta (si no vuelven a faltar).
         </p>
         {avisoDescansos ? (

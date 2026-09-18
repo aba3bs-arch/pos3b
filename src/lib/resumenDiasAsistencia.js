@@ -17,7 +17,7 @@ import {
 } from './descansosAutorizados.js'
 import { resolverTipoEmpleado } from './empleadosVisibles.js'
 import { normalizarNombreEmpleado } from './nominaMatch.js'
-import { esDescansoEnPlanHorario, celdaPlanEmpleadoDia, diaDescansoPlanEmpleado, tieneOverrideSemana } from './planHorario.js'
+import { celdaPlanEmpleadoDia, tieneOverrideSemana } from './planHorario.js'
 import { leerPlanHorarioLocal, sincronizarPlanHorarioDesdeNube } from './planHorarioSync.js'
 import { normalizarRol } from './roles.js'
 import { ymdLocal } from './semanaNomina.js'
@@ -442,11 +442,11 @@ export function sugerirFechaDescansoHabitual(user, fechaNuevaYmd) {
  * ¿Ese día el empleado de tienda debía trabajar?
  *
  * Orden (si alguno dice descanso → NO es falta):
- * 1) Descanso autorizado ese día (cambio de descanso / permiso)
- * 2) Semana actual + plan: la celda manda (permite mover descanso a miércoles)
- * 3) Plan horario descanso (otras semanas)
- * 4) Descanso habitual (domingo 6+1 / patrón), sin reinterpretar como falta
- *    cuando el plan ya movió el descanso a otro día
+ * 1) Descanso autorizado ese día (Panel Autorizar / cambio de descanso)
+ * 2) Semana actual u override de semana (Checador → Plan horario): la celda manda
+ *    (permite que el domingo deje de ser descanso si lo movieron a miércoles)
+ * 3) Cualquier semana: si el plan marca DESCANSO → no es falta (plantilla L–D)
+ * 4) Descanso habitual (domingo 6+1 / patrón turno_horario)
  * 5) Patrón de días del empleado
  * 6) Sin info: laboral
  *
@@ -461,33 +461,32 @@ export function diaLaborableParaBono(user, ymd, ctx = {}) {
   const uid = user.id != null ? String(user.id) : ''
   const hoy = ctx.hoy || null
   const enSemanaActual = hoy ? mismaSemanaLaboral(ymd, hoy) : false
+  const hayOverride = Boolean(ctx.plan && tieneOverrideSemana(ctx.plan, date))
 
-  // 1) Autorización puntual (cambio de descanso)
+  // 1) Autorización puntual (cambio de descanso / permiso)
   if (uid && ctx.descansosAutSet?.has(claveDescansoAutorizado(uid, ymd))) {
     return false
   }
 
   const celdaPlan = uid && ctx.plan ? celdaPlanEmpleadoDia(ctx.plan, uid, date) : null
-  const descansoPlanActual = uid && ctx.plan ? diaDescansoPlanEmpleado(ctx.plan, uid) : null
   const habitual = diaDescansoHabitualEmpleado(user)
 
-  // 2) Semana con override puntual, o semana actual: la celda efectiva manda
-  //    (ej. descanso movido a miércoles solo esa semana sin tocar el fijo).
-  //    No se aplica la plantilla actual a semanas pasadas sin override.
-  const usaCeldaPlan = Boolean(
-    celdaPlan && (enSemanaActual || (ctx.plan && tieneOverrideSemana(ctx.plan, date))),
-  )
-  if (usaCeldaPlan) {
+  // 2) Semana actual, override de semana, o sin “hoy” (tests): la celda efectiva manda.
+  //    Así un domingo deja de ser descanso si en el plan lo movieron a otro día.
+  const usaCeldaCompleta = Boolean(celdaPlan && (enSemanaActual || hayOverride || !hoy))
+  if (usaCeldaCompleta) {
     return celdaPlan.tipo !== 'descanso'
   }
 
-  // 3) Descanso habitual (domingo típico / patrón) en semanas pasadas o sin plan.
-  if (date.getDay() === habitual) {
+  // 3) Otras semanas: el DESCANSO del plan horario nunca es falta
+  //    (referencia Checador → Plan horario). No forzamos turnos de plantilla
+  //    nueva sobre el pasado; el habitual cubre el domingo típico.
+  if (celdaPlan && celdaPlan.tipo === 'descanso') {
     return false
   }
 
-  // 4) Autorización ya cubierta; plan descanso solo si no hay “hoy” (tests sin semana actual)
-  if (!hoy && uid && ctx.plan && esDescansoEnPlanHorario(ctx.plan, uid, date)) {
+  // 4) Descanso habitual (domingo típico / patrón)
+  if (date.getDay() === habitual) {
     return false
   }
 
@@ -500,7 +499,6 @@ export function diaLaborableParaBono(user, ymd, ctx = {}) {
   if (hasDias) return Boolean(turnoIdParaUsuario(user, date))
 
   // 6) Sin patrón: laboral
-  if (descansoPlanActual != null && !hoy && date.getDay() === descansoPlanActual) return false
   return true
 }
 

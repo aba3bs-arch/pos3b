@@ -67,8 +67,10 @@ export async function listarDescansosAutorizados(supabase, {
 export function setClavesDescansosAutorizados(rows = []) {
   const set = new Set();
   for (const r of rows || []) {
-    const k = claveDescansoAutorizado(r.usuario_id, r.fecha);
-    if (k && !k.startsWith('|')) set.add(k);
+    const uid = r.usuario_id ?? r.usuarioId ?? r.user_id ?? '';
+    const fecha = r.fecha ?? r.fechaYmd ?? r.ymd ?? '';
+    const k = claveDescansoAutorizado(uid, fecha);
+    if (k && !k.startsWith('|') && !k.endsWith('|')) set.add(k);
   }
   return set;
 }
@@ -181,4 +183,44 @@ export async function revocarDescansoAutorizado(supabase, id) {
   }
   emit();
   return { ok: true };
+}
+
+/**
+ * Tras guardar Checador → Plan horario: registra como autorizados los DESCANSO
+ * de la semana visible, para que el bono no los tome como falta.
+ *
+ * @param {object} supabase
+ * @param {Array<{ usuarioId: string, nombre?: string, sucursalId: string, fechaYmd: string }>} items
+ * @param {{ autorizadoPor?: string, autorizadoPorRol?: string, motivo?: string }} [meta]
+ */
+export async function autorizarDescansosDesdePlan(supabase, items = [], meta = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.', autorizados: 0 };
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) return { ok: true, autorizados: 0 };
+  const motivo = String(meta.motivo || '').trim() || 'Descanso según plan horario';
+  let okCount = 0;
+  let lastError = null;
+  let falta = false;
+  for (const it of list) {
+    const res = await autorizarDescanso(supabase, {
+      usuarioId: it.usuarioId,
+      nombre: it.nombre,
+      sucursalId: it.sucursalId,
+      fechaYmd: it.fechaYmd,
+      motivo,
+      autorizadoPor: meta.autorizadoPor || '',
+      autorizadoPorRol: meta.autorizadoPorRol || '',
+    });
+    if (res.ok) okCount += 1;
+    else {
+      lastError = res.error || lastError;
+      if (res.faltaTabla) falta = true;
+    }
+  }
+  return {
+    ok: !falta && (!lastError || okCount > 0),
+    autorizados: okCount,
+    error: lastError || undefined,
+    faltaTabla: falta || undefined,
+  };
 }

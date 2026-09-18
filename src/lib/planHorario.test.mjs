@@ -21,6 +21,7 @@ import {
   tieneOverrideSemana,
   limpiarOverrideSemana,
   claveLunesSemana,
+  listarDescansosPlanSemana,
   normalizarPlan,
 } from './planHorario.js';
 import { tieneAccionPlanHorario, ACCION_PLAN_HORARIO } from './planHorarioAcciones.js';
@@ -132,5 +133,14 @@ assert.ok(!tieneOverrideSemana(fijo, '2026-09-16'));
 assert.equal(celdaPlanEmpleadoDia(fijo, 1, '2026-09-16').tipo, 'turno');
 assert.equal(normalizarPlan({ filas: [] }).horarioFijo, false);
 assert.deepEqual(normalizarPlan({ filas: [], horarioFijo: true }).overridesSemana, {});
+
+{
+  const conDescanso = asignarDescansoConCt(plan, filaLeitah, 0, { nombre: 'Samuel' });
+  const descansos = listarDescansosPlanSemana(conDescanso, '2026-09-14');
+  assert.ok(
+    descansos.some((d) => String(d.usuarioId) === '1' && d.fechaYmd === '2026-09-20'),
+    'domingo Leitah en listarDescansosPlanSemana',
+  );
+}
 
 console.log('planHorario.test.mjs OK');
