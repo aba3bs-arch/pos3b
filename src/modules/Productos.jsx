@@ -529,13 +529,29 @@ export default function Productos({
       );
     }
     const patch = patchToggleFavoritoSucursal(p, sucursal);
+    const {
+      esErrorColumnaFavoritosSucursales,
+      marcarFavoritosSucursalesColumnaAusente,
+      marcarFavoritosSucursalesColumnaOk,
+      guardarFavoritosSucursalesLocal,
+      limpiarFavoritosSucursalesLocal,
+    } = await import('../lib/favoritosSucursalesPersistencia.js');
+
     let { error } = await supabase.from('productos').update(patch).eq('id', p.id);
-    if (error && String(error.message || '').includes('favoritos_sucursales')) {
+    if (error && esErrorColumnaFavoritosSucursales(error)) {
+      marcarFavoritosSucursalesColumnaAusente();
+      guardarFavoritosSucursalesLocal(p.id, patch.favoritos_sucursales);
       const retry = await supabase.from('productos').update({ en_favoritos: patch.en_favoritos }).eq('id', p.id);
       error = retry.error;
       if (!error) {
-        alert('Favorito guardado solo global: falta columna favoritos_sucursales.\nEjecuta: supabase/fix_productos_favoritos_sucursales.sql');
+        // Actualiza UI de inmediato con el mapa local (sin alerta molesta).
+        fusionarProducto?.({ ...p, ...patch });
+        cargarDatos();
+        return;
       }
+    } else if (!error) {
+      marcarFavoritosSucursalesColumnaOk();
+      limpiarFavoritosSucursalesLocal(p.id);
     }
     if (error) {
       const aviso = mensajeErrorColumnasProducto(error);
@@ -589,17 +605,31 @@ export default function Productos({
     }
     let { data: saved, error } = await supabase.from('productos').upsert([payload]).select('*').single();
     if (error && String(error.message || '').includes('favoritos_sucursales')) {
+      const {
+        esErrorColumnaFavoritosSucursales,
+        marcarFavoritosSucursalesColumnaAusente,
+        guardarFavoritosSucursalesLocal,
+      } = await import('../lib/favoritosSucursalesPersistencia.js');
+      if (esErrorColumnaFavoritosSucursales(error)) {
+        marcarFavoritosSucursalesColumnaAusente();
+        if (payload.favoritos_sucursales) {
+          guardarFavoritosSucursalesLocal(payload.id, payload.favoritos_sucursales);
+        }
+      }
       const { favoritos_sucursales: _omitFav, ...sinFavMap } = payload;
       const retryFav = await supabase.from('productos').upsert([sinFavMap]).select('*').single();
       if (!retryFav.error) {
-        alert(
-          'Guardado sin favoritos por sucursal: falta la columna en Supabase.\nEjecuta: supabase/fix_productos_favoritos_sucursales.sql',
-        );
-        saved = retryFav.data;
+        saved = { ...retryFav.data, favoritos_sucursales: payload.favoritos_sucursales || {} };
         error = null;
       } else {
         error = retryFav.error;
       }
+    } else if (!error && payload.id) {
+      const { marcarFavoritosSucursalesColumnaOk, limpiarFavoritosSucursalesLocal } = await import(
+        '../lib/favoritosSucursalesPersistencia.js'
+      );
+      marcarFavoritosSucursalesColumnaOk();
+      limpiarFavoritosSucursalesLocal(payload.id);
     }
     if (error && String(error.message || '').includes('codigos_alt')) {
       const { codigos_alt: _omit, ...sinAlt } = payload;
