@@ -192,6 +192,7 @@ function App() {
   const [productosDestinoTraspaso, setProductosDestinoTraspaso] = useState(null);
   const [productosLineasTraspaso, setProductosLineasTraspaso] = useState(null);
   const [productosNotasTraspaso, setProductosNotasTraspaso] = useState(null);
+  const [productosTraspasoIdInicial, setProductosTraspasoIdInicial] = useState(null);
   const [comprasCompraIdInicial, setComprasCompraIdInicial] = useState(null);
   const [sucursal, setSucursal] = useState(sucursalInicial);
   const [tiendaFijadaParaAcceso, setTiendaFijadaParaAcceso] = useState(() => {
@@ -591,6 +592,12 @@ function App() {
         setProductosDestinoTraspaso(opts.destinoTraspaso || null);
         setProductosLineasTraspaso(opts.lineasTraspaso || null);
         setProductosNotasTraspaso(opts.notasTraspaso || null);
+        setProductosTraspasoIdInicial(opts.traspasoId || null);
+        const sucRec = normalizarCodigoTienda(opts.sucursalRecepcion);
+        if (sucRec && sucRec !== normalizarCodigoTienda(sucursal)) {
+          setSucursal(sucRec);
+          guardarSucursalLocal(sucRec);
+        }
       }
       if (m === 'Compras') {
         setComprasCompraIdInicial(opts.compraId || null);
@@ -1503,11 +1510,13 @@ function App() {
               destinoTraspasoInicial={productosDestinoTraspaso}
               lineasTraspasoInicial={productosLineasTraspaso}
               notasTraspasoInicial={productosNotasTraspaso}
+              traspasoIdInicial={productosTraspasoIdInicial}
               onVistaInicialConsumida={() => {
                 setProductosVistaInicial(null);
                 setProductosDestinoTraspaso(null);
                 setProductosLineasTraspaso(null);
                 setProductosNotasTraspaso(null);
+                setProductosTraspasoIdInicial(null);
               }}
             />
           )}

@@ -8,7 +8,14 @@ import {
   esAlmacenCentral,
   stockEnUbicacion,
 } from './inventarioMultitienda.js';
-import { etiquetaTienda, equivalentesCodigoTienda, listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
+import {
+  etiquetaTienda,
+  equivalentesCodigoTienda,
+  esSucursalRuta,
+  listarSucursalesOperativas,
+  normalizarCodigoTienda,
+  SUCURSAL_RUTA,
+} from '../constants/sucursales.js';
 import { guardarMovimientoLocal, aplicarDeltaStockAtomico } from './inventarioMovimientos.js';
 import {
   generarFolioTrp,
@@ -95,6 +102,7 @@ function guardarLocal(list) {
 }
 
 export function etiquetaOrigenTraspaso(codigo) {
+  if (esSucursalRuta(codigo)) return 'Venta en ruta';
   if (esAlmacenCentral(codigo)) return 'CEDIS · almacén';
   return etiquetaTienda(codigo);
 }
@@ -217,8 +225,10 @@ export async function listarTraspasos(supabase, { sucursal, rol } = {}) {
 
 /** Envíos pendientes de recibir en esta sucursal. */
 export function filtrarParaRecibir(traspasos, sucursal) {
-  const suc = normalizarCodigoTienda(sucursal);
-  return (traspasos || []).filter((t) => t.tipo === 'envio' && t.estado === 'enviado' && t.destino_id === suc);
+  const destinos = new Set(equivalentesCodigoTienda(sucursal).map((c) => normalizarCodigoTienda(c)));
+  return (traspasos || []).filter(
+    (t) => t.tipo === 'envio' && t.estado === 'enviado' && destinos.has(normalizarCodigoTienda(t.destino_id)),
+  );
 }
 
 /** Solicitudes que debo atender (yo soy el origen). */
@@ -795,6 +805,66 @@ export function stockOrigenDisponible(producto, origenId) {
 export function stockDestinoDisponible(producto, destinoId) {
   const d = normalizarCodigoTienda(destinoId);
   return stockVistaProducto(producto, d, 'piso');
+}
+
+/**
+ * Traspaso post-venta en ruta: documento ya «enviado» sin descontar stock de origen.
+ * El camión ya bajó qty_vendida; la sucursal recibe el inventario comprometido en Traspasos → Recibir.
+ */
+export async function crearTraspasoEnviadoDesdeRuta(supabase, {
+  destinoId,
+  lineas = [],
+  notas = '',
+  usuario,
+  folioVenta = '',
+} = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
+  const d = normalizarCodigoTienda(destinoId);
+  if (!d || esAlmacenCentral(d) || !listarSucursalesOperativas().includes(d)) {
+    return { ok: false, error: 'Sucursal destino no válida para el traspaso.' };
+  }
+  const items = normalizarLineasTraspasoIniciales(lineas);
+  if (!items.length) return { ok: false, error: 'Sin artículos para el traspaso.' };
+
+  const folio = await siguienteFolioTrp(supabase, d);
+  const now = new Date().toISOString();
+  const notaFinal = String(
+    notas || `Venta en ruta ${folioVenta || ''} · envío a ${etiquetaTienda(d)}`.trim(),
+  ).trim() || null;
+
+  const row = {
+    id: crypto.randomUUID?.() || `loc-${Date.now()}`,
+    folio,
+    tipo: 'envio',
+    estado: 'enviado',
+    origen_id: SUCURSAL_RUTA,
+    destino_id: d,
+    ubicacion_origen: 'cedis',
+    ubicacion_destino: 'piso',
+    notas: notaFinal,
+    usuario_crea: usuario || null,
+    usuario_envia: usuario || null,
+    usuario_recibe: null,
+    solicitud_id: null,
+    lineas: items,
+    created_at: now,
+    enviado_at: now,
+    recibido_at: null,
+  };
+
+  const saved = await upsertTraspaso(supabase, row, { requireCloud: true });
+  if (!saved.ok) return saved;
+
+  return {
+    ok: true,
+    id: saved.data?.id || row.id,
+    traspaso: saved.data || row,
+    folio,
+    aviso: saved.aviso,
+    mensaje:
+      `Traspaso ${folio} enviado a ${etiquetaTienda(d)} (inventario comprometido). `
+      + 'La sucursal lo recibe en Productos → Traspasos → Recibir.',
+  };
 }
 
 /**

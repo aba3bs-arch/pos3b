@@ -80,6 +80,7 @@ export default function Traspasos({
   destinoInicial,
   lineasIniciales,
   notasIniciales,
+  traspasoIdInicial,
 }) {
   const catalogo = inventarioCompleto || inventario || [];
   const sucursalOp = normalizarCodigoTienda(sucursal) || 'MAIN';
@@ -121,13 +122,14 @@ export default function Traspasos({
     const dest = normalizarCodigoTienda(destinoInicial);
     if (!dest) return;
     if (!destinos.includes(dest) && dest !== sucursalOp) return;
-    // No abrir envío origen === destino (p. ej. venta ruta mal dirigida a Traspasos).
+    // No abrir envío origen === destino.
     if (dest === sucursalOp) {
       setAviso(
         'No se puede enviar un traspaso a la misma tienda. '
-        + 'La mercancía de venta en ruta se recibe en Compras (pedido pendiente).',
+        + 'Si vienes de venta en ruta, abre la pestaña Recibir: el envío ya quedó como inventario comprometido.',
       );
       setPaso(null);
+      setTab('recibir');
       return;
     }
     setTab('enviar');
@@ -140,6 +142,19 @@ export default function Traspasos({
     // catalogo solo enriquece nombre/costo al abrir desde ruta
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [destinoInicial, destinos, sucursalOp, lineasIniciales, notasIniciales]);
+
+  // Deep-link desde venta en ruta: abrir Recibir con el traspaso enviado.
+  useEffect(() => {
+    const id = String(traspasoIdInicial || '').trim();
+    if (!id) return;
+    setTab('recibir');
+    setPaso(null);
+    const doc = (lista || []).find((t) => String(t.id) === id);
+    if (doc) {
+      setDetalleRecibir(doc);
+      setAviso(`Traspaso ${doc.folio || ''} de venta en ruta · inventario comprometido pendiente de recibir.`);
+    }
+  }, [traspasoIdInicial, lista]);
 
   const reload = useCallback(async () => {
     setCargando(true);

@@ -203,7 +203,7 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
         <h2 style={{ margin: 0, color: COLOR }}>Venta en Ruta</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
           {NOMBRE_ALMACEN_RUTA} → camión → POS. Efectivo a tránsito · Crédito lo paga el cajero con PIN ·
-          mercancía a Compras (lista para recibir).
+          mercancía a la tienda por Traspasos (inventario comprometido hasta recibir).
         </p>
       </div>
       {aviso && (
@@ -1645,7 +1645,9 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
         : r.cuenta === 'credito'
           ? 'Crédito pendiente (cajero paga con PIN)'
           : 'Efectivo en tránsito',
-      r.compraId ? 'Pedido en Compras listo para recibir en la tienda' : null,
+      r.traspasoId
+        ? `Traspaso ${r.traspasoFolio || ''} enviado · pendiente de recibir en la tienda`
+        : null,
     ].filter(Boolean).join(' · ');
     alert(`Venta ${r.venta?.folio || ''} OK.\n${extra}`);
     omitirGuardadoRef.current = true;
@@ -1653,13 +1655,13 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
     setCarrito([]);
     setMostrarCobro(false);
     setQtyEditId(null);
-    // Conserva destino; persiste carrito vacío + clienteKey para la siguiente venta.
     guardarCarritoPosRuta(vendedorSesion, { clienteKey: clienteKeyRef.current, carrito: [] });
     setTickCamion((t) => t + 1);
-    // La tienda recibe en Compras (pedido), no en Traspasos (origen ≠ destino).
-    if (tipo === 'sucursal' && r.compraId) {
-      onNavigate?.('Compras', {
-        compraId: r.compraId,
+    // La tienda recibe el inventario comprometido en Productos → Traspasos → Recibir.
+    if (tipo === 'sucursal' && r.traspasoId) {
+      onNavigate?.('Productos', {
+        vista: 'traspaso',
+        traspasoId: r.traspasoId,
         sucursalRecepcion: id,
       });
     }

@@ -113,6 +113,7 @@ export default function Productos({
   destinoTraspasoInicial = null,
   lineasTraspasoInicial = null,
   notasTraspasoInicial = null,
+  traspasoIdInicial = null,
   onVistaInicialConsumida,
 }) {
   const [vista, setVista] = useState('lista');
@@ -120,6 +121,7 @@ export default function Productos({
   const [destinoTraspasoLocal, setDestinoTraspasoLocal] = useState(null);
   const [lineasTraspasoLocal, setLineasTraspasoLocal] = useState(null);
   const [notasTraspasoLocal, setNotasTraspasoLocal] = useState(null);
+  const [traspasoIdLocal, setTraspasoIdLocal] = useState(null);
   const [form, setForm] = useState(empty);
   const [q, setQ] = useState('');
   const [proveedores, setProveedores] = useState([]);
@@ -224,16 +226,20 @@ export default function Productos({
   }, [vista, puedeEliminarCatalogo]);
 
   useEffect(() => {
-    if (vista === 'traspaso' && !puedeTraspasos) setVista('lista');
-  }, [vista, puedeTraspasos]);
+    if (vista === 'traspaso' && !puedeTraspasos && !permitirTraspasoDesdeRuta) setVista('lista');
+  }, [vista, puedeTraspasos, permitirTraspasoDesdeRuta]);
 
   useEffect(() => {
     if (!vistaInicial) return;
-    if (vistaInicial === 'traspaso' && tieneAccionProducto('prod_traspaso', user?.rol, user?.id)) {
+    if (
+      vistaInicial === 'traspaso'
+      && (tieneAccionProducto('prod_traspaso', user?.rol, user?.id) || traspasoIdInicial)
+    ) {
       setPermitirTraspasoDesdeRuta(true);
       setDestinoTraspasoLocal(destinoTraspasoInicial || null);
       setLineasTraspasoLocal(Array.isArray(lineasTraspasoInicial) ? lineasTraspasoInicial : null);
       setNotasTraspasoLocal(notasTraspasoInicial || null);
+      setTraspasoIdLocal(traspasoIdInicial || null);
       setVista('traspaso');
     }
     onVistaInicialConsumida?.();
@@ -1482,7 +1488,7 @@ export default function Productos({
         />
       )}
 
-      {vista === 'traspaso' && puedeTraspasos && (
+      {vista === 'traspaso' && (puedeTraspasos || permitirTraspasoDesdeRuta) && (
           <Traspasos
             supabase={supabase}
             inventario={inventario}
@@ -1495,6 +1501,7 @@ export default function Productos({
             destinoInicial={destinoTraspasoLocal || undefined}
             lineasIniciales={lineasTraspasoLocal || undefined}
             notasIniciales={notasTraspasoLocal || undefined}
+            traspasoIdInicial={traspasoIdLocal || undefined}
           />
         )}
 
