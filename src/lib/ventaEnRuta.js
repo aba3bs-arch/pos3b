@@ -416,6 +416,32 @@ export async function listarUsuariosRepartidores(supabase) {
 }
 
 /**
+ * Destinatarios de carga de camión: todos los usuarios activos
+ * (no solo rol Repartidor), para poder cargar a quien tenga unidad asignada.
+ */
+export async function listarUsuariosParaCargaRuta(supabase) {
+  if (!supabase) return { data: [] };
+  const { data, error } = await supabase
+    .from('usuarios')
+    .select('id, nombre, rol, sucursal_id, activo')
+    .order('nombre')
+    .limit(500);
+  if (error) return { data: [], error: error.message };
+  const list = (data || [])
+    .filter((u) => u?.activo !== false)
+    .map((u) => ({
+      id: u.id,
+      nombre: u.nombre || u.id,
+      rol: u.rol,
+      sucursal_id: u.sucursal_id,
+      etiqueta: esRolRepartidor(u.rol)
+        ? (u.nombre || u.id)
+        : `${u.nombre || u.id} · ${u.rol || 'usuario'}`,
+    }));
+  return { data: list };
+}
+
+/**
  * Vendedores para login POS: usuarios Repartidor + recolectores del Panel RT
  * (tabla repartidores), enlazados por nombre cuando hay usuario.
  */
@@ -933,7 +959,7 @@ export async function lineasDeCarga(supabase, cargaId) {
 
 /**
  * Crea carga y descuenta inventario de CEDIS (centro de distribución).
- * El repartidor debe ser un usuario con rol Repartidor.
+ * Destinatario: cualquier usuario activo (típicamente el dueño del camión).
  * @param {Array<{productoId, nombre, precio, cantidad}>} lineas
  */
 export async function crearCargaRuta(supabase, { vendedorNombre, vendedorId, camionId, notas, lineas, usuarioNombre, rol, userId, inventario = [] } = {}) {
@@ -943,7 +969,7 @@ export async function crearCargaRuta(supabase, { vendedorNombre, vendedorId, cam
   const repId = String(vendedorId || '').trim();
   const repNombre = String(vendedorNombre || '').trim();
   if (!repId || !repNombre) {
-    return { ok: false, error: 'Selecciona un repartidor con rol Repartidor.' };
+    return { ok: false, error: 'Selecciona el usuario / repartidor destinatario de la carga.' };
   }
   if (supabase) {
     const { data: uRep, error: eRep } = await supabase
@@ -953,10 +979,7 @@ export async function crearCargaRuta(supabase, { vendedorNombre, vendedorId, cam
       .maybeSingle();
     if (eRep) return { ok: false, error: eRep.message };
     if (!uRep || uRep.activo === false) {
-      return { ok: false, error: 'El repartidor seleccionado no existe o está inactivo.' };
-    }
-    if (!esRolRepartidor(uRep.rol)) {
-      return { ok: false, error: 'El usuario seleccionado no tiene rol Repartidor.' };
+      return { ok: false, error: 'El usuario seleccionado no existe o está inactivo.' };
     }
   }
   const items = (lineas || [])

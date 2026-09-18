@@ -131,6 +131,8 @@ export function guardarCorteRutaLocal(row) {
     fecha: row.fecha || new Date().toISOString().slice(0, 10),
     carga_id: row.carga_id || null,
     carga_folio: row.carga_folio || null,
+    camion_id: row.camion_id || null,
+    camion_etiqueta: row.camion_etiqueta || null,
     vendedor_id: row.vendedor_id || null,
     vendedor_nombre: row.vendedor_nombre || null,
     tickets: Number(row.tickets) || 0,
