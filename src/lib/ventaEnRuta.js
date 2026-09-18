@@ -1,7 +1,7 @@
 /**
  * Venta en Ruta POS v2
  * MAIN (CEDIS) → carga camión → POS móvil → efectivo en tránsito / crédito CxC
- * → pedido en Compras para la sucursal.
+ * → traspaso enviado a la sucursal (recepción en Productos → Traspasos).
  */
 
 import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda, ALMACEN_CENTRAL } from '../constants/sucursales.js';
@@ -16,6 +16,7 @@ import { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
 import { puedeAccionVentaRuta } from './ventaEnRutaAcciones.js';
 import { buscarUsuarioPorPinYSucursal } from './usuariosAuth.js';
 import { listarRepartidores } from './controlEfectivo.js';
+import { crearTraspasoEnviadoDesdeRuta } from './traspasosInventario.js';
 
 export { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
 
@@ -1205,8 +1206,9 @@ export async function crearCargaRuta(supabase, {
 
 // ─── Efectivo en tránsito: ver rutaTransito.js (reexport arriba) ───
 
-// ─── Pedido en Compras (lista para recibir) ───────────────────────
+// ─── Pedido en Compras (legado; la recepción ahora es por traspaso) ─────────
 
+/** @deprecated Usar crearTraspasoEnviadoDesdeRuta vía registrarVentaRuta. */
 export async function crearPedidoCompraDesdeVentaRuta(supabase, {
   sucursalId,
   folioVenta: folio,
@@ -1422,30 +1424,46 @@ export async function registrarVentaRuta(supabase, {
   }
 
   let compraId = null;
+  let traspasoId = null;
+  let traspasoFolio = null;
   let transitoId = null;
   const avisos = [];
 
   async function enlazarVenta(extra = {}) {
     const patch = { ...extra };
     if (compraId) patch.compra_id = compraId;
+    if (traspasoId) patch.traspaso_id = traspasoId;
     if (transitoId) patch.transito_id = String(transitoId);
     if (!Object.keys(patch).length) return;
     const { error: eLink } = await supabase.from('ruta_ventas').update(patch).eq('id', venta.id);
-    if (eLink) avisos.push(`enlace venta: ${eLink.message}`);
+    if (eLink) {
+      // Columna traspaso_id aún no migrada: reintentar sin ella.
+      if (patch.traspaso_id && /traspaso_id/i.test(eLink.message || '')) {
+        const { traspaso_id: _omit, ...sinTrp } = patch;
+        if (Object.keys(sinTrp).length) {
+          const r2 = await supabase.from('ruta_ventas').update(sinTrp).eq('id', venta.id);
+          if (r2.error) avisos.push(`enlace venta: ${r2.error.message}`);
+        }
+        avisos.push('Ejecuta supabase/fix_ruta_ventas_traspaso.sql para guardar traspaso_id en la venta.');
+      } else {
+        avisos.push(`enlace venta: ${eLink.message}`);
+      }
+    }
   }
 
-  // Sucursal propia → pedido pendiente de recepción
+  // Sucursal propia → traspaso enviado (inventario comprometido; recibe en Traspasos)
   if (tipoCli === 'sucursal') {
-    const ped = await crearPedidoCompraDesdeVentaRuta(supabase, {
-      sucursalId: clienteId,
+    const trp = await crearTraspasoEnviadoDesdeRuta(supabase, {
+      destinoId: clienteId,
+      lineas: arts,
       folioVenta: folio,
-      articulos: arts,
-      total,
-      vendedorNombre,
+      usuario: vendedorNombre,
+      notas: `Venta en ruta ${folio} · ${vendedorNombre || ''}`.trim(),
     });
-    if (!ped.ok) return { ok: false, error: ped.error || 'No se creó el pedido en Compras.' };
-    compraId = ped.id;
-    // Enlazar de inmediato: si falla tránsito/CxC después, no perder compra_id
+    if (!trp.ok) return { ok: false, error: trp.error || 'No se creó el traspaso hacia la sucursal.' };
+    traspasoId = trp.id;
+    traspasoFolio = trp.folio || trp.traspaso?.folio || null;
+    if (trp.aviso) avisos.push(trp.aviso);
     await enlazarVenta();
   }
 
@@ -1464,7 +1482,9 @@ export async function registrarVentaRuta(supabase, {
         ok: false,
         error: tr.error || 'No se registró efectivo en tránsito.',
         compraId,
-        venta: { ...venta, compra_id: compraId },
+        traspasoId,
+        traspasoFolio,
+        venta: { ...venta, compra_id: compraId, traspaso_id: traspasoId },
         avisos: avisos.length ? avisos : undefined,
       };
     }
@@ -1491,7 +1511,9 @@ export async function registrarVentaRuta(supabase, {
         ok: false,
         error: cxc.error || 'No se registró el crédito.',
         compraId,
-        venta: { ...venta, compra_id: compraId },
+        traspasoId,
+        traspasoFolio,
+        venta: { ...venta, compra_id: compraId, traspaso_id: traspasoId },
         avisos: avisos.length ? avisos : undefined,
       };
     }
@@ -1501,9 +1523,11 @@ export async function registrarVentaRuta(supabase, {
 
   return {
     ok: true,
-    venta: { ...venta, compra_id: compraId, transito_id: transitoId },
+    venta: { ...venta, compra_id: compraId, traspaso_id: traspasoId, transito_id: transitoId },
     cuenta: mp === 'mixto' ? 'mixto' : mp === 'credito' ? 'credito' : 'efectivo',
     compraId,
+    traspasoId,
+    traspasoFolio,
     transitoId,
     montoEfectivo: montoEfe,
     montoCredito: montoCre,
