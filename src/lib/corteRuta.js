@@ -93,7 +93,7 @@ export function construirTicketCorteRuta(corte = {}, extras = {}) {
   ].filter((x) => Number(x.monto) > 0);
 
   const vendedor = corte.vendedor_nombre || extras.vendedorNombre || '—';
-  const cerradoPor = corte.usuario || extras.usuarioCierra || null;
+  const cerradoPor = corte.admin_nombre || extras.adminNombre || corte.usuario || extras.usuarioCierra || null;
   const credito = round2(corte.credito ?? extras.credito ?? 0);
   const notasExtra = [
     corte.notas || extras.notas || null,
@@ -145,6 +145,8 @@ export function guardarCorteRutaLocal(row) {
     por_metodo: row.por_metodo || {},
     notas: row.notas || '',
     usuario: row.usuario || null,
+    admin_id: row.admin_id || null,
+    admin_nombre: row.admin_nombre || null,
   };
   const prev = leerLocal().filter((c) => c.id !== id);
   guardarLocal([item, ...prev]);

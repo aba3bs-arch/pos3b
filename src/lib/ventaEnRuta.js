@@ -15,8 +15,18 @@ import { registrarCargoCreditoRuta } from './rutaCxc.js';
 import { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
 import { puedeAccionVentaRuta } from './ventaEnRutaAcciones.js';
 import { buscarUsuarioPorPinYSucursal } from './usuariosAuth.js';
+import { listarRepartidores } from './controlEfectivo.js';
 
 export { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
+
+function normNombrePersona(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
 
 const LS_CLIENTES = 'pos3b_ruta_clientes';
 const LS_CARGAS = 'pos3b_ruta_cargas';
@@ -406,45 +416,160 @@ export async function listarUsuariosRepartidores(supabase) {
 }
 
 /**
- * Valida PIN del vendedor/repartidor seleccionado para abrir sesión de POS o corte.
- * El PIN debe corresponder al usuario elegido (no al admin de la caja).
+ * Vendedores para login POS: usuarios Repartidor + recolectores del Panel RT
+ * (tabla repartidores), enlazados por nombre cuando hay usuario.
  */
-export async function verificarPinRepartidorRuta(supabase, {
+export async function listarVendedoresSesionRuta(supabase) {
+  if (!supabase) return { data: [], aviso: null };
+  const [usuariosRes, rtList] = await Promise.all([
+    supabase.from('usuarios').select('id, nombre, rol, sucursal_id, activo').order('nombre').limit(500),
+    listarRepartidores(supabase).catch(() => []),
+  ]);
+  if (usuariosRes.error) return { data: [], error: usuariosRes.error.message };
+
+  const usuarios = (usuariosRes.data || []).filter((u) => u?.activo !== false);
+  const byName = new Map();
+  for (const u of usuarios) {
+    const k = normNombrePersona(u.nombre);
+    if (k && !byName.has(k)) byName.set(k, u);
+  }
+
+  const out = [];
+  const seen = new Set();
+
+  for (const u of usuarios) {
+    if (!esRolRepartidor(u.rol)) continue;
+    const id = String(u.id);
+    seen.add(id);
+    out.push({
+      id,
+      nombre: u.nombre || id,
+      rol: u.rol,
+      sucursal_id: u.sucursal_id,
+      fuente: 'usuario',
+      usuario_id: id,
+      repartidor_id: null,
+      etiqueta: u.nombre || id,
+    });
+  }
+
+  for (const rt of rtList || []) {
+    if (!rt?.id || rt.activo === false) continue;
+    const uMatch = byName.get(normNombrePersona(rt.nombre));
+    const usuarioId = uMatch ? String(uMatch.id) : null;
+    const id = usuarioId || `rt:${rt.id}`;
+    if (seen.has(id) || (usuarioId && seen.has(usuarioId))) {
+      // Ya listado como Repartidor: anotar vínculo RT
+      const prev = out.find((x) => String(x.usuario_id) === String(usuarioId) || String(x.id) === String(usuarioId));
+      if (prev) {
+        prev.repartidor_id = String(rt.id);
+        prev.etiqueta = `${prev.nombre} · RT`;
+      }
+      continue;
+    }
+    seen.add(id);
+    out.push({
+      id,
+      nombre: rt.nombre || rt.id,
+      rol: uMatch?.rol || 'Repartidor',
+      sucursal_id: uMatch?.sucursal_id || null,
+      fuente: usuarioId ? 'usuario+rt' : 'rt',
+      usuario_id: usuarioId,
+      repartidor_id: String(rt.id),
+      etiqueta: usuarioId ? `${rt.nombre} · RT` : `${rt.nombre} · Panel RT`,
+    });
+  }
+
+  out.sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));
+  return { data: out };
+}
+
+/** Administradores / gerentes para autenticar el corte de caja de ruta. */
+export async function listarAdministradoresCorteRuta(supabase) {
+  if (!supabase) return { data: [] };
+  const { data, error } = await supabase
+    .from('usuarios')
+    .select('id, nombre, rol, sucursal_id, activo')
+    .order('nombre')
+    .limit(500);
+  if (error) return { data: [], error: error.message };
+  const list = (data || []).filter((u) => {
+    if (u?.activo === false) return false;
+    const r = normalizarRol(u.rol);
+    return r === 'Administrador' || r === 'Gerente';
+  });
+  return { data: list };
+}
+
+/**
+ * PIN del vendedor para POS: usuario (usuarios.pin) o recolector Panel RT (repartidores.pin).
+ */
+export async function verificarPinVendedorSesionRuta(supabase, {
   pin,
-  repartidorId,
+  vendedorId,
   sucursal,
+  vendedores = null,
 } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const p = String(pin || '').trim();
-  const idEsperado = String(repartidorId || '').trim();
+  const idSel = String(vendedorId || '').trim();
   if (!p) return { ok: false, error: 'Ingresa el PIN del vendedor.' };
-  if (!idEsperado) return { ok: false, error: 'Selecciona el vendedor / repartidor.' };
+  if (!idSel) return { ok: false, error: 'Selecciona el vendedor.' };
 
+  let lista = vendedores;
+  if (!Array.isArray(lista)) {
+    const r = await listarVendedoresSesionRuta(supabase);
+    if (r.error) return { ok: false, error: r.error };
+    lista = r.data || [];
+  }
+  const sel = lista.find((v) => String(v.id) === idSel);
+  if (!sel) return { ok: false, error: 'Vendedor no encontrado.' };
+
+  // Panel RT puro: PIN en tabla repartidores
+  if (sel.fuente === 'rt' && sel.repartidor_id) {
+    try {
+      const { data: rt, error } = await supabase
+        .from('repartidores')
+        .select('id, nombre, pin, activo')
+        .eq('id', sel.repartidor_id)
+        .maybeSingle();
+      if (error) return { ok: false, error: error.message };
+      if (!rt || rt.activo === false) return { ok: false, error: 'Recolector inactivo.' };
+      if (String(rt.pin || '') !== p) return { ok: false, error: 'PIN incorrecto.' };
+      return {
+        ok: true,
+        user: {
+          id: sel.id,
+          nombre: rt.nombre || sel.nombre,
+          rol: 'Repartidor',
+          fuente: 'rt',
+          usuario_id: null,
+          repartidor_id: String(rt.id),
+        },
+      };
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) };
+    }
+  }
+
+  // Usuario (con o sin vínculo RT)
+  const uid = String(sel.usuario_id || sel.id);
   const { data, error } = await supabase
     .from('usuarios')
     .select('id, nombre, rol, sucursal_id, activo')
     .eq('pin', p)
     .limit(20);
   if (error) {
-    // Respaldo: búsqueda por sucursal (misma lógica de login de caja)
     const auth = await buscarUsuarioPorPinYSucursal(supabase, p, sucursal, { aceptarPersonalCentral: true });
     if (auth.error) return { ok: false, error: auth.error };
     if (!auth.user) {
       return {
         ok: false,
-        error: auth.avisoSucursal
-          ? 'PIN no válido en esta sucursal.'
-          : 'PIN incorrecto.',
+        error: auth.avisoSucursal ? 'PIN no válido en esta sucursal.' : 'PIN incorrecto.',
       };
     }
-    if (String(auth.user.id) !== idEsperado) {
+    if (String(auth.user.id) !== uid) {
       return { ok: false, error: 'El PIN no corresponde al vendedor seleccionado.' };
-    }
-    if (!esRolRepartidor(auth.user.rol)) {
-      return { ok: false, error: 'El usuario no tiene rol Repartidor.' };
-    }
-    if (auth.user.activo === false) {
-      return { ok: false, error: 'Este usuario está inactivo.' };
     }
     return {
       ok: true,
@@ -453,18 +578,18 @@ export async function verificarPinRepartidorRuta(supabase, {
         nombre: auth.user.nombre,
         rol: auth.user.rol,
         sucursal_id: auth.user.sucursal_id,
+        fuente: sel.fuente || 'usuario',
+        usuario_id: auth.user.id,
+        repartidor_id: sel.repartidor_id || null,
       },
     };
   }
 
   const list = (data || []).filter((u) => u?.activo !== false);
-  const match = list.find((u) => String(u.id) === idEsperado);
+  const match = list.find((u) => String(u.id) === uid);
   if (!match) {
     if (list.length) return { ok: false, error: 'El PIN no corresponde al vendedor seleccionado.' };
     return { ok: false, error: 'PIN incorrecto.' };
-  }
-  if (!esRolRepartidor(match.rol)) {
-    return { ok: false, error: 'El usuario no tiene rol Repartidor.' };
   }
   return {
     ok: true,
@@ -473,8 +598,61 @@ export async function verificarPinRepartidorRuta(supabase, {
       nombre: match.nombre,
       rol: match.rol,
       sucursal_id: match.sucursal_id,
+      fuente: sel.fuente || 'usuario',
+      usuario_id: match.id,
+      repartidor_id: sel.repartidor_id || null,
     },
   };
+}
+
+/**
+ * PIN de administrador/gerente para abrir el corte de ruta.
+ */
+export async function verificarPinAdminCorteRuta(supabase, {
+  pin,
+  adminId,
+  sucursal,
+} = {}) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const p = String(pin || '').trim();
+  const idEsperado = String(adminId || '').trim();
+  if (!p) return { ok: false, error: 'Ingresa el PIN del administrador.' };
+  if (!idEsperado) return { ok: false, error: 'Selecciona el administrador.' };
+
+  const auth = await buscarUsuarioPorPinYSucursal(supabase, p, sucursal, { aceptarPersonalCentral: true });
+  if (auth.error) return { ok: false, error: auth.error };
+  if (!auth.user) {
+    return {
+      ok: false,
+      error: auth.avisoSucursal ? 'PIN no válido en esta sucursal.' : 'PIN incorrecto.',
+    };
+  }
+  if (String(auth.user.id) !== idEsperado) {
+    return { ok: false, error: 'El PIN no corresponde al administrador seleccionado.' };
+  }
+  const r = normalizarRol(auth.user.rol);
+  if (r !== 'Administrador' && r !== 'Gerente') {
+    return { ok: false, error: 'Solo Administrador o Gerente pueden hacer el corte de ruta.' };
+  }
+  if (auth.user.activo === false) return { ok: false, error: 'Usuario inactivo.' };
+  return {
+    ok: true,
+    user: {
+      id: auth.user.id,
+      nombre: auth.user.nombre,
+      rol: auth.user.rol,
+      sucursal_id: auth.user.sucursal_id,
+    },
+  };
+}
+
+/** @deprecated usar verificarPinVendedorSesionRuta */
+export async function verificarPinRepartidorRuta(supabase, opts = {}) {
+  return verificarPinVendedorSesionRuta(supabase, {
+    pin: opts.pin,
+    vendedorId: opts.repartidorId || opts.vendedorId,
+    sucursal: opts.sucursal,
+  });
 }
 
 /** Precio especial de ruta (sin impuestos). */

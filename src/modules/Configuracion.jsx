@@ -29,7 +29,6 @@ import {
   limpiarPrivilegiosRol,
   limpiarPrivilegiosUsuario,
   ACCIONES_PRIVILEGIO_PANEL_RT,
-  ACCIONES_PRIVILEGIO_VENTA_RUTA,
   leerAccionPrivilegio,
   guardarAccionPrivilegio,
   guardarAccionPrivilegioExplicit,
@@ -166,6 +165,11 @@ import {
   DESCRIPCION_MODULO_CHECADOR,
   tieneAccionPlanHorario,
 } from '../lib/planHorarioAcciones.js';
+import {
+  ACCIONES_VENTA_RUTA_PRIVILEGIO,
+  ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL,
+  tieneAccionVentaRuta,
+} from '../lib/ventaEnRutaAcciones.js';
 import {
   leerVentanaRecoleccion,
   guardarVentanaRecoleccion,
@@ -2099,27 +2103,40 @@ export default function Configuracion({
                     borderLeft: '4px solid #0f766e',
                   }}
                 >
-                  <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: '#0f766e' }}>Venta en Ruta — acciones especiales</h4>
-                  <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.82rem' }}>
-                    Submódulos del hub (carga, POS, créditos por pagar, liquidación, etc.). El administrador siempre tiene acceso.
-                    Sin checkbox: Gerente ve administración; quien tenga el módulo «Venta en Ruta» ve POS, corte, preinventario y créditos.
+                  <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem', color: '#0f766e' }}>Venta en Ruta — panel del repartidor</h4>
+                  <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
+                    Qué ve cada rol en el hub de <strong>Venta en Ruta</strong> (POS, preinventario, carga, corte, etc.).
+                    El <strong>administrador</strong> siempre tiene todo. Marca o desmarca para otorgar o quitar al rol / empleado
+                    (el checkbox manda sobre el default: Repartidor → POS + preinventario; Cajero → créditos; Gerente → todo).
                   </p>
-                  {ACCIONES_PRIVILEGIO_VENTA_RUTA.map((acc) => {
-                    const checked = privKey ? leerAccionPrivilegio(acc.id, privModo, privKey) : false;
+                  {ACCIONES_VENTA_RUTA_PRIVILEGIO.map((acc) => {
+                    const uidPriv = privModo === 'usuario' ? privKey : null;
+                    const checked = privKey ? tieneAccionVentaRuta(acc.id, rolBase, uidPriv, privilegios) : false;
+                    const esDefecto = privKey && (ACCIONES_DEFAULT_VENTA_RUTA_POR_ROL[normalizarRol(rolBase)] || []).includes(acc.id);
+                    const explicito = privKey ? leerAccionPrivilegio(acc.id, privModo, privKey) : false;
                     return (
-                      <label key={acc.id} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.88rem', marginBottom: '0.35rem' }}>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          disabled={!privKey}
-                          onChange={(e) => {
-                            if (!privKey) return;
-                            const next = guardarAccionPrivilegio(acc.id, privModo, privKey, e.target.checked);
-                            aplicarAccionYSubir(next);
-                          }}
-                        />
-                        {acc.label}
-                      </label>
+                      <div key={acc.id} style={{ marginBottom: '0.5rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem', fontSize: '0.88rem' }}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={!privKey}
+                            style={{ marginTop: '0.2rem' }}
+                            onChange={(e) => {
+                              if (!privKey) return;
+                              const next = guardarAccionPrivilegioExplicit(acc.id, privModo, privKey, e.target.checked);
+                              aplicarAccionYSubir(next);
+                            }}
+                          />
+                          <span>
+                            <strong>{acc.label}</strong>
+                            {esDefecto && !explicito && checked && (
+                              <span className="muted" style={{ marginLeft: '0.35rem', fontSize: '0.72rem' }}>(por defecto del rol)</span>
+                            )}
+                            <div className="muted" style={{ fontSize: '0.78rem', marginTop: '0.15rem', lineHeight: 1.35 }}>{acc.desc}</div>
+                          </span>
+                        </label>
+                      </div>
                     );
                   })}
                 </div>
