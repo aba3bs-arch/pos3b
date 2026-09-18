@@ -37,11 +37,10 @@ export const BONOS_TURNO_DEFAULT = {
 };
 
 /**
- * Modelo de pago (penalizaciones desde 100% del tabulador):
- * - Faltante de efectivo = $0 → requisito (gastos de corte, subcategoría FALTANTE).
- * - Check list: 4 a 6 días llenados OK; si < 4 días → −20%.
- * - Evaluación operativa < 70% → −20%.
- * - Inventario (merma) > 6% → −60%.
+ * Modelo de pago justo (penalizaciones desde 100% del tabulador):
+ * - 4 lineamientos: cero faltante, check list, evaluación, inventario (merma).
+ * - Cada lineamiento fallido → −25% → 100% / 75% / 50% / 25% / 0%.
+ * - Empleado de tienda con falta vigente → 0% (ecuación por nombre en Inicio).
  * El checklist NO define un monto de bono; solo afecta ese %.
  */
 export const BONOS_CONFIG_DEFAULT = {
@@ -55,8 +54,10 @@ export const BONOS_CONFIG_DEFAULT = {
   reglas: {
     faltanteCero: {
       activo: true,
-      label: 'Faltante de efectivo = $0 (requisito)',
-      esRequisito: true,
+      label: 'Cero faltante de efectivo',
+      /** Si true, faltante deja el % en 0 de golpe. Default false: −25% como los demás. */
+      esRequisito: false,
+      penalizacionPct: 25,
     },
     checklistDiario: {
       activo: true,
@@ -64,19 +65,19 @@ export const BONOS_CONFIG_DEFAULT = {
       diasEsperados: 6,
       /** Penaliza si días con checklist son estrictamente menores a este valor. */
       diasPenalizaSiHasta: 4,
-      penalizacionPct: 20,
+      penalizacionPct: 25,
     },
     evaluacionMinPct: {
       activo: true,
       label: 'Evaluación operativa',
       minPct: 70,
-      penalizacionPct: 20,
+      penalizacionPct: 25,
     },
     mermaMaxPct: {
       activo: true,
       label: 'Inventario (merma)',
       maxPct: 6,
-      penalizacionPct: 60,
+      penalizacionPct: 25,
     },
   },
   /**
@@ -150,7 +151,7 @@ export function normalizarBonosConfig(raw) {
   const r = raw && typeof raw === 'object' ? raw : {};
   const reglasIn = r.reglas && typeof r.reglas === 'object' ? r.reglas : {};
   const modo = r.modoCalculo === 'reglas' ? 'reglas' : 'penalizaciones';
-  // Primera vez con modelo de penalizaciones: subir umbrales viejos (2.5% / 75%) a 6% / 70%.
+  // Primera vez / configs viejas: umbrales 2.5%/75% → 6%/70%; castigos 20/20/60 → 25.
   const migrarUmbrales = r.modoCalculo == null
     && reglasIn.mermaMaxPct?.penalizacionPct == null
     && reglasIn.evaluacionMinPct?.penalizacionPct == null;
@@ -160,6 +161,18 @@ export function normalizarBonosConfig(raw) {
   const evalMinDefault = migrarUmbrales && Number(reglasIn.evaluacionMinPct?.minPct) === 75
     ? base.reglas.evaluacionMinPct.minPct
     : num(reglasIn.evaluacionMinPct?.minPct, base.reglas.evaluacionMinPct.minPct);
+  const migrarPen25 = (val, viejo) => {
+    const n = Number(val);
+    if (!Number.isFinite(n)) return base.reglas.checklistDiario.penalizacionPct;
+    if (n === viejo) return 25;
+    return n;
+  };
+  const penCheckIn = reglasIn.checklistDiario?.penalizacionPct;
+  const penEvalIn = reglasIn.evaluacionMinPct?.penalizacionPct;
+  const penMermaIn = reglasIn.mermaMaxPct?.penalizacionPct;
+  const penCheck = penCheckIn == null ? 25 : migrarPen25(penCheckIn, 20);
+  const penEval = penEvalIn == null ? 25 : migrarPen25(penEvalIn, 20);
+  const penMerma = penMermaIn == null ? 25 : migrarPen25(penMermaIn, 60);
   return {
     activo: r.activo !== false,
     periodo: r.periodo === 'dia' ? 'dia' : 'semana',
@@ -170,7 +183,11 @@ export function normalizarBonosConfig(raw) {
       faltanteCero: {
         activo: reglasIn.faltanteCero?.activo !== false,
         label: String(reglasIn.faltanteCero?.label || base.reglas.faltanteCero.label),
-        esRequisito: reglasIn.faltanteCero?.esRequisito !== false,
+        esRequisito: reglasIn.faltanteCero?.esRequisito === true,
+        penalizacionPct: Math.max(0, Math.min(100, round2(num(
+          reglasIn.faltanteCero?.penalizacionPct,
+          base.reglas.faltanteCero.penalizacionPct,
+        )))),
       },
       checklistDiario: {
         activo: reglasIn.checklistDiario?.activo !== false,
@@ -183,28 +200,19 @@ export function normalizarBonosConfig(raw) {
           reglasIn.checklistDiario?.diasPenalizaSiHasta,
           base.reglas.checklistDiario.diasPenalizaSiHasta,
         ))),
-        penalizacionPct: Math.max(0, Math.min(100, round2(num(
-          reglasIn.checklistDiario?.penalizacionPct,
-          base.reglas.checklistDiario.penalizacionPct,
-        )))),
+        penalizacionPct: Math.max(0, Math.min(100, round2(penCheck))),
       },
       evaluacionMinPct: {
         activo: reglasIn.evaluacionMinPct?.activo !== false,
         label: String(reglasIn.evaluacionMinPct?.label || base.reglas.evaluacionMinPct.label),
         minPct: round2(evalMinDefault),
-        penalizacionPct: Math.max(0, Math.min(100, round2(num(
-          reglasIn.evaluacionMinPct?.penalizacionPct,
-          base.reglas.evaluacionMinPct.penalizacionPct,
-        )))),
+        penalizacionPct: Math.max(0, Math.min(100, round2(penEval))),
       },
       mermaMaxPct: {
         activo: reglasIn.mermaMaxPct?.activo !== false,
         label: String(reglasIn.mermaMaxPct?.label || base.reglas.mermaMaxPct.label),
         maxPct: round2(mermaMaxDefault),
-        penalizacionPct: Math.max(0, Math.min(100, round2(num(
-          reglasIn.mermaMaxPct?.penalizacionPct,
-          base.reglas.mermaMaxPct.penalizacionPct,
-        )))),
+        penalizacionPct: Math.max(0, Math.min(100, round2(penMerma))),
       },
     },
     bonosTurno: normalizarBonosTurno(r.bonosTurno),
@@ -354,32 +362,38 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
   const faltanteOk = metricas.faltanteOk !== false;
   if (reglas.faltanteCero.activo) {
     const ok = faltanteOk;
+    const pen = Number(reglas.faltanteCero.penalizacionPct) || 25;
+    const esRequisito = reglas.faltanteCero.esRequisito === true;
     detalle.push({
       id: 'faltanteCero',
       label: reglas.faltanteCero.label,
       ok,
-      esRequisito: true,
-      penalizacionPct: ok ? 0 : 100,
+      esRequisito,
+      penalizacionPct: ok ? 0 : (esRequisito ? 100 : pen),
       valor: ok ? 'Sin faltante' : 'Con faltante',
       requerido: '$0.00',
     });
-    if (!ok) {
+    if (!ok && esRequisito) {
       return {
         pct: 0,
         detalle,
         penalizacionTotal: 100,
         bloqueadoPorFaltante: true,
+        fallosLineamiento: 1,
       };
+    }
+    if (!ok) {
+      penalizacionTotal = round2(penalizacionTotal + pen);
     }
   }
 
-  let pct = 100;
+  let pct = 100 - penalizacionTotal;
 
   if (reglas.checklistDiario.activo) {
     const dias = Math.max(0, Math.round(Number(metricas.checklistDias) || 0));
     const minimo = Number(reglas.checklistDiario.diasPenalizaSiHasta) || 4;
     const esperados = Number(reglas.checklistDiario.diasEsperados) || 6;
-    const pen = Number(reglas.checklistDiario.penalizacionPct) || 20;
+    const pen = Number(reglas.checklistDiario.penalizacionPct) || 25;
     // De `minimo` a `esperados` días (ej. 4–6): OK. Menos de minimo → −pen%.
     const ok = dias >= minimo;
     if (!ok) {
@@ -398,7 +412,7 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
 
   if (reglas.evaluacionMinPct.activo) {
     const minPct = Number(reglas.evaluacionMinPct.minPct) || 70;
-    const pen = Number(reglas.evaluacionMinPct.penalizacionPct) || 20;
+    const pen = Number(reglas.evaluacionMinPct.penalizacionPct) || 25;
     const ep = metricas.evaluacionPct;
     const ok = ep != null && Number.isFinite(Number(ep)) && Number(ep) >= minPct;
     if (!ok) {
@@ -417,7 +431,7 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
 
   if (reglas.mermaMaxPct.activo) {
     const maxPct = Number(reglas.mermaMaxPct.maxPct) || 6;
-    const pen = Number(reglas.mermaMaxPct.penalizacionPct) || 60;
+    const pen = Number(reglas.mermaMaxPct.penalizacionPct) || 25;
     const mp = Number(metricas.mermaPct);
     const ok = Number.isFinite(mp) && mp <= maxPct;
     if (!ok) {
@@ -434,10 +448,69 @@ export function calcularPctBonoPorPenalizaciones(metricas = {}, config = null) {
     });
   }
 
+  const fallosLineamiento = detalle.filter((d) => !d.ok).length;
+
   return {
     pct: Math.max(0, Math.min(100, pct)),
     detalle,
     penalizacionTotal: Math.min(100, penalizacionTotal),
     bloqueadoPorFaltante: false,
+    fallosLineamiento,
   };
+}
+
+/**
+ * Pago de bono por empleado de tienda (ecuación justa).
+ *
+ * - pctTienda = % tras lineamientos (100 / 75 / 50 / 25 / 0).
+ * - Si el empleado tiene falta vigente → pct = 0.
+ * - pago = base_tabulador × pct_empleado / 100.
+ *
+ * @param {{
+ *   base: number,
+ *   pctTienda: number,
+ *   plantilla?: Array<{ id: string|number, nombre?: string }>,
+ *   bloqueosFalta?: Array<{ clave?: string, nombre?: string }>,
+ * }} opts
+ */
+export function calcularPagosBonoPorEmpleado({
+  base = 0,
+  pctTienda = 0,
+  plantilla = [],
+  bloqueosFalta = [],
+} = {}) {
+  const baseN = round2(Number(base) || 0);
+  const pctT = Math.max(0, Math.min(100, Number(pctTienda) || 0));
+  const bloqueados = new Set(
+    (bloqueosFalta || [])
+      .map((b) => String(b?.clave || '').trim())
+      .filter(Boolean),
+  );
+
+  return (plantilla || []).map((u) => {
+    const id = u?.id != null ? String(u.id) : '';
+    const clave = id ? `id:${id}` : '';
+    const nombre = String(u?.nombre || 'Sin nombre').trim() || 'Sin nombre';
+    const conFalta = Boolean(clave && bloqueados.has(clave));
+    const pct = conFalta ? 0 : pctT;
+    const pago = bonoFinal(baseN, pct);
+    const ecuacion = conFalta
+      ? `${nombre} · $${baseN.toLocaleString('es-MX')} × 0% (falta) = $0`
+      : `${nombre} · $${baseN.toLocaleString('es-MX')} × ${pct}% = $${pago.toLocaleString('es-MX')}`;
+    return {
+      id,
+      clave,
+      nombre,
+      conFalta,
+      base: baseN,
+      pctTienda: pctT,
+      pct,
+      pago,
+      ecuacion,
+    };
+  }).sort((a, b) => {
+    if (a.conFalta !== b.conFalta) return a.conFalta ? 1 : -1;
+    if (b.pago !== a.pago) return b.pago - a.pago;
+    return a.nombre.localeCompare(b.nombre, 'es');
+  });
 }
