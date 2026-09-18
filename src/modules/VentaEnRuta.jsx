@@ -19,6 +19,7 @@ import {
   listarDestinosVentaRuta,
   listarReporteIngresosCargaRuta,
   listarUsuariosRepartidores,
+  listarUsuariosParaCargaRuta,
   listarVendedoresSesionRuta,
   listarAdministradoresCorteRuta,
   listarVentasRuta,
@@ -629,7 +630,7 @@ function VistaCamiones({ supabase, setAviso }) {
     setCargando(true);
     const [c, u, rt] = await Promise.all([
       listarCamionesRuta(supabase),
-      listarUsuariosRepartidores(supabase),
+      listarUsuariosParaCargaRuta(supabase),
       listarRepartidores(supabase).catch(() => []),
     ]);
     if (c.aviso) setAviso?.(c.aviso);
@@ -756,7 +757,7 @@ function VistaCamiones({ supabase, setAviso }) {
             </label>
           </div>
           <label className="muted" style={{ fontSize: '0.8rem' }}>
-            Usuario Repartidor
+            Usuario (asignación)
             <select
               className="input"
               style={{ marginTop: '0.35rem' }}
@@ -766,7 +767,7 @@ function VistaCamiones({ supabase, setAviso }) {
               <option value="">— Sin usuario —</option>
               {usuarios.map((u) => (
                 <option key={u.id} value={u.id} disabled={usuariosOcupados.has(String(u.id))}>
-                  {u.nombre}{usuariosOcupados.has(String(u.id)) ? ' (ya tiene camión)' : ''}
+                  {u.etiqueta || u.nombre}{usuariosOcupados.has(String(u.id)) ? ' (ya tiene camión)' : ''}
                 </option>
               ))}
             </select>
@@ -829,11 +830,11 @@ function VistaCamiones({ supabase, setAviso }) {
             <input className="input" style={{ marginTop: '0.35rem' }} value={edit.placa || ''} onChange={(e) => setEdit((x) => ({ ...x, placa: e.target.value }))} />
           </label>
           <label className="muted" style={{ fontSize: '0.8rem' }}>
-            Usuario Repartidor
+            Usuario
             <select className="input" style={{ marginTop: '0.35rem' }} value={edit.usuario_id || ''} onChange={(e) => setEdit((x) => ({ ...x, usuario_id: e.target.value || null }))}>
               <option value="">— Sin usuario —</option>
               {usuarios.map((u) => (
-                <option key={u.id} value={u.id} disabled={usuariosOcupados.has(String(u.id))}>{u.nombre}</option>
+                <option key={u.id} value={u.id} disabled={usuariosOcupados.has(String(u.id))}>{u.etiqueta || u.nombre}</option>
               ))}
             </select>
           </label>
@@ -948,7 +949,7 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     (async () => {
       setCargandoRep(true);
       const [r, c] = await Promise.all([
-        listarUsuariosRepartidores(supabase),
+        listarUsuariosParaCargaRuta(supabase),
         listarCamionesRuta(supabase, { soloActivos: true }),
       ]);
       if (cancel) return;
@@ -1004,7 +1005,7 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
 
   const crear = async () => {
     if (!lineas.length) return alert('Agrega productos.');
-    if (!repartidorSel) return alert('Selecciona un repartidor (usuarios con rol Repartidor).');
+    if (!repartidorSel) return alert('Selecciona el usuario destinatario de la carga.');
     const etiqueta = camionSel
       ? `${etiquetaCamion(camionSel)} · ${repartidorSel.nombre}`
       : repartidorSel.nombre;
@@ -1039,11 +1040,11 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Carga de camión</h3>
       <p className="muted" style={{ fontSize: '0.8rem' }}>
-        Elige un repartidor. Si tiene camión asignado (menú Camiones), se registra en la carga.
+        Elige el usuario destinatario (todos los usuarios activos). Si tiene camión asignado, se registra en la carga.
         Al crear se descuenta el inventario de {NOMBRE_ALMACEN_RUTA}.
       </p>
       <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
-        Repartidor
+        Usuario / repartidor
         <select
           className="input"
           style={{ display: 'block', width: '100%', marginTop: '0.25rem' }}
@@ -1051,12 +1052,12 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
           onChange={(e) => setRepartidorId(e.target.value)}
           disabled={cargandoRep}
         >
-          <option value="">{cargandoRep ? 'Cargando…' : '— Seleccionar repartidor —'}</option>
+          <option value="">{cargandoRep ? 'Cargando…' : '— Seleccionar usuario —'}</option>
           {repartidores.map((u) => {
             const cam = camionPorUsuario.get(String(u.id));
             return (
               <option key={u.id} value={u.id}>
-                {u.nombre}{cam ? ` · ${etiquetaCamion(cam)}` : ' · sin camión'}
+                {u.etiqueta || u.nombre}{cam ? ` · ${etiquetaCamion(cam)}` : ''}
               </option>
             );
           })}
@@ -1073,7 +1074,7 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
       )}
       {!cargandoRep && repartidores.length === 0 && (
         <p className="muted" style={{ fontSize: '0.8rem', color: 'var(--danger, #b91c1c)' }}>
-          No hay usuarios activos con rol Repartidor. Créalos en Usuarios.
+          No hay usuarios activos. Créalos en Usuarios.
         </p>
       )}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
