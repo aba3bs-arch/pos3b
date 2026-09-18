@@ -9,6 +9,8 @@ import {
 assert.equal(nombreUbicacionSucursal('3B2'), 'Pueblo Nuevo');
 assert.equal(etiquetaTienda('3B2'), '3B2 Pueblo Nuevo');
 assert.equal(etiquetaTienda('FUSION'), 'Fusión');
+assert.equal(etiquetaTienda('3B3'), '3B3 Petróleos');
+assert.equal(nombreUbicacionSucursal('3B3'), 'Petróleos');
 assert.equal(etiquetaTienda('3B5'), '3B5 Lomas Dos');
 assert.equal(etiquetaTienda('3B6'), '3B6 Solidaridad');
 assert.equal(etiquetaTienda('3B7'), '3B7 Del Valle');
