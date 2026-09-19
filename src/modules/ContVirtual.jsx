@@ -183,7 +183,7 @@ function ModalDesgloseMovimiento({ item, onClose, puedeEditar = false, onEditar,
 
   return (
     <PortalFlotante>
-    <div className="cv-modal-backdrop cv-modal-backdrop-float" onClick={onClose} role="presentation">
+    <div className="cv-modal-backdrop cv-modal-backdrop-float cv-portal" onClick={onClose} role="presentation">
       <div
         className="cv-modal cv-modal-desglose cv-modal-float"
         onClick={(e) => e.stopPropagation()}
@@ -3111,7 +3111,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
       {showInversion && (
         <PortalFlotante>
-        <div className="cv-modal-backdrop cv-modal-backdrop-float" onClick={() => setShowInversion(false)} role="presentation">
+        <div className="cv-modal-backdrop cv-modal-backdrop-float cv-portal" onClick={() => setShowInversion(false)} role="presentation">
           <div className="cv-modal cv-modal-float" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Inversión oficina">
             <h3>Inversión oficina → proveedor</h3>
             <p className="muted" style={{ fontSize: '0.78rem', marginTop: 0 }}>
@@ -3208,7 +3208,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
       {showManual && (
         <PortalFlotante>
-        <div className="cv-modal-backdrop cv-modal-backdrop-float" onClick={() => { setShowManual(false); setEditandoManualId(null); }} role="presentation">
+        <div className="cv-modal-backdrop cv-modal-backdrop-float cv-portal" onClick={() => { setShowManual(false); setEditandoManualId(null); }} role="presentation">
           <div className="cv-modal cv-modal-float" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Captura manual">
             <h3>
               {editandoManualId
@@ -3355,7 +3355,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
       {editCierre && (
         <PortalFlotante>
-        <div className="cv-modal-backdrop cv-modal-backdrop-float" onClick={() => setEditCierre(null)} role="presentation">
+        <div className="cv-modal-backdrop cv-modal-backdrop-float cv-portal" onClick={() => setEditCierre(null)} role="presentation">
           <div className="cv-modal cv-modal-float" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Editar ingreso de corte">
             <h3>
               {editCierre.tipo_mov === 'recoleccion' ? 'Editar recolección' : 'Editar ventas de cierre'}

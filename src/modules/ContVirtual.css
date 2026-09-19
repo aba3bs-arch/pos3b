@@ -1111,39 +1111,80 @@
   height: 22px;
 }
 
-/* Modal captura — fixed al viewport (no al fondo del scroll) */
+/* Modal captura — fixed al viewport visible (dvh; no cae bajo la barra del móvil) */
 .cv-modal-backdrop {
   position: fixed;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
   background: rgba(0, 0, 0, 0.55);
   z-index: 1200;
   display: flex;
   align-items: flex-end;
   justify-content: center;
   padding: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  box-sizing: border-box;
 }
 
-/* Desglose al tocar un gasto/ingreso: ventana flotante centrada */
+/*
+ * Portal a document.body: reponer tokens de .cv-app (si no, fondo/texto
+ * transparentes o ilegibles y la hoja parece “vacía” bajo la pantalla).
+ */
+.cv-modal-backdrop.cv-portal {
+  --cv-bg: #1a1a1e;
+  --cv-bg2: #222228;
+  --cv-bg3: #2a2a32;
+  --cv-text: #f2f2f4;
+  --cv-muted: #9a9aa3;
+  --cv-ingreso: #4ea8f5;
+  --cv-gasto: #e85d4c;
+  --cv-accent: #e85d4c;
+  --cv-line: #33333c;
+  color: var(--cv-text);
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* Ventana flotante centrada en el viewport visible */
 .cv-modal-backdrop-float {
   align-items: center;
-  padding: 1rem;
+  justify-content: center;
+  padding:
+    max(0.75rem, env(safe-area-inset-top, 0px))
+    max(0.75rem, env(safe-area-inset-right, 0px))
+    max(0.75rem, env(safe-area-inset-bottom, 0px))
+    max(0.75rem, env(safe-area-inset-left, 0px));
 }
 
 .cv-modal {
-  background: var(--cv-bg2);
+  background: var(--cv-bg2, #222228);
+  color: var(--cv-text, #f2f2f4);
   border-radius: 16px 16px 0 0;
   width: 100%;
   max-width: 420px;
-  max-height: 85%;
+  max-height: min(85vh, 85dvh);
+  overflow-x: hidden;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 1rem 1rem 1.25rem;
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .cv-modal-float {
   border-radius: 16px;
-  max-height: min(85vh, 640px);
+  max-height: min(90vh, 90dvh, 640px);
   width: min(100%, 400px);
+  margin: auto;
   animation: cv-modal-float-in 0.18s ease;
 }
 
@@ -1185,7 +1226,7 @@
 }
 
 .cv-modal-desglose {
-  max-height: min(85vh, 640px);
+  max-height: min(90vh, 90dvh, 640px);
 }
 
 .cv-desglose-hd {
