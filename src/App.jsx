@@ -497,6 +497,8 @@ function App() {
     sincronizarPinsCubreTurnoDesdeNube(supabase, sucursal).then((r) => {
       if (r.cambio) setTickCubreTurno((n) => n + 1);
     });
+    // Antes del login: bajar horarios/tolerancia para no usar cache viejo.
+    sincronizarTurnosDesdeNube(supabase, sucursal).catch(() => {});
   }, [supabase, sucursal]);
 
   useEffect(() => {
@@ -507,7 +509,7 @@ function App() {
     sincronizarTipoCambioDesdeNube(supabase);
     sincronizarVentanaRecoleccionDesdeNube(supabase, sucursal);
     sincronizarCandadoPostLiquidacionDesdeNube(supabase);
-    sincronizarTurnosDesdeNube(supabase, sucursal);
+    sincronizarTurnosDesdeNube(supabase, sucursal).catch(() => {});
     sincronizarHoraLimiteValeDesdeNube(supabase);
     sincronizarBonosConfigDesdeNube(supabase);
     sincronizarPinsCubreTurnoDesdeNube(supabase, sucursal).then((r) => {
@@ -525,7 +527,7 @@ function App() {
         sincronizarTipoCambioDesdeNube(supabase);
         sincronizarVentanaRecoleccionDesdeNube(supabase, sucursal);
         sincronizarCandadoPostLiquidacionDesdeNube(supabase);
-        sincronizarTurnosDesdeNube(supabase, sucursal);
+        sincronizarTurnosDesdeNube(supabase, sucursal).catch(() => {});
         sincronizarHoraLimiteValeDesdeNube(supabase);
         sincronizarBonosConfigDesdeNube(supabase);
       }
@@ -854,6 +856,12 @@ function App() {
       console.warn('Ejecuta supabase/fix_usuarios_sucursal.sql para ligar usuarios a sucursal.');
     }
     if (data) {
+      // Refresca horarios de esta tienda antes de validar ventana (tolerancia/seed reciente).
+      try {
+        await sincronizarTurnosDesdeNube(supabase, sucursal);
+      } catch {
+        /* no bloquear login */
+      }
       const accesoTurno = usuarioAutorizadoLogin(data, new Date(), null, sucursal);
       if (!accesoTurno.ok) {
         setPendienteAutorizacionTurno({ user: data, error: accesoTurno.error, ajustarSucursal });
@@ -914,6 +922,11 @@ function App() {
       if (error || !data) {
         alert(error || 'Usuario no encontrado. Entra con PIN.');
         return;
+      }
+      try {
+        await sincronizarTurnosDesdeNube(supabase, sucursal);
+      } catch {
+        /* no bloquear login */
       }
       const accesoTurno = usuarioAutorizadoLogin(data, new Date(), null, sucursal);
       if (!accesoTurno.ok) {

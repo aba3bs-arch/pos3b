@@ -173,36 +173,41 @@ async function leerFilaFallbackBonos(supabase, sucursalId) {
 /** Descarga horarios de la sucursal (o GLOBAL) y actualiza el cache local de esa tienda. */
 export async function sincronizarTurnosDesdeNube(supabase, sucursal) {
   if (!supabase) return { ok: true, cambio: false };
-  const sid = sucursalTurnosActiva(sucursal);
+  try {
+    const sid = sucursalTurnosActiva(sucursal);
 
-  let remoto = await leerFilaTablaTurnos(supabase, sid);
-  let aviso = null;
-  let sinTablaDedicada = false;
+    let remoto = await leerFilaTablaTurnos(supabase, sid);
+    let aviso = null;
+    let sinTablaDedicada = false;
 
-  if (remoto.error && faltaTablaTurnos(remoto.error)) {
-    sinTablaDedicada = true;
-    aviso = AVISO_FALTA_TURNOS_CONFIG;
-    remoto = await leerFilaFallbackBonos(supabase, sid);
-    if (remoto.error) return { ok: false, error: remoto.error.message, cambio: false, aviso, sinTabla: true };
-  } else if (remoto.error) {
-    return { ok: false, error: remoto.error.message, cambio: false };
+    if (remoto.error && faltaTablaTurnos(remoto.error)) {
+      sinTablaDedicada = true;
+      aviso = AVISO_FALTA_TURNOS_CONFIG;
+      remoto = await leerFilaFallbackBonos(supabase, sid);
+      if (remoto.error) return { ok: false, error: remoto.error.message, cambio: false, aviso, sinTabla: true };
+    } else if (remoto.error) {
+      return { ok: false, error: remoto.error.message, cambio: false };
+    }
+
+    if (!remoto.row) return { ok: true, cambio: false, aviso, sinTabla: sinTablaDedicada };
+
+    const paquete = normalizarPaqueteTurnosRemoto(remoto.row);
+    const local = leerPaqueteTurnos(sid);
+    const cambio = !paqueteIgual(local, paquete);
+    if (cambio) aplicarPaqueteTurnosLocal(sid, paquete);
+    return {
+      ok: true,
+      cambio,
+      paquete,
+      sucursal_id: sid,
+      fuente: remoto.fuente,
+      aviso,
+      sinTabla: sinTablaDedicada,
+    };
+  } catch (e) {
+    // Nunca tumbar login / App por un fallo de sync de turnos.
+    return { ok: false, error: e?.message || String(e), cambio: false };
   }
-
-  if (!remoto.row) return { ok: true, cambio: false, aviso, sinTabla: sinTablaDedicada };
-
-  const paquete = normalizarPaqueteTurnosRemoto(remoto.row);
-  const local = leerPaqueteTurnos(sid);
-  const cambio = !paqueteIgual(local, paquete);
-  if (cambio) aplicarPaqueteTurnosLocal(sid, paquete);
-  return {
-    ok: true,
-    cambio,
-    paquete,
-    sucursal_id: sid,
-    fuente: remoto.fuente,
-    aviso,
-    sinTabla: sinTablaDedicada,
-  };
 }
 
 /**

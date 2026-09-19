@@ -2,12 +2,15 @@
 -- POS 3B — fix_turnos_config.sql
 -- Horarios de caja (turnos) por sucursal → tabla public.pos_turnos_config
 --
--- CÓMO USARLO (no pide contraseña ni parámetros):
---   1) Abre Supabase → SQL Editor
+-- CÓMO USARLO:
+--   1) Supabase → SQL Editor
 --   2) Copia TODO este archivo y pégalo
---   3) Pulsa Run / Ejecutar una sola vez
---   4) Al final debe aparecer una fila "ok" = true
--- Seguro re-ejecutar. No hay prompts ni variables.
+--   3) Run / Ejecutar
+--   4) Debe aparecer ok = true
+--
+-- IMPORTANTE: NO sobrescribe horarios ni tolerancia que ya existan.
+--   Solo crea la tabla y siembra GLOBAL/FUSION si faltan.
+-- Seguro re-ejecutar.
 -- =============================================================================
 
 create table if not exists public.pos_turnos_config (
@@ -21,7 +24,6 @@ create table if not exists public.pos_turnos_config (
   updated_at timestamptz not null default now()
 );
 
--- Columnas (idempotente si la tabla ya existía a medias)
 alter table public.pos_turnos_config add column if not exists tipo_horario text;
 alter table public.pos_turnos_config add column if not exists subtipo text;
 alter table public.pos_turnos_config add column if not exists inicio text;
@@ -30,7 +32,6 @@ alter table public.pos_turnos_config add column if not exists tolerancia jsonb;
 alter table public.pos_turnos_config add column if not exists patrones_rotacion_3 jsonb;
 alter table public.pos_turnos_config add column if not exists updated_at timestamptz;
 
--- Defaults si faltaban
 update public.pos_turnos_config set tipo_horario = '12x12' where tipo_horario is null or btrim(tipo_horario) = '';
 update public.pos_turnos_config set inicio = '07:00' where inicio is null or btrim(inicio) = '';
 update public.pos_turnos_config set turnos = '[]'::jsonb where turnos is null;
@@ -46,7 +47,6 @@ alter table public.pos_turnos_config
   alter column tolerancia set default '{"minutos_antes":30,"minutos_despues_fin":30}'::jsonb;
 alter table public.pos_turnos_config alter column updated_at set default now();
 
--- PK si la tabla se creó sin ella
 do $$
 begin
   if not exists (
@@ -77,7 +77,7 @@ grant select, insert, update, delete on public.pos_turnos_config to anon, authen
 comment on table public.pos_turnos_config is
   'Horarios de corte/caja por tienda (12×12, 8×24 o personalizado). Cache local pos3b_turnos_*__<SUC>.';
 
--- Semilla: 12×12 estándar 07:00–19:00 / 19:00–07:00 (corrige el desfase admin vs Fusion).
+-- Semilla SOLO si no existe (no pisa horarios/tolerancia ya configurados).
 insert into public.pos_turnos_config (sucursal_id, tipo_horario, subtipo, inicio, turnos, tolerancia, updated_at)
 values
   (
@@ -98,18 +98,21 @@ values
     '{"minutos_antes":30,"minutos_despues_fin":30}'::jsonb,
     now()
   )
-on conflict (sucursal_id) do update set
-  tipo_horario = excluded.tipo_horario,
-  subtipo = excluded.subtipo,
-  inicio = excluded.inicio,
-  turnos = excluded.turnos,
-  tolerancia = excluded.tolerancia,
-  updated_at = excluded.updated_at;
+on conflict (sucursal_id) do nothing;
 
--- Refresca el schema cache de PostgREST para que el POS vea la tabla al instante
+-- ---------------------------------------------------------------------------
+-- RECUPERAR LOGIN (si un seed anterior dejó a cajeros "fuera de horario"):
+-- Descomenta el bloque siguiente, ejecuta, y vuelve a entrar.
+-- Amplía tolerancia a ±2 h en todas las tiendas sin cambiar los horarios.
+-- ---------------------------------------------------------------------------
+-- update public.pos_turnos_config
+-- set
+--   tolerancia = '{"minutos_antes":120,"minutos_despues_fin":120}'::jsonb,
+--   updated_at = now();
+
 notify pgrst, 'reload schema';
 
 select
   true as ok,
   (select count(*)::int from public.pos_turnos_config) as filas,
-  'pos_turnos_config lista — recarga la app / Configuración → Turnos de caja' as mensaje;
+  'pos_turnos_config lista — Admin siempre puede entrar; cajeros según horario+tolerancia' as mensaje;

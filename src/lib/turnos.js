@@ -1021,6 +1021,7 @@ export function rolSujetoTurno(rol) {
 export function usuarioAutorizadoLogin(user, date = new Date(), turnos = null, sucursal = null) {
   if (esUsuarioCubreTurno(user)) return { ok: true, cubreTurno: true };
   const rol = normalizarRol(user?.rol);
+  // Admin / Gerente / etc. nunca se bloquean por horario de caja.
   if (!rolSujetoTurno(rol)) return { ok: true };
 
   if (sucursal && tieneAutorizacionFueraHorario(user, sucursal, date)) {
@@ -1031,7 +1032,15 @@ export function usuarioAutorizadoLogin(user, date = new Date(), turnos = null, s
     return { ok: true, extensionSesion: true };
   }
 
-  const list = turnos || leerTurnos();
+  let list;
+  let tol;
+  try {
+    list = turnos || leerTurnos(sucursal);
+    tol = leerToleranciaTurnos(sucursal);
+  } catch {
+    // Cache local corrupto: no bloquear el login.
+    return { ok: true, emergencia: true };
+  }
   if (!list.length) {
     return { ok: false, error: 'No hay turno configurado. Pide al gerente que configure turnos en Configuración → Turnos de caja.' };
   }
@@ -1062,15 +1071,14 @@ export function usuarioAutorizadoLogin(user, date = new Date(), turnos = null, s
     };
   }
 
-  if (horaEnVentanaLogin(turnoAsignado, date)) {
+  if (horaEnVentanaLogin(turnoAsignado, date, tol)) {
     return { ok: true };
   }
 
-  const tol = leerToleranciaTurnos();
   const ventana = etiquetaVentanaLogin(turnoAsignado, tol);
   return {
     ok: false,
-    error: `Fuera de horario. Tu turno es ${nombreTurnoLegible(turnoAsignado)} (${turnoAsignado.hora_inicio}–${turnoAsignado.hora_fin}). Puedes entrar entre ${ventana} (${tol.minutos_antes} min antes, ${tol.minutos_despues_fin} min después del cierre).`,
+    error: `Fuera de horario. Tu turno es ${nombreTurnoLegible(turnoAsignado)} (${turnoAsignado.hora_inicio}–${turnoAsignado.hora_fin}). Puedes entrar entre ${ventana} (${tol.minutos_antes} min antes, ${tol.minutos_despues_fin} min después del cierre).\n\nUn administrador puede autorizar la entrada con su PIN abajo.`,
   };
 }
 
