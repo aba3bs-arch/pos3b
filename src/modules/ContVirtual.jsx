@@ -43,7 +43,7 @@ import {
   plantillaDetallesEmpleado,
 } from '../lib/catalogoEmpleadoGastos.js';
 import { empleadosParaCorte } from '../lib/empleadosVisibles.js';
-import { eliminarEgresoDesdePanelIe, registrarEgresoContVirtual } from '../lib/contVirtualEgresos.js';
+import { eliminarEgresoDesdePanelIe, registrarEgresoContVirtual, actualizarEgresoContVirtual } from '../lib/contVirtualEgresos.js';
 import {
   registrarIngresoContVirtual,
   eliminarIngresoContVirtual,
@@ -137,6 +137,15 @@ function tituloMovimientoIe(it) {
   return `${it.categoria || 'Gasto'}${it.subcategoria ? ` · ${it.subcategoria}` : ''}`;
 }
 
+/** Egresos del libro IE (no los solo-corte / préstamo / inversión virtual). */
+function egresoEditableEnIe(it) {
+  if (!it || it.tipo !== 'gasto') return false;
+  const id = String(it.id || '');
+  if (!id) return false;
+  if (id.startsWith('corte-') || id.startsWith('prestamo') || id.startsWith('inv-')) return false;
+  return true;
+}
+
 function ModalDesgloseMovimiento({ item, onClose, puedeEditar = false, onEditar, onEliminar }) {
   if (!item) return null;
   const esGasto = item.tipo === 'gasto';
@@ -144,7 +153,7 @@ function ModalDesgloseMovimiento({ item, onClose, puedeEditar = false, onEditar,
     puedeEditar
     && (
       (item.tipo === 'ingreso' && (item.manual || item.tipo_mov === 'manual' || item.tipo_mov === 'recoleccion' || item.tipo_mov === 'venta_cierre'))
-      || item.tipo === 'gasto'
+      || egresoEditableEnIe(item)
     );
   const filas = [
     { label: 'Tipo', value: esGasto ? 'Gasto / egreso' : 'Ingreso' },
@@ -233,7 +242,7 @@ function ModalDesgloseMovimiento({ item, onClose, puedeEditar = false, onEditar,
         ) : null}
         {puedeEditarEste ? (
           <div className="cv-modal-actions" style={{ marginTop: '1rem' }}>
-            {!esGasto && typeof onEditar === 'function' ? (
+            {typeof onEditar === 'function' ? (
               <button
                 type="button"
                 className="cv-btn ghost"
@@ -914,7 +923,6 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const [filtroSocio, setFiltroSocio] = useState('');
   const [sociosActivos, setSociosActivos] = useState([]);
   const [showFiltro, setShowFiltro] = useState(true);
-  const [showBuscar, setShowBuscar] = useState(false);
   const [qBusqueda, setQBusqueda] = useState('');
   const [filtroTipoBusq, setFiltroTipoBusq] = useState(''); // '' | ingreso | gasto
   const [showManual, setShowManual] = useState(false);
@@ -1224,11 +1232,18 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           const blob = [
             it.categoria,
             it.subcategoria,
+            it.detalle,
             it.comentario,
+            it.descripcion,
             it.empleado,
+            it.solicitado_por,
             it.tienda,
             etiquetaTienda(it.tienda),
             it.cuenta,
+            it.folio,
+            it.fuente,
+            it.tipo_mov,
+            it.tipo,
             String(it.monto ?? ''),
           ]
             .filter(Boolean)
@@ -1483,8 +1498,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     };
     setGuardando(true);
     let res;
-    if (editandoManualId && esIngreso) {
-      res = await actualizarIngresoContVirtual(supabase, editandoManualId, payload);
+    if (editandoManualId) {
+      res = esIngreso
+        ? await actualizarIngresoContVirtual(supabase, editandoManualId, payload)
+        : await actualizarEgresoContVirtual(supabase, editandoManualId, payload);
     } else {
       res = esIngreso
         ? await registrarIngresoContVirtual(supabase, payload)
@@ -1525,19 +1542,24 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
   const abrirEditarManual = (row) => {
     if (!puedeMovimientosIe || !row) return;
+    const esGasto = row.tipo === 'gasto' || egresoEditableEnIe(row);
+    if (esGasto && !egresoEditableEnIe({ ...row, tipo: 'gasto' })) {
+      return alert('Este gasto viene del corte o de un préstamo. Elimínalo aquí si hace falta y captúralo de nuevo, o edítalo en el origen.');
+    }
+    const tipo = esGasto ? 'egreso' : 'ingreso';
     setEditandoManualId(row.id);
-    setManualTipo('ingreso');
+    setManualTipo(tipo);
     setManual({
-      tipo: 'ingreso',
+      tipo,
       fecha: String(row.fecha || hoyYmd()).slice(0, 10),
       sucursal_id: row.sucursal_id || row.tienda || tiendas[0] || 'MAIN',
       cuenta: row.cuenta || (esFrancisco ? 'abarrotes' : 'virtual'),
-      categoria_id: row.categoria_id || 'ing-manual',
+      categoria_id: row.categoria_id || (esGasto ? 'manual' : 'ing-manual'),
       subcategoria_id: row.subcategoria_id || '',
       detalle_id: row.detalle_id || '',
       empleado_id: '',
       monto: String(Number(row.monto) || ''),
-      descripcion: row.descripcion || '',
+      descripcion: row.descripcion || row.comentario || '',
     });
     setShowManual(true);
   };
@@ -2061,7 +2083,12 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
               </>
             )}
             {puedeMovimientosIe && it.tipo === 'gasto' && (
-              <button type="button" className="cv-row-del" title="Eliminar egreso" onClick={(e) => { e.stopPropagation(); borrarEgreso(it); }}>✕</button>
+              <>
+                {egresoEditableEnIe(it) ? (
+                  <button type="button" className="cv-row-edit" title="Editar egreso" onClick={(e) => { e.stopPropagation(); abrirEditarManual(it); }}>✎</button>
+                ) : null}
+                <button type="button" className="cv-row-del" title="Eliminar egreso" onClick={(e) => { e.stopPropagation(); borrarEgreso(it); }}>✕</button>
+              </>
             )}
           </div>
         ))}
@@ -2194,23 +2221,38 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           <button type="button" className="cv-icon-btn" title="Favoritos" aria-label="Favoritos">★</button>
           <button
             type="button"
-            className={`cv-icon-btn${showBuscar ? ' active' : ''}`}
-            title="Buscar"
-            aria-label="Buscar"
-            onClick={() => { setShowBuscar((v) => !v); setShowFiltro(true); }}
-          >
-            ⌕
-          </button>
-          <button
-            type="button"
             className={`cv-icon-btn${showFiltro ? ' active' : ''}`}
-            title="Filtro"
+            title="Filtro de sucursal / cuenta"
             aria-label="Filtro"
             onClick={() => setShowFiltro((v) => !v)}
           >
             ⚙
           </button>
         </div>
+      </div>
+      <div className="cv-filter-bar cv-search-bar cv-search-bar-main">
+        <input
+          className="cv-search-input"
+          value={qBusqueda}
+          onChange={(e) => setQBusqueda(e.target.value)}
+          placeholder="Buscar por palabra clave (categoría, comentario, empleado, monto…)"
+          aria-label="Buscar operaciones"
+        />
+        <select value={filtroTipoBusq} onChange={(e) => setFiltroTipoBusq(e.target.value)} title="Tipo">
+          <option value="">Ingresos y egresos</option>
+          <option value="ingreso">Solo ingresos</option>
+          <option value="gasto">Solo egresos</option>
+        </select>
+        {(qBusqueda || filtroTipoBusq) && (
+          <button
+            type="button"
+            className="cv-btn ghost"
+            style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
+            onClick={() => { setQBusqueda(''); setFiltroTipoBusq(''); }}
+          >
+            Limpiar
+          </button>
+        )}
       </div>
       <div className="cv-subtabs">
         {[
@@ -2225,7 +2267,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           </button>
         ))}
       </div>
-      {(showFiltro || showBuscar) && (
+      {showFiltro && (
         <div className="cv-filter-bar">
           <select
             value={filtroTienda}
@@ -2269,32 +2311,6 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           </button>
         </div>
       )}
-      {showBuscar && (
-        <div className="cv-filter-bar cv-search-bar">
-          <input
-            className="cv-search-input"
-            value={qBusqueda}
-            onChange={(e) => setQBusqueda(e.target.value)}
-            placeholder="Buscar ingreso o egreso…"
-            autoFocus
-          />
-          <select value={filtroTipoBusq} onChange={(e) => setFiltroTipoBusq(e.target.value)}>
-            <option value="">Ingresos y egresos</option>
-            <option value="ingreso">Solo ingresos</option>
-            <option value="gasto">Solo egresos</option>
-          </select>
-          {(qBusqueda || filtroTipoBusq) && (
-            <button
-              type="button"
-              className="cv-btn ghost"
-              style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
-              onClick={() => { setQBusqueda(''); setFiltroTipoBusq(''); }}
-            >
-              Limpiar
-            </button>
-          )}
-        </div>
-      )}
       {transTab !== 'nota' && (
         <SummaryBar
           ingresos={ingresos}
@@ -2304,6 +2320,14 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
         />
       )}
       {cargando && <div className="cv-loading">Cargando…</div>}
+      {!cargando && (qBusqueda.trim() || filtroTipoBusq) && (
+        <p className="muted" style={{ margin: '0.35rem 0.85rem', fontSize: '0.75rem' }}>
+          Buscando «{qBusqueda.trim() || (filtroTipoBusq === 'gasto' ? 'egresos' : 'ingresos')}»
+          {(porDia || []).length === 0
+            ? ' · sin resultados'
+            : ` · ${(porDia || []).reduce((n, d) => n + (d.items?.length || 0), 0)} movimiento(s)`}
+        </p>
+      )}
       {!cargando && transTab === 'diario' && renderDiario()}
       {!cargando && transTab === 'calendario' && renderCalendario()}
       {!cargando && transTab === 'mensual' && renderMensual()}
@@ -3102,6 +3126,10 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           onClose={() => setDesgloseMov(null)}
           puedeEditar={puedeMovimientosIe}
           onEditar={(row) => {
+            if (row?.tipo === 'gasto' || egresoEditableEnIe(row)) {
+              abrirEditarManual(row);
+              return;
+            }
             if (row?.tipo === 'ingreso' && (row.manual || row.tipo_mov === 'manual')) {
               abrirEditarManual(row);
               return;
@@ -3217,7 +3245,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
           <div className="cv-modal cv-modal-float" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Captura manual">
             <h3>
               {editandoManualId
-                ? 'Editar ingreso'
+                ? (manualTipo === 'ingreso' ? 'Editar ingreso' : 'Editar egreso')
                 : (manualTipo === 'ingreso' ? 'Nuevo ingreso' : 'Nuevo egreso')}
             </h3>
             {!editandoManualId && (
