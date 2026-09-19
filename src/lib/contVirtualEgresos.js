@@ -258,6 +258,62 @@ export async function eliminarEgresoContVirtual(supabase, id) {
   return { ok: true };
 }
 
+/** Actualiza un egreso del libro IE (admin / ABB / FJBB / JLBB). */
+export async function actualizarEgresoContVirtual(supabase, id, patch = {}) {
+  if (!id) return { ok: false, error: 'Sin id.' };
+  const sid = String(id);
+  if (sid.startsWith('corte-') || sid.startsWith('prestamo') || sid.startsWith('inv-')) {
+    return { ok: false, error: 'Este gasto viene del corte; edítalo desde el origen o elimínalo y captúralo de nuevo.' };
+  }
+  const monto = patch.monto != null ? round2(patch.monto) : undefined;
+  if (monto !== undefined && !(monto > 0)) return { ok: false, error: 'Monto inválido.' };
+
+  const payload = {};
+  if (patch.sucursal_id != null) payload.sucursal_id = patch.sucursal_id || 'MAIN';
+  if (patch.fecha != null) payload.fecha = String(patch.fecha).slice(0, 10);
+  if (patch.categoria_id != null) payload.categoria_id = patch.categoria_id;
+  if (patch.categoria_nombre != null) payload.categoria_nombre = patch.categoria_nombre;
+  if (patch.subcategoria_id !== undefined) payload.subcategoria_id = patch.subcategoria_id || null;
+  if (patch.subcategoria_nombre !== undefined) payload.subcategoria_nombre = patch.subcategoria_nombre || null;
+  if (patch.detalle_id !== undefined) payload.detalle_id = patch.detalle_id || null;
+  if (patch.detalle_nombre !== undefined) payload.detalle_nombre = patch.detalle_nombre || null;
+  if (monto !== undefined) payload.monto = monto;
+  if (patch.descripcion !== undefined) payload.descripcion = String(patch.descripcion || '').trim() || null;
+  if (patch.cuenta != null) payload.cuenta = normalizarCuentaIe(patch.cuenta, 'virtual');
+  if (patch.usuario_nombre !== undefined) payload.usuario_nombre = patch.usuario_nombre || null;
+
+  if (!Object.keys(payload).length) return { ok: false, error: 'Nada que actualizar.' };
+
+  if (!supabase || sid.startsWith('local-')) {
+    const lista = leerLocal().map((r) => (String(r.id) === sid ? { ...r, ...payload } : r));
+    guardarLocal(lista);
+    return { ok: true, soloLocal: true, id: sid };
+  }
+
+  const { data, error } = await supabase
+    .from('cont_virtual_egresos')
+    .update(payload)
+    .eq('id', sid)
+    .select('id')
+    .single();
+  if (error) {
+    if (faltaTabla(error)) {
+      const lista = leerLocal().map((r) => (String(r.id) === sid ? { ...r, ...payload } : r));
+      guardarLocal(lista);
+      return { ok: true, soloLocal: true, id: sid, aviso: AVISO_FALTA_CONT_VIRTUAL };
+    }
+    const msg = String(error.message || '').toLowerCase();
+    if (msg.includes('detalle_id') || msg.includes('detalle_nombre')) {
+      const { detalle_id: _d, detalle_nombre: _dn, ...sinDet } = payload;
+      const retry = await supabase.from('cont_virtual_egresos').update(sinDet).eq('id', sid).select('id').single();
+      if (!retry.error) return { ok: true, id: retry.data?.id || sid };
+      return { ok: false, error: retry.error.message };
+    }
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, id: data?.id || sid };
+}
+
 /**
  * Soft-delete en libro IE: deja la fila con fuente=eliminado para que el sync
  * (vales / CUBRE / TAXIS) no vuelva a crear el egreso por la misma ref.

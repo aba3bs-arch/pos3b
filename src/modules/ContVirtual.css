@@ -1404,6 +1404,18 @@
   font-size: 0.82rem;
 }
 
+.cv-search-bar-main {
+  margin: 0.15rem 0 0.35rem;
+  padding: 0.45rem 0.75rem;
+  background: rgba(78, 168, 245, 0.08);
+  border-bottom: 1px solid var(--cv-line);
+}
+
+.cv-search-bar-main .cv-search-input {
+  font-size: 0.88rem;
+  padding: 0.45rem 0.65rem;
+}
+
 .cv-icon-btn.active {
   color: var(--cv-ingreso, #4ea8f5);
 }
