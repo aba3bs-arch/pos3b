@@ -5,7 +5,7 @@ const LS_POS = 'pos3b_ie_fab_pos';
 const FAB_W = 56;
 const FAB_GAP = 10;
 const GROUP_H = FAB_W * 2 + FAB_GAP;
-const DRAG_THRESHOLD = 8;
+const DRAG_THRESHOLD = 10;
 
 function leerPos(clave) {
   try {
@@ -48,8 +48,9 @@ function posDefault() {
 }
 
 /**
- * Botones ＋I / ＋E flotantes (fijos al viewport) y arrastrables.
- * La posición se recuerda por libro (IE VIRTUAL / IE ABARROTES).
+ * Botones ＋I / ＋E flotantes y arrastrables.
+ * Importante: no capturar el pointer hasta superar el umbral de arrastre,
+ * si no el click del botón nunca llega (iOS / Chrome).
  */
 export default function FabIeMovible({
   libro = 'antonio',
@@ -59,8 +60,15 @@ export default function FabIeMovible({
 }) {
   const clave = String(libro || 'antonio');
   const [pos, setPos] = useState(() => leerPos(clave) || posDefault());
+  const [dragging, setDragging] = useState(false);
   const dragRef = useRef(null);
-  const movedRef = useRef(false);
+  const suppressClickRef = useRef(false);
+  const posRef = useRef(pos);
+  const rootRef = useRef(null);
+
+  useEffect(() => {
+    posRef.current = pos;
+  }, [pos]);
 
   useEffect(() => {
     setPos(leerPos(clave) || posDefault());
@@ -74,27 +82,32 @@ export default function FabIeMovible({
 
   const onPointerDown = useCallback((e) => {
     if (e.button != null && e.button !== 0) return;
-    const target = e.currentTarget;
-    target.setPointerCapture?.(e.pointerId);
-    movedRef.current = false;
     dragRef.current = {
       pointerId: e.pointerId,
       startX: e.clientX,
       startY: e.clientY,
-      origX: pos.x,
-      origY: pos.y,
+      origX: posRef.current.x,
+      origY: posRef.current.y,
+      moved: false,
     };
-  }, [pos.x, pos.y]);
+  }, []);
 
   const onPointerMove = useCallback((e) => {
     const d = dragRef.current;
     if (!d || d.pointerId !== e.pointerId) return;
     const dx = e.clientX - d.startX;
     const dy = e.clientY - d.startY;
-    if (!movedRef.current && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) {
-      movedRef.current = true;
+    if (!d.moved && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) {
+      d.moved = true;
+      setDragging(true);
+      suppressClickRef.current = true;
+      try {
+        rootRef.current?.setPointerCapture?.(e.pointerId);
+      } catch {
+        /* ignore */
+      }
     }
-    if (!movedRef.current) return;
+    if (!d.moved) return;
     e.preventDefault();
     setPos(clampPos(d.origX + dx, d.origY + dy));
   }, []);
@@ -102,25 +115,30 @@ export default function FabIeMovible({
   const onPointerUp = useCallback((e) => {
     const d = dragRef.current;
     if (!d || d.pointerId !== e.pointerId) return;
+    const moved = d.moved;
     dragRef.current = null;
-    e.currentTarget.releasePointerCapture?.(e.pointerId);
-    if (movedRef.current) {
+    setDragging(false);
+    try {
+      rootRef.current?.releasePointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    if (moved) {
       setPos((p) => {
         const next = clampPos(p.x, p.y);
         guardarPos(clave, next);
         return next;
       });
+      window.setTimeout(() => { suppressClickRef.current = false; }, 300);
     }
   }, [clave]);
 
-  const clickSafe = useCallback((fn) => (e) => {
-    if (movedRef.current) {
-      e.preventDefault();
-      e.stopPropagation();
-      movedRef.current = false;
-      return;
-    }
-    fn?.(e);
+  const onBtnClick = useCallback((fn) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (suppressClickRef.current) return;
+    if (dragRef.current?.moved) return;
+    fn?.();
   }, []);
 
   if (!visible) return null;
@@ -128,7 +146,8 @@ export default function FabIeMovible({
   return (
     <PortalFlotante>
       <div
-        className="cv-fab-float"
+        ref={rootRef}
+        className={`cv-fab-float${dragging ? ' dragging' : ''}`}
         style={{ left: pos.x, top: pos.y }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -136,14 +155,14 @@ export default function FabIeMovible({
         onPointerCancel={onPointerUp}
         role="toolbar"
         aria-label="Ingreso y egreso (arrastra para mover)"
-        title="Mantén y arrastra para mover"
+        title="Toca para abrir · arrastra para mover"
       >
         <button
           type="button"
           className="cv-fab ingreso"
           aria-label="Agregar ingreso"
           title="Ingreso manual"
-          onClick={clickSafe(onIngreso)}
+          onClick={onBtnClick(onIngreso)}
         >
           ＋I
         </button>
@@ -152,7 +171,7 @@ export default function FabIeMovible({
           className="cv-fab"
           aria-label="Agregar egreso"
           title="Egreso manual"
-          onClick={clickSafe(onEgreso)}
+          onClick={onBtnClick(onEgreso)}
         >
           ＋E
         </button>
