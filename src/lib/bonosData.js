@@ -516,3 +516,85 @@ export async function calcularBonosVariasSucursales(supabase, {
   }
   return out;
 }
+
+/**
+ * Bono desde la venta del corte Virtual (tope − moneda final), sin restar gastos.
+ * Usa el tabulador con ese monto y aplica el % de medidores del periodo (faltante,
+ * check list, evaluación, inventario).
+ *
+ * @param {{
+ *   supabase: object,
+ *   sucursal: string,
+ *   monedaTope: number,
+ *   monedaFinal: number,
+ *   inventario?: array,
+ *   config?: object|null,
+ * }} opts
+ */
+export async function calcularBonoDesdeVentaCorte({
+  supabase,
+  sucursal,
+  monedaTope,
+  monedaFinal,
+  inventario = [],
+  config = null,
+} = {}) {
+  const tope = round2(monedaTope);
+  const mf = round2(monedaFinal);
+  const ventaEfectivo = round2(Math.max(0, tope - mf));
+
+  if (!(ventaEfectivo > 0)) {
+    return {
+      ok: false,
+      error: 'No hay venta (tope − moneda final). Cierra el corte con moneda final capturada.',
+      ventaEfectivo: 0,
+      base: 0,
+      pct: 0,
+      bono: 0,
+    };
+  }
+
+  const cfg = normalizarBonosConfig(config || leerBonosConfig());
+  await sincronizarBonosConfigDesdeNube(supabase);
+  const cfgLive = normalizarBonosConfig(leerBonosConfig());
+  const base = bonoBasePorMonto(ventaEfectivo, cfgLive);
+
+  // Medidores del periodo (semana) para el %; la base es la venta de ESTE corte.
+  const pack = await calcularBonoSucursal(supabase, {
+    sucursal,
+    inventario,
+    config: cfgLive,
+  });
+
+  const pct = pack?.ok ? Number(pack.pct) || 0 : 0;
+  const bono = cfgLive.activo && base > 0 ? bonoFinal(base, pct) : 0;
+
+  return {
+    ok: true,
+    activo: cfgLive.activo,
+    monedaTope: tope,
+    monedaFinal: mf,
+    ventaEfectivo,
+    base,
+    pct,
+    bono,
+    penalizacionTotal: pack?.penalizacionTotal || 0,
+    bloqueadoPorFaltante: Boolean(pack?.bloqueadoPorFaltante),
+    reglas: pack?.reglas || [],
+    metricas: pack?.metricas || null,
+    periodo: pack?.periodo || null,
+    config: cfgLive,
+    formula: 'tope_menos_mf',
+  };
+}
+
+/** Categoría/sub de gasto de caja para el bono cargado a la recolección. */
+export const GASTO_BONO_RECOLECCION = {
+  categoria: 'BONO RECOLECCION',
+  subcategoria: 'TABULADOR',
+};
+
+export function esGastoBonoRecoleccion(gasto) {
+  const cat = String(gasto?.categoria || '').trim().toUpperCase();
+  return cat === 'BONO RECOLECCION' || cat.includes('BONO RECOLECCION');
+}
