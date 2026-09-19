@@ -21,10 +21,17 @@ function faltaTablaTurnos(error) {
   return (
     code === '42P01' ||
     code === 'PGRST205' ||
+    code === '42703' ||
     msg.includes('pos_turnos_config') ||
-    (msg.includes('schema cache') && msg.includes('turnos_config'))
+    msg.includes('patrones_rotacion_3') ||
+    (msg.includes('schema cache') && (msg.includes('turnos_config') || msg.includes('turnos')))
   );
 }
+
+const SELECT_TURNOS_FULL =
+  'sucursal_id, tipo_horario, subtipo, inicio, turnos, tolerancia, patrones_rotacion_3, updated_at';
+const SELECT_TURNOS_MIN =
+  'sucursal_id, tipo_horario, subtipo, inicio, turnos, tolerancia, updated_at';
 
 function normalizarTurnosLista(lista) {
   if (!Array.isArray(lista)) return [];
@@ -111,11 +118,19 @@ function filaDesdePaquete(sucursalId, paquete) {
 }
 
 async function leerFilaTablaTurnos(supabase, sucursalId) {
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('pos_turnos_config')
-    .select('sucursal_id, tipo_horario, subtipo, inicio, turnos, tolerancia, patrones_rotacion_3, updated_at')
+    .select(SELECT_TURNOS_FULL)
     .in('sucursal_id', [sucursalId, 'GLOBAL', '*'])
     .order('updated_at', { ascending: false });
+  // Tabla vieja sin patrones_rotacion_3: reintenta sin esa columna.
+  if (error && String(error.message || '').toLowerCase().includes('patrones_rotacion_3')) {
+    ({ data, error } = await supabase
+      .from('pos_turnos_config')
+      .select(SELECT_TURNOS_MIN)
+      .in('sucursal_id', [sucursalId, 'GLOBAL', '*'])
+      .order('updated_at', { ascending: false }));
+  }
   if (error) return { error };
   const rows = data || [];
   const propia = rows.find((r) => normalizarCodigoTienda(r.sucursal_id) === sucursalId);
