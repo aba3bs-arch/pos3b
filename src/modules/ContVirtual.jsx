@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import PortalFlotante from '../components/PortalFlotante.jsx';
+import FabIeMovible from '../components/FabIeMovible.jsx';
 import { listarSucursales, listarSucursalesOperativas, etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { puedeGestionarUsuarios, normalizarRol, listarTodosLosRoles } from '../lib/roles.js';
 import { puedeGestionarMovimientosIe } from '../lib/ieVirtualPermisos.js';
@@ -3039,7 +3040,11 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     );
   };
 
-  const showFab = nav === 'trans' && (transTab === 'diario' || transTab === 'calendario' || transTab === 'mensual' || transTab === 'total');
+  const showFab = puedeMovimientosIe
+    && !showManual
+    && !showInversion
+    && !editCierre
+    && !desgloseMov;
   const showFabNota = nav === 'trans' && transTab === 'nota';
 
   return (
@@ -3060,12 +3065,12 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
         {nav === 'mas' && renderMas()}
       </div>
 
-      {showFab && puedeMovimientosIe && (
-        <div className="cv-fab-group">
-          <button type="button" className="cv-fab ingreso" aria-label="Agregar ingreso" title="Ingreso manual" onClick={() => abrirManual('ingreso')}>＋I</button>
-          <button type="button" className="cv-fab" aria-label="Agregar egreso" title="Egreso manual" onClick={() => abrirManual('egreso')}>＋E</button>
-        </div>
-      )}
+      <FabIeMovible
+        libro={libro}
+        visible={showFab}
+        onIngreso={() => abrirManual('ingreso')}
+        onEgreso={() => abrirManual('egreso')}
+      />
       {showFabNota && (
         <button type="button" className="cv-fab nota" aria-label="Nueva nota" onClick={() => document.querySelector('.cv-nota-form textarea')?.focus()}>
           ✎

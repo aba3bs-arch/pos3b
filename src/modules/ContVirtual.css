@@ -1037,6 +1037,37 @@
   position: static;
 }
 
+/* ＋I / ＋E flotantes en viewport (PortalFlotante) — arrastrables */
+.cv-fab-float {
+  --cv-fab: #e85d4c;
+  --cv-ingreso: #4ea8f5;
+  position: fixed;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+}
+
+.cv-fab-float:active {
+  cursor: grabbing;
+}
+
+.cv-fab-float .cv-fab {
+  position: static;
+  width: 56px;
+  height: 56px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+.cv-fab-float .cv-fab.ingreso {
+  background: var(--cv-ingreso);
+  box-shadow: 0 6px 18px rgba(78, 168, 245, 0.45);
+}
+
 .cv-fab {
   position: absolute;
   right: 1rem;
