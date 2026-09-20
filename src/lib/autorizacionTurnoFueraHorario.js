@@ -1,8 +1,16 @@
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
-import { normalizarRol } from './roles.js';
+import { rolSistemaEfectivo } from './roles.js';
+import { normalizarPinComparacion } from './cubreTurno.js';
+import { usuarioEstaActivo } from './usuariosAuth.js';
 
 export const LS_AUTORIZACION_TURNO_FH = 'pos3b_autorizacion_turno_fh';
 export const DURACION_AUTORIZACION_TURNO_MS = 8 * 60 * 60 * 1000;
+
+/** Roles que pueden autorizar entrada fuera de horario (login / checador). */
+export function rolPuedeAutorizarFueraHorario(rol) {
+  const r = rolSistemaEfectivo(rol);
+  return r === 'Administrador' || r === 'Gerente';
+}
 
 function claveAutorizacion(usuarioId, sucursal) {
   return `${String(usuarioId)}|${normalizarCodigoTienda(sucursal)}`;
@@ -58,19 +66,30 @@ export function revocarAutorizacionFueraHorario(usuarioId, sucursal) {
   localStorage.setItem(LS_AUTORIZACION_TURNO_FH, JSON.stringify(next));
 }
 
-/** Busca administrador por PIN en cualquier sucursal (para autorizar fuera de horario). */
+/** Busca administrador/gerente por PIN en cualquier sucursal (para autorizar fuera de horario). */
 export async function verificarPinAdministradorGlobal(supabase, pin) {
   if (!supabase) return { ok: false, error: 'Sin conexión a Supabase.' };
-  const p = String(pin || '').trim();
+  const p = normalizarPinComparacion(pin);
   if (!p) return { ok: false, error: 'Indica el PIN del administrador.' };
 
   const { data, error } = await supabase.from('usuarios').select('*').eq('pin', p);
   if (error) return { ok: false, error: error.message };
 
-  const admins = (data || []).filter((u) => normalizarRol(u.rol) === 'Administrador');
-  if (!admins.length) return { ok: false, error: 'Solo un administrador puede autorizar la entrada.' };
-  // Varios admins pueden compartir PIN en seeds antiguos: toma el primero (login ya prioriza tienda/MAIN).
-  return { ok: true, user: admins[0], nombre: admins[0].nombre };
+  const lista = (data || []).filter(usuarioEstaActivo);
+  if (!lista.length) {
+    const algunoBaja = (data || []).some((u) => u && !usuarioEstaActivo(u));
+    if (algunoBaja) return { ok: false, error: 'Ese usuario está dado de baja.' };
+    return { ok: false, error: 'PIN incorrecto.' };
+  }
+
+  // Incluye roles personalizados con plantilla Administrador/Gerente.
+  const autorizadores = lista.filter((u) => rolPuedeAutorizarFueraHorario(u.rol));
+  if (!autorizadores.length) {
+    return { ok: false, error: 'Solo un administrador o gerente puede autorizar la entrada.' };
+  }
+  // Preferir Administrador (sistema) sobre Gerente si hay varios con el mismo PIN.
+  const admin = autorizadores.find((u) => rolSistemaEfectivo(u.rol) === 'Administrador') || autorizadores[0];
+  return { ok: true, user: admin, nombre: admin.nombre };
 }
 
 export function etiquetaAutorizacionActiva(user, sucursal) {

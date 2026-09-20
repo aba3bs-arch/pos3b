@@ -634,11 +634,17 @@ function App() {
           autorizacionAdminDispositivo,
         });
         if (vinculo.requiereAutorizacionAdminDispositivo) {
+          // Si venimos de «fuera de horario», quitar ese panel para que se vea
+          // el de segundo dispositivo (si no, Autorizar entrada se queda trabado).
+          setPendienteAutorizacionTurno(null);
           setPendienteAutorizacionDispositivo({ user: data, ajustarSucursal, error: vinculo.error });
+          setPinAdminAutorizacion('');
           setPin('');
           return false;
         }
         if (!vinculo.ok) {
+          setPendienteAutorizacionTurno(null);
+          setPinAdminAutorizacion('');
           alert(vinculo.error);
           setPin('');
           return false;
@@ -664,6 +670,8 @@ function App() {
             autorizacionAdminDispositivo,
           });
           if (!resVinculo.ok) {
+            setPendienteAutorizacionTurno(null);
+            setPinAdminAutorizacion('');
             alert(resVinculo.error);
             setPin('');
             return false;
