@@ -921,13 +921,13 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
                 Empleado: <strong>{pendienteChecador.user.nombre}</strong>
               </p>
               <label className="muted" style={{ display: 'block', fontSize: '0.82rem' }}>
-                PIN del administrador
+                PIN del administrador / gerente
                 <div style={{ marginTop: '0.35rem' }}>
                   <InputPin
                     value={pinAdminChecador}
                     onChange={(e) => setPinAdminChecador(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && !autorizandoChecador && autorizarChecadorConAdmin()}
-                    placeholder="PIN admin"
+                    placeholder="PIN admin / gerente"
                     style={{ marginBottom: 0 }}
                   />
                 </div>

@@ -1031,7 +1031,7 @@ export function usuarioAutorizadoLogin(user, date = new Date(), turnos = null, s
     return { ok: true, extensionSesion: true };
   }
 
-  const list = turnos || leerTurnos();
+  const list = turnos || leerTurnos(sucursal);
   if (!list.length) {
     return { ok: false, error: 'No hay turno configurado. Pide al gerente que configure turnos en Configuración → Turnos de caja.' };
   }
@@ -1062,11 +1062,11 @@ export function usuarioAutorizadoLogin(user, date = new Date(), turnos = null, s
     };
   }
 
-  if (horaEnVentanaLogin(turnoAsignado, date)) {
+  const tol = leerToleranciaTurnos(sucursal);
+  if (horaEnVentanaLogin(turnoAsignado, date, tol)) {
     return { ok: true };
   }
 
-  const tol = leerToleranciaTurnos();
   const ventana = etiquetaVentanaLogin(turnoAsignado, tol);
   return {
     ok: false,
@@ -1089,7 +1089,7 @@ export function usuarioAutorizadoChecador(user, date = new Date(), turnos = null
     return { ok: true, autorizacionAdmin: true };
   }
 
-  const list = turnos || leerTurnos();
+  const list = turnos || leerTurnos(sucursal);
   if (!list.length) {
     return {
       ok: false,
@@ -1100,9 +1100,10 @@ export function usuarioAutorizadoChecador(user, date = new Date(), turnos = null
   const asignado = turnoIdParaUsuario(user, date);
   if (asignado && esTurnoAmbos(asignado)) return { ok: true };
 
+  const tolLogin = leerToleranciaTurnos(sucursal);
   if (asignado) {
     const turnoAsignado = list.find((t) => String(t.id) === String(asignado));
-    if (turnoAsignado && horaEnVentanaLogin(turnoAsignado, date)) {
+    if (turnoAsignado && horaEnVentanaLogin(turnoAsignado, date, tolLogin)) {
       return { ok: true };
     }
   }

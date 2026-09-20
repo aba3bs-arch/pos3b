@@ -292,15 +292,15 @@ export default function PantallaLogin({
               Empleado: <strong>{pendienteAutorizacionTurno.user.nombre}</strong>
             </p>
             <p className="muted login-hint-sm">
-              Un <strong>administrador</strong> puede autorizar la entrada en {etiquetaTienda(sucursal)} (válido 8 h).
+              Un <strong>administrador o gerente</strong> puede autorizar la entrada en {etiquetaTienda(sucursal)} (válido 8 h).
             </p>
             <label className="muted login-field">
-              PIN del administrador
+              PIN del administrador / gerente
               <InputPin
                 value={pinAdminAutorizacion}
                 onChange={onPinAdminChange}
                 onKeyDown={(e) => e.key === 'Enter' && !autorizandoTurno && onAutorizarTurno()}
-                placeholder="PIN admin"
+                placeholder="PIN admin / gerente"
                 autoFocus
                 autoComplete="off"
                 name="autorizacion-turno-admin"
