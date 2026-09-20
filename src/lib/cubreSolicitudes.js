@@ -837,55 +837,104 @@ export async function rechazarSolicitudCt(supabase, solicitudId, opts = {}) {
 
 export async function cancelarSolicitudCt(supabase, solicitudId, opts = {}) {
   if (!supabase || !solicitudId) return { ok: false, error: 'Solicitud inválida.' };
-  const { data: prev, error: prevErr } = await supabase
-    .from('pos_cubre_solicitudes')
-    .select('*')
-    .eq('id', solicitudId)
-    .maybeSingle();
-  if (prevErr) {
-    if (faltaTabla(prevErr)) return { ok: false, error: AVISO_FALTA_CUBRE_SOLICITUDES, faltaTabla: true };
-    return { ok: false, error: prevErr.message };
-  }
-  if (!prev) return { ok: false, error: 'Solicitud no encontrada.' };
-  if (!['solicitada', 'aceptada'].includes(String(prev.estado))) {
-    return { ok: false, error: `No se puede cancelar en estado «${prev.estado}».` };
-  }
+  try {
+    const { data: prev, error: prevErr } = await supabase
+      .from('pos_cubre_solicitudes')
+      .select('*')
+      .eq('id', solicitudId)
+      .maybeSingle();
+    if (prevErr) {
+      if (faltaTabla(prevErr)) return { ok: false, error: AVISO_FALTA_CUBRE_SOLICITUDES, faltaTabla: true };
+      return { ok: false, error: prevErr.message };
+    }
+    if (!prev) return { ok: false, error: 'Solicitud no encontrada.' };
+    const estadoPrev = String(prev.estado || '');
+    if (!['solicitada', 'aceptada'].includes(estadoPrev)) {
+      return { ok: false, error: `No se puede cancelar en estado «${estadoPrev}».` };
+    }
 
-  const { data, error } = await supabase
-    .from('pos_cubre_solicitudes')
-    .update({
-      estado: 'cancelada',
-      pin_temporal: null,
-      updated_at: new Date().toISOString(),
-      notas: [prev.notas, opts.motivo || 'Cancelada desde POS (cajero/admin).'].filter(Boolean).join(' · '),
-    })
-    .eq('id', solicitudId)
-    .in('estado', ['solicitada', 'aceptada'])
-    .select('*')
-    .single();
-  if (error) {
-    if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CUBRE_SOLICITUDES, faltaTabla: true };
-    return { ok: false, error: error.message };
+    const ahora = new Date().toISOString();
+    const notas = [prev.notas, opts.motivo || 'Cancelada desde POS (cajero/admin).']
+      .filter(Boolean)
+      .join(' · ');
+
+    let { data, error } = await supabase
+      .from('pos_cubre_solicitudes')
+      .update({
+        estado: 'cancelada',
+        pin_temporal: null,
+        updated_at: ahora,
+        notas,
+      })
+      .eq('id', solicitudId)
+      .in('estado', ['solicitada', 'aceptada'])
+      .select('*')
+      .maybeSingle();
+
+    // Si el select .single/.maybe falla por representación, reintenta sin exigir fila.
+    if (error && /multiple \(or no\) rows|PGRST116|JSON object requested/i.test(String(error.message || ''))) {
+      const retry = await supabase
+        .from('pos_cubre_solicitudes')
+        .update({
+          estado: 'cancelada',
+          pin_temporal: null,
+          updated_at: ahora,
+          notas,
+        })
+        .eq('id', solicitudId)
+        .in('estado', ['solicitada', 'aceptada'])
+        .select('*');
+      error = retry.error;
+      data = Array.isArray(retry.data) ? retry.data[0] : retry.data;
+    }
+
+    if (error) {
+      if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CUBRE_SOLICITUDES, faltaTabla: true };
+      return { ok: false, error: error.message };
+    }
+    if (!data) {
+      // Carrera: ya cambió de estado; relee para mensaje claro.
+      const { data: actual } = await supabase
+        .from('pos_cubre_solicitudes')
+        .select('estado, ct_nombre')
+        .eq('id', solicitudId)
+        .maybeSingle();
+      if (actual && String(actual.estado) === 'cancelada') {
+        return { ok: true, solicitud: actual, mensaje: `Solicitud a ${actual.ct_nombre || prev.ct_nombre} ya estaba cancelada.` };
+      }
+      return {
+        ok: false,
+        error: actual?.estado
+          ? `No se pudo cancelar (estado actual: «${actual.estado}»). Recarga e intenta de nuevo.`
+          : 'No se pudo cancelar la solicitud. Recarga e intenta de nuevo.',
+      };
+    }
+
+    try {
+      await crearNotificacion(supabase, {
+        sucursal_id: prev.sucursal_id,
+        tipo: 'ct_cancelada',
+        ref_tabla: 'pos_cubre_solicitudes',
+        ref_id: data.id,
+        titulo: `CT cancelado · ${etiquetaTienda(prev.sucursal_id)}`,
+        mensaje: (
+          `La tienda canceló la solicitud a ${prev.ct_nombre} para ${prev.fecha} `
+          + `en ${etiquetaTienda(prev.sucursal_id)}.`
+          + (opts.user?.nombre ? ` Canceló: ${opts.user.nombre}.` : '')
+        ),
+      });
+    } catch {
+      /* la cancelación en BD ya quedó; no tumbar el flujo por la notificación */
+    }
+
+    return {
+      ok: true,
+      solicitud: data,
+      mensaje: `Solicitud a ${prev.ct_nombre} cancelada.`,
+    };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
   }
-
-  await crearNotificacion(supabase, {
-    sucursal_id: prev.sucursal_id,
-    tipo: 'ct_cancelada',
-    ref_tabla: 'pos_cubre_solicitudes',
-    ref_id: data.id,
-    titulo: `CT cancelado · ${etiquetaTienda(prev.sucursal_id)}`,
-    mensaje: (
-      `La tienda canceló la solicitud a ${prev.ct_nombre} para ${prev.fecha} `
-      + `en ${etiquetaTienda(prev.sucursal_id)}.`
-      + (opts.user?.nombre ? ` Canceló: ${opts.user.nombre}.` : '')
-    ),
-  });
-
-  return {
-    ok: true,
-    solicitud: data,
-    mensaje: `Solicitud a ${prev.ct_nombre} cancelada.`,
-  };
 }
 
 /**

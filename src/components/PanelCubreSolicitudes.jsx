@@ -115,6 +115,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
   const [msg, setMsg] = useState('');
   const [evalModal, setEvalModal] = useState(null); // { solicitud, form, guardando }
   const [tutorialAbierto, setTutorialAbierto] = useState(null); // 'portal' | 'solicitar' | null
+  const [cancelandoId, setCancelandoId] = useState('');
   const [form, setForm] = useState({
     ct_rh_id: '',
     fecha: new Date().toISOString().slice(0, 10),
@@ -130,6 +131,8 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
   const esCtMovil = Boolean(user?.esCtMovil && user?.ctRhId);
   const ctRhId = esCtMovil ? user.ctRhId : null;
   const puedeEvaluar = (esCajero || esAdmin) && !esCtMovil;
+  /** Cancelar desde la caja (no el CT móvil). */
+  const puedeCancelarSolicitud = !esCtMovil && (esAdmin || esCajero);
 
   const cargar = useCallback(async () => {
     if (!supabase) return;
@@ -720,7 +723,39 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                     </td>
                     <td className="muted" style={{ fontSize: '0.8rem' }}>{s.solicitado_por_nombre || '—'}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>
-                      {s.estado === 'solicitada' && (
+                      {/* Cancelar primero: en caja es la acción principal; Aceptar/Rechazar son del CT. */}
+                      {['solicitada', 'aceptada'].includes(s.estado) && puedeCancelarSolicitud && (
+                        <button
+                          type="button"
+                          className="btn btn-danger"
+                          style={{ fontSize: '0.78rem', padding: '0.15rem 0.4rem', marginRight: 4 }}
+                          title="Cancela la solicitud CT (el CT verá la cancelación)"
+                          disabled={Boolean(cancelandoId)}
+                          onClick={async () => {
+                            if (!confirm(
+                              `¿Cancelar la solicitud a ${s.ct_nombre}?\n\n`
+                              + 'Se libera al CT y se notifica. Puedes pedir otro después.',
+                            )) return;
+                            setCancelandoId(s.id);
+                            try {
+                              const res = await cancelarSolicitudCt(supabase, s.id, { user });
+                              if (!res.ok) {
+                                alert(res.error || 'No se pudo cancelar.');
+                                return;
+                              }
+                              alert(res.mensaje || 'Solicitud cancelada.');
+                              await cargar();
+                            } catch (e) {
+                              alert(e?.message || 'Error al cancelar la solicitud.');
+                            } finally {
+                              setCancelandoId('');
+                            }
+                          }}
+                        >
+                          {cancelandoId === s.id ? 'Cancelando…' : 'Cancelar solicitud'}
+                        </button>
+                      )}
+                      {s.estado === 'solicitada' && (esCtMovil || esAdmin) && (
                         <>
                           <button
                             type="button"
@@ -736,18 +771,20 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                           >
                             Aceptar (PIN)
                           </button>
-                          <button
-                            type="button"
-                            className="btn btn-ghost"
-                            style={{ fontSize: '0.78rem', padding: '0.15rem 0.4rem' }}
-                            onClick={async () => {
-                              const res = await rechazarSolicitudCt(supabase, s.id);
-                              if (!res.ok) return alert(res.error);
-                              await cargar();
-                            }}
-                          >
-                            Rechazar
-                          </button>
+                          {esCtMovil && (
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ fontSize: '0.78rem', padding: '0.15rem 0.4rem' }}
+                              onClick={async () => {
+                                const res = await rechazarSolicitudCt(supabase, s.id);
+                                if (!res.ok) return alert(res.error);
+                                await cargar();
+                              }}
+                            >
+                              Rechazar
+                            </button>
+                          )}
                         </>
                       )}
                       {s.estado === 'aceptada' && esAdmin && (
@@ -810,26 +847,6 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                             : ' · OK'}
                         </span>
                       )}
-                      {['solicitada', 'aceptada'].includes(s.estado) && (esAdmin || esCajero) && (
-                        <button
-                          type="button"
-                          className="btn btn-danger"
-                          style={{ fontSize: '0.78rem', padding: '0.15rem 0.4rem' }}
-                          title="Cancela la solicitud CT (el CT verá la cancelación)"
-                          onClick={async () => {
-                            if (!confirm(
-                              `¿Cancelar la solicitud a ${s.ct_nombre}?\n\n`
-                              + 'Se libera al CT y se notifica. Puedes pedir otro después.',
-                            )) return;
-                            const res = await cancelarSolicitudCt(supabase, s.id, { user });
-                            if (!res.ok) return alert(res.error);
-                            alert(res.mensaje || 'Solicitud cancelada.');
-                            await cargar();
-                          }}
-                        >
-                          Cancelar solicitud
-                        </button>
-                      )}
                     </td>
                   </tr>
                 ))
@@ -838,8 +855,9 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
           </table>
         </div>
         <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
-          El cajero puede <strong>Cancelar solicitud</strong> mientras esté solicitada o aceptada.
-          Si el CT rechaza, aparece una <strong>alerta flotante</strong> en cualquier módulo hasta atenderla.
+          En caja, <strong>Cancelar solicitud</strong> aparece primero (solicitada o aceptada).
+          El CT acepta o rechaza desde su celular (PIN móvil).
+          Si el CT rechaza, aparece una <strong>alerta flotante</strong> hasta atenderla.
           Tras cubrir, la planta evalúa al CT (consumo, faltantes, quejas…).
         </p>
       </div>
