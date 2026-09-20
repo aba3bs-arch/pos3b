@@ -1,4 +1,8 @@
--- Preinventario de cajeros: plantillas y conteos que NO afectan inventario teórico.
+-- POS 3B — Preinventario de cajeros
+-- Plantillas y conteos que NO afectan inventario teórico.
+-- Ejecutar en Supabase → SQL Editor (seguro re-ejecutar).
+-- Si "se borró la plantilla"/tablas, vuelve a correr este script completo.
+
 create table if not exists public.pos_preinventario_plantillas (
   id uuid primary key default gen_random_uuid(),
   sucursal_id text not null,
@@ -41,6 +45,10 @@ create policy pos_preinventario_plantillas_all on public.pos_preinventario_plant
 drop policy if exists pos_preinventario_sesiones_all on public.pos_preinventario_sesiones;
 create policy pos_preinventario_sesiones_all on public.pos_preinventario_sesiones
   for all to anon, authenticated using (true) with check (true);
+
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.pos_preinventario_plantillas to anon, authenticated;
+grant select, insert, update, delete on public.pos_preinventario_sesiones to anon, authenticated;
 
 comment on table public.pos_preinventario_plantillas is
   'Plantillas de preinventario (personal o por depto). No modifican stock.';
