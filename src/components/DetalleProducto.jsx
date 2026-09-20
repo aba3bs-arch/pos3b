@@ -4,7 +4,7 @@ import HistorialProducto from './HistorialProducto.jsx';
 import ProductoThumb from './ProductoThumb.jsx';
 import { etiquetaDepartamento } from '../lib/departamentos.js';
 import { esAlmacenCentral, etiquetaCedisEmpresa, etiquetaStockLista, stockVisible } from '../lib/inventarioMultitienda.js';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, esCentralAdmin } from '../constants/sucursales.js';
 import { tieneFoto } from '../lib/fotosCatalogo.js';
 import { leerImagenProductoComoDataUrl } from '../lib/imagenProducto.js';
 import { precioVentaParaCaja, productoEsFavorito } from '../lib/productoForm.js';
@@ -53,7 +53,9 @@ export default function DetalleProducto({
   }
 
   const enCentral = esAlmacenCentral(sucursal);
+  const enMain = esCentralAdmin(sucursal);
   const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : 'MAIN';
+  const labelFav = enMain ? 'todas las tiendas' : tiendaLabel;
   const precioCon = precioVentaParaCaja(producto);
   const impuesto = Number(producto.impuesto ?? 8);
   const precioSin = Number(producto.precio_venta_sin ?? (precioCon / (1 + impuesto / 100)));
@@ -145,13 +147,13 @@ export default function DetalleProducto({
                   border: '1px solid rgba(180, 83, 9, 0.35)',
                   background: favorito ? 'rgba(212, 175, 55, 0.15)' : 'rgba(212, 175, 55, 0.06)',
                 }}
-                title={favorito ? `Quitar de favoritos (${tiendaLabel})` : `Favorito en ${tiendaLabel}`}
+                title={favorito ? `Quitar de favoritos (${labelFav})` : `Favorito en ${labelFav}`}
                 aria-pressed={favorito}
                 onClick={() => onToggleFavorito(producto)}
               >
                 <Icon name="star" size={18} strokeWidth={2.25} fill={favorito ? 'currentColor' : 'none'} />
                 <span style={{ fontSize: '0.8rem', fontWeight: 650 }}>
-                  {favorito ? 'Favorito' : 'Marcar'}
+                  {favorito ? (enMain ? 'Favorito (todas)' : 'Favorito') : (enMain ? 'Todas' : 'Marcar')}
                 </span>
               </button>
             )}

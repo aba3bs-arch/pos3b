@@ -12,7 +12,7 @@ import {
 import { normalizarCodigosAlt } from '../lib/buscarProductoTexto.js';
 import Icon, { BtnLabel } from './Icon.jsx';
 import CampoCodigo from './CampoCodigo.jsx';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, esCentralAdmin } from '../constants/sucursales.js';
 import { esAlmacenCentral, etiquetaCedisEmpresa } from '../lib/inventarioMultitienda.js';
 
 export default function FormularioProducto({
@@ -28,6 +28,8 @@ export default function FormularioProducto({
 }) {
   const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : null;
   const enCentral = esAlmacenCentral(sucursal);
+  const enMain = esCentralAdmin(sucursal);
+  const labelFav = enMain ? 'todas las tiendas' : (tiendaLabel || 'esta sucursal');
   const fotoRef = useRef(null);
   const camaraRef = useRef(null);
   const [nuevoDepto, setNuevoDepto] = useState('');
@@ -442,14 +444,14 @@ export default function FormularioProducto({
             className={`btn ${form.en_favoritos ? 'btn-gold' : 'btn-ghost'}`}
             style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}
             onClick={() => setCampoSimple('en_favoritos', !form.en_favoritos)}
-            title={`Favorito rápido en ${tiendaLabel || 'esta sucursal'}`}
+            title={enMain ? 'Al guardar, se aplica a todas las sucursales de venta' : `Favorito rápido en ${labelFav}`}
           >
             <Icon name="star" size={16} fill={form.en_favoritos ? 'currentColor' : 'none'} />
-            {form.en_favoritos ? `Favorito en ${tiendaLabel || 'esta sucursal'}` : `Marcar favorito (${tiendaLabel || 'tienda'})`}
+            {form.en_favoritos ? `Favorito en ${labelFav}` : `Marcar favorito (${labelFav})`}
           </button>
         ) : (
           <span className="muted" style={{ fontSize: '0.85rem' }}>
-            CEDIS es centro de distribución (sin favoritos de caja). El POS de ruta usa los artículos de la carga.
+            CEDIS es centro de distribución (sin favoritos de caja). Desde MAIN puedes cargar favoritos a todas las tiendas. El POS de ruta usa los artículos de la carga.
           </span>
         )}
       </div>

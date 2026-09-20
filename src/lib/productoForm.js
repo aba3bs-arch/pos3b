@@ -4,6 +4,7 @@ import {
   listarSucursalesOperativas,
   normalizarCodigoTienda,
   esSucursalRuta,
+  esCentralAdmin,
 } from '../constants/sucursales.js';
 import { mergeFavoritosSucursales } from './favoritosSucursalesPersistencia.js';
 
@@ -281,8 +282,12 @@ export function productoParaGuardar(form, opts = {}) {
     }
     if (sucursal) {
       const suc = normalizarCodigoTienda(sucursal);
-      // CEDIS/MAIN/RUTA no tienen favoritos de caja (ruta POS usa la carga del camión).
-      if (suc && suc !== 'MAIN' && !esAlmacenCentral(suc) && !esSucursalRuta(suc)) {
+      // Desde MAIN: el checkbox/estrella del formulario aplica a TODAS las tiendas de venta.
+      if (esCentralAdmin(suc)) {
+        const on = Boolean(form.en_favoritos);
+        for (const s of sucursalesFavoritosPosibles()) map[s] = on;
+      } else if (suc && favoritosPermitidosEnSucursal(suc)) {
+        // CEDIS/RUTA no tienen favoritos de caja (ruta POS usa la carga del camión).
         map[suc] = Boolean(form.en_favoritos);
       }
     }
@@ -307,7 +312,7 @@ export function productoEnVenta(p) {
 /** ¿Esta sucursal admite favoritos de POS? Solo tiendas de venta (no MAIN/CEDIS/RUTA). */
 export function favoritosPermitidosEnSucursal(sucursal) {
   const suc = normalizarCodigoTienda(sucursal);
-  if (!suc || suc === 'MAIN' || esAlmacenCentral(suc) || esSucursalRuta(suc)) return false;
+  if (!suc || esCentralAdmin(suc) || esAlmacenCentral(suc) || esSucursalRuta(suc)) return false;
   return true;
 }
 
@@ -324,7 +329,7 @@ export function parseFavoritosSucursales(producto) {
     const out = {};
     for (const [k, v] of Object.entries(raw)) {
       const suc = normalizarCodigoTienda(k);
-      if (!suc || suc === 'MAIN' || esAlmacenCentral(suc) || esSucursalRuta(suc)) continue;
+      if (!suc || esCentralAdmin(suc) || esAlmacenCentral(suc) || esSucursalRuta(suc)) continue;
       out[suc] = Boolean(v);
     }
     return out;
@@ -335,15 +340,32 @@ export function parseFavoritosSucursales(producto) {
 }
 
 /**
+ * ¿Está marcado favorito en TODAS las tiendas de venta?
+ * (Usado desde MAIN para sincronizar el catálogo a todas las cajas.)
+ */
+export function productoEsFavoritoTodasTiendas(p) {
+  if (!p) return false;
+  const map = parseFavoritosSucursales(p);
+  const tiendas = sucursalesFavoritosPosibles();
+  if (!tiendas.length) return false;
+  if (Object.keys(map).length === 0) {
+    return Boolean(p.en_favoritos) || p.cat === 'FAVORITOS';
+  }
+  return tiendas.every((s) => Boolean(map[s]));
+}
+
+/**
  * ¿Es favorito en esta sucursal?
- * - CEDIS / MAIN / RUTA: nunca (distribución / admin / POS camión usa la carga).
+ * - CEDIS / RUTA: nunca (distribución / POS camión usa la carga).
+ * - MAIN: true si está en todas las tiendas (gestión central).
  * - Con mapa favoritos_sucursales: solo esa tienda.
  * - Sin mapa (legado): en_favoritos / cat FAVORITOS aplica a tiendas.
  */
 export function productoEsFavorito(p, sucursal = null) {
   if (!p) return false;
   const suc = normalizarCodigoTienda(sucursal);
-  if (suc === 'MAIN' || esAlmacenCentral(suc) || esSucursalRuta(suc)) return false;
+  if (esAlmacenCentral(suc) || esSucursalRuta(suc)) return false;
+  if (esCentralAdmin(suc)) return productoEsFavoritoTodasTiendas(p);
   const map = parseFavoritosSucursales(p);
   const tieneMapa = Object.keys(map).length > 0;
   if (suc && tieneMapa) return Boolean(map[suc]);
@@ -368,9 +390,27 @@ export function asegurarMapaFavoritos(producto) {
   return out;
 }
 
-/** Patch para toggle favorito solo en `sucursal` (tiendas de venta). */
+/**
+ * Desde MAIN: marca o quita favorito en TODAS las tiendas de venta.
+ * Si ya está en todas → apaga todas; si falta alguna → enciende todas.
+ */
+export function patchToggleFavoritoTodasSucursales(producto) {
+  const tiendas = sucursalesFavoritosPosibles();
+  const encender = !productoEsFavoritoTodasTiendas(producto);
+  const map = {};
+  for (const s of tiendas) map[s] = encender;
+  return {
+    favoritos_sucursales: map,
+    en_favoritos: encender,
+  };
+}
+
+/** Patch para toggle favorito solo en `sucursal` (tiendas de venta). Desde MAIN → todas. */
 export function patchToggleFavoritoSucursal(producto, sucursal) {
   const suc = normalizarCodigoTienda(sucursal);
+  if (esCentralAdmin(suc)) {
+    return patchToggleFavoritoTodasSucursales(producto);
+  }
   if (!favoritosPermitidosEnSucursal(suc)) {
     const next = !productoEsFavorito(producto);
     return { en_favoritos: next, favoritos_sucursales: parseFavoritosSucursales(producto) };

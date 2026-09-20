@@ -45,7 +45,7 @@ import Traspasos from './Traspasos.jsx';
 import Preinventario from './Preinventario.jsx';
 import HistorialProducto from '../components/HistorialProducto.jsx';
 import ConsolidarVentasInventario from '../components/ConsolidarVentasInventario.jsx';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, esCentralAdmin } from '../constants/sucursales.js';
 import { esAlmacenCentral, etiquetaCedisEmpresa, etiquetaStockLista, stockVisible } from '../lib/inventarioMultitienda.js';
 import { fmtMxn, resumirValorInventario } from '../lib/valorInventario.js';
 import { sincronizarFotosCatalogo, tieneFoto } from '../lib/fotosCatalogo.js';
@@ -179,7 +179,10 @@ export default function Productos({
   const verNegativos = puedeVerStockNegativo(user?.rol, user?.id);
   const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : 'MAIN';
   const enCentral = esAlmacenCentral(sucursal);
-  /** Solo CEDIS: recorta la vista. Tiendas y MAIN siguen con catálogo completo. */
+  const enMain = esCentralAdmin(sucursal);
+  /** Estrella de favoritos: tiendas de venta y MAIN (aplica a todas). No CEDIS. */
+  const puedeFavoritosUi = puedeGestionCatalogo && !enCentral;
+  const labelFavorito = enMain ? 'todas las tiendas' : tiendaLabel;
   const filtroCatalogoCedis = aplicaFiltroCatalogoCedis(sucursal);
   const [proveedorCedisId, setProveedorCedisId] = useState(null);
   const [avisoCatalogoCedis, setAvisoCatalogoCedis] = useState('');
@@ -526,7 +529,10 @@ export default function Productos({
     if (!supabase || !p?.id) return;
     if (esAlmacenCentral(sucursal)) {
       return alert(
-        'CEDIS es centro de distribución (sin favoritos de caja).\n\nFavoritos de tienda: cambia a la sucursal.\nVenta en Ruta: el POS muestra los artículos de la carga del camión.',
+        'CEDIS es centro de distribución (sin favoritos de caja).\n\n'
+        + 'Desde MAIN puedes marcar favorito para todas las tiendas.\n'
+        + 'En una sucursal, el favorito es solo de esa caja.\n'
+        + 'Venta en Ruta: el POS muestra los artículos de la carga del camión.',
       );
     }
     const patch = patchToggleFavoritoSucursal(p, sucursal);
@@ -547,10 +553,26 @@ export default function Productos({
       guardarFavoritosSucursalesLocal(p.id, patch.favoritos_sucursales);
       const retry = await supabase.from('productos').update({ en_favoritos: patch.en_favoritos }).eq('id', p.id);
       error = retry.error;
-      if (!error) return;
+      if (!error) {
+        if (enMain) {
+          alert(
+            patch.en_favoritos
+              ? 'Favorito aplicado a todas las tiendas (respaldo local; falta columna en Supabase).'
+              : 'Favorito quitado en todas las tiendas (respaldo local).',
+          );
+        }
+        return;
+      }
     } else if (!error) {
       marcarFavoritosSucursalesColumnaOk();
       limpiarFavoritosSucursalesLocal(p.id);
+      if (enMain) {
+        alert(
+          patch.en_favoritos
+            ? 'Favorito cargado a todas las sucursales de venta.'
+            : 'Favorito quitado en todas las sucursales de venta.',
+        );
+      }
       return;
     }
     if (error) {
@@ -1357,13 +1379,17 @@ export default function Productos({
                   return (
                     <div
                       key={p.id}
-                      className={`prod-lista-item ${activo ? 'activo' : ''}${esFav ? ' es-favorito' : ''}${puedeGestionCatalogo && !enCentral ? ' con-fav' : ''}`}
+                      className={`prod-lista-item ${activo ? 'activo' : ''}${esFav ? ' es-favorito' : ''}${puedeFavoritosUi ? ' con-fav' : ''}`}
                     >
-                      {puedeGestionCatalogo && !enCentral ? (
+                      {puedeFavoritosUi ? (
                         <button
                           type="button"
                           className={`prod-lista-fav${esFav ? ' activo' : ''}`}
-                          title={esFav ? `Quitar de favoritos (${tiendaLabel})` : `Marcar favorito en ${tiendaLabel}`}
+                          title={
+                            esFav
+                              ? (enMain ? 'Quitar favorito en todas las tiendas' : `Quitar de favoritos (${labelFavorito})`)
+                              : (enMain ? 'Marcar favorito en todas las tiendas' : `Marcar favorito en ${labelFavorito}`)
+                          }
                           aria-label={esFav ? 'Quitar favorito' : 'Marcar favorito'}
                           aria-pressed={esFav}
                           onClick={(e) => {
@@ -1420,7 +1446,7 @@ export default function Productos({
                 vinculos={vinculos}
                 verNegativos={verNegativos}
                 onEditar={puedeGestionCatalogo ? editar : undefined}
-                onToggleFavorito={puedeGestionCatalogo && !enCentral ? toggleFavorito : undefined}
+                onToggleFavorito={puedeFavoritosUi ? toggleFavorito : undefined}
                 onVincularProveedor={puedeGestionCatalogo ? vincularProveedor : undefined}
                 onQuitarVinculo={puedeGestionCatalogo ? quitarVinculo : undefined}
                 onFotoActualizada={puedeGestionCatalogo ? (row) => fusionarProducto?.(row) : undefined}
