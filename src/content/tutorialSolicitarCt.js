@@ -56,7 +56,6 @@ export const TUTORIAL_SOLICITAR_CT = {
       titulo: '4. Opción: pedir desde Plan horario',
       cuerpo: [
         'Si tienes permiso de **Plan horario**, abre esa pestaña en Checador.',
-        'Si el plan está **bloqueado**, pulsa primero **Quitar candado** (ver tutorial **Solicitar CT — Parte 1**).',
         'En la celda de **descanso** usa **Pedir CT** / **Solicitar CT**.',
         'Queda ligado a ese día del plan.',
       ],
