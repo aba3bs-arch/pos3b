@@ -5,6 +5,7 @@
 import { esAprobadorRecoleccionIe, esSocioAprobadorPrestamo } from './contabilidadConstants.js';
 import { RESPONSABLES_INCIDENCIA, esResponsableIncidencia, normalizarNombreResponsable } from './incidenciasPos.js';
 import { normalizarRol } from './roles.js';
+import { esAdministradorPrincipal, nombreEsAdminPrincipal } from './adminPrincipal.js';
 
 // Literales (evitar import circular con contabilidadNotificaciones).
 const T = {
@@ -22,6 +23,7 @@ const T = {
   RIF_ABIERTO: 'rif_abierto',
   RIF_LIQUIDADO: 'rif_liquidado',
   RIF_VENCIDO: 'rif_vencido',
+  CONTRATACION: 'contratacion_aspirante',
 };
 
 export function esUsuarioMainNotificable(user) {
@@ -78,6 +80,19 @@ export function notificacionEsDeMiBuzon(n, user) {
     || tipo === T.RIF_VENCIDO
   ) {
     return rol === 'Administrador' || rol === 'Gerente';
+  }
+
+  if (tipo === T.CONTRATACION) {
+    // Buzón personal del admin principal; si fue redirigida, el mensaje nombra al responsable.
+    if (esAdministradorPrincipal(user)) return true;
+    if (rol !== 'Administrador') return false;
+    const resp = responsableDesdeMensajeNotif(n.mensaje);
+    if (resp && (esResponsableIncidencia(user.nombre, resp) || nombreEsAdminPrincipal(resp) === false)) {
+      const u = normalizarNombreResponsable(user.nombre);
+      const r = normalizarNombreResponsable(resp);
+      if (u && r && (u === r || u.includes(r) || r.includes(u))) return true;
+    }
+    return false;
   }
 
   return rol === 'Administrador' || rol === 'Gerente';

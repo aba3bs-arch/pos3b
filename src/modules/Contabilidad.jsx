@@ -72,6 +72,10 @@ const DESCRIPCIONES = {
     desc: 'Altas, bajas y expediente de personal',
     ayuda: 'Empleados de tienda, cubre turnos e indirectos. Activos / inactivos, perfil, historial y recontratación con PIN de administradores.',
   },
+  'Contratación': {
+    desc: 'Aspirantes por enlace/QR · bandeja admin principal',
+    ayuda: 'Comparte el enlace o QR. Los prospectos eligen planta o cubre turno y llenan su perfil. Solo el admin principal ve la bandeja; puede dar seguimiento o redirigir a otro admin.',
+  },
 };
 
 /** Hub de Contabilidad: solo botones; cada submódulo abre su pantalla. */

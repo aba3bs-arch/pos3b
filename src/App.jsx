@@ -45,6 +45,8 @@ import GastosEvidencia from './modules/GastosEvidencia.jsx';
 import ClientesMaquinas from './modules/ClientesMaquinas.jsx';
 import RcVirtual from './modules/RcVirtual.jsx';
 import RhAba3b from './modules/RhAba3b.jsx';
+import Contratacion from './modules/Contratacion.jsx';
+import ContratacionPublica from './modules/ContratacionPublica.jsx';
 import {
   listarSucursalesParaUI,
   etiquetaTienda,
@@ -103,6 +105,7 @@ import {
   liberarDispositivoUsuario,
 } from './lib/dispositivoUsuario.js';
 import { usuarioAutorizadoLogin, turnoActual, turnoIdParaUsuario } from './lib/turnos.js';
+import { esModoContratacionPublica } from './lib/contratacion.js';
 import {
   construirUsuarioCubreTurno,
   datosCubreTurnoCompletos,
@@ -168,6 +171,7 @@ const CAJA_FISICA_FIJA_ENV = sucursalFijaEsCajaFisica();
 
 function App() {
   const mobile = useMobileLayout();
+  const modoContratacionPublica = useMemo(() => esModoContratacionPublica(), []);
   const [sesion, setSesion] = useState(false);
   const [user, setUser] = useState(null);
   const [pin, setPin] = useState('');
@@ -1134,6 +1138,10 @@ function App() {
     return submodulosEstadisticasVisibles(user.rol, user.id);
   }, [user, modoOffline]);
 
+  if (modoContratacionPublica) {
+    return <ContratacionPublica supabase={supabaseConfigured ? supabase : null} />;
+  }
+
   if (!sesion) {
     return (
       <PantallaLogin
@@ -1657,6 +1665,12 @@ function App() {
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
               <RhAba3b supabase={supabase} user={user} sucursal={sucursal} />
+            </>
+          )}
+          {vista === 'Contratación' && (
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <Contratacion supabase={supabase} user={user} />
             </>
           )}
           {vista === 'Vales y Préstamos' && (
