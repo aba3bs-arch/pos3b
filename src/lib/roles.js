@@ -126,6 +126,7 @@ export const SUBMODULOS_CONTABILIDAD = [
   'Crédito',
   'Cobranza',
   'RH ABA3B',
+  'Contratación',
 ];
 
 export const VISTA_HUB_CONTABILIDAD = 'Contabilidad';
@@ -544,6 +545,7 @@ export const MODULOS_BLOQUEADOS_MOSTRADOR = new Set([
   'Auto Fin',
   'Crédito',
   'RH ABA3B',
+  'Contratación',
   'Socio 3B',
   'Registro de gastos',
   'Evaluación operativa',

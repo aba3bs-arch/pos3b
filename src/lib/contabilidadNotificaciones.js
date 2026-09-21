@@ -167,6 +167,7 @@ export const TIPOS_NOTIF = {
   CT_CANCELADA: 'ct_cancelada',
   CT_HOLD: 'ct_hold',
   CT_EVALUACION_ALERTA: 'ct_evaluacion_alerta',
+  CONTRATACION: 'contratacion_aspirante',
 };
 
 /** Alertas CT que el cajero debe ver flotantes hasta atenderlas. */
@@ -229,6 +230,8 @@ export function etiquetaTipoNotificacion(tipo) {
       return 'CT en hold';
     case TIPOS_NOTIF.CT_EVALUACION_ALERTA:
       return 'Alerta evaluación CT';
+    case TIPOS_NOTIF.CONTRATACION:
+      return 'Postulación / contratación';
     default:
       return tipo || 'Notificación';
   }
