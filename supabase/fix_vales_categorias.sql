@@ -27,8 +27,10 @@ alter table public.prestamos add column if not exists area_corte text;
 
 comment on column public.prestamos.area_corte is 'Módulo de corte donde se carga el desembolso: virtual | abarrotes | garage';
 
--- Subcategoría opcional al generar un vale (bajo el tipo/categoría).
+-- Subcategoría y detalle (3er nivel) opcionales al generar un vale.
 alter table public.vales add column if not exists subcategoria text;
+alter table public.vales add column if not exists detalle text;
 
 comment on column public.vales.subcategoria is 'Subcategoría opcional del tipo de vale (catálogo vales_categorias.subcategorias).';
-comment on column public.vales_categorias.subcategorias is 'Array JSON [{id,label}] de subcategorías del tipo de vale.';
+comment on column public.vales.detalle is 'Detalle / 3er nivel opcional bajo la subcategoría (subcategorias[].detalles).';
+comment on column public.vales_categorias.subcategorias is 'Array JSON [{id,label,detalles:[{id,label}]}] de subcategorías y detalles del tipo de vale.';
