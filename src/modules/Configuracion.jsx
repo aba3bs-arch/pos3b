@@ -1917,7 +1917,9 @@ export default function Configuracion({
                     )}
                     {(esRolMostradorRestringido(rolBase) || esRolRepartidor(rolBase)) && (
                       <div className="muted" style={{ marginTop: '0.35rem', fontSize: '0.78rem', lineHeight: 1.35 }}>
-                        Algunos módulos están bloqueados de forma fija para este rol (seguridad de caja). Aparecen deshabilitados y no se pueden activar desde aquí.
+                        {esRolMostradorRestringido(rolBase)
+                          ? 'Cajero: puedes marcar casi todos los módulos. Solo quedan bloqueados Usuarios, Configuración, RH ABA3B y Contratación (administración del sistema). El catálogo de productos sigue en solo consulta.'
+                          : 'Algunos módulos están bloqueados de forma fija para este rol (seguridad). Aparecen deshabilitados y no se pueden activar desde aquí.'}
                       </div>
                     )}
                   </div>

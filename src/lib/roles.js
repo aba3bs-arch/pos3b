@@ -373,7 +373,8 @@ export function puedeVerModulo(rol, moduloId, userId = null) {
   if (r === 'Administrador') return true;
   // Cliente máquinas: solo ese módulo (bloqueo duro).
   if (esRolCliente(rol)) return m === 'Socio 3B';
-  // Cajero (y roles con plantilla Cajero): bloqueo duro aunque alguien les asigne privilegios.
+  // Solo módulos de administración del sistema siguen bloqueados para Cajero
+  // (Usuarios, Configuración, RH…). El resto lo decide Configuración → Privilegios.
   if (esRolMostradorRestringido(rol) && MODULOS_BLOQUEADOS_MOSTRADOR.has(m)) return false;
   // Repartidor: bloqueo duro de módulos de caja/oficina (aunque haya privilegios personalizados).
   if (esRolRepartidor(rol) && MODULOS_BLOQUEADOS_REPARTIDOR.has(m)) return false;
@@ -404,11 +405,12 @@ export function etiquetaModuloSidebar(_rol, moduloId) {
 
 export function modulosParaSidebar(rol, userId = null) {
   const cajero = esRolMostradorRestringido(rol);
+  const veHubContabilidad = !cajero || puedeVerSeccionContabilidad(rol, userId);
   const filtrar = (lista) => lista.filter((m) => {
     if (MODULOS_AGRUPADOS_ESTADISTICAS.has(m)) return false;
     if (MODULOS_AGRUPADOS_CONTABILIDAD.has(m)) {
-      // Cajero: Cobranza sale suelta; sin hub Contabilidad ni Registro de gastos.
-      if (cajero && MODULOS_CONTABILIDAD_SUELTOS_CAJERO.has(m)) return true;
+      // Cajero sin hub Contabilidad: Cobranza puede ir suelta.
+      if (cajero && !veHubContabilidad && MODULOS_CONTABILIDAD_SUELTOS_CAJERO.has(m)) return true;
       return false;
     }
     return true;
@@ -427,8 +429,8 @@ export function modulosParaSidebar(rol, userId = null) {
     }),
   );
   // Cobranza no está en MODULOS_ORDEN (vive bajo Contabilidad).
-  // Para cajero se añade suelta al final del menú si está permitida.
-  if (cajero) {
+  // Para cajero se añade suelta al final del menú si está permitida y no hay hub.
+  if (cajero && !veHubContabilidad) {
     for (const m of MODULOS_CONTABILIDAD_SUELTOS_CAJERO) {
       if (permitidos.includes(m) && !base.includes(m) && !MODULOS_BLOQUEADOS_MOSTRADOR.has(m)) {
         base.push(m);
@@ -439,14 +441,18 @@ export function modulosParaSidebar(rol, userId = null) {
 }
 
 export function submodulosContabilidadVisibles(rol, userId = null) {
-  // Hub Contabilidad: cajeros no lo ven (bloqueo duro). Cobranza va suelta si aplica.
-  if (esRolMostradorRestringido(rol)) return [];
   return SUBMODULOS_CONTABILIDAD.filter((m) => puedeVerModulo(rol, m, userId));
 }
 
 export function puedeVerSeccionContabilidad(rol, userId = null) {
-  if (esRolMostradorRestringido(rol)) return false;
-  return submodulosContabilidadVisibles(rol, userId).length > 0;
+  const subs = submodulosContabilidadVisibles(rol, userId);
+  if (!subs.length) return false;
+  // Cajero: Cobranza sola sigue suelta en el menú; el hub Contabilidad aparece
+  // solo si le asignan otros submódulos (Nómina, RC, IE, etc.) en Privilegios.
+  if (esRolMostradorRestringido(rol)) {
+    return subs.some((m) => !MODULOS_CONTABILIDAD_SUELTOS_CAJERO.has(m));
+  }
+  return true;
 }
 
 export function submodulosEstadisticasVisibles(rol, userId = null) {
@@ -505,9 +511,9 @@ export function rolSistemaEfectivo(rol) {
 }
 
 /**
- * Roles de mostrador (solo Cajero): no pueden alterar catálogo, vaciar inventario,
- * consolidar ni abrir módulos de administración/contabilidad.
- * Repartidor / Recolector NO entran aquí.
+ * Roles de mostrador (solo Cajero): restricciones de acción (catálogo, etc.).
+ * Los módulos del menú se controlan desde Configuración → Privilegios
+ * (salvo el bloqueo mínimo de administración del sistema abajo).
  */
 export function esRolMostradorRestringido(rol) {
   return rolSistemaEfectivo(rol) === 'Cajero';
@@ -523,41 +529,22 @@ export function esRolCliente(rol) {
 }
 
 /**
- * Submódulos de Contabilidad que el cajero puede ver sueltos (sin hub Contabilidad).
- * Solo Cobranza (créditos ruta). Registro de gastos no lo necesita el cajero.
+ * Submódulos de Contabilidad que el cajero puede ver sueltos (sin hub Contabilidad)
+ * cuando aún no tiene otros submódulos de Contabilidad asignados.
  */
 export const MODULOS_CONTABILIDAD_SUELTOS_CAJERO = new Set([
   'Cobranza',
 ]);
 
-/** Módulos que el cajero nunca puede abrir (bloqueo duro). */
+/**
+ * Módulos de administración del sistema que el cajero nunca puede abrir
+ * (aunque se marquen en Privilegios). El resto sí se puede asignar desde Configuración.
+ */
 export const MODULOS_BLOQUEADOS_MOSTRADOR = new Set([
-  'Clientes',
   'Usuarios',
-  'Estadisticas',
-  'Resumen operativo',
   'Configuracion',
-  VISTA_HUB_CONTABILIDAD,
-  'Nómina',
-  'Panel RT',
-  'Liquidación recolecciones',
-  'RC Virtual',
-  'RC Garage',
-  'RC Abarrotes',
-  'IE VIRTUAL',
-  'IE ABARROTES',
-  'Auto Fin',
-  'Crédito',
   'RH ABA3B',
   'Contratación',
-  'Socio 3B',
-  'Registro de gastos',
-  'Evaluación operativa',
-  'Consolidación',
-  'Compras vs inventario',
-  'Revisión de compras',
-  'Conciliaciones',
-  ...SUBMODULOS_ESTADISTICAS,
 ]);
 
 /** Módulos que el repartidor nunca puede abrir (bloqueo duro). */
