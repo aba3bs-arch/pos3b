@@ -1,45 +1,10 @@
 -- =============================================================================
 -- POS 3B — Contabilidad completa (idempotente)
+--
+-- Si SOLO falla el módulo Vales, usa primero:
+--   supabase/fix_contabilidad_vales_minimo.sql
+--
 -- Supabase → SQL Editor → pegar TODO → Run → F5 en la app
---
--- Incluye (en orden):
---   1) Nómina / vales / préstamos base + ampliación
---   2) Cortes contabilidad (estado, gastos, cierres, folios) + soft-delete
---   3) Cont Virtual / IE (categorías, egresos, detalle, ingresos, catálogo cortes)
---   4) Vales (aprobaciones, categorías, gasolina cobrado, hora límite)
---   5) Préstamos (sucursales, colecta, recuperación, omitir corte, RC, saldo)
---   6) RIF + notificaciones área
---   7) Gastos corte (aprobación, CUBRE/TAXIS → IE) + catálogo GLOBAL
---   8) Nómina columnas extra
---
--- Equivale a ejecutar:
---   fix_contabilidad.sql
---   fix_contabilidad_ampliacion.sql
---   fix_cortes_contabilidad.sql
---   fix_cortes_contabilidad_soft_delete.sql
---   fix_cont_virtual.sql
---   fix_cont_virtual_detalle.sql
---   fix_cont_virtual_ingresos.sql
---   fix_cont_virtual_en_catalogo_cortes.sql
---   fix_vales_prestamos_aprobaciones.sql
---   fix_vales_categorias.sql
---   fix_vales_gasolina_cobrado.sql
---   fix_hora_limite_vale.sql
---   fix_prestamos_sucursales.sql
---   fix_prestamos_sucursales_main.sql
---   fix_prestamos_area_colectado.sql
---   fix_prestamos_interarea_recuperacion.sql
---   fix_prestamos_omitir_corte.sql
---   fix_prestamos_solicitudes_movimiento.sql
---   fix_rifs.sql
---   fix_prestamos_interarea_saldo.sql
---   fix_prestamos_interarea_rc_virtual.sql
---   fix_gastos_corte_aprobacion.sql
---   fix_gastos_cubre_taxi_ie_virtual.sql
---   fix_catalogo_gastos_global.sql
---   fix_nomina_dias_pagador.sql
---   fix_nomina_saldo_arrastre.sql
---   fix_nomina_prestamos_recoleccion.sql
 -- =============================================================================
 
 
@@ -685,11 +650,13 @@ alter table public.prestamos add column if not exists area_corte text;
 
 comment on column public.prestamos.area_corte is 'Módulo de corte donde se carga el desembolso: virtual | abarrotes | garage';
 
--- Subcategoría opcional al generar un vale (bajo el tipo/categoría).
+-- Subcategoría y detalle (3er nivel) opcionales al generar un vale.
 alter table public.vales add column if not exists subcategoria text;
+alter table public.vales add column if not exists detalle text;
 
 comment on column public.vales.subcategoria is 'Subcategoría opcional del tipo de vale (catálogo vales_categorias.subcategorias).';
-comment on column public.vales_categorias.subcategorias is 'Array JSON [{id,label}] de subcategorías del tipo de vale.';
+comment on column public.vales.detalle is 'Detalle / 3er nivel opcional bajo la subcategoría (subcategorias[].detalles).';
+comment on column public.vales_categorias.subcategorias is 'Array JSON [{id,label,detalles:[{id,label}]}] de subcategorías y detalles del tipo de vale.';
 
 
 -- ---------------------------------------------------------------------------
@@ -1200,9 +1167,6 @@ alter table public.cortes_contabilidad_gastos add column if not exists descontad
 alter table public.cortes_contabilidad_gastos add column if not exists periodo_nomina_id uuid;
 
 
--- ---------------------------------------------------------------------------
--- Ajuste final: cuenta IE admite virtual | garage | abarrotes (gasolina → MAIN)
--- ---------------------------------------------------------------------------
 comment on column public.cont_virtual_egresos.cuenta is
   'Libro IE: virtual (IE VIRTUAL) | garage | abarrotes (IE ABARROTES). Gasolina siempre sucursal_id=MAIN.';
 
@@ -1211,3 +1175,5 @@ comment on column public.cont_virtual_ingresos.cuenta is
 
 create index if not exists idx_cont_virtual_egresos_suc_cuenta
   on public.cont_virtual_egresos (sucursal_id, cuenta, fecha desc);
+
+notify pgrst, 'reload schema';

@@ -1332,6 +1332,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)', background: 'rgba(225,153,41,0.08)' }}>
           <strong>Configuración pendiente</strong>
           <p style={{ margin: '0.35rem 0 0', fontSize: '0.9rem' }}>{aviso || AVISO_FALTA_CONTABILIDAD}</p>
+          <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
+            Archivo corto:{' '}
+            <code>supabase/fix_contabilidad_vales_minimo.sql</code>
+            {' '}→ SQL Editor → Run → Success → F5. Si ya lo corriste: Supabase → Settings → API → Reload schema.
+          </p>
         </div>
       )}
 

@@ -29,18 +29,56 @@ import {
 } from './cargosContabilidad.js';
 import { asegurarCamposSinReservadoOPin } from './reservadoAdminPrincipal.js';
 
+/**
+ * ¿La tabla realmente no existe? (no confundir con columna faltante).
+ * PostgREST: "Could not find the table 'public.vales' in the schema cache"
+ * NO: "Could not find the 'detalle' column of 'vales' in the schema cache"
+ * NO: tabla hermana "vales_categorias" cuando buscamos "vales".
+ */
+function faltaTablaRelacion(error, tableName) {
+  if (!error) return false;
+  const t = String(tableName || '').toLowerCase();
+  if (!t) return false;
+  const msg = String(error.message || error || '').toLowerCase();
+  const code = String(error.code || '');
+
+  // Columna faltante nunca cuenta como "faltan tablas"
+  if (/\bcolumn\b/.test(msg)) return false;
+
+  // Nombre de relación citado en el mensaje (exacto)
+  const quoted = [...msg.matchAll(/['"](?:public\.)?([a-z0-9_]+)['"]/g)].map((m) => m[1]);
+  const relationMatch = msg.match(/(?:relation|table)\s+['"]?(?:public\.)?([a-z0-9_]+)/i);
+  const named = relationMatch?.[1]?.toLowerCase() || null;
+  const exactHit = quoted.includes(t) || named === t;
+  const otherTable = (named && named !== t) || quoted.some((q) => q !== t && q.includes(t));
+
+  if (otherTable && !exactHit) return false;
+
+  if (code === '42P01' || code === 'PGRST205') {
+    if (!msg) return true;
+    if (exactHit) return true;
+    // Código de tabla ausente pero mensaje nombra otra → no
+    if (named && named !== t) return false;
+    // Sin nombre claro: solo si el token de tabla aparece como palabra completa
+    return new RegExp(`(?:^|[^a-z0-9_])${t}(?:[^a-z0-9_]|$)`).test(msg);
+  }
+
+  if (exactHit && (msg.includes('schema cache') || msg.includes('does not exist') || msg.includes('could not find the table'))) {
+    return true;
+  }
+  return false;
+}
+
 export function faltaTablaVales(error) {
-  const msg = String(error?.message || error || '').toLowerCase();
-  return error?.code === '42P01' || msg.includes('vales') || (msg.includes('schema cache') && msg.includes('vales'));
+  return faltaTablaRelacion(error, 'vales');
 }
 
 export function faltaTablaPrestamos(error) {
-  const msg = String(error?.message || error || '').toLowerCase();
-  return error?.code === '42P01' || msg.includes('prestamos') || (msg.includes('schema cache') && msg.includes('prestamos'));
+  return faltaTablaRelacion(error, 'prestamos');
 }
 
 export const AVISO_FALTA_CONTABILIDAD =
-  'Faltan tablas de contabilidad. En Supabase → SQL Editor ejecuta: supabase/fix_contabilidad_completo.sql (incluye vales, préstamos, cortes e IE).';
+  'Faltan tablas de contabilidad. En Supabase → SQL Editor ejecuta supabase/fix_contabilidad_vales_minimo.sql (o fix_contabilidad_completo.sql). Luego F5. Si ya lo corriste, en Supabase → Settings → API → Reload schema.';
 
 export const AVISO_FALTA_RC_PRESTAMO_AREA =
   'Para recolectar préstamos área hacia RC Virtual, ejecuta supabase/fix_prestamos_interarea_rc_virtual.sql';
