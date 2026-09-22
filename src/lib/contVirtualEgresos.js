@@ -101,10 +101,13 @@ export function valeDebeIrAContVirtual(vale) {
   return area === 'virtual' || area === 'garage';
 }
 
-/** Sucursal del egreso en IE: gasolina siempre Central MAIN; resto la tienda del vale. */
+/** Sucursal del egreso en IE: usa sucursal_ie del vale (cuenta elegida); default MAIN. */
 export function sucursalIeDesdeVale(vale) {
+  const ie = String(vale?.sucursal_ie || '').trim().toUpperCase();
+  if (ie) return ie;
+  // Compat legado: gasolina sin sucursal_ie → Central MAIN
   if (esValeGasolina(vale)) return 'MAIN';
-  return vale?.sucursal_id || 'MAIN';
+  return String(vale?.sucursal_id || 'MAIN').trim().toUpperCase() || 'MAIN';
 }
 
 /**
@@ -229,8 +232,8 @@ export async function registrarEgresoDesdeVale(supabase, vale) {
   const etiqueta = etiquetaCategoriaVale(vale.categoria);
   const esGas = esValeGasolina(vale);
   const descripcion = esGas
-    ? `VALE GASOLINA ${folio} · Central MAIN · corte ${area} · ${nombre}`.trim()
-    : `VALE ${folio} · ${etiqueta}${vale.subcategoria ? ` › ${nombres.subcategoria_nombre || vale.subcategoria}` : ''} · ${nombre}`.trim();
+    ? `VALE GASOLINA ${folio} · cuenta ${sucursalId} · corte ${area} · ${nombre}`.trim()
+    : `VALE ${folio} · ${etiqueta}${vale.subcategoria ? ` › ${nombres.subcategoria_nombre || vale.subcategoria}` : ''} · cuenta ${sucursalId} · ${nombre}`.trim();
 
   return registrarEgresoContVirtual(supabase, {
     sucursal_id: sucursalId,

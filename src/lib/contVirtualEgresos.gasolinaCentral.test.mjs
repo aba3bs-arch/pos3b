@@ -37,9 +37,18 @@ assert.equal(valeDebeIrAContVirtual(gasPendiente), false);
 assert.equal(valeDebeIrAContVirtual(consumoVirtual), true);
 assert.equal(valeDebeIrAContVirtual(consumoAbarrotes), false, 'consumo abarrotes no va al libro directo');
 
-assert.equal(sucursalIeDesdeVale(gasVirtual), 'MAIN', 'gasolina cargo Central MAIN');
+assert.equal(sucursalIeDesdeVale(gasVirtual), 'MAIN', 'gasolina sin sucursal_ie → MAIN');
 assert.equal(sucursalIeDesdeVale(gasAbarrotes), 'MAIN');
 assert.equal(sucursalIeDesdeVale(consumoVirtual), '3B5');
+assert.equal(
+  sucursalIeDesdeVale({ ...gasVirtual, sucursal_ie: '3B2' }),
+  '3B2',
+  'sucursal_ie explícita gana',
+);
+assert.equal(
+  sucursalIeDesdeVale({ ...consumoVirtual, sucursal_ie: 'MAIN' }),
+  'MAIN',
+);
 
 const unif = unificarEgresosParaPanel({
   egresosLibro: [{

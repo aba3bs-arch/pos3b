@@ -271,6 +271,7 @@ export async function registrarVale(supabase, row, opts = {}) {
   }
 
   const folio = row.folio || (await siguienteFolioVale(supabase, row.sucursal_id));
+  const sucursalIe = String(row.sucursal_ie || 'MAIN').trim().toUpperCase() || 'MAIN';
   const payload = {
     ...row,
     folio,
@@ -278,6 +279,7 @@ export async function registrarVale(supabase, row, opts = {}) {
     subcategoria,
     detalle,
     area,
+    sucursal_ie: sucursalIe,
     descuenta_nomina: descuentaNomina,
     estado_aprobacion: estadoAprobacion,
     requiere_autorizacion: requiereAuth,
@@ -295,6 +297,14 @@ export async function registrarVale(supabase, row, opts = {}) {
 
     let { data, error } = await intentarInsert(payload);
     if (error && faltaTablaVales(error)) return { ok: false, error: AVISO_FALTA_CONTABILIDAD };
+    if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      if (msg.includes('sucursal_ie')) {
+        const { sucursal_ie: _omitIe, ...sinIe } = payload;
+        ({ data, error } = await intentarInsert(sinIe));
+        if (!error && data) data = { ...data, sucursal_ie: sucursalIe };
+      }
+    }
     if (error) {
       const msg = String(error.message || '').toLowerCase();
       if (msg.includes('detalle') && payload.detalle != null) {

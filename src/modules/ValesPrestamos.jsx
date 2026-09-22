@@ -184,6 +184,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     fecha: hoyISO(),
     sucursalDestino: '',
     areaCorte: '',
+    sucursalIe: 'MAIN',
   });
   const [catalogoIe, setCatalogoIe] = useState([]);
   const [avisoCatalogoIe, setAvisoCatalogoIe] = useState('');
@@ -288,6 +289,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   /** El admin elige siempre el corte; ya no se toma del beneficiario. */
   const areaCorteVale = valeForm.areaCorte || null;
   const sucursalesDestinoVale = useMemo(() => listarSucursalesOperativas(), []);
+  const sucursalesCuentaIe = useMemo(() => listarSucursalesParaUI(), []);
   const sucursalesPagare = useMemo(() => listarSucursalesParaUI(), []);
   const filtroPagareEfectivo = filtroPagareSucursal || (esMain || vePendientesTodasTiendas ? '' : sucursal);
   const pagaresPorSucursal = useMemo(() => {
@@ -540,6 +542,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         categoria: valeForm.categoria,
         subcategoria: valeForm.subcategoria || null,
         detalle: valeForm.detalle || null,
+        sucursal_ie: valeForm.sucursalIe || 'MAIN',
         monto,
         motivo: valeForm.motivo.trim() || null,
         fecha: valeForm.fecha || hoyISO(),
@@ -571,6 +574,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       fecha: hoyISO(),
       sucursalDestino: '',
       areaCorte: '',
+      sucursalIe: 'MAIN',
     });
     recargarTodo();
   };
@@ -2222,9 +2226,21 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   ))}
                 </select>
               )}
+              <label className="muted" style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                Cuenta IE (dónde se registra el gasto)
+                <select
+                  className="select"
+                  value={valeForm.sucursalIe || 'MAIN'}
+                  onChange={(e) => setValeForm({ ...valeForm, sucursalIe: e.target.value })}
+                >
+                  {sucursalesCuentaIe.map((s) => (
+                    <option key={s} value={s}>{etiquetaTienda(s)}</option>
+                  ))}
+                </select>
+              </label>
               {esMain && (
                 <label className="muted" style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                  Sucursal destino
+                  Sucursal destino (corte)
                   <select
                     className="select"
                     value={valeForm.sucursalDestino}
@@ -2260,7 +2276,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 {esMain && valeForm.sucursalDestino ? (
                   <> en <strong>{etiquetaTienda(valeForm.sucursalDestino)}</strong></>
                 ) : null}
-                .
+                {' '}y el gasto en IE queda en cuenta <strong>{etiquetaTienda(valeForm.sucursalIe || 'MAIN')}</strong>.
               </p>
             )}
             <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} disabled={!puedeGenerarVales} onClick={guardarVale}>
@@ -2288,6 +2304,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     <th>Categoría</th>
                     <th>Beneficiario</th>
                     {(esMain || vePendientesTodasTiendas) && <th>Sucursal</th>}
+                    <th>Cuenta IE</th>
                     <th>Área / corte</th>
                     <th>Monto</th>
                     <th>Corte</th>
