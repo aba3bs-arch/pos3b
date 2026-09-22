@@ -4,6 +4,7 @@
 --
 -- Recomendado (todo Contabilidad + IE + cortes en un solo Run):
 --   supabase/fix_contabilidad_completo.sql
+-- Si solo falla Vales: supabase/fix_contabilidad_vales_minimo.sql
 -- =============================================================================
 
 create table if not exists public.nomina_periodos (
@@ -22,7 +23,7 @@ create table if not exists public.nomina_periodos (
 create table if not exists public.nomina_lineas (
   id uuid primary key default gen_random_uuid(),
   periodo_id uuid not null references public.nomina_periodos(id) on delete cascade,
-  usuario_id uuid references public.usuarios(id) on delete set null,
+  usuario_id uuid,
   nombre text not null,
   rol text,
   pagador_nomina text,
@@ -39,7 +40,7 @@ create index if not exists idx_nomina_lineas_periodo on public.nomina_lineas (pe
 create table if not exists public.vales (
   id uuid primary key default gen_random_uuid(),
   sucursal_id text default 'MAIN',
-  usuario_id uuid references public.usuarios(id) on delete set null,
+  usuario_id uuid,
   nombre_empleado text not null,
   tipo text default 'indirecto',
   area text,
@@ -56,7 +57,7 @@ create table if not exists public.vales (
 create table if not exists public.prestamos (
   id uuid primary key default gen_random_uuid(),
   sucursal_id text default 'MAIN',
-  usuario_id uuid references public.usuarios(id) on delete set null,
+  usuario_id uuid,
   nombre_empleado text not null,
   monto_original numeric(12,2) not null default 0,
   saldo numeric(12,2) not null default 0,
