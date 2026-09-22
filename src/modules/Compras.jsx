@@ -631,9 +631,15 @@ export default function Compras({
     });
     const msgGasto = !gastoRes.ok
       ? `\n\n⚠ Inventario OK, pero no se cargó el gasto al corte Abarrotes:\n${gastoRes.error || 'Error desconocido.'}`
-      : gastoRes.yaExistia
-        ? `\n\nGasto ya estaba en Corte Abarrotes (${folioCompra}).`
-        : `\n\nGasto $${totalTicket.toFixed(2)} cargado a Corte Abarrotes · ${folioCompra}.`;
+      : gastoRes.omitido === 'credito'
+        ? `\n\nCrédito: sin gasto en corte. Se cargará al cobrar el crédito (Cobranza ruta).`
+        : gastoRes.omitido
+          ? `\n\nSin gasto en corte (${gastoRes.omitido}).`
+          : gastoRes.yaExistia
+            ? `\n\nGasto ya estaba en Corte Abarrotes (${folioCompra}).`
+            : gastoRes.montoCredito > 0
+              ? `\n\nGasto efectivo $${Number(gastoRes.montoEfectivo || 0).toFixed(2)} a Corte Abarrotes · ${folioCompra}. Crédito $${Number(gastoRes.montoCredito).toFixed(2)} pendiente de cobro.`
+              : `\n\nGasto $${totalTicket.toFixed(2)} cargado a Corte Abarrotes · ${folioCompra}.`;
 
     const msgExtra = errores.length
       ? `\n\nAdvertencia: ${errores.length} línea(s) no entraron al inventario:\n${errores.join('\n')}`
@@ -739,9 +745,15 @@ export default function Compras({
     });
     const msgGasto = !gastoRes.ok
       ? `\n\n⚠ Inventario OK, pero no se cargó el gasto al corte Abarrotes:\n${gastoRes.error || 'Error desconocido.'}`
-      : gastoRes.yaExistia
-        ? `\n\nGasto ya estaba en Corte Abarrotes (${folioCompra}).`
-        : `\n\nGasto $${totalTicket.toFixed(2)} cargado a Corte Abarrotes · ${folioCompra}.`;
+      : gastoRes.omitido === 'credito'
+        ? `\n\nCrédito: sin gasto en corte. Se cargará al cobrar el crédito (Cobranza ruta).`
+        : gastoRes.omitido
+          ? `\n\nSin gasto en corte (${gastoRes.omitido}).`
+          : gastoRes.yaExistia
+            ? `\n\nGasto ya estaba en Corte Abarrotes (${folioCompra}).`
+            : gastoRes.montoCredito > 0
+              ? `\n\nGasto efectivo $${Number(gastoRes.montoEfectivo || 0).toFixed(2)} a Corte Abarrotes · ${folioCompra}. Crédito $${Number(gastoRes.montoCredito).toFixed(2)} pendiente de cobro.`
+              : `\n\nGasto $${totalTicket.toFixed(2)} cargado a Corte Abarrotes · ${folioCompra}.`;
 
     const msgExtra = invPreview.errores.length
       ? `\n\nAdvertencia: ${invPreview.errores.length} línea(s) no entraron:\n${invPreview.errores.join('\n')}`

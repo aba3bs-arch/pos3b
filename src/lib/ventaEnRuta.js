@@ -1216,6 +1216,7 @@ export async function crearPedidoCompraDesdeVentaRuta(supabase, {
   articulos,
   total,
   vendedorNombre,
+  metodoPago = null,
 } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const suc = normalizarCodigoTienda(sucursalId);
@@ -1229,13 +1230,21 @@ export async function crearPedidoCompraDesdeVentaRuta(supabase, {
   })).filter((i) => i.id && i.qty_pedido > 0);
   if (!items_pedido.length) return { ok: false, error: 'Sin artículos para el pedido.' };
 
+  const mp = String(metodoPago || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const etiquetaMetodo = (mp === 'credito' || mp === 'mixto' || mp === 'efectivo')
+    ? ` · metodo ${mp}`
+    : '';
+
   const { data, error } = await supabase
     .from('compras')
     .insert([{
       proveedor_id: null,
       sucursal_id: suc,
       total: round2(total),
-      notas: `Venta en ruta ${folio} · ${vendedorNombre || ''}`.trim(),
+      notas: `Venta en ruta ${folio} · ${vendedorNombre || ''}${etiquetaMetodo}`.trim(),
       estado: 'pedido',
       items_pedido,
       items: [],
@@ -1461,6 +1470,7 @@ export async function registrarVentaRuta(supabase, {
       articulos: arts,
       total,
       vendedorNombre,
+      metodoPago: mp,
     });
     if (!ped.ok) return { ok: false, error: ped.error || 'No se creó el pedido en Compras.' };
     compraId = ped.id;
