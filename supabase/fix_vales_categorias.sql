@@ -1,4 +1,4 @@
--- Tipos de vale permanentes (extras creados por admin) + área de corte en préstamos.
+-- Tipos de vale permanentes (extras creados por admin) + subcategorías + área de corte en préstamos.
 -- Supabase → SQL Editor → Run
 
 create table if not exists public.vales_categorias (
@@ -7,9 +7,13 @@ create table if not exists public.vales_categorias (
   descuenta_nomina boolean not null default false,
   activo boolean not null default true,
   fijo boolean not null default false,
+  subcategorias jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now(),
   created_by text
 );
+
+alter table public.vales_categorias
+  add column if not exists subcategorias jsonb not null default '[]'::jsonb;
 
 alter table public.vales_categorias enable row level security;
 
@@ -22,3 +26,9 @@ create policy "vales_categorias_anon_rw" on public.vales_categorias
 alter table public.prestamos add column if not exists area_corte text;
 
 comment on column public.prestamos.area_corte is 'Módulo de corte donde se carga el desembolso: virtual | abarrotes | garage';
+
+-- Subcategoría opcional al generar un vale (bajo el tipo/categoría).
+alter table public.vales add column if not exists subcategoria text;
+
+comment on column public.vales.subcategoria is 'Subcategoría opcional del tipo de vale (catálogo vales_categorias.subcategorias).';
+comment on column public.vales_categorias.subcategorias is 'Array JSON [{id,label}] de subcategorías del tipo de vale.';

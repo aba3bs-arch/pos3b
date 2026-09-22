@@ -19,26 +19,28 @@ assert.equal(normalizarHoraLimiteVale('10:45').minutos, 10 * 60 + 45);
 assert.equal(normalizarHoraLimiteVale('10:45').etiqueta, '10:45');
 assert.equal(HORA_LIMITE_VALE_DEFAULT_ETIQUETA, '09:00');
 
-// Sonora wall times via Date with fixed UTC offset for Hermosillo (UTC-7)
 function sonoraDate(h, m) {
-  // 2026-08-26 is a valid day; construct as ISO with -07:00
   const pad = (n) => String(n).padStart(2, '0');
   return new Date(`2026-08-26T${pad(h)}:${pad(m)}:00-07:00`);
 }
 
-assert.equal(valeRequiereAutorizacionAdmin(sonoraDate(10, 20), 'gasolina'), false, '10:20 < límite 10:45');
-assert.equal(valeRequiereAutorizacionAdmin(sonoraDate(10, 45), 'gasolina'), false, '10:45 inclusive sin auth');
-assert.equal(valeRequiereAutorizacionAdmin(sonoraDate(10, 46), 'gasolina'), true, '10:46 ya requiere');
-assert.equal(valeRequiereAutorizacionAdmin(sonoraDate(9, 0), 'consumo'), true, 'consumo siempre');
+// Todos los vales requieren admin (cualquier categoría / horario / MAIN).
+assert.equal(valeRequiereAutorizacionAdmin(sonoraDate(10, 20), 'gasolina'), true);
+assert.equal(valeRequiereAutorizacionAdmin(sonoraDate(10, 45), 'gasolina'), true);
+assert.equal(valeRequiereAutorizacionAdmin(sonoraDate(10, 46), 'gasolina'), true);
+assert.equal(valeRequiereAutorizacionAdmin(sonoraDate(9, 0), 'consumo'), true);
 assert.equal(
   valeRequiereAutorizacionAdmin(sonoraDate(22, 30), 'gasolina', { origenMain: true }),
-  false,
-  'MAIN omite ventana aunque sea de noche',
+  true,
+  'MAIN también requiere admin',
 );
 assert.equal(
   valeRequiereAutorizacionAdmin(sonoraDate(22, 30), 'consumo', { origenMain: true }),
   true,
-  'consumo sigue requiriendo admin aunque sea MAIN',
+);
+assert.equal(
+  valeRequiereAutorizacionAdmin(sonoraDate(8, 0), 'herramienta', { omitirVentana: true }),
+  true,
 );
 
 console.log('horaLimiteVale.test.mjs ok');

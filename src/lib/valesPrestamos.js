@@ -17,7 +17,7 @@ import {
   prestamoInterareaPuedeOperarHastaRc,
   ESTADOS_PRESTAMO_INTERAREA_ABIERTOS,
 } from './contabilidadConstants.js';
-import { esCategoriaValeConocida } from './valesCategorias.js';
+import { esCategoriaValeConocida, esSubcategoriaValeValida } from './valesCategorias.js';
 import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
 import {
   cargarValeACorte,
@@ -175,6 +175,10 @@ export async function registrarVale(supabase, row, opts = {}) {
   if (!esCategoriaValeConocida(categoria)) {
     return { ok: false, error: 'Tipo de vale no válido. El administrador debe crearlo primero.' };
   }
+  const subcategoria = String(row.subcategoria || '').trim().toLowerCase() || null;
+  if (subcategoria && !esSubcategoriaValeValida(categoria, subcategoria)) {
+    return { ok: false, error: 'Subcategoría de vale no válida para ese tipo.' };
+  }
   if (opts.origenMain && categoria === 'gasolina') {
     return { ok: false, error: 'Los vales de gasolina se generan desde la tienda, no desde MAIN.' };
   }
@@ -205,6 +209,7 @@ export async function registrarVale(supabase, row, opts = {}) {
     ...row,
     folio,
     categoria,
+    subcategoria,
     area,
     descuenta_nomina: descuentaNomina,
     estado_aprobacion: estadoAprobacion,
@@ -216,10 +221,23 @@ export async function registrarVale(supabase, row, opts = {}) {
     ...(categoria === 'gasolina' ? { cobrado: false } : {}),
   };
 
-  const { data, error } = await supabase.from('vales').insert([payload]).select('*').single();
-  if (error) {
-    if (faltaTablaVales(error)) return { ok: false, error: AVISO_FALTA_CONTABILIDAD };
-    return { ok: false, error: error.message };
+  let valeInsertado = null;
+  {
+    const { data, error } = await supabase.from('vales').insert([payload]).select('*').single();
+    if (error) {
+      if (faltaTablaVales(error)) return { ok: false, error: AVISO_FALTA_CONTABILIDAD };
+      const msg = String(error.message || '').toLowerCase();
+      if (msg.includes('subcategoria') && payload.subcategoria != null) {
+        const { subcategoria: _omit, ...sinSub } = payload;
+        const retry = await supabase.from('vales').insert([sinSub]).select('*').single();
+        if (retry.error) return { ok: false, error: retry.error.message };
+        valeInsertado = retry.data;
+      } else {
+        return { ok: false, error: error.message };
+      }
+    } else {
+      valeInsertado = data;
+    }
   }
 
   if (estadoAprobacion === 'pendiente_admin') {
@@ -227,29 +245,29 @@ export async function registrarVale(supabase, row, opts = {}) {
       sucursal_id: row.sucursal_id,
       tipo: TIPOS_NOTIF.VALE_PENDIENTE,
       ref_tabla: 'vales',
-      ref_id: data.id,
+      ref_id: valeInsertado.id,
       titulo: `Vale pendiente · ${row.nombre_empleado}`,
-      mensaje: `${folio} · $${Number(row.monto).toFixed(2)} · ${categoria}${descuentaNomina ? ' · requiere admin' : ` · después de las ${etiquetaHoraLimiteVale()}`}`,
-      area_buzon: data.area || area || 'virtual',
+      mensaje: `${folio} · $${Number(row.monto).toFixed(2)} · ${categoria}${subcategoria ? ` / ${subcategoria}` : ''} · requiere admin`,
+      area_buzon: valeInsertado.area || area || 'virtual',
     });
     return {
       ok: true,
-      vale: data,
+      vale: valeInsertado,
       pendiente: true,
       mensaje: 'Solicitud enviada. El administrador debe aprobar antes de imprimir.',
     };
   }
 
-  await cargarValeACorte(supabase, data);
+  await cargarValeACorte(supabase, valeInsertado);
   try {
     const { registrarEgresoDesdeVale } = await import('./contVirtualEgresos.js');
-    await registrarEgresoDesdeVale(supabase, data);
+    await registrarEgresoDesdeVale(supabase, valeInsertado);
   } catch {
     /* Cont Virtual opcional */
   }
   return {
     ok: true,
-    vale: data,
+    vale: valeInsertado,
     pendiente: false,
     mensaje: `Vale autorizado y cargado al corte de ${payload.area}${row.sucursal_id ? ` · ${row.sucursal_id}` : ''}. Imprima y solicite la firma del beneficiario.`,
     requiereFirma: true,

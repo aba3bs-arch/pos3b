@@ -69,8 +69,11 @@ import {
   EVENTO_VALES_CATEGORIAS,
   crearCategoriaValePermanente,
   desactivarCategoriaValePermanente,
+  agregarSubcategoriaVale,
+  eliminarSubcategoriaVale,
   leerCategoriasValeExtra,
   sincronizarCategoriasValeDesdeNube,
+  etiquetaSubcategoriaVale,
 } from '../lib/valesCategorias.js';
 import { listarNotificacionesPendientes, TIPOS_NOTIF } from '../lib/contabilidadNotificaciones.js';
 import { imprimirPrestamo, imprimirPrestamoInterarea, imprimirPrestamoSucursal, imprimirRif, imprimirVale, imprimirPagare } from '../lib/impresionContabilidad.js';
@@ -165,6 +168,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const [valeForm, setValeForm] = useState({
     beneficiarioId: '',
     categoria: 'consumo',
+    subcategoria: '',
     monto: '',
     motivo: '',
     fecha: hoyISO(),
@@ -202,6 +206,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   });
   const [categoriasTick, setCategoriasTick] = useState(0);
   const [nuevoTipoVale, setNuevoTipoVale] = useState({ label: '', descuentaNomina: false });
+  const [nuevaSubPorCat, setNuevaSubPorCat] = useState({});
   const [valesPendAll, setValesPendAll] = useState([]);
   const [prestamosPendAll, setPrestamosPendAll] = useState([]);
   const [horaLimiteVale, setHoraLimiteVale] = useState(() => etiquetaHoraLimiteVale());
@@ -259,6 +264,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     return all;
   }, [categoriasTick, esMain]);
   const categoriasExtra = useMemo(() => leerCategoriasValeExtra().filter((c) => c.activo !== false), [categoriasTick]);
+  const subcategoriasValeForm = useMemo(() => {
+    const cat = categoriasValeDisponibles.find((c) => c.id === valeForm.categoria);
+    return cat?.subcategorias || [];
+  }, [categoriasValeDisponibles, valeForm.categoria]);
   const beneficiariosVales = useMemo(() => listarBeneficiariosVales(empleadosAll), [empleadosAll]);
   /** El admin elige siempre el corte; ya no se toma del beneficiario. */
   const areaCorteVale = valeForm.areaCorte || null;
@@ -421,9 +430,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   useEffect(() => {
     if (esMain && valeForm.categoria === 'gasolina') {
-      setValeForm((prev) => ({ ...prev, categoria: 'consumo' }));
+      setValeForm((prev) => ({ ...prev, categoria: 'consumo', subcategoria: '' }));
     }
   }, [esMain, valeForm.categoria]);
+
+  useEffect(() => {
+    const subs = subcategoriasValeForm;
+    if (!valeForm.subcategoria) return;
+    const ok = subs.some((s) => s.id === valeForm.subcategoria);
+    if (!ok) setValeForm((prev) => ({ ...prev, subcategoria: '' }));
+  }, [subcategoriasValeForm, valeForm.subcategoria]);
 
   useEffect(() => {
     // Cajero y repartidor entran directo a Pagaré (Abonar / Liquidar / Recolectar).
@@ -473,7 +489,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
     const authTxt = await asegurarCamposSinReservadoOPin(
       supabase,
-      [valeForm.motivo, valeForm.categoria],
+      [valeForm.motivo, valeForm.categoria, valeForm.subcategoria],
       { user, sucursal },
     );
     if (!authTxt.ok) return alert(authTxt.error);
@@ -486,6 +502,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         tipo: 'indirecto',
         area: areaVale,
         categoria: valeForm.categoria,
+        subcategoria: valeForm.subcategoria || null,
         monto,
         motivo: valeForm.motivo.trim() || null,
         fecha: valeForm.fecha || hoyISO(),
@@ -509,6 +526,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     setValeForm({
       beneficiarioId: '',
       categoria: 'consumo',
+      subcategoria: '',
       monto: '',
       motivo: '',
       fecha: hoyISO(),
@@ -584,7 +602,28 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     if (res.aviso) setAviso(res.aviso);
     setNuevoTipoVale({ label: '', descuentaNomina: false });
     setCategoriasTick((n) => n + 1);
-    alert(`Tipo de vale «${res.categoria.label}» creado. Ya está disponible en todas las sucursales.`);
+    alert(`Categoría «${res.categoria.label}» creada. Ya está disponible en todas las sucursales.`);
+  };
+
+  const agregarSubTipoVale = async (categoriaId) => {
+    if (!esAdmin) return alert('Solo el administrador puede crear subcategorías.');
+    const label = String(nuevaSubPorCat[categoriaId] || '').trim();
+    if (!label) return alert('Escribe el nombre de la subcategoría.');
+    const authTxt = await asegurarCamposSinReservadoOPin(supabase, [label], { user, sucursal });
+    if (!authTxt.ok) return alert(authTxt.error);
+    const res = await agregarSubcategoriaVale(supabase, categoriaId, label, { createdBy: user?.nombre });
+    if (!res.ok) return alert(res.error);
+    if (res.aviso) setAviso(res.aviso);
+    setNuevaSubPorCat((prev) => ({ ...prev, [categoriaId]: '' }));
+    setCategoriasTick((n) => n + 1);
+  };
+
+  const quitarSubTipoVale = async (categoriaId, subId) => {
+    if (!esAdmin) return;
+    if (!confirm('¿Quitar esta subcategoría?')) return;
+    const res = await eliminarSubcategoriaVale(supabase, categoriaId, subId);
+    if (!res.ok) return alert(res.error);
+    setCategoriasTick((n) => n + 1);
   };
 
   const quitarTipoVale = async (id) => {
@@ -1290,21 +1329,21 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
       {!esRepartidor && (
       <div className="card" style={{ fontSize: '0.85rem' }}>
-        <strong>Vales consumo</strong> — Siempre requieren autorización del administrador.
+        <strong>Todos los vales</strong> — Requieren autorización del administrador antes de imprimir (cualquier categoría, horario o MAIN).
         <br />
-        <strong>Gasolina, herramienta, accesorios y tipos creados por admin</strong> — En tienda: hasta las {horaLimiteVale} inclusive (Sonora) se imprimen con firma; después el admin debe aprobar.
+        <strong>Categorías y subcategorías</strong> — El admin las crea en la pestaña «Tipos de vale».
         {' '}Los de <strong>gasolina</strong> se generan desde la tienda (no desde MAIN).
         <br />
-        <strong>Desde MAIN</strong> — Sin ventana de horario: se generan y cobran a cualquier hora. Elige <strong>sucursal</strong> y <strong>corte</strong> destino. Beneficiarios: personal indirecto MAIN.
+        <strong>Desde MAIN</strong> — Elige <strong>sucursal</strong> y <strong>corte</strong> destino. Beneficiarios: personal indirecto MAIN.
         <br />
         <strong>Corte</strong> — El admin elige el corte (Virtual / Abarrotes / Garage) al generar el vale. Al aprobarse, se carga ahí.
         <br />
-        <strong>Permisos</strong> — Admin: editar, eliminar e imprimir. Cajero: solo imprimir.
+        <strong>Permisos</strong> — Admin: editar, eliminar e imprimir. Cajero: solo imprimir (tras aprobación).
         <br />
         <strong>Préstamos</strong> — Admin aprueba siempre; mayores a ${MONTO_PRESTAMO_REQUIERE_SOCIO} requieren Antonio, Francisco o José Luis.
         Cuota semanal mín. ${CUOTA_SEMANAL_MINIMA} en nómina.
-        {requiereAuthAhora && !esAdmin && valeForm.categoria !== 'consumo' && !esMain && (
-          <span style={{ color: 'var(--danger)' }}> · Ahora ({new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}) vales después de las {horaLimiteVale} van a bandeja admin.</span>
+        {requiereAuthAhora && !esAdmin && (
+          <span style={{ color: 'var(--danger)' }}> · Este vale irá a bandeja de aprobación del administrador.</span>
         )}
       </div>
       )}
@@ -1791,7 +1830,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     {vePendientesTodasTiendas && (
                       <strong style={{ marginRight: '0.35rem' }}>{etiquetaTienda(v.sucursal_id)}</strong>
                     )}
-                    {v.folio} · {v.nombre_empleado} · {fmt(v.monto)} · {etiquetaCategoriaVale(v.categoria)}
+                    {v.folio} · {v.nombre_empleado} · {fmt(v.monto)} · {etiquetaCategoriaVale(v.categoria)}{v.subcategoria ? ` · ${etiquetaSubcategoriaVale(v.categoria, v.subcategoria)}` : ''}
                   </span>
                   <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => aprobarV(v.id)}>Aprobar</button>
                   {esAdmin && (
@@ -1890,15 +1929,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
       {pestana === 'tipos' && esAdmin && (
         <div className="card">
-          <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Tipos de vale permanentes</h3>
+          <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Categorías y subcategorías de vale</h3>
           <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
-            Crea tipos adicionales (como gasolina o consumo). Quedan fijos para todas las sucursales al generar vales.
+            Crea categorías (como gasolina o consumo) y, debajo de cada una, subcategorías.
+            Quedan fijas para todas las sucursales al generar vales.
             Ejecuta <code>supabase/fix_vales_categorias.sql</code> para sincronizarlos en la nube.
           </p>
           <div className="grid-2" style={{ marginBottom: '0.75rem' }}>
             <input
               className="input"
-              placeholder="Nombre del tipo (ej. Uniformes, Mantenimiento)"
+              placeholder="Nueva categoría (ej. Uniformes, Mantenimiento)"
               value={nuevoTipoVale.label}
               onChange={(e) => setNuevoTipoVale({ ...nuevoTipoVale, label: e.target.value })}
             />
@@ -1912,38 +1952,88 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             </label>
           </div>
           <button type="button" className="btn btn-primary" onClick={crearTipoVale} disabled={!nuevoTipoVale.label.trim()}>
-            Crear tipo permanente
+            Crear categoría
           </button>
-          <div className="table-wrap" style={{ marginTop: '1rem' }}>
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Tipo</th>
-                  <th>Nómina</th>
-                  <th>Origen</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {categoriasValeDisponibles.map((c) => (
-                  <tr key={c.id}>
-                    <td>{c.label}</td>
-                    <td>{c.descuentaNomina ? 'Sí' : 'No'}</td>
-                    <td className="muted">{c.fijo ? 'Sistema' : 'Admin'}</td>
-                    <td>
-                      {!c.fijo && (
-                        <button type="button" className="btn btn-ghost" style={{ color: 'var(--danger)', padding: '0.2rem 0.4rem' }} onClick={() => quitarTipoVale(c.id)}>
-                          Quitar
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {categoriasValeDisponibles.map((c) => (
+              <div
+                key={c.id}
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  padding: '0.65rem 0.75rem',
+                  background: 'var(--surface)',
+                }}
+              >
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', marginBottom: '0.45rem' }}>
+                  <strong style={{ color: 'var(--brand-blue)' }}>{c.label}</strong>
+                  <span className="muted" style={{ fontSize: '0.78rem' }}>
+                    {c.descuentaNomina ? 'Nómina' : 'Sin nómina'} · {c.fijo ? 'Sistema' : 'Admin'}
+                  </span>
+                  {!c.fijo && (
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ color: 'var(--danger)', padding: '0.2rem 0.4rem', marginLeft: 'auto' }}
+                      onClick={() => quitarTipoVale(c.id)}
+                    >
+                      Quitar categoría
+                    </button>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.45rem' }}>
+                  {(c.subcategorias || []).length === 0 && (
+                    <span className="muted" style={{ fontSize: '0.8rem' }}>Sin subcategorías</span>
+                  )}
+                  {(c.subcategorias || []).map((s) => (
+                    <span
+                      key={s.id}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.25rem',
+                        fontSize: '0.8rem',
+                        padding: '0.15rem 0.45rem',
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                      }}
+                    >
+                      {s.label}
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ padding: '0 0.2rem', color: 'var(--danger)', fontSize: '0.75rem' }}
+                        onClick={() => quitarSubTipoVale(c.id, s.id)}
+                        title="Quitar subcategoría"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
+                  <input
+                    className="input"
+                    style={{ flex: 1, minWidth: 140 }}
+                    placeholder={`Subcategoría de ${c.label}`}
+                    value={nuevaSubPorCat[c.id] || ''}
+                    onChange={(e) => setNuevaSubPorCat((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), agregarSubTipoVale(c.id))}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => agregarSubTipoVale(c.id)}
+                    disabled={!String(nuevaSubPorCat[c.id] || '').trim()}
+                  >
+                    + Subcategoría
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
-          {categoriasExtra.length === 0 && (
-            <p className="muted" style={{ fontSize: '0.82rem' }}>{AVISO_FALTA_VALES_CATEGORIAS}</p>
+          {categoriasExtra.filter((c) => !c.fijo && !c._metaFija).length === 0 && (
+            <p className="muted" style={{ fontSize: '0.82rem', marginTop: '0.75rem' }}>{AVISO_FALTA_VALES_CATEGORIAS}</p>
           )}
         </div>
       )}
@@ -1954,8 +2044,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Nuevo vale</h3>
             {esMain && (
               <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-                Generando desde <strong>MAIN</strong>: elige sucursal y corte destino. Sin ventana de horario.
-                Gasolina solo desde tienda.
+                Generando desde <strong>MAIN</strong>: elige sucursal y corte destino.
+                Todos los vales requieren aprobación del administrador. Gasolina solo desde tienda.
               </p>
             )}
             <div className="grid-2">
@@ -1972,12 +2062,24 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <select
                 className="select"
                 value={valeForm.categoria}
-                onChange={(e) => setValeForm({ ...valeForm, categoria: e.target.value })}
+                onChange={(e) => setValeForm({ ...valeForm, categoria: e.target.value, subcategoria: '' })}
               >
                 {categoriasValeDisponibles.map((c) => (
                   <option key={c.id} value={c.id}>{c.label}{c.descuentaNomina ? ' (nómina)' : ' (sin nómina)'}</option>
                 ))}
               </select>
+              {subcategoriasValeForm.length > 0 && (
+                <select
+                  className="select"
+                  value={valeForm.subcategoria}
+                  onChange={(e) => setValeForm({ ...valeForm, subcategoria: e.target.value })}
+                >
+                  <option value="">— Subcategoría (opcional) —</option>
+                  {subcategoriasValeForm.map((s) => (
+                    <option key={s.id} value={s.id}>{s.label}</option>
+                  ))}
+                </select>
+              )}
               {esMain && (
                 <label className="muted" style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                   Sucursal destino
@@ -2024,14 +2126,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             </button>
             {esMain && (
               <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
-                MAIN no aplica ventana de {horaLimiteVale}: se puede generar a cualquier hora (consumo sigue requiriendo admin si no eres administrador).
+                Desde MAIN también requiere autorización del administrador antes de imprimir.
               </p>
             )}
-            {valeFormRequiereAdmin && !esAdmin && !esMain && (
+            {valeFormRequiereAdmin && !esAdmin && (
               <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', color: 'var(--brand-red)' }}>
-                {valeForm.categoria === 'consumo'
-                  ? 'Los vales de consumo siempre requieren aprobación del administrador.'
-                  : `Son las ${new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} — vales después de las ${horaLimiteVale} van a bandeja del administrador.`}
+                Todos los vales requieren aprobación del administrador antes de imprimir.
               </p>
             )}
           </div>
@@ -2065,7 +2165,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     <tr key={v.id}>
                       <td>{v.folio}</td>
                       <td>{etiquetaEstadoVale(v)}</td>
-                      <td>{etiquetaCategoriaVale(v.categoria)}</td>
+                      <td>{etiquetaCategoriaVale(v.categoria)}{v.subcategoria ? ` · ${etiquetaSubcategoriaVale(v.categoria, v.subcategoria)}` : ''}</td>
                       <td>{v.nombre_empleado}</td>
                       {(esMain || vePendientesTodasTiendas) && (
                         <td className="muted">{etiquetaTienda(v.sucursal_id) || v.sucursal_id || '—'}</td>
