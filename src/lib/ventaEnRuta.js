@@ -1,7 +1,7 @@
 /**
  * Venta en Ruta POS v2
  * MAIN (CEDIS) → carga camión → POS móvil → efectivo en tránsito / crédito CxC
- * → traspaso enviado a la sucursal (recepción en Productos → Traspasos).
+ * → pedido en Compras (el cajero verifica y recibe en la tienda).
  */
 
 import { etiquetaTienda, listarSucursalesOperativas, normalizarCodigoTienda, ALMACEN_CENTRAL } from '../constants/sucursales.js';
@@ -16,7 +16,6 @@ import { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
 import { puedeAccionVentaRuta } from './ventaEnRutaAcciones.js';
 import { buscarUsuarioPorPinYSucursal } from './usuariosAuth.js';
 import { listarRepartidores } from './controlEfectivo.js';
-import { crearTraspasoEnviadoDesdeRuta } from './traspasosInventario.js';
 
 export { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
 
@@ -1206,9 +1205,9 @@ export async function crearCargaRuta(supabase, {
 
 // ─── Efectivo en tránsito: ver rutaTransito.js (reexport arriba) ───
 
-// ─── Pedido en Compras (legado; la recepción ahora es por traspaso) ─────────
+// ─── Pedido en Compras (recepción en tienda) ─────────────────────
 
-/** @deprecated Usar crearTraspasoEnviadoDesdeRuta vía registrarVentaRuta. */
+/** Crea pedido en Compras para que el cajero verifique y reciba la mercancía. */
 export async function crearPedidoCompraDesdeVentaRuta(supabase, {
   sucursalId,
   folioVenta: folio,
@@ -1451,19 +1450,17 @@ export async function registrarVentaRuta(supabase, {
     }
   }
 
-  // Sucursal propia → traspaso enviado (inventario comprometido; recibe en Traspasos)
+  // Sucursal propia → pedido en Compras (cajero verifica y recibe)
   if (tipoCli === 'sucursal') {
-    const trp = await crearTraspasoEnviadoDesdeRuta(supabase, {
-      destinoId: clienteId,
-      lineas: arts,
+    const ped = await crearPedidoCompraDesdeVentaRuta(supabase, {
+      sucursalId: clienteId,
       folioVenta: folio,
-      usuario: vendedorNombre,
-      notas: `Venta en ruta ${folio} · ${vendedorNombre || ''}`.trim(),
+      articulos: arts,
+      total,
+      vendedorNombre,
     });
-    if (!trp.ok) return { ok: false, error: trp.error || 'No se creó el traspaso hacia la sucursal.' };
-    traspasoId = trp.id;
-    traspasoFolio = trp.folio || trp.traspaso?.folio || null;
-    if (trp.aviso) avisos.push(trp.aviso);
+    if (!ped.ok) return { ok: false, error: ped.error || 'No se creó el pedido en Compras.' };
+    compraId = ped.id;
     await enlazarVenta();
   }
 
