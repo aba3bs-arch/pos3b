@@ -80,9 +80,8 @@ import {
   crearCategoriaContVirtual,
   crearSubcategoriaContVirtual,
   crearDetalleContVirtual,
-  desactivarCategoriaContVirtual,
-  desactivarSubcategoriaContVirtual,
   eliminarDetalleContVirtual,
+  sembrarCatalogoDefault,
 } from '../lib/contVirtualCatalogo.js';
 import { listarNotificacionesPendientes, TIPOS_NOTIF } from '../lib/contabilidadNotificaciones.js';
 import { imprimirPrestamo, imprimirPrestamoInterarea, imprimirPrestamoSucursal, imprimirRif, imprimirVale, imprimirPagare } from '../lib/impresionContabilidad.js';
@@ -272,8 +271,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const valeFormRequiereAdmin = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria, valeFormOptsAuth);
 
   const categoriasValeDisponibles = useMemo(
-    () => categoriasValeDesdeCatalogoIe(catalogoIe, { ocultarGasolina: esMain }),
+    () => categoriasValeDesdeCatalogoIe(catalogoIe, { ocultarGasolina: esMain, soloParaFormulario: true }),
     [catalogoIe, esMain, categoriasTick],
+  );
+  /** Admin Catálogo IE: árbol completo de egresos (igual que Cont Virtual), sin ocultar prestamos/manual. */
+  const categoriasCatalogoIeAdmin = useMemo(
+    () => categoriasValeDesdeCatalogoIe(catalogoIe, { ocultarGasolina: false, soloParaFormulario: false }),
+    [catalogoIe, categoriasTick],
   );
   const subcategoriasValeForm = useMemo(() => {
     const cat = categoriasValeDisponibles.find((c) => c.id === valeForm.categoria);
@@ -669,10 +673,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const quitarSubTipoVale = async (_categoriaId, subId) => {
     if (!esAdmin) return;
-    if (!confirm('¿Desactivar esta subcategoría en el catálogo IE?')) return;
-    const res = await desactivarSubcategoriaContVirtual(supabase, subId);
-    if (!res.ok) return alert(res.error);
-    await refrescarCatalogoIe();
+    alert('Para desactivar o borrar subcategorías del sistema, usa Contabilidad → IE VIRTUAL → Cuentas. Así no se ocultan por error en IE.');
   };
 
   const claveDet = (categoriaId, subId) => `${categoriaId}::${subId}`;
@@ -698,12 +699,18 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     await refrescarCatalogoIe();
   };
 
-  const quitarTipoVale = async (id) => {
+  const quitarTipoVale = async () => {
     if (!esAdmin) return;
-    if (!confirm('¿Desactivar esta categoría en el catálogo IE? Dejará de aparecer en Vales e IE.')) return;
-    const res = await desactivarCategoriaContVirtual(supabase, id);
-    if (!res.ok) return alert(res.error);
+    alert('Para desactivar categorías usa Contabilidad → IE VIRTUAL → Cuentas. Aquí no se ocultan del libro IE.');
+  };
+
+  const restaurarCategoriasIeSistema = async () => {
+    if (!esAdmin) return;
+    if (!confirm('¿Restaurar categorías fijas del sistema en IE (Vales, Empleado, Consumo, etc.)? Reactiva las que estén ocultas.')) return;
+    const res = await sembrarCatalogoDefault(supabase);
+    if (!res.ok) return alert(res.error || 'No se pudo restaurar.');
     await refrescarCatalogoIe();
+    alert('Categorías del sistema IE restauradas / reactivadas.');
   };
 
   const guardarPrestamoGastos = async () => {
@@ -2008,8 +2015,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <div className="card">
           <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Catálogo compartido con IE VIRTUAL</h3>
           <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
-            Mismo árbol <strong>categoría → subcategoría → detalle</strong> que Contabilidad → IE VIRTUAL / IE ABARROTES.
-            Los cambios aquí se reflejan al generar vales y en el libro IE.
+            Mismo árbol <strong>categoría → subcategoría → detalle</strong> que Contabilidad → IE VIRTUAL.
+            Aquí se listan <strong>todas</strong> las categorías de egreso activas (nada se borra del libro IE).
+            Al emitir un vale no se ofrecen Préstamos / Manual / Ingresos (no aplican).
             {avisoCatalogoIe ? (
               <>
                 <br />
@@ -2017,9 +2025,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               </>
             ) : null}
           </p>
-          <button type="button" className="btn btn-ghost" style={{ marginBottom: '0.75rem' }} onClick={() => refrescarCatalogoIe()}>
-            Recargar catálogo IE
-          </button>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+            <button type="button" className="btn btn-ghost" onClick={() => refrescarCatalogoIe()}>
+              Recargar catálogo IE
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={restaurarCategoriasIeSistema}>
+              Restaurar categorías del sistema
+            </button>
+          </div>
           <div className="grid-2" style={{ marginBottom: '0.75rem' }}>
             <input
               className="input"
@@ -2032,7 +2045,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             </button>
           </div>
           <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {categoriasValeDisponibles.map((c) => (
+            {categoriasCatalogoIeAdmin.map((c) => (
               <div
                 key={c.id}
                 style={{
@@ -2047,16 +2060,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   <span className="muted" style={{ fontSize: '0.78rem' }}>
                     {c.descuentaNomina ? 'Nómina' : 'Sin nómina'} · {c.fijo ? 'Sistema' : 'Admin'} · id:{c.id}
                   </span>
-                  {!c.fijo && (
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      style={{ color: 'var(--danger)', padding: '0.2rem 0.4rem', marginLeft: 'auto' }}
-                      onClick={() => quitarTipoVale(c.id)}
-                    >
-                      Desactivar
-                    </button>
-                  )}
                 </div>
 
                 {(c.subcategorias || []).length === 0 && (
@@ -2078,16 +2081,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     >
                       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.35rem', marginBottom: '0.35rem' }}>
                         <strong style={{ fontSize: '0.88rem' }}>{s.label}</strong>
-                        <span className="muted" style={{ fontSize: '0.72rem' }}>subcategoría</span>
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          style={{ padding: '0.1rem 0.35rem', color: 'var(--danger)', fontSize: '0.75rem', marginLeft: 'auto' }}
-                          onClick={() => quitarSubTipoVale(c.id, s.id)}
-                          title="Desactivar subcategoría"
-                        >
-                          Quitar
-                        </button>
+                        <span className="muted" style={{ fontSize: '0.72rem' }}>subcategoría · {s.id}</span>
                       </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.35rem', paddingLeft: '0.25rem' }}>
                         {(s.detalles || []).length === 0 && (
@@ -2163,10 +2157,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               </div>
             ))}
           </div>
-          {categoriasValeDisponibles.length === 0 && (
+          {categoriasCatalogoIeAdmin.length === 0 && (
             <p className="muted" style={{ fontSize: '0.82rem', marginTop: '0.75rem' }}>
               {avisoCatalogoIe || AVISO_FALTA_VALES_CATEGORIAS}
-              {' '}Ejecuta <code>supabase/fix_contabilidad_completo.sql</code> (incluye Cont Virtual / IE).
+              {' '}Ejecuta <code>supabase/fix_contabilidad_completo.sql</code> (incluye Cont Virtual / IE),
+              o pulsa <strong>Restaurar categorías del sistema</strong>.
             </p>
           )}
         </div>
