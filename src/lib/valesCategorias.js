@@ -183,13 +183,32 @@ export function listarSubcategoriasVale(categoriaId) {
   return cat?.subcategorias || [];
 }
 
+function etiquetaDesdeIeLs(categoriaId, subId, detalleId) {
+  try {
+    const raw = localStorage.getItem('pos3b_cont_virtual_catalogo');
+    if (!raw) return null;
+    const cats = JSON.parse(raw) || [];
+    const cat = cats.find((c) => String(c.id).toLowerCase() === String(categoriaId || '').toLowerCase());
+    if (!cat) return null;
+    if (!subId) return cat.nombre || null;
+    const sub = (cat.subcategorias || []).find((s) => String(s.id).toLowerCase() === String(subId).toLowerCase());
+    if (!sub) return null;
+    if (!detalleId) return sub.nombre || null;
+    const det = (sub.detalles || []).find((d) => String(d.id).toLowerCase() === String(detalleId).toLowerCase());
+    return det?.nombre || null;
+  } catch {
+    return null;
+  }
+}
+
 export function etiquetaSubcategoriaVale(categoriaId, subId) {
   const key = String(subId || '').trim().toLowerCase();
   if (!key) return '';
   const sub = listarSubcategoriasVale(categoriaId).find(
     (s) => s.id === key || String(s.label).toLowerCase() === key,
   );
-  return sub?.label || String(subId || '');
+  if (sub?.label) return sub.label;
+  return etiquetaDesdeIeLs(categoriaId, subId, null) || String(subId || '');
 }
 
 export function listarDetallesVale(categoriaId, subId) {
@@ -207,24 +226,83 @@ export function etiquetaDetalleVale(categoriaId, subId, detalleId) {
   const det = listarDetallesVale(categoriaId, subId).find(
     (d) => d.id === key || String(d.label).toLowerCase() === key,
   );
-  return det?.label || String(detalleId || '');
+  if (det?.label) return det.label;
+  return etiquetaDesdeIeLs(categoriaId, subId, detalleId) || String(detalleId || '');
 }
 
-export function valeDescuentaNomina(categoria) {
+export function valeDescuentaNomina(categoria, subcategoria) {
+  // Preferir reglas IE / unificadas
+  try {
+    // lazy import-free: reglas inline compatibles con valesCatalogoIe
+    const c = String(categoria || '').toLowerCase();
+    const s = String(subcategoria || '').toLowerCase();
+    const blob = `${c} ${s}`;
+    if (c === 'consumo' || s === 'vales-consumo' || s === 'empleado-consumo' || s.includes('consumo')) return true;
+    if (c === 'anticipos' || s.includes('anticipo')) return true;
+    if (c === 'gasolina' || s === 'vales-gasolina' || blob.includes('gasolina')) return false;
+  } catch {
+    /* ignore */
+  }
   return Boolean(categoriaValePorId(categoria).descuentaNomina);
 }
 
 export function etiquetaCategoriaVale(categoria) {
   const key = String(categoria || '').toLowerCase();
   if (key === 'otro') return 'Otro concepto';
-  return categoriaValePorId(categoria).label;
+  const conocida = categoriaValePorId(categoria);
+  if (conocida?.label && conocida.id === key) return conocida.label;
+  // Ids IE frecuentes
+  const ieLabels = {
+    vales: 'Vales',
+    empleado: 'Empleado',
+    consumo: 'Consumo',
+    recargas: 'Recargas',
+    anticipos: 'Anticipos',
+    faltante: 'Faltante',
+    operativos: 'Gastos operativos',
+    'cubre-turno': 'Cubre turno',
+    taxis: 'Taxis',
+    'vales-gasolina': 'Gasolina',
+    'vales-consumo': 'Consumo / personal',
+    'vales-herramienta': 'Herramienta',
+    'vales-accesorios': 'Accesorios',
+  };
+  if (ieLabels[key]) return ieLabels[key];
+  try {
+    const raw = localStorage.getItem('pos3b_cont_virtual_catalogo');
+    if (raw) {
+      const cats = JSON.parse(raw);
+      const hit = (cats || []).find((c) => String(c.id).toLowerCase() === key);
+      if (hit?.nombre) return hit.nombre;
+      for (const c of cats || []) {
+        const sub = (c.subcategorias || []).find((s) => String(s.id).toLowerCase() === key);
+        if (sub?.nombre) return sub.nombre;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return conocida.label || String(categoria || '');
 }
 
 export function esCategoriaValeConocida(categoria) {
   const key = String(categoria || '').toLowerCase();
   if (!key) return false;
   if (key === 'otro') return true;
-  return listarCategoriasVale().some((c) => c.id === key);
+  if (listarCategoriasVale().some((c) => c.id === key)) return true;
+  // Catálogo IE (defaults + LS)
+  const ieDefault = ['vales', 'empleado', 'consumo', 'recargas', 'anticipos', 'faltante', 'operativos', 'cubre-turno', 'taxis', 'manual'];
+  if (ieDefault.includes(key)) return true;
+  try {
+    const raw = localStorage.getItem('pos3b_cont_virtual_catalogo');
+    if (raw) {
+      const cats = JSON.parse(raw);
+      if ((cats || []).some((c) => String(c.id).toLowerCase() === key)) return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
 }
 
 export function esSubcategoriaValeValida(categoriaId, subId) {
