@@ -107,6 +107,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
   const [historial, setHistorial] = useState([]);
   const [historialEliminados, setHistorialEliminados] = useState([]);
   const [empleados, setEmpleados] = useState([]);
+  const [usuariosRawCorte, setUsuariosRawCorte] = useState([]);
   const saveTimer = useRef(null);
   const perm = useMemo(
     () => permisosCorteContabilidad(user?.rol ?? user?.role, user?.id),
@@ -297,6 +298,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       esCubreTurno: esUsuarioCubreTurno(user),
       user,
     }));
+    setUsuariosRawCorte(empRes.data || []);
     if (perm.editarTodo) {
       const pap = await listarCierresCorteEliminados(supabase, sucursal, modulo, 30);
       setHistorialEliminados(pap.data || []);
@@ -339,6 +341,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       esCubreTurno: esUsuarioCubreTurno(user),
       user,
       empleadosCatalogo: empleados,
+      usuariosParaValidarIndirectos: usuariosRawCorte,
     };
     let res = await agregarGastoTurno(supabase, sucursal, modulo, gasto, optsBase);
     if (res?.duplicado) {

@@ -14,6 +14,14 @@ const tienda = {
   tipo_empleado: 'tienda',
   activo: true,
 };
+const tiendaOtra = {
+  id: 4,
+  nombre: 'Beto Otra',
+  rol: 'Cajero',
+  sucursal_id: '5',
+  tipo_empleado: 'tienda',
+  activo: true,
+};
 const indirecto = {
   id: 2,
   nombre: 'Gonzalo Leal',
@@ -30,28 +38,35 @@ const admin = {
   activo: true,
 };
 
-assert.equal(actorPuedeGastosAIndirectos('Administrador'), true);
-assert.equal(actorPuedeGastosAIndirectos('Gerente'), true);
+// Nadie puede gastos a indirectos en cortes.
+assert.equal(actorPuedeGastosAIndirectos('Administrador'), false);
+assert.equal(actorPuedeGastosAIndirectos('Gerente'), false);
 assert.equal(actorPuedeGastosAIndirectos('Cajero'), false);
-assert.equal(actorPuedeGastosAIndirectos('Cajero', { esCubreTurno: true }), false);
-assert.equal(actorPuedeGastosAIndirectos('Administrador', { esCubreTurno: true }), false);
-assert.equal(actorPuedeGastosAIndirectos('Gerente', { user: { esCubreTurno: true } }), false);
 
-const todos = [tienda, indirecto, admin];
+const todos = [tienda, tiendaOtra, indirecto, admin];
+
 const paraAdmin = empleadosParaCorte(todos, 'CEDIS', 'virtual', 'Administrador');
-assert.ok(paraAdmin.some((e) => e.id === 2), 'admin ve indirectos');
-assert.ok(paraAdmin.some((e) => e.id === 1), 'admin ve tienda');
+assert.ok(paraAdmin.some((e) => e.id === 1), 'admin ve tienda de la sucursal');
+assert.ok(!paraAdmin.some((e) => e.id === 2), 'nadie ve indirectos');
+assert.ok(!paraAdmin.some((e) => e.id === 3), 'nadie ve admins');
+assert.ok(!paraAdmin.some((e) => e.id === 4), 'no ve tienda de otra sucursal');
+assert.ok(!paraAdmin.some((e) => String(e.id).startsWith('indirect:')), 'sin placeholders');
 
 const paraCajero = empleadosParaCorte(todos, 'CEDIS', 'virtual', 'Cajero');
-assert.ok(paraCajero.some((e) => e.id === 1), 'cajero ve tienda');
-assert.ok(!paraCajero.some((e) => e.id === 2), 'cajero no ve indirectos');
-assert.ok(!paraCajero.some((e) => String(e.id).startsWith('indirect:')), 'cajero sin placeholders');
+assert.deepEqual(
+  paraCajero.map((e) => e.id),
+  [1],
+);
 
-const paraCt = empleadosParaCorte(todos, 'CEDIS', 'abarrotes', 'Cajero', { esCubreTurno: true });
-assert.ok(!paraCt.some((e) => e.es_indirecto_corte || e.tipo_empleado === 'indirecto'));
+const paraMain = empleadosParaCorte(todos, 'MAIN', 'garage', 'Administrador');
+assert.ok(paraMain.some((e) => e.id === 1));
+assert.ok(paraMain.some((e) => e.id === 4));
+assert.ok(!paraMain.some((e) => e.id === 2));
 
-const grupos = agruparEmpleadosParaSelectCorte(paraCajero);
+const grupos = agruparEmpleadosParaSelectCorte(paraAdmin);
+assert.equal(grupos.tienda.length, 1);
 assert.equal(grupos.indirectos.length, 0);
+assert.equal(grupos.admins.length, 0);
 
 assert.equal(textoMencionaPersonalIndirecto('compra de bolsas', todos), false);
 assert.equal(textoMencionaPersonalIndirecto('consumo gonzalo', todos), true);
