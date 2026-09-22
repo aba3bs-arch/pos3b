@@ -308,10 +308,16 @@ export function puedeEliminarRechazarRcVirtual(userOrNombre) {
   return ELIMINADORES_RC_VIRTUAL.some((s) => nombreCoincidePatrones(nombre, s.patrones));
 }
 
-/** Antonio / ABB: destino final de R Virtual. */
+/** Antonio / ABB: destino final de RC Virtual / Garage. */
 export function esAbb(nombre) {
   const abb = APROBADORES_RECOLECCION_IE.find((s) => s.id === 'abb');
   return nombreCoincidePatrones(nombre, abb?.patrones || ['abb', 'antonio']);
+}
+
+/** Francisco / FJBB: destino final de RC Abarrotes (cuenta CEDIS / IE ABARROTES). */
+export function esFjbb(nombre) {
+  const fjbb = APROBADORES_RECOLECCION_IE.find((s) => s.id === 'fjbb');
+  return nombreCoincidePatrones(nombre, fjbb?.patrones || ['fjbb', 'francisco']);
 }
 
 /** Luis Enrique Mada Osuna o AMR: requieren aprobación de ABB/FJBB/JLBB. */
@@ -341,8 +347,8 @@ export function recoleccionAprobadaParaIe(cierre) {
  * ¿El gasto de corte ya puede verse en IE?
  * - Liberado por recolección aprobada (Virtual/Garage) vía gastos_ids.
  * - Legado: antes de LEGACY_GASTOS_CORTE_IE_HASTA.
- * - Abarrotes: no tiene flujo de recolección; entra a IE ABARROTES con el corte
- *   (si no, agosto/meses posteriores quedarían vacíos).
+ * - Abarrotes: gastos de cierre de turno entran a IE ABARROTES; las recolecciones
+ *   RC Abarrotes liberan vía gastos_ids al liquidar / recibir FJBB.
  */
 export function gastoCorteLiberadoParaIe(gasto, idsLiberados) {
   if (!gasto) return false;

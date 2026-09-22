@@ -13,6 +13,7 @@ function etiquetaCorta(modulo) {
     'Panel RT': 'Panel RT',
     'RC Virtual': 'RC Virt.',
     'RC Garage': 'RC Gar.',
+    'RC Abarrotes': 'RC Abar.',
     'Corte Virtual': 'Virtual',
     'Corte Abarrotes': 'Abarrotes',
     'Corte Garage': 'Garage',

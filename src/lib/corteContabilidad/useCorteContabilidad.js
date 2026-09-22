@@ -715,6 +715,102 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       };
     }
 
+    if (modulo === 'abarrotes') {
+      const calcRec =
+        opts.montoRecoleccion != null
+          ? round2(opts.montoRecoleccion)
+          : round2(estado.recoleccion ?? estado.recoleccion_turno);
+      if (!(calcRec > 0)) {
+        return alert('Indique el monto de recolección en efectivo retirado.');
+      }
+      if ((calc.cajaActual ?? 0) < -0.001) {
+        return alert(
+          `No se puede recolectar: la caja chica está en negativo (${fmtCorte(calc.cajaActual)}).`,
+        );
+      }
+      const gastosPeriodoLista = [...(gastos || [])];
+      const gastosPeriodo = round2(
+        gastosPeriodoLista.reduce((a, g) => a + (Number(g.monto) || 0), 0),
+      );
+      const gastosIds = gastosPeriodoLista
+        .map((g) => (g?.id != null && g.id !== '' ? String(g.id) : null))
+        .filter(Boolean);
+      const estadoAprob = estadoAprobacionRecoleccionInicial(user?.nombre);
+      const folioRec = `REC-${folio || estado.folio || 'A'}`;
+      const payload = {
+        sucursal_id: sucursal || 'MAIN',
+        modulo: 'abarrotes',
+        folio: folioRec,
+        turno: 'RECOLECCION',
+        usuario_id: user?.id || null,
+        usuario_nombre: user?.nombre || null,
+        caja_actual: round2(Math.max(0, calc.cajaActual)),
+        ventas: 0,
+        detalle: detalleRecoleccionParaIe({
+          efectivo: calcRec,
+          gastosTotal: gastosPeriodo,
+          extras: {
+            ...estado,
+            venta: calc.venta,
+            gastos: gastosPeriodoLista,
+            gastos_ids: gastosIds,
+            gastos_turno_actual: calc.gastosTotal,
+            subtotal: calc.subtotal,
+            caja_antes_recoleccion: round2(calc.cajaActual + calcRec),
+            tipo_cierre: 'recoleccion',
+            estado_aprobacion: estadoAprob,
+            comentarios: estado.comentarios || '',
+          },
+        }),
+      };
+      const res = await registrarCierreCorte(supabase, payload);
+      if (!res.ok) return { ok: false, error: res.error || AVISO_FALTA_CORTES };
+
+      await sellarPrestamosColectados({
+        supabase,
+        sucursal,
+        modulo,
+        user,
+        gastos: gastosPeriodoLista,
+        gastosIds,
+        folio: payload.folio,
+      });
+
+      if (estadoAprob === 'aprobado' && res.data) {
+        try {
+          const { liberarGastosCorteAIeTrasRecoleccion } = await import('../contVirtualEgresos.js');
+          await liberarGastosCorteAIeTrasRecoleccion(supabase, res.data);
+        } catch {
+          /* no bloquear */
+        }
+      } else if (estadoAprob === 'pendiente_admin' && res.data) {
+        await notificarRecoleccionPendienteIe(supabase, res.data);
+      }
+
+      // Tras recolectar: caja queda en el valor post-retiro; no se reinicia el turno.
+      const nuevoEstado = {
+        ...estado,
+        caja_anterior: round2(Math.max(0, calc.cajaActual)),
+        recoleccion: 0,
+        recoleccion_turno: 0,
+      };
+      await guardarEstadoCorte(supabase, sucursal, modulo, nuevoEstado);
+      setEstado(nuevoEstado);
+      const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
+      setHistorial(hist.data || []);
+      return {
+        ok: true,
+        folio: payload.folio,
+        cierreId: res.data?.id || null,
+        recoleccion: calcRec,
+        estadoAprobacion: estadoAprob,
+        pendienteIe: estadoAprob === 'pendiente_admin',
+        estadoImpresion: payload.detalle,
+        gastosImpresion: gastosPeriodoLista,
+        calcImpresion: { ...calc, gastosTotal: gastosPeriodo },
+      };
+    }
+
     const { corteAnteriorId, monedaFinalAnterior } = opts;
     if (!estado._precoleccion_editada && !round2(estado.precoleccion)) {
       return alert('Capture la moneda final de recolección (moneda en caja) antes de registrar.');

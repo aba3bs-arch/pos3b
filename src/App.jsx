@@ -1501,6 +1501,12 @@ function App() {
               <RcVirtual supabase={supabase} user={user} area="garage" />
             </>
           )}
+          {vista === 'RC Abarrotes' && (
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <RcVirtual supabase={supabase} user={user} area="abarrotes" />
+            </>
+          )}
           {vista === 'Venta en Ruta' && (
             <VentaEnRuta
               supabase={supabase}

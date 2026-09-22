@@ -36,7 +36,7 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
     caja_actual_manual: '',
   }), []);
 
-  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, historialEliminados, empleados, cerrarCorte, eliminarCierreHistorial, editarCierreHistorial, restaurarCierreHistorial, recargar } =
+  const { estado, patchEstado, gastos, agregarGasto, quitarGasto, editarGasto, calc, folio, turno, perm, aviso, cargando, historial, historialEliminados, empleados, cerrarCorte, registrarRecoleccion, eliminarCierreHistorial, editarCierreHistorial, restaurarCierreHistorial, recargar } =
     useCorteContabilidad({
     supabase,
     sucursal,
@@ -68,6 +68,41 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
       `Subtotal: ${fmtCorte(calc.subtotal)}\n` +
       `Caja actual: ${fmtCorte(calc.cajaActual)}`;
     if (confirm(msg)) cerrarCorte();
+  };
+
+  const montoRec = Number(estado.recoleccion) || 0;
+  const confirmarRecoleccion = async () => {
+    if (!perm.recoleccion) return alert('Solo admin/recolector puede recolectar.');
+    if (!(montoRec > 0)) return alert('Indique el monto a recolectar en el campo Recolección.');
+    if (!confirm(
+      `¿Registrar recolección de abarrotes?\n\n`
+      + `Efectivo: ${fmtCorte(montoRec)}\n`
+      + `Caja chica quedará en ${fmtCorte(calc.cajaActual)}\n\n`
+      + `La recolección irá a RC Abarrotes → FJBB → IE ABARROTES (CEDIS).`,
+    )) return;
+    const res = await registrarRecoleccion({ montoRecoleccion: montoRec });
+    if (!res?.ok) {
+      if (res?.error) alert(res.error);
+      return;
+    }
+    imprimirCorteContabilidad(
+      datosImpresionCorteActual({
+        modulo: 'abarrotes',
+        sucursal,
+        folio: res.folio,
+        turno: 'RECOLECCION',
+        user,
+        estado: res.estadoImpresion || estado,
+        gastos: res.gastosImpresion || gastos,
+        calc: res.calcImpresion || calc,
+      }),
+    );
+    alert(
+      `Recolección ${fmtCorte(res.recoleccion)} registrada`
+      + (res.pendienteIe
+        ? '.\n⚠️ Pendiente en RC Abarrotes hasta que FJBB la reciba (IE ABARROTES / CEDIS).'
+        : '.\nAprobada → IE ABARROTES.'),
+    );
   };
 
   const { pagares: pagaresAbiertos, recargar: recargarPagares } = usePagaresAbiertosCorte(supabase, sucursal, 'abarrotes');
@@ -112,6 +147,17 @@ export default function CorteAbarrotes({ supabase, sucursal, user }) {
             {perm.guardar && (
               <button type="button" className="btn btn-primary" onClick={confirmarCierre} disabled={cargando}>
                 Cerrar corte
+              </button>
+            )}
+            {perm.recoleccion && (
+              <button
+                type="button"
+                className="btn btn-gold"
+                onClick={confirmarRecoleccion}
+                disabled={cargando || !(montoRec > 0)}
+                title="Envía el efectivo a RC Abarrotes → FJBB → IE ABARROTES"
+              >
+                Recolectar
               </button>
             )}
             <button type="button" className="btn btn-ghost" onClick={imprimirBorrador} disabled={cargando}>
