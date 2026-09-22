@@ -322,4 +322,36 @@ describe('clasificarEstadoFila', () => {
       ESTADOS.SIN_INVENTARIO,
     );
   });
+
+  it('credito venta en ruta sin gasto = OK (gasto solo al cobro)', () => {
+    assert.equal(
+      clasificarEstadoFila({
+        tipo: 'compra',
+        monto_ticket: 100,
+        monto_inventario: 100,
+        monto_gasto: 0,
+        lineas_inventario: [{ id: 'p1', qty: 1 }],
+        gastos: [],
+        productos_faltantes: [],
+        notas: 'Venta en ruta VR-1 · metodo credito',
+      }),
+      ESTADOS.OK,
+    );
+  });
+
+  it('compra normal sin gasto = sin_gasto', () => {
+    assert.equal(
+      clasificarEstadoFila({
+        tipo: 'compra',
+        monto_ticket: 100,
+        monto_inventario: 100,
+        monto_gasto: 0,
+        lineas_inventario: [{ id: 'p1', qty: 1 }],
+        gastos: [],
+        productos_faltantes: [],
+        notas: 'Pedido semanal',
+      }),
+      ESTADOS.SIN_GASTO,
+    );
+  });
 });

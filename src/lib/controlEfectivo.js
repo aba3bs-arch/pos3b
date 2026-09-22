@@ -602,6 +602,8 @@ export async function registrarServicioNoCobrado(supabase, { tienda, repartidorI
 export function construirDatosTraspaso({ tienda, repartidorId, cajero, folio, monto, esEfectivo }) {
   const folioLimpio = normalizarFolio(folio);
   const nota = esEfectivo ? `Traspaso ${folioLimpio} en EFECTIVO` : `Traspaso ${folioLimpio} a CRÉDITO`;
+  // Crédito → «Entrega Crédito» / Por Cobrar. NUNCA tipo_movimiento «Gasto».
+  // El gasto en corte solo aplica al cobro de crédito (o gastos reales del recolector).
   return {
     sucursal_origen: tienda,
     repartidor_id: repartidorId,

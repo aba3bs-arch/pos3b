@@ -284,6 +284,24 @@ function clavesFolio(folio, sucursal = '') {
   return [...new Set(vars.map((v) => String(v || '').trim().toUpperCase()).filter(Boolean))];
 }
 
+/** Compra/ingreso a crédito (venta en ruta): no debe exigir gasto hasta el cobro. */
+export function esEventoCreditoSinGastoEsperado(fila) {
+  const blob = [
+    fila?.notas,
+    fila?.comentario,
+    fila?.proveedor,
+    fila?.detalle,
+    ...(fila?.compras || []).map((c) => c?.notas),
+  ]
+    .filter(Boolean)
+    .join(' ');
+  if (/\bmetodo\s*[:=]?\s*credito\b/i.test(blob) || /\bmetodo\s*[:=]?\s*crédito\b/i.test(blob)) {
+    return true;
+  }
+  // Pedidos «Venta en ruta …» sin etiqueta metodo se tratan como normal (pueden ser efectivo).
+  return false;
+}
+
 /**
  * Clasifica el estado de una fila consolidada (prioridad de alertas).
  */
@@ -299,7 +317,11 @@ export function clasificarEstadoFila(fila) {
   if (!tieneInv && (fila?.tipo === 'compra' || ticket > 0)) return ESTADOS.SIN_INVENTARIO;
   if (faltantes.length) return ESTADOS.PRODUCTOS_FALTANTES;
   if (nGastos > 1) return ESTADOS.GASTO_DUPLICADO;
-  if (nGastos === 0) return ESTADOS.SIN_GASTO;
+  if (nGastos === 0) {
+    // Crédito: inventario OK sin gasto hasta cobro (Recolecciones / Venta en ruta).
+    if (esEventoCreditoSinGastoEsperado(fila)) return ESTADOS.OK;
+    return ESTADOS.SIN_GASTO;
+  }
 
   const ref = ticket > 0 ? ticket : inv;
   if (ref > 0 && !montosCuadran(ref, gasto)) return ESTADOS.MONTO_DESCUADRADO;
