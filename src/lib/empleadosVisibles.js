@@ -187,17 +187,60 @@ export function agruparEmpleadosCatalogo(empleados, { incluirBajas = false } = {
 }
 
 /**
+ * Cajero y Cubre Turno (CT) no pueden cargar gastos/consumos a personal indirecto/MAIN
+ * desde Corte Virtual, Abarrotes o Garage.
+ */
+export function actorPuedeGastosAIndirectos(actorRol, opts = {}) {
+  if (opts.esCubreTurno === true || opts.user?.esCubreTurno) return false;
+  return normalizarRol(actorRol) !== 'Cajero';
+}
+
+/** Nombres normalizados de personal indirecto / MAIN (+ beneficiarios fijos de vales). */
+export function listarNombresPersonalIndirecto(empleados = []) {
+  const names = new Set();
+  for (const b of BENEFICIARIOS_VALES) {
+    const n = normalizarNombrePersona(b.nombre);
+    if (n) names.add(n);
+  }
+  for (const e of empleados || []) {
+    if (!esEmpleadoIndirectoOMain(e)) continue;
+    const n = normalizarNombrePersona(e.nombre);
+    if (n) names.add(n);
+  }
+  return [...names];
+}
+
+/**
+ * True si el texto (comentario de gasto, etc.) menciona a personal indirecto.
+ * Evita que cajero/CT carguen consumos escribiendo el nombre en el comentario.
+ */
+export function textoMencionaPersonalIndirecto(texto, empleados = []) {
+  const t = normalizarNombrePersona(texto);
+  if (!t) return false;
+  const tokens = new Set(t.split(' ').filter(Boolean));
+  for (const nom of listarNombresPersonalIndirecto(empleados)) {
+    if (!nom) continue;
+    if (t.includes(nom)) return true;
+    const parts = nom.split(' ').filter(Boolean);
+    if (parts.length === 1 && parts[0].length >= 4 && tokens.has(parts[0])) return true;
+    if (parts.length >= 2 && parts.every((p) => p.length >= 3 && tokens.has(p))) return true;
+  }
+  return false;
+}
+
+/**
  * Empleados en cortes (Virtual / Abarrotes / Garage):
  * - personal tipo tienda de la sucursal activa
- * - todos los indirectos / MAIN (todas las sucursales)
+ * - todos los indirectos / MAIN (todas las sucursales) — omitidos para Cajero/CT
  * - administradores (todas)
  * - placeholders BENEFICIARIOS_VALES si faltan en BD
  */
-export function empleadosParaCorte(empleados, sucursalActiva, _modulo = null, _actorRol = null, _opts = {}) {
+export function empleadosParaCorte(empleados, sucursalActiva, _modulo = null, actorRol = null, opts = {}) {
   const suc = normalizarCodigoTienda(sucursalActiva);
   const ids = new Set();
   const out = [];
   const enMain = !suc || suc === 'MAIN';
+  const incluirIndirectos = actorPuedeGastosAIndirectos(actorRol, opts);
 
   const push = (e, extra = {}) => {
     if (!e || e?.activo === false) return;
@@ -237,13 +280,17 @@ export function empleadosParaCorte(empleados, sucursalActiva, _modulo = null, _a
       continue;
     }
     if (tipo === 'indirecto' || (empSuc === 'MAIN' && tipo !== 'tienda')) {
+      if (!incluirIndirectos) continue;
       if (rol !== 'Administrador') push(e, { es_indirecto_corte: true });
       continue;
     }
     if (rol === 'Administrador') push(e, { es_admin_global_corte: true });
   }
 
-  return mergeIndirectosTodasLasTiendas(dedupeEmpleadosPorNombre(out), empleados);
+  const merged = incluirIndirectos
+    ? mergeIndirectosTodasLasTiendas(dedupeEmpleadosPorNombre(out), empleados)
+    : dedupeEmpleadosPorNombre(out);
+  return merged;
 }
 
 /** Agrupa la lista ya filtrada de corte para <optgroup>. */

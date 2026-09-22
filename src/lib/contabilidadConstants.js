@@ -239,16 +239,11 @@ function minutosLocalSonora(fecha = new Date()) {
 }
 
 /**
- * Consumos (y tipos con descuentaNomina) siempre requieren admin.
- * Otras categorías: después de la hora límite (Sonora), salvo vales generados desde MAIN
- * (`opts.origenMain` / `omitirVentana`) que no tienen ventana de servicio.
+ * Todos los vales requieren autorización del administrador (cualquier categoría / horario / MAIN).
+ * La firma del admin aprueba e imprime; cajero/CT solo solicitan.
  */
-export function valeRequiereAutorizacionAdmin(fecha = new Date(), categoria = 'consumo', opts = {}) {
-  if (valeDescuentaNomina(categoria)) return true;
-  if (opts.omitirVentana || opts.origenMain) return false;
-  // "Hasta las HH:MM" inclusive (hora Sonora): a las 10:45 aún sin auth si el límite es 10:45.
-  // A partir del minuto siguiente (10:46) sí requiere admin.
-  return minutosLocalSonora(fecha) > leerHoraLimiteVale();
+export function valeRequiereAutorizacionAdmin(_fecha = new Date(), _categoria = 'consumo', _opts = {}) {
+  return true;
 }
 
 /** Cuota semanal fija $500; si el saldo es menor, cobra el remanente (última semana). */

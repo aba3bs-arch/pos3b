@@ -17,6 +17,11 @@ import {
 } from './smokingSustentoInventario.js';
 import { normalizarFolioTrp } from '../foliosInventario.js';
 import { buscarTraspasoParaGasto } from '../traspasosInventario.js';
+import {
+  actorPuedeGastosAIndirectos,
+  esEmpleadoIndirectoOMain,
+  textoMencionaPersonalIndirecto,
+} from '../empleadosVisibles.js';
 
 const MARKER_TRP_INV = 'TRP_INV:';
 
@@ -305,6 +310,33 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
     catUpper === 'VALE MAIN';
   // Gastos de corte: sin aprobación. Solo vales y préstamos (otros módulos) requieren admin.
   const estadoAprobacion = 'aprobado';
+
+  const puedeIndirectos = actorPuedeGastosAIndirectos(opts.rolActor, {
+    esCubreTurno: opts.esCubreTurno,
+    user: opts.user,
+  });
+  if (!puedeIndirectos) {
+    const catalogo = opts.empleadosCatalogo || [];
+    const empHit = catalogo.find((e) => String(e.id) === String(gasto.usuario_id || ''));
+    const esIndirecto =
+      (empHit && esEmpleadoIndirectoOMain(empHit))
+      || String(gasto.usuario_id || '').startsWith('indirect:');
+    if (esIndirecto) {
+      return {
+        ok: false,
+        error:
+          'Cajero y Cubre Turno no pueden agregar gastos o consumos a personal indirecto / MAIN. Solo el administrador.',
+      };
+    }
+    if (textoMencionaPersonalIndirecto(gasto.comentario, catalogo)
+      || textoMencionaPersonalIndirecto(gasto.usuario_nombre, catalogo)) {
+      return {
+        ok: false,
+        error:
+          'No se permiten nombres de personal indirecto / MAIN en gastos capturados por cajero o Cubre Turno.',
+      };
+    }
+  }
 
   // Solo Abarrotes: evita el mismo gasto (proveedores/compras) dos veces en el corte.
   // Virtual y Garage no manejan compras ni folios de inventario.

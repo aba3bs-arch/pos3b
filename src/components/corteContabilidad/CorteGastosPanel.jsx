@@ -11,7 +11,11 @@ import {
 import {
   agruparEmpleadosParaSelectCorte,
   empleadosParaCorte,
+  actorPuedeGastosAIndirectos,
+  esEmpleadoIndirectoOMain,
+  textoMencionaPersonalIndirecto,
 } from '../../lib/empleadosVisibles.js';
+import { esUsuarioCubreTurno } from '../../lib/cubreTurno.js';
 import { esCategoriaEmpleado } from '../../lib/catalogoEmpleadoGastos.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../../constants/sucursales.js';
 import { asegurarCamposSinReservadoOPin } from '../../lib/reservadoAdminPrincipal.js';
@@ -80,6 +84,11 @@ export default function CorteGastosPanel({
   const [usuariosRaw, setUsuariosRaw] = useState([]);
   const [avisoEmp, setAvisoEmp] = useState('');
 
+  const puedeIndirectos = actorPuedeGastosAIndirectos(user?.rol, {
+    esCubreTurno: esUsuarioCubreTurno(user),
+    user,
+  });
+
   const cargarUsuarios = useCallback(async () => {
     if (!supabase) {
       setUsuariosRaw([]);
@@ -110,15 +119,17 @@ export default function CorteGastosPanel({
   }, [cargarUsuarios]);
 
   const empleadosEfectivos = useMemo(() => {
-    const desdeRaw = empleadosParaCorte(usuariosRaw, sucursal, modulo, user?.rol);
+    const opts = { esCubreTurno: esUsuarioCubreTurno(user), user };
+    const desdeRaw = empleadosParaCorte(usuariosRaw, sucursal, modulo, user?.rol, opts);
     const desdeProp = empleados || [];
     return contarReales(desdeRaw) >= contarReales(desdeProp) ? desdeRaw : desdeProp.length ? desdeProp : desdeRaw;
-  }, [usuariosRaw, empleados, sucursal, modulo, user?.rol]);
+  }, [usuariosRaw, empleados, sucursal, modulo, user]);
 
-  const gruposEmpleados = useMemo(
-    () => agruparEmpleadosParaSelectCorte(empleadosEfectivos),
-    [empleadosEfectivos],
-  );
+  const gruposEmpleados = useMemo(() => {
+    const g = agruparEmpleadosParaSelectCorte(empleadosEfectivos);
+    if (puedeIndirectos) return g;
+    return { ...g, indirectos: [] };
+  }, [empleadosEfectivos, puedeIndirectos]);
   const totalEmpleadosSelect =
     (gruposEmpleados.tienda?.length || 0)
     + (gruposEmpleados.indirectos?.length || 0)
@@ -190,6 +201,20 @@ export default function CorteGastosPanel({
     if (requiereEmpleado && !usuarioId) {
       return alert('Selecciona el empleado a quien se descontará el consumo en nómina.');
     }
+    const emp = requiereEmpleado
+      ? (empleadosEfectivos || []).find((e) => String(e.id) === String(usuarioId))
+      : null;
+    if (emp && !puedeIndirectos && esEmpleadoIndirectoOMain(emp)) {
+      return alert(
+        'Cajero y Cubre Turno no pueden agregar gastos o consumos a personal indirecto / MAIN. Solo el administrador.',
+      );
+    }
+    const comentarioTrim = comentario.trim();
+    if (!puedeIndirectos && textoMencionaPersonalIndirecto(comentarioTrim, usuariosRaw)) {
+      return alert(
+        'No puedes escribir nombres de personal indirecto / MAIN en el comentario del gasto. Solo el administrador puede cargarlos.',
+      );
+    }
     if (esGastoTraspaso) {
       const folios = parseFoliosTraspasoInput(folioTraspaso);
       if (!folios.length) {
@@ -218,16 +243,13 @@ export default function CorteGastosPanel({
       { user, sucursal },
     );
     if (!authTxt.ok) return alert(authTxt.error);
-    const emp = requiereEmpleado
-      ? (empleadosEfectivos || []).find((e) => String(e.id) === String(usuarioId))
-      : null;
     const uid = emp?.id != null ? String(emp.id) : '';
     try {
       const res = await onAgregar?.({
         categoria: cat.trim().toUpperCase(),
         subcategoria: sub.trim().toUpperCase(),
         monto: m,
-        comentario: comentario.trim().toUpperCase(),
+        comentario: comentarioTrim.toUpperCase(),
         usuario_id: requiereEmpleado && uid && !uid.startsWith('indirect:') ? uid : null,
         usuario_nombre: emp?.nombre || '',
         folio_traspaso: esGastoTraspaso ? parseFoliosTraspasoInput(folioTraspaso) : [],
@@ -499,7 +521,7 @@ export default function CorteGastosPanel({
                   {gruposEmpleados.tienda.map((e) => (
                     <option key={e.id} value={e.id}>{e.nombre}</option>
                   ))}
-                  {gruposEmpleados.indirectos.map((e) => (
+                  {puedeIndirectos && gruposEmpleados.indirectos.map((e) => (
                     <option key={`i-${e.id}`} value={e.id}>{e.nombre}</option>
                   ))}
                 </select>
@@ -537,8 +559,19 @@ export default function CorteGastosPanel({
           ) : null}
           {requiereEmpleado && !avisoEmp && totalEmpleadosSelect === 0 ? (
             <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.4rem' }}>
-              Sin empleados cargados. En módulo Empleados da de alta tipo <strong>tienda</strong> (máx. 2 por sucursal) o{' '}
-              <strong>indirecto</strong> (MAIN). Los administradores no aparecen aquí.
+              Sin empleados cargados. En módulo Empleados da de alta tipo <strong>tienda</strong> (máx. 2 por sucursal)
+              {puedeIndirectos ? (
+                <>
+                  {' '}o <strong>indirecto</strong> (MAIN)
+                </>
+              ) : null}
+              . Los administradores no aparecen aquí.
+            </p>
+          ) : null}
+          {!puedeIndirectos ? (
+            <p className="muted" style={{ fontSize: '0.72rem', margin: '0 0 0.4rem', color: 'var(--brand-gold)' }}>
+              Cajero / Cubre Turno: solo empleados de tienda. No se permiten gastos a personal indirecto / MAIN
+              (ni escribir sus nombres en el comentario).
             </p>
           ) : null}
           {esGastoTraspaso && (

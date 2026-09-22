@@ -293,7 +293,10 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     setEstado(nextEstado);
     setGastos(nextGastos);
     setHistorial(histRes.data || []);
-    setEmpleados(empleadosParaCorte(empRes.data || [], sucursal, modulo, user?.rol));
+    setEmpleados(empleadosParaCorte(empRes.data || [], sucursal, modulo, user?.rol, {
+      esCubreTurno: esUsuarioCubreTurno(user),
+      user,
+    }));
     if (perm.editarTodo) {
       const pap = await listarCierresCorteEliminados(supabase, sucursal, modulo, 30);
       setHistorialEliminados(pap.data || []);
@@ -313,7 +316,7 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
       }
     }
     setCargando(false);
-  }, [supabase, sucursal, modulo, user?.rol, perm.editarTodo]);
+  }, [supabase, sucursal, modulo, user, perm.editarTodo]);
 
   useEffect(() => {
     cargar();
@@ -333,6 +336,9 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const optsBase = {
       rolActor: user?.rol,
       nombreActor: user?.nombre,
+      esCubreTurno: esUsuarioCubreTurno(user),
+      user,
+      empleadosCatalogo: empleados,
     };
     let res = await agregarGastoTurno(supabase, sucursal, modulo, gasto, optsBase);
     if (res?.duplicado) {
