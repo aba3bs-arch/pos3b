@@ -671,11 +671,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     await refrescarCatalogoIe();
   };
 
-  const quitarSubTipoVale = async () => {
-    if (!esAdmin) return;
-    alert('Para desactivar o borrar subcategorías del sistema, usa Contabilidad → IE VIRTUAL → Cuentas. Así no se ocultan por error en IE.');
-  };
-
   const claveDet = (categoriaId, subId) => `${categoriaId}::${subId}`;
 
   const agregarDetTipoVale = async (_categoriaId, subId) => {
