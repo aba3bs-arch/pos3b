@@ -1,6 +1,7 @@
 import { etiquetaTienda } from '../constants/sucursales.js';
 import {
   esAbb,
+  esFjbb,
   esAprobadorRecoleccionIe,
   nombreCoincidePatrones,
   normalizarNombreMatch,
@@ -58,10 +59,35 @@ export function claveRecolectorRVirtual(nombre) {
   return normalizarNombreMatch(etiquetaRecolectorRVirtual(nombre)) || 'sin-nombre';
 }
 
-const MODULOS_R_VIRTUAL = new Set(['virtual', 'garage']);
+const MODULOS_R_VIRTUAL = new Set(['virtual', 'garage', 'abarrotes']);
 
 export function normalizarAreaRc(area) {
-  return String(area || '').toLowerCase() === 'garage' ? 'garage' : 'virtual';
+  const a = String(area || '').toLowerCase();
+  if (a === 'garage') return 'garage';
+  if (a === 'abarrotes') return 'abarrotes';
+  return 'virtual';
+}
+
+/** Destino final de custodia: ABB (Virtual/Garage) o FJBB (Abarrotes → IE ABARROTES / CEDIS). */
+export function esDestinoFinalRc(nombre, area = 'virtual') {
+  const areaNorm = normalizarAreaRc(area);
+  if (areaNorm === 'abarrotes') return esFjbb(nombre);
+  return esAbb(nombre);
+}
+
+export function etiquetaDestinoFinalRc(area = 'virtual') {
+  return normalizarAreaRc(area) === 'abarrotes' ? 'FJBB' : 'ABB';
+}
+
+export function etiquetaModuloRc(area = 'virtual') {
+  const a = normalizarAreaRc(area);
+  if (a === 'garage') return 'RC Garage';
+  if (a === 'abarrotes') return 'RC Abarrotes';
+  return 'RC Virtual';
+}
+
+export function etiquetaIeRc(area = 'virtual') {
+  return normalizarAreaRc(area) === 'abarrotes' ? 'IE ABARROTES' : 'IE VIRTUAL';
 }
 
 export function esRecoleccionTemporalGarage(row) {
@@ -79,7 +105,7 @@ function esFilaRecoleccionCorte(row) {
 }
 
 /**
- * Virtual: solo definitivas de AMR / Luis Enrique (ABB/FJBB/JLBB van directo a IE).
+ * Virtual / Abarrotes: solo definitivas de AMR / Luis Enrique (ABB/FJBB/JLBB van directo a IE).
  * Garage: definitivas y temporales de cualquier recolector (registro de qué y quién).
  */
 export function esCierreRecoleccionRc(row, area = 'virtual') {
@@ -153,13 +179,19 @@ function etiquetaTipoCorte(row) {
       ? 'Recolección Garage (temporal)'
       : 'Recolección Garage';
   }
+  if (mod === 'abarrotes') return 'Recolección Abarrotes';
   return 'Recolección Virtual';
 }
 
 export function areaCustodiaRc(row) {
   const tipo = String(row?.tipo_item || '').toLowerCase();
   const det = String(row?.detalle || '').toLowerCase();
-  if (tipo.includes('garage') || det.includes('garage')) return 'garage';
+  if (tipo.includes('abarrotes') || det.includes('abarrotes') || det.includes('modulo:abarrotes')) {
+    return 'abarrotes';
+  }
+  if (tipo.includes('garage') || det.includes('garage') || det.includes('modulo:garage')) {
+    return 'garage';
+  }
   return 'virtual';
 }
 
@@ -205,7 +237,9 @@ function gastosRcDesdeDetalle(detalle = {}) {
       usuario: String(g.usuario_nombre || g.solicitado_por || '').trim(),
       origenRc: g.origen_rc_virtual === true
         || String(g.subcategoria || '').toUpperCase() === 'RC VIRTUAL'
-        || String(g.comentario || '').includes('RC Virtual'),
+        || String(g.subcategoria || '').toUpperCase() === 'RC ABARROTES'
+        || String(g.comentario || '').includes('RC Virtual')
+        || String(g.comentario || '').includes('RC Abarrotes'),
     }))
     .filter((g) => g.monto > 0);
 }
@@ -232,7 +266,11 @@ export function itemBandejaDesdeCorte(row) {
     modulo: String(row.modulo || '').toLowerCase() || 'virtual',
     estatusOrigen: 'En Tránsito',
     fecha: row.created_at,
-    detalle: temporal ? 'modulo:garage · temporal' : (String(row.modulo || '').toLowerCase() === 'garage' ? 'modulo:garage' : ''),
+    detalle: temporal
+      ? 'modulo:garage · temporal'
+      : (String(row.modulo || '').toLowerCase() === 'garage'
+        ? 'modulo:garage'
+        : (String(row.modulo || '').toLowerCase() === 'abarrotes' ? 'modulo:abarrotes' : '')),
     receivable: monto > 0 && !aprobadorIe,
     deuda: false,
     temporal,
@@ -304,8 +342,8 @@ function agruparCustodiaPorAdmin(rows) {
 }
 
 /**
- * Bandeja RC Virtual o RC Garage.
- * Virtual: AMR / Luis Enrique (ABB/FJBB/JLBB van directo a IE).
+ * Bandeja RC Virtual, RC Garage o RC Abarrotes.
+ * Virtual / Abarrotes: AMR / Luis Enrique (ABB/FJBB/JLBB van directo a IE).
  * Garage: pendientes (no agosto 2026, no ya en IE VIRTUAL) con recolector y monto.
  * Lo ya recibido en custodia no aparece.
  */
@@ -366,8 +404,9 @@ async function marcarCorteRecibido(supabase, origenId, patch) {
 }
 
 /**
- * El admin recibe recolecciones de cortes Virtual o Garage y las carga a su cuenta.
- * Si el admin es ABB, quedan entregadas a él. Si no, quedan por entregar a ABB.
+ * El admin recibe recolecciones de cortes Virtual, Garage o Abarrotes y las carga a su cuenta.
+ * Destino final: ABB (Virtual/Garage) o FJBB (Abarrotes → CEDIS / IE ABARROTES).
+ * Si quien recibe es el destino final, quedan entregadas; en Abarrotes además se liquidan a IE.
  * Recolectores ABB/FJBB/JLBB no se acreditan de nuevo (solo registro en bandeja Garage).
  */
 export async function recibirRecoleccionesRVirtual(supabase, { recolectorClave, adminNombre, items } = {}) {
@@ -395,6 +434,7 @@ export async function recibirRecoleccionesRVirtual(supabase, { recolectorClave, 
   }
 
   const areaNorm = normalizarAreaRc(receivable[0]?.modulo);
+  const destinoLbl = etiquetaDestinoFinalRc(areaNorm);
   // Confirmar en nube que siguen pendientes de recibir en esa área.
   const ids = receivable.map((it) => it.origenId);
   const { data: rowsNube, error: errNube } = await supabase
@@ -412,7 +452,9 @@ export async function recibirRecoleccionesRVirtual(supabase, { recolectorClave, 
       ok: false,
       error: areaNorm === 'garage'
         ? 'Esas recolecciones de Garage ya se recibieron o no están pendientes.'
-        : 'Esas recolecciones ya se recibieron o no son de Virtual/Garage.',
+        : areaNorm === 'abarrotes'
+          ? 'Esas recolecciones de Abarrotes ya se recibieron o no están pendientes.'
+          : 'Esas recolecciones ya se recibieron o no son de Virtual/Garage/Abarrotes.',
     };
   }
 
@@ -421,9 +463,10 @@ export async function recibirRecoleccionesRVirtual(supabase, { recolectorClave, 
 
   const grupoId = crypto.randomUUID();
   const ahora = new Date().toISOString();
-  const esDestinoFinal = esAbb(admin);
+  const esDestinoFinal = esDestinoFinalRc(admin, areaNorm);
   const estatus = esDestinoFinal ? 'entregado_abb' : 'recibido';
-  const etiquetaAbb = etiquetaRecolectorRVirtual(admin);
+  const etiquetaDestino = etiquetaRecolectorRVirtual(admin);
+  const moduloRcLbl = etiquetaModuloRc(areaNorm);
 
   const acreditados = [];
   for (const it of cortes) {
@@ -436,7 +479,7 @@ export async function recibirRecoleccionesRVirtual(supabase, { recolectorClave, 
       montoTotal: it.monto,
       usuarioNombre: admin,
       repartidorNombre: it.recolectorNombre,
-      notas: `${it.modulo === 'garage' ? 'RC Garage' : 'RC Virtual'} · ${it.tipoItem || 'recolección'} ${it.folio || it.origenId}`,
+      notas: `${moduloRcLbl} · ${it.tipoItem || 'recolección'} ${it.folio || it.origenId}`,
     });
     if (!res.ok) return res;
     acreditados.push({ ...it, montoAcreditado: it.monto });
@@ -445,7 +488,7 @@ export async function recibirRecoleccionesRVirtual(supabase, { recolectorClave, 
       r_virtual_recibido_por: admin,
       r_virtual_recibido_at: ahora,
       r_virtual_cuenta_id: cuenta.cuentaId,
-      ...(esDestinoFinal ? { r_virtual_entregado_a: etiquetaAbb, r_virtual_entregado_at: ahora } : {}),
+      ...(esDestinoFinal ? { r_virtual_entregado_a: etiquetaDestino, r_virtual_entregado_at: ahora } : {}),
     });
   }
 
@@ -460,18 +503,33 @@ export async function recibirRecoleccionesRVirtual(supabase, { recolectorClave, 
       sucursal: it.sucursal || null,
       folio: it.folio || null,
       tipo_item: it.tipoItem || null,
-      detalle: it.detalle || (it.modulo === 'garage' ? 'modulo:garage' : null),
+      detalle: it.detalle
+        || (it.modulo === 'garage'
+          ? 'modulo:garage'
+          : (it.modulo === 'abarrotes' ? 'modulo:abarrotes' : null)),
       grupo_id: grupoId,
       estatus,
       recibido_por: admin,
       recibido_cuenta_id: cuenta.cuentaId,
       recibido_at: ahora,
-      entregado_a: esDestinoFinal ? etiquetaAbb : null,
+      entregado_a: esDestinoFinal ? etiquetaDestino : null,
       entregado_at: esDestinoFinal ? ahora : null,
     }));
 
   const ins = await insertarCustodia(supabase, filas);
   if (!ins.ok) return ins;
+
+  // FJBB recibe Abarrotes → liquidar a IE ABARROTES (cuenta CEDIS / Francisco).
+  let liquidadasIe = 0;
+  if (esDestinoFinal && areaNorm === 'abarrotes') {
+    for (const it of acreditados) {
+      const liq = await liquidarRecoleccionRcVirtual(supabase, {
+        origenId: it.origenId,
+        adminNombre: admin,
+      });
+      if (liq.ok && (liq.pasoIe || liq.yaEstabaEnIe || liq.yaLiquidada)) liquidadasIe += 1;
+    }
+  }
 
   const total = filas.reduce((a, r) => a + Number(r.monto || 0), 0);
   return {
@@ -480,19 +538,32 @@ export async function recibirRecoleccionesRVirtual(supabase, { recolectorClave, 
     total: Math.round(total * 100) / 100,
     cuentaId: cuenta.cuentaId,
     entregadoAbb: esDestinoFinal,
+    destinoFinal: destinoLbl,
+    liquidadasIe,
+    area: areaNorm,
   };
 }
 
 /**
- * ABB toma lo que le entregó otro admin: marca «entregado a: ABB»
+ * Destino final toma lo que le entregó otro admin: marca «entregado a: ABB|FJBB»
  * y descuenta esas recolecciones de la cuenta de quien entrega.
+ * En Abarrotes (FJBB) además liquida las recolecciones a IE ABARROTES.
  */
 export async function entregarCustodiaAAbb(supabase, { recibidoPor, abbNombre, area } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
-  const abb = String(abbNombre || '').trim();
-  if (!esAbb(abb)) return { ok: false, error: 'Solo ABB puede recibir estas entregas.' };
+  const destino = String(abbNombre || '').trim();
+  const areaNorm = area ? normalizarAreaRc(area) : 'virtual';
+  const destinoLbl = etiquetaDestinoFinalRc(areaNorm);
+  if (!esDestinoFinalRc(destino, areaNorm)) {
+    return {
+      ok: false,
+      error: areaNorm === 'abarrotes'
+        ? 'Solo FJBB puede recibir estas entregas de Abarrotes.'
+        : 'Solo ABB puede recibir estas entregas.',
+    };
+  }
 
-  const etiquetaEntrega = etiquetaRecolectorRVirtual(abb);
+  const etiquetaEntrega = etiquetaRecolectorRVirtual(destino);
   const clave = claveRecolectorRVirtual(recibidoPor);
   const { data, error } = await supabase
     .from('r_virtual_custodia')
@@ -503,7 +574,6 @@ export async function entregarCustodiaAAbb(supabase, { recibidoPor, abbNombre, a
     return { ok: false, error: error.message };
   }
 
-  const areaNorm = area ? normalizarAreaRc(area) : null;
   const filas = (data || []).filter((r) => {
     if (claveRecolectorRVirtual(r.recibido_por) !== clave) return false;
     if (areaNorm && !custodiaEsDeArea(r, areaNorm)) return false;
@@ -515,16 +585,16 @@ export async function entregarCustodiaAAbb(supabase, { recibidoPor, abbNombre, a
   const cuentaOrigen = filas.find((r) => r.recibido_cuenta_id)?.recibido_cuenta_id;
   if (!cuentaOrigen) return { ok: false, error: 'No se encontró la cuenta de quien entrega.' };
 
-  const cuentaAbb = await resolverOCrearCuentaRt(supabase, abb);
-  if (!cuentaAbb.ok) return cuentaAbb;
+  const cuentaDestino = await resolverOCrearCuentaRt(supabase, destino);
+  if (!cuentaDestino.ok) return cuentaDestino;
 
-  if (cuentaOrigen !== cuentaAbb.cuentaId && total > 0) {
+  if (cuentaOrigen !== cuentaDestino.cuentaId && total > 0) {
     const trans = await transferirEntreCuentasRt(supabase, {
       desdeId: cuentaOrigen,
-      haciaId: cuentaAbb.cuentaId,
+      haciaId: cuentaDestino.cuentaId,
       monto: total,
-      usuarioNombre: abb,
-      notas: `RC Virtual · entregado a: ${etiquetaEntrega} · de ${recibidoPor}`,
+      usuarioNombre: destino,
+      notas: `${etiquetaModuloRc(areaNorm)} · entregado a: ${etiquetaEntrega} · de ${recibidoPor}`,
     });
     if (!trans.ok) return trans;
   }
@@ -541,18 +611,32 @@ export async function entregarCustodiaAAbb(supabase, { recibidoPor, abbNombre, a
     .in('id', ids);
   if (errUp) return { ok: false, error: errUp.message };
 
+  let liquidadasIe = 0;
+  if (areaNorm === 'abarrotes') {
+    for (const r of filas) {
+      if (r.origen !== 'corte' || !r.origen_id) continue;
+      const liq = await liquidarRecoleccionRcVirtual(supabase, {
+        origenId: r.origen_id,
+        adminNombre: destino,
+      });
+      if (liq.ok && (liq.pasoIe || liq.yaEstabaEnIe || liq.yaLiquidada)) liquidadasIe += 1;
+    }
+  }
+
   return {
     ok: true,
     count: ids.length,
     total,
     entregadoA: etiquetaEntrega,
+    destinoFinal: destinoLbl,
+    liquidadasIe,
     cuentaOrigen: etiquetaCuentaRt(cuentaOrigen),
-    cuentaAbb: etiquetaCuentaRt(cuentaAbb.cuentaId),
+    cuentaAbb: etiquetaCuentaRt(cuentaDestino.cuentaId),
   };
 }
 
 /**
- * Abre el ticket de una recolección Virtual/Garage (ver + imprimir).
+ * Abre el ticket de una recolección Virtual/Garage/Abarrotes (ver + imprimir).
  * `origenId` = id en cortes_contabilidad_cierres.
  */
 export async function imprimirTicketRcVirtual(supabase, { origenId, origen = 'corte' } = {}) {
@@ -560,7 +644,7 @@ export async function imprimirTicketRcVirtual(supabase, { origenId, origen = 'co
   const id = String(origenId || '').trim();
   if (!id) return { ok: false, error: 'No se identificó la recolección.' };
   if (origen && origen !== 'corte') {
-    return { ok: false, error: 'Solo hay ticket para recolecciones de corte Virtual/Garage.' };
+    return { ok: false, error: 'Solo hay ticket para recolecciones de corte Virtual/Garage/Abarrotes.' };
   }
 
   const { data, error } = await supabase
@@ -573,7 +657,7 @@ export async function imprimirTicketRcVirtual(supabase, { origenId, origen = 'co
 
   const modulo = String(data.modulo || 'virtual').toLowerCase();
   if (!MODULOS_R_VIRTUAL.has(modulo)) {
-    return { ok: false, error: 'Esa recolección no es de Virtual/Garage.' };
+    return { ok: false, error: 'Esa recolección no es de Virtual/Garage/Abarrotes.' };
   }
 
   const payload = datosImpresionDesdeHistorial(data, modulo);
@@ -583,10 +667,11 @@ export async function imprimirTicketRcVirtual(supabase, { origenId, origen = 'co
 }
 
 /**
- * Liquida / borra una recolección de la bandeja RC Virtual:
- * - Si aún no pasó a IE VIRTUAL, la aprueba y libera egresos/ingresos pendientes.
+ * Liquida / borra una recolección de la bandeja RC:
+ * - Si aún no pasó a IE, la aprueba y libera egresos/ingresos pendientes.
  * - Si ya estaba aprobada, no duplica (solo marca liquidada).
  * - Sale de la bandeja (r_virtual_estado = liquidado).
+ * Virtual/Garage → IE VIRTUAL; Abarrotes → IE ABARROTES.
  */
 export async function liquidarRecoleccionRcVirtual(supabase, { origenId, adminNombre } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
@@ -604,7 +689,7 @@ export async function liquidarRecoleccionRcVirtual(supabase, { origenId, adminNo
 
   const mod = String(row.modulo || '').toLowerCase();
   if (!MODULOS_R_VIRTUAL.has(mod)) {
-    return { ok: false, error: 'Esa recolección no es de Virtual/Garage.' };
+    return { ok: false, error: 'Esa recolección no es de Virtual/Garage/Abarrotes.' };
   }
   if (String(row?.detalle?.r_virtual_estado || '') === 'liquidado') {
     return { ok: true, yaLiquidada: true, origenId: id, monto: montoCorteRecoleccion(row) };
@@ -664,6 +749,7 @@ export async function liquidarRecoleccionRcVirtual(supabase, { origenId, adminNo
     yaEstabaEnIe: yaAprobada,
     temporal,
     egresosLiberados,
+    area: normalizarAreaRc(mod),
   };
 }
 
@@ -696,7 +782,7 @@ export async function eliminarRecoleccionRcVirtual(supabase, { origenId, adminNo
 
   const mod = String(row.modulo || '').toLowerCase();
   if (!MODULOS_R_VIRTUAL.has(mod)) {
-    return { ok: false, error: 'Esa recolección no es de Virtual/Garage.' };
+    return { ok: false, error: 'Esa recolección no es de Virtual/Garage/Abarrotes.' };
   }
   const est = String(row?.detalle?.r_virtual_estado || '');
   if (est === 'eliminado' || est === 'rechazado') {
@@ -757,7 +843,7 @@ export async function generarGastoRecoleccionRcVirtual(supabase, {
 
   const mod = String(row.modulo || '').toLowerCase();
   if (!MODULOS_R_VIRTUAL.has(mod)) {
-    return { ok: false, error: 'Solo se pueden generar gastos sobre recolecciones Virtual/Garage.' };
+    return { ok: false, error: 'Solo se pueden generar gastos sobre recolecciones Virtual/Garage/Abarrotes.' };
   }
   if (row?.detalle?.r_virtual_estado === 'liquidado') {
     return { ok: false, error: 'Esa recolección ya fue liquidada.' };
@@ -772,7 +858,8 @@ export async function generarGastoRecoleccionRcVirtual(supabase, {
     };
   }
 
-  const comentario = `${desc} · RC Virtual · ${row.folio || id}`;
+  const rcLbl = etiquetaModuloRc(mod);
+  const comentario = `${desc} · ${rcLbl} · ${row.folio || id}`;
   const { data: gastoRow, error: errGasto } = await supabase
     .from('cortes_contabilidad_gastos')
     .insert([
@@ -780,7 +867,7 @@ export async function generarGastoRecoleccionRcVirtual(supabase, {
         sucursal_id: row.sucursal_id || 'MAIN',
         modulo: mod,
         categoria: 'GASTOS OPERATIVOS',
-        subcategoria: 'RC VIRTUAL',
+        subcategoria: mod === 'abarrotes' ? 'RC ABARROTES' : 'RC VIRTUAL',
         comentario,
         monto: m,
         usuario_nombre: usuarioNombre || 'AMR',

@@ -120,6 +120,7 @@ export const SUBMODULOS_CONTABILIDAD = [
   'Socio 3B',
   'RC Virtual',
   'RC Garage',
+  'RC Abarrotes',
   'IE VIRTUAL',
   'IE ABARROTES',
   'Auto Fin',
@@ -297,6 +298,7 @@ const ACCESO_POR_ROL = {
     'Socio 3B',
     'RC Virtual',
     'RC Garage',
+    'RC Abarrotes',
     'IE VIRTUAL',
     'IE ABARROTES',
     'Auto Fin',
@@ -346,6 +348,7 @@ export function normalizarIdModulo(moduloId) {
   if (moduloId === 'Cont Virtual') return 'IE VIRTUAL';
   if (moduloId === 'R Virtual') return 'RC Virtual';
   if (moduloId === 'R Garage') return 'RC Garage';
+  if (moduloId === 'R Abarrotes') return 'RC Abarrotes';
   if (moduloId === 'Clientes máquinas') return 'Socio 3B';
   return moduloId;
 }
@@ -540,6 +543,7 @@ export const MODULOS_BLOQUEADOS_MOSTRADOR = new Set([
   'Liquidación recolecciones',
   'RC Virtual',
   'RC Garage',
+  'RC Abarrotes',
   'IE VIRTUAL',
   'IE ABARROTES',
   'Auto Fin',

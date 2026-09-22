@@ -42,11 +42,15 @@ const DESCRIPCIONES = {
   },
   'RC Virtual': {
     desc: 'Custodia Virtual → cuenta admin → ABB',
-    ayuda: 'Recibe recolecciones de Corte Virtual a tu cuenta y entrégalas a ABB. Garage está en RC Garage.',
+    ayuda: 'Recibe recolecciones de Corte Virtual a tu cuenta y entrégalas a ABB. Garage está en RC Garage; Abarrotes en RC Abarrotes.',
   },
   'RC Garage': {
     desc: 'Registro de recolecciones Garage: qué y quién',
     ayuda: 'Lista recolecciones pendientes de Corte Garage (no agosto 2026 ni las ya en IE VIRTUAL) con monto y recolector.',
+  },
+  'RC Abarrotes': {
+    desc: 'Custodia Abarrotes → cuenta admin → FJBB / CEDIS',
+    ayuda: 'Recibe recolecciones de Corte Abarrotes a tu cuenta y entrégalas a FJBB. Al recibir FJBB pasan a IE ABARROTES (cuenta CEDIS / Francisco).',
   },
   'IE VIRTUAL': {
     desc: 'Antonio · Virtual + Garage + Socio 3B',

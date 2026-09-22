@@ -3,10 +3,14 @@ import {
   areaCustodiaRc,
   custodiaEsDeArea,
   esCierreRecoleccionRc,
+  esDestinoFinalRc,
   esPendienteBandejaRc,
   esRecoleccionGarageDeAgosto,
   esRecoleccionTemporalGarage,
   esRecoleccionYaEnIeVirtual,
+  etiquetaDestinoFinalRc,
+  etiquetaIeRc,
+  etiquetaModuloRc,
   itemBandejaDesdeCorte,
   normalizarAreaRc,
   omitirRecoleccionBandejaGarage,
@@ -16,6 +20,22 @@ assert.equal(normalizarAreaRc('garage'), 'garage');
 assert.equal(normalizarAreaRc('GARAGE'), 'garage');
 assert.equal(normalizarAreaRc('virtual'), 'virtual');
 assert.equal(normalizarAreaRc(''), 'virtual');
+assert.equal(normalizarAreaRc('abarrotes'), 'abarrotes');
+assert.equal(normalizarAreaRc('ABARROTES'), 'abarrotes');
+
+assert.equal(etiquetaDestinoFinalRc('virtual'), 'ABB');
+assert.equal(etiquetaDestinoFinalRc('garage'), 'ABB');
+assert.equal(etiquetaDestinoFinalRc('abarrotes'), 'FJBB');
+assert.equal(etiquetaIeRc('abarrotes'), 'IE ABARROTES');
+assert.equal(etiquetaIeRc('virtual'), 'IE VIRTUAL');
+assert.equal(etiquetaModuloRc('abarrotes'), 'RC Abarrotes');
+
+assert.equal(esDestinoFinalRc('ABB', 'virtual'), true);
+assert.equal(esDestinoFinalRc('Antonio', 'virtual'), true);
+assert.equal(esDestinoFinalRc('FJBB', 'virtual'), false);
+assert.equal(esDestinoFinalRc('Francisco', 'abarrotes'), true);
+assert.equal(esDestinoFinalRc('FJBB', 'abarrotes'), true);
+assert.equal(esDestinoFinalRc('ABB', 'abarrotes'), false);
 
 const recVirtualAmr = {
   modulo: 'virtual',
@@ -98,11 +118,47 @@ const recGarageYaRecibida = {
   ...recGarageAmrDef,
   detalle: { ...recGarageAmrDef.detalle, r_virtual_estado: 'recibido' },
 };
-const recAbarrotes = {
+const recAbarrotesAmr = {
+  id: 'a1',
   modulo: 'abarrotes',
   turno: 'RECOLECCION',
   usuario_nombre: 'AMR',
-  detalle: { tipo_cierre: 'recoleccion', recoleccion: 10 },
+  sucursal_id: 'MAIN',
+  folio: 'REC-A-1',
+  created_at: '2026-09-07T12:00:00Z',
+  detalle: {
+    tipo_cierre: 'recoleccion',
+    recoleccion: 1200,
+    estado_aprobacion: 'pendiente_admin',
+  },
+};
+const recAbarrotesFjbb = {
+  id: 'a2',
+  modulo: 'abarrotes',
+  turno: 'RECOLECCION',
+  usuario_nombre: 'FJBB',
+  sucursal_id: 'MAIN',
+  folio: 'REC-A-2',
+  created_at: '2026-09-07T13:00:00Z',
+  detalle: {
+    tipo_cierre: 'recoleccion',
+    recoleccion: 300,
+    estado_aprobacion: 'aprobado',
+  },
+};
+const recAbarrotesLuis = {
+  id: 'a3',
+  modulo: 'abarrotes',
+  turno: 'RECOLECCION',
+  usuario_nombre: 'Luis Enrique Ozuna',
+  sucursal_id: 'FUSION',
+  folio: 'REC-A-3',
+  created_at: '2026-09-07T14:00:00Z',
+  detalle: {
+    tipo_cierre: 'recoleccion',
+    recoleccion: 450,
+    estado_aprobacion: 'pendiente_admin',
+  },
 };
 
 assert.equal(esCierreRecoleccionRc(recVirtualAmr, 'virtual'), true, 'virtual AMR entra a RC Virtual');
@@ -124,8 +180,12 @@ assert.equal(omitirRecoleccionBandejaGarage(recGarageAbb), true);
 assert.equal(omitirRecoleccionBandejaGarage(recGarageAgosto), true);
 assert.equal(omitirRecoleccionBandejaGarage(recGarageTemporal), false);
 assert.equal(esCierreRecoleccionRc(recGarageYaRecibida, 'garage'), false, 'ya recibida no se lista');
-assert.equal(esCierreRecoleccionRc(recAbarrotes, 'garage'), false, 'abarrotes no va a RC Garage');
-assert.equal(esCierreRecoleccionRc(recAbarrotes, 'virtual'), false);
+assert.equal(esCierreRecoleccionRc(recAbarrotesAmr, 'garage'), false, 'abarrotes no va a RC Garage');
+assert.equal(esCierreRecoleccionRc(recAbarrotesAmr, 'virtual'), false, 'abarrotes no va a RC Virtual');
+assert.equal(esCierreRecoleccionRc(recAbarrotesAmr, 'abarrotes'), true, 'AMR entra a RC Abarrotes');
+assert.equal(esCierreRecoleccionRc(recAbarrotesLuis, 'abarrotes'), true, 'Luis Enrique entra a RC Abarrotes');
+assert.equal(esCierreRecoleccionRc(recAbarrotesFjbb, 'abarrotes'), false, 'FJBB no entra a RC Abarrotes (va directo a IE)');
+assert.equal(esPendienteBandejaRc(recAbarrotesAmr, 'abarrotes'), true);
 
 assert.equal(esRecoleccionTemporalGarage(recGarageTemporal), true);
 assert.equal(esRecoleccionTemporalGarage(recGarageAmrDef), false);
@@ -149,11 +209,22 @@ const itemDef = itemBandejaDesdeCorte(recGarageAmrDef);
 assert.equal(itemDef.receivable, true);
 assert.equal(itemDef.tipoItem, 'Recolección Garage');
 
+const itemAba = itemBandejaDesdeCorte(recAbarrotesAmr);
+assert.equal(itemAba.tipoItem, 'Recolección Abarrotes');
+assert.equal(itemAba.receivable, true);
+assert.equal(itemAba.modulo, 'abarrotes');
+assert.equal(itemAba.monto, 1200);
+assert.equal(itemAba.detalle, 'modulo:abarrotes');
+
 assert.equal(areaCustodiaRc({ tipo_item: 'Recolección Garage (temporal)' }), 'garage');
 assert.equal(areaCustodiaRc({ tipo_item: 'Recolección Virtual' }), 'virtual');
+assert.equal(areaCustodiaRc({ tipo_item: 'Recolección Abarrotes' }), 'abarrotes');
 assert.equal(areaCustodiaRc({ detalle: 'modulo:garage' }), 'garage');
+assert.equal(areaCustodiaRc({ detalle: 'modulo:abarrotes' }), 'abarrotes');
 assert.equal(custodiaEsDeArea({ tipo_item: 'Recolección Garage' }, 'garage'), true);
 assert.equal(custodiaEsDeArea({ tipo_item: 'Recolección Garage' }, 'virtual'), false);
+assert.equal(custodiaEsDeArea({ tipo_item: 'Recolección Abarrotes' }, 'abarrotes'), true);
+assert.equal(custodiaEsDeArea({ tipo_item: 'Recolección Abarrotes' }, 'virtual'), false);
 assert.equal(custodiaEsDeArea({ tipo_item: 'Préstamo entre áreas' }, 'virtual'), true);
 
 console.log('rVirtual.test.mjs ok');

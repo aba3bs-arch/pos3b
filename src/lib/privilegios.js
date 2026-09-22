@@ -33,6 +33,7 @@ export const MODULOS_IDS = [
   'Panel RT',
   'RC Virtual',
   'RC Garage',
+  'RC Abarrotes',
   'IE VIRTUAL',
   'IE ABARROTES',
   'Auto Fin',
@@ -59,6 +60,7 @@ const ALIAS_MODULO = {
   'Cont Virtual': 'IE VIRTUAL',
   'R Virtual': 'RC Virtual',
   'R Garage': 'RC Garage',
+  'R Abarrotes': 'RC Abarrotes',
   'Gastos evidencia': 'Registro de gastos',
   'Clientes máquinas': 'Socio 3B',
 };
@@ -125,6 +127,12 @@ function aplicarMigraRcGarage(lista) {
   return MODULOS_IDS.filter((m) => set.has(m));
 }
 
+function aplicarMigraRcAbarrotes(lista) {
+  const set = new Set(lista);
+  if (set.has('IE ABARROTES') || set.has('RC Virtual')) set.add('RC Abarrotes');
+  return MODULOS_IDS.filter((m) => set.has(m));
+}
+
 export function sanitizarPrivilegios(data) {
   const porRol = {};
   const porUsuario = {};
@@ -133,27 +141,33 @@ export function sanitizarPrivilegios(data) {
   );
   const faltaMigra = MODULOS_MIGRA_PRIVILEGIOS.some((m) => !migrados.has(m));
   const faltaRcGarage = !migrados.has('RC Garage');
+  const faltaRcAbarrotes = !migrados.has('RC Abarrotes');
 
   if (data?.porRol && typeof data.porRol === 'object') {
     for (const [rol, lista] of Object.entries(data.porRol)) {
       if (Array.isArray(lista)) {
-        const base = faltaMigra ? conModulosMigrados(lista) : normalizarListaModulos(lista);
-        porRol[rol] = faltaRcGarage ? aplicarMigraRcGarage(base) : base;
+        let base = faltaMigra ? conModulosMigrados(lista) : normalizarListaModulos(lista);
+        if (faltaRcGarage) base = aplicarMigraRcGarage(base);
+        if (faltaRcAbarrotes) base = aplicarMigraRcAbarrotes(base);
+        porRol[rol] = base;
       }
     }
   }
   if (data?.porUsuario && typeof data.porUsuario === 'object') {
     for (const [uid, lista] of Object.entries(data.porUsuario)) {
       if (Array.isArray(lista)) {
-        const base = faltaMigra
+        let base = faltaMigra
           ? conModulosMigrados(lista)
           : normalizarListaModulos(lista);
-        porUsuario[String(uid)] = faltaRcGarage ? aplicarMigraRcGarage(base) : base;
+        if (faltaRcGarage) base = aplicarMigraRcGarage(base);
+        if (faltaRcAbarrotes) base = aplicarMigraRcAbarrotes(base);
+        porUsuario[String(uid)] = base;
       }
     }
   }
   for (const m of MODULOS_MIGRA_PRIVILEGIOS) migrados.add(m);
   migrados.add('RC Garage');
+  migrados.add('RC Abarrotes');
   return {
     porRol,
     porUsuario,
