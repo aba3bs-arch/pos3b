@@ -33,17 +33,47 @@ function idsFijos() {
   return new Set(CATEGORIAS_VALE_FIJAS.map((c) => c.id));
 }
 
+function normalizarDetalle(d) {
+  if (d == null) return null;
+  if (typeof d === 'string') {
+    const label = d.trim();
+    if (!label) return null;
+    return { id: slugCategoria(label), label };
+  }
+  const label = String(d.label || d.nombre || d.id || '').trim();
+  if (!label) return null;
+  const id = String(d.id || slugCategoria(label)).trim().toLowerCase() || slugCategoria(label);
+  return { id, label };
+}
+
+function normalizarDetalles(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const raw of list) {
+    const d = normalizarDetalle(raw);
+    if (!d || seen.has(d.id)) continue;
+    seen.add(d.id);
+    out.push(d);
+  }
+  return out;
+}
+
 function normalizarSub(s) {
   if (s == null) return null;
   if (typeof s === 'string') {
     const label = s.trim();
     if (!label) return null;
-    return { id: slugCategoria(label), label };
+    return { id: slugCategoria(label), label, detalles: [] };
   }
   const label = String(s.label || s.nombre || s.id || '').trim();
   if (!label) return null;
   const id = String(s.id || slugCategoria(label)).trim().toLowerCase() || slugCategoria(label);
-  return { id, label };
+  return {
+    id,
+    label,
+    detalles: normalizarDetalles(s.detalles || s.items || s.sub_subcategorias || []),
+  };
 }
 
 function normalizarSubs(list) {
@@ -162,6 +192,24 @@ export function etiquetaSubcategoriaVale(categoriaId, subId) {
   return sub?.label || String(subId || '');
 }
 
+export function listarDetallesVale(categoriaId, subId) {
+  const key = String(subId || '').trim().toLowerCase();
+  if (!key) return [];
+  const sub = listarSubcategoriasVale(categoriaId).find(
+    (s) => s.id === key || String(s.label).toLowerCase() === key,
+  );
+  return sub?.detalles || [];
+}
+
+export function etiquetaDetalleVale(categoriaId, subId, detalleId) {
+  const key = String(detalleId || '').trim().toLowerCase();
+  if (!key) return '';
+  const det = listarDetallesVale(categoriaId, subId).find(
+    (d) => d.id === key || String(d.label).toLowerCase() === key,
+  );
+  return det?.label || String(detalleId || '');
+}
+
 export function valeDescuentaNomina(categoria) {
   return Boolean(categoriaValePorId(categoria).descuentaNomina);
 }
@@ -185,6 +233,60 @@ export function esSubcategoriaValeValida(categoriaId, subId) {
   const subs = listarSubcategoriasVale(categoriaId);
   if (!subs.length) return true;
   return subs.some((s) => s.id === key || String(s.label).toLowerCase() === key);
+}
+
+export function esDetalleValeValido(categoriaId, subId, detalleId) {
+  const key = String(detalleId || '').trim().toLowerCase();
+  if (!key) return true; // detalle opcional
+  const dets = listarDetallesVale(categoriaId, subId);
+  if (!dets.length) return true;
+  return dets.some((d) => d.id === key || String(d.label).toLowerCase() === key);
+}
+
+/** Obtiene o crea la fila editable de una categoría (fija o extra) en el LS. */
+function resolverCategoriaEditable(categoriaId) {
+  const catId = String(categoriaId || '').trim().toLowerCase();
+  if (!catId) return { ok: false, error: 'Categoría inválida.' };
+  const existentes = leerCategoriasValeExtra();
+  let cat = existentes.find((c) => c.id === catId);
+  const esFija = idsFijos().has(catId);
+  if (!cat && esFija) {
+    const fija = CATEGORIAS_VALE_FIJAS.find((c) => c.id === catId);
+    cat = {
+      id: fija.id,
+      label: fija.label,
+      descuentaNomina: fija.descuentaNomina,
+      activo: true,
+      fijo: true,
+      _metaFija: true,
+      subcategorias: [...subsDeFijaDesdeExtra(catId)],
+    };
+  }
+  if (!cat) {
+    const viva = listarCategoriasVale().find((c) => c.id === catId);
+    if (!viva) return { ok: false, error: 'No existe esa categoría.' };
+    cat = { ...viva, subcategorias: [...(viva.subcategorias || [])] };
+  }
+  return {
+    ok: true,
+    catId,
+    cat: {
+      ...cat,
+      subcategorias: normalizarSubs(cat.subcategorias || []),
+      fijo: esFija || Boolean(cat.fijo),
+      _metaFija: esFija || Boolean(cat._metaFija),
+    },
+    existentes,
+    esFija,
+  };
+}
+
+function persistirCategoriaEditable(existentes, catId, next, supabase, createdBy) {
+  return upsertCategoriaNube(supabase, next, createdBy).then((nube) => {
+    if (!nube.ok) return nube;
+    guardarCategoriasValeExtraLocal([...existentes.filter((c) => c.id !== catId), next]);
+    return { ok: true, categoria: next, aviso: nube.aviso, soloLocal: nube.soloLocal };
+  });
 }
 
 function filaNubeALocal(row) {
@@ -330,84 +432,84 @@ export async function crearCategoriaValePermanente(supabase, { label, descuentaN
 }
 
 export async function agregarSubcategoriaVale(supabase, categoriaId, label, { createdBy } = {}) {
-  const catId = String(categoriaId || '').trim().toLowerCase();
-  if (!catId) return { ok: false, error: 'Categoría inválida.' };
+  const resolved = resolverCategoriaEditable(categoriaId);
+  if (!resolved.ok) return resolved;
   const nombre = String(label || '').trim();
   if (!nombre) return { ok: false, error: 'Indica el nombre de la subcategoría.' };
   const sub = normalizarSub(nombre);
   if (!sub) return { ok: false, error: 'Subcategoría inválida.' };
 
-  const esFija = idsFijos().has(catId);
-  const existentes = leerCategoriasValeExtra();
-  let cat = existentes.find((c) => c.id === catId);
-  if (!cat && esFija) {
-    const fija = CATEGORIAS_VALE_FIJAS.find((c) => c.id === catId);
-    cat = {
-      id: fija.id,
-      label: fija.label,
-      descuentaNomina: fija.descuentaNomina,
-      activo: true,
-      fijo: true,
-      _metaFija: true,
-      subcategorias: [...subsDeFijaDesdeExtra(catId)],
-    };
-  }
-  if (!cat) {
-    // Categoría extra debe existir
-    const viva = listarCategoriasVale().find((c) => c.id === catId);
-    if (!viva) return { ok: false, error: 'No existe esa categoría.' };
-    cat = { ...viva, subcategorias: [...(viva.subcategorias || [])] };
-  }
-
-  const subs = normalizarSubs(cat.subcategorias || []);
-  if (subs.some((s) => s.id === sub.id || s.label.toLowerCase() === sub.label.toLowerCase())) {
+  const { catId, cat, existentes } = resolved;
+  if (cat.subcategorias.some((s) => s.id === sub.id || s.label.toLowerCase() === sub.label.toLowerCase())) {
     return { ok: false, error: 'Ya existe esa subcategoría.' };
   }
-  const next = {
-    ...cat,
-    subcategorias: [...subs, sub],
-    fijo: esFija || Boolean(cat.fijo),
-    _metaFija: esFija || Boolean(cat._metaFija),
-  };
-
-  const nube = await upsertCategoriaNube(supabase, next, createdBy);
-  if (!nube.ok) return nube;
-
-  guardarCategoriasValeExtraLocal([...existentes.filter((c) => c.id !== catId), next]);
-  return { ok: true, categoria: next, subcategoria: sub, aviso: nube.aviso };
+  const next = { ...cat, subcategorias: [...cat.subcategorias, sub] };
+  const res = await persistirCategoriaEditable(existentes, catId, next, supabase, createdBy);
+  if (!res.ok) return res;
+  return { ...res, subcategoria: sub };
 }
 
 export async function eliminarSubcategoriaVale(supabase, categoriaId, subId) {
-  const catId = String(categoriaId || '').trim().toLowerCase();
+  const resolved = resolverCategoriaEditable(categoriaId);
+  if (!resolved.ok) return resolved;
   const sid = String(subId || '').trim().toLowerCase();
-  if (!catId || !sid) return { ok: false, error: 'Datos inválidos.' };
+  if (!sid) return { ok: false, error: 'Datos inválidos.' };
 
-  const existentes = leerCategoriasValeExtra();
-  let cat = existentes.find((c) => c.id === catId);
-  if (!cat && idsFijos().has(catId)) {
-    const fija = CATEGORIAS_VALE_FIJAS.find((c) => c.id === catId);
-    cat = {
-      id: fija.id,
-      label: fija.label,
-      descuentaNomina: fija.descuentaNomina,
-      activo: true,
-      fijo: true,
-      _metaFija: true,
-      subcategorias: [...subsDeFijaDesdeExtra(catId)],
-    };
-  }
-  if (!cat) return { ok: false, error: 'No existe esa categoría.' };
-
+  const { catId, cat, existentes } = resolved;
   const next = {
     ...cat,
-    subcategorias: (cat.subcategorias || []).filter((s) => s.id !== sid),
+    subcategorias: cat.subcategorias.filter((s) => s.id !== sid),
   };
+  return persistirCategoriaEditable(existentes, catId, next, supabase);
+}
 
-  const nube = await upsertCategoriaNube(supabase, next);
-  if (!nube.ok) return nube;
+export async function agregarDetalleVale(supabase, categoriaId, subId, label, { createdBy } = {}) {
+  const resolved = resolverCategoriaEditable(categoriaId);
+  if (!resolved.ok) return resolved;
+  const sid = String(subId || '').trim().toLowerCase();
+  if (!sid) return { ok: false, error: 'Elige la subcategoría.' };
+  const nombre = String(label || '').trim();
+  if (!nombre) return { ok: false, error: 'Indica el nombre del detalle (3er nivel).' };
+  const det = normalizarDetalle(nombre);
+  if (!det) return { ok: false, error: 'Detalle inválido.' };
 
-  guardarCategoriasValeExtraLocal([...existentes.filter((c) => c.id !== catId), next]);
-  return { ok: true, categoria: next };
+  const { catId, cat, existentes } = resolved;
+  const subIdx = cat.subcategorias.findIndex(
+    (s) => s.id === sid || s.label.toLowerCase() === sid,
+  );
+  if (subIdx < 0) return { ok: false, error: 'No existe esa subcategoría.' };
+  const sub = cat.subcategorias[subIdx];
+  const dets = normalizarDetalles(sub.detalles || []);
+  if (dets.some((d) => d.id === det.id || d.label.toLowerCase() === det.label.toLowerCase())) {
+    return { ok: false, error: 'Ya existe ese detalle en la subcategoría.' };
+  }
+  const nextSubs = cat.subcategorias.map((s, i) =>
+    (i === subIdx ? { ...s, detalles: [...dets, det] } : s),
+  );
+  const next = { ...cat, subcategorias: nextSubs };
+  const res = await persistirCategoriaEditable(existentes, catId, next, supabase, createdBy);
+  if (!res.ok) return res;
+  return { ...res, detalle: det, subcategoria: { ...sub, detalles: [...dets, det] } };
+}
+
+export async function eliminarDetalleVale(supabase, categoriaId, subId, detalleId) {
+  const resolved = resolverCategoriaEditable(categoriaId);
+  if (!resolved.ok) return resolved;
+  const sid = String(subId || '').trim().toLowerCase();
+  const did = String(detalleId || '').trim().toLowerCase();
+  if (!sid || !did) return { ok: false, error: 'Datos inválidos.' };
+
+  const { catId, cat, existentes } = resolved;
+  const subIdx = cat.subcategorias.findIndex((s) => s.id === sid);
+  if (subIdx < 0) return { ok: false, error: 'No existe esa subcategoría.' };
+  const nextSubs = cat.subcategorias.map((s, i) => {
+    if (i !== subIdx) return s;
+    return {
+      ...s,
+      detalles: (s.detalles || []).filter((d) => d.id !== did),
+    };
+  });
+  return persistirCategoriaEditable(existentes, catId, { ...cat, subcategorias: nextSubs }, supabase);
 }
 
 export async function desactivarCategoriaValePermanente(supabase, id) {

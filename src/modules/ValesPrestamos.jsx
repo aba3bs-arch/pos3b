@@ -71,9 +71,13 @@ import {
   desactivarCategoriaValePermanente,
   agregarSubcategoriaVale,
   eliminarSubcategoriaVale,
+  agregarDetalleVale,
+  eliminarDetalleVale,
   leerCategoriasValeExtra,
   sincronizarCategoriasValeDesdeNube,
   etiquetaSubcategoriaVale,
+  etiquetaDetalleVale,
+  listarDetallesVale,
 } from '../lib/valesCategorias.js';
 import { listarNotificacionesPendientes, TIPOS_NOTIF } from '../lib/contabilidadNotificaciones.js';
 import { imprimirPrestamo, imprimirPrestamoInterarea, imprimirPrestamoSucursal, imprimirRif, imprimirVale, imprimirPagare } from '../lib/impresionContabilidad.js';
@@ -169,6 +173,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     beneficiarioId: '',
     categoria: 'consumo',
     subcategoria: '',
+    detalle: '',
     monto: '',
     motivo: '',
     fecha: hoyISO(),
@@ -207,6 +212,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const [categoriasTick, setCategoriasTick] = useState(0);
   const [nuevoTipoVale, setNuevoTipoVale] = useState({ label: '', descuentaNomina: false });
   const [nuevaSubPorCat, setNuevaSubPorCat] = useState({});
+  const [nuevoDetPorSub, setNuevoDetPorSub] = useState({});
   const [valesPendAll, setValesPendAll] = useState([]);
   const [prestamosPendAll, setPrestamosPendAll] = useState([]);
   const [horaLimiteVale, setHoraLimiteVale] = useState(() => etiquetaHoraLimiteVale());
@@ -268,6 +274,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     const cat = categoriasValeDisponibles.find((c) => c.id === valeForm.categoria);
     return cat?.subcategorias || [];
   }, [categoriasValeDisponibles, valeForm.categoria]);
+  const detallesValeForm = useMemo(() => {
+    if (!valeForm.subcategoria) return [];
+    return listarDetallesVale(valeForm.categoria, valeForm.subcategoria);
+  }, [categoriasTick, valeForm.categoria, valeForm.subcategoria]);
   const beneficiariosVales = useMemo(() => listarBeneficiariosVales(empleadosAll), [empleadosAll]);
   /** El admin elige siempre el corte; ya no se toma del beneficiario. */
   const areaCorteVale = valeForm.areaCorte || null;
@@ -430,7 +440,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   useEffect(() => {
     if (esMain && valeForm.categoria === 'gasolina') {
-      setValeForm((prev) => ({ ...prev, categoria: 'consumo', subcategoria: '' }));
+      setValeForm((prev) => ({ ...prev, categoria: 'consumo', subcategoria: '', detalle: '' }));
     }
   }, [esMain, valeForm.categoria]);
 
@@ -438,8 +448,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     const subs = subcategoriasValeForm;
     if (!valeForm.subcategoria) return;
     const ok = subs.some((s) => s.id === valeForm.subcategoria);
-    if (!ok) setValeForm((prev) => ({ ...prev, subcategoria: '' }));
+    if (!ok) setValeForm((prev) => ({ ...prev, subcategoria: '', detalle: '' }));
   }, [subcategoriasValeForm, valeForm.subcategoria]);
+
+  useEffect(() => {
+    const dets = detallesValeForm;
+    if (!valeForm.detalle) return;
+    const ok = dets.some((d) => d.id === valeForm.detalle);
+    if (!ok) setValeForm((prev) => ({ ...prev, detalle: '' }));
+  }, [detallesValeForm, valeForm.detalle]);
 
   useEffect(() => {
     // Cajero y repartidor entran directo a Pagaré (Abonar / Liquidar / Recolectar).
@@ -489,7 +506,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
     const authTxt = await asegurarCamposSinReservadoOPin(
       supabase,
-      [valeForm.motivo, valeForm.categoria, valeForm.subcategoria],
+      [valeForm.motivo, valeForm.categoria, valeForm.subcategoria, valeForm.detalle],
       { user, sucursal },
     );
     if (!authTxt.ok) return alert(authTxt.error);
@@ -503,6 +520,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         area: areaVale,
         categoria: valeForm.categoria,
         subcategoria: valeForm.subcategoria || null,
+        detalle: valeForm.detalle || null,
         monto,
         motivo: valeForm.motivo.trim() || null,
         fecha: valeForm.fecha || hoyISO(),
@@ -527,6 +545,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       beneficiarioId: '',
       categoria: 'consumo',
       subcategoria: '',
+      detalle: '',
       monto: '',
       motivo: '',
       fecha: hoyISO(),
@@ -620,8 +639,32 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
   const quitarSubTipoVale = async (categoriaId, subId) => {
     if (!esAdmin) return;
-    if (!confirm('¿Quitar esta subcategoría?')) return;
+    if (!confirm('¿Quitar esta subcategoría y sus detalles?')) return;
     const res = await eliminarSubcategoriaVale(supabase, categoriaId, subId);
+    if (!res.ok) return alert(res.error);
+    setCategoriasTick((n) => n + 1);
+  };
+
+  const claveDet = (categoriaId, subId) => `${categoriaId}::${subId}`;
+
+  const agregarDetTipoVale = async (categoriaId, subId) => {
+    if (!esAdmin) return alert('Solo el administrador puede crear detalles.');
+    const key = claveDet(categoriaId, subId);
+    const label = String(nuevoDetPorSub[key] || '').trim();
+    if (!label) return alert('Escribe el nombre del detalle (3er nivel).');
+    const authTxt = await asegurarCamposSinReservadoOPin(supabase, [label], { user, sucursal });
+    if (!authTxt.ok) return alert(authTxt.error);
+    const res = await agregarDetalleVale(supabase, categoriaId, subId, label, { createdBy: user?.nombre });
+    if (!res.ok) return alert(res.error);
+    if (res.aviso) setAviso(res.aviso);
+    setNuevoDetPorSub((prev) => ({ ...prev, [key]: '' }));
+    setCategoriasTick((n) => n + 1);
+  };
+
+  const quitarDetTipoVale = async (categoriaId, subId, detalleId) => {
+    if (!esAdmin) return;
+    if (!confirm('¿Quitar este detalle?')) return;
+    const res = await eliminarDetalleVale(supabase, categoriaId, subId, detalleId);
     if (!res.ok) return alert(res.error);
     setCategoriasTick((n) => n + 1);
   };
@@ -1331,7 +1374,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       <div className="card" style={{ fontSize: '0.85rem' }}>
         <strong>Todos los vales</strong> — Requieren autorización del administrador antes de imprimir (cualquier categoría, horario o MAIN).
         <br />
-        <strong>Categorías y subcategorías</strong> — El admin las crea en la pestaña «Tipos de vale».
+        <strong>Categorías, subcategorías y detalles</strong> — El admin las crea en la pestaña «Tipos de vale» (3 niveles).
         {' '}Los de <strong>gasolina</strong> se generan desde la tienda (no desde MAIN).
         <br />
         <strong>Desde MAIN</strong> — Elige <strong>sucursal</strong> y <strong>corte</strong> destino. Beneficiarios: personal indirecto MAIN.
@@ -1830,7 +1873,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     {vePendientesTodasTiendas && (
                       <strong style={{ marginRight: '0.35rem' }}>{etiquetaTienda(v.sucursal_id)}</strong>
                     )}
-                    {v.folio} · {v.nombre_empleado} · {fmt(v.monto)} · {etiquetaCategoriaVale(v.categoria)}{v.subcategoria ? ` · ${etiquetaSubcategoriaVale(v.categoria, v.subcategoria)}` : ''}
+                    {v.folio} · {v.nombre_empleado} · {fmt(v.monto)} · {etiquetaCategoriaVale(v.categoria)}{v.subcategoria ? ` · ${etiquetaSubcategoriaVale(v.categoria, v.subcategoria)}` : ''}{v.detalle ? ` · ${etiquetaDetalleVale(v.categoria, v.subcategoria, v.detalle)}` : ''}
                   </span>
                   <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => aprobarV(v.id)}>Aprobar</button>
                   {esAdmin && (
@@ -1929,10 +1972,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
       {pestana === 'tipos' && esAdmin && (
         <div className="card">
-          <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Categorías y subcategorías de vale</h3>
+          <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Categorías, subcategorías y detalles</h3>
           <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
-            Crea categorías (como gasolina o consumo) y, debajo de cada una, subcategorías.
-            Quedan fijas para todas las sucursales al generar vales.
+            3 niveles: <strong>categoría</strong> → <strong>subcategoría</strong> → <strong>detalle</strong>.
+            Quedan fijos para todas las sucursales al generar vales.
             Ejecuta <code>supabase/fix_vales_categorias.sql</code> para sincronizarlos en la nube.
           </p>
           <div className="grid-2" style={{ marginBottom: '0.75rem' }}>
@@ -1981,36 +2024,90 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     </button>
                   )}
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.45rem' }}>
-                  {(c.subcategorias || []).length === 0 && (
-                    <span className="muted" style={{ fontSize: '0.8rem' }}>Sin subcategorías</span>
-                  )}
-                  {(c.subcategorias || []).map((s) => (
-                    <span
+
+                {(c.subcategorias || []).length === 0 && (
+                  <p className="muted" style={{ fontSize: '0.8rem', margin: '0 0 0.45rem' }}>Sin subcategorías</p>
+                )}
+
+                {(c.subcategorias || []).map((s) => {
+                  const detKey = claveDet(c.id, s.id);
+                  return (
+                    <div
                       key={s.id}
                       style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '0.25rem',
-                        fontSize: '0.8rem',
-                        padding: '0.15rem 0.45rem',
-                        border: '1px solid var(--border)',
+                        marginBottom: '0.55rem',
+                        padding: '0.45rem 0.55rem',
                         borderRadius: 6,
+                        border: '1px dashed var(--border)',
+                        background: 'rgba(0,0,0,0.02)',
                       }}
                     >
-                      {s.label}
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        style={{ padding: '0 0.2rem', color: 'var(--danger)', fontSize: '0.75rem' }}
-                        onClick={() => quitarSubTipoVale(c.id, s.id)}
-                        title="Quitar subcategoría"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.35rem', marginBottom: '0.35rem' }}>
+                        <strong style={{ fontSize: '0.88rem' }}>{s.label}</strong>
+                        <span className="muted" style={{ fontSize: '0.72rem' }}>subcategoría</span>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ padding: '0.1rem 0.35rem', color: 'var(--danger)', fontSize: '0.75rem', marginLeft: 'auto' }}
+                          onClick={() => quitarSubTipoVale(c.id, s.id)}
+                          title="Quitar subcategoría"
+                        >
+                          Quitar
+                        </button>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.35rem', paddingLeft: '0.25rem' }}>
+                        {(s.detalles || []).length === 0 && (
+                          <span className="muted" style={{ fontSize: '0.75rem' }}>Sin detalles (3er nivel)</span>
+                        )}
+                        {(s.detalles || []).map((d) => (
+                          <span
+                            key={d.id}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.2rem',
+                              fontSize: '0.76rem',
+                              padding: '0.12rem 0.4rem',
+                              border: '1px solid var(--border)',
+                              borderRadius: 6,
+                            }}
+                          >
+                            {d.label}
+                            <button
+                              type="button"
+                              className="btn btn-ghost"
+                              style={{ padding: '0 0.15rem', color: 'var(--danger)', fontSize: '0.72rem' }}
+                              onClick={() => quitarDetTipoVale(c.id, s.id, d.id)}
+                              title="Quitar detalle"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' }}>
+                        <input
+                          className="input"
+                          style={{ flex: 1, minWidth: 120, fontSize: '0.85rem' }}
+                          placeholder={`Detalle de ${s.label}`}
+                          value={nuevoDetPorSub[detKey] || ''}
+                          onChange={(e) => setNuevoDetPorSub((prev) => ({ ...prev, [detKey]: e.target.value }))}
+                          onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), agregarDetTipoVale(c.id, s.id))}
+                        />
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ fontSize: '0.78rem', padding: '0.25rem 0.45rem' }}
+                          onClick={() => agregarDetTipoVale(c.id, s.id)}
+                          disabled={!String(nuevoDetPorSub[detKey] || '').trim()}
+                        >
+                          + Detalle
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' }}>
                   <input
                     className="input"
@@ -2062,7 +2159,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <select
                 className="select"
                 value={valeForm.categoria}
-                onChange={(e) => setValeForm({ ...valeForm, categoria: e.target.value, subcategoria: '' })}
+                onChange={(e) => setValeForm({ ...valeForm, categoria: e.target.value, subcategoria: '', detalle: '' })}
               >
                 {categoriasValeDisponibles.map((c) => (
                   <option key={c.id} value={c.id}>{c.label}{c.descuentaNomina ? ' (nómina)' : ' (sin nómina)'}</option>
@@ -2072,11 +2169,23 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 <select
                   className="select"
                   value={valeForm.subcategoria}
-                  onChange={(e) => setValeForm({ ...valeForm, subcategoria: e.target.value })}
+                  onChange={(e) => setValeForm({ ...valeForm, subcategoria: e.target.value, detalle: '' })}
                 >
                   <option value="">— Subcategoría (opcional) —</option>
                   {subcategoriasValeForm.map((s) => (
                     <option key={s.id} value={s.id}>{s.label}</option>
+                  ))}
+                </select>
+              )}
+              {detallesValeForm.length > 0 && (
+                <select
+                  className="select"
+                  value={valeForm.detalle}
+                  onChange={(e) => setValeForm({ ...valeForm, detalle: e.target.value })}
+                >
+                  <option value="">— Detalle (opcional) —</option>
+                  {detallesValeForm.map((d) => (
+                    <option key={d.id} value={d.id}>{d.label}</option>
                   ))}
                 </select>
               )}
@@ -2165,7 +2274,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     <tr key={v.id}>
                       <td>{v.folio}</td>
                       <td>{etiquetaEstadoVale(v)}</td>
-                      <td>{etiquetaCategoriaVale(v.categoria)}{v.subcategoria ? ` · ${etiquetaSubcategoriaVale(v.categoria, v.subcategoria)}` : ''}</td>
+                      <td>{etiquetaCategoriaVale(v.categoria)}{v.subcategoria ? ` · ${etiquetaSubcategoriaVale(v.categoria, v.subcategoria)}` : ''}{v.detalle ? ` · ${etiquetaDetalleVale(v.categoria, v.subcategoria, v.detalle)}` : ''}</td>
                       <td>{v.nombre_empleado}</td>
                       {(esMain || vePendientesTodasTiendas) && (
                         <td className="muted">{etiquetaTienda(v.sucursal_id) || v.sucursal_id || '—'}</td>

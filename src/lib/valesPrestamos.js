@@ -17,7 +17,7 @@ import {
   prestamoInterareaPuedeOperarHastaRc,
   ESTADOS_PRESTAMO_INTERAREA_ABIERTOS,
 } from './contabilidadConstants.js';
-import { esCategoriaValeConocida, esSubcategoriaValeValida } from './valesCategorias.js';
+import { esCategoriaValeConocida, esSubcategoriaValeValida, esDetalleValeValido } from './valesCategorias.js';
 import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
 import {
   cargarValeACorte,
@@ -179,6 +179,10 @@ export async function registrarVale(supabase, row, opts = {}) {
   if (subcategoria && !esSubcategoriaValeValida(categoria, subcategoria)) {
     return { ok: false, error: 'Subcategoría de vale no válida para ese tipo.' };
   }
+  const detalle = String(row.detalle || '').trim().toLowerCase() || null;
+  if (detalle && !esDetalleValeValido(categoria, subcategoria, detalle)) {
+    return { ok: false, error: 'Detalle de vale no válido para esa subcategoría.' };
+  }
   if (opts.origenMain && categoria === 'gasolina') {
     return { ok: false, error: 'Los vales de gasolina se generan desde la tienda, no desde MAIN.' };
   }
@@ -210,6 +214,7 @@ export async function registrarVale(supabase, row, opts = {}) {
     folio,
     categoria,
     subcategoria,
+    detalle,
     area,
     descuenta_nomina: descuentaNomina,
     estado_aprobacion: estadoAprobacion,
@@ -223,21 +228,27 @@ export async function registrarVale(supabase, row, opts = {}) {
 
   let valeInsertado = null;
   {
-    const { data, error } = await supabase.from('vales').insert([payload]).select('*').single();
+    const intentarInsert = async (rowPayload) =>
+      supabase.from('vales').insert([rowPayload]).select('*').single();
+
+    let { data, error } = await intentarInsert(payload);
+    if (error && faltaTablaVales(error)) return { ok: false, error: AVISO_FALTA_CONTABILIDAD };
     if (error) {
-      if (faltaTablaVales(error)) return { ok: false, error: AVISO_FALTA_CONTABILIDAD };
       const msg = String(error.message || '').toLowerCase();
-      if (msg.includes('subcategoria') && payload.subcategoria != null) {
-        const { subcategoria: _omit, ...sinSub } = payload;
-        const retry = await supabase.from('vales').insert([sinSub]).select('*').single();
-        if (retry.error) return { ok: false, error: retry.error.message };
-        valeInsertado = retry.data;
-      } else {
-        return { ok: false, error: error.message };
+      if (msg.includes('detalle') && payload.detalle != null) {
+        const { detalle: _omit, ...sinDet } = payload;
+        ({ data, error } = await intentarInsert(sinDet));
       }
-    } else {
-      valeInsertado = data;
     }
+    if (error) {
+      const msg = String(error.message || '').toLowerCase();
+      if (msg.includes('subcategoria') && (payload.subcategoria != null || payload.detalle != null)) {
+        const { detalle: _d, subcategoria: _s, ...sinNiveles } = payload;
+        ({ data, error } = await intentarInsert(sinNiveles));
+      }
+    }
+    if (error) return { ok: false, error: error.message };
+    valeInsertado = data;
   }
 
   if (estadoAprobacion === 'pendiente_admin') {
@@ -247,7 +258,7 @@ export async function registrarVale(supabase, row, opts = {}) {
       ref_tabla: 'vales',
       ref_id: valeInsertado.id,
       titulo: `Vale pendiente · ${row.nombre_empleado}`,
-      mensaje: `${folio} · $${Number(row.monto).toFixed(2)} · ${categoria}${subcategoria ? ` / ${subcategoria}` : ''} · requiere admin`,
+      mensaje: `${folio} · $${Number(row.monto).toFixed(2)} · ${categoria}${subcategoria ? ` / ${subcategoria}` : ''}${detalle ? ` / ${detalle}` : ''} · requiere admin`,
       area_buzon: valeInsertado.area || area || 'virtual',
     });
     return {
