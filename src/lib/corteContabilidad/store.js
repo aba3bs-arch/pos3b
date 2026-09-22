@@ -67,10 +67,10 @@ function totalTraspasoLineas(lineas, campo = 'precio') {
 }
 
 export const AVISO_FALTA_CORTES =
-  'Faltan tablas de cortes contabilidad. En Supabase → SQL Editor ejecuta: supabase/fix_cortes_contabilidad.sql';
+  'Faltan tablas de cortes contabilidad. En Supabase → SQL Editor ejecuta: supabase/fix_contabilidad_completo.sql (o solo fix_cortes_contabilidad.sql).';
 
 export const AVISO_FALTA_SOFT_DELETE_CIERRES =
-  'Para recuperar cortes borrados, en Supabase → SQL Editor ejecuta: supabase/fix_cortes_contabilidad_soft_delete.sql';
+  'Para recuperar cortes borrados, en Supabase → SQL Editor ejecuta: supabase/fix_contabilidad_completo.sql (incluye soft-delete de cierres).';
 
 const PREFIJOS = { virtual: 'V', abarrotes: 'AB', garage: 'G' };
 

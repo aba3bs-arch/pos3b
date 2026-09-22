@@ -6,7 +6,7 @@ const LS_CAT = 'pos3b_cont_virtual_catalogo';
 export const EVENTO_CONT_VIRTUAL_CATALOGO = 'pos3b-cont-virtual-catalogo';
 
 export const AVISO_FALTA_CONT_VIRTUAL =
-  'Ejecuta supabase/fix_cont_virtual.sql, fix_cont_virtual_detalle.sql y fix_cont_virtual_ingresos.sql en Supabase (categorías IE + detalle + ingresos).';
+  'Faltan tablas de IE / Cont Virtual. En Supabase → SQL Editor ejecuta: supabase/fix_contabilidad_completo.sql (o solo fix_cont_virtual.sql + fix_cont_virtual_detalle.sql + fix_cont_virtual_ingresos.sql).';
 
 /** Categorías de EGRESO (sistema). flujo = 'egreso' implícito. */
 export const CATEGORIAS_CONT_VIRTUAL_DEFAULT = [

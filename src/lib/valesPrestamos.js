@@ -40,7 +40,7 @@ export function faltaTablaPrestamos(error) {
 }
 
 export const AVISO_FALTA_CONTABILIDAD =
-  'Faltan tablas de contabilidad. Ejecuta supabase/fix_contabilidad.sql, fix_vales_prestamos_aprobaciones.sql, fix_prestamos_area_colectado.sql, fix_prestamos_interarea_recuperacion.sql, fix_prestamos_omitir_corte.sql y fix_prestamos_interarea_rc_virtual.sql';
+  'Faltan tablas de contabilidad. En Supabase → SQL Editor ejecuta: supabase/fix_contabilidad_completo.sql (incluye vales, préstamos, cortes e IE).';
 
 export const AVISO_FALTA_RC_PRESTAMO_AREA =
   'Para recolectar préstamos área hacia RC Virtual, ejecuta supabase/fix_prestamos_interarea_rc_virtual.sql';

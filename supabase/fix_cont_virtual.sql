@@ -1,6 +1,8 @@
 -- =============================================================================
 -- POS 3B — Cont Virtual: categorías, subcategorías y egresos
 -- Ejecutar en Supabase → SQL Editor. Seguro re-ejecutar.
+--
+-- Alternativa (recomendado): supabase/fix_contabilidad_completo.sql
 -- =============================================================================
 
 create table if not exists public.cont_virtual_categorias (

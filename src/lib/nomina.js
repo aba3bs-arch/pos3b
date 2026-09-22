@@ -278,7 +278,7 @@ export function faltaTablaNomina(error) {
 }
 
 export const AVISO_FALTA_NOMINA =
-  'Faltan tablas de nómina. En Supabase → SQL Editor ejecuta: supabase/fix_contabilidad.sql';
+  'Faltan tablas de nómina. En Supabase → SQL Editor ejecuta: supabase/fix_contabilidad_completo.sql (o solo fix_contabilidad.sql).';
 
 /** Más reciente primero: periodo_fin y, si empatan, created_at. */
 export function compararPeriodosNominaReciente(a, b) {

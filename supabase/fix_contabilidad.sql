@@ -1,6 +1,9 @@
 -- =============================================================================
 -- POS 3B — Contabilidad: nómina, vales y préstamos
 -- Supabase → SQL Editor → Run (seguro re-ejecutar)
+--
+-- Recomendado (todo Contabilidad + IE + cortes en un solo Run):
+--   supabase/fix_contabilidad_completo.sql
 -- =============================================================================
 
 create table if not exists public.nomina_periodos (
