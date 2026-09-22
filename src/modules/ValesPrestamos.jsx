@@ -2314,7 +2314,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 <tbody>
                   {vales.length === 0 ? (
                     <tr>
-                      <td colSpan={esMain || vePendientesTodasTiendas ? 9 : 8} className="muted">
+                      <td colSpan={esMain || vePendientesTodasTiendas ? 10 : 9} className="muted">
                         No hay vales{esMain ? '' : ' en esta tienda'}. Crea uno arriba o revisa que la tienda esté autorizada en Configuración.
                         Los vales de <strong>gasolina</strong> se generan desde tienda y también se consultan en la pestaña Gasolina / asistencia.
                       </td>
@@ -2329,6 +2329,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                       {(esMain || vePendientesTodasTiendas) && (
                         <td className="muted">{etiquetaTienda(v.sucursal_id) || v.sucursal_id || '—'}</td>
                       )}
+                      <td className="muted">{etiquetaTienda(v.sucursal_ie || (esValeGasolina(v) ? 'MAIN' : v.sucursal_id) || 'MAIN')}</td>
                       <td className="muted">{ETIQUETA_AREA[v.area] || v.area || '—'}</td>
                       <td style={{ fontWeight: 700 }}>{fmt(v.monto)}</td>
                       <td className="muted">{v.cargado_corte ? 'Sí' : 'No'}</td>
