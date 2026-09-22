@@ -81,14 +81,27 @@ function ymdEnRango(ymd, desde, hasta) {
   return true;
 }
 
-/** Categorías de vale que se auto-registran en IE VIRTUAL (área virtual o garage). */
+/** Categorías de vale que se auto-registran en IE (Virtual / Garage; gasolina también Abarrotes). */
 export function valeDebeIrAContVirtual(vale) {
   if (!vale) return false;
-  const area = String(vale.area || 'virtual').toLowerCase();
-  if (area !== 'virtual' && area !== 'garage') return false;
   if (!valeEstaAprobado(vale)) return false;
   const cat = String(vale.categoria || '').toLowerCase();
-  return Boolean(VALE_A_CONT_VIRTUAL[cat]);
+  if (!VALE_A_CONT_VIRTUAL[cat]) return false;
+  const area = String(vale.area || 'virtual').toLowerCase();
+  // Gasolina: Virtual → IE VIRTUAL; Abarrotes → IE ABARROTES; Garage → cuenta garage.
+  // Siempre con cargo a Central MAIN (ver registrarEgresoDesdeVale).
+  if (cat === 'gasolina') {
+    return area === 'virtual' || area === 'garage' || area === 'abarrotes';
+  }
+  // Otros tipos de vale: solo Virtual / Garage (legado).
+  return area === 'virtual' || area === 'garage';
+}
+
+/** Sucursal del egreso en IE: gasolina siempre Central MAIN; resto la tienda del vale. */
+export function sucursalIeDesdeVale(vale) {
+  const cat = String(vale?.categoria || '').toLowerCase();
+  if (cat === 'gasolina') return 'MAIN';
+  return vale?.sucursal_id || 'MAIN';
 }
 
 /**
@@ -194,26 +207,36 @@ export async function registrarEgresoContVirtual(supabase, row) {
 
 export async function registrarEgresoDesdeVale(supabase, vale) {
   if (!valeDebeIrAContVirtual(vale)) return { ok: true, omitido: true };
-  const map = VALE_A_CONT_VIRTUAL[String(vale.categoria || '').toLowerCase()];
+  const catKey = String(vale.categoria || '').toLowerCase();
+  const map = VALE_A_CONT_VIRTUAL[catKey];
   if (!map) return { ok: true, omitido: true };
 
   const catRes = await listarCatalogoContVirtual(supabase);
   const nombres = resolverNombresCatalogo(catRes.data, map.categoriaId, map.subcategoriaId);
+  const area = String(vale.area || 'virtual').toLowerCase();
+  const cuenta = normalizarCuentaIe(area, 'virtual');
+  const sucursalId = sucursalIeDesdeVale(vale);
+  const folio = vale.folio || '';
+  const nombre = vale.nombre_empleado || '';
+  const etiqueta = etiquetaCategoriaVale(vale.categoria);
+  const descripcion = catKey === 'gasolina'
+    ? `VALE GASOLINA ${folio} · Central MAIN · corte ${area} · ${nombre}`.trim()
+    : `VALE ${folio} · ${etiqueta} · ${nombre}`.trim();
 
   return registrarEgresoContVirtual(supabase, {
-    sucursal_id: vale.sucursal_id || 'MAIN',
+    sucursal_id: sucursalId,
     fecha: fechaEfectivaVale(vale),
     categoria_id: map.categoriaId,
     categoria_nombre: nombres.categoria_nombre,
     subcategoria_id: map.subcategoriaId,
     subcategoria_nombre: nombres.subcategoria_nombre,
     monto: vale.monto,
-    descripcion: `VALE ${vale.folio || ''} · ${etiquetaCategoriaVale(vale.categoria)} · ${vale.nombre_empleado || ''}`.trim(),
+    descripcion,
     fuente: 'vale',
     ref_tabla: 'vales',
     ref_id: vale.id,
     usuario_nombre: vale.nombre_empleado || vale.autorizado_por || null,
-    cuenta: normalizarCuentaIe(vale.area, 'virtual'),
+    cuenta,
   });
 }
 
@@ -594,7 +617,7 @@ export async function listarRefsEgresosEliminadosIe(supabase, refTabla) {
   return { data: (data || []).map((r) => String(r.ref_id)).filter(Boolean) };
 }
 
-/** Backfill: vales Virtual (gasolina/herramienta/accesorios/consumo) aún no en el libro. */
+/** Backfill: vales (gasolina/herramienta/accesorios/consumo) aún no en el libro IE. */
 export async function sincronizarValesContVirtual(supabase, { limit = 400 } = {}) {
   if (!supabase) return { ok: true, count: 0 };
   const { data, error } = await supabase
@@ -736,9 +759,12 @@ export function unificarEgresosParaPanel({
     if (gastoCorteOmitirIeSiempre(g)) continue;
     if (!gastoCorteLiberadoParaIe(g, liberados)) continue;
     const catRaw = String(g.categoria || '').toUpperCase();
+    const subRaw = String(g.subcategoria || '').toUpperCase();
     const modGasto = String(g.modulo || '').toLowerCase();
-    // Vales Virtual/Garage van por el libro / sync; vales Abarrotes sí cuentan en IE ABARROTES
+    // Vales Virtual/Garage van por el libro / sync.
     if (catRaw === 'VALES' && modGasto !== 'abarrotes') continue;
+    // Gasolina (cualquier corte) ya va al libro IE con cargo a Central MAIN.
+    if (catRaw === 'VALES' && subRaw.includes('GASOLINA')) continue;
     if (catRaw === 'PRESTAMOS') continue;
     // CUBRE TURNO / TAXIS ya van al libro IE (Virtual o Abarrotes) por sync directo
     if (esGastoCubreTurnoOTaxi(g) || refsGastoCorte.has(String(g.id))) continue;
