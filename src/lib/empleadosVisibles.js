@@ -187,12 +187,11 @@ export function agruparEmpleadosCatalogo(empleados, { incluirBajas = false } = {
 }
 
 /**
- * Cajero y Cubre Turno (CT) no pueden cargar gastos/consumos a personal indirecto/MAIN
- * desde Corte Virtual, Abarrotes o Garage.
+ * En cortes (Virtual / Abarrotes / Garage) la categoría EMPLEADO solo admite
+ * personal de tienda. Nadie (ni admin) puede cargar gastos a indirectos/MAIN ahí.
  */
-export function actorPuedeGastosAIndirectos(actorRol, opts = {}) {
-  if (opts.esCubreTurno === true || opts.user?.esCubreTurno) return false;
-  return normalizarRol(actorRol) !== 'Cajero';
+export function actorPuedeGastosAIndirectos(_actorRol, _opts = {}) {
+  return false;
 }
 
 /** Nombres normalizados de personal indirecto / MAIN (+ beneficiarios fijos de vales). */
@@ -212,7 +211,7 @@ export function listarNombresPersonalIndirecto(empleados = []) {
 
 /**
  * True si el texto (comentario de gasto, etc.) menciona a personal indirecto.
- * Evita que cajero/CT carguen consumos escribiendo el nombre en el comentario.
+ * Evita cargar consumos escribiendo el nombre en el comentario.
  */
 export function textoMencionaPersonalIndirecto(texto, empleados = []) {
   const t = normalizarNombrePersona(texto);
@@ -229,32 +228,27 @@ export function textoMencionaPersonalIndirecto(texto, empleados = []) {
 }
 
 /**
- * Empleados en cortes (Virtual / Abarrotes / Garage):
- * - personal tipo tienda de la sucursal activa
- * - todos los indirectos / MAIN (todas las sucursales) — omitidos para Cajero/CT
- * - administradores (todas)
- * - placeholders BENEFICIARIOS_VALES si faltan en BD
+ * Empleados en cortes (Virtual / Abarrotes / Garage) — categoría EMPLEADO:
+ * solo personal tipo tienda (directos) de la sucursal activa.
+ * Sin indirectos / MAIN, sin administradores, sin placeholders de vales.
  */
-export function empleadosParaCorte(empleados, sucursalActiva, _modulo = null, actorRol = null, opts = {}) {
+export function empleadosParaCorte(empleados, sucursalActiva, _modulo = null, _actorRol = null, _opts = {}) {
   const suc = normalizarCodigoTienda(sucursalActiva);
   const ids = new Set();
   const out = [];
   const enMain = !suc || suc === 'MAIN';
-  const incluirIndirectos = actorPuedeGastosAIndirectos(actorRol, opts);
 
-  const push = (e, extra = {}) => {
+  const push = (e) => {
     if (!e || e?.activo === false) return;
+    if (normalizarRol(e.rol) === 'Administrador') return;
+    if (resolverTipoEmpleado(e) !== 'tienda') return;
     const id = String(e.id);
     if (ids.has(id)) return;
     ids.add(id);
-    const tipo = resolverTipoEmpleado(e);
-    const quiereIndirecto = Boolean(extra.es_indirecto_corte);
-    const esIndirecto = tipo === 'indirecto' || (quiereIndirecto && tipo !== 'tienda');
     out.push({
       ...e,
-      ...extra,
-      tipo_empleado: tipo,
-      es_indirecto_corte: esIndirecto,
+      tipo_empleado: 'tienda',
+      es_indirecto_corte: false,
     });
   };
 
@@ -263,64 +257,38 @@ export function empleadosParaCorte(empleados, sucursalActiva, _modulo = null, ac
     const empSuc = normalizarCodigoTienda(e.sucursal_id);
     const rol = normalizarRol(e.rol);
     const tipo = resolverTipoEmpleado(e);
+    if (rol === 'Administrador' || tipo !== 'tienda') continue;
 
-    // En MAIN: mostrar todos los de tienda (para verlos en catálogo por sucursal).
-    if (enMain && tipo === 'tienda' && rol !== 'Administrador') {
-      push(e, { es_indirecto_corte: false });
+    // En MAIN: todos los de tienda (catálogo por sucursal).
+    if (enMain) {
+      push(e);
       continue;
     }
-    // Personal de la sucursal activa (máx. 2 tipo tienda).
-    if (!enMain && empSuc === suc && tipo === 'tienda') {
-      push(e, { es_indirecto_corte: false });
-      continue;
-    }
-    // Fallback si falta columna tipo_empleado: mismo código de tienda, no admin.
-    if (!enMain && empSuc === suc && tipo !== 'indirecto' && rol !== 'Administrador') {
-      push(e, { es_indirecto_corte: false });
-      continue;
-    }
-    if (tipo === 'indirecto' || (empSuc === 'MAIN' && tipo !== 'tienda')) {
-      if (!incluirIndirectos) continue;
-      if (rol !== 'Administrador') push(e, { es_indirecto_corte: true });
-      continue;
-    }
-    if (rol === 'Administrador') push(e, { es_admin_global_corte: true });
+    // Sucursal operativa: solo los de esa tienda.
+    if (empSuc === suc) push(e);
   }
 
-  const merged = incluirIndirectos
-    ? mergeIndirectosTodasLasTiendas(dedupeEmpleadosPorNombre(out), empleados)
-    : dedupeEmpleadosPorNombre(out);
-  return merged;
+  return dedupeEmpleadosPorNombre(out).sort((a, b) =>
+    String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'),
+  );
 }
 
 /** Agrupa la lista ya filtrada de corte para <optgroup>. */
 export function agruparEmpleadosParaSelectCorte(empleados) {
   const tienda = [];
-  const indirectos = [];
-  const admins = [];
   for (const e of dedupeEmpleadosPorNombre(empleados || [])) {
     const rol = normalizarRol(e.rol);
     const tipo = resolverTipoEmpleado(e);
-    if (rol === 'Administrador' || e.es_admin_global_corte) {
-      admins.push(e);
-      continue;
-    }
-    // Tipo tienda gana sobre flags de indirecto (p. ej. homónimo con beneficiario de vales).
-    if (tipo === 'tienda') {
+    if (rol === 'Administrador' || e.es_admin_global_corte) continue;
+    if (tipo === 'tienda' && !e.es_indirecto_corte) {
       tienda.push(e);
-      continue;
     }
-    if (e.es_indirecto_corte || tipo === 'indirecto') {
-      indirectos.push(e);
-      continue;
-    }
-    tienda.push(e);
   }
   const sortNom = (a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es');
   return {
     tienda: tienda.sort(sortNom),
-    indirectos: indirectos.sort(sortNom),
-    admins: admins.sort(sortNom),
+    indirectos: [],
+    admins: [],
   };
 }
 

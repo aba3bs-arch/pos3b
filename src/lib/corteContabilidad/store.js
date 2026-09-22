@@ -18,7 +18,6 @@ import {
 import { normalizarFolioTrp } from '../foliosInventario.js';
 import { buscarTraspasoParaGasto } from '../traspasosInventario.js';
 import {
-  actorPuedeGastosAIndirectos,
   esEmpleadoIndirectoOMain,
   textoMencionaPersonalIndirecto,
 } from '../empleadosVisibles.js';
@@ -311,29 +310,27 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
   // Gastos de corte: sin aprobación. Solo vales y préstamos (otros módulos) requieren admin.
   const estadoAprobacion = 'aprobado';
 
-  const puedeIndirectos = actorPuedeGastosAIndirectos(opts.rolActor, {
-    esCubreTurno: opts.esCubreTurno,
-    user: opts.user,
-  });
-  if (!puedeIndirectos) {
+  // Categoría EMPLEADO en cortes: solo personal de tienda (nunca indirectos / MAIN).
+  {
     const catalogo = opts.empleadosCatalogo || [];
+    const paraNombres = opts.usuariosParaValidarIndirectos || catalogo;
     const empHit = catalogo.find((e) => String(e.id) === String(gasto.usuario_id || ''));
     const esIndirecto =
       (empHit && esEmpleadoIndirectoOMain(empHit))
-      || String(gasto.usuario_id || '').startsWith('indirect:');
+      || String(gasto.usuario_id || '').startsWith('indirect:')
+      || textoMencionaPersonalIndirecto(gasto.usuario_nombre, paraNombres);
     if (esIndirecto) {
       return {
         ok: false,
         error:
-          'Cajero y Cubre Turno no pueden agregar gastos o consumos a personal indirecto / MAIN. Solo el administrador.',
+          'En cortes solo se permiten empleados de tienda (directos). No se puede cargar gasto a personal indirecto / MAIN.',
       };
     }
-    if (textoMencionaPersonalIndirecto(gasto.comentario, catalogo)
-      || textoMencionaPersonalIndirecto(gasto.usuario_nombre, catalogo)) {
+    if (textoMencionaPersonalIndirecto(gasto.comentario, paraNombres)) {
       return {
         ok: false,
         error:
-          'No se permiten nombres de personal indirecto / MAIN en gastos capturados por cajero o Cubre Turno.',
+          'No se permiten nombres de personal indirecto / MAIN en el comentario del gasto de corte.',
       };
     }
   }
