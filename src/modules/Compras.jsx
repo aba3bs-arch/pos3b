@@ -29,6 +29,7 @@ import {
   normalizarModoCompraProveedor,
   proveedorUsaEntregaDirecta,
 } from '../lib/comprasProveedor.js';
+import { cargarGastoCompraACorteAbarrotes } from '../lib/compraGastoCorte.js';
 
 async function aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, user, folio }) {
   const errores = [];
@@ -619,6 +620,21 @@ export default function Compras({
       return;
     }
 
+    const gastoRes = await cargarGastoCompraACorteAbarrotes(supabase, {
+      compra: { ...compraActiva, total: totalTicket },
+      sucursal: compraActiva.sucursal_id || sucursal,
+      folioCompra,
+      totalTicket,
+      proveedorNombre: compraActiva.proveedores?.nombre || proveedorNombre,
+      usuarioNombre: user?.nombre || null,
+      rolActor: user?.rol || null,
+    });
+    const msgGasto = !gastoRes.ok
+      ? `\n\n⚠ Inventario OK, pero no se cargó el gasto al corte Abarrotes:\n${gastoRes.error || 'Error desconocido.'}`
+      : gastoRes.yaExistia
+        ? `\n\nGasto ya estaba en Corte Abarrotes (${folioCompra}).`
+        : `\n\nGasto $${totalTicket.toFixed(2)} cargado a Corte Abarrotes · ${folioCompra}.`;
+
     const msgExtra = errores.length
       ? `\n\nAdvertencia: ${errores.length} línea(s) no entraron al inventario:\n${errores.join('\n')}`
       : '';
@@ -627,7 +643,7 @@ export default function Compras({
         ? `\n\n⚠ ${inv.pendientesNube} movimiento(s) quedaron pendientes de subir a la nube. El stock ya cambió; se reintentarán al abrir Consultas → Inventario. No borres la caché local.`
         : '';
     alert(
-      `Mercancía recibida. Folio ${folioCompra}. Ticket: $${totalTicket.toFixed(2)} MXN. Inventario actualizado (${aplicados} producto(s)).${msgExtra}${msgNube}`,
+      `Mercancía recibida. Folio ${folioCompra}. Ticket: $${totalTicket.toFixed(2)} MXN. Inventario actualizado (${aplicados} producto(s)).${msgGasto}${msgExtra}${msgNube}`,
     );
     await imprimirRecepcionCompra({
       sucursal,
@@ -712,6 +728,21 @@ export default function Compras({
       return;
     }
 
+    const gastoRes = await cargarGastoCompraACorteAbarrotes(supabase, {
+      compra: { ...data, notas: `${notas} · Folio inv ${folioCompra}`, total: totalTicket },
+      sucursal: data.sucursal_id || sucursal,
+      folioCompra,
+      totalTicket,
+      proveedorNombre: data.proveedores?.nombre || proveedorNombre,
+      usuarioNombre: user?.nombre || null,
+      rolActor: user?.rol || null,
+    });
+    const msgGasto = !gastoRes.ok
+      ? `\n\n⚠ Inventario OK, pero no se cargó el gasto al corte Abarrotes:\n${gastoRes.error || 'Error desconocido.'}`
+      : gastoRes.yaExistia
+        ? `\n\nGasto ya estaba en Corte Abarrotes (${folioCompra}).`
+        : `\n\nGasto $${totalTicket.toFixed(2)} cargado a Corte Abarrotes · ${folioCompra}.`;
+
     const msgExtra = invPreview.errores.length
       ? `\n\nAdvertencia: ${invPreview.errores.length} línea(s) no entraron:\n${invPreview.errores.join('\n')}`
       : '';
@@ -720,7 +751,7 @@ export default function Compras({
         ? `\n\n⚠ ${invPreview.pendientesNube} movimiento(s) quedaron pendientes de subir a la nube. El stock ya cambió; se reintentarán al abrir Consultas → Inventario. No borres la caché local.`
         : '';
     alert(
-      `Entrega directa registrada. Folio ${folioCompra}. Inventario actualizado (${invPreview.aplicados} producto(s)). Ticket: $${totalTicket.toFixed(2)} MXN.${msgExtra}${msgNube}`,
+      `Entrega directa registrada. Folio ${folioCompra}. Inventario actualizado (${invPreview.aplicados} producto(s)). Ticket: $${totalTicket.toFixed(2)} MXN.${msgGasto}${msgExtra}${msgNube}`,
     );
     await imprimirRecepcionCompra({
       sucursal,
