@@ -1,6 +1,6 @@
 /**
  * Venta en Ruta POS v2
- * MAIN (CEDIS) → carga camión → POS móvil → efectivo en tránsito / crédito CxC
+ * MAIN (CEDIS) → carga camión → POS móvil → efectivo a RC Abarrotes (recolector) / crédito CxC
  * → pedido en Compras (el cajero verifica y recibe en la tienda).
  */
 
@@ -13,11 +13,13 @@ import { stockAlmacenCentral, asegurarMapaStock, buildPatchStock } from './inven
 import { esRolRepartidor, normalizarRol } from './roles.js';
 import { registrarCargoCreditoRuta } from './rutaCxc.js';
 import { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
+import { registrarRecoleccionRcAbarrotesDesdeVentaRuta } from './rutaRcAbarrotes.js';
 import { puedeAccionVentaRuta } from './ventaEnRutaAcciones.js';
 import { buscarUsuarioPorPinYSucursal } from './usuariosAuth.js';
 import { listarRepartidores } from './controlEfectivo.js';
 
 export { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
+export { registrarRecoleccionRcAbarrotesDesdeVentaRuta } from './rutaRcAbarrotes.js';
 
 function normNombrePersona(s) {
   return String(s || '')
@@ -1426,6 +1428,7 @@ export async function registrarVentaRuta(supabase, {
   let traspasoId = null;
   let traspasoFolio = null;
   let transitoId = null;
+  let rcAbarrotesCierreId = null;
   const avisos = [];
 
   async function enlazarVenta(extra = {}) {
@@ -1465,27 +1468,50 @@ export async function registrarVentaRuta(supabase, {
   }
 
   if (montoEfe > 0) {
-    const tr = await registrarEfectivoTransitoVentaRuta(supabase, {
-      sucursalOrigen: tipoCli === 'sucursal' ? clienteId : ALMACEN_CENTRAL,
+    // Efectivo → RC Abarrotes bajo el nombre del recolector (vendedor ruta).
+    // Si falla el cierre RC (tabla/SQL), se cae a tránsito como respaldo.
+    const rc = await registrarRecoleccionRcAbarrotesDesdeVentaRuta(supabase, {
       monto: montoEfe,
-      folioVenta: folio,
-      vendedorId,
       vendedorNombre,
-      nota: `Venta ruta ${folio} · ${mp === 'mixto' ? `mixto efectivo ${montoEfe}` : 'efectivo'} · ${clienteNombre || clienteId}`,
+      vendedorId,
+      sucursalId: tipoCli === 'sucursal' ? clienteId : ALMACEN_CENTRAL,
+      folioVenta: folio,
+      clienteNombre: clienteNombre || String(clienteId),
+      clienteTipo: tipoCli,
+      ventaId: venta.id,
+      metodoPago: mp,
     });
-    if (!tr.ok) {
-      await enlazarVenta();
-      return {
-        ok: false,
-        error: tr.error || 'No se registró efectivo en tránsito.',
-        compraId,
-        traspasoId,
-        traspasoFolio,
-        venta: { ...venta, compra_id: compraId, traspaso_id: traspasoId },
-        avisos: avisos.length ? avisos : undefined,
-      };
+    if (rc.ok) {
+      rcAbarrotesCierreId = rc.cierreId || null;
+      if (rc.pendienteIe) {
+        avisos.push(`Efectivo ${montoEfe.toFixed(2)} en RC Abarrotes (${rc.recolector}) · pendiente FJBB.`);
+      } else {
+        avisos.push(`Efectivo ${montoEfe.toFixed(2)} en RC Abarrotes bajo ${rc.recolector}.`);
+      }
+    } else {
+      const tr = await registrarEfectivoTransitoVentaRuta(supabase, {
+        sucursalOrigen: tipoCli === 'sucursal' ? clienteId : ALMACEN_CENTRAL,
+        monto: montoEfe,
+        folioVenta: folio,
+        vendedorId,
+        vendedorNombre,
+        nota: `Venta ruta ${folio} · ${mp === 'mixto' ? `mixto efectivo ${montoEfe}` : 'efectivo'} · ${clienteNombre || clienteId}`,
+      });
+      if (!tr.ok) {
+        await enlazarVenta();
+        return {
+          ok: false,
+          error: tr.error || rc.error || 'No se registró el efectivo (RC Abarrotes / tránsito).',
+          compraId,
+          traspasoId,
+          traspasoFolio,
+          venta: { ...venta, compra_id: compraId, traspaso_id: traspasoId },
+          avisos: avisos.length ? avisos : undefined,
+        };
+      }
+      transitoId = tr.id;
+      avisos.push(`RC Abarrotes no disponible (${rc.error}); efectivo en tránsito.`);
     }
-    transitoId = tr.id;
   }
 
   if (montoCre > 0) {
@@ -1520,12 +1546,19 @@ export async function registrarVentaRuta(supabase, {
 
   return {
     ok: true,
-    venta: { ...venta, compra_id: compraId, traspaso_id: traspasoId, transito_id: transitoId },
+    venta: {
+      ...venta,
+      compra_id: compraId,
+      traspaso_id: traspasoId,
+      transito_id: transitoId,
+      rc_abarrotes_cierre_id: rcAbarrotesCierreId,
+    },
     cuenta: mp === 'mixto' ? 'mixto' : mp === 'credito' ? 'credito' : 'efectivo',
     compraId,
     traspasoId,
     traspasoFolio,
     transitoId,
+    rcAbarrotesCierreId,
     montoEfectivo: montoEfe,
     montoCredito: montoCre,
     cargaId: primaryCargaId,

@@ -1645,7 +1645,9 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
         ? `Mixto · efe ${fmtMonto(r.montoEfectivo)} · créd ${fmtMonto(r.montoCredito)}`
         : r.cuenta === 'credito'
           ? 'Crédito pendiente (cajero paga con PIN)'
-          : 'Efectivo en tránsito',
+          : (r.rcAbarrotesCierreId
+            ? `Efectivo en RC Abarrotes · ${vendedorNombre || 'recolector'}`
+            : 'Efectivo en tránsito'),
       r.compraId ? 'Pedido en Compras listo para verificar y recibir en la tienda' : null,
     ].filter(Boolean).join(' · ');
     alert(`Venta ${r.venta?.folio || ''} OK.\n${extra}`);
