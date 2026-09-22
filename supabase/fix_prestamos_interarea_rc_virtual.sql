@@ -7,10 +7,15 @@
 -- lo recibió (rc_recibido_*).
 
 -- Custodia RC Virtual: permitir origen préstamo entre áreas
+-- (si aún no existe r_virtual_custodia, se omite; corre fix_r_virtual_custodia.sql)
 do $$
 declare
   cname text;
 begin
+  if to_regclass('public.r_virtual_custodia') is null then
+    raise notice 'r_virtual_custodia no existe; omite constraint origen (ejecuta fix_r_virtual_custodia.sql)';
+    return;
+  end if;
   select con.conname into cname
   from pg_constraint con
   join pg_class rel on rel.oid = con.conrelid
@@ -22,16 +27,14 @@ begin
   if cname is not null then
     execute format('alter table public.r_virtual_custodia drop constraint %I', cname);
   end if;
+  alter table public.r_virtual_custodia
+    drop constraint if exists r_virtual_custodia_origen_check;
+  alter table public.r_virtual_custodia
+    add constraint r_virtual_custodia_origen_check
+    check (origen in ('transito', 'corte', 'prestamo_interarea'));
 exception
   when undefined_table then null;
 end $$;
-
-alter table public.r_virtual_custodia
-  drop constraint if exists r_virtual_custodia_origen_check;
-
-alter table public.r_virtual_custodia
-  add constraint r_virtual_custodia_origen_check
-  check (origen in ('transito', 'corte', 'prestamo_interarea'));
 
 -- Rastro de recepción en RC Virtual sobre el préstamo
 alter table public.prestamos_interarea

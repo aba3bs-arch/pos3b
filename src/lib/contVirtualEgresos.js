@@ -173,7 +173,7 @@ export async function registrarEgresoContVirtual(supabase, row) {
         return {
           ok: true,
           id: retry.data?.id,
-          aviso: 'Egreso guardado sin detalle. Ejecuta supabase/fix_cont_virtual_detalle.sql en Supabase.',
+          aviso: 'Egreso guardado sin detalle. Ejecuta supabase/fix_contabilidad_completo.sql (o fix_cont_virtual_detalle.sql) en Supabase.',
         };
       }
       if (String(retry.error.message || '').toLowerCase().includes('duplicate')) return { ok: true, yaExiste: true };
@@ -841,7 +841,7 @@ export function unificarEgresosParaPanel({
 
 const LS_INGRESOS = 'pos3b_cont_virtual_ingresos';
 export const AVISO_FALTA_INGRESOS_IE =
-  'Falta la tabla de ingresos manuales. En Supabase → SQL Editor ejecuta: supabase/fix_cont_virtual_ingresos.sql';
+  'Falta la tabla de ingresos manuales. En Supabase → SQL Editor ejecuta: supabase/fix_contabilidad_completo.sql (o solo fix_cont_virtual_ingresos.sql).';
 
 function faltaTablaIngresos(error) {
   const msg = String(error?.message || '').toLowerCase();

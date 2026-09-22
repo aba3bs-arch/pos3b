@@ -15,7 +15,7 @@ export const CATEGORIAS_VALE_FIJAS = [
 export const CATEGORIAS_VALE = CATEGORIAS_VALE_FIJAS;
 
 export const AVISO_FALTA_VALES_CATEGORIAS =
-  'Opcional: ejecuta supabase/fix_vales_categorias.sql para sincronizar tipos de vale entre sucursales.';
+  'Opcional: ejecuta supabase/fix_contabilidad_completo.sql (o solo fix_vales_categorias.sql) para sincronizar tipos de vale entre sucursales.';
 
 function slugCategoria(label) {
   const base = String(label || '')

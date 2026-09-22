@@ -3,7 +3,7 @@ import { crearNotificacion, TIPOS_NOTIF, emitirRefreshNotificaciones } from './c
 import { cargarRifACorte, quitarRifDeCorteAbierto } from './cargosContabilidad.js';
 
 export const AVISO_FALTA_RIFS =
-  'Falta la tabla rifs. En Supabase → SQL Editor ejecuta: supabase/fix_rifs.sql';
+  'Falta la tabla rifs. En Supabase → SQL Editor ejecuta: supabase/fix_contabilidad_completo.sql (o solo fix_rifs.sql).';
 
 export const ESTADOS_RIF = ['abierto', 'liquidado', 'vencido', 'cancelado'];
 

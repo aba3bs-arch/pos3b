@@ -7,7 +7,7 @@ import { AVISO_FALTA_CONT_VIRTUAL, listarCatalogoContVirtual, resolverNombresCat
 const LS_INGRESOS = 'pos3b_cont_virtual_ingresos';
 
 export const AVISO_FALTA_INGRESOS_IE =
-  'Ejecuta supabase/fix_cont_virtual_ingresos.sql en Supabase (categorías e ingresos manuales).';
+  'Falta la tabla de ingresos manuales. En Supabase → SQL Editor ejecuta: supabase/fix_contabilidad_completo.sql (o solo fix_cont_virtual_ingresos.sql).';
 
 function faltaTabla(error) {
   const msg = String(error?.message || '').toLowerCase();
