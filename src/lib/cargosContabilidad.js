@@ -1,4 +1,5 @@
 import { etiquetaCategoriaVale, normalizarAreaCorte, valeDescuentaNomina } from './contabilidadConstants.js';
+import { esValeGasolina } from './valesCatalogoIe.js';
 
 /**
  * ¿El gasto ligado a un documento sigue en un corte abierto (cerrado=false)?
@@ -80,7 +81,7 @@ export async function cargarValeACorte(supabase, vale) {
     vale.descuenta_nomina === true ||
     vale.descuenta_nomina === false
       ? Boolean(vale.descuenta_nomina)
-      : valeDescuentaNomina(vale.categoria);
+      : valeDescuentaNomina(vale.categoria, vale.subcategoria);
   // Marca NOMINA para que el consolidado de nómina lo tome aunque el label no diga CONSUMO.
   const subcategoria = descuenta && !etiqueta.includes('CONSUMO') && !etiqueta.includes('PERSONAL') && !etiqueta.includes('NOMINA')
     ? `${etiqueta} · NOMINA`

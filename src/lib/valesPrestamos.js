@@ -18,6 +18,7 @@ import {
   ESTADOS_PRESTAMO_INTERAREA_ABIERTOS,
 } from './contabilidadConstants.js';
 import { esCategoriaValeConocida, esSubcategoriaValeValida, esDetalleValeValido } from './valesCategorias.js';
+import { esValeGasolina } from './valesCatalogoIe.js';
 import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
 import {
   cargarValeACorte,
@@ -160,25 +161,45 @@ export async function listarVales(supabase, opts = {}) {
 
 export async function listarValesGasolina(supabase, opts = {}) {
   const { desde, hasta, soloAprobados = true, ...rest } = opts;
-  const res = await listarVales(supabase, {
-    ...rest,
-    categoria: 'gasolina',
-    desde: undefined,
-    hasta: undefined,
-    estadoAprobacion: undefined,
-  });
-  if (res.error || !res.data) return res;
-  let lista = res.data;
+  // Legacy: categoria=gasolina. Nuevo catálogo IE: categoria=vales + subcategoria=vales-gasolina.
+  const [legacy, ie] = await Promise.all([
+    listarVales(supabase, {
+      ...rest,
+      categoria: 'gasolina',
+      desde: undefined,
+      hasta: undefined,
+      estadoAprobacion: undefined,
+    }),
+    listarVales(supabase, {
+      ...rest,
+      categoria: 'vales',
+      desde: undefined,
+      hasta: undefined,
+      estadoAprobacion: undefined,
+    }),
+  ]);
+  if (legacy.aviso && !ie.data?.length) return legacy;
+  const byId = new Map();
+  for (const v of [...(legacy.data || []), ...(ie.data || [])]) {
+    if (!esValeGasolina(v)) continue;
+    byId.set(String(v.id), v);
+  }
+  let lista = [...byId.values()];
   if (desde || hasta) lista = filtrarValesPorPeriodo(lista, desde, hasta);
   if (soloAprobados !== false) lista = lista.filter(valeEstaAprobado);
-  return { ...res, data: lista };
+  lista.sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')));
+  return {
+    data: lista,
+    error: legacy.error || ie.error || null,
+    aviso: legacy.aviso || ie.aviso || null,
+  };
 }
 
 export async function marcarValeCobrado(supabase, valeId, cobrado, { nombre } = {}) {
   if (!supabase || !valeId) return { ok: false, error: 'Vale inválido.' };
   const { data: vale, error: e0 } = await supabase.from('vales').select('*').eq('id', valeId).single();
   if (e0 || !vale) return { ok: false, error: 'Vale no encontrado.' };
-  if (vale.categoria !== 'gasolina') return { ok: false, error: 'Solo aplica a vales de gasolina.' };
+  if (!esValeGasolina(vale)) return { ok: false, error: 'Solo aplica a vales de gasolina.' };
   if (vale.estado_aprobacion !== 'aprobado') return { ok: false, error: 'El vale debe estar aprobado.' };
 
   const esCobrado = Boolean(cobrado);
@@ -209,19 +230,22 @@ export async function registrarVale(supabase, row, opts = {}) {
     };
   }
 
-  const categoria = String(row.categoria || 'consumo').toLowerCase();
-  if (!esCategoriaValeConocida(categoria)) {
+  const categoria = String(row.categoria || 'vales').toLowerCase();
+  if (!esCategoriaValeConocida(categoria) && !opts.usarCatalogoIe) {
     return { ok: false, error: 'Tipo de vale no válido. El administrador debe crearlo primero.' };
   }
+  if (!categoria) {
+    return { ok: false, error: 'Selecciona una categoría (catálogo IE).' };
+  }
   const subcategoria = String(row.subcategoria || '').trim().toLowerCase() || null;
-  if (subcategoria && !esSubcategoriaValeValida(categoria, subcategoria)) {
+  if (subcategoria && !opts.usarCatalogoIe && !esSubcategoriaValeValida(categoria, subcategoria)) {
     return { ok: false, error: 'Subcategoría de vale no válida para ese tipo.' };
   }
   const detalle = String(row.detalle || '').trim().toLowerCase() || null;
-  if (detalle && !esDetalleValeValido(categoria, subcategoria, detalle)) {
+  if (detalle && !opts.usarCatalogoIe && !esDetalleValeValido(categoria, subcategoria, detalle)) {
     return { ok: false, error: 'Detalle de vale no válido para esa subcategoría.' };
   }
-  if (opts.origenMain && categoria === 'gasolina') {
+  if (opts.origenMain && esValeGasolina(categoria, subcategoria)) {
     return { ok: false, error: 'Los vales de gasolina se generan desde la tienda, no desde MAIN.' };
   }
 
@@ -230,7 +254,7 @@ export async function registrarVale(supabase, row, opts = {}) {
     origenMain: Boolean(opts.origenMain),
     omitirVentana: Boolean(opts.omitirVentana || opts.origenMain),
   });
-  const descuentaNomina = valeDescuentaNomina(categoria);
+  const descuentaNomina = valeDescuentaNomina(categoria, subcategoria);
 
   let estadoAprobacion = 'aprobado';
   let requiereAuth = false;
@@ -261,7 +285,7 @@ export async function registrarVale(supabase, row, opts = {}) {
     aprobado_at: aprobadoAt,
     cargado_corte: false,
     tipo: row.tipo || 'indirecto',
-    ...(categoria === 'gasolina' ? { cobrado: false } : {}),
+    ...(esValeGasolina(categoria, subcategoria) ? { cobrado: false } : {}),
   };
 
   let valeInsertado = null;
@@ -336,7 +360,7 @@ export async function aprobarVale(supabase, valeId, { nombreAprobador, cargarCor
       estado_aprobacion: 'aprobado',
       autorizado_por: nombreAprobador || 'Administrador',
       aprobado_at: new Date().toISOString(),
-      ...(vale.categoria === 'gasolina' ? { cobrado: false } : {}),
+      ...(esValeGasolina(vale) ? { cobrado: false } : {}),
     })
     .eq('id', valeId)
     .select('*')
@@ -430,7 +454,7 @@ export async function abonarVale(supabase, vale, montoAbono, { nombre } = {}) {
   if (abono > montoAntes + 0.001) return { ok: false, error: 'El abono no puede superar el monto del vale.' };
   const monto = Math.max(0, Math.round((montoAntes - abono) * 100) / 100);
 
-  if (vale.categoria === 'gasolina' && monto <= 0.001) {
+  if (esValeGasolina(vale) && monto <= 0.001) {
     return marcarValeCobrado(supabase, vale.id, true, { nombre });
   }
 
@@ -465,7 +489,7 @@ export async function abonarVale(supabase, vale, montoAbono, { nombre } = {}) {
 
 export async function liquidarVale(supabase, vale, { nombre } = {}) {
   if (!vale) return { ok: false, error: 'Vale inválido.' };
-  if (vale.categoria === 'gasolina') {
+  if (esValeGasolina(vale)) {
     return marcarValeCobrado(supabase, vale.id, true, { nombre });
   }
   const monto = Number(vale.monto) || 0;

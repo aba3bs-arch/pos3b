@@ -10,6 +10,7 @@ import {
 } from './contVirtualCatalogo.js';
 import { gastoCorteLiberadoParaIe } from './contabilidadConstants.js';
 import { etiquetaCategoriaVale } from './valesCategorias.js';
+import { esValeGasolina, mapaIeDesdeVale, tipoValeLogico } from './valesCatalogoIe.js';
 import { pastelDesdeMapa } from './resumenOperativoData.js';
 import { hoyYmdNogales, ymdNegocioDesdeIso } from './corteCaja.js';
 
@@ -85,22 +86,24 @@ function ymdEnRango(ymd, desde, hasta) {
 export function valeDebeIrAContVirtual(vale) {
   if (!vale) return false;
   if (!valeEstaAprobado(vale)) return false;
-  const cat = String(vale.categoria || '').toLowerCase();
-  if (!VALE_A_CONT_VIRTUAL[cat]) return false;
   const area = String(vale.area || 'virtual').toLowerCase();
+  const tipo = tipoValeLogico(vale);
+  const cat = String(vale.categoria || '').toLowerCase();
+  const esLegacyMapeado = Boolean(VALE_A_CONT_VIRTUAL[cat]);
+  const esCatalogoIe = Boolean(cat) && !esLegacyMapeado;
+  // Sin categoría no hay a qué cuenta IE cargar
+  if (!esLegacyMapeado && !esCatalogoIe) return false;
   // Gasolina: Virtual → IE VIRTUAL; Abarrotes → IE ABARROTES; Garage → cuenta garage.
-  // Siempre con cargo a Central MAIN (ver registrarEgresoDesdeVale).
-  if (cat === 'gasolina') {
+  if (tipo === 'gasolina' || cat === 'gasolina') {
     return area === 'virtual' || area === 'garage' || area === 'abarrotes';
   }
-  // Otros tipos de vale: solo Virtual / Garage (legado).
+  // Catálogo IE completo o tipos legacy: Virtual / Garage (abarrotes solo gasolina).
   return area === 'virtual' || area === 'garage';
 }
 
 /** Sucursal del egreso en IE: gasolina siempre Central MAIN; resto la tienda del vale. */
 export function sucursalIeDesdeVale(vale) {
-  const cat = String(vale?.categoria || '').toLowerCase();
-  if (cat === 'gasolina') return 'MAIN';
+  if (esValeGasolina(vale)) return 'MAIN';
   return vale?.sucursal_id || 'MAIN';
 }
 
@@ -207,29 +210,37 @@ export async function registrarEgresoContVirtual(supabase, row) {
 
 export async function registrarEgresoDesdeVale(supabase, vale) {
   if (!valeDebeIrAContVirtual(vale)) return { ok: true, omitido: true };
-  const catKey = String(vale.categoria || '').toLowerCase();
-  const map = VALE_A_CONT_VIRTUAL[catKey];
-  if (!map) return { ok: true, omitido: true };
 
   const catRes = await listarCatalogoContVirtual(supabase);
-  const nombres = resolverNombresCatalogo(catRes.data, map.categoriaId, map.subcategoriaId);
+  const mapa = mapaIeDesdeVale(vale, catRes.data || []);
+  if (!mapa?.categoriaId) return { ok: true, omitido: true };
+
+  const nombres = resolverNombresCatalogo(
+    catRes.data,
+    mapa.categoriaId,
+    mapa.subcategoriaId,
+    mapa.detalleId,
+  );
   const area = String(vale.area || 'virtual').toLowerCase();
   const cuenta = normalizarCuentaIe(area, 'virtual');
   const sucursalId = sucursalIeDesdeVale(vale);
   const folio = vale.folio || '';
   const nombre = vale.nombre_empleado || '';
   const etiqueta = etiquetaCategoriaVale(vale.categoria);
-  const descripcion = catKey === 'gasolina'
+  const esGas = esValeGasolina(vale);
+  const descripcion = esGas
     ? `VALE GASOLINA ${folio} · Central MAIN · corte ${area} · ${nombre}`.trim()
-    : `VALE ${folio} · ${etiqueta} · ${nombre}`.trim();
+    : `VALE ${folio} · ${etiqueta}${vale.subcategoria ? ` › ${nombres.subcategoria_nombre || vale.subcategoria}` : ''} · ${nombre}`.trim();
 
   return registrarEgresoContVirtual(supabase, {
     sucursal_id: sucursalId,
     fecha: fechaEfectivaVale(vale),
-    categoria_id: map.categoriaId,
-    categoria_nombre: nombres.categoria_nombre,
-    subcategoria_id: map.subcategoriaId,
-    subcategoria_nombre: nombres.subcategoria_nombre,
+    categoria_id: mapa.categoriaId,
+    categoria_nombre: nombres.categoria_nombre || mapa.categoriaId,
+    subcategoria_id: mapa.subcategoriaId || null,
+    subcategoria_nombre: nombres.subcategoria_nombre || null,
+    detalle_id: mapa.detalleId || null,
+    detalle_nombre: nombres.detalle_nombre || null,
     monto: vale.monto,
     descripcion,
     fuente: 'vale',
