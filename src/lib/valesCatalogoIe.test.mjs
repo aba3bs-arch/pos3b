@@ -22,6 +22,16 @@ assert.ok(opts.find((c) => c.id === 'vales')?.subcategorias.some((s) => s.id ===
 const sinGas = categoriasValeDesdeCatalogoIe(catalogo, { ocultarGasolina: true });
 assert.ok(!sinGas.find((c) => c.id === 'vales')?.subcategorias.some((s) => s.id === 'vales-gasolina'));
 
+const formCats = categoriasValeDesdeCatalogoIe(catalogo, { soloParaFormulario: true });
+assert.ok(!formCats.some((c) => c.id === 'prestamos'));
+assert.ok(!formCats.some((c) => c.id === 'manual'));
+
+const adminCats = categoriasValeDesdeCatalogoIe(catalogo, { soloParaFormulario: false });
+assert.ok(adminCats.some((c) => c.id === 'prestamos'), 'admin ve prestamos');
+assert.ok(adminCats.some((c) => c.id === 'manual'), 'admin ve manual');
+assert.ok(adminCats.some((c) => c.id === 'vales'));
+assert.ok(adminCats.some((c) => c.id === 'empleado'));
+
 assert.equal(tipoValeLogico('gasolina'), 'gasolina');
 assert.equal(tipoValeLogico('vales', 'vales-gasolina'), 'gasolina');
 assert.equal(tipoValeLogico({ categoria: 'vales', subcategoria: 'vales-consumo' }), 'consumo');

@@ -104,15 +104,19 @@ function catIeDescuentaNomina(c) {
 }
 
 /**
- * Convierte catálogo IE (egresos) al shape del formulario de vales.
+ * Convierte catálogo IE (egresos) al shape del formulario / admin de vales.
  * @param {object[]} catalogo
- * @param {{ ocultarGasolina?: boolean }} opts
+ * @param {{ ocultarGasolina?: boolean, soloParaFormulario?: boolean }} opts
+ * - soloParaFormulario: oculta prestamos/ingresos/manual (no aplican al emitir vale).
+ *   En la pestaña Catálogo IE usa false para ver el mismo árbol completo que Cont Virtual.
  */
 export function categoriasValeDesdeCatalogoIe(catalogo, opts = {}) {
-  const { ocultarGasolina = false } = opts;
-  const egresos = filtrarCatalogoPorFlujo(catalogo || [], 'egreso')
-    .filter((c) => c && c.activo !== false)
-    .filter((c) => !CATS_IE_EXCLUIDAS_VALE.has(String(c.id || '').toLowerCase()));
+  const { ocultarGasolina = false, soloParaFormulario = true } = opts;
+  let egresos = filtrarCatalogoPorFlujo(catalogo || [], 'egreso')
+    .filter((c) => c && c.activo !== false);
+  if (soloParaFormulario) {
+    egresos = egresos.filter((c) => !CATS_IE_EXCLUIDAS_VALE.has(String(c.id || '').toLowerCase()));
+  }
 
   const mapped = egresos.map((c) => {
     let subs = (c.subcategorias || [])

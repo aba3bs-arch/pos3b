@@ -44,6 +44,7 @@ alter table public.vales add column if not exists motivo_rechazo text;
 alter table public.vales add column if not exists cobrado boolean default false;
 alter table public.vales add column if not exists cobrado_at timestamptz;
 alter table public.vales add column if not exists cobrado_por text;
+alter table public.vales add column if not exists sucursal_ie text default 'MAIN';
 
 create index if not exists idx_vales_suc_fecha on public.vales (sucursal_id, fecha desc);
 create index if not exists idx_vales_gasolina_cobrado on public.vales (categoria, cobrado, fecha desc);

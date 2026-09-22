@@ -30,7 +30,10 @@ comment on column public.prestamos.area_corte is 'Módulo de corte donde se carg
 -- Subcategoría y detalle (3er nivel) opcionales al generar un vale.
 alter table public.vales add column if not exists subcategoria text;
 alter table public.vales add column if not exists detalle text;
+-- Cuenta IE: MAIN (Central admin) o código de tienda donde se refleja el egreso.
+alter table public.vales add column if not exists sucursal_ie text default 'MAIN';
 
 comment on column public.vales.subcategoria is 'Subcategoría opcional del tipo de vale (catálogo vales_categorias.subcategorias).';
 comment on column public.vales.detalle is 'Detalle / 3er nivel opcional bajo la subcategoría (subcategorias[].detalles).';
+comment on column public.vales.sucursal_ie is 'Cuenta IE del egreso: MAIN = Central de administración, o código de sucursal.';
 comment on column public.vales_categorias.subcategorias is 'Array JSON [{id,label,detalles:[{id,label}]}] de subcategorías y detalles del tipo de vale.';

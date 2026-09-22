@@ -80,9 +80,8 @@ import {
   crearCategoriaContVirtual,
   crearSubcategoriaContVirtual,
   crearDetalleContVirtual,
-  desactivarCategoriaContVirtual,
-  desactivarSubcategoriaContVirtual,
   eliminarDetalleContVirtual,
+  sembrarCatalogoDefault,
 } from '../lib/contVirtualCatalogo.js';
 import { listarNotificacionesPendientes, TIPOS_NOTIF } from '../lib/contabilidadNotificaciones.js';
 import { imprimirPrestamo, imprimirPrestamoInterarea, imprimirPrestamoSucursal, imprimirRif, imprimirVale, imprimirPagare } from '../lib/impresionContabilidad.js';
@@ -184,6 +183,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     fecha: hoyISO(),
     sucursalDestino: '',
     areaCorte: '',
+    sucursalIe: 'MAIN',
   });
   const [catalogoIe, setCatalogoIe] = useState([]);
   const [avisoCatalogoIe, setAvisoCatalogoIe] = useState('');
@@ -271,8 +271,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const valeFormRequiereAdmin = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria, valeFormOptsAuth);
 
   const categoriasValeDisponibles = useMemo(
-    () => categoriasValeDesdeCatalogoIe(catalogoIe, { ocultarGasolina: esMain }),
+    () => categoriasValeDesdeCatalogoIe(catalogoIe, { ocultarGasolina: esMain, soloParaFormulario: true }),
     [catalogoIe, esMain, categoriasTick],
+  );
+  /** Admin Catálogo IE: árbol completo de egresos (igual que Cont Virtual), sin ocultar prestamos/manual. */
+  const categoriasCatalogoIeAdmin = useMemo(
+    () => categoriasValeDesdeCatalogoIe(catalogoIe, { ocultarGasolina: false, soloParaFormulario: false }),
+    [catalogoIe, categoriasTick],
   );
   const subcategoriasValeForm = useMemo(() => {
     const cat = categoriasValeDisponibles.find((c) => c.id === valeForm.categoria);
@@ -288,6 +293,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   /** El admin elige siempre el corte; ya no se toma del beneficiario. */
   const areaCorteVale = valeForm.areaCorte || null;
   const sucursalesDestinoVale = useMemo(() => listarSucursalesOperativas(), []);
+  const sucursalesCuentaIe = useMemo(() => listarSucursalesParaUI(), []);
   const sucursalesPagare = useMemo(() => listarSucursalesParaUI(), []);
   const filtroPagareEfectivo = filtroPagareSucursal || (esMain || vePendientesTodasTiendas ? '' : sucursal);
   const pagaresPorSucursal = useMemo(() => {
@@ -540,6 +546,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         categoria: valeForm.categoria,
         subcategoria: valeForm.subcategoria || null,
         detalle: valeForm.detalle || null,
+        sucursal_ie: valeForm.sucursalIe || 'MAIN',
         monto,
         motivo: valeForm.motivo.trim() || null,
         fecha: valeForm.fecha || hoyISO(),
@@ -571,6 +578,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       fecha: hoyISO(),
       sucursalDestino: '',
       areaCorte: '',
+      sucursalIe: 'MAIN',
     });
     recargarTodo();
   };
@@ -663,14 +671,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     await refrescarCatalogoIe();
   };
 
-  const quitarSubTipoVale = async (_categoriaId, subId) => {
-    if (!esAdmin) return;
-    if (!confirm('¿Desactivar esta subcategoría en el catálogo IE?')) return;
-    const res = await desactivarSubcategoriaContVirtual(supabase, subId);
-    if (!res.ok) return alert(res.error);
-    await refrescarCatalogoIe();
-  };
-
   const claveDet = (categoriaId, subId) => `${categoriaId}::${subId}`;
 
   const agregarDetTipoVale = async (_categoriaId, subId) => {
@@ -694,12 +694,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     await refrescarCatalogoIe();
   };
 
-  const quitarTipoVale = async (id) => {
+  const restaurarCategoriasIeSistema = async () => {
     if (!esAdmin) return;
-    if (!confirm('¿Desactivar esta categoría en el catálogo IE? Dejará de aparecer en Vales e IE.')) return;
-    const res = await desactivarCategoriaContVirtual(supabase, id);
-    if (!res.ok) return alert(res.error);
+    if (!confirm('¿Restaurar categorías fijas del sistema en IE (Vales, Empleado, Consumo, etc.)? Reactiva las que estén ocultas.')) return;
+    const res = await sembrarCatalogoDefault(supabase);
+    if (!res.ok) return alert(res.error || 'No se pudo restaurar.');
     await refrescarCatalogoIe();
+    alert('Categorías del sistema IE restauradas / reactivadas.');
   };
 
   const guardarPrestamoGastos = async () => {
@@ -2004,8 +2005,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <div className="card">
           <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Catálogo compartido con IE VIRTUAL</h3>
           <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
-            Mismo árbol <strong>categoría → subcategoría → detalle</strong> que Contabilidad → IE VIRTUAL / IE ABARROTES.
-            Los cambios aquí se reflejan al generar vales y en el libro IE.
+            Mismo árbol <strong>categoría → subcategoría → detalle</strong> que Contabilidad → IE VIRTUAL.
+            Aquí se listan <strong>todas</strong> las categorías de egreso activas (nada se borra del libro IE).
+            Al emitir un vale no se ofrecen Préstamos / Manual / Ingresos (no aplican).
             {avisoCatalogoIe ? (
               <>
                 <br />
@@ -2013,9 +2015,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               </>
             ) : null}
           </p>
-          <button type="button" className="btn btn-ghost" style={{ marginBottom: '0.75rem' }} onClick={() => refrescarCatalogoIe()}>
-            Recargar catálogo IE
-          </button>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+            <button type="button" className="btn btn-ghost" onClick={() => refrescarCatalogoIe()}>
+              Recargar catálogo IE
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={restaurarCategoriasIeSistema}>
+              Restaurar categorías del sistema
+            </button>
+          </div>
           <div className="grid-2" style={{ marginBottom: '0.75rem' }}>
             <input
               className="input"
@@ -2028,7 +2035,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             </button>
           </div>
           <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {categoriasValeDisponibles.map((c) => (
+            {categoriasCatalogoIeAdmin.map((c) => (
               <div
                 key={c.id}
                 style={{
@@ -2043,16 +2050,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   <span className="muted" style={{ fontSize: '0.78rem' }}>
                     {c.descuentaNomina ? 'Nómina' : 'Sin nómina'} · {c.fijo ? 'Sistema' : 'Admin'} · id:{c.id}
                   </span>
-                  {!c.fijo && (
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      style={{ color: 'var(--danger)', padding: '0.2rem 0.4rem', marginLeft: 'auto' }}
-                      onClick={() => quitarTipoVale(c.id)}
-                    >
-                      Desactivar
-                    </button>
-                  )}
                 </div>
 
                 {(c.subcategorias || []).length === 0 && (
@@ -2074,16 +2071,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     >
                       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.35rem', marginBottom: '0.35rem' }}>
                         <strong style={{ fontSize: '0.88rem' }}>{s.label}</strong>
-                        <span className="muted" style={{ fontSize: '0.72rem' }}>subcategoría</span>
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          style={{ padding: '0.1rem 0.35rem', color: 'var(--danger)', fontSize: '0.75rem', marginLeft: 'auto' }}
-                          onClick={() => quitarSubTipoVale(c.id, s.id)}
-                          title="Desactivar subcategoría"
-                        >
-                          Quitar
-                        </button>
+                        <span className="muted" style={{ fontSize: '0.72rem' }}>subcategoría · {s.id}</span>
                       </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginBottom: '0.35rem', paddingLeft: '0.25rem' }}>
                         {(s.detalles || []).length === 0 && (
@@ -2159,10 +2147,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               </div>
             ))}
           </div>
-          {categoriasValeDisponibles.length === 0 && (
+          {categoriasCatalogoIeAdmin.length === 0 && (
             <p className="muted" style={{ fontSize: '0.82rem', marginTop: '0.75rem' }}>
               {avisoCatalogoIe || AVISO_FALTA_VALES_CATEGORIAS}
-              {' '}Ejecuta <code>supabase/fix_contabilidad_completo.sql</code> (incluye Cont Virtual / IE).
+              {' '}Ejecuta <code>supabase/fix_contabilidad_completo.sql</code> (incluye Cont Virtual / IE),
+              o pulsa <strong>Restaurar categorías del sistema</strong>.
             </p>
           )}
         </div>
@@ -2222,9 +2211,21 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   ))}
                 </select>
               )}
+              <label className="muted" style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                Cuenta IE (dónde se registra el gasto)
+                <select
+                  className="select"
+                  value={valeForm.sucursalIe || 'MAIN'}
+                  onChange={(e) => setValeForm({ ...valeForm, sucursalIe: e.target.value })}
+                >
+                  {sucursalesCuentaIe.map((s) => (
+                    <option key={s} value={s}>{etiquetaTienda(s)}</option>
+                  ))}
+                </select>
+              </label>
               {esMain && (
                 <label className="muted" style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                  Sucursal destino
+                  Sucursal destino (corte)
                   <select
                     className="select"
                     value={valeForm.sucursalDestino}
@@ -2260,7 +2261,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 {esMain && valeForm.sucursalDestino ? (
                   <> en <strong>{etiquetaTienda(valeForm.sucursalDestino)}</strong></>
                 ) : null}
-                .
+                {' '}y el gasto en IE queda en cuenta <strong>{etiquetaTienda(valeForm.sucursalIe || 'MAIN')}</strong>.
               </p>
             )}
             <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} disabled={!puedeGenerarVales} onClick={guardarVale}>
@@ -2288,6 +2289,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     <th>Categoría</th>
                     <th>Beneficiario</th>
                     {(esMain || vePendientesTodasTiendas) && <th>Sucursal</th>}
+                    <th>Cuenta IE</th>
                     <th>Área / corte</th>
                     <th>Monto</th>
                     <th>Corte</th>
@@ -2297,7 +2299,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 <tbody>
                   {vales.length === 0 ? (
                     <tr>
-                      <td colSpan={esMain || vePendientesTodasTiendas ? 9 : 8} className="muted">
+                      <td colSpan={esMain || vePendientesTodasTiendas ? 10 : 9} className="muted">
                         No hay vales{esMain ? '' : ' en esta tienda'}. Crea uno arriba o revisa que la tienda esté autorizada en Configuración.
                         Los vales de <strong>gasolina</strong> se generan desde tienda y también se consultan en la pestaña Gasolina / asistencia.
                       </td>
@@ -2312,6 +2314,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                       {(esMain || vePendientesTodasTiendas) && (
                         <td className="muted">{etiquetaTienda(v.sucursal_id) || v.sucursal_id || '—'}</td>
                       )}
+                      <td className="muted">{etiquetaTienda(v.sucursal_ie || (esValeGasolina(v) ? 'MAIN' : v.sucursal_id) || 'MAIN')}</td>
                       <td className="muted">{ETIQUETA_AREA[v.area] || v.area || '—'}</td>
                       <td style={{ fontWeight: 700 }}>{fmt(v.monto)}</td>
                       <td className="muted">{v.cargado_corte ? 'Sí' : 'No'}</td>
