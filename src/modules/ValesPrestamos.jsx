@@ -671,7 +671,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     await refrescarCatalogoIe();
   };
 
-  const quitarSubTipoVale = async (_categoriaId, subId) => {
+  const quitarSubTipoVale = async () => {
     if (!esAdmin) return;
     alert('Para desactivar o borrar subcategorías del sistema, usa Contabilidad → IE VIRTUAL → Cuentas. Así no se ocultan por error en IE.');
   };
@@ -697,11 +697,6 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     const res = await eliminarDetalleContVirtual(supabase, detalleId);
     if (!res.ok) return alert(res.error);
     await refrescarCatalogoIe();
-  };
-
-  const quitarTipoVale = async () => {
-    if (!esAdmin) return;
-    alert('Para desactivar categorías usa Contabilidad → IE VIRTUAL → Cuentas. Aquí no se ocultan del libro IE.');
   };
 
   const restaurarCategoriasIeSistema = async () => {
