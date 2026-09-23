@@ -18,7 +18,7 @@ function faltaTabla(error) {
   return error?.code === '42P01' || msg.includes('contabilidad_notificaciones');
 }
 
-export async function crearNotificacion(supabase, row) {
+export async function crearNotificacion(supabase, row, opts = {}) {
   if (!supabase) return { ok: true, id: null };
   const areaBuzon = row.area_buzon ? String(row.area_buzon).toLowerCase() : null;
   const payload = {
@@ -51,12 +51,14 @@ export async function crearNotificacion(supabase, row) {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent(EVENTO_NOTIFICACION_DISPOSITIVO, { detail: { ...payload, id: data.id } }));
     }
-    // Push remoto (admin/gerente con app cerrada). No bloquear el flujo.
+    // Push remoto (admin/gerente; asalto también indirectos MAIN). No bloquear el flujo.
     void dispararPushRemoto(supabase, {
       id: data.id,
       titulo: payload.titulo,
       mensaje: payload.mensaje,
       tipo: payload.tipo,
+      usuarioIds: opts.usuarioIds || null,
+      modo: opts.modoPush || (payload.tipo === 'asalto_en_proceso' ? 'asalto' : null),
     });
   }
   return { ok: true, id: data?.id };
@@ -168,6 +170,7 @@ export const TIPOS_NOTIF = {
   CT_HOLD: 'ct_hold',
   CT_EVALUACION_ALERTA: 'ct_evaluacion_alerta',
   CONTRATACION: 'contratacion_aspirante',
+  ASALTO: 'asalto_en_proceso',
 };
 
 /** Alertas CT que el cajero debe ver flotantes hasta atenderlas. */
@@ -232,6 +235,8 @@ export function etiquetaTipoNotificacion(tipo) {
       return 'Alerta evaluación CT';
     case TIPOS_NOTIF.CONTRATACION:
       return 'Postulación / contratación';
+    case TIPOS_NOTIF.ASALTO:
+      return 'ASALTO EN PROCESO';
     default:
       return tipo || 'Notificación';
   }
