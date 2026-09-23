@@ -1,6 +1,7 @@
 import {
   CATEGORIAS_CONT_VIRTUAL_DEFAULT,
   categoriaEnCatalogoCortes,
+  subcategoriaEnCatalogoCortes,
   crearCategoriaContVirtual,
   crearSubcategoriaContVirtual,
   editarCategoriaContVirtual,
@@ -173,6 +174,8 @@ export function catalogoIeAFormatoCorte(ieCats, fuente = 'ie_virtual') {
     for (const s of c.subcategorias || []) {
       if (s?.activo === false) continue;
       if (s.es_empleado_vivo) continue;
+      // Subcuenta oculta solo en cortes (sigue en IE).
+      if (!subcategoriaEnCatalogoCortes(s)) continue;
       const subNom = String(s.nombre || '').trim().toUpperCase();
       if (!subNom) continue;
       const dets = (s.detalles || []).filter((d) => d?.activo !== false);

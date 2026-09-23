@@ -569,6 +569,22 @@ where lower(id) = 'empleado' or lower(nombre) = 'empleado';
 
 
 -- ---------------------------------------------------------------------------
+-- INCLUDE: fix_cont_virtual_sub_en_catalogo_cortes.sql
+-- ---------------------------------------------------------------------------
+-- Subcuentas: ocultar del catálogo de gastos de cortes (siguen en IE).
+
+alter table public.cont_virtual_subcategorias
+  add column if not exists en_catalogo_cortes boolean default true;
+
+comment on column public.cont_virtual_subcategorias.en_catalogo_cortes is
+  'Si true (default), la subcuenta aparece en gastos de cortes cuando su categoría está en cortes. false = ocultar solo en cortes.';
+
+update public.cont_virtual_subcategorias
+set en_catalogo_cortes = true
+where en_catalogo_cortes is null;
+
+
+-- ---------------------------------------------------------------------------
 -- INCLUDE: fix_vales_prestamos_aprobaciones.sql
 -- ---------------------------------------------------------------------------
 -- =============================================================================
