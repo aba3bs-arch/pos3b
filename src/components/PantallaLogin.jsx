@@ -292,7 +292,8 @@ export default function PantallaLogin({
               Empleado: <strong>{pendienteAutorizacionTurno.user.nombre}</strong>
             </p>
             <p className="muted login-hint-sm">
-              Un <strong>administrador o gerente</strong> puede autorizar la entrada en {etiquetaTienda(sucursal)} (válido 8 h).
+              Un <strong>administrador o gerente</strong> puede autorizar la entrada en {etiquetaTienda(sucursal)} (válido 8 h):
+              con PIN aquí, o desde <strong>Configuración → Turnos de caja → Autorizar entrada fuera de horario</strong> (panel MAIN).
             </p>
             <label className="muted login-field">
               PIN del administrador / gerente
