@@ -35,6 +35,8 @@ import {
   filtrarCatalogoPorFlujo,
   categoriaEnCatalogoCortes,
   setCategoriaEnCatalogoCortes,
+  subcategoriaEnCatalogoCortes,
+  setSubcategoriasEnCatalogoCortes,
   AVISO_FALTA_CONT_VIRTUAL,
 } from '../lib/contVirtualCatalogo.js';
 import {
@@ -933,6 +935,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
   const [showInversion, setShowInversion] = useState(false);
   const [masVista, setMasVista] = useState('menu'); // menu | catalogo | inversiones
   const [catalogoFlujo, setCatalogoFlujo] = useState('egreso'); // egreso | ingreso
+  /** Subcuentas seleccionadas para ocultar/mostrar en catálogo de cortes. */
+  const [selSubsCortes, setSelSubsCortes] = useState(() => ({}));
 
   const [cargando, setCargando] = useState(false);
   const [datos, setDatos] = useState(null);
@@ -1848,6 +1852,43 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
     setGuardando(false);
     if (!res.ok) return alert(res.error);
     await cargarCatalogo();
+  };
+
+  const toggleSelSubCortes = (subId) => {
+    const id = String(subId || '');
+    if (!id) return;
+    setSelSubsCortes((prev) => {
+      const next = { ...prev };
+      if (next[id]) delete next[id];
+      else next[id] = true;
+      return next;
+    });
+  };
+
+  const idsSubsSeleccionadas = useMemo(
+    () => Object.keys(selSubsCortes || {}).filter((k) => selSubsCortes[k]),
+    [selSubsCortes],
+  );
+
+  const aplicarVisibilidadSubsCortes = async (ocultar) => {
+    if (!esAdmin) return;
+    if (!idsSubsSeleccionadas.length) {
+      return alert('Marca al menos una subcuenta (casilla a la izquierda).');
+    }
+    const verbo = ocultar ? 'Ocultar' : 'Mostrar';
+    if (!confirm(
+      `¿${verbo} ${idsSubsSeleccionadas.length} subcuenta(s) en el catálogo de gastos de cortes?\n\n`
+      + (ocultar
+        ? 'Seguirán en IE; solo dejarán de salir al capturar gastos en el corte.'
+        : 'Volverán a aparecer en Corte Virtual / Abarrotes / Garage.'),
+    )) return;
+    setGuardando(true);
+    const res = await setSubcategoriasEnCatalogoCortes(supabase, idsSubsSeleccionadas, !ocultar);
+    setGuardando(false);
+    if (!res.ok) return alert(res.error);
+    setSelSubsCortes({});
+    await cargarCatalogo();
+    alert(`${idsSubsSeleccionadas.length} subcuenta(s) ${ocultar ? 'ocultadas' : 'visibles'} en cortes.`);
   };
 
   const crearEmpleadoMain = async () => {
@@ -2804,6 +2845,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
 
       const setFlujoCatalogo = (flujo) => {
         setCatalogoFlujo(flujo);
+        setSelSubsCortes({});
         const cats = filtrarCatalogoPorFlujo(catalogo, flujo);
         const first = cats[0];
         const firstSub = (first?.subcategorias || []).find((s) => s.activo !== false);
@@ -2832,8 +2874,56 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
             Catálogo compartido de IE Virtual e IE Abarrotes: <strong>Cuenta → Subcuenta → Detalle</strong>.
             Los <strong>ingresos</strong> son independientes de los <strong>egresos</strong>, con el mismo formato.
             En <strong>Empleado</strong> (egresos): los tipos son Consumo/Anticipo/…; las personas Main se dan de alta aquí (+ Main). No renombres ni elimines Empleado.
-            {' '}El administrador puede <strong>enviar o quitar</strong> cada egreso del catálogo de gastos de cortes.
+            {' '}El administrador puede <strong>enviar o quitar</strong> cada egreso del catálogo de gastos de cortes,
+            y con las casillas de subcuenta + <strong>Ocultar</strong> sacar solo algunas opciones del corte (siguen en IE).
           </p>
+          {esAdmin && catalogoFlujo === 'egreso' && (
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '0.5rem',
+                alignItems: 'center',
+                marginBottom: '0.75rem',
+                padding: '0.55rem 0.65rem',
+                borderRadius: 8,
+                background: 'rgba(108,52,131,0.06)',
+                border: '1px solid rgba(108,52,131,0.25)',
+              }}
+            >
+              <span className="muted" style={{ fontSize: '0.78rem', flex: '1 1 160px' }}>
+                Subcuentas marcadas: <strong>{idsSubsSeleccionadas.length}</strong>
+                {' · '}oculta/muestra en gastos de cortes (no desactiva en IE)
+              </span>
+              <button
+                type="button"
+                className="cv-btn ghost cv-cat-btn"
+                disabled={guardando || !idsSubsSeleccionadas.length}
+                onClick={() => aplicarVisibilidadSubsCortes(true)}
+                style={{ borderColor: '#6c3483', color: '#6c3483', fontWeight: 700 }}
+              >
+                Ocultar
+              </button>
+              <button
+                type="button"
+                className="cv-btn ghost cv-cat-btn"
+                disabled={guardando || !idsSubsSeleccionadas.length}
+                onClick={() => aplicarVisibilidadSubsCortes(false)}
+              >
+                Mostrar en cortes
+              </button>
+              {idsSubsSeleccionadas.length > 0 && (
+                <button
+                  type="button"
+                  className="cv-btn ghost cv-cat-btn"
+                  disabled={guardando}
+                  onClick={() => setSelSubsCortes({})}
+                >
+                  Limpiar selección
+                </button>
+              )}
+            </div>
+          )}
           {!esAdmin && <p className="cv-error">Solo el administrador puede editar cuentas y subcuentas.</p>}
           {(catalogoFlujoVista || []).map((c) => (
             <div key={c.id} className="cv-cat-card">
@@ -2879,10 +2969,29 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                 )}
               </div>
               <ul>
-                {(c.subcategorias || []).filter((s) => s.activo !== false).map((s) => (
-                  <li key={s.id} className="cv-sub-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.35rem' }}>
+                {(c.subcategorias || []).filter((s) => s.activo !== false).map((s) => {
+                  const ocultaCortes = catalogoFlujo === 'egreso' && !esCategoriaEmpleado(c) && !subcategoriaEnCatalogoCortes(s);
+                  const puedeSelCortes = esAdmin && catalogoFlujo === 'egreso' && !esCategoriaEmpleado(c);
+                  return (
+                  <li key={s.id} className="cv-sub-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: '0.35rem', opacity: ocultaCortes ? 0.78 : 1 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'center' }}>
-                      <span>{s.nombre}{s.fijo ? ' · sistema' : ''}</span>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', margin: 0, cursor: puedeSelCortes ? 'pointer' : 'default', flex: 1, minWidth: 0 }}>
+                        {puedeSelCortes && (
+                          <input
+                            type="checkbox"
+                            checked={Boolean(selSubsCortes[s.id])}
+                            onChange={() => toggleSelSubCortes(s.id)}
+                            aria-label={`Seleccionar ${s.nombre}`}
+                          />
+                        )}
+                        <span>
+                          {s.nombre}
+                          {s.fijo ? ' · sistema' : ''}
+                          {ocultaCortes ? (
+                            <span className="muted" style={{ fontSize: '0.72rem', marginLeft: '0.35rem' }}>· oculta en cortes</span>
+                          ) : null}
+                        </span>
+                      </label>
                       {esAdmin && (
                         <span className="cv-cat-actions">
                           <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => nuevoDetalleEnSub(s.id, s.nombre)}>+ Detalle</button>
@@ -2910,7 +3019,8 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                       )}
                     </ul>
                   </li>
-                ))}
+                  );
+                })}
                 {!(c.subcategorias || []).filter((s) => s.activo !== false).length && (
                   <li className="muted">Sin subcategorías</li>
                 )}

@@ -178,6 +178,13 @@ export function categoriaEnCatalogoCortes(c) {
   return c.en_catalogo_cortes !== false;
 }
 
+/** ¿La subcuenta debe aparecer en el catálogo de gastos de cortes? */
+export function subcategoriaEnCatalogoCortes(s) {
+  if (!s || s.activo === false) return false;
+  // null/undefined = true (comportamiento previo / sin columna)
+  return s.en_catalogo_cortes !== false;
+}
+
 /** Mapeo categoría de vale → subcategoría Cont Virtual. */
 export const VALE_A_CONT_VIRTUAL = {
   gasolina: { categoriaId: 'vales', subcategoriaId: 'vales-gasolina' },
@@ -484,6 +491,8 @@ function armarCatalogo(cats, subs, detalles = []) {
       activo: s.activo !== false,
       fijo: Boolean(s.fijo),
       categoria_id: s.categoria_id,
+      // null/undefined → true (compat sin columna)
+      en_catalogo_cortes: s.en_catalogo_cortes !== false,
       detalles: [],
     };
     parent.subcategorias.push(row);
@@ -695,21 +704,37 @@ export async function crearSubcategoriaContVirtual(supabase, { categoriaId, nomb
       activo: true,
       fijo: false,
       categoria_id: categoriaId,
+      en_catalogo_cortes: true,
       detalles: [],
     });
     guardarLocal(lista);
     return { ok: true, id };
   }
-  const { error } = await supabase.from('cont_virtual_subcategorias').insert({
+  const row = {
     id,
     categoria_id: categoriaId,
     nombre: label,
     orden: 100,
     activo: true,
     fijo: false,
-  });
+    en_catalogo_cortes: true,
+  };
+  let { error } = await supabase.from('cont_virtual_subcategorias').insert(row);
   if (error) {
     if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CONT_VIRTUAL };
+    const msg = String(error.message || '').toLowerCase();
+    if (msg.includes('en_catalogo_cortes') || msg.includes('schema cache')) {
+      const { en_catalogo_cortes: _e, ...sinFlag } = row;
+      const retry = await supabase.from('cont_virtual_subcategorias').insert(sinFlag);
+      if (!retry.error) {
+        return {
+          ok: true,
+          id,
+          aviso: 'Subcuenta creada. Ejecuta supabase/fix_cont_virtual_sub_en_catalogo_cortes.sql para ocultar en cortes.',
+        };
+      }
+      return { ok: false, error: retry.error.message };
+    }
     return { ok: false, error: error.message };
   }
   return { ok: true, id };
@@ -817,6 +842,63 @@ export async function setCategoriaEnCatalogoCortes(supabase, id, enabled) {
     return { ok: false, error: error.message };
   }
   return { ok: true };
+}
+
+/**
+ * Admin: oculta o muestra subcuentas en el catálogo de gastos de cortes (bulk).
+ * No desactiva la subcuenta en IE; solo afecta cortes.
+ */
+export async function setSubcategoriasEnCatalogoCortes(supabase, ids, enabled) {
+  const list = [...new Set((ids || []).map(String).filter(Boolean))];
+  if (!list.length) return { ok: false, error: 'Selecciona al menos una subcuenta.' };
+  const on = Boolean(enabled);
+
+  if (!supabase) {
+    const lista = leerLocal();
+    let n = 0;
+    for (const c of lista) {
+      for (const s of c.subcategorias || []) {
+        if (!list.includes(String(s.id))) continue;
+        s.en_catalogo_cortes = on;
+        n += 1;
+      }
+    }
+    if (!n) return { ok: false, error: 'Subcategoría no encontrada.' };
+    guardarLocal(lista);
+    return { ok: true, count: n };
+  }
+
+  const { error } = await supabase
+    .from('cont_virtual_subcategorias')
+    .update({ en_catalogo_cortes: on })
+    .in('id', list);
+  if (error) {
+    if (faltaTabla(error)) return { ok: false, error: AVISO_FALTA_CONT_VIRTUAL };
+    const msg = String(error.message || '').toLowerCase();
+    if (msg.includes('en_catalogo_cortes') || msg.includes('schema cache')) {
+      return {
+        ok: false,
+        error: 'Falta la columna en subcategorías. Ejecuta supabase/fix_cont_virtual_sub_en_catalogo_cortes.sql en Supabase.',
+      };
+    }
+    return { ok: false, error: error.message };
+  }
+  // Mirror local cache
+  try {
+    const lista = leerLocal();
+    let cambio = false;
+    for (const c of lista) {
+      for (const s of c.subcategorias || []) {
+        if (!list.includes(String(s.id))) continue;
+        s.en_catalogo_cortes = on;
+        cambio = true;
+      }
+    }
+    if (cambio) guardarLocal(lista);
+  } catch {
+    /* best-effort */
+  }
+  return { ok: true, count: list.length };
 }
 
 export async function editarSubcategoriaContVirtual(supabase, id, { nombre } = {}) {
