@@ -22,7 +22,7 @@ export const AREAS_ESTADISTICA = {
     moduloVista: 'Estadísticas Abarrotes',
     label: 'Abarrotes',
     color: '#b5a642',
-    desc: 'Ventas de corte Abarrotes (efectivo/tarjeta), gastos, inventario y mermas',
+    desc: 'Ventas de corte Abarrotes, tráfico de clientes (tickets POS), gastos, inventario y mermas',
   },
   virtual: {
     id: 'virtual',
