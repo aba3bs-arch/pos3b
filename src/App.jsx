@@ -134,6 +134,7 @@ import { EVENTO_CACHE_LIMPIADO } from './lib/limpiarCache.js';
 import BadgeNotificacionesContabilidad from './components/BadgeNotificacionesContabilidad.jsx';
 import AnuncioPosOverlay from './components/AnuncioPosOverlay.jsx';
 import AlertaCtOverlay from './components/AlertaCtOverlay.jsx';
+import AlertaAsaltoOverlay from './components/AlertaAsaltoOverlay.jsx';
 import ActualizacionPendienteOverlay from './components/ActualizacionPendienteOverlay.jsx';
 import ReleaseAvisoOverlay from './components/ReleaseAvisoOverlay.jsx';
 import SelectorSucursal from './components/SelectorSucursal.jsx';
@@ -148,6 +149,7 @@ import {
   registrarServiceWorkerNotificaciones,
 } from './lib/notificacionesDispositivo.js';
 import { EVENTO_NOTIFICACIONES, EVENTO_NOTIFICACION_DISPOSITIVO, iniciarMonitorNotificacionesDispositivo, TIPOS_NOTIF } from './lib/contabilidadNotificaciones.js';
+import { crearDetectorTeclasAsalto, dispararAlertaAsalto } from './lib/alertaAsalto.js';
 import { registrarCapturaInstalacionPwa } from './lib/appMovil.js';
 import BotonActivarNotificaciones from './components/BotonActivarNotificaciones.jsx';
 import PantallaLogin from './components/PantallaLogin.jsx';
@@ -454,6 +456,21 @@ function App() {
       window.removeEventListener(EVENTO_NOTIFICACION_DISPOSITIVO, onLocal);
     };
   }, [sesion, user, supabase]);
+
+  // Alarma de asalto: ≥5 teclas a la vez (cualquier combinación).
+  useEffect(() => {
+    if (!sesion || !user || user.esCtMovil) return undefined;
+    const detector = crearDetectorTeclasAsalto({
+      onActivar: ({ teclas }) => {
+        void dispararAlertaAsalto(supabase, {
+          user,
+          sucursal,
+          teclas,
+        });
+      },
+    });
+    return detector.attach(window);
+  }, [sesion, user, supabase, sucursal]);
 
   useEffect(() => {
     if (!supabase || !sesion) return undefined;
@@ -1786,6 +1803,9 @@ function App() {
             sucursal={sucursal}
             onIrCubreTurnos={() => irAModulo('Checador', { pestana: 'cubre' })}
           />
+        ) : null}
+        {user && !user.esCtMovil ? (
+          <AlertaAsaltoOverlay supabase={supabase} user={user} />
         ) : null}
         <ModalActivarBiometria
           open={Boolean(ofertaBiometria)}

@@ -1,5 +1,7 @@
 /**
- * Edge Function: envía Web Push (VAPID) a todas las suscripciones Admin/Gerente.
+ * Edge Function: envía Web Push (VAPID).
+ * Default: Admin/Gerente.
+ * Modo asalto: también destinatarios por usuario_ids (indirectos MAIN).
  *
  * Secrets en Supabase → Edge Functions → Secrets:
  *   VAPID_PUBLIC_KEY
@@ -40,13 +42,19 @@ Deno.serve(async (req) => {
     const mensaje = String(body.mensaje || '').slice(0, 240);
     const id = body.id != null ? String(body.id) : null;
     const tipo = body.tipo != null ? String(body.tipo) : null;
+    const modo = String(body.modo || '').toLowerCase();
+    const esAsalto = modo === 'asalto' || tipo === 'asalto_en_proceso';
+    const usuarioIds = Array.isArray(body.usuario_ids)
+      ? body.usuario_ids.map((x) => String(x)).filter(Boolean)
+      : [];
+    const idsSet = new Set(usuarioIds);
 
     webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
 
     const sb = createClient(supabaseUrl, serviceKey);
     const { data: subs, error } = await sb
       .from('pos_push_subscriptions')
-      .select('id, endpoint, p256dh, auth, rol');
+      .select('id, endpoint, p256dh, auth, rol, usuario_id');
 
     if (error) {
       return json({ ok: false, error: error.message }, 500);
@@ -54,6 +62,12 @@ Deno.serve(async (req) => {
 
     const lista = (subs || []).filter((s) => {
       const r = String(s.rol || '').toLowerCase();
+      const uid = s.usuario_id != null ? String(s.usuario_id) : '';
+      if (esAsalto) {
+        if (uid && idsSet.has(uid)) return true;
+        if (!r) return true;
+        return r.includes('admin') || r.includes('gerente') || r.includes('indirect');
+      }
       // Sin rol: permitir (dispositivos antiguos); con rol: solo admin/gerente
       if (!r) return true;
       return r.includes('admin') || r.includes('gerente');
@@ -65,6 +79,8 @@ Deno.serve(async (req) => {
       id,
       tipo,
       tag: id ? `pos3b-${id}` : `pos3b-${Date.now()}`,
+      requireInteraction: esAsalto,
+      silent: false,
     });
 
     let enviados = 0;
@@ -78,7 +94,7 @@ Deno.serve(async (req) => {
       };
       try {
         await webpush.sendNotification(subscription, payload, {
-          TTL: 60 * 60 * 12,
+          TTL: esAsalto ? 60 * 60 * 2 : 60 * 60 * 12,
           urgency: 'high',
         });
         enviados += 1;

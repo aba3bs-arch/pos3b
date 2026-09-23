@@ -44,10 +44,11 @@ function faltaTablaPush(error) {
  * Registra este dispositivo para Web Push (Admin/Gerente).
  * Requiere permiso Notification = granted y VITE_VAPID_PUBLIC_KEY.
  */
-export async function suscribirWebPush(supabase, { usuarioNombre, usuarioId, rol } = {}) {
+export async function suscribirWebPush(supabase, { usuarioNombre, usuarioId, rol, user } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
-  if (!puedeRecibirNotificacionesDispositivo(rol)) {
-    return { ok: false, skipped: true, error: 'Solo Administrador o Gerente.' };
+  const quien = user || { id: usuarioId, nombre: usuarioNombre, rol };
+  if (!puedeRecibirNotificacionesDispositivo(quien)) {
+    return { ok: false, skipped: true, error: 'Solo Administrador, Gerente o personal MAIN/indirecto.' };
   }
   if (!webPushDisponible()) {
     return {
@@ -89,9 +90,9 @@ export async function suscribirWebPush(supabase, { usuarioNombre, usuarioId, rol
     endpoint,
     p256dh,
     auth,
-    usuario_nombre: String(usuarioNombre || '').trim() || null,
-    usuario_id: usuarioId != null ? String(usuarioId) : null,
-    rol: String(rol || '').trim() || null,
+    usuario_nombre: String(usuarioNombre || user?.nombre || '').trim() || null,
+    usuario_id: (usuarioId != null ? String(usuarioId) : null) || (user?.id != null ? String(user.id) : null),
+    rol: String(rol || user?.rol || '').trim() || null,
     dispositivo_id: obtenerIdDispositivoLocal(),
     user_agent: typeof navigator !== 'undefined' ? String(navigator.userAgent || '').slice(0, 280) : null,
     updated_at: new Date().toISOString(),
@@ -106,7 +107,14 @@ export async function suscribirWebPush(supabase, { usuarioNombre, usuarioId, rol
 }
 
 /** Invoca Edge Function enviar-push (no bloquea al usuario si falla). */
-export async function dispararPushRemoto(supabase, { titulo, mensaje, id, tipo } = {}) {
+export async function dispararPushRemoto(supabase, {
+  titulo,
+  mensaje,
+  id,
+  tipo,
+  usuarioIds = null,
+  modo = null,
+} = {}) {
   if (!supabase || !vapidPublicKey()) return { ok: false, skipped: true };
   try {
     const { data, error } = await supabase.functions.invoke('enviar-push', {
@@ -115,6 +123,8 @@ export async function dispararPushRemoto(supabase, { titulo, mensaje, id, tipo }
         mensaje: mensaje || '',
         id: id || null,
         tipo: tipo || null,
+        usuario_ids: Array.isArray(usuarioIds) ? usuarioIds.map(String) : null,
+        modo: modo || null,
       },
     });
     if (error) return { ok: false, error: error.message || String(error) };

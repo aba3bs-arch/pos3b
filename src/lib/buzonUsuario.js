@@ -24,6 +24,7 @@ const T = {
   RIF_LIQUIDADO: 'rif_liquidado',
   RIF_VENCIDO: 'rif_vencido',
   CONTRATACION: 'contratacion_aspirante',
+  ASALTO: 'asalto_en_proceso',
 };
 
 export function esUsuarioMainNotificable(user) {
@@ -93,6 +94,13 @@ export function notificacionEsDeMiBuzon(n, user) {
       if (u && r && (u === r || u.includes(r) || r.includes(u))) return true;
     }
     return false;
+  }
+
+  if (tipo === T.ASALTO) {
+    if (rol === 'Administrador' || rol === 'Gerente') return true;
+    // Indirectos MAIN: se valida en overlay con esEmpleadoIndirectoOMain; aquí por nombre MAIN.
+    return String(user?.sucursal_id || '').toUpperCase() === 'MAIN'
+      || String(user?.tipo_empleado || '').toLowerCase() === 'indirecto';
   }
 
   return rol === 'Administrador' || rol === 'Gerente';

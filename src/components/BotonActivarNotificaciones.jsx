@@ -29,6 +29,7 @@ export default function BotonActivarNotificaciones({ supabase, user }) {
       usuarioNombre: user?.nombre,
       usuarioId: user?.id,
       rol: user?.rol,
+      user,
     });
     return undefined;
   }, [supabase, user, permiso]);
@@ -43,6 +44,7 @@ export default function BotonActivarNotificaciones({ supabase, user }) {
         usuarioNombre: user?.nombre,
         usuarioId: user?.id,
         rol: user?.rol,
+        user,
       });
       await enviarNotificacionPrueba(supabase);
       if (sub.sinTabla) {
