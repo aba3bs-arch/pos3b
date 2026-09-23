@@ -19,13 +19,14 @@ import { iniciarSirenaAsalto, detenerSirenaAsalto, prepararAudioPos } from '../l
 import PortalFlotante from './PortalFlotante.jsx';
 
 /**
- * Pantalla de alarma audible «ASALTO EN PROCESO» para admins / indirectos MAIN
- * (y quien la activó en la tienda).
+ * Pantalla de alarma audible «ASALTO EN PROCESO».
+ * - Siempre escucha activación LOCAL (quien disparó en la caja).
+ * - Admins / indirectos MAIN también reciben alertas remotas.
  */
 export default function AlertaAsaltoOverlay({ supabase, user }) {
   const [alerta, setAlerta] = useState(null);
   const [silenciando, setSilenciando] = useState(false);
-  const puedeVer = usuarioRecibeAlertaAsalto(user);
+  const puedeVerRemoto = usuarioRecibeAlertaAsalto(user);
 
   const aplicarAlerta = useCallback((detail) => {
     if (!detail) return;
@@ -35,7 +36,7 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
   }, []);
 
   const cargarPendiente = useCallback(async () => {
-    if (!supabase || !puedeVer) return;
+    if (!supabase || !puedeVerRemoto) return;
     const res = await listarNotificacionesPendientes(supabase, {
       tipos: [TIPOS_NOTIF.ASALTO],
       limit: 5,
@@ -52,11 +53,10 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
         local: false,
       });
     }
-  }, [supabase, puedeVer, aplicarAlerta]);
+  }, [supabase, puedeVerRemoto, aplicarAlerta]);
 
   useEffect(() => {
-    if (!puedeVer) return undefined;
-    void cargarPendiente();
+    if (!user || user.esCtMovil) return undefined;
 
     const onLocal = (e) => {
       const d = e.detail;
@@ -70,8 +70,24 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
         local: Boolean(d.local),
       });
     };
+    const onStop = () => {
+      detenerSirenaAsalto();
+      setAlerta(null);
+    };
+
+    window.addEventListener(EVENTO_ALERTA_ASALTO, onLocal);
+    window.addEventListener(EVENTO_ALERTA_ASALTO_DETENER, onStop);
+
+    if (!puedeVerRemoto) {
+      return () => {
+        window.removeEventListener(EVENTO_ALERTA_ASALTO, onLocal);
+        window.removeEventListener(EVENTO_ALERTA_ASALTO_DETENER, onStop);
+      };
+    }
+
+    void cargarPendiente();
+
     const onNotif = (e) => {
-      if (!puedeVer) return;
       const d = e.detail;
       if (d?.tipo && d.tipo !== TIPOS_NOTIF.ASALTO) return;
       if (d?.tipo === TIPOS_NOTIF.ASALTO || d?.titulo?.toUpperCase?.().includes('ASALTO')) {
@@ -86,15 +102,9 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
       }
       void cargarPendiente();
     };
-    const onStop = () => {
-      detenerSirenaAsalto();
-      setAlerta(null);
-    };
 
-    window.addEventListener(EVENTO_ALERTA_ASALTO, onLocal);
     window.addEventListener(EVENTO_NOTIFICACION_DISPOSITIVO, onNotif);
     window.addEventListener(EVENTO_NOTIFICACIONES, onNotif);
-    window.addEventListener(EVENTO_ALERTA_ASALTO_DETENER, onStop);
 
     let channel = null;
     if (supabase) {
@@ -124,15 +134,14 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
     return () => {
       clearInterval(iv);
       window.removeEventListener(EVENTO_ALERTA_ASALTO, onLocal);
+      window.removeEventListener(EVENTO_ALERTA_ASALTO_DETENER, onStop);
       window.removeEventListener(EVENTO_NOTIFICACION_DISPOSITIVO, onNotif);
       window.removeEventListener(EVENTO_NOTIFICACIONES, onNotif);
-      window.removeEventListener(EVENTO_ALERTA_ASALTO_DETENER, onStop);
       if (channel && supabase) supabase.removeChannel(channel);
     };
-  }, [puedeVer, supabase, user, aplicarAlerta, cargarPendiente]);
+  }, [user, puedeVerRemoto, supabase, aplicarAlerta, cargarPendiente]);
 
-  // Activador en tienda (local) o destinatario admin/indirecto.
-  const visible = Boolean(alerta) && (puedeVer || alerta?.local);
+  const visible = Boolean(alerta) && (puedeVerRemoto || alerta?.local);
   if (!visible) return null;
 
   const silenciar = async () => {
@@ -140,7 +149,7 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
     setSilenciando(true);
     try {
       detenerSirenaAsalto();
-      if (alerta?.id && supabase && puedeVer) {
+      if (alerta?.id && supabase && puedeVerRemoto) {
         await marcarNotificacionAtendidaPorId(
           supabase,
           alerta.id,

@@ -10,6 +10,11 @@ import {
   solicitarPermisoNotificacionesDispositivo,
 } from '../lib/notificacionesDispositivo.js';
 import { suscribirWebPush, vapidPublicKey, webPushDisponible } from '../lib/webPush.js';
+import {
+  TECLAS_MIN_ASALTO,
+  ESC_TAPS_ASALTO,
+  dispararAlertaAsalto,
+} from '../lib/alertaAsalto.js';
 
 function etiquetaPermiso(p) {
   if (p === 'granted') return { txt: 'Activadas', color: 'var(--brand-green)' };
@@ -18,10 +23,11 @@ function etiquetaPermiso(p) {
   return { txt: 'Sin activar', color: 'var(--brand-gold-dark)' };
 }
 
-export default function PanelNotificacionesAlertas({ supabase, user }) {
+export default function PanelNotificacionesAlertas({ supabase, user, sucursal }) {
   const [permiso, setPermiso] = useState(() => permisoNotificacionesDispositivo());
   const [swOk, setSwOk] = useState(false);
   const [pushMsg, setPushMsg] = useState('');
+  const [probandoAsalto, setProbandoAsalto] = useState(false);
   const esIos = detectarIos();
   const esMobile = detectarMobile();
   const pwa = esPwaInstalada();
@@ -44,6 +50,7 @@ export default function PanelNotificacionesAlertas({ supabase, user }) {
       usuarioNombre: user?.nombre,
       usuarioId: user?.id,
       rol: user?.rol,
+      user,
     }).then((r) => {
       if (r.sinTabla) setPushMsg(r.error);
       else if (r.ok) setPushMsg('Web Push registrado en este dispositivo.');
@@ -73,6 +80,7 @@ export default function PanelNotificacionesAlertas({ supabase, user }) {
         usuarioNombre: user?.nombre,
         usuarioId: user?.id,
         rol: user?.rol,
+        user,
       });
       await enviarNotificacionPrueba(supabase);
       if (sub.sinTabla) setPushMsg(sub.error);
@@ -93,8 +101,8 @@ export default function PanelNotificacionesAlertas({ supabase, user }) {
     <div className="card" style={{ borderTop: '4px solid var(--brand-gold)' }}>
       <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Alertas del dispositivo</h3>
       <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-        Reciba en el celular avisos de vales, préstamos, consumos, incidencias y cobros post-liquidación. Solo{' '}
-        <strong>Administrador</strong> y <strong>Gerente</strong>.
+        Reciba en el celular avisos de vales, préstamos, consumos, incidencias, cobros y{' '}
+        <strong>alarma de asalto</strong>. Administrador, Gerente e indirectos MAIN.
       </p>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', marginBottom: '0.75rem' }}>
@@ -125,6 +133,45 @@ export default function PanelNotificacionesAlertas({ supabase, user }) {
             Probar notificación
           </button>
         )}
+        <button
+          type="button"
+          className="btn btn-ghost"
+          style={{ borderColor: 'var(--brand-red)', color: 'var(--brand-red)' }}
+          disabled={probandoAsalto}
+          onClick={async () => {
+            if (!confirm('¿Probar alarma ASALTO EN PROCESO?\nSonará la sirena y avisará a admins/indirectos MAIN.')) return;
+            setProbandoAsalto(true);
+            try {
+              const res = await dispararAlertaAsalto(supabase, {
+                user,
+                sucursal,
+                forzar: true,
+                modo: 'prueba',
+              });
+              if (!res.ok && !res.skipped) alert(res.error || 'No se pudo disparar.');
+              else if (res.skipped) alert(res.error);
+              else alert(`Alarma de prueba enviada.\nDestinatarios: ${res.destinatarios ?? '—'}`);
+            } finally {
+              setProbandoAsalto(false);
+            }
+          }}
+        >
+          {probandoAsalto ? 'Disparando…' : '🚨 Probar alarma ASALTO'}
+        </button>
+      </div>
+
+      <div style={{ margin: '0 0 1rem', padding: '0.75rem', borderRadius: 8, background: 'rgba(192,57,43,0.08)', fontSize: '0.82rem' }}>
+        <strong>Cómo activarla en caja (situación real):</strong>
+        <ul style={{ margin: '0.35rem 0 0', paddingLeft: '1.1rem' }}>
+          <li>
+            Con sesión abierta, aplaste <strong>cualesquiera {TECLAS_MIN_ASALTO} teclas a la vez</strong>
+            {' '}— no hay combinación que memorizar; las que salgan al azar.
+          </li>
+          <li>
+            Respaldo: pulse <strong>Escape {ESC_TAPS_ASALTO} veces</strong> seguidas (rápido).
+          </li>
+          <li>Debe verse pantalla roja + sirena. Suba el volumen del dispositivo.</li>
+        </ul>
       </div>
 
       {pushMsg && (
