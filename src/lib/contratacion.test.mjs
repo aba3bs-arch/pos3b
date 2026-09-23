@@ -15,6 +15,9 @@ import {
   validarPerfilLaboral,
   decidirEstadoPostulacion,
   NOTA_HONESTIDAD_EVALUACION,
+  validarAceptacionPrivacidad,
+  AVISO_PRIVACIDAD_CONTRATACION,
+  TEXTO_CASILLA_PRIVACIDAD,
 } from './contratacion.js';
 
 assert.equal(edadDesdeFechaNacimiento('2000-01-15', new Date('2026-09-21')), 26);
@@ -145,13 +148,7 @@ assert.equal(decisionNo.estado, 'no_califica');
 const decisionPerfil = decidirEstadoPostulacion({ evaluacion: perfecta, perfilOk: false });
 assert.equal(decisionPerfil.estado, 'no_califica');
 
-import {
-  validarAceptacionPrivacidad,
-  AVISO_PRIVACIDAD_CONTRATACION,
-  TEXTO_CASILLA_PRIVACIDAD,
-} from './contratacion.js';
-
-assert.ok(AVISO_PRIVACIDAD_CONTRATACION.includes('no serán vendidos') || AVISO_PRIVACIDAD_CONTRATACION.includes('no serán'));
+assert.ok(AVISO_PRIVACIDAD_CONTRATACION.toLowerCase().includes('no serán') || AVISO_PRIVACIDAD_CONTRATACION.toLowerCase().includes('no seran'));
 assert.ok(TEXTO_CASILLA_PRIVACIDAD.includes('aviso de privacidad'));
 assert.equal(validarAceptacionPrivacidad({ acepta_privacidad: false }).ok, false);
 assert.equal(validarAceptacionPrivacidad({ acepta_privacidad: true }).ok, true);
