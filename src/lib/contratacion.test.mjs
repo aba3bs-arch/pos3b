@@ -145,4 +145,15 @@ assert.equal(decisionNo.estado, 'no_califica');
 const decisionPerfil = decidirEstadoPostulacion({ evaluacion: perfecta, perfilOk: false });
 assert.equal(decisionPerfil.estado, 'no_califica');
 
+import {
+  validarAceptacionPrivacidad,
+  AVISO_PRIVACIDAD_CONTRATACION,
+  TEXTO_CASILLA_PRIVACIDAD,
+} from './contratacion.js';
+
+assert.ok(AVISO_PRIVACIDAD_CONTRATACION.includes('no serán vendidos') || AVISO_PRIVACIDAD_CONTRATACION.includes('no serán'));
+assert.ok(TEXTO_CASILLA_PRIVACIDAD.includes('aviso de privacidad'));
+assert.equal(validarAceptacionPrivacidad({ acepta_privacidad: false }).ok, false);
+assert.equal(validarAceptacionPrivacidad({ acepta_privacidad: true }).ok, true);
+
 console.log('contratacion.test.mjs OK');

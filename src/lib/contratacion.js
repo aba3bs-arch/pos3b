@@ -92,7 +92,29 @@ export const FORM_CONTRATACION_VACIO = {
     permiso_padres: null,
   },
   evaluacion_respuestas: {},
+  acepta_privacidad: false,
 };
+
+/** Aviso de privacidad del portal de postulación (LFPDPPP — uso interno RH). */
+export const AVISO_PRIVACIDAD_CONTRATACION = [
+  'Los datos personales que proporciones (nombre, teléfono, dirección, foto, perfil laboral y evaluación) se usarán únicamente para evaluar tu postulación de empleo y, en su caso, contactarte.',
+  'Tus datos no serán vendidos, rentados ni divulgados a terceros ajenos al proceso de contratación. Solo personal autorizado de la empresa podrá consultarlos.',
+  'Conservaremos la información el tiempo necesario para el proceso de selección y requisitos laborales aplicables. Puedes solicitar acceso, corrección o cancelación de tus datos contactando a la empresa.',
+  'Al marcar la casilla de aceptación, confirms que leíste este aviso y autorizas el tratamiento descrito.',
+].join(' ');
+
+export const TEXTO_CASILLA_PRIVACIDAD =
+  'He leído el aviso de privacidad y acepto compartir mi información con la empresa para el proceso de contratación. Entiendo que mis datos no serán divulgados a terceros ajenos a ese proceso.';
+
+export function validarAceptacionPrivacidad(form) {
+  if (form?.acepta_privacidad !== true) {
+    return {
+      ok: false,
+      error: 'Debes aceptar el aviso de privacidad para continuar con tu postulación.',
+    };
+  }
+  return { ok: true };
+}
 
 /**
  * Perfil laboral del negocio — checklist que el aspirante debe cumplir.
@@ -699,6 +721,9 @@ export function validarRespuestasEvaluacion(respuestas) {
 }
 
 function payloadDesdeForm(form, opts = {}) {
+  const priv = validarAceptacionPrivacidad(form);
+  if (!priv.ok) return priv;
+
   const val = validarFormularioContratacion(form);
   if (!val.ok) return { ok: false, error: val.error };
 
@@ -729,6 +754,8 @@ function payloadDesdeForm(form, opts = {}) {
     cumple: perfilOk,
     fallos: perfilCheck.fallos || [],
   };
+
+  const aceptadaAt = form.privacidad_aceptada_at || new Date().toISOString();
 
   return {
     ok: true,
@@ -767,6 +794,9 @@ function payloadDesdeForm(form, opts = {}) {
       evaluacion,
       evaluacion_pct: evaluacion.score_pct,
       evaluacion_califica: evaluacion.califica,
+      acepta_privacidad: true,
+      privacidad_aceptada_at: aceptadaAt,
+      privacidad_version: 'contratacion-v1',
       notas_admin: decision.motivo || null,
       asignado_a_id: null,
       asignado_a_nombre: 'Admin principal',

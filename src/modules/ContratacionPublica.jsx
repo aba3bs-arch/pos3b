@@ -12,10 +12,13 @@ import {
   FORM_CONTRATACION_VACIO,
   GRADOS_ESTUDIOS,
   NOTA_HONESTIDAD_EVALUACION,
+  AVISO_PRIVACIDAD_CONTRATACION,
+  TEXTO_CASILLA_PRIVACIDAD,
   TIPOS_CONTRATACION,
   edadEfectivaAspirante,
   enviarSolicitudContratacion,
   opcionesSucursalesContratacion,
+  validarAceptacionPrivacidad,
   validarFiltroTipoEdad,
   validarFotoAspirante,
   validarFormularioContratacion,
@@ -74,7 +77,17 @@ export default function ContratacionPublica({ supabase }) {
       setError(r.error);
       return;
     }
+    const priv = validarAceptacionPrivacidad(form);
+    if (!priv.ok) {
+      setError(priv.error);
+      return;
+    }
     if (r.edad != null) setCampo('edad', r.edad);
+    setForm((f) => ({
+      ...f,
+      edad: r.edad != null ? r.edad : f.edad,
+      privacidad_aceptada_at: f.privacidad_aceptada_at || new Date().toISOString(),
+    }));
     setPaso(2);
   };
 
@@ -259,9 +272,54 @@ export default function ContratacionPublica({ supabase }) {
             </div>
           )}
 
+          <aside
+            style={{
+              padding: '0.75rem',
+              borderRadius: 8,
+              background: 'var(--bg-muted, #f8fafc)',
+              border: '1px solid var(--border, #ddd)',
+              fontSize: '0.8rem',
+              lineHeight: 1.45,
+            }}
+          >
+            <strong style={{ display: 'block', marginBottom: '0.35rem' }}>Aviso de privacidad</strong>
+            <p className="muted" style={{ margin: 0 }}>{AVISO_PRIVACIDAD_CONTRATACION}</p>
+          </aside>
+
+          <label
+            style={{
+              display: 'flex',
+              gap: '0.55rem',
+              alignItems: 'flex-start',
+              fontSize: '0.85rem',
+              lineHeight: 1.4,
+              cursor: 'pointer',
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={form.acepta_privacidad === true}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setForm((f) => ({
+                  ...f,
+                  acepta_privacidad: on,
+                  privacidad_aceptada_at: on ? (f.privacidad_aceptada_at || new Date().toISOString()) : null,
+                }));
+              }}
+              style={{ marginTop: '0.2rem', flexShrink: 0 }}
+            />
+            <span>{TEXTO_CASILLA_PRIVACIDAD}</span>
+          </label>
+
           {error && <p style={{ color: 'var(--danger, #b91c1c)', margin: 0, fontSize: '0.9rem' }}>{error}</p>}
 
-          <button type="button" className="btn btn-gold" disabled={!form.tipo} onClick={continuarFiltro}>
+          <button
+            type="button"
+            className="btn btn-gold"
+            disabled={!form.tipo || form.acepta_privacidad !== true}
+            onClick={continuarFiltro}
+          >
             Continuar
           </button>
         </section>
