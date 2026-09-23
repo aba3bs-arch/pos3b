@@ -752,6 +752,20 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
             Así aparece en <strong>Usuarios</strong> y <strong>nómina</strong>.
             Si es un reingreso, cancela y usa <strong>Cómo reingresar</strong>.
           </p>
+          {/Origen contratación/i.test(String(form.notas || '')) && (
+            <p
+              style={{
+                margin: '0 0 0.75rem',
+                padding: '0.55rem 0.7rem',
+                borderRadius: 8,
+                background: 'rgba(21,128,61,0.1)',
+                border: '1px solid rgba(21,128,61,0.35)',
+                fontSize: '0.85rem',
+              }}
+            >
+              Datos precargados desde <strong>Contratación</strong>. Revisa tienda/tipo, asigna <strong>PIN</strong> y completa RFC/NSS/banco si aplica.
+            </p>
+          )}
           <FormularioRh
             form={form}
             setForm={setForm}
