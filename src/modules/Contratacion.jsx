@@ -3,9 +3,11 @@ import Icon from '../components/Icon.jsx';
 import { esAdministradorPrincipal } from '../lib/adminPrincipal.js';
 import {
   AVISO_FALTA_CONTRATACION,
+  DOC_EVALUACION_CONTRATACION,
   ESTADOS_CONTRATACION,
   TIPOS_CONTRATACION,
   agregarSeguimientoContratacion,
+  enviarABolsaDeTrabajo,
   etiquetaEstadoContratacion,
   etiquetaTipoContratacion,
   listarAdminsParaRedirigir,
@@ -100,6 +102,20 @@ export default function Contratacion({ supabase, user, onNavigate }) {
       if (!res.ok) return alert(res.error);
       setNota('');
       setAdminDestinoId('');
+      await cargar();
+      if (res.solicitud) setSel(res.solicitud);
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const aBolsa = async () => {
+    if (!sel) return;
+    setGuardando(true);
+    try {
+      const res = await enviarABolsaDeTrabajo(supabase, sel, user, nota || 'Enviado a bolsa de trabajo');
+      if (!res.ok) return alert(res.error);
+      setNota('');
       await cargar();
       if (res.solicitud) setSel(res.solicitud);
     } finally {
@@ -213,6 +229,7 @@ export default function Contratacion({ supabase, user, onNavigate }) {
                 <span className="muted" style={{ fontSize: '0.78rem' }}>
                   {etiquetaTipoContratacion(row.tipo)} · {etiquetaEstadoContratacion(row.estado)}
                   {row.edad != null ? ` · ${row.edad} años` : ''}
+                  {row.evaluacion_pct != null ? ` · ${row.evaluacion_pct}%` : ''}
                 </span>
               </button>
             );
@@ -224,11 +241,30 @@ export default function Contratacion({ supabase, user, onNavigate }) {
             <p className="muted">Selecciona una postulación.</p>
           ) : (
             <div style={{ display: 'grid', gap: '0.55rem' }}>
-              <h3 style={{ margin: 0 }}>{nombreCompletoAspirante(sel)}</h3>
-              <p className="muted" style={{ margin: 0, fontSize: '0.85rem' }}>
-                {etiquetaTipoContratacion(sel.tipo)} · {etiquetaEstadoContratacion(sel.estado)}
-                {sel.asignado_a_nombre ? ` · Asignado: ${sel.asignado_a_nombre}` : ''}
-              </p>
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+                {sel.foto_url ? (
+                  <img
+                    src={sel.foto_url}
+                    alt=""
+                    width={72}
+                    height={96}
+                    style={{
+                      objectFit: 'cover',
+                      borderRadius: 8,
+                      border: '1px solid var(--border, #ddd)',
+                      flexShrink: 0,
+                      background: '#f3f4f6',
+                    }}
+                  />
+                ) : null}
+                <div style={{ minWidth: 0 }}>
+                  <h3 style={{ margin: 0 }}>{nombreCompletoAspirante(sel)}</h3>
+                  <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
+                    {etiquetaTipoContratacion(sel.tipo)} · {etiquetaEstadoContratacion(sel.estado)}
+                    {sel.asignado_a_nombre ? ` · Asignado: ${sel.asignado_a_nombre}` : ''}
+                  </p>
+                </div>
+              </div>
 
               <dl style={{ margin: 0, display: 'grid', gap: '0.35rem', fontSize: '0.88rem' }}>
                 <div><strong>Tel:</strong> {sel.telefono}{sel.telefono_alt ? ` / ${sel.telefono_alt}` : ''}</div>
@@ -252,6 +288,55 @@ export default function Contratacion({ supabase, user, onNavigate }) {
                 {sel.referencias && <div><strong>Referencias:</strong> {sel.referencias}</div>}
                 {sel.curp && <div><strong>CURP:</strong> {sel.curp}</div>}
               </dl>
+
+              {(sel.evaluacion_pct != null || sel.evaluacion) && (
+                <div
+                  style={{
+                    padding: '0.65rem',
+                    borderRadius: 8,
+                    background: sel.evaluacion_califica ? 'rgba(34,197,94,0.08)' : 'rgba(185,28,28,0.06)',
+                    border: '1px solid var(--border, #eee)',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <strong>{DOC_EVALUACION_CONTRATACION}:</strong>{' '}
+                  {sel.evaluacion_pct != null ? `${sel.evaluacion_pct}%` : '—'}
+                  {' · '}
+                  {sel.evaluacion_califica ? 'Califica' : 'No califica'}
+                  {sel.evaluacion?.primeras5_todas_mal ? ' · primeras 5 mal' : ''}
+                  {sel.evaluacion?.primeras5_correctas != null
+                    ? ` · primeras 5: ${sel.evaluacion.primeras5_correctas}/5`
+                    : ''}
+                  {sel.evaluacion?.motivo ? (
+                    <div className="muted" style={{ marginTop: '0.25rem', fontSize: '0.8rem' }}>{sel.evaluacion.motivo}</div>
+                  ) : null}
+                </div>
+              )}
+
+              {sel.perfil_laboral && typeof sel.perfil_laboral === 'object' && (
+                <div style={{ fontSize: '0.85rem' }}>
+                  <strong>Perfil laboral:</strong>{' '}
+                  {sel.perfil_laboral.cumple === false
+                    ? `No cumple${Array.isArray(sel.perfil_laboral.fallos) && sel.perfil_laboral.fallos[0] ? ` — ${sel.perfil_laboral.fallos[0]}` : ''}`
+                    : sel.perfil_laboral.cumple
+                      ? 'Cumple'
+                      : '—'}
+                  <ul style={{ margin: '0.35rem 0 0', paddingLeft: '1.1rem', fontSize: '0.8rem' }} className="muted">
+                    <li>Horario: {sel.perfil_laboral.disponibilidad_horario ? 'sí' : 'no'}</li>
+                    <li>Celular: {sel.perfil_laboral.tiene_celular ? 'sí' : 'no'}</li>
+                    <li>Casado(a): {sel.perfil_laboral.casado ? 'sí' : 'no'}
+                      {sel.perfil_laboral.casado ? ` · deberes OK: ${sel.perfil_laboral.deberes_permiten_turno ? 'sí' : 'no'}` : ''}
+                    </li>
+                    <li>Sin drogas: {sel.perfil_laboral.sin_drogas ? 'sí' : 'no'}</li>
+                    <li>Sin juego: {sel.perfil_laboral.sin_vicio_juego ? 'sí' : 'no'}</li>
+                    <li>Fin de semana: {sel.perfil_laboral.dispuesto_fin_semana ? 'sí' : 'no'}</li>
+                    <li>Computadora: {sel.perfil_laboral.sabe_computadora ? 'sí' : 'no'}</li>
+                    {sel.perfil_laboral.permiso_padres != null && (
+                      <li>Permiso padres: {sel.perfil_laboral.permiso_padres ? 'sí' : 'no'}</li>
+                    )}
+                  </ul>
+                </div>
+              )}
 
               {Array.isArray(sel.seguimiento) && sel.seguimiento.length > 0 && (
                 <div>
@@ -283,6 +368,15 @@ export default function Contratacion({ supabase, user, onNavigate }) {
                 <button type="button" className="btn btn-gold btn-sm" disabled={guardando} onClick={() => void guardarSeguimiento()}>
                   Guardar seguimiento
                 </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled={guardando || sel.estado === 'bolsa_de_trabajo'}
+                  title={sel.evaluacion_califica === false ? 'Solo si la evaluación califica' : 'Prospecto calificado'}
+                  onClick={() => void aBolsa()}
+                >
+                  Bolsa de trabajo
+                </button>
                 <button type="button" className="btn btn-ghost btn-sm" disabled={guardando} onClick={() => void guardarSeguimiento('entrevista')}>
                   Marcar entrevista
                 </button>
@@ -291,6 +385,9 @@ export default function Contratacion({ supabase, user, onNavigate }) {
                 </button>
                 <button type="button" className="btn btn-ghost btn-sm" disabled={guardando} onClick={() => void guardarSeguimiento('rechazada')}>
                   Rechazar
+                </button>
+                <button type="button" className="btn btn-ghost btn-sm" disabled={guardando} onClick={() => void guardarSeguimiento('no_califica')}>
+                  No califica
                 </button>
                 {typeof onNavigate === 'function' && (
                   <button
