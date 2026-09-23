@@ -198,6 +198,7 @@ function App() {
   const [productosNotasTraspaso, setProductosNotasTraspaso] = useState(null);
   const [productosTraspasoIdInicial, setProductosTraspasoIdInicial] = useState(null);
   const [comprasCompraIdInicial, setComprasCompraIdInicial] = useState(null);
+  const [rhAltaInicial, setRhAltaInicial] = useState(null);
   const [sucursal, setSucursal] = useState(sucursalInicial);
   const [tiendaFijadaParaAcceso, setTiendaFijadaParaAcceso] = useState(() => {
     if (CAJA_FISICA_FIJA_ENV) return true;
@@ -617,6 +618,9 @@ function App() {
       if (m === 'Vales y Préstamos' && (opts.pestana || opts.retorno)) {
         setValesNavOpts({ pestana: opts.pestana || null, retorno: opts.retorno || null });
         if (opts.retorno) setValesRetornoModulo(opts.retorno);
+      }
+      if (m === 'RH ABA3B' && opts.alta) {
+        setRhAltaInicial(opts.alta);
       }
       setVista(m);
       setSidebarOpen(false);
@@ -1701,13 +1705,19 @@ function App() {
           {vista === 'RH ABA3B' && (
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
-              <RhAba3b supabase={supabase} user={user} sucursal={sucursal} />
+              <RhAba3b
+                supabase={supabase}
+                user={user}
+                sucursal={sucursal}
+                altaInicial={rhAltaInicial}
+                onAltaInicialConsumida={() => setRhAltaInicial(null)}
+              />
             </>
           )}
           {vista === 'Contratación' && (
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
-              <Contratacion supabase={supabase} user={user} />
+              <Contratacion supabase={supabase} user={user} onNavigate={irAModulo} />
             </>
           )}
           {vista === 'Vales y Préstamos' && (

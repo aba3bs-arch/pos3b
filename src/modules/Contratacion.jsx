@@ -16,13 +16,14 @@ import {
   sucursalesInteresLabels,
   urlPortalContratacion,
   urlQrContratacion,
+  formRhDesdeSolicitudContratacion,
 } from '../lib/contratacion.js';
 
 /**
  * Bandeja de contratación: admin principal ve todo;
  * otros admins solo lo que les redirigieron.
  */
-export default function Contratacion({ supabase, user }) {
+export default function Contratacion({ supabase, user, onNavigate }) {
   const esPrincipal = esAdministradorPrincipal(user);
   const puede = puedeGestionarContratacion(user);
   const [lista, setLista] = useState([]);
@@ -291,6 +292,27 @@ export default function Contratacion({ supabase, user }) {
                 <button type="button" className="btn btn-ghost btn-sm" disabled={guardando} onClick={() => void guardarSeguimiento('rechazada')}>
                   Rechazar
                 </button>
+                {typeof onNavigate === 'function' && (
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-sm"
+                    disabled={guardando}
+                    title="Abre RH ABA3B → Alta de empleado con los datos de esta solicitud"
+                    onClick={() => {
+                      const alta = formRhDesdeSolicitudContratacion(sel);
+                      if (!alta?.nombre) return alert('La solicitud no tiene nombre para el alta.');
+                      if (sel.estado !== 'aceptada') {
+                        const ok = confirm(
+                          'Esta solicitud aún no está marcada como aceptada.\n\n¿Abrir igual el alta en RH ABA3B con estos datos?',
+                        );
+                        if (!ok) return;
+                      }
+                      onNavigate('RH ABA3B', { alta });
+                    }}
+                  >
+                    Dar de alta en RH ABA3B
+                  </button>
+                )}
               </div>
 
               {esPrincipal && (

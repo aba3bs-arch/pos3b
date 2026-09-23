@@ -97,7 +97,7 @@ function fmtFechaHora(iso) {
   }
 }
 
-export default function RhAba3b({ supabase, user, sucursal }) {
+export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, onAltaInicialConsumida }) {
   const puede = puedeGestionarRh(user);
   const esSoloAdmin = puedeGestionarUsuarios(user?.rol) || normalizarRol(user?.rol) === 'Administrador';
   const [pestana, setPestana] = useState('activos');
@@ -151,6 +151,34 @@ export default function RhAba3b({ supabase, user, sucursal }) {
   useEffect(() => {
     void cargarListas();
   }, [cargarListas]);
+
+  // Prefill desde Contratación → «Dar de alta en RH ABA3B»
+  useEffect(() => {
+    if (!altaInicial || typeof altaInicial !== 'object') return undefined;
+    const baseSuc = sucursal && sucursal !== 'MAIN' ? sucursal : (listarSucursalesOperativas()[0] || '');
+    setMsg('');
+    setVista('alta');
+    setSeleccionadoId(null);
+    setEmpleado(null);
+    setForm({
+      ...FORM_VACIO,
+      sucursal_id: baseSuc,
+      fecha_alta: new Date().toISOString().slice(0, 10),
+      ...altaInicial,
+      sucursal_id:
+        altaInicial.tipo_empleado === 'cubre_turno'
+          ? ''
+          : (altaInicial.sucursal_id || baseSuc),
+      ct_sucursales: Array.isArray(altaInicial.ct_sucursales) && altaInicial.ct_sucursales.length
+        ? altaInicial.ct_sucursales
+        : listarSucursalesOperativas(),
+      ct_dias: Array.isArray(altaInicial.ct_dias) && altaInicial.ct_dias.length
+        ? altaInicial.ct_dias
+        : [...TODOS_DIAS_CT],
+    });
+    if (typeof onAltaInicialConsumida === 'function') onAltaInicialConsumida();
+    return undefined;
+  }, [altaInicial, onAltaInicialConsumida, sucursal]);
 
   const abrirDetalle = async (id) => {
     setMsg('');
@@ -724,6 +752,20 @@ export default function RhAba3b({ supabase, user, sucursal }) {
             Así aparece en <strong>Usuarios</strong> y <strong>nómina</strong>.
             Si es un reingreso, cancela y usa <strong>Cómo reingresar</strong>.
           </p>
+          {/Origen contratación/i.test(String(form.notas || '')) && (
+            <p
+              style={{
+                margin: '0 0 0.75rem',
+                padding: '0.55rem 0.7rem',
+                borderRadius: 8,
+                background: 'rgba(21,128,61,0.1)',
+                border: '1px solid rgba(21,128,61,0.35)',
+                fontSize: '0.85rem',
+              }}
+            >
+              Datos precargados desde <strong>Contratación</strong>. Revisa tienda/tipo, asigna <strong>PIN</strong> y completa RFC/NSS/banco si aplica.
+            </p>
+          )}
           <FormularioRh
             form={form}
             setForm={setForm}
