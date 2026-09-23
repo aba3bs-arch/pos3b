@@ -51,12 +51,4 @@ values
     '{"minutos_antes":30,"minutos_despues_fin":30}'::jsonb,
     now()
   )
-on conflict (sucursal_id) do update set
-  tipo_horario = excluded.tipo_horario,
-  subtipo = excluded.subtipo,
-  inicio = excluded.inicio,
-  turnos = excluded.turnos,
-  tolerancia = excluded.tolerancia,
-  updated_at = excluded.updated_at
-where public.pos_turnos_config.updated_at < excluded.updated_at
-   or public.pos_turnos_config.turnos is distinct from excluded.turnos;
+on conflict (sucursal_id) do nothing;

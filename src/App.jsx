@@ -501,6 +501,8 @@ function App() {
     sincronizarPinsCubreTurnoDesdeNube(supabase, sucursal).then((r) => {
       if (r.cambio) setTickCubreTurno((n) => n + 1);
     });
+    // Antes del login: bajar horarios/tolerancia para no usar cache viejo en la caja.
+    sincronizarTurnosDesdeNube(supabase, sucursal).catch(() => {});
   }, [supabase, sucursal]);
 
   useEffect(() => {
@@ -511,7 +513,7 @@ function App() {
     sincronizarTipoCambioDesdeNube(supabase);
     sincronizarVentanaRecoleccionDesdeNube(supabase, sucursal);
     sincronizarCandadoPostLiquidacionDesdeNube(supabase);
-    sincronizarTurnosDesdeNube(supabase, sucursal);
+    sincronizarTurnosDesdeNube(supabase, sucursal).catch(() => {});
     sincronizarHoraLimiteValeDesdeNube(supabase);
     sincronizarBonosConfigDesdeNube(supabase);
     sincronizarPinsCubreTurnoDesdeNube(supabase, sucursal).then((r) => {
@@ -522,6 +524,8 @@ function App() {
   useEffect(() => {
     if (!supabase) return undefined;
     const sync = () => {
+      // Turnos/tolerancia también sin sesión (cajeros bloqueados por horario).
+      sincronizarTurnosDesdeNube(supabase, sucursal).catch(() => {});
       if (sesion) {
         sincronizarPrivilegiosDesdeNube(supabase).then((r) => {
           if (r.cambio) setTickPrivilegios((n) => n + 1);
@@ -529,7 +533,6 @@ function App() {
         sincronizarTipoCambioDesdeNube(supabase);
         sincronizarVentanaRecoleccionDesdeNube(supabase, sucursal);
         sincronizarCandadoPostLiquidacionDesdeNube(supabase);
-        sincronizarTurnosDesdeNube(supabase, sucursal);
         sincronizarHoraLimiteValeDesdeNube(supabase);
         sincronizarBonosConfigDesdeNube(supabase);
       }
@@ -866,6 +869,19 @@ function App() {
       console.warn('Ejecuta supabase/fix_usuarios_sucursal.sql para ligar usuarios a sucursal.');
     }
     if (data) {
+      // Refresca horarios/tolerancia de esta tienda antes de validar ventana.
+      try {
+        await sincronizarTurnosDesdeNube(supabase, sucursal);
+      } catch {
+        /* no bloquear login */
+      }
+      // Autorización remota del panel admin (nube) → local.
+      try {
+        const { sincronizarAutorizacionFueraHorarioDesdeNube } = await import('./lib/autorizacionTurnoFueraHorario.js');
+        await sincronizarAutorizacionFueraHorarioDesdeNube(supabase, data.id, sucursal);
+      } catch {
+        /* tabla opcional */
+      }
       const accesoTurno = usuarioAutorizadoLogin(data, new Date(), null, sucursal);
       if (!accesoTurno.ok) {
         setPendienteAutorizacionTurno({ user: data, error: accesoTurno.error, ajustarSucursal });
@@ -927,6 +943,17 @@ function App() {
         alert(error || 'Usuario no encontrado. Entra con PIN.');
         return;
       }
+      try {
+        await sincronizarTurnosDesdeNube(supabase, sucursal);
+      } catch {
+        /* no bloquear */
+      }
+      try {
+        const { sincronizarAutorizacionFueraHorarioDesdeNube } = await import('./lib/autorizacionTurnoFueraHorario.js');
+        await sincronizarAutorizacionFueraHorarioDesdeNube(supabase, data.id, sucursal);
+      } catch {
+        /* opcional */
+      }
       const accesoTurno = usuarioAutorizadoLogin(data, new Date(), null, sucursal);
       if (!accesoTurno.ok) {
         setPendienteAutorizacionTurno({ user: data, error: accesoTurno.error, ajustarSucursal: false });
@@ -961,13 +988,17 @@ function App() {
     if (!p) return alert('Indica el PIN del administrador.');
     setAutorizandoTurno(true);
     const auth = await verificarPinAdministradorGlobal(supabase, p);
-    setAutorizandoTurno(false);
-    if (!auth.ok) return alert(auth.error);
-    otorgarAutorizacionFueraHorario({
+    if (!auth.ok) {
+      setAutorizandoTurno(false);
+      return alert(auth.error);
+    }
+    await otorgarAutorizacionFueraHorario({
       usuarioId: pendienteAutorizacionTurno.user.id,
       sucursal,
       admin: auth.user,
+      supabase,
     });
+    setAutorizandoTurno(false);
     await completarLogin(pendienteAutorizacionTurno.user, {
       ajustarSucursal: pendienteAutorizacionTurno.ajustarSucursal,
       autorizacionAdmin: true,

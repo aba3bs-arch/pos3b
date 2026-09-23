@@ -123,6 +123,11 @@ import {
   cargarTurnosTiendaDesdeNube,
 } from '../lib/turnosSync.js';
 import {
+  otorgarAutorizacionFueraHorario,
+  listarAutorizacionesFueraHorarioVigentes,
+  revocarAutorizacionFueraHorarioNube,
+} from '../lib/autorizacionTurnoFueraHorario.js';
+import {
   persistirPinCubreTurno,
   pinCubreTurnoActivo,
 } from '../lib/cubreTurno.js';
@@ -420,6 +425,10 @@ export default function Configuracion({
   const [configHorario, setConfigHorario] = useState(() => leerConfigHorario(turnosTienda));
   const [patronesRotacion, setPatronesRotacion] = useState(() => leerPatronesRotacion3(turnosTienda));
   const [usuariosTurno, setUsuariosTurno] = useState([]);
+  const [authFhLista, setAuthFhLista] = useState([]);
+  const [authFhAviso, setAuthFhAviso] = useState('');
+  const [authFhCargando, setAuthFhCargando] = useState(false);
+  const [authFhUsuarioId, setAuthFhUsuarioId] = useState('');
   const [nuevoTurnoForm, setNuevoTurnoForm] = useState({ nombre: '', hora_inicio: '08:00', hora_fin: '16:00' });
   const [filtroUsuariosTurno, setFiltroUsuariosTurno] = useState('');
   const [valesTiendas, setValesTiendas] = useState(() => leerTiendasValesPermitidas() || listarSucursalesParaUI());
@@ -545,6 +554,27 @@ export default function Configuracion({
   useEffect(() => {
     cargarUsuariosTurno();
   }, [cargarUsuariosTurno]);
+
+  const cargarAuthFh = useCallback(async () => {
+    if (!supabase || !puedeAsignarTurnoEmpleados) {
+      setAuthFhLista([]);
+      return;
+    }
+    setAuthFhCargando(true);
+    const res = await listarAutorizacionesFueraHorarioVigentes(supabase, { sucursal: turnosTienda });
+    setAuthFhCargando(false);
+    if (res.aviso) setAuthFhAviso(res.aviso);
+    else setAuthFhAviso('');
+    if (!res.ok && res.error) {
+      setAuthFhLista([]);
+      return;
+    }
+    setAuthFhLista(res.data || []);
+  }, [supabase, turnosTienda, puedeAsignarTurnoEmpleados]);
+
+  useEffect(() => {
+    cargarAuthFh();
+  }, [cargarAuthFh]);
 
   const persistirTurnos = async (lista, opts = {}) => {
     const invalido = (lista || []).find((t) => !normalizarHora(t.hora_inicio) || !normalizarHora(t.hora_fin));
@@ -3016,7 +3046,8 @@ export default function Configuracion({
             Solo afecta cuándo puede <strong>entrar al POS</strong>: unos minutos antes de la entrada o después de la salida.
             La <strong>entrega de turno / corte</strong> ya no se cierra por este reloj: el turno saliente queda pendiente
             hasta que se registre el corte (el cajero entrante o un gerente pueden cerrarlo aunque el relevo llegue tarde).
-            Si el cajero no puede entrar, un <strong>administrador</strong> autoriza con PIN en el login (válido 8 h en esa tienda).
+            Si el cajero no puede entrar, un <strong>administrador o gerente</strong> autoriza con PIN en el login
+            o desde este panel (válido 8 h en esa tienda, en todas las cajas).
           </p>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-end' }}>
             <label className="muted">
@@ -3049,10 +3080,27 @@ export default function Configuracion({
               <button
                 type="button"
                 className="btn btn-gold"
-                onClick={() => {
-                  guardarToleranciaTurnos(toleranciaTurnos, turnosTienda);
+                disabled={turnosGuardandoNube}
+                onClick={async () => {
+                  const guardada = guardarToleranciaTurnos(toleranciaTurnos, turnosTienda);
                   setToleranciaTurnos(leerToleranciaTurnos(turnosTienda));
-                  alert(`Tolerancia guardada para ${etiquetaTienda(turnosTienda)}. Inclúyela al sincronizar horarios.`);
+                  setTurnosGuardandoNube(true);
+                  const destinos = (turnosTiendasSel.length ? turnosTiendasSel : [turnosTienda])
+                    .map((t) => String(t || '').trim())
+                    .filter(Boolean);
+                  const up = await aplicarTurnosATiendas(supabase, {
+                    paquete: { ...leerPaqueteTurnos(turnosTienda), tolerancia: guardada },
+                    tiendas: destinos,
+                    tiendaActiva: turnosTienda,
+                  });
+                  setTurnosGuardandoNube(false);
+                  if (!up.ok) {
+                    alert(`Tolerancia guardada solo en este equipo.\nNube: ${up.error || 'error'}\nInclúyela al sincronizar horarios.`);
+                    return;
+                  }
+                  alert(
+                    `Tolerancia guardada y subida a la nube para: ${destinos.map(etiquetaTienda).join(', ')}.\nLas cajas la toman al abrir el login (máx. ~1 min).`,
+                  );
                 }}
               >
                 Guardar tolerancia
@@ -3063,9 +3111,111 @@ export default function Configuracion({
             <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.78rem' }}>
               Ejemplo {nombreTurnoLegible(turnoEnCurso)}: ventana de login{' '}
               <strong>{turnoConTolerancia(turnoEnCurso, toleranciaTurnos)?.hora_inicio}–{turnoConTolerancia(turnoEnCurso, toleranciaTurnos)?.hora_fin}</strong>
+              {' '}(incluye el minuto final).
             </p>
           )}
         </div>
+
+        {puedeAsignarTurnoEmpleados && (
+          <div style={{ marginTop: '1rem', padding: '0.85rem', borderRadius: '10px', background: 'rgba(192,57,43,0.05)', border: '1px solid rgba(192,57,43,0.25)' }}>
+            <strong style={{ color: '#c0392b' }}>Autorizar entrada fuera de horario</strong>
+            <p className="muted" style={{ margin: '0.35rem 0 0.75rem', fontSize: '0.82rem' }}>
+              Desde MAIN (o aquí): elige cajero de <strong>{etiquetaTienda(turnosTienda)}</strong> y autoriza 8 h.
+              Así no hace falta ir a la caja a meter el PIN. El cajero solo vuelve a poner su PIN en el login.
+            </p>
+            {authFhAviso ? (
+              <p style={{ color: '#c0392b', fontSize: '0.8rem', margin: '0 0 0.5rem' }}>{authFhAviso}</p>
+            ) : null}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
+              <label className="muted" style={{ flex: '1 1 220px' }}>
+                Cajero / repartidor
+                <select
+                  className="select"
+                  style={{ display: 'block', marginTop: '0.3rem', width: '100%' }}
+                  value={authFhUsuarioId}
+                  onChange={(e) => setAuthFhUsuarioId(e.target.value)}
+                >
+                  <option value="">— Elegir —</option>
+                  {(usuariosTurno || [])
+                    .filter((u) => {
+                      const rol = normalizarRol(u.rol);
+                      if (rol !== 'Cajero' && rol !== 'Repartidor') return false;
+                      const suc = String(u.sucursal_id || '').toUpperCase();
+                      return !suc || suc === String(turnosTienda).toUpperCase() || suc === 'MAIN';
+                    })
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.nombre} · {u.rol}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="btn btn-gold"
+                disabled={!authFhUsuarioId || authFhCargando}
+                onClick={async () => {
+                  const u = (usuariosTurno || []).find((x) => String(x.id) === String(authFhUsuarioId));
+                  if (!u) return alert('Elige un empleado.');
+                  if (!confirm(`¿Autorizar a ${u.nombre} a entrar en ${etiquetaTienda(turnosTienda)} fuera de horario por 8 horas?`)) return;
+                  const res = await otorgarAutorizacionFueraHorario({
+                    usuarioId: u.id,
+                    sucursal: turnosTienda,
+                    admin: user,
+                    supabase,
+                  });
+                  if (!res) return alert('No se pudo otorgar.');
+                  setAuthFhUsuarioId('');
+                  await cargarAuthFh();
+                  alert(`Autorizado. ${u.nombre} ya puede entrar en ${etiquetaTienda(turnosTienda)} hasta que expire (8 h).`);
+                }}
+              >
+                Autorizar 8 h
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={() => cargarAuthFh()} disabled={authFhCargando}>
+                Actualizar
+              </button>
+            </div>
+            {authFhCargando && <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.8rem' }}>Cargando…</p>}
+            {!authFhCargando && authFhLista.length === 0 && !authFhAviso && (
+              <p className="muted" style={{ marginTop: '0.5rem', fontSize: '0.8rem' }}>No hay autorizaciones vigentes en esta tienda.</p>
+            )}
+            {authFhLista.length > 0 && (
+              <ul style={{ margin: '0.65rem 0 0', paddingLeft: '1.1rem', fontSize: '0.82rem' }}>
+                {authFhLista.map((a) => {
+                  const nom = (usuariosTurno || []).find((u) => String(u.id) === String(a.usuario_id))?.nombre || a.usuario_id;
+                  const exp = a.expira_en ? new Date(a.expira_en) : null;
+                  const restante = exp ? Math.max(0, exp.getTime() - Date.now()) : 0;
+                  const h = Math.floor(restante / 3600000);
+                  const m = Math.floor((restante % 3600000) / 60000);
+                  return (
+                    <li key={`${a.usuario_id}|${a.sucursal_id}`} style={{ marginBottom: '0.35rem' }}>
+                      <strong>{nom}</strong>
+                      {' · por '}
+                      {a.admin_nombre || 'admin'}
+                      {' · queda '}
+                      {h > 0 ? `${h} h ${m} min` : `${m} min`}
+                      {' '}
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ padding: '0.1rem 0.35rem', color: 'var(--danger)', fontSize: '0.75rem' }}
+                        onClick={async () => {
+                          if (!confirm(`¿Revocar autorización de ${nom}?`)) return;
+                          const r = await revocarAutorizacionFueraHorarioNube(supabase, a.usuario_id, a.sucursal_id);
+                          if (!r.ok) return alert(r.error);
+                          await cargarAuthFh();
+                        }}
+                      >
+                        Revocar
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
 
         <div style={{ marginTop: '1rem', padding: '0.85rem', borderRadius: '10px', background: 'var(--surface)', border: '1px solid var(--border)' }}>
           <label className="muted" style={{ display: 'block', fontWeight: 600, marginBottom: '0.5rem' }}>

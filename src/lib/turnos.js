@@ -621,7 +621,9 @@ export function turnoConTolerancia(turno, tolerancia = null) {
 /** ¿Puede el empleado entrar ahora según su turno asignado (con tolerancia)? */
 export function horaEnVentanaLogin(turno, date = new Date(), tolerancia = null) {
   const t = turnoConTolerancia(turno, tolerancia);
-  return t ? horaEnTurno(t, date) : false;
+  if (!t) return false;
+  // Fin inclusive: «30 min después de 19:00» incluye 19:30 (no solo hasta 19:29).
+  return horaEnTurno(t, date, { finInclusive: true });
 }
 
 export function etiquetaVentanaLogin(turno, tolerancia = null) {
@@ -631,7 +633,8 @@ export function etiquetaVentanaLogin(turno, tolerancia = null) {
 }
 
 /** ¿La hora (Nogales, Sonora) cae en este turno? (soporta turno nocturno que cruza medianoche) */
-export function horaEnTurno(turno, date = new Date()) {
+export function horaEnTurno(turno, date = new Date(), opts = {}) {
+  const finInclusive = opts.finInclusive === true;
   let now;
   try {
     const parts = new Intl.DateTimeFormat('en-US', {
@@ -649,8 +652,9 @@ export function horaEnTurno(turno, date = new Date()) {
   const ini = minutosDesdeMedianoche(turno.hora_inicio);
   const fin = minutosDesdeMedianoche(turno.hora_fin);
   if (ini === fin) return true;
-  if (ini < fin) return now >= ini && now < fin;
-  return now >= ini || now < fin;
+  const enFin = finInclusive ? now <= fin : now < fin;
+  if (ini < fin) return now >= ini && enFin;
+  return now >= ini || enFin;
 }
 
 export function turnoActual(turnos = null, date = new Date()) {
