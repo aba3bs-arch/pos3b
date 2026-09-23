@@ -358,7 +358,10 @@ export default function Recolecciones({ supabase, sucursal, user }) {
     });
     setGuardando(false);
     if (!res.ok) return alert(res.error);
-    alert(`✅ Cobrados ${res.count} folio(s) por ${fmtMonto(res.total)}.`);
+    alert(
+      `✅ Cobrados ${res.count} folio(s) por ${fmtMonto(res.total)}.\n`
+      + 'Quedaron en tránsito con el recolector y se cargó gasto «CREDITO · COBRADO» al corte de Abarrotes.',
+    );
     setPinCobro('');
     cargarPendientes();
   };
@@ -669,6 +672,10 @@ export default function Recolecciones({ supabase, sucursal, user }) {
       {tab === 'cobro' && (
         <div className="card">
           <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Cobrar crédito por tienda</h3>
+          <p className="muted" style={{ margin: '0 0 0.85rem', fontSize: '0.85rem' }}>
+            Al cobrar, el efectivo pasa a tránsito con el recolector y el monto se registra como gasto
+            {' '}<strong>CREDITO · COBRADO</strong> en el corte de Abarrotes de la tienda.
+          </p>
 
           <label className="muted" style={{ display: 'block' }}>
             Tienda a cobrar
