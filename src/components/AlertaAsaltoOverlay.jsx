@@ -159,7 +159,7 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
     : null;
 
   return (
-    <PortalFlotante zIndex={10050}>
+    <PortalFlotante>
       <div
         role="alertdialog"
         aria-modal="true"
