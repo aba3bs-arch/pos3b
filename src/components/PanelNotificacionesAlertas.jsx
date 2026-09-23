@@ -161,10 +161,15 @@ export default function PanelNotificacionesAlertas({ supabase, user, sucursal })
       </div>
 
       <div style={{ margin: '0 0 1rem', padding: '0.75rem', borderRadius: 8, background: 'rgba(192,57,43,0.08)', fontSize: '0.82rem' }}>
-        <strong>Cómo activarla en caja:</strong>
+        <strong>Cómo activarla en caja (situación real):</strong>
         <ul style={{ margin: '0.35rem 0 0', paddingLeft: '1.1rem' }}>
-          <li>Con sesión abierta, pulse <strong>{TECLAS_MIN_ASALTO} teclas a la vez</strong> (ej. A+S+D), o</li>
-          <li>Pulse <strong>Escape {ESC_TAPS_ASALTO} veces</strong> seguidas (en menos de 2.5 s).</li>
+          <li>
+            Con sesión abierta, aplaste <strong>cualesquiera {TECLAS_MIN_ASALTO} teclas a la vez</strong>
+            {' '}— no hay combinación que memorizar; las que salgan al azar.
+          </li>
+          <li>
+            Respaldo: pulse <strong>Escape {ESC_TAPS_ASALTO} veces</strong> seguidas (rápido).
+          </li>
           <li>Debe verse pantalla roja + sirena. Suba el volumen del dispositivo.</li>
         </ul>
       </div>

@@ -1700,7 +1700,8 @@ export default function Configuracion({
         </button>
         <p className="muted" style={{ margin: '1rem 0 0.35rem', fontSize: '0.85rem' }}>
           La alarma de asalto <strong>no</strong> se silencia con estas opciones (siempre suena).
-          Pruébela en <strong>Configuración → Notificaciones</strong> o con 3 teclas a la vez / Escape ×5.
+          Se activa con <strong>cualesquiera 3 teclas a la vez</strong> (al azar, sin memorizar)
+          o Escape ×5. También: <strong>Configuración → Notificaciones → Probar alarma</strong>.
         </p>
       </div>
       )}

@@ -457,7 +457,7 @@ function App() {
     };
   }, [sesion, user, supabase]);
 
-  // Alarma de asalto: ≥3 teclas a la vez, o Escape ×5.
+  // Alarma de asalto: cualesquiera ≥3 teclas a la vez (al azar), o Escape ×5.
   useEffect(() => {
     if (!sesion || !user || user.esCtMovil) return undefined;
     const detector = crearDetectorTeclasAsalto({
