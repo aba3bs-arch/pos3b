@@ -74,6 +74,7 @@ import {
   categoriasValeDesdeCatalogoIe,
   cargarCatalogoIeParaVales,
   esValeGasolina,
+  resolverDescuentaNominaVale,
   VALE_FORM_DEFAULTS_IE,
 } from '../lib/valesCatalogoIe.js';
 import {
@@ -184,6 +185,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     sucursalDestino: '',
     areaCorte: '',
     sucursalIe: 'MAIN',
+    descuentaNomina: resolverDescuentaNominaVale(
+      VALE_FORM_DEFAULTS_IE.categoria,
+      VALE_FORM_DEFAULTS_IE.subcategoria,
+    ),
   });
   const [catalogoIe, setCatalogoIe] = useState([]);
   const [avisoCatalogoIe, setAvisoCatalogoIe] = useState('');
@@ -465,9 +470,20 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         categoria: VALE_FORM_DEFAULTS_IE.categoria,
         subcategoria: VALE_FORM_DEFAULTS_IE.subcategoria,
         detalle: '',
+        descuentaNomina: resolverDescuentaNominaVale(
+          VALE_FORM_DEFAULTS_IE.categoria,
+          VALE_FORM_DEFAULTS_IE.subcategoria,
+        ),
       }));
     }
   }, [esMain, valeForm.categoria, valeForm.subcategoria]);
+
+  // Gasolina nunca descuenta nómina (cualquier corte).
+  useEffect(() => {
+    if (!esValeGasolina(valeForm.categoria, valeForm.subcategoria)) return;
+    if (valeForm.descuentaNomina === false) return;
+    setValeForm((prev) => ({ ...prev, descuentaNomina: false }));
+  }, [valeForm.categoria, valeForm.subcategoria, valeForm.descuentaNomina]);
 
   useEffect(() => {
     const subs = subcategoriasValeForm;
@@ -551,6 +567,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         motivo: valeForm.motivo.trim() || null,
         fecha: valeForm.fecha || hoyISO(),
         created_by: user?.nombre || null,
+        descuenta_nomina: esValeGasolina(valeForm.categoria, valeForm.subcategoria)
+          ? false
+          : Boolean(valeForm.descuentaNomina),
       },
       {
         rolActor: user?.rol,
@@ -558,6 +577,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         origenMain: esMain,
         ampliado: true,
         usarCatalogoIe: true,
+        descuentaNomina: esValeGasolina(valeForm.categoria, valeForm.subcategoria)
+          ? false
+          : Boolean(valeForm.descuentaNomina),
       },
     );
     if (!res.ok) {
@@ -579,6 +601,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       sucursalDestino: '',
       areaCorte: '',
       sucursalIe: 'MAIN',
+      descuentaNomina: resolverDescuentaNominaVale(
+        VALE_FORM_DEFAULTS_IE.categoria,
+        VALE_FORM_DEFAULTS_IE.subcategoria,
+      ),
     });
     recargarTodo();
   };
@@ -1905,6 +1931,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                       <strong style={{ marginRight: '0.35rem' }}>{etiquetaTienda(v.sucursal_id)}</strong>
                     )}
                     {v.folio} · {v.nombre_empleado} · {fmt(v.monto)} · {etiquetaCategoriaVale(v.categoria)}{v.subcategoria ? ` · ${etiquetaSubcategoriaVale(v.categoria, v.subcategoria)}` : ''}{v.detalle ? ` · ${etiquetaDetalleVale(v.categoria, v.subcategoria, v.detalle)}` : ''}
+                    {v.descuenta_nomina ? ' · Nómina' : ' · Sin nómina'}
                   </span>
                   <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => aprobarV(v.id)}>Aprobar</button>
                   {esAdmin && (
@@ -2181,7 +2208,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <select
                 className="select"
                 value={valeForm.categoria}
-                onChange={(e) => setValeForm({ ...valeForm, categoria: e.target.value, subcategoria: '', detalle: '' })}
+                onChange={(e) => {
+                  const cat = e.target.value;
+                  setValeForm({
+                    ...valeForm,
+                    categoria: cat,
+                    subcategoria: '',
+                    detalle: '',
+                    descuentaNomina: resolverDescuentaNominaVale(cat, ''),
+                  });
+                }}
               >
                 {categoriasValeDisponibles.map((c) => (
                   <option key={c.id} value={c.id}>{c.label}</option>
@@ -2191,7 +2227,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 <select
                   className="select"
                   value={valeForm.subcategoria}
-                  onChange={(e) => setValeForm({ ...valeForm, subcategoria: e.target.value, detalle: '' })}
+                  onChange={(e) => {
+                    const sub = e.target.value;
+                    setValeForm({
+                      ...valeForm,
+                      subcategoria: sub,
+                      detalle: '',
+                      descuentaNomina: resolverDescuentaNominaVale(valeForm.categoria, sub),
+                    });
+                  }}
                 >
                   <option value="">— Subcategoría —</option>
                   {subcategoriasValeForm.map((s) => (
@@ -2211,6 +2255,32 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   ))}
                 </select>
               )}
+              <label
+                className="muted"
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: '0.5rem',
+                  gridColumn: '1 / -1',
+                  fontSize: '0.9rem',
+                  lineHeight: 1.35,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={Boolean(valeForm.descuentaNomina)
+                    && !esValeGasolina(valeForm.categoria, valeForm.subcategoria)}
+                  disabled={esValeGasolina(valeForm.categoria, valeForm.subcategoria)}
+                  onChange={(e) => setValeForm({ ...valeForm, descuentaNomina: e.target.checked })}
+                  style={{ marginTop: '0.15rem' }}
+                />
+                <span>
+                  <strong>Descontar en nómina</strong>
+                  {esValeGasolina(valeForm.categoria, valeForm.subcategoria)
+                    ? ' — Los vales de gasolina no van a nómina (sin importar el corte).'
+                    : ' — Si está marcado, el monto se descuenta al empleado en nómina.'}
+                </span>
+              </label>
               <label className="muted" style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
                 Cuenta IE (dónde se registra el gasto)
                 <select

@@ -5,8 +5,11 @@ import {
   mapaIeDesdeVale,
   tipoValeLogico,
   valeDescuentaNominaIe,
+  resolverDescuentaNominaVale,
 } from './valesCatalogoIe.js';
 import { CATEGORIAS_CONT_VIRTUAL_DEFAULT } from './contVirtualCatalogo.js';
+import { gastoCuentaEnNomina } from './nominaGastos.js';
+import { gastoDescuentaNomina } from './corteContabilidad/catalogoGastos.js';
 
 const catalogo = CATEGORIAS_CONT_VIRTUAL_DEFAULT.map((c) => ({
   ...c,
@@ -38,6 +41,20 @@ assert.equal(tipoValeLogico({ categoria: 'vales', subcategoria: 'vales-consumo' 
 assert.equal(esValeGasolina({ categoria: 'vales', subcategoria: 'vales-gasolina' }), true);
 assert.equal(valeDescuentaNominaIe('vales', 'vales-consumo'), true);
 assert.equal(valeDescuentaNominaIe('vales', 'vales-gasolina'), false);
+
+// Preferencia del usuario respetada, excepto gasolina (siempre false).
+assert.equal(resolverDescuentaNominaVale('vales', 'vales-consumo', false), false);
+assert.equal(resolverDescuentaNominaVale('vales', 'vales-consumo', true), true);
+assert.equal(resolverDescuentaNominaVale('vales', 'vales-gasolina', true), false);
+assert.equal(resolverDescuentaNominaVale('gasolina', null, true), false);
+assert.equal(resolverDescuentaNominaVale('vales', 'vales-herramienta', true), true);
+assert.equal(resolverDescuentaNominaVale('vales', 'vales-herramienta'), false);
+
+assert.equal(gastoCuentaEnNomina({ categoria: 'VALES', subcategoria: 'GASOLINA' }), false);
+assert.equal(gastoCuentaEnNomina({ categoria: 'VALES', subcategoria: 'GASOLINA · NOMINA' }), false);
+assert.equal(gastoCuentaEnNomina({ categoria: 'VALES', subcategoria: 'CONSUMO · NOMINA' }), true);
+assert.equal(gastoDescuentaNomina('virtual', 'VALES', 'GASOLINA'), false);
+assert.equal(gastoDescuentaNomina('abarrotes', 'VALES', 'GASOLINA · NOMINA'), false);
 
 const mapaLegacy = mapaIeDesdeVale({ categoria: 'gasolina' }, catalogo);
 assert.equal(mapaLegacy.categoriaId, 'vales');

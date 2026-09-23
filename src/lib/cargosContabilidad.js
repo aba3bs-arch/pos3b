@@ -77,11 +77,15 @@ export async function cargarValeACorte(supabase, vale) {
   if (vale.cargado_corte) return { ok: true, yaCargado: true };
   const modulo = normalizarAreaCorte(vale.area, 'virtual');
   const etiqueta = String(etiquetaCategoriaVale(vale.categoria) || 'CONSUMO').toUpperCase();
-  const descuenta =
+  // Gasolina nunca descuenta nómina, sin importar el corte ni la preferencia guardada.
+  let descuenta =
     vale.descuenta_nomina === true ||
     vale.descuenta_nomina === false
       ? Boolean(vale.descuenta_nomina)
       : valeDescuentaNomina(vale.categoria, vale.subcategoria);
+  if (esValeGasolina(vale) || etiqueta.includes('GASOLINA')) {
+    descuenta = false;
+  }
   // Marca NOMINA para que el consolidado de nómina lo tome aunque el label no diga CONSUMO.
   const subcategoria = descuenta && !etiqueta.includes('CONSUMO') && !etiqueta.includes('PERSONAL') && !etiqueta.includes('NOMINA')
     ? `${etiqueta} · NOMINA`
@@ -97,7 +101,8 @@ export async function cargarValeACorte(supabase, vale) {
     usuario_nombre: vale.nombre_empleado || null,
     cerrado: false,
     descontado_nomina: false,
-  };  const { error: e1 } = await supabase.from('cortes_contabilidad_gastos').insert([payload]);
+  };
+  const { error: e1 } = await supabase.from('cortes_contabilidad_gastos').insert([payload]);
   if (e1) return { ok: false, error: e1.message };
   const { error: e2 } = await supabase.from('vales').update({ cargado_corte: true }).eq('id', vale.id);
   if (e2) return { ok: false, error: e2.message };

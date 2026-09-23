@@ -9,10 +9,17 @@ export function round2(n) {
 
 /** Gastos de cortes que deben descontarse en nómina (consumo, recargas, anticipos, faltante + vales). */
 export function gastoCuentaEnNomina(g) {
-  if (gastoDescuentaNomina(g.modulo, g.categoria, g.subcategoria)) return true;
   const cat = String(g.categoria || '').trim().toUpperCase();
-  if (cat !== 'VALES') return false;
   const sub = String(g.subcategoria || '').trim().toUpperCase();
+  // Vales de gasolina nunca descuentan nómina (cualquier corte / etiqueta).
+  if (cat === 'VALES' && sub.includes('GASOLINA')) return false;
+  if (gastoDescuentaNomina(g.modulo, g.categoria, g.subcategoria)) {
+    // Defensa: si el catálogo marca por · NOMINA pero es gasolina, no.
+    if (cat === 'VALES' && sub.includes('GASOLINA')) return false;
+    return true;
+  }
+  if (cat !== 'VALES') return false;
+  if (sub.includes('GASOLINA')) return false;
   return (
     sub.includes('CONSUMO') ||
     sub.includes('PERSONAL') ||
@@ -57,7 +64,7 @@ async function valesDescuentoDirecto(supabase, { sucursal, desde, hasta, todasSu
   const finTs = `${hasta}T23:59:59`;
   let q = supabase
     .from('vales')
-    .select('id, folio, sucursal_id, usuario_id, nombre_empleado, monto, categoria, descuenta_nomina, estado_aprobacion, cargado_corte, created_at, area')
+    .select('id, folio, sucursal_id, usuario_id, nombre_empleado, monto, categoria, subcategoria, descuenta_nomina, estado_aprobacion, cargado_corte, created_at, area')
     .eq('descuenta_nomina', true)
     .eq('estado_aprobacion', 'aprobado')
     .eq('cargado_corte', false)
@@ -66,7 +73,12 @@ async function valesDescuentoDirecto(supabase, { sucursal, desde, hasta, todasSu
   if (!todasSucursales && sucursal) q = q.eq('sucursal_id', sucursal || 'MAIN');
   const { data, error } = await q;
   if (error) return [];
-  return (data || []).map((v) => ({
+  return (data || [])
+    .filter((v) => {
+      const blob = `${v.categoria || ''} ${v.subcategoria || ''}`.toLowerCase();
+      return !blob.includes('gasolina');
+    })
+    .map((v) => ({
     usuario_id: v.usuario_id || null,
     usuario_nombre: v.nombre_empleado || null,
     monto: Number(v.monto) || 0,
