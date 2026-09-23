@@ -57,11 +57,24 @@ export function esValeGasolina(valeOrCat, subcategoria) {
 
 export function valeDescuentaNominaIe(categoria, subcategoria) {
   const tipo = tipoValeLogico(categoria, subcategoria);
+  if (tipo === 'gasolina') return false;
   if (tipo === 'consumo' || tipo === 'anticipo') return true;
   // Legacy fijas
   const fija = CATEGORIAS_VALE_FIJAS.find((x) => x.id === String(categoria || '').toLowerCase());
   if (fija) return Boolean(fija.descuentaNomina);
   return false;
+}
+
+/**
+ * Decide si el vale descuenta nómina.
+ * - Gasolina: siempre false (cualquier corte).
+ * - Si el usuario eligió explícitamente (boolean), se respeta (salvo gasolina).
+ * - Si no, usa la regla del catálogo / tipo lógico.
+ */
+export function resolverDescuentaNominaVale(categoria, subcategoria, preferencia = undefined) {
+  if (esValeGasolina(categoria, subcategoria)) return false;
+  if (preferencia === true || preferencia === false) return preferencia;
+  return valeDescuentaNominaIe(categoria, subcategoria);
 }
 
 /** Mapa IE (categoria/sub/detalle) desde un vale (legacy o ids IE). */

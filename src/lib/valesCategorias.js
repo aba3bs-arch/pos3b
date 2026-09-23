@@ -237,9 +237,10 @@ export function valeDescuentaNomina(categoria, subcategoria) {
     const c = String(categoria || '').toLowerCase();
     const s = String(subcategoria || '').toLowerCase();
     const blob = `${c} ${s}`;
+    // Gasolina nunca va a nómina (sin importar el corte).
+    if (c === 'gasolina' || s === 'vales-gasolina' || blob.includes('gasolina')) return false;
     if (c === 'consumo' || s === 'vales-consumo' || s === 'empleado-consumo' || s.includes('consumo')) return true;
     if (c === 'anticipos' || s.includes('anticipo')) return true;
-    if (c === 'gasolina' || s === 'vales-gasolina' || blob.includes('gasolina')) return false;
   } catch {
     /* ignore */
   }

@@ -3,7 +3,6 @@ import { buscarUsuarioPorPinYSucursal } from './usuariosAuth.js';
 import {
   beneficiarioValePermitido,
   valeRequiereAutorizacionAdmin,
-  valeDescuentaNomina,
   cuotaSemanalPrestamo,
   prestamoRequiereSocio,
   esSocioAprobadorPrestamo,
@@ -18,7 +17,7 @@ import {
   ESTADOS_PRESTAMO_INTERAREA_ABIERTOS,
 } from './contabilidadConstants.js';
 import { esCategoriaValeConocida, esSubcategoriaValeValida, esDetalleValeValido } from './valesCategorias.js';
-import { esValeGasolina } from './valesCatalogoIe.js';
+import { esValeGasolina, resolverDescuentaNominaVale } from './valesCatalogoIe.js';
 import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
 import {
   cargarValeACorte,
@@ -254,7 +253,13 @@ export async function registrarVale(supabase, row, opts = {}) {
     origenMain: Boolean(opts.origenMain),
     omitirVentana: Boolean(opts.omitirVentana || opts.origenMain),
   });
-  const descuentaNomina = valeDescuentaNomina(categoria, subcategoria);
+  const descuentaNomina = resolverDescuentaNominaVale(
+    categoria,
+    subcategoria,
+    row.descuenta_nomina === true || row.descuenta_nomina === false
+      ? row.descuenta_nomina
+      : opts.descuentaNomina,
+  );
 
   let estadoAprobacion = 'aprobado';
   let requiereAuth = false;

@@ -70,6 +70,10 @@ export function gastoDescuentaNomina(_modulo, categoria, subcategoria = '') {
   const cat = textoGastoNorm(categoria);
   const sub = textoGastoNorm(subcategoria);
 
+  // Vales de gasolina: nunca a nómina
+  if (cat === 'VALES' && sub.includes('GASOLINA')) return false;
+  if (sub.includes('GASOLINA') && (cat === 'VALES' || cat.includes('VALE'))) return false;
+
   // Categorías legacy directas
   if (cat === 'CONSUMO' || cat.includes('CONSUMO')) return true;
   if (cat === 'RECARGAS' || cat === 'RECARGA' || cat.includes('RECARG')) return true;
