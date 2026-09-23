@@ -287,6 +287,14 @@ export default function Contratacion({ supabase, user, onNavigate }) {
                 {sel.motivacion && <div><strong>Motivación:</strong> {sel.motivacion}</div>}
                 {sel.referencias && <div><strong>Referencias:</strong> {sel.referencias}</div>}
                 {sel.curp && <div><strong>CURP:</strong> {sel.curp}</div>}
+                {sel.acepta_privacidad != null && (
+                  <div>
+                    <strong>Privacidad:</strong>{' '}
+                    {sel.acepta_privacidad
+                      ? `Aceptada${sel.privacidad_aceptada_at ? ` · ${new Date(sel.privacidad_aceptada_at).toLocaleString('es-MX')}` : ''}`
+                      : 'No aceptada'}
+                  </div>
+                )}
               </dl>
 
               {(sel.evaluacion_pct != null || sel.evaluacion) && (

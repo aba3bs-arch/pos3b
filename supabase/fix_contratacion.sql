@@ -46,6 +46,10 @@ create table if not exists public.pos_contratacion_solicitudes (
   evaluacion jsonb not null default '{}'::jsonb,
   evaluacion_pct numeric(5,2),
   evaluacion_califica boolean,
+  -- Consentimiento aviso de privacidad (obligatorio en portal)
+  acepta_privacidad boolean not null default false,
+  privacidad_aceptada_at timestamptz,
+  privacidad_version text,
   notas_admin text,
   -- Dueño: admin principal por defecto; se puede redirigir a otro admin
   asignado_a_id text,
@@ -70,6 +74,12 @@ alter table public.pos_contratacion_solicitudes
   add column if not exists evaluacion_pct numeric(5,2);
 alter table public.pos_contratacion_solicitudes
   add column if not exists evaluacion_califica boolean;
+alter table public.pos_contratacion_solicitudes
+  add column if not exists acepta_privacidad boolean default false;
+alter table public.pos_contratacion_solicitudes
+  add column if not exists privacidad_aceptada_at timestamptz;
+alter table public.pos_contratacion_solicitudes
+  add column if not exists privacidad_version text;
 
 -- Ampliar check de estado (bolsa / no califica)
 do $$
@@ -132,3 +142,7 @@ comment on column public.pos_contratacion_solicitudes.perfil_laboral is
   'Checklist: horario, celular, deberes, drogas, juego, fin de semana, PC, permiso padres.';
 comment on column public.pos_contratacion_solicitudes.evaluacion is
   'FA3B-003: respuestas, score, primeras5 y resultado califica.';
+comment on column public.pos_contratacion_solicitudes.acepta_privacidad is
+  'Aspirante aceptó aviso de privacidad antes de enviar datos.';
+comment on column public.pos_contratacion_solicitudes.privacidad_aceptada_at is
+  'Fecha/hora en que marcó la casilla de privacidad.';
