@@ -602,8 +602,8 @@ export async function registrarServicioNoCobrado(supabase, { tienda, repartidorI
 export function construirDatosTraspaso({ tienda, repartidorId, cajero, folio, monto, esEfectivo }) {
   const folioLimpio = normalizarFolio(folio);
   const nota = esEfectivo ? `Traspaso ${folioLimpio} en EFECTIVO` : `Traspaso ${folioLimpio} a CRÉDITO`;
-  // Crédito → «Entrega Crédito» / Por Cobrar. NUNCA tipo_movimiento «Gasto».
-  // El gasto en corte solo aplica al cobro de crédito (o gastos reales del recolector).
+  // Crédito → «Entrega Crédito» / Por Cobrar. NUNCA tipo_movimiento «Gasto» en tránsito.
+  // Al cobrar el crédito se carga gasto al corte de Abarrotes (ver cobrarCreditosSeleccionados).
   return {
     sucursal_origen: tienda,
     repartidor_id: repartidorId,
@@ -754,6 +754,60 @@ export async function listarCreditosPendientes(supabase, tienda) {
   return data || [];
 }
 
+/**
+ * Payload de gasto para corte Abarrotes al cobrar un crédito de Recolecciones.
+ * El efectivo sigue en tránsito con el recolector; el corte ve el gasto CREDITO · COBRADO.
+ */
+export function payloadGastoCreditoCobradoAbarrotes(credito, opts = {}) {
+  const suc =
+    normalizarCodigoTienda(credito?.sucursal_origen) ||
+    normalizarCodigoTienda(opts.sucursalId) ||
+    String(credito?.sucursal_origen || '').trim() ||
+    'MAIN';
+  const folio = String(credito?.num_traspaso || credito?.folio || '').trim();
+  const cajero = String(opts.cajero || credito?.cajero_nombre || '').trim();
+  return {
+    sucursal_id: suc,
+    modulo: 'abarrotes',
+    categoria: 'CREDITO',
+    subcategoria: 'COBRADO',
+    comentario: `CREDITO COBRADO · ficha ${folio}${cajero ? ` · ${cajero}` : ''}`.trim().toUpperCase(),
+    monto: Number(credito?.monto) || 0,
+    usuario_nombre: cajero || null,
+    cerrado: false,
+    descontado_nomina: false,
+    estado_aprobacion: 'aprobado',
+  };
+}
+
+/** Inserta el gasto del crédito cobrado en cortes_contabilidad_gastos (módulo abarrotes). */
+export async function cargarGastoCreditoCobradoACorteAbarrotes(supabase, credito, opts = {}) {
+  if (!supabase || !credito) return { ok: false, error: 'Crédito inválido.' };
+  const payload = payloadGastoCreditoCobradoAbarrotes(credito, opts);
+  if (!(payload.monto > 0)) return { ok: false, error: 'Monto inválido.' };
+
+  let { data, error } = await supabase
+    .from('cortes_contabilidad_gastos')
+    .insert([payload])
+    .select('id')
+    .single();
+
+  if (error && /estado_aprobacion|descontado_nomina|solicitado_por/i.test(String(error.message || ''))) {
+    const slim = { ...payload };
+    delete slim.estado_aprobacion;
+    delete slim.descontado_nomina;
+    delete slim.solicitado_por;
+    ({ data, error } = await supabase.from('cortes_contabilidad_gastos').insert([slim]).select('id').single());
+  }
+  if (error) {
+    if (error.code === '42P01') {
+      return { ok: false, error: 'Falta la tabla de gastos de corte (cortes_contabilidad_gastos).' };
+    }
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, gastoId: data?.id || null, payload };
+}
+
 export async function cobrarCreditosSeleccionados(supabase, { ids, repartidorId, cajero, pendientes }) {
   const bloqueo = await errorSiEfectivoNoPermitido(supabase, repartidorId);
   if (bloqueo) return bloqueo;
@@ -764,6 +818,7 @@ export async function cobrarCreditosSeleccionados(supabase, { ids, repartidorId,
   if (!sel.length) return { ok: false, error: 'Folios no encontrados.' };
 
   const foliosLista = sel.map((p) => `${p.num_traspaso}: ${fmtMonto(p.monto)}`).join(', ');
+  const gastosIds = [];
   for (const p of sel) {
     const { error } = await supabase
       .from('transito_efectivo')
@@ -778,6 +833,16 @@ export async function cobrarCreditosSeleccionados(supabase, { ids, repartidorId,
       })
       .eq('id', p.id);
     if (error) return { ok: false, error: error.message };
+
+    // Gasto al corte de Abarrotes de la tienda (sección Gastos del corte).
+    const gastoRes = await cargarGastoCreditoCobradoACorteAbarrotes(supabase, p, { cajero: cajero.trim() });
+    if (!gastoRes.ok) {
+      return {
+        ok: false,
+        error: `Crédito pasó a tránsito, pero falló el gasto en corte abarrotes: ${gastoRes.error}`,
+      };
+    }
+    if (gastoRes.gastoId) gastosIds.push(gastoRes.gastoId);
   }
 
   const total = sel.reduce((a, p) => a + Number(p.monto || 0), 0);
@@ -786,10 +851,10 @@ export async function cobrarCreditosSeleccionados(supabase, { ids, repartidorId,
     repartidorId,
     tienda,
     monto: total,
-    detalle: `cobro de ${sel.length} crédito(s)`,
+    detalle: `cobro de ${sel.length} crédito(s) · gasto corte abarrotes`,
     refId: sel[0]?.id,
   });
-  return { ok: true, count: sel.length, total };
+  return { ok: true, count: sel.length, total, gastosIds };
 }
 
 export async function listarEnTransitoPorRepartidor(supabase, repartidorId) {
