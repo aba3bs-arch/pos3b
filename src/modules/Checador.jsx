@@ -525,10 +525,11 @@ export default function Checador({ inventario, supabase, sucursal, user, sucursa
       setMsg(auth.error);
       return;
     }
-    otorgarAutorizacionFueraHorario({
+    await otorgarAutorizacionFueraHorario({
       usuarioId: pendienteChecador.user.id,
       sucursal,
       admin: auth.user,
+      supabase,
     });
     setAutorizandoChecador(false);
     setEmpleado({ id: pendienteChecador.user.id, nombre: pendienteChecador.user.nombre, rol: pendienteChecador.user.rol });

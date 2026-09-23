@@ -6,6 +6,9 @@ import { usuarioEstaActivo } from './usuariosAuth.js';
 export const LS_AUTORIZACION_TURNO_FH = 'pos3b_autorizacion_turno_fh';
 export const DURACION_AUTORIZACION_TURNO_MS = 8 * 60 * 60 * 1000;
 
+export const AVISO_FALTA_AUTORIZACION_TURNO_FH =
+  'Ejecuta supabase/fix_autorizacion_turno_fuera_horario.sql para autorizar entrada fuera de horario desde el panel admin (nube).';
+
 /** Roles que pueden autorizar entrada fuera de horario (login / checador). */
 export function rolPuedeAutorizarFueraHorario(rol) {
   const r = rolSistemaEfectivo(rol);
@@ -18,6 +21,17 @@ function claveAutorizacion(usuarioId, sucursal) {
 
 function limpiarExpiradas(lista, ahora = Date.now()) {
   return (lista || []).filter((a) => a.expiraEn > ahora);
+}
+
+function faltaTablaAuthFh(error) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  const code = String(error?.code || '');
+  return (
+    code === '42P01' ||
+    code === 'PGRST205' ||
+    msg.includes('pos_autorizacion_turno_fh') ||
+    (msg.includes('schema cache') && msg.includes('autorizacion_turno'))
+  );
 }
 
 export function leerAutorizacionesTurnoFueraHorario() {
@@ -36,6 +50,10 @@ export function leerAutorizacionesTurnoFueraHorario() {
   }
 }
 
+function escribirAutorizacionesLocal(lista) {
+  localStorage.setItem(LS_AUTORIZACION_TURNO_FH, JSON.stringify(limpiarExpiradas(lista)));
+}
+
 export function tieneAutorizacionFueraHorario(user, sucursal, date = new Date()) {
   if (!user?.id || !sucursal) return false;
   const clave = claveAutorizacion(user.id, sucursal);
@@ -43,27 +61,124 @@ export function tieneAutorizacionFueraHorario(user, sucursal, date = new Date())
   return leerAutorizacionesTurnoFueraHorario().some((a) => a.clave === clave && a.expiraEn > ahora);
 }
 
-export function otorgarAutorizacionFueraHorario({ usuarioId, sucursal, admin, duracionMs = DURACION_AUTORIZACION_TURNO_MS }) {
+/**
+ * Otorga autorización local (+ nube si hay supabase).
+ * Vigente 8 h en esa tienda para ese cajero.
+ */
+export async function otorgarAutorizacionFueraHorario({
+  usuarioId,
+  sucursal,
+  admin,
+  duracionMs = DURACION_AUTORIZACION_TURNO_MS,
+  supabase = null,
+} = {}) {
   if (!usuarioId || !sucursal || !admin?.id) return null;
   const ahora = Date.now();
+  const expiraEn = ahora + Math.max(15 * 60 * 1000, duracionMs);
+  const sid = normalizarCodigoTienda(sucursal);
   const entry = {
-    clave: claveAutorizacion(usuarioId, sucursal),
+    clave: claveAutorizacion(usuarioId, sid),
     usuarioId: String(usuarioId),
-    sucursal: normalizarCodigoTienda(sucursal),
+    sucursal: sid,
     adminId: String(admin.id),
     adminNombre: String(admin.nombre || 'Administrador'),
     otorgadoEn: ahora,
-    expiraEn: ahora + Math.max(15 * 60 * 1000, duracionMs),
+    expiraEn,
   };
   const next = [...leerAutorizacionesTurnoFueraHorario().filter((a) => a.clave !== entry.clave), entry];
-  localStorage.setItem(LS_AUTORIZACION_TURNO_FH, JSON.stringify(next));
+  escribirAutorizacionesLocal(next);
+
+  if (supabase) {
+    const row = {
+      usuario_id: String(usuarioId),
+      sucursal_id: sid,
+      admin_id: String(admin.id),
+      admin_nombre: String(admin.nombre || 'Administrador'),
+      otorgado_en: new Date(ahora).toISOString(),
+      expira_en: new Date(expiraEn).toISOString(),
+    };
+    const { error } = await supabase
+      .from('pos_autorizacion_turno_fh')
+      .upsert(row, { onConflict: 'usuario_id,sucursal_id' });
+    if (error && !faltaTablaAuthFh(error)) {
+      console.warn('autorizacion turno FH nube:', error.message);
+    }
+  }
   return entry;
 }
 
 export function revocarAutorizacionFueraHorario(usuarioId, sucursal) {
   const clave = claveAutorizacion(usuarioId, sucursal);
   const next = leerAutorizacionesTurnoFueraHorario().filter((a) => a.clave !== clave);
-  localStorage.setItem(LS_AUTORIZACION_TURNO_FH, JSON.stringify(next));
+  escribirAutorizacionesLocal(next);
+}
+
+/** Revoca en local + nube. */
+export async function revocarAutorizacionFueraHorarioNube(supabase, usuarioId, sucursal) {
+  revocarAutorizacionFueraHorario(usuarioId, sucursal);
+  if (!supabase || !usuarioId || !sucursal) return { ok: true };
+  const sid = normalizarCodigoTienda(sucursal);
+  const { error } = await supabase
+    .from('pos_autorizacion_turno_fh')
+    .delete()
+    .eq('usuario_id', String(usuarioId))
+    .eq('sucursal_id', sid);
+  if (error && faltaTablaAuthFh(error)) {
+    return { ok: true, aviso: AVISO_FALTA_AUTORIZACION_TURNO_FH };
+  }
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/**
+ * Trae autorización vigente de la nube al local (antes de validar login).
+ */
+export async function sincronizarAutorizacionFueraHorarioDesdeNube(supabase, usuarioId, sucursal) {
+  if (!supabase || !usuarioId || !sucursal) return { ok: true, vigente: false };
+  const sid = normalizarCodigoTienda(sucursal);
+  const ahoraIso = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('pos_autorizacion_turno_fh')
+    .select('usuario_id,sucursal_id,admin_id,admin_nombre,otorgado_en,expira_en')
+    .eq('usuario_id', String(usuarioId))
+    .eq('sucursal_id', sid)
+    .gt('expira_en', ahoraIso)
+    .maybeSingle();
+  if (error) {
+    if (faltaTablaAuthFh(error)) return { ok: true, vigente: false, aviso: AVISO_FALTA_AUTORIZACION_TURNO_FH };
+    return { ok: false, error: error.message, vigente: false };
+  }
+  if (!data) return { ok: true, vigente: false };
+  const entry = {
+    clave: claveAutorizacion(data.usuario_id, data.sucursal_id),
+    usuarioId: String(data.usuario_id),
+    sucursal: normalizarCodigoTienda(data.sucursal_id),
+    adminId: String(data.admin_id || ''),
+    adminNombre: String(data.admin_nombre || 'Administrador'),
+    otorgadoEn: new Date(data.otorgado_en).getTime(),
+    expiraEn: new Date(data.expira_en).getTime(),
+  };
+  const next = [...leerAutorizacionesTurnoFueraHorario().filter((a) => a.clave !== entry.clave), entry];
+  escribirAutorizacionesLocal(next);
+  return { ok: true, vigente: true, entry };
+}
+
+/** Lista autorizaciones vigentes (panel admin). */
+export async function listarAutorizacionesFueraHorarioVigentes(supabase, { sucursal = null } = {}) {
+  if (!supabase) return { ok: false, data: [], error: 'Sin conexión.' };
+  const ahoraIso = new Date().toISOString();
+  let q = supabase
+    .from('pos_autorizacion_turno_fh')
+    .select('usuario_id,sucursal_id,admin_id,admin_nombre,otorgado_en,expira_en')
+    .gt('expira_en', ahoraIso)
+    .order('expira_en', { ascending: true });
+  if (sucursal) q = q.eq('sucursal_id', normalizarCodigoTienda(sucursal));
+  const { data, error } = await q;
+  if (error) {
+    if (faltaTablaAuthFh(error)) return { ok: true, data: [], aviso: AVISO_FALTA_AUTORIZACION_TURNO_FH };
+    return { ok: false, data: [], error: error.message };
+  }
+  return { ok: true, data: data || [] };
 }
 
 /** Busca administrador/gerente por PIN en cualquier sucursal (para autorizar fuera de horario). */
