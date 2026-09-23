@@ -422,3 +422,65 @@ export function sucursalesInteresLabels(lista) {
 export function opcionesSucursalesContratacion() {
   return listarSucursalesOperativas().map((id) => ({ id, label: etiquetaTienda(id) }));
 }
+
+/**
+ * Mapea una solicitud de contratación → campos del alta RH ABA3B.
+ * PIN / RFC / NSS / banco quedan vacíos para completar en RH.
+ */
+export function formRhDesdeSolicitudContratacion(row) {
+  if (!row) return null;
+  const tipoRh = String(row.tipo || '').toLowerCase() === 'cubre_turno' ? 'cubre_turno' : 'tienda';
+  const sucursales = (Array.isArray(row.sucursales_interes) ? row.sucursales_interes : [])
+    .map((s) => normalizarCodigoTienda(s))
+    .filter(Boolean);
+  const notas = [
+    row.experiencia && `Experiencia: ${row.experiencia}`,
+    row.puestos_anteriores && `Puestos anteriores: ${row.puestos_anteriores}`,
+    row.grado_estudios && `Estudios: ${row.grado_estudios}${row.carrera ? ` · ${row.carrera}` : ''}`,
+    row.anios_experiencia != null && row.anios_experiencia !== ''
+      ? `Años experiencia: ${row.anios_experiencia}`
+      : null,
+    row.disponibilidad_turno && `Disponibilidad turno: ${row.disponibilidad_turno}`,
+    row.expectativa_sueldo && `Sueldo esperado: ${row.expectativa_sueldo}`,
+    row.motivacion && `Motivación: ${row.motivacion}`,
+    row.referencias && `Referencias: ${row.referencias}`,
+    row.telefono_alt && `Tel. alterno: ${row.telefono_alt}`,
+    row.tiene_transporte != null ? `Transporte: ${row.tiene_transporte ? 'sí' : 'no'}` : null,
+    row.licencia_conducir != null ? `Licencia: ${row.licencia_conducir ? 'sí' : 'no'}` : null,
+    row.disponibilidad_inmediata != null
+      ? `Disponibilidad inmediata: ${row.disponibilidad_inmediata ? 'sí' : 'no'}`
+      : null,
+    row.id && `Origen contratación: ${row.id}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const patch = {
+    nombre: String(row.nombre || '').trim(),
+    apellidos: String(row.apellidos || '').trim(),
+    tipo_empleado: tipoRh,
+    fecha_nacimiento: row.fecha_nacimiento ? String(row.fecha_nacimiento).slice(0, 10) : '',
+    telefono: String(row.telefono || '').trim(),
+    telefono_emergencia: String(row.telefono_alt || '').trim(),
+    email: String(row.email || '').trim(),
+    direccion: String(row.direccion || '').trim(),
+    colonia: String(row.colonia || '').trim(),
+    ciudad: String(row.ciudad || '').trim(),
+    estado_mx: String(row.estado_mx || '').trim(),
+    cp: String(row.cp || '').trim(),
+    curp: String(row.curp || '').trim().toUpperCase(),
+    notas,
+    puesto: tipoRh === 'cubre_turno' ? 'Cubre turnos' : 'Cajero',
+    rol_sistema: tipoRh === 'cubre_turno' ? '' : 'Cajero',
+  };
+
+  if (tipoRh === 'cubre_turno') {
+    patch.sucursal_id = '';
+    patch.ct_sucursales = sucursales.length ? sucursales : listarSucursalesOperativas();
+    patch.ct_solo_dia = String(row.disponibilidad_turno || '').toLowerCase() === 'diurno';
+  } else {
+    patch.sucursal_id = sucursales[0] || '';
+  }
+
+  return patch;
+}
