@@ -1,7 +1,12 @@
 /**
  * Alarma de asalto / pánico.
- * Activación: ≥ TECLAS_MIN_ASALTO teclas pulsadas a la vez (cualquier combinación).
+ * Activación:
+ *  - ≥ TECLAS_MIN_ASALTO teclas a la vez (cualquier combinación), o
+ *  - Escape pulsado ESC_TAPS_ASALTO veces seguidas en ≤ ESC_VENTANA_MS.
  * Destino: Administradores + empleados indirectos (MAIN).
+ *
+ * Nota: muchos teclados baratos no registran 5 teclas a la vez (ghosting);
+ * por eso el mínimo práctico es 3 y existe Escape ×5 como respaldo.
  */
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { crearNotificacion, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
@@ -9,8 +14,11 @@ import { esEmpleadoIndirectoOMain } from './empleadosVisibles.js';
 import { normalizarRol } from './roles.js';
 import { iniciarSirenaAsalto, detenerSirenaAsalto, prepararAudioPos } from './sonidosPos.js';
 
-/** Más de 4 teclas = al menos 5 a la vez. */
-export const TECLAS_MIN_ASALTO = 5;
+/** Mínimo de teclas simultáneas (3 = fiable en teclados con ghosting). */
+export const TECLAS_MIN_ASALTO = 3;
+/** Escape pulsado N veces seguidas (respaldo si el teclado no registra acordes). */
+export const ESC_TAPS_ASALTO = 5;
+export const ESC_VENTANA_MS = 2500;
 
 export const EVENTO_ALERTA_ASALTO = 'pos-alerta-asalto';
 export const EVENTO_ALERTA_ASALTO_DETENER = 'pos-alerta-asalto-detener';
@@ -23,11 +31,17 @@ const COOLDOWN_MS = 45_000;
 let ultimoDisparoAt = 0;
 let disparando = false;
 
+/** Solo para pruebas unitarias. */
+export function _resetCooldownAlertaAsaltoParaTests() {
+  ultimoDisparoAt = 0;
+  disparando = false;
+}
+
 export function teclasSimultaneasActivanAsalto(cantidad) {
   return Number(cantidad) >= TECLAS_MIN_ASALTO;
 }
 
-/** ¿Este usuario debe recibir la alerta (overlay + push elegible)? */
+/** ¿Este usuario debe recibir la alerta remota (overlay + push elegible)? */
 export function usuarioRecibeAlertaAsalto(user) {
   if (!user || user.esCtMovil) return false;
   const rol = normalizarRol(user.rol);
@@ -51,11 +65,14 @@ export async function listarDestinatariosAlertaAsalto(supabase) {
   return { data: lista };
 }
 
-export function mensajeAlertaAsalto({ sucursal, usuarioNombre, teclas } = {}) {
+export function mensajeAlertaAsalto({ sucursal, usuarioNombre, teclas, modo } = {}) {
   const tienda = etiquetaTienda(sucursal) || normalizarCodigoTienda(sucursal) || sucursal || 'tienda';
   const quien = String(usuarioNombre || 'POS').trim() || 'POS';
-  const n = teclas != null ? ` · ${teclas} teclas` : '';
-  return `${tienda} · activó ${quien}${n}`;
+  let extra = '';
+  if (modo === 'prueba') extra = ' · PRUEBA';
+  else if (modo === 'escape') extra = ` · Escape×${ESC_TAPS_ASALTO}`;
+  else if (teclas != null) extra = ` · ${teclas} teclas`;
+  return `${tienda} · activó ${quien}${extra}`;
 }
 
 function emitirEventoAsalto(detail) {
@@ -73,15 +90,18 @@ export function emitirDetenerAlertaAsalto() {
  * Dispara la alarma desde la sesión actual (cualquiera logueado en tienda).
  * - Sirena + overlay local inmediato
  * - Notificación en buzón + push a admins / indirectos MAIN
+ * @param {{ forzar?: boolean, modo?: 'teclas'|'escape'|'prueba', teclas?: number }} opts
  */
 export async function dispararAlertaAsalto(supabase, {
   user,
   sucursal,
   teclas = TECLAS_MIN_ASALTO,
+  forzar = false,
+  modo = 'teclas',
 } = {}) {
   const ahora = Date.now();
   if (disparando) return { ok: false, skipped: true, error: 'Ya se está enviando la alarma.' };
-  if (ahora - ultimoDisparoAt < COOLDOWN_MS) {
+  if (!forzar && ahora - ultimoDisparoAt < COOLDOWN_MS) {
     return { ok: false, skipped: true, error: 'Espera unos segundos antes de volver a activar.' };
   }
   disparando = true;
@@ -96,6 +116,7 @@ export async function dispararAlertaAsalto(supabase, {
       sucursal,
       usuarioNombre: user?.nombre,
       teclas,
+      modo,
     });
     const detailLocal = {
       titulo,
@@ -104,6 +125,7 @@ export async function dispararAlertaAsalto(supabase, {
       origen_usuario: user?.nombre || null,
       origen_usuario_id: user?.id || null,
       teclas,
+      modo,
       at: new Date().toISOString(),
       local: true,
     };
@@ -138,27 +160,41 @@ export async function dispararAlertaAsalto(supabase, {
 }
 
 /**
- * Tracker de teclas simultáneas.
- * Ignora repeticiones de keydown (held key) y teclas modificadoras solas no cuentan
- * como “cualquiera”: sí cuentan Shift/Ctrl/Alt/Meta si van con otras.
+ * Tracker de teclas simultáneas + Escape × N.
  */
 export function crearDetectorTeclasAsalto({
   minimo = TECLAS_MIN_ASALTO,
+  escTaps = ESC_TAPS_ASALTO,
+  escVentanaMs = ESC_VENTANA_MS,
   onActivar,
   habilitado = () => true,
 } = {}) {
   const pressed = new Set();
   let disparadoEnEsteAcorde = false;
+  const escTimes = [];
 
   const onKeyDown = (e) => {
     if (!habilitado()) return;
     if (e.repeat) return;
     const code = e.code || e.key;
     if (!code) return;
+
+    // Respaldo: Escape × N
+    if (code === 'Escape' || e.key === 'Escape') {
+      const now = Date.now();
+      escTimes.push(now);
+      while (escTimes.length && now - escTimes[0] > escVentanaMs) escTimes.shift();
+      if (escTimes.length >= escTaps) {
+        escTimes.length = 0;
+        onActivar?.({ teclas: escTaps, codes: ['Escape'], modo: 'escape' });
+        return;
+      }
+    }
+
     pressed.add(code);
     if (pressed.size >= minimo && !disparadoEnEsteAcorde) {
       disparadoEnEsteAcorde = true;
-      onActivar?.({ teclas: pressed.size, codes: [...pressed] });
+      onActivar?.({ teclas: pressed.size, codes: [...pressed], modo: 'teclas' });
     }
   };
 

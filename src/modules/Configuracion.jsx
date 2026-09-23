@@ -1698,10 +1698,16 @@ export default function Configuracion({
         <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={() => { guardarConfigAudio(audioCfg); alert('Preferencias de sonido guardadas.'); }}>
           Guardar sonidos
         </button>
+        <p className="muted" style={{ margin: '1rem 0 0.35rem', fontSize: '0.85rem' }}>
+          La alarma de asalto <strong>no</strong> se silencia con estas opciones (siempre suena).
+          Pruébela en <strong>Configuración → Notificaciones</strong> o con 3 teclas a la vez / Escape ×5.
+        </p>
       </div>
       )}
 
-      {panelCfg === 'notificaciones' && recibeAlertas && <PanelNotificacionesAlertas supabase={supabase} user={user} />}
+      {panelCfg === 'notificaciones' && recibeAlertas && (
+        <PanelNotificacionesAlertas supabase={supabase} user={user} sucursal={sucursal} />
+      )}
 
       {panelCfg === 'roles' && esAdmin && (
         <div className="card" style={{ borderTop: '4px solid var(--brand-blue)' }}>
