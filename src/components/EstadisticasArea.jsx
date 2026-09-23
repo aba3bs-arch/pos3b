@@ -29,6 +29,11 @@ import {
   tiendasEstadisticas,
 } from '../lib/estadisticasData.js';
 import { cargarRentabilidadProductosFrecuentes } from '../lib/rentabilidadProductosFrecuentes.js';
+import {
+  cargarTraficoClientes,
+  etiquetaHora,
+  paretoTickets,
+} from '../lib/traficoClientesData.js';
 
 function fmt(n) {
   return `$${(Number(n) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -115,6 +120,37 @@ function PastelChart({ items, empty = 'Sin datos' }) {
   );
 }
 
+/** Barras de conteo (tickets), no dinero. */
+function BarrasConteo({ items, empty = 'Sin datos', unidad = 'tickets' }) {
+  if (!items?.length) return <p className="muted">{empty}</p>;
+  const max = Math.max(...items.map((p) => Number(p.total) || 0), 1);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+      {items.map((p) => (
+        <div key={String(p.id)}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', marginBottom: '0.12rem', gap: '0.5rem' }}>
+            <span style={{ fontWeight: 600 }}>{p.label}</span>
+            <span style={{ textAlign: 'right' }}>
+              <strong>{Number(p.total).toLocaleString('es-MX')}</strong>{' '}
+              <span className="muted">{unidad} · {p.pct.toFixed(1)}%</span>
+              {p.monto > 0 ? <span className="muted"> · {fmt(p.monto)}</span> : null}
+            </span>
+          </div>
+          <div style={{ height: 12, borderRadius: 6, background: 'var(--surface)', overflow: 'hidden' }}>
+            <div
+              style={{
+                width: `${Math.min(100, (Number(p.total) / max) * 100)}%`,
+                height: '100%',
+                background: p.color || 'var(--brand-blue)',
+              }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /**
  * Dashboard de un área: abarrotes | virtual | garage.
  */
@@ -132,6 +168,9 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
   const [categoriaSel, setCategoriaSel] = useState(null);
   const [rentab, setRentab] = useState(null);
   const [cargandoRentab, setCargandoRentab] = useState(false);
+  const [traficoPack, setTraficoPack] = useState(null);
+  const [cargandoTrafico, setCargandoTrafico] = useState(false);
+  const [vistaTrafico, setVistaTrafico] = useState('tienda'); // tienda | hora | dia
 
   const rango = useMemo(() => {
     if (presetFecha === 'rango') {
@@ -205,6 +244,28 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
     };
   }, [supabase, area, rango, filtroTienda, inventario]);
 
+  useEffect(() => {
+    if (area !== 'abarrotes' || !supabase || !rango?.desde || !rango?.hasta) {
+      setTraficoPack(null);
+      return undefined;
+    }
+    let ok = true;
+    (async () => {
+      setCargandoTrafico(true);
+      const res = await cargarTraficoClientes(supabase, {
+        desde: rango.desde,
+        hasta: rango.hasta,
+        sucursal: filtroTienda || null,
+      });
+      if (!ok) return;
+      setTraficoPack(res);
+      setCargandoTrafico(false);
+    })();
+    return () => {
+      ok = false;
+    };
+  }, [supabase, area, rango, filtroTienda]);
+
   const ventas = pack?.ventas || [];
   const ventasAnt = packAnt?.ventas || [];
   const gastos = pack?.gastos || [];
@@ -264,6 +325,33 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
   const merma = pack?.merma || [];
   const inv = pack?.inventario || [];
   const totalMerma = merma.reduce((a, m) => a + (Number(m.valor) || 0), 0);
+
+  const trafico = traficoPack?.trafico || null;
+  const paretoTraficoTienda = useMemo(
+    () => (trafico ? paretoTickets(trafico.por_tienda, { limit: 15 }) : []),
+    [trafico],
+  );
+  const paretoTraficoHora = useMemo(() => {
+    if (!trafico) return [];
+    return paretoTickets(
+      (trafico.por_hora || []).filter((h) => h.tickets > 0),
+      { limit: 24 },
+    ).sort((a, b) => Number(a.id) - Number(b.id));
+  }, [trafico]);
+  const paretoTraficoDia = useMemo(() => {
+    if (!trafico) return [];
+    return paretoTickets(trafico.por_dia || [], { limit: 31 });
+  }, [trafico]);
+  const itemsTraficoVista = vistaTrafico === 'hora'
+    ? paretoTraficoHora
+    : vistaTrafico === 'dia'
+      ? paretoTraficoDia
+      : paretoTraficoTienda;
+  const tituloTraficoVista = vistaTrafico === 'hora'
+    ? 'Tickets por hora del día (hora Sonora)'
+    : vistaTrafico === 'dia'
+      ? 'Tickets por día'
+      : 'Tickets por tienda';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -586,6 +674,143 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
           />
         </div>
       </div>
+
+      {area === 'abarrotes' && (
+        <div className="card" style={{ marginBottom: 0, borderTop: '3px solid #2980b9' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'flex-start' }}>
+            <div>
+              <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
+                Tráfico de clientes por tienda
+              </h4>
+              <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
+                Cada ticket del POS cuenta como un cliente atendido. Compara tiendas, hora pico y ritmo diario
+                (hora Sonora). Independiente de los cierres de corte.
+              </p>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+              {[
+                { id: 'tienda', label: 'Por tienda' },
+                { id: 'hora', label: 'Por hora' },
+                { id: 'dia', label: 'Por día' },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{
+                    padding: '0.25rem 0.55rem',
+                    fontSize: '0.78rem',
+                    border: vistaTrafico === opt.id ? '1px solid var(--brand-blue)' : '1px solid transparent',
+                    background: vistaTrafico === opt.id ? 'rgba(59,105,181,0.12)' : undefined,
+                  }}
+                  onClick={() => setVistaTrafico(opt.id)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {cargandoTrafico && <p className="muted" style={{ marginTop: '0.75rem' }}>Cargando tickets del POS…</p>}
+          {!cargandoTrafico && traficoPack?.error && (
+            <p style={{ color: '#c0392b', margin: '0.75rem 0 0' }}>{traficoPack.error}</p>
+          )}
+          {!cargandoTrafico && traficoPack?.ok && trafico && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.65rem', margin: '0.85rem 0' }}>
+                <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>Clientes (tickets)</div>
+                  <strong style={{ fontSize: '1.2rem' }}>{trafico.tickets.toLocaleString('es-MX')}</strong>
+                </div>
+                <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>Ticket promedio</div>
+                  <strong style={{ fontSize: '1.2rem' }}>{fmt(trafico.ticket_promedio)}</strong>
+                </div>
+                <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>Ritmo / día</div>
+                  <strong style={{ fontSize: '1.2rem' }}>{trafico.tickets_por_dia.toLocaleString('es-MX')}</strong>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>tickets promedio</div>
+                </div>
+                <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>Hora pico</div>
+                  <strong style={{ fontSize: '1.2rem' }}>
+                    {trafico.hora_pico ? etiquetaHora(trafico.hora_pico.id) : '—'}
+                  </strong>
+                  <div className="muted" style={{ fontSize: '0.72rem' }}>
+                    {trafico.hora_pico ? `${trafico.hora_pico.tickets} tickets` : 'sin datos'}
+                  </div>
+                </div>
+                {!filtroTienda && (
+                  <div style={{ background: 'var(--surface)', borderRadius: 8, padding: '0.55rem 0.65rem' }}>
+                    <div className="muted" style={{ fontSize: '0.72rem' }}>Tienda con más tráfico</div>
+                    <strong style={{ fontSize: '1.05rem' }}>
+                      {trafico.tienda_top?.label || '—'}
+                    </strong>
+                    <div className="muted" style={{ fontSize: '0.72rem' }}>
+                      {trafico.tienda_top ? `${trafico.tienda_top.tickets} tickets` : ''}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {(traficoPack.avisos || []).length > 0 && (
+                <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.5rem' }}>
+                  {traficoPack.avisos.join(' · ')}
+                </p>
+              )}
+
+              <div className="grid-2" style={{ gap: '1rem' }}>
+                <div>
+                  <h5 style={{ margin: '0 0 0.55rem', color: 'var(--brand-blue)', fontSize: '0.9rem' }}>
+                    {tituloTraficoVista}
+                  </h5>
+                  <BarrasConteo
+                    items={itemsTraficoVista}
+                    empty="Sin tickets POS en este rango."
+                  />
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <h5 style={{ margin: '0 0 0.55rem', color: 'var(--brand-blue)', fontSize: '0.9rem' }}>
+                    Detalle por tienda
+                  </h5>
+                  {(trafico.por_tienda || []).every((t) => !t.tickets) ? (
+                    <p className="muted">Sin tickets en el periodo.</p>
+                  ) : (
+                    <table className="table" style={{ fontSize: '0.82rem', width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th>Tienda</th>
+                          <th>Tickets</th>
+                          <th>Venta $</th>
+                          <th>Promedio</th>
+                          <th>%</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(trafico.por_tienda || []).filter((t) => t.tickets > 0).map((t) => {
+                          const pct = trafico.tickets > 0 ? (t.tickets / trafico.tickets) * 100 : 0;
+                          return (
+                            <tr key={t.id}>
+                              <td>
+                                <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: t.color, marginRight: 6 }} />
+                                {t.label}
+                              </td>
+                              <td><strong>{t.tickets.toLocaleString('es-MX')}</strong></td>
+                              <td>{fmt(t.monto)}</td>
+                              <td>{fmt(t.ticket_promedio)}</td>
+                              <td className="muted">{pct.toFixed(1)}%</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {area === 'abarrotes' && (
         <div className="card" style={{ marginBottom: '1rem' }}>
