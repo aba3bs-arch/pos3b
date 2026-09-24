@@ -26,6 +26,8 @@ export default function InputPin({
   inputMode = 'numeric',
   autoComplete = 'off',
   name,
+  /** Si false, el PIN nunca se revela (sin botón ojo). */
+  allowReveal = true,
 }) {
   const uid = useId();
   const [visible, setVisible] = useState(false);
@@ -37,8 +39,9 @@ export default function InputPin({
     setMaskCss(soportaEnmascaradoCss());
   }, []);
 
+  const puedeVer = allowReveal && visible;
   // Preferir text + CSS; solo password si el navegador no enmascara (p. ej. Firefox).
-  const inputType = visible || maskCss ? 'text' : 'password';
+  const inputType = puedeVer || maskCss ? 'text' : 'password';
 
   return (
     <div className="input-pin-wrap" style={style?.marginBottom != null ? { marginBottom: style.marginBottom } : undefined}>
@@ -57,7 +60,7 @@ export default function InputPin({
         role="presentation"
         readOnly={!unlocked && !disabled}
         onFocus={() => setUnlocked(true)}
-        className={`${className}${!visible && maskCss ? ' input-pin-masked' : ''}`}
+        className={`${className}${!puedeVer && maskCss ? ' input-pin-masked' : ''}`}
         value={value}
         onChange={onChange}
         onKeyDown={onKeyDown}
@@ -69,20 +72,22 @@ export default function InputPin({
           textAlign: 'center',
           letterSpacing: '0.2em',
           width: '100%',
-          paddingRight: '3rem',
+          paddingRight: allowReveal ? '3rem' : undefined,
           ...(style || {}),
         }}
       />
-      <button
-        type="button"
-        className="input-pin-toggle"
-        onClick={() => setVisible((v) => !v)}
-        disabled={disabled}
-        aria-label={visible ? 'Ocultar PIN' : 'Ver PIN'}
-        title={visible ? 'Ocultar PIN' : 'Ver PIN'}
-      >
-        <Icon name={visible ? 'eyeOff' : 'eye'} size={20} />
-      </button>
+      {allowReveal && (
+        <button
+          type="button"
+          className="input-pin-toggle"
+          onClick={() => setVisible((v) => !v)}
+          disabled={disabled}
+          aria-label={visible ? 'Ocultar PIN' : 'Ver PIN'}
+          title={visible ? 'Ocultar PIN' : 'Ver PIN'}
+        >
+          <Icon name={visible ? 'eyeOff' : 'eye'} size={20} />
+        </button>
+      )}
     </div>
   );
 }

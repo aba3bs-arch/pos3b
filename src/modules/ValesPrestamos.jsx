@@ -78,6 +78,10 @@ import {
   VALE_FORM_DEFAULTS_IE,
 } from '../lib/valesCatalogoIe.js';
 import {
+  resolverBeneficiarioConsumoPin,
+  valeConsumoRequierePinBeneficiario,
+} from '../lib/pinBeneficiarioConsumo.js';
+import {
   crearCategoriaContVirtual,
   crearSubcategoriaContVirtual,
   crearDetalleContVirtual,
@@ -164,6 +168,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const [empleadosPrestamo, setEmpleadosPrestamo] = useState([]);
   const [notifs, setNotifs] = useState([]);
   const [pinSocio, setPinSocio] = useState('');
+  const [pinBeneficiarioConsumo, setPinBeneficiarioConsumo] = useState('');
   const [rifForm, setRifForm] = useState({
     tipo: TIPOS_RIF.INTERTIENDA,
     sucursal_destino: '',
@@ -271,7 +276,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const puedeEliminarVales = esAdmin;
   const puedeVerBandejaAprobacion = puedeAprobarVales || esSocio;
   const vePendientesTodasTiendas = puedeAprobarVales;
-  const valeFormOptsAuth = { origenMain: esMain, omitirVentana: esMain };
+  const valeFormOptsAuth = {
+    origenMain: esMain,
+    omitirVentana: esMain,
+    subcategoria: valeForm.subcategoria,
+  };
   const requiereAuthAhora = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria, valeFormOptsAuth);
   const valeFormRequiereAdmin = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria, valeFormOptsAuth);
 
@@ -295,6 +304,23 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     return sub?.detalles || [];
   }, [categoriasValeDisponibles, valeForm.categoria, valeForm.subcategoria]);
   const beneficiariosVales = useMemo(() => listarBeneficiariosVales(empleadosAll), [empleadosAll]);
+  const benValeSel = useMemo(
+    () => beneficiarioValePorId(valeForm.beneficiarioId, beneficiariosVales),
+    [valeForm.beneficiarioId, beneficiariosVales],
+  );
+  const requierePinConsumoBenef = useMemo(
+    () => valeConsumoRequierePinBeneficiario({
+      nombreEmpleado: benValeSel?.nombre,
+      categoria: valeForm.categoria,
+      subcategoria: valeForm.subcategoria,
+      detalle: valeForm.detalle,
+    }),
+    [benValeSel?.nombre, valeForm.categoria, valeForm.subcategoria, valeForm.detalle],
+  );
+  const benConsumoPinMeta = useMemo(
+    () => (requierePinConsumoBenef ? resolverBeneficiarioConsumoPin(benValeSel?.nombre) : null),
+    [requierePinConsumoBenef, benValeSel?.nombre],
+  );
   /** El admin elige siempre el corte; ya no se toma del beneficiario. */
   const areaCorteVale = valeForm.areaCorte || null;
   const sucursalesDestinoVale = useMemo(() => listarSucursalesOperativas(), []);
@@ -485,6 +511,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     setValeForm((prev) => ({ ...prev, descuentaNomina: false }));
   }, [valeForm.categoria, valeForm.subcategoria, valeForm.descuentaNomina]);
 
+  // Consumo con PIN (Misael / Luis Enrique): siempre a nómina.
+  useEffect(() => {
+    if (!requierePinConsumoBenef) return;
+    if (valeForm.descuentaNomina === true) return;
+    setValeForm((prev) => ({ ...prev, descuentaNomina: true }));
+  }, [requierePinConsumoBenef, valeForm.descuentaNomina]);
+
   useEffect(() => {
     const subs = subcategoriasValeForm;
     if (!valeForm.subcategoria) return;
@@ -551,6 +584,21 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       { user, sucursal },
     );
     if (!authTxt.ok) return alert(authTxt.error);
+
+    if (
+      valeConsumoRequierePinBeneficiario({
+        nombreEmpleado: ben.nombre,
+        categoria: valeForm.categoria,
+        subcategoria: valeForm.subcategoria,
+        detalle: valeForm.detalle,
+      })
+    ) {
+      if (!String(pinBeneficiarioConsumo || '').trim()) {
+        const quien = resolverBeneficiarioConsumoPin(ben.nombre)?.etiqueta || ben.nombre;
+        return alert(`Consumo a nombre de ${quien}: él debe ingresar su PIN (invisible).`);
+      }
+    }
+
     const res = await registrarVale(
       supabase,
       {
@@ -567,9 +615,20 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         motivo: valeForm.motivo.trim() || null,
         fecha: valeForm.fecha || hoyISO(),
         created_by: user?.nombre || null,
-        descuenta_nomina: esValeGasolina(valeForm.categoria, valeForm.subcategoria)
-          ? false
-          : Boolean(valeForm.descuentaNomina),
+        descuenta_nomina: (() => {
+          if (esValeGasolina(valeForm.categoria, valeForm.subcategoria)) return false;
+          if (
+            valeConsumoRequierePinBeneficiario({
+              nombreEmpleado: ben.nombre,
+              categoria: valeForm.categoria,
+              subcategoria: valeForm.subcategoria,
+              detalle: valeForm.detalle,
+            })
+          ) {
+            return true;
+          }
+          return Boolean(valeForm.descuentaNomina);
+        })(),
       },
       {
         rolActor: user?.rol,
@@ -577,9 +636,21 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         origenMain: esMain,
         ampliado: true,
         usarCatalogoIe: true,
-        descuentaNomina: esValeGasolina(valeForm.categoria, valeForm.subcategoria)
-          ? false
-          : Boolean(valeForm.descuentaNomina),
+        descuentaNomina: (() => {
+          if (esValeGasolina(valeForm.categoria, valeForm.subcategoria)) return false;
+          if (
+            valeConsumoRequierePinBeneficiario({
+              nombreEmpleado: ben.nombre,
+              categoria: valeForm.categoria,
+              subcategoria: valeForm.subcategoria,
+              detalle: valeForm.detalle,
+            })
+          ) {
+            return true;
+          }
+          return Boolean(valeForm.descuentaNomina);
+        })(),
+        pinBeneficiario: pinBeneficiarioConsumo,
       },
     );
     if (!res.ok) {
@@ -590,6 +661,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     if (!res.pendiente && res.requiereFirma && confirm('¿Imprimir vale para firma del beneficiario?')) {
       imprimirVale(res.vale, { mostrarFirma: true });
     }
+    setPinBeneficiarioConsumo('');
     setValeForm({
       beneficiarioId: '',
       categoria: VALE_FORM_DEFAULTS_IE.categoria,
@@ -1429,7 +1501,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
       {!esRepartidor && (
       <div className="card" style={{ fontSize: '0.85rem' }}>
-        <strong>Todos los vales</strong> — Requieren autorización del administrador antes de imprimir (cualquier categoría, horario o MAIN).
+        <strong>Ventana sin autorización</strong>
+        {' '}— En tienda, gasolina / herramienta / accesorios hasta las{' '}
+        <strong>{horaLimiteVale}</strong> (Sonora) se registran <strong>sin admin</strong>.
+        {' '}Después de esa hora (y siempre el consumo) requieren aprobación del administrador.
+        {' '}Ajuste en <strong>Configuración → Vales y préstamos → Horario sin autorización</strong>.
+        <br />
+        <strong>Consumo Misael / Luis Enrique</strong> — En cualquier sucursal, al pedir consumo a su nombre
+        deben ingresar <strong>su propio PIN</strong> (invisible) y el monto <strong>va a nómina</strong>.
+        Así nadie les carga gastos sin autorizar.
         <br />
         <strong>Categorías, subcategorías y detalles</strong> — Mismo catálogo que <strong>IE VIRTUAL</strong> (Contabilidad).
         {' '}Admin: pestaña «Catálogo IE». Gasolina solo desde tienda (no desde MAIN).
@@ -1438,12 +1518,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <br />
         <strong>Corte</strong> — El admin elige el corte (Virtual / Abarrotes / Garage) al generar el vale. Al aprobarse, se carga ahí.
         <br />
-        <strong>Permisos</strong> — Admin: editar, eliminar e imprimir. Cajero: solo imprimir (tras aprobación).
+        <strong>Permisos</strong> — Admin: editar, eliminar e imprimir. Cajero: solo imprimir (tras aprobación si aplica).
         <br />
         <strong>Préstamos</strong> — Admin aprueba siempre; mayores a ${MONTO_PRESTAMO_REQUIERE_SOCIO} requieren Antonio, Francisco o José Luis.
         Cuota semanal mín. ${CUOTA_SEMANAL_MINIMA} en nómina.
         {requiereAuthAhora && !esAdmin && (
           <span style={{ color: 'var(--danger)' }}> · Este vale irá a bandeja de aprobación del administrador.</span>
+        )}
+        {!requiereAuthAhora && !esAdmin && !esMain && (
+          <span style={{ color: 'var(--brand-green)' }}> · Dentro de ventana: se aprueba al generar (sin bandeja).</span>
         )}
       </div>
       )}
@@ -2198,7 +2281,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <select
                 className="select"
                 value={valeForm.beneficiarioId}
-                onChange={(e) => setValeForm({ ...valeForm, beneficiarioId: e.target.value })}
+                onChange={(e) => {
+                  setPinBeneficiarioConsumo('');
+                  setValeForm({ ...valeForm, beneficiarioId: e.target.value });
+                }}
               >
                 <option value="">— Beneficiario —</option>
                 {beneficiariosVales.map((b) => (
@@ -2210,6 +2296,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 value={valeForm.categoria}
                 onChange={(e) => {
                   const cat = e.target.value;
+                  setPinBeneficiarioConsumo('');
                   setValeForm({
                     ...valeForm,
                     categoria: cat,
@@ -2268,9 +2355,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               >
                 <input
                   type="checkbox"
-                  checked={Boolean(valeForm.descuentaNomina)
-                    && !esValeGasolina(valeForm.categoria, valeForm.subcategoria)}
-                  disabled={esValeGasolina(valeForm.categoria, valeForm.subcategoria)}
+                  checked={
+                    (Boolean(valeForm.descuentaNomina) || requierePinConsumoBenef)
+                    && !esValeGasolina(valeForm.categoria, valeForm.subcategoria)
+                  }
+                  disabled={
+                    esValeGasolina(valeForm.categoria, valeForm.subcategoria)
+                    || requierePinConsumoBenef
+                  }
                   onChange={(e) => setValeForm({ ...valeForm, descuentaNomina: e.target.checked })}
                   style={{ marginTop: '0.15rem' }}
                 />
@@ -2278,7 +2370,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   <strong>Descontar en nómina</strong>
                   {esValeGasolina(valeForm.categoria, valeForm.subcategoria)
                     ? ' — Los vales de gasolina no van a nómina (sin importar el corte).'
-                    : ' — Si está marcado, el monto se descuenta al empleado en nómina.'}
+                    : requierePinConsumoBenef
+                      ? ` — Consumo de ${benConsumoPinMeta?.etiqueta || 'beneficiario'}: siempre va a nómina.`
+                      : ' — Si está marcado, el monto se descuenta al empleado en nómina.'}
                 </span>
               </label>
               <label className="muted" style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
@@ -2324,6 +2418,28 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               <input className="input" type="number" min="0" step="0.01" placeholder="Monto" value={valeForm.monto} onChange={(e) => setValeForm({ ...valeForm, monto: e.target.value })} />
               <SelectorCalendario label="Fecha del vale" value={valeForm.fecha} onChange={(f) => setValeForm({ ...valeForm, fecha: f })} />
               <input className="input" placeholder="Motivo" style={{ gridColumn: '1 / -1' }} value={valeForm.motivo} onChange={(e) => setValeForm({ ...valeForm, motivo: e.target.value })} />
+              {requierePinConsumoBenef && (
+                <div style={{ gridColumn: '1 / -1', padding: '0.75rem', borderRadius: 8, background: 'rgba(192,57,43,0.08)', border: '1px solid rgba(192,57,43,0.25)' }}>
+                  <strong style={{ color: 'var(--brand-red)' }}>
+                    PIN de {benConsumoPinMeta?.etiqueta || benValeSel?.nombre || 'beneficiario'}
+                  </strong>
+                  <p className="muted" style={{ margin: '0.35rem 0 0.65rem', fontSize: '0.82rem' }}>
+                    Este consumo solo se autoriza con el PIN de{' '}
+                    <strong>{benConsumoPinMeta?.etiqueta || 'él'}</strong> (invisible)
+                    y <strong>se descuenta en nómina</strong>.
+                    Nadie más debe conocerlo ni verlo en pantalla.
+                  </p>
+                  <InputPin
+                    value={pinBeneficiarioConsumo}
+                    onChange={(e) => setPinBeneficiarioConsumo(e.target.value)}
+                    placeholder={`PIN de ${benConsumoPinMeta?.etiqueta || 'beneficiario'}`}
+                    allowReveal={false}
+                    autoComplete="off"
+                    name="vale-pin-beneficiario-consumo"
+                    style={{ maxWidth: 280, marginBottom: 0 }}
+                  />
+                </div>
+              )}
             </div>
             {areaCorteVale && (
               <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.85rem' }}>
@@ -2337,14 +2453,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
             <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} disabled={!puedeGenerarVales} onClick={guardarVale}>
               {valeFormRequiereAdmin && !esAdmin ? 'Solicitar vale (requiere autorización)' : 'Registrar vale'}
             </button>
-            {esMain && (
-              <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem' }}>
-                Desde MAIN también requiere autorización del administrador antes de imprimir.
+            {requierePinConsumoBenef && (
+              <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', color: 'var(--brand-red)' }}>
+                Pida a {benConsumoPinMeta?.etiqueta || 'el beneficiario'} que escriba su PIN en el campo de arriba.
               </p>
             )}
             {valeFormRequiereAdmin && !esAdmin && (
               <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.82rem', color: 'var(--brand-red)' }}>
-                Todos los vales requieren aprobación del administrador antes de imprimir.
+                Este vale también requiere aprobación del administrador antes de imprimir.
               </p>
             )}
           </div>
