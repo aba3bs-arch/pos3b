@@ -164,7 +164,8 @@ export async function difundirAlertaAsaltoBroadcast(supabase, payload) {
 }
 
 /**
- * Escucha alarmas remotos vía broadcast (app abierta en MAIN / admin).
+ * Escucha alarmas remotas vía broadcast (app abierta en MAIN / admin).
+ * Espera SUBSCRIBED antes de dar por listo el canal.
  */
 export function suscribirAlertaAsaltoBroadcast(supabase, { onAlarma, dispositivoLocal } = {}) {
   if (!supabase || typeof onAlarma !== 'function') return () => {};

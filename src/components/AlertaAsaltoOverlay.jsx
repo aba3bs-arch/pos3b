@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import {
   EVENTO_ALERTA_ASALTO_DETENER,
@@ -17,8 +17,12 @@ import {
   marcarNotificacionAtendidaPorId,
 } from '../lib/contabilidadNotificaciones.js';
 import { obtenerIdDispositivoLocal } from '../lib/dispositivoUsuario.js';
+import { mostrarNotificacionDispositivo } from '../lib/notificacionesDispositivo.js';
 import { iniciarSirenaAsalto, detenerSirenaAsalto, prepararAudioPos } from '../lib/sonidosPos.js';
 import PortalFlotante from './PortalFlotante.jsx';
+
+const POLL_MS_FOREGROUND = 2500;
+const POLL_MS_BACKGROUND = 5000;
 
 /**
  * Pantalla de alarma audible «ASALTO EN PROCESO» en dispositivos REMOTOS
@@ -28,40 +32,72 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
   const [alerta, setAlerta] = useState(null);
   const [silenciando, setSilenciando] = useState(false);
   const puedeVer = usuarioRecibeAlertaAsalto(user);
+  const idsMostrados = useRef(new Set());
+  const alertaActivaId = useRef(null);
 
   const aplicarAlerta = useCallback((detail) => {
     if (!detail) return;
     if (detail.id && esOrigenAlertaAsalto(detail.id)) return;
+    const idKey = detail.id != null ? String(detail.id) : `tmp-${detail.at || ''}`;
+    // Ya visible o ya silenciada en este dispositivo.
+    if (alertaActivaId.current === idKey) return;
+    if (idsMostrados.current.has(idKey)) return;
+    idsMostrados.current.add(idKey);
+    alertaActivaId.current = idKey;
     setAlerta(detail);
     prepararAudioPos();
     iniciarSirenaAsalto();
+    // Banner del sistema (útil en móvil si el audio está bloqueado).
+    void mostrarNotificacionDispositivo({
+      id: detail.id || `asalto-${detail.at || Date.now()}`,
+      titulo: detail.titulo || TEXTO_ALERTA_ASALTO,
+      mensaje: detail.mensaje || TEXTO_ALERTA_ASALTO_SUB,
+    });
   }, []);
 
   const cargarPendiente = useCallback(async () => {
-    if (!supabase || !puedeVer) return;
-    const res = await listarNotificacionesPendientes(supabase, {
-      tipos: [TIPOS_NOTIF.ASALTO],
-      limit: 5,
-      todasTiendas: true,
-    });
-    const row = (res.data || []).find((r) => r?.id && !esOrigenAlertaAsalto(r.id)) || null;
-    if (row) {
-      aplicarAlerta({
-        id: row.id,
-        titulo: row.titulo || TEXTO_ALERTA_ASALTO,
-        mensaje: row.mensaje || TEXTO_ALERTA_ASALTO_SUB,
-        sucursal_id: row.sucursal_id,
-        at: row.created_at,
-        local: false,
+    if (!supabase || !puedeVer) return null;
+    try {
+      const res = await listarNotificacionesPendientes(supabase, {
+        tipos: [TIPOS_NOTIF.ASALTO],
+        limit: 8,
+        todasTiendas: true,
       });
+      const row = (res.data || []).find((r) => {
+        if (!r?.id) return false;
+        if (esOrigenAlertaAsalto(r.id)) return false;
+        if (idsMostrados.current.has(String(r.id))) return false;
+        return true;
+      }) || null;
+      if (row) {
+        aplicarAlerta({
+          id: row.id,
+          titulo: row.titulo || TEXTO_ALERTA_ASALTO,
+          mensaje: row.mensaje || TEXTO_ALERTA_ASALTO_SUB,
+          sucursal_id: row.sucursal_id,
+          at: row.created_at,
+          local: false,
+        });
+      }
+      return row;
+    } catch {
+      return null;
     }
   }, [supabase, puedeVer, aplicarAlerta]);
 
   useEffect(() => {
     if (!user || user.esCtMovil || !puedeVer) return undefined;
 
+    // iOS: el audio solo arranca tras un gesto; desbloquear al tocar.
+    const unlockAudio = () => {
+      prepararAudioPos();
+    };
+    window.addEventListener('touchstart', unlockAudio, { passive: true });
+    window.addEventListener('click', unlockAudio, { passive: true });
+
     const onStop = () => {
       detenerSirenaAsalto();
+      alertaActivaId.current = null;
       setAlerta(null);
     };
     window.addEventListener(EVENTO_ALERTA_ASALTO_DETENER, onStop);
@@ -71,7 +107,11 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
     const onNotif = (e) => {
       const d = e.detail;
       if (d?.id && esOrigenAlertaAsalto(d.id)) return;
-      if (d?.tipo && d.tipo !== TIPOS_NOTIF.ASALTO) return;
+      if (d?.tipo && d.tipo !== TIPOS_NOTIF.ASALTO) {
+        // Otro tipo: igual revisar pendientes por si el refresh viene agrupado.
+        void cargarPendiente();
+        return;
+      }
       if (d?.tipo === TIPOS_NOTIF.ASALTO || d?.titulo?.toUpperCase?.().includes('ASALTO')) {
         aplicarAlerta({
           id: d.id,
@@ -122,7 +162,7 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
     let channel = null;
     if (supabase) {
       channel = supabase
-        .channel(`pos-asalto-pg-${user?.id || user?.nombre || 'staff'}`)
+        .channel(`pos-asalto-pg-${user?.id || user?.nombre || 'staff'}-${Date.now()}`)
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'contabilidad_notificaciones' },
@@ -143,14 +183,36 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
         .subscribe();
     }
 
-    // Polling de respaldo (si Realtime no está habilitado en la tabla).
-    const iv = setInterval(() => void cargarPendiente(), 8000);
+    let iv = setInterval(() => void cargarPendiente(), POLL_MS_FOREGROUND);
+
+    const syncPollRate = () => {
+      clearInterval(iv);
+      const ms = document.visibilityState === 'visible' ? POLL_MS_FOREGROUND : POLL_MS_BACKGROUND;
+      iv = setInterval(() => void cargarPendiente(), ms);
+    };
+
+    const onWake = () => {
+      void cargarPendiente();
+      syncPollRate();
+      prepararAudioPos();
+    };
+
+    document.addEventListener('visibilitychange', onWake);
+    window.addEventListener('focus', onWake);
+    window.addEventListener('pageshow', onWake);
+    window.addEventListener('online', onWake);
 
     return () => {
       clearInterval(iv);
+      window.removeEventListener('touchstart', unlockAudio);
+      window.removeEventListener('click', unlockAudio);
       window.removeEventListener(EVENTO_ALERTA_ASALTO_DETENER, onStop);
       window.removeEventListener(EVENTO_NOTIFICACION_DISPOSITIVO, onNotif);
       window.removeEventListener(EVENTO_NOTIFICACIONES, onNotif);
+      document.removeEventListener('visibilitychange', onWake);
+      window.removeEventListener('focus', onWake);
+      window.removeEventListener('pageshow', onWake);
+      window.removeEventListener('online', onWake);
       if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
         navigator.serviceWorker.removeEventListener('message', onSwMessage);
       }
@@ -174,6 +236,7 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
         );
       }
       emitirDetenerAlertaAsalto();
+      alertaActivaId.current = null;
       setAlerta(null);
     } finally {
       setSilenciando(false);

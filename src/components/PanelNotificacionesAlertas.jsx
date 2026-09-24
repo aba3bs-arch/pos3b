@@ -14,7 +14,10 @@ import {
   TECLAS_MIN_ASALTO,
   ESC_TAPS_ASALTO,
   dispararAlertaAsalto,
+  usuarioRecibeAlertaAsalto,
 } from '../lib/alertaAsalto.js';
+import { TIPOS_NOTIF, listarNotificacionesPendientes } from '../lib/contabilidadNotificaciones.js';
+import { prepararAudioPos } from '../lib/sonidosPos.js';
 
 function etiquetaPermiso(p) {
   if (p === 'granted') return { txt: 'Activadas', color: 'var(--brand-green)' };
@@ -28,10 +31,13 @@ export default function PanelNotificacionesAlertas({ supabase, user, sucursal })
   const [swOk, setSwOk] = useState(false);
   const [pushMsg, setPushMsg] = useState('');
   const [probandoAsalto, setProbandoAsalto] = useState(false);
+  const [verificando, setVerificando] = useState(false);
+  const [escuchaMsg, setEscuchaMsg] = useState('');
   const esIos = detectarIos();
   const esMobile = detectarMobile();
   const pwa = esPwaInstalada();
   const vapidOk = Boolean(vapidPublicKey());
+  const puedeRecibirAsalto = usuarioRecibeAlertaAsalto(user);
 
   const refrescar = useCallback(() => {
     setPermiso(permisoNotificacionesDispositivo());
@@ -176,7 +182,53 @@ export default function PanelNotificacionesAlertas({ supabase, user, sucursal })
         >
           {probandoAsalto ? 'Disparando…' : '🚨 Probar alarma ASALTO'}
         </button>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          disabled={verificando || !puedeRecibirAsalto}
+          onClick={async () => {
+            setVerificando(true);
+            prepararAudioPos();
+            try {
+              const res = await listarNotificacionesPendientes(supabase, {
+                tipos: [TIPOS_NOTIF.ASALTO],
+                limit: 5,
+                todasTiendas: true,
+              });
+              const n = (res.data || []).length;
+              const err = res.error || res.aviso || null;
+              setEscuchaMsg(
+                err
+                  ? `Error al consultar: ${err}`
+                  : n > 0
+                    ? `Hay ${n} alarma(s) de asalto pendiente(s). Debe verse la pantalla roja en unos segundos.`
+                    : 'Escucha OK: no hay alarmas pendientes ahora. Dispare desde OTRA máquina (no desde este celular) y deje esta pantalla abierta.',
+              );
+              alert(
+                (puedeRecibirAsalto ? 'Este usuario SÍ puede recibir asalto.\n' : 'Este usuario NO recibe asalto (solo admin/gerente/MAIN).\n')
+                + (err ? `Error: ${err}` : `Pendientes en nube: ${n}`)
+                + '\n\nImportante: si prueba desde ESTE celular, aquí no suena (modo discreto). Use otra caja para disparar.',
+              );
+            } finally {
+              setVerificando(false);
+            }
+          }}
+        >
+          {verificando ? 'Verificando…' : 'Verificar recepción asalto'}
+        </button>
       </div>
+
+      {escuchaMsg && (
+        <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.82rem' }}>
+          {escuchaMsg}
+        </p>
+      )}
+
+      {!puedeRecibirAsalto && (
+        <p style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', color: 'var(--brand-red)' }}>
+          Este usuario no recibe la alarma de asalto. Entre con Administrador, Gerente o personal MAIN/indirecto.
+        </p>
+      )}
 
       <div style={{ margin: '0 0 1rem', padding: '0.75rem', borderRadius: 8, background: 'rgba(192,57,43,0.08)', fontSize: '0.82rem' }}>
         <strong>Cómo activarla en caja (situación real):</strong>
@@ -193,7 +245,8 @@ export default function PanelNotificacionesAlertas({ supabase, user, sucursal })
             Suena y se ve en dispositivos de admin / indirectos MAIN.
           </li>
           <li>
-            En MAIN y celulares: pulse «Activar alertas» una vez y deje la app abierta o instalada.
+            En el celular: deje la app <strong>abierta en pantalla</strong> (o con alertas activadas).
+            Toque una vez la pantalla para permitir el sonido. Recargue la app si acaba de actualizarse el sistema.
           </li>
         </ul>
       </div>
