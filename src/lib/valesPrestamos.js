@@ -252,6 +252,7 @@ export async function registrarVale(supabase, row, opts = {}) {
   const requiereAdmin = valeRequiereAutorizacionAdmin(new Date(), categoria, {
     origenMain: Boolean(opts.origenMain),
     omitirVentana: Boolean(opts.omitirVentana || opts.origenMain),
+    subcategoria,
   });
   const descuentaNomina = resolverDescuentaNominaVale(
     categoria,
