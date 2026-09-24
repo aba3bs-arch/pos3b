@@ -209,6 +209,10 @@ export default function PanelNotificacionesAlertas({ supabase, user, sucursal })
           <strong>Importante en celular</strong>
           <ul style={{ margin: '0.5rem 0 0', paddingLeft: '1.1rem' }}>
             <li>
+              Tras entrar con PIN (admin / gerente / MAIN), la <strong>sesión permanece abierta</strong> en este teléfono
+              al reabrir la app, para poder recibir la alarma de asalto. Solo se cierra si pulsa «Cerrar sesión».
+            </li>
+            <li>
               Con <strong>Web Push</strong> configurado, los avisos llegan aunque la app esté cerrada (tras Activar alertas en este equipo).
             </li>
             {esIos && !pwa && (

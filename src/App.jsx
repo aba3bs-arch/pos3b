@@ -148,6 +148,12 @@ import {
   limpiarNotificacionesDispositivoMostradas,
   registrarServiceWorkerNotificaciones,
 } from './lib/notificacionesDispositivo.js';
+import {
+  actualizarVistaSesionPersistenteMovil,
+  guardarSesionPersistenteMovil,
+  leerSesionPersistenteMovil,
+  limpiarSesionPersistenteMovil,
+} from './lib/sesionPersistenteMovil.js';
 import { EVENTO_NOTIFICACIONES, EVENTO_NOTIFICACION_DISPOSITIVO, iniciarMonitorNotificacionesDispositivo, TIPOS_NOTIF } from './lib/contabilidadNotificaciones.js';
 import { crearDetectorTeclasAsalto, dispararAlertaAsalto } from './lib/alertaAsalto.js';
 import { registrarCapturaInstalacionPwa } from './lib/appMovil.js';
@@ -270,6 +276,50 @@ function App() {
   useEffect(() => {
     return registrarCapturaInstalacionPwa();
   }, []);
+
+  // Móvil admin/MAIN: restaurar sesión para seguir recibiendo alerta de asalto.
+  useEffect(() => {
+    let cancelado = false;
+    const guardada = leerSesionPersistenteMovil();
+    if (!guardada?.user?.id) return undefined;
+
+    (async () => {
+      let data = guardada.user;
+      if (supabase) {
+        const res = await buscarUsuarioPorId(supabase, guardada.user.id);
+        if (cancelado) return;
+        if (res.error || !res.user) {
+          limpiarSesionPersistenteMovil();
+          return;
+        }
+        data = res.user;
+      }
+      if (cancelado) return;
+      const sucRestore = guardada.sucursal || data.sucursal_id || leerSucursalGuardada() || 'MAIN';
+      setUser(data);
+      setSesion(true);
+      if (sucRestore) {
+        setSucursal(sucRestore);
+        guardarSucursalLocal(sucRestore);
+      }
+      const vistaRestore = guardada.vista && guardada.vista !== 'Socio 3B'
+        ? guardada.vista
+        : 'Inicio';
+      setVista(vistaRestore);
+      guardarSesionPersistenteMovil({ user: data, sucursal: sucRestore, vista: vistaRestore });
+      // Re-registrar SW / push si ya tenían permiso.
+      void registrarServiceWorkerNotificaciones();
+    })();
+
+    return () => {
+      cancelado = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!sesion || !user) return;
+    actualizarVistaSesionPersistenteMovil(vista);
+  }, [sesion, user, vista]);
 
   useEffect(() => {
     let ok = true;
@@ -736,6 +786,20 @@ function App() {
       } else {
         setVista('Inicio');
       }
+      // Móvil admin/MAIN: mantener sesión abierta para recibir alerta de asalto.
+      guardarSesionPersistenteMovil({
+        user: data,
+        sucursal: sucursalLogin,
+        vista: esRolCliente(data.rol) || esSocioSesion
+          ? 'Socio 3B'
+          : data.esCtMovil
+            ? 'Checador'
+            : (cubreTurno || data.esCubreTurno)
+              ? 'Ventas'
+              : puedeVerModulo(data.rol, 'Checador', data.id)
+                ? 'Checador'
+                : 'Inicio',
+      });
       const loginRow = {
         usuario_id: typeof data.id === 'string' && data.id.startsWith('socio-') ? null : (data.id || null),
         nombre: data.nombre,
@@ -1067,6 +1131,7 @@ function App() {
     if (user?.id && sucursal) limpiarExtensionSesionTurno(user.id, sucursal);
     limpiarAnunciosVistos();
     limpiarNotificacionesDispositivoMostradas();
+    limpiarSesionPersistenteMovil();
     setAvisoExtensionTurno(null);
     setOfertaBiometria(null);
     setSesion(false);
