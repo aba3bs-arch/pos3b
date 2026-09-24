@@ -18,6 +18,10 @@ import {
 } from './contabilidadConstants.js';
 import { esCategoriaValeConocida, esSubcategoriaValeValida, esDetalleValeValido } from './valesCategorias.js';
 import { esValeGasolina, resolverDescuentaNominaVale } from './valesCatalogoIe.js';
+import {
+  valeConsumoRequierePinBeneficiario,
+  verificarPinBeneficiarioConsumo,
+} from './pinBeneficiarioConsumo.js';
 import { crearNotificacion, marcarNotificacionAtendida, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
 import {
   cargarValeACorte,
@@ -248,6 +252,25 @@ export async function registrarVale(supabase, row, opts = {}) {
     return { ok: false, error: 'Los vales de gasolina se generan desde la tienda, no desde MAIN.' };
   }
 
+  // Consumo a nombre de Luis Enrique / Misael: PIN del beneficiario (cualquier sucursal).
+  let pinConsumoAuth = null;
+  if (
+    valeConsumoRequierePinBeneficiario({
+      nombreEmpleado: row.nombre_empleado,
+      categoria,
+      subcategoria,
+      detalle,
+    })
+  ) {
+    const authPin = await verificarPinBeneficiarioConsumo(
+      supabase,
+      opts.pinBeneficiario,
+      row.nombre_empleado,
+    );
+    if (!authPin.ok) return { ok: false, error: authPin.error };
+    pinConsumoAuth = authPin;
+  }
+
   const esAdmin = normalizarRol(opts.rolActor) === 'Administrador';
   const requiereAdmin = valeRequiereAutorizacionAdmin(new Date(), categoria, {
     origenMain: Boolean(opts.origenMain),
@@ -276,6 +299,17 @@ export async function registrarVale(supabase, row, opts = {}) {
     autorizadoPor = opts.nombreActor || 'Administrador';
   }
 
+  // Si el beneficiario firmó con PIN, queda constancia (y no sustituye la bandeja admin).
+  let motivoConPin = row.motivo || null;
+  if (pinConsumoAuth?.beneficiario?.etiqueta) {
+    const firmaPin = `PIN ${pinConsumoAuth.beneficiario.etiqueta}`;
+    const nota = `[Autorizado con ${firmaPin}]`;
+    motivoConPin = motivoConPin ? `${motivoConPin} ${nota}` : nota;
+    if (!(requiereAdmin && !esAdmin)) {
+      autorizadoPor = autorizadoPor ? `${autorizadoPor} + ${firmaPin}` : firmaPin;
+    }
+  }
+
   const folio = row.folio || (await siguienteFolioVale(supabase, row.sucursal_id));
   const sucursalIe = String(row.sucursal_ie || 'MAIN').trim().toUpperCase() || 'MAIN';
   const payload = {
@@ -286,6 +320,7 @@ export async function registrarVale(supabase, row, opts = {}) {
     detalle,
     area,
     sucursal_ie: sucursalIe,
+    motivo: motivoConPin,
     descuenta_nomina: descuentaNomina,
     estado_aprobacion: estadoAprobacion,
     requiere_autorizacion: requiereAuth,
