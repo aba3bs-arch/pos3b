@@ -64,8 +64,11 @@ import {
 
 function etiquetaTipo(m) {
   if (m.tipo_movimiento === 'Cobro Servicio') return 'Servicio';
+  if (m.tipo_movimiento === 'Cobro Crédito') return 'Crédito cobrado';
   if (m.tipo_movimiento === 'Entrega Crédito') return 'Crédito';
+  if (m.tipo_movimiento === 'Venta Ruta') return 'Venta ruta';
   if (m.tipo_movimiento === 'Gasto') return 'Gasto';
+  if (/cr[eé]dito\s+cobrado/i.test(String(m.foto_url || ''))) return 'Crédito cobrado';
   return 'Recolección';
 }
 

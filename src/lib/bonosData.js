@@ -60,7 +60,9 @@ async function totalRecoleccionPeriodo(supabase, sucursal, desde, hasta) {
     let total = 0;
     let count = 0;
     for (const m of data || []) {
-      if (String(m.tipo_movimiento || '') !== 'Recolección') continue;
+      const tipo = String(m.tipo_movimiento || '');
+      // Efectivo de recolección o cobro de crédito (cash real); no Entrega Crédito pendiente.
+      if (tipo !== 'Recolección' && tipo !== 'Cobro Crédito') continue;
       const dia = claveDiaReporte(m, 'recoleccion');
       if (desde && dia < desde) continue;
       if (hasta && dia > hasta) continue;

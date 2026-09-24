@@ -8,7 +8,7 @@ import { inicioDia, finDia, hoyYmdNogales } from './corteCaja.js';
 import { esCategoriaProveedores } from './corteContabilidad/catalogoGastos.js';
 import { proveedorDesdeGastoCorte } from './ieAbarrotesProveedores.js';
 import { normalizarNombreProveedorClave } from './proveedorEntregas.js';
-import { fmtMonto, listarRepartidores, fechaClaveDesdeIso } from './controlEfectivo.js';
+import { fmtMonto, listarRepartidores, fechaClaveDesdeIso, esCobroCreditoMovimiento } from './controlEfectivo.js';
 import {
   datosImpresionDesdeHistorial,
   imprimirCorteContabilidad,
@@ -250,6 +250,8 @@ export async function cargarDatosConciliacion(supabase, {
   const entradas = [];
   for (const m of transitoRes.data || []) {
     if (!estatusOk.has(m.estatus)) continue;
+    // Cobros de crédito (legados como Recolección) no son venta/cobro Smoking.
+    if (esCobroCreditoMovimiento(m)) continue;
     if (esAlmacenCentral(m.sucursal_origen)) continue;
     const ymd = ymdDeIso(m.fecha_hora);
     if (!enRangoYmd(ymd, desde, hasta)) continue;
