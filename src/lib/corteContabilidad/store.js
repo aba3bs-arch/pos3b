@@ -20,6 +20,8 @@ import { buscarTraspasoParaGasto } from '../traspasosInventario.js';
 import {
   esEmpleadoIndirectoOMain,
   textoMencionaPersonalIndirecto,
+  empleadoPermitidoEnGastoCorte,
+  esEmpleadoConsumoPinCorte,
 } from '../empleadosVisibles.js';
 
 const MARKER_TRP_INV = 'TRP_INV:';
@@ -310,28 +312,52 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
   // Gastos de corte: sin aprobación. Solo vales y préstamos (otros módulos) requieren admin.
   const estadoAprobacion = 'aprobado';
 
-  // Categoría EMPLEADO en cortes: solo personal de tienda (nunca indirectos / MAIN).
+  // Categoría EMPLEADO en cortes: personal de tienda + Misael/Luis Enrique (consumo PIN).
+  // Otros indirectos / MAIN siguen bloqueados.
   {
     const catalogo = opts.empleadosCatalogo || [];
     const paraNombres = opts.usuariosParaValidarIndirectos || catalogo;
-    const empHit = catalogo.find((e) => String(e.id) === String(gasto.usuario_id || ''));
-    const esIndirecto =
-      (empHit && esEmpleadoIndirectoOMain(empHit))
-      || String(gasto.usuario_id || '').startsWith('indirect:')
-      || textoMencionaPersonalIndirecto(gasto.usuario_nombre, paraNombres);
-    if (esIndirecto) {
+    const empHit = catalogo.find((e) => String(e.id) === String(gasto.usuario_id || ''))
+      || (gasto.usuario_nombre
+        ? catalogo.find((e) => String(e.nombre || '').toLowerCase() === String(gasto.usuario_nombre).toLowerCase())
+        : null);
+    const permitidoExcepcion = empleadoPermitidoEnGastoCorte(
+      empHit || { nombre: gasto.usuario_nombre, rol: 'Indirecto', tipo_empleado: 'indirecto' },
+      { modulo },
+    );
+    const esIndirectoBloqueado =
+      !permitidoExcepcion
+      && (
+        (empHit && esEmpleadoIndirectoOMain(empHit))
+        || String(gasto.usuario_id || '').startsWith('indirect:')
+        || String(gasto.usuario_id || '').startsWith('consumo-pin:')
+        || textoMencionaPersonalIndirecto(gasto.usuario_nombre, paraNombres)
+      );
+    if (esIndirectoBloqueado) {
       return {
         ok: false,
         error:
-          'En cortes solo se permiten empleados de tienda (directos). No se puede cargar gasto a personal indirecto / MAIN.',
+          'En cortes solo se permiten empleados de tienda (directos), o Misael / Luis Enrique en consumo con su PIN.',
       };
     }
     if (textoMencionaPersonalIndirecto(gasto.comentario, paraNombres)) {
-      return {
-        ok: false,
-        error:
-          'No se permiten nombres de personal indirecto / MAIN en el comentario del gasto de corte.',
-      };
+      // Permitir el nombre del propio beneficiario del gasto (Misael/Luis Enrique).
+      const comentarioOk = permitidoExcepcion
+        && esEmpleadoConsumoPinCorte(gasto.usuario_nombre || empHit)
+        && !textoMencionaPersonalIndirecto(
+          String(gasto.comentario || '').replace(
+            new RegExp(String(gasto.usuario_nombre || empHit?.nombre || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'),
+            '',
+          ),
+          paraNombres,
+        );
+      if (!comentarioOk) {
+        return {
+          ok: false,
+          error:
+            'No se permiten nombres de personal indirecto / MAIN en el comentario del gasto de corte.',
+        };
+      }
     }
   }
 

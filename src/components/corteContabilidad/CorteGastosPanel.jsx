@@ -11,9 +11,16 @@ import {
 import {
   agruparEmpleadosParaSelectCorte,
   empleadosParaCorte,
-  esEmpleadoIndirectoOMain,
+  esEmpleadoConsumoPinCorte,
+  empleadoPermitidoEnGastoCorte,
+  gastoCorteRequierePinConsumoBeneficiario,
   textoMencionaPersonalIndirecto,
 } from '../../lib/empleadosVisibles.js';
+import {
+  resolverBeneficiarioConsumoPin,
+  verificarPinBeneficiarioConsumo,
+} from '../../lib/pinBeneficiarioConsumo.js';
+import InputPin from '../InputPin.jsx';
 import { esUsuarioCubreTurno } from '../../lib/cubreTurno.js';
 import { esCategoriaEmpleado } from '../../lib/catalogoEmpleadoGastos.js';
 import { etiquetaTienda, normalizarCodigoTienda } from '../../constants/sucursales.js';
@@ -28,7 +35,11 @@ function fmt(n) {
 const btnSm = { fontSize: '0.75rem', padding: '0.25rem 0.5rem' };
 
 function contarReales(lista) {
-  return (lista || []).filter((e) => e && !String(e.id).startsWith('indirect:')).length;
+  return (lista || []).filter((e) => {
+    if (!e) return false;
+    const id = String(e.id || '');
+    return !id.startsWith('indirect:') && !id.startsWith('consumo-pin:');
+  }).length;
 }
 
 function normalizarParaTokens(txt) {
@@ -79,6 +90,7 @@ export default function CorteGastosPanel({
   const [folioTraspaso, setFolioTraspaso] = useState('');
   const [folioInventarioSmoking, setFolioInventarioSmoking] = useState('');
   const [usuarioId, setUsuarioId] = useState('');
+  const [pinConsumoBenef, setPinConsumoBenef] = useState('');
   const [mostrarCat, setMostrarCat] = useState(false);
   const [usuariosRaw, setUsuariosRaw] = useState([]);
   const [avisoEmp, setAvisoEmp] = useState('');
@@ -123,7 +135,20 @@ export default function CorteGastosPanel({
     () => agruparEmpleadosParaSelectCorte(empleadosEfectivos),
     [empleadosEfectivos],
   );
-  const totalEmpleadosSelect = gruposEmpleados.tienda?.length || 0;
+  const totalEmpleadosSelect = (gruposEmpleados.tienda?.length || 0)
+    + (gruposEmpleados.consumoPin?.length || 0);
+
+  const empSeleccionadoPreview = useMemo(
+    () => (empleadosEfectivos || []).find((e) => String(e.id) === String(usuarioId)) || null,
+    [empleadosEfectivos, usuarioId],
+  );
+  const requierePinConsumo = Boolean(
+    empSeleccionadoPreview
+    && gastoCorteRequierePinConsumoBeneficiario(empSeleccionadoPreview, sub),
+  );
+  const pinConsumoMeta = requierePinConsumo
+    ? resolverBeneficiarioConsumoPin(empSeleccionadoPreview?.nombre)
+    : null;
 
   const cargarCat = useCallback(async () => {
     const res = await listarCatalogoGastos(supabase, sucursal, modulo);
@@ -191,19 +216,46 @@ export default function CorteGastosPanel({
     if (requiereEmpleado && !usuarioId) {
       return alert('Selecciona el empleado a quien se descontará el consumo en nómina.');
     }
-    const emp = requiereEmpleado
+    let emp = requiereEmpleado
       ? (empleadosEfectivos || []).find((e) => String(e.id) === String(usuarioId))
       : null;
-    if (emp && esEmpleadoIndirectoOMain(emp)) {
+    if (emp && !empleadoPermitidoEnGastoCorte(emp, { modulo })) {
       return alert(
-        'En cortes solo se permiten empleados de tienda (directos). No uses personal indirecto / MAIN.',
+        'En cortes solo se permiten empleados de tienda (directos), o Misael / Luis Enrique en consumo con su PIN.',
       );
+    }
+    let usuarioIdFinal = emp?.id;
+    let usuarioNombreFinal = emp?.nombre || null;
+    if (emp && gastoCorteRequierePinConsumoBeneficiario(emp, sub)) {
+      const quien = resolverBeneficiarioConsumoPin(emp.nombre)?.etiqueta || emp.nombre;
+      if (!String(pinConsumoBenef || '').trim()) {
+        return alert(`Consumo a nombre de ${quien}: él debe ingresar su PIN (invisible).`);
+      }
+      const pinRes = await verificarPinBeneficiarioConsumo(supabase, pinConsumoBenef, emp.nombre);
+      if (!pinRes.ok) return alert(pinRes.error);
+      // Usar el usuario real del PIN (no el placeholder consumo-pin:…).
+      if (pinRes.usuario?.id) {
+        usuarioIdFinal = pinRes.usuario.id;
+        usuarioNombreFinal = pinRes.usuario.nombre || emp.nombre;
+        emp = { ...emp, id: pinRes.usuario.id, nombre: usuarioNombreFinal };
+      }
     }
     const comentarioTrim = comentario.trim();
     if (textoMencionaPersonalIndirecto(comentarioTrim, usuariosRaw)) {
-      return alert(
-        'No puedes escribir nombres de personal indirecto / MAIN en el comentario del gasto.',
-      );
+      const soloElMismo = emp
+        && esEmpleadoConsumoPinCorte(emp)
+        && !textoMencionaPersonalIndirecto(
+          comentarioTrim.replace(
+            new RegExp(String(emp.nombre || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'),
+            '',
+          ),
+          usuariosRaw,
+        );
+      if (!soloElMismo) {
+        return alert(
+          'No puedes escribir nombres de personal indirecto / MAIN en el comentario del gasto.',
+        );
+      }
     }
     if (esGastoTraspaso) {
       const folios = parseFoliosTraspasoInput(folioTraspaso);
@@ -233,15 +285,20 @@ export default function CorteGastosPanel({
       { user, sucursal },
     );
     if (!authTxt.ok) return alert(authTxt.error);
-    const uid = emp?.id != null ? String(emp.id) : '';
+    const uid = usuarioIdFinal != null ? String(usuarioIdFinal) : '';
+    const esPlaceholder = !uid
+      || uid.startsWith('indirect:')
+      || uid.startsWith('consumo-pin:');
+    const fuerzaNomina = Boolean(emp && esEmpleadoConsumoPinCorte(emp));
     try {
       const res = await onAgregar?.({
         categoria: cat.trim().toUpperCase(),
         subcategoria: sub.trim().toUpperCase(),
         monto: m,
         comentario: comentarioTrim.toUpperCase(),
-        usuario_id: requiereEmpleado && uid && !uid.startsWith('indirect:') ? uid : null,
-        usuario_nombre: emp?.nombre || '',
+        usuario_id: requiereEmpleado && !esPlaceholder ? uid : null,
+        usuario_nombre: usuarioNombreFinal || emp?.nombre || '',
+        ...(fuerzaNomina ? { descontado_nomina: true } : {}),
         folio_traspaso: esGastoTraspaso ? parseFoliosTraspasoInput(folioTraspaso) : [],
         folios_inventario: esGastoSmoking
           ? String(folioInventarioSmoking || '')
@@ -258,6 +315,7 @@ export default function CorteGastosPanel({
     setComentario('');
     setFolioTraspaso('');
     setFolioInventarioSmoking('');
+    setPinConsumoBenef('');
     if (!requiereEmpleado) setUsuarioId('');
   };
 
@@ -443,17 +501,33 @@ export default function CorteGastosPanel({
                   <select
                     className="select"
                     value={usuarioId}
-                    onChange={(e) => setUsuarioId(e.target.value)}
+                    onChange={(e) => {
+                      setUsuarioId(e.target.value);
+                      setPinConsumoBenef('');
+                    }}
                     style={{ fontSize: '1rem', minHeight: 42 }}
                   >
                     <option value="">Elige empleado…</option>
-                    {gruposEmpleados.tienda.map((e) => (
-                      <option key={e.id} value={e.id}>
-                        {normalizarCodigoTienda(sucursal) === 'MAIN' || !sucursal
-                          ? `${e.nombre} · ${etiquetaTienda(e.sucursal_id)}`
-                          : e.nombre}
-                      </option>
-                    ))}
+                    {gruposEmpleados.tienda.length > 0 && (
+                      <optgroup label="Empleados de tienda">
+                        {gruposEmpleados.tienda.map((e) => (
+                          <option key={e.id} value={e.id}>
+                            {normalizarCodigoTienda(sucursal) === 'MAIN' || !sucursal
+                              ? `${e.nombre} · ${etiquetaTienda(e.sucursal_id)}`
+                              : e.nombre}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {(gruposEmpleados.consumoPin || []).length > 0 && (
+                      <optgroup label="MAIN · consumo con PIN (Misael / Luis Enrique)">
+                        {(gruposEmpleados.consumoPin || []).map((e) => (
+                          <option key={e.id} value={e.id}>
+                            {e.etiqueta_consumo_pin || e.nombre}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
                   </select>
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem', fontWeight: 700 }}>
@@ -484,10 +558,22 @@ export default function CorteGastosPanel({
             {!esCatEmpleado && requiereEmpleado && (
               <label style={{ display: 'flex', flexDirection: 'column', gap: '0.15rem', fontSize: '0.72rem', fontWeight: 700, gridColumn: '1 / -1' }}>
                 <span className="muted">Empleado</span>
-                <select className="select" value={usuarioId} onChange={(e) => setUsuarioId(e.target.value)}>
+                <select
+                  className="select"
+                  value={usuarioId}
+                  onChange={(e) => {
+                    setUsuarioId(e.target.value);
+                    setPinConsumoBenef('');
+                  }}
+                >
                   <option value="">Elige empleado…</option>
                   {gruposEmpleados.tienda.map((e) => (
                     <option key={e.id} value={e.id}>{e.nombre}</option>
+                  ))}
+                  {(gruposEmpleados.consumoPin || []).map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.etiqueta_consumo_pin || e.nombre}
+                    </option>
                   ))}
                 </select>
               </label>
@@ -507,6 +593,25 @@ export default function CorteGastosPanel({
               />
             </label>
           </div>
+          {requierePinConsumo && (
+            <div style={{ marginBottom: '0.55rem', padding: '0.55rem 0.65rem', borderRadius: 8, background: 'rgba(180,83,9,0.08)', border: '1px solid rgba(180,83,9,0.35)' }}>
+              <label className="muted" style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, marginBottom: '0.3rem' }}>
+                PIN de {pinConsumoMeta?.etiqueta || empSeleccionadoPreview?.nombre || 'beneficiario'}
+              </label>
+              <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.4rem' }}>
+                solo se autoriza con su PIN (invisible) y siempre descuenta nómina.
+              </p>
+              <InputPin
+                value={pinConsumoBenef}
+                onChange={(e) => setPinConsumoBenef(e.target.value)}
+                placeholder={`PIN de ${pinConsumoMeta?.etiqueta || 'beneficiario'}`}
+                allowReveal={false}
+                autoComplete="off"
+                name="corte-pin-beneficiario-consumo"
+                style={{ maxWidth: 280, marginBottom: 0 }}
+              />
+            </div>
+          )}
           {rutaGasto ? (
             <p className="muted" style={{ fontSize: '0.78rem', margin: '0 0 0.45rem', fontWeight: 600 }}>
               {rutaGasto}
@@ -514,7 +619,7 @@ export default function CorteGastosPanel({
           ) : null}
           {esCatEmpleado ? (
             <p className="muted" style={{ fontSize: '0.72rem', margin: '0 0 0.4rem' }}>
-              Elige <strong>EMPLEADO</strong> → abre la lista de personas → elige el <strong>concepto</strong> (Consumo, Anticipo…).
+              Elige <strong>EMPLEADO</strong> → persona (tienda o Misael/Luis Enrique) → <strong>concepto</strong> (Consumo…).
             </p>
           ) : null}
           {requiereEmpleado && avisoEmp ? (
@@ -524,12 +629,13 @@ export default function CorteGastosPanel({
           ) : null}
           {requiereEmpleado && !avisoEmp && totalEmpleadosSelect === 0 ? (
             <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.4rem' }}>
-              Sin empleados de tienda cargados. En módulo Empleados da de alta tipo <strong>tienda</strong> (máx. 2 por sucursal).
-              Personal indirecto / MAIN no aparece en cortes.
+              Sin empleados cargados. Da de alta tipo <strong>tienda</strong> (máx. 2 por sucursal).
+              Misael / Luis Enrique deben aparecer aquí automáticamente en Abarrotes y Virtual.
             </p>
           ) : null}
           <p className="muted" style={{ fontSize: '0.72rem', margin: '0 0 0.4rem' }}>
-            Categoría EMPLEADO: solo personal directo de tienda. No se permiten indirectos / MAIN (ni en comentarios).
+            Categoría EMPLEADO: personal de tienda + <strong>Misael / Luis Enrique</strong> (consumo con su PIN).
+            Otros indirectos / MAIN no aplican.
           </p>
           {esGastoTraspaso && (
             <div style={{ marginBottom: '0.75rem' }}>
