@@ -206,7 +206,7 @@ export async function acreditarLiquidacionCuentaRt(supabase, opts = {}) {
   return { ok: true, monto, cuentaId };
 }
 
-const TIPOS_LIQUIDACION_RT = ['Recolección', 'Entrega Crédito', 'Cobro Servicio'];
+const TIPOS_LIQUIDACION_RT = ['Recolección', 'Entrega Crédito', 'Cobro Crédito', 'Cobro Servicio'];
 
 async function idsTransitoYaAcreditadosRt(supabase) {
   const { data, error } = await supabase

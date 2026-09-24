@@ -5,8 +5,19 @@ import { estadoVentanaRecoleccion } from './ventanaRecoleccion.js';
 import { leerCandadoPostLiquidacion } from './candadoPostLiquidacion.js';
 import { crearNotificacion, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
 
-const TIPOS_TRASPASO = ['Recolección', 'Entrega Crédito'];
+/** Traspasos de mercancía: efectivo, crédito pendiente y crédito ya cobrado. */
+export const TIPO_COBRO_CREDITO = 'Cobro Crédito';
+const TIPOS_TRASPASO = ['Recolección', 'Entrega Crédito', TIPO_COBRO_CREDITO];
 const TZ = 'America/Hermosillo';
+
+/** Cobro de crédito de Recolecciones (efectivo en tránsito; no es venta ni Recolección). */
+export function esCobroCreditoMovimiento(m) {
+  const tipo = String(m?.tipo_movimiento || '');
+  if (tipo === TIPO_COBRO_CREDITO) return true;
+  // Legado: cobros viejos se guardaban como Recolección con esta nota.
+  if (tipo === 'Recolección' && /cr[eé]dito\s+cobrado/i.test(String(m?.foto_url || ''))) return true;
+  return false;
+}
 
 export { estadoVentanaRecoleccion, ventanaRecoleccionAbierta, EVENTO_VENTANA_RECOLECCION, leerVentanaRecoleccion, guardarVentanaRecoleccion, etiquetaVentanaRecoleccion } from './ventanaRecoleccion.js';
 export {
@@ -827,7 +838,9 @@ export async function cobrarCreditosSeleccionados(supabase, { ids, repartidorId,
         repartidor_id: repartidorId,
         cajero_nombre: cajero.trim(),
         foto_url: `Crédito cobrado. Desglose: ${foliosLista}`,
-        tipo_movimiento: 'Recolección',
+        // Nunca «Recolección»: eso se lee como venta/cobro Smoking en Conciliaciones.
+        tipo_movimiento: TIPO_COBRO_CREDITO,
+        descripcion_gasto: 'Crédito cobrado',
         usuario_liquida: 'No Leído',
         fecha_hora: ahoraIsoNogales(),
       })
@@ -1109,6 +1122,7 @@ export function movimientosMercancia(items) {
     (m) =>
       m.tipo_movimiento === 'Recolección' ||
       m.tipo_movimiento === 'Entrega Crédito' ||
+      m.tipo_movimiento === TIPO_COBRO_CREDITO ||
       m.tipo_movimiento === 'Venta Ruta',
   );
 }
@@ -1302,7 +1316,7 @@ export async function listarMovimientosRecoleccionContabilidad(supabase, { desde
     .select(
       'id, sucursal_origen, repartidor_id, repartidores(nombre), cajero_nombre, monto, fecha_hora, num_traspaso, tipo_movimiento, estatus, descripcion_gasto, fecha_liquidacion, usuario_liquida',
     )
-    .in('tipo_movimiento', ['Recolección', 'Entrega Crédito', 'Cobro Servicio', 'Venta Ruta'])
+    .in('tipo_movimiento', ['Recolección', 'Entrega Crédito', TIPO_COBRO_CREDITO, 'Cobro Servicio', 'Venta Ruta'])
     .order('fecha_hora', { ascending: false });
   if (desde) q = q.gte('fecha_hora', `${desde}T00:00:00-07:00`);
   if (hasta) q = q.lte('fecha_hora', `${hasta}T23:59:59-07:00`);
@@ -1324,15 +1338,16 @@ export function reporteGeneralPorTienda(movimientos, tiendasCatalogo = null) {
     const monto = Number(m.monto || 0);
     r.count += 1;
     r.total += monto;
-    if (m.tipo_movimiento === 'Recolección' || m.tipo_movimiento === 'Venta Ruta') {
+    if (esCobroCreditoMovimiento(m) || m.tipo_movimiento === 'Entrega Crédito') {
+      // Crédito pendiente o cobrado: nunca sumar a «recolección» (eso se lee como venta).
+      r.credito += monto;
+      r.movCredito += 1;
+    } else if (m.tipo_movimiento === 'Recolección' || m.tipo_movimiento === 'Venta Ruta') {
       r.recoleccion += monto;
       r.movRecoleccion += 1;
     } else if (m.tipo_movimiento === 'Cobro Servicio') {
       r.servicios += monto;
       r.movServicios += 1;
-    } else if (m.tipo_movimiento === 'Entrega Crédito') {
-      r.credito += monto;
-      r.movCredito += 1;
     }
     if (m.estatus === 'En Tránsito') r.enTransito += monto;
     else if (m.estatus === 'Liquidado') r.liquidado += monto;
