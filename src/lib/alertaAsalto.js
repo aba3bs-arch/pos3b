@@ -37,11 +37,23 @@ export const TEXTO_ALERTA_ASALTO_SUB =
 const COOLDOWN_MS = 45_000;
 let ultimoDisparoAt = 0;
 let disparando = false;
+/** Mientras > Date.now(), ESTA pestaña ignora alarmas (acabamos de disparar). */
+let silencioOrigenHasta = 0;
 
 /** Solo para pruebas unitarias. */
 export function _resetCooldownAlertaAsaltoParaTests() {
   ultimoDisparoAt = 0;
   disparando = false;
+  silencioOrigenHasta = 0;
+}
+
+/** Activar silencio local antes del INSERT (evita carrera con Realtime). */
+export function activarSilencioOrigenAsalto(ms = 90_000) {
+  silencioOrigenHasta = Date.now() + Math.max(5_000, Number(ms) || 90_000);
+}
+
+export function enSilencioOrigenAsalto() {
+  return Date.now() < silencioOrigenHasta;
 }
 
 export function teclasSimultaneasActivanAsalto(cantidad) {
@@ -99,6 +111,7 @@ export function marcarOrigenAlertaAsalto(id) {
 }
 
 export function esOrigenAlertaAsalto(id) {
+  if (enSilencioOrigenAsalto()) return true;
   if (id == null || typeof sessionStorage === 'undefined') return false;
   try {
     const raw = sessionStorage.getItem(STORAGE_ORIGEN_ASALTO);
@@ -210,6 +223,8 @@ export async function dispararAlertaAsalto(supabase, {
   }
   disparando = true;
   ultimoDisparoAt = ahora;
+  // Antes del INSERT: esta máquina no debe mostrar nada (Realtime llega antes que marcarOrigen).
+  activarSilencioOrigenAsalto(90_000);
 
   try {
     const titulo = TEXTO_ALERTA_ASALTO;

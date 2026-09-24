@@ -147,6 +147,8 @@ import {
   mostrarNotificacionDispositivo,
   limpiarNotificacionesDispositivoMostradas,
   registrarServiceWorkerNotificaciones,
+  permisoNotificacionesDispositivo,
+  detectarMobile,
 } from './lib/notificacionesDispositivo.js';
 import {
   actualizarVistaSesionPersistenteMovil,
@@ -156,6 +158,7 @@ import {
 } from './lib/sesionPersistenteMovil.js';
 import { EVENTO_NOTIFICACIONES, EVENTO_NOTIFICACION_DISPOSITIVO, iniciarMonitorNotificacionesDispositivo, TIPOS_NOTIF } from './lib/contabilidadNotificaciones.js';
 import { crearDetectorTeclasAsalto, dispararAlertaAsalto } from './lib/alertaAsalto.js';
+import { suscribirWebPush, vapidPublicKey } from './lib/webPush.js';
 import { registrarCapturaInstalacionPwa } from './lib/appMovil.js';
 import BotonActivarNotificaciones from './components/BotonActivarNotificaciones.jsx';
 import PantallaLogin from './components/PantallaLogin.jsx';
@@ -459,6 +462,23 @@ function App() {
 
     void registrarServiceWorkerNotificaciones();
 
+    // Android/celular: registrar Web Push al entrar (no hace falta abrir Configuración).
+    const intentarPush = () => {
+      if (!vapidPublicKey()) return;
+      if (permisoNotificacionesDispositivo() !== 'granted') return;
+      void suscribirWebPush(supabase, {
+        usuarioNombre: user?.nombre,
+        usuarioId: user?.id,
+        rol: user?.rol,
+        user,
+      });
+    };
+    intentarPush();
+    const onVisPush = () => {
+      if (document.visibilityState === 'visible') intentarPush();
+    };
+    document.addEventListener('visibilitychange', onVisPush);
+
     const detenerMonitor = iniciarMonitorNotificacionesDispositivo(supabase, {
       user,
       rol: user?.rol,
@@ -476,6 +496,18 @@ function App() {
           const row = payload.new;
           if (!row || row.estado !== 'pendiente') return;
           window.dispatchEvent(new CustomEvent(EVENTO_NOTIFICACIONES));
+          if (row.tipo === TIPOS_NOTIF.ASALTO) {
+            // Android: banner OS aunque el overlay tarde; la caja origen no muestra.
+            void import('./lib/alertaAsalto.js').then(({ esOrigenAlertaAsalto }) => {
+              if (esOrigenAlertaAsalto(row.id)) return;
+              void mostrarNotificacionDispositivo({
+                id: row.id,
+                titulo: row.titulo || 'ASALTO EN PROCESO',
+                mensaje: row.mensaje || 'Alarma de emergencia activada.',
+              });
+            });
+            return;
+          }
           if (row.tipo !== TIPOS_NOTIF.INCIDENCIA) return;
           void mostrarNotificacionDispositivo({
             id: row.id,
@@ -502,6 +534,7 @@ function App() {
 
     return () => {
       detenerMonitor();
+      document.removeEventListener('visibilitychange', onVisPush);
       supabase.removeChannel(channel);
       window.removeEventListener(EVENTO_NOTIFICACION_DISPOSITIVO, onLocal);
     };

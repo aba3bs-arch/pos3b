@@ -17,12 +17,30 @@ import {
   marcarNotificacionAtendidaPorId,
 } from '../lib/contabilidadNotificaciones.js';
 import { obtenerIdDispositivoLocal } from '../lib/dispositivoUsuario.js';
-import { mostrarNotificacionDispositivo } from '../lib/notificacionesDispositivo.js';
+import { detectarMobile, mostrarNotificacionDispositivo } from '../lib/notificacionesDispositivo.js';
 import { iniciarSirenaAsalto, detenerSirenaAsalto, prepararAudioPos } from '../lib/sonidosPos.js';
 import PortalFlotante from './PortalFlotante.jsx';
 
-const POLL_MS_FOREGROUND = 2500;
-const POLL_MS_BACKGROUND = 5000;
+function pollMsActual() {
+  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+    return POLL_MS_BACKGROUND;
+  }
+  return detectarMobile() ? POLL_MS_MOBILE : POLL_MS_FOREGROUND;
+}
+
+async function pedirWakeLockAsalto() {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.wakeLock?.request) return null;
+    if (document.visibilityState !== 'visible') return null;
+    return await navigator.wakeLock.request('screen');
+  } catch {
+    return null;
+  }
+}
+
+const POLL_MS_FOREGROUND = 1500;
+const POLL_MS_BACKGROUND = 4000;
+const POLL_MS_MOBILE = 1200;
 
 /**
  * Pantalla de alarma audible «ASALTO EN PROCESO» en dispositivos REMOTOS
@@ -183,19 +201,26 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
         .subscribe();
     }
 
-    let iv = setInterval(() => void cargarPendiente(), POLL_MS_FOREGROUND);
+    let iv = setInterval(() => void cargarPendiente(), pollMsActual());
+    let wakeLock = null;
 
     const syncPollRate = () => {
       clearInterval(iv);
-      const ms = document.visibilityState === 'visible' ? POLL_MS_FOREGROUND : POLL_MS_BACKGROUND;
-      iv = setInterval(() => void cargarPendiente(), ms);
+      iv = setInterval(() => void cargarPendiente(), pollMsActual());
     };
 
     const onWake = () => {
       void cargarPendiente();
       syncPollRate();
       prepararAudioPos();
+      void pedirWakeLockAsalto().then((wl) => {
+        wakeLock = wl;
+      });
     };
+
+    void pedirWakeLockAsalto().then((wl) => {
+      wakeLock = wl;
+    });
 
     document.addEventListener('visibilitychange', onWake);
     window.addEventListener('focus', onWake);
@@ -204,6 +229,11 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
 
     return () => {
       clearInterval(iv);
+      try {
+        wakeLock?.release?.();
+      } catch {
+        /* ignore */
+      }
       window.removeEventListener('touchstart', unlockAudio);
       window.removeEventListener('click', unlockAudio);
       window.removeEventListener(EVENTO_ALERTA_ASALTO_DETENER, onStop);
