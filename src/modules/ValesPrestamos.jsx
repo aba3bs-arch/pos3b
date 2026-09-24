@@ -511,6 +511,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     setValeForm((prev) => ({ ...prev, descuentaNomina: false }));
   }, [valeForm.categoria, valeForm.subcategoria, valeForm.descuentaNomina]);
 
+  // Consumo con PIN (Misael / Luis Enrique): siempre a nómina.
+  useEffect(() => {
+    if (!requierePinConsumoBenef) return;
+    if (valeForm.descuentaNomina === true) return;
+    setValeForm((prev) => ({ ...prev, descuentaNomina: true }));
+  }, [requierePinConsumoBenef, valeForm.descuentaNomina]);
+
   useEffect(() => {
     const subs = subcategoriasValeForm;
     if (!valeForm.subcategoria) return;
@@ -1501,7 +1508,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         {' '}Ajuste en <strong>Configuración → Vales y préstamos → Horario sin autorización</strong>.
         <br />
         <strong>Consumo Misael / Luis Enrique</strong> — En cualquier sucursal, al pedir consumo a su nombre
-        deben ingresar <strong>su propio PIN</strong> (invisible). Así nadie les carga gastos sin autorizar.
+        deben ingresar <strong>su propio PIN</strong> (invisible) y el monto <strong>va a nómina</strong>.
+        Así nadie les carga gastos sin autorizar.
         <br />
         <strong>Categorías, subcategorías y detalles</strong> — Mismo catálogo que <strong>IE VIRTUAL</strong> (Contabilidad).
         {' '}Admin: pestaña «Catálogo IE». Gasolina solo desde tienda (no desde MAIN).
@@ -2347,9 +2355,14 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               >
                 <input
                   type="checkbox"
-                  checked={Boolean(valeForm.descuentaNomina)
-                    && !esValeGasolina(valeForm.categoria, valeForm.subcategoria)}
-                  disabled={esValeGasolina(valeForm.categoria, valeForm.subcategoria)}
+                  checked={
+                    (Boolean(valeForm.descuentaNomina) || requierePinConsumoBenef)
+                    && !esValeGasolina(valeForm.categoria, valeForm.subcategoria)
+                  }
+                  disabled={
+                    esValeGasolina(valeForm.categoria, valeForm.subcategoria)
+                    || requierePinConsumoBenef
+                  }
                   onChange={(e) => setValeForm({ ...valeForm, descuentaNomina: e.target.checked })}
                   style={{ marginTop: '0.15rem' }}
                 />
@@ -2357,7 +2370,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   <strong>Descontar en nómina</strong>
                   {esValeGasolina(valeForm.categoria, valeForm.subcategoria)
                     ? ' — Los vales de gasolina no van a nómina (sin importar el corte).'
-                    : ' — Si está marcado, el monto se descuenta al empleado en nómina.'}
+                    : requierePinConsumoBenef
+                      ? ` — Consumo de ${benConsumoPinMeta?.etiqueta || 'beneficiario'}: siempre va a nómina.`
+                      : ' — Si está marcado, el monto se descuenta al empleado en nómina.'}
                 </span>
               </label>
               <label className="muted" style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
@@ -2410,7 +2425,8 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   </strong>
                   <p className="muted" style={{ margin: '0.35rem 0 0.65rem', fontSize: '0.82rem' }}>
                     Este consumo solo se autoriza con el PIN de{' '}
-                    <strong>{benConsumoPinMeta?.etiqueta || 'él'}</strong> (invisible).
+                    <strong>{benConsumoPinMeta?.etiqueta || 'él'}</strong> (invisible)
+                    y <strong>se descuenta en nómina</strong>.
                     Nadie más debe conocerlo ni verlo en pantalla.
                   </p>
                   <InputPin
