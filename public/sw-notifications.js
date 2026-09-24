@@ -6,6 +6,9 @@ self.addEventListener('push', (event) => {
     tag: `pos3b-${Date.now()}`,
     id: null,
     tipo: null,
+    requireInteraction: true,
+    silent: false,
+    asalto: false,
   };
   try {
     if (event.data) {
@@ -21,21 +24,47 @@ self.addEventListener('push', (event) => {
     }
   }
 
+  const esAsalto = Boolean(data.asalto || data.tipo === 'asalto_en_proceso');
   const titulo = data.titulo || 'POS 3B';
   const options = {
     body: data.mensaje || '',
     tag: data.tag || (data.id ? `pos3b-${data.id}` : `pos3b-${Date.now()}`),
     icon: '/logo.svg',
     badge: '/logo.svg',
-    requireInteraction: true,
+    requireInteraction: data.requireInteraction !== false,
+    silent: Boolean(data.silent),
     data: {
       id: data.id,
       tipo: data.tipo,
       url: '/',
+      asalto: esAsalto,
     },
   };
 
-  event.waitUntil(self.registration.showNotification(titulo, options));
+  event.waitUntil(
+    (async () => {
+      // Avisar pestañas abiertas (sirena / overlay en MAIN) sin depender solo del OS.
+      if (esAsalto) {
+        try {
+          const clientsList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+          for (const client of clientsList) {
+            client.postMessage({
+              type: 'pos3b-asalto-push',
+              payload: {
+                id: data.id,
+                titulo,
+                mensaje: data.mensaje,
+                tipo: data.tipo || 'asalto_en_proceso',
+              },
+            });
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      await self.registration.showNotification(titulo, options);
+    })(),
+  );
 });
 
 self.addEventListener('notificationclick', (event) => {

@@ -21,6 +21,8 @@ function faltaTabla(error) {
 export async function crearNotificacion(supabase, row, opts = {}) {
   if (!supabase) return { ok: true, id: null };
   const areaBuzon = row.area_buzon ? String(row.area_buzon).toLowerCase() : null;
+  const silenciosoLocal = Boolean(opts.silenciosoLocal);
+  const skipPush = Boolean(opts.skipPush);
   const payload = {
     sucursal_id: row.sucursal_id || 'MAIN',
     tipo: row.tipo,
@@ -42,26 +44,38 @@ export async function crearNotificacion(supabase, row, opts = {}) {
   if (error && faltaTabla(error)) return { ok: true, id: null, aviso: AVISO_FALTA_NOTIF };
   if (error) return { ok: false, error: error.message };
   emitirRefreshNotificaciones();
+  let push = null;
   if (data?.id) {
-    void mostrarNotificacionDispositivo({
-      id: data.id,
-      titulo: payload.titulo,
-      mensaje: payload.mensaje,
-    });
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent(EVENTO_NOTIFICACION_DISPOSITIVO, { detail: { ...payload, id: data.id } }));
+    // silenciosoLocal: no OS/banner en la máquina que crea (p. ej. alarma asalto en caja).
+    if (!silenciosoLocal) {
+      void mostrarNotificacionDispositivo({
+        id: data.id,
+        titulo: payload.titulo,
+        mensaje: payload.mensaje,
+      });
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(EVENTO_NOTIFICACION_DISPOSITIVO, { detail: { ...payload, id: data.id } }));
+      }
     }
-    // Push remoto (admin/gerente; asalto también indirectos MAIN). No bloquear el flujo.
-    void dispararPushRemoto(supabase, {
-      id: data.id,
-      titulo: payload.titulo,
-      mensaje: payload.mensaje,
-      tipo: payload.tipo,
-      usuarioIds: opts.usuarioIds || null,
-      modo: opts.modoPush || (payload.tipo === 'asalto_en_proceso' ? 'asalto' : null),
-    });
+    // Push remoto (admin/gerente; asalto también indirectos MAIN).
+    if (!skipPush) {
+      const pushOpts = {
+        id: data.id,
+        titulo: payload.titulo,
+        mensaje: payload.mensaje,
+        tipo: payload.tipo,
+        usuarioIds: opts.usuarioIds || null,
+        modo: opts.modoPush || (payload.tipo === 'asalto_en_proceso' ? 'asalto' : null),
+        excluirDispositivoId: opts.excluirDispositivoId || null,
+      };
+      if (opts.awaitPush) {
+        push = await dispararPushRemoto(supabase, pushOpts);
+      } else {
+        void dispararPushRemoto(supabase, pushOpts);
+      }
+    }
   }
-  return { ok: true, id: data?.id };
+  return { ok: true, id: data?.id, push };
 }
 
 export async function listarNotificacionesPendientes(supabase, opts = {}) {

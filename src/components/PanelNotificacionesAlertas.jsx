@@ -139,7 +139,11 @@ export default function PanelNotificacionesAlertas({ supabase, user, sucursal })
           style={{ borderColor: 'var(--brand-red)', color: 'var(--brand-red)' }}
           disabled={probandoAsalto}
           onClick={async () => {
-            if (!confirm('¿Probar alarma ASALTO EN PROCESO?\nSonará la sirena y avisará a admins/indirectos MAIN.')) return;
+            if (!confirm(
+              '¿Probar alarma ASALTO EN PROCESO?\n\n'
+              + 'Esta máquina NO mostrará nada (modo discreto).\n'
+              + 'Otros dispositivos de admin/indirectos MAIN deben sonar.',
+            )) return;
             setProbandoAsalto(true);
             try {
               const res = await dispararAlertaAsalto(supabase, {
@@ -150,7 +154,21 @@ export default function PanelNotificacionesAlertas({ supabase, user, sucursal })
               });
               if (!res.ok && !res.skipped) alert(res.error || 'No se pudo disparar.');
               else if (res.skipped) alert(res.error);
-              else alert(`Alarma de prueba enviada.\nDestinatarios: ${res.destinatarios ?? '—'}`);
+              else {
+                const pushEnv = res.push?.data?.enviados;
+                const pushTotal = res.push?.data?.total;
+                const pushErr = res.push?.error || (res.push?.skipped ? 'Push no configurado (VAPID / función)' : null);
+                const bc = res.broadcast?.ok ? 'OK' : (res.broadcast?.error || 'falló');
+                alert(
+                  'Alarma enviada en silencio desde esta máquina.\n\n'
+                  + `Destinatarios en catálogo: ${res.destinatarios ?? '—'}\n`
+                  + `Broadcast (app abierta): ${bc}\n`
+                  + (pushErr
+                    ? `Push: ${pushErr}`
+                    : `Push enviados: ${pushEnv ?? '—'} / suscripciones: ${pushTotal ?? '—'}`)
+                  + '\n\nEn MAIN/celulares con «Activar alertas» debe sonar la sirena.',
+                );
+              }
             } finally {
               setProbandoAsalto(false);
             }
@@ -170,7 +188,13 @@ export default function PanelNotificacionesAlertas({ supabase, user, sucursal })
           <li>
             Respaldo: pulse <strong>Escape {ESC_TAPS_ASALTO} veces</strong> seguidas (rápido).
           </li>
-          <li>Debe verse pantalla roja + sirena. Suba el volumen del dispositivo.</li>
+          <li>
+            En la caja <strong>no aparece nada</strong> (discreto, para no provocar al asaltante).
+            Suena y se ve en dispositivos de admin / indirectos MAIN.
+          </li>
+          <li>
+            En MAIN y celulares: pulse «Activar alertas» una vez y deje la app abierta o instalada.
+          </li>
         </ul>
       </div>
 
