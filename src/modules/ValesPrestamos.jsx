@@ -271,7 +271,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const puedeEliminarVales = esAdmin;
   const puedeVerBandejaAprobacion = puedeAprobarVales || esSocio;
   const vePendientesTodasTiendas = puedeAprobarVales;
-  const valeFormOptsAuth = { origenMain: esMain, omitirVentana: esMain };
+  const valeFormOptsAuth = {
+    origenMain: esMain,
+    omitirVentana: esMain,
+    subcategoria: valeForm.subcategoria,
+  };
   const requiereAuthAhora = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria, valeFormOptsAuth);
   const valeFormRequiereAdmin = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria, valeFormOptsAuth);
 
@@ -1429,7 +1433,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
 
       {!esRepartidor && (
       <div className="card" style={{ fontSize: '0.85rem' }}>
-        <strong>Todos los vales</strong> — Requieren autorización del administrador antes de imprimir (cualquier categoría, horario o MAIN).
+        <strong>Ventana sin autorización</strong>
+        {' '}— En tienda, gasolina / herramienta / accesorios hasta las{' '}
+        <strong>{horaLimiteVale}</strong> (Sonora) se registran <strong>sin admin</strong>.
+        {' '}Después de esa hora (y siempre el consumo) requieren aprobación del administrador.
+        {' '}Ajuste en <strong>Configuración → Vales y préstamos → Horario sin autorización</strong>.
         <br />
         <strong>Categorías, subcategorías y detalles</strong> — Mismo catálogo que <strong>IE VIRTUAL</strong> (Contabilidad).
         {' '}Admin: pestaña «Catálogo IE». Gasolina solo desde tienda (no desde MAIN).
@@ -1438,12 +1446,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         <br />
         <strong>Corte</strong> — El admin elige el corte (Virtual / Abarrotes / Garage) al generar el vale. Al aprobarse, se carga ahí.
         <br />
-        <strong>Permisos</strong> — Admin: editar, eliminar e imprimir. Cajero: solo imprimir (tras aprobación).
+        <strong>Permisos</strong> — Admin: editar, eliminar e imprimir. Cajero: solo imprimir (tras aprobación si aplica).
         <br />
         <strong>Préstamos</strong> — Admin aprueba siempre; mayores a ${MONTO_PRESTAMO_REQUIERE_SOCIO} requieren Antonio, Francisco o José Luis.
         Cuota semanal mín. ${CUOTA_SEMANAL_MINIMA} en nómina.
         {requiereAuthAhora && !esAdmin && (
           <span style={{ color: 'var(--danger)' }}> · Este vale irá a bandeja de aprobación del administrador.</span>
+        )}
+        {!requiereAuthAhora && !esAdmin && !esMain && (
+          <span style={{ color: 'var(--brand-green)' }}> · Dentro de ventana: se aprueba al generar (sin bandeja).</span>
         )}
       </div>
       )}
