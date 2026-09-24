@@ -608,9 +608,20 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         motivo: valeForm.motivo.trim() || null,
         fecha: valeForm.fecha || hoyISO(),
         created_by: user?.nombre || null,
-        descuenta_nomina: esValeGasolina(valeForm.categoria, valeForm.subcategoria)
-          ? false
-          : Boolean(valeForm.descuentaNomina),
+        descuenta_nomina: (() => {
+          if (esValeGasolina(valeForm.categoria, valeForm.subcategoria)) return false;
+          if (
+            valeConsumoRequierePinBeneficiario({
+              nombreEmpleado: ben.nombre,
+              categoria: valeForm.categoria,
+              subcategoria: valeForm.subcategoria,
+              detalle: valeForm.detalle,
+            })
+          ) {
+            return true;
+          }
+          return Boolean(valeForm.descuentaNomina);
+        })(),
       },
       {
         rolActor: user?.rol,
@@ -618,9 +629,20 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         origenMain: esMain,
         ampliado: true,
         usarCatalogoIe: true,
-        descuentaNomina: esValeGasolina(valeForm.categoria, valeForm.subcategoria)
-          ? false
-          : Boolean(valeForm.descuentaNomina),
+        descuentaNomina: (() => {
+          if (esValeGasolina(valeForm.categoria, valeForm.subcategoria)) return false;
+          if (
+            valeConsumoRequierePinBeneficiario({
+              nombreEmpleado: ben.nombre,
+              categoria: valeForm.categoria,
+              subcategoria: valeForm.subcategoria,
+              detalle: valeForm.detalle,
+            })
+          ) {
+            return true;
+          }
+          return Boolean(valeForm.descuentaNomina);
+        })(),
         pinBeneficiario: pinBeneficiarioConsumo,
       },
     );
@@ -2266,6 +2288,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 value={valeForm.categoria}
                 onChange={(e) => {
                   const cat = e.target.value;
+                  setPinBeneficiarioConsumo('');
                   setValeForm({
                     ...valeForm,
                     categoria: cat,

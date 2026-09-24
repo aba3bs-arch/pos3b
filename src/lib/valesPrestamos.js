@@ -277,13 +277,15 @@ export async function registrarVale(supabase, row, opts = {}) {
     omitirVentana: Boolean(opts.omitirVentana || opts.origenMain),
     subcategoria,
   });
-  const descuentaNomina = resolverDescuentaNominaVale(
+  // Consumo con PIN (Misael / Luis Enrique): siempre a nómina.
+  let descuentaNomina = resolverDescuentaNominaVale(
     categoria,
     subcategoria,
     row.descuenta_nomina === true || row.descuenta_nomina === false
       ? row.descuenta_nomina
       : opts.descuentaNomina,
   );
+  if (pinConsumoAuth) descuentaNomina = true;
 
   let estadoAprobacion = 'aprobado';
   let requiereAuth = false;
