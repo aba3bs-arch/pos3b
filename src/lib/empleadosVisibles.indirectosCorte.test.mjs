@@ -4,6 +4,9 @@ import {
   empleadosParaCorte,
   textoMencionaPersonalIndirecto,
   agruparEmpleadosParaSelectCorte,
+  esEmpleadoConsumoPinCorte,
+  empleadoPermitidoEnGastoCorte,
+  gastoCorteRequierePinConsumoBeneficiario,
 } from './empleadosVisibles.js';
 
 const tienda = {
@@ -30,6 +33,22 @@ const indirecto = {
   tipo_empleado: 'indirecto',
   activo: true,
 };
+const luis = {
+  id: 10,
+  nombre: 'Luis Enrique Mada Osuna',
+  rol: 'Repartidor',
+  sucursal_id: 'MAIN',
+  tipo_empleado: 'indirecto',
+  activo: true,
+};
+const misael = {
+  id: 11,
+  nombre: 'Misael',
+  rol: 'Técnico',
+  sucursal_id: 'MAIN',
+  tipo_empleado: 'indirecto',
+  activo: true,
+};
 const admin = {
   id: 3,
   nombre: 'Admin',
@@ -38,35 +57,51 @@ const admin = {
   activo: true,
 };
 
-// Nadie puede gastos a indirectos en cortes.
 assert.equal(actorPuedeGastosAIndirectos('Administrador'), false);
-assert.equal(actorPuedeGastosAIndirectos('Gerente'), false);
-assert.equal(actorPuedeGastosAIndirectos('Cajero'), false);
+assert.equal(esEmpleadoConsumoPinCorte(luis), true);
+assert.equal(esEmpleadoConsumoPinCorte(misael), true);
+assert.equal(esEmpleadoConsumoPinCorte(indirecto), false);
+assert.equal(empleadoPermitidoEnGastoCorte(luis, { modulo: 'abarrotes' }), true);
+assert.equal(empleadoPermitidoEnGastoCorte(luis, { modulo: 'virtual' }), true);
+assert.equal(empleadoPermitidoEnGastoCorte(luis, { modulo: 'garage' }), false);
+assert.equal(empleadoPermitidoEnGastoCorte(indirecto, { modulo: 'abarrotes' }), false);
+assert.equal(gastoCorteRequierePinConsumoBeneficiario(luis, 'CONSUMO'), true);
+assert.equal(gastoCorteRequierePinConsumoBeneficiario(tienda, 'CONSUMO'), false);
 
-const todos = [tienda, tiendaOtra, indirecto, admin];
+const todos = [tienda, tiendaOtra, indirecto, luis, misael, admin];
 
 const paraAdmin = empleadosParaCorte(todos, 'CEDIS', 'virtual', 'Administrador');
 assert.ok(paraAdmin.some((e) => e.id === 1), 'admin ve tienda de la sucursal');
-assert.ok(!paraAdmin.some((e) => e.id === 2), 'nadie ve indirectos');
+assert.ok(!paraAdmin.some((e) => e.id === 2), 'Gonzalo (otros indirectos) no aparece');
 assert.ok(!paraAdmin.some((e) => e.id === 3), 'nadie ve admins');
 assert.ok(!paraAdmin.some((e) => e.id === 4), 'no ve tienda de otra sucursal');
-assert.ok(!paraAdmin.some((e) => String(e.id).startsWith('indirect:')), 'sin placeholders');
+assert.ok(paraAdmin.some((e) => e.id === 10), 'Luis Enrique visible en Virtual');
+assert.ok(paraAdmin.some((e) => e.id === 11), 'Misael visible en Virtual');
+assert.ok(paraAdmin.every((e) => e.id !== 10 || e.requiere_pin_consumo), 'Luis marca PIN');
+
+const paraAbarrotes = empleadosParaCorte(todos, 'CEDIS', 'abarrotes', 'Cajero');
+assert.ok(paraAbarrotes.some((e) => e.id === 10));
+assert.ok(paraAbarrotes.some((e) => e.id === 11));
+
+const paraGarage = empleadosParaCorte(todos, 'CEDIS', 'garage', 'Cajero');
+assert.ok(!paraGarage.some((e) => e.id === 10), 'Garage no lista Luis Enrique');
+assert.ok(!paraGarage.some((e) => e.id === 11), 'Garage no lista Misael');
+assert.deepEqual(paraGarage.map((e) => e.id), [1]);
 
 const paraCajero = empleadosParaCorte(todos, 'CEDIS', 'virtual', 'Cajero');
-assert.deepEqual(
-  paraCajero.map((e) => e.id),
-  [1],
-);
-
-const paraMain = empleadosParaCorte(todos, 'MAIN', 'garage', 'Administrador');
-assert.ok(paraMain.some((e) => e.id === 1));
-assert.ok(paraMain.some((e) => e.id === 4));
-assert.ok(!paraMain.some((e) => e.id === 2));
+assert.ok(paraCajero.some((e) => e.id === 1));
+assert.ok(paraCajero.some((e) => e.id === 10));
 
 const grupos = agruparEmpleadosParaSelectCorte(paraAdmin);
 assert.equal(grupos.tienda.length, 1);
-assert.equal(grupos.indirectos.length, 0);
-assert.equal(grupos.admins.length, 0);
+assert.ok(grupos.consumoPin.length >= 2, 'grupo consumo PIN con Misael y Luis');
+assert.ok(grupos.consumoPin.every((e) => e.requiere_pin_consumo || esEmpleadoConsumoPinCorte(e)));
+
+// Sin usuarios reales: placeholders fijos
+const soloTienda = empleadosParaCorte([tienda], 'CEDIS', 'abarrotes', 'Cajero');
+assert.ok(soloTienda.some((e) => String(e.id).startsWith('consumo-pin:') || e.nombre === 'Misael' || /luis/i.test(e.nombre)));
+assert.ok(soloTienda.some((e) => /misael/i.test(e.nombre)));
+assert.ok(soloTienda.some((e) => /luis/i.test(e.nombre)));
 
 assert.equal(textoMencionaPersonalIndirecto('compra de bolsas', todos), false);
 assert.equal(textoMencionaPersonalIndirecto('consumo gonzalo', todos), true);

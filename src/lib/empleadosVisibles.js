@@ -2,9 +2,29 @@ import { listarSucursalesOperativas, normalizarCodigoTienda } from '../constants
 import { BENEFICIARIOS_VALES, slugBeneficiarioVale, AREAS_CONTABILIDAD } from './contabilidadConstants.js';
 import { normalizarRol, puedeGestionarUsuarios } from './roles.js';
 import { esTurnoAmbos, turnoActual, turnoIdParaUsuario } from './turnos.js';
+import {
+  BENEFICIARIOS_CONSUMO_PIN,
+  resolverBeneficiarioConsumoPin,
+} from './pinBeneficiarioConsumo.js';
 
 /** Máximo de empleados fijos (tipo tienda) activos por sucursal operativa. */
 export const MAX_EMPLEADOS_POR_TIENDA = 2;
+
+/** Módulos de corte donde Misael / Luis Enrique aparecen en EMPLEADO (con PIN en consumo). */
+export const MODULOS_CORTE_CONSUMO_PIN = new Set(['abarrotes', 'virtual']);
+
+/** ¿Este empleado/nombre es Misael o Luis Enrique (consumo con PIN en corte)? */
+export function esEmpleadoConsumoPinCorte(empleadoONombre) {
+  const nombre = typeof empleadoONombre === 'string'
+    ? empleadoONombre
+    : (empleadoONombre?.nombre || '');
+  return Boolean(resolverBeneficiarioConsumoPin(nombre));
+}
+
+/** True si el módulo de corte muestra a Misael/Luis Enrique en la lista EMPLEADO. */
+export function moduloCorteIncluyeConsumoPin(modulo) {
+  return MODULOS_CORTE_CONSUMO_PIN.has(String(modulo || '').toLowerCase());
+}
 
 /**
  * Empleados visibles en listas operativas (nómina, vales, etc.).
@@ -187,11 +207,31 @@ export function agruparEmpleadosCatalogo(empleados, { incluirBajas = false } = {
 }
 
 /**
- * En cortes (Virtual / Abarrotes / Garage) la categoría EMPLEADO solo admite
- * personal de tienda. Nadie (ni admin) puede cargar gastos a indirectos/MAIN ahí.
+ * En cortes (Virtual / Abarrotes / Garage) la categoría EMPLEADO admite
+ * personal de tienda. Además, en Abarrotes/Virtual: Misael y Luis Enrique
+ * (consumo con su PIN). El resto de indirectos/MAIN sigue bloqueado.
  */
 export function actorPuedeGastosAIndirectos(_actorRol, _opts = {}) {
   return false;
+}
+
+/**
+ * ¿Se puede cargar este gasto de corte a este empleado?
+ * - Tienda: siempre (si está en catálogo).
+ * - Misael / Luis Enrique: solo en abarrotes/virtual (consumo con PIN).
+ * - Otros indirectos: no.
+ */
+export function empleadoPermitidoEnGastoCorte(empleado, { modulo = null } = {}) {
+  if (!empleado) return false;
+  if (normalizarRol(empleado.rol) === 'Administrador') return false;
+  if (resolverTipoEmpleado(empleado) === 'tienda' && !empleado.es_indirecto_corte) return true;
+  if (esEmpleadoConsumoPinCorte(empleado) && moduloCorteIncluyeConsumoPin(modulo)) return true;
+  return false;
+}
+
+/** Cualquier gasto EMPLEADO a Misael/Luis Enrique exige su PIN. */
+export function gastoCorteRequierePinConsumoBeneficiario(empleado, _subcategoria = '') {
+  return esEmpleadoConsumoPinCorte(empleado);
 }
 
 /** Nombres normalizados de personal indirecto / MAIN (+ beneficiarios fijos de vales). */
@@ -229,16 +269,18 @@ export function textoMencionaPersonalIndirecto(texto, empleados = []) {
 
 /**
  * Empleados en cortes (Virtual / Abarrotes / Garage) — categoría EMPLEADO:
- * solo personal tipo tienda (directos) de la sucursal activa.
- * Sin indirectos / MAIN, sin administradores, sin placeholders de vales.
+ * personal tipo tienda (directos) de la sucursal activa.
+ * En Abarrotes y Virtual también aparecen Misael y Luis Enrique (consumo + PIN).
+ * Sin otros indirectos / MAIN, sin administradores.
  */
-export function empleadosParaCorte(empleados, sucursalActiva, _modulo = null, _actorRol = null, _opts = {}) {
+export function empleadosParaCorte(empleados, sucursalActiva, modulo = null, _actorRol = null, _opts = {}) {
   const suc = normalizarCodigoTienda(sucursalActiva);
   const ids = new Set();
   const out = [];
   const enMain = !suc || suc === 'MAIN';
+  const incluirConsumoPin = moduloCorteIncluyeConsumoPin(modulo);
 
-  const push = (e) => {
+  const pushTienda = (e) => {
     if (!e || e?.activo === false) return;
     if (normalizarRol(e.rol) === 'Administrador') return;
     if (resolverTipoEmpleado(e) !== 'tienda') return;
@@ -249,6 +291,24 @@ export function empleadosParaCorte(empleados, sucursalActiva, _modulo = null, _a
       ...e,
       tipo_empleado: 'tienda',
       es_indirecto_corte: false,
+      requiere_pin_consumo: false,
+    });
+  };
+
+  const pushConsumoPin = (e) => {
+    if (!incluirConsumoPin || !e || e?.activo === false) return;
+    if (normalizarRol(e.rol) === 'Administrador') return;
+    if (!esEmpleadoConsumoPinCorte(e)) return;
+    const id = String(e.id);
+    if (ids.has(id)) return;
+    ids.add(id);
+    const ben = resolverBeneficiarioConsumoPin(e.nombre);
+    out.push({
+      ...e,
+      tipo_empleado: resolverTipoEmpleado(e) === 'tienda' ? 'tienda' : 'indirecto',
+      es_indirecto_corte: resolverTipoEmpleado(e) !== 'tienda',
+      requiere_pin_consumo: true,
+      etiqueta_consumo_pin: ben?.etiqueta || e.nombre,
     });
   };
 
@@ -257,15 +317,40 @@ export function empleadosParaCorte(empleados, sucursalActiva, _modulo = null, _a
     const empSuc = normalizarCodigoTienda(e.sucursal_id);
     const rol = normalizarRol(e.rol);
     const tipo = resolverTipoEmpleado(e);
-    if (rol === 'Administrador' || tipo !== 'tienda') continue;
+    if (rol === 'Administrador') continue;
 
-    // En MAIN: todos los de tienda (catálogo por sucursal).
-    if (enMain) {
-      push(e);
+    // Misael / Luis Enrique: siempre en grupo consumo+PIN (aunque figuren como tienda).
+    if (incluirConsumoPin && esEmpleadoConsumoPinCorte(e)) {
+      pushConsumoPin(e);
       continue;
     }
-    // Sucursal operativa: solo los de esa tienda.
-    if (empSuc === suc) push(e);
+
+    if (tipo === 'tienda') {
+      if (enMain || empSuc === suc) pushTienda(e);
+    }
+  }
+
+  // Placeholders fijos si no hay usuario en BD (para que siempre se vean en el select).
+  if (incluirConsumoPin) {
+    for (const b of BENEFICIARIOS_CONSUMO_PIN) {
+      if (out.some((e) => esEmpleadoConsumoPinCorte(e) && resolverBeneficiarioConsumoPin(e.nombre)?.id === b.id)) {
+        continue;
+      }
+      const id = `consumo-pin:${b.id}`;
+      if (ids.has(id)) continue;
+      out.push({
+        id,
+        nombre: b.etiqueta,
+        rol: 'Indirecto',
+        sucursal_id: 'MAIN',
+        tipo_empleado: 'indirecto',
+        es_indirecto_corte: true,
+        requiere_pin_consumo: true,
+        etiqueta_consumo_pin: b.etiqueta,
+        activo: true,
+      });
+      ids.add(id);
+    }
   }
 
   return dedupeEmpleadosPorNombre(out).sort((a, b) =>
@@ -276,10 +361,15 @@ export function empleadosParaCorte(empleados, sucursalActiva, _modulo = null, _a
 /** Agrupa la lista ya filtrada de corte para <optgroup>. */
 export function agruparEmpleadosParaSelectCorte(empleados) {
   const tienda = [];
+  const consumoPin = [];
   for (const e of dedupeEmpleadosPorNombre(empleados || [])) {
     const rol = normalizarRol(e.rol);
-    const tipo = resolverTipoEmpleado(e);
     if (rol === 'Administrador' || e.es_admin_global_corte) continue;
+    if (e.requiere_pin_consumo || esEmpleadoConsumoPinCorte(e)) {
+      consumoPin.push(e);
+      continue;
+    }
+    const tipo = resolverTipoEmpleado(e);
     if (tipo === 'tienda' && !e.es_indirecto_corte) {
       tienda.push(e);
     }
@@ -287,7 +377,9 @@ export function agruparEmpleadosParaSelectCorte(empleados) {
   const sortNom = (a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es');
   return {
     tienda: tienda.sort(sortNom),
-    indirectos: [],
+    /** Misael / Luis Enrique (consumo con PIN). */
+    consumoPin: consumoPin.sort(sortNom),
+    indirectos: consumoPin.sort(sortNom),
     admins: [],
   };
 }
