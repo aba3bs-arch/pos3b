@@ -114,8 +114,9 @@ export async function dispararPushRemoto(supabase, {
   tipo,
   usuarioIds = null,
   modo = null,
+  excluirDispositivoId = null,
 } = {}) {
-  if (!supabase || !vapidPublicKey()) return { ok: false, skipped: true };
+  if (!supabase || !vapidPublicKey()) return { ok: false, skipped: true, error: 'Sin VAPID / conexión.' };
   try {
     const { data, error } = await supabase.functions.invoke('enviar-push', {
       body: {
@@ -125,9 +126,10 @@ export async function dispararPushRemoto(supabase, {
         tipo: tipo || null,
         usuario_ids: Array.isArray(usuarioIds) ? usuarioIds.map(String) : null,
         modo: modo || null,
+        excluir_dispositivo_id: excluirDispositivoId != null ? String(excluirDispositivoId) : null,
       },
     });
-    if (error) return { ok: false, error: error.message || String(error) };
+    if (error) return { ok: false, error: error.message || String(error), data: data || null };
     return { ok: true, data };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };

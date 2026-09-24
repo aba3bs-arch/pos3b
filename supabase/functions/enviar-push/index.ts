@@ -1,7 +1,8 @@
 /**
  * Edge Function: envía Web Push (VAPID).
  * Default: Admin/Gerente.
- * Modo asalto: también destinatarios por usuario_ids (indirectos MAIN).
+ * Modo asalto: también destinatarios por usuario_ids (indirectos MAIN)
+ * y todos los admin/gerente suscritos. Puede excluir el dispositivo origen.
  *
  * Secrets en Supabase → Edge Functions → Secrets:
  *   VAPID_PUBLIC_KEY
@@ -48,19 +49,47 @@ Deno.serve(async (req) => {
       ? body.usuario_ids.map((x) => String(x)).filter(Boolean)
       : [];
     const idsSet = new Set(usuarioIds);
+    const excluirDisp = body.excluir_dispositivo_id != null
+      ? String(body.excluir_dispositivo_id)
+      : '';
 
     webpush.setVapidDetails(vapidSubject, vapidPublic, vapidPrivate);
 
     const sb = createClient(supabaseUrl, serviceKey);
+
+    // En asalto, si el cliente no pudo listar destinatarios (RLS), resolver aquí.
+    if (esAsalto && idsSet.size === 0) {
+      const { data: users } = await sb
+        .from('usuarios')
+        .select('id, rol, sucursal_id, tipo_empleado, activo')
+        .eq('activo', true)
+        .limit(400);
+      for (const u of users || []) {
+        const r = String(u.rol || '').toLowerCase();
+        const tipoEmp = String(u.tipo_empleado || '').toLowerCase();
+        const suc = String(u.sucursal_id || '').toUpperCase();
+        if (r.includes('admin') || r.includes('gerente')) {
+          idsSet.add(String(u.id));
+          continue;
+        }
+        if (tipoEmp === 'indirecto' || suc === 'MAIN') {
+          idsSet.add(String(u.id));
+        }
+      }
+    }
+
     const { data: subs, error } = await sb
       .from('pos_push_subscriptions')
-      .select('id, endpoint, p256dh, auth, rol, usuario_id');
+      .select('id, endpoint, p256dh, auth, rol, usuario_id, dispositivo_id');
 
     if (error) {
       return json({ ok: false, error: error.message }, 500);
     }
 
     const lista = (subs || []).filter((s) => {
+      if (excluirDisp && s.dispositivo_id != null && String(s.dispositivo_id) === excluirDisp) {
+        return false;
+      }
       const r = String(s.rol || '').toLowerCase();
       const uid = s.usuario_id != null ? String(s.usuario_id) : '';
       if (esAsalto) {
@@ -81,6 +110,7 @@ Deno.serve(async (req) => {
       tag: id ? `pos3b-${id}` : `pos3b-${Date.now()}`,
       requireInteraction: esAsalto,
       silent: false,
+      asalto: esAsalto,
     });
 
     let enviados = 0;
@@ -118,6 +148,8 @@ Deno.serve(async (req) => {
       total: lista.length,
       eliminados: eliminados.length,
       fallos: fallos.length,
+      modo: esAsalto ? 'asalto' : 'default',
+      destinatarios_ids: idsSet.size,
     });
   } catch (e) {
     return json({ ok: false, error: String(e?.message || e) }, 500);

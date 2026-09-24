@@ -5,14 +5,19 @@
  *  - Escape pulsado ESC_TAPS_ASALTO veces seguidas en ≤ ESC_VENTANA_MS.
  * Destino: Administradores + empleados indirectos (MAIN).
  *
+ * La máquina ORIGEN queda en silencio (sin overlay, sirena ni notificación OS)
+ * para no alertar al asaltante. Solo suenan / avisan los demás dispositivos.
+ *
  * Nota: muchos teclados baratos no registran 5 teclas a la vez (ghosting);
  * por eso el mínimo práctico es 3 y existe Escape ×5 como respaldo.
  */
 import { etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { crearNotificacion, TIPOS_NOTIF } from './contabilidadNotificaciones.js';
+import { obtenerIdDispositivoLocal } from './dispositivoUsuario.js';
 import { esEmpleadoIndirectoOMain } from './empleadosVisibles.js';
 import { normalizarRol } from './roles.js';
-import { iniciarSirenaAsalto, detenerSirenaAsalto, prepararAudioPos } from './sonidosPos.js';
+import { detenerSirenaAsalto } from './sonidosPos.js';
+import { dispararPushRemoto } from './webPush.js';
 
 /** Mínimo de teclas simultáneas (3 = fiable en teclados con ghosting). */
 export const TECLAS_MIN_ASALTO = 3;
@@ -22,6 +27,8 @@ export const ESC_VENTANA_MS = 2500;
 
 export const EVENTO_ALERTA_ASALTO = 'pos-alerta-asalto';
 export const EVENTO_ALERTA_ASALTO_DETENER = 'pos-alerta-asalto-detener';
+export const CANAL_BROADCAST_ASALTO = 'pos-alerta-asalto';
+export const STORAGE_ORIGEN_ASALTO = 'pos-asalto-origen-ids';
 
 export const TEXTO_ALERTA_ASALTO = 'ASALTO EN PROCESO';
 export const TEXTO_ALERTA_ASALTO_SUB =
@@ -75,9 +82,31 @@ export function mensajeAlertaAsalto({ sucursal, usuarioNombre, teclas, modo } = 
   return `${tienda} · activó ${quien}${extra}`;
 }
 
-function emitirEventoAsalto(detail) {
-  if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent(EVENTO_ALERTA_ASALTO, { detail }));
+/** Marca ids de notificaciones creadas en ESTA máquina (origen discreto). */
+export function marcarOrigenAlertaAsalto(id) {
+  if (id == null || typeof sessionStorage === 'undefined') return;
+  try {
+    const raw = sessionStorage.getItem(STORAGE_ORIGEN_ASALTO);
+    const list = raw ? JSON.parse(raw) : [];
+    const next = Array.isArray(list) ? list.map(String) : [];
+    const sid = String(id);
+    if (!next.includes(sid)) next.push(sid);
+    // Conservar solo los últimos 20
+    sessionStorage.setItem(STORAGE_ORIGEN_ASALTO, JSON.stringify(next.slice(-20)));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function esOrigenAlertaAsalto(id) {
+  if (id == null || typeof sessionStorage === 'undefined') return false;
+  try {
+    const raw = sessionStorage.getItem(STORAGE_ORIGEN_ASALTO);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) && list.map(String).includes(String(id));
+  } catch {
+    return false;
+  }
 }
 
 export function emitirDetenerAlertaAsalto() {
@@ -87,9 +116,83 @@ export function emitirDetenerAlertaAsalto() {
 }
 
 /**
+ * Aviso en vivo a otras pestañas/dispositivos con la app abierta (Realtime broadcast).
+ * self:false → la máquina origen no se redefine a sí misma.
+ */
+export async function difundirAlertaAsaltoBroadcast(supabase, payload) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+  const channel = supabase.channel(CANAL_BROADCAST_ASALTO, {
+    config: { broadcast: { self: false } },
+  });
+  const status = await new Promise((resolve) => {
+    const t = setTimeout(() => resolve('TIMED_OUT'), 4000);
+    channel.subscribe((s) => {
+      if (s === 'SUBSCRIBED' || s === 'CHANNEL_ERROR' || s === 'TIMED_OUT') {
+        clearTimeout(t);
+        resolve(s);
+      }
+    });
+  });
+  if (status !== 'SUBSCRIBED') {
+    try {
+      await supabase.removeChannel(channel);
+    } catch {
+      /* ignore */
+    }
+    return { ok: false, error: `Canal broadcast: ${status}` };
+  }
+
+  const { error } = await channel.send({
+    type: 'broadcast',
+    event: 'alarma',
+    payload: {
+      ...payload,
+      dispositivo_origen: obtenerIdDispositivoLocal(),
+    },
+  });
+
+  setTimeout(() => {
+    try {
+      supabase.removeChannel(channel);
+    } catch {
+      /* ignore */
+    }
+  }, 2000);
+
+  if (error) return { ok: false, error: error.message || String(error) };
+  return { ok: true };
+}
+
+/**
+ * Escucha alarmas remotos vía broadcast (app abierta en MAIN / admin).
+ */
+export function suscribirAlertaAsaltoBroadcast(supabase, { onAlarma, dispositivoLocal } = {}) {
+  if (!supabase || typeof onAlarma !== 'function') return () => {};
+  const miDisp = dispositivoLocal || obtenerIdDispositivoLocal();
+  const channel = supabase.channel(CANAL_BROADCAST_ASALTO, {
+    config: { broadcast: { self: false } },
+  });
+  channel
+    .on('broadcast', { event: 'alarma' }, ({ payload }) => {
+      if (!payload) return;
+      if (payload.dispositivo_origen && payload.dispositivo_origen === miDisp) return;
+      if (payload.id && esOrigenAlertaAsalto(payload.id)) return;
+      onAlarma(payload);
+    })
+    .subscribe();
+  return () => {
+    try {
+      supabase.removeChannel(channel);
+    } catch {
+      /* ignore */
+    }
+  };
+}
+
+/**
  * Dispara la alarma desde la sesión actual (cualquiera logueado en tienda).
- * - Sirena + overlay local inmediato
- * - Notificación en buzón + push a admins / indirectos MAIN
+ * ORIGEN: silencioso (sin sirena / overlay / notificación OS).
+ * REMOTOS: buzón + broadcast + Web Push a admins / indirectos MAIN.
  * @param {{ forzar?: boolean, modo?: 'teclas'|'escape'|'prueba', teclas?: number }} opts
  */
 export async function dispararAlertaAsalto(supabase, {
@@ -108,9 +211,6 @@ export async function dispararAlertaAsalto(supabase, {
   ultimoDisparoAt = ahora;
 
   try {
-    prepararAudioPos();
-    iniciarSirenaAsalto();
-
     const titulo = TEXTO_ALERTA_ASALTO;
     const mensaje = mensajeAlertaAsalto({
       sucursal,
@@ -118,22 +218,11 @@ export async function dispararAlertaAsalto(supabase, {
       teclas,
       modo,
     });
-    const detailLocal = {
-      titulo,
-      mensaje,
-      sucursal_id: sucursal || null,
-      origen_usuario: user?.nombre || null,
-      origen_usuario_id: user?.id || null,
-      teclas,
-      modo,
-      at: new Date().toISOString(),
-      local: true,
-    };
-    emitirEventoAsalto(detailLocal);
 
     const dest = await listarDestinatariosAlertaAsalto(supabase);
     const usuarioIds = (dest.data || []).map((u) => String(u.id)).filter(Boolean);
 
+    // Sin UI local: la caja origen no debe mostrar nada al asaltante.
     const notif = await crearNotificacion(
       supabase,
       {
@@ -145,14 +234,51 @@ export async function dispararAlertaAsalto(supabase, {
         mensaje,
         area_buzon: 'main',
       },
-      { usuarioIds, modoPush: 'asalto' },
+      {
+        silenciosoLocal: true,
+        skipPush: true,
+        usuarioIds,
+        modoPush: 'asalto',
+      },
     );
 
+    if (notif.id) marcarOrigenAlertaAsalto(notif.id);
+
+    const detailRemoto = {
+      id: notif.id || null,
+      titulo,
+      mensaje,
+      tipo: TIPOS_NOTIF.ASALTO,
+      sucursal_id: sucursal || null,
+      origen_usuario: user?.nombre || null,
+      origen_usuario_id: user?.id || null,
+      teclas,
+      modo,
+      at: new Date().toISOString(),
+      local: false,
+    };
+
+    const broadcast = await difundirAlertaAsaltoBroadcast(supabase, detailRemoto);
+
+    const push = await dispararPushRemoto(supabase, {
+      id: notif.id,
+      titulo,
+      mensaje,
+      tipo: TIPOS_NOTIF.ASALTO,
+      usuarioIds,
+      modo: 'asalto',
+      excluirDispositivoId: obtenerIdDispositivoLocal(),
+    });
+
     return {
-      ok: true,
+      ok: Boolean(notif.ok !== false),
       id: notif.id,
       destinatarios: usuarioIds.length,
-      aviso: dest.error || null,
+      aviso: dest.error || notif.aviso || null,
+      error: notif.error || null,
+      push: push || null,
+      broadcast: broadcast || null,
+      discreto: true,
     };
   } finally {
     disparando = false;
