@@ -298,18 +298,35 @@ export function empleadosParaCorte(empleados, sucursalActiva, modulo = null, _ac
   const pushConsumoPin = (e) => {
     if (!incluirConsumoPin || !e || e?.activo === false) return;
     if (normalizarRol(e.rol) === 'Administrador') return;
-    if (!esEmpleadoConsumoPinCorte(e)) return;
+    const ben = resolverBeneficiarioConsumoPin(e.nombre);
+    if (!ben) return;
     const id = String(e.id);
     if (ids.has(id)) return;
-    ids.add(id);
-    const ben = resolverBeneficiarioConsumoPin(e.nombre);
-    out.push({
+    const row = {
       ...e,
       tipo_empleado: resolverTipoEmpleado(e) === 'tienda' ? 'tienda' : 'indirecto',
       es_indirecto_corte: resolverTipoEmpleado(e) !== 'tienda',
       requiere_pin_consumo: true,
-      etiqueta_consumo_pin: ben?.etiqueta || e.nombre,
-    });
+      consumo_pin_id: ben.id,
+      etiqueta_consumo_pin: ben.etiqueta,
+    };
+    const idxPrev = out.findIndex((x) => x.consumo_pin_id === ben.id);
+    if (idxPrev >= 0) {
+      const prev = out[idxPrev];
+      const prevId = String(prev.id || '');
+      const prevFake = prevId.startsWith('consumo-pin:') || prevId.startsWith('indirect:');
+      const nextFake = id.startsWith('consumo-pin:') || id.startsWith('indirect:');
+      const mejor = (!nextFake && prevFake)
+        || (nextFake === prevFake && scoreEmpleadoDedup(row) > scoreEmpleadoDedup(prev));
+      if (mejor) {
+        ids.delete(prevId);
+        ids.add(id);
+        out[idxPrev] = row;
+      }
+      return;
+    }
+    ids.add(id);
+    out.push(row);
   };
 
   for (const e of empleados || []) {
@@ -330,10 +347,10 @@ export function empleadosParaCorte(empleados, sucursalActiva, modulo = null, _ac
     }
   }
 
-  // Placeholders fijos si no hay usuario en BD (para que siempre se vean en el select).
+  // Placeholders fijos solo si falta ese beneficiario (nunca un segundo Misael/Luis).
   if (incluirConsumoPin) {
     for (const b of BENEFICIARIOS_CONSUMO_PIN) {
-      if (out.some((e) => esEmpleadoConsumoPinCorte(e) && resolverBeneficiarioConsumoPin(e.nombre)?.id === b.id)) {
+      if (out.some((e) => e.consumo_pin_id === b.id || resolverBeneficiarioConsumoPin(e.nombre)?.id === b.id)) {
         continue;
       }
       const id = `consumo-pin:${b.id}`;
@@ -346,6 +363,7 @@ export function empleadosParaCorte(empleados, sucursalActiva, modulo = null, _ac
         tipo_empleado: 'indirecto',
         es_indirecto_corte: true,
         requiere_pin_consumo: true,
+        consumo_pin_id: b.id,
         etiqueta_consumo_pin: b.etiqueta,
         activo: true,
       });
@@ -353,19 +371,67 @@ export function empleadosParaCorte(empleados, sucursalActiva, modulo = null, _ac
     }
   }
 
-  return dedupeEmpleadosPorNombre(out).sort((a, b) =>
+  return dedupeConsumoPinYNombre(out).sort((a, b) =>
     String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'),
   );
+}
+
+/** Un solo Misael / Luis Enrique + dedupe por nombre del resto. */
+export function dedupeConsumoPinYNombre(lista) {
+  const porPin = new Map();
+  const resto = [];
+  for (const e of lista || []) {
+    if (!e) continue;
+    const pinId = e.consumo_pin_id || resolverBeneficiarioConsumoPin(e.nombre)?.id || null;
+    if (pinId) {
+      const prev = porPin.get(pinId);
+      if (!prev) {
+        porPin.set(pinId, {
+          ...e,
+          consumo_pin_id: pinId,
+          requiere_pin_consumo: true,
+          etiqueta_consumo_pin: e.etiqueta_consumo_pin
+            || resolverBeneficiarioConsumoPin(e.nombre)?.etiqueta
+            || e.nombre,
+        });
+        continue;
+      }
+      // Preferir registro real (UUID) sobre placeholder consumo-pin: / indirect:
+      const prevId = String(prev.id || '');
+      const nextId = String(e.id || '');
+      const prevFake = prevId.startsWith('consumo-pin:') || prevId.startsWith('indirect:');
+      const nextFake = nextId.startsWith('consumo-pin:') || nextId.startsWith('indirect:');
+      const winner = (!nextFake && prevFake)
+        || (nextFake === prevFake && scoreEmpleadoDedup(e) > scoreEmpleadoDedup(prev))
+        ? e
+        : prev;
+      porPin.set(pinId, {
+        ...winner,
+        consumo_pin_id: pinId,
+        requiere_pin_consumo: true,
+        etiqueta_consumo_pin: resolverBeneficiarioConsumoPin(winner.nombre)?.etiqueta
+          || winner.etiqueta_consumo_pin
+          || winner.nombre,
+      });
+      continue;
+    }
+    resto.push(e);
+  }
+  return [...dedupeEmpleadosPorNombre(resto), ...porPin.values()];
 }
 
 /** Agrupa la lista ya filtrada de corte para <optgroup>. */
 export function agruparEmpleadosParaSelectCorte(empleados) {
   const tienda = [];
   const consumoPin = [];
-  for (const e of dedupeEmpleadosPorNombre(empleados || [])) {
+  const vistosPin = new Set();
+  for (const e of dedupeConsumoPinYNombre(empleados || [])) {
     const rol = normalizarRol(e.rol);
     if (rol === 'Administrador' || e.es_admin_global_corte) continue;
-    if (e.requiere_pin_consumo || esEmpleadoConsumoPinCorte(e)) {
+    if (e.requiere_pin_consumo || e.consumo_pin_id || esEmpleadoConsumoPinCorte(e)) {
+      const pinId = e.consumo_pin_id || resolverBeneficiarioConsumoPin(e.nombre)?.id || String(e.id);
+      if (vistosPin.has(pinId)) continue;
+      vistosPin.add(pinId);
       consumoPin.push(e);
       continue;
     }
@@ -375,11 +441,12 @@ export function agruparEmpleadosParaSelectCorte(empleados) {
     }
   }
   const sortNom = (a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es');
+  const consumoSorted = consumoPin.sort(sortNom);
   return {
     tienda: tienda.sort(sortNom),
     /** Misael / Luis Enrique (consumo con PIN). */
-    consumoPin: consumoPin.sort(sortNom),
-    indirectos: consumoPin.sort(sortNom),
+    consumoPin: consumoSorted,
+    indirectos: [...consumoSorted],
     admins: [],
   };
 }

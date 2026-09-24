@@ -498,6 +498,8 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
     usuario_id: gasto.usuario_id || null,
     usuario_nombre: gasto.usuario_nombre || null,
     cerrado: false,
+    // false = pendiente de descontar en el siguiente periodo de nómina.
+    descontado_nomina: gasto.descontado_nomina === true,
     estado_aprobacion: estadoAprobacion,
     solicitado_por: opts.nombreActor || null,
   };
@@ -508,6 +510,26 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
     return { ok: true, data: next };
   }
   const { data, error } = await supabase.from('cortes_contabilidad_gastos').insert([row]).select('*').single();
+  if (error && /descontado_nomina/i.test(String(error.message || ''))) {
+    const slim = { ...row };
+    delete slim.descontado_nomina;
+    const retry = await supabase.from('cortes_contabilidad_gastos').insert([slim]).select('*').single();
+    if (retry.error) return { ok: false, error: retry.error.message };
+    // Matriz de entregas...
+    if (String(modulo || '').toLowerCase() === 'abarrotes') {
+      try {
+        await registrarEntregaDesdeGastoAbarrotes(supabase, {
+          sucursalId: slim.sucursal_id,
+          categoria: slim.categoria,
+          subcategoria: slim.subcategoria,
+          fecha: retry.data?.created_at || new Date(),
+        });
+      } catch {
+        /* no bloquea el corte */
+      }
+    }
+    return { ok: true, data: retry.data, omitirIe: Boolean(omitirIe) };
+  }
   if (error) return { ok: false, error: error.message };
   // Matriz de entregas: si es gasto PROVEEDORES en Abarrotes, anota día + nombre.
   if (String(modulo || '').toLowerCase() === 'abarrotes') {

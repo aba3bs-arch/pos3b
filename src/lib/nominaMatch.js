@@ -23,7 +23,7 @@ export function indiceEmpleados(empleados = []) {
 }
 
 function resolverIndirectoPorId(uid, indice) {
-  const slug = uid.replace(/^indirect:/, '');
+  const slug = uid.replace(/^(indirect:|consumo-pin:)/, '');
   const b = BENEFICIARIOS_VALES.find((x) => x.id === slug);
   if (!b) return null;
   if (indice.porId[uid]) return uid;
@@ -35,7 +35,7 @@ function resolverIndirectoPorId(uid, indice) {
 /** Resuelve la clave de empleado (id) desde usuario_id o nombre. */
 export function resolverClaveEmpleado(row, indice) {
   const uid = row?.usuario_id != null ? String(row.usuario_id) : '';
-  if (uid.startsWith('indirect:')) {
+  if (uid.startsWith('indirect:') || uid.startsWith('consumo-pin:')) {
     return resolverIndirectoPorId(uid, indice);
   }
   if (uid && indice.porId[uid]) return uid;

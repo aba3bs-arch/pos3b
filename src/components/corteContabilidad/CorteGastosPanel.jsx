@@ -289,7 +289,7 @@ export default function CorteGastosPanel({
     const esPlaceholder = !uid
       || uid.startsWith('indirect:')
       || uid.startsWith('consumo-pin:');
-    const fuerzaNomina = Boolean(emp && esEmpleadoConsumoPinCorte(emp));
+    // Nómina toma gastos EMPLEADO·CONSUMO con descontado_nomina = false (pendiente de periodo).
     try {
       const res = await onAgregar?.({
         categoria: cat.trim().toUpperCase(),
@@ -298,7 +298,7 @@ export default function CorteGastosPanel({
         comentario: comentarioTrim.toUpperCase(),
         usuario_id: requiereEmpleado && !esPlaceholder ? uid : null,
         usuario_nombre: usuarioNombreFinal || emp?.nombre || '',
-        ...(fuerzaNomina ? { descontado_nomina: true } : {}),
+        descontado_nomina: false,
         folio_traspaso: esGastoTraspaso ? parseFoliosTraspasoInput(folioTraspaso) : [],
         folios_inventario: esGastoSmoking
           ? String(folioInventarioSmoking || '')
@@ -599,6 +599,7 @@ export default function CorteGastosPanel({
                 PIN de {pinConsumoMeta?.etiqueta || empSeleccionadoPreview?.nombre || 'beneficiario'}
               </label>
               <p className="muted" style={{ fontSize: '0.75rem', margin: '0 0 0.4rem' }}>
+                Gasto a nombre de <strong>{pinConsumoMeta?.etiqueta || 'él'}</strong>:
                 solo se autoriza con su PIN (invisible) y siempre descuenta nómina.
               </p>
               <InputPin

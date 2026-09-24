@@ -79,6 +79,26 @@ assert.ok(paraAdmin.some((e) => e.id === 10), 'Luis Enrique visible en Virtual')
 assert.ok(paraAdmin.some((e) => e.id === 11), 'Misael visible en Virtual');
 assert.ok(paraAdmin.every((e) => e.id !== 10 || e.requiere_pin_consumo), 'Luis marca PIN');
 
+// Un solo Misael aunque haya homónimos / placeholder
+const misaelDup = empleadosParaCorte(
+  [
+    ...todos,
+    { id: 99, nombre: 'Misael Garcia', rol: 'Técnico', sucursal_id: 'MAIN', tipo_empleado: 'indirecto', activo: true },
+    { id: 'consumo-pin:misael', nombre: 'Misael', rol: 'Indirecto', sucursal_id: 'MAIN', tipo_empleado: 'indirecto', activo: true },
+  ],
+  'CEDIS',
+  'abarrotes',
+  'Cajero',
+);
+const misaeles = misaelDup.filter((e) => /misael/i.test(e.nombre) || e.consumo_pin_id === 'misael');
+assert.equal(misaeles.length, 1, `Misael duplicado: ${misaeles.map((e) => e.id + ':' + e.nombre).join(', ')}`);
+const luises = misaelDup.filter((e) => e.consumo_pin_id === 'luis-enrique' || /luis enrique/i.test(e.nombre));
+assert.equal(luises.length, 1, 'Luis Enrique una sola vez');
+
+const gruposDup = agruparEmpleadosParaSelectCorte(misaelDup);
+assert.equal(gruposDup.consumoPin.filter((e) => e.consumo_pin_id === 'misael').length, 1);
+assert.equal(gruposDup.consumoPin.filter((e) => e.consumo_pin_id === 'luis-enrique').length, 1);
+
 const paraAbarrotes = empleadosParaCorte(todos, 'CEDIS', 'abarrotes', 'Cajero');
 assert.ok(paraAbarrotes.some((e) => e.id === 10));
 assert.ok(paraAbarrotes.some((e) => e.id === 11));
