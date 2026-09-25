@@ -1823,7 +1823,7 @@ function App() {
               }
             />
           )}
-          {vista === 'Corte Virtual' && <CorteVirtual supabase={supabase} sucursal={sucursal} user={user} onNavigate={irAModulo} />}
+          {vista === 'Corte Virtual' && <CorteVirtual supabase={supabase} sucursal={sucursal} user={user} onNavigate={irAModulo} inventario={inventarioTienda} />}
           {vista === 'Corte Abarrotes' && <CorteAbarrotes supabase={supabase} sucursal={sucursal} user={user} />}
           {vista === 'Corte Garage' && <CorteGarage supabase={supabase} sucursal={sucursal} user={user} />}
           {vista === 'Configuracion' && (
