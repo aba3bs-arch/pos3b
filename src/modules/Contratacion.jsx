@@ -13,6 +13,7 @@ import {
   listarAdminsParaRedirigir,
   listarSolicitudesContratacion,
   nombreCompletoAspirante,
+  opcionesSucursalesContratacion,
   puedeGestionarContratacion,
   redirigirSolicitudContratacion,
   sucursalesInteresLabels,
@@ -39,8 +40,13 @@ export default function Contratacion({ supabase, user, onNavigate }) {
   const [adminDestinoId, setAdminDestinoId] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [copiado, setCopiado] = useState(false);
+  const [sucursalVacante, setSucursalVacante] = useState('');
+  const sucursalesOpts = useMemo(() => opcionesSucursalesContratacion(), []);
 
-  const enlace = useMemo(() => urlPortalContratacion(), []);
+  const enlace = useMemo(
+    () => urlPortalContratacion(undefined, { sucursal: sucursalVacante }),
+    [sucursalVacante],
+  );
   const qrUrl = useMemo(() => urlQrContratacion(`${enlace}&qr=1`), [enlace]);
 
   const cargar = useCallback(async () => {
@@ -158,6 +164,25 @@ export default function Contratacion({ supabase, user, onNavigate }) {
         >
           <div style={{ flex: '1 1 200px' }}>
             <strong style={{ display: 'block', marginBottom: '0.35rem' }}>Enlace / QR para aspirantes</strong>
+            <label className="muted" style={{ display: 'block', fontSize: '0.82rem', marginBottom: '0.45rem' }}>
+              Sucursal donde ocupamos
+              <select
+                className="input"
+                value={sucursalVacante}
+                onChange={(e) => setSucursalVacante(e.target.value)}
+                style={{ display: 'block', marginTop: '0.3rem', maxWidth: 320 }}
+              >
+                <option value="">Sin especificar (genérico)</option>
+                {sucursalesOpts.map((s) => (
+                  <option key={s.id} value={s.id}>{s.label}</option>
+                ))}
+              </select>
+            </label>
+            <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.78rem' }}>
+              {sucursalVacante
+                ? 'El aspirante verá en el portal en qué sucursal se ocupa la plaza.'
+                : 'Elige una sucursal para que el enlace/QR indique el área donde se les ocupa.'}
+            </p>
             <code style={{ fontSize: '0.78rem', wordBreak: 'break-all' }}>{enlace}</code>
             <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
               <button type="button" className="btn btn-gold btn-sm" onClick={copiarEnlace}>

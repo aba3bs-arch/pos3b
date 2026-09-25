@@ -5,6 +5,8 @@ import {
   EVALUACION_MIN_PCT,
   edadDesdeFechaNacimiento,
   esModoContratacionPublica,
+  leerSucursalVacanteDesdeUrl,
+  mensajeGraciasPostulacion,
   urlPortalContratacion,
   validarFiltroTipoEdad,
   validarFormularioContratacion,
@@ -50,6 +52,24 @@ assert.equal(esModoContratacionPublica({ search: '?contratacion=1', hash: '' }),
 assert.equal(esModoContratacionPublica({ search: '', hash: '#contratacion' }), true);
 assert.equal(esModoContratacionPublica({ search: '', hash: '' }), false);
 assert.ok(urlPortalContratacion('https://ejemplo.com').includes('contratacion=1'));
+assert.ok(
+  urlPortalContratacion('https://ejemplo.com', { sucursal: '3B5' }).includes('sucursal=3B5'),
+  'enlace con sucursal vacante',
+);
+assert.equal(leerSucursalVacanteDesdeUrl({ search: '?contratacion=1&sucursal=3B2', hash: '' }), '3B2');
+assert.equal(leerSucursalVacanteDesdeUrl({ search: '?contratacion=1', hash: '' }), '');
+
+const gracias = mensajeGraciasPostulacion({
+  brand: 'Las 3B',
+  estado: 'nueva',
+  sucursalVacante: '3B5',
+});
+assert.match(gracias.titulo, /Gracias/i);
+assert.match(gracias.cuerpo, /llamar/i);
+assert.match(gracias.cuerpo, /revis/i);
+
+const graciasBolsa = mensajeGraciasPostulacion({ brand: 'Las 3B', estado: 'bolsa_de_trabajo', pct: 80 });
+assert.match(graciasBolsa.cuerpo, /llamar/i);
 
 const rhPlanta = formRhDesdeSolicitudContratacion({
   id: 'sol-1',

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import BrandLogo from '../components/BrandLogo.jsx';
 import { leerNombreNegocio } from '../lib/branding.js';
 import { leerImagenProductoComoDataUrl } from '../lib/imagenProducto.js';
@@ -17,7 +17,10 @@ import {
   TIPOS_CONTRATACION,
   edadEfectivaAspirante,
   enviarSolicitudContratacion,
+  leerSucursalVacanteDesdeUrl,
+  mensajeGraciasPostulacion,
   opcionesSucursalesContratacion,
+  textoSucursalVacante,
   validarAceptacionPrivacidad,
   validarFiltroTipoEdad,
   validarFotoAspirante,
@@ -32,11 +35,17 @@ import {
  */
 export default function ContratacionPublica({ supabase }) {
   const brand = leerNombreNegocio();
+  const sucursalVacante = useMemo(() => leerSucursalVacanteDesdeUrl(), []);
+  const sucursalVacanteLabel = useMemo(
+    () => textoSucursalVacante(sucursalVacante),
+    [sucursalVacante],
+  );
   const [paso, setPaso] = useState(1);
   const [form, setForm] = useState({
     ...FORM_CONTRATACION_VACIO,
     perfil_laboral: { ...FORM_CONTRATACION_VACIO.perfil_laboral },
     evaluacion_respuestas: {},
+    sucursales_interes: sucursalVacante ? [sucursalVacante] : [],
   });
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState('');
@@ -44,6 +53,16 @@ export default function ContratacionPublica({ supabase }) {
   const [fotoBusy, setFotoBusy] = useState(false);
   const fileRef = useRef(null);
   const sucursales = useMemo(() => opcionesSucursalesContratacion(), []);
+
+  useEffect(() => {
+    if (!sucursalVacante) return;
+    setForm((f) => {
+      const set = new Set(f.sucursales_interes || []);
+      if (set.has(sucursalVacante)) return f;
+      set.add(sucursalVacante);
+      return { ...f, sucursales_interes: [...set] };
+    });
+  }, [sucursalVacante]);
 
   const edadN = edadEfectivaAspirante(form);
   const esMenorCubre =
@@ -197,6 +216,27 @@ export default function ContratacionPublica({ supabase }) {
         <BrandLogo alt={brand} maxHeight={72} style={{ margin: '0 auto' }} />
         <h1 style={{ margin: '0.65rem 0 0.25rem', fontSize: '1.35rem' }}>{brand}</h1>
         <p className="muted" style={{ margin: 0, fontSize: '0.9rem' }}>Postulación de empleo</p>
+        {sucursalVacanteLabel && (
+          <div
+            role="status"
+            style={{
+              marginTop: '0.75rem',
+              padding: '0.65rem 0.85rem',
+              borderRadius: 10,
+              background: 'rgba(212,175,55,0.14)',
+              border: '1px solid rgba(212,175,55,0.45)',
+              textAlign: 'left',
+            }}
+          >
+            <strong style={{ display: 'block', fontSize: '0.82rem', marginBottom: '0.15rem' }}>
+              Estamos ocupando en
+            </strong>
+            <span style={{ fontSize: '1.02rem', fontWeight: 600 }}>{sucursalVacanteLabel}</span>
+            <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.78rem' }}>
+              Esta vacante es para el área / sucursal indicada. Así sabes dónde te ocuparían.
+            </p>
+          </div>
+        )}
         {paso >= 1 && paso <= 5 && (
           <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.75rem' }}>
             Paso {paso} de 5
@@ -430,17 +470,24 @@ export default function ContratacionPublica({ supabase }) {
 
           <fieldset style={{ border: '1px solid var(--border, #ddd)', borderRadius: 8, padding: '0.65rem' }}>
             <legend className="muted" style={{ fontSize: '0.85rem' }}>Sucursales de interés</legend>
+            {sucursalVacanteLabel && (
+              <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.78rem' }}>
+                Ya marcamos <strong>{sucursalVacanteLabel}</strong> (donde ocupamos). Puedes sumar otras si te interesan.
+              </p>
+            )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
               {sucursales.map((s) => {
                 const on = (form.sucursales_interes || []).includes(s.id);
+                const esVacante = sucursalVacante && s.id === sucursalVacante;
                 return (
                   <button
                     key={s.id}
                     type="button"
                     className={`btn btn-sm ${on ? 'btn-gold' : 'btn-ghost'}`}
                     onClick={() => toggleSucursal(s.id)}
+                    title={esVacante ? 'Sucursal donde ocupamos' : undefined}
                   >
-                    {s.label}
+                    {s.label}{esVacante ? ' · vacante' : ''}
                   </button>
                 );
               })}
@@ -462,7 +509,7 @@ export default function ContratacionPublica({ supabase }) {
 
           <label className="muted">
             Expectativa de sueldo
-            <input className="input" value={form.expectativa_sueldo} onChange={(e) => setCampo('expectativa_sueldo', e.target.value)} placeholder="Ej. $2,500 semanales" style={{ marginTop: '0.3rem' }} />
+            <input className="input" value={form.expectativa_sueldo} onChange={(e) => setCampo('expectativa_sueldo', e.target.value)} placeholder="Ej. $2,000 semanales" style={{ marginTop: '0.3rem' }} />
           </label>
 
           <label className="muted">
@@ -690,30 +737,21 @@ export default function ContratacionPublica({ supabase }) {
         </section>
       )}
 
-      {paso === 6 && (
-        <section className="card" style={{ padding: '1.25rem', textAlign: 'center' }}>
-          <h2 style={{ marginTop: 0 }}>¡Gracias!</h2>
-          {resultado?.estado === 'bolsa_de_trabajo' ? (
-            <p className="muted">
-              Recibimos tu postulación. Cumpliste el perfil y la evaluación
-              {resultado.pct != null ? ` (${resultado.pct}%)` : ''}; quedaste en nuestra
-              {' '}<strong>bolsa de trabajo</strong>. El equipo de {brand} te contactará si hay una plaza.
-            </p>
-          ) : resultado?.estado === 'no_califica' ? (
-            <p className="muted">
-              Recibimos tu solicitud. Por ahora no calificas para contratación ni bolsa de trabajo
-              {resultado.pct != null ? ` (evaluación ${resultado.pct}%)` : ''}.
-              Gracias por tu interés en {brand}.
-            </p>
-          ) : (
-            <p className="muted">
-              Recibimos tu postulación. El equipo de {brand} la revisará y, si hay coincidencia,
-              te contactarán al teléfono que registraste.
-            </p>
-          )}
-          <p className="muted" style={{ fontSize: '0.85rem' }}>Ya puedes cerrar esta ventana.</p>
-        </section>
-      )}
+      {paso === 6 && (() => {
+        const msg = mensajeGraciasPostulacion({
+          brand,
+          estado: resultado?.estado,
+          pct: resultado?.pct,
+          sucursalVacante,
+        });
+        return (
+          <section className="card" style={{ padding: '1.25rem', textAlign: 'center' }}>
+            <h2 style={{ marginTop: 0 }}>{msg.titulo}</h2>
+            <p className="muted" style={{ fontSize: '0.95rem', lineHeight: 1.45 }}>{msg.cuerpo}</p>
+            <p className="muted" style={{ fontSize: '0.85rem', marginBottom: 0 }}>Ya puedes cerrar esta ventana.</p>
+          </section>
+        );
+      })()}
 
       <p className="muted" style={{ textAlign: 'center', fontSize: '0.75rem', marginTop: '1.5rem' }}>
         Solo para aspirantes · No es el acceso de empleados

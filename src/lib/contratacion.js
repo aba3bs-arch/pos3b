@@ -7,6 +7,8 @@ export const AVISO_FALTA_CONTRATACION =
   'Falta la tabla de contratación. Ejecuta supabase/fix_contratacion.sql en Supabase.';
 
 export const QUERY_CONTRATACION = 'contratacion';
+/** Query param del portal público: sucursal donde se ocupa la plaza. */
+export const QUERY_SUCURSAL_VACANTE = 'sucursal';
 export const EDAD_MAYORIA = 18;
 /** Edad mínima para cubre turno (16–17 requieren permiso de padres). */
 export const EDAD_MIN_CUBRE = 16;
@@ -619,10 +621,83 @@ export function esModoContratacionPublica(location = typeof window !== 'undefine
   return false;
 }
 
-/** Enlace absoluto para aspirantes (QR / compartir). */
-export function urlPortalContratacion(origin = typeof window !== 'undefined' ? window.location.origin : '') {
+/**
+ * Enlace absoluto para aspirantes (QR / compartir).
+ * @param {string} [origin]
+ * @param {{ sucursal?: string }} [opts] — sucursal donde se ocupa la plaza (va en la URL).
+ */
+export function urlPortalContratacion(
+  origin = typeof window !== 'undefined' ? window.location.origin : '',
+  opts = {},
+) {
   const base = String(origin || '').replace(/\/$/, '') || '';
-  return `${base}/?${QUERY_CONTRATACION}=1`;
+  const params = new URLSearchParams();
+  params.set(QUERY_CONTRATACION, '1');
+  const suc = normalizarCodigoTienda(opts?.sucursal);
+  if (suc) params.set(QUERY_SUCURSAL_VACANTE, suc);
+  return `${base}/?${params.toString()}`;
+}
+
+/** Lee la sucursal vacante del query (o hash) del portal público. */
+export function leerSucursalVacanteDesdeUrl(location = typeof window !== 'undefined' ? window.location : null) {
+  if (!location) return '';
+  try {
+    const q = new URLSearchParams(location.search || '');
+    const fromQ = normalizarCodigoTienda(q.get(QUERY_SUCURSAL_VACANTE) || q.get('tienda') || '');
+    if (fromQ) return fromQ;
+    const hash = String(location.hash || '');
+    const hashQ = hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : '';
+    if (hashQ) {
+      const hq = new URLSearchParams(hashQ);
+      const fromH = normalizarCodigoTienda(hq.get(QUERY_SUCURSAL_VACANTE) || hq.get('tienda') || '');
+      if (fromH) return fromH;
+    }
+  } catch {
+    /* ignore */
+  }
+  return '';
+}
+
+/** Texto corto para el banner del portal (vacante). */
+export function textoSucursalVacante(codigo) {
+  const id = normalizarCodigoTienda(codigo);
+  if (!id) return '';
+  return etiquetaTienda(id);
+}
+
+/**
+ * Mensaje de agradecimiento tras enviar la postulación.
+ * Deja claro que se les llamará cuando se revise.
+ */
+export function mensajeGraciasPostulacion({ brand = '', estado = '', pct = null, sucursalVacante = '' } = {}) {
+  const nombre = String(brand || '').trim() || 'nosotros';
+  const sucLabel = textoSucursalVacante(sucursalVacante);
+  const enSucursal = sucLabel ? ` para la plaza en ${sucLabel}` : '';
+  const pctTxt = pct != null && Number.isFinite(Number(pct)) ? ` (${Number(pct)}%)` : '';
+
+  if (estado === 'bolsa_de_trabajo') {
+    return {
+      titulo: '¡Gracias por postularte!',
+      cuerpo:
+        `Recibimos tu postulación${enSucursal}. Cumpliste el perfil y la evaluación${pctTxt}; ` +
+        `quedaste en nuestra bolsa de trabajo. El equipo de ${nombre} revisará tu solicitud y ` +
+        `te llamará en cuanto la revise.`,
+    };
+  }
+  if (estado === 'no_califica') {
+    return {
+      titulo: '¡Gracias por tu interés!',
+      cuerpo:
+        `Recibimos tu solicitud${enSucursal}. Por ahora no calificas para contratación ni bolsa de trabajo${pctTxt}. ` +
+        `Agradecemos tu interés en ${nombre}.`,
+    };
+  }
+  return {
+    titulo: '¡Gracias por postularte!',
+    cuerpo:
+      `Recibimos tu postulación${enSucursal}. El equipo de ${nombre} la revisará y ` +
+      `te llamará en cuanto revise tu postulación al teléfono que registraste.`,
+  };
 }
 
 /** Imagen QR (servicio público; si falla, el enlace sigue sirviendo). */
