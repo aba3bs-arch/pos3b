@@ -509,7 +509,7 @@ export default function ContratacionPublica({ supabase }) {
 
           <label className="muted">
             Expectativa de sueldo
-            <input className="input" value={form.expectativa_sueldo} onChange={(e) => setCampo('expectativa_sueldo', e.target.value)} placeholder="Ej. $2,500 semanales" style={{ marginTop: '0.3rem' }} />
+            <input className="input" value={form.expectativa_sueldo} onChange={(e) => setCampo('expectativa_sueldo', e.target.value)} placeholder="Ej. $2,000 semanales" style={{ marginTop: '0.3rem' }} />
           </label>
 
           <label className="muted">
