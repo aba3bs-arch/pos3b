@@ -82,9 +82,18 @@ function vigente(a) {
   return true;
 }
 
-/** Tamaño del modal según longitud de la descripción. */
-export function tamanoVentanaAnuncio(descripcion) {
+/** Límite recomendado para imagen compacta de anuncio (lado mayor / bytes). */
+export const ANUNCIO_IMAGEN_MAX_SIDE = 480;
+export const ANUNCIO_IMAGEN_MAX_BYTES = 180 * 1024;
+
+/** Tamaño del modal según descripción e imagen opcional. */
+export function tamanoVentanaAnuncio(descripcion, tieneImagen = false) {
   const len = String(descripcion || '').length;
+  if (tieneImagen) {
+    if (len < 120) return { maxWidth: 'min(92vw, 420px)', minHeight: '200px' };
+    if (len < 320) return { maxWidth: 'min(94vw, 520px)', minHeight: '260px' };
+    return { maxWidth: 'min(96vw, 640px)', minHeight: '320px' };
+  }
   if (len < 80) return { maxWidth: 'min(92vw, 380px)', minHeight: '120px' };
   if (len < 220) return { maxWidth: 'min(92vw, 520px)', minHeight: '180px' };
   if (len < 500) return { maxWidth: 'min(94vw, 680px)', minHeight: '260px' };
@@ -119,16 +128,21 @@ export async function obtenerAnuncioParaMostrar(supabase) {
   return null;
 }
 
-export async function crearAnuncio(supabase, { asunto, descripcion, duracionHoras, creadoPor }) {
+export async function crearAnuncio(supabase, { asunto, descripcion, duracionHoras, creadoPor, imagenUrl }) {
   const asuntoT = String(asunto || '').trim();
   const descT = String(descripcion || '').trim();
   if (!asuntoT) return { ok: false, error: 'Escribe el asunto del anuncio.' };
   if (!descT) return { ok: false, error: 'Escribe la descripción del anuncio.' };
+  const img = String(imagenUrl || '').trim();
+  if (img && !img.startsWith('data:image/') && !/^https?:\/\//i.test(img)) {
+    return { ok: false, error: 'La imagen del anuncio no es válida.' };
+  }
   const horas = Number(duracionHoras) || 24;
   const expira_at = new Date(Date.now() + horas * 3600000).toISOString();
   const row = {
     asunto: asuntoT,
     descripcion: descT,
+    imagen_url: img || null,
     duracion_horas: horas,
     activo: true,
     creado_por: creadoPor || '—',
@@ -142,6 +156,21 @@ export async function crearAnuncio(supabase, { asunto, descripcion, duracionHora
     if (!error) {
       emitirCambio();
       return { ok: true, anuncio: data };
+    }
+    // Columna imagen_url aún no migrada: reintentar solo texto
+    const msg = String(error?.message || '').toLowerCase();
+    if (row.imagen_url && (msg.includes('imagen_url') || msg.includes('schema cache'))) {
+      const { imagen_url: _omit, ...sinImg } = row;
+      const retry = await supabase.from('anuncios_pos').insert([sinImg]).select().single();
+      if (!retry.error) {
+        emitirCambio();
+        return {
+          ok: true,
+          anuncio: retry.data,
+          avisoLocal: false,
+          aviso: 'Anuncio publicado sin imagen. Ejecuta supabase/fix_anuncios_pos.sql para habilitar imágenes.',
+        };
+      }
     }
     if (!faltaTabla(error)) return { ok: false, error: error.message };
   }

@@ -1036,6 +1036,37 @@ table.data th {
   animation: anuncio-titulo-parpadeo 1.4s ease-in-out infinite;
 }
 
+.anuncio-pos-img {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  max-height: 220px;
+  object-fit: contain;
+  margin: 0.85rem auto 0;
+  border-radius: 10px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: #fff;
+}
+
+.anuncio-pos-img-preview {
+  display: block;
+  width: 100%;
+  max-width: 220px;
+  max-height: 140px;
+  object-fit: contain;
+  margin-top: 0.45rem;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: #fff;
+}
+
+@media (max-width: 480px) {
+  .anuncio-pos-img {
+    max-width: 100%;
+    max-height: 180px;
+  }
+}
+
 .app-update-backdrop {
   z-index: 13000;
 }

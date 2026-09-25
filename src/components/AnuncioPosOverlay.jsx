@@ -28,7 +28,8 @@ export default function AnuncioPosOverlay({ supabase, onIrVentas }) {
 
   if (!anuncio) return null;
 
-  const tam = tamanoVentanaAnuncio(anuncio.descripcion);
+  const tieneImagen = Boolean(anuncio.imagen_url);
+  const tam = tamanoVentanaAnuncio(anuncio.descripcion, tieneImagen);
 
   const cerrar = () => {
     marcarAnuncioVisto(anuncio.id);
@@ -47,6 +48,13 @@ export default function AnuncioPosOverlay({ supabase, onIrVentas }) {
         <h2 id="anuncio-pos-titulo" className="anuncio-pos-titulo-parpadeo">
           {anuncio.asunto}
         </h2>
+        {tieneImagen && (
+          <img
+            src={anuncio.imagen_url}
+            alt=""
+            className="anuncio-pos-img"
+          />
+        )}
         <div
           className="anuncio-pos-cuerpo"
           style={{ whiteSpace: 'pre-wrap', lineHeight: 1.55, marginTop: '0.75rem' }}
