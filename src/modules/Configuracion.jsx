@@ -3068,7 +3068,12 @@ export default function Configuracion({
                 style={{ marginTop: '0.35rem', width: '5rem', display: 'block' }}
                 value={toleranciaTurnos.minutos_antes}
                 disabled={!puedeAsignarTurnoEmpleados}
-                onChange={(e) => setToleranciaTurnos({ ...toleranciaTurnos, minutos_antes: e.target.value })}
+                onChange={(e) =>
+                  setToleranciaTurnos({
+                    ...toleranciaTurnos,
+                    minutos_antes: e.target.value === '' ? '' : Number(e.target.value),
+                  })
+                }
               />
             </label>
             <label className="muted">
@@ -3081,7 +3086,12 @@ export default function Configuracion({
                 style={{ marginTop: '0.35rem', width: '5rem', display: 'block' }}
                 value={toleranciaTurnos.minutos_despues_fin}
                 disabled={!puedeAsignarTurnoEmpleados}
-                onChange={(e) => setToleranciaTurnos({ ...toleranciaTurnos, minutos_despues_fin: e.target.value })}
+                onChange={(e) =>
+                  setToleranciaTurnos({
+                    ...toleranciaTurnos,
+                    minutos_despues_fin: e.target.value === '' ? '' : Number(e.target.value),
+                  })
+                }
               />
             </label>
             {puedeAsignarTurnoEmpleados && (
@@ -3099,6 +3109,8 @@ export default function Configuracion({
                   const up = await aplicarTurnosATiendas(supabase, {
                     paquete: { ...leerPaqueteTurnos(turnosTienda), tolerancia: guardada },
                     tiendas: destinos,
+                    // También GLOBAL: las cajas sin fila propia heredan la tolerancia.
+                    incluirGlobal: true,
                     tiendaActiva: turnosTienda,
                   });
                   setTurnosGuardandoNube(false);
@@ -3107,7 +3119,9 @@ export default function Configuracion({
                     return;
                   }
                   alert(
-                    `Tolerancia guardada y subida a la nube para: ${destinos.map(etiquetaTienda).join(', ')}.\nLas cajas la toman al abrir el login (máx. ~1 min).`,
+                    `Tolerancia guardada (${guardada.minutos_antes} min antes / ${guardada.minutos_despues_fin} min después) para: ${
+                      (up.tiendas || destinos).map(etiquetaTienda).join(', ')
+                    }.\nLas cajas la toman al abrir el login (máx. ~1 min).`,
                   );
                 }}
               >
@@ -3439,7 +3453,11 @@ export default function Configuracion({
               ) {
                 return;
               }
-              const pack = plantillaPaquete12x12('07:00');
+              const pack = {
+                ...plantillaPaquete12x12('07:00'),
+                // No resetear tolerancia custom a 30 al aplicar plantilla de horarios.
+                tolerancia: leerToleranciaTurnos(turnosTienda),
+              };
               const destinos = turnosTiendasSel.length ? turnosTiendasSel : [turnosTienda];
               setTurnosGuardandoNube(true);
               try {

@@ -1069,26 +1069,30 @@ function App() {
   };
 
   const manejarAutorizacionAdminTurno = async () => {
-    if (!pendienteAutorizacionTurno?.user || !supabase) return;
+    if (!pendienteAutorizacionTurno?.user) return;
     const p = pinAdminAutorizacion.trim();
     if (!p) return alert('Indica el PIN del administrador.');
+    if (!supabase) return alert('Sin conexión a Supabase. No se puede validar el PIN del administrador.');
     setAutorizandoTurno(true);
-    const auth = await verificarPinAdministradorGlobal(supabase, p);
-    if (!auth.ok) {
+    try {
+      const auth = await verificarPinAdministradorGlobal(supabase, p);
+      if (!auth.ok) {
+        return alert(auth.error || 'No se pudo autorizar con ese PIN.');
+      }
+      await otorgarAutorizacionFueraHorario({
+        usuarioId: pendienteAutorizacionTurno.user.id,
+        sucursal,
+        admin: auth.user,
+        supabase,
+      });
+      setPinAdminAutorizacion('');
+      await completarLogin(pendienteAutorizacionTurno.user, {
+        ajustarSucursal: pendienteAutorizacionTurno.ajustarSucursal,
+        autorizacionAdmin: true,
+      });
+    } finally {
       setAutorizandoTurno(false);
-      return alert(auth.error);
     }
-    await otorgarAutorizacionFueraHorario({
-      usuarioId: pendienteAutorizacionTurno.user.id,
-      sucursal,
-      admin: auth.user,
-      supabase,
-    });
-    setAutorizandoTurno(false);
-    await completarLogin(pendienteAutorizacionTurno.user, {
-      ajustarSucursal: pendienteAutorizacionTurno.ajustarSucursal,
-      autorizacionAdmin: true,
-    });
   };
 
   const manejarAutorizacionAdminDispositivo = async () => {

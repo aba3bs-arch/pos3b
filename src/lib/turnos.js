@@ -540,27 +540,62 @@ function clampMinutosTolerancia(val, fallback) {
   return Math.min(180, Math.max(0, n));
 }
 
+/** Normaliza tolerancia (siempre números; evita "45" + minutos por concatenación). */
+export function normalizarToleranciaTurnos(cfg, fallback = TOLERANCIA_TURNOS_DEFAULT) {
+  const base = fallback && typeof fallback === 'object' ? fallback : TOLERANCIA_TURNOS_DEFAULT;
+  return {
+    minutos_antes: clampMinutosTolerancia(cfg?.minutos_antes, base.minutos_antes),
+    minutos_despues_fin: clampMinutosTolerancia(cfg?.minutos_despues_fin, base.minutos_despues_fin),
+  };
+}
+
 export function leerToleranciaTurnos(sucursal = null) {
   try {
     const t = leerJsonLs(claveLsTurnos(LS_TOLERANCIA_TURNOS, sucursal), LS_TOLERANCIA_TURNOS);
     if (!t) return { ...TOLERANCIA_TURNOS_DEFAULT };
-    return {
-      minutos_antes: clampMinutosTolerancia(t.minutos_antes, TOLERANCIA_TURNOS_DEFAULT.minutos_antes),
-      minutos_despues_fin: clampMinutosTolerancia(t.minutos_despues_fin, TOLERANCIA_TURNOS_DEFAULT.minutos_despues_fin),
-    };
+    return normalizarToleranciaTurnos(t);
   } catch {
     return { ...TOLERANCIA_TURNOS_DEFAULT };
   }
 }
 
 export function guardarToleranciaTurnos(cfg, sucursal = null, opts = {}) {
-  const next = {
-    minutos_antes: clampMinutosTolerancia(cfg?.minutos_antes, TOLERANCIA_TURNOS_DEFAULT.minutos_antes),
-    minutos_despues_fin: clampMinutosTolerancia(cfg?.minutos_despues_fin, TOLERANCIA_TURNOS_DEFAULT.minutos_despues_fin),
-  };
+  const next = normalizarToleranciaTurnos(cfg);
   escribirJsonLs(claveLsTurnos(LS_TOLERANCIA_TURNOS, sucursal), next, LS_TOLERANCIA_TURNOS, sucursal);
+  // Marca local para que el sync nube no pise un cambio recién guardado con un remoto viejo.
+  try {
+    const metaClave = `${claveLsTurnos(LS_TOLERANCIA_TURNOS, sucursal)}__meta`;
+    localStorage.setItem(metaClave, JSON.stringify({ updated_at: new Date().toISOString() }));
+  } catch {
+    /* ignore */
+  }
   if (!opts.silent) emitTurnos();
   return next;
+}
+
+/** updated_at local de la última edición de tolerancia (ISO) o null. */
+export function leerToleranciaTurnosUpdatedAt(sucursal = null) {
+  try {
+    const metaClave = `${claveLsTurnos(LS_TOLERANCIA_TURNOS, sucursal)}__meta`;
+    const raw = localStorage.getItem(metaClave);
+    if (!raw) return null;
+    const j = JSON.parse(raw);
+    return j?.updated_at || null;
+  } catch {
+    return null;
+  }
+}
+
+export function marcarToleranciaTurnosUpdatedAt(sucursal = null, iso = null) {
+  try {
+    const metaClave = `${claveLsTurnos(LS_TOLERANCIA_TURNOS, sucursal)}__meta`;
+    localStorage.setItem(
+      metaClave,
+      JSON.stringify({ updated_at: iso || new Date().toISOString() }),
+    );
+  } catch {
+    /* ignore */
+  }
 }
 
 /** Paquete completo de horarios de una tienda (para sync nube / UI). */
@@ -572,6 +607,7 @@ export function leerPaqueteTurnos(sucursal = null) {
     config: leerConfigHorario(suc),
     tolerancia: leerToleranciaTurnos(suc),
     patrones: leerPatronesRotacion3(suc),
+    updated_at: leerToleranciaTurnosUpdatedAt(suc),
   };
 }
 
@@ -584,7 +620,10 @@ export function aplicarPaqueteTurnosLocal(sucursal, paquete, opts = {}) {
     const r = guardarTurnos(paquete.turnos, suc, silent);
     if (!r.ok) return r;
   }
-  if (paquete?.tolerancia) guardarToleranciaTurnos(paquete.tolerancia, suc, silent);
+  if (paquete?.tolerancia) {
+    guardarToleranciaTurnos(paquete.tolerancia, suc, silent);
+    if (paquete.updated_at) marcarToleranciaTurnosUpdatedAt(suc, paquete.updated_at);
+  }
   if (Array.isArray(paquete?.patrones) && paquete.patrones.length >= 3) {
     guardarPatronesRotacion3(paquete.patrones, suc, silent);
   }
@@ -592,20 +631,23 @@ export function aplicarPaqueteTurnosLocal(sucursal, paquete, opts = {}) {
   return { ok: true, sucursal_id: suc, paquete: leerPaqueteTurnos(suc) };
 }
 
-export function plantillaPaquete12x12(inicioDiurno = '07:00') {
+export function plantillaPaquete12x12(inicioDiurno = '07:00', opts = {}) {
   const ini = normalizarInicioPlantilla12x12(inicioDiurno);
-  return {
+  // Conserva tolerancia custom si se pasa; si no, no incluye el campo para no pisarla al aplicar.
+  const out = {
     config: { tipo: '12x12', subtipo: null, inicio: ini },
     turnos: plantillaTurnos12x12(ini),
-    tolerancia: { ...TOLERANCIA_TURNOS_DEFAULT },
     patrones: PATRONES_ROTACION_3_DEFAULT.map((p) => normalizarPatron(p)),
   };
+  if (opts.tolerancia) out.tolerancia = normalizarToleranciaTurnos(opts.tolerancia);
+  else if (opts.incluirToleranciaDefault) out.tolerancia = { ...TOLERANCIA_TURNOS_DEFAULT };
+  return out;
 }
 
 /** Turno con ventana ampliada para login (entrada anticipada y gracia al cierre). */
 export function turnoConTolerancia(turno, tolerancia = null) {
   if (!turno) return null;
-  const tol = tolerancia || leerToleranciaTurnos();
+  const tol = normalizarToleranciaTurnos(tolerancia || leerToleranciaTurnos());
   const ini = minutosDesdeMedianoche(turno.hora_inicio);
   const fin = minutosDesdeMedianoche(turno.hora_fin);
   const DAY = 24 * 60;
