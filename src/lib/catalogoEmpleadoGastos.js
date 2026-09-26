@@ -7,6 +7,7 @@ import { normalizarRol } from './roles.js';
 import {
   agruparEmpleadosCatalogo,
   dedupeEmpleadosPorNombre,
+  elegirEmpleadosTiendaParaGastos,
   enriquecerEmpleadosNominaIndirectos,
   esEmpleadoIndirectoOMain,
   resolverTipoEmpleado,
@@ -80,7 +81,8 @@ export function empleadosParaCatalogoEmpleado(empleados, sucursalActiva) {
       {
         sucursalId: suc,
         label: etiquetaTienda(suc),
-        empleados: dedupeEmpleadosPorNombre(g?.empleados || []).slice(0, 2),
+        // Prioriza diurno + nocturno (no solo los 2 primeros alfabéticos).
+        empleados: elegirEmpleadosTiendaParaGastos(g?.empleados || []),
       },
     ];
   } else {
@@ -88,7 +90,7 @@ export function empleadosParaCatalogoEmpleado(empleados, sucursalActiva) {
     tiendaGrupos = (porTienda || []).map((g) => ({
       sucursalId: g.sucursalId,
       label: etiquetaTienda(g.sucursalId),
-      empleados: dedupeEmpleadosPorNombre(g.empleados || []).slice(0, 2),
+      empleados: elegirEmpleadosTiendaParaGastos(g.empleados || []),
     }));
   }
 
