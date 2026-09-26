@@ -29,6 +29,24 @@ export function beneficiarioRequierePinConsumo(nombre) {
   return Boolean(resolverBeneficiarioConsumoPin(nombre));
 }
 
+/**
+ * Coincide el nombre con un patrón de beneficiario PIN.
+ * - Exacto, o el patrón es el inicio del nombre («Misael …»).
+ * - NO matchea si el patrón solo aparece como segundo nombre/apellido
+ *   (evita que «Leyver Misael» se confunda con el Misael de MAIN).
+ */
+export function nombreCoincidePatronBeneficiario(nombreNorm, patronNorm) {
+  const n = String(nombreNorm || '').trim();
+  const pat = String(patronNorm || '').trim();
+  if (!n || !pat) return false;
+  if (n === pat) return true;
+  // "misael garcia" / "luis enrique mada" — patrón como nombre de pila al inicio
+  if (n.startsWith(`${pat} `)) return true;
+  // Nombre corto guardado vs patrón más largo: "luis enrique" vs "luis enrique mada"
+  if (pat.startsWith(`${n} `) && n.length >= 4) return true;
+  return false;
+}
+
 export function resolverBeneficiarioConsumoPin(nombre) {
   const n = normalizarNombreMatch(nombre);
   if (!n) return null;
@@ -36,7 +54,7 @@ export function resolverBeneficiarioConsumoPin(nombre) {
     for (const p of b.patrones) {
       const pat = normalizarNombreMatch(p);
       if (!pat) continue;
-      if (n === pat || n.includes(pat) || pat.includes(n)) return b;
+      if (nombreCoincidePatronBeneficiario(n, pat)) return b;
     }
   }
   return null;
@@ -61,7 +79,7 @@ function nombreCoincideBeneficiario(nombreUsuario, beneficiario) {
   for (const p of beneficiario.patrones) {
     const pat = normalizarNombreMatch(p);
     if (!pat) continue;
-    if (n === pat || n.includes(pat) || pat.includes(n)) return true;
+    if (nombreCoincidePatronBeneficiario(n, pat)) return true;
   }
   return false;
 }

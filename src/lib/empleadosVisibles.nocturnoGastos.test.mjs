@@ -93,4 +93,21 @@ assert.ok(g);
 assert.equal(g.empleados.length, 2);
 assert.ok(g.empleados.some((e) => e.turno_id === 'nocturno'));
 
+// Leyver Misael = empleado de tienda (no el Misael MAIN de consumo PIN)
+const leyver = {
+  id: 'ley-1',
+  nombre: 'Leyver Misael',
+  rol: 'Cajero',
+  sucursal_id: '3B5',
+  tipo_empleado: 'tienda',
+  turno_id: 'nocturno',
+  activo: true,
+};
+const conLeyver = empleadosParaCorte([diurno, leyver], '3B5', 'virtual', 'Administrador');
+assert.ok(conLeyver.some((e) => e.id === 'ley-1'), 'Leyver Misael en lista de corte');
+assert.ok(!conLeyver.find((e) => e.id === 'ley-1')?.requiere_pin_consumo, 'Leyver no es consumo PIN');
+const gLey = agruparEmpleadosParaSelectCorte(conLeyver);
+assert.ok(gLey.tienda.some((e) => e.id === 'ley-1'), 'Leyver en optgroup empleados de tienda');
+assert.ok(!gLey.consumoPin.some((e) => e.id === 'ley-1'), 'Leyver no va al grupo Misael PIN');
+
 console.log('empleadosVisibles.nocturnoGastos.test.mjs ok');

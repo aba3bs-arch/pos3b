@@ -43,6 +43,11 @@ assert.equal(
 );
 
 assert.equal(resolverBeneficiarioConsumoPin('misael')?.id, 'misael');
+assert.equal(resolverBeneficiarioConsumoPin('Misael Garcia')?.id, 'misael');
 assert.equal(resolverBeneficiarioConsumoPin('Luis Enrique')?.id, 'luis-enrique');
+// No confundir empleados de tienda cuyo apellido/segundo nombre es Misael
+assert.equal(resolverBeneficiarioConsumoPin('Leyver Misael'), null);
+assert.equal(beneficiarioRequierePinConsumo('Leyver Misael'), false);
+assert.equal(resolverBeneficiarioConsumoPin('Juan Misael Lopez'), null);
 
 console.log('pinBeneficiarioConsumo.test.mjs OK');
