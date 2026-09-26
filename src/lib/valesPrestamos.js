@@ -276,6 +276,7 @@ export async function registrarVale(supabase, row, opts = {}) {
     origenMain: Boolean(opts.origenMain),
     omitirVentana: Boolean(opts.omitirVentana || opts.origenMain),
     subcategoria,
+    minutosLimite: opts.minutosLimite,
   });
   // Consumo con PIN (Misael / Luis Enrique): siempre a nómina.
   let descuentaNomina = resolverDescuentaNominaVale(

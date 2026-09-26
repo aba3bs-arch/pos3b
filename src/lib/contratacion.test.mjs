@@ -6,7 +6,9 @@ import {
   edadDesdeFechaNacimiento,
   esModoContratacionPublica,
   leerSucursalVacanteDesdeUrl,
+  leerSucursalesVacanteDesdeUrl,
   mensajeGraciasPostulacion,
+  opcionesSucursalesContratacion,
   urlPortalContratacion,
   validarFiltroTipoEdad,
   validarFormularioContratacion,
@@ -56,8 +58,25 @@ assert.ok(
   urlPortalContratacion('https://ejemplo.com', { sucursal: '3B5' }).includes('sucursal=3B5'),
   'enlace con sucursal vacante',
 );
+assert.ok(
+  urlPortalContratacion('https://ejemplo.com', { sucursales: ['FUSION', '3B5'] }).includes('sucursales='),
+  'enlace con varias vacantes',
+);
 assert.equal(leerSucursalVacanteDesdeUrl({ search: '?contratacion=1&sucursal=3B2', hash: '' }), '3B2');
 assert.equal(leerSucursalVacanteDesdeUrl({ search: '?contratacion=1', hash: '' }), '');
+assert.deepEqual(
+  leerSucursalesVacanteDesdeUrl({ search: '?contratacion=1&sucursales=FUSION,3B5', hash: '' }),
+  ['FUSION', '3B5'],
+);
+assert.deepEqual(
+  leerSucursalesVacanteDesdeUrl({ search: '?contratacion=1&sucursal=3B2', hash: '' }),
+  ['3B2'],
+);
+
+const soloVac = opcionesSucursalesContratacion({ ids: ['FUSION', '3B5'] });
+assert.equal(soloVac.length, 2);
+assert.ok(soloVac.every((s) => s.mapsUrl || s.id));
+assert.ok(!opcionesSucursalesContratacion({ ids: ['FUSION'] }).some((s) => s.id === '3B10'));
 
 const gracias = mensajeGraciasPostulacion({
   brand: 'Las 3B',

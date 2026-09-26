@@ -53,6 +53,7 @@ import {
   etiquetaEstadoPrestamo,
   etiquetaEstadoVale,
   etiquetaHoraLimiteVale,
+  leerHoraLimiteVale,
   prestamoInterareaEstaAbierto,
   prestamoInterareaPendienteRc,
   prestamoInterareaPuedeOperarHastaRc,
@@ -63,6 +64,7 @@ import {
   valePuedeCancelar,
   valeRequiereAutorizacionAdmin,
 } from '../lib/contabilidadConstants.js';
+import { sincronizarHoraLimiteValeDesdeNube } from '../lib/horaLimiteValeSync.js';
 import {
   AVISO_FALTA_VALES_CATEGORIAS,
   EVENTO_VALES_CATEGORIAS,
@@ -280,6 +282,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     origenMain: esMain,
     omitirVentana: esMain,
     subcategoria: valeForm.subcategoria,
+    minutosLimite: leerHoraLimiteVale(),
   };
   const requiereAuthAhora = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria, valeFormOptsAuth);
   const valeFormRequiereAdmin = valeRequiereAutorizacionAdmin(new Date(), valeForm.categoria, valeFormOptsAuth);
@@ -460,7 +463,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
     });
     import('../lib/horaLimiteValeSync.js').then(({ sincronizarHoraLimiteValeDesdeNube }) => {
       sincronizarHoraLimiteValeDesdeNube(supabase).then((r) => {
-        if (r.cambio) setHoraLimiteVale(etiquetaHoraLimiteVale());
+        setHoraLimiteVale(etiquetaHoraLimiteVale());
         if (r.aviso) setAviso((prev) => prev || r.aviso);
       });
     });
@@ -562,6 +565,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const guardarVale = async () => {
     if (!supabase) return alert('Sin conexión.');
     if (!puedeGenerarVales) return alert('Esta tienda no puede generar vales. El administrador debe autorizarla en Configuración → Vales y préstamos.');
+
+    // Refrescar hora límite desde nube antes de decidir si pide autorización.
+    try {
+      await sincronizarHoraLimiteValeDesdeNube(supabase);
+      setHoraLimiteVale(etiquetaHoraLimiteVale());
+    } catch {
+      /* sigue con la hora local */
+    }
+
     const ben = beneficiarioValePorId(valeForm.beneficiarioId, beneficiariosVales);
     if (!ben) return alert('Selecciona beneficiario.');
     const monto = Number(valeForm.monto);
@@ -636,6 +648,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         origenMain: esMain,
         ampliado: true,
         usarCatalogoIe: true,
+        minutosLimite: leerHoraLimiteVale(),
         descuentaNomina: (() => {
           if (esValeGasolina(valeForm.categoria, valeForm.subcategoria)) return false;
           if (

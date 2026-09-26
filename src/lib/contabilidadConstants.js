@@ -246,15 +246,19 @@ function minutosLocalSonora(fecha = new Date()) {
  *
  * @param {Date} fecha
  * @param {string} categoria
- * @param {{ origenMain?: boolean, omitirVentana?: boolean, subcategoria?: string }} opts
+ * @param {{ origenMain?: boolean, omitirVentana?: boolean, subcategoria?: string, minutosLimite?: number }} opts
  */
 export function valeRequiereAutorizacionAdmin(fecha = new Date(), categoria = 'consumo', opts = {}) {
   const sub = opts.subcategoria;
+  // Solo consumo / anticipos fuerzan admin; gasolina/herramienta/accesorios usan ventana.
   if (valeDescuentaNomina(categoria, sub)) return true;
   if (opts.omitirVentana || opts.origenMain) return false;
+  const limite = Number.isFinite(Number(opts.minutosLimite))
+    ? Number(opts.minutosLimite)
+    : leerHoraLimiteVale();
   // "Hasta las HH:MM" inclusive (Sonora): a las 10:45 aún sin auth si el límite es 10:45.
   // A partir del minuto siguiente (10:46) sí requiere admin.
-  return minutosLocalSonora(fecha) > leerHoraLimiteVale();
+  return minutosLocalSonora(fecha) > limite;
 }
 
 /** Cuota semanal fija $500; si el saldo es menor, cobra el remanente (última semana). */

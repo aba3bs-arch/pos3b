@@ -10,6 +10,8 @@ import {
   enviarABolsaDeTrabajo,
   etiquetaEstadoContratacion,
   etiquetaTipoContratacion,
+  guardarVacantesAbiertasContratacion,
+  leerVacantesAbiertasContratacion,
   listarAdminsParaRedirigir,
   listarSolicitudesContratacion,
   nombreCompletoAspirante,
@@ -40,14 +42,25 @@ export default function Contratacion({ supabase, user, onNavigate }) {
   const [adminDestinoId, setAdminDestinoId] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [copiado, setCopiado] = useState(false);
-  const [sucursalVacante, setSucursalVacante] = useState('');
+  const [vacantesAbiertas, setVacantesAbiertas] = useState(() => leerVacantesAbiertasContratacion());
   const sucursalesOpts = useMemo(() => opcionesSucursalesContratacion(), []);
 
   const enlace = useMemo(
-    () => urlPortalContratacion(undefined, { sucursal: sucursalVacante }),
-    [sucursalVacante],
+    () => urlPortalContratacion(undefined, { sucursales: vacantesAbiertas }),
+    [vacantesAbiertas],
   );
   const qrUrl = useMemo(() => urlQrContratacion(`${enlace}&qr=1`), [enlace]);
+
+  const toggleVacante = (id) => {
+    setVacantesAbiertas((prev) => {
+      const set = new Set(prev || []);
+      if (set.has(id)) set.delete(id);
+      else set.add(id);
+      const next = [...set];
+      guardarVacantesAbiertasContratacion(next);
+      return next;
+    });
+  };
 
   const cargar = useCallback(async () => {
     if (!supabase || !puede) return;
@@ -164,28 +177,33 @@ export default function Contratacion({ supabase, user, onNavigate }) {
         >
           <div style={{ flex: '1 1 200px' }}>
             <strong style={{ display: 'block', marginBottom: '0.35rem' }}>Enlace / QR para aspirantes</strong>
-            <label className="muted" style={{ display: 'block', fontSize: '0.82rem', marginBottom: '0.45rem' }}>
-              Sucursal donde ocupamos
-              <select
-                className="input"
-                value={sucursalVacante}
-                onChange={(e) => setSucursalVacante(e.target.value)}
-                style={{ display: 'block', marginTop: '0.3rem', maxWidth: 320 }}
-              >
-                <option value="">Sin especificar (genérico)</option>
-                {sucursalesOpts.map((s) => (
-                  <option key={s.id} value={s.id}>{s.label}</option>
-                ))}
-              </select>
-            </label>
+            <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.82rem' }}>
+              Marca las tiendas con <strong>vacante abierta</strong>. El portal solo mostrará esas
+              (con enlace a Maps). Las demás quedan ocultas.
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginBottom: '0.55rem' }}>
+              {sucursalesOpts.map((s) => {
+                const on = vacantesAbiertas.includes(s.id);
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    className={`btn btn-sm ${on ? 'btn-gold' : 'btn-ghost'}`}
+                    onClick={() => toggleVacante(s.id)}
+                  >
+                    {s.label}{on ? ' · vacante' : ''}
+                  </button>
+                );
+              })}
+            </div>
             <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.78rem' }}>
-              {sucursalVacante
-                ? 'El aspirante verá en el portal en qué sucursal se ocupa la plaza.'
-                : 'Elige una sucursal para que el enlace/QR indique el área donde se les ocupa.'}
+              {vacantesAbiertas.length
+                ? `${vacantesAbiertas.length} vacante(s) en el enlace. Copia o imprime el QR actualizado.`
+                : 'Sin vacantes marcadas: el aspirante no verá tiendas. Marca al menos una.'}
             </p>
             <code style={{ fontSize: '0.78rem', wordBreak: 'break-all' }}>{enlace}</code>
             <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-              <button type="button" className="btn btn-gold btn-sm" onClick={copiarEnlace}>
+              <button type="button" className="btn btn-gold btn-sm" onClick={copiarEnlace} disabled={!vacantesAbiertas.length}>
                 {copiado ? 'Copiado' : 'Copiar enlace'}
               </button>
               <a className="btn btn-ghost btn-sm" href={enlace} target="_blank" rel="noreferrer">
