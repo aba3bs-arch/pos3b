@@ -82,20 +82,30 @@ async function borrarCortesContabilidad(supabase, { sucursales, desde, hasta }) 
     if (error) res.push(`${tabla}: ${error.message}`);
   }
 
-  if (sucursales?.length) {
-    for (const sid of sucursales) {
-      for (const modulo of ['virtual', 'abarrotes', 'garage']) {
-        await supabase.from('cortes_contabilidad_estado').delete().eq('sucursal_id', sid).eq('modulo', modulo);
-        await supabase.from('cortes_contabilidad_folios').delete().eq('sucursal_id', sid).eq('modulo', modulo);
+  // Estado abierto (caja chica / folio en curso) solo se borra en purga TOTAL.
+  // Una purga por rango de fechas no debe dejar la caja chica en $0.
+  const purgaTotal = !desde && !hasta;
+  if (purgaTotal) {
+    if (sucursales?.length) {
+      for (const sid of sucursales) {
+        for (const modulo of ['virtual', 'abarrotes', 'garage']) {
+          await supabase.from('cortes_contabilidad_estado').delete().eq('sucursal_id', sid).eq('modulo', modulo);
+          await supabase.from('cortes_contabilidad_folios').delete().eq('sucursal_id', sid).eq('modulo', modulo);
+        }
       }
+    } else {
+      await supabase.from('cortes_contabilidad_estado').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('cortes_contabilidad_folios').delete().neq('sucursal_id', '');
     }
-  } else if (!desde && !hasta) {
-    await supabase.from('cortes_contabilidad_estado').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-    await supabase.from('cortes_contabilidad_folios').delete().neq('sucursal_id', '');
   }
 
   if (res.length) return { ok: false, error: res.join('\n') };
-  return { ok: true, detalle: 'Cortes de contabilidad eliminados.' };
+  return {
+    ok: true,
+    detalle: purgaTotal
+      ? 'Cortes de contabilidad eliminados (incl. caja chica / folios abiertos).'
+      : 'Cortes de contabilidad eliminados (historial por fechas; caja chica abierta conservada).',
+  };
 }
 
 function limpiarCacheLocal() {

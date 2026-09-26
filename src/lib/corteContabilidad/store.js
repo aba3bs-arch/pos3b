@@ -8,7 +8,7 @@ import {
   crearNotificacion,
   marcarNotificacionAtendida,
 } from '../contabilidadNotificaciones.js';
-import { etiquetaTienda, normalizarCodigoTienda } from '../../constants/sucursales.js';
+import { etiquetaTienda, equivalentesCodigoTienda, normalizarCodigoTienda } from '../../constants/sucursales.js';
 import { normalizarNombreProveedorClave, registrarEntregaDesdeGastoAbarrotes } from '../proveedorEntregas.js';
 import {
   aplicarMarkerSmokingComentario,
@@ -133,7 +133,7 @@ export async function buscarGastosDuplicadosEntreModulos(supabase, {
   const origen = String(moduloOrigen || '').toLowerCase();
   if (origen !== 'abarrotes') return [];
 
-  const sid = normalizarCodigoTienda(sucursal) || 'MAIN';
+  const sid = sucursalIdCorte(sucursal);
   const huella = huellaGastoCorte(gasto);
   if (!(huella.monto > 0) || !huella.categoria) return [];
 
@@ -155,7 +155,7 @@ export async function buscarGastosDuplicadosEntreModulos(supabase, {
     const { data, error } = await supabase
       .from('cortes_contabilidad_gastos')
       .select('id,modulo,categoria,subcategoria,monto,comentario,usuario_id,usuario_nombre,created_at,cerrado')
-      .eq('sucursal_id', sid)
+      .in('sucursal_id', sucursalesIdCorteQuery(sid))
       .eq('modulo', 'abarrotes')
       .gte('created_at', desde)
       .order('created_at', { ascending: false })
@@ -195,7 +195,136 @@ function mensajeGastoDuplicado(duplicados, moduloDestino) {
 }
 
 function lsKey(sucursal, modulo, tipo) {
-  return `pos3b_corte_${tipo}_${modulo}_${sucursal || 'MAIN'}`;
+  const sid = normalizarCodigoTienda(sucursal) || 'MAIN';
+  return `pos3b_corte_${tipo}_${modulo}_${sid}`;
+}
+
+/** Código canónico de tienda para cortes (Fusión/FUSIÓN → FUSION). */
+export function sucursalIdCorte(sucursal) {
+  return normalizarCodigoTienda(sucursal) || 'MAIN';
+}
+
+/** Variantes históricas + canónica para .in() en consultas. */
+export function sucursalesIdCorteQuery(sucursal) {
+  const sid = sucursalIdCorte(sucursal);
+  const vars = equivalentesCodigoTienda(sid);
+  return vars.length ? vars : [sid];
+}
+
+function cajaAnteriorDeEstado(estado) {
+  return Number(estado?.caja_anterior) || 0;
+}
+
+function estadoTieneCajaChica(estado) {
+  return cajaAnteriorDeEstado(estado) > 0.001
+    || Number(estado?.fondo_fijo) > 0.001
+    || Number(estado?.moneda_inicial) > 0.001
+    || Number(estado?.venta) > 0.001;
+}
+
+/**
+ * Si la fila canónica está vacía pero hay una variante histórica (Fusión/FUSIÓN)
+ * con caja chica, usa ese estado y lo reclama a la clave canónica.
+ */
+async function reclamarEstadoHuerfano(supabase, sid, modulo, estadoCanonico) {
+  if (!supabase || estadoTieneCajaChica(estadoCanonico)) {
+    return { estado: estadoCanonico, reclamado: false };
+  }
+  const vars = sucursalesIdCorteQuery(sid).filter((v) => v !== sid);
+  if (!vars.length) return { estado: estadoCanonico, reclamado: false };
+
+  const { data, error } = await supabase
+    .from('cortes_contabilidad_estado')
+    .select('sucursal_id, estado, updated_at')
+    .eq('modulo', modulo)
+    .in('sucursal_id', vars)
+    .order('updated_at', { ascending: false });
+  if (error || !data?.length) return { estado: estadoCanonico, reclamado: false };
+
+  const huerfano = data.find((r) => estadoTieneCajaChica(r.estado));
+  if (!huerfano?.estado) return { estado: estadoCanonico, reclamado: false };
+
+  const merged = { ...estadoCanonico, ...huerfano.estado };
+  // Persistir en clave canónica y limpiar huérfano para no duplicar.
+  await supabase.from('cortes_contabilidad_estado').upsert(
+    {
+      sucursal_id: sid,
+      modulo,
+      estado: merged,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'sucursal_id,modulo' },
+  );
+  try {
+    await supabase
+      .from('cortes_contabilidad_estado')
+      .delete()
+      .eq('sucursal_id', huerfano.sucursal_id)
+      .eq('modulo', modulo);
+  } catch {
+    /* ignore */
+  }
+  return { estado: merged, reclamado: true, desde: huerfano.sucursal_id };
+}
+
+function round2Store(n) {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function montoPositivo(n) {
+  const v = Number(n);
+  return Number.isFinite(v) && v > 0.001 ? round2Store(v) : null;
+}
+
+/**
+ * Extrae caja chica arrastrable desde filas de cierre (sin RECOLECCIÓN).
+ * Tras un cierre normal, caja_actual es la que debe quedar en el siguiente turno.
+ */
+export function cajaAnteriorDesdeFilasCierre(rows) {
+  for (const h of rows || []) {
+    if (h?.deleted_at) continue;
+    const turno = String(h.turno || h.detalle?.tipo_cierre || '').toUpperCase();
+    if (turno.includes('RECOLEC')) continue;
+    const d = h.detalle || {};
+    const desdeCaja = montoPositivo(h.caja_actual);
+    if (desdeCaja != null) return desdeCaja;
+    const desdeDet =
+      montoPositivo(d.caja_actual)
+      ?? montoPositivo(d.caja_anterior_siguiente)
+      ?? montoPositivo(d.caja_chica)
+      ?? montoPositivo(d.caja_anterior);
+    if (desdeDet != null) return desdeDet;
+  }
+  return null;
+}
+
+/**
+ * Si no hay caja chica abierta, recupera la del último cierre de turno
+ * (no recolección) — típico tras migración incompleta o purga parcial.
+ */
+async function cajaAnteriorDesdeUltimoCierre(supabase, sid, modulo) {
+  if (!supabase || modulo !== 'abarrotes') return null;
+  const vars = sucursalesIdCorteQuery(sid);
+  const { data, error } = await supabase
+    .from('cortes_contabilidad_cierres')
+    .select('caja_actual, detalle, turno, created_at, deleted_at')
+    .eq('modulo', modulo)
+    .in('sucursal_id', vars)
+    .order('created_at', { ascending: false })
+    .limit(15);
+  if (error) {
+    if (!faltaColumnaDeletedAt(error)) return null;
+    const retry = await supabase
+      .from('cortes_contabilidad_cierres')
+      .select('caja_actual, detalle, turno, created_at')
+      .eq('modulo', modulo)
+      .in('sucursal_id', vars)
+      .order('created_at', { ascending: false })
+      .limit(15);
+    if (retry.error) return null;
+    return cajaAnteriorDesdeFilasCierre(retry.data || []);
+  }
+  return cajaAnteriorDesdeFilasCierre(data || []);
 }
 
 function faltaTabla(error, hint) {
@@ -212,10 +341,19 @@ function faltaColumnaDeletedAt(error) {
 }
 
 export async function cargarEstadoCorte(supabase, sucursal, modulo) {
+  const sid = sucursalIdCorte(sucursal);
   const def = estadoDefault(modulo);
   if (!supabase) {
     try {
-      const raw = localStorage.getItem(lsKey(sucursal, modulo, 'estado'));
+      // Intentar clave canónica y luego variantes locales antiguas.
+      let raw = localStorage.getItem(lsKey(sid, modulo, 'estado'));
+      if (!raw) {
+        for (const v of sucursalesIdCorteQuery(sid)) {
+          if (v === sid) continue;
+          raw = localStorage.getItem(`pos3b_corte_estado_${modulo}_${v}`);
+          if (raw) break;
+        }
+      }
       let estado = raw ? { ...def, ...JSON.parse(raw) } : def;
       if (modulo === 'virtual') estado = normalizarEstadoVirtual(estado);
       return { estado, soloLocal: true };
@@ -226,39 +364,67 @@ export async function cargarEstadoCorte(supabase, sucursal, modulo) {
   const { data, error } = await supabase
     .from('cortes_contabilidad_estado')
     .select('estado')
-    .eq('sucursal_id', sucursal || 'MAIN')
+    .eq('sucursal_id', sid)
     .eq('modulo', modulo)
     .maybeSingle();
   if (error && faltaTabla(error, 'cortes_contabilidad')) {
     return { estado: def, aviso: AVISO_FALTA_CORTES, soloLocal: true };
   }
   if (error) return { estado: def, error: error.message };
-  const estado = { ...def, ...(data?.estado || {}) };
+
+  let estado = { ...def, ...(data?.estado || {}) };
+  const reclamo = await reclamarEstadoHuerfano(supabase, sid, modulo, estado);
+  estado = reclamo.estado;
+  let avisoRecupero = null;
+  if (reclamo.reclamado) {
+    avisoRecupero = `Se recuperó la caja chica de Abarrotes desde el registro histórico «${reclamo.desde}» → ${sid}.`;
+  }
+
+  // Abarrotes: si sigue en 0 tras reclamar, intentar último cierre de turno.
+  if (modulo === 'abarrotes' && !estadoTieneCajaChica(estado)) {
+    const recuperada = await cajaAnteriorDesdeUltimoCierre(supabase, sid, modulo);
+    if (recuperada != null && recuperada > 0.001) {
+      estado = { ...estado, caja_anterior: recuperada };
+      await supabase.from('cortes_contabilidad_estado').upsert(
+        {
+          sucursal_id: sid,
+          modulo,
+          estado,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'sucursal_id,modulo' },
+      );
+      avisoRecupero =
+        `Caja chica de Abarrotes restaurada desde el último corte ($${recuperada.toFixed(2)}).`;
+    }
+  }
+
   if (modulo === 'virtual') {
-    return { estado: normalizarEstadoVirtual(estado), soloLocal: false };
+    return { estado: normalizarEstadoVirtual(estado), soloLocal: false, aviso: avisoRecupero || undefined };
   }
   if (modulo === 'garage') {
     const defM = estadoDefault('garage').maquinas;
     const prev = estado.maquinas || {};
     estado.maquinas = Object.fromEntries(Object.keys(defM).map((k) => [k, Number(prev[k]) || 0]));
   }
-  return { estado, soloLocal: false };
+  return { estado, soloLocal: false, aviso: avisoRecupero || undefined };
 }
 
 export async function guardarEstadoCorte(supabase, sucursal, modulo, estado) {
+  const sid = sucursalIdCorte(sucursal);
   if (!supabase) {
-    localStorage.setItem(lsKey(sucursal, modulo, 'estado'), JSON.stringify(estado));
+    localStorage.setItem(lsKey(sid, modulo, 'estado'), JSON.stringify(estado));
     return { ok: true, soloLocal: true };
   }
   const row = {
-    sucursal_id: sucursal || 'MAIN',
+    sucursal_id: sid,
     modulo,
     estado,
     updated_at: new Date().toISOString(),
   };
   const { error } = await supabase.from('cortes_contabilidad_estado').upsert(row, { onConflict: 'sucursal_id,modulo' });
   if (error && faltaTabla(error, 'cortes_contabilidad')) {
-    localStorage.setItem(lsKey(sucursal, modulo, 'estado'), JSON.stringify(estado));
+    localStorage.setItem(lsKey(sid, modulo, 'estado'), JSON.stringify(estado));
     return { ok: true, aviso: AVISO_FALTA_CORTES, soloLocal: true };
   }
   if (error) return { ok: false, error: error.message };
@@ -266,7 +432,8 @@ export async function guardarEstadoCorte(supabase, sucursal, modulo, estado) {
 }
 
 export async function listarGastosTurno(supabase, sucursal, modulo) {
-  const sid = sucursal || 'MAIN';
+  const sid = sucursalIdCorte(sucursal);
+  const vars = sucursalesIdCorteQuery(sid);
   if (!supabase) {
     try {
       const raw = localStorage.getItem(lsKey(sid, modulo, 'gastos'));
@@ -278,7 +445,7 @@ export async function listarGastosTurno(supabase, sucursal, modulo) {
   const { data, error } = await supabase
     .from('cortes_contabilidad_gastos')
     .select('*')
-    .eq('sucursal_id', sid)
+    .in('sucursal_id', vars)
     .eq('modulo', modulo)
     .order('created_at', { ascending: true });
   if (error && faltaTabla(error, 'cortes_contabilidad_gastos')) {
@@ -293,6 +460,21 @@ export async function listarGastosTurno(supabase, sucursal, modulo) {
 
   // Solo gastos del turno abierto (cerrado !== true; incluye null legacy).
   const abiertos = (data || []).filter((g) => g.cerrado !== true);
+  // Reclamar gastos huérfanos (Fusión → FUSION) para no duplicar en el próximo insert.
+  const huerfanos = abiertos.filter((g) => g.sucursal_id && g.sucursal_id !== sid);
+  if (huerfanos.length) {
+    try {
+      await supabase
+        .from('cortes_contabilidad_gastos')
+        .update({ sucursal_id: sid })
+        .in(
+          'id',
+          huerfanos.map((g) => g.id),
+        );
+    } catch {
+      /* ignore */
+    }
+  }
   try {
     localStorage.setItem(lsKey(sid, modulo, 'gastos'), JSON.stringify(abiertos));
   } catch {
@@ -449,7 +631,7 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
       const { data: gastosTrpPrev, error: eTrpPrev } = await supabase
         .from('cortes_contabilidad_gastos')
         .select('id,comentario')
-        .eq('sucursal_id', sid)
+        .in('sucursal_id', sucursalesIdCorteQuery(sid))
         .eq('modulo', modulo)
         .ilike('comentario', `%${MARKER_TRP_INV}%`)
         .limit(500);
@@ -488,8 +670,9 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
       : markerTrp.toUpperCase();
   }
 
+  const sidCanon = sucursalIdCorte(sucursal);
   const row = {
-    sucursal_id: sucursal || 'MAIN',
+    sucursal_id: sidCanon,
     modulo,
     categoria: gasto.categoria || 'GENERAL',
     subcategoria: gasto.subcategoria || '',
@@ -504,9 +687,9 @@ export async function agregarGastoTurno(supabase, sucursal, modulo, gasto, opts 
     solicitado_por: opts.nombreActor || null,
   };
   if (!supabase) {
-    const { data: prev } = await listarGastosTurno(null, sucursal, modulo);
+    const { data: prev } = await listarGastosTurno(null, sidCanon, modulo);
     const next = [...(prev || []), { ...row, id: `local-${Date.now()}`, created_at: new Date().toISOString() }];
-    localStorage.setItem(lsKey(sucursal, modulo, 'gastos'), JSON.stringify(next));
+    localStorage.setItem(lsKey(sidCanon, modulo, 'gastos'), JSON.stringify(next));
     return { ok: true, data: next };
   }
   const { data, error } = await supabase.from('cortes_contabilidad_gastos').insert([row]).select('*').single();
@@ -588,7 +771,7 @@ export async function listarGastosPendientesAprobacion(supabase, sucursal, modul
     .select('*')
     .eq('estado_aprobacion', 'pendiente_admin')
     .order('created_at', { ascending: true });
-  if (sucursal) q = q.eq('sucursal_id', sucursal || 'MAIN');
+  if (sucursal) q = q.in('sucursal_id', sucursalesIdCorteQuery(sucursal));
   if (modulo) q = q.eq('modulo', modulo);
   const { data, error } = await q;
   if (error) return { data: [], error: error.message };
@@ -678,7 +861,8 @@ export async function actualizarGastoTurno(supabase, id, patch, sucursal, modulo
  * @param {string[]|null} idsOpcionales — IDs en memoria del corte actual (más fiable).
  */
 export async function limpiarGastosTurno(supabase, sucursal, modulo, idsOpcionales = null) {
-  const sid = sucursal || 'MAIN';
+  const sid = sucursalIdCorte(sucursal);
+  const vars = sucursalesIdCorteQuery(sid);
   try {
     localStorage.setItem(lsKey(sid, modulo, 'gastos'), '[]');
   } catch {
@@ -697,7 +881,7 @@ export async function limpiarGastosTurno(supabase, sucursal, modulo, idsOpcional
   const { data: rows, error: eList } = await supabase
     .from('cortes_contabilidad_gastos')
     .select('id, cerrado')
-    .eq('sucursal_id', sid)
+    .in('sucursal_id', vars)
     .eq('modulo', modulo);
 
   if (eList) {
@@ -726,7 +910,7 @@ export async function limpiarGastosTurno(supabase, sucursal, modulo, idsOpcional
   const { data: quedan, error: eCheck } = await supabase
     .from('cortes_contabilidad_gastos')
     .select('id, cerrado')
-    .eq('sucursal_id', sid)
+    .in('sucursal_id', vars)
     .eq('modulo', modulo);
 
   if (eCheck) return { ok: false, error: eCheck.message, count: (updated || []).length };
@@ -762,19 +946,20 @@ export async function limpiarGastosTurno(supabase, sucursal, modulo, idsOpcional
  * debe poder marcarlos como huérfanos.
  */
 export async function cerrarGastosHuerfanosTrasCierre(supabase, sucursal, modulo) {
-  const sid = sucursal || 'MAIN';
+  const sid = sucursalIdCorte(sucursal);
+  const vars = sucursalesIdCorteQuery(sid);
   if (!supabase) return { ok: true, count: 0 };
 
   const [{ data: abiertos, error: eAb }, { data: cierres, error: eCi }] = await Promise.all([
     supabase
       .from('cortes_contabilidad_gastos')
       .select('id, cerrado')
-      .eq('sucursal_id', sid)
+      .in('sucursal_id', vars)
       .eq('modulo', modulo),
     supabase
       .from('cortes_contabilidad_cierres')
       .select('id, detalle, created_at')
-      .eq('sucursal_id', sid)
+      .in('sucursal_id', vars)
       .eq('modulo', modulo)
       .order('created_at', { ascending: false })
       .limit(20),
@@ -808,41 +993,41 @@ export async function cerrarGastosHuerfanosTrasCierre(supabase, sucursal, modulo
 
 export async function peekFolio(supabase, sucursal, modulo) {
   const prefijo = PREFIJOS[modulo] || 'X';
+  const sid = sucursalIdCorte(sucursal);
   if (!supabase) {
-    const key = lsKey(sucursal, modulo, 'folio');
+    const key = lsKey(sid, modulo, 'folio');
     const n = (Number(localStorage.getItem(key)) || 0) + 1;
     if (modulo === 'abarrotes') return `AB-${String(n).padStart(3, '0')}`;
     return `${prefijo}-${String(n).padStart(3, '0')}`;
   }
-  const sid = sucursal || 'MAIN';
-  const { data: row } = await supabase
+  const vars = sucursalesIdCorteQuery(sid);
+  const { data: rows } = await supabase
     .from('cortes_contabilidad_folios')
-    .select('ultimo')
-    .eq('sucursal_id', sid)
-    .eq('modulo', modulo)
-    .maybeSingle();
-  const n = (Number(row?.ultimo) || 0) + 1;
+    .select('sucursal_id, ultimo')
+    .in('sucursal_id', vars)
+    .eq('modulo', modulo);
+  const n = Math.max(0, ...(rows || []).map((r) => Number(r.ultimo) || 0)) + 1;
   if (modulo === 'abarrotes') return `AB-${String(n).padStart(3, '0')}`;
   return `${prefijo}-${String(n).padStart(3, '0')}`;
 }
 
 export async function siguienteFolio(supabase, sucursal, modulo) {
   const prefijo = PREFIJOS[modulo] || 'X';
+  const sid = sucursalIdCorte(sucursal);
   if (!supabase) {
-    const key = lsKey(sucursal, modulo, 'folio');
+    const key = lsKey(sid, modulo, 'folio');
     const n = (Number(localStorage.getItem(key)) || 0) + 1;
     localStorage.setItem(key, String(n));
     if (modulo === 'abarrotes') return `AB-${String(n).padStart(3, '0')}`;
     return `${prefijo}-${String(n).padStart(3, '0')}`;
   }
-  const sid = sucursal || 'MAIN';
-  const { data: row } = await supabase
+  const vars = sucursalesIdCorteQuery(sid);
+  const { data: rows } = await supabase
     .from('cortes_contabilidad_folios')
-    .select('ultimo')
-    .eq('sucursal_id', sid)
-    .eq('modulo', modulo)
-    .maybeSingle();
-  const ultimo = (Number(row?.ultimo) || 0) + 1;
+    .select('sucursal_id, ultimo')
+    .in('sucursal_id', vars)
+    .eq('modulo', modulo);
+  const ultimo = Math.max(0, ...(rows || []).map((r) => Number(r.ultimo) || 0)) + 1;
   await supabase.from('cortes_contabilidad_folios').upsert(
     { sucursal_id: sid, modulo, ultimo, prefijo },
     { onConflict: 'sucursal_id,modulo' },
@@ -855,10 +1040,10 @@ export async function siguienteFolio(supabase, sucursal, modulo) {
 export async function folioTrasCierre(supabase, sucursal, modulo, folioUsado) {
   const prefijo = PREFIJOS[modulo] || 'X';
   const nUsado = Number(String(folioUsado || '').replace(/\D/g, '')) || 0;
-  const sid = sucursal || 'MAIN';
+  const sid = sucursalIdCorte(sucursal);
 
   if (!supabase) {
-    const key = lsKey(sucursal, modulo, 'folio');
+    const key = lsKey(sid, modulo, 'folio');
     const actual = Number(localStorage.getItem(key)) || 0;
     const ultimo = Math.max(actual, nUsado);
     localStorage.setItem(key, String(ultimo));
@@ -867,13 +1052,13 @@ export async function folioTrasCierre(supabase, sucursal, modulo, folioUsado) {
     return `${prefijo}-${String(next).padStart(3, '0')}`;
   }
 
-  const { data: row } = await supabase
+  const vars = sucursalesIdCorteQuery(sid);
+  const { data: rows } = await supabase
     .from('cortes_contabilidad_folios')
-    .select('ultimo')
-    .eq('sucursal_id', sid)
-    .eq('modulo', modulo)
-    .maybeSingle();
-  const ultimo = Math.max(Number(row?.ultimo) || 0, nUsado);
+    .select('sucursal_id, ultimo')
+    .in('sucursal_id', vars)
+    .eq('modulo', modulo);
+  const ultimo = Math.max(nUsado, ...(rows || []).map((r) => Number(r.ultimo) || 0));
   await supabase.from('cortes_contabilidad_folios').upsert(
     { sucursal_id: sid, modulo, ultimo, prefijo },
     { onConflict: 'sucursal_id,modulo' },
@@ -884,20 +1069,24 @@ export async function folioTrasCierre(supabase, sucursal, modulo, folioUsado) {
 }
 
 export async function registrarCierreCorte(supabase, payload) {
+  const rowPayload = {
+    ...payload,
+    sucursal_id: sucursalIdCorte(payload?.sucursal_id),
+  };
   if (!supabase) {
-    const key = lsKey(payload.sucursal_id, payload.modulo, 'historial');
+    const key = lsKey(rowPayload.sucursal_id, rowPayload.modulo, 'historial');
     let hist = [];
     try {
       hist = JSON.parse(localStorage.getItem(key) || '[]');
     } catch {
       hist = [];
     }
-    const row = { ...payload, id: `local-${Date.now()}`, created_at: new Date().toISOString() };
+    const row = { ...rowPayload, id: `local-${Date.now()}`, created_at: new Date().toISOString() };
     hist.unshift(row);
     localStorage.setItem(key, JSON.stringify(hist.slice(0, 100)));
     return { ok: true, soloLocal: true, data: row };
   }
-  const { data, error } = await supabase.from('cortes_contabilidad_cierres').insert([payload]).select('*').single();
+  const { data, error } = await supabase.from('cortes_contabilidad_cierres').insert([rowPayload]).select('*').single();
   if (error && faltaTabla(error, 'cortes_contabilidad_cierres')) {
     return { ok: false, error: AVISO_FALTA_CORTES };
   }
@@ -914,7 +1103,7 @@ export async function listarRecoleccionesPendientesIe(supabase, { sucursal = nul
     .eq('turno', 'RECOLECCION')
     .order('created_at', { ascending: false })
     .limit(limit);
-  if (sucursal) q = q.eq('sucursal_id', sucursal || 'MAIN');
+  if (sucursal) q = q.in('sucursal_id', sucursalesIdCorteQuery(sucursal));
   const { data, error } = await q;
   if (error) return { data: [], error: error.message };
   const pend = (data || []).filter((c) => {
@@ -1018,8 +1207,10 @@ function guardarHistorialLocal(sucursal, modulo, hist) {
 
 /** Lista cierres activos (no borrados). */
 export async function listarCierresCorte(supabase, sucursal, modulo, limit = 30) {
+  const sid = sucursalIdCorte(sucursal);
+  const vars = sucursalesIdCorteQuery(sid);
   if (!supabase) {
-    const hist = leerHistorialLocal(sucursal, modulo)
+    const hist = leerHistorialLocal(sid, modulo)
       .filter((h) => !h?.deleted_at)
       .slice(0, limit);
     return { data: hist };
@@ -1027,7 +1218,7 @@ export async function listarCierresCorte(supabase, sucursal, modulo, limit = 30)
   let q = await supabase
     .from('cortes_contabilidad_cierres')
     .select('*')
-    .eq('sucursal_id', sucursal || 'MAIN')
+    .in('sucursal_id', vars)
     .eq('modulo', modulo)
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
@@ -1036,7 +1227,7 @@ export async function listarCierresCorte(supabase, sucursal, modulo, limit = 30)
     q = await supabase
       .from('cortes_contabilidad_cierres')
       .select('*')
-      .eq('sucursal_id', sucursal || 'MAIN')
+      .in('sucursal_id', vars)
       .eq('modulo', modulo)
       .order('created_at', { ascending: false })
       .limit(limit);
@@ -1047,8 +1238,10 @@ export async function listarCierresCorte(supabase, sucursal, modulo, limit = 30)
 
 /** Lista cierres en papelera (soft-delete). */
 export async function listarCierresCorteEliminados(supabase, sucursal, modulo, limit = 30) {
+  const sid = sucursalIdCorte(sucursal);
+  const vars = sucursalesIdCorteQuery(sid);
   if (!supabase) {
-    const hist = leerHistorialLocal(sucursal, modulo)
+    const hist = leerHistorialLocal(sid, modulo)
       .filter((h) => !!h?.deleted_at)
       .sort((a, b) => new Date(b.deleted_at || 0) - new Date(a.deleted_at || 0))
       .slice(0, limit);
@@ -1057,7 +1250,7 @@ export async function listarCierresCorteEliminados(supabase, sucursal, modulo, l
   const { data, error } = await supabase
     .from('cortes_contabilidad_cierres')
     .select('*')
-    .eq('sucursal_id', sucursal || 'MAIN')
+    .in('sucursal_id', vars)
     .eq('modulo', modulo)
     .not('deleted_at', 'is', null)
     .order('deleted_at', { ascending: false })
