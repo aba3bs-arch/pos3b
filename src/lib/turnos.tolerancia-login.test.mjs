@@ -39,8 +39,13 @@ describe('tolerancia despues del cierre', () => {
     assert.equal(horaEnVentanaLogin(diurno, d, tol30), false);
   });
 
-  it('con 0 min despues bloquea a las 19:01', () => {
-    const d = fechaNogales('2026-09-22', 19, 1);
-    assert.equal(horaEnVentanaLogin(diurno, d, { minutos_antes: 30, minutos_despues_fin: 0 }), false);
+  it('con 45 min despues permite 19:45', () => {
+    const d = fechaNogales('2026-09-22', 19, 45);
+    assert.equal(horaEnVentanaLogin(diurno, d, { minutos_antes: 45, minutos_despues_fin: 45 }), true);
+  });
+
+  it('con 45 min despues bloquea 19:46', () => {
+    const d = fechaNogales('2026-09-22', 19, 46);
+    assert.equal(horaEnVentanaLogin(diurno, d, { minutos_antes: 45, minutos_despues_fin: 45 }), false);
   });
 });

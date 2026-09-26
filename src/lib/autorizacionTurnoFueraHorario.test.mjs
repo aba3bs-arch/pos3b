@@ -30,7 +30,7 @@ const suc = '3B5';
 revocarAutorizacionFueraHorario(user.id, suc);
 assert.equal(tieneAutorizacionFueraHorario(user, suc), false);
 
-const entry = otorgarAutorizacionFueraHorario({
+const entry = await otorgarAutorizacionFueraHorario({
   usuarioId: user.id,
   sucursal: suc,
   admin,

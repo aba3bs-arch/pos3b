@@ -187,20 +187,46 @@ export async function verificarPinAdministradorGlobal(supabase, pin) {
   const p = normalizarPinComparacion(pin);
   if (!p) return { ok: false, error: 'Indica el PIN del administrador.' };
 
-  const { data, error } = await supabase.from('usuarios').select('*').eq('pin', p);
-  if (error) return { ok: false, error: error.message };
+  const variantes = new Set([p]);
+  // Variantes frecuentes: ceros a la izquierda / sin ceros (seeds y cajas antiguas).
+  if (/^\d+$/.test(p)) {
+    const sinCeros = p.replace(/^0+/, '') || '0';
+    variantes.add(sinCeros);
+    if (p.length < 6) variantes.add(p.padStart(4, '0'));
+  }
 
-  const lista = (data || []).filter(usuarioEstaActivo);
-  if (!lista.length) {
-    const algunoBaja = (data || []).some((u) => u && !usuarioEstaActivo(u));
-    if (algunoBaja) return { ok: false, error: 'Ese usuario está dado de baja.' };
+  let lista = [];
+  let lastError = null;
+  for (const candidato of variantes) {
+    const { data, error } = await supabase.from('usuarios').select('*').eq('pin', candidato);
+    if (error) {
+      lastError = error;
+      continue;
+    }
+    const hits = (data || []).filter(usuarioEstaActivo);
+    if (hits.length) {
+      lista = hits;
+      break;
+    }
+    // Conservar inactivos solo si no hay activos en ninguna variante
+    if (!lista.length && (data || []).length) lista = data || [];
+  }
+
+  if (lastError && !lista.length) return { ok: false, error: lastError.message };
+
+  const activos = lista.filter(usuarioEstaActivo);
+  if (!activos.length) {
+    if (lista.length) return { ok: false, error: 'Ese usuario está dado de baja.' };
     return { ok: false, error: 'PIN incorrecto.' };
   }
 
   // Incluye roles personalizados con plantilla Administrador/Gerente.
-  const autorizadores = lista.filter((u) => rolPuedeAutorizarFueraHorario(u.rol));
+  const autorizadores = activos.filter((u) => rolPuedeAutorizarFueraHorario(u.rol));
   if (!autorizadores.length) {
-    return { ok: false, error: 'Solo un administrador o gerente puede autorizar la entrada.' };
+    return {
+      ok: false,
+      error: 'Solo un administrador o gerente puede autorizar la entrada. Verifica que tu usuario tenga ese rol.',
+    };
   }
   // Preferir Administrador (sistema) sobre Gerente si hay varios con el mismo PIN.
   const admin = autorizadores.find((u) => rolSistemaEfectivo(u.rol) === 'Administrador') || autorizadores[0];
