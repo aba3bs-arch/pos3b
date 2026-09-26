@@ -231,20 +231,26 @@ export function etiquetaDetalleVale(categoriaId, subId, detalleId) {
 }
 
 export function valeDescuentaNomina(categoria, subcategoria) {
-  // Preferir reglas IE / unificadas
+  // Preferir reglas IE / unificadas (sin caer al fallback de «consumo»
+  // cuando la categoría es el padre IE «vales»).
   try {
-    // lazy import-free: reglas inline compatibles con valesCatalogoIe
     const c = String(categoria || '').toLowerCase();
     const s = String(subcategoria || '').toLowerCase();
     const blob = `${c} ${s}`;
-    // Gasolina nunca va a nómina (sin importar el corte).
+    // Gasolina / herramienta / accesorios: nunca a nómina.
     if (c === 'gasolina' || s === 'vales-gasolina' || blob.includes('gasolina')) return false;
+    if (c === 'herramienta' || s === 'vales-herramienta' || blob.includes('herramienta')) return false;
+    if (c === 'accesorios' || s === 'vales-accesorios' || blob.includes('accesorio')) return false;
     if (c === 'consumo' || s === 'vales-consumo' || s === 'empleado-consumo' || s.includes('consumo')) return true;
     if (c === 'anticipos' || s.includes('anticipo')) return true;
+    // Padre IE «vales» sin sub: no asumir consumo (rompe la ventana horaria).
+    if (c === 'vales') return false;
   } catch {
     /* ignore */
   }
-  return Boolean(categoriaValePorId(categoria).descuentaNomina);
+  const cat = listarCategoriasVale().find((x) => x.id === String(categoria || '').toLowerCase());
+  if (cat) return Boolean(cat.descuentaNomina);
+  return false;
 }
 
 export function etiquetaCategoriaVale(categoria) {

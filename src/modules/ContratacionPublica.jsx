@@ -18,6 +18,7 @@ import {
   edadEfectivaAspirante,
   enviarSolicitudContratacion,
   leerSucursalVacanteDesdeUrl,
+  leerSucursalesVacanteDesdeUrl,
   mensajeGraciasPostulacion,
   opcionesSucursalesContratacion,
   textoSucursalVacante,
@@ -35,34 +36,56 @@ import {
  */
 export default function ContratacionPublica({ supabase }) {
   const brand = leerNombreNegocio();
-  const sucursalVacante = useMemo(() => leerSucursalVacanteDesdeUrl(), []);
+  const vacantesUrl = useMemo(() => leerSucursalesVacanteDesdeUrl(), []);
+  const sucursalVacante = useMemo(
+    () => vacantesUrl[0] || leerSucursalVacanteDesdeUrl(),
+    [vacantesUrl],
+  );
   const sucursalVacanteLabel = useMemo(
-    () => textoSucursalVacante(sucursalVacante),
-    [sucursalVacante],
+    () => (vacantesUrl.length > 1
+      ? vacantesUrl.map((id) => textoSucursalVacante(id)).filter(Boolean).join(', ')
+      : textoSucursalVacante(sucursalVacante)),
+    [vacantesUrl, sucursalVacante],
   );
   const [paso, setPaso] = useState(1);
   const [form, setForm] = useState({
     ...FORM_CONTRATACION_VACIO,
     perfil_laboral: { ...FORM_CONTRATACION_VACIO.perfil_laboral },
     evaluacion_respuestas: {},
-    sucursales_interes: sucursalVacante ? [sucursalVacante] : [],
+    sucursales_interes: vacantesUrl.length ? [...vacantesUrl] : [],
   });
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState('');
   const [resultado, setResultado] = useState(null);
   const [fotoBusy, setFotoBusy] = useState(false);
   const fileRef = useRef(null);
-  const sucursales = useMemo(() => opcionesSucursalesContratacion(), []);
+  // Solo tiendas con vacante (las del enlace). Las demás se ocultan.
+  const sucursales = useMemo(
+    () => opcionesSucursalesContratacion({ ids: vacantesUrl }),
+    [vacantesUrl],
+  );
 
   useEffect(() => {
-    if (!sucursalVacante) return;
+    if (!vacantesUrl.length) return;
     setForm((f) => {
       const set = new Set(f.sucursales_interes || []);
-      if (set.has(sucursalVacante)) return f;
-      set.add(sucursalVacante);
-      return { ...f, sucursales_interes: [...set] };
+      let changed = false;
+      for (const id of vacantesUrl) {
+        if (!set.has(id)) {
+          set.add(id);
+          changed = true;
+        }
+      }
+      // Quitar tiendas que ya no están en vacantes del enlace.
+      for (const id of [...set]) {
+        if (!vacantesUrl.includes(id)) {
+          set.delete(id);
+          changed = true;
+        }
+      }
+      return changed ? { ...f, sucursales_interes: [...set] } : f;
     });
-  }, [sucursalVacante]);
+  }, [vacantesUrl]);
 
   const edadN = edadEfectivaAspirante(form);
   const esMenorCubre =
@@ -229,13 +252,36 @@ export default function ContratacionPublica({ supabase }) {
             }}
           >
             <strong style={{ display: 'block', fontSize: '0.82rem', marginBottom: '0.15rem' }}>
-              Estamos ocupando en
+              {vacantesUrl.length > 1 ? 'Estamos ocupando en' : 'Estamos ocupando en'}
             </strong>
             <span style={{ fontSize: '1.02rem', fontWeight: 600 }}>{sucursalVacanteLabel}</span>
             <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.78rem' }}>
-              Esta vacante es para el área / sucursal indicada. Así sabes dónde te ocuparían.
+              {vacantesUrl.length > 1
+                ? 'Estas son las sucursales con vacante abierta. Abajo puedes ver su ubicación.'
+                : 'Esta vacante es para el área / sucursal indicada. Así sabes dónde te ocuparían.'}
             </p>
+            {sucursales.some((s) => s.mapsUrl) && (
+              <div style={{ marginTop: '0.45rem', display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                {sucursales.filter((s) => s.mapsUrl).map((s) => (
+                  <a
+                    key={s.id}
+                    href={s.mapsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-ghost btn-sm"
+                    style={{ fontSize: '0.78rem' }}
+                  >
+                    Ver ubicación · {s.label}
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
+        )}
+        {!vacantesUrl.length && paso === 1 && (
+          <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.8rem' }}>
+            Este enlace no indica sucursales con vacante. Pide al administrador el QR actualizado.
+          </p>
         )}
         {paso >= 1 && paso <= 5 && (
           <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.75rem' }}>
@@ -469,29 +515,47 @@ export default function ContratacionPublica({ supabase }) {
           </label>
 
           <fieldset style={{ border: '1px solid var(--border, #ddd)', borderRadius: 8, padding: '0.65rem' }}>
-            <legend className="muted" style={{ fontSize: '0.85rem' }}>Sucursales de interés</legend>
-            {sucursalVacanteLabel && (
-              <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.78rem' }}>
-                Ya marcamos <strong>{sucursalVacanteLabel}</strong> (donde ocupamos). Puedes sumar otras si te interesan.
+            <legend className="muted" style={{ fontSize: '0.85rem' }}>Sucursales con vacante</legend>
+            {!sucursales.length ? (
+              <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>
+                No hay sucursales con vacante en este enlace. Usa el QR que te compartió la tienda.
               </p>
+            ) : (
+              <>
+                <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.78rem' }}>
+                  Solo mostramos las tiendas donde hay plaza abierta. Puedes abrir el mapa para ver la ubicación.
+                </p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                  {sucursales.map((s) => {
+                    const on = (form.sucursales_interes || []).includes(s.id);
+                    return (
+                      <div key={s.id} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                        <button
+                          type="button"
+                          className={`btn btn-sm ${on ? 'btn-gold' : 'btn-ghost'}`}
+                          onClick={() => toggleSucursal(s.id)}
+                          title={s.colonia || s.label}
+                        >
+                          {s.label}
+                        </button>
+                        {s.mapsUrl && (
+                          <a
+                            href={s.mapsUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-ghost btn-sm"
+                            style={{ padding: '0.25rem 0.45rem', fontSize: '0.72rem' }}
+                            title={`Ver ${s.label} en Google Maps`}
+                          >
+                            Mapa
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-              {sucursales.map((s) => {
-                const on = (form.sucursales_interes || []).includes(s.id);
-                const esVacante = sucursalVacante && s.id === sucursalVacante;
-                return (
-                  <button
-                    key={s.id}
-                    type="button"
-                    className={`btn btn-sm ${on ? 'btn-gold' : 'btn-ghost'}`}
-                    onClick={() => toggleSucursal(s.id)}
-                    title={esVacante ? 'Sucursal donde ocupamos' : undefined}
-                  >
-                    {s.label}{esVacante ? ' · vacante' : ''}
-                  </button>
-                );
-              })}
-            </div>
           </fieldset>
 
           <label style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>

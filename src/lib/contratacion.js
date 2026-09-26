@@ -1,4 +1,4 @@
-import { listarSucursalesOperativas, etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
+import { listarSucursalesOperativas, etiquetaTienda, normalizarCodigoTienda, urlGoogleMapsSucursal, nombreUbicacionSucursal } from '../constants/sucursales.js';
 import { esAdministradorPrincipal, nombreEsAdminPrincipal } from './adminPrincipal.js';
 import { crearNotificacion, TIPOS_NOTIF, marcarNotificacionAtendida } from './contabilidadNotificaciones.js';
 import { normalizarRol } from './roles.js';
@@ -9,6 +9,9 @@ export const AVISO_FALTA_CONTRATACION =
 export const QUERY_CONTRATACION = 'contratacion';
 /** Query param del portal público: sucursal donde se ocupa la plaza. */
 export const QUERY_SUCURSAL_VACANTE = 'sucursal';
+/** Varias vacantes abiertas: ?sucursales=FUSION,3B5 */
+export const QUERY_SUCURSALES_VACANTE = 'sucursales';
+const LS_VACANTES_ABIERTAS = 'pos3b_contratacion_vacantes';
 export const EDAD_MAYORIA = 18;
 /** Edad mínima para cubre turno (16–17 requieren permiso de padres). */
 export const EDAD_MIN_CUBRE = 16;
@@ -624,7 +627,8 @@ export function esModoContratacionPublica(location = typeof window !== 'undefine
 /**
  * Enlace absoluto para aspirantes (QR / compartir).
  * @param {string} [origin]
- * @param {{ sucursal?: string }} [opts] — sucursal donde se ocupa la plaza (va en la URL).
+ * @param {{ sucursal?: string, sucursales?: string[] }} [opts]
+ *   — tienda(s) con vacante abierta (van en la URL; el portal solo muestra esas).
  */
 export function urlPortalContratacion(
   origin = typeof window !== 'undefined' ? window.location.origin : '',
@@ -633,29 +637,50 @@ export function urlPortalContratacion(
   const base = String(origin || '').replace(/\/$/, '') || '';
   const params = new URLSearchParams();
   params.set(QUERY_CONTRATACION, '1');
-  const suc = normalizarCodigoTienda(opts?.sucursal);
-  if (suc) params.set(QUERY_SUCURSAL_VACANTE, suc);
+  const muchas = (Array.isArray(opts?.sucursales) ? opts.sucursales : [])
+    .map((s) => normalizarCodigoTienda(s))
+    .filter(Boolean);
+  const una = normalizarCodigoTienda(opts?.sucursal);
+  const ids = [...new Set(muchas.length ? muchas : (una ? [una] : []))];
+  if (ids.length === 1) {
+    params.set(QUERY_SUCURSAL_VACANTE, ids[0]);
+  } else if (ids.length > 1) {
+    params.set(QUERY_SUCURSALES_VACANTE, ids.join(','));
+  }
   return `${base}/?${params.toString()}`;
 }
 
-/** Lee la sucursal vacante del query (o hash) del portal público. */
-export function leerSucursalVacanteDesdeUrl(location = typeof window !== 'undefined' ? window.location : null) {
-  if (!location) return '';
+/** Lista de sucursales vacante desde query/hash (una o varias). */
+export function leerSucursalesVacanteDesdeUrl(location = typeof window !== 'undefined' ? window.location : null) {
+  if (!location) return [];
+  const out = [];
+  const push = (raw) => {
+    const parts = String(raw || '').split(/[,|;]+/);
+    for (const p of parts) {
+      const id = normalizarCodigoTienda(p);
+      if (id && !out.includes(id)) out.push(id);
+    }
+  };
   try {
     const q = new URLSearchParams(location.search || '');
-    const fromQ = normalizarCodigoTienda(q.get(QUERY_SUCURSAL_VACANTE) || q.get('tienda') || '');
-    if (fromQ) return fromQ;
+    push(q.get(QUERY_SUCURSALES_VACANTE));
+    push(q.get(QUERY_SUCURSAL_VACANTE) || q.get('tienda') || '');
     const hash = String(location.hash || '');
     const hashQ = hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : '';
     if (hashQ) {
       const hq = new URLSearchParams(hashQ);
-      const fromH = normalizarCodigoTienda(hq.get(QUERY_SUCURSAL_VACANTE) || hq.get('tienda') || '');
-      if (fromH) return fromH;
+      push(hq.get(QUERY_SUCURSALES_VACANTE));
+      push(hq.get(QUERY_SUCURSAL_VACANTE) || hq.get('tienda') || '');
     }
   } catch {
     /* ignore */
   }
-  return '';
+  return out;
+}
+
+/** Lee la sucursal vacante del query (o hash) del portal público (primera / legacy). */
+export function leerSucursalVacanteDesdeUrl(location = typeof window !== 'undefined' ? window.location : null) {
+  return leerSucursalesVacanteDesdeUrl(location)[0] || '';
 }
 
 /** Texto corto para el banner del portal (vacante). */
@@ -663,6 +688,56 @@ export function textoSucursalVacante(codigo) {
   const id = normalizarCodigoTienda(codigo);
   if (!id) return '';
   return etiquetaTienda(id);
+}
+
+/** Vacantes abiertas guardadas por el admin (para armar el enlace/QR). */
+export function leerVacantesAbiertasContratacion() {
+  try {
+    const raw = localStorage.getItem(LS_VACANTES_ABIERTAS);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return [...new Set(arr.map((s) => normalizarCodigoTienda(s)).filter(Boolean))];
+  } catch {
+    return [];
+  }
+}
+
+export function guardarVacantesAbiertasContratacion(ids) {
+  const list = [...new Set((ids || []).map((s) => normalizarCodigoTienda(s)).filter(Boolean))];
+  try {
+    localStorage.setItem(LS_VACANTES_ABIERTAS, JSON.stringify(list));
+  } catch {
+    /* ignore */
+  }
+  return list;
+}
+
+/**
+ * Opciones de sucursal para portal / admin.
+ * @param {{ soloVacantes?: boolean, ids?: string[] }} [opts]
+ *  - soloVacantes / ids: limita a vacantes abiertas (portal público).
+ */
+export function opcionesSucursalesContratacion(opts = {}) {
+  const base = listarSucursalesOperativas();
+  let ids = base;
+  if (Array.isArray(opts.ids) && opts.ids.length) {
+    const want = new Set(opts.ids.map((s) => normalizarCodigoTienda(s)).filter(Boolean));
+    ids = base.filter((id) => want.has(id));
+    // Incluir ids del enlace aunque no estén en operativas (por si acaso).
+    for (const id of want) {
+      if (!ids.includes(id)) ids.push(id);
+    }
+  } else if (opts.soloVacantes) {
+    const vac = leerVacantesAbiertasContratacion();
+    ids = vac.length ? base.filter((id) => vac.includes(id)) : [];
+  }
+  return ids.map((id) => ({
+    id,
+    label: etiquetaTienda(id),
+    colonia: nombreUbicacionSucursal(id) || '',
+    mapsUrl: urlGoogleMapsSucursal(id),
+  }));
 }
 
 /**
@@ -1084,10 +1159,6 @@ export function sucursalesInteresLabels(lista) {
   const ids = Array.isArray(lista) ? lista : [];
   if (!ids.length) return 'Sin preferencia';
   return ids.map((s) => etiquetaTienda(s)).join(', ');
-}
-
-export function opcionesSucursalesContratacion() {
-  return listarSucursalesOperativas().map((id) => ({ id, label: etiquetaTienda(id) }));
 }
 
 /**
