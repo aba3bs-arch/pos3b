@@ -1,4 +1,4 @@
-import { listarSucursalesOperativas, normalizarCodigoTienda } from '../constants/sucursales.js';
+import { listarSucursalesOperativas, normalizarCodigoTienda, esSucursalNoVenta } from '../constants/sucursales.js';
 import { BENEFICIARIOS_VALES, slugBeneficiarioVale, AREAS_CONTABILIDAD } from './contabilidadConstants.js';
 import { normalizarRol, puedeGestionarUsuarios } from './roles.js';
 import { esTurnoAmbos, turnoActual, turnoIdParaUsuario } from './turnos.js';
@@ -24,6 +24,80 @@ export function esEmpleadoConsumoPinCorte(empleadoONombre) {
 /** True si el módulo de corte muestra a Misael/Luis Enrique en la lista EMPLEADO. */
 export function moduloCorteIncluyeConsumoPin(modulo) {
   return MODULOS_CORTE_CONSUMO_PIN.has(String(modulo || '').toLowerCase());
+}
+
+/**
+ * Turno fijo/rotación del empleado para etiquetas de gastos (diurno / nocturno / ambos).
+ * No usa la hora actual: en Gastos deben verse ambos turnos de la tienda.
+ */
+export function turnoEmpleadoParaGastos(user, date = new Date()) {
+  if (!user) return '';
+  const asignado = turnoIdParaUsuario(user, date);
+  if (!asignado) {
+    const fijo = String(user.turno_id || '').trim().toLowerCase();
+    if (!fijo) return '';
+    if (esTurnoAmbos(fijo)) return 'ambos';
+    if (fijo.includes('nocturn')) return 'nocturno';
+    if (fijo.includes('diurn')) return 'diurno';
+    return fijo;
+  }
+  const id = String(asignado).toLowerCase();
+  if (esTurnoAmbos(id)) return 'ambos';
+  if (id.includes('nocturn')) return 'nocturno';
+  if (id.includes('diurn')) return 'diurno';
+  return id;
+}
+
+export function etiquetaTurnoEmpleadoGastos(user, date = new Date()) {
+  const t = turnoEmpleadoParaGastos(user, date);
+  if (t === 'nocturno') return 'Nocturno';
+  if (t === 'diurno') return 'Diurno';
+  if (t === 'ambos') return 'Ambos';
+  return t ? String(t) : '';
+}
+
+/** Nombre para <option> de gastos: "Ana · Nocturno". */
+export function etiquetaEmpleadoSelectGastos(user, date = new Date()) {
+  const nom = String(user?.nombre || '').trim() || 'Empleado';
+  const et = etiquetaTurnoEmpleadoGastos(user, date);
+  return et ? `${nom} · ${et}` : nom;
+}
+
+/**
+ * Elige hasta 2 empleados de tienda priorizando 1 diurno + 1 nocturno
+ * (evita que .slice(0,2) alfabético deje fuera al nocturno).
+ */
+export function elegirEmpleadosTiendaParaGastos(empleados, { max = MAX_EMPLEADOS_POR_TIENDA, date = new Date() } = {}) {
+  const list = dedupeEmpleadosPorNombre(empleados || []).filter(Boolean);
+  if (list.length <= max) {
+    return ordenarEmpleadosTiendaPorTurno(list, date);
+  }
+  const diurno = list.find((e) => turnoEmpleadoParaGastos(e, date) === 'diurno');
+  const nocturno = list.find((e) => turnoEmpleadoParaGastos(e, date) === 'nocturno');
+  const pick = [];
+  if (diurno) pick.push(diurno);
+  if (nocturno && !pick.some((x) => String(x.id) === String(nocturno.id))) pick.push(nocturno);
+  for (const e of ordenarEmpleadosTiendaPorTurno(list, date)) {
+    if (pick.length >= max) break;
+    if (pick.some((x) => String(x.id) === String(e.id))) continue;
+    pick.push(e);
+  }
+  return pick.slice(0, max);
+}
+
+export function ordenarEmpleadosTiendaPorTurno(empleados, date = new Date()) {
+  const rank = (e) => {
+    const t = turnoEmpleadoParaGastos(e, date);
+    if (t === 'diurno') return 0;
+    if (t === 'nocturno') return 1;
+    if (t === 'ambos') return 2;
+    return 3;
+  };
+  return [...(empleados || [])].sort((a, b) => {
+    const d = rank(a) - rank(b);
+    if (d !== 0) return d;
+    return String(a?.nombre || '').localeCompare(String(b?.nombre || ''), 'es');
+  });
 }
 
 /**
@@ -119,16 +193,28 @@ function esPersonalIndirectoPorNombre(user) {
  * Tipo de empleado para catálogo:
  * - tienda: fijo de una sucursal (máx. 2)
  * - indirecto: MAIN / aparece en todas las sucursales y cortes
+ *
+ * Cajero/Repartidor anclado a tienda operativa cuenta como «tienda»
+ * aunque el alta diga indirecto por error (así el nocturno no desaparece de Gastos).
  */
 export function resolverTipoEmpleado(e) {
   const t = String(e?.tipo_empleado || '')
     .trim()
     .toLowerCase();
+  const suc = normalizarCodigoTienda(e?.sucursal_id);
+  const rol = normalizarRol(e?.rol);
+  if (
+    (rol === 'Cajero' || rol === 'Repartidor')
+    && suc
+    && !esSucursalNoVenta(suc)
+  ) {
+    return 'tienda';
+  }
   if (t === 'indirecto' || t === 'tienda') return t;
   if (esPersonalIndirectoPorNombre(e)) return 'indirecto';
   if (
-    normalizarCodigoTienda(e?.sucursal_id) === 'MAIN'
-    && normalizarRol(e?.rol) !== 'Administrador'
+    suc === 'MAIN'
+    && rol !== 'Administrador'
   ) {
     return 'indirecto';
   }
@@ -269,7 +355,8 @@ export function textoMencionaPersonalIndirecto(texto, empleados = []) {
 
 /**
  * Empleados en cortes (Virtual / Abarrotes / Garage) — categoría EMPLEADO:
- * personal tipo tienda (directos) de la sucursal activa.
+ * personal tipo tienda (directos) de la sucursal activa — diurno Y nocturno.
+ * Nunca filtrar por hora/turno actual: los gastos se cargan a quien corresponda.
  * En Abarrotes y Virtual también aparecen Misael y Luis Enrique (consumo + PIN).
  * Sin otros indirectos / MAIN, sin administradores.
  */
@@ -279,6 +366,7 @@ export function empleadosParaCorte(empleados, sucursalActiva, modulo = null, _ac
   const out = [];
   const enMain = !suc || suc === 'MAIN';
   const incluirConsumoPin = moduloCorteIncluyeConsumoPin(modulo);
+  // _opts.turno / date se ignoran a propósito: no ocultar al nocturno de día ni viceversa.
 
   const pushTienda = (e) => {
     if (!e || e?.activo === false) return;
@@ -371,9 +459,17 @@ export function empleadosParaCorte(empleados, sucursalActiva, modulo = null, _ac
     }
   }
 
-  return dedupeConsumoPinYNombre(out).sort((a, b) =>
+  const deduped = dedupeConsumoPinYNombre(out);
+  const tienda = [];
+  const pin = [];
+  for (const e of deduped) {
+    if (e.requiere_pin_consumo || e.consumo_pin_id) pin.push(e);
+    else tienda.push(e);
+  }
+  const pinSorted = pin.sort((a, b) =>
     String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'),
   );
+  return [...ordenarEmpleadosTiendaPorTurno(tienda), ...pinSorted];
 }
 
 /** Un solo Misael / Luis Enrique + dedupe por nombre del resto. */
@@ -443,7 +539,7 @@ export function agruparEmpleadosParaSelectCorte(empleados) {
   const sortNom = (a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es');
   const consumoSorted = consumoPin.sort(sortNom);
   return {
-    tienda: tienda.sort(sortNom),
+    tienda: ordenarEmpleadosTiendaPorTurno(tienda),
     /** Misael / Luis Enrique (consumo con PIN). */
     consumoPin: consumoSorted,
     indirectos: [...consumoSorted],

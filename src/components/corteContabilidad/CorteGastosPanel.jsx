@@ -13,6 +13,7 @@ import {
   empleadosParaCorte,
   esEmpleadoConsumoPinCorte,
   empleadoPermitidoEnGastoCorte,
+  etiquetaEmpleadoSelectGastos,
   gastoCorteRequierePinConsumoBeneficiario,
   textoMencionaPersonalIndirecto,
 } from '../../lib/empleadosVisibles.js';
@@ -509,12 +510,12 @@ export default function CorteGastosPanel({
                   >
                     <option value="">Elige empleado…</option>
                     {gruposEmpleados.tienda.length > 0 && (
-                      <optgroup label="Empleados de tienda">
+                      <optgroup label="Empleados de tienda (diurno y nocturno)">
                         {gruposEmpleados.tienda.map((e) => (
                           <option key={e.id} value={e.id}>
                             {normalizarCodigoTienda(sucursal) === 'MAIN' || !sucursal
-                              ? `${e.nombre} · ${etiquetaTienda(e.sucursal_id)}`
-                              : e.nombre}
+                              ? `${etiquetaEmpleadoSelectGastos(e)} · ${etiquetaTienda(e.sucursal_id)}`
+                              : etiquetaEmpleadoSelectGastos(e)}
                           </option>
                         ))}
                       </optgroup>
@@ -568,7 +569,7 @@ export default function CorteGastosPanel({
                 >
                   <option value="">Elige empleado…</option>
                   {gruposEmpleados.tienda.map((e) => (
-                    <option key={e.id} value={e.id}>{e.nombre}</option>
+                    <option key={e.id} value={e.id}>{etiquetaEmpleadoSelectGastos(e)}</option>
                   ))}
                   {(gruposEmpleados.consumoPin || []).map((e) => (
                     <option key={e.id} value={e.id}>
@@ -635,7 +636,8 @@ export default function CorteGastosPanel({
             </p>
           ) : null}
           <p className="muted" style={{ fontSize: '0.72rem', margin: '0 0 0.4rem' }}>
-            Categoría EMPLEADO: personal de tienda + <strong>Misael / Luis Enrique</strong> (consumo con su PIN).
+            Categoría EMPLEADO: personal de tienda (<strong>diurno y nocturno</strong>) +{' '}
+            <strong>Misael / Luis Enrique</strong> (consumo con su PIN).
             Otros indirectos / MAIN no aplican.
           </p>
           {esGastoTraspaso && (

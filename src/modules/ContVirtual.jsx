@@ -44,7 +44,7 @@ import {
   esCategoriaEmpleado,
   plantillaDetallesEmpleado,
 } from '../lib/catalogoEmpleadoGastos.js';
-import { empleadosParaCorte } from '../lib/empleadosVisibles.js';
+import { empleadosParaCorte, etiquetaEmpleadoSelectGastos } from '../lib/empleadosVisibles.js';
 import { eliminarEgresoDesdePanelIe, registrarEgresoContVirtual, actualizarEgresoContVirtual } from '../lib/contVirtualEgresos.js';
 import {
   registrarIngresoContVirtual,
@@ -3075,7 +3075,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                         <li className="muted" style={{ fontSize: '0.75rem', listStyle: 'none' }}>{g.label} · {(g.empleados || []).length}/2</li>
                         {(g.empleados || []).length ? (g.empleados || []).map((e) => (
                           <li key={`t-${e.id}`} className="cv-sub-row" style={{ justifyContent: 'space-between' }}>
-                            <span>{e.nombre}</span>
+                            <span>{etiquetaEmpleadoSelectGastos(e)}</span>
                             {esAdmin && (
                               <span className="cv-cat-actions">
                                 <button type="button" className="cv-btn ghost cv-cat-btn" onClick={() => editarEmpleadoCat({ usuario_id: e.id, nombre: e.nombre })}>Editar</button>
@@ -3084,7 +3084,7 @@ export default function ContVirtual({ supabase, user, libro = 'antonio', sucursa
                             )}
                           </li>
                         )) : (
-                          <li className="muted" style={{ fontSize: '0.78rem' }}>Sin empleados de tienda</li>
+                          <li className="muted" style={{ fontSize: '0.78rem' }}>Sin empleados de tienda (diurno/nocturno)</li>
                         )}
                       </React.Fragment>
                     ))}
