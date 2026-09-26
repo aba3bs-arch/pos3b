@@ -10,7 +10,6 @@ import {
   elegirEmpleadosTiendaParaGastos,
   enriquecerEmpleadosNominaIndirectos,
   esEmpleadoIndirectoOMain,
-  etiquetaEmpleadoSelectGastos,
   resolverTipoEmpleado,
 } from './empleadosVisibles.js';
 
