@@ -278,7 +278,9 @@ function montoPositivo(n) {
 
 /**
  * Extrae caja chica arrastrable desde filas de cierre (sin RECOLECCIÓN).
- * Tras un cierre normal, caja_actual es la que debe quedar en el siguiente turno.
+ * Tras un cierre normal, `caja_actual` es lo que debe quedar en el siguiente turno
+ * (puede ser $0 tras una recolección). No usar `detalle.caja_anterior`: ese es el
+ * saldo al INICIO del turno cerrado, no el arrastre.
  */
 export function cajaAnteriorDesdeFilasCierre(rows) {
   for (const h of rows || []) {
@@ -286,14 +288,23 @@ export function cajaAnteriorDesdeFilasCierre(rows) {
     const turno = String(h.turno || h.detalle?.tipo_cierre || '').toUpperCase();
     if (turno.includes('RECOLEC')) continue;
     const d = h.detalle || {};
-    const desdeCaja = montoPositivo(h.caja_actual);
-    if (desdeCaja != null) return desdeCaja;
+
+    // caja_actual del cierre es autoritativo (incluido 0).
+    if (h.caja_actual != null && h.caja_actual !== '') {
+      const v = Number(h.caja_actual);
+      if (Number.isFinite(v)) return round2Store(v);
+    }
+
+    // Solo si el cierre no trae caja_actual: campos explícitos de arrastre.
+    // Nunca detalle.caja_anterior (saldo inicial del turno, no el final).
     const desdeDet =
-      montoPositivo(d.caja_actual)
-      ?? montoPositivo(d.caja_anterior_siguiente)
+      montoPositivo(d.caja_anterior_siguiente)
       ?? montoPositivo(d.caja_chica)
-      ?? montoPositivo(d.caja_anterior);
+      ?? montoPositivo(d.caja_actual);
     if (desdeDet != null) return desdeDet;
+
+    // Cierre de turno sin monto usable: no mirar cierres más viejos (evitar revivir saldos).
+    return null;
   }
   return null;
 }
