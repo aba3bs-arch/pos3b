@@ -14,6 +14,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 640,
     title: 'POS CONTROL 3B',
+    icon: path.join(__dirname, '..', 'public', 'logo-3b.png'),
     autoHideMenuBar: true,
     backgroundColor: '#f0f4f8',
     webPreferences: {

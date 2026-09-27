@@ -91,7 +91,7 @@ function iconoNotificacion() {
   } catch {
     /* ignore */
   }
-  return '/logo.svg';
+  return '/logo-3b.png';
 }
 
 async function mostrarViaServiceWorker({ tag, titulo, mensaje }) {
@@ -103,7 +103,7 @@ async function mostrarViaServiceWorker({ tag, titulo, mensaje }) {
       body: mensaje || '',
       tag,
       icon: iconoNotificacion(),
-      badge: '/logo.svg',
+      badge: '/logo-3b.png',
       requireInteraction: true,
       silent: false,
     });
@@ -136,7 +136,7 @@ export async function mostrarNotificacionDispositivo({ id, titulo, mensaje, onCl
       body: opts.mensaje,
       tag: opts.tag,
       icon: iconoNotificacion(),
-      badge: '/logo.svg',
+      badge: '/logo-3b.png',
       requireInteraction: true,
       silent: false,
     });
