@@ -29,8 +29,8 @@ self.addEventListener('push', (event) => {
   const options = {
     body: data.mensaje || '',
     tag: data.tag || (data.id ? `pos3b-${data.id}` : `pos3b-${Date.now()}`),
-    icon: '/logo.svg',
-    badge: '/logo.svg',
+    icon: '/logo-3b.png',
+    badge: '/icons/icon-192.png',
     requireInteraction: data.requireInteraction !== false,
     silent: Boolean(data.silent),
     data: {

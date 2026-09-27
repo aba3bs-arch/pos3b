@@ -44,9 +44,11 @@
       "output": "release",
       "buildResources": "electron"
     },
+    "icon": "public/logo-3b.png",
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "public/logo-3b.png",
       "package.json"
     ],
     "asar": true,
