@@ -568,6 +568,21 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                     </td>
                     {esAdmin && (
                       <td style={{ whiteSpace: 'nowrap' }}>
+                        {c.disponibilidad === 'hold' && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ fontSize: '0.78rem', padding: '0.15rem 0.4rem', color: '#c62828' }}
+                            onClick={async () => {
+                              if (!confirm(`¿Liberar hold de ${c.nombre}?\n\nQuedará disponible de inmediato.`)) return;
+                              const res = await setDisponibilidadManualCt(supabase, c.rh_id, true);
+                              if (!res.ok) return alert(res.error);
+                              await cargar();
+                            }}
+                          >
+                            Liberar hold
+                          </button>
+                        )}
                         {c.disponibilidad !== 'hold' && c.disponibilidad !== 'baja' && (
                           <button
                             type="button"
