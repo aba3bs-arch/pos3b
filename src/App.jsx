@@ -1130,6 +1130,43 @@ function App() {
     setAvisoExtensionTurno(null);
   }, [user, sucursal, avisoExtensionTurno]);
 
+  /** PIN admin/gerente en el modal de turno vencido → autorización 8 h sin cerrar sesión. */
+  const autorizarExtensionConAdmin = useCallback(
+    async (pinAdmin) => {
+      if (!user?.id || !sucursal) return false;
+      if (!supabase) {
+        alert('Sin conexión a Supabase. No se puede validar el PIN del administrador.');
+        return false;
+      }
+      const p = String(pinAdmin || '').trim();
+      if (!p) {
+        alert('Indica el PIN del administrador o gerente.');
+        return false;
+      }
+      setAutorizandoTurno(true);
+      try {
+        const auth = await verificarPinAdministradorGlobal(supabase, p);
+        if (!auth.ok) {
+          alert(auth.error || 'No se pudo autorizar con ese PIN.');
+          return false;
+        }
+        await otorgarAutorizacionFueraHorario({
+          usuarioId: user.id,
+          sucursal,
+          admin: auth.user,
+          supabase,
+        });
+        // La auth de 8 h sustituye la extensión corta.
+        limpiarExtensionSesionTurno(user.id, sucursal);
+        setAvisoExtensionTurno(null);
+        return true;
+      } finally {
+        setAutorizandoTurno(false);
+      }
+    },
+    [user, sucursal, supabase],
+  );
+
   const cerrarSesion = () => {
     if (sucursalLatido) void marcarPresenciaFueraDeLinea();
     if (user?.id && sucursal) limpiarExtensionSesionTurno(user.id, sucursal);
@@ -1889,6 +1926,8 @@ function App() {
           minutos={MINUTOS_EXTENSION_SESION}
           onAceptar={aceptarExtensionTurno}
           onRechazar={forzarCierreSesionPorTurno}
+          onAutorizarAdmin={autorizarExtensionConAdmin}
+          autorizandoAdmin={autorizandoTurno}
         />
         {mobile && (
           <MobileBottomNav
