@@ -41,7 +41,9 @@ const regs = [
   const items = paretoDesdeCapturasManuales(regs, ['FUSION', '3B2', '3B3', '3B5', '3B6']);
   assert.ok(items.length >= 5);
   assert.equal(items[0].sucursal, '3B2');
-  assert.equal(items[0].total, 6000); // 5000 + 1000
+  assert.equal(items[0].total, 5500); // neto 4500 + 1000
+  assert.equal(items[0].bonificacion, 500);
+  assert.equal(items[0].faltante, 6000); // bruto
   assert.equal(items[0].fuente, 'manual');
   const b3 = items.find((x) => x.sucursal === '3B3');
   assert.ok(b3);
@@ -54,7 +56,9 @@ const regs = [
   assert.equal(por.length, 3);
   const b2 = por.find((g) => g.sucursal === '3B2');
   assert.equal(b2.items.length, 2);
-  assert.equal(b2.totalFaltante, 6000);
+  assert.equal(b2.totalFaltanteNeto, 5500);
+  assert.equal(b2.totalBonificacion, 500);
+  assert.equal(b2.items[0].total, b2.items[0].faltanteNeto);
   const b6 = por.find((g) => g.sucursal === '3B6');
   assert.equal(b6.items.length, 0);
 }
