@@ -29,6 +29,7 @@ export function VentanaFlotante({
   children,
   className = '',
   panelClassName = 'card ventana-flotante-panel',
+  panelStyle,
   labelledBy,
   label,
   cerrarConBackdrop = true,
@@ -54,6 +55,7 @@ export function VentanaFlotante({
           aria-modal="true"
           aria-labelledby={labelledBy}
           aria-label={label}
+          style={panelStyle}
           onClick={(e) => e.stopPropagation()}
         >
           {children}
