@@ -1,9 +1,10 @@
 {
-  "title": "Actualización disponible",
-  "summary": "MODO OFFLINE: solo Ventas sin internet, sync automática al recuperar red. Acepta para actualizar.",
+  "title": "Gráficas de inventario (Pareto)",
+  "summary": "Reportes → Gráficas ya no usa carta X̄–R. Ahora es Pareto de faltante entre todas las sucursales (sin elegir tienda). Hay que redesplegar / regenerar el build; Ctrl+F5 solo no basta si el servidor sigue con el JS viejo.",
   "changes": [
-    "Etiqueta visible MODO OFFLINE",
-    "Bloqueo de inventario, cortes y demás módulos sin red",
-    "Cola de ventas con sincronización automática"
+    "Gráficas: Pareto entre todas las sucursales (sin selector de tienda)",
+    "Se eliminó la carta X̄–R que no se veía bien",
+    "Una gráfica Pareto por tienda (faltante por departamento)",
+    "Build id visible en la pantalla de Gráficas para confirmar la versión"
   ]
 }

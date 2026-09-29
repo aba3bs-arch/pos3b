@@ -1,18 +1,19 @@
 {
   "version": "1.1.0",
-  "buildId": "c339c18",
+  "buildId": "88738f8",
   "branch": "cursor/graficas-force-deploy-version-682d",
-  "builtAt": "2026-09-29T22:00:13.067Z",
-  "title": "Actualización disponible",
-  "summary": "MODO OFFLINE: solo Ventas sin internet, sync automática al recuperar red. Acepta para actualizar.",
+  "builtAt": "2026-09-29T22:00:20.974Z",
+  "title": "Gráficas de inventario (Pareto)",
+  "summary": "Reportes → Gráficas ya no usa carta X̄–R. Ahora es Pareto de faltante entre todas las sucursales (sin elegir tienda). Hay que redesplegar / regenerar el build; Ctrl+F5 solo no basta si el servidor sigue con el JS viejo.",
   "changes": [
-    "Etiqueta visible MODO OFFLINE",
-    "Bloqueo de inventario, cortes y demás módulos sin red",
-    "Cola de ventas con sincronización automática",
+    "Gráficas: Pareto entre todas las sucursales (sin selector de tienda)",
+    "Se eliminó la carta X̄–R que no se veía bien",
+    "Una gráfica Pareto por tienda (faltante por departamento)",
+    "Build id visible en la pantalla de Gráficas para confirmar la versión",
+    "chore(app): forzar aviso de update por gráficas Pareto",
     "fix(reportes): aclarar gráficas Pareto sin selector de tienda",
     "fix(reportes): quitar XR y Pareto de todas las sucursales",
     "feat(reportes): gráficas XR y Pareto vertical por sucursal",
-    "feat(estadisticas): botón Ver en KPIs con detalle flotante",
-    "fix(ct): Auditor puede operar solicitudes como en caja"
+    "feat(estadisticas): botón Ver en KPIs con detalle flotante"
   ]
 }
