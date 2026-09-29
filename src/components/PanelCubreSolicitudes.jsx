@@ -128,11 +128,15 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
   /** MAIN ve todas; en tienda solo la sucursal anclada. */
   const veTodasTiendas = esCentralAdmin(sucursal);
   const esCajero = rol === 'Cajero';
+  const esAuditor = rol === 'Auditor';
   const esCtMovil = Boolean(user?.esCtMovil && user?.ctRhId);
   const ctRhId = esCtMovil ? user.ctRhId : null;
-  const puedeEvaluar = (esCajero || esAdmin) && !esCtMovil;
+  /** Solicitar / cancelar / cumplida / evaluar — mismo set que caja (incluye Auditor). */
+  const puedeOperarCajaCt = !esCtMovil && (esCajero || esAdmin || esAuditor);
+  const puedeEvaluar = puedeOperarCajaCt;
   /** Cancelar desde la caja (no el CT móvil). */
-  const puedeCancelarSolicitud = !esCtMovil && (esAdmin || esCajero);
+  const puedeCancelarSolicitud = puedeOperarCajaCt;
+  const puedeMarcarCumplido = puedeOperarCajaCt;
 
   const cargar = useCallback(async () => {
     if (!supabase) return;
@@ -608,7 +612,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
         )}
       </div>
 
-      {(esCajero || esAdmin) && (
+      {puedeOperarCajaCt && (
         <div className="card">
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.5rem' }}>
           <h4 style={{ margin: 0 }}>Solicitar CT · <CeldaTiendaMaps codigo={sucursal} /></h4>
@@ -802,7 +806,7 @@ export default function PanelCubreSolicitudes({ supabase, user, sucursal }) {
                           )}
                         </>
                       )}
-                      {s.estado === 'aceptada' && esAdmin && (
+                      {s.estado === 'aceptada' && puedeMarcarCumplido && (
                         <>
                           <button
                             type="button"
