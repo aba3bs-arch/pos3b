@@ -55,6 +55,7 @@ self.addEventListener('push', (event) => {
                 titulo,
                 mensaje: data.mensaje,
                 tipo: data.tipo || 'asalto_en_proceso',
+                sucursal_id: data.sucursal_id || null,
               },
             });
           }

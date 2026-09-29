@@ -307,8 +307,18 @@ function App() {
         : 'Inicio';
       setVista(vistaRestore);
       guardarSesionPersistenteMovil({ user: data, sucursal: sucRestore, vista: vistaRestore });
-      // Re-registrar SW / push si ya tenían permiso.
-      void registrarServiceWorkerNotificaciones();
+      // Re-registrar SW y renovar Web Push si ya tenían permiso (móviles admin).
+      void registrarServiceWorkerNotificaciones().then(() => {
+        if (!supabase) return;
+        void import('./lib/webPush.js').then(({ suscribirWebPush }) => {
+          void suscribirWebPush(supabase, {
+            usuarioNombre: data?.nombre,
+            usuarioId: data?.id,
+            rol: data?.rol,
+            user: data,
+          });
+        });
+      });
     })();
 
     return () => {
@@ -1429,6 +1439,21 @@ function App() {
             onNavigate={irAModulo}
             onItemClick={() => setSidebarOpen(false)}
           />
+          {mobile && (
+            <div style={{ padding: '0.75rem 1rem 1.25rem', marginTop: 'auto', borderTop: '1px solid rgba(0,0,0,0.08)' }}>
+              <button
+                type="button"
+                className="btn btn-danger"
+                style={{ width: '100%' }}
+                onClick={() => {
+                  setSidebarOpen(false);
+                  cerrarSesion();
+                }}
+              >
+                <BtnLabel icon="logOut">Cerrar sesión</BtnLabel>
+              </button>
+            </div>
+          )}
       </aside>
 
       <main className="app-main">
