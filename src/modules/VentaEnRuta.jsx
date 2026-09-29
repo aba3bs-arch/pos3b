@@ -30,6 +30,7 @@ import {
   listarAdministradoresCorteRuta,
   listarVentasRuta,
   precioRutaEspecial,
+  precioCompraCatalogo,
   registrarVentaRuta,
   verificarPinVendedorSesionRuta,
   verificarPinAdminCorteRuta,
@@ -1378,8 +1379,8 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Precios de ruta</h3>
       <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
-        Precio especial sin impuestos. Filtra por departamento o proveedor para elegir los productos que se
-        repartirán por ruta. Solo admin/gerente.
+        Precio especial sin impuestos. Se muestra el <strong>precio de compra</strong> del catálogo
+        (sin IVA) para comparar margen. Filtra por departamento o proveedor. Solo admin/gerente.
       </p>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'center' }}>
@@ -1441,12 +1442,16 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
           <tr>
             <th>Producto</th>
             <th>Depto</th>
+            <th>P. compra</th>
             <th>P. ruta</th>
             <th />
           </tr>
         </thead>
         <tbody>
-          {lista.map((p) => (
+          {lista.map((p) => {
+            const compra = precioCompraCatalogo(p);
+            const ruta = precioRutaEspecial(p);
+            return (
             <tr key={p.id}>
               <td>
                 <strong>{p.nombre}</strong>
@@ -1455,11 +1460,14 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
               <td className="muted" style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
                 {etiquetaDepartamento(p.cat || 'GENERAL')}
               </td>
+              <td className="muted" style={{ whiteSpace: 'nowrap' }}>
+                {compra != null ? fmtMonto(compra) : <span className="muted">—</span>}
+              </td>
               <td>
                 {editId === p.id ? (
                   <input className="input" type="number" style={{ width: 110 }} value={editVal} onChange={(e) => setEditVal(e.target.value)} />
                 ) : (
-                  precioRutaEspecial(p) != null ? fmtMonto(precioRutaEspecial(p)) : <span className="muted">Sin precio</span>
+                  ruta != null ? fmtMonto(ruta) : <span className="muted">Sin precio</span>
                 )}
               </td>
               <td>
@@ -1480,10 +1488,11 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
                 )}
               </td>
             </tr>
-          ))}
+            );
+          })}
           {!lista.length ? (
             <tr>
-              <td colSpan={4} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>
+              <td colSpan={5} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>
                 No hay productos con estos filtros.
               </td>
             </tr>
