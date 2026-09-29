@@ -179,4 +179,28 @@ function mockSupabase({ cargas = [], lineas = [] } = {}) {
   assert.equal(sb.state.updates.length, 1);
 }
 
+// devolverLinea: validaciones básicas sin CEDIS
+{
+  const { devolverLineaCargaRuta } = await import('./ventaEnRuta.js');
+  const sinPriv = await devolverLineaCargaRuta(null, {
+    cargaId: 'c1',
+    lineaId: 'l1',
+    cantidad: 1,
+    rol: 'Cajero',
+    userId: 'x',
+  });
+  assert.equal(sinPriv.ok, false);
+  assert.match(sinPriv.error, /privilegio/i);
+
+  const sinCant = await devolverLineaCargaRuta({}, {
+    cargaId: 'c1',
+    lineaId: 'l1',
+    cantidad: 0,
+    rol: 'Administrador',
+    userId: 'admin',
+  });
+  assert.equal(sinCant.ok, false);
+  assert.match(sinCant.error, /piezas|cantidad/i);
+}
+
 console.log('ventaEnRuta.cargaUnicaCamion.test.mjs OK');

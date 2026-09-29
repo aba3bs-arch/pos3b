@@ -1121,6 +1121,107 @@ export async function sumarLineasACargaRuta(supabase, cargaId, items) {
   return { ok: true };
 }
 
+/**
+ * Devuelve piezas de una línea de carga a CEDIS (corregir error al cargar).
+ * - Si la línea no tiene ventas: baja `qty_cargada` (o elimina la línea si queda en 0).
+ * - Si ya hay ventas: solo se puede devolver lo disponible → sube `qty_devuelta`.
+ */
+export async function devolverLineaCargaRuta(supabase, {
+  cargaId,
+  lineaId,
+  cantidad,
+  usuarioNombre,
+  rol,
+  userId,
+  motivo,
+} = {}) {
+  if (!puedeAccionVentaRuta(rol, userId, 'ruta_carga')) {
+    return { ok: false, error: 'Sin privilegio para corregir la carga del camión.' };
+  }
+  const cid = String(cargaId || '').trim();
+  const lid = String(lineaId || '').trim();
+  const qty = Math.floor(Math.abs(Number(cantidad) || 0));
+  if (!cid || !lid) return { ok: false, error: 'Falta la carga o la línea.' };
+  if (!(qty > 0)) return { ok: false, error: 'Indica cuántas piezas devolver a CEDIS.' };
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+
+  const { data: carga, error: eCarga } = await supabase
+    .from('ruta_cargas')
+    .select('id, folio, estado')
+    .eq('id', cid)
+    .maybeSingle();
+  if (eCarga && faltaTabla(eCarga)) return { ok: false, error: AVISO_FALTA_VENTA_RUTA };
+  if (eCarga) return { ok: false, error: eCarga.message };
+  if (!carga) return { ok: false, error: 'Carga no encontrada.' };
+  if (String(carga.estado || '').toLowerCase() !== 'en_ruta') {
+    return { ok: false, error: 'Solo se puede corregir una carga en ruta.' };
+  }
+
+  const { data: lin, error: eLin } = await supabase
+    .from('ruta_carga_lineas')
+    .select('*')
+    .eq('id', lid)
+    .maybeSingle();
+  if (eLin) return { ok: false, error: eLin.message };
+  if (!lin || String(lin.carga_id) !== cid) {
+    return { ok: false, error: 'Línea no encontrada en esta carga.' };
+  }
+
+  const disp = disponibleEnLineaCarga(lin);
+  if (qty > disp) {
+    return {
+      ok: false,
+      error: `Solo hay ${disp} disponible en el camión (ya vendido: ${Number(lin.qty_vendida) || 0}).`,
+    };
+  }
+
+  const folio = carga.folio || cid;
+  const prod = { id: lin.producto_id, nombre: lin.producto_nombre || lin.producto_id };
+  const mov = await devolverCedisDesdeCarga(supabase, {
+    producto: prod,
+    cantidad: qty,
+    motivo: motivo || `Corrección carga ${folio} · → CEDIS`,
+    usuario: usuarioNombre || '—',
+    folio,
+  });
+  if (!mov.ok) return { ok: false, error: `CEDIS · ${prod.nombre}: ${mov.error}` };
+
+  const vendida = Number(lin.qty_vendida) || 0;
+  const cargada = Number(lin.qty_cargada) || 0;
+  const devuelta = Number(lin.qty_devuelta) || 0;
+  let patch;
+  let eliminada = false;
+
+  if (vendida <= 0) {
+    const nuevaCargada = cargada - qty;
+    if (nuevaCargada <= 0 && devuelta <= 0) {
+      const { error: eDel } = await supabase.from('ruta_carga_lineas').delete().eq('id', lid);
+      if (eDel) return { ok: false, error: eDel.message, parcial: true, patch: mov.patch };
+      eliminada = true;
+      patch = null;
+    } else {
+      patch = {
+        qty_cargada: Math.max(0, nuevaCargada),
+        producto_nombre: lin.producto_nombre,
+      };
+      const { error: eUp } = await supabase.from('ruta_carga_lineas').update(patch).eq('id', lid);
+      if (eUp) return { ok: false, error: eUp.message, parcial: true, patch: mov.patch };
+    }
+  } else {
+    patch = { qty_devuelta: devuelta + qty };
+    const { error: eUp } = await supabase.from('ruta_carga_lineas').update(patch).eq('id', lid);
+    if (eUp) return { ok: false, error: eUp.message, parcial: true, patch: mov.patch };
+  }
+
+  return {
+    ok: true,
+    eliminada,
+    linea: eliminada ? null : { ...lin, ...patch },
+    patchProducto: mov.patch ? { id: prod.id, ...mov.patch, nombre: prod.nombre } : null,
+    aviso: mov.aviso || null,
+  };
+}
+
 export async function lineasDeCarga(supabase, cargaId) {
   if (!cargaId) return { data: [] };
   if (!supabase) {
