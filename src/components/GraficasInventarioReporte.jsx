@@ -9,8 +9,9 @@ import {
 } from '../constants/sucursales.js';
 import {
   PRESETS_REPORTE_INVENTARIO,
+  cargarFilasReporteInventarioAsync,
   fmtMxnReporte,
-  fmtPctReporte,
+  paretoMermaPorDepartamentoPorSucursal,
   rangoReporteInventario,
 } from '../lib/reporteInventario.js';
 import {
@@ -159,11 +160,82 @@ function LeyendaBarras() {
   );
 }
 
+/** Barras simples por departamento (sin apilar bonificación). */
+function ParetoDepartamentos({ items, empty = 'Sin faltante por departamento.' }) {
+  const visibles = (items || []).filter((x) => (Number(x.total) || 0) > 0);
+  if (!visibles.length) return <p className="muted" style={{ margin: 0 }}>{empty}</p>;
+  const max = Math.max(...visibles.map((x) => Number(x.total) || 0), 0.01);
+  const h = 140;
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-end',
+          gap: '0.45rem',
+          minHeight: h + 64,
+          paddingBottom: '0.25rem',
+        }}
+      >
+        {visibles.map((p) => {
+          const total = Number(p.total) || 0;
+          const barH = Math.max(4, (total / max) * h);
+          return (
+            <div
+              key={p.id}
+              style={{
+                flex: '0 0 auto',
+                width: 62,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 4,
+              }}
+              title={`${p.label}: ${fmtMxnReporte(total)} (${(Number(p.pct) || 0).toFixed(1)}%)`}
+            >
+              <div style={{ fontSize: '0.68rem', fontWeight: 700, textAlign: 'center', lineHeight: 1.15 }}>
+                {fmtMxnReporte(total)}
+              </div>
+              <div
+                style={{
+                  width: '100%',
+                  height: barH,
+                  borderRadius: '6px 6px 2px 2px',
+                  background: p.color || 'var(--brand-blue)',
+                }}
+              />
+              <div
+                className="muted"
+                style={{
+                  fontSize: '0.65rem',
+                  textAlign: 'center',
+                  lineHeight: 1.2,
+                  maxWidth: 62,
+                  wordBreak: 'break-word',
+                  fontWeight: 600,
+                }}
+              >
+                {p.label}
+              </div>
+              <div style={{ fontSize: '0.65rem', fontWeight: 700 }}>
+                {(Number(p.pct) || 0).toFixed(0)}%
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /**
- * Gráficas solo con capturas manuales: faltante neto + bonificación apilada.
+ * 1) Entre sucursales: captura manual (neto + bonif. apilada).
+ * 2) Por sucursal: faltante por departamento (conteos del sistema).
  */
 export default function GraficasInventarioReporte({
   supabase,
+  inventario,
+  inventarioCompleto,
   sucursalesLista,
   onCerrar,
 }) {
@@ -173,6 +245,9 @@ export default function GraficasInventarioReporte({
   const [loading, setLoading] = useState(false);
   const [aviso, setAviso] = useState('');
   const [registros, setRegistros] = useState([]);
+  const [lineasProducto, setLineasProducto] = useState([]);
+
+  const catalogo = inventarioCompleto?.length ? inventarioCompleto : inventario;
 
   const rango = useMemo(
     () => rangoReporteInventario(preset, desde, hasta),
@@ -193,17 +268,32 @@ export default function GraficasInventarioReporte({
     setLoading(true);
     (async () => {
       try {
-        const lista = await listarResultadosInventario(supabase, {
-          desde: rango.desde,
-          hasta: rango.hasta,
-          limit: 500,
-        });
+        const [lista, conteos] = await Promise.all([
+          listarResultadosInventario(supabase, {
+            desde: rango.desde,
+            hasta: rango.hasta,
+            limit: 500,
+          }),
+          cargarFilasReporteInventarioAsync({
+            supabase,
+            inventario,
+            inventarioCompleto: catalogo,
+            preset,
+            desde,
+            hasta,
+            sucursal: '',
+            departamento: '',
+          }),
+        ]);
         if (cancel) return;
         setRegistros(lista.registros || []);
-        setAviso(lista.aviso || '');
+        setLineasProducto(conteos.lineasProducto || []);
+        const avisos = [lista.aviso, conteos.aviso].filter(Boolean).join(' · ');
+        setAviso(avisos);
       } catch (e) {
         if (!cancel) {
           setRegistros([]);
+          setLineasProducto([]);
           setAviso(e?.message || String(e));
         }
       } finally {
@@ -211,21 +301,33 @@ export default function GraficasInventarioReporte({
       }
     })();
     return () => { cancel = true; };
-  }, [supabase, rango.desde, rango.hasta]);
+  }, [supabase, inventario, catalogo, preset, desde, hasta, rango.desde, rango.hasta]);
 
   const paretoTodas = useMemo(
     () => paretoDesdeCapturasManuales(registros, tiendasCatalogo),
     [registros, tiendasCatalogo],
   );
 
-  const porSucursal = useMemo(
+  const manualPorSucursal = useMemo(
     () => desgloseCapturasManualesPorSucursal(registros, tiendasCatalogo),
     [registros, tiendasCatalogo],
   );
 
+  const deptoPorSucursal = useMemo(
+    () => paretoMermaPorDepartamentoPorSucursal(lineasProducto, tiendasCatalogo),
+    [lineasProducto, tiendasCatalogo],
+  );
+
+  const manualBySuc = useMemo(() => {
+    const m = new Map();
+    for (const g of manualPorSucursal) m.set(g.sucursal, g);
+    return m;
+  }, [manualPorSucursal]);
+
   const conNeto = paretoTodas.filter((p) => p.total > 0).length;
   const conBonif = paretoTodas.filter((p) => (Number(p.bonificacion) || 0) > 0).length;
   const conCaptura = paretoTodas.filter((p) => p.capturas > 0).length;
+  const conDepto = deptoPorSucursal.filter((g) => g.items.length > 0).length;
   const totalBonif = paretoTodas.reduce((a, p) => a + (Number(p.bonificacion) || 0), 0);
 
   return (
@@ -234,8 +336,8 @@ export default function GraficasInventarioReporte({
         <div>
           <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Gráficas de inventario · Pareto</h3>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-            Solo captura manual del auditor. Compara <strong>faltante neto</strong> (faltante − bonificación)
-            y muestra la bonificación <strong>dentro de cada barra</strong> (dorado).
+            Entre tiendas: captura <strong>manual</strong> (neto + bonificación).
+            Por tienda: faltante por <strong>departamento</strong> (conteos del sistema).
             {loading ? ' Cargando…' : ''}
           </p>
           <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.72rem' }}>
@@ -257,8 +359,8 @@ export default function GraficasInventarioReporte({
         }}
       >
         <strong style={{ color: 'var(--brand-blue)' }}>Cómo leerlo:</strong>{' '}
-        número grande = faltante neto (lo que afecta el bono).
-        Texto dorado = bonificación de esa tienda. La barra apila neto (color) + bonif. (dorado).
+        (1) Entre sucursales: número = faltante neto; dorado = bonificación dentro de la barra.
+        (2) Por sucursal: columnas = departamentos con faltante del conteo.
         {totalBonif > 0 ? ` · Bonificado en el periodo: ${fmtMxnReporte(totalBonif)}` : ''}
       </div>
 
@@ -280,6 +382,7 @@ export default function GraficasInventarioReporte({
           {` · ${conCaptura} con captura`}
           {` · ${conNeto} con neto`}
           {` · ${conBonif} con bonif.`}
+          {` · ${conDepto} con depto`}
           {aviso ? ` · ${aviso}` : ''}
         </p>
       </div>
@@ -320,45 +423,55 @@ export default function GraficasInventarioReporte({
 
       <div>
         <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
-          2 · Capturas por sucursal (una debajo de otra)
+          2 · Pareto por sucursal · faltante por departamento
         </h4>
-        <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.78rem' }}>
-          Cada columna es un periodo guardado. Misma lectura: neto + bonif. dentro de la barra.
+        <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.78rem' }}>
+          Una gráfica debajo de otra. Columnas = faltante valorizado del <strong>conteo</strong> por departamento
+          (mayor → menor). Arriba a la derecha: neto/bonif. de la captura manual (si hay).
         </p>
-        <LeyendaBarras />
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-          {porSucursal.map((g) => (
-            <div
-              key={g.sucursal}
-              className="card"
-              style={{ margin: 0, borderTop: '3px solid #8e44ad' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
-                <div>
-                  <h5 style={{ margin: 0, color: 'var(--brand-blue)' }}>{g.tienda}</h5>
-                  <p className="muted" style={{ margin: '0.2rem 0 0', fontSize: '0.72rem' }}>
-                    {g.items.length
-                      ? `${g.items.length} captura(s) · inv. ${fmtMxnReporte(g.totalInventario)} · bonif. ${fmtMxnReporte(g.totalBonificacion || 0)}`
-                      : 'Sin captura manual en este periodo'}
-                  </p>
+          {deptoPorSucursal.map((g) => {
+            const man = manualBySuc.get(g.sucursal);
+            return (
+              <div
+                key={g.sucursal}
+                className="card"
+                style={{ margin: 0, borderTop: '3px solid #8e44ad' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
+                  <div>
+                    <h5 style={{ margin: 0, color: 'var(--brand-blue)' }}>{g.tienda}</h5>
+                    <p className="muted" style={{ margin: '0.2rem 0 0', fontSize: '0.72rem' }}>
+                      {g.items.length
+                        ? `${g.items.length} departamento(s) con faltante · conteo ${fmtMxnReporte(g.totalFaltante)}`
+                        : 'Sin faltante por departamento en conteos del periodo'}
+                    </p>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <strong style={{ color: g.totalFaltante > 0 ? '#8e44ad' : 'var(--muted, #7f8c8d)' }}>
+                      depto {fmtMxnReporte(g.totalFaltante)}
+                    </strong>
+                    {man && (man.totalFaltanteNeto > 0 || man.totalBonificacion > 0) ? (
+                      <>
+                        <div style={{ fontSize: '0.72rem', fontWeight: 700 }}>
+                          manual neto {fmtMxnReporte(man.totalFaltanteNeto || 0)}
+                        </div>
+                        {(man.totalBonificacion || 0) > 0 ? (
+                          <div style={{ fontSize: '0.72rem', fontWeight: 700, color: COLOR_BONIF }}>
+                            bonif. {fmtMxnReporte(man.totalBonificacion)}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </div>
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <strong style={{ color: g.totalFaltanteNeto > 0 ? '#8e44ad' : 'var(--muted, #7f8c8d)' }}>
-                    neto {fmtMxnReporte(g.totalFaltanteNeto || 0)}
-                  </strong>
-                  {(g.totalBonificacion || 0) > 0 ? (
-                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: COLOR_BONIF }}>
-                      bonif. {fmtMxnReporte(g.totalBonificacion)}
-                    </div>
-                  ) : null}
-                </div>
+                <ParetoDepartamentos
+                  items={g.items}
+                  empty="Sin faltante por departamento en este periodo (conteos)."
+                />
               </div>
-              <ParetoColumnas
-                items={g.items}
-                empty="Sin capturas manuales guardadas para esta tienda."
-              />
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

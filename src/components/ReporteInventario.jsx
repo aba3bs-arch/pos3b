@@ -788,6 +788,8 @@ export default function ReporteInventario({
     return (
       <GraficasInventarioReporte
         supabase={supabase}
+        inventario={inventario}
+        inventarioCompleto={inventarioCompleto}
         sucursalesLista={sucursalesLista}
         onCerrar={() => setVista('cerrado')}
       />
