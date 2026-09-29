@@ -15,6 +15,7 @@ import {
   paretoMermaPorDepartamentoPorSucursal,
 } from '../lib/reporteInventario.js';
 import { listarResultadosInventario } from '../lib/resultadoInventario.js';
+import { buildIdActual } from '../lib/appActualizacion.js';
 
 /** Pareto en columnas verticales (barras hacia arriba). */
 function ParetoColumnas({ items, empty = 'Sin datos.', mostrarCero = false }) {
@@ -184,11 +185,14 @@ export default function GraficasInventarioReporte({
     <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem' }}>
         <div>
-          <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Gráficas de inventario</h3>
+          <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Gráficas de inventario · Pareto</h3>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
             Sin selector de tienda: siempre se comparan <strong>todas</strong> las sucursales operativas
             (da igual si entras desde MAIN o desde una caja). Solo eliges el periodo.
             {loading ? ' Cargando…' : ''}
+          </p>
+          <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.72rem' }}>
+            Build {buildIdActual() || 'sin-id'} · si aún ves «Carta X̄–R», este equipo no tiene el JS nuevo (hay que redesplegar o regenerar el .exe / dist).
           </p>
         </div>
         <button type="button" className="btn btn-ghost" onClick={onCerrar}>
