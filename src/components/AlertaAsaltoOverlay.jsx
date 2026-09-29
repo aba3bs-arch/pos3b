@@ -144,10 +144,28 @@ export default function AlertaAsaltoOverlay({ supabase, user }) {
     }
 
     // Polling de respaldo (si Realtime no está habilitado en la tabla).
-    const iv = setInterval(() => void cargarPendiente(), 8000);
+    // En móvil los timers se pausan en segundo plano: al volver a primer plano se consulta al instante.
+    const pollMs = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 900px)')?.matches
+      ? 3000
+      : 8000;
+    const iv = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void cargarPendiente();
+    }, pollMs);
+
+    const onVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void cargarPendiente();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    window.addEventListener('pageshow', onVisible);
 
     return () => {
       clearInterval(iv);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+      window.removeEventListener('pageshow', onVisible);
       window.removeEventListener(EVENTO_ALERTA_ASALTO_DETENER, onStop);
       window.removeEventListener(EVENTO_NOTIFICACION_DISPOSITIVO, onNotif);
       window.removeEventListener(EVENTO_NOTIFICACIONES, onNotif);

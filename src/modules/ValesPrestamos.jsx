@@ -2028,6 +2028,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     )}
                     {v.folio} · {v.nombre_empleado} · {fmt(v.monto)} · {etiquetaCategoriaVale(v.categoria)}{v.subcategoria ? ` · ${etiquetaSubcategoriaVale(v.categoria, v.subcategoria)}` : ''}{v.detalle ? ` · ${etiquetaDetalleVale(v.categoria, v.subcategoria, v.detalle)}` : ''}
                     {v.descuenta_nomina ? ' · Nómina' : ' · Sin nómina'}
+                    {String(v.motivo || '').trim() ? (
+                      <span className="muted" style={{ display: 'block', fontSize: '0.8rem', marginTop: 2 }}>
+                        Motivo: {String(v.motivo).trim()}
+                      </span>
+                    ) : null}
                   </span>
                   <button type="button" className="btn btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => aprobarV(v.id)}>Aprobar</button>
                   {esAdmin && (
@@ -2487,6 +2492,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     <th>Estado</th>
                     <th>Categoría</th>
                     <th>Beneficiario</th>
+                    <th>Motivo</th>
                     {(esMain || vePendientesTodasTiendas) && <th>Sucursal</th>}
                     <th>Cuenta IE</th>
                     <th>Área / corte</th>
@@ -2498,7 +2504,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 <tbody>
                   {vales.length === 0 ? (
                     <tr>
-                      <td colSpan={esMain || vePendientesTodasTiendas ? 10 : 9} className="muted">
+                      <td colSpan={esMain || vePendientesTodasTiendas ? 11 : 10} className="muted">
                         No hay vales{esMain ? '' : ' en esta tienda'}. Crea uno arriba o revisa que la tienda esté autorizada en Configuración.
                         Los vales de <strong>gasolina</strong> se generan desde tienda y también se consultan en la pestaña Gasolina / asistencia.
                       </td>
@@ -2510,6 +2516,9 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                       <td>{etiquetaEstadoVale(v)}</td>
                       <td>{etiquetaCategoriaVale(v.categoria)}{v.subcategoria ? ` · ${etiquetaSubcategoriaVale(v.categoria, v.subcategoria)}` : ''}{v.detalle ? ` · ${etiquetaDetalleVale(v.categoria, v.subcategoria, v.detalle)}` : ''}</td>
                       <td>{v.nombre_empleado}</td>
+                      <td className="muted" style={{ maxWidth: 220, whiteSpace: 'normal', fontSize: '0.82rem' }}>
+                        {String(v.motivo || '').trim() || '—'}
+                      </td>
                       {(esMain || vePendientesTodasTiendas) && (
                         <td className="muted">{etiquetaTienda(v.sucursal_id) || v.sucursal_id || '—'}</td>
                       )}
