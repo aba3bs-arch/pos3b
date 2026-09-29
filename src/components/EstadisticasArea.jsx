@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import FiltroPeriodo from './FiltroPeriodo.jsx';
+import { VentanaFlotante } from './PortalFlotante.jsx';
 import {
   AREAS_ESTADISTICA,
   FECHA_INICIO_ESTADISTICAS,
@@ -9,6 +10,7 @@ import {
   agruparGastosPorTienda,
   agruparPorTurno,
   agruparVentasPorPeriodo,
+  agruparVentasPorTienda,
   cargarDatosEstadisticasArea,
   combinarSeriesComparacion,
   construirInsightCambio,
@@ -44,9 +46,39 @@ function fmtPct(n) {
   return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`;
 }
 
-function Kpi({ title, value, sub, accent, delta }) {
+function fmtFechaCorta(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso).slice(0, 10);
+  return d.toLocaleString('es-MX', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+const DETALLE_KPI_TITULOS = {
+  ventas: 'Detalle de ventas',
+  tarjeta: 'Detalle de pago con tarjeta',
+  gastos: 'Detalle de gastos',
+  utilidad: 'Detalle de utilidad bruta',
+  promedio: 'Detalle de venta promedio / cierre',
+  merma: 'Detalle de merma estimada',
+};
+
+function Kpi({ title, value, sub, accent, delta, onVer }) {
   return (
-    <div className="card" style={{ margin: 0, borderTop: accent ? `3px solid ${accent}` : undefined }}>
+    <div
+      className="card"
+      style={{
+        margin: 0,
+        borderTop: accent ? `3px solid ${accent}` : undefined,
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
       <h4 style={{ margin: '0 0 0.25rem', color: 'var(--brand-blue)', fontSize: '0.88rem' }}>{title}</h4>
       <div style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--brand-gold-dark)' }}>{value}</div>
       {sub && <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.78rem' }}>{sub}</p>}
@@ -54,6 +86,80 @@ function Kpi({ title, value, sub, accent, delta }) {
         <div style={{ marginTop: '0.35rem', fontWeight: 700, fontSize: '0.9rem', color: delta >= 0 ? '#27ae60' : '#c0392b' }}>
           {fmtPct(delta)} vs periodo anterior
         </div>
+      )}
+      {typeof onVer === 'function' && (
+        <div style={{ marginTop: 'auto', paddingTop: '0.55rem' }}>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={onVer}
+            style={{
+              width: '100%',
+              padding: '0.28rem 0.5rem',
+              fontSize: '0.8rem',
+              fontWeight: 700,
+              border: '1px solid var(--border)',
+              color: 'var(--brand-blue)',
+            }}
+          >
+            Ver
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResumenMini({ items }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.5rem', marginBottom: '0.85rem' }}>
+      {items.map((it) => (
+        <div key={it.label} style={{ background: 'var(--surface)', borderRadius: 8, padding: '0.5rem 0.6rem' }}>
+          <div className="muted" style={{ fontSize: '0.72rem' }}>{it.label}</div>
+          <strong style={{ fontSize: '1.05rem', color: it.color || 'inherit' }}>{it.value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TablaSimple({ columns, rows, empty = 'Sin registros en el periodo.', max = 80 }) {
+  if (!rows?.length) return <p className="muted">{empty}</p>;
+  const shown = rows.slice(0, max);
+  return (
+    <div className="table-wrap">
+      <table className="data">
+        <thead>
+          <tr>
+            {columns.map((c) => (
+              <th key={c.key}>{c.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {shown.map((row, i) => (
+            <tr key={row.id ?? row.key ?? i}>
+              {columns.map((c) => (
+                <td
+                  key={c.key}
+                  style={c.nowrap ? { whiteSpace: 'nowrap' } : c.maxWidth ? {
+                    maxWidth: c.maxWidth,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  } : undefined}
+                >
+                  {c.render ? c.render(row) : row[c.key]}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {rows.length > max && (
+        <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.75rem' }}>
+          Mostrando {max} de {rows.length} registros.
+        </p>
       )}
     </div>
   );
@@ -171,6 +277,7 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
   const [traficoPack, setTraficoPack] = useState(null);
   const [cargandoTrafico, setCargandoTrafico] = useState(false);
   const [vistaTrafico, setVistaTrafico] = useState('tienda'); // tienda | hora | dia
+  const [detalleKpi, setDetalleKpi] = useState(null); // ventas | tarjeta | gastos | utilidad | promedio | merma
 
   const rango = useMemo(() => {
     if (presetFecha === 'rango') {
@@ -212,6 +319,7 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
       setPackAnt(prev);
       setSemanaSel(null);
       setCategoriaSel(null);
+      setDetalleKpi(null);
       setCargando(false);
     })();
     return () => {
@@ -325,6 +433,40 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
   const merma = pack?.merma || [];
   const inv = pack?.inventario || [];
   const totalMerma = merma.reduce((a, m) => a + (Number(m.valor) || 0), 0);
+
+  const ventasOrdenadas = useMemo(
+    () => [...ventas].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))),
+    [ventas],
+  );
+  const ventasConTarjeta = useMemo(
+    () => ventasOrdenadas.filter((v) => (Number(v.tarjeta) || 0) > 0),
+    [ventasOrdenadas],
+  );
+  const gastosOrdenados = useMemo(
+    () => [...gastos].sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))),
+    [gastos],
+  );
+  const ventasPorTienda = useMemo(() => agruparVentasPorTienda(ventas), [ventas]);
+  const utilidadPorTienda = useMemo(() => {
+    const mapV = {};
+    for (const v of ventas) {
+      const t = v.sucursal_id || 'MAIN';
+      mapV[t] = (mapV[t] || 0) + (Number(v.total) || 0);
+    }
+    const mapG = {};
+    for (const g of gastos) {
+      const t = g.sucursal_id || 'MAIN';
+      mapG[t] = (mapG[t] || 0) + (Number(g.monto) || 0);
+    }
+    const keys = [...new Set([...Object.keys(mapV), ...Object.keys(mapG)])];
+    return keys
+      .map((id) => {
+        const v = mapV[id] || 0;
+        const g = mapG[id] || 0;
+        return { id, label: etiquetaTienda(id), ventas: v, gastos: g, utilidad: v - g };
+      })
+      .sort((a, b) => b.utilidad - a.utilidad);
+  }, [ventas, gastos]);
 
   const trafico = traficoPack?.trafico || null;
   const paretoTraficoTienda = useMemo(
@@ -454,6 +596,7 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
           sub={`${ventas.length} cierres con venta (cortes)`}
           accent={meta.color}
           delta={cambioVentas}
+          onVer={() => setDetalleKpi('ventas')}
         />
         <Kpi
           title="Pago tarjeta"
@@ -463,6 +606,7 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
             : 'Capturado en corte (Pago tarjeta −)'}
           accent="#1e5bb8"
           delta={cambioTarjeta}
+          onVer={() => setDetalleKpi('tarjeta')}
         />
         <Kpi
           title="Gastos"
@@ -470,6 +614,7 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
           sub={`${gastos.length} movimientos reales`}
           accent="#c0392b"
           delta={cambioGastos}
+          onVer={() => setDetalleKpi('gastos')}
         />
         <Kpi
           title="Utilidad bruta"
@@ -477,12 +622,14 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
           sub="Ventas − gastos del área"
           accent="#27ae60"
           delta={cambioUtilidad}
+          onVer={() => setDetalleKpi('utilidad')}
         />
         <Kpi
           title="Venta promedio / cierre"
           value={fmt(ticketPromedio(ventas))}
           sub="Por cierre de corte"
           accent="#2980b9"
+          onVer={() => setDetalleKpi('promedio')}
         />
         {area === 'abarrotes' && (
           <Kpi
@@ -490,9 +637,271 @@ export default function EstadisticasArea({ supabase, area = 'abarrotes', inventa
             value={fmt(totalMerma)}
             sub="Retiros / faltantes valorizados"
             accent="#8e44ad"
+            onVer={() => setDetalleKpi('merma')}
           />
         )}
       </div>
+
+      <VentanaFlotante
+        abierto={Boolean(detalleKpi)}
+        onClose={() => setDetalleKpi(null)}
+        label={DETALLE_KPI_TITULOS[detalleKpi] || 'Detalle'}
+        panelClassName="card ventana-flotante-panel"
+        panelStyle={{ width: 'min(860px, 100%)' }}
+      >
+        <div style={{ padding: '0.15rem 0.1rem 0.35rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '0.65rem' }}>
+            <div>
+              <h3 style={{ margin: 0, color: 'var(--brand-blue)', fontSize: '1.1rem' }}>
+                {DETALLE_KPI_TITULOS[detalleKpi] || 'Detalle'}
+              </h3>
+              <p className="muted" style={{ margin: '0.3rem 0 0', fontSize: '0.78rem' }}>
+                {meta.label} · {rango.desde} → {rango.hasta}
+                {filtroTienda ? ` · ${etiquetaTienda(filtroTienda)}` : ' · Todas las tiendas'}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => setDetalleKpi(null)}
+              style={{ padding: '0.2rem 0.55rem', fontSize: '0.8rem', flexShrink: 0 }}
+            >
+              Cerrar
+            </button>
+          </div>
+
+          {detalleKpi === 'ventas' && (
+            <>
+              <ResumenMini
+                items={[
+                  { label: 'Total ventas', value: fmt(totalVentas), color: 'var(--brand-gold-dark)' },
+                  { label: 'Cierres', value: String(ventas.length) },
+                  { label: 'Vs periodo ant.', value: fmtPct(cambioVentas), color: cambioVentas >= 0 ? '#27ae60' : '#c0392b' },
+                  { label: 'Periodo ant.', value: fmt(totalVentasAnt) },
+                ]}
+              />
+              {ventasPorTienda.length > 0 && (
+                <div style={{ marginBottom: '0.85rem' }}>
+                  <h5 style={{ margin: '0 0 0.45rem', color: 'var(--brand-blue)', fontSize: '0.88rem' }}>Por tienda</h5>
+                  <ParetoChart items={ventasPorTienda.slice(0, 12)} empty="Sin ventas por tienda." />
+                </div>
+              )}
+              <h5 style={{ margin: '0 0 0.45rem', color: 'var(--brand-blue)', fontSize: '0.88rem' }}>Cierres con venta</h5>
+              <TablaSimple
+                empty="Sin cierres con venta en el periodo."
+                columns={[
+                  { key: 'fecha', label: 'Fecha', nowrap: true, render: (r) => fmtFechaCorta(r.created_at) },
+                  { key: 'folio', label: 'Folio', render: (r) => r.folio || '—' },
+                  { key: 'tienda', label: 'Tienda', render: (r) => etiquetaTienda(r.sucursal_id) },
+                  { key: 'turno', label: 'Turno', render: (r) => r.turno || '—' },
+                  { key: 'total', label: 'Venta', nowrap: true, render: (r) => fmt(r.total) },
+                ]}
+                rows={ventasOrdenadas}
+              />
+            </>
+          )}
+
+          {detalleKpi === 'tarjeta' && (
+            <>
+              <ResumenMini
+                items={[
+                  { label: 'Pago tarjeta', value: fmt(totalTarjeta), color: '#1e5bb8' },
+                  { label: '% de la venta', value: `${pctTarjeta.toFixed(1)}%` },
+                  { label: 'Cierres c/ tarjeta', value: String(ventasConTarjeta.length) },
+                  { label: 'Vs periodo ant.', value: fmtPct(cambioTarjeta), color: cambioTarjeta >= 0 ? '#27ae60' : '#c0392b' },
+                ]}
+              />
+              <div style={{ marginBottom: '0.85rem' }}>
+                <h5 style={{ margin: '0 0 0.45rem', color: '#1e5bb8', fontSize: '0.88rem' }}>Mix efectivo vs tarjeta</h5>
+                <PastelChart items={pastelPagos} empty="Sin pagos de tarjeta ni ventas en el periodo." />
+              </div>
+              <h5 style={{ margin: '0 0 0.45rem', color: '#1e5bb8', fontSize: '0.88rem' }}>Cierres con pago tarjeta</h5>
+              <TablaSimple
+                empty="Ningún cierre capturó pago con tarjeta en el periodo."
+                columns={[
+                  { key: 'fecha', label: 'Fecha', nowrap: true, render: (r) => fmtFechaCorta(r.created_at) },
+                  { key: 'folio', label: 'Folio', render: (r) => r.folio || '—' },
+                  { key: 'tienda', label: 'Tienda', render: (r) => etiquetaTienda(r.sucursal_id) },
+                  { key: 'venta', label: 'Venta', nowrap: true, render: (r) => fmt(r.total) },
+                  {
+                    key: 'tarjeta',
+                    label: 'Tarjeta',
+                    nowrap: true,
+                    render: (r) => fmt(r.tarjeta),
+                  },
+                  {
+                    key: 'pct',
+                    label: '%',
+                    nowrap: true,
+                    render: (r) => {
+                      const t = Number(r.total) || 0;
+                      const card = Number(r.tarjeta) || 0;
+                      return t > 0 ? `${((card / t) * 100).toFixed(1)}%` : '—';
+                    },
+                  },
+                ]}
+                rows={ventasConTarjeta}
+              />
+            </>
+          )}
+
+          {detalleKpi === 'gastos' && (
+            <>
+              <ResumenMini
+                items={[
+                  { label: 'Total gastos', value: fmt(totalGastos), color: '#c0392b' },
+                  { label: 'Movimientos', value: String(gastos.length) },
+                  { label: 'Vs periodo ant.', value: fmtPct(cambioGastos), color: cambioGastos >= 0 ? '#c0392b' : '#27ae60' },
+                  { label: 'Periodo ant.', value: fmt(totalGastosAnt) },
+                ]}
+              />
+              {paretoGastosCat.length > 0 && (
+                <div style={{ marginBottom: '0.85rem' }}>
+                  <h5 style={{ margin: '0 0 0.45rem', color: 'var(--brand-blue)', fontSize: '0.88rem' }}>Top categorías</h5>
+                  <ParetoChart items={paretoGastosCat.slice(0, 8)} empty="Sin categorías." />
+                </div>
+              )}
+              <h5 style={{ margin: '0 0 0.45rem', color: 'var(--brand-blue)', fontSize: '0.88rem' }}>Movimientos</h5>
+              <TablaSimple
+                empty="Sin gastos reales en el periodo."
+                columns={[
+                  { key: 'fecha', label: 'Fecha', nowrap: true, render: (r) => fmtFechaCorta(r.created_at) },
+                  { key: 'cat', label: 'Categoría', render: (r) => r.categoria || '—' },
+                  { key: 'sub', label: 'Subcategoría', render: (r) => r.subcategoria || '—' },
+                  {
+                    key: 'comentario',
+                    label: 'Comentario',
+                    maxWidth: 160,
+                    render: (r) => r.comentario || '—',
+                  },
+                  { key: 'tienda', label: 'Tienda', render: (r) => etiquetaTienda(r.sucursal_id) },
+                  { key: 'monto', label: 'Monto', nowrap: true, render: (r) => fmt(r.monto) },
+                ]}
+                rows={gastosOrdenados}
+              />
+            </>
+          )}
+
+          {detalleKpi === 'utilidad' && (
+            <>
+              <ResumenMini
+                items={[
+                  { label: 'Ventas', value: fmt(totalVentas), color: 'var(--brand-gold-dark)' },
+                  { label: 'Gastos', value: fmt(totalGastos), color: '#c0392b' },
+                  { label: 'Utilidad bruta', value: fmt(utilidad), color: utilidad >= 0 ? '#27ae60' : '#c0392b' },
+                  { label: 'Vs periodo ant.', value: fmtPct(cambioUtilidad), color: cambioUtilidad >= 0 ? '#27ae60' : '#c0392b' },
+                ]}
+              />
+              <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
+                Utilidad bruta = ventas del área − gastos del área (misma tienda y periodo filtrados).
+              </p>
+              <h5 style={{ margin: '0 0 0.45rem', color: 'var(--brand-blue)', fontSize: '0.88rem' }}>Por tienda</h5>
+              <TablaSimple
+                empty="Sin datos de utilidad por tienda."
+                columns={[
+                  { key: 'tienda', label: 'Tienda', render: (r) => r.label },
+                  { key: 'ventas', label: 'Ventas', nowrap: true, render: (r) => fmt(r.ventas) },
+                  { key: 'gastos', label: 'Gastos', nowrap: true, render: (r) => fmt(r.gastos) },
+                  {
+                    key: 'utilidad',
+                    label: 'Utilidad',
+                    nowrap: true,
+                    render: (r) => (
+                      <span style={{ fontWeight: 700, color: r.utilidad >= 0 ? '#27ae60' : '#c0392b' }}>
+                        {fmt(r.utilidad)}
+                      </span>
+                    ),
+                  },
+                ]}
+                rows={utilidadPorTienda}
+              />
+            </>
+          )}
+
+          {detalleKpi === 'promedio' && (
+            <>
+              <ResumenMini
+                items={[
+                  { label: 'Promedio / cierre', value: fmt(ticketPromedio(ventas)), color: '#2980b9' },
+                  { label: 'Total ventas', value: fmt(totalVentas) },
+                  { label: 'Cierres', value: String(ventas.length) },
+                  {
+                    label: 'Mayor cierre',
+                    value: fmt(ventasOrdenadas.reduce((m, v) => Math.max(m, Number(v.total) || 0), 0)),
+                  },
+                ]}
+              />
+              <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
+                Promedio = suma de ventas ÷ número de cierres con venta en el periodo.
+              </p>
+              <h5 style={{ margin: '0 0 0.45rem', color: 'var(--brand-blue)', fontSize: '0.88rem' }}>Cierres del periodo</h5>
+              <TablaSimple
+                empty="Sin cierres para calcular el promedio."
+                columns={[
+                  { key: 'fecha', label: 'Fecha', nowrap: true, render: (r) => fmtFechaCorta(r.created_at) },
+                  { key: 'folio', label: 'Folio', render: (r) => r.folio || '—' },
+                  { key: 'tienda', label: 'Tienda', render: (r) => etiquetaTienda(r.sucursal_id) },
+                  { key: 'turno', label: 'Turno', render: (r) => r.turno || '—' },
+                  { key: 'total', label: 'Venta', nowrap: true, render: (r) => fmt(r.total) },
+                  {
+                    key: 'vs',
+                    label: 'Vs promedio',
+                    nowrap: true,
+                    render: (r) => {
+                      const prom = ticketPromedio(ventas);
+                      const d = (Number(r.total) || 0) - prom;
+                      return (
+                        <span style={{ fontWeight: 600, color: d >= 0 ? '#27ae60' : '#c0392b' }}>
+                          {fmtPct(prom > 0 ? (d / prom) * 100 : 0)}
+                        </span>
+                      );
+                    },
+                  },
+                ]}
+                rows={ventasOrdenadas}
+              />
+            </>
+          )}
+
+          {detalleKpi === 'merma' && (
+            <>
+              <ResumenMini
+                items={[
+                  { label: 'Merma valorizada', value: fmt(totalMerma), color: '#8e44ad' },
+                  { label: 'Tiendas con merma', value: String(merma.length) },
+                  {
+                    label: 'Unidades',
+                    value: merma.reduce((a, m) => a + (Number(m.unidades) || 0), 0).toLocaleString('es-MX'),
+                  },
+                ]}
+              />
+              <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
+                Retiros / faltantes valorizados a costo de inventario (estimación por tienda).
+              </p>
+              <TablaSimple
+                empty="Sin merma estimada en el periodo."
+                columns={[
+                  { key: 'tienda', label: 'Tienda', render: (r) => r.label },
+                  {
+                    key: 'unidades',
+                    label: 'Unidades',
+                    nowrap: true,
+                    render: (r) => (Number(r.unidades) || 0).toLocaleString('es-MX'),
+                  },
+                  { key: 'valor', label: 'Valor', nowrap: true, render: (r) => fmt(r.valor) },
+                  {
+                    key: 'pct',
+                    label: '% del total',
+                    nowrap: true,
+                    render: (r) => `${(Number(r.pct) || 0).toFixed(1)}%`,
+                  },
+                ]}
+                rows={merma}
+              />
+            </>
+          )}
+        </div>
+      </VentanaFlotante>
 
       <div className="card">
         <h4 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>
