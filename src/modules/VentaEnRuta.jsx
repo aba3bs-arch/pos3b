@@ -10,6 +10,7 @@ import PanelPurgaVentaEnRuta from '../components/PanelPurgaVentaEnRuta.jsx';
 import {
   AVISO_FALTA_VENTA_RUTA,
   NOMBRE_ALMACEN_RUTA,
+  buscarCargaAbiertaCamionRuta,
   cancelarCargaRuta,
   catalogoPosCamionDesdeLineas,
   crearCargaRuta,
@@ -203,8 +204,9 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
         )}
         <h2 style={{ margin: 0, color: COLOR }}>Venta en Ruta</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-          {NOMBRE_ALMACEN_RUTA} → camión → POS. Efectivo a tránsito · Crédito lo paga el cajero con PIN ·
-          mercancía a la tienda por <strong>Compras</strong> (el cajero verifica y acepta el pedido).
+          {NOMBRE_ALMACEN_RUTA} → camión (una carga abierta) → POS con toda la mercancía del camión ·
+          Efectivo a RC Abarrotes · Crédito lo paga el cajero con PIN ·
+          mercancía a la tienda por <strong>Compras</strong>.
         </p>
       </div>
       {aviso && (
@@ -946,6 +948,8 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
   const [repartidorId, setRepartidorId] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [cargandoRep, setCargandoRep] = useState(true);
+  const [cargaAbierta, setCargaAbierta] = useState(null);
+  const [cargandoAbierta, setCargandoAbierta] = useState(false);
 
   useEffect(() => {
     if (!supabase) {
@@ -994,6 +998,25 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
       || null;
   }, [recolectorSel, camionPorClave]);
 
+  useEffect(() => {
+    if (!supabase || !recolectorSel) {
+      setCargaAbierta(null);
+      return undefined;
+    }
+    let cancel = false;
+    setCargandoAbierta(true);
+    const vendedorId = recolectorSel.usuario_id || recolectorSel.id;
+    buscarCargaAbiertaCamionRuta(supabase, {
+      camionId: camionSel?.id || null,
+      vendedorId,
+    }).then((r) => {
+      if (cancel) return;
+      setCargaAbierta(r.ok ? (r.carga || null) : null);
+      setCargandoAbierta(false);
+    });
+    return () => { cancel = true; };
+  }, [supabase, recolectorSel, camionSel?.id]);
+
   const agregar = () => {
     const { producto } = buscarProductoInventario(inventario, codigo);
     if (!producto) return alert('Producto no encontrado.');
@@ -1025,7 +1048,10 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     const etiqueta = camionSel
       ? `${etiquetaCamion(camionSel)} · ${recolectorSel.nombre}`
       : recolectorSel.nombre;
-    if (!confirm(`¿Cargar camión para ${etiqueta}? Se descuenta de ${NOMBRE_ALMACEN_RUTA}.`)) return;
+    const msg = cargaAbierta?.folio
+      ? `¿Sumar mercancía a la carga ${cargaAbierta.folio} de ${etiqueta}?\nSe descuenta de ${NOMBRE_ALMACEN_RUTA}. El POS verá todo el camión en esa misma carga.`
+      : `¿Abrir carga del camión para ${etiqueta}?\nSe descuenta de ${NOMBRE_ALMACEN_RUTA}. Las siguientes recargas se sumarán a esta misma carga.`;
+    if (!confirm(msg)) return;
     setGuardando(true);
     const r = await crearCargaRuta(supabase, {
       vendedorNombre: recolectorSel.nombre,
@@ -1046,9 +1072,11 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     }
     if (cargarDatos) void cargarDatos();
     const n = (r.patches || []).length;
+    setCargaAbierta(r.carga || null);
     alert(
-      `Carga ${r.carga?.folio || ''} creada para ${etiqueta}.\n`
-      + `Stock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.`,
+      r.reusada
+        ? `Mercancía sumada a la carga ${r.carga?.folio || ''}.\nStock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.`
+        : `Carga ${r.carga?.folio || ''} abierta para ${etiqueta}.\nStock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.\nLas siguientes recargas se sumarán a esta misma carga.`,
     );
     setLineas([]);
   };
@@ -1058,8 +1086,9 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Carga de camión</h3>
       <p className="muted" style={{ fontSize: '0.8rem' }}>
         Elige un <strong>recolector / repartidor</strong> del Panel RT.
-        Los que agregues en Panel RT → Recolectores aparecen aquí automáticamente.
-        Si tiene camión asignado, se registra en la carga. Se descuenta de {NOMBRE_ALMACEN_RUTA}.
+        Toda la mercancía del camión vive en <strong>una sola carga abierta</strong>
+        (al recargar se suma a la misma). El POS muestra lo que hay en el camión, sin elegir cargas.
+        Se descuenta de {NOMBRE_ALMACEN_RUTA}.
       </p>
       <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
         Recolector / repartidor
@@ -1083,11 +1112,25 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
         </select>
       </label>
       {recolectorSel && (
-        <p style={{ margin: '0 0 0.65rem', fontSize: '0.85rem' }}>
+        <p style={{ margin: '0 0 0.35rem', fontSize: '0.85rem' }}>
           {camionSel ? (
             <>Camión asignado: <strong>{etiquetaCamion(camionSel)}</strong></>
           ) : (
             <span className="muted">Sin camión asignado — créalo en «Camiones» y asígnalo a este recolector.</span>
+          )}
+        </p>
+      )}
+      {recolectorSel && (
+        <p style={{ margin: '0 0 0.65rem', fontSize: '0.85rem' }}>
+          {cargandoAbierta ? (
+            <span className="muted">Buscando carga abierta…</span>
+          ) : cargaAbierta?.folio ? (
+            <>
+              Carga abierta: <strong>{cargaAbierta.folio}</strong>
+              <span className="muted"> — lo que agregues se suma aquí</span>
+            </>
+          ) : (
+            <span className="muted">Sin carga abierta — se creará una al confirmar.</span>
           )}
         </p>
       )}
@@ -1119,7 +1162,7 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
         </table>
       )}
       <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} disabled={guardando || !lineas.length || !repartidorId} onClick={() => void crear()}>
-        Crear carga y descontar CEDIS
+        {cargaAbierta?.folio ? 'Sumar a carga y descontar CEDIS' : 'Abrir carga y descontar CEDIS'}
       </button>
     </div>
   );
