@@ -789,6 +789,8 @@ export default function ReporteInventario({
         supabase={supabase}
         inventario={inventario}
         inventarioCompleto={inventarioCompleto}
+        sucursal={sucursal}
+        sucursalesLista={sucursalesLista}
         onCerrar={() => setVista('cerrado')}
       />
     );

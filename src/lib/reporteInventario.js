@@ -1,4 +1,10 @@
-import { etiquetaTienda, listarSucursales, normalizarCodigoTienda } from '../constants/sucursales.js';
+import {
+  esSucursalNoVenta,
+  etiquetaTienda,
+  listarSucursales,
+  listarSucursalesOperativas,
+  normalizarCodigoTienda,
+} from '../constants/sucursales.js';
 import {
   claveCorreccionLinea,
   corregirLineaConteoInventario,
@@ -669,19 +675,30 @@ async function listarMovimientosConteoNube(supabase, { desdeYmd, hastaYmd } = {}
   const fin = new Date(`${hastaYmd}T23:59:59.999`);
   const iniIso = new Date(ini.getTime() - 12 * 3600e3).toISOString();
   const finIso = new Date(fin.getTime() + 12 * 3600e3).toISOString();
-  const { data, error } = await supabase
-    .from('movimientos_inventario')
-    .select(
-      'id,tipo,modo,producto_id,producto_nombre,cantidad,stock_antes,stock_despues,departamento,motivo,usuario,sucursal_id,meta,created_at',
-    )
-    .in('modo', ['conteo_departamento', 'libre', 'conteo', 'conteo_snapshot'])
-    .gte('created_at', iniIso)
-    .lte('created_at', finIso)
-    .order('created_at', { ascending: false })
-    .limit(5000);
-  if (error) return { data: [], error: error.message };
+  const pageSize = 1000;
+  const maxPages = 25;
+  const all = [];
+  let from = 0;
+  for (let page = 0; page < maxPages; page += 1) {
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from('movimientos_inventario')
+      .select(
+        'id,tipo,modo,producto_id,producto_nombre,cantidad,stock_antes,stock_despues,departamento,motivo,usuario,sucursal_id,meta,created_at',
+      )
+      .in('modo', ['conteo_departamento', 'libre', 'conteo', 'conteo_snapshot'])
+      .gte('created_at', iniIso)
+      .lte('created_at', finIso)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+    if (error) return { data: [], error: error.message };
+    const chunk = data || [];
+    all.push(...chunk);
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
   return {
-    data: (data || []).filter((m) => enRangoIso(m.created_at, desdeYmd, hastaYmd)),
+    data: all.filter((m) => enRangoIso(m.created_at, desdeYmd, hastaYmd)),
     error: null,
   };
 }
@@ -852,134 +869,118 @@ export function paretoMermaPorSemana(filas = []) {
   return { pareto, cronologico };
 }
 
-/** Constantes SPC para carta X̄–R (tamaño de subgrupo n). */
-const SPC_XR = {
-  2: { A2: 1.88, D3: 0, D4: 3.267 },
-  3: { A2: 1.023, D3: 0, D4: 2.574 },
-  4: { A2: 0.729, D3: 0, D4: 2.282 },
-  5: { A2: 0.577, D3: 0, D4: 2.114 },
-  6: { A2: 0.483, D3: 0, D4: 2.004 },
-  7: { A2: 0.419, D3: 0.076, D4: 1.924 },
-  8: { A2: 0.373, D3: 0.136, D4: 1.864 },
-  9: { A2: 0.337, D3: 0.184, D4: 1.816 },
-  10: { A2: 0.308, D3: 0.223, D4: 1.777 },
-  11: { A2: 0.285, D3: 0.256, D4: 1.744 },
-  12: { A2: 0.266, D3: 0.283, D4: 1.717 },
-  13: { A2: 0.249, D3: 0.307, D4: 1.693 },
-  14: { A2: 0.235, D3: 0.328, D4: 1.672 },
-  15: { A2: 0.223, D3: 0.347, D4: 1.653 },
-};
-
-function constantesSpcXR(n) {
-  const k = Math.max(2, Math.min(15, Math.round(Number(n) || 2)));
-  return SPC_XR[k] || SPC_XR[2];
+function seedTiendasOperativas(tiendasCatalogo = []) {
+  const catalogo = Array.isArray(tiendasCatalogo) && tiendasCatalogo.length
+    ? tiendasCatalogo
+    : listarSucursalesOperativas();
+  const map = new Map();
+  for (const s of catalogo) {
+    const suc = normalizarCodigoTienda(s);
+    if (!suc || esSucursalNoVenta(suc)) continue;
+    map.set(suc, {
+      sucursal: suc,
+      tienda: etiquetaTienda(suc),
+      total: 0,
+      piezas: 0,
+      fuente: 'sin_datos',
+    });
+  }
+  return map;
 }
 
 /**
- * Carta X̄–R de % merma: cada semana es un subgrupo con una observación por sucursal.
- * Incluye todas las sucursales con conteo en esa semana.
+ * Pareto comparativo: faltante valorizado de todas las sucursales operativas
+ * (incluye tiendas en $0 para ver el catálogo completo).
+ * `extrasPorSucursal`: mapa opcional { sucursal → faltante } p.ej. captura manual del bono.
  */
-export function construirCartaXRInventario(filas = []) {
-  const porSemana = {};
-  for (const f of filas || []) {
-    const k = bucketKey(f.created_at, 'semana');
-    const suc = normalizarCodigoTienda(f.sucursal);
-    if (!k || !suc || suc === '—') continue;
-    if (!porSemana[k]) porSemana[k] = {};
-    if (!porSemana[k][suc]) {
-      porSemana[k][suc] = { merma: 0, operativo: 0, conteos: 0 };
+export function paretoComparativoPorSucursal(lineas = [], tiendasCatalogo = [], extrasPorSucursal = null) {
+  const map = seedTiendasOperativas(tiendasCatalogo);
+
+  for (const l of lineas || []) {
+    const suc = normalizarCodigoTienda(l.sucursal);
+    if (!suc || suc === '—' || esSucursalNoVenta(suc)) continue;
+    if (!map.has(suc)) {
+      map.set(suc, {
+        sucursal: suc,
+        tienda: etiquetaTienda(suc),
+        total: 0,
+        piezas: 0,
+        fuente: 'sin_datos',
+      });
     }
-    porSemana[k][suc].merma += Number(f.merma) || 0;
-    porSemana[k][suc].operativo += Number(f.inventarioOperativo) || 0;
-    porSemana[k][suc].conteos += 1;
+    const dif = Number(l.diferencia);
+    if (!(dif < 0)) continue;
+    const valor = Number(l.valorDiferencia) || 0;
+    if (valor <= 0) continue;
+    const row = map.get(suc);
+    row.total += valor;
+    row.piezas += Math.abs(dif);
+    row.fuente = 'conteo';
   }
 
-  const puntos = Object.keys(porSemana)
-    .sort()
-    .map((key) => {
-      const vals = Object.entries(porSemana[key]).map(([suc, v]) => {
-        const pct = v.operativo > 0 ? (v.merma / v.operativo) * 100 : v.merma > 0 ? 100 : 0;
-        return {
+  if (extrasPorSucursal && typeof extrasPorSucursal === 'object') {
+    for (const [rawSuc, fal] of Object.entries(extrasPorSucursal)) {
+      const suc = normalizarCodigoTienda(rawSuc);
+      if (!suc || esSucursalNoVenta(suc)) continue;
+      const valor = Number(fal) || 0;
+      if (valor <= 0) continue;
+      if (!map.has(suc)) {
+        map.set(suc, {
           sucursal: suc,
           tienda: etiquetaTienda(suc),
-          pctMerma: Math.round(pct * 100) / 100,
-          merma: Math.round(v.merma * 100) / 100,
-        };
-      });
-      const pcts = vals.map((v) => v.pctMerma);
-      const n = pcts.length;
-      const xbar = n ? pcts.reduce((a, x) => a + x, 0) / n : 0;
-      const r = n > 1 ? Math.max(...pcts) - Math.min(...pcts) : 0;
-      return {
-        key,
-        label: etiquetaBucket(key, 'semana'),
-        n,
-        xbar: Math.round(xbar * 100) / 100,
-        r: Math.round(r * 100) / 100,
-        sucursales: vals.sort((a, b) => b.pctMerma - a.pctMerma),
-      };
-    })
-    .filter((p) => p.n > 0);
-
-  if (!puntos.length) {
-    return {
-      puntos: [],
-      xBarBar: 0,
-      rBar: 0,
-      uclX: 0,
-      lclX: 0,
-      uclR: 0,
-      lclR: 0,
-      nPromedio: 0,
-    };
+          total: 0,
+          piezas: 0,
+          fuente: 'sin_datos',
+        });
+      }
+      const row = map.get(suc);
+      // Si no hubo faltante en líneas de conteo, usar captura manual (bono).
+      if (row.total <= 0) {
+        row.total = valor;
+        row.fuente = 'resultado';
+      }
+    }
   }
 
-  const conRango = puntos.filter((p) => p.n >= 2);
-  const xBarBar = puntos.reduce((a, p) => a + p.xbar, 0) / puntos.length;
-  const rBar = conRango.length
-    ? conRango.reduce((a, p) => a + p.r, 0) / conRango.length
-    : 0;
-  const nPromedio = Math.round(
-    puntos.reduce((a, p) => a + p.n, 0) / puntos.length,
-  );
-  const c = constantesSpcXR(Math.max(2, nPromedio));
-  const uclX = xBarBar + c.A2 * rBar;
-  const lclX = Math.max(0, xBarBar - c.A2 * rBar);
-  const uclR = c.D4 * rBar;
-  const lclR = c.D3 * rBar;
-
-  return {
-    puntos: puntos.map((p) => {
-      const ci = constantesSpcXR(Math.max(2, p.n));
-      return {
-        ...p,
-        uclX: xBarBar + ci.A2 * rBar,
-        lclX: Math.max(0, xBarBar - ci.A2 * rBar),
-        uclR: ci.D4 * rBar,
-        lclR: ci.D3 * rBar,
-        fueraX: p.xbar > xBarBar + ci.A2 * rBar || p.xbar < Math.max(0, xBarBar - ci.A2 * rBar),
-        fueraR: p.n >= 2 && (p.r > ci.D4 * rBar || p.r < ci.D3 * rBar),
-      };
-    }),
-    xBarBar: Math.round(xBarBar * 100) / 100,
-    rBar: Math.round(rBar * 100) / 100,
-    uclX: Math.round(uclX * 100) / 100,
-    lclX: Math.round(lclX * 100) / 100,
-    uclR: Math.round(uclR * 100) / 100,
-    lclR: Math.round(lclR * 100) / 100,
-    nPromedio,
-  };
+  const list = [...map.values()].sort((a, b) => {
+    if (b.total !== a.total) return b.total - a.total;
+    return a.sucursal.localeCompare(b.sucursal, 'es', { numeric: true });
+  });
+  const sumPos = list.reduce((a, x) => a + (x.total > 0 ? x.total : 0), 0);
+  const sum = sumPos || 1;
+  let acum = 0;
+  return list.map((x, i) => {
+    acum += x.total > 0 ? x.total : 0;
+    return {
+      id: x.sucursal,
+      label: x.tienda,
+      sucursal: x.sucursal,
+      total: Math.round(x.total * 100) / 100,
+      piezas: x.piezas,
+      fuente: x.fuente,
+      pct: x.total > 0 ? (x.total / sum) * 100 : 0,
+      acumPct: sumPos > 0 ? (acum / sum) * 100 : 0,
+      color: COLORES_TIENDA[i % COLORES_TIENDA.length],
+    };
+  });
 }
 
 /**
  * Pareto de faltante ($) por departamento, una serie por sucursal.
- * Orden: sucursales numéricas; dentro, departamentos de mayor a menor faltante.
+ * Si se pasa `tiendasCatalogo`, incluye todas las operativas (aunque vayan en $0).
  */
-export function paretoMermaPorDepartamentoPorSucursal(lineas = []) {
+export function paretoMermaPorDepartamentoPorSucursal(lineas = [], tiendasCatalogo = null) {
   const porSuc = new Map();
+  const seed = tiendasCatalogo != null
+    ? seedTiendasOperativas(tiendasCatalogo)
+    : new Map();
+  for (const [suc, base] of seed) {
+    porSuc.set(suc, { sucursal: suc, tienda: base.tienda, map: new Map() });
+  }
+
   for (const l of lineas || []) {
     const suc = normalizarCodigoTienda(l.sucursal);
-    if (!suc || suc === '—') continue;
+    if (!suc || suc === '—' || esSucursalNoVenta(suc)) continue;
     const dif = Number(l.diferencia);
     if (!(dif < 0)) continue;
     const valor = Number(l.valorDiferencia) || 0;
@@ -1018,10 +1019,8 @@ export function paretoMermaPorDepartamentoPorSucursal(lineas = []) {
         items,
       };
     })
-    .filter((g) => g.items.length > 0)
     .sort((a, b) => {
-      if (a.sucursal === 'MAIN') return 1;
-      if (b.sucursal === 'MAIN') return -1;
+      if (b.totalFaltante !== a.totalFaltante) return b.totalFaltante - a.totalFaltante;
       return a.sucursal.localeCompare(b.sucursal, 'es', { numeric: true });
     });
 }
