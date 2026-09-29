@@ -20,12 +20,28 @@ import {
 } from '../lib/resultadoInventario.js';
 import { buildIdActual } from '../lib/appActualizacion.js';
 
-/** Pareto en columnas verticales (barras hacia arriba). */
-function ParetoColumnas({ items, empty = 'Sin datos.', mostrarCero = false, valorExtra }) {
-  const visibles = mostrarCero ? (items || []) : (items || []).filter((x) => (Number(x.total) || 0) > 0);
+const COLOR_BONIF = '#c9a227';
+
+/**
+ * Barras apiladas: abajo faltante neto (cobra merma), arriba bonificación (dorado).
+ * Altura total = neto + bonificación (= faltante bruto).
+ */
+function ParetoColumnas({ items, empty = 'Sin datos.', mostrarCero = false }) {
+  const visibles = mostrarCero
+    ? (items || [])
+    : (items || []).filter((x) => (Number(x.faltanteNeto ?? x.total) || 0) > 0 || (Number(x.bonificacion) || 0) > 0);
   if (!visibles.length) return <p className="muted" style={{ margin: 0 }}>{empty}</p>;
-  const max = Math.max(...visibles.map((x) => Number(x.total) || 0), 0.01);
+
+  const max = Math.max(
+    ...visibles.map((x) => {
+      const neto = Number(x.faltanteNeto ?? x.total) || 0;
+      const bon = Number(x.bonificacion) || 0;
+      return neto + bon;
+    }),
+    0.01,
+  );
   const h = 150;
+
   return (
     <div style={{ overflowX: 'auto' }}>
       <div
@@ -33,49 +49,84 @@ function ParetoColumnas({ items, empty = 'Sin datos.', mostrarCero = false, valo
           display: 'flex',
           alignItems: 'flex-end',
           gap: '0.45rem',
-          minHeight: h + 72,
+          minHeight: h + 88,
           paddingBottom: '0.25rem',
         }}
       >
         {visibles.map((p) => {
-          const total = Number(p.total) || 0;
-          const barH = total > 0 ? Math.max(4, (total / max) * h) : 2;
-          const extra = typeof valorExtra === 'function' ? valorExtra(p) : null;
+          const neto = Number(p.faltanteNeto ?? p.total) || 0;
+          const bon = Number(p.bonificacion) || 0;
+          const stack = neto + bon;
+          const stackH = stack > 0 ? Math.max(6, (stack / max) * h) : 2;
+          const bonH = stack > 0 && bon > 0 ? Math.max(3, (bon / stack) * stackH) : 0;
+          const netoH = Math.max(stack > 0 ? 3 : 2, stackH - bonH);
           return (
             <div
               key={p.id}
               style={{
                 flex: '0 0 auto',
-                width: 62,
+                width: 68,
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: 4,
+                gap: 3,
               }}
-              title={`${p.label}: faltante ${fmtMxnReporte(total)}${extra ? ` · ${extra}` : ''}`}
+              title={`${p.label}: neto ${fmtMxnReporte(neto)} · bonif. ${fmtMxnReporte(bon)} · bruto ${fmtMxnReporte(stack)}`}
             >
-              <div style={{ fontSize: '0.68rem', fontWeight: 700, textAlign: 'center', lineHeight: 1.15 }}>
-                {fmtMxnReporte(total)}
+              <div style={{ fontSize: '0.68rem', fontWeight: 800, textAlign: 'center', lineHeight: 1.15, color: 'var(--brand-gold-dark, #8a7020)' }}>
+                {fmtMxnReporte(neto)}
               </div>
-              {extra ? (
-                <div className="muted" style={{ fontSize: '0.62rem', textAlign: 'center' }}>{extra}</div>
-              ) : null}
+              {bon > 0 ? (
+                <div style={{ fontSize: '0.6rem', fontWeight: 700, textAlign: 'center', color: COLOR_BONIF }}>
+                  +{fmtMxnReporte(bon)} bonif.
+                </div>
+              ) : (
+                <div className="muted" style={{ fontSize: '0.6rem', textAlign: 'center' }}>
+                  {p.capturas === 0 ? 'sin captura' : 'sin bonif.'}
+                </div>
+              )}
               <div
                 style={{
                   width: '100%',
-                  height: barH,
+                  height: stackH,
                   borderRadius: '6px 6px 2px 2px',
-                  background: total > 0 ? (p.color || 'var(--brand-blue)') : '#d0d5dd',
-                  opacity: total > 0 ? 0.9 : 0.45,
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'flex-end',
+                  background: stack > 0 ? 'transparent' : '#d0d5dd',
+                  opacity: stack > 0 ? 1 : 0.45,
                 }}
-              />
+              >
+                {bonH > 0 ? (
+                  <div
+                    style={{
+                      width: '100%',
+                      height: bonH,
+                      background: COLOR_BONIF,
+                      flexShrink: 0,
+                    }}
+                    title={`Bonificación ${fmtMxnReporte(bon)}`}
+                  />
+                ) : null}
+                <div
+                  style={{
+                    width: '100%',
+                    height: netoH,
+                    background: stack > 0 ? (p.color || 'var(--brand-blue)') : '#d0d5dd',
+                    flexShrink: 0,
+                    borderRadius: bonH > 0 ? 0 : '6px 6px 2px 2px',
+                  }}
+                  title={`Faltante neto ${fmtMxnReporte(neto)}`}
+                />
+              </div>
               <div
                 className="muted"
                 style={{
                   fontSize: '0.65rem',
                   textAlign: 'center',
                   lineHeight: 1.2,
-                  maxWidth: 62,
+                  maxWidth: 68,
                   wordBreak: 'break-word',
                   fontWeight: 600,
                 }}
@@ -83,7 +134,7 @@ function ParetoColumnas({ items, empty = 'Sin datos.', mostrarCero = false, valo
                 {p.label}
               </div>
               <div style={{ fontSize: '0.65rem', fontWeight: 700 }}>
-                {total > 0 ? `${(Number(p.pct) || 0).toFixed(0)}%` : '—'}
+                {neto > 0 ? `${(Number(p.pct) || 0).toFixed(0)}%` : '—'}
               </div>
             </div>
           );
@@ -93,9 +144,23 @@ function ParetoColumnas({ items, empty = 'Sin datos.', mostrarCero = false, valo
   );
 }
 
+function LeyendaBarras() {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.85rem', fontSize: '0.75rem', marginBottom: '0.55rem' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ width: 12, height: 12, borderRadius: 2, background: 'var(--brand-blue)' }} />
+        Faltante neto (faltante − bonificación)
+      </span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ width: 12, height: 12, borderRadius: 2, background: COLOR_BONIF }} />
+        Bonificación (dentro de la barra)
+      </span>
+    </div>
+  );
+}
+
 /**
- * Gráficas solo con capturas manuales del auditor (total + faltante del bono).
- * No usa conteos / diferencias del sistema.
+ * Gráficas solo con capturas manuales: faltante neto + bonificación apilada.
  */
 export default function GraficasInventarioReporte({
   supabase,
@@ -158,8 +223,10 @@ export default function GraficasInventarioReporte({
     [registros, tiendasCatalogo],
   );
 
-  const conFaltante = paretoTodas.filter((p) => p.total > 0).length;
+  const conNeto = paretoTodas.filter((p) => p.total > 0).length;
+  const conBonif = paretoTodas.filter((p) => (Number(p.bonificacion) || 0) > 0).length;
   const conCaptura = paretoTodas.filter((p) => p.capturas > 0).length;
+  const totalBonif = paretoTodas.reduce((a, p) => a + (Number(p.bonificacion) || 0), 0);
 
   return (
     <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
@@ -167,8 +234,8 @@ export default function GraficasInventarioReporte({
         <div>
           <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Gráficas de inventario · Pareto</h3>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-            Solo datos que el <strong>auditor / admin captura a mano</strong> (total + faltante del bono).
-            No usa conteos ni faltantes del sistema. Todas las tiendas, sin selector.
+            Solo captura manual del auditor. Compara <strong>faltante neto</strong> (faltante − bonificación)
+            y muestra la bonificación <strong>dentro de cada barra</strong> (dorado).
             {loading ? ' Cargando…' : ''}
           </p>
           <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.72rem' }}>
@@ -189,10 +256,10 @@ export default function GraficasInventarioReporte({
           fontSize: '0.8rem',
         }}
       >
-        <strong style={{ color: 'var(--brand-blue)' }}>Fuente:</strong>{' '}
-        Reportes → Inventario → «Resultado de inventario (para bono)» guardado por tienda.
-        Barras = <strong>faltante</strong> (campo 2). Debajo de cada barra se muestra el % merma
-        (faltante neto ÷ total capturado).
+        <strong style={{ color: 'var(--brand-blue)' }}>Cómo leerlo:</strong>{' '}
+        número grande = faltante neto (lo que afecta el bono).
+        Texto dorado = bonificación de esa tienda. La barra apila neto (color) + bonif. (dorado).
+        {totalBonif > 0 ? ` · Bonificado en el periodo: ${fmtMxnReporte(totalBonif)}` : ''}
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-end' }}>
@@ -211,7 +278,8 @@ export default function GraficasInventarioReporte({
           {rango.desde} → {rango.hasta}
           {` · ${paretoTodas.length} tiendas`}
           {` · ${conCaptura} con captura`}
-          {` · ${conFaltante} con faltante`}
+          {` · ${conNeto} con neto`}
+          {` · ${conBonif} con bonif.`}
           {aviso ? ` · ${aviso}` : ''}
         </p>
       </div>
@@ -237,16 +305,16 @@ export default function GraficasInventarioReporte({
 
       <div className="card" style={{ margin: 0, borderTop: '3px solid var(--brand-blue)' }}>
         <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
-          1 · Pareto de faltante entre sucursales (manual)
+          1 · Pareto entre sucursales (neto + bonificación)
         </h4>
-        <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
-          Suma del faltante capturado a mano en el periodo. Gris = sin captura o $0.
+        <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.78rem' }}>
+          Ordenado por faltante neto. % = participación del neto entre tiendas.
         </p>
+        <LeyendaBarras />
         <ParetoColumnas
           items={paretoTodas}
           mostrarCero
           empty="Sin sucursales en el catálogo."
-          valorExtra={(p) => (p.capturas > 0 ? `merma ${fmtPctReporte(p.pctMerma)}` : 'sin captura')}
         />
       </div>
 
@@ -254,10 +322,10 @@ export default function GraficasInventarioReporte({
         <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
           2 · Capturas por sucursal (una debajo de otra)
         </h4>
-        <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.78rem' }}>
-          Cada columna es un periodo guardado por el auditor (faltante $). No hay desglose por departamento
-          porque la captura manual es a nivel tienda.
+        <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.78rem' }}>
+          Cada columna es un periodo guardado. Misma lectura: neto + bonif. dentro de la barra.
         </p>
+        <LeyendaBarras />
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
           {porSucursal.map((g) => (
             <div
@@ -270,18 +338,24 @@ export default function GraficasInventarioReporte({
                   <h5 style={{ margin: 0, color: 'var(--brand-blue)' }}>{g.tienda}</h5>
                   <p className="muted" style={{ margin: '0.2rem 0 0', fontSize: '0.72rem' }}>
                     {g.items.length
-                      ? `${g.items.length} captura(s) · total inv. ${fmtMxnReporte(g.totalInventario)}`
+                      ? `${g.items.length} captura(s) · inv. ${fmtMxnReporte(g.totalInventario)} · bonif. ${fmtMxnReporte(g.totalBonificacion || 0)}`
                       : 'Sin captura manual en este periodo'}
                   </p>
                 </div>
-                <strong style={{ color: g.totalFaltante > 0 ? '#8e44ad' : 'var(--muted, #7f8c8d)' }}>
-                  {fmtMxnReporte(g.totalFaltante)}
-                </strong>
+                <div style={{ textAlign: 'right' }}>
+                  <strong style={{ color: g.totalFaltanteNeto > 0 ? '#8e44ad' : 'var(--muted, #7f8c8d)' }}>
+                    neto {fmtMxnReporte(g.totalFaltanteNeto || 0)}
+                  </strong>
+                  {(g.totalBonificacion || 0) > 0 ? (
+                    <div style={{ fontSize: '0.72rem', fontWeight: 700, color: COLOR_BONIF }}>
+                      bonif. {fmtMxnReporte(g.totalBonificacion)}
+                    </div>
+                  ) : null}
+                </div>
               </div>
               <ParetoColumnas
                 items={g.items}
                 empty="Sin capturas manuales guardadas para esta tienda."
-                valorExtra={(p) => (p.pctMerma != null ? `merma ${fmtPctReporte(p.pctMerma)}` : null)}
               />
             </div>
           ))}

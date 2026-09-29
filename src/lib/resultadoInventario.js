@@ -639,8 +639,9 @@ function seedTiendasManuales(tiendasCatalogo = []) {
 }
 
 /**
- * Pareto entre sucursales usando SOLO capturas manuales del auditor
- * (campo 2 faltante / faltante neto). No usa conteos del sistema.
+ * Pareto entre sucursales con capturas manuales del auditor.
+ * `total` = faltante neto (faltante − bonificación). Incluye `bonificacion` y `faltante`
+ * bruto para barras apiladas. No usa conteos del sistema.
  */
 export function paretoDesdeCapturasManuales(registros = [], tiendasCatalogo = []) {
   const map = seedTiendasManuales(tiendasCatalogo);
@@ -661,9 +662,12 @@ export function paretoDesdeCapturasManuales(registros = [], tiendasCatalogo = []
     }
     const row = map.get(suc);
     const fal = Number(reg.valor_faltante);
-    const falNeto = Number(reg.valor_faltante_neto ?? reg.valor_faltante);
+    const bon = Math.max(0, Number(reg.valor_bonificacion) || 0);
+    let falNeto = Number(reg.valor_faltante_neto);
+    if (!Number.isFinite(falNeto) && Number.isFinite(fal)) {
+      falNeto = Math.max(0, fal - bon);
+    }
     const tot = Number(reg.valor_contado ?? reg.total_inventario);
-    const bon = Number(reg.valor_bonificacion) || 0;
     if (Number.isFinite(fal) && fal > 0) row.faltante += fal;
     if (Number.isFinite(falNeto) && falNeto > 0) row.faltanteNeto += falNeto;
     if (Number.isFinite(tot) && tot > 0) row.totalInventario += tot;
@@ -672,30 +676,36 @@ export function paretoDesdeCapturasManuales(registros = [], tiendasCatalogo = []
   }
 
   const list = [...map.values()].sort((a, b) => {
-    if (b.faltante !== a.faltante) return b.faltante - a.faltante;
+    if (b.faltanteNeto !== a.faltanteNeto) return b.faltanteNeto - a.faltanteNeto;
+    if (b.bonificacion !== a.bonificacion) return b.bonificacion - a.bonificacion;
     return a.sucursal.localeCompare(b.sucursal, 'es', { numeric: true });
   });
-  const sumPos = list.reduce((a, x) => a + (x.faltante > 0 ? x.faltante : 0), 0);
+  const sumPos = list.reduce((a, x) => a + (x.faltanteNeto > 0 ? x.faltanteNeto : 0), 0);
   const sum = sumPos || 1;
   let acum = 0;
   return list.map((x, i) => {
-    acum += x.faltante > 0 ? x.faltante : 0;
+    acum += x.faltanteNeto > 0 ? x.faltanteNeto : 0;
     const pctMerma = x.totalInventario > 0
       ? Math.round((x.faltanteNeto / x.totalInventario) * 10000) / 100
       : x.faltanteNeto > 0
         ? 100
         : 0;
+    const neto = Math.round(x.faltanteNeto * 100) / 100;
+    const bon = Math.round(x.bonificacion * 100) / 100;
+    const bruto = Math.round(x.faltante * 100) / 100;
     return {
       id: x.sucursal,
       label: x.tienda,
       sucursal: x.sucursal,
-      total: Math.round(x.faltante * 100) / 100,
-      faltanteNeto: Math.round(x.faltanteNeto * 100) / 100,
+      /** Valor principal del Pareto = faltante neto (sin bonificación). */
+      total: neto,
+      faltanteNeto: neto,
+      faltante: bruto > 0 ? bruto : Math.round((neto + bon) * 100) / 100,
       totalInventario: Math.round(x.totalInventario * 100) / 100,
-      bonificacion: Math.round(x.bonificacion * 100) / 100,
+      bonificacion: bon,
       pctMerma,
       capturas: x.capturas,
-      pct: x.faltante > 0 ? (x.faltante / sum) * 100 : 0,
+      pct: neto > 0 ? (neto / sum) * 100 : 0,
       acumPct: sumPos > 0 ? (acum / sum) * 100 : 0,
       color: COLORES_TIENDA[i % COLORES_TIENDA.length],
       fuente: x.capturas > 0 ? 'manual' : 'sin_datos',
@@ -704,14 +714,21 @@ export function paretoDesdeCapturasManuales(registros = [], tiendasCatalogo = []
 }
 
 /**
- * Por sucursal: columnas = cada captura manual del auditor en el periodo
- * (faltante $). Incluye tiendas sin capturas (vacías).
+ * Por sucursal: columnas = cada captura manual (faltante neto + bonificación apilable).
  */
 export function desgloseCapturasManualesPorSucursal(registros = [], tiendasCatalogo = []) {
   const porSuc = seedTiendasManuales(tiendasCatalogo);
   const itemsPorSuc = new Map();
   for (const [suc, base] of porSuc) {
-    itemsPorSuc.set(suc, { sucursal: suc, tienda: base.tienda, items: [], totalFaltante: 0, totalInventario: 0 });
+    itemsPorSuc.set(suc, {
+      sucursal: suc,
+      tienda: base.tienda,
+      items: [],
+      totalFaltante: 0,
+      totalFaltanteNeto: 0,
+      totalBonificacion: 0,
+      totalInventario: 0,
+    });
   }
 
   for (const reg of registros || []) {
@@ -723,28 +740,36 @@ export function desgloseCapturasManualesPorSucursal(registros = [], tiendasCatal
         tienda: etiquetaTienda(suc),
         items: [],
         totalFaltante: 0,
+        totalFaltanteNeto: 0,
+        totalBonificacion: 0,
         totalInventario: 0,
       });
     }
     const g = itemsPorSuc.get(suc);
     const fal = Number(reg.valor_faltante) || 0;
-    const falNeto = Number(reg.valor_faltante_neto ?? reg.valor_faltante) || 0;
+    const bon = Math.max(0, Number(reg.valor_bonificacion) || 0);
+    let falNeto = Number(reg.valor_faltante_neto);
+    if (!Number.isFinite(falNeto)) falNeto = Math.max(0, fal - bon);
     const tot = Number(reg.valor_contado ?? reg.total_inventario) || 0;
-    const bon = Number(reg.valor_bonificacion) || 0;
     const pctMerma = Number(reg.pct_merma);
     const label = `${reg.desde || '?'} → ${reg.hasta || '?'}`;
+    const netoR = Math.round(falNeto * 100) / 100;
+    const bonR = Math.round(bon * 100) / 100;
     g.items.push({
       id: `${suc}_${reg.desde}_${reg.hasta}_${reg.updated_at || ''}`,
       label,
-      total: Math.round(fal * 100) / 100,
-      faltanteNeto: Math.round(falNeto * 100) / 100,
+      total: netoR,
+      faltanteNeto: netoR,
+      faltante: Math.round(fal * 100) / 100,
       totalInventario: Math.round(tot * 100) / 100,
-      bonificacion: Math.round(bon * 100) / 100,
+      bonificacion: bonR,
       pctMerma: Number.isFinite(pctMerma) ? pctMerma : null,
       desde: reg.desde,
       hasta: reg.hasta,
     });
     g.totalFaltante += fal;
+    g.totalFaltanteNeto += falNeto;
+    g.totalBonificacion += bon;
     g.totalInventario += tot;
   }
 
@@ -766,12 +791,14 @@ export function desgloseCapturasManualesPorSucursal(registros = [], tiendasCatal
         sucursal: g.sucursal,
         tienda: g.tienda,
         totalFaltante: Math.round(g.totalFaltante * 100) / 100,
+        totalFaltanteNeto: Math.round(g.totalFaltanteNeto * 100) / 100,
+        totalBonificacion: Math.round(g.totalBonificacion * 100) / 100,
         totalInventario: Math.round(g.totalInventario * 100) / 100,
         items: withPct,
       };
     })
     .sort((a, b) => {
-      if (b.totalFaltante !== a.totalFaltante) return b.totalFaltante - a.totalFaltante;
+      if (b.totalFaltanteNeto !== a.totalFaltanteNeto) return b.totalFaltanteNeto - a.totalFaltanteNeto;
       return a.sucursal.localeCompare(b.sucursal, 'es', { numeric: true });
     });
 }
