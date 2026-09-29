@@ -11,7 +11,13 @@
  *
  * Persistencia: localStorage + nube pos_resultados_inventario.
  */
-import { normalizarCodigoTienda } from '../constants/sucursales.js';
+import {
+  esSucursalNoVenta,
+  etiquetaTienda,
+  listarSucursalesOperativas,
+  normalizarCodigoTienda,
+} from '../constants/sucursales.js';
+import { COLORES_TIENDA } from './estadisticasData.js';
 
 export const LS_RESULTADO_INV_PREFIX = 'pos3b_resultado_inv_';
 export const EVENTO_RESULTADO_INVENTARIO = 'pos3b-resultado-inventario-updated';
@@ -609,6 +615,165 @@ export async function listarResultadosInventario(supabase, { desde = null, hasta
     aviso,
     sinTabla,
   };
+}
+
+function seedTiendasManuales(tiendasCatalogo = []) {
+  const catalogo = Array.isArray(tiendasCatalogo) && tiendasCatalogo.length
+    ? tiendasCatalogo
+    : listarSucursalesOperativas();
+  const map = new Map();
+  for (const s of catalogo) {
+    const suc = normalizarCodigoTienda(s);
+    if (!suc || esSucursalNoVenta(suc)) continue;
+    map.set(suc, {
+      sucursal: suc,
+      tienda: etiquetaTienda(suc),
+      faltante: 0,
+      faltanteNeto: 0,
+      totalInventario: 0,
+      bonificacion: 0,
+      capturas: 0,
+    });
+  }
+  return map;
+}
+
+/**
+ * Pareto entre sucursales usando SOLO capturas manuales del auditor
+ * (campo 2 faltante / faltante neto). No usa conteos del sistema.
+ */
+export function paretoDesdeCapturasManuales(registros = [], tiendasCatalogo = []) {
+  const map = seedTiendasManuales(tiendasCatalogo);
+
+  for (const reg of registros || []) {
+    const suc = normalizarCodigoTienda(reg.sucursal_id);
+    if (!suc || esSucursalNoVenta(suc)) continue;
+    if (!map.has(suc)) {
+      map.set(suc, {
+        sucursal: suc,
+        tienda: etiquetaTienda(suc),
+        faltante: 0,
+        faltanteNeto: 0,
+        totalInventario: 0,
+        bonificacion: 0,
+        capturas: 0,
+      });
+    }
+    const row = map.get(suc);
+    const fal = Number(reg.valor_faltante);
+    const falNeto = Number(reg.valor_faltante_neto ?? reg.valor_faltante);
+    const tot = Number(reg.valor_contado ?? reg.total_inventario);
+    const bon = Number(reg.valor_bonificacion) || 0;
+    if (Number.isFinite(fal) && fal > 0) row.faltante += fal;
+    if (Number.isFinite(falNeto) && falNeto > 0) row.faltanteNeto += falNeto;
+    if (Number.isFinite(tot) && tot > 0) row.totalInventario += tot;
+    if (bon > 0) row.bonificacion += bon;
+    row.capturas += 1;
+  }
+
+  const list = [...map.values()].sort((a, b) => {
+    if (b.faltante !== a.faltante) return b.faltante - a.faltante;
+    return a.sucursal.localeCompare(b.sucursal, 'es', { numeric: true });
+  });
+  const sumPos = list.reduce((a, x) => a + (x.faltante > 0 ? x.faltante : 0), 0);
+  const sum = sumPos || 1;
+  let acum = 0;
+  return list.map((x, i) => {
+    acum += x.faltante > 0 ? x.faltante : 0;
+    const pctMerma = x.totalInventario > 0
+      ? Math.round((x.faltanteNeto / x.totalInventario) * 10000) / 100
+      : x.faltanteNeto > 0
+        ? 100
+        : 0;
+    return {
+      id: x.sucursal,
+      label: x.tienda,
+      sucursal: x.sucursal,
+      total: Math.round(x.faltante * 100) / 100,
+      faltanteNeto: Math.round(x.faltanteNeto * 100) / 100,
+      totalInventario: Math.round(x.totalInventario * 100) / 100,
+      bonificacion: Math.round(x.bonificacion * 100) / 100,
+      pctMerma,
+      capturas: x.capturas,
+      pct: x.faltante > 0 ? (x.faltante / sum) * 100 : 0,
+      acumPct: sumPos > 0 ? (acum / sum) * 100 : 0,
+      color: COLORES_TIENDA[i % COLORES_TIENDA.length],
+      fuente: x.capturas > 0 ? 'manual' : 'sin_datos',
+    };
+  });
+}
+
+/**
+ * Por sucursal: columnas = cada captura manual del auditor en el periodo
+ * (faltante $). Incluye tiendas sin capturas (vacías).
+ */
+export function desgloseCapturasManualesPorSucursal(registros = [], tiendasCatalogo = []) {
+  const porSuc = seedTiendasManuales(tiendasCatalogo);
+  const itemsPorSuc = new Map();
+  for (const [suc, base] of porSuc) {
+    itemsPorSuc.set(suc, { sucursal: suc, tienda: base.tienda, items: [], totalFaltante: 0, totalInventario: 0 });
+  }
+
+  for (const reg of registros || []) {
+    const suc = normalizarCodigoTienda(reg.sucursal_id);
+    if (!suc || esSucursalNoVenta(suc)) continue;
+    if (!itemsPorSuc.has(suc)) {
+      itemsPorSuc.set(suc, {
+        sucursal: suc,
+        tienda: etiquetaTienda(suc),
+        items: [],
+        totalFaltante: 0,
+        totalInventario: 0,
+      });
+    }
+    const g = itemsPorSuc.get(suc);
+    const fal = Number(reg.valor_faltante) || 0;
+    const falNeto = Number(reg.valor_faltante_neto ?? reg.valor_faltante) || 0;
+    const tot = Number(reg.valor_contado ?? reg.total_inventario) || 0;
+    const bon = Number(reg.valor_bonificacion) || 0;
+    const pctMerma = Number(reg.pct_merma);
+    const label = `${reg.desde || '?'} → ${reg.hasta || '?'}`;
+    g.items.push({
+      id: `${suc}_${reg.desde}_${reg.hasta}_${reg.updated_at || ''}`,
+      label,
+      total: Math.round(fal * 100) / 100,
+      faltanteNeto: Math.round(falNeto * 100) / 100,
+      totalInventario: Math.round(tot * 100) / 100,
+      bonificacion: Math.round(bon * 100) / 100,
+      pctMerma: Number.isFinite(pctMerma) ? pctMerma : null,
+      desde: reg.desde,
+      hasta: reg.hasta,
+    });
+    g.totalFaltante += fal;
+    g.totalInventario += tot;
+  }
+
+  return [...itemsPorSuc.values()]
+    .map((g) => {
+      const items = [...g.items].sort((a, b) => String(b.desde || '').localeCompare(String(a.desde || '')));
+      const sum = items.reduce((a, x) => a + (x.total > 0 ? x.total : 0), 0) || 1;
+      let acum = 0;
+      const withPct = items.map((x, i) => {
+        acum += x.total > 0 ? x.total : 0;
+        return {
+          ...x,
+          pct: x.total > 0 ? (x.total / sum) * 100 : 0,
+          acumPct: (acum / sum) * 100,
+          color: COLORES_TIENDA[i % COLORES_TIENDA.length],
+        };
+      });
+      return {
+        sucursal: g.sucursal,
+        tienda: g.tienda,
+        totalFaltante: Math.round(g.totalFaltante * 100) / 100,
+        totalInventario: Math.round(g.totalInventario * 100) / 100,
+        items: withPct,
+      };
+    })
+    .sort((a, b) => {
+      if (b.totalFaltante !== a.totalFaltante) return b.totalFaltante - a.totalFaltante;
+      return a.sucursal.localeCompare(b.sucursal, 'es', { numeric: true });
+    });
 }
 
 /**

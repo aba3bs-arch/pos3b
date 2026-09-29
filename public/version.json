@@ -1,20 +1,20 @@
 {
   "version": "1.1.0",
-  "buildId": "95d5a65",
-  "branch": "cursor/graficas-force-deploy-version-682d",
-  "builtAt": "2026-09-29T22:00:29.857Z",
-  "title": "Gráficas de inventario (Pareto)",
-  "summary": "Reportes → Gráficas ya no usa carta X̄–R. Ahora es Pareto de faltante entre todas las sucursales (sin elegir tienda). Hay que redesplegar / regenerar el build; Ctrl+F5 solo no basta si el servidor sigue con el JS viejo.",
+  "buildId": "cc33410",
+  "branch": "cursor/graficas-inventario-datos-manual-682d",
+  "builtAt": "2026-09-29T22:13:01.495Z",
+  "title": "Gráficas con captura manual del auditor",
+  "summary": "Reportes → Gráficas usa solo el faltante/total que captura el auditor (bono), no los conteos del sistema. Pareto entre todas las tiendas.",
   "changes": [
-    "Gráficas: Pareto entre todas las sucursales (sin selector de tienda)",
-    "Se eliminó la carta X̄–R que no se veía bien",
-    "Una gráfica Pareto por tienda (faltante por departamento)",
-    "Build id visible en la pantalla de Gráficas para confirmar la versión",
+    "Gráficas: solo datos manuales del auditor (campo 1 y 2)",
+    "Pareto entre sucursales por faltante capturado",
+    "Por tienda: cada captura guardada como columna",
+    "Ya no se mezclan faltantes del conteo del sistema",
+    "feat(reportes): gráficas Pareto solo con captura manual del auditor",
+    "chore(app): version.json build 95d5a65",
     "chore(app): release notes y badge de build en Gráficas Pareto",
     "chore(app): forzar aviso de update por gráficas Pareto",
     "fix(reportes): aclarar gráficas Pareto sin selector de tienda",
-    "fix(reportes): quitar XR y Pareto de todas las sucursales",
-    "feat(reportes): gráficas XR y Pareto vertical por sucursal",
-    "feat(estadisticas): botón Ver en KPIs con detalle flotante"
+    "fix(reportes): quitar XR y Pareto de todas las sucursales"
   ]
 }
