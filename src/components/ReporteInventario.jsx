@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import FiltroPeriodo from './FiltroPeriodo.jsx';
 import { BtnLabel } from './Icon.jsx';
 import PortalFlotante from './PortalFlotante.jsx';
+import GraficasInventarioReporte from './GraficasInventarioReporte.jsx';
 import { imprimirReporte } from '../lib/impresion.js';
 import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
 import { etiquetaDepartamento } from '../lib/departamentos.js';
@@ -238,7 +239,9 @@ export default function ReporteInventario({
   user,
   cargarDatos,
 }) {
-  const [abierto, setAbierto] = useState(false);
+  /** cerrado | reporte | graficas */
+  const [vista, setVista] = useState('cerrado');
+  const abierto = vista === 'reporte';
   const [preset, setPreset] = useState('mes');
   const [desde, setDesde] = useState(() => new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10));
   const [hasta, setHasta] = useState(() => new Date().toISOString().slice(0, 10));
@@ -761,17 +764,33 @@ export default function ReporteInventario({
 
   const imprimirTodos = () => imprimirLineas(lineasProducto, 'Todos los artículos contados');
 
-  if (!abierto) {
+  if (vista === 'cerrado') {
     return (
       <div className="card">
         <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>Inventario (auditoría)</h3>
         <p className="muted" style={{ marginTop: 0 }}>
           Detalle por departamento y captura manual (total + faltante) para calcular merma del bono.
         </p>
-        <button type="button" className="btn btn-primary" onClick={() => setAbierto(true)}>
-          <BtnLabel icon="chart">Reporte de inventario</BtnLabel>
-        </button>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
+          <button type="button" className="btn btn-primary" onClick={() => setVista('reporte')}>
+            <BtnLabel icon="chart">Reporte de inventario</BtnLabel>
+          </button>
+          <button type="button" className="btn btn-gold" onClick={() => setVista('graficas')}>
+            <BtnLabel icon="chart">Gráficas</BtnLabel>
+          </button>
+        </div>
       </div>
+    );
+  }
+
+  if (vista === 'graficas') {
+    return (
+      <GraficasInventarioReporte
+        supabase={supabase}
+        inventario={inventario}
+        inventarioCompleto={inventarioCompleto}
+        onCerrar={() => setVista('cerrado')}
+      />
     );
   }
 
@@ -786,7 +805,7 @@ export default function ReporteInventario({
             {loading ? ' Cargando…' : ''}
           </p>
         </div>
-        <button type="button" className="btn btn-ghost" onClick={() => setAbierto(false)}>
+        <button type="button" className="btn btn-ghost" onClick={() => setVista('cerrado')}>
           Cerrar
         </button>
       </div>

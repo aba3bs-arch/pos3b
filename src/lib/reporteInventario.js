@@ -852,6 +852,180 @@ export function paretoMermaPorSemana(filas = []) {
   return { pareto, cronologico };
 }
 
+/** Constantes SPC para carta X̄–R (tamaño de subgrupo n). */
+const SPC_XR = {
+  2: { A2: 1.88, D3: 0, D4: 3.267 },
+  3: { A2: 1.023, D3: 0, D4: 2.574 },
+  4: { A2: 0.729, D3: 0, D4: 2.282 },
+  5: { A2: 0.577, D3: 0, D4: 2.114 },
+  6: { A2: 0.483, D3: 0, D4: 2.004 },
+  7: { A2: 0.419, D3: 0.076, D4: 1.924 },
+  8: { A2: 0.373, D3: 0.136, D4: 1.864 },
+  9: { A2: 0.337, D3: 0.184, D4: 1.816 },
+  10: { A2: 0.308, D3: 0.223, D4: 1.777 },
+  11: { A2: 0.285, D3: 0.256, D4: 1.744 },
+  12: { A2: 0.266, D3: 0.283, D4: 1.717 },
+  13: { A2: 0.249, D3: 0.307, D4: 1.693 },
+  14: { A2: 0.235, D3: 0.328, D4: 1.672 },
+  15: { A2: 0.223, D3: 0.347, D4: 1.653 },
+};
+
+function constantesSpcXR(n) {
+  const k = Math.max(2, Math.min(15, Math.round(Number(n) || 2)));
+  return SPC_XR[k] || SPC_XR[2];
+}
+
+/**
+ * Carta X̄–R de % merma: cada semana es un subgrupo con una observación por sucursal.
+ * Incluye todas las sucursales con conteo en esa semana.
+ */
+export function construirCartaXRInventario(filas = []) {
+  const porSemana = {};
+  for (const f of filas || []) {
+    const k = bucketKey(f.created_at, 'semana');
+    const suc = normalizarCodigoTienda(f.sucursal);
+    if (!k || !suc || suc === '—') continue;
+    if (!porSemana[k]) porSemana[k] = {};
+    if (!porSemana[k][suc]) {
+      porSemana[k][suc] = { merma: 0, operativo: 0, conteos: 0 };
+    }
+    porSemana[k][suc].merma += Number(f.merma) || 0;
+    porSemana[k][suc].operativo += Number(f.inventarioOperativo) || 0;
+    porSemana[k][suc].conteos += 1;
+  }
+
+  const puntos = Object.keys(porSemana)
+    .sort()
+    .map((key) => {
+      const vals = Object.entries(porSemana[key]).map(([suc, v]) => {
+        const pct = v.operativo > 0 ? (v.merma / v.operativo) * 100 : v.merma > 0 ? 100 : 0;
+        return {
+          sucursal: suc,
+          tienda: etiquetaTienda(suc),
+          pctMerma: Math.round(pct * 100) / 100,
+          merma: Math.round(v.merma * 100) / 100,
+        };
+      });
+      const pcts = vals.map((v) => v.pctMerma);
+      const n = pcts.length;
+      const xbar = n ? pcts.reduce((a, x) => a + x, 0) / n : 0;
+      const r = n > 1 ? Math.max(...pcts) - Math.min(...pcts) : 0;
+      return {
+        key,
+        label: etiquetaBucket(key, 'semana'),
+        n,
+        xbar: Math.round(xbar * 100) / 100,
+        r: Math.round(r * 100) / 100,
+        sucursales: vals.sort((a, b) => b.pctMerma - a.pctMerma),
+      };
+    })
+    .filter((p) => p.n > 0);
+
+  if (!puntos.length) {
+    return {
+      puntos: [],
+      xBarBar: 0,
+      rBar: 0,
+      uclX: 0,
+      lclX: 0,
+      uclR: 0,
+      lclR: 0,
+      nPromedio: 0,
+    };
+  }
+
+  const conRango = puntos.filter((p) => p.n >= 2);
+  const xBarBar = puntos.reduce((a, p) => a + p.xbar, 0) / puntos.length;
+  const rBar = conRango.length
+    ? conRango.reduce((a, p) => a + p.r, 0) / conRango.length
+    : 0;
+  const nPromedio = Math.round(
+    puntos.reduce((a, p) => a + p.n, 0) / puntos.length,
+  );
+  const c = constantesSpcXR(Math.max(2, nPromedio));
+  const uclX = xBarBar + c.A2 * rBar;
+  const lclX = Math.max(0, xBarBar - c.A2 * rBar);
+  const uclR = c.D4 * rBar;
+  const lclR = c.D3 * rBar;
+
+  return {
+    puntos: puntos.map((p) => {
+      const ci = constantesSpcXR(Math.max(2, p.n));
+      return {
+        ...p,
+        uclX: xBarBar + ci.A2 * rBar,
+        lclX: Math.max(0, xBarBar - ci.A2 * rBar),
+        uclR: ci.D4 * rBar,
+        lclR: ci.D3 * rBar,
+        fueraX: p.xbar > xBarBar + ci.A2 * rBar || p.xbar < Math.max(0, xBarBar - ci.A2 * rBar),
+        fueraR: p.n >= 2 && (p.r > ci.D4 * rBar || p.r < ci.D3 * rBar),
+      };
+    }),
+    xBarBar: Math.round(xBarBar * 100) / 100,
+    rBar: Math.round(rBar * 100) / 100,
+    uclX: Math.round(uclX * 100) / 100,
+    lclX: Math.round(lclX * 100) / 100,
+    uclR: Math.round(uclR * 100) / 100,
+    lclR: Math.round(lclR * 100) / 100,
+    nPromedio,
+  };
+}
+
+/**
+ * Pareto de faltante ($) por departamento, una serie por sucursal.
+ * Orden: sucursales numéricas; dentro, departamentos de mayor a menor faltante.
+ */
+export function paretoMermaPorDepartamentoPorSucursal(lineas = []) {
+  const porSuc = new Map();
+  for (const l of lineas || []) {
+    const suc = normalizarCodigoTienda(l.sucursal);
+    if (!suc || suc === '—') continue;
+    const dif = Number(l.diferencia);
+    if (!(dif < 0)) continue;
+    const valor = Number(l.valorDiferencia) || 0;
+    if (valor <= 0) continue;
+    const deptKey = l.departamentoKey || 'GENERAL';
+    const deptLabel = l.departamento || etiquetaDepartamento(deptKey);
+    if (!porSuc.has(suc)) {
+      porSuc.set(suc, { sucursal: suc, tienda: etiquetaTienda(suc), map: new Map() });
+    }
+    const g = porSuc.get(suc);
+    const prev = g.map.get(deptKey) || { id: deptKey, label: deptLabel, total: 0, piezas: 0 };
+    prev.total += valor;
+    prev.piezas += Math.abs(dif);
+    g.map.set(deptKey, prev);
+  }
+
+  return [...porSuc.values()]
+    .map((g) => {
+      const list = [...g.map.values()].sort((a, b) => b.total - a.total);
+      const sum = list.reduce((a, x) => a + x.total, 0) || 1;
+      let acum = 0;
+      const items = list.map((x, i) => {
+        acum += x.total;
+        return {
+          ...x,
+          total: Math.round(x.total * 100) / 100,
+          pct: (x.total / sum) * 100,
+          acumPct: (acum / sum) * 100,
+          color: COLORES_TIENDA[i % COLORES_TIENDA.length],
+        };
+      });
+      return {
+        sucursal: g.sucursal,
+        tienda: g.tienda,
+        totalFaltante: Math.round(list.reduce((a, x) => a + x.total, 0) * 100) / 100,
+        items,
+      };
+    })
+    .filter((g) => g.items.length > 0)
+    .sort((a, b) => {
+      if (a.sucursal === 'MAIN') return 1;
+      if (b.sucursal === 'MAIN') return -1;
+      return a.sucursal.localeCompare(b.sucursal, 'es', { numeric: true });
+    });
+}
+
 export function tiendasParaFiltroInventario(sucursalActual, sucursalesLista = null) {
   const set = new Set();
   const catalogo = Array.isArray(sucursalesLista) && sucursalesLista.length
