@@ -783,6 +783,24 @@ export function precioRutaEspecial(producto) {
   return null;
 }
 
+/**
+ * Precio de compra del catálogo (sin IVA) para comparar vs precio de ruta.
+ * No usa la regla «costo = precio ruta» de marcas Smoking/Marlboro.
+ */
+export function precioCompraCatalogo(producto) {
+  const sin = Number(producto?.precio_compra_sin);
+  if (Number.isFinite(sin) && sin > 0) return round2(sin);
+  const con = Number(producto?.precio_compra_con);
+  if (Number.isFinite(con) && con > 0) {
+    const imp = Number(producto?.impuesto);
+    const tasa = Number.isFinite(imp) && imp >= 0 ? imp : 8;
+    return round2(con / (1 + tasa / 100));
+  }
+  const costo = Number(producto?.costo);
+  if (Number.isFinite(costo) && costo > 0) return round2(costo);
+  return null;
+}
+
 /** @deprecated alias */
 export function precioCedisRuta(producto) {
   return precioRutaEspecial(producto);
