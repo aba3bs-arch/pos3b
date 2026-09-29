@@ -10,11 +10,15 @@ import PanelPurgaVentaEnRuta from '../components/PanelPurgaVentaEnRuta.jsx';
 import {
   AVISO_FALTA_VENTA_RUTA,
   NOMBRE_ALMACEN_RUTA,
+  buscarCargaAbiertaCamionRuta,
   cancelarCargaRuta,
   catalogoPosCamionDesdeLineas,
   crearCargaRuta,
+  devolverLineaCargaRuta,
+  disponibleEnLineaCarga,
   guardarClienteRuta,
   guardarPrecioRutaProducto,
+  lineasDeCarga,
   lineasDeVariasCargas,
   listarCargasRuta,
   listarClientesRuta,
@@ -203,8 +207,9 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
         )}
         <h2 style={{ margin: 0, color: COLOR }}>Venta en Ruta</h2>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-          {NOMBRE_ALMACEN_RUTA} → camión → POS. Efectivo a tránsito · Crédito lo paga el cajero con PIN ·
-          mercancía a la tienda por <strong>Compras</strong> (el cajero verifica y acepta el pedido).
+          {NOMBRE_ALMACEN_RUTA} → camión (una carga abierta) → POS con toda la mercancía del camión ·
+          Efectivo a RC Abarrotes · Crédito lo paga el cajero con PIN ·
+          mercancía a la tienda por <strong>Compras</strong>.
         </p>
       </div>
       {aviso && (
@@ -946,6 +951,11 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
   const [repartidorId, setRepartidorId] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [cargandoRep, setCargandoRep] = useState(true);
+  const [cargaAbierta, setCargaAbierta] = useState(null);
+  const [cargandoAbierta, setCargandoAbierta] = useState(false);
+  const [lineasCamion, setLineasCamion] = useState([]);
+  const [corrigiendoId, setCorrigiendoId] = useState('');
+  const [tickCamion, setTickCamion] = useState(0);
 
   useEffect(() => {
     if (!supabase) {
@@ -994,6 +1004,37 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
       || null;
   }, [recolectorSel, camionPorClave]);
 
+  useEffect(() => {
+    if (!supabase || !recolectorSel) {
+      setCargaAbierta(null);
+      setLineasCamion([]);
+      return undefined;
+    }
+    let cancel = false;
+    setCargandoAbierta(true);
+    const vendedorId = recolectorSel.usuario_id || recolectorSel.id;
+    (async () => {
+      const r = await buscarCargaAbiertaCamionRuta(supabase, {
+        camionId: camionSel?.id || null,
+        vendedorId,
+      });
+      if (cancel) return;
+      const carga = r.ok ? (r.carga || null) : null;
+      setCargaAbierta(carga);
+      if (carga?.id) {
+        const lin = await lineasDeCarga(supabase, carga.id);
+        if (cancel) return;
+        setLineasCamion(lin.data || []);
+      } else {
+        setLineasCamion([]);
+      }
+      setCargandoAbierta(false);
+    })();
+    return () => { cancel = true; };
+  }, [supabase, recolectorSel, camionSel?.id, tickCamion]);
+
+  const refrescarCamion = () => setTickCamion((n) => n + 1);
+
   const agregar = () => {
     const { producto } = buscarProductoInventario(inventario, codigo);
     if (!producto) return alert('Producto no encontrado.');
@@ -1025,7 +1066,10 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     const etiqueta = camionSel
       ? `${etiquetaCamion(camionSel)} · ${recolectorSel.nombre}`
       : recolectorSel.nombre;
-    if (!confirm(`¿Cargar camión para ${etiqueta}? Se descuenta de ${NOMBRE_ALMACEN_RUTA}.`)) return;
+    const msg = cargaAbierta?.folio
+      ? `¿Sumar mercancía a la carga ${cargaAbierta.folio} de ${etiqueta}?\nSe descuenta de ${NOMBRE_ALMACEN_RUTA}. El POS verá todo el camión en esa misma carga.`
+      : `¿Abrir carga del camión para ${etiqueta}?\nSe descuenta de ${NOMBRE_ALMACEN_RUTA}. Las siguientes recargas se sumarán a esta misma carga.`;
+    if (!confirm(msg)) return;
     setGuardando(true);
     const r = await crearCargaRuta(supabase, {
       vendedorNombre: recolectorSel.nombre,
@@ -1046,20 +1090,61 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     }
     if (cargarDatos) void cargarDatos();
     const n = (r.patches || []).length;
+    setCargaAbierta(r.carga || null);
     alert(
-      `Carga ${r.carga?.folio || ''} creada para ${etiqueta}.\n`
-      + `Stock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.`,
+      r.reusada
+        ? `Mercancía sumada a la carga ${r.carga?.folio || ''}.\nStock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.`
+        : `Carga ${r.carga?.folio || ''} abierta para ${etiqueta}.\nStock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.\nLas siguientes recargas se sumarán a esta misma carga.`,
     );
     setLineas([]);
+    refrescarCamion();
   };
+
+  const devolverPiezas = async (lin, qtyDef = null) => {
+    if (!cargaAbierta?.id || !lin?.id) return;
+    const disp = disponibleEnLineaCarga(lin);
+    if (!(disp > 0)) return alert('No hay piezas disponibles para devolver.');
+    let qty = qtyDef;
+    if (qty == null) {
+      const raw = window.prompt(
+        `¿Cuántas piezas devolver a ${NOMBRE_ALMACEN_RUTA}?\n${lin.producto_nombre || lin.producto_id}\nDisponible en camión: ${disp}`,
+        String(disp),
+      );
+      if (raw == null) return;
+      qty = Math.floor(Number(raw) || 0);
+    }
+    if (!(qty > 0)) return alert('Cantidad inválida.');
+    if (qty > disp) return alert(`Solo hay ${disp} disponible.`);
+    if (!confirm(`¿Devolver ${qty} de «${lin.producto_nombre || lin.producto_id}» a ${NOMBRE_ALMACEN_RUTA}?`)) return;
+    setCorrigiendoId(lin.id);
+    const r = await devolverLineaCargaRuta(supabase, {
+      cargaId: cargaAbierta.id,
+      lineaId: lin.id,
+      cantidad: qty,
+      usuarioNombre: user?.nombre,
+      rol: user?.rol,
+      userId: user?.id,
+    });
+    setCorrigiendoId('');
+    if (!r.ok) return alert(r.error);
+    if (r.patchProducto?.id) fusionarProducto?.(r.patchProducto);
+    if (cargarDatos) void cargarDatos();
+    refrescarCamion();
+  };
+
+  const lineasCamionVisibles = useMemo(
+    () => (lineasCamion || []).filter((l) => disponibleEnLineaCarga(l) > 0 || (Number(l.qty_vendida) || 0) > 0),
+    [lineasCamion],
+  );
 
   return (
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Carga de camión</h3>
       <p className="muted" style={{ fontSize: '0.8rem' }}>
         Elige un <strong>recolector / repartidor</strong> del Panel RT.
-        Los que agregues en Panel RT → Recolectores aparecen aquí automáticamente.
-        Si tiene camión asignado, se registra en la carga. Se descuenta de {NOMBRE_ALMACEN_RUTA}.
+        Toda la mercancía del camión vive en <strong>una sola carga abierta</strong>
+        (al recargar se suma a la misma). Si te equivocas, puedes <strong>devolver piezas a CEDIS</strong> abajo
+        o cancelar toda la carga en Consultas (solo si no hay ventas).
       </p>
       <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
         Recolector / repartidor
@@ -1083,11 +1168,25 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
         </select>
       </label>
       {recolectorSel && (
-        <p style={{ margin: '0 0 0.65rem', fontSize: '0.85rem' }}>
+        <p style={{ margin: '0 0 0.35rem', fontSize: '0.85rem' }}>
           {camionSel ? (
             <>Camión asignado: <strong>{etiquetaCamion(camionSel)}</strong></>
           ) : (
             <span className="muted">Sin camión asignado — créalo en «Camiones» y asígnalo a este recolector.</span>
+          )}
+        </p>
+      )}
+      {recolectorSel && (
+        <p style={{ margin: '0 0 0.65rem', fontSize: '0.85rem' }}>
+          {cargandoAbierta ? (
+            <span className="muted">Buscando carga abierta…</span>
+          ) : cargaAbierta?.folio ? (
+            <>
+              Carga abierta: <strong>{cargaAbierta.folio}</strong>
+              <span className="muted"> — lo que agregues se suma aquí</span>
+            </>
+          ) : (
+            <span className="muted">Sin carga abierta — se creará una al confirmar.</span>
           )}
         </p>
       )}
@@ -1096,12 +1195,67 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
           No hay recolectores activos en Panel RT. Agrégalos en Contabilidad → Panel RT → Recolectores.
         </p>
       )}
+
+      {cargaAbierta?.id && lineasCamionVisibles.length > 0 && (
+        <div style={{ marginBottom: '1rem' }}>
+          <h4 style={{ margin: '0 0 0.35rem', fontSize: '0.95rem' }}>En el camión ahora</h4>
+          <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.78rem' }}>
+            Devolver = corrige un error de carga (regresa a {NOMBRE_ALMACEN_RUTA}). No puedes bajar de lo ya vendido.
+          </p>
+          <table className="consultas-table">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Cargada</th>
+                <th>Vendida</th>
+                <th>Disp.</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {lineasCamionVisibles.map((l) => {
+                const disp = disponibleEnLineaCarga(l);
+                return (
+                  <tr key={l.id}>
+                    <td>{l.producto_nombre || l.producto_id}</td>
+                    <td>{fmtQty(l.qty_cargada)}</td>
+                    <td>{fmtQty(l.qty_vendida)}</td>
+                    <td>{fmtQty(disp)}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.78rem' }}
+                        disabled={corrigiendoId === l.id || !(disp > 0)}
+                        onClick={() => void devolverPiezas(l)}
+                      >
+                        {corrigiendoId === l.id ? '…' : 'Devolver'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.78rem', color: '#b91c1c' }}
+                        disabled={corrigiendoId === l.id || !(disp > 0) || (Number(l.qty_vendida) || 0) > 0}
+                        title={(Number(l.qty_vendida) || 0) > 0 ? 'Hay ventas: usa Devolver (solo lo disponible)' : 'Quitar producto del camión'}
+                        onClick={() => void devolverPiezas(l, disp)}
+                      >
+                        Quitar
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
         <input className="input" style={{ flex: 1, minWidth: 140 }} value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Código / escanear" onKeyDown={(e) => e.key === 'Enter' && agregar()} />
         <input className="input" type="number" min="1" value={qty} onChange={(e) => setQty(e.target.value)} style={{ width: 80 }} />
         <button type="button" className="btn btn-primary" onClick={agregar}>Agregar</button>
       </div>
-      {lineas.length === 0 ? <p className="muted">Sin líneas.</p> : (
+      {lineas.length === 0 ? <p className="muted">Sin líneas nuevas.</p> : (
         <table className="consultas-table">
           <thead><tr><th>Producto</th><th>Cant</th><th>P. ruta</th><th /></tr></thead>
           <tbody>
@@ -1119,7 +1273,7 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
         </table>
       )}
       <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} disabled={guardando || !lineas.length || !repartidorId} onClick={() => void crear()}>
-        Crear carga y descontar CEDIS
+        {cargaAbierta?.folio ? 'Sumar a carga y descontar CEDIS' : 'Abrir carga y descontar CEDIS'}
       </button>
     </div>
   );
