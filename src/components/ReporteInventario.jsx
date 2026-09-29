@@ -770,6 +770,7 @@ export default function ReporteInventario({
         <h3 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>Inventario (auditoría)</h3>
         <p className="muted" style={{ marginTop: 0 }}>
           Detalle por departamento y captura manual (total + faltante) para calcular merma del bono.
+          <strong> Gráficas</strong> compara el faltante de todas las tiendas (sin elegir sucursal).
         </p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center' }}>
           <button type="button" className="btn btn-primary" onClick={() => setVista('reporte')}>
@@ -789,7 +790,6 @@ export default function ReporteInventario({
         supabase={supabase}
         inventario={inventario}
         inventarioCompleto={inventarioCompleto}
-        sucursal={sucursal}
         sucursalesLista={sucursalesLista}
         onCerrar={() => setVista('cerrado')}
       />

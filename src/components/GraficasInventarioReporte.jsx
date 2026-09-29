@@ -2,15 +2,19 @@ import React, { useEffect, useMemo, useState } from 'react';
 import FiltroPeriodo from './FiltroPeriodo.jsx';
 import { BtnLabel } from './Icon.jsx';
 import {
+  esSucursalNoVenta,
+  etiquetaTienda,
+  listarSucursalesOperativas,
+  normalizarCodigoTienda,
+} from '../constants/sucursales.js';
+import {
   PRESETS_REPORTE_INVENTARIO,
   cargarFilasReporteInventarioAsync,
   fmtMxnReporte,
   paretoComparativoPorSucursal,
   paretoMermaPorDepartamentoPorSucursal,
-  tiendasParaFiltroInventario,
 } from '../lib/reporteInventario.js';
 import { listarResultadosInventario } from '../lib/resultadoInventario.js';
-import { esSucursalNoVenta } from '../constants/sucursales.js';
 
 /** Pareto en columnas verticales (barras hacia arriba). */
 function ParetoColumnas({ items, empty = 'Sin datos.', mostrarCero = false }) {
@@ -82,13 +86,13 @@ function ParetoColumnas({ items, empty = 'Sin datos.', mostrarCero = false }) {
 }
 
 /**
- * Gráficas de inventario: Pareto comparativo entre sucursales + Pareto por depto en cada tienda.
+ * Gráficas de inventario: siempre todas las sucursales (sin selector de tienda).
+ * Pareto comparativo + Pareto por departamento en cada tienda.
  */
 export default function GraficasInventarioReporte({
   supabase,
   inventario,
   inventarioCompleto,
-  sucursal,
   sucursalesLista,
   onCerrar,
 }) {
@@ -103,17 +107,22 @@ export default function GraficasInventarioReporte({
 
   const catalogo = inventarioCompleto?.length ? inventarioCompleto : inventario;
 
+  /** Catálogo completo de tiendas de venta — no depende de la caja donde estés logueado. */
   const tiendasCatalogo = useMemo(() => {
-    const base = tiendasParaFiltroInventario(sucursal, sucursalesLista)
-      .filter((s) => !esSucursalNoVenta(s));
-    return base;
-  }, [sucursal, sucursalesLista]);
+    const set = new Set(listarSucursalesOperativas());
+    for (const s of sucursalesLista || []) {
+      const n = normalizarCodigoTienda(s);
+      if (n && !esSucursalNoVenta(n)) set.add(n);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, 'es', { numeric: true }));
+  }, [sucursalesLista]);
 
   useEffect(() => {
     let cancel = false;
     setLoading(true);
     (async () => {
       try {
+        // Siempre sin filtro de sucursal: MAIN o tienda ven el mismo comparativo.
         const res = await cargarFilasReporteInventarioAsync({
           supabase,
           inventario,
@@ -177,14 +186,29 @@ export default function GraficasInventarioReporte({
         <div>
           <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Gráficas de inventario</h3>
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-            Compara el faltante entre todas las sucursales y el desglose por departamento en cada tienda
-            (columnas verticales).
+            Sin selector de tienda: siempre se comparan <strong>todas</strong> las sucursales operativas
+            (da igual si entras desde MAIN o desde una caja). Solo eliges el periodo.
             {loading ? ' Cargando…' : ''}
           </p>
         </div>
         <button type="button" className="btn btn-ghost" onClick={onCerrar}>
           Cerrar
         </button>
+      </div>
+
+      <div
+        style={{
+          background: 'rgba(59,105,181,0.08)',
+          border: '1px solid rgba(59,105,181,0.25)',
+          borderRadius: 8,
+          padding: '0.55rem 0.75rem',
+          fontSize: '0.8rem',
+        }}
+      >
+        <strong style={{ color: 'var(--brand-blue)' }}>Cómo leerlo:</strong>{' '}
+        arriba, barras de faltante $ de cada tienda (las grises = $0 en el periodo).
+        Abajo, una gráfica por tienda con el faltante por departamento.
+        Si una tienda no tiene conteos, puede usar la captura manual del bono.
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-end' }}>
@@ -201,18 +225,37 @@ export default function GraficasInventarioReporte({
         />
         <p className="muted" style={{ margin: 0, fontSize: '0.78rem' }}>
           {rango.desde && rango.hasta ? `${rango.desde} → ${rango.hasta}` : ''}
-          {` · ${paretoTodas.length} tiendas`}
-          {conFaltante ? ` · ${conFaltante} con faltante` : ''}
+          {` · ${paretoTodas.length} tiendas en gráfica`}
+          {` · ${conFaltante} con faltante`}
           {aviso ? ` · ${aviso}` : ''}
         </p>
       </div>
 
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
+        {tiendasCatalogo.map((s) => (
+          <span
+            key={s}
+            style={{
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              padding: '0.15rem 0.45rem',
+              borderRadius: 6,
+              background: 'var(--surface)',
+              border: '1px solid var(--border)',
+              color: 'var(--brand-blue)',
+            }}
+          >
+            {etiquetaTienda(s)}
+          </span>
+        ))}
+      </div>
+
       <div className="card" style={{ margin: 0, borderTop: '3px solid var(--brand-blue)' }}>
         <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
-          Pareto · faltante entre sucursales
+          1 · Pareto de faltante entre sucursales
         </h4>
         <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.78rem' }}>
-          Todas las tiendas operativas. Barras = faltante valorizado del periodo (conteos; si no hay, captura manual del bono).
+          Comparación directa: quién tiene más faltante valorizado en el periodo.
         </p>
         <ParetoColumnas
           items={paretoTodas}
@@ -223,10 +266,10 @@ export default function GraficasInventarioReporte({
 
       <div>
         <h4 style={{ margin: '0 0 0.35rem', color: 'var(--brand-blue)' }}>
-          Pareto por sucursal (columnas verticales)
+          2 · Pareto por sucursal (una debajo de otra)
         </h4>
         <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.78rem' }}>
-          Una gráfica debajo de otra para cada tienda. Barras = faltante por departamento.
+          En cada tienda: columnas = departamentos con faltante (mayor → menor).
         </p>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
           {paretosSucursal.map((g) => (
