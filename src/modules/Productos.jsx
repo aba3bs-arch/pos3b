@@ -4,9 +4,13 @@ import {
   PROVEEDOR_CEDIS_NOMBRE,
   aplicaFiltroCatalogoCedis,
   asegurarVinculosCatalogoCedis,
+  catCedisDesdeUi,
+  departamentoCedisUiDesdeCat,
+  esDepartamentoCatalogoCedis,
   filtrarInventarioCatalogoCedis,
   listarDepartamentosCatalogoCedis,
   departamentoFiltroCoincideCedis,
+  sincronizarDepartamentosCatalogoCedis,
 } from '../lib/catalogoCedis.js';
 import {
   COLUMNAS_CATALOGO,
@@ -221,9 +225,24 @@ export default function Productos({
   );
 
   const departamentos = useMemo(() => {
-    if (filtroCatalogoCedis) return listarDepartamentosCatalogoCedis();
+    if (filtroCatalogoCedis) return listarDepartamentosCatalogoCedis(inventarioVista);
     return listarDepartamentos(inventario);
-  }, [filtroCatalogoCedis, inventario, tickDepartamentos]);
+  }, [filtroCatalogoCedis, inventario, inventarioVista, tickDepartamentos]);
+
+  // CEDIS: fusionar departamentos propios desde la nube (tabla opcional).
+  useEffect(() => {
+    if (!filtroCatalogoCedis || !supabase) return;
+    let cancel = false;
+    (async () => {
+      const res = await sincronizarDepartamentosCatalogoCedis(supabase);
+      if (cancel) return;
+      if (res.aviso && !avisoCatalogoCedis) setAvisoCatalogoCedis(res.aviso);
+      setTickDepartamentos((n) => n + 1);
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [filtroCatalogoCedis, supabase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (vista === 'eliminar' && !puedeEliminarCatalogo) setVista('lista');
@@ -491,10 +510,21 @@ export default function Productos({
   const editar = (p) => {
     const formDb = productoDesdeDb(p);
     formDb.en_favoritos = productoEsFavorito(p, sucursal);
+    if (filtroCatalogoCedis) {
+      formDb.cat = departamentoCedisUiDesdeCat(formDb.cat) || formDb.cat || 'CIGARROS';
+    }
     setForm(formDb);
     setEsEdicionProducto(true);
     setProductoSelId(p.id);
     setVista('editar');
+  };
+
+  const abrirAltaProducto = () => {
+    const base = productoVacio();
+    if (filtroCatalogoCedis) base.cat = 'CIGARROS';
+    setForm(base);
+    setEsEdicionProducto(false);
+    setVista('alta');
   };
 
   const verHistorial = (p) => {
@@ -608,7 +638,13 @@ export default function Productos({
       const fresco = await leerProductoInventarioFresco(supabase, form.id.trim());
       if (fresco.ok) productoDb = fresco.producto;
     }
-    const payload = productoParaGuardar(form, { productoDb, sucursal });
+    const formGuardar = filtroCatalogoCedis
+      ? { ...form, cat: catCedisDesdeUi(form.cat) }
+      : form;
+    if (filtroCatalogoCedis && !esDepartamentoCatalogoCedis(formGuardar.cat)) {
+      return alert('En CEDIS elige un departamento del catálogo CEDIS (o crea uno nuevo).');
+    }
+    const payload = productoParaGuardar(formGuardar, { productoDb, sucursal });
     if (!payload.id || !payload.nombre) return alert('Código y nombre son obligatorios');
     const catalogo = inventarioCompleto || inventario || [];
     for (const alt of normalizarCodigosAlt(payload.codigos_alt)) {
@@ -924,7 +960,7 @@ export default function Productos({
 
   const menuItems = [
     ...(tieneAccionProducto('prod_alta', user?.rol, user?.id)
-      ? [{ id: 'alta', label: 'Nuevo producto', icon: 'plus', onClick: () => { setForm(empty); setEsEdicionProducto(false); setVista('alta'); } }]
+      ? [{ id: 'alta', label: 'Nuevo producto', icon: 'plus', onClick: abrirAltaProducto }]
       : []),
     ...(tieneAccionProducto('prod_ajuste', user?.rol, user?.id)
       ? [{ id: 'ajustes', label: 'Ajuste de inventario', icon: 'refresh', onClick: () => setModalAjusteOpen(true) }]
@@ -1209,11 +1245,7 @@ export default function Productos({
               <button
                 type="button"
                 className="btn btn-success prod-add-btn"
-                onClick={() => {
-                  setForm(empty);
-                  setEsEdicionProducto(false);
-                  setVista('alta');
-                }}
+                onClick={abrirAltaProducto}
                 title="Nuevo producto"
                 style={puedeGestionCatalogo ? undefined : { display: 'none' }}
                 disabled={!puedeGestionCatalogo}
@@ -1478,6 +1510,8 @@ export default function Productos({
             onEliminar={puedeEliminarCatalogo ? () => eliminar(form.id) : undefined}
             onLimpiar={irLista}
             sucursal={sucursal}
+            supabase={supabase}
+            modoCatalogoCedis={filtroCatalogoCedis}
           />
           {form.id.trim() && vista === 'editar' && (
             <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>

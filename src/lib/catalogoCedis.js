@@ -1,15 +1,17 @@
 /**
  * Catálogo visible en sucursal CEDIS (almacén).
- * No altera el catálogo global ni la vista de tiendas: solo filtra/enlaza
- * cuando la sesión opera en CEDIS.
+ * Departamentos propios de CEDIS (base + extras), independientes del menú de tiendas.
+ * No altera el catálogo global de tiendas: solo filtra/enlaza cuando la sesión opera en CEDIS.
  */
 
-import { normalizarDepartamento } from './departamentos.js';
+import { etiquetaDepartamento, normalizarDepartamento } from './departamentos.js';
 import { esAlmacenCentral } from '../constants/sucursales.js';
 
 export const PROVEEDOR_CEDIS_NOMBRE = 'CEDIS LAS 3B';
 
-/** Departamentos que el usuario quiere ver en CEDIS (nombres de negocio). */
+const LS_DEPTOS_CEDIS = 'pos3b_departamentos_cedis_extra';
+
+/** Departamentos base del catálogo CEDIS (nombres de negocio / UI). */
 export const DEPARTAMENTOS_CEDIS_UI = [
   'CIGARROS',
   'BLUNTWRAP',
@@ -20,10 +22,10 @@ export const DEPARTAMENTOS_CEDIS_UI = [
 ];
 
 /**
- * Valores reales (y alias) de `productos.cat` aceptados.
+ * Valores reales (y alias) de `productos.cat` aceptados en el núcleo CEDIS.
  * En producción «electronicos» vive como CIGARRO_ELECTRONICO.
  */
-const DEPTOS_CEDIS_SET = new Set([
+const DEPTOS_CEDIS_CORE = new Set([
   'CIGARROS',
   'BLUNTWRAP',
   'ELECTRONICOS',
@@ -42,6 +44,40 @@ const CAT_DB_A_UI = {
   CIGARRO_ELECTRONICO: 'ELECTRONICOS',
 };
 
+export const AVISO_FALTA_DEPTOS_CEDIS_SQL =
+  'Ejecuta supabase/fix_departamentos_cedis.sql en Supabase para sincronizar departamentos CEDIS entre cajas.';
+
+function faltaTablaDeptos(error) {
+  const msg = String(error?.message || error || '').toLowerCase();
+  return (
+    error?.code === '42P01'
+    || msg.includes('pos_departamentos_cedis')
+    || (msg.includes('schema cache') && msg.includes('departamento'))
+  );
+}
+
+function leerExtrasCedisLocal() {
+  try {
+    const raw = localStorage.getItem(LS_DEPTOS_CEDIS);
+    const arr = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(arr)) return [];
+    return arr.map(normalizarDepartamento).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function escribirExtrasCedisLocal(lista) {
+  const clean = [...new Set((lista || []).map(normalizarDepartamento).filter(Boolean))];
+  localStorage.setItem(LS_DEPTOS_CEDIS, JSON.stringify(clean));
+  return clean;
+}
+
+/** Extras CEDIS solo en este dispositivo (y los que vengan de nube se fusionan al cargar). */
+export function listarExtrasDepartamentosCedis() {
+  return leerExtrasCedisLocal().sort((a, b) => a.localeCompare(b, 'es'));
+}
+
 export function esProveedorCedisLas3b(nombreOrRow) {
   const nombre = typeof nombreOrRow === 'string' ? nombreOrRow : nombreOrRow?.nombre;
   return String(nombre || '').trim().toUpperCase() === PROVEEDOR_CEDIS_NOMBRE;
@@ -50,7 +86,10 @@ export function esProveedorCedisLas3b(nombreOrRow) {
 /** Valor de select UI a partir de cat en BD. */
 export function departamentoCedisUiDesdeCat(cat) {
   const n = normalizarDepartamento(cat);
-  return CAT_DB_A_UI[n] || (DEPARTAMENTOS_CEDIS_UI.includes(n) ? n : '');
+  if (!n) return '';
+  if (CAT_DB_A_UI[n]) return CAT_DB_A_UI[n];
+  const lista = listarDepartamentosCatalogoCedis();
+  return lista.includes(n) ? n : n;
 }
 
 /** Valor a guardar en productos / proveedor_catalogo.cat. */
@@ -63,9 +102,14 @@ export function aplicaFiltroCatalogoCedis(sucursal) {
   return esAlmacenCentral(sucursal);
 }
 
+/** ¿Este cat pertenece al catálogo CEDIS (núcleo o extra creado en CEDIS)? */
 export function esDepartamentoCatalogoCedis(cat) {
   const n = normalizarDepartamento(cat);
-  return DEPTOS_CEDIS_SET.has(n);
+  if (!n) return false;
+  if (DEPTOS_CEDIS_CORE.has(n)) return true;
+  if (CAT_DB_A_UI[n] && DEPTOS_CEDIS_CORE.has(CAT_DB_A_UI[n])) return true;
+  const extras = leerExtrasCedisLocal();
+  return extras.includes(n) || extras.includes(CAT_DB_A_UI[n] || '');
 }
 
 /** Coincide filtro UI (ELECTRONICOS) con cat real (CIGARRO_ELECTRONICO). */
@@ -74,12 +118,114 @@ export function departamentoFiltroCoincideCedis(catProducto, deptoFiltro) {
   if (!f) return true;
   const c = normalizarDepartamento(catProducto);
   if (f === 'ELECTRONICOS') return c === 'ELECTRONICOS' || c === 'CIGARRO_ELECTRONICO';
-  return c === f;
+  return c === f || c === catCedisDesdeUi(f);
 }
 
-/** Lista de depto para el selector en CEDIS (UI amigable). */
-export function listarDepartamentosCatalogoCedis() {
-  return [...DEPARTAMENTOS_CEDIS_UI];
+/**
+ * Lista de departamentos del catálogo CEDIS (UI).
+ * Base + extras locales + (opcional) cats presentes en inventario que ya son CEDIS.
+ */
+export function listarDepartamentosCatalogoCedis(inventario = null) {
+  const seen = new Set();
+  const out = [];
+  const add = (d) => {
+    const n = normalizarDepartamento(d);
+    if (!n || seen.has(n)) return;
+    // No listar el alias BD si ya está el UI
+    if (n === 'CIGARRO_ELECTRONICO') {
+      add('ELECTRONICOS');
+      return;
+    }
+    seen.add(n);
+    out.push(n);
+  };
+  for (const d of DEPARTAMENTOS_CEDIS_UI) add(d);
+  for (const d of leerExtrasCedisLocal()) add(d);
+  if (Array.isArray(inventario)) {
+    for (const p of inventario) {
+      if (esDepartamentoCatalogoCedis(p?.cat)) add(departamentoCedisUiDesdeCat(p.cat) || p.cat);
+    }
+  }
+  return out.sort((a, b) => a.localeCompare(b, 'es'));
+}
+
+/**
+ * Crea un departamento solo para CEDIS (no se agrega al menú global de tiendas).
+ * Persiste en localStorage y, si hay tabla, en la nube.
+ */
+export async function agregarDepartamentoCatalogoCedis(raw, supabase = null) {
+  const codigo = normalizarDepartamento(raw);
+  if (!codigo) return { ok: false, error: 'Escribe un nombre de departamento.' };
+  if (codigo.length > 32) return { ok: false, error: 'Máximo 32 caracteres.' };
+  if (codigo === 'FAVORITOS' || codigo === 'GENERAL') {
+    return { ok: false, error: 'Ese nombre está reservado.' };
+  }
+
+  const actuales = listarDepartamentosCatalogoCedis();
+  if (actuales.includes(codigo) || codigo === 'CIGARRO_ELECTRONICO') {
+    return { ok: false, error: 'Ese departamento ya existe en CEDIS.' };
+  }
+
+  const extras = leerExtrasCedisLocal();
+  if (!extras.includes(codigo)) {
+    extras.push(codigo);
+    escribirExtrasCedisLocal(extras);
+  }
+
+  let aviso = null;
+  if (supabase) {
+    try {
+      const { error } = await supabase.from('pos_departamentos_cedis').upsert(
+        {
+          codigo,
+          etiqueta: etiquetaDepartamento(codigo),
+          activo: true,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'codigo' },
+      );
+      if (error) {
+        if (faltaTablaDeptos(error)) aviso = AVISO_FALTA_DEPTOS_CEDIS_SQL;
+        else aviso = error.message;
+      }
+    } catch (e) {
+      aviso = e?.message || String(e);
+    }
+  }
+
+  return { ok: true, codigo, aviso };
+}
+
+/**
+ * Carga extras desde la nube y los fusiona con local.
+ * Los de la semilla (base) no se duplican como “extra”.
+ */
+export async function sincronizarDepartamentosCatalogoCedis(supabase) {
+  if (!supabase) {
+    return { ok: true, extras: listarExtrasDepartamentosCedis(), aviso: null };
+  }
+  try {
+    const { data, error } = await supabase
+      .from('pos_departamentos_cedis')
+      .select('codigo, activo')
+      .eq('activo', true)
+      .limit(500);
+    if (error) {
+      if (faltaTablaDeptos(error)) {
+        return { ok: true, extras: listarExtrasDepartamentosCedis(), aviso: AVISO_FALTA_DEPTOS_CEDIS_SQL };
+      }
+      return { ok: false, error: error.message, extras: listarExtrasDepartamentosCedis() };
+    }
+    const base = new Set(DEPARTAMENTOS_CEDIS_UI);
+    const fromNube = (data || [])
+      .map((r) => normalizarDepartamento(r.codigo))
+      .filter((c) => c && !base.has(c) && c !== 'CIGARRO_ELECTRONICO');
+    const merged = [...new Set([...leerExtrasCedisLocal(), ...fromNube])];
+    escribirExtrasCedisLocal(merged);
+    return { ok: true, extras: merged.sort((a, b) => a.localeCompare(b, 'es')), aviso: null };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e), extras: listarExtrasDepartamentosCedis() };
+  }
 }
 
 /**
@@ -131,7 +277,6 @@ export async function asegurarVinculosCatalogoCedis(supabase, inventario = []) {
     return { ok: true, proveedorId: proveedor.id, vinculados: 0, yaEstaban: 0 };
   }
 
-  // Traer todos los vínculos del proveedor (evita .in() gigante en la URL).
   const { data: existentes, error: eEx } = await supabase
     .from('proveedor_producto')
     .select('producto_id')
@@ -151,7 +296,6 @@ export async function asegurarVinculosCatalogoCedis(supabase, inventario = []) {
     sku_proveedor: null,
   }));
 
-  // Insert en lotes por si el catálogo crece
   const chunk = 200;
   let insertados = 0;
   for (let i = 0; i < rows.length; i += chunk) {
