@@ -12,6 +12,24 @@ import { puedeGestionarUsuarios } from '../lib/roles.js';
 
 const SECCIONES = [
   {
+    id: 'cedis-uso',
+    title: 'CEDIS: catálogo, stock y salidas',
+    body: (
+      <>
+        <p style={{ margin: '0 0 0.5rem' }}>
+          Tutorial con imágenes en el menú <strong>Tutorial</strong> → <em>CEDIS: catálogo, stock y salidas a tienda/ruta</em>.
+          {' '}También: en sucursal <strong>CEDIS</strong> → <strong>Productos → Ver tutorial CEDIS</strong>.
+        </p>
+        <ol style={{ margin: 0, paddingLeft: '1.2rem' }}>
+          <li>Login en <strong>CEDIS</strong> (no MAIN).</li>
+          <li><strong>Productos</strong>: catálogo propio + proveedor <strong>CEDIS LAS 3B</strong>.</li>
+          <li>Ingreso con ajuste o recepción de compras → stock de bodega.</li>
+          <li>Salida: <strong>Traspasos</strong> a tienda o <strong>Venta en Ruta → Carga de camión</strong>.</li>
+        </ol>
+      </>
+    ),
+  },
+  {
     id: 'reloj-empleados',
     title: 'Reloj checador de empleados',
     body: (

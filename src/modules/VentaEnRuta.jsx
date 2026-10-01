@@ -55,7 +55,7 @@ import {
 import { listarCreditosCobradosRuta } from '../lib/rutaCxc.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { fmtMonto } from '../lib/consultasUi.js';
-import { stockEnUbicacion, ALMACEN_CENTRAL } from '../lib/inventarioMultitienda.js';
+import { stockEnUbicacion, ALMACEN_CENTRAL, esAlmacenCentral } from '../lib/inventarioMultitienda.js';
 import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from '../lib/departamentos.js';
 import {
   departamentoFiltroCoincideCedis,
@@ -63,6 +63,8 @@ import {
 } from '../lib/catalogoCedis.js';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 import { esRolRepartidor, normalizarRol } from '../lib/roles.js';
+import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
+import { TUTORIAL_CEDIS } from '../content/tutorialCedis.js';
 import CorteRuta from './CorteRuta.jsx';
 import PreinventarioRuta from './PreinventarioRuta.jsx';
 import CobranzaRuta from './CobranzaRuta.jsx';
@@ -123,6 +125,8 @@ function esAdminOGerente(rol) {
 export default function VentaEnRuta({ supabase, user, inventario = [], onNavigate, sucursal, cargarDatos, fusionarProducto }) {
   const [vista, setVista] = useState('hub');
   const [aviso, setAviso] = useState('');
+  const [tutorialCedisAbierto, setTutorialCedisAbierto] = useState(false);
+  const enCedis = esAlmacenCentral(sucursal);
   const [vendedorSesion, setVendedorSesion] = useState(() => {
     if (esRolRepartidor(user?.rol) && user?.id) {
       return { id: user.id, nombre: user.nombre || user.email || 'Repartidor', rol: user.rol };
@@ -206,7 +210,19 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
             ← Venta en Ruta
           </button>
         )}
-        <h2 style={{ margin: 0, color: COLOR }}>Venta en Ruta</h2>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h2 style={{ margin: 0, color: COLOR }}>Venta en Ruta</h2>
+          {enCedis && vista === 'hub' && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ fontSize: '0.82rem' }}
+              onClick={() => setTutorialCedisAbierto(true)}
+            >
+              Ver tutorial CEDIS
+            </button>
+          )}
+        </div>
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
           {NOMBRE_ALMACEN_RUTA} → camión (una carga abierta) → POS con toda la mercancía del camión ·
           Efectivo a RC Abarrotes · Crédito lo paga el cajero con PIN ·
@@ -382,6 +398,12 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
           fusionarProducto={fusionarProducto}
         />
       )}
+
+      <VisorTutorialModal
+        abierto={tutorialCedisAbierto}
+        tutorial={TUTORIAL_CEDIS}
+        onCerrar={() => setTutorialCedisAbierto(false)}
+      />
     </div>
   );
 }

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#e8f0fa"/>
+      <stop offset="100%" stop-color="#f5f7fb"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0d47a1"/>
+      <stop offset="100%" stop-color="#1565c0"/>
+    </linearGradient>
+    <filter id="shadow" x="-5%" y="-5%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0d47a1" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="28" font-weight="700" fill="#0d47a1">4 · Proveedor CEDIS LAS 3B</text>
+  <text x="48" y="80" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">El catálogo del almacén se amarra a este proveedor</text>
+
+  <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="48" y="110" width="864" height="330" rx="16" fill="#fff"/>
+    <rect x="48" y="110" width="864" height="56" rx="16" fill="#0d47a1"/>
+    <rect x="48" y="148" width="864" height="18" fill="#0d47a1"/>
+    <text x="72" y="145" font-size="18" font-weight="700" fill="#fff">Proveedores · CEDIS LAS 3B</text>
+    <rect x="720" y="122" width="160" height="32" rx="8" fill="#c9a227"/>
+    <text x="800" y="143" text-anchor="middle" font-size="13" font-weight="700" fill="#3e2723">Proveedor CEDIS</text>
+
+    <text x="72" y="200" font-size="14" fill="#546e7a">Catálogo del distribuidor  cada ítem lleva departamento CEDIS</text>
+
+    <!-- mini form -->
+    <rect x="72" y="220" width="200" height="40" rx="8" fill="#f5f7fb" stroke="#cfd8dc"/>
+    <text x="88" y="245" font-size="13" fill="#90a4ae">Nombre producto</text>
+    <rect x="288" y="220" width="160" height="40" rx="8" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+    <text x="304" y="245" font-size="13" font-weight="600" fill="#0d47a1">CIGARROS ¾</text>
+    <rect x="464" y="220" width="140" height="40" rx="8" fill="#f5f7fb" stroke="#cfd8dc"/>
+    <text x="480" y="245" font-size="13" fill="#90a4ae">SKU / código</text>
+    <rect x="620" y="220" width="140" height="40" rx="8" fill="#2e7d32"/>
+    <text x="690" y="245" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Agregar ítem</text>
+
+    <!-- table -->
+    <text x="80" y="295" font-size="11" font-weight="700" fill="#90a4ae">PRODUCTO</text>
+    <text x="360" y="295" font-size="11" font-weight="700" fill="#90a4ae">DEPTO</text>
+    <text x="520" y="295" font-size="11" font-weight="700" fill="#90a4ae">CÓDIGO</text>
+    <text x="700" y="295" font-size="11" font-weight="700" fill="#90a4ae">INVENTARIO</text>
+    <line x1="72" y1="308" x2="880" y2="308" stroke="#eceff1"/>
+    <text x="80" y="340" font-size="14" font-weight="600" fill="#263238">Camel Blue</text>
+    <text x="360" y="340" font-size="13" fill="#1565c0">CIGARROS</text>
+    <text x="520" y="340" font-size="13" fill="#546e7a">750111222</text>
+    <text x="700" y="340" font-size="13" fill="#2e7d32">Vinculado </text>
+    <text x="80" y="375" font-size="14" font-weight="600" fill="#263238">Hoodie 3B Negra M</text>
+    <text x="360" y="375" font-size="13" fill="#1565c0">ROPA</text>
+    <text x="520" y="375" font-size="13" fill="#546e7a">890334455</text>
+    <text x="700" y="375" font-size="13" fill="#f9a825">Pendiente</text>
+
+    <rect x="72" y="395" width="800" height="30" rx="8" fill="#e8f5e9"/>
+    <text x="88" y="415" font-size="13" fill="#1b5e20">Tip: en CEDIS los productos del catálogo se vinculan solos a este proveedor</text>
+  </g>
+</svg>
