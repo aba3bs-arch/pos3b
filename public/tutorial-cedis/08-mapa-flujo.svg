@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#e8f0fa"/>
+      <stop offset="100%" stop-color="#f5f7fb"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0d47a1"/>
+      <stop offset="100%" stop-color="#1565c0"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#c9a227"/>
+      <stop offset="100%" stop-color="#e6c35c"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0d47a1" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="28" font-weight="700" fill="#0d47a1">8. Mapa del flujo CEDIS</text>
+  <text x="48" y="80" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">De la bodega a la tienda o al camion - de un vistazo</text>
+  <g font-family="Segoe UI,Arial,sans-serif" filter="url(#shadow)">
+    <rect x="40" y="120" width="200" height="120" rx="14" fill="#fff"/>
+    <circle cx="70" cy="150" r="16" fill="#0d47a1"/>
+    <text x="70" y="155" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">1</text>
+    <text x="100" y="155" font-size="14" font-weight="700" fill="#0d47a1">Entrar CEDIS</text>
+    <text x="56" y="195" font-size="13" fill="#546e7a">Login - sucursal</text>
+    <text x="56" y="215" font-size="13" fill="#546e7a">CEDIS (no MAIN)</text>
+    <rect x="260" y="120" width="200" height="120" rx="14" fill="#fff"/>
+    <circle cx="290" cy="150" r="16" fill="#0d47a1"/>
+    <text x="290" y="155" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">2</text>
+    <text x="320" y="155" font-size="14" font-weight="700" fill="#0d47a1">Catalogo</text>
+    <text x="276" y="195" font-size="13" fill="#546e7a">Productos - deptos</text>
+    <text x="276" y="215" font-size="13" fill="#546e7a">CEDIS LAS 3B</text>
+    <rect x="480" y="120" width="200" height="120" rx="14" fill="#fff"/>
+    <circle cx="510" cy="150" r="16" fill="#0d47a1"/>
+    <text x="510" y="155" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">3</text>
+    <text x="540" y="155" font-size="14" font-weight="700" fill="#0d47a1">Ingresar</text>
+    <text x="496" y="195" font-size="13" fill="#546e7a">Ajuste / compras</text>
+    <text x="496" y="215" font-size="13" fill="#546e7a">a stock_cedis</text>
+    <rect x="700" y="120" width="220" height="120" rx="14" fill="#fff"/>
+    <circle cx="730" cy="150" r="16" fill="#0d47a1"/>
+    <text x="730" y="155" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">4</text>
+    <text x="760" y="155" font-size="14" font-weight="700" fill="#0d47a1">Salida</text>
+    <text x="716" y="195" font-size="13" fill="#546e7a">Traspaso a tienda</text>
+    <text x="716" y="215" font-size="13" fill="#546e7a">o Carga a camion</text>
+  </g>
+  <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="40" y="280" width="880" height="150" rx="16" fill="#fff"/>
+    <rect x="40" y="280" width="8" height="150" rx="4" fill="#c9a227"/>
+    <text x="72" y="320" font-size="18" font-weight="700" fill="#0d47a1">Frase para recordar</text>
+    <text x="72" y="360" font-size="16" fill="#37474f">CEDIS guarda - tienda vende en piso - camion vende en ruta.</text>
+    <text x="72" y="395" font-size="14" fill="#546e7a">Todo lo que sale de CEDIS baja el stock de bodega. Cancela una carga si te equivocaste.</text>
+  </g>
+</svg>

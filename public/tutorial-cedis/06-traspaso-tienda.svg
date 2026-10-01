@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#e8f0fa"/>
+      <stop offset="100%" stop-color="#f5f7fb"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0d47a1"/>
+      <stop offset="100%" stop-color="#1565c0"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#c9a227"/>
+      <stop offset="100%" stop-color="#e6c35c"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0d47a1" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="28" font-weight="700" fill="#0d47a1">6. Traspaso CEDIS a tienda</text>
+  <text x="48" y="80" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">Mueve mercancia de bodega al piso de una sucursal</text>
+  <g font-family="Segoe UI,Arial,sans-serif">
+    <g filter="url(#shadow)">
+      <rect x="60" y="160" width="220" height="200" rx="16" fill="#fff"/>
+      <rect x="60" y="160" width="220" height="48" rx="16" fill="url(#brand)"/>
+      <rect x="60" y="190" width="220" height="18" fill="#0d47a1"/>
+      <text x="170" y="192" text-anchor="middle" font-size="16" font-weight="700" fill="#fff">CEDIS</text>
+      <rect x="120" y="220" width="100" height="55" rx="4" fill="#e3f2fd" stroke="#1565c0"/>
+      <polygon points="120,220 170,200 220,220" fill="#0d47a1"/>
+      <rect x="155" y="245" width="30" height="30" fill="#fff"/>
+      <text x="170" y="300" text-anchor="middle" font-size="14" fill="#546e7a">Stock: 240</text>
+      <text x="170" y="325" text-anchor="middle" font-size="13" font-weight="700" fill="#c62828">- 40</text>
+    </g>
+    <g>
+      <rect x="310" y="240" width="140" height="44" rx="22" fill="#1565c0"/>
+      <text x="380" y="268" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">Traspaso -&gt;</text>
+      <text x="380" y="310" text-anchor="middle" font-size="12" fill="#546e7a">Productos - Traspasos</text>
+    </g>
+    <g filter="url(#shadow)">
+      <rect x="480" y="160" width="220" height="200" rx="16" fill="#fff"/>
+      <rect x="480" y="160" width="220" height="48" rx="16" fill="#2e7d32"/>
+      <rect x="480" y="190" width="220" height="18" fill="#2e7d32"/>
+      <text x="590" y="192" text-anchor="middle" font-size="16" font-weight="700" fill="#fff">3B5 Lomas</text>
+      <rect x="540" y="225" width="100" height="50" rx="4" fill="#e8f5e9" stroke="#2e7d32"/>
+      <polygon points="540,225 590,205 640,225" fill="#2e7d32"/>
+      <rect x="575" y="245" width="30" height="30" fill="#fff"/>
+      <text x="590" y="300" text-anchor="middle" font-size="14" fill="#546e7a">Piso: 12</text>
+      <text x="590" y="325" text-anchor="middle" font-size="13" font-weight="700" fill="#2e7d32">+ 40</text>
+    </g>
+    <g filter="url(#shadow)">
+      <rect x="740" y="160" width="180" height="200" rx="16" fill="#fff"/>
+      <text x="830" y="200" text-anchor="middle" font-size="13" font-weight="700" fill="#0d47a1">Pasos</text>
+      <text x="760" y="240" font-size="13" fill="#455a64">1. Menu Traspasos</text>
+      <text x="760" y="270" font-size="13" fill="#455a64">2. Destino: tienda</text>
+      <text x="760" y="300" font-size="13" fill="#455a64">3. Captura piezas</text>
+      <text x="760" y="330" font-size="13" fill="#455a64">4. Enviar / confirmar</text>
+    </g>
+  </g>
+  <rect x="60" y="400" width="860" height="44" rx="12" fill="#e8f5e9"/>
+  <text x="80" y="428" font-family="Segoe UI,Arial,sans-serif" font-size="14" fill="#1b5e20">El stock baja en CEDIS y sube en el piso de la tienda destino (cuando se recibe).</text>
+</svg>

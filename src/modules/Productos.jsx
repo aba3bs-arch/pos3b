@@ -41,6 +41,8 @@ import CampoCodigo from '../components/CampoCodigo.jsx';
 import DetalleProducto from '../components/DetalleProducto.jsx';
 import ModalAjusteInventario from '../components/ModalAjusteInventario.jsx';
 import PortalFlotante from '../components/PortalFlotante.jsx';
+import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
+import { TUTORIAL_CEDIS } from '../content/tutorialCedis.js';
 import ProductoThumb from '../components/ProductoThumb.jsx';
 import MoverProductosLote from '../components/MoverProductosLote.jsx';
 import { imprimirEtiquetasEstante } from '../lib/impresion.js';
@@ -190,6 +192,7 @@ export default function Productos({
   const filtroCatalogoCedis = aplicaFiltroCatalogoCedis(sucursal);
   const [proveedorCedisId, setProveedorCedisId] = useState(null);
   const [avisoCatalogoCedis, setAvisoCatalogoCedis] = useState('');
+  const [tutorialCedisAbierto, setTutorialCedisAbierto] = useState(false);
   const vinculosCedisOnceRef = useRef(false);
 
   const idsProveedorCedis = useMemo(() => {
@@ -1139,6 +1142,18 @@ export default function Productos({
           )}
         </div>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          {filtroCatalogoCedis && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ fontSize: '0.82rem' }}
+              onClick={() => setTutorialCedisAbierto(true)}
+              title="Tutorial de uso de CEDIS"
+            >
+              <Icon name="help" size={16} />
+              Ver tutorial CEDIS
+            </button>
+          )}
           {vista !== 'lista' && (
             <button type="button" className="btn btn-ghost" onClick={irLista}>
               <Icon name="home" size={16} />
@@ -2070,6 +2085,12 @@ export default function Productos({
           })}
         </div>
       )}
+
+      <VisorTutorialModal
+        abierto={tutorialCedisAbierto}
+        tutorial={TUTORIAL_CEDIS}
+        onCerrar={() => setTutorialCedisAbierto(false)}
+      />
     </div>
   );
 }
