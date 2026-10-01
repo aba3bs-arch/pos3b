@@ -58,8 +58,8 @@ import { fmtMonto } from '../lib/consultasUi.js';
 import { stockEnUbicacion, ALMACEN_CENTRAL } from '../lib/inventarioMultitienda.js';
 import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from '../lib/departamentos.js';
 import {
-  DEPARTAMENTOS_CEDIS_UI,
   departamentoFiltroCoincideCedis,
+  listarDepartamentosCatalogoCedis,
 } from '../lib/catalogoCedis.js';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 import { esRolRepartidor, normalizarRol } from '../lib/roles.js';
@@ -1636,9 +1636,10 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
       const key = cat === 'CIGARRO_ELECTRONICO' ? 'ELECTRONICOS' : cat;
       counts.set(key, (counts.get(key) || 0) + 1);
     }
-    const preferidos = DEPARTAMENTOS_CEDIS_UI.filter((d) => counts.has(d));
+    const ordenCedis = listarDepartamentosCatalogoCedis();
+    const preferidos = ordenCedis.filter((d) => counts.has(d));
     const otros = [...counts.keys()]
-      .filter((d) => !DEPARTAMENTOS_CEDIS_UI.includes(d))
+      .filter((d) => !ordenCedis.includes(d))
       .sort((a, b) => a.localeCompare(b, 'es'));
     const ids = [...preferidos, ...otros];
     if (!ids.length) return [{ id: '', label: 'Sin productos', count: 0 }];

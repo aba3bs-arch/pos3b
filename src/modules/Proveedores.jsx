@@ -15,11 +15,13 @@ import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 import { MODOS_COMPRA_PROVEEDOR, etiquetaModoCompraProveedor, normalizarModoCompraProveedor } from '../lib/comprasProveedor.js';
 import { etiquetaDepartamento, listarDepartamentos } from '../lib/departamentos.js';
 import {
-  DEPARTAMENTOS_CEDIS_UI,
   PROVEEDOR_CEDIS_NOMBRE,
+  agregarDepartamentoCatalogoCedis,
   catCedisDesdeUi,
   departamentoCedisUiDesdeCat,
   esProveedorCedisLas3b,
+  listarDepartamentosCatalogoCedis,
+  sincronizarDepartamentosCatalogoCedis,
 } from '../lib/catalogoCedis.js';
 
 const empty = {
@@ -62,13 +64,45 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
   const [mostrarVinculos, setMostrarVinculos] = useState(false);
   const [registrandoMasivo, setRegistrandoMasivo] = useState(false);
   const [filtroDeptoCat, setFiltroDeptoCat] = useState('');
+  const [nuevoDeptoCedis, setNuevoDeptoCedis] = useState('');
+  const [tickDeptosCedis, setTickDeptosCedis] = useState(0);
+  const [agregandoDeptoCedis, setAgregandoDeptoCedis] = useState(false);
   const puedeAlta = puedeCrearProveedor(user?.rol);
 
   const esProvCedis = esProveedorCedisLas3b(form.nombre) || esProveedorCedisLas3b(rows.find((r) => r.id === editId));
   const departamentosCatalogo = useMemo(
-    () => (esProvCedis ? DEPARTAMENTOS_CEDIS_UI : listarDepartamentos(inventario)),
-    [esProvCedis, inventario],
+    () => (esProvCedis ? listarDepartamentosCatalogoCedis(inventario) : listarDepartamentos(inventario)),
+    [esProvCedis, inventario, tickDeptosCedis],
   );
+
+  useEffect(() => {
+    if (!esProvCedis || !supabase) return;
+    let cancel = false;
+    (async () => {
+      await sincronizarDepartamentosCatalogoCedis(supabase);
+      if (!cancel) setTickDeptosCedis((n) => n + 1);
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [esProvCedis, supabase]);
+
+  const agregarDeptoCedis = async () => {
+    if (agregandoDeptoCedis) return;
+    setAgregandoDeptoCedis(true);
+    try {
+      const r = await agregarDepartamentoCatalogoCedis(nuevoDeptoCedis, supabase);
+      if (!r.ok) return alert(r.error);
+      setFormCat((prev) => ({ ...prev, cat: r.codigo }));
+      setNuevoDeptoCedis('');
+      setTickDeptosCedis((n) => n + 1);
+      let msg = `Departamento CEDIS "${etiquetaDepartamento(r.codigo)}" agregado (no se mezcla con tiendas).`;
+      if (r.aviso) msg += `\n\nNota: ${r.aviso}`;
+      alert(msg);
+    } finally {
+      setAgregandoDeptoCedis(false);
+    }
+  };
 
   const catalogoFiltrado = useMemo(() => {
     if (!filtroDeptoCat) return catalogo;
@@ -501,6 +535,35 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
                 ))}
               </select>
             </label>
+            {esProvCedis && (
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <label className="muted" style={{ flex: '1 1 160px', display: 'block' }}>
+                  Nuevo departamento CEDIS
+                  <input
+                    className="input"
+                    style={{ marginTop: '0.35rem', width: '100%' }}
+                    value={nuevoDeptoCedis}
+                    onChange={(e) => setNuevoDeptoCedis(e.target.value)}
+                    placeholder="Ej. ACCESORIOS"
+                    disabled={agregandoDeptoCedis}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void agregarDeptoCedis();
+                      }
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={agregandoDeptoCedis}
+                  onClick={() => void agregarDeptoCedis()}
+                >
+                  {agregandoDeptoCedis ? '…' : 'Agregar depto'}
+                </button>
+              </div>
+            )}
             <input
               className="input"
               type="number"

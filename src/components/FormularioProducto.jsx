@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { agregarDepartamentoExtra, etiquetaDepartamento } from '../lib/departamentos.js';
+import { agregarDepartamentoCatalogoCedis } from '../lib/catalogoCedis.js';
 import { leerImagenProductoComoDataUrl } from '../lib/imagenProducto.js';
 import {
   OPCIONES_IMPUESTO,
@@ -25,6 +26,8 @@ export default function FormularioProducto({
   esEdicion,
   onDepartamentoAgregado,
   sucursal,
+  supabase = null,
+  modoCatalogoCedis = false,
 }) {
   const tiendaLabel = sucursal ? etiquetaTienda(sucursal) : null;
   const enCentral = esAlmacenCentral(sucursal);
@@ -33,6 +36,7 @@ export default function FormularioProducto({
   const fotoRef = useRef(null);
   const camaraRef = useRef(null);
   const [nuevoDepto, setNuevoDepto] = useState('');
+  const [agregandoDepto, setAgregandoDepto] = useState(false);
   const [procesandoFoto, setProcesandoFoto] = useState(false);
   const [codigoAltDraft, setCodigoAltDraft] = useState('');
   const codigosAlt = normalizarCodigosAlt(form.codigos_alt);
@@ -84,13 +88,26 @@ export default function FormularioProducto({
     }
   };
 
-  const agregarDepto = () => {
-    const r = agregarDepartamentoExtra(nuevoDepto);
-    if (!r.ok) return alert(r.error);
-    setCampoSimple('cat', r.codigo);
-    setNuevoDepto('');
-    onDepartamentoAgregado?.(r.codigo);
-    alert(`Departamento "${etiquetaDepartamento(r.codigo)}" agregado.`);
+  const agregarDepto = async () => {
+    if (agregandoDepto) return;
+    setAgregandoDepto(true);
+    try {
+      const r = modoCatalogoCedis
+        ? await agregarDepartamentoCatalogoCedis(nuevoDepto, supabase)
+        : agregarDepartamentoExtra(nuevoDepto);
+      if (!r.ok) return alert(r.error);
+      setCampoSimple('cat', r.codigo);
+      setNuevoDepto('');
+      onDepartamentoAgregado?.(r.codigo);
+      const alcance = modoCatalogoCedis
+        ? 'solo catálogo CEDIS (no aparece en el menú de tiendas)'
+        : 'catálogo de tiendas';
+      let msg = `Departamento "${etiquetaDepartamento(r.codigo)}" agregado (${alcance}).`;
+      if (r.aviso) msg += `\n\nNota: ${r.aviso}`;
+      alert(msg);
+    } finally {
+      setAgregandoDepto(false);
+    }
   };
 
   const sinFoto = !String(form.foto_url || '').trim();
@@ -275,25 +292,39 @@ export default function FormularioProducto({
           </label>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <label style={{ flex: '1 1 160px' }}>
-              <span className="muted">Nuevo departamento</span>
+              <span className="muted">
+                {modoCatalogoCedis ? 'Nuevo departamento CEDIS' : 'Nuevo departamento'}
+              </span>
               <input
                 className="input"
                 style={{ marginTop: '0.35rem' }}
                 value={nuevoDepto}
                 onChange={(e) => setNuevoDepto(e.target.value)}
-                placeholder="Ej. FARMACIA"
+                placeholder={modoCatalogoCedis ? 'Ej. ACCESORIOS' : 'Ej. FARMACIA'}
+                disabled={agregandoDepto}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    agregarDepto();
+                    void agregarDepto();
                   }
                 }}
               />
             </label>
-            <button type="button" className="btn btn-ghost" style={{ marginBottom: '0.05rem' }} onClick={agregarDepto}>
-              Agregar
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ marginBottom: '0.05rem' }}
+              disabled={agregandoDepto}
+              onClick={() => void agregarDepto()}
+            >
+              {agregandoDepto ? '…' : 'Agregar'}
             </button>
           </div>
+          {modoCatalogoCedis && (
+            <p className="muted" style={{ margin: 0, fontSize: '0.78rem', gridColumn: '1 / -1' }}>
+              Los departamentos creados aquí son solo del catálogo CEDIS; no se mezclan con el menú de departamentos de tienda.
+            </p>
+          )}
           <label>
             <span className="muted">Clave SAT (c_ClaveProdServ)</span>
             <input className="input" style={{ marginTop: '0.35rem' }} value={form.clave_sat} onChange={(e) => setCampoSimple('clave_sat', e.target.value)} placeholder="Ej. 50181900" />
