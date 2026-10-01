@@ -9,26 +9,26 @@
       <stop offset="0%" stop-color="#0d47a1"/>
       <stop offset="100%" stop-color="#1565c0"/>
     </linearGradient>
-    <filter id="shadow" x="-5%" y="-5%" width="120%" height="120%">
-      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#0d47a1" flood-opacity="0.12"/>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#c9a227"/>
+      <stop offset="100%" stop-color="#e6c35c"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0d47a1" flood-opacity="0.14"/>
     </filter>
   </defs>
   <rect width="100%" height="100%" fill="url(#bg)"/>
-  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="28" font-weight="700" fill="#0d47a1">2 · Productos = catálogo CEDIS</text>
-  <text x="48" y="80" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">Solo deptos CEDIS · vinculados a «CEDIS LAS 3B»</text>
-
+  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="28" font-weight="700" fill="#0d47a1">2. Productos = catalogo CEDIS</text>
+  <text x="48" y="80" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">Solo deptos CEDIS - vinculados a CEDIS LAS 3B</text>
   <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
     <rect x="40" y="105" width="880" height="340" rx="16" fill="#fff"/>
-    <!-- top bar -->
     <rect x="40" y="105" width="880" height="52" rx="16" fill="#e3f2fd"/>
     <rect x="40" y="140" width="880" height="17" fill="#e3f2fd"/>
-    <text x="60" y="138" font-size="15" font-weight="700" fill="#0d47a1">Productos · CEDIS</text>
+    <text x="60" y="138" font-size="15" font-weight="700" fill="#0d47a1">Productos - CEDIS</text>
     <rect x="620" y="118" width="140" height="28" rx="8" fill="#fff8e1" stroke="#f9a825"/>
     <text x="690" y="137" text-anchor="middle" font-size="12" font-weight="700" fill="#f57f17">Filtro activo</text>
     <rect x="780" y="118" width="120" height="28" rx="8" fill="#2e7d32"/>
     <text x="840" y="137" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">+ Nuevo</text>
-
-    <!-- chips -->
     <rect x="60" y="175" width="100" height="30" rx="15" fill="#0d47a1"/>
     <text x="110" y="195" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">CIGARROS</text>
     <rect x="170" y="175" width="110" height="30" rx="15" fill="#e3f2fd" stroke="#90caf9"/>
@@ -39,36 +39,30 @@
     <text x="470" y="195" text-anchor="middle" font-size="12" font-weight="600" fill="#1565c0">ROPA</text>
     <rect x="530" y="175" width="120" height="30" rx="15" fill="#e3f2fd" stroke="#90caf9"/>
     <text x="590" y="195" text-anchor="middle" font-size="12" font-weight="600" fill="#1565c0">MEDICAMENTO</text>
-
-    <!-- table header -->
-    <text x="70" y="240" font-size="11" font-weight="700" fill="#90a4ae">CÓDIGO</text>
+    <text x="70" y="240" font-size="11" font-weight="700" fill="#90a4ae">CODIGO</text>
     <text x="220" y="240" font-size="11" font-weight="700" fill="#90a4ae">PRODUCTO</text>
     <text x="520" y="240" font-size="11" font-weight="700" fill="#90a4ae">DEPTO</text>
     <text x="680" y="240" font-size="11" font-weight="700" fill="#90a4ae">STOCK CEDIS</text>
     <text x="820" y="240" font-size="11" font-weight="700" fill="#90a4ae">PROV.</text>
-
     <line x1="60" y1="252" x2="900" y2="252" stroke="#eceff1"/>
     <text x="70" y="285" font-size="14" fill="#263238">750123456</text>
     <text x="220" y="285" font-size="14" font-weight="600" fill="#263238">Marlboro Red cajetilla</text>
     <text x="520" y="285" font-size="13" fill="#1565c0">CIGARROS</text>
     <text x="700" y="285" font-size="14" font-weight="700" fill="#2e7d32">240</text>
     <text x="820" y="285" font-size="12" fill="#546e7a">CEDIS</text>
-
     <line x1="60" y1="305" x2="900" y2="305" stroke="#f5f5f5"/>
     <text x="70" y="335" font-size="14" fill="#263238">750987654</text>
     <text x="220" y="335" font-size="14" font-weight="600" fill="#263238">BluntWrap Classic</text>
     <text x="520" y="335" font-size="13" fill="#1565c0">BLUNTWRAP</text>
     <text x="700" y="335" font-size="14" font-weight="700" fill="#2e7d32">88</text>
     <text x="820" y="335" font-size="12" fill="#546e7a">CEDIS</text>
-
     <line x1="60" y1="355" x2="900" y2="355" stroke="#f5f5f5"/>
     <text x="70" y="385" font-size="14" fill="#263238">889900112</text>
     <text x="220" y="385" font-size="14" font-weight="600" fill="#263238">Vape Pod Kit</text>
     <text x="520" y="385" font-size="13" fill="#1565c0">ELECTRONICOS</text>
     <text x="700" y="385" font-size="14" font-weight="700" fill="#2e7d32">35</text>
     <text x="820" y="385" font-size="12" fill="#546e7a">CEDIS</text>
-
     <rect x="60" y="405" width="820" height="28" rx="8" fill="#e8f5e9"/>
-    <text x="70" y="424" font-size="13" fill="#1b5e20"> No ves abarrotes de tienda ni favoritos de caja  solo el catálogo del almacén</text>
+    <text x="70" y="424" font-size="13" fill="#1b5e20">OK: no ves abarrotes de tienda ni favoritos - solo el catalogo del almacen</text>
   </g>
 </svg>
