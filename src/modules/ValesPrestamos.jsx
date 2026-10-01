@@ -144,10 +144,48 @@ import {
   prestamoEmpleadoOmiteCorte,
 } from '../lib/empleadosVisibles.js';
 import { tiendaPuedeGenerarVales } from '../lib/posConfig.js';
+import { confirmarSucursalOperacion } from '../lib/confirmarSucursalOperacion.js';
 import PanelAsistenciaGasolina from '../components/PanelAsistenciaGasolina.jsx';
 import SelectorCalendario from '../components/SelectorCalendario.jsx';
 import InputPin from '../components/InputPin.jsx';
 import { asegurarCamposSinReservadoOPin } from '../lib/reservadoAdminPrincipal.js';
+
+/** Banner: tienda donde se cargará el documento (anti-error de sucursal). */
+function BannerSucursalDestino({ codigo, tipo }) {
+  const tiene = Boolean(String(codigo || '').trim());
+  const label = tiene ? (etiquetaTienda(codigo) || codigo) : 'Elige la sucursal destino';
+  const doc = tipo === 'pagare' ? 'pagaré' : 'vale';
+  return (
+    <div
+      role="status"
+      style={{
+        margin: '0 0 0.85rem',
+        padding: '0.75rem 0.9rem',
+        borderRadius: 10,
+        background: tiene ? 'rgba(13,71,161,0.08)' : 'rgba(192,57,43,0.08)',
+        border: `2px solid ${tiene ? 'rgba(13,71,161,0.35)' : 'rgba(192,57,43,0.35)'}`,
+      }}
+    >
+      <div className="muted" style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: 0.3, marginBottom: 4 }}>
+        {doc === 'pagaré' ? 'El pagaré se cargará en' : 'El vale se cargará en'}
+      </div>
+      <div style={{
+        fontSize: '1.25rem',
+        fontWeight: 800,
+        color: tiene ? 'var(--brand-blue)' : 'var(--brand-red)',
+        lineHeight: 1.2,
+      }}
+      >
+        {label}
+      </div>
+      <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.8rem' }}>
+        {tiene
+          ? 'Si no es la tienda correcta, cambia de sucursal (o el selector) antes de generar.'
+          : 'Selecciona la tienda antes de generar.'}
+      </p>
+    </div>
+  );
+}
 
 function fmt(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -609,6 +647,16 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
         const quien = resolverBeneficiarioConsumoPin(ben.nombre)?.etiqueta || ben.nombre;
         return alert(`Consumo a nombre de ${quien}: él debe ingresar su PIN (invisible).`);
       }
+    }
+
+    if (
+      !confirmarSucursalOperacion({
+        tipo: 'vale',
+        codigoSucursal: sucursalVale,
+        sesionSucursal: sucursal,
+      })
+    ) {
+      return;
     }
 
     const res = await registrarVale(
@@ -1571,6 +1619,12 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
               · 2) Cajero <strong>Abona</strong> o <strong>Liquida</strong> · 3) Recolector pulsa <strong>Recolectar</strong>
               → queda en tránsito en RC Virtual · 4) AMR / ABB / JLBB / FJBB <strong>Reciben</strong>.
             </p>
+            {puedeGenerarPagaresUi && (
+              <BannerSucursalDestino
+                tipo="pagare"
+                codigo={pagareForm.sucursal_id || filtroPagareEfectivo || sucursal}
+              />
+            )}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: '0.85rem' }}>
               <label className="muted" style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
                 Sucursal
@@ -1601,6 +1655,15 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   if (!sucPag) return alert('Elige la sucursal del pagaré.');
                   if (pagareForm.area === pagareForm.area_acreedora) {
                     return alert('Elige áreas distintas: quién debe y a quién se paga.');
+                  }
+                  if (
+                    !confirmarSucursalOperacion({
+                      tipo: 'pagare',
+                      codigoSucursal: sucPag,
+                      sesionSucursal: sucursal,
+                    })
+                  ) {
+                    return;
                   }
                   const res = await registrarPagare(
                     supabase,
@@ -2295,6 +2358,10 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                 Todos los vales requieren aprobación del administrador. Gasolina solo desde tienda.
               </p>
             )}
+            <BannerSucursalDestino
+              tipo="vale"
+              codigo={esMain ? (valeForm.sucursalDestino || '') : sucursal}
+            />
             <div className="grid-2">
               <select
                 className="select"
