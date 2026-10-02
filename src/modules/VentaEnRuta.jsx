@@ -31,6 +31,8 @@ import {
   listarVentasRuta,
   precioRutaEspecial,
   precioCompraCatalogo,
+  gananciaRutaMonto,
+  gananciaRutaPct,
   registrarVentaRuta,
   verificarPinVendedorSesionRuta,
   verificarPinAdminCorteRuta,
@@ -56,10 +58,12 @@ import { listarCreditosCobradosRuta } from '../lib/rutaCxc.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { stockEnUbicacion, ALMACEN_CENTRAL, esAlmacenCentral } from '../lib/inventarioMultitienda.js';
-import { etiquetaDepartamento, listarDepartamentos, normalizarDepartamento } from '../lib/departamentos.js';
+import { etiquetaDepartamento, normalizarDepartamento } from '../lib/departamentos.js';
 import {
   departamentoFiltroCoincideCedis,
+  esDepartamentoCatalogoCedis,
   listarDepartamentosCatalogoCedis,
+  sincronizarDepartamentosCatalogoCedis,
 } from '../lib/catalogoCedis.js';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 import { esRolRepartidor, normalizarRol } from '../lib/roles.js';
@@ -1310,9 +1314,26 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
   const [productosPorProveedor, setProductosPorProveedor] = useState(() => new Map());
   const [idsConProveedor, setIdsConProveedor] = useState(() => new Set());
   const [editId, setEditId] = useState('');
-  const [editVal, setEditVal] = useState('');
+  const [editCompra, setEditCompra] = useState('');
+  const [editRuta, setEditRuta] = useState('');
+  const [deptosTick, setDeptosTick] = useState(0);
 
-  const departamentos = useMemo(() => listarDepartamentos(inventario), [inventario]);
+  const departamentos = useMemo(
+    () => listarDepartamentosCatalogoCedis(inventario),
+    [inventario, deptosTick],
+  );
+
+  useEffect(() => {
+    if (!supabase) return undefined;
+    let cancel = false;
+    (async () => {
+      await sincronizarDepartamentosCatalogoCedis(supabase).catch(() => null);
+      if (!cancel) setDeptosTick((n) => n + 1);
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [supabase]);
 
   useEffect(() => {
     if (!supabase) return undefined;
@@ -1358,11 +1379,12 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
   const filtrosActivos = Boolean(q.trim() || departamento || proveedorId);
 
   const lista = useMemo(() => {
-    let list = inventario || [];
+    // Solo departamentos del catálogo CEDIS (si CEDIS agrega uno, aparece aquí).
+    let list = (inventario || []).filter((p) => esDepartamentoCatalogoCedis(p.cat));
     const term = q.trim();
     if (term) list = list.filter((p) => productoCoincideBusqueda(p, term));
     if (departamento) {
-      list = list.filter((p) => String(p.cat || '').toUpperCase() === departamento.toUpperCase());
+      list = list.filter((p) => departamentoFiltroCoincideCedis(p.cat, departamento));
     }
     if (proveedorId === '__ninguno__') {
       list = list.filter((p) => !idsConProveedor.has(String(p.id)));
@@ -1370,7 +1392,6 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
       const ids = productosPorProveedor.get(String(proveedorId));
       list = list.filter((p) => ids?.has(String(p.id)));
     }
-    // Con filtro depto/proveedor mostrar más filas; sin filtro mantener tope razonable
     const tope = filtrosActivos ? 500 : 80;
     return list.slice(0, tope);
   }, [
@@ -1381,14 +1402,35 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
     productosPorProveedor,
     idsConProveedor,
     filtrosActivos,
+    deptosTick,
   ]);
 
+  const iniciarEdicion = (p) => {
+    setEditId(p.id);
+    const compra = precioCompraCatalogo(p);
+    setEditCompra(compra != null ? String(compra) : '');
+    setEditRuta(p.precio_ruta != null && Number(p.precio_ruta) > 0 ? String(p.precio_ruta) : '');
+  };
+
   const guardar = async (p) => {
-    const r = await guardarPrecioRutaProducto(supabase, p.id, editVal, { rol: user?.rol, userId: user?.id });
+    const r = await guardarPrecioRutaProducto(
+      supabase,
+      p.id,
+      {
+        precio_compra_sin: editCompra,
+        precio_ruta: editRuta,
+        impuesto: p.impuesto,
+      },
+      { rol: user?.rol, userId: user?.id, impuesto: p.impuesto },
+    );
     if (!r.ok) return alert(r.error);
-    setAviso('Precio de ruta actualizado (sin impuestos). Recarga catálogo si no ves el cambio.');
+    if (r.precio_ruta != null) p.precio_ruta = r.precio_ruta;
+    if (r.precio_compra_sin != null) {
+      p.precio_compra_sin = r.precio_compra_sin;
+      p.precio_compra_con = r.precio_compra_con;
+    }
+    setAviso('Precios de ruta actualizados (sin impuestos). Se usan en el POS de Venta en Ruta.');
     setEditId('');
-    p.precio_ruta = r.precio;
   };
 
   const limpiarFiltros = () => {
@@ -1401,8 +1443,10 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Precios de ruta</h3>
       <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
-        Precio especial sin impuestos. Se muestra el <strong>precio de compra</strong> del catálogo
-        (sin IVA) para comparar margen. Filtra por departamento o proveedor. Solo admin/gerente.
+        Solo departamentos de <strong>CEDIS</strong> (si CEDIS agrega uno, aparece aquí).
+        Edita <strong>precio de compra</strong> y <strong>precio de venta en ruta</strong> (sin IVA).
+        La <strong>ganancia</strong> se calcula por artículo. El precio de venta en ruta se usa
+        en el POS de Venta en Ruta (sucursales y clientes externos).
       </p>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'center' }}>
@@ -1418,9 +1462,9 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
           style={{ flex: '0 1 180px', minWidth: 140 }}
           value={departamento}
           onChange={(e) => setDepartamento(e.target.value)}
-          title="Filtrar por departamento"
+          title="Filtrar por departamento CEDIS"
         >
-          <option value="">Todos los departamentos</option>
+          <option value="">Todos los deptos CEDIS</option>
           {departamentos.map((d) => (
             <option key={d} value={d}>
               {etiquetaDepartamento(d)}
@@ -1450,7 +1494,7 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
       </div>
 
       <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.78rem' }}>
-        {lista.length} producto(s)
+        {lista.length} producto(s) CEDIS
         {departamento ? ` · ${etiquetaDepartamento(departamento)}` : ''}
         {proveedorId && proveedorId !== '__ninguno__'
           ? ` · ${proveedores.find((p) => String(p.id) === String(proveedorId))?.nombre || 'proveedor'}`
@@ -1459,68 +1503,117 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
             : ''}
       </p>
 
-      <table className="consultas-table">
-        <thead>
-          <tr>
-            <th>Producto</th>
-            <th>Depto</th>
-            <th>P. compra</th>
-            <th>P. ruta</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          {lista.map((p) => {
-            const compra = precioCompraCatalogo(p);
-            const ruta = precioRutaEspecial(p);
-            return (
-            <tr key={p.id}>
-              <td>
-                <strong>{p.nombre}</strong>
-                <div className="muted" style={{ fontSize: '0.72rem' }}>{p.id}</div>
-              </td>
-              <td className="muted" style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
-                {etiquetaDepartamento(p.cat || 'GENERAL')}
-              </td>
-              <td className="muted" style={{ whiteSpace: 'nowrap' }}>
-                {compra != null ? fmtMonto(compra) : <span className="muted">—</span>}
-              </td>
-              <td>
-                {editId === p.id ? (
-                  <input className="input" type="number" style={{ width: 110 }} value={editVal} onChange={(e) => setEditVal(e.target.value)} />
-                ) : (
-                  ruta != null ? fmtMonto(ruta) : <span className="muted">Sin precio</span>
-                )}
-              </td>
-              <td>
-                {editId === p.id ? (
-                  <>
-                    <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.45rem', fontSize: '0.78rem' }} onClick={() => void guardar(p)}>Guardar</button>
-                    <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.45rem' }} onClick={() => setEditId('')}>×</button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn btn-ghost"
-                    style={{ padding: '0.2rem 0.45rem', fontSize: '0.78rem' }}
-                    onClick={() => { setEditId(p.id); setEditVal(String(p.precio_ruta || '')); }}
-                  >
-                    Editar
-                  </button>
-                )}
-              </td>
-            </tr>
-            );
-          })}
-          {!lista.length ? (
+      <div style={{ overflowX: 'auto' }}>
+        <table className="consultas-table">
+          <thead>
             <tr>
-              <td colSpan={5} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>
-                No hay productos con estos filtros.
-              </td>
+              <th>Producto</th>
+              <th>Depto CEDIS</th>
+              <th>P. compra</th>
+              <th>P. venta ruta</th>
+              <th>Ganancia</th>
+              <th />
             </tr>
-          ) : null}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {lista.map((p) => {
+              const compra = precioCompraCatalogo(p);
+              const ruta = precioRutaEspecial(p);
+              const compraEdit = editId === p.id ? Number(editCompra) : compra;
+              const rutaEdit = editId === p.id ? Number(editRuta) : ruta;
+              const gan$ = gananciaRutaMonto(p, {
+                compra: Number.isFinite(compraEdit) ? compraEdit : null,
+                ruta: Number.isFinite(rutaEdit) ? rutaEdit : null,
+              });
+              const ganPct = gananciaRutaPct(p, {
+                compra: Number.isFinite(compraEdit) ? compraEdit : null,
+                ruta: Number.isFinite(rutaEdit) ? rutaEdit : null,
+              });
+              return (
+                <tr key={p.id}>
+                  <td>
+                    <strong>{p.nombre}</strong>
+                    <div className="muted" style={{ fontSize: '0.72rem' }}>{p.id}</div>
+                  </td>
+                  <td className="muted" style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                    {etiquetaDepartamento(p.cat || 'GENERAL')}
+                  </td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    {editId === p.id ? (
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        style={{ width: 100 }}
+                        value={editCompra}
+                        onChange={(e) => setEditCompra(e.target.value)}
+                        aria-label={`Precio compra ${p.nombre}`}
+                      />
+                    ) : (
+                      compra != null ? fmtMonto(compra) : <span className="muted">—</span>
+                    )}
+                  </td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    {editId === p.id ? (
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        style={{ width: 100 }}
+                        value={editRuta}
+                        onChange={(e) => setEditRuta(e.target.value)}
+                        aria-label={`Precio venta ruta ${p.nombre}`}
+                      />
+                    ) : (
+                      ruta != null ? fmtMonto(ruta) : <span className="muted">Sin precio</span>
+                    )}
+                  </td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    {gan$ != null ? (
+                      <span style={{ color: gan$ >= 0 ? '#15803d' : '#b91c1c', fontWeight: 700 }}>
+                        {fmtMonto(gan$)}
+                        {ganPct != null ? (
+                          <span className="muted" style={{ fontWeight: 500, marginLeft: 4, fontSize: '0.72rem' }}>
+                            ({ganPct}%)
+                          </span>
+                        ) : null}
+                      </span>
+                    ) : (
+                      <span className="muted">—</span>
+                    )}
+                  </td>
+                  <td>
+                    {editId === p.id ? (
+                      <>
+                        <button type="button" className="btn btn-primary" style={{ padding: '0.2rem 0.45rem', fontSize: '0.78rem' }} onClick={() => void guardar(p)}>Guardar</button>
+                        <button type="button" className="btn btn-ghost" style={{ padding: '0.2rem 0.45rem' }} onClick={() => setEditId('')}>×</button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ padding: '0.2rem 0.45rem', fontSize: '0.78rem' }}
+                        onClick={() => iniciarEdicion(p)}
+                      >
+                        Editar
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {!lista.length ? (
+              <tr>
+                <td colSpan={6} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>
+                  No hay productos de departamentos CEDIS con estos filtros.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

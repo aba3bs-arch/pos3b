@@ -3,7 +3,11 @@ import {
   asignarVentaALineasProducto,
   catalogoPosCamionDesdeLineas,
   disponibleEnLineaCarga,
+  gananciaRutaMonto,
+  gananciaRutaPct,
   inventarioCamionDesdeLineas,
+  precioCompraCatalogo,
+  precioRutaEspecial,
 } from './ventaEnRuta.js';
 
 // Asignación FIFO entre varias líneas del mismo producto
@@ -28,7 +32,7 @@ import {
   assert.match(fail.error, /solo hay 11/i);
 }
 
-// Catálogo POS consolida existencia y precio
+// Catálogo POS: precio_ruta vivo manda sobre sello de línea
 {
   const lineas = [
     {
@@ -68,7 +72,7 @@ import {
 
   const cat = catalogoPosCamionDesdeLineas(lineas, {
     productoPorId: new Map([
-      ['A', { id: 'A', cat: 'ABARROTES', precio_ruta: 10 }],
+      ['A', { id: 'A', cat: 'ABARROTES', precio_ruta: 10, precio_compra_sin: 6 }],
       ['B', { id: 'B', cat: 'PANADERIA', precio_ruta: 20 }],
     ]),
   });
@@ -76,8 +80,25 @@ import {
   assert.equal(cat.length, 1);
   assert.equal(cat[0].id, 'A');
   assert.equal(cat[0].disponible, 13);
-  assert.equal(cat[0].precio, 15); // mayor precio de línea
+  assert.equal(cat[0].precio, 10); // precio_ruta vivo (no el sello 15)
+  assert.equal(cat[0].precio_compra, 6);
   assert.equal(cat[0].cat, 'ABARROTES');
+
+  // Sin precio_ruta en catálogo → fallback al sello de línea
+  const catFallback = catalogoPosCamionDesdeLineas(lineas, {
+    productoPorId: new Map([
+      ['A', { id: 'A', cat: 'ABARROTES', precio_ruta: 0 }],
+    ]),
+  });
+  assert.equal(catFallback[0].precio, 15);
 }
 
-console.log('ventaEnRuta.posCamion.test.mjs OK');
+{
+  const p = { precio_compra_sin: 100, precio_ruta: 140, impuesto: 8 };
+  assert.equal(precioCompraCatalogo(p), 100);
+  assert.equal(precioRutaEspecial(p), 140);
+  assert.equal(gananciaRutaMonto(p), 40);
+  assert.equal(gananciaRutaPct(p), 40);
+}
+
+console.log('ventaEnRuta.posCamion.test.mjs ok');
