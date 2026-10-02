@@ -17,6 +17,7 @@ import { registrarRecoleccionRcAbarrotesDesdeVentaRuta } from './rutaRcAbarrotes
 import { puedeAccionVentaRuta } from './ventaEnRutaAcciones.js';
 import { buscarUsuarioPorPinYSucursal } from './usuariosAuth.js';
 import { listarRepartidores } from './controlEfectivo.js';
+import { conImpuesto, gananciaDesdePrecios } from './productoForm.js';
 
 export { registrarEfectivoTransitoVentaRuta } from './rutaTransito.js';
 export { registrarRecoleccionRcAbarrotesDesdeVentaRuta } from './rutaRcAbarrotes.js';
@@ -801,6 +802,22 @@ export function precioCompraCatalogo(producto) {
   return null;
 }
 
+/** Ganancia $ por artículo = precio ruta − precio compra (ambos sin IVA). */
+export function gananciaRutaMonto(producto, { compra = null, ruta = null } = {}) {
+  const c = compra != null ? Number(compra) : precioCompraCatalogo(producto);
+  const r = ruta != null ? Number(ruta) : precioRutaEspecial(producto);
+  if (!(Number.isFinite(c) && c >= 0) || !(Number.isFinite(r) && r >= 0)) return null;
+  return round2(r - c);
+}
+
+/** Ganancia % sobre compra (misma fórmula del catálogo tienda). */
+export function gananciaRutaPct(producto, { compra = null, ruta = null } = {}) {
+  const c = compra != null ? Number(compra) : precioCompraCatalogo(producto);
+  const r = ruta != null ? Number(ruta) : precioRutaEspecial(producto);
+  if (!(Number.isFinite(c) && c > 0) || !(Number.isFinite(r) && r >= 0)) return null;
+  return gananciaDesdePrecios(c, r);
+}
+
 /** @deprecated alias */
 export function precioCedisRuta(producto) {
   return precioRutaEspecial(producto);
@@ -905,7 +922,8 @@ export async function lineasDeVariasCargas(supabase, cargas) {
 
 /**
  * Catálogo POS del camión: 1 fila por producto con existencia consolidada
- * (todas las cargas en ruta) y precio de línea o precio_ruta.
+ * (todas las cargas en ruta). El precio de venta en ruta vivo (`productos.precio_ruta`)
+ * manda sobre el sello de la línea de carga, para que Precios de ruta impacte el POS.
  */
 export function catalogoPosCamionDesdeLineas(lineas, { productoPorId = null, inventario = [] } = {}) {
   const inv = inventarioCamionDesdeLineas(lineas, { productoPorId, inventario });
@@ -923,13 +941,17 @@ export function catalogoPosCamionDesdeLineas(lineas, { productoPorId = null, inv
         || (inventario || []).find((x) => String(x.id) === String(p.id))
         || {};
       const precioLin = precioPorId.get(String(p.id)) || 0;
-      const precio = precioLin > 0 ? precioLin : precioRutaEspecial(base);
+      const precioLive = precioRutaEspecial(base);
+      const precio = (precioLive != null && precioLive > 0)
+        ? precioLive
+        : (precioLin > 0 ? precioLin : 0);
       return {
         id: String(p.id),
         nombre: p.nombre || base.nombre || p.id,
         cat: p.cat || base.cat || 'GENERAL',
         foto_url: base.foto_url || base.foto || p.foto_url || null,
         precio: Number(precio) || 0,
+        precio_compra: precioCompraCatalogo(base),
         disponible: Number(p._disp_camion) || 0,
       };
     })
@@ -1010,18 +1032,50 @@ export async function guardarClienteRuta(supabase, row) {
 
 // ─── Precios ruta (admin) ─────────────────────────────────────────
 
-export async function guardarPrecioRutaProducto(supabase, productoId, precio, { rol, userId } = {}) {
-  if (!puedeAccionVentaRuta(rol, userId, 'ruta_precios')) {
+/**
+ * Guarda precio de venta en ruta y/o precio de compra (sin IVA).
+ * Compat: `guardarPrecioRutaProducto(sb, id, 12.5, opts)` sigue válido.
+ */
+export async function guardarPrecioRutaProducto(supabase, productoId, precioOPatch, opts = {}) {
+  if (!puedeAccionVentaRuta(opts.rol, opts.userId, 'ruta_precios')) {
     return { ok: false, error: 'Sin privilegio para ajustar precios de ruta.' };
   }
   const pid = String(productoId || '');
-  const p = round2(precio);
   if (!pid) return { ok: false, error: 'Producto inválido.' };
-  if (!(p >= 0)) return { ok: false, error: 'Precio inválido.' };
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
-  const { error } = await supabase.from('productos').update({ precio_ruta: p }).eq('id', pid);
+
+  const patchIn = (precioOPatch != null && typeof precioOPatch === 'object' && !Array.isArray(precioOPatch))
+    ? precioOPatch
+    : { precio_ruta: precioOPatch };
+
+  const update = {};
+  if (patchIn.precio_ruta != null && String(patchIn.precio_ruta).trim() !== '') {
+    const p = round2(patchIn.precio_ruta);
+    if (!(p >= 0) || !Number.isFinite(p)) return { ok: false, error: 'Precio de ruta inválido.' };
+    update.precio_ruta = p;
+  }
+  if (patchIn.precio_compra_sin != null && String(patchIn.precio_compra_sin).trim() !== '') {
+    const c = round2(patchIn.precio_compra_sin);
+    if (!(c >= 0) || !Number.isFinite(c)) return { ok: false, error: 'Precio de compra inválido.' };
+    const impRaw = Number(patchIn.impuesto ?? opts.impuesto);
+    const impuesto = Number.isFinite(impRaw) && impRaw >= 0 ? impRaw : 8;
+    update.precio_compra_sin = c;
+    update.precio_compra_con = round2(conImpuesto(c, impuesto));
+  }
+
+  if (!Object.keys(update).length) {
+    return { ok: false, error: 'Indica precio de compra y/o precio de ruta.' };
+  }
+
+  const { error } = await supabase.from('productos').update(update).eq('id', pid);
   if (error) return { ok: false, error: error.message };
-  return { ok: true, precio: p };
+  return {
+    ok: true,
+    precio: update.precio_ruta,
+    precio_ruta: update.precio_ruta,
+    precio_compra_sin: update.precio_compra_sin,
+    precio_compra_con: update.precio_compra_con,
+  };
 }
 
 // ─── Cargas (descuenta MAIN · CEDIS) ───────────────────────────────
