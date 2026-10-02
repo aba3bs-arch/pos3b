@@ -244,17 +244,17 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
               </label>
               <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
                 Se toma de gastos del corte (Virtual u otros) con subcategoría/categoría FALTANTE.
-                Si hay faltante → −{cfg.reglas.faltanteCero.penalizacionPct ?? 25}% (un lineamiento más, no corta el bono a 0 solo).
+                Por defecto el turno con faltante recibe <strong>0%</strong> de bono en esa recolección.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' }}>
                 <label className="muted" style={{ fontSize: '0.72rem' }}>
                   Penalización %
-                  <input className="input" type="number" min={0} max={100} style={{ width: 72, marginTop: 2 }} value={cfg.reglas.faltanteCero.penalizacionPct ?? 25} onChange={(e) => setRegla('faltanteCero', { penalizacionPct: Number(e.target.value) })} />
+                  <input className="input" type="number" min={0} max={100} style={{ width: 72, marginTop: 2 }} value={cfg.reglas.faltanteCero.penalizacionPct ?? 25} onChange={(e) => setRegla('faltanteCero', { penalizacionPct: Number(e.target.value) })} disabled={cfg.reglas.faltanteCero.esRequisito !== false} />
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.72rem', color: 'var(--muted, #78716c)' }}>
                   <input
                     type="checkbox"
-                    checked={cfg.reglas.faltanteCero.esRequisito === true}
+                    checked={cfg.reglas.faltanteCero.esRequisito !== false}
                     onChange={(e) => setRegla('faltanteCero', { esRequisito: e.target.checked })}
                   />
                   Requisito duro (faltante → 0% de golpe)
@@ -294,7 +294,8 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                 <strong>Evaluación operativa</strong>
               </label>
               <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
-                Si está por debajo del mínimo → −{cfg.reglas.evaluacionMinPct.penalizacionPct ?? 25}% (solo ajusta el %, no define el monto).
+                Si está por debajo del mínimo → −{cfg.reglas.evaluacionMinPct.penalizacionPct ?? 25}%.
+                El medidor permanece vigente {cfg.reglas.evaluacionMinPct.ventanaDias ?? 15} días.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                 <label className="muted" style={{ fontSize: '0.72rem' }}>
@@ -305,6 +306,10 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                   Penalización %
                   <input className="input" type="number" min={0} max={100} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.evaluacionMinPct.penalizacionPct ?? 25} onChange={(e) => setRegla('evaluacionMinPct', { penalizacionPct: Number(e.target.value) })} />
                 </label>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Ventana (días)
+                  <input className="input" type="number" min={1} max={60} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.evaluacionMinPct.ventanaDias ?? 15} onChange={(e) => setRegla('evaluacionMinPct', { ventanaDias: Number(e.target.value) })} />
+                </label>
               </div>
             </div>
 
@@ -314,7 +319,8 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                 <strong>Inventario (merma)</strong>
               </label>
               <p className="muted" style={{ fontSize: '0.78rem', margin: '0.35rem 0 0.5rem' }}>
-                Si la merma supera el máximo → −{cfg.reglas.mermaMaxPct.penalizacionPct ?? 25}% (mismo peso que los demás lineamientos).
+                Si la merma del último inventario supera el máximo → −{cfg.reglas.mermaMaxPct.penalizacionPct ?? 25}%.
+                Vigencia {cfg.reglas.mermaMaxPct.ventanaDias ?? 8} días según el día de inventario de cada tienda.
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                 <label className="muted" style={{ fontSize: '0.72rem' }}>
@@ -324,6 +330,10 @@ export default function PanelBonosConfig({ supabase, inventario = [], esAdmin = 
                 <label className="muted" style={{ fontSize: '0.72rem' }}>
                   Penalización %
                   <input className="input" type="number" min={0} max={100} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.mermaMaxPct.penalizacionPct ?? 25} onChange={(e) => setRegla('mermaMaxPct', { penalizacionPct: Number(e.target.value) })} />
+                </label>
+                <label className="muted" style={{ fontSize: '0.72rem' }}>
+                  Ventana (días)
+                  <input className="input" type="number" min={1} max={30} style={{ width: 80, marginTop: 2 }} value={cfg.reglas.mermaMaxPct.ventanaDias ?? 8} onChange={(e) => setRegla('mermaMaxPct', { ventanaDias: Number(e.target.value) })} />
                 </label>
               </div>
             </div>

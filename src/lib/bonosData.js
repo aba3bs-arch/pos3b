@@ -2,7 +2,7 @@
  * Carga métricas de la app y calcula el bono de una sucursal.
  */
 import { normalizarCodigoTienda } from '../constants/sucursales.js';
-import { inicioDia, finDia, hoyYmdNogales } from './corteCaja.js';
+import { addDaysYmd, inicioDia, finDia, hoyYmdNogales, ymdNogalesFromDate } from './corteCaja.js';
 import { periodoSemanaNomina } from './semanaNomina.js';
 import { listarMovimientosRecoleccionContabilidad, claveDiaReporte, sucursalParaControlEfectivo } from './controlEfectivo.js';
 import { listarSesionesChecklist, listarRespuestasSesion, hoyYmdLocal, evaluacionCompaneroChecklist, labelTurno } from './checklistOperativo.js';
@@ -10,6 +10,8 @@ import { listarEvaluaciones } from './evaluacionOperativa.js';
 import { costoUnitarioInventario, resumirValorInventario } from './valorInventario.js';
 import { inventarioParaSucursal } from './inventarioMultitienda.js';
 import {
+  DIAS_VENTANA_EVALUACION_BONO,
+  DIAS_VENTANA_INVENTARIO_BONO,
   bonoBasePorMonto,
   bonoFinal,
   bonoTurnoPorEvaluacion,
@@ -19,6 +21,7 @@ import {
   pctPorReglasCumplidas,
   sincronizarBonosConfigDesdeNube,
 } from './bonosConfig.js';
+import { cicloInventarioSucursal, etiquetaDiaInventario } from './calendarioInventario.js';
 import { resultadoInventarioParaBono } from './resultadoInventario.js';
 
 function round2(n) {
@@ -109,6 +112,42 @@ async function faltantePeriodo(supabase, sucursal, desde, hasta) {
 }
 
 /**
+ * Ventana del medidor de inventario: día de inventario de la tienda + N días
+ * (default 8). Usa el ciclo semanal de la sucursal cuando está configurado.
+ */
+export function rangoVentanaInventarioBono(sucursal, {
+  ventanaDias = DIAS_VENTANA_INVENTARIO_BONO,
+  fecha = new Date(),
+} = {}) {
+  const dias = Math.max(1, Math.round(Number(ventanaDias) || DIAS_VENTANA_INVENTARIO_BONO));
+  const ahora = fecha instanceof Date ? fecha : new Date();
+  const ciclo = cicloInventarioSucursal(sucursal, ahora);
+  if (ciclo?.ymd) {
+    // Inclusivo: día de inventario + (dias-1) = ventana de `dias` días.
+    const hasta = addDaysYmd(ciclo.ymd, dias - 1);
+    return {
+      desde: ciclo.ymd,
+      hasta,
+      diaSemana: ciclo.diaSemana,
+      etiquetaDia: ciclo.etiquetaDia || etiquetaDiaInventario(ciclo.diaSemana),
+      diaCiclo: ciclo.diaCiclo,
+      vigente: true,
+      fuente: 'calendario_tienda',
+    };
+  }
+  const hoy = ymdNogalesFromDate(ahora);
+  return {
+    desde: addDaysYmd(hoy, -(dias - 1)),
+    hasta: hoy,
+    diaSemana: null,
+    etiquetaDia: null,
+    diaCiclo: null,
+    vigente: true,
+    fuente: 'fallback_ultimos_dias',
+  };
+}
+
+/**
  * Merma % para bono.
  * Preferencia: resultado manual de inventario (Reportes → Inventario) si existe en el periodo.
  * Fallback: valor retiros merma / valor inventario a costo.
@@ -179,18 +218,48 @@ async function mermaPctPeriodo(supabase, sucursal, desde, hasta, inventario = []
   return { pct, valorMerma, valorInventario: denom, fuente: 'movimientos' };
 }
 
-async function evaluacionPct(supabase, sucursal) {
+/**
+ * Evaluación vigente solo dentro de la ventana (default 15 días).
+ * Si la última evaluación cerrada está fuera de ventana → sin dato (medidor falla).
+ */
+async function evaluacionPct(supabase, sucursal, {
+  ventanaDias = DIAS_VENTANA_EVALUACION_BONO,
+  fecha = new Date(),
+} = {}) {
+  const dias = Math.max(1, Math.round(Number(ventanaDias) || DIAS_VENTANA_EVALUACION_BONO));
+  const ahora = fecha instanceof Date ? fecha : new Date();
+  const hoy = ymdNogalesFromDate(ahora);
+  const desdeVentana = addDaysYmd(hoy, -(dias - 1));
   const res = await listarEvaluaciones(supabase, { sucursalId: sucursal, limit: 30 });
-  if (res.error && !res.data?.length) return { pct: null, ok: false, error: res.error };
-  const cerrada = (res.data || []).find((e) => e.estado === 'cerrado');
-  const row = cerrada || (res.data || [])[0];
-  if (!row) return { pct: null, ok: false, sinDatos: true };
+  if (res.error && !res.data?.length) {
+    return { pct: null, ok: false, error: res.error, ventanaDias: dias, desdeVentana };
+  }
+  const vigentes = (res.data || []).filter((e) => {
+    const f = String(e.fecha || '').slice(0, 10);
+    return f && f >= desdeVentana && f <= hoy;
+  });
+  const cerrada = vigentes.find((e) => e.estado === 'cerrado');
+  const row = cerrada || vigentes[0];
+  if (!row) {
+    const ultima = (res.data || [])[0];
+    return {
+      pct: null,
+      ok: false,
+      sinDatos: true,
+      vencida: Boolean(ultima?.fecha),
+      fechaVencida: ultima?.fecha ? String(ultima.fecha).slice(0, 10) : null,
+      ventanaDias: dias,
+      desdeVentana,
+    };
+  }
   const pct = Number(row.puntuacion_pct);
   return {
     pct: Number.isFinite(pct) ? pct : null,
     ok: Number.isFinite(pct),
     fecha: row.fecha,
     estado: row.estado,
+    ventanaDias: dias,
+    desdeVentana,
   };
 }
 
@@ -335,6 +404,8 @@ export async function calcularBonoSucursal(supabase, {
   inventario = [],
   config = null,
   fecha = new Date(),
+  /** Si se pasa, sustituye el total de recolección del periodo (cálculo manual en Inicio). */
+  montoRecoleccion = null,
 } = {}) {
   const cfg = normalizarBonosConfig(config || leerBonosConfig());
   const suc = normalizarCodigoTienda(sucursal);
@@ -343,15 +414,18 @@ export async function calcularBonoSucursal(supabase, {
   }
 
   await sincronizarBonosConfigDesdeNube(supabase);
-  const cfgLive = normalizarBonosConfig(leerBonosConfig());
+  const cfgLive = normalizarBonosConfig(config || leerBonosConfig());
   const rango = rangoPeriodoBono(cfgLive, fecha);
   const esDia = cfgLive.periodo === 'dia';
+  const ventanaEval = cfgLive.reglas?.evaluacionMinPct?.ventanaDias ?? DIAS_VENTANA_EVALUACION_BONO;
+  const ventanaInv = cfgLive.reglas?.mermaMaxPct?.ventanaDias ?? DIAS_VENTANA_INVENTARIO_BONO;
+  const rangoInv = rangoVentanaInventarioBono(suc, { ventanaDias: ventanaInv, fecha });
 
   const [reco, falt, merma, evalRes, check, bonosTurno] = await Promise.all([
     totalRecoleccionPeriodo(supabase, suc, rango.desde, rango.hasta),
     faltantePeriodo(supabase, suc, rango.desde, rango.hasta),
-    mermaPctPeriodo(supabase, suc, rango.desde, rango.hasta, inventario),
-    evaluacionPct(supabase, suc),
+    mermaPctPeriodo(supabase, suc, rangoInv.desde, rangoInv.hasta, inventario),
+    evaluacionPct(supabase, suc, { ventanaDias: ventanaEval, fecha }),
     checklistCumple(
       supabase,
       suc,
@@ -368,7 +442,11 @@ export async function calcularBonoSucursal(supabase, {
     }),
   ]);
 
-  const base = bonoBasePorMonto(reco.total, cfgLive);
+  const montoManual = montoRecoleccion != null && Number.isFinite(Number(montoRecoleccion))
+    ? round2(Number(montoRecoleccion))
+    : null;
+  const recoleccionUsada = montoManual != null && montoManual >= 0 ? montoManual : reco.total;
+  const base = bonoBasePorMonto(recoleccionUsada, cfgLive);
   const reglasCfg = cfgLive.reglas;
   const usarPenalizaciones = cfgLive.modoCalculo !== 'reglas';
 
@@ -473,7 +551,9 @@ export async function calcularBonoSucursal(supabase, {
     modoCalculo: cfgLive.modoCalculo,
     sucursal: suc,
     periodo: rango,
-    recoleccion: reco.total,
+    recoleccion: recoleccionUsada,
+    recoleccionPeriodo: reco.total,
+    recoleccionManual: montoManual,
     recoleccionesCount: reco.count,
     base,
     pct,
@@ -498,7 +578,12 @@ export async function calcularBonoSucursal(supabase, {
       mermaFaltanteBruto: merma.faltanteBruto ?? null,
       mermaBonificacion: merma.bonificacion ?? null,
       invDespuesAjuste: merma.invDespuesAjuste ?? null,
+      inventarioVentana: rangoInv,
       evaluacionPct: evalRes.pct,
+      evaluacionFecha: evalRes.fecha || null,
+      evaluacionVentanaDias: evalRes.ventanaDias ?? ventanaEval,
+      evaluacionDesde: evalRes.desdeVentana || null,
+      evaluacionVencida: evalRes.vencida || false,
       checklist: check,
     },
     config: cfgLive,

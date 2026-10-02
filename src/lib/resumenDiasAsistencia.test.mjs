@@ -335,7 +335,7 @@ assert.equal(
 {
   // Bono: solo empleados de tienda dados de alta.
   // Entrada sola o salida sola → SÍ bono. Sin ambas en día laboral → falta.
-  // Faltó lunes → sin bono 7 días; vuelve el próximo lunes.
+  // Faltó lunes → sin bono N días (aquí diasBloqueo: 7); vuelve el próximo lunes.
   const dias = diasConAlgunaChecada([
     { tipo: 'ENTRADA', created_at: '2026-09-10T08:00:00' },
     { tipo: 'SALIDA', created_at: '2026-09-11T20:00:00' },

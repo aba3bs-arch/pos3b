@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict'
 import {
   BONOS_CONFIG_DEFAULT,
+  DIAS_VENTANA_EVALUACION_BONO,
+  DIAS_VENTANA_INVENTARIO_BONO,
   bonoBasePorMonto,
   bonoFinal,
   calcularPctBonoPorPenalizaciones,
   calcularPagosBonoPorEmpleado,
   normalizarBonosConfig,
 } from './bonosConfig.js'
+import { DIAS_BLOQUEO_BONO_POR_FALTA } from './resumenDiasAsistencia.js'
+import { rangoVentanaInventarioBono } from './bonosData.js'
 
 {
   const cfg = normalizarBonosConfig(BONOS_CONFIG_DEFAULT)
@@ -18,7 +22,12 @@ import {
   assert.equal(cfg.reglas.evaluacionMinPct.penalizacionPct, 25)
   assert.equal(cfg.reglas.mermaMaxPct.penalizacionPct, 25)
   assert.equal(cfg.reglas.faltanteCero.penalizacionPct, 25)
-  assert.equal(cfg.reglas.faltanteCero.esRequisito, false)
+  assert.equal(cfg.reglas.faltanteCero.esRequisito, true)
+  assert.equal(cfg.reglas.evaluacionMinPct.ventanaDias, DIAS_VENTANA_EVALUACION_BONO)
+  assert.equal(cfg.reglas.mermaMaxPct.ventanaDias, DIAS_VENTANA_INVENTARIO_BONO)
+  assert.equal(DIAS_VENTANA_EVALUACION_BONO, 15)
+  assert.equal(DIAS_VENTANA_INVENTARIO_BONO, 8)
+  assert.equal(DIAS_BLOQUEO_BONO_POR_FALTA, 8)
 }
 
 {
@@ -36,16 +45,35 @@ import {
 }
 
 {
-  // Con faltante → −25% (lineamiento, no requisito duro)
+  // Con faltante → 0% (requisito duro: turno con faltante en esa recolección)
   const r = calcularPctBonoPorPenalizaciones({
     faltanteOk: false,
     checklistDias: 6,
     evaluacionPct: 90,
     mermaPct: 1,
   })
+  assert.equal(r.pct, 0)
+  assert.equal(r.bloqueadoPorFaltante, true)
+  assert.equal(r.fallosLineamiento, 1)
+}
+
+{
+  // Si se desactiva requisito duro → −25% como lineamiento
+  const cfg = normalizarBonosConfig({
+    ...BONOS_CONFIG_DEFAULT,
+    reglas: {
+      ...BONOS_CONFIG_DEFAULT.reglas,
+      faltanteCero: { ...BONOS_CONFIG_DEFAULT.reglas.faltanteCero, esRequisito: false },
+    },
+  })
+  const r = calcularPctBonoPorPenalizaciones({
+    faltanteOk: false,
+    checklistDias: 6,
+    evaluacionPct: 90,
+    mermaPct: 1,
+  }, cfg)
   assert.equal(r.pct, 75)
   assert.equal(r.bloqueadoPorFaltante, false)
-  assert.equal(r.fallosLineamiento, 1)
 }
 
 {
@@ -95,29 +123,36 @@ import {
 }
 
 {
-  // 2 fallos → 50%; 3 → 25%; 4 → 0%
+  // 2 fallos → 50%; 3 → 25%; 4 → 0% (sin faltante duro: solo lineamientos −25%)
+  const soft = normalizarBonosConfig({
+    ...BONOS_CONFIG_DEFAULT,
+    reglas: {
+      ...BONOS_CONFIG_DEFAULT.reglas,
+      faltanteCero: { ...BONOS_CONFIG_DEFAULT.reglas.faltanteCero, esRequisito: false },
+    },
+  })
   assert.equal(calcularPctBonoPorPenalizaciones({
     faltanteOk: false,
     checklistDias: 3,
     evaluacionPct: 80,
     mermaPct: 2,
-  }).pct, 50)
+  }, soft).pct, 50)
   assert.equal(calcularPctBonoPorPenalizaciones({
     faltanteOk: false,
     checklistDias: 3,
     evaluacionPct: 60,
     mermaPct: 2,
-  }).pct, 25)
+  }, soft).pct, 25)
   assert.equal(calcularPctBonoPorPenalizaciones({
     faltanteOk: false,
     checklistDias: 3,
     evaluacionPct: 60,
     mermaPct: 7,
-  }).pct, 0)
+  }, soft).pct, 0)
 }
 
 {
-  // Bono final con tabulador (1 fallo → 75%)
+  // Bono final con tabulador (1 fallo checklist → 75%)
   const base = bonoBasePorMonto(8500) // rango 7001–10000 → 300
   assert.equal(base, 300)
   const pct = calcularPctBonoPorPenalizaciones({
@@ -128,6 +163,36 @@ import {
   }).pct
   assert.equal(pct, 75)
   assert.equal(bonoFinal(base, pct), 225)
+}
+
+{
+  // Ejemplo operativo: recolección $6,900 → base $200 c/u
+  // Total al 100% entre 2 empleados = $400. Al 75% → $150 c/u.
+  const base = bonoBasePorMonto(6900)
+  assert.equal(base, 200)
+  assert.equal(bonoFinal(base, 100), 200)
+  assert.equal(bonoFinal(base, 75), 150)
+  const pagos100 = calcularPagosBonoPorEmpleado({
+    base,
+    pctTienda: 100,
+    plantilla: [
+      { id: 1, nombre: 'Ana TD' },
+      { id: 2, nombre: 'Luis TN' },
+    ],
+  })
+  assert.equal(pagos100[0].pago + pagos100[1].pago, 400)
+  assert.equal(pagos100.every((p) => p.pago === 200), true)
+
+  const pagos75 = calcularPagosBonoPorEmpleado({
+    base,
+    pctTienda: 75,
+    plantilla: [
+      { id: 1, nombre: 'Ana TD' },
+      { id: 2, nombre: 'Luis TN' },
+    ],
+  })
+  assert.equal(pagos75.every((p) => p.pago === 150), true)
+  assert.equal(pagos75[0].pago + pagos75[1].pago, 300)
 }
 
 {
@@ -168,6 +233,21 @@ import {
   assert.equal(cfg.reglas.evaluacionMinPct.penalizacionPct, 25)
   assert.equal(cfg.reglas.checklistDiario.penalizacionPct, 25)
   assert.equal(cfg.modoCalculo, 'penalizaciones')
+  assert.equal(cfg.reglas.faltanteCero.esRequisito, true)
+  assert.equal(cfg.reglas.evaluacionMinPct.ventanaDias, 15)
+  assert.equal(cfg.reglas.mermaMaxPct.ventanaDias, 8)
+}
+
+{
+  // Ventana inventario: 3B5 = lunes → 8 días desde ese lunes
+  const rango = rangoVentanaInventarioBono('3B5', {
+    ventanaDias: 8,
+    fecha: new Date('2026-09-16T18:00:00-07:00'), // miércoles
+  })
+  assert.equal(rango.fuente, 'calendario_tienda')
+  assert.equal(rango.diaSemana, 1) // lunes
+  assert.equal(rango.desde, '2026-09-14')
+  assert.equal(rango.hasta, '2026-09-21')
 }
 
 console.log('bonosPenalizaciones.test.mjs ok')
