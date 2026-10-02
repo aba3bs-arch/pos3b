@@ -8,7 +8,7 @@ import {
   registrarCatalogoEnInventario,
   registrarCatalogoPendientesEnInventario,
 } from '../lib/proveedorCatalogo.js';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import MatrizEntregasProveedores from '../components/MatrizEntregasProveedores.jsx';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
@@ -23,6 +23,15 @@ import {
   listarDepartamentosCatalogoCedis,
   sincronizarDepartamentosCatalogoCedis,
 } from '../lib/catalogoCedis.js';
+import {
+  AVISO_FALTA_PROVEEDORES_AMBITO_SQL,
+  AMBITO_PROVEEDOR_CEDIS,
+  asegurarProveedorCedisLas3bAmbito,
+  etiquetaAmbitoProveedor,
+  filtrarProveedoresPorAmbito,
+  listarProveedoresPorAmbito,
+  payloadAmbitoAlGuardarProveedor,
+} from '../lib/proveedoresAmbito.js';
 
 const empty = {
   nombre: '',
@@ -41,6 +50,7 @@ const COLUMNAS_OPCIONALES = [
   ['rfc', 'supabase/fix_proveedores_columnas.sql'],
   ['direccion', 'supabase/fix_proveedores_columnas.sql'],
   ['modo_compra', 'supabase/fix_proveedores_columnas.sql'],
+  ['ambito', 'supabase/fix_proveedores_ambito.sql'],
 ];
 
 const emptyCatalogo = {
@@ -67,12 +77,15 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
   const [nuevoDeptoCedis, setNuevoDeptoCedis] = useState('');
   const [tickDeptosCedis, setTickDeptosCedis] = useState(0);
   const [agregandoDeptoCedis, setAgregandoDeptoCedis] = useState(false);
+  const [avisoAmbito, setAvisoAmbito] = useState('');
   const puedeAlta = puedeCrearProveedor(user?.rol);
+  const esSesionCedis = esAlmacenCentral(sucursal);
+  const ambitoSesion = esSesionCedis ? AMBITO_PROVEEDOR_CEDIS : 'tienda';
 
   const esProvCedis = esProveedorCedisLas3b(form.nombre) || esProveedorCedisLas3b(rows.find((r) => r.id === editId));
   const departamentosCatalogo = useMemo(
-    () => (esProvCedis ? listarDepartamentosCatalogoCedis(inventario) : listarDepartamentos(inventario)),
-    [esProvCedis, inventario, tickDeptosCedis],
+    () => (esProvCedis || esSesionCedis ? listarDepartamentosCatalogoCedis(inventario) : listarDepartamentos(inventario)),
+    [esProvCedis, esSesionCedis, inventario, tickDeptosCedis],
   );
 
   useEffect(() => {
@@ -120,12 +133,25 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
 
   const load = async () => {
     if (!supabase) return;
-    const { data, error } = await supabase.from('proveedores').select('*').order('nombre');
-    if (error) {
-      setRows([]);
+    if (esSesionCedis) {
+      await asegurarProveedorCedisLas3bAmbito(supabase).catch(() => null);
+    }
+    const res = await listarProveedoresPorAmbito(supabase, sucursal, {
+      select: 'id, nombre, contacto, telefono, email, rfc, direccion, notas, modo_compra, ambito, created_at',
+    });
+    if (res.error) {
+      // Fallback select *
+      const { data, error } = await supabase.from('proveedores').select('*').order('nombre');
+      if (error) {
+        setRows([]);
+        return;
+      }
+      setRows(filtrarProveedoresPorAmbito(data || [], sucursal));
+      setAvisoAmbito(AVISO_FALTA_PROVEEDORES_AMBITO_SQL);
       return;
     }
-    setRows(data || []);
+    setRows(res.data || []);
+    setAvisoAmbito(res.aviso || '');
   };
 
   const loadVinculos = async (proveedorId) => {
@@ -156,7 +182,7 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
 
   useEffect(() => {
     load();
-  }, [supabase]);
+  }, [supabase, sucursal]);
 
   useEffect(() => {
     loadVinculos(editId);
@@ -178,6 +204,18 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
       return alert('Solo el administrador puede dar de alta proveedores.');
     }
 
+    // No permitir crear «CEDIS LAS 3B» desde tienda ni duplicar nombres cruzados.
+    if (!esSesionCedis && esProveedorCedisLas3b(form.nombre)) {
+      return alert(`«${PROVEEDOR_CEDIS_NOMBRE}» es exclusivo de CEDIS / Venta en Ruta.`);
+    }
+
+    const ambitoRes = payloadAmbitoAlGuardarProveedor({
+      sucursal,
+      editId,
+      rowActual: rows.find((r) => r.id === editId) || null,
+    });
+    if (!ambitoRes.ok) return alert(ambitoRes.error);
+
     const faltaColumna = (error, col) => {
       const msg = String(error?.message || error || '').toLowerCase();
       return msg.includes(String(col).toLowerCase()) && (
@@ -194,6 +232,7 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
       direccion: String(form.direccion || '').trim() || null,
       notas: String(form.notas || '').trim() || null,
       modo_compra: normalizarModoCompraProveedor(form.modo_compra),
+      ambito: ambitoRes.ambito,
     };
 
     const persistir = (row) => (
@@ -222,7 +261,7 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
     }
 
     if (avisos.length) {
-      alert(`Proveedor guardado parcialmente.\n\n${avisos.join('\n')}\n\nPara completar la tabla ejecuta: supabase/fix_proveedores_columnas.sql`);
+      alert(`Proveedor guardado parcialmente.\n\n${avisos.join('\n')}\n\nPara completar la tabla ejecuta: supabase/fix_proveedores_columnas.sql y supabase/fix_proveedores_ambito.sql`);
     }
     setForm(empty);
     setEditId(null);
@@ -405,6 +444,20 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      <div className="card" style={{ borderLeft: `4px solid ${esSesionCedis ? '#0f766e' : 'var(--brand-blue)'}` }}>
+        <h3 style={{ margin: 0, color: esSesionCedis ? '#0f766e' : 'var(--brand-blue)' }}>
+          Proveedores · {etiquetaAmbitoProveedor(ambitoSesion)}
+        </h3>
+        <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.82rem' }}>
+          {esSesionCedis
+            ? <>Catálogo exclusivo de <strong>CEDIS</strong>. Estos proveedores no aparecen en las sucursales. Venta en Ruta usa solo «{PROVEEDOR_CEDIS_NOMBRE}».</>
+            : <>Catálogo de <strong>sucursales</strong>. No incluye los proveedores de CEDIS (están separados).</>}
+        </p>
+        {avisoAmbito ? (
+          <p style={{ margin: '0.4rem 0 0', fontSize: '0.78rem', color: '#b45309' }}>{avisoAmbito}</p>
+        ) : null}
+      </div>
+
       <MatrizEntregasProveedores supabase={supabase} proveedores={rows} />
 
       <div className="card">

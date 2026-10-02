@@ -29,6 +29,7 @@ import {
   normalizarModoCompraProveedor,
   proveedorUsaEntregaDirecta,
 } from '../lib/comprasProveedor.js';
+import { filtrarProveedoresPorAmbito, listarProveedoresPorAmbito } from '../lib/proveedoresAmbito.js';
 import { cargarGastoCompraACorteAbarrotes } from '../lib/compraGastoCorte.js';
 
 async function aplicarInventarioCompra(supabase, items, motivoBase, { sucursal, user, folio }) {
@@ -208,10 +209,15 @@ export default function Compras({
       .limit(80);
     if (sucursal && !esSucursalNoVenta(sucursal)) qCompras = qCompras.eq('sucursal_id', sucursal);
     const [pr, co] = await Promise.all([
-      supabase.from('proveedores').select('*').order('nombre'),
+      listarProveedoresPorAmbito(supabase, sucursal, { select: '*' }),
       qCompras,
     ]);
-    if (!pr.error) setProveedores(pr.data || []);
+    if (pr.error) {
+      const fallback = await supabase.from('proveedores').select('*').order('nombre');
+      if (!fallback.error) setProveedores(filtrarProveedoresPorAmbito(fallback.data || [], sucursal));
+    } else {
+      setProveedores(pr.data || []);
+    }
     if (!co.error) {
       setHistorial(co.data || []);
       setErr('');
