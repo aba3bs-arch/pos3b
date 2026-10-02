@@ -9,7 +9,10 @@ import {
   esDepartamentoCatalogoCedis,
   filtrarInventarioCatalogoCedis,
   listarDepartamentosCatalogoCedis,
+  listarDepartamentosOcultosCedis,
   departamentoFiltroCoincideCedis,
+  ocultarDepartamentoCatalogoCedis,
+  restaurarDepartamentoCatalogoCedis,
   sincronizarDepartamentosCatalogoCedis,
 } from '../lib/catalogoCedis.js';
 import {
@@ -193,7 +196,47 @@ export default function Productos({
   const [proveedorCedisId, setProveedorCedisId] = useState(null);
   const [avisoCatalogoCedis, setAvisoCatalogoCedis] = useState('');
   const [tutorialCedisAbierto, setTutorialCedisAbierto] = useState(false);
+  const [mostrarDeptosCedis, setMostrarDeptosCedis] = useState(false);
   const vinculosCedisOnceRef = useRef(false);
+
+  const deptosCedisOcultos = useMemo(
+    () => (filtroCatalogoCedis ? listarDepartamentosOcultosCedis() : []),
+    [filtroCatalogoCedis, tickDepartamentos],
+  );
+
+  const quitarDeptoCedis = async (codigo) => {
+    if (!puedeGestionCatalogo) return alert('Tu rol no puede editar el catálogo CEDIS.');
+    const label = etiquetaDepartamento(codigo);
+    const conProd = (inventarioVista || []).filter((p) => departamentoFiltroCoincideCedis(p.cat, codigo)).length;
+    const extra = conProd > 0
+      ? `\n\nHay ${conProd} producto(s) con ese departamento: dejarán de verse en el catálogo CEDIS (siguen en tiendas).`
+      : '';
+    if (
+      !confirm(
+        `¿Quitar «${label}» solo del menú CEDIS?${extra}\n\nNo se borra en las tiendas ni se eliminan productos.`,
+      )
+    ) {
+      return;
+    }
+    const res = await ocultarDepartamentoCatalogoCedis(codigo, supabase, {
+      inventario: inventarioCompleto || inventario || [],
+    });
+    if (!res.ok) return alert(res.error);
+    setTickDepartamentos((n) => n + 1);
+    let msg = `Departamento «${label}» quitado de CEDIS. Las tiendas no se afectan.`;
+    if (res.aviso) msg += `\n\nNota: ${res.aviso}`;
+    alert(msg);
+  };
+
+  const restaurarDeptoCedis = async (codigo) => {
+    if (!puedeGestionCatalogo) return alert('Tu rol no puede editar el catálogo CEDIS.');
+    const res = await restaurarDepartamentoCatalogoCedis(codigo, supabase);
+    if (!res.ok) return alert(res.error);
+    setTickDepartamentos((n) => n + 1);
+    let msg = `Departamento «${etiquetaDepartamento(codigo)}» restaurado en CEDIS.`;
+    if (res.aviso) msg += `\n\nNota: ${res.aviso}`;
+    alert(msg);
+  };
 
   const idsProveedorCedis = useMemo(() => {
     if (!filtroCatalogoCedis || !proveedorCedisId) return null;
@@ -1147,6 +1190,18 @@ export default function Productos({
               type="button"
               className="btn btn-ghost"
               style={{ fontSize: '0.82rem' }}
+              onClick={() => setMostrarDeptosCedis((v) => !v)}
+              title="Quitar o restaurar departamentos solo en CEDIS"
+            >
+              <Icon name="settings" size={16} />
+              Departamentos CEDIS
+            </button>
+          )}
+          {filtroCatalogoCedis && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ fontSize: '0.82rem' }}
               onClick={() => setTutorialCedisAbierto(true)}
               title="Tutorial de uso de CEDIS"
             >
@@ -1196,6 +1251,96 @@ export default function Productos({
           )}
         </div>
       </div>
+
+      {filtroCatalogoCedis && mostrarDeptosCedis && (
+        <div
+          className="card"
+          style={{
+            margin: vista === 'lista' ? '0 0 0.75rem' : undefined,
+            borderLeft: '4px solid var(--brand-blue)',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            <div>
+              <h3 style={{ margin: 0, color: 'var(--brand-blue)', fontSize: '1rem' }}>Departamentos CEDIS</h3>
+              <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.82rem' }}>
+                <strong>Quitar de CEDIS</strong> solo oculta el departamento en el almacén.
+                No se borra en tiendas ni se eliminan productos.
+              </p>
+            </div>
+            <button type="button" className="btn btn-ghost" style={{ fontSize: '0.8rem' }} onClick={() => setMostrarDeptosCedis(false)}>
+              Cerrar
+            </button>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.75rem' }}>
+            {departamentos.map((d) => (
+              <span
+                key={d}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  padding: '0.3rem 0.45rem',
+                  borderRadius: 8,
+                  background: 'rgba(13,71,161,0.08)',
+                  border: '1px solid rgba(13,71,161,0.25)',
+                  fontSize: '0.85rem',
+                  fontWeight: 600,
+                }}
+              >
+                {etiquetaDepartamento(d)}
+                {puedeGestionCatalogo && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ padding: '0.1rem 0.35rem', fontSize: '0.75rem', color: 'var(--brand-red)' }}
+                    title="Quitar solo de CEDIS"
+                    onClick={() => void quitarDeptoCedis(d)}
+                  >
+                    Quitar
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+          {deptosCedisOcultos.length > 0 && (
+            <div style={{ marginTop: '0.85rem' }}>
+              <p className="muted" style={{ margin: '0 0 0.4rem', fontSize: '0.8rem', fontWeight: 700 }}>
+                Ocultos en CEDIS ({deptosCedisOcultos.length})
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                {deptosCedisOcultos.map((d) => (
+                  <span
+                    key={d}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      padding: '0.3rem 0.45rem',
+                      borderRadius: 8,
+                      background: 'rgba(0,0,0,0.04)',
+                      border: '1px solid var(--border)',
+                      fontSize: '0.85rem',
+                    }}
+                  >
+                    {etiquetaDepartamento(d)}
+                    {puedeGestionCatalogo && (
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{ padding: '0.1rem 0.4rem', fontSize: '0.75rem' }}
+                        onClick={() => void restaurarDeptoCedis(d)}
+                      >
+                        Restaurar
+                      </button>
+                    )}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {sincronizandoFotos && progresoFotos && (
         <div
