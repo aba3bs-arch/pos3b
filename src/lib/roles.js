@@ -361,6 +361,15 @@ function listaModulosEfectiva(rol, userId = null) {
   return permitidos;
 }
 
+/** Contabilidad en privilegios personalizados de un empleado (no del rol). */
+function privilegioUsuarioIncluyeModulo(userId, moduloId) {
+  const uid = userId != null ? String(userId) : '';
+  if (!uid) return false;
+  const priv = leerPrivilegios();
+  if (!tieneListaPersonalizada('porUsuario', uid, priv)) return false;
+  return normalizarListaModulos(priv.porUsuario[uid]).includes(moduloId);
+}
+
 export function puedeVerModulo(rol, moduloId, userId = null) {
   const m = normalizarIdModulo(moduloId);
   const r = normalizarRol(rol);
@@ -374,6 +383,20 @@ export function puedeVerModulo(rol, moduloId, userId = null) {
   if (esRolMostradorRestringido(rol) && MODULOS_BLOQUEADOS_MOSTRADOR.has(m)) return false;
   // Repartidor: bloqueo duro de módulos de caja/oficina (aunque haya privilegios personalizados).
   if (esRolRepartidor(rol) && MODULOS_BLOQUEADOS_REPARTIDOR.has(m)) return false;
+
+  // Contabilidad: solo Administrador/Gerente por rol.
+  // Otros roles: excepción solo con privilegio por USUARIO (no por rol).
+  // Cobranza del cajero sigue suelta y no abre el hub Contabilidad.
+  if (MODULOS_AGRUPADOS_CONTABILIDAD.has(m)) {
+    if (m === 'Cobranza' && esRolMostradorRestringido(rol)) {
+      return listaModulosEfectiva(rol, userId).includes(m);
+    }
+    if (rolSistemaEfectivo(rol) === 'Gerente') {
+      return listaModulosEfectiva(rol, userId).includes(m);
+    }
+    return privilegioUsuarioIncluyeModulo(userId, m);
+  }
+
   const permitidos = listaModulosEfectiva(rol, userId);
   return permitidos.includes(m);
 }
@@ -442,8 +465,7 @@ export function submodulosContabilidadVisibles(rol, userId = null) {
 
 /**
  * Contabilidad por rol: solo Administrador y Gerente.
- * Otros roles (Cajero, Auditor, Supervisor, etc.) solo con privilegio
- * asignado en Configuración → Privilegios (por usuario o por rol).
+ * Otros roles solo con privilegio por empleado (Configuración → Privilegios → usuario).
  */
 export function esRolContabilidadPorDefecto(rol) {
   const r = rolSistemaEfectivo(rol);
@@ -453,7 +475,7 @@ export function esRolContabilidadPorDefecto(rol) {
 /**
  * Hub Contabilidad visible:
  * - Administrador / Gerente (por rol).
- * - Cualquier usuario con submódulos de Contabilidad en Privilegios.
+ * - Empleado concreto con submódulos de Contabilidad en Privilegios (por usuario).
  * - Cliente: Socio 3B.
  * - Cajero con solo Cobranza: Cobranza va suelta, sin hub.
  */

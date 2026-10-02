@@ -37,6 +37,17 @@ assert.equal(puedeVerSeccionContabilidad('Cajero'), false, 'solo Cobranza → si
 assert.ok(MODULOS_CONTABILIDAD_SUELTOS_CAJERO.has('Cobranza'));
 assert.equal(puedeVerModulo('Cajero', 'Cobranza'), true, 'Cobranza suelta para cajero');
 
+// Privilegio por ROL Auditor: no abre Contabilidad
+store.set('pos3b_privilegios', JSON.stringify({
+  porRol: {
+    Auditor: ['Inicio', 'Panel RT', 'Conciliaciones', 'Nómina'],
+  },
+  porUsuario: {},
+  acciones: {},
+}));
+assert.equal(puedeVerModulo('Auditor', 'Panel RT'), false);
+assert.equal(puedeVerSeccionContabilidad('Auditor'), false);
+
 // Excepción: privilegio por usuario
 store.set('pos3b_privilegios', JSON.stringify({
   porRol: {},

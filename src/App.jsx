@@ -1353,8 +1353,10 @@ function App() {
 
   const subContabilidad = useMemo(() => {
     if (!user || modoOffline || user.esCtMovil) return [];
+    // Cajero con solo Cobranza no debe ver el botón Contabilidad.
+    if (!puedeVerSeccionContabilidad(user.rol, user.id)) return [];
     return submodulosContabilidadVisibles(user.rol, user.id);
-  }, [user, modoOffline]);
+  }, [user, modoOffline, tickPrivilegios]);
 
   const subEstadisticas = useMemo(() => {
     if (!user || modoOffline || user.esCtMovil) return [];
