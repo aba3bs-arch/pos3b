@@ -324,6 +324,25 @@ export async function ejecutarPurgaDatos(supabase, opts) {
     resultados.push(r.detalle);
   }
 
+  try {
+    const { auditarPurga } = await import('./auditoriaUso.js');
+    void auditarPurga(supabase, {
+      user: typeof usuario === 'object' ? usuario : { nombre: String(usuario || '—') },
+      sucursal: sucursalActiva,
+      tipos: [...tiposSet],
+      detalle: {
+        borrar_todo: Boolean(borrarTodo),
+        desde: borrarTodo ? null : desde || null,
+        hasta: borrarTodo ? null : hasta || null,
+        sucursales: tiendas,
+        resultados,
+        errores,
+      },
+    });
+  } catch {
+    /* ignore */
+  }
+
   if (!resultados.length && errores.length) return { ok: false, error: errores.join('\n') };
   return {
     ok: errores.length === 0,

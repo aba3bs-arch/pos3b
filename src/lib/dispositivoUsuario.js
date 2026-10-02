@@ -192,7 +192,21 @@ export async function vincularDispositivoUsuario(supabase, userId, deviceId, use
   }
 
   const { error } = await supabase.from('usuarios').update(patch).eq('id', userId);
-  if (!error) return { ok: true, slot, ...patch };
+  if (!error) {
+    try {
+      const { auditarDispositivo } = await import('./auditoriaUso.js');
+      void auditarDispositivo(supabase, {
+        user: { id: userId, ...(userRow || row || {}), rol: row?.rol || userRow?.rol },
+        accion: `vincular_slot_${slot}`,
+        extra: {
+          slot,
+          dispositivo_id: deviceId,
+          autorizacion_admin: Boolean(opts.autorizacionAdminDispositivo),
+        },
+      });
+    } catch { /* ignore */ }
+    return { ok: true, slot, ...patch };
+  }
   if (faltaColumnaDispositivo(error)) {
     if (slot === 2) {
       return {
@@ -211,13 +225,33 @@ export async function liberarDispositivoUsuario(supabase, userId) {
     .from('usuarios')
     .update({ dispositivo_id: null, dispositivo_id_2: null, dispositivo_vinculado_at: null })
     .eq('id', userId);
-  if (!error) return { ok: true };
+  if (!error) {
+    try {
+      const { auditarDispositivo } = await import('./auditoriaUso.js');
+      void auditarDispositivo(supabase, {
+        user: { id: userId },
+        accion: 'liberar_equipos',
+        extra: { usuario_liberado_id: userId },
+      });
+    } catch { /* ignore */ }
+    return { ok: true };
+  }
   if (faltaColumnaDispositivo(error)) {
     const { error: e2 } = await supabase
       .from('usuarios')
       .update({ dispositivo_id: null, dispositivo_vinculado_at: null })
       .eq('id', userId);
-    if (!e2) return { ok: true };
+    if (!e2) {
+      try {
+        const { auditarDispositivo } = await import('./auditoriaUso.js');
+        void auditarDispositivo(supabase, {
+          user: { id: userId },
+          accion: 'liberar_equipos',
+          extra: { usuario_liberado_id: userId, parcial: true },
+        });
+      } catch { /* ignore */ }
+      return { ok: true };
+    }
     if (faltaColumnaDispositivo(e2)) return { ok: false, error: AVISO_FALTA_DISPOSITIVO };
     return { ok: false, error: e2.message };
   }

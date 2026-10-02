@@ -385,12 +385,35 @@ export function guardarPrivilegios(data) {
 /** Guarda local y opcionalmente sincroniza a Supabase (todas las cajas). */
 export async function persistirPrivilegios(data, supabase) {
   const local = guardarPrivilegiosLocal(data);
-  if (!supabase) return { ok: true, local };
+  if (!supabase) {
+    try {
+      const { auditarConfig } = await import('./auditoriaUso.js');
+      void auditarConfig(supabase, {
+        panel: 'privilegios',
+        cambios: {
+          roles: Object.keys(local?.porRol || {}),
+          usuarios: Object.keys(local?.porUsuario || {}),
+        },
+      });
+    } catch { /* ignore */ }
+    return { ok: true, local };
+  }
   const { subirPrivilegiosANube } = await import('./privilegiosSync.js');
   const remoto = await subirPrivilegiosANube(supabase, local);
   if (remoto.ok && remoto.updated_at) {
     guardarPrivilegiosLocal({ ...local, _updatedAt: remoto.updated_at }, { silencioso: true });
   }
+  try {
+    const { auditarConfig } = await import('./auditoriaUso.js');
+    void auditarConfig(supabase, {
+      panel: 'privilegios',
+      cambios: {
+        roles: Object.keys(local?.porRol || {}),
+        usuarios: Object.keys(local?.porUsuario || {}),
+        nube: Boolean(remoto?.ok),
+      },
+    });
+  } catch { /* ignore */ }
   return { ok: true, local, remoto };
 }
 

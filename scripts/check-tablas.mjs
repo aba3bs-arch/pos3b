@@ -26,6 +26,11 @@ const TABLAS = [
   },
   { nombre: 'ventas', select: 'id,total,sucursal_id,created_at,turno_id,turno_nombre,usuario_id', modulo: 'Ventas / Consultas' },
   { nombre: 'logins', select: 'id,nombre,sucursal,created_at,turno_id,evento', modulo: 'Auditoría login' },
+  {
+    nombre: 'pos_auditoria_eventos',
+    select: 'id,tipo,accion,severidad,usuario_nombre,sucursal_id,dispositivo_id,created_at',
+    modulo: 'Auditoría / Rastreo de uso',
+  },
   { nombre: 'clientes', select: 'id,nombre', modulo: 'Clientes' },
   { nombre: 'proveedores', select: 'id,nombre', modulo: 'Proveedores / Compras' },
   { nombre: 'compras', select: 'id,total,items,items_pedido,estado', modulo: 'Compras' },

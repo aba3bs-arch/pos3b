@@ -169,6 +169,7 @@ export const MODULOS_ORDEN = [
   'Consultas',
   'Resumen operativo',
   'Reportes',
+  'Auditoría',
   'Vales y Préstamos',
   'Configuracion',
   'Tutorial',
@@ -371,6 +372,8 @@ export function puedeVerModulo(rol, moduloId, userId = null) {
   const m = normalizarIdModulo(moduloId);
   const r = normalizarRol(rol);
   if (r === 'Administrador') return true;
+  // Rastreo de uso: exclusivo Administrador (aunque se marque en Privilegios).
+  if (m === 'Auditoría') return false;
   // Cliente máquinas: solo ese módulo (bloqueo duro).
   if (esRolCliente(rol)) return m === 'Socio 3B';
   // Solo módulos de administración del sistema siguen bloqueados para Cajero
@@ -545,6 +548,7 @@ export const MODULOS_BLOQUEADOS_MOSTRADOR = new Set([
   'Configuracion',
   'RH ABA3B',
   'Contratación',
+  'Auditoría',
 ]);
 
 /** Módulos que el repartidor nunca puede abrir (bloqueo duro). */

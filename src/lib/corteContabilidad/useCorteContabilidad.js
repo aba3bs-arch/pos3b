@@ -966,6 +966,20 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     if (res.definitivo) {
       alert('El cierre se eliminó de forma definitiva.\n\n' + (res.aviso || ''));
     }
+    try {
+      const { auditarCorte, TIPOS_AUDITORIA } = await import('../auditoriaUso.js');
+      void auditarCorte(supabase, {
+        tipo: TIPOS_AUDITORIA.CORTE_DELETE,
+        user,
+        sucursal,
+        modulo,
+        cierreId,
+        folio,
+        extra: { definitivo: Boolean(res.definitivo), deleted_by: rastro },
+      });
+    } catch {
+      /* ignore */
+    }
     await refrescarHistorial();
   };
 
@@ -976,6 +990,19 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     const res = await restaurarCierreCorte(supabase, cierreId, sucursal, modulo);
     if (!res.ok) return alert(res.error || 'No se pudo restaurar.');
     if (res.aviso) setAviso(res.aviso);
+    try {
+      const { auditarCorte, TIPOS_AUDITORIA } = await import('../auditoriaUso.js');
+      void auditarCorte(supabase, {
+        tipo: TIPOS_AUDITORIA.CORTE_RESTORE,
+        user,
+        sucursal,
+        modulo,
+        cierreId,
+        folio,
+      });
+    } catch {
+      /* ignore */
+    }
     await refrescarHistorial();
   };
 
@@ -1066,6 +1093,20 @@ export function useCorteContabilidad({ supabase, sucursal, modulo, user, calcFn,
     }
     const res = await actualizarCierreCorte(supabase, cierreId, patch, sucursal, modulo);
     if (!res.ok) return res;
+    try {
+      const { auditarCorte, TIPOS_AUDITORIA } = await import('../auditoriaUso.js');
+      void auditarCorte(supabase, {
+        tipo: TIPOS_AUDITORIA.CORTE_EDIT,
+        user,
+        sucursal,
+        modulo,
+        cierreId,
+        folio: patch?.folio || cierreId,
+        extra: { campos: Object.keys(patch || {}) },
+      });
+    } catch {
+      /* ignore */
+    }
     const hist = await listarCierresCorte(supabase, sucursal, modulo, 15);
     setHistorial(hist.data || []);
     return { ok: true };
