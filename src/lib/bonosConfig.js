@@ -36,11 +36,17 @@ export const BONOS_TURNO_DEFAULT = {
   TN: 50,
 };
 
+/** Ventanas de vigencia de medidores (días calendario). */
+export const DIAS_VENTANA_EVALUACION_BONO = 15;
+export const DIAS_VENTANA_INVENTARIO_BONO = 8;
+
 /**
  * Modelo de pago justo (penalizaciones desde 100% del tabulador):
  * - 4 lineamientos: cero faltante, check list, evaluación, inventario (merma).
  * - Cada lineamiento fallido → −25% → 100% / 75% / 50% / 25% / 0%.
- * - Empleado de tienda con falta vigente → 0% (ecuación por nombre en Inicio).
+ * - Faltante de efectivo en la recolección → 0% de golpe (requisito duro).
+ * - Empleado de tienda con falta vigente → 0% por 8 días.
+ * - Evaluación: vigencia 15 días. Checklist: semana (<4 días baja %). Inventario: 8 días / día de tienda.
  * El checklist NO define un monto de bono; solo afecta ese %.
  */
 export const BONOS_CONFIG_DEFAULT = {
@@ -55,8 +61,8 @@ export const BONOS_CONFIG_DEFAULT = {
     faltanteCero: {
       activo: true,
       label: 'Cero faltante de efectivo',
-      /** Si true, faltante deja el % en 0 de golpe. Default false: −25% como los demás. */
-      esRequisito: false,
+      /** Si true, faltante deja el % en 0 de golpe (turno con faltante en esa recolección). */
+      esRequisito: true,
       penalizacionPct: 25,
     },
     checklistDiario: {
@@ -72,12 +78,16 @@ export const BONOS_CONFIG_DEFAULT = {
       label: 'Evaluación operativa',
       minPct: 70,
       penalizacionPct: 25,
+      /** Días que permanece vigente la evaluación para el medidor. */
+      ventanaDias: DIAS_VENTANA_EVALUACION_BONO,
     },
     mermaMaxPct: {
       activo: true,
       label: 'Inventario (merma)',
       maxPct: 6,
       penalizacionPct: 25,
+      /** Días de vigencia del medidor según merma del último inventario (día de tienda). */
+      ventanaDias: DIAS_VENTANA_INVENTARIO_BONO,
     },
   },
   /**
@@ -183,7 +193,8 @@ export function normalizarBonosConfig(raw) {
       faltanteCero: {
         activo: reglasIn.faltanteCero?.activo !== false,
         label: String(reglasIn.faltanteCero?.label || base.reglas.faltanteCero.label),
-        esRequisito: reglasIn.faltanteCero?.esRequisito === true,
+        // Default true (requisito duro). Solo false si se guarda explícitamente.
+        esRequisito: reglasIn.faltanteCero?.esRequisito !== false,
         penalizacionPct: Math.max(0, Math.min(100, round2(num(
           reglasIn.faltanteCero?.penalizacionPct,
           base.reglas.faltanteCero.penalizacionPct,
@@ -207,12 +218,20 @@ export function normalizarBonosConfig(raw) {
         label: String(reglasIn.evaluacionMinPct?.label || base.reglas.evaluacionMinPct.label),
         minPct: round2(evalMinDefault),
         penalizacionPct: Math.max(0, Math.min(100, round2(penEval))),
+        ventanaDias: Math.max(1, Math.round(num(
+          reglasIn.evaluacionMinPct?.ventanaDias,
+          base.reglas.evaluacionMinPct.ventanaDias ?? DIAS_VENTANA_EVALUACION_BONO,
+        ))),
       },
       mermaMaxPct: {
         activo: reglasIn.mermaMaxPct?.activo !== false,
         label: String(reglasIn.mermaMaxPct?.label || base.reglas.mermaMaxPct.label),
         maxPct: round2(mermaMaxDefault),
         penalizacionPct: Math.max(0, Math.min(100, round2(penMerma))),
+        ventanaDias: Math.max(1, Math.round(num(
+          reglasIn.mermaMaxPct?.ventanaDias,
+          base.reglas.mermaMaxPct.ventanaDias ?? DIAS_VENTANA_INVENTARIO_BONO,
+        ))),
       },
     },
     bonosTurno: normalizarBonosTurno(r.bonosTurno),

@@ -1,7 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { esAlmacenCentral, etiquetaTienda, normalizarCodigoTienda } from '../constants/sucursales.js';
 import { normalizarRol } from '../lib/roles.js';
-import { EVENTO_BONOS_CONFIG, calcularPagosBonoPorEmpleado } from '../lib/bonosConfig.js';
+import {
+  EVENTO_BONOS_CONFIG,
+  bonoBasePorMonto,
+  bonoFinal,
+  calcularPagosBonoPorEmpleado,
+} from '../lib/bonosConfig.js';
 import { EVENTO_RESULTADO_INVENTARIO } from '../lib/resultadoInventario.js';
 import { calcularBonoSucursal } from '../lib/bonosData.js';
 import { EVENTO_DESCANSOS_AUTORIZADOS } from '../lib/descansosAutorizados.js';
@@ -25,6 +30,13 @@ function fmtDia(ymd) {
   return `${d}/${m}/${y}`;
 }
 
+function parseMontoInput(raw) {
+  const s = String(raw ?? '').trim().replace(/,/g, '');
+  if (!s) return null;
+  const n = Number(s);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
 function plantillaTiendaBono(usuarios, sucursal) {
   const suc = normalizarCodigoTienda(sucursal);
   return (usuarios || []).filter((u) => {
@@ -40,8 +52,9 @@ function plantillaTiendaBono(usuarios, sucursal) {
 
 /**
  * Widget de bono en Inicio de cada sucursal (parpadea si hay bono > 0).
- * % a pagar = 100 − 25×lineamientos fallidos (faltante, checklist, evaluación, inventario).
- * Empleado con falta → 0%. Ecuación por nombre: base × pct% = pago.
+ * Ingresa el monto de la recolección → tabulador → % medidores → pago por empleado.
+ * Ej.: $6,900 → base $200 c/u; al 75% → $150; al 100% → $200.
+ * Falta → 0% (8 días). Faltante de efectivo → 0% en esa recolección.
  */
 export default function PanelBonoInicio({
   supabase,
@@ -55,6 +68,7 @@ export default function PanelBonoInicio({
   const [avisoDescansos, setAvisoDescansos] = useState('');
   const [usuarios, setUsuarios] = useState([]);
   const [cargando, setCargando] = useState(true);
+  const [montoInput, setMontoInput] = useState('');
 
   useEffect(() => {
     if (!supabase || !sucursal || esAlmacenCentral(sucursal)) {
@@ -96,15 +110,36 @@ export default function PanelBonoInicio({
     };
   }, [supabase, sucursal, inventario]);
 
+  const montoCalc = useMemo(() => {
+    const manual = parseMontoInput(montoInput);
+    if (manual != null) return manual;
+    return Number(pack?.recoleccionPeriodo ?? pack?.recoleccion) || 0;
+  }, [montoInput, pack]);
+
+  const baseCalc = useMemo(() => {
+    if (!pack?.ok) return 0;
+    return bonoBasePorMonto(montoCalc, pack.config);
+  }, [pack, montoCalc]);
+
   const pagosEmpleado = useMemo(() => {
     if (!pack?.ok) return [];
     return calcularPagosBonoPorEmpleado({
-      base: pack.base,
+      base: baseCalc,
       pctTienda: pack.pct,
       plantilla: plantillaTiendaBono(usuarios, sucursal),
       bloqueosFalta,
     });
-  }, [pack, usuarios, sucursal, bloqueosFalta]);
+  }, [pack, baseCalc, usuarios, sucursal, bloqueosFalta]);
+
+  const totalPagar = useMemo(
+    () => pagosEmpleado.reduce((s, p) => s + (Number(p.pago) || 0), 0),
+    [pagosEmpleado],
+  );
+
+  const bonoPorEmpleadoAlPct = useMemo(
+    () => bonoFinal(baseCalc, pack?.pct || 0),
+    [baseCalc, pack?.pct],
+  );
 
   if (esAlmacenCentral(sucursal)) return null;
   if (cargando && !pack) {
@@ -126,9 +161,11 @@ export default function PanelBonoInicio({
     return null;
   }
 
-  const hayBono = (pack.bono || 0) > 0 || pagosEmpleado.some((p) => p.pago > 0);
+  const hayBono = totalPagar > 0 || bonoPorEmpleadoAlPct > 0;
   const clase = hayBono ? 'bono-panel bono-panel-parpadeo' : 'bono-panel';
   const fallos = (pack.reglas || []).filter((r) => !r.ok).length;
+  const invVentana = pack.metricas?.inventarioVentana;
+  const nEmpleados = pagosEmpleado.length;
 
   return (
     <div className={`card ${clase}`} style={{ borderLeft: `4px solid ${hayBono ? '#b45309' : '#a8a29e'}` }}>
@@ -139,12 +176,15 @@ export default function PanelBonoInicio({
             Bonos {etiquetaTienda(sucursal)}
           </h3>
           <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.78rem' }}>
-            {pack.periodo?.label || 'Periodo'} · Recolección {fmtMoney(pack.recoleccion)}
+            {pack.periodo?.label || 'Periodo'}
+            {pack.recoleccionPeriodo > 0 ? (
+              <> · Periodo acumulado {fmtMoney(pack.recoleccionPeriodo)}</>
+            ) : null}
           </p>
-          <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', maxWidth: 460 }}>
-            Porcentaje a pagar: <strong>{pack.pct}%</strong> del tabulador
-            ({fallos === 0 ? '100%' : `${fallos} lineamiento${fallos === 1 ? '' : 's'} × −25%`}).
-            Falta del empleado → 0%. Posibles: 100 · 75 · 50 · 25 · 0%.
+          <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', maxWidth: 480 }}>
+            Ingresa el monto de <strong>esta recolección</strong>. El tabulador da el bono base por empleado;
+            el % de medidores (100 · 75 · 50 · 25 · 0) es lo que se paga.
+            Falta → 0% por {DIAS_BLOQUEO_BONO_POR_FALTA} días. Faltante de efectivo → 0% en esa recolección.
           </p>
         </div>
         <div style={{ textAlign: 'right' }}>
@@ -152,10 +192,95 @@ export default function PanelBonoInicio({
             {pack.pct}%
           </div>
           <div className="muted" style={{ fontSize: '0.75rem', marginTop: 2 }}>
-            Tabulador {fmtMoney(pack.base)}
+            Tabulador {fmtMoney(baseCalc)}
             {pack.penalizacionTotal > 0 ? ` · −${pack.penalizacionTotal}%` : ' · completo'}
+            {pack.bloqueadoPorFaltante ? ' · faltante 0%' : ''}
           </div>
         </div>
+      </div>
+
+      <div
+        style={{
+          marginTop: '0.85rem',
+          padding: '0.65rem 0.75rem',
+          borderRadius: 8,
+          border: '1px solid rgba(180,83,9,0.35)',
+          background: 'rgba(180,83,9,0.07)',
+        }}
+      >
+        <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: 700, color: '#b45309', marginBottom: 6 }}>
+          Monto de la recolección
+        </label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.65rem', alignItems: 'flex-end' }}>
+          <div style={{ flex: '1 1 160px', minWidth: 140 }}>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              step={1}
+              inputMode="decimal"
+              placeholder="Ej. 6900"
+              value={montoInput}
+              onChange={(e) => setMontoInput(e.target.value)}
+              style={{ width: '100%', fontSize: '1.1rem', fontWeight: 700 }}
+              aria-label="Monto de recolección para calcular bono"
+            />
+          </div>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ fontSize: '0.78rem' }}
+            onClick={() => setMontoInput('')}
+            disabled={!montoInput}
+          >
+            Usar periodo
+          </button>
+        </div>
+        <div
+          style={{
+            marginTop: '0.65rem',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+            gap: '0.45rem',
+            fontSize: '0.8rem',
+          }}
+        >
+          <div>
+            <div className="muted" style={{ fontSize: '0.7rem' }}>Recolección</div>
+            <strong>{fmtMoney(montoCalc)}</strong>
+          </div>
+          <div>
+            <div className="muted" style={{ fontSize: '0.7rem' }}>Bono base / empleado</div>
+            <strong>{fmtMoney(baseCalc)}</strong>
+          </div>
+          <div>
+            <div className="muted" style={{ fontSize: '0.7rem' }}>% medidores</div>
+            <strong>{pack.pct}%</strong>
+            <span className="muted" style={{ marginLeft: 4 }}>
+              ({fallos === 0 ? '100%' : `${fallos}× −25%`})
+            </span>
+          </div>
+          <div>
+            <div className="muted" style={{ fontSize: '0.7rem' }}>Paga c/u al {pack.pct}%</div>
+            <strong style={{ color: '#b45309' }}>{fmtMoney(bonoPorEmpleadoAlPct)}</strong>
+          </div>
+          <div>
+            <div className="muted" style={{ fontSize: '0.7rem' }}>
+              Total {nEmpleados > 0 ? `(${nEmpleados} emp.)` : ''}
+            </div>
+            <strong style={{ color: '#b45309' }}>{fmtMoney(totalPagar)}</strong>
+          </div>
+        </div>
+        {montoCalc > 0 && baseCalc > 0 ? (
+          <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.72rem' }}>
+            Ej.: {fmtMoney(montoCalc)} → base {fmtMoney(baseCalc)} × {pack.pct}% = {fmtMoney(bonoPorEmpleadoAlPct)} por empleado
+            {nEmpleados >= 2 ? ` · total ${fmtMoney(baseCalc * nEmpleados)} al 100% entre ${nEmpleados}` : ''}.
+          </p>
+        ) : (
+          <p className="muted" style={{ margin: '0.5rem 0 0', fontSize: '0.72rem' }}>
+            Ejemplo: $6,900 → tabulador $200 c/u; al 75% pagan $150; al 100% pagan $200 (total $400 entre 2).
+          </p>
+        )}
       </div>
 
       <div
@@ -171,7 +296,7 @@ export default function PanelBonoInicio({
           Pago por empleado (ecuación)
         </h4>
         <p className="muted" style={{ margin: '0 0 0.55rem', fontSize: '0.74rem' }}>
-          <code style={{ fontSize: '0.72rem' }}>pago = tabulador × % tienda</code>
+          <code style={{ fontSize: '0.72rem' }}>pago = tabulador × % medidores</code>
           {' · '}si hay falta: <code style={{ fontSize: '0.72rem' }}>× 0%</code>.
           Cada tienda es independiente.
         </p>
@@ -312,6 +437,15 @@ export default function PanelBonoInicio({
           </li>
         ))}
       </ul>
+
+      <p className="muted" style={{ margin: '0.55rem 0 0', fontSize: '0.7rem' }}>
+        Ventanas: evaluación {pack.metricas?.evaluacionVentanaDias || 15} días
+        {pack.metricas?.evaluacionFecha ? ` (últ. ${fmtDia(pack.metricas.evaluacionFecha)})` : ''}
+        {' · '}checklist semanal (&lt;4 días baja %)
+        {' · '}inventario {invVentana ? `${invVentana.desde}→${invVentana.hasta}` : '8 días'}
+        {invVentana?.etiquetaDia ? ` (${invVentana.etiquetaDia})` : ''}
+        {' · '}falta {DIAS_BLOQUEO_BONO_POR_FALTA} días.
+      </p>
 
       {typeof onNavigateConfig === 'function' && (
         <button type="button" className="btn btn-ghost" style={{ marginTop: '0.65rem', fontSize: '0.8rem' }} onClick={onNavigateConfig}>

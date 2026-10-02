@@ -331,12 +331,12 @@ export function diasConAlgunaChecada(marcajes = []) {
 }
 
 /**
- * Una falta → sin bono desde ese día; se reactiva la siguiente semana el mismo día
- * (ej. faltó lunes 14 → vuelve lunes 21), si no volvió a faltar.
+ * Una falta → sin bono desde ese día; se reactiva 8 días después
+ * (ej. faltó lunes 14 → vuelve martes 22), si no volvió a faltar.
  * Varias faltas antes de recuperar: se acumula la diferencia de días entre faltas
- * (= se reactiva 7 días después de la última falta de la cadena).
+ * (= se reactiva 8 días después de la última falta de la cadena).
  */
-export const DIAS_BLOQUEO_BONO_POR_FALTA = 7
+export const DIAS_BLOQUEO_BONO_POR_FALTA = 8
 
 export function sumarDiasYmd(ymd, dias) {
   if (!ymd) return ''
@@ -393,8 +393,8 @@ export function calcularSuspensionBonoPorFaltas(faltasYmd = [], { hoy, diasBloqu
 
   for (const f of sorted) {
     if (vuelve == null || f < vuelve) {
-      // Misma cadena: cada falta mueve el regreso a f+7
-      // (= primera+7 + suma de diferencias entre faltas consecutivas).
+      // Misma cadena: cada falta mueve el regreso a f+ban
+      // (= primera+ban + suma de diferencias entre faltas consecutivas).
       cadena.push(f)
       vuelve = sumarDiasYmd(f, ban)
     } else {
@@ -565,9 +565,9 @@ export function diaLaborableParaBono(user, ymd, ctx = {}) {
  * - Falta = día laboral sin ENTRADA ni SALIDA.
  * - Descanso (plan / patrón / autorizado) no cuenta como falta.
  * - Entrada sola o salida sola → SÍ tiene bono.
- * - 1 falta: sin bono desde ese día; se reactiva la siguiente semana el mismo día.
+ * - 1 falta: sin bono desde ese día; se reactiva 8 días después.
  * - Varias faltas antes de recuperar: se acumula la diferencia de días entre faltas
- *   (vuelve 7 días después de la última falta de la cadena).
+ *   (vuelve 8 días después de la última falta de la cadena).
  *
  * @param {{ plan?: object, descansosAutorizados?: Array|Set<string> }} [opts]
  */
@@ -879,7 +879,7 @@ export async function cargarBloqueosBonoPorFalta(supabase, {
   if (!supabase || !sucursalId) return { ok: false, data: [], error: 'Sin sucursal.' }
   const suc = normalizarCodigoTienda(sucursalId)
   const hoy = ymdLocal(ahora)
-  const lookback = Math.max(45, (Number(diasBloqueo) || 7) * 6)
+  const lookback = Math.max(45, (Number(diasBloqueo) || DIAS_BLOQUEO_BONO_POR_FALTA) * 6)
   const desdeYmd = sumarDiasYmd(hoy, -lookback)
   const desdeIso = `${desdeYmd}T00:00:00`
   const hastaIso = new Date(ahora.getTime() + 24 * 3600 * 1000).toISOString()
