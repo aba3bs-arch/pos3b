@@ -13,6 +13,10 @@ import {
   sincronizarDepartamentosCatalogoCedis,
 } from '../lib/catalogoCedis.js';
 import {
+  filtrarProveedoresVisiblesCedis,
+  sincronizarProveedoresOcultosCedis,
+} from '../lib/proveedoresCedisVisibilidad.js';
+import {
   COLUMNAS_CATALOGO,
   descargarPlantillaCsv,
   descargarPlantillaExcel,
@@ -301,10 +305,16 @@ export default function Productos({
   useEffect(() => {
     if (!supabase) return;
     (async () => {
+      if (filtroCatalogoCedis) await sincronizarProveedoresOcultosCedis(supabase);
       const { data } = await supabase.from('proveedores').select('id, nombre').order('nombre');
       setProveedores(data || []);
     })();
-  }, [supabase]);
+  }, [supabase, filtroCatalogoCedis]);
+
+  const proveedoresVista = useMemo(
+    () => (filtroCatalogoCedis ? filtrarProveedoresVisiblesCedis(proveedores) : proveedores),
+    [filtroCatalogoCedis, proveedores],
+  );
 
   const cargarMapaProveedores = async () => {
     if (!supabase) return;

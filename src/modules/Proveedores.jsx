@@ -8,7 +8,7 @@ import {
   registrarCatalogoEnInventario,
   registrarCatalogoPendientesEnInventario,
 } from '../lib/proveedorCatalogo.js';
-import { etiquetaTienda } from '../constants/sucursales.js';
+import { etiquetaTienda, esAlmacenCentral } from '../constants/sucursales.js';
 import CampoCodigo from '../components/CampoCodigo.jsx';
 import MatrizEntregasProveedores from '../components/MatrizEntregasProveedores.jsx';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
@@ -23,6 +23,15 @@ import {
   listarDepartamentosCatalogoCedis,
   sincronizarDepartamentosCatalogoCedis,
 } from '../lib/catalogoCedis.js';
+import {
+  aplicaOcultarProveedoresCedis,
+  filtrarProveedoresVisiblesCedis,
+  listarIdsProveedoresOcultosCedis,
+  ocultarProveedorEnCedis,
+  puedeOcultarProveedorEnCedis,
+  restaurarProveedorEnCedis,
+  sincronizarProveedoresOcultosCedis,
+} from '../lib/proveedoresCedisVisibilidad.js';
 
 const empty = {
   nombre: '',
@@ -67,13 +76,27 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
   const [nuevoDeptoCedis, setNuevoDeptoCedis] = useState('');
   const [tickDeptosCedis, setTickDeptosCedis] = useState(0);
   const [agregandoDeptoCedis, setAgregandoDeptoCedis] = useState(false);
+  const [tickOcultosCedis, setTickOcultosCedis] = useState(0);
+  const [avisoOcultosCedis, setAvisoOcultosCedis] = useState('');
   const puedeAlta = puedeCrearProveedor(user?.rol);
+  const enCedis = aplicaOcultarProveedoresCedis(sucursal) || esAlmacenCentral(sucursal);
 
   const esProvCedis = esProveedorCedisLas3b(form.nombre) || esProveedorCedisLas3b(rows.find((r) => r.id === editId));
   const departamentosCatalogo = useMemo(
     () => (esProvCedis ? listarDepartamentosCatalogoCedis(inventario) : listarDepartamentos(inventario)),
     [esProvCedis, inventario, tickDeptosCedis],
   );
+
+  const rowsVisibles = useMemo(
+    () => (enCedis ? filtrarProveedoresVisiblesCedis(rows) : rows),
+    [enCedis, rows, tickOcultosCedis],
+  );
+
+  const rowsOcultosCedis = useMemo(() => {
+    if (!enCedis) return [];
+    const ids = new Set(listarIdsProveedoresOcultosCedis());
+    return (rows || []).filter((r) => ids.has(String(r.id)));
+  }, [enCedis, rows, tickOcultosCedis]);
 
   useEffect(() => {
     if (!esProvCedis || !supabase) return;
@@ -86,6 +109,20 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
       cancel = true;
     };
   }, [esProvCedis, supabase]);
+
+  useEffect(() => {
+    if (!enCedis || !supabase) return;
+    let cancel = false;
+    (async () => {
+      const res = await sincronizarProveedoresOcultosCedis(supabase);
+      if (cancel) return;
+      if (res.aviso) setAvisoOcultosCedis(res.aviso);
+      setTickOcultosCedis((n) => n + 1);
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [enCedis, supabase]);
 
   const agregarDeptoCedis = async () => {
     if (agregandoDeptoCedis) return;
@@ -243,9 +280,58 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
     });
   };
 
+  const quitarDeCedis = async (row) => {
+    if (!puedeAlta) return alert('Solo el administrador puede quitar proveedores de CEDIS.');
+    if (!puedeOcultarProveedorEnCedis(row)) {
+      return alert(`No se puede quitar «${PROVEEDOR_CEDIS_NOMBRE}»: es el proveedor del catálogo CEDIS.`);
+    }
+    if (
+      !confirm(
+        `¿Quitar «${row?.nombre || 'proveedor'}» solo de CEDIS?\n\n`
+        + 'Seguirá existiendo en las tiendas. Solo dejará de verse en el módulo Proveedores de CEDIS.',
+      )
+    ) {
+      return;
+    }
+    const res = await ocultarProveedorEnCedis(row.id, supabase, row);
+    if (!res.ok) return alert(res.error);
+    if (editId === row.id) {
+      setEditId(null);
+      setForm(empty);
+    }
+    setTickOcultosCedis((n) => n + 1);
+    let msg = `«${row?.nombre || 'Proveedor'}» oculto en CEDIS. Las tiendas no se afectan.`;
+    if (res.aviso) msg += `\n\nNota: ${res.aviso}`;
+    alert(msg);
+  };
+
+  const restaurarEnCedis = async (row) => {
+    if (!puedeAlta) return alert('Solo el administrador puede restaurar proveedores en CEDIS.');
+    const res = await restaurarProveedorEnCedis(row.id, supabase);
+    if (!res.ok) return alert(res.error);
+    setTickOcultosCedis((n) => n + 1);
+    let msg = `«${row?.nombre || 'Proveedor'}» vuelve a verse en CEDIS.`;
+    if (res.aviso) msg += `\n\nNota: ${res.aviso}`;
+    alert(msg);
+  };
+
+  /** Borrado global (todas las sucursales). Solo fuera de CEDIS. */
   const borrar = async (id) => {
-    if (!supabase || !confirm('¿Eliminar proveedor?')) return;
+    if (!supabase) return;
     if (!puedeAlta) return alert('Solo el administrador puede eliminar proveedores.');
+    if (enCedis) {
+      const row = rows.find((r) => r.id === id);
+      return quitarDeCedis(row || { id });
+    }
+    const row = rows.find((r) => r.id === id);
+    if (
+      !confirm(
+        `¿ELIMINAR «${row?.nombre || 'proveedor'}» de TODA la cadena?\n\n`
+        + 'Se borrará en todas las tiendas y en CEDIS. Si solo quieres quitarlo de CEDIS, entra a CEDIS y usa «Quitar de CEDIS».',
+      )
+    ) {
+      return;
+    }
     const { error } = await supabase.from('proveedores').delete().eq('id', id);
     if (error) return alert(error.message);
     if (editId === id) {
@@ -405,7 +491,28 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-      <MatrizEntregasProveedores supabase={supabase} proveedores={rows} />
+      {enCedis && (
+        <div
+          className="card"
+          style={{
+            margin: 0,
+            borderLeft: '4px solid var(--brand-blue)',
+            background: 'rgba(13,71,161,0.06)',
+          }}
+        >
+          <strong style={{ color: 'var(--brand-blue)' }}>CEDIS · proveedores</strong>
+          <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.86rem' }}>
+            Aquí <strong>Quitar de CEDIS</strong> solo oculta el proveedor en este almacén.
+            No se borra de las tiendas. El borrado global solo está en MAIN / tiendas (con aviso).
+            No quites <strong>{PROVEEDOR_CEDIS_NOMBRE}</strong>.
+          </p>
+          {avisoOcultosCedis ? (
+            <p className="muted" style={{ margin: '0.4rem 0 0', fontSize: '0.78rem' }}>{avisoOcultosCedis}</p>
+          ) : null}
+        </div>
+      )}
+
+      <MatrizEntregasProveedores supabase={supabase} proveedores={rowsVisibles} />
 
       <div className="card">
         <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>{editId ? 'Editar proveedor' : 'Nuevo proveedor'}</h3>
@@ -772,14 +879,16 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 ? (
+              {rowsVisibles.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="muted">
-                    Sin proveedores registrados.
+                    {enCedis && rows.length > 0
+                      ? 'Sin proveedores visibles en CEDIS (están ocultos abajo o no hay ninguno).'
+                      : 'Sin proveedores registrados.'}
                   </td>
                 </tr>
               ) : (
-                rows.map((r) => (
+                rowsVisibles.map((r) => (
                   <tr key={r.id}>
                     <td>{r.nombre || '—'}</td>
                     <td>{r.contacto || '—'}</td>
@@ -795,9 +904,22 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
                         Editar
                       </button>
                       {puedeAlta && (
-                        <button type="button" className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem', marginLeft: '0.25rem' }} onClick={() => borrar(r.id)}>
-                          Borrar
-                        </button>
+                        enCedis ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem', marginLeft: '0.25rem', color: 'var(--brand-red)' }}
+                            title="Solo oculta en CEDIS; las tiendas no se afectan"
+                            disabled={!puedeOcultarProveedorEnCedis(r)}
+                            onClick={() => quitarDeCedis(r)}
+                          >
+                            Quitar de CEDIS
+                          </button>
+                        ) : (
+                          <button type="button" className="btn btn-danger" style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem', marginLeft: '0.25rem' }} onClick={() => borrar(r.id)}>
+                            Borrar
+                          </button>
+                        )
                       )}
                     </td>
                   </tr>
@@ -807,6 +929,48 @@ export default function Proveedores({ supabase, inventario = [], user, sucursal 
           </table>
         </div>
       </div>
+
+      {enCedis && rowsOcultosCedis.length > 0 && (
+        <div className="card">
+          <h3 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>
+            Ocultos en CEDIS ({rowsOcultosCedis.length})
+          </h3>
+          <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
+            Siguen activos en las tiendas. Puedes restaurarlos aquí para volver a verlos en CEDIS.
+          </p>
+          <div className="table-wrap">
+            <table className="data">
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Contacto</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {rowsOcultosCedis.map((r) => (
+                  <tr key={r.id}>
+                    <td>{r.nombre || '—'}</td>
+                    <td>{r.contacto || '—'}</td>
+                    <td>
+                      {puedeAlta && (
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          style={{ padding: '0.35rem 0.5rem', fontSize: '0.8rem' }}
+                          onClick={() => restaurarEnCedis(r)}
+                        >
+                          Restaurar en CEDIS
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
