@@ -11,7 +11,10 @@ import {
   esProveedorCedisLas3b,
   filtrarInventarioCatalogoCedis,
   listarDepartamentosCatalogoCedis,
+  listarDepartamentosOcultosCedis,
   listarExtrasDepartamentosCedis,
+  ocultarDepartamentoCatalogoCedis,
+  restaurarDepartamentoCatalogoCedis,
 } from './catalogoCedis.js';
 import { agregarDepartamentoExtra, listarDepartamentos } from './departamentos.js';
 
@@ -78,5 +81,22 @@ assert.deepEqual(
 
 const dup = await agregarDepartamentoCatalogoCedis('accesorios', null);
 assert.equal(dup.ok, false);
+
+// Quitar depto CEDIS no toca menú de tienda ni borra productos.
+const hide = await ocultarDepartamentoCatalogoCedis('ACCESORIOS', null, { inventario: inv });
+assert.equal(hide.ok, true);
+assert.equal(hide.productosAfectados, 1);
+assert.equal(esDepartamentoCatalogoCedis('ACCESORIOS'), false);
+assert.ok(!listarDepartamentosCatalogoCedis().includes('ACCESORIOS'));
+assert.ok(listarDepartamentosOcultosCedis().includes('ACCESORIOS'));
+assert.ok(listarDepartamentos([{ cat: 'ACCESORIOS' }]).includes('ACCESORIOS'));
+
+const hideBase = await ocultarDepartamentoCatalogoCedis('ROPA', null, { inventario: [] });
+assert.equal(hideBase.ok, true);
+assert.ok(!listarDepartamentosCatalogoCedis().includes('ROPA'));
+
+const rest = await restaurarDepartamentoCatalogoCedis('ACCESORIOS', null);
+assert.equal(rest.ok, true);
+assert.ok(listarDepartamentosCatalogoCedis().includes('ACCESORIOS'));
 
 console.log('catalogoCedis.test.mjs OK');
