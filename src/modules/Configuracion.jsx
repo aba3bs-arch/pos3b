@@ -2021,7 +2021,10 @@ export default function Configuracion({
                     )}
                   </div>
                   <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
-                    Los submódulos <strong>Nómina</strong>, <strong>Panel RT</strong>, <strong>Liquidación recolecciones</strong>, <strong>RC Virtual</strong>, <strong>RC Garage</strong>, <strong>RC Abarrotes</strong>, <strong>IE VIRTUAL</strong> (Antonio), <strong>IE ABARROTES</strong> (Francisco), <strong>Auto Fin</strong>, <strong>Crédito</strong> y <strong>Cobranza</strong> aparecen al abrir Contabilidad. Los subcomandos del Panel RT se asignan en Acciones especiales abajo.
+                    Por defecto solo <strong>Administrador</strong> y <strong>Gerente</strong> ven Contabilidad.
+                    Otros roles (o un usuario concreto) solo si les marcas aquí esos submódulos.
+                    Incluye Nómina, Panel RT, Liquidación, RC/IE, Auto Fin, Crédito, Cobranza, etc.
+                    Los subcomandos del Panel RT se asignan en Acciones especiales abajo.
                   </p>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>
                     <input
