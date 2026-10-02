@@ -22,13 +22,13 @@ assert.ok(!MODULOS_BLOQUEADOS_MOSTRADOR.has('Nómina'), 'Nómina ya no es bloque
 assert.ok(!MODULOS_BLOQUEADOS_MOSTRADOR.has('RC Virtual'));
 assert.ok(!MODULOS_BLOQUEADOS_MOSTRADOR.has('Estadísticas Abarrotes'));
 
-// Default cajero: sin Nómina / RC
+// Default cajero: sin Nómina / RC; Cobranza suelta sin hub Contabilidad
 assert.equal(puedeVerModulo('Cajero', 'Nómina'), false);
 assert.equal(puedeVerModulo('Cajero', 'Ventas'), true);
 assert.equal(puedeVerModulo('Cajero', 'Cobranza'), true);
 assert.equal(puedeVerSeccionContabilidad('Cajero'), false, 'solo Cobranza → sin hub Contabilidad');
 
-// Con privilegio personalizado por rol: sí puede ver Nómina / Contabilidad
+// Privilegio por ROL Cajero con Contabilidad: NO abre Contabilidad (solo Admin/Gerente o por usuario)
 store.set('pos3b_privilegios', JSON.stringify({
   porRol: {
     Cajero: [
@@ -44,12 +44,40 @@ store.set('pos3b_privilegios', JSON.stringify({
   acciones: {},
 }));
 
-assert.equal(puedeVerModulo('Cajero', 'Nómina'), true, 'privilegio asignado abre Nómina');
-assert.equal(puedeVerModulo('Cajero', 'RC Virtual'), true);
-assert.equal(puedeVerModulo('Cajero', 'Estadísticas Abarrotes'), true);
+assert.equal(puedeVerModulo('Cajero', 'Nómina'), false, 'Contabilidad por rol Cajero no aplica');
+assert.equal(puedeVerModulo('Cajero', 'RC Virtual'), false);
+assert.equal(puedeVerModulo('Cajero', 'Estadísticas Abarrotes'), true, 'Estadísticas sí por rol');
 assert.equal(puedeVerModulo('Cajero', 'Usuarios'), false, 'Usuarios sigue bloqueado');
-assert.equal(puedeVerSeccionContabilidad('Cajero'), true, 'con Nómina sí hay hub');
-assert.ok(submodulosContabilidadVisibles('Cajero').includes('Nómina'));
-assert.ok(submodulosContabilidadVisibles('Cajero').includes('RC Virtual'));
+assert.equal(puedeVerSeccionContabilidad('Cajero'), false, 'privilegio por rol no abre Contabilidad');
+assert.equal(puedeVerModulo('Cajero', 'Cobranza'), true, 'Cobranza suelta se mantiene');
+
+// Privilegio por USUARIO: sí abre Contabilidad
+store.set('pos3b_privilegios', JSON.stringify({
+  porRol: {
+    Cajero: [
+      'Inicio',
+      'Ventas',
+      'Cobranza',
+      'Nómina',
+      'RC Virtual',
+    ],
+  },
+  porUsuario: {
+    'cajero-especial': [
+      'Inicio',
+      'Ventas',
+      'Cobranza',
+      'Nómina',
+      'RC Virtual',
+    ],
+  },
+  acciones: {},
+}));
+
+assert.equal(puedeVerModulo('Cajero', 'Nómina', 'cajero-especial'), true);
+assert.equal(puedeVerModulo('Cajero', 'RC Virtual', 'cajero-especial'), true);
+assert.equal(puedeVerSeccionContabilidad('Cajero', 'cajero-especial'), true);
+assert.ok(submodulosContabilidadVisibles('Cajero', 'cajero-especial').includes('Nómina'));
+assert.equal(puedeVerSeccionContabilidad('Cajero', 'otro-cajero'), false);
 
 console.log('roles.privilegiosCajero.test.mjs ok');

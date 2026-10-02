@@ -2022,9 +2022,9 @@ export default function Configuracion({
                   </div>
                   <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
                     Por defecto solo <strong>Administrador</strong> y <strong>Gerente</strong> ven Contabilidad.
-                    Otros roles (o un usuario concreto) solo si les marcas aquí esos submódulos.
-                    Incluye Nómina, Panel RT, Liquidación, RC/IE, Auto Fin, Crédito, Cobranza, etc.
-                    Los subcomandos del Panel RT se asignan en Acciones especiales abajo.
+                    Para Cajero, Auditor u otros: elige el <strong>empleado</strong> (no el rol) y márcalo aquí.
+                    Marcar Contabilidad en el rol Cajero <strong>no</strong> abre el módulo a todos los cajeros.
+                    Cobranza del cajero sigue suelta en el menú. Subcomandos del Panel RT: Acciones especiales abajo.
                   </p>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>
                     <input
