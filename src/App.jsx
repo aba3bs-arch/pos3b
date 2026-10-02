@@ -16,6 +16,7 @@ import Estadisticas from './modules/Estadisticas.jsx';
 import EstadisticasArea from './components/EstadisticasArea.jsx';
 import VolverEstadisticas from './components/VolverEstadisticas.jsx';
 import ResumenOperativo from './modules/ResumenOperativo.jsx';
+import AuditoriaUso from './modules/AuditoriaUso.jsx';
 import Reportes from './modules/Reportes.jsx';
 import Nomina from './modules/Nomina.jsx';
 import RecoleccionesTraspasosContabilidad from './modules/RecoleccionesTraspasosContabilidad.jsx';
@@ -104,6 +105,13 @@ import {
   vincularDispositivoUsuario,
   liberarDispositivoUsuario,
 } from './lib/dispositivoUsuario.js';
+import {
+  auditarLogin,
+  auditarLogout,
+  auditarPinAdmin,
+  auditarVista,
+  configurarContextoAuditoria,
+} from './lib/auditoriaUso.js';
 import { usuarioAutorizadoLogin, turnoActual, turnoIdParaUsuario } from './lib/turnos.js';
 import { esModoContratacionPublica } from './lib/contratacion.js';
 import {
@@ -644,6 +652,10 @@ function App() {
     if (mobile) setSidebarOpen(false);
   }, [mobile]);
 
+  useEffect(() => {
+    configurarContextoAuditoria({ supabase, user: user || null, sucursal });
+  }, [supabase, user, sucursal]);
+
   const irAModulo = useCallback(
     (m, opts = {}) => {
       if (modoOffline && !moduloPermitidoOffline(m)) {
@@ -702,8 +714,11 @@ function App() {
       }
       setVista(m);
       setSidebarOpen(false);
+      if (user) {
+        void auditarVista(supabase, { user, sucursal, vista: m });
+      }
     },
-    [user, modoOffline, sucursal],
+    [user, modoOffline, sucursal, supabase],
   );
 
   const irAIncidencias = useCallback(() => {
@@ -829,6 +844,18 @@ function App() {
           const { telefono: _t, ...sinTel } = loginRow;
           void supabase.from('logins').insert([sinTel]);
         }
+      });
+      configurarContextoAuditoria({ supabase, user: data, sucursal: sucursalLogin });
+      void auditarLogin(supabase, {
+        user: data,
+        sucursal: sucursalLogin,
+        evento: loginRow.evento,
+        extra: {
+          autorizacion_admin: Boolean(autorizacionAdmin),
+          autorizacion_admin_dispositivo: Boolean(autorizacionAdminDispositivo),
+          cubre_turno: Boolean(cubreTurno),
+          socio_3b: Boolean(esSocioSesion),
+        },
       });
 
       // Tras PIN exitoso en móvil/PWA: ofrecer Face ID / huella (modal con gesto real; no cubre turno / socio).
@@ -1095,6 +1122,12 @@ function App() {
         admin: auth.user,
         supabase,
       });
+      void auditarPinAdmin(supabase, {
+        admin: auth.user,
+        usuarioObjetivo: pendienteAutorizacionTurno.user,
+        sucursal,
+        motivo: 'entrada_fuera_horario',
+      });
       setPinAdminAutorizacion('');
       await completarLogin(pendienteAutorizacionTurno.user, {
         ajustarSucursal: pendienteAutorizacionTurno.ajustarSucursal,
@@ -1113,6 +1146,12 @@ function App() {
     const auth = await verificarPinAdministradorGlobal(supabase, p);
     setAutorizandoTurno(false);
     if (!auth.ok) return alert(auth.error);
+    void auditarPinAdmin(supabase, {
+      admin: auth.user,
+      usuarioObjetivo: pendienteAutorizacionDispositivo.user,
+      sucursal,
+      motivo: 'segundo_dispositivo',
+    });
     await completarLogin(pendienteAutorizacionDispositivo.user, {
       ajustarSucursal: pendienteAutorizacionDispositivo.ajustarSucursal,
       autorizacionAdminDispositivo: true,
@@ -1166,6 +1205,12 @@ function App() {
           admin: auth.user,
           supabase,
         });
+        void auditarPinAdmin(supabase, {
+          admin: auth.user,
+          usuarioObjetivo: user,
+          sucursal,
+          motivo: 'extension_turno_8h',
+        });
         // La auth de 8 h sustituye la extensión corta.
         limpiarExtensionSesionTurno(user.id, sucursal);
         setAvisoExtensionTurno(null);
@@ -1180,6 +1225,9 @@ function App() {
   const cerrarSesion = () => {
     if (sucursalLatido) void marcarPresenciaFueraDeLinea();
     if (user?.id && sucursal) limpiarExtensionSesionTurno(user.id, sucursal);
+    if (user) {
+      void auditarLogout(supabase, { user, sucursal });
+    }
     limpiarAnunciosVistos();
     limpiarNotificacionesDispositivoMostradas();
     limpiarSesionPersistenteMovil();
@@ -1197,6 +1245,7 @@ function App() {
     setPinAdminAutorizacion('');
     setEnviandoCubre(false);
     setAutorizandoTurno(false);
+    configurarContextoAuditoria({ user: null });
     // Remonta el campo PIN vacío para que el navegador no reutilice el valor anterior.
     setLoginPinKey((n) => n + 1);
   };
@@ -1239,6 +1288,11 @@ function App() {
     ) {
       return false;
     }
+    void auditarPinAdmin(supabase, {
+      admin: auth.user,
+      sucursal,
+      motivo: 'desbloquear_tienda',
+    });
     aplicarDesbloqueoTienda();
     return true;
   };
@@ -1801,6 +1855,9 @@ function App() {
             </>
           )}
           {vista === 'Resumen operativo' && <ResumenOperativo supabase={supabase} inventarioCompleto={inventario} />}
+          {vista === 'Auditoría' && (
+            <AuditoriaUso supabase={supabase} user={user} sucursal={sucursal} />
+          )}
           {vista === 'Reportes' && (
             <Reportes
               supabase={supabase}
