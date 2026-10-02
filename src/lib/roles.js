@@ -227,13 +227,6 @@ const ACCESO_POR_ROL = {
     'Estadísticas Virtual',
     'Estadísticas Garage',
     'Reportes',
-    'Panel RT',
-    'Conciliaciones',
-    'Consolidación',
-    'Compras vs inventario',
-    'Revisión de compras',
-    'Crédito',
-    'Cobranza',
     'Vales y Préstamos',
     'Tutorial',
     'Ayuda',
@@ -447,7 +440,25 @@ export function submodulosContabilidadVisibles(rol, userId = null) {
   return SUBMODULOS_CONTABILIDAD.filter((m) => puedeVerModulo(rol, m, userId));
 }
 
+/**
+ * Contabilidad por rol: solo Administrador y Gerente.
+ * Otros roles (Cajero, Auditor, Supervisor, etc.) solo con privilegio
+ * asignado en Configuración → Privilegios (por usuario o por rol).
+ */
+export function esRolContabilidadPorDefecto(rol) {
+  const r = rolSistemaEfectivo(rol);
+  return r === 'Administrador' || r === 'Gerente';
+}
+
+/**
+ * Hub Contabilidad visible:
+ * - Administrador / Gerente (por rol).
+ * - Cualquier usuario con submódulos de Contabilidad en Privilegios.
+ * - Cliente: Socio 3B.
+ * - Cajero con solo Cobranza: Cobranza va suelta, sin hub.
+ */
 export function puedeVerSeccionContabilidad(rol, userId = null) {
+  if (esRolCliente(rol)) return puedeVerModulo(rol, 'Socio 3B', userId);
   const subs = submodulosContabilidadVisibles(rol, userId);
   if (!subs.length) return false;
   // Cajero: Cobranza sola sigue suelta en el menú; el hub Contabilidad aparece
