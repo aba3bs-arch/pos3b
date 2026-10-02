@@ -1878,6 +1878,12 @@ export default function Configuracion({
             const moduloBloqueadoDuro = (mod) => {
               if (esRolMostradorRestringido(rolBase) && MODULOS_BLOQUEADOS_MOSTRADOR.has(mod)) return true;
               if (esRolRepartidor(rolBase) && MODULOS_BLOQUEADOS_REPARTIDOR.has(mod)) return true;
+              // Contabilidad: exclusivo Administrador (Cobranza del cajero es excepción suelta).
+              if (SUBMODULOS_CONTABILIDAD.includes(mod)) {
+                if (normalizarRol(rolBase) === 'Administrador') return false;
+                if (mod === 'Cobranza' && esRolMostradorRestringido(rolBase)) return false;
+                return true;
+              }
               return false;
             };
 
@@ -2021,10 +2027,10 @@ export default function Configuracion({
                     )}
                   </div>
                   <p className="muted" style={{ margin: '0 0 0.65rem', fontSize: '0.82rem' }}>
-                    Por defecto solo <strong>Administrador</strong> y <strong>Gerente</strong> ven Contabilidad.
-                    Para Cajero, Auditor u otros: elige el <strong>empleado</strong> (no el rol) y márcalo aquí.
-                    Marcar Contabilidad en el rol Cajero <strong>no</strong> abre el módulo a todos los cajeros.
-                    Cobranza del cajero sigue suelta en el menú. Subcomandos del Panel RT: Acciones especiales abajo.
+                    Contabilidad es <strong>exclusivo de Administrador</strong>.
+                    No aplica a Cajero, Repartidor, Técnico, Mantenimiento, Auditor, Supervisor ni Gerente
+                    (aunque se marque aquí, el sistema lo bloquea).
+                    El cajero conserva <strong>Cobranza</strong> suelta en el menú. Subcomandos del Panel RT: Acciones especiales abajo.
                   </p>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.9rem', fontWeight: 600, marginBottom: '0.5rem' }}>
                     <input

@@ -15,61 +15,48 @@ globalThis.localStorage = {
 };
 
 assert.equal(esRolContabilidadPorDefecto('Administrador'), true);
-assert.equal(esRolContabilidadPorDefecto('Gerente'), true);
+assert.equal(esRolContabilidadPorDefecto('Gerente'), false);
 assert.equal(esRolContabilidadPorDefecto('Auditor'), false);
 assert.equal(esRolContabilidadPorDefecto('Supervisor'), false);
 assert.equal(esRolContabilidadPorDefecto('Cajero'), false);
+assert.equal(esRolContabilidadPorDefecto('Repartidor'), false);
+assert.equal(esRolContabilidadPorDefecto('Técnico'), false);
 
-// Por defecto: Admin y Gerente sí; Auditor/Supervisor/Cajero no
+// Solo Administrador
 assert.equal(puedeVerSeccionContabilidad('Administrador'), true);
-assert.equal(puedeVerSeccionContabilidad('Gerente'), true);
-assert.equal(puedeVerModulo('Gerente', 'Nómina'), true);
-assert.equal(puedeVerModulo('Gerente', 'Panel RT'), true);
+assert.equal(puedeVerModulo('Administrador', 'Nómina'), true);
+assert.equal(puedeVerModulo('Administrador', 'Panel RT'), true);
 
-assert.equal(puedeVerModulo('Auditor', 'Panel RT'), false, 'Auditor sin Contabilidad por defecto');
-assert.equal(puedeVerModulo('Auditor', 'Conciliaciones'), false);
-assert.equal(puedeVerModulo('Auditor', 'Cobranza'), false);
-assert.equal(puedeVerSeccionContabilidad('Auditor'), false);
-assert.equal(submodulosContabilidadVisibles('Auditor').length, 0);
+for (const rol of ['Gerente', 'Auditor', 'Supervisor', 'Cajero', 'Repartidor', 'Técnico']) {
+  assert.equal(puedeVerSeccionContabilidad(rol), false, `${rol} sin hub Contabilidad`);
+  assert.equal(puedeVerModulo(rol, 'Nómina'), false, `${rol} sin Nómina`);
+  assert.equal(puedeVerModulo(rol, 'Panel RT'), false, `${rol} sin Panel RT`);
+  assert.equal(puedeVerModulo(rol, 'IE VIRTUAL'), false, `${rol} sin IE`);
+}
 
-assert.equal(puedeVerSeccionContabilidad('Supervisor'), false);
-assert.equal(puedeVerSeccionContabilidad('Cajero'), false, 'solo Cobranza → sin hub');
 assert.ok(MODULOS_CONTABILIDAD_SUELTOS_CAJERO.has('Cobranza'));
 assert.equal(puedeVerModulo('Cajero', 'Cobranza'), true, 'Cobranza suelta para cajero');
+assert.equal(submodulosContabilidadVisibles('Gerente').length, 0);
+assert.equal(submodulosContabilidadVisibles('Auditor').length, 0);
 
-// Privilegio por ROL Auditor: no abre Contabilidad
+// Privilegios por usuario o por rol NO abren Contabilidad
 store.set('pos3b_privilegios', JSON.stringify({
   porRol: {
-    Auditor: ['Inicio', 'Panel RT', 'Conciliaciones', 'Nómina'],
+    Cajero: ['Inicio', 'Nómina', 'Panel RT', 'RC Virtual'],
+    Gerente: ['Inicio', 'Nómina', 'Panel RT', 'IE VIRTUAL'],
+    Auditor: ['Inicio', 'Panel RT', 'Conciliaciones'],
   },
-  porUsuario: {},
-  acciones: {},
-}));
-assert.equal(puedeVerModulo('Auditor', 'Panel RT'), false);
-assert.equal(puedeVerSeccionContabilidad('Auditor'), false);
-
-// Excepción: privilegio por usuario
-store.set('pos3b_privilegios', JSON.stringify({
-  porRol: {},
   porUsuario: {
-    'user-auditor-1': [
-      'Inicio',
-      'Consultas',
-      'Panel RT',
-      'Conciliaciones',
-      'Nómina',
-    ],
+    'user-1': ['Inicio', 'Nómina', 'Panel RT', 'RC Virtual', 'IE VIRTUAL'],
   },
   acciones: {},
 }));
 
-assert.equal(puedeVerModulo('Auditor', 'Panel RT', 'user-auditor-1'), true);
-assert.equal(puedeVerModulo('Auditor', 'Nómina', 'user-auditor-1'), true);
-assert.equal(puedeVerSeccionContabilidad('Auditor', 'user-auditor-1'), true);
-assert.ok(submodulosContabilidadVisibles('Auditor', 'user-auditor-1').includes('Panel RT'));
-
-// Otro auditor sin privilegio personalizado sigue bloqueado
-assert.equal(puedeVerModulo('Auditor', 'Panel RT', 'user-otro'), false);
-assert.equal(puedeVerSeccionContabilidad('Auditor', 'user-otro'), false);
+assert.equal(puedeVerModulo('Cajero', 'Nómina', 'user-1'), false);
+assert.equal(puedeVerSeccionContabilidad('Cajero', 'user-1'), false);
+assert.equal(puedeVerModulo('Gerente', 'Nómina'), false);
+assert.equal(puedeVerSeccionContabilidad('Gerente'), false);
+assert.equal(puedeVerModulo('Auditor', 'Panel RT', 'user-1'), false);
+assert.equal(puedeVerSeccionContabilidad('Administrador'), true);
 
 console.log('roles.contabilidadAcceso.test.mjs ok');

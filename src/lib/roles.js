@@ -281,24 +281,6 @@ const ACCESO_POR_ROL = {
     'Estadísticas Virtual',
     'Estadísticas Garage',
     'Reportes',
-    'Nómina',
-    'Panel RT',
-    'Liquidación recolecciones',
-    'Conciliaciones',
-    'Consolidación',
-    'Compras vs inventario',
-    'Revisión de compras',
-    'Registro de gastos',
-    'Socio 3B',
-    'RC Virtual',
-    'RC Garage',
-    'RC Abarrotes',
-    'IE VIRTUAL',
-    'IE ABARROTES',
-    'Auto Fin',
-    'Crédito',
-    'Cobranza',
-    'RH ABA3B',
     'Vales y Préstamos',
     'Configuracion',
     'Tutorial',
@@ -361,15 +343,6 @@ function listaModulosEfectiva(rol, userId = null) {
   return permitidos;
 }
 
-/** Contabilidad en privilegios personalizados de un empleado (no del rol). */
-function privilegioUsuarioIncluyeModulo(userId, moduloId) {
-  const uid = userId != null ? String(userId) : '';
-  if (!uid) return false;
-  const priv = leerPrivilegios();
-  if (!tieneListaPersonalizada('porUsuario', uid, priv)) return false;
-  return normalizarListaModulos(priv.porUsuario[uid]).includes(moduloId);
-}
-
 export function puedeVerModulo(rol, moduloId, userId = null) {
   const m = normalizarIdModulo(moduloId);
   const r = normalizarRol(rol);
@@ -384,17 +357,13 @@ export function puedeVerModulo(rol, moduloId, userId = null) {
   // Repartidor: bloqueo duro de módulos de caja/oficina (aunque haya privilegios personalizados).
   if (esRolRepartidor(rol) && MODULOS_BLOQUEADOS_REPARTIDOR.has(m)) return false;
 
-  // Contabilidad: solo Administrador/Gerente por rol.
-  // Otros roles: excepción solo con privilegio por USUARIO (no por rol).
+  // Contabilidad: exclusivo Administrador (bloqueo duro, sin privilegios).
   // Cobranza del cajero sigue suelta y no abre el hub Contabilidad.
   if (MODULOS_AGRUPADOS_CONTABILIDAD.has(m)) {
     if (m === 'Cobranza' && esRolMostradorRestringido(rol)) {
       return listaModulosEfectiva(rol, userId).includes(m);
     }
-    if (rolSistemaEfectivo(rol) === 'Gerente') {
-      return listaModulosEfectiva(rol, userId).includes(m);
-    }
-    return privilegioUsuarioIncluyeModulo(userId, m);
+    return false;
   }
 
   const permitidos = listaModulosEfectiva(rol, userId);
@@ -464,31 +433,23 @@ export function submodulosContabilidadVisibles(rol, userId = null) {
 }
 
 /**
- * Contabilidad por rol: solo Administrador y Gerente.
- * Otros roles solo con privilegio por empleado (Configuración → Privilegios → usuario).
+ * Contabilidad por rol: solo Administrador.
+ * Cajero / Repartidor / Técnico / Auditor / Supervisor / Gerente / Mantenimiento: no.
  */
 export function esRolContabilidadPorDefecto(rol) {
-  const r = rolSistemaEfectivo(rol);
-  return r === 'Administrador' || r === 'Gerente';
+  return rolSistemaEfectivo(rol) === 'Administrador';
 }
 
 /**
  * Hub Contabilidad visible:
- * - Administrador / Gerente (por rol).
- * - Empleado concreto con submódulos de Contabilidad en Privilegios (por usuario).
- * - Cliente: Socio 3B.
+ * - Solo Administrador.
+ * - Cliente: Socio 3B (módulo externo, sin hub de oficina).
  * - Cajero con solo Cobranza: Cobranza va suelta, sin hub.
  */
 export function puedeVerSeccionContabilidad(rol, userId = null) {
   if (esRolCliente(rol)) return puedeVerModulo(rol, 'Socio 3B', userId);
-  const subs = submodulosContabilidadVisibles(rol, userId);
-  if (!subs.length) return false;
-  // Cajero: Cobranza sola sigue suelta en el menú; el hub Contabilidad aparece
-  // solo si le asignan otros submódulos (Nómina, RC, IE, etc.) en Privilegios.
-  if (esRolMostradorRestringido(rol)) {
-    return subs.some((m) => !MODULOS_CONTABILIDAD_SUELTOS_CAJERO.has(m));
-  }
-  return true;
+  if (!esRolContabilidadPorDefecto(rol)) return false;
+  return submodulosContabilidadVisibles(rol, userId).length > 0;
 }
 
 export function submodulosEstadisticasVisibles(rol, userId = null) {
