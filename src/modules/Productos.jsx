@@ -59,6 +59,7 @@ import { esAlmacenCentral, etiquetaCedisEmpresa, etiquetaStockLista, stockVisibl
 import { fmtMxn, resumirValorInventario } from '../lib/valorInventario.js';
 import { sincronizarFotosCatalogo, tieneFoto } from '../lib/fotosCatalogo.js';
 import { productoCoincideBusqueda, productoPorCodigoExacto } from '../lib/buscarProductoTexto.js';
+import { filtrarProveedoresPorAmbito, listarProveedoresPorAmbito } from '../lib/proveedoresAmbito.js';
 
 const empty = productoVacio();
 
@@ -344,10 +345,15 @@ export default function Productos({
   useEffect(() => {
     if (!supabase) return;
     (async () => {
-      const { data } = await supabase.from('proveedores').select('id, nombre').order('nombre');
-      setProveedores(data || []);
+      const res = await listarProveedoresPorAmbito(supabase, sucursal, { select: 'id, nombre, ambito' });
+      if (res.error) {
+        const { data } = await supabase.from('proveedores').select('id, nombre').order('nombre');
+        setProveedores(filtrarProveedoresPorAmbito(data || [], sucursal));
+        return;
+      }
+      setProveedores(res.data || []);
     })();
-  }, [supabase]);
+  }, [supabase, sucursal]);
 
   const cargarMapaProveedores = async () => {
     if (!supabase) return;

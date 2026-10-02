@@ -60,11 +60,14 @@ import { fmtMonto } from '../lib/consultasUi.js';
 import { stockEnUbicacion, ALMACEN_CENTRAL, esAlmacenCentral } from '../lib/inventarioMultitienda.js';
 import { etiquetaDepartamento, normalizarDepartamento } from '../lib/departamentos.js';
 import {
+  PROVEEDOR_CEDIS_NOMBRE,
+  buscarProveedorCedisLas3b,
   departamentoFiltroCoincideCedis,
   esDepartamentoCatalogoCedis,
   listarDepartamentosCatalogoCedis,
   sincronizarDepartamentosCatalogoCedis,
 } from '../lib/catalogoCedis.js';
+import { asegurarProveedorCedisLas3bAmbito } from '../lib/proveedoresAmbito.js';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 import { esRolRepartidor, normalizarRol } from '../lib/roles.js';
 import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
@@ -1309,14 +1312,13 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
 function VistaPrecios({ supabase, user, inventario, setAviso }) {
   const [q, setQ] = useState('');
   const [departamento, setDepartamento] = useState('');
-  const [proveedorId, setProveedorId] = useState('');
-  const [proveedores, setProveedores] = useState([]);
-  const [productosPorProveedor, setProductosPorProveedor] = useState(() => new Map());
-  const [idsConProveedor, setIdsConProveedor] = useState(() => new Set());
+  const [proveedorCedis, setProveedorCedis] = useState(null);
+  const [idsCedis, setIdsCedis] = useState(() => new Set());
   const [editId, setEditId] = useState('');
   const [editCompra, setEditCompra] = useState('');
   const [editRuta, setEditRuta] = useState('');
   const [deptosTick, setDeptosTick] = useState(0);
+  const [avisoProv, setAvisoProv] = useState('');
 
   const departamentos = useMemo(
     () => listarDepartamentosCatalogoCedis(inventario),
@@ -1328,6 +1330,30 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
     let cancel = false;
     (async () => {
       await sincronizarDepartamentosCatalogoCedis(supabase).catch(() => null);
+      await asegurarProveedorCedisLas3bAmbito(supabase).catch(() => null);
+      const found = await buscarProveedorCedisLas3b(supabase);
+      if (cancel) return;
+      if (found?.error) {
+        setProveedorCedis(null);
+        setAvisoProv(found.error);
+        setDeptosTick((n) => n + 1);
+        return;
+      }
+      const prov = found?.proveedor || null;
+      setProveedorCedis(prov);
+      setAvisoProv(prov ? '' : `Crea el proveedor «${PROVEEDOR_CEDIS_NOMBRE}» en CEDIS → Proveedores.`);
+      if (prov?.id) {
+        const { data, error } = await supabase
+          .from('proveedor_producto')
+          .select('producto_id')
+          .eq('proveedor_id', prov.id);
+        if (!cancel) {
+          if (error) setIdsCedis(new Set());
+          else setIdsCedis(new Set((data || []).map((r) => String(r.producto_id || '').trim()).filter(Boolean)));
+        }
+      } else if (!cancel) {
+        setIdsCedis(new Set());
+      }
       if (!cancel) setDeptosTick((n) => n + 1);
     })();
     return () => {
@@ -1335,75 +1361,22 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
     };
   }, [supabase]);
 
-  useEffect(() => {
-    if (!supabase) return undefined;
-    let cancel = false;
-    (async () => {
-      const { data } = await supabase.from('proveedores').select('id, nombre').order('nombre');
-      if (!cancel) setProveedores(data || []);
-    })();
-    return () => {
-      cancel = true;
-    };
-  }, [supabase]);
-
-  useEffect(() => {
-    if (!supabase) return undefined;
-    let cancel = false;
-    (async () => {
-      const { data, error } = await supabase.from('proveedor_producto').select('proveedor_id, producto_id');
-      if (cancel) return;
-      if (error) {
-        setProductosPorProveedor(new Map());
-        setIdsConProveedor(new Set());
-        return;
-      }
-      const map = new Map();
-      const todos = new Set();
-      for (const row of data || []) {
-        const prov = String(row.proveedor_id ?? '').trim();
-        const prod = String(row.producto_id ?? '').trim();
-        if (!prov || !prod) continue;
-        if (!map.has(prov)) map.set(prov, new Set());
-        map.get(prov).add(prod);
-        todos.add(prod);
-      }
-      setProductosPorProveedor(map);
-      setIdsConProveedor(todos);
-    })();
-    return () => {
-      cancel = true;
-    };
-  }, [supabase]);
-
-  const filtrosActivos = Boolean(q.trim() || departamento || proveedorId);
+  const filtrosActivos = Boolean(q.trim() || departamento);
 
   const lista = useMemo(() => {
-    // Solo departamentos del catálogo CEDIS (si CEDIS agrega uno, aparece aquí).
+    // Un solo proveedor (CEDIS LAS 3B) + departamentos CEDIS.
     let list = (inventario || []).filter((p) => esDepartamentoCatalogoCedis(p.cat));
+    if (idsCedis.size > 0) {
+      list = list.filter((p) => idsCedis.has(String(p.id)));
+    }
     const term = q.trim();
     if (term) list = list.filter((p) => productoCoincideBusqueda(p, term));
     if (departamento) {
       list = list.filter((p) => departamentoFiltroCoincideCedis(p.cat, departamento));
     }
-    if (proveedorId === '__ninguno__') {
-      list = list.filter((p) => !idsConProveedor.has(String(p.id)));
-    } else if (proveedorId) {
-      const ids = productosPorProveedor.get(String(proveedorId));
-      list = list.filter((p) => ids?.has(String(p.id)));
-    }
     const tope = filtrosActivos ? 500 : 80;
     return list.slice(0, tope);
-  }, [
-    inventario,
-    q,
-    departamento,
-    proveedorId,
-    productosPorProveedor,
-    idsConProveedor,
-    filtrosActivos,
-    deptosTick,
-  ]);
+  }, [inventario, q, departamento, idsCedis, filtrosActivos, deptosTick]);
 
   const iniciarEdicion = (p) => {
     setEditId(p.id);
@@ -1436,18 +1409,21 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
   const limpiarFiltros = () => {
     setQ('');
     setDepartamento('');
-    setProveedorId('');
   };
 
   return (
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Precios de ruta</h3>
       <p className="muted" style={{ fontSize: '0.8rem', marginTop: 0 }}>
-        Solo departamentos de <strong>CEDIS</strong> (si CEDIS agrega uno, aparece aquí).
-        Edita <strong>precio de compra</strong> y <strong>precio de venta en ruta</strong> (sin IVA).
-        La <strong>ganancia</strong> se calcula por artículo. El precio de venta en ruta se usa
-        en el POS de Venta en Ruta (sucursales y clientes externos).
+        Venta en Ruta tiene <strong>un solo proveedor</strong>:{' '}
+        <strong>{PROVEEDOR_CEDIS_NOMBRE}</strong>
+        {proveedorCedis?.id ? ` · id ${String(proveedorCedis.id).slice(0, 8)}…` : ''}.
+        Solo departamentos CEDIS. Edita compra y venta en ruta; la ganancia se calcula por artículo.
+        El precio de venta en ruta se usa en el POS (sucursales y clientes externos).
       </p>
+      {avisoProv ? (
+        <p style={{ margin: '0 0 0.55rem', fontSize: '0.8rem', color: '#b45309' }}>{avisoProv}</p>
+      ) : null}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'center' }}>
         <input
@@ -1471,21 +1447,20 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
             </option>
           ))}
         </select>
-        <select
-          className="select"
-          style={{ flex: '0 1 180px', minWidth: 140 }}
-          value={proveedorId}
-          onChange={(e) => setProveedorId(e.target.value)}
-          title="Filtrar por proveedor"
+        <span
+          className="muted"
+          style={{
+            fontSize: '0.78rem',
+            padding: '0.35rem 0.55rem',
+            borderRadius: 8,
+            border: '1px solid rgba(15,118,110,0.35)',
+            background: 'rgba(15,118,110,0.08)',
+            color: '#0f766e',
+            fontWeight: 700,
+          }}
         >
-          <option value="">Todos los proveedores</option>
-          <option value="__ninguno__">Sin proveedor</option>
-          {proveedores.map((pr) => (
-            <option key={pr.id} value={String(pr.id)}>
-              {pr.nombre || pr.id}
-            </option>
-          ))}
-        </select>
+          Proveedor: {PROVEEDOR_CEDIS_NOMBRE}
+        </span>
         {filtrosActivos ? (
           <button type="button" className="btn btn-ghost" style={{ fontSize: '0.82rem' }} onClick={limpiarFiltros}>
             Limpiar filtros
@@ -1494,13 +1469,9 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
       </div>
 
       <p className="muted" style={{ margin: '0 0 0.5rem', fontSize: '0.78rem' }}>
-        {lista.length} producto(s) CEDIS
+        {lista.length} producto(s) · {PROVEEDOR_CEDIS_NOMBRE}
         {departamento ? ` · ${etiquetaDepartamento(departamento)}` : ''}
-        {proveedorId && proveedorId !== '__ninguno__'
-          ? ` · ${proveedores.find((p) => String(p.id) === String(proveedorId))?.nombre || 'proveedor'}`
-          : proveedorId === '__ninguno__'
-            ? ' · sin proveedor'
-            : ''}
+        {idsCedis.size ? ` · ${idsCedis.size} vinculados` : ''}
       </p>
 
       <div style={{ overflowX: 'auto' }}>
@@ -1607,7 +1578,7 @@ function VistaPrecios({ supabase, user, inventario, setAviso }) {
             {!lista.length ? (
               <tr>
                 <td colSpan={6} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>
-                  No hay productos de departamentos CEDIS con estos filtros.
+                  No hay productos vinculados a «{PROVEEDOR_CEDIS_NOMBRE}» con estos filtros.
                 </td>
               </tr>
             ) : null}
