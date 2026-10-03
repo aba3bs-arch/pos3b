@@ -261,6 +261,19 @@ export function debeConservarDiasManual(ant, nueva) {
   return mismaBase && ajusteFino;
 }
 
+/**
+ * ¿Conservar una deducción marcada como manual?
+ * Si el borrador tiene $0 y la recarga trae cuota (>0), manda la recarga
+ * (evita inventario/préstamos congelados en cero).
+ */
+export function debeConservarDeduccionManual(antValor, nuevaValor, flagManual) {
+  if (!flagManual) return false;
+  const a = Number(antValor) || 0;
+  const n = Number(nuevaValor) || 0;
+  if (a === 0 && n > 0) return false;
+  return true;
+}
+
 /** Conserva ajustes manuales al recalcular gastos / datos automáticos. */
 export function fusionarLineasNomina(anteriores, nuevas) {
   const porId = {};
@@ -312,8 +325,21 @@ export function fusionarLineasNomina(anteriores, nuevas) {
       merged.deduccion_gastos = ant.deduccion_gastos;
       merged.deduccion_consumos = ant.deduccion_gastos;
     }
-    if (ant.inventario_manual) merged.deduccion_inventario = ant.deduccion_inventario;
-    if (ant.prestamos_manual) merged.deduccion_prestamos = ant.deduccion_prestamos;
+    if (debeConservarDeduccionManual(ant.deduccion_inventario, nueva.deduccion_inventario, ant.inventario_manual)) {
+      merged.deduccion_inventario = ant.deduccion_inventario;
+      merged.cuota_inventario = ant.cuota_inventario ?? nueva.cuota_inventario;
+      merged.faltante_inventario_tienda = ant.faltante_inventario_tienda ?? nueva.faltante_inventario_tienda;
+      merged.inventario_manual = true;
+    } else {
+      merged.inventario_manual = false;
+    }
+    if (debeConservarDeduccionManual(ant.deduccion_prestamos, nueva.deduccion_prestamos, ant.prestamos_manual)) {
+      merged.deduccion_prestamos = ant.deduccion_prestamos;
+      merged.cuota_prestamos = ant.cuota_prestamos ?? ant.deduccion_prestamos ?? nueva.cuota_prestamos;
+      merged.prestamos_manual = true;
+    } else {
+      merged.prestamos_manual = false;
+    }
 
     merged.deduccion_arrastre = ant.deduccion_arrastre ?? nueva.deduccion_arrastre ?? 0;
 
@@ -332,7 +358,11 @@ export function fusionarLineasNomina(anteriores, nuevas) {
       .flatMap((t) => String(t).split(/\s*·\s*/))
       .map((p) => p.trim())
       .filter((p) => p && !/asistencia|checador|retardos?/i.test(p));
-    merged.notas = [...new Set(notasLimpias)].join(' · ') || nueva.notas || '';
+    // Preferir nota fresca de inventario/préstamos de la recarga.
+    merged.notas = [...new Set([
+      ...notasLimpias.filter((p) => !/^Inventario\b/i.test(p) && !/^Préstamos\b/i.test(p)),
+      ...String(nueva.notas || '').split(/\s*·\s*/).map((p) => p.trim()).filter((p) => /^Inventario\b/i.test(p) || /^Préstamos\b/i.test(p)),
+    ].filter(Boolean))].join(' · ') || nueva.notas || '';
 
     const calc = recalcularLineaNomina(merged);
     merged.sueldo_base = calc.sueldo_base;
@@ -346,8 +376,7 @@ export function fusionarLineasNomina(anteriores, nuevas) {
     if (!ant.dias_manual) merged.dias_manual = false;
     merged.sueldo_manual = Boolean(merged.sueldo_manual || ant.sueldo_manual);
     merged.gastos_manual = ant.gastos_manual;
-    merged.inventario_manual = ant.inventario_manual;
-    merged.prestamos_manual = ant.prestamos_manual;
+    // inventario_manual / prestamos_manual ya quedaron arriba
     merged.otros_manual = ant.otros_manual;
 
     return merged;

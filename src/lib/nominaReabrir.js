@@ -105,12 +105,12 @@ export function lineasReabiertasParaEdicion(lineas) {
       deducciones: dedOtros,
       notas_otros: notasOtros,
       pagador_manual: true,
-      // Días salen del checador al recalcular; no congelar el valor cerrado.
+      // Días / inventario / préstamos se refrescan al recalcular (no congelar en $0).
       dias_manual: false,
       sueldo_manual: true,
       gastos_manual: true,
-      inventario_manual: true,
-      prestamos_manual: true,
+      inventario_manual: false,
+      prestamos_manual: false,
       otros_manual: true,
     });
   });
