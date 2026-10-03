@@ -105,7 +105,8 @@ export function lineasReabiertasParaEdicion(lineas) {
       deducciones: dedOtros,
       notas_otros: notasOtros,
       pagador_manual: true,
-      dias_manual: true,
+      // Días salen del checador al recalcular; no congelar el valor cerrado.
+      dias_manual: false,
       sueldo_manual: true,
       gastos_manual: true,
       inventario_manual: true,

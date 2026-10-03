@@ -270,8 +270,12 @@ export default function Nomina({ supabase, sucursal, user }) {
         return;
       }
       setModoNomina('automatico');
-      // Recalcula días/deducciones pero conserva salarios fijos y ajustes manuales del borrador.
-      void cargarEmpleadosYGastos({ fusionar: true });
+      // Recalcula desde checador; sueldos/bonos/ajustes de gastos se conservan.
+      // Liberamos dias_manual para que no queden días congelados (p.ej. 1 con asist 6).
+      void cargarEmpleadosYGastos({
+        fusionar: true,
+        lineasBase: lineas.map((l) => ({ ...l, dias_manual: false })),
+      });
       return;
     }
     setModoNomina('manual');
@@ -760,7 +764,7 @@ export default function Nomina({ supabase, sucursal, user }) {
               <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros − arrastre.</strong>
               {modoManual
                 ? ' Modo Manual: edita a mano; usa «Recargar todo» para subir asistencias + consumos/recargas/anticipos/faltantes del periodo.'
-                : ' Modo Automático: días desde el reloj checador (medios días editables). Consumos, recargas, anticipos y faltantes de directos e indirectos se cargan solos (sáb–vie).'}
+                : ' Modo Automático: días desde el reloj checador (sáb–vie). Recalcular/recargar actualiza asistencias; un override viejo de días ya no se queda congelado. Medios días (±0.5) se conservan si el checador no cambió.'}
             </p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.45rem' }}>

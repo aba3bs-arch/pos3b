@@ -33,7 +33,7 @@ const reabiertas = lineasReabiertasParaEdicion([
 ]);
 
 assert.equal(reabiertas.length, 1);
-assert.equal(reabiertas[0].dias_manual, true);
+assert.equal(reabiertas[0].dias_manual, false, 'días se refrescan desde checador al recalcular');
 assert.equal(reabiertas[0].gastos_manual, true);
 assert.equal(reabiertas[0].inventario_manual, true);
 assert.equal(reabiertas[0].prestamos_manual, true);
@@ -47,6 +47,8 @@ const desdeChecador = [
     usuario_id: 'u1',
     salario_dia: 400,
     dias_trabajados: 5,
+    asistencias_periodo: 6,
+    retardos_periodo: 5,
     pagador_nomina: 'virtual',
     deduccion_gastos: 999,
     deduccion_inventario: 0,
@@ -55,7 +57,8 @@ const desdeChecador = [
   },
 ];
 const fusion = fusionarLineasNomina(reabiertas, desdeChecador);
-assert.equal(fusion[0].dias_trabajados, 6, 'la edición conserva días de la nómina cerrada');
+assert.equal(fusion[0].dias_trabajados, 5, 'sin dias_manual, manda el checador');
+assert.equal(fusion[0].asistencias_periodo, 6);
 assert.equal(fusion[0].pagador_nomina, 'abarrotes');
 assert.equal(fusion[0].deduccion_gastos, 100);
 assert.equal(fusion[0].deduccion_inventario, 20);

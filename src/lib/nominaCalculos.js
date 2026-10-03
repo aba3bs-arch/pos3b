@@ -240,6 +240,27 @@ export async function valesGasolinaPorEmpleado(supabase, { sucursal, desde, hast
   return { map, mapNoCobrados, error: null };
 }
 
+/**
+ * ¿Conservar días manuales al fusionar con lectura nueva del checador?
+ * Solo ajustes finos (±0.5 día) sobre la misma base de asistencias/retardos.
+ * Si el checador cambió (o el override es absurdo, p.ej. días=1 con asist=6), manda el reloj.
+ */
+export function debeConservarDiasManual(ant, nueva) {
+  if (!ant?.dias_manual) return false;
+  if (nueva?.es_indirecto || ant?.es_indirecto) return true;
+
+  const asistN = Number(nueva?.asistencias_periodo) || 0;
+  const asistA = Number(ant?.asistencias_periodo) || 0;
+  const retN = Number(nueva?.retardos_periodo) || 0;
+  const retA = Number(ant?.retardos_periodo) || 0;
+  const diasN = Number(nueva?.dias_trabajados) || 0;
+  const diasA = Number(ant?.dias_trabajados) || 0;
+
+  const mismaBase = asistN === asistA && retN === retA && asistN > 0;
+  const ajusteFino = Math.abs(diasA - diasN) > 0 && Math.abs(diasA - diasN) <= 0.5;
+  return mismaBase && ajusteFino;
+}
+
 /** Conserva ajustes manuales al recalcular gastos / datos automáticos. */
 export function fusionarLineasNomina(anteriores, nuevas) {
   const porId = {};
@@ -255,13 +276,31 @@ export function fusionarLineasNomina(anteriores, nuevas) {
 
     if (ant.pagador_manual) merged.pagador_nomina = ant.pagador_nomina;
     if (ant.dias_manual) {
-      merged.dias_trabajados = ant.dias_trabajados;
-      merged.cortes_periodo = ant.cortes_periodo ?? nueva.cortes_periodo;
-      merged.asistencias_periodo = ant.asistencias_periodo ?? nueva.asistencias_periodo;
-      merged.retardos_periodo = ant.retardos_periodo ?? nueva.retardos_periodo;
-      merged.vales_gasolina = ant.vales_gasolina ?? nueva.vales_gasolina;
-      merged.faltas_gasolina = ant.faltas_gasolina ?? nueva.faltas_gasolina;
-      merged.deduccion_faltas = ant.deduccion_faltas ?? nueva.deduccion_faltas;
+      if (debeConservarDiasManual(ant, nueva)) {
+        // Medio día u ajuste fino sobre la misma lectura del checador.
+        merged.dias_trabajados = ant.dias_trabajados;
+        merged.cortes_periodo = ant.cortes_periodo ?? nueva.cortes_periodo;
+        merged.asistencias_periodo = nueva.asistencias_periodo ?? ant.asistencias_periodo;
+        merged.retardos_periodo = nueva.retardos_periodo ?? ant.retardos_periodo;
+        merged.vales_gasolina = ant.vales_gasolina ?? nueva.vales_gasolina;
+        merged.faltas_gasolina = ant.faltas_gasolina ?? nueva.faltas_gasolina;
+        merged.deduccion_faltas = ant.deduccion_faltas ?? nueva.deduccion_faltas;
+        merged.dias_manual = true;
+      } else if (nueva.es_indirecto || ant.es_indirecto) {
+        merged.dias_trabajados = ant.dias_trabajados;
+        merged.cortes_periodo = ant.cortes_periodo ?? nueva.cortes_periodo;
+        merged.vales_gasolina = ant.vales_gasolina ?? nueva.vales_gasolina;
+        merged.faltas_gasolina = ant.faltas_gasolina ?? nueva.faltas_gasolina;
+        merged.deduccion_faltas = ant.deduccion_faltas ?? nueva.deduccion_faltas;
+        merged.dias_manual = true;
+      } else {
+        // Directo: el checador manda (evita días=1 congelados con asist=6).
+        merged.dias_trabajados = nueva.dias_trabajados;
+        merged.cortes_periodo = nueva.cortes_periodo;
+        merged.asistencias_periodo = nueva.asistencias_periodo;
+        merged.retardos_periodo = nueva.retardos_periodo;
+        merged.dias_manual = false;
+      }
     }
     // Salario por día: queda fijo una vez capturado/ajustado hasta que se edite de nuevo.
     if (ant.sueldo_manual || Number(ant.salario_dia ?? ant.sueldo_tarifa) > 0) {
@@ -304,7 +343,7 @@ export function fusionarLineasNomina(anteriores, nuevas) {
     merged.saldo_pendiente = calc.saldo_pendiente ?? saldoPendienteDesdePago(merged.pago);
 
     merged.pagador_manual = ant.pagador_manual;
-    merged.dias_manual = ant.dias_manual;
+    if (!ant.dias_manual) merged.dias_manual = false;
     merged.sueldo_manual = Boolean(merged.sueldo_manual || ant.sueldo_manual);
     merged.gastos_manual = ant.gastos_manual;
     merged.inventario_manual = ant.inventario_manual;
