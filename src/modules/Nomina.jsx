@@ -269,7 +269,7 @@ export default function Nomina({ supabase, sucursal, user }) {
             'Se cargarán del sábado al viernes:\n' +
             '• Días = jornadas cerradas del checador (ENTRADA + SALIDA), igual que el resumen\n' +
             '• Consumos, recargas, anticipos y faltantes de empleados directos e indirectos\n' +
-            '• Inventario (faltante del reporte ÷ 3 por empleado de la tienda) y préstamos',
+            '• Inventario (faltante neto = campo 2 − bonificación, ÷ 3 por empleado de la tienda) y préstamos',
         )
       ) {
         return;
@@ -643,7 +643,7 @@ export default function Nomina({ supabase, sucursal, user }) {
               {fmt(l.deduccion_inventario)}
               {(l.cuota_inventario > 0 || l.faltante_inventario_tienda > 0) && (
                 <span className="muted" style={{ fontSize: '0.62rem', display: 'block' }}>
-                  ÷3 {fmt(l.cuota_inventario || l.deduccion_inventario)}
+                  ÷3 neto {fmt(l.cuota_inventario || l.deduccion_inventario)}
                   {l.faltante_inventario_tienda > 0 ? ` de ${fmt(l.faltante_inventario_tienda)}` : ''}
                 </span>
               )}
@@ -657,14 +657,14 @@ export default function Nomina({ supabase, sucursal, user }) {
                 step="0.01"
                 style={{ width: '72px' }}
                 title={l.cuota_inventario > 0
-                  ? `Faltante tienda ÷ 3 = ${fmt(l.cuota_inventario)}${l.faltante_inventario_tienda ? ` (faltante ${fmt(l.faltante_inventario_tienda)})` : ''}`
-                  : 'Inventario (faltante reporte ÷ 3)'}
+                  ? `Faltante neto (sin bonif.) ÷ 3 = ${fmt(l.cuota_inventario)}${l.faltante_inventario_tienda ? ` (neto ${fmt(l.faltante_inventario_tienda)})` : ''}`
+                  : 'Inventario (faltante neto = campo 2 − bonificación, ÷ 3)'}
                 value={l.deduccion_inventario ?? 0}
                 onChange={(e) => actualizarLinea(i, 'deduccion_inventario', e.target.value)}
               />
               {(l.cuota_inventario > 0 || l.faltante_inventario_tienda > 0) && (
                 <span className="muted" style={{ fontSize: '0.62rem', display: 'block' }}>
-                  ÷3 {fmt(l.cuota_inventario || l.deduccion_inventario)}
+                  ÷3 neto {fmt(l.cuota_inventario || l.deduccion_inventario)}
                   {l.faltante_inventario_tienda > 0 ? ` de ${fmt(l.faltante_inventario_tienda)}` : ''}
                 </span>
               )}
@@ -808,7 +808,7 @@ export default function Nomina({ supabase, sucursal, user }) {
               <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros − arrastre.</strong>
               {modoManual
                 ? ' Modo Manual: edita a mano; «Recalcular» conserva ajustes (si inventario/préstamos están en $0, trae la cuota automática).'
-                : ' Modo Automático: días = jornadas del checador; inventario = faltante reporte ÷ 3; préstamos = cuota semanal ($500 o remanente). Recalcular refresca esas deducciones.'}
+                : ' Modo Automático: días = jornadas del checador; inventario = faltante neto (sin bonificación) ÷ 3; préstamos = cuota semanal ($500 o remanente). Recalcular refresca esas deducciones.'}
             </p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.45rem' }}>
@@ -899,7 +899,7 @@ export default function Nomina({ supabase, sucursal, user }) {
                 {COLS.map((c) => (
                   <th
                     key={c || 'act'}
-                    title={c === 'Inventario' ? 'Faltante de inventario (Reportes, campo 2) ÷ 3, por empleado de esa tienda' : undefined}
+                    title={c === 'Inventario' ? 'Faltante neto (campo 2 − bonificación) ÷ 3, por empleado de esa tienda' : undefined}
                   >
                     {c}
                   </th>
@@ -985,7 +985,8 @@ export default function Nomina({ supabase, sucursal, user }) {
                     'Se cargarán del sábado al viernes:\n' +
                     '• Jornadas cerradas del checador (ENTRADA + SALIDA)\n' +
                     '• Consumos, recargas, anticipos y faltantes (directos e indirectos)\n' +
-                    '• Inventario (faltante del reporte ÷ 3 por empleado de la tienda) y préstamos\n\n' +
+                    '• Inventario (faltante neto = campo 2 − bonificación, ÷ 3 por empleado)\n' +
+                    '• Préstamos (cuota semanal)\n\n' +
                     'Los salarios por día guardados se conservan; bonos y “otros” del borrador se pierden.',
                 )
               ) {
@@ -1134,7 +1135,7 @@ export default function Nomina({ supabase, sucursal, user }) {
                     {COLS.map((c) => (
                       <th
                         key={c || 'act'}
-                        title={c === 'Inventario' ? 'Faltante de inventario (Reportes, campo 2) ÷ 3, por empleado de esa tienda' : undefined}
+                        title={c === 'Inventario' ? 'Faltante neto (campo 2 − bonificación) ÷ 3, por empleado de esa tienda' : undefined}
                       >
                         {c}
                       </th>
