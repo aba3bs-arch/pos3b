@@ -126,7 +126,12 @@ export default function Nomina({ supabase, sucursal, user }) {
       if (cortesRes.error) setErr(cortesRes.error);
       if (valesRes.error) setErr(valesRes.error);
       if (asistenciasRes?.error) setErr(asistenciasRes.error);
-      if (inventarioRes?.aviso && inventarioRes.sinTabla) setAviso(inventarioRes.aviso);
+      const avisosPrest = Array.isArray(prestRes.avisos) ? prestRes.avisos.filter(Boolean) : [];
+      if (inventarioRes?.aviso && inventarioRes.sinTabla) {
+        setAviso([inventarioRes.aviso, ...avisosPrest].filter(Boolean).join(' · '));
+      } else if (avisosPrest.length) {
+        setAviso(avisosPrest.join(' · '));
+      }
 
       const lineasNuevas = lineasDesdeEmpleados(lista, {
         gastosMap: gastosRes.map,

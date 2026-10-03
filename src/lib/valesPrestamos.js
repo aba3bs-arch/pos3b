@@ -926,7 +926,10 @@ export async function rechazarPrestamo(supabase, prestamoId, { nombre, motivo } 
 
 export async function abonarPrestamo(supabase, prestamo, montoAbono) {
   if (!supabase || !prestamo?.id) return { ok: false, error: 'Préstamo inválido.' };
-  if (prestamo.estado !== 'activo') return { ok: false, error: 'El préstamo no está activo.' };
+  // pendiente_socio: admin ya aprobó (>$1,000); nómina puede abonar y pasa a activo.
+  if (prestamo.estado !== 'activo' && prestamo.estado !== 'pendiente_socio') {
+    return { ok: false, error: 'El préstamo no está activo.' };
+  }
   const abono = Math.max(0, Number(montoAbono) || 0);
   if (!(abono > 0)) return { ok: false, error: 'Monto de abono inválido.' };
   const saldoAntes = Number(prestamo.saldo) || 0;
