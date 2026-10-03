@@ -987,6 +987,11 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
   const [cargandoAbierta, setCargandoAbierta] = useState(false);
   const [lineasCamion, setLineasCamion] = useState([]);
   const [corrigiendoId, setCorrigiendoId] = useState('');
+  const [qtyDevolverPorLinea, setQtyDevolverPorLinea] = useState({});
+
+  const setQtyLinea = (lineaId, valor) => {
+    setQtyDevolverPorLinea((prev) => ({ ...prev, [String(lineaId)]: valor }));
+  };
   const [tickCamion, setTickCamion] = useState(0);
 
   useEffect(() => {
@@ -1132,44 +1137,69 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     refrescarCamion();
   };
 
-  const devolverPiezas = async (lin, qtyDef = null) => {
-    if (!cargaAbierta?.id || !lin?.id) return;
-    const disp = disponibleEnLineaCarga(lin);
-    if (!(disp > 0)) return alert('No hay piezas disponibles para devolver.');
-    let qty = qtyDef;
-    if (qty == null) {
-      // No sugerir todo el disponible: evita devolver 99 por accidente al aceptar el default.
-      const raw = window.prompt(
-        `¿Cuántas piezas devolver a ${NOMBRE_ALMACEN_RUTA}?\n`
-          + `${lin.producto_nombre || lin.producto_id}\n`
-          + `En camión: cargada ${fmtQty(lin.qty_cargada)} · vendida ${fmtQty(lin.qty_vendida)} · disp ${fmtQty(disp)}\n`
-          + `Disp. = cargada − vendida − ya devuelta.`,
-        '1',
-      );
-      if (raw == null) return;
-      qty = Math.floor(Number(raw) || 0);
+  const devolverPiezas = async (lin, { todo = false } = {}) => {
+    if (!cargaAbierta?.id || !lin?.id) {
+      return alert('No hay carga abierta o falta la línea.');
     }
-    if (!(qty > 0)) return alert('Cantidad inválida.');
-    if (qty > disp) return alert(`Solo hay ${disp} disponible.`);
-    if (!confirm(`¿Devolver ${qty} de «${lin.producto_nombre || lin.producto_id}» a ${NOMBRE_ALMACEN_RUTA}?\nQuedarán ${disp - qty} en el camión.`)) return;
+    const disp = disponibleEnLineaCarga(lin);
+    if (!(disp > 0)) {
+      return alert(
+        `No hay piezas disponibles de «${lin.producto_nombre || lin.producto_id}».\n`
+          + `Cargada ${fmtQty(lin.qty_cargada)} · Vendida ${fmtQty(lin.qty_vendida)} · Devuelta ${fmtQty(lin.qty_devuelta)}.`,
+      );
+    }
+
+    let qty;
+    if (todo) {
+      qty = disp;
+    } else {
+      const raw = qtyDevolverPorLinea[String(lin.id)];
+      qty = Math.floor(Number(raw != null && raw !== '' ? raw : 1) || 0);
+    }
+    if (!(qty > 0)) return alert('Indica cuántas piezas devolver (mínimo 1).');
+    if (qty > disp) return alert(`Solo hay ${disp} disponible en el camión.`);
+
+    const msg = todo
+      ? `¿Devolver TODAS las ${qty} disponibles de «${lin.producto_nombre || lin.producto_id}» a ${NOMBRE_ALMACEN_RUTA}?\nQuedará 0 en el camión (lo vendido no se toca).`
+      : `¿Devolver ${qty} de «${lin.producto_nombre || lin.producto_id}» a ${NOMBRE_ALMACEN_RUTA}?\nQuedarán ${disp - qty} en el camión.`;
+    if (!window.confirm(msg)) return;
+
     setCorrigiendoId(lin.id);
-    const r = await devolverLineaCargaRuta(supabase, {
-      cargaId: cargaAbierta.id,
-      lineaId: lin.id,
-      cantidad: qty,
-      usuarioNombre: user?.nombre,
-      rol: user?.rol,
-      userId: user?.id,
-    });
-    setCorrigiendoId('');
-    if (!r.ok) return alert(r.error);
-    if (r.patchProducto?.id) fusionarProducto?.(r.patchProducto);
-    if (cargarDatos) void cargarDatos();
-    refrescarCamion();
+    try {
+      const r = await devolverLineaCargaRuta(supabase, {
+        cargaId: cargaAbierta.id,
+        lineaId: lin.id,
+        cantidad: qty,
+        usuarioNombre: user?.nombre,
+        rol: user?.rol,
+        userId: user?.id,
+      });
+      if (!r.ok) {
+        alert(r.error || 'No se pudo devolver.');
+        return;
+      }
+      if (r.patchProducto?.id) fusionarProducto?.(r.patchProducto);
+      // Actualiza la tabla al instante (sin esperar el refetch).
+      setLineasCamion((prev) => (prev || []).map((row) => {
+        if (String(row.id) !== String(lin.id)) return row;
+        if (r.eliminada) return null;
+        return r.linea ? { ...row, ...r.linea } : row;
+      }).filter(Boolean));
+      setQtyLinea(lin.id, '1');
+      if (cargarDatos) void cargarDatos();
+      alert(
+        r.eliminada
+          ? `«${lin.producto_nombre || lin.producto_id}» quitado del camión · ${qty} pza a ${NOMBRE_ALMACEN_RUTA}.`
+          : `Devueltas ${qty} pza de «${lin.producto_nombre || lin.producto_id}» a ${NOMBRE_ALMACEN_RUTA}.`,
+      );
+      refrescarCamion();
+    } finally {
+      setCorrigiendoId('');
+    }
   };
 
   const lineasCamionVisibles = useMemo(
-    () => (lineasCamion || []).filter((l) => disponibleEnLineaCarga(l) > 0 || (Number(l.qty_vendida) || 0) > 0),
+    () => (lineasCamion || []).filter((l) => disponibleEnLineaCarga(l) > 0 || (Number(l.qty_vendida) || 0) > 0 || (Number(l.qty_devuelta) || 0) > 0),
     [lineasCamion],
   );
 
@@ -1236,8 +1266,9 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
         <div style={{ marginBottom: '1rem' }}>
           <h4 style={{ margin: '0 0 0.35rem', fontSize: '0.95rem' }}>En el camión ahora</h4>
           <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.78rem' }}>
-            Disp. = Cargada − Vendida − Devuelta. Ejemplo: 100 cargadas − 1 vendida = <strong>99</strong> disponibles.
-            Devolver = regresa piezas a {NOMBRE_ALMACEN_RUTA} (baja el Disp.). No puedes bajar de lo ya vendido.
+            Disp. = Cargada − Vendida − Devuelta. Ejemplo: 100 − 1 = <strong>99</strong>.
+            Escribe la cantidad y pulsa <strong>Devolver</strong>, o <strong>Devolver todo</strong> para regresar lo disponible a {NOMBRE_ALMACEN_RUTA}.
+            Lo ya vendido no se puede quitar.
           </p>
           <table className="consultas-table">
             <thead>
@@ -1247,13 +1278,16 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
                 <th>Vendida</th>
                 <th>Devuelta</th>
                 <th>Disp.</th>
-                <th />
+                <th>Cant.</th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {lineasCamionVisibles.map((l) => {
                 const disp = disponibleEnLineaCarga(l);
                 const devuelta = Number(l.qty_devuelta) || 0;
+                const ocupado = corrigiendoId === l.id;
+                const qtyVal = qtyDevolverPorLinea[String(l.id)] ?? '1';
                 return (
                   <tr key={l.id}>
                     <td>{l.producto_nombre || l.producto_id}</td>
@@ -1261,25 +1295,39 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
                     <td>{fmtQty(l.qty_vendida)}</td>
                     <td className="muted">{fmtQty(devuelta)}</td>
                     <td style={{ fontWeight: 700, color: disp > 0 ? '#0f766e' : undefined }}>{fmtQty(disp)}</td>
+                    <td>
+                      <input
+                        className="input"
+                        type="number"
+                        min="1"
+                        max={Math.max(1, disp)}
+                        step="1"
+                        disabled={ocupado || !(disp > 0)}
+                        value={qtyVal}
+                        onChange={(e) => setQtyLinea(l.id, e.target.value)}
+                        style={{ width: 64, padding: '0.2rem 0.35rem', fontSize: '0.85rem' }}
+                        title="Piezas a devolver a CEDIS"
+                      />
+                    </td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       <button
                         type="button"
-                        className="btn btn-ghost"
-                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.78rem' }}
-                        disabled={corrigiendoId === l.id || !(disp > 0)}
-                        onClick={() => void devolverPiezas(l)}
+                        className="btn btn-primary"
+                        style={{ padding: '0.2rem 0.5rem', fontSize: '0.78rem', marginRight: '0.25rem' }}
+                        disabled={ocupado || !(disp > 0)}
+                        onClick={() => void devolverPiezas(l, { todo: false })}
                       >
-                        {corrigiendoId === l.id ? '…' : 'Devolver'}
+                        {ocupado ? '…' : 'Devolver'}
                       </button>
                       <button
                         type="button"
                         className="btn btn-ghost"
-                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.78rem', color: '#b91c1c' }}
-                        disabled={corrigiendoId === l.id || !(disp > 0) || (Number(l.qty_vendida) || 0) > 0}
-                        title={(Number(l.qty_vendida) || 0) > 0 ? 'Hay ventas: usa Devolver (solo lo disponible)' : 'Quitar producto del camión'}
-                        onClick={() => void devolverPiezas(l, disp)}
+                        style={{ padding: '0.2rem 0.5rem', fontSize: '0.78rem', color: '#b91c1c' }}
+                        disabled={ocupado || !(disp > 0)}
+                        title="Devuelve todo lo disponible (no toca lo vendido)"
+                        onClick={() => void devolverPiezas(l, { todo: true })}
                       >
-                        Quitar
+                        Devolver todo
                       </button>
                     </td>
                   </tr>
