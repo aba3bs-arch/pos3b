@@ -1138,16 +1138,20 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     if (!(disp > 0)) return alert('No hay piezas disponibles para devolver.');
     let qty = qtyDef;
     if (qty == null) {
+      // No sugerir todo el disponible: evita devolver 99 por accidente al aceptar el default.
       const raw = window.prompt(
-        `¿Cuántas piezas devolver a ${NOMBRE_ALMACEN_RUTA}?\n${lin.producto_nombre || lin.producto_id}\nDisponible en camión: ${disp}`,
-        String(disp),
+        `¿Cuántas piezas devolver a ${NOMBRE_ALMACEN_RUTA}?\n`
+          + `${lin.producto_nombre || lin.producto_id}\n`
+          + `En camión: cargada ${fmtQty(lin.qty_cargada)} · vendida ${fmtQty(lin.qty_vendida)} · disp ${fmtQty(disp)}\n`
+          + `Disp. = cargada − vendida − ya devuelta.`,
+        '1',
       );
       if (raw == null) return;
       qty = Math.floor(Number(raw) || 0);
     }
     if (!(qty > 0)) return alert('Cantidad inválida.');
     if (qty > disp) return alert(`Solo hay ${disp} disponible.`);
-    if (!confirm(`¿Devolver ${qty} de «${lin.producto_nombre || lin.producto_id}» a ${NOMBRE_ALMACEN_RUTA}?`)) return;
+    if (!confirm(`¿Devolver ${qty} de «${lin.producto_nombre || lin.producto_id}» a ${NOMBRE_ALMACEN_RUTA}?\nQuedarán ${disp - qty} en el camión.`)) return;
     setCorrigiendoId(lin.id);
     const r = await devolverLineaCargaRuta(supabase, {
       cargaId: cargaAbierta.id,
@@ -1232,7 +1236,8 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
         <div style={{ marginBottom: '1rem' }}>
           <h4 style={{ margin: '0 0 0.35rem', fontSize: '0.95rem' }}>En el camión ahora</h4>
           <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.78rem' }}>
-            Devolver = corrige un error de carga (regresa a {NOMBRE_ALMACEN_RUTA}). No puedes bajar de lo ya vendido.
+            Disp. = Cargada − Vendida − Devuelta. Ejemplo: 100 cargadas − 1 vendida = <strong>99</strong> disponibles.
+            Devolver = regresa piezas a {NOMBRE_ALMACEN_RUTA} (baja el Disp.). No puedes bajar de lo ya vendido.
           </p>
           <table className="consultas-table">
             <thead>
@@ -1240,6 +1245,7 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
                 <th>Producto</th>
                 <th>Cargada</th>
                 <th>Vendida</th>
+                <th>Devuelta</th>
                 <th>Disp.</th>
                 <th />
               </tr>
@@ -1247,12 +1253,14 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
             <tbody>
               {lineasCamionVisibles.map((l) => {
                 const disp = disponibleEnLineaCarga(l);
+                const devuelta = Number(l.qty_devuelta) || 0;
                 return (
                   <tr key={l.id}>
                     <td>{l.producto_nombre || l.producto_id}</td>
                     <td>{fmtQty(l.qty_cargada)}</td>
                     <td>{fmtQty(l.qty_vendida)}</td>
-                    <td>{fmtQty(disp)}</td>
+                    <td className="muted">{fmtQty(devuelta)}</td>
+                    <td style={{ fontWeight: 700, color: disp > 0 ? '#0f766e' : undefined }}>{fmtQty(disp)}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>
                       <button
                         type="button"
