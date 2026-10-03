@@ -1,4 +1,5 @@
 import { BENEFICIARIOS_VALES } from './contabilidadConstants.js';
+import { nombresMismaPersona } from './empleadosVisibles.js';
 
 /** Normaliza nombre para comparar consumos/préstamos con empleados del POS. */
 export function normalizarNombreEmpleado(nombre) {
@@ -13,13 +14,24 @@ export function normalizarNombreEmpleado(nombre) {
 export function indiceEmpleados(empleados = []) {
   const porId = {};
   const porNombre = {};
+  const lista = [];
   for (const e of empleados) {
     const id = String(e.id);
     porId[id] = e;
+    lista.push(e);
     const nom = normalizarNombreEmpleado(e.nombre);
     if (nom) porNombre[nom] = e;
   }
-  return { porId, porNombre };
+  return { porId, porNombre, lista };
+}
+
+function resolverPorNombreFlexible(nom, indice) {
+  if (!nom) return null;
+  if (indice.porNombre[nom]) return String(indice.porNombre[nom].id);
+  for (const e of indice.lista || Object.values(indice.porId || {})) {
+    if (nombresMismaPersona(nom, e.nombre)) return String(e.id);
+  }
+  return null;
 }
 
 function resolverIndirectoPorId(uid, indice) {
@@ -27,8 +39,8 @@ function resolverIndirectoPorId(uid, indice) {
   const b = BENEFICIARIOS_VALES.find((x) => x.id === slug);
   if (!b) return null;
   if (indice.porId[uid]) return uid;
-  const nom = normalizarNombreEmpleado(b.nombre);
-  if (nom && indice.porNombre[nom]) return String(indice.porNombre[nom].id);
+  const porNom = resolverPorNombreFlexible(normalizarNombreEmpleado(b.nombre), indice);
+  if (porNom) return porNom;
   return uid;
 }
 
@@ -40,13 +52,15 @@ export function resolverClaveEmpleado(row, indice) {
   }
   if (uid && indice.porId[uid]) return uid;
   const nom = normalizarNombreEmpleado(row?.usuario_nombre || row?.nombre_empleado || row?.nombre);
-  if (nom && indice.porNombre[nom]) return String(indice.porNombre[nom].id);
+  const porNom = resolverPorNombreFlexible(nom, indice);
+  if (porNom) return porNom;
   if (nom) {
-    const b = BENEFICIARIOS_VALES.find((x) => normalizarNombreEmpleado(x.nombre) === nom);
+    const b = BENEFICIARIOS_VALES.find((x) => nombresMismaPersona(x.nombre, nom));
     if (b) {
       const idIndirect = `indirect:${b.id}`;
       if (indice.porId[idIndirect]) return idIndirect;
-      if (indice.porNombre[nom]) return String(indice.porNombre[nom].id);
+      const porNomBen = resolverPorNombreFlexible(normalizarNombreEmpleado(b.nombre), indice);
+      if (porNomBen) return porNomBen;
       return idIndirect;
     }
   }

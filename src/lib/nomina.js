@@ -126,13 +126,15 @@ function notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, falt
   if (prestEmp?.detalle?.length) {
     const totalPrest = Number(prestEmp.total) || 0;
     const porSuc = prestEmp.porSucursal;
+    const nPendSocio = prestEmp.detalle.filter((p) => p.estado === 'pendiente_socio').length;
+    const sufijoPend = nPendSocio > 0 ? `; ${nPendSocio} pend. socio` : '';
     if (porSuc && Object.keys(porSuc).length) {
       const partes = Object.entries(porSuc)
         .filter(([, m]) => Number(m) > 0)
         .map(([s, m]) => `${etiquetaTienda(s)}: $${Number(m).toFixed(2)}`);
-      notas.push(`Préstamos cuota $${totalPrest.toFixed(2)} (${partes.join(' · ')})`);
+      notas.push(`Préstamos cuota $${totalPrest.toFixed(2)} (${partes.join(' · ')}${sufijoPend})`);
     } else {
-      notas.push(`Préstamos cuota $${totalPrest.toFixed(2)}: ${prestEmp.detalle.length} activo(s)`);
+      notas.push(`Préstamos cuota $${totalPrest.toFixed(2)}: ${prestEmp.detalle.length} activo(s)${sufijoPend}`);
     }
   }
   return notas.join(' · ');
