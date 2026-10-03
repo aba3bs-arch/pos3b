@@ -988,9 +988,12 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
   const [lineasCamion, setLineasCamion] = useState([]);
   const [corrigiendoId, setCorrigiendoId] = useState('');
   const [qtyDevolverPorLinea, setQtyDevolverPorLinea] = useState({});
+  /** Confirmación en la fila (evita prompt/confirm del navegador, rotos en PWA). */
+  const [confirmarDev, setConfirmarDev] = useState(null); // { lineaId, todo, qty }
 
   const setQtyLinea = (lineaId, valor) => {
     setQtyDevolverPorLinea((prev) => ({ ...prev, [String(lineaId)]: valor }));
+    setConfirmarDev((prev) => (prev && String(prev.lineaId) === String(lineaId) ? null : prev));
   };
   const [tickCamion, setTickCamion] = useState(0);
 
@@ -1045,10 +1048,12 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     if (!supabase || !recolectorSel) {
       setCargaAbierta(null);
       setLineasCamion([]);
+      setConfirmarDev(null);
       return undefined;
     }
     let cancel = false;
     setCargandoAbierta(true);
+    setConfirmarDev(null);
     const vendedorId = recolectorSel.usuario_id || recolectorSel.id;
     (async () => {
       const r = await buscarCargaAbiertaCamionRuta(supabase, {
@@ -1137,32 +1142,43 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     refrescarCamion();
   };
 
-  const devolverPiezas = async (lin, { todo = false } = {}) => {
+  const qtyParaDevolver = (lin, todo) => {
+    const disp = disponibleEnLineaCarga(lin);
+    if (!(disp > 0)) return { ok: false, error: 'sin_disp', disp };
+    if (todo) return { ok: true, qty: disp, disp };
+    const raw = qtyDevolverPorLinea[String(lin.id)];
+    const qty = Math.floor(Number(raw != null && raw !== '' ? raw : 1) || 0);
+    if (!(qty > 0)) return { ok: false, error: 'Indica cuántas piezas devolver (mínimo 1).', disp };
+    if (qty > disp) return { ok: false, error: `Solo hay ${disp} disponible en el camión.`, disp };
+    return { ok: true, qty, disp };
+  };
+
+  /** Primer clic: arma confirmación en la fila. Segundo (Sí): ejecuta. */
+  const pedirDevolver = (lin, { todo = false } = {}) => {
     if (!cargaAbierta?.id || !lin?.id) {
       return alert('No hay carga abierta o falta la línea.');
     }
-    const disp = disponibleEnLineaCarga(lin);
-    if (!(disp > 0)) {
-      return alert(
-        `No hay piezas disponibles de «${lin.producto_nombre || lin.producto_id}».\n`
-          + `Cargada ${fmtQty(lin.qty_cargada)} · Vendida ${fmtQty(lin.qty_vendida)} · Devuelta ${fmtQty(lin.qty_devuelta)}.`,
-      );
+    const calc = qtyParaDevolver(lin, todo);
+    if (!calc.ok) {
+      if (calc.error === 'sin_disp') {
+        return alert(
+          `No hay piezas disponibles de «${lin.producto_nombre || lin.producto_id}».\n`
+            + `Cargada ${fmtQty(lin.qty_cargada)} · Vendida ${fmtQty(lin.qty_vendida)} · Devuelta ${fmtQty(lin.qty_devuelta)}.`,
+        );
+      }
+      return alert(calc.error);
     }
+    setConfirmarDev({ lineaId: String(lin.id), todo: !!todo, qty: calc.qty });
+  };
 
-    let qty;
-    if (todo) {
-      qty = disp;
-    } else {
-      const raw = qtyDevolverPorLinea[String(lin.id)];
-      qty = Math.floor(Number(raw != null && raw !== '' ? raw : 1) || 0);
+  const ejecutarDevolver = async (lin) => {
+    if (!cargaAbierta?.id || !lin?.id || !confirmarDev) return;
+    if (String(confirmarDev.lineaId) !== String(lin.id)) return;
+    const qty = Math.floor(Number(confirmarDev.qty) || 0);
+    if (!(qty > 0)) {
+      setConfirmarDev(null);
+      return alert('Cantidad inválida.');
     }
-    if (!(qty > 0)) return alert('Indica cuántas piezas devolver (mínimo 1).');
-    if (qty > disp) return alert(`Solo hay ${disp} disponible en el camión.`);
-
-    const msg = todo
-      ? `¿Devolver TODAS las ${qty} disponibles de «${lin.producto_nombre || lin.producto_id}» a ${NOMBRE_ALMACEN_RUTA}?\nQuedará 0 en el camión (lo vendido no se toca).`
-      : `¿Devolver ${qty} de «${lin.producto_nombre || lin.producto_id}» a ${NOMBRE_ALMACEN_RUTA}?\nQuedarán ${disp - qty} en el camión.`;
-    if (!window.confirm(msg)) return;
 
     setCorrigiendoId(lin.id);
     try {
@@ -1179,15 +1195,15 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
         return;
       }
       if (r.patchProducto?.id) fusionarProducto?.(r.patchProducto);
-      // Actualiza la tabla al instante (sin esperar el refetch).
       setLineasCamion((prev) => (prev || []).map((row) => {
         if (String(row.id) !== String(lin.id)) return row;
         if (r.eliminada) return null;
         return r.linea ? { ...row, ...r.linea } : row;
       }).filter(Boolean));
-      setQtyLinea(lin.id, '1');
+      setQtyDevolverPorLinea((prev) => ({ ...prev, [String(lin.id)]: '1' }));
+      setConfirmarDev(null);
       if (cargarDatos) void cargarDatos();
-      alert(
+      setAviso?.(
         r.eliminada
           ? `«${lin.producto_nombre || lin.producto_id}» quitado del camión · ${qty} pza a ${NOMBRE_ALMACEN_RUTA}.`
           : `Devueltas ${qty} pza de «${lin.producto_nombre || lin.producto_id}» a ${NOMBRE_ALMACEN_RUTA}.`,
@@ -1267,8 +1283,9 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
           <h4 style={{ margin: '0 0 0.35rem', fontSize: '0.95rem' }}>En el camión ahora</h4>
           <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.78rem' }}>
             Disp. = Cargada − Vendida − Devuelta. Ejemplo: 100 − 1 = <strong>99</strong>.
-            Escribe la cantidad y pulsa <strong>Devolver</strong>, o <strong>Devolver todo</strong> para regresar lo disponible a {NOMBRE_ALMACEN_RUTA}.
-            Lo ya vendido no se puede quitar.
+            <strong>Devolver</strong> = la cantidad de «Cant.» a {NOMBRE_ALMACEN_RUTA}.
+            <strong> Quitar</strong> = todo lo disponible (lo vendido no se toca).
+            Confirma con <strong>Sí</strong> en la misma fila (no usa ventanas del navegador).
           </p>
           <table className="consultas-table">
             <thead>
@@ -1288,6 +1305,9 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
                 const devuelta = Number(l.qty_devuelta) || 0;
                 const ocupado = corrigiendoId === l.id;
                 const qtyVal = qtyDevolverPorLinea[String(l.id)] ?? '1';
+                const conf = confirmarDev && String(confirmarDev.lineaId) === String(l.id)
+                  ? confirmarDev
+                  : null;
                 return (
                   <tr key={l.id}>
                     <td>{l.producto_nombre || l.producto_id}</td>
@@ -1302,7 +1322,7 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
                         min="1"
                         max={Math.max(1, disp)}
                         step="1"
-                        disabled={ocupado || !(disp > 0)}
+                        disabled={ocupado || !(disp > 0) || !!conf}
                         value={qtyVal}
                         onChange={(e) => setQtyLinea(l.id, e.target.value)}
                         style={{ width: 64, padding: '0.2rem 0.35rem', fontSize: '0.85rem' }}
@@ -1310,25 +1330,54 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
                       />
                     </td>
                     <td style={{ whiteSpace: 'nowrap' }}>
-                      <button
-                        type="button"
-                        className="btn btn-primary"
-                        style={{ padding: '0.2rem 0.5rem', fontSize: '0.78rem', marginRight: '0.25rem' }}
-                        disabled={ocupado || !(disp > 0)}
-                        onClick={() => void devolverPiezas(l, { todo: false })}
-                      >
-                        {ocupado ? '…' : 'Devolver'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        style={{ padding: '0.2rem 0.5rem', fontSize: '0.78rem', color: '#b91c1c' }}
-                        disabled={ocupado || !(disp > 0)}
-                        title="Devuelve todo lo disponible (no toca lo vendido)"
-                        onClick={() => void devolverPiezas(l, { todo: true })}
-                      >
-                        Devolver todo
-                      </button>
+                      {conf ? (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: '0.78rem' }}>
+                            ¿{conf.todo ? 'Quitar' : 'Devolver'} {fmtQty(conf.qty)} a {NOMBRE_ALMACEN_RUTA}?
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn-primary"
+                            style={{ padding: '0.2rem 0.5rem', fontSize: '0.78rem' }}
+                            disabled={ocupado}
+                            onClick={() => void ejecutarDevolver(l)}
+                          >
+                            {ocupado ? '…' : 'Sí'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ padding: '0.2rem 0.5rem', fontSize: '0.78rem' }}
+                            disabled={ocupado}
+                            onClick={() => setConfirmarDev(null)}
+                          >
+                            No
+                          </button>
+                        </span>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-primary"
+                            style={{ padding: '0.2rem 0.5rem', fontSize: '0.78rem', marginRight: '0.25rem' }}
+                            disabled={ocupado || !(disp > 0)}
+                            title={`Devolver la cantidad de Cant. a ${NOMBRE_ALMACEN_RUTA}`}
+                            onClick={() => pedirDevolver(l, { todo: false })}
+                          >
+                            Devolver
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ padding: '0.2rem 0.5rem', fontSize: '0.78rem', color: '#b91c1c' }}
+                            disabled={ocupado || !(disp > 0)}
+                            title="Quita todo lo disponible del camión (no toca lo vendido)"
+                            onClick={() => pedirDevolver(l, { todo: true })}
+                          >
+                            Quitar
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 );
