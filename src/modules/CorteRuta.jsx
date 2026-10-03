@@ -3,6 +3,7 @@ import {
   listarCargasRuta,
   listarVentasRuta,
   listarVendedoresSesionRuta,
+  liquidarCargaRuta,
 } from '../lib/ventaEnRuta.js';
 import {
   construirTicketCorteRuta,
@@ -254,6 +255,32 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
     } catch (e) {
       setMsg(`Corte guardado. No se pudo imprimir: ${e?.message || e}`);
     }
+
+    // Cerrar carga si el admin confirma (devuelve resto a CEDIS si hay)
+    if (cargaId && String(carga?.estado || '').toLowerCase() === 'en_ruta') {
+      const cerrar = window.confirm(
+        '¿Liquidar / cerrar esta carga del camión?\n\n'
+        + 'Si aún hay mercancía, se devolverá a CEDIS y la carga quedará liquidada.\n'
+        + 'Cancelar = dejar la carga en ruta (puedes liquidarla después en Consultas).',
+      );
+      if (cerrar) {
+        const liq = await liquidarCargaRuta(supabase, {
+          cargaId,
+          usuarioNombre: adminNombre,
+          rol: adminSesion?.rol || user?.rol,
+          userId: adminSesion?.id || user?.id,
+          devolverRestante: true,
+          motivo: `Tras corte de caja ${local.corte?.id || ''}`.trim(),
+        });
+        if (!liq.ok) {
+          setMsg((m) => `${m} · No se liquidó la carga: ${liq.error}`);
+        } else {
+          setMsg((m) => `${m} · Carga liquidada${liq.restanteDevuelto > 0 ? ` (${liq.restanteDevuelto} pza → CEDIS)` : ''}.`);
+          void cargarCargas();
+        }
+      }
+    }
+
     setContado('');
     setNotas('');
   };

@@ -42,7 +42,8 @@ export function montosPagoVentaRuta(venta) {
         credito: round2(meta.credito),
       };
     }
-    return { efectivo: 0, credito: total };
+    // Sin meta: no asumir todo crédito (rompe el arqueo).
+    return { efectivo: total, credito: 0 };
   }
   return { efectivo: 0, credito: 0 };
 }
