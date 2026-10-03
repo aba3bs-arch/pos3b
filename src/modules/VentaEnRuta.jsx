@@ -16,6 +16,7 @@ import {
   crearCargaRuta,
   devolverLineaCargaRuta,
   disponibleEnLineaCarga,
+  liquidarCargaRuta,
   guardarClienteRuta,
   guardarPrecioRutaProducto,
   lineasDeCarga,
@@ -391,7 +392,8 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
         <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
           <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Liquidación</h3>
           <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-            Recibe del repartidor el efectivo en tránsito generado por ventas del camión (y recolecciones asociadas).
+            Recibe del repartidor el efectivo en tránsito / RC generado por ventas del camión.
+            Para cerrar la carga del camión (estado liquidada) usa Consultas → Cargas → Liquidar, o el corte de caja.
           </p>
           <PanelLiquidacionRecolecciones supabase={supabase} user={user} embedded />
         </div>
@@ -2279,8 +2281,12 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
   const [tick, setTick] = useState(0);
   const [expandido, setExpandido] = useState(null);
   const [cancelandoId, setCancelandoId] = useState('');
+  const [liquidandoId, setLiquidandoId] = useState('');
 
   const puedeCancelar = puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_carga');
+  const puedeLiquidarCarga = puedeCancelar
+    || puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_liquidacion')
+    || puedeAccionVentaRuta(user?.rol, user?.id, 'ruta_corte');
 
   useEffect(() => {
     let cancel = false;
@@ -2390,11 +2396,53 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
     }
   };
 
+  const onLiquidarCarga = async (carga) => {
+    if (!carga?.id || !puedeLiquidarCarga) return;
+    const estado = String(carga.estado || '').toLowerCase();
+    if (estado !== 'en_ruta' && estado !== 'armada') {
+      setAviso('Solo se pueden liquidar cargas en ruta.');
+      return;
+    }
+    const devolver = window.confirm(
+      `¿Cerrar / liquidar carga ${carga.folio || ''}?\n\n`
+      + '• Si ya no queda mercancía en el camión → se marca liquidada.\n'
+      + '• Si aún hay piezas → se devolverán a CEDIS y luego se cierra.\n\n'
+      + 'Aceptar = liquidar (devolver resto si hay)\nCancelar = no hacer nada',
+    );
+    if (!devolver) return;
+    setLiquidandoId(carga.id);
+    setAviso('');
+    try {
+      const res = await liquidarCargaRuta(supabase, {
+        cargaId: carga.id,
+        usuarioNombre: user?.nombre,
+        rol: user?.rol,
+        userId: user?.id,
+        devolverRestante: true,
+      });
+      if (!res.ok) {
+        setAviso(res.error || 'No se pudo liquidar la carga.');
+        return;
+      }
+      for (const p of res.patches || []) {
+        if (p?.id) fusionarProducto?.(p);
+      }
+      if (cargarDatos) void cargarDatos();
+      const extra = res.restanteDevuelto > 0
+        ? ` · ${res.restanteDevuelto} pza devueltas a CEDIS`
+        : (res.yaLiquidada ? ' (ya estaba liquidada)' : '');
+      setAviso(`Carga ${carga.folio || ''} liquidada${extra}.`);
+      setTick((t) => t + 1);
+    } finally {
+      setLiquidandoId('');
+    }
+  };
+
   return (
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Consultas</h3>
       <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-        Ingresos = cargas al camión (salida CEDIS). Desde Cargas puedes cancelar un registro en ruta sin ventas.
+        Ingresos = cargas al camión (salida CEDIS). En Cargas: cancelar (sin ventas) o liquidar/cerrar (con ventas; el resto vuelve a CEDIS).
       </p>
       <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
         {[
@@ -2507,12 +2555,13 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
                 <th>Repartidor</th>
                 <th>Estado</th>
                 <th>Liquidada</th>
-                {puedeCancelar ? <th /> : null}
+                {(puedeCancelar || puedeLiquidarCarga) ? <th /> : null}
               </tr>
             </thead>
             <tbody>
               {rows.map((c) => {
-                const enRuta = String(c.estado || '').toLowerCase() === 'en_ruta';
+                const enRuta = String(c.estado || '').toLowerCase() === 'en_ruta'
+                  || String(c.estado || '').toLowerCase() === 'armada';
                 return (
                   <tr key={c.id}>
                     <td><strong>{c.folio || '—'}</strong></td>
@@ -2520,21 +2569,33 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
                     <td>{c.vendedor_nombre || '—'}</td>
                     <td>{badgeEstado(c.estado)}</td>
                     <td className="muted" style={{ fontSize: '0.8rem' }}>{c.liquidada_at ? fmtFecha(c.liquidada_at) : '—'}</td>
-                    {puedeCancelar ? (
-                      <td>
-                        {enRuta ? (
+                    {(puedeCancelar || puedeLiquidarCarga) ? (
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {enRuta && puedeLiquidarCarga ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ fontSize: '0.78rem', padding: '0.2rem 0.45rem', color: '#0f766e' }}
+                            disabled={liquidandoId === c.id || cancelandoId === c.id}
+                            onClick={() => void onLiquidarCarga(c)}
+                          >
+                            {liquidandoId === c.id ? 'Liquidando…' : 'Liquidar'}
+                          </button>
+                        ) : null}
+                        {enRuta && puedeCancelar ? (
                           <button
                             type="button"
                             className="btn btn-ghost"
                             style={{ fontSize: '0.78rem', padding: '0.2rem 0.45rem', color: '#b91c1c' }}
-                            disabled={cancelandoId === c.id}
+                            disabled={cancelandoId === c.id || liquidandoId === c.id}
                             onClick={() => void onCancelarCarga(c)}
                           >
                             {cancelandoId === c.id ? 'Cancelando…' : 'Cancelar'}
                           </button>
-                        ) : (
+                        ) : null}
+                        {!enRuta ? (
                           <span className="muted" style={{ fontSize: '0.75rem' }}>—</span>
-                        )}
+                        ) : null}
                       </td>
                     ) : null}
                   </tr>

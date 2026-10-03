@@ -19,23 +19,43 @@ async function resolverRepartidorId(supabase, vendedorId, vendedorNombre) {
       .from('repartidores')
       .select('id,nombre,activo')
       .order('id');
-    const list = reps || [];
-    if (prefer && list.some((r) => String(r.id) === prefer)) return prefer;
-    const nombre = String(vendedorNombre || '').trim().toLowerCase();
+    const list = (reps || []).filter((r) => r && r.activo !== false);
+    if (prefer && list.some((r) => String(r.id) === prefer)) return { ok: true, id: prefer };
+
+    const nombre = String(vendedorNombre || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ');
     if (nombre) {
-      const byName = list.find(
-        (r) => String(r.nombre || '').trim().toLowerCase() === nombre && r.activo !== false,
-      );
-      if (byName) return String(byName.id);
+      const byName = list.find((r) => {
+        const n = String(r.nombre || '')
+          .trim()
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/\s+/g, ' ');
+        return n === nombre || n.startsWith(`${nombre} `) || nombre.startsWith(`${n} `);
+      });
+      if (byName) return { ok: true, id: String(byName.id) };
     }
-    const luis = list.find((r) => String(r.id) === 'rep_luis');
-    if (luis) return 'rep_luis';
-    const activo = list.find((r) => r.activo !== false);
-    if (activo) return String(activo.id);
-  } catch {
-    /* ignore */
+
+    // Si el vendedorId parece UUID de usuario POS, no inventar otro repartidor.
+    if (prefer && /^[0-9a-f-]{36}$/i.test(prefer)) {
+      return {
+        ok: false,
+        error: `No hay recolector Panel RT enlazado al vendedor (usuario ${prefer.slice(0, 8)}…). Asigna el camión/RT o crea el repartidor.`,
+      };
+    }
+    if (prefer) return { ok: true, id: prefer };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
   }
-  return prefer || 'rep_luis';
+  return {
+    ok: false,
+    error: 'No se pudo resolver el recolector para el efectivo en tránsito. Revisa Panel RT.',
+  };
 }
 
 export async function registrarEfectivoTransitoVentaRuta(supabase, {
@@ -51,7 +71,9 @@ export async function registrarEfectivoTransitoVentaRuta(supabase, {
   if (!(m > 0)) return { ok: false, error: 'Monto inválido.' };
   const tienda = normalizarCodigoTienda(sucursalOrigen) || 'MAIN';
   const folio = String(folioVenta || '').trim() || `VR-${Date.now().toString(36).toUpperCase()}`;
-  const repartidorId = await resolverRepartidorId(supabase, vendedorId, vendedorNombre);
+  const resuelto = await resolverRepartidorId(supabase, vendedorId, vendedorNombre);
+  if (!resuelto.ok) return { ok: false, error: resuelto.error };
+  const repartidorId = resuelto.id;
   const row = {
     sucursal_origen: tienda === 'MAIN' ? 'MAIN' : tienda,
     repartidor_id: repartidorId,

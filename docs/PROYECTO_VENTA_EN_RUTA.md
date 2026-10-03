@@ -9,15 +9,18 @@
 
 ```
 Admin ajusta precio_ruta (sin impuestos)
-Admin carga camión desde MAIN · CEDIS (elige repartidor con rol Repartidor)
-Repartidor vende en POS (scan) · 1 folio por sucursal
-  · efectivo → transito_efectivo (hasta liquidación)
+Admin crea camión y lo asigna a recolector (Panel RT / Repartidor)
+Admin carga camión desde MAIN · CEDIS (1 carga abierta por camión; recargas suman)
+Repartidor vende en POS (PIN) · 1 folio por sucursal
+  · efectivo → RC Abarrotes (fallback: transito_efectivo)
   · crédito  → ruta_cxc (pendiente)
 Sucursal recibe mercancía en Compras (pedido pendiente)
 Cajero paga crédito con PIN
   · gasto corte abarrotes «credito liquidado»
-  · efectivo cobrado → transito_efectivo
-Liquidación de tránsito = flujo Recolecciones / Liquidación
+  · efectivo cobrado → tránsito / RC
+Liquidación de efectivo = Recolecciones / Liquidación (hub)
+Cierre de carga = Consultas → Liquidar (o tras Corte de caja) → estado liquidada
+  · si queda mercancía, se devuelve a CEDIS
 ```
 
 ---

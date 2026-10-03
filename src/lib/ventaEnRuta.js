@@ -851,6 +851,17 @@ export function disponibleEnLineaCarga(lin) {
   );
 }
 
+/** Revierte qty_vendida al valor previo (compensación si falla la venta a medias). */
+async function revertirQtyVendidaCamion(supabase, vendidoAntes, vendidoPorLinea) {
+  if (!supabase || !vendidoAntes?.size) return;
+  for (const [linId, qtyAdd] of vendidoPorLinea || []) {
+    if (!vendidoAntes.has(linId)) continue;
+    const antes = vendidoAntes.get(linId);
+    await supabase.from('ruta_carga_lineas').update({ qty_vendida: antes }).eq('id', linId);
+    void qtyAdd;
+  }
+}
+
 /**
  * Une líneas de una o varias cargas en inventario de preinventario (1 fila por producto).
  * El teórico (`_disp_camion`) es la suma de disponible en todas las cargas.
@@ -1469,7 +1480,20 @@ export async function crearCargaRuta(supabase, {
   }
 
   const sum = await sumarLineasACargaRuta(supabase, cargaId, items);
-  if (!sum.ok) return { ok: false, error: sum.error, cargaId, folio, reusada };
+  if (!sum.ok) {
+    // Compensar CEDIS ya descontado si las líneas no se pudieron registrar
+    for (const it of items) {
+      const prod = porId.get(it.productoId) || { id: it.productoId, nombre: it.nombre };
+      await devolverCedisDesdeCarga(supabase, {
+        producto: prod,
+        cantidad: it.cantidad,
+        motivo: `Rollback carga ${folio} (falló registrar líneas)`,
+        usuario: usuarioNombre || '—',
+        folio,
+      });
+    }
+    return { ok: false, error: sum.error, cargaId, folio, reusada };
+  }
 
   return { ok: true, carga: row, patches, aviso, reusada };
 }
@@ -1694,12 +1718,36 @@ export async function registrarVentaRuta(supabase, {
     if (!id) continue;
     vendidoPorLinea.set(id, (vendidoPorLinea.get(id) || 0) + asg.qty);
   }
+  const vendidoAntes = new Map();
   for (const [linId, qtyAdd] of vendidoPorLinea) {
     const lin = lineas.find((l) => String(l.id) === String(linId));
     if (!lin) continue;
-    const nueva = round3((Number(lin.qty_vendida) || 0) + qtyAdd);
-    const { error: eUp } = await supabase.from('ruta_carga_lineas').update({ qty_vendida: nueva }).eq('id', linId);
-    if (eUp) return { ok: false, error: eUp.message };
+    const antes = Number(lin.qty_vendida) || 0;
+    vendidoAntes.set(linId, antes);
+    const nueva = round3(antes + qtyAdd);
+    // Condición anti–oversell: solo si qty_vendida no cambió desde la lectura
+    const { data: upRows, error: eUp } = await supabase
+      .from('ruta_carga_lineas')
+      .update({ qty_vendida: nueva })
+      .eq('id', linId)
+      .eq('qty_vendida', antes)
+      .select('id');
+    if (eUp) {
+      await revertirQtyVendidaCamion(supabase, vendidoAntes, vendidoPorLinea);
+      return { ok: false, error: eUp.message };
+    }
+    if (!upRows?.length) {
+      await revertirQtyVendidaCamion(supabase, vendidoAntes, vendidoPorLinea);
+      return {
+        ok: false,
+        error: 'El inventario del camión cambió (otra venta concurrente). Reintenta.',
+      };
+    }
+    lin.qty_vendida = nueva;
+  }
+
+  async function revertirSiFallaPostVenta() {
+    await revertirQtyVendidaCamion(supabase, vendidoAntes, vendidoPorLinea);
   }
 
   let compraId = null;
@@ -1741,7 +1789,10 @@ export async function registrarVentaRuta(supabase, {
       vendedorNombre,
       metodoPago: mp,
     });
-    if (!ped.ok) return { ok: false, error: ped.error || 'No se creó el pedido en Compras.' };
+    if (!ped.ok) {
+      await revertirSiFallaPostVenta();
+      return { ok: false, error: ped.error || 'No se creó el pedido en Compras.' };
+    }
     compraId = ped.id;
     await enlazarVenta();
   }
@@ -1845,13 +1896,125 @@ export async function registrarVentaRuta(supabase, {
   };
 }
 
-// Stubs / compat: liquidación vieja ya no es el flujo principal
-export async function listarLiquidacionesRuta() {
-  return { data: [] };
+/**
+ * Cierra una carga en ruta (estado → liquidada).
+ * — Si queda mercancía disponible y `devolverRestante`, la regresa a CEDIS.
+ * — Si queda disponible y no se pide devolver: error (hay que devolver o forzar vacío).
+ * — Con ventas y sin resto: marca liquidada (ciclo camión → venta → cierre).
+ */
+export async function liquidarCargaRuta(supabase, {
+  cargaId,
+  usuarioNombre,
+  rol,
+  userId,
+  devolverRestante = false,
+  motivo,
+} = {}) {
+  if (!puedeAccionVentaRuta(rol, userId, 'ruta_carga')
+    && !puedeAccionVentaRuta(rol, userId, 'ruta_liquidacion')
+    && !puedeAccionVentaRuta(rol, userId, 'ruta_corte')) {
+    return { ok: false, error: 'Sin privilegio para liquidar / cerrar la carga del camión.' };
+  }
+  const id = String(cargaId || '').trim();
+  if (!id) return { ok: false, error: 'Falta la carga.' };
+  if (!supabase) return { ok: false, error: 'Sin conexión.' };
+
+  const { data: carga, error: eCarga } = await supabase
+    .from('ruta_cargas')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle();
+  if (eCarga && faltaTabla(eCarga)) return { ok: false, error: AVISO_FALTA_VENTA_RUTA };
+  if (eCarga) return { ok: false, error: eCarga.message };
+  if (!carga) return { ok: false, error: 'Carga no encontrada.' };
+
+  const estado = String(carga.estado || '').toLowerCase();
+  if (estado === 'liquidada') {
+    return { ok: true, carga, yaLiquidada: true };
+  }
+  if (estado === 'cancelada') {
+    return { ok: false, error: 'Una carga cancelada no se liquida.' };
+  }
+  if (estado && estado !== 'en_ruta' && estado !== 'armada') {
+    return { ok: false, error: `Estado «${estado}» no permite liquidar.` };
+  }
+
+  const lin = await lineasDeCarga(supabase, id);
+  if (lin.error) return { ok: false, error: lin.error };
+  const lineas = lin.data || [];
+  const restante = round3(lineas.reduce((s, l) => s + disponibleEnLineaCarga(l), 0));
+  const patches = [];
+  const folio = carga.folio || id;
+
+  if (restante > 0) {
+    if (!devolverRestante) {
+      return {
+        ok: false,
+        error: `Quedan ${restante} pza disponibles en el camión. Devuélvelas a CEDIS o marca «devolver restante» al liquidar.`,
+        restante,
+      };
+    }
+    for (const l of lineas) {
+      const qty = disponibleEnLineaCarga(l);
+      if (!(qty > 0)) continue;
+      const prod = { id: l.producto_id, nombre: l.producto_nombre || l.producto_id };
+      const mov = await devolverCedisDesdeCarga(supabase, {
+        producto: prod,
+        cantidad: qty,
+        motivo: motivo || `Liquidación carga ${folio} · resto → CEDIS`,
+        usuario: usuarioNombre || '—',
+        folio,
+      });
+      if (!mov.ok) {
+        return { ok: false, error: `CEDIS · ${prod.nombre}: ${mov.error}`, parcial: true, patches, restante };
+      }
+      if (mov.patch) patches.push({ id: prod.id, ...mov.patch, nombre: prod.nombre });
+      const { error: eUp } = await supabase
+        .from('ruta_carga_lineas')
+        .update({ qty_devuelta: (Number(l.qty_devuelta) || 0) + qty })
+        .eq('id', l.id);
+      if (eUp) return { ok: false, error: eUp.message, parcial: true, patches };
+    }
+  }
+
+  const ahora = new Date().toISOString();
+  const notasExtra = [
+    String(carga.notas || '').trim(),
+    `Liquidada ${ahora.slice(0, 16).replace('T', ' ')} · ${usuarioNombre || '—'}`,
+    motivo ? `Motivo: ${motivo}` : null,
+  ].filter(Boolean).join(' · ');
+
+  const patchCarga = {
+    estado: 'liquidada',
+    liquidada_at: ahora,
+    notas: notasExtra || null,
+  };
+  let { data: updated, error: eUpd } = await supabase
+    .from('ruta_cargas')
+    .update(patchCarga)
+    .eq('id', id)
+    .select('*')
+    .single();
+  // Columna liquidada_at opcional en schemas viejos
+  if (eUpd && /liquidada_at/i.test(String(eUpd.message || ''))) {
+    const { liquidada_at: _omit, ...sinLiq } = patchCarga;
+    ({ data: updated, error: eUpd } = await supabase
+      .from('ruta_cargas')
+      .update(sinLiq)
+      .eq('id', id)
+      .select('*')
+      .single());
+  }
+  if (eUpd) return { ok: false, error: eUpd.message, parcial: true, patches };
+
+  return {
+    ok: true,
+    carga: updated,
+    patches,
+    restanteDevuelto: restante > 0 ? restante : 0,
+  };
 }
-export async function liquidarCargaRuta() {
-  return { ok: false, error: 'La liquidación de efectivo se hace en Recolecciones / Liquidación (efectivo en tránsito).' };
-}
+
 export async function listarStockCedisRuta() {
   return { data: [], aviso: 'El almacén de ruta es MAIN · CEDIS. Usa Productos / inventario central.' };
 }
@@ -1860,4 +2023,9 @@ export async function stockProductoCedisRuta() {
 }
 export async function moverStockCedisRuta() {
   return { ok: false, error: 'Usa carga de camión (descuenta MAIN) o Ajuste de inventario.' };
+}
+
+/** Compat: liquidaciones de capital antiguas (deprecado). */
+export async function listarLiquidacionesRuta() {
+  return { data: [] };
 }
