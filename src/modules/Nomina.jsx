@@ -262,7 +262,7 @@ export default function Nomina({ supabase, sucursal, user }) {
         !confirm(
           '¿Pasar a modo Automático?\n\n' +
             'Se cargarán del sábado al viernes:\n' +
-            '• Días desde el reloj checador (retardos: los primeros 4 cuentan; desde el 5º ese día no se paga)\n' +
+            '• Días = jornadas cerradas del checador (ENTRADA + SALIDA), igual que el resumen\n' +
             '• Consumos, recargas, anticipos y faltantes de empleados directos e indirectos\n' +
             '• Inventario (faltante del reporte ÷ 3 por empleado de la tienda) y préstamos',
         )
@@ -568,7 +568,7 @@ export default function Nomina({ supabase, sucursal, user }) {
             />
           )}
         </td>
-        <td title={l.es_indirecto ? `Vales: ${l.vales_gasolina}` : `Asistencias: ${l.asistencias_periodo ?? 0} · Retardos: ${l.retardos_periodo ?? 0} · Cortes ref: ${l.cortes_periodo}`}>
+        <td title={l.es_indirecto ? `Vales: ${l.vales_gasolina}` : `Jornadas cerradas: ${l.asistencias_periodo ?? 0} · Retardos (info): ${l.retardos_periodo ?? 0} · Cortes ref: ${l.cortes_periodo}`}>
           {historial ? (
             <strong>{l.dias_trabajados ?? '—'}</strong>
           ) : (
@@ -588,7 +588,7 @@ export default function Nomina({ supabase, sucursal, user }) {
                 {l.es_indirecto
                   ? `auto: ${l.vales_gasolina}`
                   : (l.asistencias_periodo || 0) > 0
-                    ? `asist ${l.asistencias_periodo}${l.retardos_periodo ? ` · ret ${l.retardos_periodo}` : ''}`
+                    ? `jornada ${l.asistencias_periodo}${l.retardos_periodo ? ` · ret ${l.retardos_periodo}` : ''}`
                     : `cortes: ${l.cortes_periodo}`}
               </span>
             </>
@@ -761,10 +761,11 @@ export default function Nomina({ supabase, sucursal, user }) {
             <h3 style={{ margin: 0, color: 'var(--brand-blue)' }}>Nómina semanal</h3>
             <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', maxWidth: '52rem' }}>
               Consolidada de <strong>todas las sucursales</strong>. Semana sábado–viernes (calendario local).
+              Días = jornadas cerradas del checador (ENTRADA+SALIDA), igual que el resumen.
               <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros − arrastre.</strong>
               {modoManual
                 ? ' Modo Manual: edita a mano; usa «Recargar todo» para subir asistencias + consumos/recargas/anticipos/faltantes del periodo.'
-                : ' Modo Automático: días desde el reloj checador (sáb–vie). Recalcular/recargar actualiza asistencias; un override viejo de días ya no se queda congelado. Medios días (±0.5) se conservan si el checador no cambió.'}
+                : ' Modo Automático: días = jornadas cerradas del checador (ENTRADA+SALIDA, sáb–vie), igual que el resumen. Recalcular actualiza desde el reloj. Medios días (±0.5) se conservan si el checador no cambió.'}
             </p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.45rem' }}>
@@ -924,7 +925,7 @@ export default function Nomina({ supabase, sucursal, user }) {
                 !confirm(
                   '¿Recargar todo desde cero?\n\n' +
                     'Se cargarán del sábado al viernes:\n' +
-                    '• Asistencias del reloj checador\n' +
+                    '• Jornadas cerradas del checador (ENTRADA + SALIDA)\n' +
                     '• Consumos, recargas, anticipos y faltantes (directos e indirectos)\n' +
                     '• Inventario (faltante del reporte ÷ 3 por empleado de la tienda) y préstamos\n\n' +
                     'Los salarios por día guardados se conservan; bonos y “otros” del borrador se pierden.',

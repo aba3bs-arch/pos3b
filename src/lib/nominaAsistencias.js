@@ -1,7 +1,18 @@
+/**
+ * Asistencias para nómina: misma regla que el resumen del Checador.
+ * Día trabajado = jornada cerrada (ENTRADA + SALIDA). Solo entrada no cuenta.
+ * Los retardos se muestran como info; ya no restan días pagados.
+ */
 import { indiceEmpleados, normalizarNombreEmpleado, resolverClaveEmpleado } from './nominaMatch.js';
 import { leerTurnos, turnoIdParaUsuario, esTurnoAmbos } from './turnos.js';
+import {
+  diasCompletosPorEntradaSalida,
+  MAX_HORAS_PAR_ENTRADA_SALIDA,
+  normalizarTipoMarcaje,
+  ymdLocalDesdeIso,
+} from './resumenDiasAsistencia.js';
 
-/** Tras este número de retardos en el periodo, los siguientes cheques tarde ya no cuentan como día. */
+/** @deprecated Ya no se usa para restar días; se conserva por compat / UI. */
 export const RETARDOS_LIMITE_ASISTENCIA = 5;
 
 /** Minutos de gracia después de hora_inicio antes de marcar retardo. */
@@ -30,7 +41,6 @@ function limpiarNombreAsistencia(nombre) {
 
 /**
  * True si la ENTRADA es después de hora_inicio + gracia.
- * Turnos nocturnos: se compara contra la hora de inicio del mismo día calendario del marcaje.
  */
 export function esRetardoEntrada(turno, dateEntrada, graciaMin = GRACIA_RETARDO_MINUTOS) {
   if (!turno?.hora_inicio || !dateEntrada) return false;
@@ -48,7 +58,6 @@ function turnoParaRetardo(empleado, dateEntrada, turnos) {
   if (asignado && !esTurnoAmbos(asignado)) {
     return list.find((t) => String(t.id) === String(asignado)) || null;
   }
-  // Ambos / sin turno fijo: el turno cuyo inicio está más cerca antes de la entrada.
   const minEntrada = dateEntrada.getHours() * 60 + dateEntrada.getMinutes();
   let mejor = null;
   let mejorDiff = Infinity;
@@ -67,18 +76,25 @@ function turnoParaRetardo(empleado, dateEntrada, turnos) {
 }
 
 /**
- * Carga ENTRADAS del periodo y las agrupa por empleado (primera del día).
- * @returns {{ map: Record<string, Array<{ fecha: string, created_at: string, retardo?: boolean }>>, error: string|null }}
+ * Carga ENTRADA + SALIDA del periodo (con margen para salidas nocturnas)
+ * y las agrupa por empleado. Misma base que el resumen del Checador.
+ * @returns {{ map: Record<string, Array>, error: string|null }}
  */
 export async function asistenciasPorEmpleado(supabase, { desde, hasta, empleados = [], todasSucursales = true, sucursal }) {
   if (!supabase) return { map: {}, error: null };
-  // Rango local sáb–vie: inicio 00:00 / fin 23:59:59 (sin forzar UTC)
   const iniTs = `${desde}T00:00:00`;
-  const finTs = `${hasta}T23:59:59`;
+  // Margen para emparejar salida del turno nocturno después del viernes.
+  const finBase = new Date(`${hasta}T23:59:59`);
+  const finExtend = Number.isNaN(finBase.getTime())
+    ? `${hasta}T23:59:59`
+    : new Date(finBase.getTime() + MAX_HORAS_PAR_ENTRADA_SALIDA * 3600 * 1000);
+  const finTs = finExtend instanceof Date
+    ? `${ymdLocal(finExtend)}T${String(finExtend.getHours()).padStart(2, '0')}:${String(finExtend.getMinutes()).padStart(2, '0')}:${String(finExtend.getSeconds()).padStart(2, '0')}`
+    : finExtend;
+
   let q = supabase
     .from('asistencias')
     .select('id, usuario_id, nombre, sucursal_id, tipo, created_at')
-    .eq('tipo', 'ENTRADA')
     .gte('created_at', iniTs)
     .lte('created_at', finTs)
     .order('created_at', { ascending: true });
@@ -96,6 +112,8 @@ export async function asistenciasPorEmpleado(supabase, { desde, hasta, empleados
   const porEmpleado = {};
 
   for (const row of data || []) {
+    const tipo = normalizarTipoMarcaje(row.tipo);
+    if (!tipo) continue;
     const rowMatch = {
       ...row,
       nombre: limpiarNombreAsistencia(row.nombre),
@@ -105,65 +123,88 @@ export async function asistenciasPorEmpleado(supabase, { desde, hasta, empleados
     const created = row.created_at ? new Date(row.created_at) : null;
     if (!created || Number.isNaN(created.getTime())) continue;
     const fecha = ymdLocal(created);
-    if (!porEmpleado[clave]) porEmpleado[clave] = {};
-    // Primera ENTRADA del día (la más temprana) define asistencia/retardo.
-    if (!porEmpleado[clave][fecha] || created < new Date(porEmpleado[clave][fecha].created_at)) {
-      porEmpleado[clave][fecha] = {
-        fecha,
-        created_at: created.toISOString(),
-        sucursal_id: row.sucursal_id || null,
-      };
-    }
+    if (!porEmpleado[clave]) porEmpleado[clave] = [];
+    porEmpleado[clave].push({
+      id: row.id,
+      tipo,
+      fecha,
+      created_at: created.toISOString(),
+      sucursal_id: row.sucursal_id || null,
+    });
   }
 
+  // Adjuntar metadatos del periodo para filtrar al calcular.
   const map = {};
-  for (const [clave, porFecha] of Object.entries(porEmpleado)) {
-    map[clave] = Object.values(porFecha).sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
+  for (const [clave, list] of Object.entries(porEmpleado)) {
+    list.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+    list._periodoDesde = desde;
+    list._periodoHasta = hasta;
+    map[clave] = list;
   }
-  return { map, error: null };
+  return { map, error: null, desde, hasta };
 }
 
 /**
- * Calcula días trabajados desde asistencias del checador.
- * - Cheque tarde cuenta como asistencia.
- * - A partir del 5º retardo en el periodo, ese día (y siguientes retardos) ya no cuentan.
- * @returns {{ diasTrabajados: number, asistencias: number, retardos: number, detalle: Array }}
+ * Días trabajados = jornadas cerradas (ENTRADA+SALIDA), igual que Checador.
+ * Retardos solo informativos (no restan días).
+ * @returns {{ diasTrabajados: number, asistencias: number, retardos: number, detalle: Array, diasYmd: string[] }}
  */
-export function calcularDiasDesdeAsistencias(empleado, entradas = [], { turnos = null, graciaMin = GRACIA_RETARDO_MINUTOS, limiteRetardos = RETARDOS_LIMITE_ASISTENCIA } = {}) {
+export function calcularDiasDesdeAsistencias(empleado, marcajes = [], {
+  turnos = null,
+  graciaMin = GRACIA_RETARDO_MINUTOS,
+  desde = null,
+  hasta = null,
+} = {}) {
+  const list = Array.isArray(marcajes) ? marcajes : [];
+  const periodoDesde = desde || list._periodoDesde || null;
+  const periodoHasta = hasta || list._periodoHasta || null;
+
+  const diasCerrados = diasCompletosPorEntradaSalida(list);
+  let diasYmd = [...diasCerrados].sort();
+  if (periodoDesde && periodoHasta) {
+    diasYmd = diasYmd.filter((d) => d >= periodoDesde && d <= periodoHasta);
+  }
+
+  // Primera ENTRADA de cada día cerrado → retardo informativo.
   const listTurnos = turnos || leerTurnos();
-  const ordenadas = [...(entradas || [])].sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)));
-  let retardos = 0;
-  let diasTrabajados = 0;
-  const detalle = [];
-
-  for (const entrada of ordenadas) {
-    const when = new Date(entrada.created_at);
-    const turno = turnoParaRetardo(empleado, when, listTurnos);
-    const retardo = esRetardoEntrada(turno, when, graciaMin);
-    if (retardo) retardos += 1;
-
-    let cuenta = true;
-    if (retardo && retardos >= limiteRetardos) {
-      // 5º retardo en adelante: ya no cuenta como día trabajado.
-      cuenta = false;
+  const primeraEntradaPorDia = new Map();
+  for (const m of list) {
+    if (normalizarTipoMarcaje(m.tipo) !== 'ENTRADA') continue;
+    const ymd = m.fecha || ymdLocalDesdeIso(m.created_at);
+    if (!ymd || !diasCerrados.has(ymd)) continue;
+    if (periodoDesde && ymd < periodoDesde) continue;
+    if (periodoHasta && ymd > periodoHasta) continue;
+    const prev = primeraEntradaPorDia.get(ymd);
+    if (!prev || String(m.created_at) < String(prev.created_at)) {
+      primeraEntradaPorDia.set(ymd, m);
     }
-    if (cuenta) diasTrabajados += 1;
+  }
 
+  let retardos = 0;
+  const detalle = [];
+  for (const ymd of diasYmd) {
+    const entrada = primeraEntradaPorDia.get(ymd);
+    const when = entrada ? new Date(entrada.created_at) : null;
+    const turno = when ? turnoParaRetardo(empleado, when, listTurnos) : null;
+    const retardo = when ? esRetardoEntrada(turno, when, graciaMin) : false;
+    if (retardo) retardos += 1;
     detalle.push({
-      fecha: entrada.fecha,
-      created_at: entrada.created_at,
+      fecha: ymd,
+      created_at: entrada?.created_at || null,
       retardo,
-      cuenta,
+      cuenta: true,
       turno_id: turno?.id || null,
       hora_inicio: turno?.hora_inicio || null,
     });
   }
 
   return {
-    diasTrabajados,
-    asistencias: ordenadas.length,
+    diasTrabajados: diasYmd.length,
+    // asistencias = días con jornada cerrada (alineado al checador)
+    asistencias: diasYmd.length,
     retardos,
     detalle,
+    diasYmd,
   };
 }
 
