@@ -1449,6 +1449,7 @@ export async function crearCargaRuta(supabase, {
   const porId = new Map((inventario || []).map((p) => [String(p.id), p]));
   const patches = [];
   let aviso = abierta.aviso || null;
+  const descontadosCedis = [];
 
   for (const it of items) {
     const prod = porId.get(it.productoId) || { id: it.productoId, nombre: it.nombre };
@@ -1460,8 +1461,24 @@ export async function crearCargaRuta(supabase, {
       folio,
     });
     if (!mov.ok) {
+      // Revertir descuentos CEDIS ya aplicados en este intento.
+      for (const d of [...descontadosCedis].reverse()) {
+        await devolverCedisDesdeCarga(supabase, {
+          producto: d.producto,
+          cantidad: d.cantidad,
+          motivo: `Rollback carga ${folio} · ${d.nombre || d.productoId}`,
+          usuario: usuarioNombre || '—',
+          folio,
+        });
+      }
       return { ok: false, error: `CEDIS · ${it.nombre || it.productoId}: ${mov.error}`, cargaId, folio, reusada };
     }
+    descontadosCedis.push({
+      producto: mov.producto || prod,
+      productoId: it.productoId,
+      nombre: it.nombre,
+      cantidad: it.cantidad,
+    });
     if (mov.patch) patches.push({ id: it.productoId, ...mov.patch, nombre: it.nombre });
     if (mov.aviso || mov.fallbackJson) {
       aviso = mov.aviso || 'Stock CEDIS actualizado (modo respaldo). Ejecuta supabase/fix_stock_delta_atomico.sql.';
@@ -1469,7 +1486,18 @@ export async function crearCargaRuta(supabase, {
   }
 
   const sum = await sumarLineasACargaRuta(supabase, cargaId, items);
-  if (!sum.ok) return { ok: false, error: sum.error, cargaId, folio, reusada };
+  if (!sum.ok) {
+    for (const d of [...descontadosCedis].reverse()) {
+      await devolverCedisDesdeCarga(supabase, {
+        producto: d.producto,
+        cantidad: d.cantidad,
+        motivo: `Rollback carga ${folio} (líneas) · ${d.nombre || d.productoId}`,
+        usuario: usuarioNombre || '—',
+        folio,
+      });
+    }
+    return { ok: false, error: sum.error, cargaId, folio, reusada };
+  }
 
   return { ok: true, carga: row, patches, aviso, reusada };
 }
@@ -1545,12 +1573,90 @@ export async function listarVentasRuta(supabase, { cargaId, limit = 200 } = {}) 
 }
 
 /**
+ * Resuelve cargas en_ruta + líneas para POS / venta.
+ * Prioridad: cargaId fija → camionId → vendedorId → vendedorNombre.
+ */
+export async function resolverCargasEnRutaParaVenta(supabase, {
+  cargaId = null,
+  camionId = null,
+  vendedorId = null,
+  vendedorNombre = null,
+  limit = 80,
+} = {}) {
+  if (!supabase) return { ok: false, error: 'Se requiere conexión.' };
+  const fija = String(cargaId || '').trim();
+  if (fija) {
+    const linRes = await lineasDeCarga(supabase, fija);
+    if (linRes.error) return { ok: false, error: linRes.error };
+    return {
+      ok: true,
+      cargas: [{ id: fija }],
+      lineas: linRes.data || [],
+      aviso: linRes.aviso || null,
+    };
+  }
+
+  const cid = String(camionId || '').trim();
+  const vid = String(vendedorId || '').trim();
+  const nom = String(vendedorNombre || '').trim().toLowerCase();
+
+  const filtros = { estado: 'en_ruta', limit };
+  if (cid) filtros.camionId = cid;
+  else if (vid) filtros.vendedorId = vid;
+
+  let cRes = await listarCargasRuta(supabase, filtros);
+  if (cRes.error) return { ok: false, error: cRes.error };
+  let cargas = cRes.data || [];
+
+  // Camión: si la columna existe en filas, quedarnos solo con ese camión.
+  if (cid) {
+    const conCamion = cargas.filter((c) => String(c.camion_id || '') === cid);
+    if (conCamion.length) cargas = conCamion;
+  }
+
+  // Sin id de vendedor (solo RT): filtrar por nombre.
+  if (!cid && !vid && nom && nom !== '—') {
+    cargas = cargas.filter((x) => String(x.vendedor_nombre || '').trim().toLowerCase() === nom);
+  }
+
+  // vendedorId no encontró cargas (mismatch usuario vs RT): intentar por nombre + camión.
+  if (!cargas.length && nom && nom !== '—') {
+    const all = await listarCargasRuta(supabase, { estado: 'en_ruta', limit });
+    if (!all.error) {
+      let lista = (all.data || []).filter(
+        (x) => String(x.vendedor_nombre || '').trim().toLowerCase() === nom,
+      );
+      if (cid) {
+        const conCamion = lista.filter((c) => !c.camion_id || String(c.camion_id) === cid);
+        if (conCamion.length) lista = conCamion;
+      }
+      cargas = lista;
+      cRes = all;
+    }
+  }
+
+  if (!cargas.length) {
+    return { ok: false, error: 'No hay mercancía en ruta para este camión / vendedor. Carga el camión primero.' };
+  }
+
+  const lr = await lineasDeVariasCargas(supabase, cargas);
+  if (lr.error) return { ok: false, error: lr.error };
+  return {
+    ok: true,
+    cargas,
+    lineas: lr.data || [],
+    aviso: lr.aviso || cRes.aviso || null,
+  };
+}
+
+/**
  * Cierra una venta POS de ruta (un folio por sucursal/cliente).
- * Existencia = todo el camión (cargas en_ruta); `cargaId` es opcional (compat).
- * Sin cargaId se usa el inventario consolidado del repartidor / cargas activas.
+ * Existencia = camión del vendedor (camionId) o cargas en_ruta del repartidor.
+ * Sin cargaId se usa el inventario consolidado de esas cargas.
  */
 export async function registrarVentaRuta(supabase, {
   cargaId,
+  camionId,
   vendedorId,
   clienteTipo,
   clienteId,
@@ -1602,27 +1708,15 @@ export async function registrarVentaRuta(supabase, {
     }
   }
 
-  let lineas = [];
-  let cargasList = [];
-  const cargaFija = String(cargaId || '').trim();
-  if (cargaFija) {
-    const linRes = await lineasDeCarga(supabase, cargaFija);
-    if (linRes.error) return { ok: false, error: linRes.error };
-    lineas = linRes.data || [];
-    cargasList = [{ id: cargaFija }];
-  } else {
-    const filtros = { estado: 'en_ruta', limit: 80 };
-    if (vendedorId) filtros.vendedorId = vendedorId;
-    const cRes = await listarCargasRuta(supabase, filtros);
-    if (cRes.error) return { ok: false, error: cRes.error };
-    cargasList = cRes.data || [];
-    if (!cargasList.length) {
-      return { ok: false, error: 'No hay mercancía en ruta. Carga el camión primero.' };
-    }
-    const lr = await lineasDeVariasCargas(supabase, cargasList);
-    if (lr.error) return { ok: false, error: lr.error };
-    lineas = lr.data || [];
-  }
+  const resCargas = await resolverCargasEnRutaParaVenta(supabase, {
+    cargaId,
+    camionId,
+    vendedorId,
+    vendedorNombre,
+  });
+  if (!resCargas.ok) return { ok: false, error: resCargas.error };
+  const lineas = resCargas.lineas || [];
+  const cargasList = resCargas.cargas || [];
 
   const byProd = new Map();
   for (const l of lineas) {
@@ -1647,6 +1741,7 @@ export async function registrarVentaRuta(supabase, {
     }
   }
 
+  const cargaFija = String(cargaId || '').trim();
   const primaryCargaId = cargaFija
     || String(allAsign[0]?.cargaId || cargasList[0]?.id || '').trim();
   if (!primaryCargaId) {
@@ -1687,7 +1782,7 @@ export async function registrarVentaRuta(supabase, {
 
   const venta = ventaRow || ventaPayload;
 
-  // Descuenta existencia del camión (puede tocar varias líneas / cargas)
+  // Descuenta existencia del camión (qty_vendida en líneas de ESTA carga/camion)
   const vendidoPorLinea = new Map();
   for (const asg of allAsign) {
     const id = asg.linea?.id;
@@ -1708,6 +1803,7 @@ export async function registrarVentaRuta(supabase, {
   let transitoId = null;
   let rcAbarrotesCierreId = null;
   const avisos = [];
+  if (resCargas.aviso) avisos.push(resCargas.aviso);
 
   async function enlazarVenta(extra = {}) {
     const patch = { ...extra };

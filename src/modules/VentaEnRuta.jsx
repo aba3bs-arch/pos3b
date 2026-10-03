@@ -34,6 +34,7 @@ import {
   gananciaRutaMonto,
   gananciaRutaPct,
   registrarVentaRuta,
+  resolverCargasEnRutaParaVenta,
   verificarPinVendedorSesionRuta,
   verificarPinAdminCorteRuta,
 } from '../lib/ventaEnRuta.js';
@@ -203,6 +204,31 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
     setVendedorSesion(next);
     guardarSesionVendedor(next);
   };
+
+  // Repartidor con sesión automática: resolver camión si aún no está.
+  useEffect(() => {
+    if (!supabase || !vendedorSesion?.id || vendedorSesion.camion_id) return undefined;
+    let cancel = false;
+    (async () => {
+      try {
+        const cam = await resolverCamionVendedor(supabase, vendedorSesion);
+        if (cancel || !cam.data) return;
+        setVendedorSesion((prev) => {
+          if (!prev || prev.camion_id) return prev;
+          const next = {
+            ...prev,
+            camion_id: cam.data.id,
+            camionEtiqueta: etiquetaCamion(cam.data),
+          };
+          guardarSesionVendedor(next);
+          return next;
+        });
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => { cancel = true; };
+  }, [supabase, vendedorSesion?.id, vendedorSesion?.camion_id]);
 
   const onSesionAdminCorteOk = (sesion) => {
     setAdminCorteSesion(sesion);
@@ -1614,6 +1640,7 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
   const vendedorId = vendedorSesion?.usuario_id
     || (vendedorSesion?.id && !String(vendedorSesion.id).startsWith('rt:') ? vendedorSesion.id : null)
     || (esRolRepartidor(user?.rol) ? user?.id : null);
+  const camionId = vendedorSesion?.camion_id || null;
   const vendedorNombre = vendedorSesion?.nombre || user?.nombre || '—';
   const destinos = useMemo(() => listarDestinosVentaRuta(clientesExt), [clientesExt]);
   const destinoSeleccionado = useMemo(() => {
@@ -1659,34 +1686,31 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
   const refrescarCamion = useCallback(async () => {
     setCargandoCamion(true);
     try {
-      const filtros = { estado: 'en_ruta', limit: 80 };
-      if (vendedorId) filtros.vendedorId = vendedorId;
-      const [c, cli] = await Promise.all([
-        listarCargasRuta(supabase, filtros),
+      const [resCargas, cli] = await Promise.all([
+        resolverCargasEnRutaParaVenta(supabase, {
+          camionId: camionId || undefined,
+          vendedorId: vendedorId || undefined,
+          vendedorNombre: vendedorNombre || undefined,
+        }),
         listarClientesRuta(supabase),
       ]);
-      if (c.aviso || cli.aviso) setAviso(c.aviso || cli.aviso || AVISO_FALTA_VENTA_RUTA);
-      if (c.error) setAviso(c.error);
-      let lista = c.data || [];
-      // Vendedor solo Panel RT (sin usuario): filtrar cargas por nombre
-      if (!vendedorId && vendedorNombre && vendedorNombre !== '—') {
-        const nom = String(vendedorNombre).trim().toLowerCase();
-        lista = lista.filter((x) => String(x.vendedor_nombre || '').trim().toLowerCase() === nom);
-      }
-      setCargas(lista);
-      setClientesExt(cli.data || []);
-      if (!lista.length) {
+      if (cli.aviso) setAviso(cli.aviso);
+      if (resCargas.aviso) setAviso(resCargas.aviso);
+      if (cli.error) setAviso(cli.error);
+      if (!resCargas.ok) {
+        if (resCargas.error && !/no hay mercancía/i.test(resCargas.error)) setAviso(resCargas.error);
+        setCargas([]);
         setLineas([]);
+        setClientesExt(cli.data || []);
         return;
       }
-      const lr = await lineasDeVariasCargas(supabase, lista);
-      if (lr.aviso) setAviso(lr.aviso);
-      if (lr.error) setAviso(lr.error);
-      setLineas(lr.data || []);
+      setCargas(resCargas.cargas || []);
+      setClientesExt(cli.data || []);
+      setLineas(resCargas.lineas || []);
     } finally {
       setCargandoCamion(false);
     }
-  }, [supabase, setAviso, vendedorId, vendedorNombre]);
+  }, [supabase, setAviso, camionId, vendedorId, vendedorNombre]);
 
   useEffect(() => { void refrescarCamion(); }, [refrescarCamion, tickCamion]);
 
@@ -1877,6 +1901,7 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
 
     setGuardando(true);
     const r = await registrarVentaRuta(supabase, {
+      camionId: camionId || undefined,
       vendedorId: vendedorId || undefined,
       clienteTipo: tipo,
       clienteId: id,
