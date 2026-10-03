@@ -189,7 +189,11 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
     const valesGas = Number(valesGasolinaMap[String(u.id)] || 0);
     const faltasGas = Number(valesGasolinaNoCobradosMap[String(u.id)] || 0);
     const entradas = resolverAsistenciasEmpleado(u, asistenciasMap);
-    const asistInfo = calcularDiasDesdeAsistencias(u, entradas, { turnos });
+    const asistInfo = calcularDiasDesdeAsistencias(u, entradas, {
+      turnos,
+      desde: periodoDesde || null,
+      hasta: periodoHasta || null,
+    });
 
     let diasTrabajados = cortes;
     let sueldoBase = 0;
@@ -199,8 +203,8 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       diasTrabajados = valesGas;
       sueldoBase = sueldoIndirectoPorVales(salarioDia, valesGas);
       dedFaltas = sueldoIndirectoPorVales(salarioDia, faltasGas);
-    } else if (asistInfo.asistencias > 0) {
-      // Automático: días desde reloj checador (retardos cuentan hasta el límite).
+    } else if (asistInfo.asistencias > 0 || (asistInfo.diasYmd && asistInfo.diasYmd.length > 0)) {
+      // Misma regla que Checador: jornadas cerradas ENTRADA+SALIDA (sáb–vie).
       diasTrabajados = asistInfo.diasTrabajados;
       sueldoBase = sueldoPorSalarioDia(salarioDia, diasTrabajados);
     } else {
