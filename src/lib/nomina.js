@@ -124,14 +124,15 @@ function notasDeducciones(gastosEmp, prestEmp, cortes, indirecto, valesGas, falt
   if (notaFaltanteInv) notas.push(notaFaltanteInv);
 
   if (prestEmp?.detalle?.length) {
+    const totalPrest = Number(prestEmp.total) || 0;
     const porSuc = prestEmp.porSucursal;
     if (porSuc && Object.keys(porSuc).length) {
       const partes = Object.entries(porSuc)
         .filter(([, m]) => Number(m) > 0)
         .map(([s, m]) => `${etiquetaTienda(s)}: $${Number(m).toFixed(2)}`);
-      notas.push(`Préstamos (${partes.join(' · ')})`);
+      notas.push(`Préstamos cuota $${totalPrest.toFixed(2)} (${partes.join(' · ')})`);
     } else {
-      notas.push(`Préstamos: ${prestEmp.detalle.length} activo(s)`);
+      notas.push(`Préstamos cuota $${totalPrest.toFixed(2)}: ${prestEmp.detalle.length} activo(s)`);
     }
   }
   return notas.join(' · ');
@@ -234,6 +235,7 @@ export function lineasDesdeEmpleados(empleados, opts = {}) {
       deduccion_inventario,
       deduccion_consumos: dedGastos,
       deduccion_prestamos: dedPrestamos,
+      cuota_prestamos: dedPrestamos,
       deduccion_faltas: dedFaltas,
       deduccion_arrastre: round2(arrastreMap[String(u.id)] || 0),
       deducciones: 0,

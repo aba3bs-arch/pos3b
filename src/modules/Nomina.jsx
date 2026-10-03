@@ -271,10 +271,15 @@ export default function Nomina({ supabase, sucursal, user }) {
       }
       setModoNomina('automatico');
       // Recalcula desde checador; sueldos/bonos/ajustes de gastos se conservan.
-      // Liberamos dias_manual para que no queden días congelados (p.ej. 1 con asist 6).
+      // Liberamos días/inventario/préstamos para que no queden congelados en cero.
       void cargarEmpleadosYGastos({
         fusionar: true,
-        lineasBase: lineas.map((l) => ({ ...l, dias_manual: false })),
+        lineasBase: lineas.map((l) => ({
+          ...l,
+          dias_manual: false,
+          inventario_manual: false,
+          prestamos_manual: false,
+        })),
       });
       return;
     }
@@ -629,35 +634,68 @@ export default function Nomina({ supabase, sucursal, user }) {
         </td>
         <td style={{ color: l.deduccion_inventario > 0 ? 'var(--danger)' : undefined }} title={l.notas}>
           {historial || autoBloqueado ? (
-            fmt(l.deduccion_inventario)
+            <>
+              {fmt(l.deduccion_inventario)}
+              {(l.cuota_inventario > 0 || l.faltante_inventario_tienda > 0) && (
+                <span className="muted" style={{ fontSize: '0.62rem', display: 'block' }}>
+                  ÷3 {fmt(l.cuota_inventario || l.deduccion_inventario)}
+                  {l.faltante_inventario_tienda > 0 ? ` de ${fmt(l.faltante_inventario_tienda)}` : ''}
+                </span>
+              )}
+            </>
           ) : (
-            <input
-              className="input"
-              type="number"
-              min="0"
-              step="0.01"
-              style={{ width: '72px' }}
-              title={l.cuota_inventario > 0
-                ? `Faltante tienda ÷ 3 = ${fmt(l.cuota_inventario)}${l.faltante_inventario_tienda ? ` (faltante ${fmt(l.faltante_inventario_tienda)})` : ''}`
-                : 'Inventario'}
-              value={l.deduccion_inventario ?? 0}
-              onChange={(e) => actualizarLinea(i, 'deduccion_inventario', e.target.value)}
-            />
+            <>
+              <input
+                className="input"
+                type="number"
+                min="0"
+                step="0.01"
+                style={{ width: '72px' }}
+                title={l.cuota_inventario > 0
+                  ? `Faltante tienda ÷ 3 = ${fmt(l.cuota_inventario)}${l.faltante_inventario_tienda ? ` (faltante ${fmt(l.faltante_inventario_tienda)})` : ''}`
+                  : 'Inventario (faltante reporte ÷ 3)'}
+                value={l.deduccion_inventario ?? 0}
+                onChange={(e) => actualizarLinea(i, 'deduccion_inventario', e.target.value)}
+              />
+              {(l.cuota_inventario > 0 || l.faltante_inventario_tienda > 0) && (
+                <span className="muted" style={{ fontSize: '0.62rem', display: 'block' }}>
+                  ÷3 {fmt(l.cuota_inventario || l.deduccion_inventario)}
+                  {l.faltante_inventario_tienda > 0 ? ` de ${fmt(l.faltante_inventario_tienda)}` : ''}
+                </span>
+              )}
+            </>
           )}
         </td>
         <td style={{ color: l.deduccion_prestamos > 0 ? 'var(--danger)' : undefined }} title={l.notas}>
           {historial || autoBloqueado ? (
-            fmt(l.deduccion_prestamos)
+            <>
+              {fmt(l.deduccion_prestamos)}
+              {(Number(l.cuota_prestamos) > 0 || Number(l.deduccion_prestamos) > 0) && (
+                <span className="muted" style={{ fontSize: '0.62rem', display: 'block' }}>
+                  cuota sem.
+                </span>
+              )}
+            </>
           ) : (
-            <input
-              className="input"
-              type="number"
-              min="0"
-              step="0.01"
-              style={{ width: '72px' }}
-              value={l.deduccion_prestamos ?? 0}
-              onChange={(e) => actualizarLinea(i, 'deduccion_prestamos', e.target.value)}
-            />
+            <>
+              <input
+                className="input"
+                type="number"
+                min="0"
+                step="0.01"
+                style={{ width: '72px' }}
+                title={Number(l.deduccion_prestamos) > 0
+                  ? `Cuota semanal de préstamo: ${fmt(l.deduccion_prestamos)}`
+                  : 'Préstamos (cuota semanal $500 o remanente)'}
+                value={l.deduccion_prestamos ?? 0}
+                onChange={(e) => actualizarLinea(i, 'deduccion_prestamos', e.target.value)}
+              />
+              {(Number(l.cuota_prestamos) > 0 || Number(l.deduccion_prestamos) > 0) && (
+                <span className="muted" style={{ fontSize: '0.62rem', display: 'block' }}>
+                  cuota sem.
+                </span>
+              )}
+            </>
           )}
         </td>
         <td>
@@ -764,8 +802,8 @@ export default function Nomina({ supabase, sucursal, user }) {
               Días = jornadas cerradas del checador (ENTRADA+SALIDA), igual que el resumen.
               <strong> Pago = (días × $/día) + bono − consumos − inventario − préstamos − otros − arrastre.</strong>
               {modoManual
-                ? ' Modo Manual: edita a mano; usa «Recargar todo» para subir asistencias + consumos/recargas/anticipos/faltantes del periodo.'
-                : ' Modo Automático: días = jornadas cerradas del checador (ENTRADA+SALIDA, sáb–vie), igual que el resumen. Recalcular actualiza desde el reloj. Medios días (±0.5) se conservan si el checador no cambió.'}
+                ? ' Modo Manual: edita a mano; «Recalcular» conserva ajustes (si inventario/préstamos están en $0, trae la cuota automática).'
+                : ' Modo Automático: días = jornadas del checador; inventario = faltante reporte ÷ 3; préstamos = cuota semanal ($500 o remanente). Recalcular refresca esas deducciones.'}
             </p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.45rem' }}>
@@ -912,7 +950,22 @@ export default function Nomina({ supabase, sucursal, user }) {
             type="button"
             className="btn btn-ghost"
             disabled={cargando}
-            onClick={() => cargarEmpleadosYGastos({ fusionar: true })}
+            onClick={() => {
+              if (modoManual) {
+                void cargarEmpleadosYGastos({ fusionar: true });
+                return;
+              }
+              // Automático: liberar inventario/préstamos/días para traer cuotas frescas.
+              void cargarEmpleadosYGastos({
+                fusionar: true,
+                lineasBase: lineas.map((l) => ({
+                  ...l,
+                  dias_manual: false,
+                  inventario_manual: false,
+                  prestamos_manual: false,
+                })),
+              });
+            }}
           >
             {modoManual ? 'Recalcular (conservar manual)' : 'Recalcular deducciones'}
           </button>
