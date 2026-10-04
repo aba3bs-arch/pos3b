@@ -311,12 +311,17 @@ export function slugRepartidorId(nombre) {
 }
 
 export async function crearRepartidor(supabase, { id, nombre, pin }) {
-  const rid = String(id || slugRepartidorId(nombre)).trim();
   const nom = String(nombre || '').trim();
+  const rawId = String(id || '').trim();
+  // Normaliza: sin espacios ni caracteres raros (evita ids tipo «rep_test user» que rompen FKs).
+  const rid = (rawId ? slugRepartidorId(rawId.replace(/^rep[_-]?/i, '') || nom) : slugRepartidorId(nom));
   const p = String(pin || '').trim();
   if (!rid) return { ok: false, error: 'ID de recolector inválido.' };
   if (!nom) return { ok: false, error: 'Escribe el nombre.' };
   if (!/^\d{4}$/.test(p)) return { ok: false, error: 'PIN debe ser 4 dígitos.' };
+  if (/\s/.test(rid) || !/^rep_[a-z0-9_]+$/.test(rid)) {
+    return { ok: false, error: 'ID inválido. Usa solo letras/números (ej. rep_test_user).' };
+  }
   const { error } = await supabase.from('repartidores').insert({ id: rid, nombre: nom, pin: p, activo: true });
   if (error) return { ok: false, error: error.message };
   return { ok: true, id: rid };

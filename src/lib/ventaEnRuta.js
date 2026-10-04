@@ -1576,6 +1576,7 @@ export async function listarVentasRuta(supabase, { cargaId, limit = 200 } = {}) 
 export async function registrarVentaRuta(supabase, {
   cargaId,
   vendedorId,
+  repartidorId,
   clienteTipo,
   clienteId,
   clienteNombre,
@@ -1636,10 +1637,22 @@ export async function registrarVentaRuta(supabase, {
     cargasList = [{ id: cargaFija }];
   } else {
     const filtros = { estado: 'en_ruta', limit: 80 };
+    // Cargas guardan vendedor_id = usuario POS o id Panel RT (repartidores.id).
     if (vendedorId) filtros.vendedorId = vendedorId;
+    else if (repartidorId) filtros.vendedorId = String(repartidorId);
     const cRes = await listarCargasRuta(supabase, filtros);
     if (cRes.error) return { ok: false, error: cRes.error };
     cargasList = cRes.data || [];
+    // Si filtró por usuario y no halló, reintentar con id Panel RT.
+    if (!cargasList.length && vendedorId && repartidorId
+      && String(vendedorId) !== String(repartidorId)) {
+      const c2 = await listarCargasRuta(supabase, {
+        estado: 'en_ruta',
+        limit: 80,
+        vendedorId: String(repartidorId),
+      });
+      if (!c2.error) cargasList = c2.data || [];
+    }
     if (!cargasList.length) {
       return { ok: false, error: 'No hay mercancía en ruta. Carga el camión primero.' };
     }
@@ -1819,12 +1832,24 @@ export async function registrarVentaRuta(supabase, {
         avisos.push(`Efectivo ${montoEfe.toFixed(2)} en RC Abarrotes bajo ${rc.recolector}.`);
       }
     } else {
+      // Preferir repartidor Panel RT (FK de transito_efectivo); no mandar UUID suelto.
+      let ridTransito = repartidorId ? String(repartidorId) : '';
+      if (!ridTransito) {
+        for (const c of cargasList) {
+          const vid = String(c?.vendedor_id || '').trim();
+          if (vid && !/^[0-9a-f-]{36}$/i.test(vid) && !vid.startsWith('rt:')) {
+            ridTransito = vid;
+            break;
+          }
+        }
+      }
       const tr = await registrarEfectivoTransitoVentaRuta(supabase, {
         sucursalOrigen: tipoCli === 'sucursal' ? clienteId : ALMACEN_CENTRAL,
         monto: montoEfe,
         folioVenta: folio,
         vendedorId,
         vendedorNombre,
+        repartidorId: ridTransito || undefined,
         nota: `Venta ruta ${folio} · ${mp === 'mixto' ? `mixto efectivo ${montoEfe}` : 'efectivo'} · ${clienteNombre || clienteId}`,
       });
       if (!tr.ok) {
