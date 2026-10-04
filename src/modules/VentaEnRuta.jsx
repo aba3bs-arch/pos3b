@@ -1621,8 +1621,12 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
   const clienteKeyRef = useRef(clienteKey);
   const omitirGuardadoRef = useRef(false);
 
+  const repartidorIdSesion = vendedorSesion?.repartidor_id
+    ? String(vendedorSesion.repartidor_id)
+    : null;
   const vendedorId = vendedorSesion?.usuario_id
     || (vendedorSesion?.id && !String(vendedorSesion.id).startsWith('rt:') ? vendedorSesion.id : null)
+    || repartidorIdSesion
     || (esRolRepartidor(user?.rol) ? user?.id : null);
   const vendedorNombre = vendedorSesion?.nombre || user?.nombre || '—';
   const destinos = useMemo(() => listarDestinosVentaRuta(clientesExt), [clientesExt]);
@@ -1888,6 +1892,7 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
     setGuardando(true);
     const r = await registrarVentaRuta(supabase, {
       vendedorId: vendedorId || undefined,
+      repartidorId: repartidorIdSesion || undefined,
       clienteTipo: tipo,
       clienteId: id,
       clienteNombre: dest?.nombre || id,
