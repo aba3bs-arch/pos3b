@@ -851,6 +851,11 @@ export function disponibleEnLineaCarga(lin) {
   );
 }
 
+/** Suma de Disp. de todas las líneas (camión vacío = 0). */
+export function disponibleTotalCarga(lineas) {
+  return round3((lineas || []).reduce((s, l) => s + disponibleEnLineaCarga(l), 0));
+}
+
 /** Revierte qty_vendida al valor previo (compensación si falla la venta a medias). */
 async function revertirQtyVendidaCamion(supabase, vendidoAntes, vendidoPorLinea) {
   if (!supabase || !vendidoAntes?.size) return;
@@ -1415,11 +1420,38 @@ export async function crearCargaRuta(supabase, {
   const cid = camionId ? String(camionId).trim() : '';
 
   // Reutilizar la carga abierta del camión (o del vendedor) si existe.
-  const abierta = await buscarCargaAbiertaCamionRuta(supabase, {
+  // Si ya no queda Disp. (todo vendido/devuelto), se LIQUIDA esa carga y se abre una nueva:
+  // así el historial de Devuelta/Vendida no contamina la recarga.
+  let abierta = await buscarCargaAbiertaCamionRuta(supabase, {
     camionId: cid || null,
     vendedorId: repId,
   });
   if (!abierta.ok) return { ok: false, error: abierta.error };
+
+  let cargaCerradaPorVacia = false;
+  if (abierta.carga?.id) {
+    const linPrev = await lineasDeCarga(supabase, abierta.carga.id);
+    if (linPrev.error) return { ok: false, error: linPrev.error };
+    const dispTotal = disponibleTotalCarga(linPrev.data || []);
+    if (!(dispTotal > 0)) {
+      const cierre = await liquidarCargaRuta(supabase, {
+        cargaId: abierta.carga.id,
+        usuarioNombre,
+        rol,
+        userId,
+        devolverRestante: false,
+        motivo: 'Camión sin disponible · cierre automático al recargar',
+      });
+      if (!cierre.ok) {
+        return {
+          ok: false,
+          error: cierre.error || 'No se pudo cerrar la carga vacía antes de recargar.',
+        };
+      }
+      cargaCerradaPorVacia = true;
+      abierta = { ok: true, carga: null, aviso: abierta.aviso };
+    }
+  }
 
   let row = abierta.carga || null;
   let reusada = Boolean(row?.id);
@@ -1432,7 +1464,8 @@ export async function crearCargaRuta(supabase, {
       vendedor_nombre: repNombre,
       fecha: new Date().toISOString().slice(0, 10),
       estado: 'en_ruta',
-      notas: notas || null,
+      notas: notas
+        || (cargaCerradaPorVacia ? 'Nueva carga tras camión vacío (historial anterior liquidado)' : null),
     };
     if (cid) payloadCarga.camion_id = cid;
 
@@ -1495,7 +1528,7 @@ export async function crearCargaRuta(supabase, {
     return { ok: false, error: sum.error, cargaId, folio, reusada };
   }
 
-  return { ok: true, carga: row, patches, aviso, reusada };
+  return { ok: true, carga: row, patches, aviso, reusada, cargaCerradaPorVacia };
 }
 
 // ─── Efectivo en tránsito: ver rutaTransito.js (reexport arriba) ───
