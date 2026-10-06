@@ -8,8 +8,10 @@ import {
 assert.ok(LS_VENTA_RUTA_CLAVES.includes('pos3b_ruta_cargas'));
 assert.ok(LS_VENTA_RUTA_CLAVES.includes('pos3b_ruta_ventas'));
 assert.ok(TABLAS_VENTA_RUTA_PURGA.indexOf('ruta_ventas') < TABLAS_VENTA_RUTA_PURGA.indexOf('ruta_cargas'));
+assert.ok(TABLAS_VENTA_RUTA_PURGA.indexOf('ruta_carga_eventos') < TABLAS_VENTA_RUTA_PURGA.indexOf('ruta_cargas'));
 assert.ok(TABLAS_VENTA_RUTA_PURGA.includes('ruta_camiones'));
 assert.ok(TABLAS_VENTA_RUTA_PURGA.includes('ruta_clientes'));
+assert.ok(LS_VENTA_RUTA_CLAVES.includes('pos3b_ruta_carga_eventos'));
 
 const mem = new Map();
 globalThis.localStorage = {

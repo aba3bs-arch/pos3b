@@ -35,9 +35,13 @@ const LS_CLIENTES = 'pos3b_ruta_clientes';
 const LS_CARGAS = 'pos3b_ruta_cargas';
 const LS_LINEAS = 'pos3b_ruta_carga_lineas';
 const LS_VENTAS = 'pos3b_ruta_ventas';
+const LS_CARGA_EVENTOS = 'pos3b_ruta_carga_eventos';
 
 export const AVISO_FALTA_VENTA_RUTA =
   'Faltan tablas de Venta en Ruta. En Supabase ejecuta supabase/fix_autofin_y_venta_ruta_completo.sql (o fix_venta_en_ruta.sql + fix_precio_ruta_y_cxc.sql + fix_venta_ruta_pos_v2.sql).';
+
+export const AVISO_FALTA_CARGA_EVENTOS =
+  'Falta la tabla ruta_carga_eventos. En Supabase → SQL Editor ejecuta supabase/fix_ruta_carga_eventos.sql.';
 
 export const NOMBRE_ALMACEN_RUTA = 'CEDIS · centro de distribución';
 
@@ -334,8 +338,35 @@ export async function cancelarCargaRuta(supabase, {
  * Es lo que se ve en Venta en Ruta → Consultas → Ingresos.
  */
 export async function listarReporteIngresosCargaRuta(supabase, { limit = 40, estado = null } = {}) {
+  // Preferir eventos por aplicación (ticket/aclaración). Fallback: cargas acumuladas.
+  const ev = await listarEventosCargaRuta(supabase, { limit });
+  if (!ev.error && (ev.data || []).length) {
+    return {
+      data: (ev.data || []).map((e) => ({
+        ...e,
+        // Compat UI Consultas (antes leía folio/vendedor_nombre/piezas de la carga)
+        folio: e.folio,
+        vendedor_nombre: e.vendedor_nombre,
+        fecha: e.created_at ? String(e.created_at).slice(0, 10) : null,
+        estado: e.reusada ? 'recarga' : 'nueva',
+        lineas: (e.lineas || []).map((l, i) => ({
+          id: l.id || `${e.id || e.folio}-l${i}`,
+          producto_id: l.producto_id,
+          producto_nombre: l.producto_nombre,
+          qty_cargada: l.cantidad,
+          qty_vendida: 0,
+          qty_devuelta: 0,
+          precio: l.precio,
+        })),
+        tipo_reporte: 'evento_carga',
+        etiqueta: e.etiqueta || 'Aplicación de carga (CEDIS → camión)',
+      })),
+      aviso: ev.aviso || null,
+    };
+  }
+
   const r = await listarCargasRuta(supabase, { limit, estado: estado || undefined });
-  if (r.error) return { data: [], error: r.error, aviso: r.aviso };
+  if (r.error) return { data: [], error: r.error, aviso: r.aviso || ev.aviso };
   const cargas = r.data || [];
   const out = [];
   for (const c of cargas) {
@@ -355,9 +386,21 @@ export async function listarReporteIngresosCargaRuta(supabase, { limit = 40, est
       total: round2(total),
       tipo_reporte: 'ingreso_ruta',
       etiqueta: 'Ingreso a camión (salida CEDIS)',
+      ticket: payloadTicketCargaCamion({
+        folioEvento: c.folio,
+        cargaFolio: c.folio,
+        vendedorNombre: c.vendedor_nombre,
+        lineas: lineas.map((l) => ({
+          producto_id: l.producto_id,
+          producto_nombre: l.producto_nombre,
+          cantidad: l.qty_cargada,
+          precio: l.precio,
+        })),
+        createdAt: c.created_at,
+      }),
     });
   }
-  return { data: out, aviso: r.aviso || null };
+  return { data: out, aviso: r.aviso || ev.aviso || null };
 }
 
 function round2(n) {
@@ -368,7 +411,14 @@ function round3(n) {
 }
 function faltaTabla(error) {
   const msg = String(error?.message || error || '').toLowerCase();
-  return error?.code === '42P01' || msg.includes('schema cache') || msg.includes('does not exist');
+  const code = String(error?.code || '');
+  return (
+    code === '42P01'
+    || code === 'PGRST205'
+    || msg.includes('schema cache')
+    || msg.includes('does not exist')
+    || msg.includes('could not find the table')
+  );
 }
 function leerLS(key, fallback = []) {
   try {
@@ -393,8 +443,209 @@ function folioCarga() {
   const ymd = d.toISOString().slice(0, 10).replace(/-/g, '');
   return `CR-${ymd}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
 }
+/** Folio del ticket/evento de cada aplicación de mercancía al camión. */
+function folioEventoCarga() {
+  const d = new Date();
+  const ymd = d.toISOString().slice(0, 10).replace(/-/g, '');
+  const hms = `${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
+  const rnd = Math.random().toString(36).slice(2, 5).toUpperCase();
+  return `CI-${ymd}-${hms}-${rnd}`;
+}
 function folioVenta() {
   return `VR-${Date.now().toString(36).toUpperCase()}`;
+}
+
+/**
+ * Payload de ticket de carga al camión (impresión / reimpresión).
+ */
+export function payloadTicketCargaCamion({
+  folioEvento,
+  cargaFolio,
+  camionEtiqueta,
+  vendedorNombre,
+  usuarioNombre,
+  lineas,
+  reusada,
+  cargaCerradaPorVacia,
+  createdAt,
+} = {}) {
+  const items = (lineas || []).map((l) => ({
+    id: l.productoId || l.producto_id || '',
+    nombre: l.nombre || l.producto_nombre || l.productoId || l.producto_id || '—',
+    cantidad: Math.floor(Math.abs(Number(l.cantidad ?? l.qty_cargada) || 0)),
+    precio: round2(l.precio),
+    importe: round2((Number(l.precio) || 0) * Math.floor(Math.abs(Number(l.cantidad ?? l.qty_cargada) || 0))),
+  }));
+  const piezas = items.reduce((s, it) => s + (Number(it.cantidad) || 0), 0);
+  const total = round2(items.reduce((s, it) => s + (Number(it.importe) || 0), 0));
+  return {
+    titulo: 'CARGA AL CAMIÓN',
+    sucursal: ALMACEN_CENTRAL,
+    folio: folioEvento || null,
+    cargaFolio: cargaFolio || null,
+    camion: camionEtiqueta || null,
+    vendedor: vendedorNombre || null,
+    usuario: usuarioNombre || null,
+    reusada: Boolean(reusada),
+    cargaCerradaPorVacia: Boolean(cargaCerradaPorVacia),
+    fecha: createdAt || new Date().toISOString(),
+    lineas: items,
+    piezas,
+    total,
+  };
+}
+
+/**
+ * Persiste un evento de aplicación de carga (ticket) para aclaraciones.
+ * Nube append-only + respaldo local.
+ */
+export async function registrarEventoCargaRuta(supabase, {
+  cargaId,
+  cargaFolio,
+  camionId,
+  camionEtiqueta,
+  vendedorId,
+  vendedorNombre,
+  usuarioId,
+  usuarioNombre,
+  reusada = false,
+  cargaCerradaPorVacia = false,
+  lineas = [],
+  notas = null,
+} = {}) {
+  const items = (lineas || [])
+    .map((l) => ({
+      producto_id: String(l.productoId || l.producto_id || ''),
+      producto_nombre: l.nombre || l.producto_nombre || '',
+      cantidad: Math.floor(Math.abs(Number(l.cantidad ?? l.qty_cargada) || 0)),
+      precio: round2(l.precio),
+    }))
+    .filter((l) => l.producto_id && l.cantidad > 0);
+  if (!items.length) return { ok: false, error: 'Sin líneas para el registro de carga.' };
+
+  const piezas = items.reduce((s, it) => s + it.cantidad, 0);
+  const total = round2(items.reduce((s, it) => s + it.precio * it.cantidad, 0));
+  const folio = folioEventoCarga();
+  const createdAt = new Date().toISOString();
+  const row = {
+    id: uid('cie'),
+    folio,
+    carga_id: cargaId || null,
+    carga_folio: cargaFolio || null,
+    camion_id: camionId ? String(camionId) : null,
+    camion_etiqueta: camionEtiqueta || null,
+    vendedor_id: vendedorId ? String(vendedorId) : null,
+    vendedor_nombre: vendedorNombre || null,
+    usuario_id: usuarioId ? String(usuarioId) : null,
+    usuario_nombre: usuarioNombre || null,
+    reusada: Boolean(reusada),
+    carga_cerrada_por_vacia: Boolean(cargaCerradaPorVacia),
+    piezas,
+    total,
+    lineas: items,
+    notas: notas || null,
+    created_at: createdAt,
+  };
+
+  let aviso = null;
+  let nubeOk = false;
+  if (supabase) {
+    const payloadNube = { ...row };
+    delete payloadNube.id; // uuid lo genera la DB
+    const { data, error } = await supabase
+      .from('ruta_carga_eventos')
+      .insert([payloadNube])
+      .select('*')
+      .single();
+    if (error) {
+      if (faltaTabla(error)) {
+        aviso = AVISO_FALTA_CARGA_EVENTOS;
+      } else {
+        aviso = error.message || String(error);
+      }
+    } else if (data) {
+      Object.assign(row, data);
+      nubeOk = true;
+    }
+  }
+
+  const prev = leerLS(LS_CARGA_EVENTOS, []);
+  guardarLS(LS_CARGA_EVENTOS, [row, ...(Array.isArray(prev) ? prev : [])].slice(0, 400));
+
+  const ticket = payloadTicketCargaCamion({
+    folioEvento: row.folio,
+    cargaFolio: row.carga_folio,
+    camionEtiqueta: row.camion_etiqueta,
+    vendedorNombre: row.vendedor_nombre,
+    usuarioNombre: row.usuario_nombre,
+    lineas: items,
+    reusada: row.reusada,
+    cargaCerradaPorVacia: row.carga_cerrada_por_vacia,
+    createdAt: row.created_at,
+  });
+
+  return { ok: true, evento: row, ticket, aviso, nubeOk };
+}
+
+/**
+ * Lista eventos de aplicación de carga (más recientes primero).
+ * Preferido para Consultas → Ingresos / reimpresión de tickets.
+ */
+export async function listarEventosCargaRuta(supabase, { limit = 80 } = {}) {
+  const lim = Math.max(1, Math.min(200, Number(limit) || 80));
+  if (supabase) {
+    const { data, error } = await supabase
+      .from('ruta_carga_eventos')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(lim);
+    if (!error) {
+      return {
+        data: (data || []).map((e) => ({
+          ...e,
+          tipo_reporte: 'evento_carga',
+          etiqueta: 'Aplicación de carga (CEDIS → camión)',
+          ticket: payloadTicketCargaCamion({
+            folioEvento: e.folio,
+            cargaFolio: e.carga_folio,
+            camionEtiqueta: e.camion_etiqueta,
+            vendedorNombre: e.vendedor_nombre,
+            usuarioNombre: e.usuario_nombre,
+            lineas: e.lineas || [],
+            reusada: e.reusada,
+            cargaCerradaPorVacia: e.carga_cerrada_por_vacia,
+            createdAt: e.created_at,
+          }),
+        })),
+        aviso: null,
+      };
+    }
+    if (!faltaTabla(error)) {
+      return { data: [], error: error.message, aviso: null };
+    }
+  }
+  const local = (leerLS(LS_CARGA_EVENTOS, []) || [])
+    .slice(0, lim)
+    .map((e) => ({
+      ...e,
+      tipo_reporte: 'evento_carga',
+      etiqueta: 'Aplicación de carga (CEDIS → camión · local)',
+      ticket: payloadTicketCargaCamion({
+        folioEvento: e.folio,
+        cargaFolio: e.carga_folio,
+        camionEtiqueta: e.camion_etiqueta,
+        vendedorNombre: e.vendedor_nombre,
+        usuarioNombre: e.usuario_nombre,
+        lineas: e.lineas || [],
+        reusada: e.reusada,
+        cargaCerradaPorVacia: e.carga_cerrada_por_vacia,
+        createdAt: e.created_at,
+      }),
+    }));
+  return {
+    data: local,
+    aviso: supabase ? AVISO_FALTA_CARGA_EVENTOS : null,
+  };
 }
 
 export function puedeAdministrarVentaRuta(rol) {
@@ -1338,6 +1589,7 @@ export async function crearCargaRuta(supabase, {
   vendedorId,
   repartidorId,
   camionId,
+  camionEtiqueta,
   notas,
   lineas,
   usuarioNombre,
@@ -1528,7 +1780,34 @@ export async function crearCargaRuta(supabase, {
     return { ok: false, error: sum.error, cargaId, folio, reusada };
   }
 
-  return { ok: true, carga: row, patches, aviso, reusada, cargaCerradaPorVacia };
+  const registro = await registrarEventoCargaRuta(supabase, {
+    cargaId,
+    cargaFolio: folio,
+    camionId: cid || null,
+    camionEtiqueta: camionEtiqueta || null,
+    vendedorId: repId,
+    vendedorNombre: repNombre,
+    usuarioId: userId,
+    usuarioNombre,
+    reusada,
+    cargaCerradaPorVacia,
+    lineas: items,
+    notas: notas || null,
+  });
+  if (registro.aviso) {
+    aviso = aviso ? `${aviso} · ${registro.aviso}` : registro.aviso;
+  }
+
+  return {
+    ok: true,
+    carga: row,
+    patches,
+    aviso,
+    reusada,
+    cargaCerradaPorVacia,
+    evento: registro.evento || null,
+    ticket: registro.ticket || null,
+  };
 }
 
 // ─── Efectivo en tránsito: ver rutaTransito.js (reexport arriba) ───

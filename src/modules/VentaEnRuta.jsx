@@ -39,6 +39,7 @@ import {
   verificarPinVendedorSesionRuta,
   verificarPinAdminCorteRuta,
 } from '../lib/ventaEnRuta.js';
+import { imprimirCargaCamion } from '../lib/impresion.js';
 import {
   guardarCarritoPosRuta,
   leerCarritoPosRuta,
@@ -1113,6 +1114,7 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
       vendedorId: recolectorSel.usuario_id || recolectorSel.id,
       repartidorId: recolectorSel.repartidor_id || recolectorSel.id,
       camionId: camionSel?.id || null,
+      camionEtiqueta: camionSel ? etiquetaCamion(camionSel) : null,
       lineas,
       usuarioNombre: user?.nombre,
       rol: user?.rol,
@@ -1128,12 +1130,19 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     if (cargarDatos) void cargarDatos();
     const n = (r.patches || []).length;
     setCargaAbierta(r.carga || null);
+    if (r.ticket) {
+      try {
+        await imprimirCargaCamion(r.ticket);
+      } catch {
+        /* no bloquear por impresión */
+      }
+    }
     alert(
       r.cargaCerradaPorVacia
-        ? `Carga anterior cerrada (camión vacío).\nNueva carga ${r.carga?.folio || ''} abierta.\nStock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.`
+        ? `Carga anterior cerrada (camión vacío).\nNueva carga ${r.carga?.folio || ''} abierta.\nStock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.\nTicket ${r.evento?.folio || r.ticket?.folio || ''} registrado.`
         : r.reusada
-          ? `Mercancía sumada a la carga ${r.carga?.folio || ''}.\nStock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.`
-          : `Carga ${r.carga?.folio || ''} abierta para ${etiqueta}.\nStock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.`,
+          ? `Mercancía sumada a la carga ${r.carga?.folio || ''}.\nStock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.\nTicket ${r.evento?.folio || r.ticket?.folio || ''} registrado.`
+          : `Carga ${r.carga?.folio || ''} abierta para ${etiqueta}.\nStock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.\nTicket ${r.evento?.folio || r.ticket?.folio || ''} registrado.`,
     );
     setLineas([]);
     refrescarCamion();
@@ -2591,10 +2600,11 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
   const badgeEstado = (estado) => {
     const e = String(estado || '').toLowerCase();
     const color =
-      e === 'en_ruta' ? '#0f766e'
-        : e === 'liquidada' ? '#64748b'
-          : e === 'cancelada' ? '#b91c1c'
-            : 'var(--brand-blue)';
+      e === 'en_ruta' || e === 'nueva' ? '#0f766e'
+        : e === 'recarga' ? '#0369a1'
+          : e === 'liquidada' ? '#64748b'
+            : e === 'cancelada' ? '#b91c1c'
+              : 'var(--brand-blue)';
     return (
       <span
         style={{
@@ -2694,7 +2704,7 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
       <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Consultas</h3>
       <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
-        Ingresos = cargas al camión (salida CEDIS). En Cargas: cancelar (sin ventas) o liquidar/cerrar (con ventas; el resto vuelve a CEDIS).
+        Ingresos = cada aplicación de carga al camión (ticket CEDIS→ruta, para aclaraciones). En Cargas: cancelar (sin ventas) o liquidar/cerrar (con ventas; el resto vuelve a CEDIS).
       </p>
       <div style={{ display: 'flex', gap: '0.35rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
         {[
@@ -2722,36 +2732,54 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
           <table className="consultas-table">
             <thead>
               <tr>
-                <th>Folio</th>
+                <th>Folio ticket</th>
                 <th>Fecha</th>
                 <th>Repartidor</th>
                 <th>Piezas</th>
                 <th>Total</th>
-                <th>Estado</th>
+                <th>Tipo</th>
                 <th />
               </tr>
             </thead>
             <tbody>
               {rows.map((c) => {
-                const abierto = expandido === c.id;
+                const rowKey = c.id || c.folio;
+                const abierto = expandido === rowKey;
                 return (
-                  <React.Fragment key={c.id}>
+                  <React.Fragment key={rowKey}>
                     <tr>
                       <td><strong>{c.folio || '—'}</strong></td>
-                      <td>{c.fecha || fmtFecha(c.created_at)}</td>
-                      <td>{c.vendedor_nombre || '—'}</td>
+                      <td>{fmtFecha(c.created_at) || c.fecha || '—'}</td>
+                      <td>
+                        {c.vendedor_nombre || '—'}
+                        {c.camion_etiqueta ? (
+                          <span className="muted" style={{ fontSize: '0.72rem' }}> · {c.camion_etiqueta}</span>
+                        ) : null}
+                      </td>
                       <td>{fmtQty(c.piezas)}</td>
                       <td>{fmtMonto(c.total)}</td>
                       <td>{badgeEstado(c.estado)}</td>
-                      <td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
                         <button
                           type="button"
                           className="btn btn-ghost"
                           style={{ fontSize: '0.78rem', padding: '0.2rem 0.45rem' }}
-                          onClick={() => setExpandido(abierto ? null : c.id)}
+                          onClick={() => setExpandido(abierto ? null : rowKey)}
                         >
                           {abierto ? 'Ocultar' : 'Detalle'}
                         </button>
+                        {c.ticket ? (
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ fontSize: '0.78rem', padding: '0.2rem 0.45rem', color: '#0f766e' }}
+                            onClick={() => {
+                              void imprimirCargaCamion(c.ticket);
+                            }}
+                          >
+                            Reimprimir
+                          </button>
+                        ) : null}
                       </td>
                     </tr>
                     {abierto ? (
@@ -2759,6 +2787,8 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
                         <td colSpan={7} style={{ background: '#f8fafc', padding: '0.5rem 0.75rem' }}>
                           <div className="muted" style={{ fontSize: '0.78rem', marginBottom: '0.35rem' }}>
                             {c.etiqueta || 'Ingreso a camión (salida CEDIS)'}
+                            {c.carga_folio ? ` · Carga ${c.carga_folio}` : ''}
+                            {c.usuario_nombre ? ` · Aplicó: ${c.usuario_nombre}` : ''}
                           </div>
                           {(c.lineas || []).length ? (
                             <table className="consultas-table" style={{ margin: 0 }}>
@@ -2774,7 +2804,7 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
                               </thead>
                               <tbody>
                                 {c.lineas.map((l) => (
-                                  <tr key={l.id || `${c.id}-${l.producto_id}`}>
+                                  <tr key={l.id || `${rowKey}-${l.producto_id}`}>
                                     <td>{l.producto_nombre || l.producto_id || '—'}</td>
                                     <td>{fmtQty(l.qty_cargada)}</td>
                                     <td>{fmtQty(l.qty_vendida)}</td>
