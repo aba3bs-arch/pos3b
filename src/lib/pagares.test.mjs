@@ -74,13 +74,25 @@ assert.equal(pagarePendienteCajero({ estado: 'abierto', saldo: 10 }), true);
 assert.equal(pagarePendienteCajero({ estado: 'por_recolectar', saldo: 10 }), false);
 assert.equal(pagarePendienteRecoleccion({ estado: 'por_recolectar', saldo: 10 }), true);
 assert.equal(pagarePendienteRecoleccion({ estado: 'abierto', saldo: 10 }), false);
-// Compat: liquidado por abono a $0 (todas las sucursales) → aún se recolecta
+// liquidado viejo (abono a $0 sin rc_monto) = cerrado, no pendiente
 assert.equal(
   pagarePendienteRecoleccion({
     estado: 'liquidado',
     saldo: 0,
     monto: 1089,
     abono: 1089,
+    rc_monto: 0,
+    liquidado_por: 'Maria',
+  }),
+  false,
+);
+// liquidado con rc_monto = sí pendiente (compat Liquidar)
+assert.equal(
+  pagarePendienteRecoleccion({
+    estado: 'liquidado',
+    saldo: 0,
+    monto: 1089,
+    rc_monto: 1089,
     liquidado_por: 'Maria',
   }),
   true,
@@ -90,6 +102,7 @@ assert.equal(
     estado: 'liquidado',
     saldo: 0,
     monto: 1089,
+    rc_monto: 1089,
     rc_recolectado_por: 'Luis',
   }),
   false,
@@ -99,13 +112,14 @@ assert.equal(
     estado: 'liquidado',
     saldo: 0,
     monto: 1089,
+    rc_monto: 1089,
     liquidado_por: 'Maria',
   }),
   'Por recolectar → RC Virtual',
 );
 assert.equal(
   montoPendienteRecoleccion({
-    estado: 'liquidado',
+    estado: 'por_recolectar',
     saldo: 0,
     monto: 1089,
     abono: 1089,

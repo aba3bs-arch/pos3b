@@ -110,7 +110,7 @@ export function etiquetaEstadoPagare(estadoOrPagare, pagareMaybe = null) {
   const e = String(
     (pagare ? pagare.estado : estadoOrPagare) || '',
   ).toLowerCase();
-  // Compat: liquidado legado que aún espera recolección
+  // liquidado con rc_monto = aún por recolectar
   if (e === 'liquidado' && pagare && pagarePendienteRecoleccion(pagare)) {
     return ETIQUETA_ESTADO_PAGARE.por_recolectar;
   }
@@ -164,10 +164,14 @@ export function montoPendienteRecoleccion(p) {
   if (Number.isFinite(rc) && rc > 0.001) return round2(rc);
   const saldo = saldoPagare(p);
   if (saldo > 0.001) return saldo;
-  // Compat: liquidado/abonado a $0 sin rc_monto → usar abono o monto original.
-  const abono = Number(p.abono);
-  if (Number.isFinite(abono) && abono > 0.001) return round2(abono);
-  return round2(p.monto);
+  // Solo si ya está marcado para recolección (rc_monto o por_recolectar con abono/monto).
+  const est = String(p.estado || '').toLowerCase();
+  if (est === 'por_recolectar' || est === 'en_transito' || est === 'recolectado') {
+    const abono = Number(p.abono);
+    if (Number.isFinite(abono) && abono > 0.001) return round2(abono);
+    return round2(p.monto);
+  }
+  return 0;
 }
 
 /** Nombre del recolector (en tránsito). Compat: filas viejas usaban rc_recibido_por. */
@@ -185,8 +189,9 @@ export function pagarePendienteCajero(p) {
 }
 
 /**
- * Ya liquidado/abonado por cajero; espera Recolectar → RC Virtual.
- * Incluye estado «liquidado» legado (abono a $0) que nunca pasó a por_recolectar.
+ * Ya liquidado por cajero; espera Recolectar → RC Virtual.
+ * Solo `por_recolectar` (o liquidado legado CON rc_monto del flujo Liquidar).
+ * Los «liquidado» viejos por abono a $0 sin rc_monto quedan cerrados (historial).
  */
 export function pagarePendienteRecoleccion(p) {
   if (!p) return false;
@@ -196,9 +201,10 @@ export function pagarePendienteRecoleccion(p) {
   if (ESTADOS_PENDIENTE_RECOLECCION.has(est)) {
     return montoPendienteRecoleccion(p) > 0.001;
   }
-  // Compat filas con estado «liquidado» (saldo 0) aún sin recolectar.
+  // Compat estrecha: liquidado con rc_monto (Liquidar antiguo / patch parcial).
   if (est === 'liquidado') {
-    return montoPendienteRecoleccion(p) > 0.001;
+    const rc = Number(p.rc_monto);
+    return Number.isFinite(rc) && rc > 0.001;
   }
   return false;
 }
