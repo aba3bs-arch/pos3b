@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef8f6"/>
+      <stop offset="100%" stop-color="#f5f7fb"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0d47a1"/>
+      <stop offset="100%" stop-color="#1565c0"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0f766e" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+
+  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700" fill="#0f766e">7. Preinventario del camión</text>
+  <text x="48" y="78" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">Cuenta sin cambiar el teórico del sistema</text>
+  <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="48" y="110" width="864" height="320" rx="16" fill="#fff"/>
+    <rect x="72" y="150" width="816" height="44" rx="8" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="92" y="178" font-size="13" font-weight="700" fill="#64748b">Producto</text>
+    <text x="420" y="178" font-size="13" font-weight="700" fill="#64748b">Teórico</text>
+    <text x="560" y="178" font-size="13" font-weight="700" fill="#64748b">Contado</text>
+    <text x="720" y="178" font-size="13" font-weight="700" fill="#64748b">Dif.</text>
+    <rect x="72" y="210" width="816" height="48" rx="8" fill="#fff" stroke="#e2e8f0"/>
+    <text x="92" y="240" font-size="14" fill="#0f172a">Galleta 100g</text>
+    <text x="430" y="240" font-size="14" fill="#334155">24</text>
+    <text x="575" y="240" font-size="14" font-weight="700" fill="#0f766e">23</text>
+    <text x="730" y="240" font-size="14" font-weight="700" fill="#b91c1c">−1</text>
+    <rect x="72" y="270" width="816" height="48" rx="8" fill="#f0fdfa" stroke="#99f6e4"/>
+    <text x="92" y="300" font-size="14" fill="#0f172a">Agua 600ml</text>
+    <text x="430" y="300" font-size="14" fill="#334155">48</text>
+    <text x="575" y="300" font-size="14" font-weight="700" fill="#0f766e">48</text>
+    <text x="730" y="300" font-size="14" font-weight="700" fill="#047857">0</text>
+    <text x="72" y="370" font-size="13" fill="#546e7a">Solo control interno · no modifica inventario teórico · usa toda la mercancía del camión</text>
+  </g>
+
+</svg>

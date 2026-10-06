@@ -4,6 +4,11 @@ import { TUTORIAL_VENTA_EN_RUTA } from './tutorialVentaEnRuta.js';
 
 assert.equal(TUTORIAL_VENTA_EN_RUTA.id, 'venta-en-ruta');
 assert.ok(TUTORIAL_VENTA_EN_RUTA.secciones.length >= 10);
+const conImg = TUTORIAL_VENTA_EN_RUTA.secciones.filter((s) => s.imagen);
+assert.ok(conImg.length >= 10, `esperaba ≥10 secciones con imagen, hay ${conImg.length}`);
+for (const s of conImg) {
+  assert.match(s.imagen, /^\/tutorial-venta-ruta\/.+\.svg$/);
+}
 const quizSec = TUTORIAL_VENTA_EN_RUTA.secciones.find((s) => s.id === 'quiz');
 assert.ok(quizSec?.quiz?.length >= 6);
 for (const q of quizSec.quiz) {

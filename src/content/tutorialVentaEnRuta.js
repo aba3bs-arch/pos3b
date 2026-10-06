@@ -1,5 +1,7 @@
 /** Tutorial · Venta en Ruta (CEDIS → camión → POS → corte). */
 
+const IMG = '/tutorial-venta-ruta';
+
 export const TUTORIAL_VENTA_EN_RUTA = {
   id: 'venta-en-ruta',
   titulo: 'Venta en Ruta: de la carga al corte',
@@ -16,6 +18,8 @@ export const TUTORIAL_VENTA_EN_RUTA = {
         'Flujo: **Camiones → Carga → POS (vender) → Consultas / Créditos → Corte / Liquidación**.',
         'Frase clave: **CEDIS guarda · camión lleva · POS vende · corte cierra.**',
       ],
+      imagen: `${IMG}/01-mapa-flujo.svg`,
+      imagenAlt: 'Mapa del flujo: CEDIS → camión → POS → consultas → corte',
       notas: [
         'Cada persona ve solo los botones que le tocan (privilegios). Administrador ve todo.',
       ],
@@ -28,6 +32,8 @@ export const TUTORIAL_VENTA_EN_RUTA = {
         'Sin camión asignado, la carga y el POS no saben de quién es el inventario.',
         'Un camión = una operación limpia. No mezcles repartidores en el mismo camión el mismo día sin cerrar la carga.',
       ],
+      imagen: `${IMG}/02-camiones.svg`,
+      imagenAlt: 'Pantalla de alta de camión con asignación a recolector',
     },
     {
       id: 'carga',
@@ -39,6 +45,8 @@ export const TUTORIAL_VENTA_EN_RUTA = {
         'Si el camión ya no tiene Disp., el sistema **cierra la carga vacía** y abre una nueva (historial limpio).',
         '¿Te equivocaste y aún no hay ventas? En Consultas → **Cargas → Cancelar** (regresa a CEDIS).',
       ],
+      imagen: `${IMG}/03-carga-camion.svg`,
+      imagenAlt: 'Aplicar carga: baja CEDIS, sube camión y genera ticket',
       notas: [
         'Cada aplicación de carga deja su propio registro (no solo el acumulado de la carga).',
       ],
@@ -51,6 +59,8 @@ export const TUTORIAL_VENTA_EN_RUTA = {
         'Úsalo antes de vender si el producto necesita tarifa distinta a la de tienda.',
         'El POS toma el precio de ruta cuando existe; si no, el precio del catálogo.',
       ],
+      imagen: `${IMG}/04-precios-ruta.svg`,
+      imagenAlt: 'Comparación precio de tienda vs precio de ruta',
     },
     {
       id: 'pos-sesion',
@@ -60,6 +70,8 @@ export const TUTORIAL_VENTA_EN_RUTA = {
         'La sesión amarra el carrito a esa persona (si cambias de vendedor, cambia el carrito).',
         'En celular verás sobre todo el **selector de destino** y el **carrito** — así cabe mejor en pantalla chica.',
       ],
+      imagen: `${IMG}/05-pos-sesion.svg`,
+      imagenAlt: 'Login del POS de ruta con vendedor y PIN',
     },
     {
       id: 'pos-venta',
@@ -72,6 +84,8 @@ export const TUTORIAL_VENTA_EN_RUTA = {
         'Efectivo va a tránsito / RC Abarrotes del recolector. Crédito queda por cobrar en tienda.',
         'La venta genera pedido en Compras para que la **tienda reciba** la mercancía.',
       ],
+      imagen: `${IMG}/06-pos-venta.svg`,
+      imagenAlt: 'Layout del POS: destino, catálogo y carrito',
       notas: [
         'Sin destino no hay catálogo. Sin mercancía en camión: carga primero en CEDIS.',
       ],
@@ -84,6 +98,8 @@ export const TUTORIAL_VENTA_EN_RUTA = {
         'Sirve para detectar faltantes/sobrantes antes del corte.',
         'Puedes trabajar con **toda la mercancía del camión** (no hace falta elegir un folio a mano).',
       ],
+      imagen: `${IMG}/07-preinventario.svg`,
+      imagenAlt: 'Tabla de preinventario con teórico, contado y diferencia',
     },
     {
       id: 'creditos',
@@ -93,6 +109,8 @@ export const TUTORIAL_VENTA_EN_RUTA = {
         'El cajero de tienda las liquida con **PIN** cuando el cliente / la ruta liquida.',
         'No confundas crédito de ruta con un gasto de recepción: el crédito es **cuenta por cobrar**.',
       ],
+      imagen: `${IMG}/08-creditos.svg`,
+      imagenAlt: 'Lista de créditos pendientes y pasos para liquidar en tienda',
     },
     {
       id: 'consultas',
@@ -103,6 +121,8 @@ export const TUTORIAL_VENTA_EN_RUTA = {
         '**Cargas**: estado en_ruta / liquidada / cancelada · **Liquidar** o **Cancelar**.',
         '**Créditos cobrados**: historial de liquidaciones en tienda.',
       ],
+      imagen: `${IMG}/09-consultas.svg`,
+      imagenAlt: 'Consultas Ingresos con botón Reimprimir del ticket de carga',
     },
     {
       id: 'corte-liq',
@@ -113,6 +133,8 @@ export const TUTORIAL_VENTA_EN_RUTA = {
         '**Liquidación**: recibe el efectivo que trae el recolector (recolecciones).',
         'Si queda Disp. en el camión al liquidar la carga, el resto **vuelve a CEDIS**.',
       ],
+      imagen: `${IMG}/10-corte-liquidacion.svg`,
+      imagenAlt: 'Corte de caja de ruta y panel de liquidación',
     },
     {
       id: 'errores',
@@ -124,6 +146,8 @@ export const TUTORIAL_VENTA_EN_RUTA = {
         '· Cancelar una carga que **ya tiene ventas** (usa liquidar / devolver piezas).',
         '· Inventar el efectivo del corte: cuenta, anota, avisa.',
       ],
+      imagen: `${IMG}/11-errores.svg`,
+      imagenAlt: 'Checklist de errores típicos a evitar en Venta en Ruta',
     },
     {
       id: 'quiz',
@@ -132,6 +156,8 @@ export const TUTORIAL_VENTA_EN_RUTA = {
         'Responde las 8 preguntas. Al terminar verás **puntaje, porcentaje y calificación** (A–F).',
         'Apruebas con **70% o más** (C o mejor). Si no, reintenta tras repasar.',
       ],
+      imagen: `${IMG}/12-evaluacion.svg`,
+      imagenAlt: 'Ejemplo de calificación del tutorial (letra y porcentaje)',
       quiz: [
         {
           id: 'q1',

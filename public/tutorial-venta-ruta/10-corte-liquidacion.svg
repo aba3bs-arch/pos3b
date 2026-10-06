@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef8f6"/>
+      <stop offset="100%" stop-color="#f5f7fb"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0d47a1"/>
+      <stop offset="100%" stop-color="#1565c0"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0f766e" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+
+  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700" fill="#0f766e">10. Corte de caja y liquidación</text>
+  <text x="48" y="78" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">Cierra el turno · desglose por tienda · recibe efectivo del recolector</text>
+  <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="48" y="110" width="420" height="320" rx="16" fill="#fff"/>
+    <rect x="48" y="110" width="420" height="48" fill="#e6f4f1"/>
+    <text x="68" y="140" font-size="14" font-weight="700" fill="#0f766e">Corte de caja · ruta</text>
+    <text x="68" y="190" font-size="13" fill="#64748b">Vendedor · Luis</text>
+    <text x="68" y="225" font-size="14" fill="#334155">Efectivo esperado</text>
+    <text x="430" y="225" text-anchor="end" font-size="14" font-weight="700" fill="#0f172a">$1,240.00</text>
+    <text x="68" y="260" font-size="14" fill="#334155">Crédito</text>
+    <text x="430" y="260" text-anchor="end" font-size="14" font-weight="700" fill="#0f172a">$470.00</text>
+    <text x="68" y="300" font-size="13" fill="#64748b">Por tienda: 3B2 · 3B5 · …</text>
+    <rect x="68" y="340" width="380" height="40" rx="10" fill="url(#brand)"/>
+    <text x="258" y="366" text-anchor="middle" font-size="14" font-weight="700" fill="#fff">Cerrar e imprimir</text>
+
+    <rect x="500" y="110" width="412" height="320" rx="16" fill="#fff"/>
+    <rect x="500" y="110" width="412" height="48" fill="#eff6ff"/>
+    <text x="520" y="140" font-size="14" font-weight="700" fill="#1d4ed8">Liquidación</text>
+    <text x="520" y="200" font-size="14" fill="#334155">Recibe efectivo del recolector</text>
+    <text x="520" y="235" font-size="14" fill="#334155">(recolecciones / RC Abarrotes)</text>
+    <text x="520" y="290" font-size="13" fill="#64748b">Si queda Disp. al liquidar la carga:</text>
+    <text x="520" y="320" font-size="14" font-weight="600" fill="#0f766e">el resto vuelve a CEDIS</text>
+  </g>
+
+</svg>
