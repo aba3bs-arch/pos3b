@@ -272,6 +272,7 @@ export async function corregirLineaReporteInventario(supabase, opts = {}) {
       folio_correccion: r.folio,
       nota_correccion: nota || '',
     },
+    avisoLocal: r.avisoLocal || null,
   };
 }
 
