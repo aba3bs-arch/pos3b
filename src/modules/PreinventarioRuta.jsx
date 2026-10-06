@@ -253,6 +253,8 @@ export default function PreinventarioRuta({ supabase, user, inventario = [], pro
           user={user}
           sucursal={SUCURSAL_PREINVENTARIO_RUTA}
           teoricoFn={teoricoFn}
+          autoContarInventario
+          etiquetaConteoDirecto={todas ? 'Mercancía del camión' : `Carga ${carga?.folio || ''}`}
           titulo={todas ? 'Preinventario de ruta · todo el camión' : 'Preinventario de ruta'}
           ayudaExtra={
             todas

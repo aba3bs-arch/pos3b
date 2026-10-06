@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { etiquetaDepartamento, listarDepartamentos } from '../lib/departamentos.js';
+import { productosEnDepartamento } from '../lib/conteoDepartamento.js';
 import { etiquetaTienda } from '../constants/sucursales.js';
 import {
   construirLineasDesdeProductos,
@@ -24,17 +25,30 @@ export default function Preinventario({
   teoricoFn = null,
   titulo = null,
   ayudaExtra = null,
+  /** Si true, al abrir entra directo al conteo con todos los productos del inventario (camión). */
+  autoContarInventario = false,
+  /** Etiqueta de la plantilla virtual de conteo directo. */
+  etiquetaConteoDirecto = 'Mercancía del camión',
 }) {
   const [plantillas, setPlantillas] = useState([]);
   const [aviso, setAviso] = useState('');
   const [msg, setMsg] = useState('');
-  const [modo, setModo] = useState('lista'); // lista | nueva | conteo
+  const [modo, setModo] = useState(autoContarInventario && (inventario || []).length ? 'conteo' : 'lista');
   const [nombrePlantilla, setNombrePlantilla] = useState('');
   const [tipoPlantilla, setTipoPlantilla] = useState('personal');
   const [departamento, setDepartamento] = useState('GENERAL');
   const [qProd, setQProd] = useState('');
   const [selIds, setSelIds] = useState(() => new Set());
-  const [plantillaActiva, setPlantillaActiva] = useState(null);
+  const [plantillaActiva, setPlantillaActiva] = useState(() => {
+    if (!autoContarInventario || !(inventario || []).length) return null;
+    return {
+      id: '__inventario__',
+      nombre: etiquetaConteoDirecto,
+      tipo: 'camion',
+      productos: (inventario || []).map((p) => ({ id: p.id, nombre: p.nombre })),
+      virtual: true,
+    };
+  });
   const [conteos, setConteos] = useState({});
   const [codigo, setCodigo] = useState('');
 
@@ -49,6 +63,23 @@ export default function Preinventario({
   useEffect(() => {
     void recargar();
   }, [supabase, sucursal]);
+
+  // Si llega el inventario del camión después (async), armar conteo automático.
+  useEffect(() => {
+    if (!autoContarInventario) return;
+    if (!(inventario || []).length) return;
+    setPlantillaActiva((prev) => {
+      if (prev && !prev.virtual) return prev;
+      return {
+        id: '__inventario__',
+        nombre: etiquetaConteoDirecto,
+        tipo: 'camion',
+        productos: (inventario || []).map((p) => ({ id: p.id, nombre: p.nombre })),
+        virtual: true,
+      };
+    });
+    setModo((m) => (m === 'nueva' ? m : 'conteo'));
+  }, [autoContarInventario, inventario, etiquetaConteoDirecto]);
 
   const productosFiltro = useMemo(() => {
     const t = qProd.trim();
@@ -65,13 +96,38 @@ export default function Preinventario({
 
   const lineas = useMemo(() => {
     if (!plantillaActiva) return [];
-    const prods = (plantillaActiva.productos || [])
+    let prods = (plantillaActiva.productos || [])
       .map((ref) => mapaProd.get(String(ref.id)))
       .filter(Boolean);
+    // Plantilla de tienda sin match en el camión: usar lo que sí hay en inventario
+    // (mismo depto si aplica, si no todo el camión).
+    if (!prods.length && (inventario || []).length) {
+      if (plantillaActiva.tipo === 'departamento' && plantillaActiva.departamento) {
+        prods = productosEnDepartamento(inventario, plantillaActiva.departamento);
+      }
+      if (!prods.length) prods = [...(inventario || [])];
+    }
     return construirLineasDesdeProductos(prods, sucursal, conteos, teoricoFn);
-  }, [plantillaActiva, mapaProd, sucursal, conteos, teoricoFn]);
+  }, [plantillaActiva, mapaProd, sucursal, conteos, teoricoFn, inventario]);
 
   const resumen = useMemo(() => resumenPreinventario(lineas), [lineas]);
+
+  const abrirConteoCamion = () => {
+    if (!(inventario || []).length) {
+      setMsg('No hay mercancía en el camión para contar.');
+      return;
+    }
+    setPlantillaActiva({
+      id: '__inventario__',
+      nombre: etiquetaConteoDirecto,
+      tipo: 'camion',
+      productos: (inventario || []).map((p) => ({ id: p.id, nombre: p.nombre })),
+      virtual: true,
+    });
+    setConteos({});
+    setModo('conteo');
+    setMsg('');
+  };
 
   const crearPlantilla = async () => {
     setMsg('');
@@ -120,7 +176,9 @@ export default function Preinventario({
       setMsg(`No se encontró ${codigoTxt}`);
       return;
     }
-    const enPlantilla = (plantillaActiva?.productos || []).some((p) => String(p.id) === String(prod.id));
+    const enPlantilla = plantillaActiva?.virtual
+      || (plantillaActiva?.productos || []).some((p) => String(p.id) === String(prod.id))
+      || lineas.some((l) => String(l.id) === String(prod.id));
     if (!enPlantilla) {
       setMsg(`${prod.nombre} no está en esta plantilla.`);
       return;
@@ -148,7 +206,7 @@ export default function Preinventario({
   const cerrarYGuardar = async () => {
     const res = await guardarSesionPreinventario(supabase, {
       sucursal_id: sucursal,
-      plantilla_id: plantillaActiva?.id,
+      plantilla_id: plantillaActiva?.virtual ? null : plantillaActiva?.id,
       nombre: plantillaActiva?.nombre || 'Preinventario',
       creado_por: user?.nombre,
       creado_por_id: user?.id,
@@ -205,11 +263,20 @@ export default function Preinventario({
 
       {modo === 'lista' && (
         <>
-          <button type="button" className="btn btn-primary" style={{ alignSelf: 'start' }} onClick={() => setModo('nueva')}>
+          {(inventario || []).length > 0 && (
+            <button type="button" className="btn btn-primary" style={{ alignSelf: 'start' }} onClick={abrirConteoCamion}>
+              <BtnLabel icon="package">Contar mercancía del camión ({inventario.length})</BtnLabel>
+            </button>
+          )}
+          <button type="button" className="btn btn-ghost" style={{ alignSelf: 'start' }} onClick={() => setModo('nueva')}>
             <BtnLabel icon="plus">Nueva plantilla</BtnLabel>
           </button>
           {plantillas.length === 0 ? (
-            <p className="muted">Aún no hay plantillas. Crea una personal o por departamento.</p>
+            <p className="muted">
+              {(inventario || []).length
+                ? 'Puedes contar directo la mercancía del camión o crear una plantilla.'
+                : 'Aún no hay plantillas. Crea una personal o por departamento.'}
+            </p>
           ) : (
             <div className="table-wrap">
               <table className="data">
@@ -338,52 +405,66 @@ export default function Preinventario({
               </button>
             </div>
           </div>
-          <CampoCodigo
-            value={codigo}
-            onChange={(e) => setCodigo(e.target.value)}
-            onEscanear={registrarEscaneo}
-            beepAlEnter
-            placeholder="Escanear o escribir código…"
-            tituloCamara="Escanear preinventario"
-          />
-          <div className="table-wrap">
-            <table className="data">
-              <thead>
-                <tr>
-                  <th>Código</th>
-                  <th>Producto</th>
-                  <th>Teórico*</th>
-                  <th>Contado</th>
-                  <th>Dif.</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lineas.map((l) => (
-                  <tr key={l.id}>
-                    <td style={{ fontFamily: 'monospace' }}>{l.id}</td>
-                    <td>{l.nombre}</td>
-                    <td>{l.teorico}</td>
-                    <td style={{ minWidth: 90 }}>
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        value={conteos[l.id] ?? ''}
-                        onChange={(e) => setConteos((prev) => ({ ...prev, [l.id]: e.target.value }))}
-                        style={{ width: 80 }}
-                      />
-                    </td>
-                    <td style={{ color: l.diferencia == null ? undefined : l.diferencia < 0 ? 'var(--danger)' : l.diferencia > 0 ? '#15803d' : undefined }}>
-                      {l.diferencia == null ? '—' : l.diferencia > 0 ? `+${l.diferencia}` : l.diferencia}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>
-            *Referencia del sistema. Este preinventario no aplica ni corrige el inventario teórico.
-          </p>
+          {lineas.length === 0 ? (
+            <div className="card">
+              <p className="muted" style={{ margin: 0 }}>
+                Esta plantilla no tiene productos que coincidan con la mercancía del camión.
+                {' '}
+                <button type="button" className="btn btn-primary btn-sm" onClick={abrirConteoCamion}>
+                  Contar mercancía del camión
+                </button>
+              </p>
+            </div>
+          ) : (
+            <>
+              <CampoCodigo
+                value={codigo}
+                onChange={(e) => setCodigo(e.target.value)}
+                onEscanear={registrarEscaneo}
+                beepAlEnter
+                placeholder="Escanear o escribir código…"
+                tituloCamara="Escanear preinventario"
+              />
+              <div className="table-wrap">
+                <table className="data">
+                  <thead>
+                    <tr>
+                      <th>Código</th>
+                      <th>Producto</th>
+                      <th>Teórico*</th>
+                      <th>Contado</th>
+                      <th>Dif.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lineas.map((l) => (
+                      <tr key={l.id}>
+                        <td style={{ fontFamily: 'monospace' }}>{l.id}</td>
+                        <td>{l.nombre}</td>
+                        <td>{l.teorico}</td>
+                        <td style={{ minWidth: 90 }}>
+                          <input
+                            className="input"
+                            type="number"
+                            min={0}
+                            value={conteos[l.id] ?? ''}
+                            onChange={(e) => setConteos((prev) => ({ ...prev, [l.id]: e.target.value }))}
+                            style={{ width: 80 }}
+                          />
+                        </td>
+                        <td style={{ color: l.diferencia == null ? undefined : l.diferencia < 0 ? 'var(--danger)' : l.diferencia > 0 ? '#15803d' : undefined }}>
+                          {l.diferencia == null ? '—' : l.diferencia > 0 ? `+${l.diferencia}` : l.diferencia}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>
+                *Referencia del sistema. Este preinventario no aplica ni corrige el inventario teórico.
+              </p>
+            </>
+          )}
         </div>
       )}
     </div>
