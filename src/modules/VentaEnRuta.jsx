@@ -1786,6 +1786,7 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
   const [montoCredito, setMontoCredito] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [tickCamion, setTickCamion] = useState(0);
+  const [lastAddedId, setLastAddedId] = useState('');
   const carritoRef = useRef(carrito);
   const clienteKeyRef = useRef(clienteKey);
   const omitirGuardadoRef = useRef(false);
@@ -1965,6 +1966,10 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
         disponible: prod.disponible,
       }];
     });
+    setLastAddedId(String(prod.id));
+    window.setTimeout(() => {
+      setLastAddedId((cur) => (cur === String(prod.id) ? '' : cur));
+    }, 380);
   };
 
   const ajustarQty = (productoId, delta) => {
@@ -2109,17 +2114,40 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
   };
 
   const piezasCamion = productosCamion.reduce((s, p) => s + (Number(p.disponible) || 0), 0);
+  const itemsCarrito = carrito.reduce((s, a) => s + (Number(a.cantidad) || 0), 0);
 
   return (
     <div className="ruta-pos">
       <div className="ruta-pos-toolbar card">
-        <div>
-          <h3 style={{ margin: 0, color: COLOR }}>POS venta en ruta</h3>
-          <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.8rem' }}>
-            Elige la tienda destino: verás toda la mercancía del camión y su existencia.
-            {vendedorNombre ? ` Vendedor: ${vendedorNombre}.` : ''}
-            {vendedorSesion?.camionEtiqueta ? ` Camión: ${vendedorSesion.camionEtiqueta}.` : ''}
+        <div className="ruta-pos-toolbar-main">
+          <h3 className="ruta-pos-toolbar-title">POS venta en ruta</h3>
+          <p className="ruta-pos-toolbar-sub">
+            Elige el destino y vende desde el inventario del camión.
           </p>
+          <div className="ruta-pos-chips">
+            {vendedorNombre && vendedorNombre !== '—' ? (
+              <span className="ruta-pos-chip">
+                <Icon name="users" size={12} />
+                {vendedorNombre}
+              </span>
+            ) : null}
+            {vendedorSesion?.camionEtiqueta ? (
+              <span className="ruta-pos-chip">
+                <Icon name="truck" size={12} />
+                {vendedorSesion.camionEtiqueta}
+              </span>
+            ) : (
+              <span className="ruta-pos-chip ruta-pos-chip--muted">Sin camión en sesión</span>
+            )}
+            {destinoSeleccionado ? (
+              <span className="ruta-pos-chip">
+                <Icon name="building" size={12} />
+                {destinoSeleccionado.nombre}
+              </span>
+            ) : (
+              <span className="ruta-pos-chip ruta-pos-chip--warn">Falta destino</span>
+            )}
+          </div>
         </div>
         <div className="ruta-pos-toolbar-fields">
           <label>
@@ -2136,29 +2164,37 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
             </select>
           </label>
           {clienteKey ? (
-            <div className="muted" style={{ fontSize: '0.8rem', alignSelf: 'end', paddingBottom: '0.35rem' }}>
+            <div className="ruta-pos-stock-pill">
               {cargandoCamion
                 ? 'Cargando camión…'
-                : `${productosCamion.length} producto(s) · ${fmtQty(piezasCamion)} pzas`}
-              {cargas.length ? ` · ${cargas.length} carga(s)` : ''}
+                : `${productosCamion.length} prod · ${fmtQty(piezasCamion)} pza`}
+              {cargas.length ? ` · ${cargas.length} carga${cargas.length === 1 ? '' : 's'}` : ''}
             </div>
           ) : null}
         </div>
       </div>
 
       {!clienteKey ? (
-        <div className="card">
-          <p className="muted" style={{ margin: 0 }}>
-            Selecciona la sucursal (o cliente) que recibe la mercancía para ver el inventario del camión.
+        <div className="ruta-pos-empty card">
+          <div className="ruta-pos-empty-icon"><Icon name="building" size={28} /></div>
+          <h4>Selecciona el destino</h4>
+          <p>
+            Elige la sucursal o cliente que recibe la mercancía para ver el inventario del camión y empezar a vender.
           </p>
         </div>
       ) : cargandoCamion ? (
-        <div className="card"><p className="muted" style={{ margin: 0 }}>Cargando mercancía del camión…</p></div>
+        <div className="ruta-pos-empty card">
+          <div className="ruta-pos-empty-icon"><Icon name="package" size={28} /></div>
+          <h4>Cargando camión…</h4>
+          <p>Obteniendo mercancía disponible en ruta.</p>
+        </div>
       ) : !productosCamion.length ? (
-        <div className="card">
-          <p className="muted" style={{ margin: 0 }}>
-            No hay mercancía disponible en el camión
-            {destinoSeleccionado ? ` para vender a ${destinoSeleccionado.nombre}` : ''}.
+        <div className="ruta-pos-empty card">
+          <div className="ruta-pos-empty-icon"><Icon name="truck" size={28} /></div>
+          <h4>Camión sin mercancía disponible</h4>
+          <p>
+            No hay piezas para vender
+            {destinoSeleccionado ? ` a ${destinoSeleccionado.nombre}` : ''}.
             Carga inventario en «Carga de camión».
           </p>
         </div>
@@ -2182,120 +2218,155 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
 
           <section className="ruta-pos-catalogo card">
             <div className="ruta-pos-catalogo-head">
-              <strong>
-                {etiquetaDepartamento(deptoActivo) || 'Catálogo'}
-                {destinoSeleccionado ? (
-                  <span className="muted" style={{ fontWeight: 400, fontSize: '0.85rem' }}>
-                    {' '}· {destinoSeleccionado.nombre}
-                  </span>
-                ) : null}
-              </strong>
-              <input
-                className="input"
-                value={qDepto}
-                onChange={(e) => setQDepto(e.target.value)}
-                placeholder="Filtrar en departamento…"
-                aria-label="Filtrar departamento"
-              />
+              <div className="ruta-pos-catalogo-head-title">
+                <strong>{etiquetaDepartamento(deptoActivo) || 'Catálogo'}</strong>
+                <span>
+                  {productosCatalogo.length} visible{productosCatalogo.length === 1 ? '' : 's'}
+                  {destinoSeleccionado ? ` · ${destinoSeleccionado.nombre}` : ''}
+                </span>
+              </div>
+              <div className="ruta-pos-buscar">
+                <input
+                  className="input"
+                  value={qDepto}
+                  onChange={(e) => setQDepto(e.target.value)}
+                  placeholder="Buscar en departamento…"
+                  aria-label="Filtrar departamento"
+                />
+              </div>
             </div>
             {productosCatalogo.length === 0 ? (
               <div className="ruta-pos-vacio">
                 <Icon name="package" size={36} />
-                <p className="muted">No hay productos disponibles en este departamento.</p>
+                <p className="muted" style={{ margin: 0 }}>No hay productos en este filtro.</p>
               </div>
             ) : (
-              <div className="ventas-favoritos-grid ruta-pos-grid">
-                {productosCatalogo.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className="ventas-favorito-btn"
-                    title={`${p.nombre} · disp ${p.disponible}`}
-                    onClick={() => agregarProducto(p, 1)}
-                  >
-                    <ProductoThumb producto={p} size="full" className="ventas-favorito-thumb" />
-                    <div className="ventas-favorito-precio">{fmtMonto(p.precio)}</div>
-                    <div className="ventas-favorito-nombre">{p.nombre}</div>
-                    <div className="muted" style={{ fontSize: '0.68rem' }}>
-                      Camión: {p.disponible}{qtyEnCarrito(p.id) ? ` · carrito ${qtyEnCarrito(p.id)}` : ''}
-                    </div>
-                  </button>
-                ))}
+              <div className="ruta-pos-grid">
+                {productosCatalogo.map((p) => {
+                  const enCart = qtyEnCarrito(p.id);
+                  const bajo = Number(p.disponible) > 0 && Number(p.disponible) <= 5;
+                  const flash = lastAddedId === String(p.id);
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className={[
+                        'ruta-pos-prod',
+                        enCart ? 'ruta-pos-prod--en-carrito' : '',
+                        flash ? 'ruta-pos-prod--flash' : '',
+                      ].filter(Boolean).join(' ')}
+                      title={`${p.nombre} · disp ${p.disponible}`}
+                      onClick={() => agregarProducto(p, 1)}
+                    >
+                      {enCart > 0 ? <span className="ruta-pos-prod-badge">{enCart}</span> : null}
+                      <div className="ruta-pos-prod-thumb">
+                        <ProductoThumb producto={p} size="full" className="ventas-favorito-thumb" />
+                      </div>
+                      <div className="ruta-pos-prod-meta">
+                        <div className="ruta-pos-prod-precio">{fmtMonto(p.precio)}</div>
+                        <div className="ruta-pos-prod-nombre">{p.nombre}</div>
+                        <div className={`ruta-pos-prod-stock${bajo ? ' ruta-pos-prod-stock--bajo' : ''}`}>
+                          Camión: {fmtQty(p.disponible)}
+                          {bajo ? ' · bajo' : ''}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </section>
 
           <aside className="ruta-pos-ticket card">
-            <h3 style={{ margin: '0 0 0.5rem', color: COLOR }}>Carrito</h3>
-            <div className="ruta-pos-buscar" style={{ marginBottom: '0.55rem' }}>
-              <CampoCodigo
-                value={codigo}
-                onChange={(e) => setCodigo(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && scanAgregar()}
-                onEscanear={(c) => scanAgregar(c)}
-                beepAlEnter
-                placeholder="Escanear o buscar…"
-                tituloCamara="Escanear producto del camión"
-              />
-              <button type="button" className="btn btn-primary" onClick={() => scanAgregar()}>+</button>
+            <div className="ruta-pos-ticket-head">
+              <h3>Carrito</h3>
+              {itemsCarrito > 0 ? (
+                <span className="ruta-pos-ticket-count">{itemsCarrito}</span>
+              ) : null}
             </div>
-            <div className="ruta-pos-ticket-lineas">
-              {carrito.length === 0 && <p className="muted">Escanea o toca un producto para agregarlo</p>}
-              {carrito.map((it) => {
-                const editando = qtyEditId === it.productoId;
-                return (
-                  <div key={it.productoId} className="ventas-carrito-linea">
-                    <ProductoThumb producto={it} size={40} />
-                    <div className="ventas-carrito-info">
-                      <span className="ventas-carrito-nombre">{it.nombre}</span>
-                      <button
-                        type="button"
-                        className="btn btn-ghost ventas-carrito-quitar"
-                        onClick={() => setCarrito((p) => p.filter((x) => x.productoId !== it.productoId))}
-                      >
-                        Quitar
-                      </button>
-                    </div>
-                    <div className={`ventas-qty${editando ? ' ventas-qty--open' : ''}`}>
-                      {editando ? (
-                        <>
-                          <button type="button" className="ventas-qty__btn" aria-label="Quitar uno" onClick={() => ajustarQty(it.productoId, -1)}>−</button>
-                          <input
-                            className="ventas-qty__valor ventas-qty__valor--activo"
-                            style={{ width: 42, textAlign: 'center', border: 'none', background: 'transparent' }}
-                            value={it.cantidad}
-                            onChange={(e) => setQtyManual(it.productoId, e.target.value)}
-                            onBlur={() => setQtyEditId(null)}
-                            inputMode="numeric"
-                          />
-                          <button type="button" className="ventas-qty__btn" aria-label="Agregar uno" onClick={() => ajustarQty(it.productoId, 1)}>+</button>
-                        </>
-                      ) : (
+            <div className="ruta-pos-ticket-body">
+              <div className="ruta-pos-buscar">
+                <CampoCodigo
+                  value={codigo}
+                  onChange={(e) => setCodigo(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && scanAgregar()}
+                  onEscanear={(c) => scanAgregar(c)}
+                  beepAlEnter
+                  placeholder="Escanear o buscar…"
+                  tituloCamara="Escanear producto del camión"
+                />
+                <button type="button" className="btn btn-primary" onClick={() => scanAgregar()} aria-label="Agregar escaneo">+</button>
+              </div>
+              <div className="ruta-pos-ticket-lineas">
+                {carrito.length === 0 ? (
+                  <div className="ruta-pos-ticket-vacio">
+                    <Icon name="cart" size={28} />
+                    <span>Toca un producto o escanea para agregar</span>
+                  </div>
+                ) : null}
+                {carrito.map((it) => {
+                  const editando = qtyEditId === it.productoId;
+                  return (
+                    <div key={it.productoId} className="ruta-pos-linea">
+                      <ProductoThumb producto={it} size={40} />
+                      <div className="ruta-pos-linea-info">
+                        <span className="ruta-pos-linea-nombre">{it.nombre}</span>
+                        <span className="ruta-pos-linea-unit">{fmtMonto(it.precio)} c/u</span>
+                        <div className={`ventas-qty${editando ? ' ventas-qty--open' : ''}`}>
+                          {editando ? (
+                            <>
+                              <button type="button" className="ventas-qty__btn" aria-label="Quitar uno" onClick={() => ajustarQty(it.productoId, -1)}>−</button>
+                              <input
+                                className="ventas-qty__valor ventas-qty__valor--activo"
+                                style={{ width: 42, textAlign: 'center', border: 'none', background: 'transparent' }}
+                                value={it.cantidad}
+                                onChange={(e) => setQtyManual(it.productoId, e.target.value)}
+                                onBlur={() => setQtyEditId(null)}
+                                inputMode="numeric"
+                              />
+                              <button type="button" className="ventas-qty__btn" aria-label="Agregar uno" onClick={() => ajustarQty(it.productoId, 1)}>+</button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              className="ventas-qty__valor"
+                              onClick={() => setQtyEditId(it.productoId)}
+                              title="Cambiar cantidad"
+                            >
+                              {it.cantidad}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="ruta-pos-linea-right">
+                        <b className="ruta-pos-linea-importe">{fmtMonto(it.precio * it.cantidad)}</b>
                         <button
                           type="button"
-                          className="ventas-qty__valor"
-                          onClick={() => setQtyEditId(it.productoId)}
-                          title="Cambiar cantidad"
+                          className="btn btn-ghost ruta-pos-linea-quitar"
+                          onClick={() => setCarrito((p) => p.filter((x) => x.productoId !== it.productoId))}
                         >
-                          {it.cantidad}
+                          Quitar
                         </button>
-                      )}
+                      </div>
                     </div>
-                    <b className="ventas-carrito-importe">{fmtMonto(it.precio * it.cantidad)}</b>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+              <div className="ruta-pos-ticket-foot">
+                <div className="ruta-pos-total">
+                  <span className="ruta-pos-total-label">Total</span>
+                  <span className="ruta-pos-total-monto">{fmtMonto(total)}</span>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-success ruta-pos-pagar"
+                  disabled={!carrito.length}
+                  onClick={abrirCobro}
+                >
+                  Cobrar {fmtMonto(total)}
+                </button>
+              </div>
             </div>
-            <div className="ruta-pos-total">TOTAL {fmtMonto(total)}</div>
-            <button
-              type="button"
-              className="btn btn-success"
-              style={{ width: '100%', padding: '0.9rem', fontSize: '1.05rem' }}
-              disabled={!carrito.length}
-              onClick={abrirCobro}
-            >
-              Pagar {fmtMonto(total)}
-            </button>
           </aside>
         </div>
       )}
@@ -2340,7 +2411,7 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
               <label className="muted" style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.35rem' }}>
                 Forma de pago
               </label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginBottom: '0.75rem' }}>
+              <div className="ruta-pos-cobro-metodos">
                 {[
                   { id: 'efectivo', label: 'Efectivo' },
                   { id: 'credito', label: 'Crédito' },
@@ -2349,8 +2420,7 @@ function VistaPos({ supabase, user, vendedorSesion, productoPorId, inventario, s
                   <button
                     key={m.id}
                     type="button"
-                    className={metodo === m.id ? 'btn btn-primary' : 'btn btn-ghost'}
-                    style={{ flex: '1 1 calc(33% - 0.4rem)', minWidth: 90 }}
+                    className={`ruta-pos-cobro-metodo ${metodo === m.id ? 'btn btn-primary' : 'btn btn-ghost'}`}
                     onClick={() => {
                       setMetodo(m.id);
                       if (m.id === 'efectivo') {

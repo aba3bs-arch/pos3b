@@ -1,134 +1,365 @@
-/* POS Venta en Ruta — layout deptos | catálogo | carrito */
+/* POS Venta en Ruta — layout deptos | catálogo | carrito (look pro / tablet) */
+
+:root {
+  --ruta-pos-accent: #0f766e;
+  --ruta-pos-accent-soft: rgba(15, 118, 110, 0.1);
+  --ruta-pos-accent-mid: rgba(15, 118, 110, 0.22);
+  --ruta-pos-ink: #0f172a;
+  --ruta-pos-muted: #64748b;
+  --ruta-pos-surface: var(--card, #fff);
+  --ruta-pos-bg: linear-gradient(165deg, #f0fdfa 0%, #f8fafc 42%, #fff 100%);
+  --ruta-pos-radius: 14px;
+  --ruta-pos-shadow: 0 8px 28px rgba(15, 23, 42, 0.07);
+}
 
 .ruta-pos {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.85rem;
   min-height: 0;
+  animation: ruta-pos-fade-in 0.35s ease-out;
 }
 
+@keyframes ruta-pos-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ruta-pos-pop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.04); }
+  100% { transform: scale(1); }
+}
+
+@keyframes ruta-pos-badge-in {
+  from { transform: scale(0.6); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* ── Toolbar ─────────────────────────────────────────── */
 .ruta-pos-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem 1.25rem;
-  align-items: flex-end;
+  gap: 0.85rem 1.25rem;
+  align-items: center;
   justify-content: space-between;
-  border-top: 4px solid #0f766e;
   margin: 0;
+  padding: 1rem 1.15rem;
+  border: 1px solid rgba(15, 118, 110, 0.14);
+  border-radius: var(--ruta-pos-radius);
+  background:
+    radial-gradient(120% 80% at 100% 0%, rgba(15, 118, 110, 0.12), transparent 55%),
+    var(--ruta-pos-surface);
+  box-shadow: var(--ruta-pos-shadow);
+  position: relative;
+  overflow: hidden;
+}
+
+.ruta-pos-toolbar::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: linear-gradient(180deg, #14b8a6, var(--ruta-pos-accent));
+}
+
+.ruta-pos-toolbar-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  padding-left: 0.35rem;
+}
+
+.ruta-pos-toolbar-title {
+  margin: 0;
+  color: var(--ruta-pos-accent);
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.ruta-pos-toolbar-sub {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--ruta-pos-muted);
+  line-height: 1.35;
+}
+
+.ruta-pos-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.15rem;
+}
+
+.ruta-pos-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: var(--ruta-pos-accent-soft);
+  color: var(--ruta-pos-accent);
+  border: 1px solid var(--ruta-pos-accent-mid);
+}
+
+.ruta-pos-chip--muted {
+  background: rgba(100, 116, 139, 0.1);
+  color: var(--ruta-pos-muted);
+  border-color: rgba(100, 116, 139, 0.2);
+}
+
+.ruta-pos-chip--warn {
+  background: rgba(180, 83, 9, 0.1);
+  color: #b45309;
+  border-color: rgba(180, 83, 9, 0.25);
 }
 
 .ruta-pos-toolbar-fields {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  flex: 1 1 280px;
+  gap: 0.55rem;
+  flex: 1 1 260px;
   justify-content: flex-end;
+  align-items: flex-end;
 }
 
 .ruta-pos-toolbar-fields label {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  font-size: 0.78rem;
-  color: var(--muted, #64748b);
-  min-width: 160px;
-  flex: 1 1 160px;
-  max-width: 280px;
+  gap: 0.28rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ruta-pos-muted);
+  min-width: 180px;
+  flex: 1 1 200px;
+  max-width: 320px;
 }
 
+.ruta-pos-toolbar-fields .input,
+.ruta-pos-toolbar-fields .select {
+  font-weight: 600;
+  border-radius: 10px;
+  border-color: rgba(15, 118, 110, 0.22);
+}
+
+.ruta-pos-toolbar-fields .input:focus,
+.ruta-pos-toolbar-fields .select:focus {
+  border-color: var(--ruta-pos-accent);
+  box-shadow: 0 0 0 3px var(--ruta-pos-accent-soft);
+}
+
+.ruta-pos-stock-pill {
+  align-self: flex-end;
+  margin-bottom: 0.15rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 10px;
+  background: var(--ruta-pos-accent-soft);
+  color: var(--ruta-pos-accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ── Empty / loading ──────────────────────────────────── */
+.ruta-pos-empty {
+  margin: 0;
+  padding: 2.25rem 1.5rem;
+  text-align: center;
+  border-radius: var(--ruta-pos-radius);
+  border: 1px dashed rgba(15, 118, 110, 0.28);
+  background: var(--ruta-pos-bg);
+  box-shadow: none;
+}
+
+.ruta-pos-empty-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 0.85rem;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  background: var(--ruta-pos-accent-soft);
+  color: var(--ruta-pos-accent);
+}
+
+.ruta-pos-empty h4 {
+  margin: 0 0 0.35rem;
+  color: var(--ruta-pos-ink);
+  font-size: 1.05rem;
+}
+
+.ruta-pos-empty p {
+  margin: 0 auto;
+  max-width: 28rem;
+  font-size: 0.88rem;
+  color: var(--ruta-pos-muted);
+  line-height: 1.45;
+}
+
+/* ── Layout 3 columnas ────────────────────────────────── */
 .ruta-pos-layout {
   display: grid;
-  grid-template-columns: minmax(128px, 168px) minmax(0, 1fr) minmax(260px, 340px);
-  gap: 0.75rem;
+  grid-template-columns: minmax(140px, 176px) minmax(0, 1fr) minmax(280px, 360px);
+  gap: 0.85rem;
   align-items: stretch;
-  min-height: min(70dvh, 640px);
-  max-height: calc(100dvh - 14rem);
+  min-height: min(72dvh, 680px);
+  max-height: calc(100dvh - 12.5rem);
 }
 
-.ruta-pos-deptos {
+.ruta-pos-deptos,
+.ruta-pos-catalogo,
+.ruta-pos-ticket {
   margin: 0;
-  padding: 0.65rem;
+  border-radius: var(--ruta-pos-radius);
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  background: var(--ruta-pos-surface);
+  box-shadow: var(--ruta-pos-shadow);
+}
+
+/* ── Departamentos ────────────────────────────────────── */
+.ruta-pos-deptos {
+  padding: 0.7rem;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.3rem;
   overflow: auto;
   min-height: 0;
+  background:
+    linear-gradient(180deg, rgba(15, 118, 110, 0.06), transparent 28%),
+    var(--ruta-pos-surface);
 }
 
 .ruta-pos-deptos-title {
-  margin: 0 0 0.35rem;
-  font-size: 0.78rem;
+  margin: 0 0 0.4rem;
+  padding: 0 0.25rem;
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #0f766e;
+  letter-spacing: 0.08em;
+  font-weight: 800;
+  color: var(--ruta-pos-accent);
 }
 
 .ruta-pos-depto-btn {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.35rem;
+  gap: 0.4rem;
   width: 100%;
   text-align: left;
   border: 1px solid transparent;
   background: transparent;
-  border-radius: 8px;
-  padding: 0.55rem 0.6rem;
+  border-radius: 10px;
+  padding: 0.62rem 0.65rem;
   font-size: 0.82rem;
-  font-weight: 600;
+  font-weight: 650;
   cursor: pointer;
-  color: inherit;
+  color: var(--ruta-pos-ink);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
 }
 
 .ruta-pos-depto-btn:hover {
-  background: rgba(15, 118, 110, 0.08);
+  background: var(--ruta-pos-accent-soft);
+}
+
+.ruta-pos-depto-btn:active {
+  transform: scale(0.98);
 }
 
 .ruta-pos-depto-btn.activo {
-  background: rgba(15, 118, 110, 0.14);
-  border-color: rgba(15, 118, 110, 0.35);
-  color: #0f766e;
+  background: var(--ruta-pos-accent);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(15, 118, 110, 0.28);
+}
+
+.ruta-pos-depto-btn.activo .ruta-pos-depto-count {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
 }
 
 .ruta-pos-depto-count {
-  font-size: 0.72rem;
-  font-weight: 700;
-  opacity: 0.7;
+  min-width: 1.5rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-align: center;
+  background: rgba(15, 118, 110, 0.12);
+  color: var(--ruta-pos-accent);
 }
 
+/* ── Catálogo ─────────────────────────────────────────── */
 .ruta-pos-catalogo {
-  margin: 0;
-  padding: 0.75rem;
+  padding: 0.85rem;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 0.7rem;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  background: var(--ruta-pos-bg);
 }
 
 .ruta-pos-catalogo-head {
   display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ruta-pos-catalogo-head-title {
+  display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.ruta-pos-catalogo-head-title strong {
+  font-size: 1.02rem;
+  color: var(--ruta-pos-ink);
+  letter-spacing: -0.015em;
+}
+
+.ruta-pos-catalogo-head-title span {
+  font-size: 0.78rem;
+  color: var(--ruta-pos-muted);
+  font-weight: 500;
 }
 
 .ruta-pos-buscar {
   display: flex;
   gap: 0.4rem;
   align-items: stretch;
+  flex: 1 1 180px;
+  max-width: 320px;
+  margin-left: auto;
 }
 
-.ruta-pos-buscar > :first-child {
+.ruta-pos-buscar > :first-child,
+.ruta-pos-buscar .input {
   flex: 1;
   min-width: 0;
+  border-radius: 10px;
 }
 
 .ruta-pos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 0.7rem;
   overflow: auto;
   min-height: 0;
   flex: 1 1 auto;
   align-content: start;
+  padding: 0.1rem 0.15rem 0.35rem 0;
+  -webkit-overflow-scrolling: touch;
 }
 
 .ruta-pos-vacio {
@@ -137,34 +368,324 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
-  opacity: 0.75;
+  gap: 0.45rem;
+  color: var(--ruta-pos-muted);
+  opacity: 0.9;
 }
 
+/* Product tile */
+.ruta-pos-prod {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+  cursor: pointer;
+  text-align: left;
+  padding: 0.55rem;
+  border: 1px solid rgba(15, 23, 42, 0.07);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+  color: inherit;
+  font: inherit;
+  transition:
+    transform 0.14s ease,
+    border-color 0.14s ease,
+    box-shadow 0.14s ease;
+}
+
+.ruta-pos-prod:hover {
+  border-color: var(--ruta-pos-accent-mid);
+  box-shadow: 0 10px 24px rgba(15, 118, 110, 0.12);
+  transform: translateY(-2px);
+}
+
+.ruta-pos-prod:active {
+  transform: scale(0.97);
+}
+
+.ruta-pos-prod--en-carrito {
+  border-color: var(--ruta-pos-accent);
+  box-shadow: 0 0 0 2px var(--ruta-pos-accent-soft), 0 8px 20px rgba(15, 118, 110, 0.12);
+}
+
+.ruta-pos-prod--flash {
+  animation: ruta-pos-pop 0.35s ease;
+}
+
+.ruta-pos-prod-thumb {
+  border-radius: 10px;
+  overflow: hidden;
+  background: #f1f5f9;
+  aspect-ratio: 1;
+}
+
+.ruta-pos-prod-thumb .producto-thumb,
+.ruta-pos-prod-thumb .ventas-favorito-thumb {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none;
+}
+
+.ruta-pos-prod-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.ruta-pos-prod-precio {
+  color: var(--ruta-pos-accent);
+  font-weight: 800;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.ruta-pos-prod-nombre {
+  font-size: 0.8rem;
+  font-weight: 650;
+  line-height: 1.25;
+  color: var(--ruta-pos-ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ruta-pos-prod-stock {
+  font-size: 0.7rem;
+  font-weight: 650;
+  color: var(--ruta-pos-muted);
+}
+
+.ruta-pos-prod-stock--bajo {
+  color: #b45309;
+}
+
+.ruta-pos-prod-badge {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  min-width: 1.55rem;
+  height: 1.55rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--ruta-pos-accent);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  box-shadow: 0 4px 10px rgba(15, 118, 110, 0.35);
+  animation: ruta-pos-badge-in 0.22s ease;
+  z-index: 1;
+}
+
+/* ── Ticket / carrito ─────────────────────────────────── */
 .ruta-pos-ticket {
-  margin: 0;
-  padding: 0.75rem;
+  padding: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  border-top: 4px solid #0f766e;
+}
+
+.ruta-pos-ticket-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.85rem 0.9rem 0.65rem;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+  background: linear-gradient(180deg, rgba(15, 118, 110, 0.08), transparent);
+}
+
+.ruta-pos-ticket-head h3 {
+  margin: 0;
+  color: var(--ruta-pos-accent);
+  font-size: 1.05rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.ruta-pos-ticket-count {
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: var(--ruta-pos-accent);
+  color: #fff;
+}
+
+.ruta-pos-ticket-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 0.75rem 0.85rem;
+}
+
+.ruta-pos-ticket .ruta-pos-buscar {
+  max-width: none;
+  margin: 0 0 0.65rem;
 }
 
 .ruta-pos-ticket-lineas {
   flex: 1 1 auto;
   overflow: auto;
   min-height: 0;
-  margin-bottom: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.ruta-pos-ticket-vacio {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  text-align: center;
+  padding: 1.25rem 0.5rem;
+  color: var(--ruta-pos-muted);
+  font-size: 0.85rem;
+  border: 1px dashed rgba(15, 118, 110, 0.22);
+  border-radius: 12px;
+  background: rgba(15, 118, 110, 0.03);
+}
+
+.ruta-pos-linea {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 0.45rem 0.55rem;
+  align-items: center;
+  padding: 0.5rem;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  transition: background 0.15s ease;
+}
+
+.ruta-pos-linea:hover {
+  background: #f1f5f9;
+}
+
+.ruta-pos-linea-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.ruta-pos-linea-nombre {
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--ruta-pos-ink);
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ruta-pos-linea-unit {
+  font-size: 0.7rem;
+  color: var(--ruta-pos-muted);
+  font-weight: 600;
+}
+
+.ruta-pos-linea-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3rem;
+}
+
+.ruta-pos-linea-importe {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: var(--ruta-pos-accent);
+  letter-spacing: -0.02em;
+}
+
+.ruta-pos-linea-quitar {
+  font-size: 0.7rem !important;
+  padding: 0.1rem 0.35rem !important;
+  color: #b91c1c !important;
+}
+
+.ruta-pos-ticket-foot {
+  margin-top: auto;
+  padding-top: 0.55rem;
+  border-top: 1px solid rgba(15, 118, 110, 0.18);
 }
 
 .ruta-pos-total {
-  font-size: 1.25rem;
-  font-weight: 800;
-  color: #0f766e;
-  border-top: 2px solid #0f766e;
-  padding-top: 0.65rem;
-  margin: 0.35rem 0 0.65rem;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0 0 0.65rem;
+  padding: 0.35rem 0.1rem;
+}
+
+.ruta-pos-total-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ruta-pos-muted);
+}
+
+.ruta-pos-total-monto {
+  font-size: 1.55rem;
+  font-weight: 900;
+  color: var(--ruta-pos-accent);
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.ruta-pos-pagar {
+  width: 100%;
+  padding: 0.95rem 1rem !important;
+  font-size: 1.05rem !important;
+  font-weight: 800 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 24px rgba(46, 125, 50, 0.28);
+  transition: transform 0.12s ease, box-shadow 0.12s ease !important;
+}
+
+.ruta-pos-pagar:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(46, 125, 50, 0.34);
+}
+
+.ruta-pos-pagar:not(:disabled):active {
+  transform: scale(0.985);
+}
+
+/* Cobro modal tweaks within ruta */
+.ruta-pos-cobro-metodos {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  margin-bottom: 0.85rem;
+}
+
+.ruta-pos-cobro-metodo {
+  border-radius: 10px !important;
+  font-weight: 700 !important;
+  padding: 0.65rem 0.4rem !important;
+}
+
+@media (max-width: 1100px) {
+  .ruta-pos-layout {
+    grid-template-columns: minmax(120px, 148px) minmax(0, 1fr) minmax(250px, 300px);
+  }
 }
 
 @media (max-width: 960px) {
@@ -179,6 +700,9 @@
     flex-wrap: nowrap;
     overflow-x: auto;
     align-items: stretch;
+    gap: 0.4rem;
+    padding: 0.55rem;
+    -webkit-overflow-scrolling: touch;
   }
 
   .ruta-pos-deptos-title {
@@ -188,14 +712,46 @@
   .ruta-pos-depto-btn {
     flex: 0 0 auto;
     white-space: nowrap;
+    border-radius: 999px;
+    padding: 0.5rem 0.85rem;
   }
 
   .ruta-pos-ticket {
     order: -1;
-    max-height: 42vh;
+    max-height: 46vh;
+  }
+
+  .ruta-pos-catalogo {
+    min-height: 42vh;
   }
 
   .ruta-pos-grid {
-    max-height: 50vh;
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+    max-height: none;
+  }
+
+  .ruta-pos-toolbar-fields {
+    justify-content: stretch;
+  }
+
+  .ruta-pos-toolbar-fields label {
+    max-width: none;
+  }
+
+  .ruta-pos-stock-pill {
+    width: 100%;
+    text-align: center;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ruta-pos,
+  .ruta-pos-prod,
+  .ruta-pos-prod--flash,
+  .ruta-pos-prod-badge,
+  .ruta-pos-pagar,
+  .ruta-pos-depto-btn {
+    animation: none !important;
+    transition: none !important;
   }
 }
