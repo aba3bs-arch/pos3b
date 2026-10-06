@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import PortalFlotante from './PortalFlotante.jsx';
+import TutorialQuiz from './TutorialQuiz.jsx';
 
 function renderTexto(text) {
   const parts = String(text).split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
@@ -18,8 +19,8 @@ function renderTexto(text) {
 }
 
 /**
- * Modal reutilizable para abrir un tutorial con imágenes
- * desde el portal CT o el panel de cajeros (sin salir del Checador).
+ * Modal reutilizable para abrir un tutorial con imágenes / quiz
+ * desde el portal CT, Checador o Venta en Ruta.
  */
 export default function VisorTutorialModal({ tutorial, abierto, onCerrar, tituloAccion = 'Cerrar' }) {
   const secciones = useMemo(() => tutorial?.secciones || [], [tutorial]);
@@ -91,6 +92,7 @@ export default function VisorTutorialModal({ tutorial, abierto, onCerrar, titulo
         </div>
         <p className="muted" style={{ margin: '0.35rem 0 0.75rem', fontSize: '0.8rem' }}>
           Paso {idx + 1} de {total}
+          {seccion?.quiz?.length ? ' · Evaluación' : ''}
         </p>
 
         {seccion ? (
@@ -116,6 +118,7 @@ export default function VisorTutorialModal({ tutorial, abierto, onCerrar, titulo
                 ))}
               </div>
             ) : null}
+            {seccion.quiz?.length ? <TutorialQuiz quiz={seccion.quiz} /> : null}
           </article>
         ) : null}
 
