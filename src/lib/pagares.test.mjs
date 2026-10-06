@@ -7,6 +7,7 @@ import {
   puedeRecolectarPagare,
   puedeRecibirPagare,
   saldoPagare,
+  montoPendienteRecoleccion,
   textoPagare,
   pagareEnTransito,
   pagareEstaAbierto,
@@ -73,6 +74,44 @@ assert.equal(pagarePendienteCajero({ estado: 'abierto', saldo: 10 }), true);
 assert.equal(pagarePendienteCajero({ estado: 'por_recolectar', saldo: 10 }), false);
 assert.equal(pagarePendienteRecoleccion({ estado: 'por_recolectar', saldo: 10 }), true);
 assert.equal(pagarePendienteRecoleccion({ estado: 'abierto', saldo: 10 }), false);
+// Compat: liquidado por abono a $0 (todas las sucursales) → aún se recolecta
+assert.equal(
+  pagarePendienteRecoleccion({
+    estado: 'liquidado',
+    saldo: 0,
+    monto: 1089,
+    abono: 1089,
+    liquidado_por: 'Maria',
+  }),
+  true,
+);
+assert.equal(
+  pagarePendienteRecoleccion({
+    estado: 'liquidado',
+    saldo: 0,
+    monto: 1089,
+    rc_recolectado_por: 'Luis',
+  }),
+  false,
+);
+assert.equal(
+  etiquetaEstadoPagare({
+    estado: 'liquidado',
+    saldo: 0,
+    monto: 1089,
+    liquidado_por: 'Maria',
+  }),
+  'Por recolectar → RC Virtual',
+);
+assert.equal(
+  montoPendienteRecoleccion({
+    estado: 'liquidado',
+    saldo: 0,
+    monto: 1089,
+    abono: 1089,
+  }),
+  1089,
+);
 assert.equal(pagareEnTransito({ estado: 'en_transito' }), true);
 assert.equal(pagareEnTransito({ estado: 'por_recolectar' }), false);
 assert.equal(nombreRecolectorPagare({ rc_recolectado_por: 'Luis' }), 'Luis');

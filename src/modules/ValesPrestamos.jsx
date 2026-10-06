@@ -112,9 +112,11 @@ import {
   registrarPagare,
   saldoPagare,
   montoPendienteRecoleccion,
+  nombreRecolectorPagare,
   textoPagare,
 } from '../lib/pagares.js';
 import { etiquetaTienda, listarSucursalesOperativas, listarSucursalesParaUI } from '../constants/sucursales.js';
+import { fmtFechaCorta } from '../lib/consultasUi.js';
 import {
   AVISO_FALTA_RIFS,
   abonarRif,
@@ -1814,13 +1816,19 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                     <div key={p.id} className="pagare-cajero-card">
                       <div className="pagare-cajero-card__head">
                         <strong>{p.folio || 'Sin folio'}</strong>
-                        <span className="pagare-cajero-card__estado">{etiquetaEstadoPagare(p.estado)}</span>
+                        <span className="pagare-cajero-card__estado">{etiquetaEstadoPagare(p)}</span>
                       </div>
                       <div className="pagare-cajero-card__saldo">{fmt(saldo)}</div>
                       <div className="pagare-cajero-card__meta">
                         Debe: <strong>{ETIQUETA_AREA_PAGARE[p.area] || p.area}</strong>
                         {' · '}
                         Pagar a: <strong>{etiquetaPagarALas3b(p)}</strong>
+                        {p.created_at ? (
+                          <>
+                            {' · '}
+                            Generado: <strong>{fmtFechaCorta(p.created_at)}</strong>
+                          </>
+                        ) : null}
                       </div>
                       {(p.encargado_nombre || p.cajero_nombre) && (
                         <div className="pagare-cajero-card__meta muted">
@@ -1904,6 +1912,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                       <thead>
                         <tr>
                           <th>Folio</th>
+                          <th>Fecha</th>
                           <th>Debe</th>
                           <th>Pagar a</th>
                           <th>Encargado</th>
@@ -1919,9 +1928,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                         {lista.map((p) => {
                           const pendienteCajero = pagarePendienteCajero(p);
                           const pendienteRec = pagarePendienteRecoleccion(p);
+                          const recolector = nombreRecolectorPagare(p);
                           return (
                             <tr key={p.id}>
                               <td>{p.folio || '—'}</td>
+                              <td style={{ whiteSpace: 'nowrap', fontSize: '0.82rem' }}>
+                                {p.created_at ? fmtFechaCorta(p.created_at) : '—'}
+                              </td>
                               <td>{ETIQUETA_AREA_PAGARE[p.area] || p.area}</td>
                               <td>{etiquetaPagarALas3b(p)}</td>
                               <td>{p.encargado_nombre || '—'}</td>
@@ -1931,13 +1944,13 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                               </td>
                               <td>{fmt(p.monto)}</td>
                               <td>{fmt(pendienteRec ? montoPendienteRecoleccion(p) : saldoPagare(p))}</td>
-                              <td>{etiquetaEstadoPagare(p.estado)}</td>
+                              <td>{etiquetaEstadoPagare(p)}</td>
                               <td className="muted" style={{ fontSize: '0.78rem' }}>
                                 {p.liquidado_por ? `Liquidó: ${p.liquidado_por}` : '—'}
-                                {p.rc_recibido_por ? (
+                                {recolector ? (
                                   <>
                                     <br />
-                                    Recolectó: {p.rc_recibido_por}
+                                    Recolectó: {recolector}
                                   </>
                                 ) : null}
                               </td>
