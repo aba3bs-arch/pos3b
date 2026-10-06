@@ -684,6 +684,7 @@ export default function ReporteInventario({
       }
       setLineaEdit(null);
       setReloadKey((n) => n + 1);
+      if (r.avisoLocal) setAvisoResultado(r.avisoLocal);
       if (typeof cargarDatos === 'function') await cargarDatos();
     } catch (e) {
       setErrorCorreccion(e?.message || String(e));

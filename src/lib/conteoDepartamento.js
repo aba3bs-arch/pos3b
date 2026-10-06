@@ -18,6 +18,11 @@ const LS_FOLIO_SEQ = 'pos3b_folio_ajuste_seq';
 const LS_AJUSTES = 'pos3b_ajustes_inventario';
 const LS_CORRECCIONES_LINEAS = 'pos3b_correcciones_lineas_inventario';
 
+/** Tope de correcciones en este equipo (evita QuotaExceeded en reporte). */
+const MAX_CORRECCIONES_LINEAS = 400;
+/** Si aún no cabe, se recorta a este tamaño y se reintenta. */
+const MAX_CORRECCIONES_EMERGENCIA = 80;
+
 export function claveCorreccionLinea(folio, sucursal, codigo) {
   return `${String(folio || '')}|${normalizarCodigoTienda(sucursal) || '—'}|${String(codigo)}`;
 }
@@ -26,18 +31,107 @@ export function leerCorreccionesLineasInventario() {
   try {
     const raw = localStorage.getItem(LS_CORRECCIONES_LINEAS);
     const o = raw ? JSON.parse(raw) : {};
-    return o && typeof o === 'object' ? o : {};
+    return o && typeof o === 'object' && !Array.isArray(o) ? o : {};
   } catch {
     return {};
   }
 }
 
-export function guardarCorreccionLineaInventario(entry) {
-  const map = leerCorreccionesLineasInventario();
-  const key = claveCorreccionLinea(entry.folio, entry.sucursal, entry.codigo);
-  map[key] = { ...entry, updated_at: new Date().toISOString() };
+function esErrorCuota(err) {
+  const name = String(err?.name || '');
+  const msg = String(err?.message || err || '');
+  return (
+    name === 'QuotaExceededError'
+    || name === 'NS_ERROR_DOM_QUOTA_REACHED'
+    || /quota|exceeded|storage/i.test(msg)
+  );
+}
+
+/** Solo campos necesarios para el reporte (menos bytes por corrección). */
+function slimCorreccionEntry(entry) {
+  return {
+    folio: entry.folio || null,
+    sucursal: normalizarCodigoTienda(entry.sucursal) || entry.sucursal || null,
+    codigo: String(entry.codigo || ''),
+    nombre: entry.nombre || '',
+    existencia: Number(entry.existencia) || 0,
+    contada: entry.contada != null ? Number(entry.contada) : null,
+    diferencia: entry.diferencia != null ? Number(entry.diferencia) : null,
+    precioVenta: Number(entry.precioVenta) || 0,
+    valorDiferencia: Number(entry.valorDiferencia) || 0,
+    estado: entry.estado || null,
+    folio_correccion: entry.folio_correccion || null,
+    corregido_por: entry.corregido_por || null,
+    nota: entry.nota ? String(entry.nota).slice(0, 200) : '',
+    updated_at: entry.updated_at || new Date().toISOString(),
+  };
+}
+
+/** Conserva las N más recientes por updated_at. */
+export function podarMapaCorrecciones(map, max = MAX_CORRECCIONES_LINEAS) {
+  const entries = Object.entries(map || {});
+  if (entries.length <= max) return map && typeof map === 'object' ? { ...map } : {};
+  entries.sort((a, b) => String(b[1]?.updated_at || '').localeCompare(String(a[1]?.updated_at || '')));
+  const out = {};
+  for (const [k, v] of entries.slice(0, max)) out[k] = v;
+  return out;
+}
+
+function escribirCorreccionesLineas(map) {
   localStorage.setItem(LS_CORRECCIONES_LINEAS, JSON.stringify(map));
-  return map[key];
+}
+
+/**
+ * Persiste una corrección de línea. Poda entradas viejas y reintenta si hay cuota llena.
+ * @returns {{ ok: boolean, entry?: object, aviso?: string }}
+ */
+export function guardarCorreccionLineaInventario(entry) {
+  const slim = slimCorreccionEntry({ ...entry, updated_at: new Date().toISOString() });
+  const key = claveCorreccionLinea(slim.folio, slim.sucursal, slim.codigo);
+  let map = leerCorreccionesLineasInventario();
+  map[key] = slim;
+  map = podarMapaCorrecciones(map, MAX_CORRECCIONES_LINEAS);
+
+  try {
+    escribirCorreccionesLineas(map);
+    return { ok: true, entry: slim };
+  } catch (e1) {
+    if (!esErrorCuota(e1)) {
+      return { ok: false, error: e1?.message || String(e1), entry: slim };
+    }
+    // Cuota llena: recortar fuerte y reintentar
+    map = podarMapaCorrecciones({ [key]: slim, ...map }, MAX_CORRECCIONES_EMERGENCIA);
+    map[key] = slim;
+    try {
+      escribirCorreccionesLineas(map);
+      return {
+        ok: true,
+        entry: slim,
+        aviso: 'Almacenamiento local lleno: se limpiaron correcciones antiguas para guardar esta.',
+      };
+    } catch (e2) {
+      // Último recurso: solo esta corrección
+      try {
+        escribirCorreccionesLineas({ [key]: slim });
+        return {
+          ok: true,
+          entry: slim,
+          aviso: 'Almacenamiento local lleno: se conservó solo esta corrección en el equipo.',
+        };
+      } catch (e3) {
+        try {
+          localStorage.removeItem(LS_CORRECCIONES_LINEAS);
+        } catch {
+          /* ignore */
+        }
+        return {
+          ok: false,
+          error: 'No hay espacio en este navegador para guardar la corrección local. El stock en nube sí se actualizó.',
+          entry: slim,
+        };
+      }
+    }
+  }
 }
 
 function lineasParaResumenDesdeAjuste(lineas) {
@@ -62,7 +156,22 @@ export function actualizarLineaAjusteLocal(folio, codigo, patch) {
   aj.resumen = resumirConteoDepartamento(lineasParaResumenDesdeAjuste(aj.lineas));
   aj.ultima_correccion_at = new Date().toISOString();
   list[idx] = aj;
-  localStorage.setItem(LS_AJUSTES, JSON.stringify(list));
+  try {
+    localStorage.setItem(LS_AJUSTES, JSON.stringify(list));
+  } catch (e) {
+    if (!esErrorCuota(e)) return false;
+    // Recortar historial de ajustes locales y reintentar
+    const corto = list.slice(0, 20);
+    try {
+      localStorage.setItem(LS_AJUSTES, JSON.stringify(corto));
+    } catch {
+      try {
+        localStorage.setItem(LS_AJUSTES, JSON.stringify([aj]));
+      } catch {
+        return false;
+      }
+    }
+  }
   return true;
 }
 
@@ -198,8 +307,22 @@ export function leerAjustesInventario() {
 
 function guardarAjusteInventario(ajuste) {
   const prev = leerAjustesInventario();
-  const next = [{ ...ajuste, id: ajuste.id || `aj_${Date.now()}` }, ...prev].slice(0, 100);
-  localStorage.setItem(LS_AJUSTES, JSON.stringify(next));
+  let next = [{ ...ajuste, id: ajuste.id || `aj_${Date.now()}` }, ...prev].slice(0, 100);
+  try {
+    localStorage.setItem(LS_AJUSTES, JSON.stringify(next));
+  } catch (e) {
+    if (!esErrorCuota(e)) throw e;
+    next = next.slice(0, 15);
+    try {
+      localStorage.setItem(LS_AJUSTES, JSON.stringify(next));
+    } catch {
+      try {
+        localStorage.setItem(LS_AJUSTES, JSON.stringify(next.slice(0, 1)));
+      } catch {
+        /* sin espacio local: el stock en nube ya se aplicó */
+      }
+    }
+  }
   return next;
 }
 
@@ -461,7 +584,7 @@ export async function corregirLineaConteoInventario(supabase, opts = {}) {
   };
 
   actualizarLineaAjusteLocal(folioOrigen, codigo, lineaPatch);
-  guardarCorreccionLineaInventario({
+  const guardado = guardarCorreccionLineaInventario({
     folio: folioOrigen,
     sucursal: suc,
     codigo,
@@ -479,6 +602,7 @@ export async function corregirLineaConteoInventario(supabase, opts = {}) {
     sucursal: suc,
     departamento: linea.departamentoKey || linea.departamento,
     created_at: linea.created_at,
+    avisoLocal: guardado.aviso || (!guardado.ok ? guardado.error : null),
     mensaje: `Corrección ${folioCor}: ${linea.nombre || codigo} → ${contada} pzas (${diferencia > 0 ? '+' : ''}${diferencia}).`,
   };
 }
