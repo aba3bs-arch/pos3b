@@ -695,6 +695,39 @@
     min-height: 0;
   }
 
+  /* Celular: toolbar mínimo — solo selector de tienda (sin chips de usuario/camión/destino) */
+  .ruta-pos-toolbar {
+    padding: 0.65rem 0.75rem 0.65rem 0.9rem;
+    gap: 0.5rem;
+  }
+
+  .ruta-pos-toolbar-main {
+    display: none;
+  }
+
+  .ruta-pos-chips {
+    display: none;
+  }
+
+  .ruta-pos-toolbar-fields {
+    justify-content: stretch;
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .ruta-pos-toolbar-fields label {
+    max-width: none;
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+
+  .ruta-pos-stock-pill {
+    width: 100%;
+    text-align: center;
+    font-size: 0.72rem;
+    padding: 0.28rem 0.5rem;
+  }
+
   .ruta-pos-deptos {
     flex-direction: row;
     flex-wrap: nowrap;
@@ -716,31 +749,25 @@
     padding: 0.5rem 0.85rem;
   }
 
+  /* Más espacio al carrito; la página puede alargarse con scroll */
   .ruta-pos-ticket {
     order: -1;
-    max-height: 46vh;
+    max-height: none;
+    min-height: 52vh;
+  }
+
+  .ruta-pos-ticket-lineas {
+    max-height: none;
+    min-height: 28vh;
   }
 
   .ruta-pos-catalogo {
-    min-height: 42vh;
+    min-height: 48vh;
   }
 
   .ruta-pos-grid {
     grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
     max-height: none;
-  }
-
-  .ruta-pos-toolbar-fields {
-    justify-content: stretch;
-  }
-
-  .ruta-pos-toolbar-fields label {
-    max-width: none;
-  }
-
-  .ruta-pos-stock-pill {
-    width: 100%;
-    text-align: center;
   }
 }
 
