@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef8f6"/>
+      <stop offset="100%" stop-color="#f5f7fb"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0d47a1"/>
+      <stop offset="100%" stop-color="#1565c0"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0f766e" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+
+  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700" fill="#0f766e">11. Errores típicos · evítalos</text>
+  <text x="48" y="78" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">Checklist rápido antes de operar</text>
+  <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="48" y="110" width="864" height="320" rx="16" fill="#fff"/>
+    
+    <rect x="72" y="140" width="816" height="44" rx="10" fill="#fff" stroke="#e2e8f0"/>
+    <circle cx="100" cy="162" r="12" fill="#fef2f2" stroke="#ef4444" stroke-width="2"/>
+    <text x="100" y="167" text-anchor="middle" font-size="14" font-weight="700" fill="#b91c1c">×</text>
+    <text x="130" y="158" font-size="14" font-weight="700" fill="#0f172a">Cargar sin recolector / camión</text>
+    <text x="130" y="178" font-size="12" fill="#64748b">Siempre elige destinatario antes de aplicar</text>
+    
+    <rect x="72" y="192" width="816" height="44" rx="10" fill="#f8fafc" stroke="#e2e8f0"/>
+    <circle cx="100" cy="214" r="12" fill="#fef2f2" stroke="#ef4444" stroke-width="2"/>
+    <text x="100" y="219" text-anchor="middle" font-size="14" font-weight="700" fill="#b91c1c">×</text>
+    <text x="130" y="210" font-size="14" font-weight="700" fill="#0f172a">Vender sin destino o camión vacío</text>
+    <text x="130" y="230" font-size="12" fill="#64748b">Primero destino · carga mercancía en CEDIS</text>
+    
+    <rect x="72" y="244" width="816" height="44" rx="10" fill="#fff" stroke="#e2e8f0"/>
+    <circle cx="100" cy="266" r="12" fill="#fef2f2" stroke="#ef4444" stroke-width="2"/>
+    <text x="100" y="271" text-anchor="middle" font-size="14" font-weight="700" fill="#b91c1c">×</text>
+    <text x="130" y="262" font-size="14" font-weight="700" fill="#0f172a">Mixto todo como efectivo</text>
+    <text x="130" y="282" font-size="12" fill="#64748b">Separa efe + crédito</text>
+    
+    <rect x="72" y="296" width="816" height="44" rx="10" fill="#f8fafc" stroke="#e2e8f0"/>
+    <circle cx="100" cy="318" r="12" fill="#fef2f2" stroke="#ef4444" stroke-width="2"/>
+    <text x="100" y="323" text-anchor="middle" font-size="14" font-weight="700" fill="#b91c1c">×</text>
+    <text x="130" y="314" font-size="14" font-weight="700" fill="#0f172a">Cancelar carga con ventas</text>
+    <text x="130" y="334" font-size="12" fill="#64748b">Usa liquidar / devolver piezas</text>
+    
+    <rect x="72" y="348" width="816" height="44" rx="10" fill="#fff" stroke="#e2e8f0"/>
+    <circle cx="100" cy="370" r="12" fill="#fef2f2" stroke="#ef4444" stroke-width="2"/>
+    <text x="100" y="375" text-anchor="middle" font-size="14" font-weight="700" fill="#b91c1c">×</text>
+    <text x="130" y="366" font-size="14" font-weight="700" fill="#0f172a">Inventar el efectivo del corte</text>
+    <text x="130" y="386" font-size="12" fill="#64748b">Cuenta, anota y avisa</text>
+    
+  </g>
+
+</svg>

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef8f6"/>
+      <stop offset="100%" stop-color="#f5f7fb"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0d47a1"/>
+      <stop offset="100%" stop-color="#1565c0"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0f766e" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+
+  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700" fill="#0f766e">1. Mapa del flujo · Venta en Ruta</text>
+  <text x="48" y="78" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">CEDIS guarda · camión lleva · POS vende · corte cierra</text>
+  <g font-family="Segoe UI,Arial,sans-serif" filter="url(#shadow)">
+    
+    <rect x="40" y="120" width="160" height="110" rx="14" fill="#fff"/>
+    <circle cx="68" cy="150" r="16" fill="#0f766e"/>
+    <text x="68" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">1</text>
+    <text x="92" y="155" font-size="14" font-weight="700" fill="#0f766e">CEDIS</text>
+    <text x="60" y="195" font-size="13" fill="#546e7a">Bodega / stock</text>
+    
+    <rect x="220" y="120" width="160" height="110" rx="14" fill="#fff"/>
+    <circle cx="248" cy="150" r="16" fill="#0f766e"/>
+    <text x="248" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">2</text>
+    <text x="272" y="155" font-size="14" font-weight="700" fill="#0f766e">Camión</text>
+    <text x="240" y="195" font-size="13" fill="#546e7a">Carga abierta</text>
+    
+    <rect x="400" y="120" width="160" height="110" rx="14" fill="#fff"/>
+    <circle cx="428" cy="150" r="16" fill="#0f766e"/>
+    <text x="428" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">3</text>
+    <text x="452" y="155" font-size="14" font-weight="700" fill="#0f766e">POS ruta</text>
+    <text x="420" y="195" font-size="13" fill="#546e7a">Vende destino</text>
+    
+    <rect x="580" y="120" width="160" height="110" rx="14" fill="#fff"/>
+    <circle cx="608" cy="150" r="16" fill="#0f766e"/>
+    <text x="608" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">4</text>
+    <text x="632" y="155" font-size="14" font-weight="700" fill="#0f766e">Consultas</text>
+    <text x="600" y="195" font-size="13" fill="#546e7a">Tickets / aclarar</text>
+    
+    <rect x="760" y="120" width="160" height="110" rx="14" fill="#fff"/>
+    <circle cx="788" cy="150" r="16" fill="#0f766e"/>
+    <text x="788" y="155" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">5</text>
+    <text x="812" y="155" font-size="14" font-weight="700" fill="#0f766e">Corte</text>
+    <text x="780" y="195" font-size="13" fill="#546e7a">Cierra turno</text>
+    
+  </g>
+  <g font-family="Segoe UI,Arial,sans-serif">
+    <path d="M190 175 H220" stroke="#94a3b8" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M370 175 H400" stroke="#94a3b8" stroke-width="2"/>
+    <path d="M550 175 H580" stroke="#94a3b8" stroke-width="2"/>
+    <path d="M730 175 H760" stroke="#94a3b8" stroke-width="2"/>
+  </g>
+  <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="40" y="280" width="880" height="150" rx="16" fill="#fff"/>
+    <rect x="40" y="280" width="8" height="150" rx="4" fill="#0f766e"/>
+    <text x="72" y="320" font-size="17" font-weight="700" fill="#0f766e">Cómo leerlo</text>
+    <text x="72" y="355" font-size="15" fill="#37474f">Mercancía sale de CEDIS → viaja en el camión → se vende en el POS → queda historial → se cierra con corte / liquidación.</text>
+    <text x="72" y="390" font-size="14" fill="#546e7a">Cada rol ve solo sus botones. Admin ve el hub completo.</text>
+  </g>
+
+</svg>

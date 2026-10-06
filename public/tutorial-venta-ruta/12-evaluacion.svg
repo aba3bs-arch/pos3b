@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef8f6"/>
+      <stop offset="100%" stop-color="#f5f7fb"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0d47a1"/>
+      <stop offset="100%" stop-color="#1565c0"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0f766e" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+
+  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700" fill="#0f766e">12. Evaluación · te calificamos</text>
+  <text x="48" y="78" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">8 preguntas · puntaje · porcentaje · letra A–F (aprueba ≥ 70%)</text>
+  <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="120" y="130" width="720" height="280" rx="16" fill="#fff"/>
+    <rect x="160" y="170" width="90" height="90" rx="14" fill="#ecfdf5" stroke="#0f766e" stroke-width="2"/>
+    <text x="205" y="230" text-anchor="middle" font-size="42" font-weight="900" fill="#0f766e">B</text>
+    <text x="280" y="200" font-size="18" font-weight="700" fill="#0f172a">Ejemplo de resultado</text>
+    <text x="280" y="235" font-size="15" fill="#334155">7 / 8 aciertos · 88%</text>
+    <text x="280" y="265" font-size="15" fill="#0f766e">Muy bien · listo para operar</text>
+    <rect x="160" y="290" width="640" height="70" rx="12" fill="#f8fafc"/>
+    <text x="180" y="320" font-size="14" fill="#475569">A ≥90% · B ≥80% · C ≥70% (aprueba) · D / F = repasa y Reintentar</text>
+    <text x="180" y="345" font-size="13" fill="#64748b">Responde en la siguiente pantalla del tutorial</text>
+  </g>
+
+</svg>

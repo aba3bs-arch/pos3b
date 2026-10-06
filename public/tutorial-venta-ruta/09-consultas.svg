@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef8f6"/>
+      <stop offset="100%" stop-color="#f5f7fb"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0d47a1"/>
+      <stop offset="100%" stop-color="#1565c0"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0f766e" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+
+  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700" fill="#0f766e">9. Consultas · historial</text>
+  <text x="48" y="78" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">Ingresos = tickets de carga · Reimprimir para aclaraciones</text>
+  <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="48" y="110" width="864" height="320" rx="16" fill="#fff"/>
+    <g>
+      
+      <rect x="72" y="140" width="130" height="36" rx="8" fill="#0f766e"/>
+      <text x="137" y="163" text-anchor="middle" font-size="13" font-weight="700" fill="#fff">Ingresos</text>
+      
+      <rect x="222" y="140" width="130" height="36" rx="8" fill="#f1f5f9"/>
+      <text x="287" y="163" text-anchor="middle" font-size="13" font-weight="700" fill="#475569">Ventas</text>
+      
+      <rect x="372" y="140" width="130" height="36" rx="8" fill="#f1f5f9"/>
+      <text x="437" y="163" text-anchor="middle" font-size="13" font-weight="700" fill="#475569">Cargas</text>
+      
+      <rect x="522" y="140" width="130" height="36" rx="8" fill="#f1f5f9"/>
+      <text x="587" y="163" text-anchor="middle" font-size="13" font-weight="700" fill="#475569">Créditos</text>
+      
+    </g>
+    <rect x="72" y="200" width="816" height="44" rx="8" fill="#f8fafc"/>
+    <text x="92" y="227" font-size="12" font-weight="700" fill="#64748b">Folio ticket</text>
+    <text x="280" y="227" font-size="12" font-weight="700" fill="#64748b">Fecha</text>
+    <text x="420" y="227" font-size="12" font-weight="700" fill="#64748b">Repartidor</text>
+    <text x="620" y="227" font-size="12" font-weight="700" fill="#64748b">Piezas</text>
+    <text x="740" y="227" font-size="12" font-weight="700" fill="#64748b">Acción</text>
+    <rect x="72" y="255" width="816" height="52" rx="8" fill="#fff" stroke="#e2e8f0"/>
+    <text x="92" y="287" font-size="14" font-weight="700" fill="#0f172a">CI-20261006-…</text>
+    <text x="280" y="287" font-size="13" fill="#64748b">06/10 16:40</text>
+    <text x="420" y="287" font-size="13" fill="#334155">Luis · RT-01</text>
+    <text x="620" y="287" font-size="13" fill="#334155">72</text>
+    <rect x="740" y="268" width="120" height="28" rx="6" fill="#ecfdf5" stroke="#0f766e"/>
+    <text x="800" y="287" text-anchor="middle" font-size="12" font-weight="700" fill="#0f766e">Reimprimir</text>
+    <text x="72" y="360" font-size="13" fill="#546e7a">Cargas: Liquidar / Cancelar · Ventas: tickets del día</text>
+  </g>
+
+</svg>

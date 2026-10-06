@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="480" viewBox="0 0 960 480" role="img">
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#eef8f6"/>
+      <stop offset="100%" stop-color="#f5f7fb"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="100%" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#0d47a1"/>
+      <stop offset="100%" stop-color="#1565c0"/>
+    </linearGradient>
+    <filter id="shadow" x="-8%" y="-8%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="7" flood-color="#0f766e" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#bg)"/>
+
+  <text x="48" y="48" font-family="Segoe UI,Arial,sans-serif" font-size="26" font-weight="700" fill="#0f766e">8. Créditos por pagar</text>
+  <text x="48" y="78" font-family="Segoe UI,Arial,sans-serif" font-size="15" fill="#546e7a">Cuenta por cobrar · el cajero liquida con PIN en tienda</text>
+  <g filter="url(#shadow)" font-family="Segoe UI,Arial,sans-serif">
+    <rect x="48" y="110" width="864" height="320" rx="16" fill="#fff"/>
+    <rect x="72" y="150" width="500" height="240" rx="12" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="92" y="185" font-size="14" font-weight="700" fill="#0f766e">Pendientes</text>
+    <rect x="92" y="205" width="460" height="56" rx="10" fill="#fff" stroke="#e2e8f0"/>
+    <text x="112" y="230" font-size="14" font-weight="600" fill="#0f172a">VR-8F2A · 3B2</text>
+    <text x="112" y="250" font-size="12" fill="#64748b">Crédito $320.00</text>
+    <text x="500" y="240" text-anchor="end" font-size="13" font-weight="700" fill="#b45309">Por pagar</text>
+    <rect x="92" y="275" width="460" height="56" rx="10" fill="#fff" stroke="#e2e8f0"/>
+    <text x="112" y="300" font-size="14" font-weight="600" fill="#0f172a">VR-91BC · Cliente ext.</text>
+    <text x="112" y="320" font-size="12" fill="#64748b">Crédito $150.00</text>
+    <text x="500" y="310" text-anchor="end" font-size="13" font-weight="700" fill="#b45309">Por pagar</text>
+    <rect x="600" y="150" width="280" height="240" rx="12" fill="#eff6ff" stroke="#93c5fd"/>
+    <text x="620" y="190" font-size="14" font-weight="700" fill="#1d4ed8">En tienda</text>
+    <text x="620" y="230" font-size="13" fill="#334155">1. Abrir Créditos</text>
+    <text x="620" y="260" font-size="13" fill="#334155">2. Elegir folio</text>
+    <text x="620" y="290" font-size="13" fill="#334155">3. PIN del cajero</text>
+    <text x="620" y="320" font-size="13" fill="#334155">4. Liquidar</text>
+    <text x="620" y="360" font-size="12" fill="#64748b">No es un gasto de recepción</text>
+  </g>
+
+</svg>
