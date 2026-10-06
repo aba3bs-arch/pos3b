@@ -339,6 +339,22 @@ describe('clasificarEstadoFila', () => {
     );
   });
 
+  it('mixto: gasto solo por efectivo (no descuadra vs ticket)', () => {
+    assert.equal(
+      clasificarEstadoFila({
+        tipo: 'compra',
+        monto_ticket: 360,
+        monto_inventario: 360,
+        monto_gasto: 300,
+        lineas_inventario: [{ id: 'p1', qty: 1 }],
+        gastos: [{ id: 'g1', monto: 300 }],
+        productos_faltantes: [],
+        notas: 'Venta en ruta VR-MUW9T8HW · metodo mixto · efe 300.00 · cre 60.00',
+      }),
+      ESTADOS.OK,
+    );
+  });
+
   it('compra normal sin gasto = sin_gasto', () => {
     assert.equal(
       clasificarEstadoFila({
