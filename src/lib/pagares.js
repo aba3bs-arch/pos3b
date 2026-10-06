@@ -103,9 +103,20 @@ export function normalizarAreaPagare(area) {
   return null;
 }
 
-export function etiquetaEstadoPagare(estado) {
-  const e = String(estado || '').toLowerCase();
-  return ETIQUETA_ESTADO_PAGARE[e] || estado || '—';
+export function etiquetaEstadoPagare(estadoOrPagare, pagareMaybe = null) {
+  const pagare = (pagareMaybe && typeof pagareMaybe === 'object')
+    ? pagareMaybe
+    : (estadoOrPagare && typeof estadoOrPagare === 'object' ? estadoOrPagare : null);
+  const e = String(
+    (pagare ? pagare.estado : estadoOrPagare) || '',
+  ).toLowerCase();
+  // Compat: liquidado legado que aún espera recolección
+  if (e === 'liquidado' && pagare && pagarePendienteRecoleccion(pagare)) {
+    return ETIQUETA_ESTADO_PAGARE.por_recolectar;
+  }
+  if (ETIQUETA_ESTADO_PAGARE[e]) return ETIQUETA_ESTADO_PAGARE[e];
+  if (typeof estadoOrPagare === 'string') return estadoOrPagare || '—';
+  return e || '—';
 }
 
 /** Admin, gerente o repartidor (recolector) generan el pagaré + ticket. */
@@ -151,7 +162,12 @@ export function montoPendienteRecoleccion(p) {
   if (!p) return 0;
   const rc = Number(p.rc_monto);
   if (Number.isFinite(rc) && rc > 0.001) return round2(rc);
-  return saldoPagare(p);
+  const saldo = saldoPagare(p);
+  if (saldo > 0.001) return saldo;
+  // Compat: liquidado/abonado a $0 sin rc_monto → usar abono o monto original.
+  const abono = Number(p.abono);
+  if (Number.isFinite(abono) && abono > 0.001) return round2(abono);
+  return round2(p.monto);
 }
 
 /** Nombre del recolector (en tránsito). Compat: filas viejas usaban rc_recibido_por. */
@@ -168,11 +184,23 @@ export function pagarePendienteCajero(p) {
   return saldoPagare(p) > 0.001;
 }
 
-/** Ya liquidado por cajero; espera Recolectar → RC Virtual. */
+/**
+ * Ya liquidado/abonado por cajero; espera Recolectar → RC Virtual.
+ * Incluye estado «liquidado» legado (abono a $0) que nunca pasó a por_recolectar.
+ */
 export function pagarePendienteRecoleccion(p) {
   if (!p) return false;
+  if (nombreRecolectorPagare(p)) return false;
   const est = String(p.estado || '').toLowerCase();
-  return ESTADOS_PENDIENTE_RECOLECCION.has(est) && montoPendienteRecoleccion(p) > 0.001;
+  if (est === 'en_transito' || est === 'recolectado' || est === 'cancelado') return false;
+  if (ESTADOS_PENDIENTE_RECOLECCION.has(est)) {
+    return montoPendienteRecoleccion(p) > 0.001;
+  }
+  // Compat filas con estado «liquidado» (saldo 0) aún sin recolectar.
+  if (est === 'liquidado') {
+    return montoPendienteRecoleccion(p) > 0.001;
+  }
+  return false;
 }
 
 /** Recolectado por calle; espera recepción en central (ABB/JLBB/FJBB/AMR). */
@@ -215,15 +243,15 @@ export async function listarPagares(supabase, opts = {}) {
   const area = normalizarAreaPagare(opts.area);
   if (area) q = q.eq('area', area);
   if (opts.sucursal) q = q.eq('sucursal_id', normalizarCodigoTienda(opts.sucursal));
-  if (opts.soloPorRecolectar) q = q.eq('estado', 'por_recolectar');
-  else if (opts.soloAbiertos) q = q.in('estado', ['abierto', 'parcial', 'por_recolectar']);
+  if (opts.soloPorRecolectar) q = q.in('estado', ['por_recolectar', 'liquidado']);
+  else if (opts.soloAbiertos) q = q.in('estado', ['abierto', 'parcial', 'por_recolectar', 'liquidado']);
   const { data, error } = await q;
   if (error) {
     if (faltaTablaPagares(error)) return { ok: false, error: AVISO_FALTA_PAGARES, data: [], faltaTabla: true };
     return { ok: false, error: error.message, data: [] };
   }
   let rows = data || [];
-  if (opts.soloAbiertos) rows = rows.filter(pagareEstaAbierto);
+  if (opts.soloAbiertos) rows = rows.filter((p) => pagareEstaAbierto(p) || pagarePendienteRecoleccion(p));
   if (opts.soloPorRecolectar) rows = rows.filter(pagarePendienteRecoleccion);
   return { ok: true, data: rows };
 }
@@ -302,7 +330,7 @@ export async function registrarPagare(supabase, payload = {}, opts = {}) {
 
 /**
  * Abono parcial: pregunta monto y descuenta del saldo.
- * Si el abono deja saldo en 0 sin liquidar formal, queda liquidado (nada que recolectar).
+ * Si el abono deja saldo en 0, queda «por recolectar» (mismo flujo que Liquidar).
  */
 export async function abonarPagare(supabase, pagare, montoAbono, opts = {}) {
   if (!supabase || !pagare?.id) return { ok: false, error: 'Pagaré inválido.' };
@@ -325,14 +353,17 @@ export async function abonarPagare(supabase, pagare, montoAbono, opts = {}) {
   const nuevoSaldo = round2(Math.max(0, saldo - monto));
   const nuevoAbono = round2((Number(pagare.abono) || 0) + monto);
   const cerrado = nuevoSaldo < 0.001;
+  const ahora = new Date().toISOString();
   const patch = {
     saldo: nuevoSaldo,
     abono: nuevoAbono,
-    estado: cerrado ? 'liquidado' : 'parcial',
+    estado: cerrado ? 'por_recolectar' : 'parcial',
   };
   if (cerrado) {
+    // Dinero ya en caja: pendiente de Recolectar → RC Virtual (todas las sucursales).
+    patch.rc_monto = round2(nuevoAbono > 0.001 ? nuevoAbono : Number(pagare.monto) || monto);
     patch.liquidado_por = opts.nombreActor || opts.user?.nombre || null;
-    patch.liquidado_at = new Date().toISOString();
+    patch.liquidado_at = ahora;
   }
 
   const { data, error } = await supabase.from('pagares').update(patch).eq('id', pagare.id).select('*').single();
@@ -345,7 +376,10 @@ export async function abonarPagare(supabase, pagare, montoAbono, opts = {}) {
     pagare: data,
     saldo: nuevoSaldo,
     mensaje: cerrado
-      ? 'Pagaré cerrado por abonos (saldo $0). No queda nada por recolectar.'
+      ? (
+        `Pagaré cerrado por abonos ($${patch.rc_monto.toFixed(2)}). `
+        + 'Queda pendiente de recolección → RC Virtual · Pagaré.'
+      )
       : `Abono de $${monto.toFixed(2)} registrado. Saldo restante: $${nuevoSaldo.toFixed(2)}.`,
   };
 }

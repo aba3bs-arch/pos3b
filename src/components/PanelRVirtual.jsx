@@ -531,7 +531,7 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
                                 {p.turno_nombre ? <span className="muted"> · {p.turno_nombre}</span> : null}
                               </td>
                               <td>{fmtMonto(montoPendienteRecoleccion(p) || saldoPagare(p))}</td>
-                              <td>{etiquetaEstadoPagare(p.estado)}</td>
+                              <td>{etiquetaEstadoPagare(p)}</td>
                               <td className="muted" style={{ fontSize: '0.78rem' }}>
                                 {p.liquidado_por || '—'}
                               </td>
@@ -624,7 +624,7 @@ export default function PanelRVirtual({ supabase, user, area = 'virtual', pestan
                                   <td>{etiquetaTienda(p.sucursal_id)}</td>
                                   <td>{ETIQUETA_AREA_PAGARE[p.area] || p.area}</td>
                                   <td>{fmtMonto(montoPendienteRecoleccion(p))}</td>
-                                  <td>{etiquetaEstadoPagare(p.estado)}</td>
+                                  <td>{etiquetaEstadoPagare(p)}</td>
                                   <td style={{ whiteSpace: 'nowrap' }}>
                                     {adminPuedeRecibir ? (
                                       <button
