@@ -312,6 +312,18 @@ export function htmlCorteCaja(data) {
   const metodos = (data.detalleMetodos || [])
     .map((d) => `<div>${esc(d.metodo)}: <span class="r">${fmtMoney(d.monto)}</span></div>`)
     .join('');
+  const tiendas = (data.detalleTiendas || [])
+    .map((t) => {
+      const nom = esc(t.tienda || t.nombre || '—');
+      const parts = [
+        `${t.tickets || 0} tkt`,
+        fmtMoney(t.total),
+      ];
+      if (Number(t.efectivo) > 0) parts.push(`efe ${fmtMoney(t.efectivo)}`);
+      if (Number(t.credito) > 0) parts.push(`créd ${fmtMoney(t.credito)}`);
+      return `<div>${nom}: <span class="r">${parts.join(' · ')}</span></div>`;
+    })
+    .join('');
   return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Corte</title><style>${estilosImpresion(cfg.ancho)}</style></head><body>
     ${cabeceraDoc('CORTE DE CAJA', { sucursal: data.sucursal, usuario: data.usuario, fecha: data.fecha })}
     <div>Turno: <strong>${esc(data.turno)}</strong></div>
@@ -324,6 +336,11 @@ export function htmlCorteCaja(data) {
     <div class="sep"></div>
     <div class="bold">Por método de pago</div>
     ${metodos || '<div class="muted">Sin movimientos</div>'}
+    ${
+      tiendas
+        ? `<div class="sep"></div><div class="bold">Por tienda / cliente</div>${tiendas}`
+        : ''
+    }
     <div class="sep"></div>
     <div>Efectivo esperado: ${fmtMoney(data.efectivoEsperado)}</div>
     ${data.efectivoContado != null ? `<div>Efectivo contado: ${fmtMoney(data.efectivoContado)}</div>` : ''}

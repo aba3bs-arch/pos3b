@@ -228,6 +228,7 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
       credito: resumen.credito,
       efectivo_contado: Number(contado),
       por_metodo: resumen.porMetodo,
+      por_tienda: resumen.porTienda,
       notas,
       usuario: adminNombre,
       admin_id: adminSesion?.id || user?.id || null,
@@ -248,6 +249,7 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
     try {
       imprimirTicketCorteRuta(local.corte, {
         porMetodo: resumen.porMetodo,
+        porTienda: resumen.porTienda,
         adminNombre,
         camionEtiqueta,
       });
@@ -289,6 +291,8 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
     try {
       imprimirTicketCorteRuta(corte, {
         camionEtiqueta: corte.camion_etiqueta || null,
+        porTienda: corte.por_tienda || [],
+        porMetodo: corte.por_metodo || {},
       });
     } catch (e) {
       alert(e?.message || 'No se pudo imprimir.');
@@ -449,8 +453,46 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
         </div>
       )}
 
+      {cargaId && resumen.porTienda?.length > 0 && (
+        <div className="table-wrap" style={{ marginTop: '1.25rem' }}>
+          <h4 style={{ margin: '0 0 0.5rem', color: COLOR, fontSize: '0.95rem' }}>
+            Desglose por tienda / cliente
+          </h4>
+          <table className="consultas-table">
+            <thead>
+              <tr>
+                <th>Tienda / cliente</th>
+                <th>Tickets</th>
+                <th>Efectivo</th>
+                <th>Crédito</th>
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resumen.porTienda.map((t) => (
+                <tr key={t.key}>
+                  <td>
+                    <strong>{t.cliente_nombre || t.cliente_id}</strong>
+                    {t.cliente_tipo === 'externo' ? (
+                      <span className="muted" style={{ fontSize: '0.75rem' }}> · externo</span>
+                    ) : null}
+                  </td>
+                  <td>{t.tickets}</td>
+                  <td>{fmtMonto(t.efectivo)}</td>
+                  <td>{fmtMonto(t.credito)}</td>
+                  <td><strong>{fmtMonto(t.total)}</strong></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {cargaId && ventas.length > 0 && (
         <div className="table-wrap" style={{ marginTop: '1.25rem' }}>
+          <h4 style={{ margin: '0 0 0.5rem', color: COLOR, fontSize: '0.95rem' }}>
+            Ventas de la carga
+          </h4>
           <table className="consultas-table">
             <thead>
               <tr>
@@ -485,6 +527,9 @@ export default function CorteRuta({ supabase, user, adminSesion, vendedorSesion,
                 {' '}· {c.carga_folio || 'sin folio'}
                 {' '}· esp {fmtMonto(c.efectivo_esperado)} · cont {c.efectivo_contado == null ? '—' : fmtMonto(c.efectivo_contado)}
                 {c.diferencia != null ? ` · dif ${fmtMonto(c.diferencia)}` : ''}
+                {Array.isArray(c.por_tienda) && c.por_tienda.length
+                  ? ` · ${c.por_tienda.length} tienda(s)`
+                  : ''}
                 {c.admin_nombre ? ` · por ${c.admin_nombre}` : ''}
                 {' '}
                 <button

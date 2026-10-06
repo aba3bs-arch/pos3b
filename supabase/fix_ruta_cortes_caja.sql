@@ -16,6 +16,7 @@ create table if not exists public.ruta_cortes_caja (
   efectivo_contado numeric(12,2),
   diferencia numeric(12,2),
   por_metodo jsonb not null default '{}'::jsonb,
+  por_tienda jsonb not null default '[]'::jsonb,
   notas text,
   usuario text,
   created_at timestamptz not null default now()

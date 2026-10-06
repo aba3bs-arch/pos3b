@@ -48,6 +48,51 @@ export function montosPagoVentaRuta(venta) {
   return { efectivo: 0, credito: 0 };
 }
 
+/**
+ * Desglose de ventas de ruta por tienda/cliente destino.
+ * Clave: cliente_tipo + cliente_id; etiqueta = cliente_nombre o id.
+ */
+export function desgloseVentasRutaPorTienda(ventas = []) {
+  const map = new Map();
+  for (const v of ventas || []) {
+    const tipo = String(v.cliente_tipo || 'sucursal').toLowerCase() === 'externo'
+      ? 'externo'
+      : 'sucursal';
+    const id = String(v.cliente_id || '').trim() || '—';
+    const key = `${tipo}:${id}`;
+    const m = montosPagoVentaRuta(v);
+    const totalV = round2(v.total);
+    let row = map.get(key);
+    if (!row) {
+      row = {
+        key,
+        cliente_tipo: tipo,
+        cliente_id: id,
+        cliente_nombre: String(v.cliente_nombre || id).trim() || id,
+        tickets: 0,
+        total: 0,
+        efectivo: 0,
+        credito: 0,
+      };
+      map.set(key, row);
+    }
+    // Preferir nombre más descriptivo si llega después
+    const nom = String(v.cliente_nombre || '').trim();
+    if (nom && (row.cliente_nombre === id || nom.length > row.cliente_nombre.length)) {
+      row.cliente_nombre = nom;
+    }
+    row.tickets += 1;
+    row.total = round2(row.total + totalV);
+    row.efectivo = round2(row.efectivo + m.efectivo);
+    row.credito = round2(row.credito + m.credito);
+  }
+  return [...map.values()].sort((a, b) => {
+    const na = String(a.cliente_nombre || a.cliente_id || '');
+    const nb = String(b.cliente_nombre || b.cliente_id || '');
+    return na.localeCompare(nb, 'es') || b.total - a.total;
+  });
+}
+
 export function resumirVentasRutaParaCorte(ventas = []) {
   let tickets = 0;
   let total = 0;
@@ -71,6 +116,7 @@ export function resumirVentasRutaParaCorte(ventas = []) {
     efectivoEsperado: efectivo,
     credito,
     porMetodo,
+    porTienda: desgloseVentasRutaPorTienda(ventas),
   };
 }
 
@@ -92,6 +138,17 @@ export function construirTicketCorteRuta(corte = {}, extras = {}) {
     { metodo: 'Crédito', monto: round2(pm.credito) },
     { metodo: 'Mixto', monto: round2(pm.mixto) },
   ].filter((x) => Number(x.monto) > 0);
+
+  const porTienda = extras.porTienda || corte.por_tienda || [];
+  const detalleTiendas = (Array.isArray(porTienda) ? porTienda : [])
+    .map((t) => ({
+      tienda: t.cliente_nombre || t.cliente_id || t.tienda || '—',
+      tickets: Number(t.tickets) || 0,
+      total: round2(t.total),
+      efectivo: round2(t.efectivo),
+      credito: round2(t.credito),
+    }))
+    .filter((t) => t.tickets > 0 || t.total > 0);
 
   const vendedor = corte.vendedor_nombre || extras.vendedorNombre || '—';
   const cerradoPor = corte.admin_nombre || extras.adminNombre || corte.usuario || extras.usuarioCierra || null;
@@ -120,6 +177,7 @@ export function construirTicketCorteRuta(corte = {}, extras = {}) {
     efectivoContado: corte.efectivo_contado == null ? null : round2(corte.efectivo_contado),
     diferencia: corte.diferencia == null ? null : round2(corte.diferencia),
     detalleMetodos,
+    detalleTiendas,
     notas: notasExtra || undefined,
   };
 }
@@ -148,6 +206,7 @@ export function guardarCorteRutaLocal(row) {
         ? null
         : round2(Number(row.efectivo_contado) - Number(row.efectivo_esperado || 0)),
     por_metodo: row.por_metodo || {},
+    por_tienda: Array.isArray(row.por_tienda) ? row.por_tienda : [],
     notas: row.notas || '',
     usuario: row.usuario || null,
     admin_id: row.admin_id || null,
@@ -160,27 +219,47 @@ export function guardarCorteRutaLocal(row) {
 
 export async function intentarGuardarCorteRutaNube(supabase, row) {
   if (!supabase) return { ok: false, localOnly: true };
+  const payload = {
+    carga_id: row.carga_id || null,
+    carga_folio: row.carga_folio || null,
+    vendedor_id: row.vendedor_id || null,
+    vendedor_nombre: row.vendedor_nombre || null,
+    fecha: row.fecha,
+    tickets: row.tickets,
+    total_ventas: row.total_ventas,
+    efectivo_esperado: row.efectivo_esperado,
+    credito: row.credito,
+    efectivo_contado: row.efectivo_contado,
+    diferencia: row.diferencia,
+    por_metodo: row.por_metodo || {},
+    por_tienda: Array.isArray(row.por_tienda) ? row.por_tienda : [],
+    notas: row.notas || null,
+    usuario: row.usuario || null,
+  };
   try {
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('ruta_cortes_caja')
-      .insert([{
-        carga_id: row.carga_id || null,
-        carga_folio: row.carga_folio || null,
-        vendedor_id: row.vendedor_id || null,
-        vendedor_nombre: row.vendedor_nombre || null,
-        fecha: row.fecha,
-        tickets: row.tickets,
-        total_ventas: row.total_ventas,
-        efectivo_esperado: row.efectivo_esperado,
-        credito: row.credito,
-        efectivo_contado: row.efectivo_contado,
-        diferencia: row.diferencia,
-        por_metodo: row.por_metodo || {},
-        notas: row.notas || null,
-        usuario: row.usuario || null,
-      }])
+      .insert([payload])
       .select('*')
       .single();
+    // Columna por_tienda aún no migrada: reintentar sin ella.
+    if (error && /por_tienda/i.test(String(error.message || ''))) {
+      const { por_tienda: _omit, ...sinTienda } = payload;
+      const retry = await supabase
+        .from('ruta_cortes_caja')
+        .insert([sinTienda])
+        .select('*')
+        .single();
+      data = retry.data;
+      error = retry.error;
+      if (!error) {
+        return {
+          ok: true,
+          data,
+          aviso: 'Corte en nube sin columna por_tienda. Ejecuta supabase/fix_ruta_cortes_caja_por_tienda.sql',
+        };
+      }
+    }
     if (error) {
       // Tabla opcional: si no existe, solo local
       const msg = String(error.message || '').toLowerCase();
