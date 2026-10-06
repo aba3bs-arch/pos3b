@@ -42,12 +42,53 @@ export function metodoPagoDesdeNotasCompra(notas) {
 }
 
 /**
+ * Desglose mixto embebido en notas del pedido:
+ * `· metodo mixto · efe 300 · cre 60` (también acepta efectivo/crédito).
+ * @returns {{ efectivo: number, credito: number }|null}
+ */
+export function montosMixtoDesdeNotasCompra(notas) {
+  const blob = String(notas || '');
+  const efeM = blob.match(/\befe\s*[:=]?\s*\$?\s*([0-9]+(?:[.,][0-9]+)?)/i)
+    || blob.match(/\befectivo\s*[:=]?\s*\$?\s*([0-9]+(?:[.,][0-9]+)?)/i);
+  const creM = blob.match(/\bcre\s*[:=]?\s*\$?\s*([0-9]+(?:[.,][0-9]+)?)/i)
+    || blob.match(/\bcr[eé]dito\s*[:=]?\s*\$?\s*([0-9]+(?:[.,][0-9]+)?)/i);
+  if (!efeM && !creM) return null;
+  const efectivo = efeM ? round2(String(efeM[1]).replace(',', '.')) : 0;
+  const credito = creM ? round2(String(creM[1]).replace(',', '.')) : 0;
+  if (efectivo + credito <= 0) return null;
+  return { efectivo, credito };
+}
+
+/** Normaliza articulos (array o JSON string) y encuentra meta `_pago_mixto`. */
+export function metaPagoMixtoDesdeArticulos(articulos) {
+  let arts = articulos;
+  if (typeof arts === 'string') {
+    try {
+      arts = JSON.parse(arts);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(arts)) return null;
+  const mix = arts.find((a) => a && (a._pago_mixto === true || a._pago_mixto === 1 || a._pago_mixto === 'true'));
+  if (!mix) return null;
+  return {
+    efectivo: round2(mix.efectivo ?? mix.monto_efectivo ?? 0),
+    credito: round2(mix.credito ?? mix.monto_credito ?? 0),
+  };
+}
+
+/**
  * Montos efectivo/crédito desde la venta de ruta (o notas).
+ * Mixto sin desglose: NO asume todo efectivo (eso cobraba de más el crédito).
  * @returns {{ metodo: string, montoEfectivo: number, montoCredito: number, venta: object|null }}
  */
 export function montosPagoDesdeVentaRuta(venta, totalFallback = 0) {
   const total = round2(venta?.total ?? totalFallback);
-  const mp = String(venta?.metodo_pago || '').toLowerCase();
+  const mpRaw = String(venta?.metodo_pago || '').toLowerCase();
+  const mp = mpRaw || metodoPagoDesdeNotasCompra(venta?.notas) || '';
+  const fromNotasMontos = montosMixtoDesdeNotasCompra(venta?.notas);
+
   if (mp === 'credito') {
     return { metodo: 'credito', montoEfectivo: 0, montoCredito: total, venta: venta || null };
   }
@@ -55,16 +96,20 @@ export function montosPagoDesdeVentaRuta(venta, totalFallback = 0) {
     return { metodo: 'efectivo', montoEfectivo: total, montoCredito: 0, venta: venta || null };
   }
   if (mp === 'mixto') {
-    const arts = Array.isArray(venta?.articulos) ? venta.articulos : [];
-    const mix = arts.find((a) => a && a._pago_mixto);
+    const mix = metaPagoMixtoDesdeArticulos(venta?.articulos);
     let efe = round2(mix?.efectivo ?? venta?.monto_efectivo ?? 0);
     let cre = round2(mix?.credito ?? venta?.monto_credito ?? 0);
+    if (efe + cre <= 0 && fromNotasMontos) {
+      efe = fromNotasMontos.efectivo;
+      cre = fromNotasMontos.credito;
+    }
     if (efe + cre <= 0 && total > 0) {
-      // Sin desglose: asumir todo crédito pendiente si estado_credito
+      // Sin desglose: no cargar el total como efectivo (el crédito se cobraría dos veces).
+      // Si hay CxC pendiente, tratar como crédito; si no, omitir gasto hasta resolver.
       if (String(venta?.estado_credito || '').toLowerCase() === 'pendiente') {
         return { metodo: 'mixto', montoEfectivo: 0, montoCredito: total, venta: venta || null };
       }
-      return { metodo: 'mixto', montoEfectivo: total, montoCredito: 0, venta: venta || null };
+      return { metodo: 'mixto', montoEfectivo: 0, montoCredito: total, venta: venta || null };
     }
     return { metodo: 'mixto', montoEfectivo: efe, montoCredito: cre, venta: venta || null };
   }
@@ -72,7 +117,46 @@ export function montosPagoDesdeVentaRuta(venta, totalFallback = 0) {
   if (fromNotas === 'credito') {
     return { metodo: 'credito', montoEfectivo: 0, montoCredito: total, venta: venta || null };
   }
+  if (fromNotas === 'mixto') {
+    if (fromNotasMontos) {
+      return {
+        metodo: 'mixto',
+        montoEfectivo: fromNotasMontos.efectivo,
+        montoCredito: fromNotasMontos.credito,
+        venta: venta || null,
+      };
+    }
+    return { metodo: 'mixto', montoEfectivo: 0, montoCredito: total, venta: venta || null };
+  }
   return { metodo: mp || 'efectivo', montoEfectivo: total, montoCredito: 0, venta: venta || null };
+}
+
+const SELECT_VENTA_RUTA_FULL =
+  'id, folio, metodo_pago, total, articulos, estado_credito, compra_id, notas';
+const SELECT_VENTA_RUTA_MIN =
+  'id, folio, metodo_pago, total, articulos, notas';
+
+async function fetchVentaRutaRow(supabase, filterCol, filterVal) {
+  let q = await supabase
+    .from('ruta_ventas')
+    .select(SELECT_VENTA_RUTA_FULL)
+    .eq(filterCol, filterVal)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!q.error && q.data) return q.data;
+  // Schema viejo / columnas opcionales: reintentar select mínimo.
+  if (q.error) {
+    q = await supabase
+      .from('ruta_ventas')
+      .select(SELECT_VENTA_RUTA_MIN)
+      .eq(filterCol, filterVal)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!q.error && q.data) return q.data;
+  }
+  return null;
 }
 
 /** Busca la venta en ruta ligada a la compra (compra_id o folio en notas). */
@@ -80,25 +164,13 @@ export async function resolverVentaRutaDeCompra(supabase, compra) {
   if (!supabase || !compra) return null;
   const compraId = compra.id != null ? String(compra.id) : null;
   if (compraId) {
-    const { data, error } = await supabase
-      .from('ruta_ventas')
-      .select('id, folio, metodo_pago, total, articulos, estado_credito, compra_id, notas')
-      .eq('compra_id', compraId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (!error && data) return data;
+    const byCompra = await fetchVentaRutaRow(supabase, 'compra_id', compraId);
+    if (byCompra) return byCompra;
   }
   const folio = folioVentaRutaDesdeNotas(compra.notas);
   if (folio) {
-    const { data, error } = await supabase
-      .from('ruta_ventas')
-      .select('id, folio, metodo_pago, total, articulos, estado_credito, compra_id, notas')
-      .eq('folio', folio)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (!error && data) return data;
+    const byFolio = await fetchVentaRutaRow(supabase, 'folio', folio);
+    if (byFolio) return byFolio;
   }
   return null;
 }
@@ -115,8 +187,16 @@ export function decidirGastoRecepcionCompra({ compra, totalTicket, venta = null 
   }
 
   const metodoNotas = metodoPagoDesdeNotasCompra(compra?.notas);
+  // Preferir venta; si no hay, usar notas del pedido (incl. efe/cre de mixto).
   const pago = venta
-    ? montosPagoDesdeVentaRuta(venta, total)
+    ? montosPagoDesdeVentaRuta(
+      {
+        ...venta,
+        // Notas de la compra suelen traer efe/cre aunque la venta no resuelva meta.
+        notas: [venta?.notas, compra?.notas].filter(Boolean).join(' · '),
+      },
+      total,
+    )
     : montosPagoDesdeVentaRuta(
       { metodo_pago: metodoNotas || 'efectivo', total, notas: compra?.notas },
       total,

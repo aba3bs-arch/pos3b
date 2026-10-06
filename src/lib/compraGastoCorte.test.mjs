@@ -5,7 +5,9 @@ import {
   metodoPagoDesdeNotasCompra,
   folioVentaRutaDesdeNotas,
   montosPagoDesdeVentaRuta,
+  montosMixtoDesdeNotasCompra,
   decidirGastoRecepcionCompra,
+  metaPagoMixtoDesdeArticulos,
 } from './compraGastoCorte.js';
 
 assert.equal(
@@ -22,6 +24,21 @@ assert.equal(folioVentaRutaDesdeNotas('Venta en ruta VR-ABC1 · Juan'), 'VR-ABC1
 assert.equal(metodoPagoDesdeNotasCompra('Venta en ruta VR-1 · metodo credito'), 'credito');
 assert.equal(metodoPagoDesdeNotasCompra('Venta en ruta VR-1 · metodo mixto'), 'mixto');
 assert.equal(metodoPagoDesdeNotasCompra('Venta en ruta VR-1 · Juan'), null);
+
+assert.deepEqual(
+  montosMixtoDesdeNotasCompra('Venta en ruta VR-1 · metodo mixto · efe 300.00 · cre 60.00'),
+  { efectivo: 300, credito: 60 },
+);
+assert.equal(montosMixtoDesdeNotasCompra('Venta en ruta VR-1 · metodo mixto'), null);
+
+assert.deepEqual(
+  metaPagoMixtoDesdeArticulos([{ producto_id: '1' }, { _pago_mixto: true, efectivo: 300, credito: 60 }]),
+  { efectivo: 300, credito: 60 },
+);
+assert.deepEqual(
+  metaPagoMixtoDesdeArticulos(JSON.stringify([{ _pago_mixto: true, efectivo: 10, credito: 5 }])),
+  { efectivo: 10, credito: 5 },
+);
 
 const ruta = payloadGastoDesdeCompra({
   compra: { notas: 'Venta en ruta VR-9 · Juan' },
@@ -99,6 +116,39 @@ const dMix = decidirGastoRecepcionCompra({
 assert.equal(dMix.cargar, true);
 assert.equal(dMix.monto, 300);
 assert.equal(dMix.montoCredito, 700);
+
+// Caso real: 300 efe + 60 cré → gasto solo 300
+const dMix360 = decidirGastoRecepcionCompra({
+  compra: { notas: 'Venta en ruta VR-MUW9T8HW · metodo mixto · efe 300.00 · cre 60.00' },
+  totalTicket: 360,
+});
+assert.equal(dMix360.cargar, true);
+assert.equal(dMix360.monto, 300);
+assert.equal(dMix360.montoCredito, 60);
+assert.equal(dMix360.motivo, 'mixto_efectivo');
+
+// Mixto sin desglose (bug viejo): NO cargar los 360 como efectivo
+const dMixSinDesglose = decidirGastoRecepcionCompra({
+  compra: { notas: 'Venta en ruta VR-X · metodo mixto' },
+  totalTicket: 360,
+});
+assert.equal(dMixSinDesglose.cargar, false);
+assert.equal(dMixSinDesglose.monto, 0);
+
+// Venta resuelta con meta, notas compra sin efe/cre
+const dMixVenta = decidirGastoRecepcionCompra({
+  compra: { notas: 'Venta en ruta VR-MUW9T8HW · metodo mixto · Ticket proveedor: $360.00' },
+  totalTicket: 360,
+  venta: {
+    metodo_pago: 'mixto',
+    total: 360,
+    articulos: [{ _pago_mixto: true, efectivo: 300, credito: 60 }],
+    estado_credito: 'pendiente',
+  },
+});
+assert.equal(dMixVenta.cargar, true);
+assert.equal(dMixVenta.monto, 300);
+assert.equal(dMixVenta.montoCredito, 60);
 
 const dMixSoloCred = decidirGastoRecepcionCompra({
   compra: { notas: 'Venta en ruta VR-9 · metodo mixto' },

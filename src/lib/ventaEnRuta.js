@@ -1543,6 +1543,8 @@ export async function crearPedidoCompraDesdeVentaRuta(supabase, {
   total,
   vendedorNombre,
   metodoPago = null,
+  montoEfectivo = 0,
+  montoCredito = 0,
 } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const suc = normalizarCodigoTienda(sucursalId);
@@ -1563,6 +1565,18 @@ export async function crearPedidoCompraDesdeVentaRuta(supabase, {
   const etiquetaMetodo = (mp === 'credito' || mp === 'mixto' || mp === 'efectivo')
     ? ` · metodo ${mp}`
     : '';
+  // Mixto: embeber efe/cre para que al recibir el gasto use solo efectivo
+  // aunque falle el lookup de ruta_ventas.
+  let etiquetaMontos = '';
+  if (mp === 'mixto') {
+    const arts = Array.isArray(articulos) ? articulos : [];
+    const mix = arts.find((a) => a && a._pago_mixto);
+    const efe = round2(mix?.efectivo ?? montoEfectivo);
+    const cre = round2(mix?.credito ?? montoCredito);
+    if (efe + cre > 0) {
+      etiquetaMontos = ` · efe ${efe.toFixed(2)} · cre ${cre.toFixed(2)}`;
+    }
+  }
 
   const { data, error } = await supabase
     .from('compras')
@@ -1570,7 +1584,7 @@ export async function crearPedidoCompraDesdeVentaRuta(supabase, {
       proveedor_id: null,
       sucursal_id: suc,
       total: round2(total),
-      notas: `Venta en ruta ${folio} · ${vendedorNombre || ''}${etiquetaMetodo}`.trim(),
+      notas: `Venta en ruta ${folio} · ${vendedorNombre || ''}${etiquetaMetodo}${etiquetaMontos}`.trim(),
       estado: 'pedido',
       items_pedido,
       items: [],
@@ -1834,6 +1848,8 @@ export async function registrarVentaRuta(supabase, {
       total,
       vendedorNombre,
       metodoPago: mp,
+      montoEfectivo: montoEfe,
+      montoCredito: montoCre,
     });
     if (!ped.ok) {
       await revertirSiFallaPostVenta();

@@ -298,8 +298,45 @@ export function esEventoCreditoSinGastoEsperado(fila) {
   if (/\bmetodo\s*[:=]?\s*credito\b/i.test(blob) || /\bmetodo\s*[:=]?\s*crédito\b/i.test(blob)) {
     return true;
   }
+  // Mixto sin parte efectivo (efe 0): mismo tratamiento que crédito puro.
+  if (/\bmetodo\s*[:=]?\s*mixto\b/i.test(blob)) {
+    const efeM = blob.match(/\befe\s*[:=]?\s*\$?\s*([0-9]+(?:[.,][0-9]+)?)/i);
+    if (efeM) {
+      const efe = Number(String(efeM[1]).replace(',', '.')) || 0;
+      if (efe <= 0.001) return true;
+    }
+  }
   // Pedidos «Venta en ruta …» sin etiqueta metodo se tratan como normal (pueden ser efectivo).
   return false;
+}
+
+/**
+ * Monto de gasto PROVEEDORES esperado al recibir inventario.
+ * Mixto → solo la parte efectivo (efe N); crédito puro → 0; resto → ticket.
+ */
+export function montoGastoEsperadoRecepcion(fila) {
+  const ticket = Number(fila?.monto_ticket) || 0;
+  const blob = [
+    fila?.notas,
+    fila?.comentario,
+    fila?.detalle,
+    ...(fila?.compras || []).map((c) => c?.notas),
+  ]
+    .filter(Boolean)
+    .join(' ');
+  if (/\bmetodo\s*[:=]?\s*credito\b/i.test(blob) || /\bmetodo\s*[:=]?\s*crédito\b/i.test(blob)) {
+    return 0;
+  }
+  if (/\bmetodo\s*[:=]?\s*mixto\b/i.test(blob)) {
+    const efeM = blob.match(/\befe\s*[:=]?\s*\$?\s*([0-9]+(?:[.,][0-9]+)?)/i)
+      || blob.match(/\befectivo\s+mixto\s*\$?\s*([0-9]+(?:[.,][0-9]+)?)/i);
+    if (efeM) {
+      return Math.round((Number(String(efeM[1]).replace(',', '.')) || 0) * 100) / 100;
+    }
+    // Mixto sin desglose: no exigir el ticket completo como gasto.
+    return null;
+  }
+  return ticket > 0 ? ticket : (Number(fila?.monto_inventario) || 0);
 }
 
 /**
@@ -323,7 +360,15 @@ export function clasificarEstadoFila(fila) {
     return ESTADOS.SIN_GASTO;
   }
 
-  const ref = ticket > 0 ? ticket : inv;
+  const esperado = montoGastoEsperadoRecepcion(fila);
+  const ref = esperado != null
+    ? esperado
+    : (ticket > 0 ? ticket : inv);
+  // Mixto sin desglose (esperado null): no marcar descuadrado por ticket vs gasto parcial.
+  if (esperado === null) {
+    if (ticket > 0 && inv > 0 && !montosCuadran(ticket, inv)) return ESTADOS.MONTO_DESCUADRADO;
+    return ESTADOS.OK;
+  }
   if (ref > 0 && !montosCuadran(ref, gasto)) return ESTADOS.MONTO_DESCUADRADO;
   if (ticket > 0 && inv > 0 && !montosCuadran(ticket, inv)) return ESTADOS.MONTO_DESCUADRADO;
   return ESTADOS.OK;
