@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Icon from '../components/Icon.jsx';
+import TutorialQuiz from '../components/TutorialQuiz.jsx';
 import { TUTORIALES } from '../content/tutoriales.js';
 
 function renderTexto(text) {
@@ -258,64 +259,7 @@ function EjemploCaja({ ejemplo }) {
 }
 
 function QuizBloque({ quiz }) {
-  const [respuestas, setRespuestas] = useState({});
-  const total = quiz.length;
-  const correctas = quiz.filter((q) => respuestas[q.id] === q.correcta).length;
-  const respondidas = Object.keys(respuestas).length;
-
-  return (
-    <div className="tut-quiz">
-      {quiz.map((q, i) => {
-        const elegida = respuestas[q.id];
-        const respondio = elegida != null;
-        const ok = elegida === q.correcta;
-        return (
-          <fieldset key={q.id} className="tut-quiz__item">
-            <legend>
-              {i + 1}. {q.pregunta}
-            </legend>
-            <div className="tut-quiz__opts">
-              {q.opciones.map((op, oi) => {
-                let cls = 'tut-quiz__opt';
-                if (respondio) {
-                  if (oi === q.correcta) cls += ' tut-quiz__opt--ok';
-                  else if (oi === elegida) cls += ' tut-quiz__opt--bad';
-                }
-                return (
-                  <button
-                    key={oi}
-                    type="button"
-                    className={cls}
-                    disabled={respondio}
-                    onClick={() => setRespuestas((r) => ({ ...r, [q.id]: oi }))}
-                  >
-                    {op}
-                  </button>
-                );
-              })}
-            </div>
-            {respondio ? (
-              <p className={`tut-quiz__feedback${ok ? ' tut-quiz__feedback--ok' : ' tut-quiz__feedback--bad'}`}>
-                {ok ? 'Correcto. ' : 'Incorrecto. '}
-                {renderTexto(q.explicacion)}
-              </p>
-            ) : null}
-          </fieldset>
-        );
-      })}
-      {respondidas === total ? (
-        <p className="tut-quiz__score" role="status">
-          Resultado: <strong>{correctas}/{total}</strong>
-          {correctas === total ? ' — dominio de la pantalla real.' : ' — revisa las zonas de la captura y reintenta.'}
-        </p>
-      ) : null}
-      {respondidas > 0 ? (
-        <button type="button" className="btn btn-ghost" onClick={() => setRespuestas({})}>
-          Reintentar
-        </button>
-      ) : null}
-    </div>
-  );
+  return <TutorialQuiz quiz={quiz} />;
 }
 
 function Seccion({ seccion, tutorial, onHotspot }) {

@@ -74,7 +74,7 @@ import { asegurarProveedorCedisLas3bAmbito } from '../lib/proveedoresAmbito.js';
 import { productoCoincideBusqueda } from '../lib/buscarProductoTexto.js';
 import { esRolRepartidor, normalizarRol } from '../lib/roles.js';
 import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
-import { TUTORIAL_CEDIS } from '../content/tutorialCedis.js';
+import { TUTORIAL_VENTA_EN_RUTA } from '../content/tutorialVentaEnRuta.js';
 import CorteRuta from './CorteRuta.jsx';
 import PreinventarioRuta from './PreinventarioRuta.jsx';
 import CobranzaRuta from './CobranzaRuta.jsx';
@@ -135,8 +135,7 @@ function esAdminOGerente(rol) {
 export default function VentaEnRuta({ supabase, user, inventario = [], onNavigate, sucursal, cargarDatos, fusionarProducto }) {
   const [vista, setVista] = useState('hub');
   const [aviso, setAviso] = useState('');
-  const [tutorialCedisAbierto, setTutorialCedisAbierto] = useState(false);
-  const enCedis = esAlmacenCentral(sucursal);
+  const [tutorialAbierto, setTutorialAbierto] = useState(false);
   const [vendedorSesion, setVendedorSesion] = useState(() => {
     if (esRolRepartidor(user?.rol) && user?.id) {
       return { id: user.id, nombre: user.nombre || user.email || 'Repartidor', rol: user.rol };
@@ -222,14 +221,14 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
         )}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between' }}>
           <h2 style={{ margin: 0, color: COLOR }}>Venta en Ruta</h2>
-          {enCedis && vista === 'hub' && (
+          {vista === 'hub' && (
             <button
               type="button"
               className="btn btn-ghost"
               style={{ fontSize: '0.82rem' }}
-              onClick={() => setTutorialCedisAbierto(true)}
+              onClick={() => setTutorialAbierto(true)}
             >
-              Ver tutorial CEDIS
+              Ver tutorial
             </button>
           )}
         </div>
@@ -411,9 +410,9 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
       )}
 
       <VisorTutorialModal
-        abierto={tutorialCedisAbierto}
-        tutorial={TUTORIAL_CEDIS}
-        onCerrar={() => setTutorialCedisAbierto(false)}
+        abierto={tutorialAbierto}
+        tutorial={TUTORIAL_VENTA_EN_RUTA}
+        onCerrar={() => setTutorialAbierto(false)}
       />
     </div>
   );
