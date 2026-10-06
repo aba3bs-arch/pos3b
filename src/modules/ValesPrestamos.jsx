@@ -370,10 +370,18 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
   const sucursalesCuentaIe = useMemo(() => listarSucursalesParaUI(), []);
   const sucursalesPagare = useMemo(() => listarSucursalesParaUI(), []);
   const filtroPagareEfectivo = filtroPagareSucursal || (esMain || vePendientesTodasTiendas ? '' : sucursal);
+  const [verHistorialPagares, setVerHistorialPagares] = useState(false);
   const pagaresPorSucursal = useMemo(() => {
     const rows = (pagares || []).filter((p) => {
-      if (!filtroPagareEfectivo) return true;
-      return String(p.sucursal_id || '').toUpperCase() === String(filtroPagareEfectivo).toUpperCase();
+      if (filtroPagareEfectivo
+        && String(p.sucursal_id || '').toUpperCase() !== String(filtroPagareEfectivo).toUpperCase()) {
+        return false;
+      }
+      // Por defecto solo activos: abiertos / parciales / por recolectar.
+      if (!verHistorialPagares) {
+        return pagareEstaAbierto(p) || pagarePendienteRecoleccion(p) || pagarePendienteCajero(p);
+      }
+      return true;
     });
     const map = new Map();
     for (const p of rows) {
@@ -382,7 +390,11 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
       map.get(key).push(p);
     }
     return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [pagares, filtroPagareEfectivo]);
+  }, [pagares, filtroPagareEfectivo, verHistorialPagares]);
+  const nPagaresActivos = useMemo(
+    () => (pagares || []).filter((x) => pagareEstaAbierto(x) || pagarePendienteRecoleccion(x) || pagarePendienteCajero(x)).length,
+    [pagares],
+  );
   const empPrestamoSel = useMemo(
     () => empleadosPrestamo.find((e) => String(e.id) === String(prestEmpForm.usuarioId)) || null,
     [empleadosPrestamo, prestEmpForm.usuarioId],
@@ -1602,7 +1614,7 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
           <button key={p} type="button" className={`btn ${pestana === p ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setPestana(p)}>
             {p === 'vales' && 'Vales'}
             {p === 'rif' && `RIF · fondos (${rifs.filter((r) => r.estado === 'abierto').length})`}
-            {p === 'pagare' && `Pagaré (${pagares.filter((x) => pagareEstaAbierto(x) || pagarePendienteRecoleccion(x)).length})`}
+            {p === 'pagare' && `Pagaré (${nPagaresActivos})`}
             {p === 'prestamos' && 'Préstamos área / sucursal'}
             {p === 'prestamos_emp' && 'Préstamos empleados'}
             {p === 'tipos' && 'Catálogo IE'}
@@ -1641,8 +1653,17 @@ export default function ValesPrestamos({ supabase, sucursal, user, irAPendientes
                   ))}
                 </select>
               </label>
+              <label className="muted" style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                <input
+                  type="checkbox"
+                  checked={verHistorialPagares}
+                  onChange={(e) => setVerHistorialPagares(e.target.checked)}
+                />
+                Ver historial (recolectados / cancelados / liquidados viejos)
+              </label>
               <span className="muted" style={{ fontSize: '0.8rem' }}>
                 {pagaresPorSucursal.reduce((n, [, list]) => n + list.length, 0)} registro(s)
+                {verHistorialPagares ? '' : ' activos'}
                 {filtroPagareEfectivo ? ` · ${etiquetaTienda(filtroPagareEfectivo)}` : ''}
               </span>
             </div>
