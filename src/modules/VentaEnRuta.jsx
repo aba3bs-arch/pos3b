@@ -60,7 +60,7 @@ import {
 import { listarCreditosCobradosRuta } from '../lib/rutaCxc.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { fmtMonto } from '../lib/consultasUi.js';
-import { stockEnUbicacion, ALMACEN_CENTRAL, esAlmacenCentral } from '../lib/inventarioMultitienda.js';
+import { stockEnUbicacion, ALMACEN_CENTRAL } from '../lib/inventarioMultitienda.js';
 import { etiquetaDepartamento, normalizarDepartamento } from '../lib/departamentos.js';
 import {
   PROVEEDOR_CEDIS_NOMBRE,
