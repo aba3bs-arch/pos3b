@@ -124,6 +124,7 @@ export const TIPOS_DOCUMENTO_IMPRESION = [
   { id: 'recepcion_compra', label: 'Recepción de compra' },
   { id: 'inventario', label: 'Inventario / stock' },
   { id: 'movimiento_inventario', label: 'Movimiento de inventario' },
+  { id: 'carga_camion', label: 'Carga al camión (ruta)' },
   { id: 'reporte', label: 'Reporte general' },
   { id: 'corte', label: 'Corte de caja' },
 ];
@@ -166,6 +167,7 @@ const IMPRESION_DEFAULT = {
     recepcion_compra: true,
     inventario: true,
     movimiento_inventario: true,
+    carga_camion: true,
     reporte: true,
     corte: true,
   },

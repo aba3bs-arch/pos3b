@@ -242,6 +242,50 @@ export function htmlMovimientoInventario(data) {
   </body></html>`;
 }
 
+/** Ticket de aplicación de carga CEDIS → camión (aclaraciones). */
+export function htmlCargaCamion(data) {
+  const cfg = leerConfigImpresion();
+  const lineas = data.lineas || [];
+  const fechaTxt = data.fecha
+    ? (() => {
+      try {
+        return new Date(data.fecha).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' });
+      } catch {
+        return String(data.fecha);
+      }
+    })()
+    : fmtFecha();
+  const modo = data.cargaCerradaPorVacia
+    ? 'Nueva carga (anterior cerrada · camión vacío)'
+    : data.reusada
+      ? 'Recarga · sumado a carga abierta'
+      : 'Nueva carga abierta';
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Carga camión</title><style>${estilosImpresion(cfg.ancho)}</style></head><body>
+    ${cabeceraDoc(data.titulo || 'CARGA AL CAMIÓN', {
+      sucursal: data.sucursal || 'CEDIS',
+      usuario: data.usuario,
+      folio: data.folio,
+      fecha: fechaTxt,
+    })}
+    ${data.cargaFolio ? `<div>Carga: <strong>${esc(data.cargaFolio)}</strong></div>` : ''}
+    ${data.camion ? `<div>Camión: <strong>${esc(data.camion)}</strong></div>` : ''}
+    ${data.vendedor ? `<div>Recolector: <strong>${esc(data.vendedor)}</strong></div>` : ''}
+    <div class="muted">${esc(modo)}</div>
+    <div class="sep"></div>
+    ${htmlTablaLineas(lineas, [
+      { label: 'Cód.', key: 'id' },
+      { label: 'Producto', key: 'nombre' },
+      { label: 'Cant.', key: 'cantidad', align: 'right' },
+      { label: 'P.ruta', key: 'precio', align: 'right', fmt: (r) => fmtMoney(r.precio) },
+      { label: 'Imp.', key: 'importe', align: 'right', fmt: (r) => fmtMoney(r.importe != null ? r.importe : (Number(r.precio) || 0) * (Number(r.cantidad) || 0)) },
+    ])}
+    <div class="sep"></div>
+    <div>Piezas: <strong>${esc(data.piezas ?? lineas.reduce((s, l) => s + (Number(l.cantidad) || 0), 0))}</strong></div>
+    <div class="bold">Total: ${fmtMoney(data.total)}</div>
+    ${pieDoc('Comprobante de salida CEDIS → camión. Conservar para aclaraciones.')}
+  </body></html>`;
+}
+
 export function htmlAjusteInventario(data) {
   const cfg = leerConfigImpresion();
   const lineas = (data.lineas || []).filter((l) => l.diferencia !== 0 && l.contada != null);
@@ -367,6 +411,7 @@ const GENERADORES = {
   recepcion_compra: htmlRecepcionCompra,
   inventario: htmlInventario,
   movimiento_inventario: htmlMovimientoInventario,
+  carga_camion: htmlCargaCamion,
   ajuste_inventario: htmlAjusteInventario,
   preinventario: htmlPreinventario,
   reporte: htmlReporte,
@@ -529,6 +574,15 @@ export function imprimirInventario(datos) {
 
 export function imprimirMovimientoInventario(datos) {
   return imprimirDocumento('movimiento_inventario', datos);
+}
+
+/** Ticket de carga al camión (siempre forzado: comprobante operativo). */
+export function imprimirCargaCamion(datos, opts = {}) {
+  return imprimirDocumento('carga_camion', datos, {
+    forzar: true,
+    titulo: opts.titulo || 'Carga al camión',
+    ...opts,
+  });
 }
 
 export function imprimirAjusteInventario(datos) {
