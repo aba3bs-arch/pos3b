@@ -16,6 +16,7 @@ import {
   crearCargaRuta,
   devolverLineaCargaRuta,
   disponibleEnLineaCarga,
+  disponibleTotalCarga,
   liquidarCargaRuta,
   guardarClienteRuta,
   guardarPrecioRutaProducto,
@@ -987,6 +988,7 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
   const [cargandoAbierta, setCargandoAbierta] = useState(false);
   const [lineasCamion, setLineasCamion] = useState([]);
   const [corrigiendoId, setCorrigiendoId] = useState('');
+  const [cerrandoCarga, setCerrandoCarga] = useState(false);
   const [tickCamion, setTickCamion] = useState(0);
 
   useEffect(() => {
@@ -1098,9 +1100,12 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     const etiqueta = camionSel
       ? `${etiquetaCamion(camionSel)} · ${recolectorSel.nombre}`
       : recolectorSel.nombre;
-    const msg = cargaAbierta?.folio
-      ? `¿Sumar mercancía a la carga ${cargaAbierta.folio} de ${etiqueta}?\nSe descuenta de ${NOMBRE_ALMACEN_RUTA}. El POS verá todo el camión en esa misma carga.`
-      : `¿Abrir carga del camión para ${etiqueta}?\nSe descuenta de ${NOMBRE_ALMACEN_RUTA}. Las siguientes recargas se sumarán a esta misma carga.`;
+    const dispActual = disponibleTotalCarga(lineasCamion);
+    const msg = cargaAbierta?.folio && dispActual > 0
+      ? `¿Sumar mercancía a la carga ${cargaAbierta.folio} de ${etiqueta}?\nSe descuenta de ${NOMBRE_ALMACEN_RUTA}.`
+      : cargaAbierta?.folio && !(dispActual > 0)
+        ? `El camión ya no tiene Disp. La carga ${cargaAbierta.folio} se CERRARÁ y se abrirá una nueva (historial limpio).\n¿Continuar?`
+        : `¿Abrir carga del camión para ${etiqueta}?\nSe descuenta de ${NOMBRE_ALMACEN_RUTA}.`;
     if (!confirm(msg)) return;
     setGuardando(true);
     const r = await crearCargaRuta(supabase, {
@@ -1124,12 +1129,50 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     const n = (r.patches || []).length;
     setCargaAbierta(r.carga || null);
     alert(
-      r.reusada
-        ? `Mercancía sumada a la carga ${r.carga?.folio || ''}.\nStock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.`
-        : `Carga ${r.carga?.folio || ''} abierta para ${etiqueta}.\nStock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.\nLas siguientes recargas se sumarán a esta misma carga.`,
+      r.cargaCerradaPorVacia
+        ? `Carga anterior cerrada (camión vacío).\nNueva carga ${r.carga?.folio || ''} abierta.\nStock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.`
+        : r.reusada
+          ? `Mercancía sumada a la carga ${r.carga?.folio || ''}.\nStock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.`
+          : `Carga ${r.carga?.folio || ''} abierta para ${etiqueta}.\nStock CEDIS descontado${n ? ` (${n} producto(s))` : ''}.`,
     );
     setLineas([]);
     refrescarCamion();
+  };
+
+  const cerrarCargaCamion = async () => {
+    if (!cargaAbierta?.id) return;
+    const disp = disponibleTotalCarga(lineasCamion);
+    const msg = disp > 0
+      ? `¿Cerrar carga ${cargaAbierta.folio}?\nLas ${fmtQty(disp)} pza disponibles se devolverán a ${NOMBRE_ALMACEN_RUTA}.\n`
+        + 'El historial (vendido/devuelto) queda archivado y la próxima carga nace limpia.'
+      : `¿Cerrar carga ${cargaAbierta.folio}?\nNo queda Disp. Se archiva el historial y la próxima carga nace limpia (sin Devuelta/Vendida viejas).`;
+    if (!window.confirm(msg)) return;
+    setCerrandoCarga(true);
+    try {
+      const r = await liquidarCargaRuta(supabase, {
+        cargaId: cargaAbierta.id,
+        usuarioNombre: user?.nombre,
+        rol: user?.rol,
+        userId: user?.id,
+        devolverRestante: disp > 0,
+        motivo: 'Cierre manual desde Carga de camión',
+      });
+      if (!r.ok) return alert(r.error || 'No se pudo cerrar la carga.');
+      for (const p of r.patches || []) {
+        if (p?.id) fusionarProducto?.(p);
+      }
+      if (cargarDatos) void cargarDatos();
+      setCargaAbierta(null);
+      setLineasCamion([]);
+      setAviso?.(
+        `Carga ${cargaAbierta.folio || ''} cerrada.`
+          + (r.restanteDevuelto > 0 ? ` · ${fmtQty(r.restanteDevuelto)} pza a ${NOMBRE_ALMACEN_RUTA}.` : '')
+          + ' La próxima carga empezará limpia.',
+      );
+      refrescarCamion();
+    } finally {
+      setCerrandoCarga(false);
+    }
   };
 
   /** todo=true → Quitar: regresa TODO lo disponible (aunque haya ventas). */
@@ -1213,6 +1256,18 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
     ),
     [lineasCamion],
   );
+  const dispTotalCamion = useMemo(
+    () => disponibleTotalCarga(lineasCamion),
+    [lineasCamion],
+  );
+  const lineasConDisp = useMemo(
+    () => lineasCamionVisibles.filter((l) => disponibleEnLineaCarga(l) > 0),
+    [lineasCamionVisibles],
+  );
+  const lineasSinDisp = useMemo(
+    () => lineasCamionVisibles.filter((l) => !(disponibleEnLineaCarga(l) > 0)),
+    [lineasCamionVisibles],
+  );
 
   return (
     <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
@@ -1220,8 +1275,9 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
       <p className="muted" style={{ fontSize: '0.8rem' }}>
         Elige un <strong>recolector / repartidor</strong> del Panel RT.
         Toda la mercancía del camión vive en <strong>una sola carga abierta</strong>
-        (al recargar se suma a la misma). Si te equivocas, puedes <strong>devolver piezas a CEDIS</strong> abajo
-        o cancelar toda la carga en Consultas (solo si no hay ventas).
+        (al recargar se suma a la misma). Si el camión queda sin Disp., la próxima carga
+        <strong> cierra sola la anterior</strong> y nace limpia. También puedes usar
+        <strong> Cerrar carga / limpiar historial</strong> abajo.
       </p>
       <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
         Recolector / repartidor
@@ -1275,64 +1331,132 @@ function VistaCarga({ supabase, user, inventario, setAviso, cargarDatos, fusiona
 
       {cargaAbierta?.id && lineasCamionVisibles.length > 0 && (
         <div style={{ marginBottom: '1rem' }}>
-          <h4 style={{ margin: '0 0 0.35rem', fontSize: '0.95rem' }}>En el camión ahora</h4>
-          <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.78rem' }}>
-            Disp. = Cargada − Vendida − Devuelta.
-            <strong> Devolver</strong> = eliges cuántas piezas a {NOMBRE_ALMACEN_RUTA}.
-            <strong> Quitar</strong> = regresa <em>todo</em> lo disponible de un golpe (aunque ya haya ventas; lo vendido no se toca).
-            Si Disp. = 0 no hay nada que sacar.
-          </p>
-          <table className="consultas-table">
-            <thead>
-              <tr>
-                <th>Producto</th>
-                <th>Cargada</th>
-                <th>Vendida</th>
-                <th>Devuelta</th>
-                <th>Disp.</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lineasCamionVisibles.map((l) => {
-                const disp = disponibleEnLineaCarga(l);
-                const devuelta = Number(l.qty_devuelta) || 0;
-                const ocupado = corrigiendoId === l.id;
-                return (
-                  <tr key={l.id}>
-                    <td>{l.producto_nombre || l.producto_id}</td>
-                    <td>{fmtQty(l.qty_cargada)}</td>
-                    <td>{fmtQty(l.qty_vendida)}</td>
-                    <td className="muted">{fmtQty(devuelta)}</td>
-                    <td style={{ fontWeight: 700, color: disp > 0 ? '#0f766e' : undefined }}>{fmtQty(disp)}</td>
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      <button
-                        type="button"
-                        className="btn btn-primary"
-                        style={{ padding: '0.2rem 0.5rem', fontSize: '0.78rem', marginRight: '0.25rem' }}
-                        disabled={ocupado || !(disp > 0)}
-                        title={`Devolver una cantidad a ${NOMBRE_ALMACEN_RUTA}`}
-                        onClick={() => void devolverPiezas(l, { todo: false })}
-                      >
-                        {ocupado ? '…' : 'Devolver'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        style={{ padding: '0.2rem 0.5rem', fontSize: '0.78rem', color: '#b91c1c' }}
-                        disabled={ocupado || !(disp > 0)}
-                        title={`Quitar las ${disp} disponibles → ${NOMBRE_ALMACEN_RUTA} (lo vendido no se toca)`}
-                        onClick={() => void devolverPiezas(l, { todo: true })}
-                      >
-                        Quitar
-                      </button>
-                    </td>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+            <h4 style={{ margin: 0, fontSize: '0.95rem' }}>En el camión ahora</h4>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ padding: '0.25rem 0.55rem', fontSize: '0.78rem', color: '#b91c1c', marginLeft: 'auto' }}
+              disabled={cerrandoCarga || !!corrigiendoId}
+              title="Cierra esta carga: archiva vendido/devuelto. La próxima nace limpia."
+              onClick={() => void cerrarCargaCamion()}
+            >
+              {cerrandoCarga ? 'Cerrando…' : (dispTotalCamion > 0 ? 'Cerrar carga (devolver resto)' : 'Cerrar carga / limpiar historial')}
+            </button>
+          </div>
+          {!(dispTotalCamion > 0) ? (
+            <p style={{ margin: '0 0 0.45rem', fontSize: '0.8rem', color: '#b45309', background: '#fffbeb', padding: '0.45rem 0.55rem', borderRadius: 6 }}>
+              Camión <strong>sin Disp.</strong> (todo vendido o devuelto). El historial de Devuelta sigue visible
+              porque es la <strong>misma carga abierta</strong>.
+              Usa <strong>Cerrar carga / limpiar historial</strong> o vuelve a cargar mercancía:
+              al confirmar se cierra sola y nace una carga nueva limpia.
+            </p>
+          ) : (
+            <p className="muted" style={{ margin: '0 0 0.45rem', fontSize: '0.78rem' }}>
+              Disp. = Cargada − Vendida − Devuelta.
+              <strong> Devolver</strong> = cantidad a {NOMBRE_ALMACEN_RUTA}.
+              <strong> Quitar</strong> = todo lo disponible.
+              Si el camión queda en Disp. 0, la siguiente carga reinicia el historial.
+            </p>
+          )}
+          {lineasConDisp.length > 0 && (
+            <table className="consultas-table">
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th>Cargada</th>
+                  <th>Vendida</th>
+                  <th>Devuelta</th>
+                  <th>Disp.</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lineasConDisp.map((l) => {
+                  const disp = disponibleEnLineaCarga(l);
+                  const devuelta = Number(l.qty_devuelta) || 0;
+                  const ocupado = corrigiendoId === l.id;
+                  return (
+                    <tr key={l.id}>
+                      <td>{l.producto_nombre || l.producto_id}</td>
+                      <td>{fmtQty(l.qty_cargada)}</td>
+                      <td>{fmtQty(l.qty_vendida)}</td>
+                      <td className="muted">{fmtQty(devuelta)}</td>
+                      <td style={{ fontWeight: 700, color: '#0f766e' }}>{fmtQty(disp)}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          style={{ padding: '0.2rem 0.5rem', fontSize: '0.78rem', marginRight: '0.25rem' }}
+                          disabled={ocupado}
+                          title={`Devolver una cantidad a ${NOMBRE_ALMACEN_RUTA}`}
+                          onClick={() => void devolverPiezas(l, { todo: false })}
+                        >
+                          {ocupado ? '…' : 'Devolver'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ padding: '0.2rem 0.5rem', fontSize: '0.78rem', color: '#b91c1c' }}
+                          disabled={ocupado}
+                          title={`Quitar las ${disp} disponibles → ${NOMBRE_ALMACEN_RUTA}`}
+                          onClick={() => void devolverPiezas(l, { todo: true })}
+                        >
+                          Quitar
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+          {lineasSinDisp.length > 0 && (
+            <details style={{ marginTop: '0.55rem' }}>
+              <summary className="muted" style={{ cursor: 'pointer', fontSize: '0.8rem' }}>
+                Historial sin disponible ({lineasSinDisp.length} producto{lineasSinDisp.length === 1 ? '' : 's'}) — se limpia al cerrar la carga
+              </summary>
+              <table className="consultas-table" style={{ marginTop: '0.35rem', opacity: 0.85 }}>
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th>Cargada</th>
+                    <th>Vendida</th>
+                    <th>Devuelta</th>
+                    <th>Disp.</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                </thead>
+                <tbody>
+                  {lineasSinDisp.map((l) => (
+                    <tr key={l.id}>
+                      <td>{l.producto_nombre || l.producto_id}</td>
+                      <td>{fmtQty(l.qty_cargada)}</td>
+                      <td>{fmtQty(l.qty_vendida)}</td>
+                      <td className="muted">{fmtQty(l.qty_devuelta)}</td>
+                      <td>0</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </details>
+          )}
         </div>
+      )}
+
+      {cargaAbierta?.id && lineasCamionVisibles.length === 0 && (
+        <p className="muted" style={{ fontSize: '0.8rem', marginBottom: '0.75rem' }}>
+          Carga {cargaAbierta.folio} abierta sin líneas. Agrega productos abajo.
+          {' '}
+          <button
+            type="button"
+            className="btn btn-ghost"
+            style={{ padding: '0.15rem 0.4rem', fontSize: '0.75rem' }}
+            disabled={cerrandoCarga}
+            onClick={() => void cerrarCargaCamion()}
+          >
+            Cerrar carga
+          </button>
+        </p>
       )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>

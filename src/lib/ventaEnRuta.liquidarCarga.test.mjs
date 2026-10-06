@@ -1,7 +1,20 @@
 import assert from 'node:assert/strict';
-import { liquidarCargaRuta, disponibleEnLineaCarga } from './ventaEnRuta.js';
+import { liquidarCargaRuta, disponibleEnLineaCarga, disponibleTotalCarga } from './ventaEnRuta.js';
 
 assert.equal(disponibleEnLineaCarga({ qty_cargada: 10, qty_vendida: 3, qty_devuelta: 7 }), 0);
+assert.equal(
+  disponibleTotalCarga([
+    { qty_cargada: 100, qty_vendida: 1, qty_devuelta: 99 },
+    { qty_cargada: 50, qty_vendida: 10, qty_devuelta: 0 },
+  ]),
+  40,
+);
+assert.equal(
+  disponibleTotalCarga([
+    { qty_cargada: 1000, qty_vendida: 301, qty_devuelta: 699 },
+  ]),
+  0,
+);
 
 function mockSupabase({ carga, lineas = [] } = {}) {
   const state = {
