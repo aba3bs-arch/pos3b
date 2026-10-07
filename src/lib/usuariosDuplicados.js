@@ -105,6 +105,40 @@ export function encontrarGruposDuplicadosActivos(usuarios = []) {
 }
 
 /**
+ * Lee usuarios frescos de la nube para validar alta (evita carrera por doble clic
+ * con la lista local desactualizada).
+ */
+export async function listarUsuariosParaConflictoAlta(supabase) {
+  if (!supabase) return { ok: false, error: 'Sin conexión.', usuarios: [] };
+  const intentos = [
+    'id, nombre, pin, activo, sucursal_id, rol, tipo_empleado, dispositivo_id, dispositivo_id_2',
+    'id, nombre, pin, activo, sucursal_id, rol, tipo_empleado',
+    'id, nombre, activo, sucursal_id, rol, tipo_empleado',
+  ];
+  for (const cols of intentos) {
+    const { data, error } = await supabase.from('usuarios').select(cols).limit(5000);
+    if (!error) return { ok: true, usuarios: data || [] };
+    if (!String(error.message || '').includes('column')) {
+      return { ok: false, error: error.message, usuarios: [] };
+    }
+  }
+  return { ok: false, error: 'No se pudieron leer usuarios.', usuarios: [] };
+}
+
+/**
+ * Conflicto de alta con lectura fresca en nube (doble clic / lista stale).
+ */
+export async function detectarConflictoAltaUsuarioNube(supabase, opts = {}) {
+  const list = await listarUsuariosParaConflictoAlta(supabase);
+  if (!list.ok) {
+    // Sin lectura: no bloquear por red, pero avisar; la UI debe reintentar o usar lista local.
+    return { ok: true, aviso: list.error, usuarios: [] };
+  }
+  const conf = detectarConflictoAltaUsuario(list.usuarios, opts);
+  return { ...conf, usuarios: list.usuarios };
+}
+
+/**
  * Busca conflicto al dar de alta: activo en misma tienda, o baja con mismo nombre
  * (debe usarse reingreso).
  */

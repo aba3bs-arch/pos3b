@@ -259,6 +259,7 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
 
   const guardarAlta = async () => {
     if (!puede) return alert('Sin permiso.');
+    if (trabajando) return;
     if (form.tipo_empleado === 'cubre_turno') {
       const tiendas = Array.isArray(form.ct_sucursales) ? form.ct_sucursales.filter(Boolean) : [];
       if (!tiendas.length) {
@@ -272,16 +273,19 @@ export default function RhAba3b({ supabase, user, sucursal, altaInicial = null, 
       return alert('Indica el PIN de acceso al POS. Sin PIN no aparece en Usuarios ni en nómina.');
     }
     setTrabajando(true);
-    const res = await altaEmpleadoRh(supabase, form, { user });
-    setTrabajando(false);
-    if (!res.ok) return alert(res.error);
-    setMsg(res.mensaje);
-    if (form.tipo_empleado === 'cubre_turno' && res.mensaje) {
-      alert(res.mensaje);
+    try {
+      const res = await altaEmpleadoRh(supabase, form, { user });
+      if (!res.ok) return alert(res.error);
+      setMsg(res.mensaje);
+      if (form.tipo_empleado === 'cubre_turno' && res.mensaje) {
+        alert(res.mensaje);
+      }
+      setVista('lista');
+      setForm({ ...FORM_VACIO, sucursal_id: sucursal || '' });
+      await cargarListas();
+    } finally {
+      setTrabajando(false);
     }
-    setVista('lista');
-    setForm({ ...FORM_VACIO, sucursal_id: sucursal || '' });
-    await cargarListas();
   };
 
   const crearAccesoPosDesdeDetalle = async () => {
