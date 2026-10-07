@@ -59,8 +59,11 @@ export function mejorNombreDelGrupo(usuarios = []) {
 /**
  * Agrupa usuarios activos que parecen la misma persona en el mismo ámbito (tienda/MAIN).
  * Ignora administradores (pueden existir varios).
+ * @param {object} [opts]
+ * @param {string|null} [opts.preferirId] fuerza conservar esa ficha si está en el grupo
  */
-export function encontrarGruposDuplicadosActivos(usuarios = []) {
+export function encontrarGruposDuplicadosActivos(usuarios = [], { preferirId = null } = {}) {
+  const prefer = preferirId != null ? String(preferirId) : null;
   const candidatos = (usuarios || []).filter((u) => {
     if (!u || u.activo === false) return false;
     if (normalizarRol(u.rol) === 'Administrador') return false;
@@ -90,7 +93,13 @@ export function encontrarGruposDuplicadosActivos(usuarios = []) {
     }
 
     if (grupo.length > 1) {
-      grupo.sort((x, y) => scoreUsuarioParaConservar(y) - scoreUsuarioParaConservar(x));
+      // preferirId es desempate suave: no debe ganar a la ficha con equipos vinculados.
+      const scoreConPrefer = (u) => {
+        let s = scoreUsuarioParaConservar(u);
+        if (prefer && String(u.id) === prefer) s += 25;
+        return s;
+      };
+      grupo.sort((x, y) => scoreConPrefer(y) - scoreConPrefer(x));
       grupos.push({
         ambito: ambitoA,
         nombre: grupo[0].nombre,
@@ -197,10 +206,10 @@ export function detectarConflictoAltaUsuario(usuarios = [], { nombre, sucursal_i
  * Desactiva registros duplicados activos (conserva el de mayor score).
  * También marca baja en expedientes RH ligados a los desactivados.
  */
-export async function depurarUsuariosDuplicados(supabase, usuarios = [], { user } = {}) {
+export async function depurarUsuariosDuplicados(supabase, usuarios = [], { user, preferirId = null } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.', grupos: [], desactivados: [] };
 
-  const grupos = encontrarGruposDuplicadosActivos(usuarios);
+  const grupos = encontrarGruposDuplicadosActivos(usuarios, { preferirId });
   if (grupos.length === 0) {
     return { ok: true, grupos: [], desactivados: [], mensaje: 'No hay empleados repetidos activos.' };
   }
@@ -305,4 +314,23 @@ export function resumenGruposDuplicados(grupos = []) {
 
 export function claveNombreAmbito(nombre, ambito) {
   return `${normalizarNombrePersona(nombre)}|${ambito}`;
+}
+
+/**
+ * Tras alta o reingreso: si quedaron 2 fichas activas de la misma persona
+ * (typo en el nombre), deja una sola. Preferir `conservarId` si se indica.
+ */
+export async function consolidarDuplicadosTrasAltaOReingreso(supabase, { conservarId = null, user = null } = {}) {
+  const list = await listarUsuariosParaConflictoAlta(supabase);
+  if (!list.ok) return { ok: true, desactivados: [], aviso: list.error };
+  const grupos = encontrarGruposDuplicadosActivos(list.usuarios, { preferirId: conservarId });
+  if (!grupos.length) return { ok: true, desactivados: [], mensaje: null };
+  // Si hay preferirId, solo depurar grupos que lo contengan; si no, todos.
+  const filtrados = conservarId
+    ? grupos.filter((g) => g.todos.some((u) => String(u.id) === String(conservarId)))
+    : grupos;
+  if (!filtrados.length) return { ok: true, desactivados: [], mensaje: null };
+  const idsGrupo = new Set(filtrados.flatMap((g) => g.todos.map((u) => String(u.id))));
+  const subset = list.usuarios.filter((u) => idsGrupo.has(String(u.id)));
+  return depurarUsuariosDuplicados(supabase, subset, { user, preferirId: conservarId });
 }
