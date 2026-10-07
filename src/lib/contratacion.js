@@ -831,6 +831,88 @@ export function validarFiltroTipoEdad({ tipo, edad, fecha_nacimiento }) {
   return { ok: true, edad: edadN };
 }
 
+/**
+ * Colonias demasiado lejos (transporte / tráfico) — no contratables.
+ * Incluye alias ortográficos (meza/mesa, foviste/FOVISSSTE, etc.).
+ */
+export const COLONIAS_NO_CONTRATABLES = [
+  'la meza', 'la mesa', 'meza', 'mesa',
+  'las torres', 'torres',
+  'la colocio', 'el colegio', 'la colegio', 'colocio', 'colegio',
+  'la pichona', 'pichona',
+  'el represo', 'represo',
+  'jardines del bosque',
+  'casa blanca', 'casablanca',
+  'las acacias', 'acacias',
+  'reforma',
+  'foviste 1', 'foviste1', 'fovissste 1', 'fovissste1', 'foviste i',
+  'foviste 2', 'foviste2', 'fovissste 2', 'fovissste2',
+  'buena vista', 'buenavista',
+  'el sin fin', 'sin fin', 'el sinfin', 'sinfin',
+  'las bellotas', 'bellotas',
+  'nuevo nogales',
+  'el manantial', 'manantial',
+  'mediterraneo', 'mediterráneo',
+  'los encinos', 'encinos',
+  'pueblitos',
+  'bosque de nogales',
+  'terranova',
+  'san sebastian', 'san sebastián',
+  'los olivos', 'olivos',
+  'obrera', 'la obrera',
+];
+
+export const MENSAJE_COLONIA_LEJANA =
+  'No vives en el área o cerca de la tienda. Por distancia, transporte y tráfico no puedes ser contratado.';
+
+/** Normaliza colonia para comparar (acentos, “Col.”, espacios). */
+export function normalizarColoniaNombre(raw) {
+  let s = String(raw || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[./#,;:_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  s = s
+    .replace(/^(colonia|col|fraccionamiento|fracc|frac|residencial|res)\s+/i, '')
+    .trim();
+  // FOVISSSTE / FOVISSTE typos → foviste
+  s = s.replace(/\bfoviss?ste\b/g, 'foviste');
+  return s;
+}
+
+const COLONIAS_NO_CONTRATABLES_NORM = new Set(
+  COLONIAS_NO_CONTRATABLES.map((c) => normalizarColoniaNombre(c)).filter(Boolean),
+);
+
+/** True si la colonia está en la lista de lejanía (no contratable). */
+export function coloniaEsNoContratable(colonia) {
+  const n = normalizarColoniaNombre(colonia);
+  if (!n) return false;
+  if (COLONIAS_NO_CONTRATABLES_NORM.has(n)) return true;
+  // Sin artículo: "la mesa" ↔ "mesa"
+  const sinArt = n.replace(/^(el|la|los|las)\s+/, '').trim();
+  if (sinArt && sinArt !== n && COLONIAS_NO_CONTRATABLES_NORM.has(sinArt)) return true;
+  if (sinArt && COLONIAS_NO_CONTRATABLES_NORM.has(`la ${sinArt}`)) return true;
+  if (sinArt && COLONIAS_NO_CONTRATABLES_NORM.has(`el ${sinArt}`)) return true;
+  if (sinArt && COLONIAS_NO_CONTRATABLES_NORM.has(`las ${sinArt}`)) return true;
+  if (sinArt && COLONIAS_NO_CONTRATABLES_NORM.has(`los ${sinArt}`)) return true;
+  return false;
+}
+
+export function validarColoniaContratacion(colonia) {
+  const raw = String(colonia || '').trim();
+  if (!raw) {
+    return { ok: false, error: 'Indica tu colonia. Es obligatoria para revisar si estás cerca de la tienda.' };
+  }
+  if (coloniaEsNoContratable(raw)) {
+    return { ok: false, error: MENSAJE_COLONIA_LEJANA, coloniaLejana: true };
+  }
+  return { ok: true };
+}
+
 export function validarFormularioContratacion(form) {
   const filtro = validarFiltroTipoEdad(form);
   if (!filtro.ok) return filtro;
@@ -842,6 +924,8 @@ export function validarFormularioContratacion(form) {
   if (apellidos.length < 2) return { ok: false, error: 'Escribe tus apellidos.' };
   if (telefono.length < 10) return { ok: false, error: 'Teléfono a 10 dígitos mínimo.' };
   if (!String(form.direccion || '').trim()) return { ok: false, error: 'Indica tu dirección.' };
+  const col = validarColoniaContratacion(form.colonia);
+  if (!col.ok) return col;
   if (!String(form.ciudad || '').trim()) return { ok: false, error: 'Indica tu ciudad.' };
   if (!String(form.grado_estudios || '').trim()) return { ok: false, error: 'Selecciona tu grado de estudios.' };
   // Experiencia no es requisito del perfil laboral del negocio.

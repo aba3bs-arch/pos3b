@@ -456,8 +456,15 @@ export default function ContratacionPublica({ supabase }) {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
             <label className="muted">
-              Colonia
-              <input className="input" value={form.colonia} onChange={(e) => setCampo('colonia', e.target.value)} style={{ marginTop: '0.3rem' }} />
+              Colonia *
+              <input
+                className="input"
+                value={form.colonia}
+                onChange={(e) => setCampo('colonia', e.target.value)}
+                placeholder="Ej. Centro, Del Valle…"
+                style={{ marginTop: '0.3rem' }}
+                required
+              />
             </label>
             <label className="muted">
               Ciudad *

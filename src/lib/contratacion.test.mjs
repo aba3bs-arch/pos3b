@@ -12,6 +12,9 @@ import {
   urlPortalContratacion,
   validarFiltroTipoEdad,
   validarFormularioContratacion,
+  coloniaEsNoContratable,
+  validarColoniaContratacion,
+  MENSAJE_COLONIA_LEJANA,
   FORM_CONTRATACION_VACIO,
   formRhDesdeSolicitudContratacion,
   calificarEvaluacionFa3b003,
@@ -42,6 +45,7 @@ const formOk = {
   apellidos: 'López García',
   telefono: '6311234567',
   direccion: 'Calle 1',
+  colonia: 'Centro',
   ciudad: 'Nogales',
   grado_estudios: 'Preparatoria / Bachillerato',
   experiencia: '',
@@ -49,6 +53,20 @@ const formOk = {
 };
 assert.equal(validarFormularioContratacion(formOk).ok, true, 'experiencia no es requisito');
 assert.equal(validarFormularioContratacion({ ...formOk, telefono: '123' }).ok, false);
+assert.equal(validarFormularioContratacion({ ...formOk, colonia: '' }).ok, false, 'colonia obligatoria');
+
+assert.equal(coloniaEsNoContratable('La Meza'), true);
+assert.equal(coloniaEsNoContratable('Col. Jardines del Bosque'), true);
+assert.equal(coloniaEsNoContratable('FOVISSSTE 1'), true);
+assert.equal(coloniaEsNoContratable('foviste2'), true);
+assert.equal(coloniaEsNoContratable('Buenavista'), true);
+assert.equal(coloniaEsNoContratable('San Sebastián'), true);
+assert.equal(coloniaEsNoContratable('Centro'), false);
+assert.equal(coloniaEsNoContratable('Del Valle'), false);
+assert.equal(validarColoniaContratacion('Las Torres').ok, false);
+assert.equal(validarColoniaContratacion('Las Torres').error, MENSAJE_COLONIA_LEJANA);
+assert.equal(validarFormularioContratacion({ ...formOk, colonia: 'Terranova' }).ok, false);
+assert.equal(validarFormularioContratacion({ ...formOk, colonia: 'Terranova' }).coloniaLejana, true);
 
 assert.equal(esModoContratacionPublica({ search: '?contratacion=1', hash: '' }), true);
 assert.equal(esModoContratacionPublica({ search: '', hash: '#contratacion' }), true);
