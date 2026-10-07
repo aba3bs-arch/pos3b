@@ -557,19 +557,78 @@ export function normalizarNombrePersona(nombre) {
     .replace(/\s+/g, ' ');
 }
 
-/** True si parecen la misma persona (nombre corto vs nombre completo). */
+/** Distancia de edición simple (typos: Geovani ≈ giovani). */
+export function distanciaLevenshtein(a, b) {
+  const s = String(a || '');
+  const t = String(b || '');
+  if (s === t) return 0;
+  const n = s.length;
+  const m = t.length;
+  if (!n) return m;
+  if (!m) return n;
+  const row = new Array(m + 1);
+  for (let j = 0; j <= m; j += 1) row[j] = j;
+  for (let i = 1; i <= n; i += 1) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= m; j += 1) {
+      const tmp = row[j];
+      const cost = s[i - 1] === t[j - 1] ? 0 : 1;
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + cost);
+      prev = tmp;
+    }
+  }
+  return row[m];
+}
+
+function tokensNombreSimilares(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const maxLen = Math.max(a.length, b.length);
+  if (maxLen < 4) return false;
+  const dist = distanciaLevenshtein(a, b);
+  // 1 typo en cortos; hasta 2 si ≥ 6 letras (Geovani/giovani = 1)
+  const lim = maxLen >= 6 ? 2 : 1;
+  return dist <= lim;
+}
+
+/**
+ * True si parecen la misma persona (nombre corto vs completo, acentos, typos
+ * en segundo nombre: Angel Geovani ≈ Ángel giovani + mismos apellidos).
+ */
 export function nombresMismaPersona(a, b) {
   const na = normalizarNombrePersona(a);
   const nb = normalizarNombrePersona(b);
   if (!na || !nb) return false;
   if (na === nb) return true;
   if (na.startsWith(`${nb} `) || nb.startsWith(`${na} `)) return true;
-  const ta = na.split(' ');
-  const tb = nb.split(' ');
-  if (ta[0] && ta[0] === tb[0] && ta[0].length >= 4) {
-    if (na.startsWith(nb) || nb.startsWith(na)) return true;
-    if (ta.length >= 2 && tb.length >= 2 && ta[1] === tb[1]) return true;
+
+  const ta = na.split(' ').filter(Boolean);
+  const tb = nb.split(' ').filter(Boolean);
+  if (!ta[0] || !tb[0]) return false;
+  if (ta[0].length < 4 || tb[0].length < 4) return false;
+  if (!(ta[0] === tb[0] || tokensNombreSimilares(ta[0], tb[0]))) return false;
+
+  if (na.startsWith(nb) || nb.startsWith(na)) return true;
+
+  // Mismos 2 apellidos (paterno + materno) → misma persona aunque el 2.º nombre tipée distinto
+  if (ta.length >= 3 && tb.length >= 3) {
+    const apA = ta.slice(-2).join(' ');
+    const apB = tb.slice(-2).join(' ');
+    if (apA === apB) return true;
   }
+
+  // Nombre + 2.º nombre similar + mismo apellido final
+  if (ta.length >= 2 && tb.length >= 2) {
+    const midOk = ta.length === 2 && tb.length === 2
+      ? (ta[1] === tb[1] || tokensNombreSimilares(ta[1], tb[1]))
+      : (ta.length >= 3 && tb.length >= 3
+        && (ta[1] === tb[1] || tokensNombreSimilares(ta[1], tb[1]))
+        && (ta[ta.length - 1] === tb[tb.length - 1]
+          || tokensNombreSimilares(ta[ta.length - 1], tb[tb.length - 1])));
+    if (midOk) return true;
+  }
+
   return false;
 }
 

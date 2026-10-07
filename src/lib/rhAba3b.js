@@ -910,6 +910,21 @@ export async function altaEmpleadoRh(supabase, form = {}, { user } = {}) {
     extraPos = pos.omitido
       ? ''
       : ' Ya aparece en Usuarios y nómina.';
+    // Typo en nombre (Geovani/giovani): unificar si quedó otra ficha activa.
+    if (pos.usuario?.id && !pos.omitido) {
+      try {
+        const { consolidarDuplicadosTrasAltaOReingreso } = await import('./usuariosDuplicados.js');
+        const cons = await consolidarDuplicadosTrasAltaOReingreso(supabase, {
+          conservarId: pos.usuario.id,
+          user,
+        });
+        if (cons.desactivados?.length) {
+          extraPos += ` Se unificó ${cons.desactivados.length} ficha(s) duplicada(s).`;
+        }
+      } catch {
+        /* no bloquear alta */
+      }
+    }
   } else {
     // CT: sin usuario POS ni nómina. PIN = el universal de Configuración.
     // Nombre → catálogo gastos CUBRE TURNO; se notifica el PIN a usar.
@@ -1250,11 +1265,26 @@ export async function reactivarUsuarioPosYRh(supabase, usuario, { pinAdminPrinci
         .eq('id', usuario.id);
     }
   }
+
+  let extraDup = '';
+  try {
+    const { consolidarDuplicadosTrasAltaOReingreso } = await import('./usuariosDuplicados.js');
+    const cons = await consolidarDuplicadosTrasAltaOReingreso(supabase, {
+      conservarId: usuario.id,
+      user,
+    });
+    if (cons.desactivados?.length) {
+      extraDup = ` Se unificó ${cons.desactivados.length} ficha(s) duplicada(s) en Usuarios.`;
+    }
+  } catch {
+    /* no bloquear reingreso */
+  }
+
   return {
     ok: true,
-    mensaje: form?.sucursal_id
+    mensaje: (form?.sucursal_id
       ? `${usuario.nombre} reactivado en ${etiquetaTienda(form.sucursal_id)}.`
-      : `${usuario.nombre} reactivado.`,
+      : `${usuario.nombre} reactivado.`) + extraDup,
   };
 }
 
@@ -1318,7 +1348,7 @@ async function aplicarRecontratacion(supabase, emp, form, user) {
     .single();
   if (error) return { ok: false, error: error.message };
 
-  await sincronizarUsuarioPosActivo(supabase, data, true);
+  const syncAct = await sincronizarUsuarioPosActivo(supabase, data, true);
 
   let extraPos = '';
   // Reingreso a otra tienda: actualizar también usuarios.sucursal_id (antes solo RH).
@@ -1329,6 +1359,21 @@ async function aplicarRecontratacion(supabase, emp, form, user) {
     } else if ((syncSuc.ids || []).length) {
       extraPos = ` POS actualizado a ${etiquetaTienda(sucursal_id)}.`;
     }
+  }
+
+  // Si por typo (Geovani/giovani) quedaron 2 activos, dejar una sola ficha.
+  try {
+    const { consolidarDuplicadosTrasAltaOReingreso } = await import('./usuariosDuplicados.js');
+    const preferId = data.usuario_id || (syncAct?.ids || [])[0] || null;
+    const cons = await consolidarDuplicadosTrasAltaOReingreso(supabase, {
+      conservarId: preferId,
+      user,
+    });
+    if (cons.desactivados?.length) {
+      extraPos += ` Se unificó ${cons.desactivados.length} ficha(s) duplicada(s) en Usuarios.`;
+    }
+  } catch {
+    /* no bloquear reingreso */
   }
 
   try {

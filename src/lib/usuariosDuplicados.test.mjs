@@ -103,4 +103,39 @@ import {
   assert.equal(conf3.ok, true);
 }
 
+{
+  // Reingreso Angel: Geovani vs giovani + acento → mismo grupo; conserva la de 2 equipos
+  const a = {
+    id: 'angel-diurno',
+    nombre: 'Angel Geovani Garduño Pelayo',
+    sucursal_id: '3B10',
+    tipo_empleado: 'tienda',
+    activo: true,
+    rol: 'Cajero',
+    dispositivo_id: 'eq1',
+  };
+  const b = {
+    id: 'angel-nocturno',
+    nombre: 'Ángel giovani Garduño Pelayo',
+    sucursal_id: '3B10',
+    tipo_empleado: 'tienda',
+    activo: true,
+    rol: 'Cajero',
+    dispositivo_id: 'eq2',
+    dispositivo_id_2: 'eq3',
+  };
+  const grupos = encontrarGruposDuplicadosActivos([a, b], { preferirId: 'angel-diurno' });
+  assert.equal(grupos.length, 1);
+  assert.equal(grupos[0].conservar.id, 'angel-nocturno', 'equipos ganan a preferirId suave');
+  assert.equal(grupos[0].duplicados[0].id, 'angel-diurno');
+
+  const conf = detectarConflictoAltaUsuario([a], {
+    nombre: 'Ángel giovani Garduño Pelayo',
+    sucursal_id: '3B10',
+    tipo_empleado: 'tienda',
+  });
+  assert.equal(conf.ok, false);
+  assert.equal(conf.tipo, 'activo');
+}
+
 console.log('usuariosDuplicados.test.mjs ok');

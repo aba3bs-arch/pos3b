@@ -27,6 +27,7 @@ import {
   reactivarUsuarioPosYRh,
 } from '../lib/rhAba3b.js';
 import {
+  consolidarDuplicadosTrasAltaOReingreso,
   detectarConflictoAltaUsuario,
   detectarConflictoAltaUsuarioNube,
   depurarUsuariosDuplicados,
@@ -369,12 +370,22 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       const rh = creado?.id
         ? await asegurarExpedienteRhDesdeUsuario(supabase, creado, { user: actor, estadoInicial: 'activo' })
         : { ok: false, error: 'Usuario creado; abre RH ABA3B si no aparece el expediente.' };
+      let extraDup = '';
+      if (creado?.id) {
+        const cons = await consolidarDuplicadosTrasAltaOReingreso(supabase, {
+          conservarId: creado.id,
+          user: actor,
+        });
+        if (cons.desactivados?.length) {
+          extraDup = ` Se desactivó ${cons.desactivados.length} ficha(s) duplicada(s) (mismo nombre en la tienda).`;
+        }
+      }
       setForm(emptyForm(sucursal));
       load();
       const extraRh = rh?.ok
         ? ' Expediente creado en RH ABA3B.'
         : (rh?.error ? ` RH: ${rh.error}` : '');
-      alert(`${payload.nombre} dado de alta. Ya puede entrar con su PIN.${extraRh}`);
+      alert(`${payload.nombre} dado de alta. Ya puede entrar con su PIN.${extraRh}${extraDup}`);
     } finally {
       creandoRef.current = false;
       setCreando(false);
@@ -544,6 +555,15 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     if (!confirm(`¿Reingresar alta de ${r.nombre} en ${tiendaTxt}?\n\nVolverá a nómina, turnos y Usuarios. Podrá entrar con su PIN en esa tienda.`)) return;
     setTrabajandoBaja(true);
     const res = await reactivarUsuarioPosYRh(supabase, r, { form: formReingreso }, { user: actor });
+    if (res.ok) {
+      const cons = await consolidarDuplicadosTrasAltaOReingreso(supabase, {
+        conservarId: r.id,
+        user: actor,
+      });
+      if (cons.desactivados?.length) {
+        res.mensaje = `${res.mensaje || ''} Se unificó ficha duplicada en la misma tienda.`.trim();
+      }
+    }
     setTrabajandoBaja(false);
     if (!res.ok) return alert(res.error);
     setReingresoPickId('');
@@ -571,6 +591,16 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
       { pinAdminPrincipal: pinReingreso, form: reactivarTarget._formReingreso || { sucursal_id: reingresoDestino || reactivarTarget.sucursal_id } },
       { user: actor },
     );
+    let mensaje = res.mensaje || `${reactivarTarget.nombre} reingresado.`;
+    if (res.ok) {
+      const cons = await consolidarDuplicadosTrasAltaOReingreso(supabase, {
+        conservarId: reactivarTarget.id,
+        user: actor,
+      });
+      if (cons.desactivados?.length) {
+        mensaje = `${mensaje} Se unificó ficha duplicada en la misma tienda.`.trim();
+      }
+    }
     setTrabajandoBaja(false);
     if (!res.ok) return alert(res.error);
     setReactivarTarget(null);
@@ -578,7 +608,7 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
     setReingresoPickId('');
     setReingresoDestino('');
     load();
-    alert(res.mensaje || `${reactivarTarget.nombre} reingresado.`);
+    alert(mensaje);
   };
 
   const borrar = async (id) => {
