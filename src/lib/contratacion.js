@@ -913,6 +913,17 @@ export function validarColoniaContratacion(colonia) {
   return { ok: true };
 }
 
+/**
+ * Filtro del Paso 1: tipo + edad + colonia (rechazo temprano por lejanía).
+ */
+export function validarFiltroInicial(form) {
+  const filtro = validarFiltroTipoEdad(form);
+  if (!filtro.ok) return filtro;
+  const col = validarColoniaContratacion(form?.colonia);
+  if (!col.ok) return col;
+  return { ok: true, edad: filtro.edad };
+}
+
 export function validarFormularioContratacion(form) {
   const filtro = validarFiltroTipoEdad(form);
   if (!filtro.ok) return filtro;

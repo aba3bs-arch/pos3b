@@ -11,6 +11,7 @@ import {
   opcionesSucursalesContratacion,
   urlPortalContratacion,
   validarFiltroTipoEdad,
+  validarFiltroInicial,
   validarFormularioContratacion,
   coloniaEsNoContratable,
   validarColoniaContratacion,
