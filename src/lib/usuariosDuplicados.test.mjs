@@ -80,4 +80,27 @@ import {
   assert.equal(conf.ok, true);
 }
 
+{
+  // Caso Angel: mismo nombre corto / con apellido en la misma tienda
+  const conf = detectarConflictoAltaUsuario(
+    [{ id: 1, nombre: 'Angel', sucursal_id: '3B2', tipo_empleado: 'tienda', activo: true, rol: 'Cajero', pin: '1111' }],
+    { nombre: 'Angel', sucursal_id: '3B2', tipo_empleado: 'tienda' },
+  );
+  assert.equal(conf.ok, false);
+  assert.equal(conf.tipo, 'activo');
+
+  const conf2 = detectarConflictoAltaUsuario(
+    [{ id: 1, nombre: 'Angel Martinez', sucursal_id: '3B2', tipo_empleado: 'tienda', activo: true, rol: 'Cajero', pin: '1111' }],
+    { nombre: 'Angel', sucursal_id: '3B2', tipo_empleado: 'tienda' },
+  );
+  assert.equal(conf2.ok, false);
+
+  // Distinta tienda: permitido
+  const conf3 = detectarConflictoAltaUsuario(
+    [{ id: 1, nombre: 'Angel', sucursal_id: '3B2', tipo_empleado: 'tienda', activo: true, rol: 'Cajero' }],
+    { nombre: 'Angel', sucursal_id: '3B5', tipo_empleado: 'tienda' },
+  );
+  assert.equal(conf3.ok, true);
+}
+
 console.log('usuariosDuplicados.test.mjs ok');

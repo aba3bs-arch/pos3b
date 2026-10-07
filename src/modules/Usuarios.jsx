@@ -28,6 +28,7 @@ import {
 } from '../lib/rhAba3b.js';
 import {
   detectarConflictoAltaUsuario,
+  detectarConflictoAltaUsuarioNube,
   depurarUsuariosDuplicados,
   encontrarGruposDuplicadosActivos,
   resumenGruposDuplicados,
@@ -47,6 +48,8 @@ const emptyForm = (sucursalDefault) => ({
 export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, onUsuarioActualizado }) {
   const [rows, setRows] = useState([]);
   const [form, setForm] = useState(() => emptyForm(sucursal));
+  const [creando, setCreando] = useState(false);
+  const creandoRef = useRef(false);
   const [pinsVisibles, setPinsVisibles] = useState(() => new Set());
   const [pinEnEdicion, setPinEnEdicion] = useState(null);
   const [nuevoPinDraft, setNuevoPinDraft] = useState('');
@@ -294,72 +297,88 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
 
   const crear = async () => {
     if (!supabase || !esAdmin) return;
+    if (creandoRef.current) return;
     if (!form.nombre.trim() || !String(form.pin).trim()) return alert('Nombre y PIN obligatorios');
     const tipo = form.tipo_empleado === 'indirecto' ? 'indirecto' : 'tienda';
     const sucursal_id = tipo === 'indirecto'
       ? 'MAIN'
       : (normalizarCodigoTienda(form.sucursal_id) || tiendasAsignables[0] || 'CEDIS');
-    const conflicto = detectarConflictoAltaUsuario(rows, {
+    const optsConflicto = {
       nombre: form.nombre.trim(),
       sucursal_id,
       tipo_empleado: tipo,
-    });
-    if (!conflicto.ok) return alert(conflicto.error);
-    if (tipo === 'tienda' && normalizarRol(form.rol) !== 'Administrador') {
-      const cupo = puedeAgregarEmpleadoTienda(rows, sucursal_id);
-      if (!cupo.ok) return alert(cupo.error);
-    }
-    const payload = {
-      nombre: form.nombre.trim(),
-      pin: String(form.pin).trim(),
-      rol: normalizarRol(form.rol),
-      tipo_empleado: tipo,
-      sucursal_id,
-      nomina_pagador: form.nomina_pagador || 'abarrotes',
-      turno_id: esPersonalizado ? null : form.turno_id || null,
-      activo: true,
     };
-    const cubre = await pinEsCubreTurnoDeSucursal(supabase, payload.pin, payload.sucursal_id);
-    if (cubre.coincide) {
-      return alert(
-        `Ese PIN es el de cubre turno de ${etiquetaTienda(payload.sucursal_id)}. Elige otro PIN para el empleado fijo.`,
-      );
-    }
-    const { data, error } = await supabase.from('usuarios').insert([payload]).select('*').single();    if (error) {
-      if (error.code === '23505' || String(error.message).includes('duplicate')) {
-        return alert(`Ya existe un usuario con PIN ${payload.pin} en ${payload.sucursal_id}.`);
+    const conflictoLocal = detectarConflictoAltaUsuario(rows, optsConflicto);
+    if (!conflictoLocal.ok) return alert(conflictoLocal.error);
+
+    creandoRef.current = true;
+    setCreando(true);
+    try {
+      // Releer nube: evita doble Angel por doble clic / lista stale.
+      const conflictoNube = await detectarConflictoAltaUsuarioNube(supabase, optsConflicto);
+      if (!conflictoNube.ok) return alert(conflictoNube.error);
+
+      const listaCupo = (conflictoNube.usuarios || []).length ? conflictoNube.usuarios : rows;
+      if (tipo === 'tienda' && normalizarRol(form.rol) !== 'Administrador') {
+        const cupo = puedeAgregarEmpleadoTienda(listaCupo, sucursal_id);
+        if (!cupo.ok) return alert(cupo.error);
       }
-      if (String(error.message).includes('tipo_empleado')) {
-        return alert('Ejecuta supabase/fix_usuarios_tipo_empleado.sql en Supabase.');
-      }
-      if (String(error.message).includes('usuarios_rol_check')) {
+      const payload = {
+        nombre: form.nombre.trim(),
+        pin: String(form.pin).trim(),
+        rol: normalizarRol(form.rol),
+        tipo_empleado: tipo,
+        sucursal_id,
+        nomina_pagador: form.nomina_pagador || 'abarrotes',
+        turno_id: esPersonalizado ? null : form.turno_id || null,
+        activo: true,
+      };
+      const cubre = await pinEsCubreTurnoDeSucursal(supabase, payload.pin, payload.sucursal_id);
+      if (cubre.coincide) {
         return alert(
-          `El rol "${payload.rol}" no está permitido en Supabase. Ejecuta supabase/fix_usuarios_rol_check.sql en el SQL Editor (o vuelve a correr fix_turnos_seguridad.sql).`
+          `Ese PIN es el de cubre turno de ${etiquetaTienda(payload.sucursal_id)}. Elige otro PIN para el empleado fijo.`,
         );
       }
-      if (String(error.message).includes('sucursal_id')) {
-        return alert('Ejecuta supabase/fix_usuarios_sucursal.sql en Supabase para agregar la columna sucursal_id.');
+      const { data, error } = await supabase.from('usuarios').insert([payload]).select('*').single();
+      if (error) {
+        if (error.code === '23505' || String(error.message).includes('duplicate')) {
+          return alert(`Ya existe un usuario con PIN ${payload.pin} en ${payload.sucursal_id}.`);
+        }
+        if (String(error.message).includes('tipo_empleado')) {
+          return alert('Ejecuta supabase/fix_usuarios_tipo_empleado.sql en Supabase.');
+        }
+        if (String(error.message).includes('usuarios_rol_check')) {
+          return alert(
+            `El rol "${payload.rol}" no está permitido en Supabase. Ejecuta supabase/fix_usuarios_rol_check.sql en el SQL Editor (o vuelve a correr fix_turnos_seguridad.sql).`,
+          );
+        }
+        if (String(error.message).includes('sucursal_id')) {
+          return alert('Ejecuta supabase/fix_usuarios_sucursal.sql en Supabase para agregar la columna sucursal_id.');
+        }
+        if (String(error.message).includes('turno_id')) {
+          return alert('Ejecuta supabase/fix_turnos.sql en Supabase para agregar la columna turno_id.');
+        }
+        if (String(error.message).includes('turno_horario')) {
+          return alert('Ejecuta supabase/fix_turnos_seguridad.sql en Supabase para agregar la columna turno_horario.');
+        }
+        return alert(error.message);
       }
-      if (String(error.message).includes('turno_id')) {
-        return alert('Ejecuta supabase/fix_turnos.sql en Supabase para agregar la columna turno_id.');
-      }
-      if (String(error.message).includes('turno_horario')) {
-        return alert('Ejecuta supabase/fix_turnos_seguridad.sql en Supabase para agregar la columna turno_horario.');
-      }
-      return alert(error.message);
+      const creado = data?.id
+        ? data
+        : (await supabase.from('usuarios').select('*').eq('pin', payload.pin).eq('sucursal_id', payload.sucursal_id).maybeSingle()).data;
+      const rh = creado?.id
+        ? await asegurarExpedienteRhDesdeUsuario(supabase, creado, { user: actor, estadoInicial: 'activo' })
+        : { ok: false, error: 'Usuario creado; abre RH ABA3B si no aparece el expediente.' };
+      setForm(emptyForm(sucursal));
+      load();
+      const extraRh = rh?.ok
+        ? ' Expediente creado en RH ABA3B.'
+        : (rh?.error ? ` RH: ${rh.error}` : '');
+      alert(`${payload.nombre} dado de alta. Ya puede entrar con su PIN.${extraRh}`);
+    } finally {
+      creandoRef.current = false;
+      setCreando(false);
     }
-    const creado = data?.id
-      ? data
-      : (await supabase.from('usuarios').select('*').eq('pin', payload.pin).eq('sucursal_id', payload.sucursal_id).maybeSingle()).data;
-    const rh = creado?.id
-      ? await asegurarExpedienteRhDesdeUsuario(supabase, creado, { user: actor, estadoInicial: 'activo' })
-      : { ok: false, error: 'Usuario creado; abre RH ABA3B si no aparece el expediente.' };
-    setForm(emptyForm(sucursal));
-    load();
-    const extraRh = rh?.ok
-      ? ' Expediente creado en RH ABA3B.'
-      : (rh?.error ? ` RH: ${rh.error}` : '');
-    alert(`${payload.nombre} dado de alta. Ya puede entrar con su PIN.${extraRh}`);
   };
 
   const actualizarTipoEmpleado = async (id, tipoRaw) => {
@@ -910,8 +929,14 @@ export default function Usuarios({ supabase, actor, sucursal, sucursalesLista, o
             </select>
           </label>
         </div>
-        <button type="button" className="btn btn-primary" style={{ marginTop: '0.75rem' }} onClick={crear}>
-          Añadir empleado
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{ marginTop: '0.75rem' }}
+          disabled={creando}
+          onClick={() => void crear()}
+        >
+          {creando ? 'Guardando…' : 'Añadir empleado'}
         </button>
       </div>
 
