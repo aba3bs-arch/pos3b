@@ -23,7 +23,7 @@ import {
   opcionesSucursalesContratacion,
   textoSucursalVacante,
   validarAceptacionPrivacidad,
-  validarFiltroTipoEdad,
+  validarFiltroInicial,
   validarFotoAspirante,
   validarFormularioContratacion,
   validarPerfilLaboral,
@@ -32,7 +32,7 @@ import {
 
 /**
  * Portal público de postulación (enlace / QR).
- * Pasos: tipo → datos → foto → perfil laboral → evaluación FA3B-003 → ok
+ * Pasos: tipo/edad/colonia → datos → foto → perfil laboral → evaluación FA3B-003 → ok
  */
 export default function ContratacionPublica({ supabase }) {
   const brand = leerNombreNegocio();
@@ -114,7 +114,7 @@ export default function ContratacionPublica({ supabase }) {
 
   const continuarFiltro = () => {
     setError('');
-    const r = validarFiltroTipoEdad(form);
+    const r = validarFiltroInicial(form);
     if (!r.ok) {
       setError(r.error);
       return;
@@ -358,6 +358,26 @@ export default function ContratacionPublica({ supabase }) {
             </div>
           )}
 
+          {form.tipo && (
+            <div style={{ display: 'grid', gap: '0.35rem' }}>
+              <label className="muted">
+                Colonia donde vives *
+                <input
+                  className="input"
+                  value={form.colonia}
+                  onChange={(e) => setCampo('colonia', e.target.value)}
+                  placeholder="Ej. Centro, Del Valle…"
+                  style={{ marginTop: '0.35rem' }}
+                  autoComplete="address-level2"
+                  required
+                />
+              </label>
+              <p className="muted" style={{ margin: 0, fontSize: '0.8rem' }}>
+                La pedimos primero: si vives lejos de la tienda (transporte / tráfico), no podrás continuar y te ahorras llenar el resto.
+              </p>
+            </div>
+          )}
+
           <aside
             style={{
               padding: '0.75rem',
@@ -403,7 +423,7 @@ export default function ContratacionPublica({ supabase }) {
           <button
             type="button"
             className="btn btn-gold"
-            disabled={!form.tipo || form.acepta_privacidad !== true}
+            disabled={!form.tipo || !String(form.colonia || '').trim() || form.acepta_privacidad !== true}
             onClick={continuarFiltro}
           >
             Continuar
@@ -464,6 +484,7 @@ export default function ContratacionPublica({ supabase }) {
                 placeholder="Ej. Centro, Del Valle…"
                 style={{ marginTop: '0.3rem' }}
                 required
+                title="Ya la indicaste al inicio; puedes corregirla aquí"
               />
             </label>
             <label className="muted">
