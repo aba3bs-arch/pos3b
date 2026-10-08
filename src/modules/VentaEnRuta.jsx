@@ -391,7 +391,7 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
       )}
       {vista === 'liquidacion' && puede('ruta_liquidacion') && (
         <div className="card" style={{ borderTop: `4px solid ${COLOR}` }}>
-          <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>Liquidación</h3>
+          <h3 style={{ margin: '0 0 0.35rem', color: COLOR }}>RC/VentaRuta</h3>
           <p className="muted" style={{ margin: '0 0 0.75rem', fontSize: '0.85rem' }}>
             Recibe del repartidor el efectivo en tránsito / RC generado por ventas del camión.
             Para cerrar la carga del camión (estado liquidada) usa Consultas → Cargas → Liquidar, o el corte de caja.

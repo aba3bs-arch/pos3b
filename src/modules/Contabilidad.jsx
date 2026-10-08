@@ -14,7 +14,7 @@ const DESCRIPCIONES = {
   },
   'Liquidación recolecciones': {
     desc: 'Sellar efectivo en tránsito por tienda y día',
-    ayuda: 'También en Venta en Ruta → Liquidación. Cierra y sella el efectivo recolectado (incl. ventas de camión) por tienda/día.',
+    ayuda: 'También en Venta en Ruta → RC/VentaRuta. Cierra y sella el efectivo recolectado (incl. ventas de camión) por tienda/día.',
   },
   Conciliaciones: {
     desc: 'Smoking (cortes) vs cobros del repartidor',
