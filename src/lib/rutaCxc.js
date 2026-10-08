@@ -273,10 +273,47 @@ export async function verificarPinCajero(supabase, pin, sucursal) {
 }
 
 /**
+ * Reparte un monto a pagar entre cargos pendientes (FIFO por fecha).
+ * Permite pago parcial del último cargo tocado.
+ * @returns {{ ok: true, partes: Array<{ cargo: object, monto: number, parcial: boolean }> } | { ok: false, error: string }}
+ */
+export function repartirMontoEntreCargos(cargos, montoPagar) {
+  const totalDisp = round2(
+    (cargos || []).reduce((s, c) => s + (Number(c.monto) || 0), 0),
+  );
+  const monto = round2(montoPagar);
+  if (!(monto > 0)) return { ok: false, error: 'Ingresa un monto mayor a 0.' };
+  if (!(totalDisp > 0)) return { ok: false, error: 'No hay créditos pendientes en la selección.' };
+  if (monto > totalDisp + 0.001) {
+    return { ok: false, error: `El monto no puede superar el acumulado (${totalDisp.toFixed(2)}).` };
+  }
+
+  const orden = [...(cargos || [])].sort(
+    (a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0)
+      || String(a.id || '').localeCompare(String(b.id || '')),
+  );
+  let resto = monto;
+  const partes = [];
+  for (const cargo of orden) {
+    if (resto <= 0.001) break;
+    const cargoMonto = round2(cargo.monto);
+    if (!(cargoMonto > 0)) continue;
+    const aplica = round2(Math.min(resto, cargoMonto));
+    if (!(aplica > 0)) continue;
+    partes.push({ cargo, monto: aplica, parcial: aplica < cargoMonto - 0.001 });
+    resto = round2(resto - aplica);
+  }
+  if (!partes.length) return { ok: false, error: 'No se pudo aplicar el monto a ningún crédito.' };
+  return { ok: true, partes, montoAplicado: round2(monto - resto), totalDisponible: totalDisp };
+}
+
+/**
  * Cajero paga crédito(s) con PIN.
  * → gasto en corte abarrotes "credito liquidado"
  * → efectivo cobrado a tránsito
- * → marca CxC pagado + abono
+ * → marca CxC pagado + abono (o reduce saldo del cargo si es parcial)
+ *
+ * `montoPagar` opcional: paga solo esa cantidad (FIFO entre los cargos seleccionados).
  */
 export async function pagarCreditosRutaConPin(supabase, {
   movimientoIds,
@@ -284,6 +321,8 @@ export async function pagarCreditosRutaConPin(supabase, {
   sucursal,
   /** Cajero ya autenticado al abrir el módulo (omite pedir PIN otra vez). */
   cajeroUser = null,
+  /** Monto a liquidar (parcial permitido). Si se omite, paga todo lo seleccionado. */
+  montoPagar = null,
 } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const ids = [...new Set((movimientoIds || []).map(String).filter(Boolean))];
@@ -303,11 +342,21 @@ export async function pagarCreditosRutaConPin(supabase, {
   );
   if (!pendientes.length) return { ok: false, error: 'No hay créditos pendientes en la selección.' };
 
+  const totalSel = round2(pendientes.reduce((s, c) => s + (Number(c.monto) || 0), 0));
+  const montoObj = montoPagar == null || montoPagar === ''
+    ? totalSel
+    : round2(montoPagar);
+  const reparto = repartirMontoEntreCargos(pendientes, montoObj);
+  if (!reparto.ok) return reparto;
+
   const resultados = [];
-  for (const cargo of pendientes) {
-    const monto = round2(cargo.monto);
+  for (const parte of reparto.partes) {
+    const cargo = parte.cargo;
+    const monto = parte.monto;
+    const parcial = parte.parcial;
     const sucGasto = String(cargo.cliente_tipo) === 'sucursal' ? String(cargo.cliente_id) : sucursal;
     const folio = cargo.folio_venta || cargo.venta_id || cargo.id;
+    const etiqueta = parcial ? 'credito liquidado parcial' : 'credito liquidado';
 
     // 1) Gasto en corte abarrotes
     const gastoPayload = {
@@ -315,7 +364,7 @@ export async function pagarCreditosRutaConPin(supabase, {
       modulo: 'abarrotes',
       categoria: 'CREDITO RUTA',
       subcategoria: 'LIQUIDADO',
-      comentario: `credito liquidado · ${folio} · ${cargo.cliente_nombre || ''}`.trim(),
+      comentario: `${etiqueta} · ${folio} · ${cargo.cliente_nombre || ''}`.trim(),
       monto,
       usuario_nombre: auth.user?.nombre || null,
       cerrado: false,
@@ -341,27 +390,41 @@ export async function pagarCreditosRutaConPin(supabase, {
     const tr = await registrarEfectivoTransitoVentaRuta(supabase, {
       sucursalOrigen: sucGasto,
       monto,
-      folioVenta: `CXC-${folio}`,
+      folioVenta: `CXC-${folio}${parcial ? '-P' : ''}`,
       vendedorId: cargo.usuario_nombre || 'ruta',
       vendedorNombre: auth.user?.nombre,
-      nota: `Crédito liquidado ${folio} · cajero ${auth.user?.nombre}`,
+      nota: `Crédito ${parcial ? 'parcial' : 'liquidado'} ${folio} · cajero ${auth.user?.nombre}`,
     });
     if (!tr.ok) return { ok: false, error: tr.error || 'No se registró en tránsito.' };
 
-    // 3) Marcar cargo pagado + abono
+    // 3) Actualizar cargo + abono
     const saldoAntes = await saldoClienteCxc(supabase, cargo.cliente_tipo, cargo.cliente_id);
     const saldoDespues = round2(Math.max(0, saldoAntes - monto));
-    const patchCargo = {
-      estatus: 'pagado',
-      pagado_por: auth.user?.nombre || null,
-      pagado_at: new Date().toISOString(),
-      gasto_id: gasto?.id || null,
-    };
-    let { error: ePatch } = await supabase.from('ruta_cxc_movimientos').update(patchCargo).eq('id', cargo.id);
-    if (ePatch && /estatus|pagado|gasto_id/i.test(String(ePatch.message || ''))) {
-      ePatch = null; // columnas faltantes: seguir con abono
+    const ahora = new Date().toISOString();
+
+    if (parcial) {
+      const restoCargo = round2(Number(cargo.monto) - monto);
+      let { error: ePatch } = await supabase
+        .from('ruta_cxc_movimientos')
+        .update({
+          monto: restoCargo,
+          notas: `${cargo.notas || 'Venta en ruta a crédito'} · abono parcial ${monto.toFixed(2)}`.trim(),
+        })
+        .eq('id', cargo.id);
+      if (ePatch) return { ok: false, error: ePatch.message };
+    } else {
+      const patchCargo = {
+        estatus: 'pagado',
+        pagado_por: auth.user?.nombre || null,
+        pagado_at: ahora,
+        gasto_id: gasto?.id || null,
+      };
+      let { error: ePatch } = await supabase.from('ruta_cxc_movimientos').update(patchCargo).eq('id', cargo.id);
+      if (ePatch && /estatus|pagado|gasto_id/i.test(String(ePatch.message || ''))) {
+        ePatch = null; // columnas faltantes: seguir con abono
+      }
+      if (ePatch) return { ok: false, error: ePatch.message };
     }
-    if (ePatch) return { ok: false, error: ePatch.message };
 
     await insertarMovimiento(supabase, {
       cliente_tipo: cargo.cliente_tipo,
@@ -375,24 +438,36 @@ export async function pagarCreditosRutaConPin(supabase, {
       folio_venta: cargo.folio_venta || folio,
       metodo_pago: 'efectivo',
       estatus: 'pagado',
-      notas: `Pago cajero PIN · credito liquidado · ${folio}`,
+      notas: `Pago cajero · ${etiqueta} · ${folio}`,
       usuario_nombre: auth.user?.nombre || null,
       pagado_por: auth.user?.nombre || null,
-      pagado_at: new Date().toISOString(),
+      pagado_at: ahora,
       gasto_id: gasto?.id || null,
     });
 
-    if (cargo.venta_id) {
+    if (!parcial && cargo.venta_id) {
       await supabase
         .from('ruta_ventas')
         .update({ estado_credito: 'pagado', transito_id: String(tr.id) })
         .eq('id', cargo.venta_id);
     }
 
-    resultados.push({ cargoId: cargo.id, gastoId: gasto?.id, transitoId: tr.id, monto });
+    resultados.push({
+      cargoId: cargo.id,
+      gastoId: gasto?.id,
+      transitoId: tr.id,
+      monto,
+      parcial,
+    });
   }
 
-  return { ok: true, pagados: resultados, cajero: auth.user?.nombre };
+  return {
+    ok: true,
+    pagados: resultados,
+    cajero: auth.user?.nombre,
+    montoPagado: reparto.montoAplicado,
+    parcial: resultados.some((r) => r.parcial) || round2(reparto.montoAplicado) < totalSel,
+  };
 }
 
 /** @deprecated — el cobro lo hace el cajero con PIN */
