@@ -78,6 +78,7 @@ import VisorTutorialModal from '../components/VisorTutorialModal.jsx';
 import { TUTORIAL_VENTA_EN_RUTA } from '../content/tutorialVentaEnRuta.js';
 import CorteRuta from './CorteRuta.jsx';
 import PreinventarioRuta from './PreinventarioRuta.jsx';
+import AuditoriaCamionRuta from './AuditoriaCamionRuta.jsx';
 import CobranzaRuta from './CobranzaRuta.jsx';
 import './VentaEnRuta.css';
 
@@ -373,6 +374,16 @@ export default function VentaEnRuta({ supabase, user, inventario = [], onNavigat
       )}
       {vista === 'preinventario' && puede('ruta_preinventario') && (
         <PreinventarioRuta
+          supabase={supabase}
+          user={user}
+          inventario={inventario}
+          productoPorId={productoPorId}
+          setAviso={setAviso}
+          onVolver={() => ir('hub')}
+        />
+      )}
+      {vista === 'auditorias' && puede('ruta_auditorias') && (
+        <AuditoriaCamionRuta
           supabase={supabase}
           user={user}
           inventario={inventario}
