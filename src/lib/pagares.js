@@ -245,13 +245,23 @@ function folioPagare() {
 export async function listarPagares(supabase, opts = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.', data: [] };
   const limit = Math.min(Math.max(Number(opts.limit) || 200, 1), 500);
+  const incluirArchivados = Boolean(opts.incluirArchivados);
   let q = supabase.from('pagares').select('*').order('created_at', { ascending: false }).limit(limit);
   const area = normalizarAreaPagare(opts.area);
   if (area) q = q.eq('area', area);
   if (opts.sucursal) q = q.eq('sucursal_id', normalizarCodigoTienda(opts.sucursal));
   if (opts.soloPorRecolectar) q = q.in('estado', ['por_recolectar', 'liquidado']);
   else if (opts.soloAbiertos) q = q.in('estado', ['abierto', 'parcial', 'por_recolectar', 'liquidado']);
-  const { data, error } = await q;
+  if (!incluirArchivados) q = q.is('archived_at', null);
+  let { data, error } = await q;
+  if (error && String(error.message || '').toLowerCase().includes('archived_at') && !incluirArchivados) {
+    q = supabase.from('pagares').select('*').order('created_at', { ascending: false }).limit(limit);
+    if (area) q = q.eq('area', area);
+    if (opts.sucursal) q = q.eq('sucursal_id', normalizarCodigoTienda(opts.sucursal));
+    if (opts.soloPorRecolectar) q = q.in('estado', ['por_recolectar', 'liquidado']);
+    else if (opts.soloAbiertos) q = q.in('estado', ['abierto', 'parcial', 'por_recolectar', 'liquidado']);
+    ({ data, error } = await q);
+  }
   if (error) {
     if (faltaTablaPagares(error)) return { ok: false, error: AVISO_FALTA_PAGARES, data: [], faltaTabla: true };
     return { ok: false, error: error.message, data: [] };

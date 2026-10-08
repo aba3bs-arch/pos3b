@@ -37,6 +37,11 @@ import {
   guardarTiendasValesPermitidas,
 } from '../lib/posConfig.js';
 import {
+  DIAS_ARCHIVO_DEFAULT,
+  guardarDiasArchivoOperativo,
+  leerDiasArchivoOperativo,
+} from '../lib/archivo.js';
+import {
   leerProveedoresCostoPrecioRuta,
   guardarProveedoresCostoPrecioRuta,
   PROVEEDORES_COSTO_PRECIO_RUTA_DEFAULT,
@@ -256,6 +261,7 @@ export default function Configuracion({
   const [ventanaGuardando, setVentanaGuardando] = useState(false);
   const [candadoPostLiq, setCandadoPostLiq] = useState(() => leerCandadoPostLiquidacion());
   const [candadoGuardando, setCandadoGuardando] = useState(false);
+  const [diasArchivo, setDiasArchivo] = useState(() => leerDiasArchivoOperativo());
   const [panelCfg, setPanelCfg] = useState(null);
   const esAdmin = puedeGestionarUsuarios(user?.rol);
   const puedePrivilegios = puedeGestionarPrivilegios(user?.rol);
@@ -1038,8 +1044,8 @@ export default function Configuracion({
       {
         id: 'operacion',
         label: 'Operación',
-        desc: 'Tipo de cambio, recolección, candado y tienda',
-        ayuda: 'Configura tipo de cambio USD→MXN, ventana de recolección, candado post-liquidación y la tienda activa de esta caja.',
+        desc: 'Tipo de cambio, archivo, recolección, candado y tienda',
+        ayuda: 'Configura tipo de cambio USD→MXN, días de retención del Archivo, ventana de recolección, candado post-liquidación y la tienda activa de esta caja.',
         icon: 'settings',
         color: 'var(--brand-blue)',
       },
@@ -1277,6 +1283,41 @@ export default function Configuracion({
         <p className="muted" style={{ fontSize: '0.85rem' }}>
           El cambio al cliente se calcula en pesos según este valor. Se sincroniza en la nube para todas las sucursales; cada caja lo descarga al iniciar sesión.
         </p>
+
+        {esAdmin && (
+          <>
+            <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '1.25rem 0' }} />
+            <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Archivo operativo</h4>
+            <p className="muted" style={{ fontSize: '0.85rem', marginTop: 0 }}>
+              Días que los registros (cortes, gastos, vales, pagarés, préstamos, nóminas) permanecen visibles en sus módulos
+              antes de pasar a <strong>Contabilidad → Archivo</strong>. Default {DIAS_ARCHIVO_DEFAULT}. IE VIRTUAL / IE ABARROTES no se afectan.
+            </p>
+            <label className="muted">
+              Días de retención (1–365)
+              <input
+                type="number"
+                min={1}
+                max={365}
+                className="input"
+                style={{ marginTop: '0.35rem', maxWidth: 120 }}
+                value={diasArchivo}
+                onChange={(e) => setDiasArchivo(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ marginTop: '0.5rem', display: 'block' }}
+              onClick={() => {
+                const n = guardarDiasArchivoOperativo(diasArchivo);
+                setDiasArchivo(n);
+                alert(`Retención del Archivo: ${n} día(s). Los módulos usarán este plazo al archivar.`);
+              }}
+            >
+              Guardar días de Archivo
+            </button>
+          </>
+        )}
 
         <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '1.25rem 0' }} />
         <h4 style={{ margin: '0 0 0.5rem', color: 'var(--brand-blue)' }}>Ventana de recolección</h4>

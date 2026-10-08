@@ -128,6 +128,7 @@ export const SUBMODULOS_CONTABILIDAD = [
   'Cobranza',
   'RH ABA3B',
   'Contratación',
+  'Archivo',
 ];
 
 export const VISTA_HUB_CONTABILIDAD = 'Contabilidad';

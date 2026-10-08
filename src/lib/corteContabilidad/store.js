@@ -1232,8 +1232,19 @@ export async function listarCierresCorte(supabase, sucursal, modulo, limit = 30)
     .in('sucursal_id', vars)
     .eq('modulo', modulo)
     .is('deleted_at', null)
+    .is('archived_at', null)
     .order('created_at', { ascending: false })
     .limit(limit);
+  if (q.error && String(q.error.message || '').toLowerCase().includes('archived_at')) {
+    q = await supabase
+      .from('cortes_contabilidad_cierres')
+      .select('*')
+      .in('sucursal_id', vars)
+      .eq('modulo', modulo)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+  }
   if (q.error && faltaColumnaDeletedAt(q.error)) {
     q = await supabase
       .from('cortes_contabilidad_cierres')

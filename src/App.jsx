@@ -28,6 +28,7 @@ import CobranzaRuta from './modules/CobranzaRuta.jsx';
 import AutoFin from './modules/AutoFin.jsx';
 import VolverContabilidad from './components/VolverContabilidad.jsx';
 import ValesPrestamos from './modules/ValesPrestamos.jsx';
+import Archivo from './modules/Archivo.jsx';
 import CorteVirtual from './modules/cortes/CorteVirtual.jsx';
 import CorteAbarrotes from './modules/cortes/CorteAbarrotes.jsx';
 import CorteGarage from './modules/cortes/CorteGarage.jsx';
@@ -1926,6 +1927,12 @@ function App() {
             <>
               <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
               <Contratacion supabase={supabase} user={user} onNavigate={irAModulo} />
+            </>
+          )}
+          {vista === 'Archivo' && (
+            <>
+              <VolverContabilidad onClick={() => irAModulo(VISTA_HUB_CONTABILIDAD)} />
+              <Archivo supabase={supabase} user={user} />
             </>
           )}
           {vista === 'Vales y Préstamos' && (

@@ -307,7 +307,7 @@ export function esPeriodoNominaMasReciente(periodos, periodoId) {
 
 export async function listarPeriodosNomina(supabase, opts = {}) {
   if (!supabase) return { data: [], error: null, soloLocal: true };
-  const { sucursal, limit = 30, todasSucursales = true } = opts;
+  const { sucursal, limit = 30, todasSucursales = true, incluirArchivados = false } = opts;
   let q = supabase
     .from('nomina_periodos')
     .select('*')
@@ -315,7 +315,18 @@ export async function listarPeriodosNomina(supabase, opts = {}) {
     .order('created_at', { ascending: false })
     .limit(limit);
   if (!todasSucursales && sucursal) q = q.eq('sucursal_id', sucursal);
-  const { data, error } = await q;
+  if (!incluirArchivados) q = q.is('archived_at', null);
+  let { data, error } = await q;
+  if (error && String(error.message || '').toLowerCase().includes('archived_at') && !incluirArchivados) {
+    q = supabase
+      .from('nomina_periodos')
+      .select('*')
+      .order('periodo_fin', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (!todasSucursales && sucursal) q = q.eq('sucursal_id', sucursal);
+    ({ data, error } = await q);
+  }
   if (error && faltaTablaNomina(error)) {
     return { data: [], error: null, aviso: AVISO_FALTA_NOMINA, soloLocal: true };
   }

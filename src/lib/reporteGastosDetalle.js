@@ -120,13 +120,26 @@ export async function cargarGastosDetalle(supabase, { desde, hasta, sucursal = '
     .select(CAMPOS_GASTO)
     .gte('created_at', ini)
     .lte('created_at', fin)
+    .is('archived_at', null)
     .order('created_at', { ascending: false })
     .limit(5000);
 
   if (sucursal) q = q.eq('sucursal_id', sucursal);
   if (modulo) q = q.eq('modulo', modulo);
 
-  const { data, error } = await q;
+  let { data, error } = await q;
+  if (error && String(error.message || '').toLowerCase().includes('archived_at')) {
+    q = supabase
+      .from('cortes_contabilidad_gastos')
+      .select(CAMPOS_GASTO)
+      .gte('created_at', ini)
+      .lte('created_at', fin)
+      .order('created_at', { ascending: false })
+      .limit(5000);
+    if (sucursal) q = q.eq('sucursal_id', sucursal);
+    if (modulo) q = q.eq('modulo', modulo);
+    ({ data, error } = await q);
+  }
   if (error) {
     if (error.code === '42P01') return { filas: [], error: null, aviso: 'Tabla cortes_contabilidad_gastos no disponible.' };
     const msg = String(error.message || '');
