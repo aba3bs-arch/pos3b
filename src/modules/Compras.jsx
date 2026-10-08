@@ -558,7 +558,7 @@ export default function Compras({
     );
     alert(
       `Pedido guardado como pendiente de recepción (${items_pedido.length} producto(s)).\n` +
-        'Cuando llegue la mercancía, elígelo en «Pedido pendiente» o en Historial → Recibir.',
+        'Cuando llegue la mercancía, elígelo en «Pedido pendiente» o en Por recibir → Recibir.',
     );
     setHerramientaAbierta(false);
     setCompraActiva(null);
@@ -810,7 +810,7 @@ export default function Compras({
           Herramienta de compra
         </button>
         <button type="button" className={pestana === 'historial' ? 'btn btn-primary' : 'btn btn-ghost'} onClick={() => setPestana('historial')}>
-          Historial
+          Por recibir
         </button>
       </div>
 
@@ -1215,7 +1215,7 @@ export default function Compras({
 
       {pestana === 'historial' && (
         <div className="card">
-          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Historial de compras</h3>
+          <h3 style={{ margin: '0 0 0.75rem', color: 'var(--brand-blue)' }}>Por recibir</h3>
           <FiltroPeriodo
             preset={presetHistCompras}
             onPresetChange={cambiarPresetHistCompras}
