@@ -40,6 +40,8 @@ export const MODULOS_IDS = [
   'Crédito',
   'Cobranza',
   'RH ABA3B',
+  'Contratación',
+  'Archivo',
   'Estadísticas Abarrotes',
   'Estadísticas Virtual',
   'Estadísticas Garage',

@@ -80,6 +80,10 @@ const DESCRIPCIONES = {
     desc: 'Aspirantes por enlace/QR · bandeja admin principal',
     ayuda: 'Comparte el enlace o QR. Los prospectos eligen planta o cubre turno y llenan su perfil. Solo el admin principal ve la bandeja; puede dar seguimiento o redirigir a otro admin.',
   },
+  Archivo: {
+    desc: 'Registros antiguos · sucursal / depto / fecha',
+    ayuda: 'Archiva cortes, gastos, vales, pagarés, préstamos y nóminas según el plazo de Configuración → Operación (default 15 días). Salen de esos módulos; IE VIRTUAL / IE ABARROTES no se modifican.',
+  },
 };
 
 /** Hub de Contabilidad: solo botones; cada submódulo abre su pantalla. */

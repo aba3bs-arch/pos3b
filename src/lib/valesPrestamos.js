@@ -140,7 +140,7 @@ export async function siguienteFolioVale(supabase, sucursal) {
 
 export async function listarVales(supabase, opts = {}) {
   if (!supabase) return { data: [], error: null };
-  const { sucursal, area, tipo, categoria, estadoAprobacion, desde, hasta, limit = 200 } = opts;
+  const { sucursal, area, tipo, categoria, estadoAprobacion, desde, hasta, limit = 200, incluirArchivados = false } = opts;
   let q = supabase.from('vales').select('*').order('fecha', { ascending: false }).order('created_at', { ascending: false }).limit(limit);
   if (sucursal) q = q.eq('sucursal_id', sucursal);
   if (area) q = q.eq('area', area);
@@ -155,7 +155,20 @@ export async function listarVales(supabase, opts = {}) {
   } else if (estadoAprobacion) {
     q = q.eq('estado_aprobacion', estadoAprobacion);
   }
-  const { data, error } = await q;
+  if (!incluirArchivados) q = q.is('archived_at', null);
+  let { data, error } = await q;
+  if (error && String(error.message || '').toLowerCase().includes('archived_at') && !incluirArchivados) {
+    // Sin migración SQL aún: no filtrar
+    q = supabase.from('vales').select('*').order('fecha', { ascending: false }).order('created_at', { ascending: false }).limit(limit);
+    if (sucursal) q = q.eq('sucursal_id', sucursal);
+    if (area) q = q.eq('area', area);
+    if (tipo === 'indirecto') q = q.or('tipo.eq.indirecto,tipo.is.null');
+    else if (tipo) q = q.eq('tipo', tipo);
+    if (categoria) q = q.eq('categoria', categoria);
+    if (estadoAprobacion === 'aprobado') q = q.or('estado_aprobacion.eq.aprobado,estado_aprobacion.is.null');
+    else if (estadoAprobacion) q = q.eq('estado_aprobacion', estadoAprobacion);
+    ({ data, error } = await q);
+  }
   if (error && faltaTablaVales(error)) return { data: [], error: null, aviso: AVISO_FALTA_CONTABILIDAD };
   let lista = data || [];
   if (desde || hasta) lista = filtrarValesPorPeriodo(lista, desde, hasta);
@@ -616,7 +629,7 @@ export async function cancelarVale(supabase, valeId, { nombre, motivo } = {}) {
 
 export async function listarPrestamos(supabase, opts = {}) {
   if (!supabase) return { data: [], error: null };
-  const { sucursal, soloActivos, incluirPendientes, incluirHistorial, limit = 200 } = opts;
+  const { sucursal, soloActivos, incluirPendientes, incluirHistorial, incluirArchivados = false, limit = 200 } = opts;
   let q = supabase.from('prestamos').select('*').order('created_at', { ascending: false }).limit(limit);
   if (sucursal) q = q.eq('sucursal_id', String(sucursal).toUpperCase());
   if (soloActivos && !incluirPendientes) q = q.eq('estado', 'activo');
@@ -626,7 +639,16 @@ export async function listarPrestamos(supabase, opts = {}) {
   } else if (incluirPendientes) {
     q = q.in('estado', ['pendiente_admin', 'pendiente_socio', 'activo', 'liquidado']);
   }
-  const { data, error } = await q;
+  if (!incluirArchivados) q = q.is('archived_at', null);
+  let { data, error } = await q;
+  if (error && String(error.message || '').toLowerCase().includes('archived_at') && !incluirArchivados) {
+    q = supabase.from('prestamos').select('*').order('created_at', { ascending: false }).limit(limit);
+    if (sucursal) q = q.eq('sucursal_id', String(sucursal).toUpperCase());
+    if (soloActivos && !incluirPendientes) q = q.eq('estado', 'activo');
+    else if (incluirHistorial) q = q.in('estado', ['pendiente_admin', 'pendiente_socio', 'activo', 'liquidado']);
+    else if (incluirPendientes) q = q.in('estado', ['pendiente_admin', 'pendiente_socio', 'activo', 'liquidado']);
+    ({ data, error } = await q);
+  }
   if (error && faltaTablaPrestamos(error)) return { data: [], error: null, aviso: AVISO_FALTA_CONTABILIDAD };
   return { data: data || [], error: error?.message || null };
 }
