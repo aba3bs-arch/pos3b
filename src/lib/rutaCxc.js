@@ -282,12 +282,19 @@ export async function pagarCreditosRutaConPin(supabase, {
   movimientoIds,
   pin,
   sucursal,
+  /** Cajero ya autenticado al abrir el módulo (omite pedir PIN otra vez). */
+  cajeroUser = null,
 } = {}) {
   if (!supabase) return { ok: false, error: 'Sin conexión.' };
   const ids = [...new Set((movimientoIds || []).map(String).filter(Boolean))];
   if (!ids.length) return { ok: false, error: 'Selecciona al menos un crédito.' };
-  const auth = await verificarPinCajero(supabase, pin, sucursal);
-  if (!auth.ok) return auth;
+  let auth;
+  if (cajeroUser?.id || cajeroUser?.nombre) {
+    auth = { ok: true, user: cajeroUser };
+  } else {
+    auth = await verificarPinCajero(supabase, pin, sucursal);
+    if (!auth.ok) return auth;
+  }
 
   const { data: movs, error } = await supabase.from('ruta_cxc_movimientos').select('*').in('id', ids);
   if (error) return { ok: false, error: error.message };
