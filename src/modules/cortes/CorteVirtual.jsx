@@ -39,6 +39,11 @@ import {
 } from '../../lib/clientesMaquinas.js';
 import AlertaPagareAbierto from '../../components/corteContabilidad/AlertaPagareAbierto.jsx';
 import { usePagaresAbiertosCorte } from '../../lib/corteContabilidad/usePagaresAbiertosCorte.js';
+import {
+  calcularBonoDesdeVentaCorte,
+  esGastoBonoRecoleccion,
+  GASTO_BONO_RECOLECCION,
+} from '../../lib/bonosData.js';
 
 const ACCENT = '#6c3483';
 
@@ -48,9 +53,10 @@ function moneyNum(v) {
   return Number.isFinite(n) ? n : '';
 }
 
-export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sinAlertas = false, etiquetaCliente = '' }) {
+export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sinAlertas = false, etiquetaCliente = '', inventario = [] }) {
   const [mostrarDesglose, setMostrarDesglose] = useState(false);
   const [aprobando, setAprobando] = useState(false);
+  const [calculandoBono, setCalculandoBono] = useState(false);
   const { pagares: pagaresAbiertos, recargar: recargarPagares } = usePagaresAbiertosCorte(supabase, sucursal, 'virtual', { enabled: !sinAlertas });
 
   const prepararTrasCierre = useCallback((estado, calc) => {
@@ -110,6 +116,133 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
   const montoRec = round2(estado.recoleccion ?? estado.recoleccion_turno);
   const miInyectada = Boolean(calc.monedaInyectada);
   const pendientesLocales = (gastos || []).filter((g) => (g.estado_aprobacion || 'aprobado') === 'pendiente_admin').length;
+  const bonoYaCargado = (gastos || []).find((g) => esGastoBonoRecoleccion(g));
+  const mfParaBono = monedaFinalParaInyectarVirtual(estado, historial);
+  const ventaParaBono = monedaAInyectarVirtual(estado, mfParaBono);
+
+  /**
+   * Tras cerrar el corte y antes de recolectar:
+   * venta = tope − moneda final → tabulador → % medidores → gasto BONO en la recolección.
+   */
+  const confirmarBonoRecoleccion = async () => {
+    if (!puedeRec) return alert('Solo admin/recolector puede calcular y cargar el bono.');
+    if (!puedeEditarCorteCampo(perm, 'gastos') && !perm.editarTodo) {
+      return alert('Sin permiso para cargar el bono como gasto del corte.');
+    }
+    if (!(ventaParaBono > 0)) {
+      return alert(
+        'No hay venta para el tabulador.\n\n' +
+          'Cierra el corte del turno con moneda final capturada.\n' +
+          'Venta = tope − moneda final (sin restar gastos).',
+      );
+    }
+    if (bonoYaCargado) {
+      const reemplazar = window.confirm(
+        `Ya hay un bono cargado: ${fmtCorte(bonoYaCargado.monto)}.\n\n¿Recalcular y reemplazarlo?`,
+      );
+      if (!reemplazar) return;
+    }
+
+    setCalculandoBono(true);
+    try {
+      const r = await calcularBonoDesdeVentaCorte({
+        supabase,
+        sucursal,
+        monedaTope: monedaOperacion,
+        monedaFinal: mfParaBono,
+        inventario,
+      });
+      if (!r.ok) {
+        alert(r.error || 'No se pudo calcular el bono.');
+        return;
+      }
+      if (!r.activo) {
+        alert('El sistema de bonos está desactivado en Configuración.');
+        return;
+      }
+
+      const lineasReglas = (r.reglas || [])
+        .map((x) => `  ${x.ok ? '✓' : '✗'} ${x.label}: ${x.valor}${!x.ok && x.penalizacionPct ? ` (−${x.penalizacionPct}%)` : ''}`)
+        .join('\n');
+
+      if (!window.confirm(
+        `¿Cargar bono a la recolección?\n\n` +
+          `Tope: ${fmtCorte(r.monedaTope)}\n` +
+          `Moneda final: ${fmtCorte(r.monedaFinal)}\n` +
+          `Venta (tope − final): ${fmtCorte(r.ventaEfectivo)}\n` +
+          `Tabulador → base: ${fmtCorte(r.base)}\n` +
+          `% medidores: ${r.pct}%` +
+          (r.penalizacionTotal > 0 ? ` (−${r.penalizacionTotal}% penaliz.)` : '') +
+          `\n` +
+          `>>> BONO A CARGAR: ${fmtCorte(r.bono)} <<<\n\n` +
+          (lineasReglas ? `${lineasReglas}\n\n` : '') +
+          `Se registrará como gasto «BONO RECOLECCION» (sale de caja en la recolección).\n` +
+          `Si el monto de recolección está vacío, se sugiere la venta ${fmtCorte(r.ventaEfectivo)}.`,
+      )) return;
+
+      if (bonoYaCargado?.id && typeof quitarGasto === 'function') {
+        await quitarGasto(bonoYaCargado.id);
+      }
+
+      if (!(r.bono > 0)) {
+        patchEstado({
+          bono_recoleccion: 0,
+          bono_recoleccion_base: r.base,
+          bono_recoleccion_pct: r.pct,
+          bono_recoleccion_venta: r.ventaEfectivo,
+          bono_recoleccion_at: new Date().toISOString(),
+        });
+        if (!(montoRec > 0)) {
+          patchEstado({
+            recoleccion: r.ventaEfectivo,
+            recoleccion_turno: r.ventaEfectivo,
+            bono_recoleccion: 0,
+            bono_recoleccion_base: r.base,
+            bono_recoleccion_pct: r.pct,
+            bono_recoleccion_venta: r.ventaEfectivo,
+            bono_recoleccion_at: new Date().toISOString(),
+          });
+        }
+        alert(
+          r.bloqueadoPorFaltante
+            ? 'Bono $0: hay faltante de efectivo (requisito). Se guardó el cálculo; no se cargó gasto.'
+            : `Bono calculado: $0 (${r.pct}% de base ${fmtCorte(r.base)}). No se cargó gasto.`,
+        );
+        return;
+      }
+
+      const resGasto = await agregarGasto({
+        categoria: GASTO_BONO_RECOLECCION.categoria,
+        subcategoria: GASTO_BONO_RECOLECCION.subcategoria,
+        monto: r.bono,
+        comentario:
+          `Bono recolección · venta ${fmtCorte(r.ventaEfectivo)} · base ${fmtCorte(r.base)} · ${r.pct}%` +
+          ` · tope ${fmtCorte(r.monedaTope)} − MF ${fmtCorte(r.monedaFinal)}`,
+      });
+      if (!resGasto?.ok) return;
+
+      const patch = {
+        bono_recoleccion: r.bono,
+        bono_recoleccion_base: r.base,
+        bono_recoleccion_pct: r.pct,
+        bono_recoleccion_venta: r.ventaEfectivo,
+        bono_recoleccion_at: new Date().toISOString(),
+      };
+      if (!(montoRec > 0)) {
+        patch.recoleccion = r.ventaEfectivo;
+        patch.recoleccion_turno = r.ventaEfectivo;
+      }
+      patchEstado(patch);
+
+      alert(
+        `Bono cargado: ${fmtCorte(r.bono)} (${r.pct}% de ${fmtCorte(r.base)}).\n` +
+          `Ya aparece en gastos de la recolección.\n` +
+          `Ese monto es el que luego se reparte por % entre empleados.`,
+      );
+    } finally {
+      setCalculandoBono(false);
+    }
+  };
 
   const confirmarCierre = async () => {
     if (!perm.guardar) return alert('Sin permiso para cerrar corte.');
@@ -500,7 +633,7 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr auto',
+                gridTemplateColumns: '1fr auto auto',
                 gap: '0.5rem',
                 alignItems: 'end',
                 marginTop: '0.35rem',
@@ -512,9 +645,34 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
                 label="Recolección"
                 value={estado.recoleccion ?? estado.recoleccion_turno ?? ''}
                 editable={puedeRec && puedeEditar}
-                hint={puedeRec ? 'Va a IE · al confirmar se inyecta tope − MF en la MI' : 'Solo recolector/admin'}
+                hint={
+                  puedeRec
+                    ? (estado.bono_recoleccion > 0
+                      ? `Bono cargado ${fmtCorte(estado.bono_recoleccion)} · va a IE · al confirmar se inyecta tope − MF`
+                      : 'Primero «Bono» (tope−final → tabulador), luego Recolectar')
+                    : 'Solo recolector/admin'
+                }
                 onChange={(v) => patchEstado({ recoleccion: moneyNum(v), recoleccion_turno: moneyNum(v) })}
               />
+              {puedeRec && (
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{
+                    height: 42,
+                    whiteSpace: 'nowrap',
+                    marginBottom: 2,
+                    borderColor: '#b45309',
+                    color: '#b45309',
+                    fontWeight: 700,
+                  }}
+                  disabled={cargando || calculandoBono || !(ventaParaBono > 0)}
+                  onClick={() => { void confirmarBonoRecoleccion(); }}
+                  title="Tras cerrar el corte: calcula bono (tope − MF → tabulador) y lo carga como gasto a la recolección"
+                >
+                  {calculandoBono ? '…' : bonoYaCargado ? 'Recalc. bono' : 'Bono'}
+                </button>
+              )}
               {puedeRec && (
                 <button
                   type="button"
@@ -527,6 +685,15 @@ export default function CorteVirtual({ supabase, sucursal, user, onNavigate, sin
                 </button>
               )}
             </div>
+            {puedeRec && (estado.bono_recoleccion > 0 || bonoYaCargado) && (
+              <p className="muted" style={{ margin: '0.25rem 0 0', fontSize: '0.75rem', color: '#b45309' }}>
+                Bono en recolección: {fmtCorte(estado.bono_recoleccion || bonoYaCargado?.monto || 0)}
+                {estado.bono_recoleccion_venta > 0
+                  ? ` · venta tabulador ${fmtCorte(estado.bono_recoleccion_venta)} · ${estado.bono_recoleccion_pct ?? '—'}%`
+                  : ''}
+                {' '}· listo para repartir entre empleados
+              </p>
+            )}
           </div>
         </div>
 
