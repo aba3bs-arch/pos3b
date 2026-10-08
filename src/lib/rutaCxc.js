@@ -470,6 +470,86 @@ export async function pagarCreditosRutaConPin(supabase, {
   };
 }
 
+/** Solo Administrador puede borrar créditos pendientes (corrección de errores). */
+export function puedeEliminarCreditosRuta(rol) {
+  return rolSistemaEfectivo(rol) === 'Administrador';
+}
+
+/**
+ * Elimina cargos pendientes de CxC (corrección de error).
+ * Solo Administrador. No toca créditos ya pagados.
+ */
+export async function eliminarCreditosPendientesRuta(supabase, {
+  movimientoIds,
+  rolActor,
+  actorNombre = null,
+} = {}) {
+  if (!puedeEliminarCreditosRuta(rolActor)) {
+    return { ok: false, error: 'Solo un administrador puede eliminar créditos.' };
+  }
+  const ids = [...new Set((movimientoIds || []).map(String).filter(Boolean))];
+  if (!ids.length) return { ok: false, error: 'Selecciona al menos un crédito.' };
+
+  if (!supabase) {
+    const list = leerLocal();
+    const quitar = new Set();
+    const ventaIds = [];
+    let monto = 0;
+    for (const m of list) {
+      if (!ids.includes(String(m.id))) continue;
+      if (m.tipo !== 'cargo' || String(m.estatus || 'pendiente') !== 'pendiente') continue;
+      quitar.add(String(m.id));
+      monto = round2(monto + (Number(m.monto) || 0));
+      if (m.venta_id) ventaIds.push(String(m.venta_id));
+    }
+    if (!quitar.size) return { ok: false, error: 'No hay créditos pendientes en la selección.' };
+    guardarLocal(list.filter((m) => !quitar.has(String(m.id))));
+    return {
+      ok: true,
+      eliminados: quitar.size,
+      monto,
+      actor: actorNombre || 'Administrador',
+      ventaIds,
+      soloLocal: true,
+    };
+  }
+
+  const { data: movs, error } = await supabase.from('ruta_cxc_movimientos').select('*').in('id', ids);
+  if (error) {
+    if (faltaTabla(error)) {
+      return eliminarCreditosPendientesRuta(null, { movimientoIds: ids, rolActor, actorNombre });
+    }
+    return { ok: false, error: error.message };
+  }
+  const pendientes = (movs || []).filter(
+    (m) => m.tipo === 'cargo' && String(m.estatus || 'pendiente') === 'pendiente',
+  );
+  if (!pendientes.length) return { ok: false, error: 'No hay créditos pendientes en la selección.' };
+
+  const delIds = pendientes.map((m) => String(m.id));
+  const monto = round2(pendientes.reduce((s, m) => s + (Number(m.monto) || 0), 0));
+  const ventaIds = [...new Set(pendientes.map((m) => m.venta_id).filter(Boolean).map(String))];
+
+  const { error: eDel } = await supabase.from('ruta_cxc_movimientos').delete().in('id', delIds);
+  if (eDel) return { ok: false, error: eDel.message };
+
+  for (const ventaId of ventaIds) {
+    await supabase
+      .from('ruta_ventas')
+      .update({ estado_credito: 'anulado' })
+      .eq('id', ventaId)
+      .eq('estado_credito', 'pendiente');
+  }
+
+  return {
+    ok: true,
+    eliminados: delIds.length,
+    monto,
+    actor: actorNombre || 'Administrador',
+    ventaIds,
+  };
+}
+
 /** @deprecated — el cobro lo hace el cajero con PIN */
 export async function registrarAbonoCobranzaRuta() {
   return { ok: false, error: 'Usa Cobranza: el cajero paga créditos de ruta con su PIN.' };

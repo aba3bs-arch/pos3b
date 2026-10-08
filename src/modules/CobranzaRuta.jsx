@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import InputPin from '../components/InputPin.jsx';
 import {
+  eliminarCreditosPendientesRuta,
   listarCreditosPendientesRuta,
   pagarCreditosRutaConPin,
+  puedeEliminarCreditosRuta,
   verificarPinCajero,
 } from '../lib/rutaCxc.js';
 import { fmtMonto } from '../lib/consultasUi.js';
@@ -13,6 +15,7 @@ import { esCentralAdmin, etiquetaTienda } from '../constants/sucursales.js';
  * - PIN del cajero al abrir el módulo.
  * - Solo total acumulado por tienda (sin folios); el detalle está en Consultas.
  * - Se puede pagar un monto parcial (liquidez para otros proveedores).
+ * - Administrador puede eliminar créditos por error.
  * - Al pagar: gasto abarrotes «credito liquidado» + efectivo a tránsito.
  */
 export default function CobranzaRuta({ supabase, user, sucursal, embedded = false, titulo }) {
@@ -23,7 +26,9 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
   const [cajero, setCajero] = useState(null);
   const [abriendo, setAbriendo] = useState(false);
   const [guardando, setGuardando] = useState(false);
+  const [eliminando, setEliminando] = useState(false);
   const [montoPagarStr, setMontoPagarStr] = useState('');
+  const puedeEliminar = puedeEliminarCreditosRuta(user?.rol);
 
   const sucActiva = sucursal || user?.sucursal_id || '';
   const vistaCentral = esCentralAdmin(sucActiva) || !sucActiva || String(sucActiva).toUpperCase() === 'MAIN';
@@ -126,6 +131,27 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     if (totalSel > 0) setMontoPagarStr(String(totalSel.toFixed(2)));
   };
 
+  const eliminarSeleccion = async () => {
+    if (!puedeEliminar) return alert('Solo un administrador puede eliminar créditos.');
+    if (!idsSeleccionados.length) return alert('Selecciona al menos una tienda.');
+    const nCargos = idsSeleccionados.length;
+    if (!confirm(
+      `¿ELIMINAR ${nCargos} crédito(s) de ${sel.size} tienda(s) por ${fmtMonto(totalSel)}?\n\n`
+      + 'Solo para corregir errores. Esta acción no se puede deshacer.\n'
+      + 'No genera gasto ni tránsito.',
+    )) return;
+    setEliminando(true);
+    const r = await eliminarCreditosPendientesRuta(supabase, {
+      movimientoIds: idsSeleccionados,
+      rolActor: user?.rol,
+      actorNombre: user?.nombre || null,
+    });
+    setEliminando(false);
+    if (!r.ok) return alert(r.error);
+    alert(`Eliminados ${r.eliminados} crédito(s) · ${fmtMonto(r.monto)} (admin: ${r.actor}).`);
+    await cargar();
+  };
+
   const pagar = async () => {
     if (!cajero) return alert('Abre el módulo con PIN de cajero.');
     if (!idsSeleccionados.length) return alert('Selecciona al menos una tienda.');
@@ -213,6 +239,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
           {' '}Total acumulado por tienda (sin folios).
           {' '}Puedes pagar solo la cantidad que necesites y dejar el resto pendiente (liquidez para otros proveedores).
           {' '}Detalle de folios en <strong>Consultas → Créditos por tienda</strong>.
+          {puedeEliminar ? ' · Admin: puedes eliminar créditos por error.' : ''}
         </p>
       </div>
       {aviso && <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)' }}>{aviso}</div>}
@@ -295,15 +322,27 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
           <button
             type="button"
             className="btn btn-primary"
-            disabled={guardando || !sel.size || !(montoPagarNum > 0)}
+            disabled={guardando || eliminando || !sel.size || !(montoPagarNum > 0)}
             onClick={() => void pagar()}
           >
             {guardando ? 'Pagando…' : 'Pagar'}
           </button>
-          <button type="button" className="btn btn-ghost" onClick={cerrarSesionCajero}>
+          {puedeEliminar && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ color: '#b91c1c', borderColor: '#fecaca' }}
+              disabled={guardando || eliminando || !sel.size}
+              onClick={() => void eliminarSeleccion()}
+              title="Solo administrador · corrige créditos erróneos"
+            >
+              {eliminando ? 'Eliminando…' : 'Eliminar créditos'}
+            </button>
+          )}
+          <button type="button" className="btn btn-ghost" onClick={cerrarSesionCajero} disabled={guardando || eliminando}>
             Cerrar sesión cajero
           </button>
-          <button type="button" className="btn btn-ghost" onClick={() => void cargar()} disabled={guardando}>
+          <button type="button" className="btn btn-ghost" onClick={() => void cargar()} disabled={guardando || eliminando}>
             Actualizar
           </button>
         </div>

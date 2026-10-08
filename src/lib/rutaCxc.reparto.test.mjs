@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { repartirMontoEntreCargos } from './rutaCxc.js';
+import {
+  eliminarCreditosPendientesRuta,
+  puedeEliminarCreditosRuta,
+  repartirMontoEntreCargos,
+} from './rutaCxc.js';
 
 function cargo(id, monto, created_at) {
   return { id, monto, created_at, tipo: 'cargo', estatus: 'pendiente' };
@@ -43,6 +47,19 @@ function cargo(id, monto, created_at) {
   assert.equal(r.ok, true);
   assert.equal(r.partes[0].parcial, false);
   assert.equal(r.partes[0].monto, 17.1);
+}
+
+assert.equal(puedeEliminarCreditosRuta('Administrador'), true);
+assert.equal(puedeEliminarCreditosRuta('Cajero'), false);
+assert.equal(puedeEliminarCreditosRuta('Gerente'), false);
+
+{
+  const r = await eliminarCreditosPendientesRuta(null, {
+    movimientoIds: ['x'],
+    rolActor: 'Cajero',
+  });
+  assert.equal(r.ok, false);
+  assert.match(String(r.error), /administrador/i);
 }
 
 console.log('rutaCxc.reparto.test.mjs ok');
