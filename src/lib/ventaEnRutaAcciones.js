@@ -16,7 +16,7 @@ export const SUBCOMANDOS_VENTA_RUTA = [
   { id: 'ruta_corte', vista: 'corte', label: 'Corte de caja', desc: 'Admin cierra · imprime ticket', icon: 'dollar', grupo: 'corte' },
   { id: 'ruta_preinventario', vista: 'preinventario', label: 'Preinventario', desc: 'Plantillas y conteo del camión', icon: 'package', grupo: 'oper' },
   { id: 'ruta_creditos', vista: 'creditos', label: 'Créditos por pagar', desc: 'Cajero liquida con PIN', icon: 'register', grupo: 'oper' },
-  { id: 'ruta_liquidacion', vista: 'liquidacion', label: 'Liquidación', desc: 'Recibir efectivo recolectado del repartidor', icon: 'register', grupo: 'admin' },
+  { id: 'ruta_liquidacion', vista: 'liquidacion', label: 'RC/VentaRuta', desc: 'Recibir efectivo recolectado del repartidor', icon: 'register', grupo: 'admin' },
 ];
 
 /** Defaults por rol cuando no hay checkbox en Configuración. */

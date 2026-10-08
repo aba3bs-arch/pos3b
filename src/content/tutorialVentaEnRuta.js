@@ -15,7 +15,7 @@ export const TUTORIAL_VENTA_EN_RUTA = {
       titulo: '1. El mapa en 20 segundos',
       cuerpo: [
         '**Venta en Ruta** mueve mercancía del **CEDIS** al **camión** y vende en tiendas o clientes externos.',
-        'Flujo: **Camiones → Carga → POS (vender) → Consultas / Créditos → Corte / Liquidación**.',
+        'Flujo: **Camiones → Carga → POS (vender) → Consultas / Créditos → Corte / RC/VentaRuta**.',
         'Frase clave: **CEDIS guarda · camión lleva · POS vende · corte cierra.**',
       ],
       imagen: `${IMG}/01-mapa-flujo.svg`,
@@ -130,7 +130,7 @@ export const TUTORIAL_VENTA_EN_RUTA = {
       cuerpo: [
         '**Corte de caja** (ruta): admin cierra el turno del vendedor, revisa efectivo/crédito y **imprime**.',
         'El corte puede mostrar **desglose por tienda** (cuánto se vendió a cada destino).',
-        '**Liquidación**: recibe el efectivo que trae el recolector (recolecciones).',
+        '**RC/VentaRuta**: recibe el efectivo que trae el recolector (recolecciones).',
         'Si queda Disp. en el camión al liquidar la carga, el resto **vuelve a CEDIS**.',
       ],
       imagen: `${IMG}/10-corte-liquidacion.svg`,

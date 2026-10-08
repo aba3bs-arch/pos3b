@@ -448,7 +448,7 @@ export const ACCIONES_PRIVILEGIO = [
   { id: 'ruta_corte', label: 'Venta en Ruta — Corte de caja' },
   { id: 'ruta_preinventario', label: 'Venta en Ruta — Preinventario' },
   { id: 'ruta_creditos', label: 'Venta en Ruta — Créditos por pagar' },
-  { id: 'ruta_liquidacion', label: 'Venta en Ruta — Liquidación' },
+  { id: 'ruta_liquidacion', label: 'Venta en Ruta — RC/VentaRuta' },
   { id: 'prod_alta', label: 'Productos — Nuevo producto' },
   { id: 'prod_ajuste', label: 'Productos — Ajuste de inventario' },
   { id: 'prod_traspaso', label: 'Productos — Traspasos' },
