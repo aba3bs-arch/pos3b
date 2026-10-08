@@ -3,6 +3,8 @@ import {
   DIAS_ARCHIVO_DEFAULT,
   TIPOS_ARCHIVO,
   agruparArchivoPorSucursalDeptoFecha,
+  construirArbolArchivoPorEvento,
+  construirArbolArchivoPorDepartamento,
   fechaUmbralArchivo,
   ymdUmbralArchivo,
   faltaColumnaArchivedAt,
@@ -50,4 +52,27 @@ assert.equal(faltaColumnaArchivedAt({ message: 'other error' }), false);
   assert.equal(g310.items.length, 2);
 }
 
+{
+  const sample = [
+    { id: 1, sucursal_id: '3B10', departamento: 'Abarrotes', departamento_raw: 'abarrotes', fecha: '2026-09-01', tipo: 'gastos', tipoLabel: 'Gastos de corte', resumen: 'a' },
+    { id: 2, sucursal_id: '3B10', departamento: 'Abarrotes', departamento_raw: 'abarrotes', fecha: '2026-09-02', tipo: 'cierres', tipoLabel: 'Cortes (cierres)', resumen: 'b' },
+    { id: 3, sucursal_id: '3B10', departamento: 'Virtual', departamento_raw: 'virtual', fecha: '2026-09-03', tipo: 'cierres', tipoLabel: 'Cortes (cierres)', resumen: 'c' },
+    { id: 4, sucursal_id: '3B2', departamento: 'Virtual', departamento_raw: 'virtual', fecha: '2026-08-15', tipo: 'vales', tipoLabel: 'Vales', resumen: 'd' },
+  ];
+  const porEv = construirArbolArchivoPorEvento(sample);
+  assert.equal(porEv.length, 2, '2 tiendas');
+  const t10 = porEv.find((t) => t.id === '3B10');
+  assert.equal(t10.count, 3);
+  assert.ok(t10.eventos.some((e) => e.id === 'cierres'));
+  assert.ok(t10.eventos.some((e) => e.id === 'gastos'));
+  const cierres = t10.eventos.find((e) => e.id === 'cierres');
+  assert.equal(cierres.departamentos.length, 2, 'Virtual y Abarrotes bajo Cortes');
+
+  const porDep = construirArbolArchivoPorDepartamento(sample);
+  const t10b = porDep.find((t) => t.id === '3B10');
+  const abar = t10b.departamentos.find((d) => d.id === 'abarrotes');
+  assert.equal(abar.eventos.length, 2, 'gastos + cierres bajo Abarrotes');
+}
+
 console.log('archivo.test.mjs OK');
+
