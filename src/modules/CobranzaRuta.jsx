@@ -12,6 +12,7 @@ import { esCentralAdmin, etiquetaTienda } from '../constants/sucursales.js';
  * Contabilidad → Cobranza / Venta en Ruta → Créditos por pagar.
  * - PIN del cajero al abrir el módulo.
  * - Solo total acumulado por tienda (sin folios); el detalle está en Consultas.
+ * - Se puede pagar un monto parcial (liquidez para otros proveedores).
  * - Al pagar: gasto abarrotes «credito liquidado» + efectivo a tránsito.
  */
 export default function CobranzaRuta({ supabase, user, sucursal, embedded = false, titulo }) {
@@ -22,6 +23,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
   const [cajero, setCajero] = useState(null);
   const [abriendo, setAbriendo] = useState(false);
   const [guardando, setGuardando] = useState(false);
+  const [montoPagarStr, setMontoPagarStr] = useState('');
 
   const sucActiva = sucursal || user?.sucursal_id || '';
   const vistaCentral = esCentralAdmin(sucActiva) || !sucActiva || String(sucActiva).toUpperCase() === 'MAIN';
@@ -34,6 +36,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     if (r.error) setAviso(r.error);
     setRows(r.data || []);
     setSel(new Set());
+    setMontoPagarStr('');
   }, [supabase, sucActiva, vistaCentral]);
 
   useEffect(() => {
@@ -75,7 +78,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     for (const g of grupos) {
       if (sel.has(g.id)) t += g.total;
     }
-    return t;
+    return Math.round(t * 100) / 100;
   }, [grupos, sel]);
 
   const idsSeleccionados = useMemo(() => {
@@ -86,6 +89,20 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     }
     return ids;
   }, [grupos, sel]);
+
+  // Al cambiar selección, proponer el total como monto a pagar (editable).
+  useEffect(() => {
+    if (!sel.size) {
+      setMontoPagarStr('');
+      return;
+    }
+    setMontoPagarStr(String(totalSel.toFixed(2)));
+  }, [sel, totalSel]);
+
+  const montoPagarNum = useMemo(() => {
+    const n = Number(String(montoPagarStr).replace(',', '.'));
+    return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+  }, [montoPagarStr]);
 
   const abrirConPin = async () => {
     if (!String(pinEntrada).trim()) return alert('Ingresa el PIN del cajero.');
@@ -102,25 +119,41 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
     setCajero(null);
     setRows([]);
     setSel(new Set());
+    setMontoPagarStr('');
+  };
+
+  const usarTodo = () => {
+    if (totalSel > 0) setMontoPagarStr(String(totalSel.toFixed(2)));
   };
 
   const pagar = async () => {
     if (!cajero) return alert('Abre el módulo con PIN de cajero.');
     if (!idsSeleccionados.length) return alert('Selecciona al menos una tienda.');
+    if (!(montoPagarNum > 0)) return alert('Ingresa el monto a pagar.');
+    if (montoPagarNum > totalSel + 0.001) {
+      return alert(`El monto no puede superar el acumulado seleccionado (${fmtMonto(totalSel)}).`);
+    }
+    const esParcial = montoPagarNum < totalSel - 0.001;
     if (!confirm(
-      `¿Pagar ${sel.size} tienda(s) por ${fmtMonto(totalSel)}?\n`
+      `¿Pagar ${fmtMonto(montoPagarNum)} de ${fmtMonto(totalSel)} acumulado`
+      + ` (${sel.size} tienda${sel.size === 1 ? '' : 's'})?\n`
       + `Cajero: ${cajero.nombre || '—'}\n`
-      + 'Se cargará gasto «credito liquidado» al corte de abarrotes y el efectivo irá a tránsito.',
+      + (esParcial
+        ? 'Pago parcial: el resto del crédito queda pendiente.\n'
+        : 'Se liquida el total seleccionado.\n')
+      + 'Gasto abarrotes «credito liquidado» + efectivo a tránsito.',
     )) return;
     setGuardando(true);
     const r = await pagarCreditosRutaConPin(supabase, {
       movimientoIds: idsSeleccionados,
       sucursal: sucActiva,
       cajeroUser: cajero,
+      montoPagar: montoPagarNum,
     });
     setGuardando(false);
     if (!r.ok) return alert(r.error);
-    alert(`Pagado por ${r.cajero}. ${r.pagados?.length || 0} crédito(s).`);
+    const extra = r.parcial ? ' (parcial; queda saldo pendiente)' : '';
+    alert(`Pagado ${fmtMonto(r.montoPagado || montoPagarNum)} por ${r.cajero}.${extra}`);
     await cargar();
   };
 
@@ -137,7 +170,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
           )}
           <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
             Ingresa el <strong>PIN del cajero</strong> para abrir créditos por pagar.
-            Luego verás el total acumulado por tienda (sin folios).
+            Luego verás el total acumulado por tienda y podrás pagar el monto que necesites.
           </p>
         </div>
         <div className="card" style={{ borderTop: '4px solid #0f766e', maxWidth: 360 }}>
@@ -177,9 +210,9 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
         )}
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
           Cajero: <strong>{cajero.nombre || '—'}</strong>.
-          {' '}Solo total acumulado por tienda (sin folios).
+          {' '}Total acumulado por tienda (sin folios).
+          {' '}Puedes pagar solo la cantidad que necesites y dejar el resto pendiente (liquidez para otros proveedores).
           {' '}Detalle de folios en <strong>Consultas → Créditos por tienda</strong>.
-          {' '}Al pagar: gasto abarrotes «credito liquidado» + efectivo en tránsito.
         </p>
       </div>
       {aviso && <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)' }}>{aviso}</div>}
@@ -232,11 +265,40 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
 
         <div style={{ marginTop: '1rem', display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'flex-end' }}>
           <div>
-            <div className="muted" style={{ fontSize: '0.75rem' }}>Seleccionados</div>
+            <div className="muted" style={{ fontSize: '0.75rem' }}>Acumulado seleccionado</div>
             <strong>{sel.size} tienda{sel.size === 1 ? '' : 's'} · {fmtMonto(totalSel)}</strong>
           </div>
-          <button type="button" className="btn btn-primary" disabled={guardando || !sel.size} onClick={() => void pagar()}>
-            {guardando ? 'Pagando…' : 'Pagar seleccionados'}
+          <label style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            Monto a pagar
+            <input
+              type="number"
+              className="input"
+              min="0"
+              step="0.01"
+              max={totalSel || undefined}
+              value={montoPagarStr}
+              disabled={!sel.size || guardando}
+              onChange={(e) => setMontoPagarStr(e.target.value)}
+              style={{ width: 140 }}
+              placeholder="0.00"
+            />
+          </label>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            disabled={!sel.size || guardando || !(totalSel > 0)}
+            onClick={usarTodo}
+            title="Usar el total acumulado de la selección"
+          >
+            Usar todo
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={guardando || !sel.size || !(montoPagarNum > 0)}
+            onClick={() => void pagar()}
+          >
+            {guardando ? 'Pagando…' : 'Pagar'}
           </button>
           <button type="button" className="btn btn-ghost" onClick={cerrarSesionCajero}>
             Cerrar sesión cajero
@@ -245,6 +307,11 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
             Actualizar
           </button>
         </div>
+        {sel.size > 0 && montoPagarNum > 0 && montoPagarNum < totalSel - 0.001 && (
+          <p className="muted" style={{ margin: '0.65rem 0 0', fontSize: '0.8rem' }}>
+            Pago parcial: quedan {fmtMonto(Math.max(0, totalSel - montoPagarNum))} pendientes en la selección.
+          </p>
+        )}
       </div>
     </div>
   );
