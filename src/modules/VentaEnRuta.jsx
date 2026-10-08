@@ -57,7 +57,8 @@ import {
   resolverCamionVendedor,
   slugCodigoCamion,
 } from '../lib/rutaCamiones.js';
-import { listarCreditosCobradosRuta } from '../lib/rutaCxc.js';
+import { listarCreditosCobradosRuta, listarCreditosPendientesRuta } from '../lib/rutaCxc.js';
+import { etiquetaTienda } from '../constants/sucursales.js';
 import { buscarProductoInventario } from '../lib/comprasRecepcion.js';
 import { fmtMonto } from '../lib/consultasUi.js';
 import { stockEnUbicacion, ALMACEN_CENTRAL } from '../lib/inventarioMultitienda.js';
@@ -2534,6 +2535,101 @@ function VistaClientes({ supabase, setAviso }) {
   );
 }
 
+/** Consultas: créditos pendientes que alimentan «Créditos por pagar», con folios por tienda. */
+function CreditosPendientesPorTienda({ rows, expandido, setExpandido, fmtFecha }) {
+  const grupos = useMemo(() => {
+    const map = new Map();
+    for (const r of rows || []) {
+      const esSuc = String(r.cliente_tipo || 'sucursal') === 'sucursal';
+      const id = esSuc
+        ? String(r.cliente_id || r.cliente_nombre || '—').toUpperCase()
+        : `ext:${r.cliente_id || r.cliente_nombre || '—'}`;
+      const label = esSuc
+        ? etiquetaTienda(r.cliente_id) || r.cliente_nombre || id
+        : (r.cliente_nombre || 'Cliente externo');
+      if (!map.has(id)) map.set(id, { id, label, items: [], total: 0 });
+      const g = map.get(id);
+      g.items.push(r);
+      g.total += Number(r.monto) || 0;
+    }
+    return [...map.values()].sort((a, b) => String(a.label).localeCompare(String(b.label), 'es'));
+  }, [rows]);
+
+  if (!grupos.length) {
+    return <p className="muted">No hay créditos pendientes por tienda.</p>;
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: '0.5rem' }}>
+      <p className="muted" style={{ margin: 0, fontSize: '0.82rem' }}>
+        Folios a crédito que aún no se liquidan en <strong>Créditos por pagar</strong>.
+      </p>
+      {grupos.map((g) => {
+        const abierto = expandido === g.id;
+        return (
+          <div
+            key={g.id}
+            style={{
+              border: '1px solid var(--border, #e2e8f0)',
+              borderRadius: 10,
+              overflow: 'hidden',
+              background: '#fff',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setExpandido(abierto ? null : g.id)}
+              style={{
+                display: 'flex',
+                width: '100%',
+                alignItems: 'center',
+                gap: '0.65rem',
+                padding: '0.7rem 0.85rem',
+                border: 'none',
+                background: abierto ? 'rgba(15,118,110,0.08)' : '#f8fafc',
+                cursor: 'pointer',
+                textAlign: 'left',
+                color: 'inherit',
+              }}
+            >
+              <span style={{ fontWeight: 700, width: 18 }}>{abierto ? '▾' : '▸'}</span>
+              <span style={{ flex: 1 }}>
+                <strong style={{ display: 'block' }}>{g.label}</strong>
+                <span className="muted" style={{ fontSize: '0.78rem' }}>
+                  {g.items.length} folio{g.items.length === 1 ? '' : 's'}
+                </span>
+              </span>
+              <strong style={{ color: '#b45309' }}>{fmtMonto(g.total)}</strong>
+            </button>
+            {abierto && (
+              <div style={{ padding: '0.35rem 0.5rem 0.65rem' }}>
+                <table className="consultas-table">
+                  <thead>
+                    <tr>
+                      <th>Folio</th>
+                      <th>Fecha</th>
+                      <th>Monto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {g.items.map((m) => (
+                      <tr key={m.id}>
+                        <td><strong>{m.folio_venta || m.venta_id || '—'}</strong></td>
+                        <td className="muted" style={{ fontSize: '0.8rem' }}>{fmtFecha(m.created_at)}</td>
+                        <td>{fmtMonto(m.monto)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProducto }) {
   const [tab, setTab] = useState('ingresos');
   const [rows, setRows] = useState([]);
@@ -2567,6 +2663,12 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
           setRows(r.data || []);
         } else if (tab === 'creditos') {
           const r = await listarCreditosCobradosRuta(supabase, { limit: 150 });
+          if (cancel) return;
+          if (r.aviso) setAviso(r.aviso);
+          if (r.error) setAviso(r.error);
+          setRows(r.data || []);
+        } else if (tab === 'creditos_tienda') {
+          const r = await listarCreditosPendientesRuta(supabase, { limit: 300 });
           if (cancel) return;
           if (r.aviso) setAviso(r.aviso);
           if (r.error) setAviso(r.error);
@@ -2710,6 +2812,7 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
           { id: 'ingresos', label: 'Ingresos' },
           { id: 'ventas', label: 'Ventas' },
           { id: 'cargas', label: 'Cargas' },
+          { id: 'creditos_tienda', label: 'Créditos por tienda' },
           { id: 'creditos', label: 'Créditos cobrados' },
         ].map((t) => (
           <button
@@ -2885,6 +2988,8 @@ function VistaConsultas({ supabase, user, setAviso, cargarDatos, fusionarProduct
             </tbody>
           </table>
         </div>
+      ) : tab === 'creditos_tienda' ? (
+        <CreditosPendientesPorTienda rows={rows} expandido={expandido} setExpandido={setExpandido} fmtFecha={fmtFecha} />
       ) : tab === 'creditos' ? (
         <div className="table-wrap">
           <table className="consultas-table">
