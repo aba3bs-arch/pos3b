@@ -15,11 +15,6 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
   const [aviso, setAviso] = useState('');
   const [rows, setRows] = useState([]);
   const [sel, setSel] = useState(() => new Set());
-  const [folio, setFolio] = useState('');
-  const [fechaDesde, setFechaDesde] = useState('');
-  const [fechaHasta, setFechaHasta] = useState('');
-  const [montoMin, setMontoMin] = useState('');
-  const [montoMax, setMontoMax] = useState('');
   const [pin, setPin] = useState('');
   const [guardando, setGuardando] = useState(false);
   /** Sucursales expandidas (solo vista central). */
@@ -31,17 +26,12 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
   const cargar = useCallback(async () => {
     const r = await listarCreditosPendientesRuta(supabase, {
       sucursalId: vistaCentral ? undefined : sucActiva,
-      folio: folio || undefined,
-      fechaDesde: fechaDesde || undefined,
-      fechaHasta: fechaHasta || undefined,
-      montoMin: montoMin !== '' ? montoMin : undefined,
-      montoMax: montoMax !== '' ? montoMax : undefined,
     });
     if (r.aviso) setAviso(r.aviso);
     if (r.error) setAviso(r.error);
     setRows(r.data || []);
     setSel(new Set());
-  }, [supabase, sucActiva, vistaCentral, folio, fechaDesde, fechaHasta, montoMin, montoMax]);
+  }, [supabase, sucActiva, vistaCentral]);
 
   useEffect(() => {
     void cargar();
@@ -142,7 +132,7 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
           <h2 style={{ margin: 0, color: '#0f766e' }}>{heading}</h2>
         )}
         <p className="muted" style={{ margin: '0.35rem 0 0', fontSize: '0.85rem' }}>
-          Solo cajero (PIN). Filtra por folio, fecha y monto. Al pagar: gasto abarrotes «credito liquidado» + efectivo en tránsito.
+          Solo cajero (PIN). Al pagar: gasto abarrotes «credito liquidado» + efectivo en tránsito.
           {vistaCentral
             ? ' · Central: créditos agrupados por sucursal (haz click para verlos).'
             : (sucActiva ? ` · Tienda: ${etiquetaTienda(sucActiva)}` : '')}
@@ -151,17 +141,8 @@ export default function CobranzaRuta({ supabase, user, sucursal, embedded = fals
       {aviso && <div className="card" style={{ borderLeft: '4px solid var(--brand-gold)' }}>{aviso}</div>}
 
       <div className="card" style={{ borderTop: '4px solid #0f766e' }}>
-        <div style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', marginBottom: '0.75rem' }}>
-          <input className="input" placeholder="Folio venta" value={folio} onChange={(e) => setFolio(e.target.value)} />
-          <input className="input" type="date" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} title="Desde" />
-          <input className="input" type="date" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} title="Hasta" />
-          <input className="input" type="number" placeholder="Monto min" value={montoMin} onChange={(e) => setMontoMin(e.target.value)} />
-          <input className="input" type="number" placeholder="Monto max" value={montoMax} onChange={(e) => setMontoMax(e.target.value)} />
-          <button type="button" className="btn btn-ghost" onClick={() => void cargar()}>Filtrar</button>
-        </div>
-
         {rows.length === 0 ? (
-          <p className="muted">No hay créditos pendientes con esos filtros.</p>
+          <p className="muted">No hay créditos pendientes.</p>
         ) : vistaCentral && grupos ? (
           <div style={{ display: 'grid', gap: '0.5rem' }}>
             {grupos.map((g) => {
