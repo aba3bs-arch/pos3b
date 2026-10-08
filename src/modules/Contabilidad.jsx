@@ -81,8 +81,8 @@ const DESCRIPCIONES = {
     ayuda: 'Comparte el enlace o QR. Los prospectos eligen planta o cubre turno y llenan su perfil. Solo el admin principal ve la bandeja; puede dar seguimiento o redirigir a otro admin.',
   },
   Archivo: {
-    desc: 'Registros antiguos · sucursal / depto / fecha',
-    ayuda: 'Archiva cortes, gastos, vales, pagarés, préstamos y nóminas según el plazo de Configuración → Operación (default 15 días). Salen de esos módulos; IE VIRTUAL / IE ABARROTES no se modifican.',
+    desc: 'Carpetas por tienda → evento / depto',
+    ayuda: 'Explorador: una carpeta por tienda; dentro, por evento (cortes, vales, pagarés…) o por departamento. Plazo en Configuración → Operación. IE no se modifica.',
   },
 };
 
