@@ -425,3 +425,114 @@ export function agruparArchivoPorSucursalDeptoFecha(filas = []) {
     return String(b.fecha).localeCompare(String(a.fecha));
   });
 }
+
+function etiquetaTipoArchivo(tipoId) {
+  return metaTipo(tipoId)?.label || tipoId || 'Otros';
+}
+
+function sortByLabel(a, b) {
+  return String(a.label || '').localeCompare(String(b.label || ''), 'es');
+}
+
+/**
+ * Árbol de carpetas: Tienda → Evento (cortes/vales/…) → Departamento → registros.
+ * Para UI tipo explorador de archivos.
+ */
+export function construirArbolArchivoPorEvento(filas = []) {
+  const tiendas = new Map();
+  for (const f of filas || []) {
+    const suc = String(f.sucursal_id || '—');
+    if (!tiendas.has(suc)) {
+      tiendas.set(suc, { id: suc, label: suc, count: 0, eventos: new Map() });
+    }
+    const t = tiendas.get(suc);
+    t.count += 1;
+    const tipo = String(f.tipo || 'otros');
+    if (!t.eventos.has(tipo)) {
+      t.eventos.set(tipo, {
+        id: tipo,
+        label: f.tipoLabel || etiquetaTipoArchivo(tipo),
+        count: 0,
+        departamentos: new Map(),
+      });
+    }
+    const ev = t.eventos.get(tipo);
+    ev.count += 1;
+    const depKey = String(f.departamento_raw || f.departamento || '—').toLowerCase() || '—';
+    const depLabel = f.departamento || '—';
+    if (!ev.departamentos.has(depKey)) {
+      ev.departamentos.set(depKey, { id: depKey, label: depLabel, count: 0, items: [] });
+    }
+    const dep = ev.departamentos.get(depKey);
+    dep.count += 1;
+    dep.items.push(f);
+  }
+
+  return [...tiendas.values()]
+    .map((t) => ({
+      ...t,
+      eventos: [...t.eventos.values()]
+        .map((ev) => ({
+          ...ev,
+          departamentos: [...ev.departamentos.values()]
+            .map((d) => ({
+              ...d,
+              items: [...d.items].sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || ''))),
+            }))
+            .sort(sortByLabel),
+        }))
+        .sort(sortByLabel),
+    }))
+    .sort(sortByLabel);
+}
+
+/**
+ * Árbol alterno: Tienda → Departamento → Evento → registros.
+ */
+export function construirArbolArchivoPorDepartamento(filas = []) {
+  const tiendas = new Map();
+  for (const f of filas || []) {
+    const suc = String(f.sucursal_id || '—');
+    if (!tiendas.has(suc)) {
+      tiendas.set(suc, { id: suc, label: suc, count: 0, departamentos: new Map() });
+    }
+    const t = tiendas.get(suc);
+    t.count += 1;
+    const depKey = String(f.departamento_raw || f.departamento || '—').toLowerCase() || '—';
+    const depLabel = f.departamento || '—';
+    if (!t.departamentos.has(depKey)) {
+      t.departamentos.set(depKey, { id: depKey, label: depLabel, count: 0, eventos: new Map() });
+    }
+    const dep = t.departamentos.get(depKey);
+    dep.count += 1;
+    const tipo = String(f.tipo || 'otros');
+    if (!dep.eventos.has(tipo)) {
+      dep.eventos.set(tipo, {
+        id: tipo,
+        label: f.tipoLabel || etiquetaTipoArchivo(tipo),
+        count: 0,
+        items: [],
+      });
+    }
+    const ev = dep.eventos.get(tipo);
+    ev.count += 1;
+    ev.items.push(f);
+  }
+
+  return [...tiendas.values()]
+    .map((t) => ({
+      ...t,
+      departamentos: [...t.departamentos.values()]
+        .map((d) => ({
+          ...d,
+          eventos: [...d.eventos.values()]
+            .map((ev) => ({
+              ...ev,
+              items: [...ev.items].sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || ''))),
+            }))
+            .sort(sortByLabel),
+        }))
+        .sort(sortByLabel),
+    }))
+    .sort(sortByLabel);
+}
